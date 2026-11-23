@@ -257,6 +257,7 @@ function bindingId(binding: object) {
 }
 export type MessageWorkPhase =
   | 'watermarks'
+  | 'messageWatchWatermarks'
   | 'unreadPersistence'
   | 'replyCache'
   | 'messagePage'

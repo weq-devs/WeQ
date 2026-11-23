@@ -1,7 +1,7 @@
 import type { AccountSession } from '@weq/account';
 import { classifyChatType, isDatalineSelfUid, isDatalineUid } from '@weq/codec';
 import { MsgType } from '@weq/codec/proto/msg/40900';
-import { recordMessageWork, withDatabasePriority, type DatabasePriority } from '@weq/db';
+import { measureMessageWork, withDatabasePriority, type DatabasePriority } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import {
   ReportRead,
@@ -570,20 +570,19 @@ export class UnreadInfoService {
     this.lastReadStartedAt = began;
     this.dirty = false;
     this.immediateChange = false;
-    const reading = withDatabasePriority(
-      priority,
-      () => {
-        this.reads.signal.throwIfAborted();
-        return typeof this.session.unreadInfo.getAllUnreadInfos === 'function'
-          ? this.session.unreadInfo.getAllUnreadInfos()
-          : this.session.unreadInfo.getUnreadInfos([...this.targets.values()]);
-      },
-      this.reads.signal,
-    );
-    this.loading = (async () => {
+    this.loading = measureMessageWork(this.session.msgDbPath, 'watermarks', async () => {
       let failed = false;
       try {
-        const rows = await reading;
+        const rows = await withDatabasePriority(
+          priority,
+          async () => {
+            this.reads.signal.throwIfAborted();
+            return typeof this.session.unreadInfo.getAllUnreadInfos === 'function'
+              ? this.session.unreadInfo.getAllUnreadInfos()
+              : this.session.unreadInfo.getUnreadInfos([...this.targets.values()]);
+          },
+          this.reads.signal,
+        );
         if (this.disposed) return;
         if (revision !== this.manualRevision) {
           this.invalidate();
@@ -618,11 +617,10 @@ export class UnreadInfoService {
         this.dirty = true;
         throw error;
       } finally {
-        recordMessageWork(this.session.msgDbPath, 'watermarks', performance.now() - began);
         this.loading = undefined;
         if (!failed) this.scheduleSnapshot();
       }
-    })();
+    });
     return this.loading;
   }
 

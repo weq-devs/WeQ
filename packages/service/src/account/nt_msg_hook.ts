@@ -35,7 +35,7 @@
 
 import type { AccountSession } from '@weq/account';
 import { classifyChatType, compareMessageOrder } from '@weq/codec';
-import { withDatabaseSignal, type C2cMsg, type GroupMsg } from '@weq/db';
+import { measureMessageWork, withDatabaseSignal, type C2cMsg, type GroupMsg } from '@weq/db';
 import type { DbChange, DbWatchTask } from './db_watch';
 import { NEW_CONV_FRESH_SEC } from '../common/live_message';
 export { NEW_CONV_FRESH_SEC } from '../common/live_message';
@@ -107,8 +107,12 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
     }, delay);
     timer.unref();
   };
+  const listWatermarks = () =>
+    measureMessageWork(session.msgDbPath, 'messageWatchWatermarks', () =>
+      session.recentContacts.listSeqWatermarks(),
+    );
   // 挂载即取基线，不能等第一条新消息触发文件变化后才把它当历史吞掉。
-  const initial = withDatabaseSignal(reads.signal, () => session.recentContacts.listSeqWatermarks())
+  const initial = withDatabaseSignal(reads.signal, listWatermarks)
     .then((rows) => {
       if (disposed) return;
       prev = new Map(
@@ -132,7 +136,7 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
     if (disposed) return;
 
     // 2. Diff the recent-contact seq watermarks.
-    const rows = await session.recentContacts.listSeqWatermarks();
+    const rows = await listWatermarks();
     if (disposed) return;
     const current = new Map<string, ConvWatermark>();
     for (const r of rows) {
