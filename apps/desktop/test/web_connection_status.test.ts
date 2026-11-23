@@ -6,7 +6,7 @@ import { useWebConnection } from '../src/renderer/src/state/webConnection';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 
 const { invalidateQueries } = vi.hoisted(() => ({ invalidateQueries: vi.fn() }));
-const queryClient = { invalidateQueries };
+const queryClient = { invalidateQueries, getQueryCache: () => ({ findAll: () => [] }) };
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => queryClient }));
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let host: HTMLDivElement;
@@ -40,14 +40,14 @@ it('短暂握手不闪提示，持续连接显示状态，连上即收起', asyn
   expect(invalidateQueries).not.toHaveBeenCalled();
 });
 
-it('重连后仅补查活动读取，不重载页面或重放操作', async () => {
+it('重连后标记缓存待校准，补查交给活动请求队列', async () => {
   await act(async () => useWebConnection.getState().connected());
   await act(async () => useWebConnection.getState().disconnected());
   await act(async () => vi.advanceTimersByTime(1500));
   expect(host.textContent).toContain('正在重连');
   await act(async () => useWebConnection.getState().connected());
   expect(invalidateQueries).toHaveBeenCalledOnce();
-  expect(invalidateQueries).toHaveBeenCalledWith({ refetchType: 'active' });
+  expect(invalidateQueries).toHaveBeenCalledWith({ refetchType: 'none' });
   expect(host.textContent).toBe('');
 });
 

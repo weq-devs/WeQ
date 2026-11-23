@@ -7,6 +7,10 @@ import { useNotificationPolicy, publishNotificationSystem } from '../lib/notific
 import { notificationSource } from '../lib/notificationNavigation.shared';
 import { webAvatarCache } from '../lib/webAvatarCache';
 import { isRemoteClient } from '../lib/remoteClient';
+import {
+  createWorkspaceQueryRecovery,
+  subscribeWorkspaceRecovery,
+} from '../lib/connectionRecovery';
 import '../styles/web-connection.css';
 
 type RemoteConnectionState = 'connected' | 'network' | 'connection';
@@ -26,8 +30,6 @@ export function WebConnectionStatus() {
   const banner = useNotificationPolicy((state) => state.events.connection.banner);
   const notificationToast = useToastApi();
   const status = useWebConnection((state) => state.status);
-  const recovery = useWebConnection((state) => state.recovery);
-  const previousRecovery = useRef(recovery);
   const queryClient = useQueryClient();
   const [visible, setVisible] = useState(false);
   const [nativeState, setNativeState] = useState(nativeConnectionState);
@@ -105,12 +107,16 @@ export function WebConnectionStatus() {
   }, [nativeState, shellReady, status]);
 
   useEffect(() => {
-    if (recovery === previousRecovery.current) return;
-    previousRecovery.current = recovery;
-    // 只补查当前挂载的读取；订阅由 tRPC 恢复，不重放发送等 mutation。
-    void queryClient.invalidateQueries({ refetchType: 'active' });
-    webAvatarCache.retryFailedVisible();
-  }, [recovery, queryClient]);
+    const recovery = createWorkspaceQueryRecovery(queryClient);
+    const unsubscribe = subscribeWorkspaceRecovery(() => {
+      recovery.request();
+      webAvatarCache.retryFailedVisible();
+    });
+    return () => {
+      unsubscribe();
+      recovery.dispose();
+    };
+  }, [queryClient]);
 
   useEffect(() => {
     setVisible(false);

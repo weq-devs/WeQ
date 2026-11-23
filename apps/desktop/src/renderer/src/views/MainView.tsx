@@ -160,6 +160,7 @@ import {
   accountBinding as sharedAccountBinding,
 } from '../lib/clientPreferences';
 import { useWebConnection } from '../state/webConnection';
+import { subscribeWorkspaceRecovery } from '../lib/connectionRecovery';
 import { useEnhancementUpdates } from '../hooks/useEnhancementUpdates';
 import { useNotificationPolicy } from '../lib/notificationPolicy';
 import { client } from '../trpc/client';
@@ -918,7 +919,11 @@ function MainWorkspace(): ReactElement {
   const refreshRecentHead = useRecentContactHeadRefresh(recentHead.refetch, messageScope);
   useEffect(() => {
     const refresh = () => {
-      if (messageScopeRef.current && document.visibilityState !== 'hidden') {
+      if (
+        messageScopeRef.current &&
+        document.visibilityState !== 'hidden' &&
+        !remoteWorkspaceCheckPending()
+      ) {
         refreshRecentHead();
         refreshRecentTargets();
       }
@@ -3823,7 +3828,7 @@ function MainWorkspace(): ReactElement {
     const targetKey = ({ chatType, uid }: UnreadTarget) => `${chatType}:${uid}`;
     let knownTargets: Set<string> | undefined;
     async function loadUnread(): Promise<boolean> {
-      if (!isCurrent() || !binding || !openedUin) return true;
+      if (!isCurrent() || !binding || !openedUin || remoteWorkspaceCheckPending()) return true;
       const startedAt = guard.revision();
       const targets = unreadDirectoryTargetsRef.current;
       knownTargets = new Set(targets.map(targetKey));
@@ -3941,7 +3946,8 @@ function MainWorkspace(): ReactElement {
       if (added.length) liveRefresh.request(added, false);
     };
     const onVisible = () => {
-      if (document.visibilityState !== 'hidden') refresh.request();
+      if (document.visibilityState !== 'hidden' && !remoteWorkspaceCheckPending())
+        refresh.request();
     };
     window.addEventListener('focus', onVisible);
     document.addEventListener('visibilitychange', onVisible);
@@ -3968,8 +3974,7 @@ function MainWorkspace(): ReactElement {
   ]);
   useEffect(() => {
     if (!IS_WEB) return;
-    return useWebConnection.subscribe((state, previous) => {
-      if (state.recovery === previous.recovery) return;
+    return subscribeWorkspaceRecovery(() => {
       conversationWindows.markDirty();
       refreshRecentHead();
       refreshRecentTargets();
