@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse, type DefaultTreeAdapterMap } from 'parse5';
 import { gzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import { serveStatic } from '../src/main/web/static';
 
@@ -28,6 +29,7 @@ beforeEach(async () => {
       req.url ?? '/',
       req.headers['accept-encoding'],
       req.headers['user-agent'] === 'WeQRemote',
+      req.headers['if-none-match'] ?? null,
     );
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -102,6 +104,29 @@ it('普通浏览器不改变 HTML，更新入口后不沿用旧清单', async ()
     '<script type="module" src="/assets/shared-12345678.js"></script>',
   );
   expect(manifest((await get('/', 'gzip')).toString()).resources).toHaveLength(1);
+});
+
+it('Remote 用实际输出的 HTML 摘要做条件检查，切换协商方式或构建时返回新正文', async () => {
+  const url = `http://127.0.0.1:${port}/`;
+  const headers = { 'User-Agent': 'WeQRemote', 'Accept-Encoding': 'gzip' };
+  const first = await fetch(url, { headers });
+  const body = await first.text();
+  const tag = `"weq-release-${createHash('sha256').update(body).digest('hex')}"`;
+  expect(first.headers.get('etag')).toBe(tag);
+  expect(first.headers.get('cache-control')).toBe('no-store');
+  const same = await fetch(url, { headers: { ...headers, 'If-None-Match': `W/${tag}` } });
+  expect(same.status).toBe(304);
+  expect(await same.text()).toBe('');
+  const identity = await fetch(url, {
+    headers: { ...headers, 'Accept-Encoding': 'identity', 'If-None-Match': tag },
+  });
+  expect(identity.status).toBe(200);
+  expect(identity.headers.get('etag')).not.toBe(tag);
+  await writeFile(join(root, 'index.html'), shell.replace('id="root"', 'id="next"'));
+  const updated = await fetch(url, { headers: { ...headers, 'If-None-Match': tag } });
+  expect(updated.status).toBe(200);
+  expect(updated.headers.get('etag')).not.toBe(tag);
+  expect(await updated.text()).toContain('id="next"');
 });
 
 it.each(['gzip', 'identity'])(

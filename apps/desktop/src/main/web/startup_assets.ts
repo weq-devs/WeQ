@@ -77,7 +77,12 @@ async function builtAssets(root: string, paths: Set<string>): Promise<Asset[]> {
     return [];
   }
 }
-type PreparedStartupShell = (gzip: boolean) => string;
+export function remoteReleaseDocument(body: string) {
+  return { body, etag: `"weq-release-${createHash('sha256').update(body).digest('hex')}"` };
+}
+
+type RemoteReleaseDocument = ReturnType<typeof remoteReleaseDocument>;
+type PreparedStartupShell = (gzip: boolean) => RemoteReleaseDocument;
 
 // 同一构建的 HTML 最多保留原始与 gzip 清单两份，构建切换后重新准备。
 let cached: { root: string; html: string; shell: Promise<PreparedStartupShell> } | undefined;
@@ -87,6 +92,14 @@ export async function startupShell(
   html: string,
   gzipAccepted: boolean,
 ): Promise<string> {
+  return (await preparedStartupDocument(root, html, gzipAccepted)).body;
+}
+
+export async function preparedStartupDocument(
+  root: string,
+  html: string,
+  gzipAccepted: boolean,
+): Promise<RemoteReleaseDocument> {
   if (!cached || cached.root !== root || cached.html !== html) {
     const entry = { root, html, shell: prepareStartupShell(root, html) };
     cached = entry;
@@ -143,7 +156,10 @@ async function prepareStartupShell(root: string, html: string): Promise<Prepared
     if ('childNodes' in node) node.childNodes.forEach(visit);
   }
   visit(document);
-  if (!head || paths.size === 0) return () => html;
+  if (!head || paths.size === 0) {
+    const unchanged = remoteReleaseDocument(html);
+    return () => unchanged;
+  }
   lockRemoteViewport(head);
   const assets = await builtAssets(root, paths);
   if (!assets.length) {
@@ -185,7 +201,7 @@ async function prepareStartupShell(root: string, html: string): Promise<Prepared
   );
   if (resource) defaultTreeAdapter.insertBefore(head, boot, resource);
   else defaultTreeAdapter.appendChild(head, boot);
-  const variants = new Map<boolean, string>();
+  const variants = new Map<boolean, RemoteReleaseDocument>();
   return (gzip) => {
     const existing = variants.get(gzip);
     if (existing !== undefined) return existing;
@@ -196,7 +212,7 @@ async function prepareStartupShell(root: string, html: string): Promise<Prepared
         size: gzip ? asset.gzip : asset.raw,
       }));
     content.value = JSON.stringify({ version: 1, resources });
-    const output = serialize(document);
+    const output = remoteReleaseDocument(serialize(document));
     variants.set(gzip, output);
     return output;
   };

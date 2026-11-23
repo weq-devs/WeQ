@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { createServer, get, type Server } from 'node:http';
 import { gunzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -32,6 +33,7 @@ async function fixture(bundled = false) {
   const root = mkdtempSync(join(tmpdir(), 'weq-development-web-'));
   cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   const seen: string[] = [];
+  let page = 'dev page';
   const upstream = createServer((req, res) => {
     seen.push(req.url!);
     expect(req.headers.cookie).toBeUndefined();
@@ -58,9 +60,10 @@ async function fixture(bundled = false) {
       return;
     }
     res.setHeader('Content-Type', req.url === '/' ? 'text/html' : 'text/javascript');
+    if (req.url === '/') expect(req.headers['if-none-match']).toBeUndefined();
     res.end(
       req.url === '/'
-        ? `<html><head><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data:">${bundled ? '<meta name="weq-development-startup-resources" content=\'{"version":1,"resources":[{"path":"/assets/index.js","size":111}]}\'>' : ''}<script type="module" src="${bundled ? '/assets/index.js' : '/src/main.tsx'}"></script></head><body>dev page</body></html>`
+        ? `<html><head><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data:">${bundled ? '<meta name="weq-development-startup-resources" content=\'{"version":1,"resources":[{"path":"/assets/index.js","size":111}]}\'>' : ''}<script type="module" src="${bundled ? '/assets/index.js' : '/src/main.tsx'}"></script></head><body>${page}</body></html>`
         : 'export const updated = true;',
     );
   });
@@ -102,11 +105,34 @@ async function fixture(bundled = false) {
     core,
     seen,
     revoked,
+    setPage: (value: string) => {
+      page = value;
+    },
     deny: () => {
       allowed = false;
     },
   };
 }
+it('开发版 Remote 条件验证使用改写后的 HTML，Vite 更新后返回新版本', async () => {
+  const { base, deny, setPage } = await fixture(true);
+  const headers = { 'User-Agent': 'WeQRemote' };
+  const first = await fetch(base, { headers });
+  const tag = `"weq-release-${createHash('sha256')
+    .update(await first.text())
+    .digest('hex')}"`;
+  expect(first.headers.get('etag')).toBe(tag);
+  const conditional = { ...headers, 'If-None-Match': tag };
+  const same = await fetch(base, { headers: conditional });
+  expect(same.status).toBe(304);
+  expect(await same.text()).toBe('');
+  setPage('updated dev page');
+  const updated = await fetch(base, { headers: conditional });
+  expect(updated.status).toBe(200);
+  expect(updated.headers.get('etag')).not.toBe(tag);
+  expect(await updated.text()).toContain('updated dev page');
+  deny();
+  expect((await fetch(base, { headers: conditional, redirect: 'manual' })).status).not.toBe(304);
+});
 it('无静态构建仍可使用开发页，资源实时转发，业务 API 不转发，HTTP 仍经认证', async () => {
   const f = await fixture();
   expect(f.core.assetsInstalled).toBe(true);

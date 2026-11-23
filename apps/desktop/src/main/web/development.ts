@@ -13,13 +13,15 @@ import type { AuthGate } from './auth';
 import { developmentStartupProgress } from './development_progress';
 import { acceptsGzip } from './compression';
 import { lockRemoteViewport } from './remote_viewport';
-import { startupResourceTracker } from './startup_assets';
+import { remoteReleaseDocument, startupResourceTracker } from './startup_assets';
+import { matchesIfNoneMatch } from '../protocol_response';
 
 /** 仅开发入口显式启用；页面、模块与 HMR 都经原宿主认证，客户端无需访问环回端口。 */
 export class DevelopmentWebProxy {
   private readonly target: URL;
   private readonly requests = new Set<ClientRequest>();
   private readonly sockets = new Set<Duplex>();
+  private cachedRelease?: { source: string; document: ReturnType<typeof remoteReleaseDocument> };
 
   constructor(
     url: string,
@@ -38,11 +40,12 @@ export class DevelopmentWebProxy {
       throw new Error('Web 开发服务必须使用本机环回 HTTP 地址');
   }
 
-  private request(req: IncomingMessage): ClientRequest {
+  private request(req: IncomingMessage, release = false): ClientRequest {
     const headers = { ...req.headers, host: this.target.host };
     delete headers.cookie;
     delete headers.authorization;
     delete headers['accept-encoding'];
+    if (release) delete headers['if-none-match'];
     if (headers.origin) headers.origin = this.target.origin;
     const outgoing = http.request(this.target, {
       method: req.method,
@@ -59,8 +62,10 @@ export class DevelopmentWebProxy {
       res.writeHead(405, { Allow: 'GET, HEAD' }).end();
       return Promise.resolve();
     }
+    const remote = /\bWeQRemote\b/.test(req.headers['user-agent'] ?? '');
+    const release = remote && req.method === 'GET' && (req.url ?? '').split('?')[0] === '/';
     return new Promise((resolve) => {
-      const outgoing = this.request(req);
+      const outgoing = this.request(req, release);
       const finish = () => {
         outgoing.destroy();
         resolve();
@@ -110,14 +115,22 @@ export class DevelopmentWebProxy {
           } else chunks.push(chunk);
         });
         upstream.once('end', () => {
-          const page = developmentHtml(
-            Buffer.concat(chunks).toString('utf8'),
-            /\bWeQRemote\b/.test(req.headers['user-agent'] ?? ''),
-          );
+          const source = Buffer.concat(chunks).toString('utf8');
           headers['content-type'] = 'text/html; charset=utf-8';
           delete headers['content-length'];
           delete headers.etag;
-          res.writeHead(status, headers).end(page);
+          if (release && status === 200) {
+            let cached = this.cachedRelease;
+            if (!cached || cached.source !== source) {
+              cached = { source, document: remoteReleaseDocument(developmentHtml(source, true)) };
+              this.cachedRelease = cached;
+            }
+            const { body, etag } = cached.document;
+            headers.etag = etag;
+            headers.vary = [headers.vary, 'User-Agent'].filter(Boolean).join(', ');
+            const unchanged = matchesIfNoneMatch(req.headers['if-none-match'] ?? null, etag);
+            res.writeHead(unchanged ? 304 : 200, headers).end(unchanged ? undefined : body);
+          } else res.writeHead(status, headers).end(developmentHtml(source, remote));
         });
       });
       outgoing.end();

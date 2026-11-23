@@ -10,8 +10,9 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
 import { fileResponse, mimeOf } from '../file_response';
+import { matchesIfNoneMatch } from '../protocol_response';
 import { writeResponse } from './protocol_adapter';
-import { startupShell } from './startup_assets';
+import { preparedStartupDocument } from './startup_assets';
 import { acceptsGzip, hashedWebCodePath } from './compression';
 
 export async function serveStatic(
@@ -20,6 +21,7 @@ export async function serveStatic(
   urlPath: string,
   acceptEncoding = '',
   remoteStartup = false,
+  ifNoneMatch: string | null = null,
 ): Promise<void> {
   const clean = decodeURIComponent(urlPath.split('?')[0] ?? '/');
   const target = normalize(join(root, clean));
@@ -45,6 +47,19 @@ export async function serveStatic(
   // 哈希资源为 immutable，HTML 文档需读取当前构建。
   const cache =
     isFile && clean.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-store';
+  if (remoteShell) {
+    const { body, etag } = await preparedStartupDocument(root, await readFile(path, 'utf8'), gzip);
+    const unchanged = matchesIfNoneMatch(ifNoneMatch, etag);
+    res
+      .writeHead(unchanged ? 304 : 200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': cache,
+        Vary: 'Accept-Encoding, User-Agent',
+        ETag: etag,
+      })
+      .end(unchanged ? undefined : body);
+    return;
+  }
   if (gzip && isFile && hashedWebCodePath.test(clean)) {
     const encoded = await fileResponse(`${path}.gz`);
     if (encoded.ok) {
@@ -59,11 +74,7 @@ export async function serveStatic(
     }
   }
 
-  const out = remoteShell
-    ? new Response(await startupShell(root, await readFile(path, 'utf8'), gzip), {
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      })
-    : await fileResponse(path);
+  const out = await fileResponse(path);
   const headers = new Headers(out.headers);
   headers.set('Cache-Control', cache);
   if (compressible) headers.set('Vary', 'Accept-Encoding');

@@ -198,6 +198,7 @@ export async function handleRequest(
     url,
     req.headers['accept-encoding'],
     /\bWeQRemote\b/.test(req.headers['user-agent'] ?? ''),
+    req.headers['if-none-match'] ?? null,
   );
 }
 

@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
 import { trpc } from '../trpc/client';
+import { scheduleBackgroundLoad } from './backgroundLoad';
 import { useViewState } from '../state/view';
 import { isRemoteClient } from './remoteClient';
 import {
@@ -116,51 +117,78 @@ export function watchRemoteRelease() {
     'meta[name="weq-local-web-release"]',
   )?.content;
   let supported = true;
-  let polling = false;
+  let canWait = false;
+  let request: AbortController | undefined;
+  let timer: number | undefined;
+  let cancelReload: (() => void) | undefined;
   let stopped = false;
+  const canCheck = () =>
+    supported &&
+    !stopped &&
+    !document.hidden &&
+    useViewState.getState().view === 'main' &&
+    !remoteWorkspaceCheckPending();
   const check = async () => {
-    if (
-      !supported ||
-      polling ||
-      stopped ||
-      document.hidden ||
-      useViewState.getState().view !== 'main' ||
-      remoteWorkspaceCheckPending()
-    )
-      return;
-    polling = true;
+    if (!canCheck() || request || cancelReload) return;
+    const controller = new AbortController();
+    request = controller;
+    let delay = 5_000;
     try {
-      const response = await fetch(`${remoteReleasePath}?workspace=1`, { cache: 'no-store' });
+      const params = new URLSearchParams({ workspace: '1' });
+      if (canWait) params.set('since', version ?? '');
+      const response = await fetch(`${remoteReleasePath}?${params}`, {
+        cache: 'no-store',
+        signal: controller.signal,
+      });
       if (!response.ok) return;
       if (response.headers.get('X-WeQ-Local-Release') !== '1') {
         supported = false;
         return;
       }
       const available = await response.text();
-      if (stopped || !/^[a-f0-9]{64}$/.test(available)) return;
+      if (controller.signal.aborted || !canCheck()) return;
+      canWait = response.headers.get('X-WeQ-Local-Release-Wait') === '1';
+      if (canWait) delay = 0;
+      if (!/^[a-f0-9]{64}$/.test(available)) return;
       if (!version) version = available;
       else if (available !== version) {
-        try {
-          sessionStorage.setItem(updatingKey, '1');
-        } catch {}
-        location.reload();
+        cancelReload = scheduleBackgroundLoad(() => {
+          cancelReload = undefined;
+          if (!canCheck()) return;
+          try {
+            sessionStorage.setItem(updatingKey, '1');
+          } catch {}
+          location.reload();
+        }, 1_000);
       }
     } catch {
       // The current workspace stays open while the computer or update is unavailable.
     } finally {
-      polling = false;
+      request = undefined;
+      if (canCheck() && !cancelReload)
+        timer = window.setTimeout(() => void check(), controller.signal.aborted ? 0 : delay);
     }
   };
-  const timer = window.setInterval(() => void check(), 5_000);
+  const refresh = () => {
+    window.clearTimeout(timer);
+    if (canCheck()) void check();
+    else {
+      request?.abort();
+      cancelReload?.();
+      cancelReload = undefined;
+    }
+  };
   const stopView = useViewState.subscribe((state, previous) => {
-    if (state.view === 'main' && previous.view !== 'main') void check();
+    if (state.view !== previous.view) refresh();
   });
-  window.addEventListener('weq-remote-connection', check);
-  void check();
+  document.addEventListener('visibilitychange', refresh);
+  window.addEventListener('weq-remote-connection', refresh);
+  refresh();
   return () => {
     stopped = true;
     stopView();
-    clearInterval(timer);
-    window.removeEventListener('weq-remote-connection', check);
+    document.removeEventListener('visibilitychange', refresh);
+    window.removeEventListener('weq-remote-connection', refresh);
+    refresh();
   };
 }
