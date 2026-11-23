@@ -283,7 +283,32 @@ export function contactHistoryWorker(
     ON CONFLICT(entity,uid) DO UPDATE SET uin=excluded.uin,version_id=excluded.version_id,
       at=excluded.at,hash=excluded.hash
     WHERE (excluded.at,excluded.version_id)>=(group_member_history_latest.at,group_member_history_latest.version_id)`);
+  type PackedMember = { a?: string[]; o?: Record<string, unknown> };
+  const memberIndexCacheLimit = 8_192;
+  let memberIndexCache:
+    | {
+        entity: string;
+        through: number;
+        identities: Map<string, { uid: string; uin: string } | null>;
+        root?: { hash: string; value: PackedMember };
+      }
+    | undefined;
+  function memberIdentity(packed: PackedMember) {
+    const uid = packed.o?.uid ? unpack(packed.o.uid) : undefined;
+    if (typeof uid !== 'string' || !/^u_[\w-]+$/.test(uid)) return null;
+    const number = packed.o?.uin ? unpack(packed.o.uin) : undefined;
+    const uin = String(
+      (number as { $type?: string; value?: string } | null)?.$type === 'bigint'
+        ? (number as { value: string }).value
+        : (number ?? ''),
+    );
+    return /^[1-9]\d*$/.test(uin) ? { uid, uin } : null;
+  }
   function indexGroupMemberPage(key: string, through: number) {
+    if (memberIndexCache?.entity !== key || memberIndexCache.through !== through) {
+      memberIndexCache = { entity: key, through, identities: new Map() };
+    }
+    const cache = memberIndexCache;
     const cursor = db
       .prepare('SELECT * FROM group_member_history_progress WHERE entity=?')
       .get(key);
@@ -302,27 +327,26 @@ export function contactHistoryWorker(
       const firstOffset = id === versionId ? offset : 0;
       if (memberCategories.has(String(row.category))) {
         const hash = String(row.hash);
-        const root = readBlob(hash) as { a?: string[]; o?: Record<string, unknown> };
+        const root =
+          cache.root?.hash === hash ? cache.root.value : (readBlob(hash) as PackedMember);
         const hashes = root.a ?? (root.o ? [hash] : []);
+        cache.root = hashes.length <= memberIndexCacheLimit ? { hash, value: root } : undefined;
         for (let index = firstOffset; index < hashes.length; index++) {
           if (index > firstOffset && (indexed >= 256 || performance.now() - started >= 8)) {
             nextOffset = index;
             break;
           }
           const memberHash = hashes[index]!;
-          const item = unpack(root.a ? readBlob(memberHash) : root) as Record<
-            string,
-            unknown
-          > | null;
+          let member = cache.identities.get(memberHash);
+          if (member === undefined) {
+            member = memberIdentity(root.a ? (readBlob(memberHash) as PackedMember) : root);
+            cache.identities.set(memberHash, member);
+            if (cache.identities.size > memberIndexCacheLimit)
+              cache.identities.delete(cache.identities.keys().next().value!);
+          }
           indexed++;
-          if (!item || typeof item.uid !== 'string' || !/^u_[\w-]+$/.test(item.uid)) continue;
-          const uin = String(
-            (item.uin as { $type?: string; value?: string } | null)?.$type === 'bigint'
-              ? (item.uin as { value: string }).value
-              : (item.uin ?? ''),
-          );
-          if (!/^[1-9]\d*$/.test(uin)) continue;
-          indexGroupMember.run(key, item.uid, uin, id, Number(row.first_at), memberHash);
+          if (member)
+            indexGroupMember.run(key, member.uid, member.uin, id, Number(row.first_at), memberHash);
         }
       }
       if (nextOffset) {
@@ -338,7 +362,9 @@ export function contactHistoryWorker(
         lastId,
         nextOffset,
       );
-    return nextOffset > 0 || versions.some((row) => Number(row.id) > lastId);
+    const more = nextOffset > 0 || versions.some((row) => Number(row.id) > lastId);
+    if (!more) memberIndexCache = undefined;
+    return more;
   }
   function dispatch(method: string, input: Record<string, unknown>): unknown {
     if (method === 'groupMemberIndexTarget') {
@@ -779,6 +805,7 @@ export function contactHistoryWorker(
           throw error;
         }
       } catch (error) {
+        if (message.method === 'indexGroupMembers') memberIndexCache = undefined;
         parentPort!.postMessage({
           id: message.id,
           error: error instanceof Error ? error.message : String(error),
