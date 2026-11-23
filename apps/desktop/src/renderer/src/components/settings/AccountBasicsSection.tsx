@@ -715,7 +715,7 @@ export function AccountBasicsSection({
             />
             <Row
               settingId="qq-live-messages"
-              desc="利用 QQ 推送减少消息、未读和群资料的重复读库与刷新，可能显著提升性能。代理断开后由数据库监听接手。"
+              desc="利用 QQ 推送减少消息、未读、互动和群资料的重复读库与刷新，可能显著提升性能。代理断开后由数据库监听接手。"
               control={
                 <Toggle
                   checked={settings.data?.qqLiveMessagesEnabled ?? false}

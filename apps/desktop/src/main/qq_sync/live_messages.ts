@@ -9,12 +9,14 @@ const pushRegistry = createMsgPushRegistry();
 export interface LivePushUpdates {
   reads: Array<{ chatType: 1 | 2; uid: string; sequence: string }>;
   groups: Array<{ groupCode: string; directory: boolean }>;
+  reactions: Array<{ groupCode: string; sequence: number }>;
+  recalled: boolean;
 }
 
 export function decodeLivePush(body: Uint8Array, selfUid: string, selfUin: string, now: number) {
   const { messages } = decodePushEnvelope(body);
   const rows: GapFetchedMessage[] = [];
-  const updates: LivePushUpdates = { reads: [], groups: [] };
+  const updates: LivePushUpdates = { reads: [], groups: [], reactions: [], recalled: false };
   if (!selfUid) return { rows, updates };
   let haveReads = false;
   let routedReads = true;
@@ -34,6 +36,26 @@ export function decodeLivePush(body: Uint8Array, selfUid: string, selfUin: strin
           (!peers?.toUin || String(peers.toUin) === selfUin) &&
           (head.msgType !== 528 || !peers?.fromUid || peers.fromUid === selfUid),
       );
+      continue;
+    }
+    if (
+      (head?.msgType === 528 && (head.subType === 138 || head.subType === 139)) ||
+      (head?.msgType === 732 && (head.subType === 16 || head.subType === 17))
+    ) {
+      const event = pushRegistry.decode(raw);
+      if (
+        event?.kind === 'group-reaction' &&
+        Number.isSafeInteger(event.groupUin) &&
+        event.groupUin > 0 &&
+        Number.isSafeInteger(event.sequence) &&
+        event.sequence > 0 &&
+        event.sequence <= 0xffffffff
+      ) {
+        // QQ 的数据库状态包含总数和自己是否已回应。推送仅提供精确的重读目标。
+        updates.reactions.push({ groupCode: String(event.groupUin), sequence: event.sequence });
+      }
+      if (event?.kind === 'group-recall' || event?.kind === 'friend-recall')
+        updates.recalled = true;
       continue;
     }
     if (

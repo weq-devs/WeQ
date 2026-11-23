@@ -2,10 +2,15 @@
 import { expect, it, vi } from 'vitest';
 import { encode, MSG_PUSH_ENVELOPE } from '@weqbot/protocol';
 import { buildClientReadNotify } from '@weqbot/protocol/qq-sync';
-import { GROUP_ADMIN } from '../../../vendor/weqbot/packages/protocol/src/push/schemas';
+import {
+  FRIEND_RECALL,
+  GROUP_ADMIN,
+  GROUP_REACT,
+} from '../../../vendor/weqbot/packages/protocol/src/push/schemas';
 import { mergeRoamingTimeline } from '@weq/service/roaming-timeline';
 import { decodeLivePush, LiveMessages } from '../src/main/qq_sync/live_messages';
 import { coalesceLiveDbWatch } from '../src/main/qq_sync/live_db_watch';
+import { GroupReactionWatch } from '../src/main/qq_sync/group_reaction_watch';
 
 const now = 1_800_000_000_000;
 const account = '10001';
@@ -136,6 +141,81 @@ it('代理活跃时合并读库，持续写入也在固定时间内校准未知�
     watch.onDbFileChangeHook(file(4));
     expect(read.mock.calls.map(([change]) => change.at)).toEqual([3, 4]);
     watch.dispose?.();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('表情与撤回推送提供定位，不把包内计数当作完整数据库状态', () => {
+  const reaction = encode(GROUP_REACT, {
+    groupUin: 70001n,
+    field13: 35,
+    groupReactionData: {
+      data: {
+        data: {
+          groupReactionTarget: { seq: 100n },
+          groupReactionDataContent: { code: '76', operatorUid: 'u_peer', type: 1 },
+        },
+      },
+    },
+  });
+  const wrapped = Buffer.alloc(reaction.length + 7);
+  wrapped.writeUInt16BE(reaction.length, 5);
+  Buffer.from(reaction).copy(wrapped, 7);
+  const event = decodeLivePush(
+    body(
+      { contentHead: { msgType: 732, subType: 16 }, body: { msgContent: wrapped } },
+      {
+        contentHead: { msgType: 528, subType: 138 },
+        body: {
+          msgContent: encode(FRIEND_RECALL, {
+            info: { fromUid: 'u_peer', toUid: self, clientSequence: 4 },
+          }),
+        },
+      },
+    ),
+    self,
+    account,
+    now,
+  );
+  expect(event.updates.reactions).toEqual([{ groupCode: '70001', sequence: 100 }]);
+  expect(event.updates.recalled).toBe(true);
+});
+
+it('多端只读一次打开群的表情状态，关闭后取消在途投递', async () => {
+  vi.useFakeTimers();
+  try {
+    const row = { msgId: '5', msgSeq: '100', setEmojiList: undefined };
+    const read = vi.fn(async () => [row]);
+    const watch = new GroupReactionWatch(read, () => true);
+    const first = vi.fn();
+    const second = vi.fn();
+    const unsubscribe = watch.subscribe('70001', first);
+    watch.subscribe('70001', second);
+    watch.observe('70002', 3);
+    watch.observe('70001', 100);
+    watch.observe('70001', 100);
+    watch.observe('70001', 101);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(read.mock.calls).toEqual([['70001', [100n, 101n]]]);
+    expect(first.mock.calls).toEqual([[[row]]]);
+    expect(second.mock.calls).toEqual([[[row]]]);
+
+    let finish!: (value: [typeof row]) => void;
+    read.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    watch.observe('70001', 100);
+    await vi.advanceTimersByTimeAsync(250);
+    watch.clearPending();
+    finish([row]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+    unsubscribe();
   } finally {
     vi.useRealTimers();
   }

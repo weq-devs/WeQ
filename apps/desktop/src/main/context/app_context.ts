@@ -21,6 +21,7 @@
 import { EventEmitter } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AccountQqSync } from '../qq_sync/account';
+import { GroupReactionWatch } from '../qq_sync/group_reaction_watch';
 import { coalesceLiveDbWatch } from '../qq_sync/live_db_watch';
 import { ensureQqSyncProxy } from '../qq_sync/runtime';
 import { runResumableExport } from '../resumable_exports';
@@ -272,6 +273,7 @@ export interface RoamingCacheChange {
   conv: string;
   messages: GapFetchedMessage[];
   live?: true;
+  recallPatch?: true;
 }
 
 export interface AccountForcedClosedEvent {
@@ -418,7 +420,12 @@ function recallNotificationsEnabled(config: UserConfigService): boolean {
 }
 function observeInteractionRecall(session: AccountSession, event: RecallNotifyEvent): void {
   const ctx = getAppContext();
-  if (ctx.account === session) ctx.services?.interactionBadges.observeRecall(event);
+  if (ctx.account === session)
+    ctx.services?.interactionBadges.observeRecall(
+      event,
+      false,
+      event.retained === true && ctx.services.qqClientSync?.isLiveEnabled() === true,
+    );
 }
 function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
   const ctx = getAppContext();
@@ -426,7 +433,11 @@ function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
     ctx.account === session &&
     ctx.bootstrap?.userConfig.getSetting('notificationEvents').recall.banner
   )
-    ctx.services?.interactionBadges.observeRecall(event, true);
+    ctx.services?.interactionBadges.observeRecall(
+      event,
+      true,
+      event.retained === true && ctx.services.qqClientSync?.isLiveEnabled() === true,
+    );
   if (ctx.account !== session || !ctx.services) return;
   void recallContent(ctx.services, event)
     .then((copy) => {
@@ -1246,6 +1257,7 @@ export interface AccountServices {
   serviceAccount: ServiceAccountService;
   unreadInfo: UnreadInfoService;
   qqClientSync?: AccountQqSync;
+  proxyReactions?: GroupReactionWatch;
   interactionBadges: ConversationInteractionBadges;
   accountConfig: AccountConfigService;
   /** Manifest-first, compile-time annual report page service. */
@@ -2049,6 +2061,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             userConfig.cacheDir(join('anti_recall', exportConfigId)),
             'retained.db',
           ),
+          messageWatch: dbWatch,
           onArchiveChanged: (message) => {
             if (getAppContext().account !== session) return;
             this.services?.unreadInfo.invalidateRecall(message.kind, message.conv);
@@ -2057,6 +2070,7 @@ export function initAppContext(fileRoot?: string): AppContext {
               kind: message.kind,
               conv: message.conv,
               messages: [message],
+              ...(this.services?.qqClientSync?.isLiveEnabled() ? { recallPatch: true } : {}),
             } satisfies RoamingCacheChange);
           },
           onRecall: (event) => notifyRecall(session, event),
@@ -2128,6 +2142,10 @@ export function initAppContext(fileRoot?: string): AppContext {
       );
       let generatedSources: GeneratedSearchSources | undefined;
       await dressInstall.prepareMessageRendering();
+      const proxyReactions = new GroupReactionWatch(
+        (group, seqs) => session.groupMsgs.listReactionStates(group, seqs),
+        () => this.account === session,
+      );
       const qqClientSync = new AccountQqSync({
         antiRecall,
         root: platform.appDataRoot(),
@@ -2170,14 +2188,17 @@ export function initAppContext(fileRoot?: string): AppContext {
             } satisfies RoamingCacheChange);
           }
         },
-        onLiveUpdates: ({ reads, groups }) => {
+        onLiveUpdates: ({ reads, groups, reactions }) => {
           if (this.account !== session) return;
           this.services?.unreadInfo.observeProxyReads(reads);
+          for (const { groupCode, sequence } of reactions)
+            proxyReactions.observe(groupCode, sequence);
           const at = Date.now();
           for (const { groupCode, directory } of groups)
             dbEventBus.emit('group-info-changed', { at, groupCode, directory });
         },
         onLiveClosed: () => {
+          proxyReactions.clearPending();
           if (this.account === session) this.services?.unreadInfo.clearProxyReads();
         },
         readEnabled: () =>
@@ -2199,6 +2220,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       setProxyMessageReadSharing(session, () => qqClientSync.isLiveEnabled());
       this.services = {
         qqClientSync,
+        proxyReactions,
         msgs,
         sentVoiceTranscripts: new SentVoiceTranscripts(
           join(

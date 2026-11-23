@@ -1300,6 +1300,10 @@ function MainWorkspace(): ReactElement {
               observeContactPreview(previous, contact, latest),
             );
           }
+        } else if (change.recallPatch) {
+          const contact = recentContactsForPush.current.get(change.conv);
+          if (!contact || incoming.some((row) => BigInt(row.msgSeq) >= BigInt(contact.msgSeq)))
+            refreshRecentTargets([change.conv]);
         } else {
           // WeQ 发送缓存不会改 QQ 库，也就不会触发 onDbChanged。
           refreshRecentHead();
@@ -3254,6 +3258,51 @@ function MainWorkspace(): ReactElement {
   messagesTabActiveRef.current = messagesTabActive;
   const isGroup = selectedConversation?.type === 'group';
   const isDirect = selectedConversation?.type === 'direct';
+  useEffect(() => {
+    const binding = messageBindingRef.current;
+    if (!isGroup || !selectedUid || !messageScope || !binding || !messagesTabActive) return;
+    const sub = client.account.onProxyGroupReactions.subscribe(
+      { ...binding, group: selectedUid },
+      {
+        onData(rows) {
+          const selected = selectionRef.current;
+          if (
+            messageScopeRef.current !== messageScope ||
+            selected?.kind !== 'group' ||
+            selected.id !== selectedUid
+          )
+            return;
+          const byId = new Map(rows.map((row) => [row.msgId, row]));
+          setLoaded((current) => {
+            if (messageScopeRef.current !== messageScope || selectionRef.current !== selected)
+              return current;
+            let changed = false;
+            const next = current.map((message) => {
+              const row = byId.get(message.msgId);
+              if (!row || row.msgSeq !== message.msgSeq || message.source === 'roaming')
+                return message;
+              const reactions = replaceEqualDeep(message.setEmojiList, row.setEmojiList);
+              if (reactions === message.setEmojiList) return message;
+              changed = true;
+              return { ...message, setEmojiList: reactions };
+            });
+            return changed ? next : current;
+          });
+        },
+      },
+    );
+    return () => sub.unsubscribe();
+  }, [
+    isGroup,
+    selectedUid,
+    messageScope,
+    messagesTabActive,
+    messageBindingRef,
+    messageScopeRef,
+    selectionRef,
+    setLoaded,
+  ]);
+
   const selectedMessageWindowKey = conversationWindowKey(
     messageScope,
     isGroup ? 'group' : 'c2c',

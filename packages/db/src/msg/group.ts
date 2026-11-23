@@ -623,6 +623,22 @@ export class GroupMsgDb {
     return rows.map(rowToGroupMsg);
   }
 
+  /** Refresh exact reaction states without reading or decoding message bodies. */
+  async listReactionStates(targetGroupCode: string, sequences: bigint[]) {
+    if (!sequences.length) return [];
+    const marks = sequences.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT "40001", "40003", "40062" FROM group_msg_table
+         WHERE "40027" = ? AND "40003" IN (${marks})`,
+      [targetGroupCode, ...sequences],
+    );
+    return rows.map(([msgId, msgSeq, reactions]) => ({
+      msgId: toBigint(msgId).toString(),
+      msgSeq: toBigint(msgSeq).toString(),
+      setEmojiList: decodeEmoji(reactions),
+    }));
+  }
+
   /** 按文件 ID 查原消息；先筛原始正文，再校验元素，避免同名文件和文本误命中。 */
   async findFileMessages(
     targetGroupCode: string,

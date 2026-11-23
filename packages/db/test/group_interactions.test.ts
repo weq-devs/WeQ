@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { encodeElement, GrayTipSubType, ProtoMsg, type Element } from '@weq/codec';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
+import { MsgEmoji } from '@weq/codec/proto/msg/40062';
 import { GroupMsgDb } from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 
@@ -128,6 +129,24 @@ function createFixture(): void {
 
   db = new GroupMsgDb(createSqliteStub(), { dbPath: join(dir, 'nt_msg.db') });
 }
+
+it('按群和序号补读表情，返回移除后的空状态并排除其他群', async () => {
+  createFixture();
+  const sql = fixtureDb(join(dir, 'nt_msg.db'));
+  const reaction = new ProtoMsg(MsgEmoji).encode({
+    stickers: [{ emojiId: '76', emojiNum: 2, isSelfSet: true }],
+  });
+  sql.prepare('UPDATE group_msg_table SET "40062"=? WHERE "40001"=1').run(reaction);
+  sql.exec('UPDATE group_msg_table SET "40027"=888, "40003"=1 WHERE "40001"=9');
+  const read = await db.listReactionStates(GROUP, [1n, 2n]);
+  expect(read).toEqual(
+    expect.arrayContaining([
+      { msgId: '1', msgSeq: '1', setEmojiList: [{ emojiId: '76', setNum: 2, isSelfSet: true }] },
+      { msgId: '2', msgSeq: '2', setEmojiList: undefined },
+    ]),
+  );
+  expect(read).toHaveLength(2);
+});
 
 describe('GroupMsgDb.tallyInteractions (offline fixture)', () => {
   it('separates poking out from being poked', async () => {

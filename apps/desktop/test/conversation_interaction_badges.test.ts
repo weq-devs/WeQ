@@ -175,3 +175,53 @@ it('按真实水位和消息身份确认互动，后续有序号的消息释放�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+it('已确认的撤回能够直接校准互动红点，无需重扫最近消息', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'weq-recall-badge-'));
+  const recentInteractionWindow = vi.fn(async () => ({ tips: [], latest: new Map() }));
+  const session = {
+    context: { uin: '10001' },
+    selfUid: 'u_self',
+    recentContacts: { recentInteractionWindow },
+  } as unknown as AccountSession;
+  const badges = new ConversationInteractionBadges(
+    session,
+    join(dir, 'badges.json'),
+    () => true,
+    () => ({
+      getUnreadInfos: async () => [
+        { chatType: 2, uid: '777', peer: '2_777', latestSeq: '5', readSeq: '3' },
+      ],
+      onCountsChanged: () => () => {},
+    }),
+  );
+  try {
+    badges.subscribe(() => {});
+    await vi.waitFor(() => expect(recentInteractionWindow).toHaveBeenCalledTimes(2));
+    recentInteractionWindow.mockClear();
+    badges.observeRecall(
+      {
+        kind: 'group',
+        conv: '777',
+        msgId: '50',
+        revokeUid: 'u_admin',
+        origSeq: '5',
+        senderUid: 'u_peer',
+      },
+      false,
+      true,
+    );
+    await vi.waitFor(() =>
+      expect(badges.badgeEvents).toContainEqual({
+        kind: 'group',
+        conv: '777',
+        msgId: '50',
+        action: 'recall',
+      }),
+    );
+    expect(recentInteractionWindow).not.toHaveBeenCalled();
+  } finally {
+    badges.dispose();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -242,6 +242,7 @@ import {
   type MessagePageOptions,
 } from '@weq/service';
 import type { GroupInfoChange } from '../../group_info_watch';
+import type { GroupReactionStates } from '../../qq_sync/group_reaction_watch';
 import {
   buddyRequestToWire,
   botProfileToWire,
@@ -6300,6 +6301,7 @@ export const accountRouter = router({
         conv: string;
         messages: ChatMsgWire[];
         live?: true;
+        recallPatch?: true;
       }>((emit) => {
         const handler = (change: RoamingCacheChange) => {
           if (
@@ -6312,6 +6314,7 @@ export const accountRouter = router({
             kind: change.kind,
             conv: change.conv,
             live: change.live,
+            recallPatch: change.recallPatch,
             messages: withMessageBubbles(
               change.messages.map(roamingMsgToWire),
               services.dressInstall,
@@ -6323,6 +6326,22 @@ export const accountRouter = router({
           dbEventBus.off('roaming', handler);
         };
       });
+    }),
+
+  onProxyGroupReactions: procedure
+    .input(
+      exportAccountBindingInput.required().extend({ group: z.string().regex(/^[1-9]\d{0,15}$/) }),
+    )
+    .subscription(({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      return observable<GroupReactionStates>((emit) =>
+        services.proxyReactions?.subscribe(input.group, (rows) => {
+          if (getAppContext().services === services) emit.next(rows);
+        }),
+      );
     }),
 
   /** Live DB-change ping; the renderer re-reads its original message window. */

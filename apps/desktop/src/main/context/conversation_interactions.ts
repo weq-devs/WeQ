@@ -339,7 +339,7 @@ export class ConversationInteractionBadges {
         { chatType: chatType(kind), uid: conv },
       ]),
     );
-    const snapshots = await source.getUnreadInfos([...keys.values()]);
+    const snapshots = await source.getUnreadInfos([...keys.values()], false, true);
     const watermarks = new Map(
       snapshots.flatMap((row) =>
         row.readError || row.readSeq === undefined
@@ -434,6 +434,7 @@ export class ConversationInteractionBadges {
       senderUid: string;
     },
     forBanner = false,
+    knownMessage = false,
   ): void {
     if (this.reads.signal.aborted || kind === 'dataline' || !revokeUid || this.self.has(revokeUid))
       return;
@@ -459,7 +460,9 @@ export class ConversationInteractionBadges {
       candidates: addBadge ? [...candidates, { ...event, seq: origSeq }] : candidates,
     });
     if (addBanner) this.publish();
-    if (addBadge) this.requestScan();
+    if (addBadge && knownMessage && this.watching)
+      void this.project(this.generation).catch(() => this.requestScan());
+    else if (addBadge) this.requestScan();
   }
 
   acknowledge(ids: string[], bannerOnly = false): void {

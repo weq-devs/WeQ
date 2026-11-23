@@ -64,6 +64,10 @@ export class AccountQqSync {
   private lastError = '';
   private completed = 0;
   private recallAck: string[] = [];
+  private liveRecallRevision = 0;
+  private recallReadRevision = 0;
+  private recallReadAt = 0;
+  private recallWake?: ReturnType<typeof setTimeout>;
   private flight?: Promise<void>;
   private recallActive = false;
   readonly liveMessages = new LiveMessages();
@@ -107,6 +111,8 @@ export class AccountQqSync {
     this.liveSubscription = undefined;
     this.liveReceivedAt = 0;
     this.liveGroupChangedAt = 0;
+    clearTimeout(this.recallWake);
+    this.recallWake = undefined;
     old?.abort.abort();
     if (old) this.options.onLiveClosed?.();
   }
@@ -117,18 +123,38 @@ export class AccountQqSync {
     this.stopLive();
     const subscription = { generation, abort: new AbortController() };
     this.liveSubscription = subscription;
+    this.recallReadAt = 0;
     const selfUid = this.options.session.selfUid ?? '';
     void subscribeQqLive(this.options.root, uin, generation, subscription.abort.signal, (body) => {
       if (!valid() || !this.options.liveEnabled?.() || this.liveSubscription !== subscription)
         return;
       const now = Date.now();
+      if (this.recallActive) this.liveRecallRevision++;
       const { rows: messages, updates } = decodeLivePush(body, selfUid, uin, now);
       const decoded = messages.filter((row) => this.options.allowLiveMessage?.(row) !== false);
       const rows = this.liveMessages.accept(decoded, now);
-      if (rows.length || updates.reads.length) this.liveReceivedAt = now;
+      if (rows.length || updates.reads.length || updates.reactions.length || updates.recalled)
+        this.liveReceivedAt = now;
       if (updates.groups.length) this.liveGroupChangedAt = now;
+      if (updates.recalled && this.recallActive && !this.recallWake) {
+        this.recallWake = setTimeout(() => {
+          this.recallWake = undefined;
+          const flight = this.flight;
+          if (flight) {
+            void flight.then(() => {
+              if (this.liveSubscription === subscription) return this.run();
+            });
+          } else if (this.liveSubscription === subscription) void this.run();
+        }, 120).unref();
+      }
       if (rows.length) this.options.onLiveMessages?.(rows);
-      if (updates.reads.length || updates.groups.length) this.options.onLiveUpdates?.(updates);
+      if (
+        updates.reads.length ||
+        updates.groups.length ||
+        updates.reactions.length ||
+        updates.recalled
+      )
+        this.options.onLiveUpdates?.(updates);
     })
       .catch(() => undefined)
       .finally(() => {
@@ -386,22 +412,35 @@ export class AccountQqSync {
             targets: active.targets,
           },
         });
+        const wasActive = this.recallActive;
         this.recallActive = active.enabled;
-        const entries = await qqSyncRequest<RecallJournalEntry[]>(this.options.root, {
-          op: 'recall-events',
-          uin,
-          generation,
-          ack: this.recallAck,
-        });
-        this.recallAck = [];
-        for (const entry of entries) {
-          if (!valid()) break;
-          await this.options.antiRecall.archive?.observePush(
-            entry.events,
-            this.options.session.selfUid!,
-            entry.at,
-          );
-          this.recallAck.push(entry.id);
+        if (
+          this.recallAck.length ||
+          wasActive !== active.enabled ||
+          (active.enabled &&
+            (!this.liveSubscription ||
+              this.recallReadRevision !== this.liveRecallRevision ||
+              Date.now() - this.recallReadAt >= 6000))
+        ) {
+          const revision = this.liveRecallRevision;
+          const entries = await qqSyncRequest<RecallJournalEntry[]>(this.options.root, {
+            op: 'recall-events',
+            uin,
+            generation,
+            ack: this.recallAck,
+          });
+          this.recallAck = [];
+          for (const entry of entries) {
+            if (!valid()) break;
+            await this.options.antiRecall.archive?.observePush(
+              entry.events,
+              this.options.session.selfUid!,
+              entry.at,
+            );
+            this.recallAck.push(entry.id);
+          }
+          this.recallReadRevision = revision;
+          this.recallReadAt = Date.now();
         }
         this.options.antiRecall.setProxyState(status.accounts.includes(uin), status.recallError);
       }

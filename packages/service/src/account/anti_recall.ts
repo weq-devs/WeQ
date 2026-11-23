@@ -82,11 +82,13 @@ export interface RecallNotifyEvent {
   revokeUid: string;
   origSeq: string;
   recallTs: number;
+  retained?: true;
 }
 
 export interface AntiRecallOptions {
   readOnly?: boolean;
   archivePath?: string;
+  messageWatch?: Pick<DbWatchService, 'mount'>;
   onArchiveChanged?: (message: GapFetchedMessage) => void;
   preferences?: PreferencePersistence<AntiRecallConfig>;
   notificationsEnabled?: () => boolean;
@@ -137,7 +139,7 @@ export class AntiRecallService {
   /** 配置的整文件存储（内存态即真源，save() 原子落盘）。 */
   private readonly configStore: JsonStore<AntiRecallConfig>;
   /** nt_msg.db 的变更监听（只为「有新撤回记录」这一件事而挂）。 */
-  private monitor: DbWatchService | null = null;
+  private monitor: Pick<DbWatchService, 'mount'> | null = null;
   private monitorHandle: DbWatchHandle | null = null;
   private monitorReads: AbortController | null = null;
   private monitorGeneration = 0;
@@ -209,6 +211,7 @@ export class AntiRecallService {
             revokeUid: message.recall!.revokeUid,
             origSeq: message.msgSeq,
             recallTs: message.recall!.recallTs,
+            retained: true,
           });
           opts.onArchiveChanged?.(message);
         },
@@ -442,7 +445,7 @@ export class AntiRecallService {
     if (this.reconcileAbort.signal.aborted) this.reconcileAbort = new AbortController();
     if (this.monitorHandle) return;
     const generation = ++this.monitorGeneration;
-    this.monitor = new DbWatchService({ intervalMs: 1_000 });
+    this.monitor = this.opts.messageWatch ?? new DbWatchService();
     const snapshotHook = this.archive
       ? createNtMsgDbHook(this.session, {
           onDbChanged: () => this.requestSnapshotScan(),

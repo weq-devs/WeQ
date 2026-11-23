@@ -7,9 +7,14 @@ import type { AccountSession } from '@weq/account';
 import type { NtHelperBinding } from '@weq/native';
 import { AccountQqSync } from '../src/main/qq_sync/account';
 import { clientReadTargets } from '@weqbot/protocol/qq-sync';
+import { encode, FRIEND_RECALL, MSG_PUSH_ENVELOPE } from '@weqbot/protocol';
+import type { AntiRecallService } from '@weq/service';
 
-const f = vi.hoisted(() => ({ request: vi.fn(), history: vi.fn() }));
-vi.mock('../src/main/qq_sync/runtime', () => ({ qqSyncRequest: f.request }));
+const f = vi.hoisted(() => ({ request: vi.fn(), history: vi.fn(), subscribe: vi.fn() }));
+vi.mock('../src/main/qq_sync/runtime', () => ({
+  qqSyncRequest: f.request,
+  subscribeQqLive: f.subscribe,
+}));
 vi.mock('@weqbot/protocol', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weqbot/protocol')>()),
   fetchC2cHistoryRaw: f.history,
@@ -222,4 +227,81 @@ it.each([
   fxt.setOnline();
   await vi.waitFor(() => expect(fxt.service.status().pending).toBe(0));
   expect(f.request.mock.calls.filter((call) => call[1].op === 'push')).toHaveLength(0);
+});
+
+it('实时撤回唤醒持久队列，空闲时保留低频校准', async () => {
+  vi.useFakeTimers();
+  try {
+    const root = mkdtempSync(join(tmpdir(), 'weq-recall-stream-'));
+    directories.push(root);
+    let enabled = true;
+    const observePush = vi.fn(async () => {});
+    const entry = { id: 'notice', at: Date.now(), events: [] };
+    const session = { context: { uin: '10001' }, selfUid: 'u_self' } as unknown as AccountSession;
+    const protection = () => ({ enabled: true, method: 'proxy', mode: 'all', targets: [] });
+    const antiRecall = {
+      protection,
+      archive: { observePush },
+      setProxyState: vi.fn(),
+    } as unknown as AntiRecallService;
+    let pending = false;
+    f.request.mockImplementation(async (_root, request) => {
+      if (request.op === 'status') return { protocolVersion: 4, accounts: ['10001'] };
+      if (request.op === 'recall-events') return pending ? [entry] : [];
+      return true;
+    });
+    let deliver!: (body: Buffer) => void;
+    f.subscribe.mockImplementation((_root, _uin, _generation, signal: AbortSignal, callback) => {
+      deliver = callback;
+      return new Promise<void>((resolve) =>
+        signal.addEventListener('abort', () => resolve(), { once: true }),
+      );
+    });
+    const service = new AccountQqSync({
+      root,
+      path: join(root, 'tasks.json'),
+      session,
+      antiRecall,
+      nt: {} as NtHelperBinding,
+      enabled: () => false,
+      readEnabled: () => false,
+      liveEnabled: () => enabled,
+      onLiveMessages: () => {},
+      current: () => ({ pid: 123, key: '07'.repeat(16) }),
+    });
+    services.push(service);
+    const polls = () =>
+      f.request.mock.calls.filter(([, request]) => request.op === 'recall-events');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(polls()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(polls()).toHaveLength(1);
+    pending = true;
+    deliver(
+      Buffer.from(
+        encode(MSG_PUSH_ENVELOPE, {
+          messages: [
+            {
+              contentHead: { msgType: 528, subType: 138 },
+              body: {
+                msgContent: encode(FRIEND_RECALL, {
+                  info: { fromUid: 'u_peer', toUid: 'u_self', clientSequence: 4 },
+                }),
+              },
+            },
+          ],
+        }),
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(120);
+    expect(polls()).toHaveLength(2);
+    expect(observePush).toHaveBeenCalledWith(entry.events, 'u_self', entry.at);
+    pending = false;
+    enabled = false;
+    service.refreshLive();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(polls().at(-1)?.[1].ack).toEqual(['notice']);
+  } finally {
+    vi.useRealTimers();
+  }
 });
