@@ -180,7 +180,6 @@ function GroupFileDialogBody({
         aria-label={`${groupName}的群文件`}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        {mediaSave.prompt}
         {save.serverLocation && (
           <ServerSavePrompt name={save.serverLocation.name} onChoose={save.chooseServerLocation} />
         )}

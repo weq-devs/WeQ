@@ -1,14 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ExportSavePolicy } from '@weq/service';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { client, trpc } from '../trpc/client';
 import { mediaTransferTarget } from '../../../shared/transfer_progress';
 import { useTransferActivity } from '../lib/transferActivity';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { IS_WEB } from '../lib/target.shared';
-import { useRemoteClient } from '../lib/remoteClient';
 import { useRenderDocument } from '../lib/renderDocument';
-import { ServerSavePrompt } from './ServerSavePrompt';
 import { useToast } from './Toast.shared';
 import { taskNotificationSource } from '../lib/notificationNavigation.shared';
 import { notifyTaskCreated } from '../lib/taskNotifications';
@@ -16,9 +13,6 @@ import '../styles/media-save.css';
 
 function sourceKey(source: MediaSaveSource): string {
   return JSON.stringify(source);
-}
-function sourceName(source: MediaSaveSource): string {
-  return source.kind === 'group-file' ? source.fileName : source.name || '媒体文件';
 }
 function normalizeSource(source: MediaSaveSource): MediaSaveSource {
   if (source.kind !== 'url' || !IS_WEB) return structuredClone(source);
@@ -46,7 +40,6 @@ async function pause(signal: AbortSignal) {
 
 type MediaSaveRecord = {
   taskId: string;
-  browser: boolean;
   status: 'running' | 'paused' | 'saved' | 'downloaded' | 'failed';
   error?: string;
 };
@@ -61,7 +54,6 @@ export function useMediaSave({
   foreground?: boolean;
   ownerKey?: string;
 } = {}) {
-  const remote = useRemoteClient();
   const utils = trpc.useUtils();
   const transfers = useTransferActivity();
   const save = useExportSavePolicy(),
@@ -79,7 +71,6 @@ export function useMediaSave({
   const [operation, setOperation] = useState<{
     owner: MediaSaveOwner;
     key: string;
-    browser: boolean;
   } | null>(null);
   const pending = useRef<{
     identity: string;
@@ -115,6 +106,7 @@ export function useMediaSave({
     };
   }, [owner, foreground, expectedUin, expectedConfig]);
   const busy = operation?.owner === owner;
+  const waitingForSettings = !IS_WEB && save.settings.isLoading;
   const recordFor = (source: MediaSaveSource) =>
     results?.owner === owner ? results.rows.get(sourceKey(source)) : undefined;
   const record = (key: string, value: MediaSaveRecord | undefined) => {
@@ -165,11 +157,9 @@ export function useMediaSave({
   }
   async function run(
     source: MediaSaveSource,
-    intent?: ExportSavePolicy,
-    browser = remote,
     resumeId?: string,
   ): Promise<{ taskId: string | null; error?: string; cancelled?: boolean }> {
-    if (!save.binding || pending.current?.identity === identity || save.settings.isLoading)
+    if (!save.binding || pending.current?.identity === identity || waitingForSettings)
       return { taskId: null };
     const op = {
       identity,
@@ -181,7 +171,7 @@ export function useMediaSave({
       cancelled: false,
     };
     pending.current = op;
-    setOperation({ owner, key: op.key, browser });
+    setOperation({ owner, key: op.key });
     let target: string | undefined;
     const current = () =>
       pending.current === op &&
@@ -200,21 +190,16 @@ export function useMediaSave({
         if (!resumed) throw new Error('暂时无法继续，请等下载收尾后再试');
         op.taskId = resumeId;
       } else {
-        const policy = browser
-          ? { mode: 'before' as const, directory: '.' }
-          : IS_WEB
-            ? await save.prepareSave(intent, { kind: 'bundle', name: sourceName(source) })
-            : save.policy;
-        if (!policy || !current()) return { taskId: null, cancelled: true };
+        if (!current()) return { taskId: null, cancelled: true };
         op.taskId = await client.account.mediaSave.save.mutate({
           ...op.expected,
           source: selected,
-          savePolicy: policy,
-          ...(foreground ? { foreground: true, ...(IS_WEB ? { browserOutput: true } : {}) } : {}),
+          ...(IS_WEB ? { browserOutput: true } : { savePolicy: save.policy }),
+          ...(foreground ? { foreground: true } : {}),
         });
       }
       if (op.cancelled && op.taskId && !(await stopTask(op))) {
-        record(op.key, { taskId: op.taskId, browser, status: 'running' });
+        record(op.key, { taskId: op.taskId, status: 'running' });
       }
       if (foreground && op.taskId && owner.released && !op.cancelled) {
         await client.account.mediaSave.background.mutate({
@@ -224,9 +209,9 @@ export function useMediaSave({
         });
       }
       if (!op.taskId || !current()) return { taskId: op.taskId, cancelled: true };
-      if (foreground) record(op.key, { taskId: op.taskId, browser, status: 'running' });
-      else notifyTaskCreated(op.taskId, browser ? '正在准备媒体下载' : '正在保存媒体');
-      if (!browser && !waitForCompletion && !foreground) return { taskId: op.taskId };
+      if (foreground) record(op.key, { taskId: op.taskId, status: 'running' });
+      else notifyTaskCreated(op.taskId, IS_WEB ? '正在准备媒体下载' : '正在保存媒体');
+      if (!IS_WEB && !waitForCompletion && !foreground) return { taskId: op.taskId };
       const deadline = Date.now() + 15 * 60_000;
       while (current() && Date.now() < deadline) {
         const receipt = await client.account.getExportOutputReceipt.query({
@@ -240,17 +225,17 @@ export function useMediaSave({
           record(
             op.key,
             receipt.status === 'paused'
-              ? { taskId: op.taskId, browser, status: 'paused', error: receipt.error }
+              ? { taskId: op.taskId, status: 'paused', error: receipt.error }
               : undefined,
           );
           return { taskId: op.taskId, cancelled: true };
         }
         if (receipt.status === 'completed') {
-          if (!browser) {
+          if (!IS_WEB) {
             if (foreground && receipt.save?.status && receipt.save.status !== 'saved')
               throw new Error(receipt.save.error ?? '未能保存到所选位置');
-            record(op.key, { taskId: op.taskId, browser, status: 'saved' });
-            if (foreground && !IS_WEB)
+            record(op.key, { taskId: op.taskId, status: 'saved' });
+            if (foreground)
               void utils?.account?.mediaResource?.messageLocations
                 ?.invalidate()
                 .catch(() => undefined);
@@ -268,7 +253,7 @@ export function useMediaSave({
           document.body.append(link);
           link.click();
           link.remove();
-          record(op.key, { taskId: op.taskId, browser, status: 'downloaded' });
+          record(op.key, { taskId: op.taskId, status: 'downloaded' });
           return { taskId: op.taskId };
         }
         await pause(op.controller.signal);
@@ -288,7 +273,7 @@ export function useMediaSave({
       const message = error instanceof Error ? error.message : String(error);
       if (current()) {
         if (foreground && op.taskId)
-          record(op.key, { taskId: op.taskId, browser, status: 'failed', error: message });
+          record(op.key, { taskId: op.taskId, status: 'failed', error: message });
         if (!foreground || !op.taskId)
           push({
             tone: 'error',
@@ -312,7 +297,7 @@ export function useMediaSave({
     if (!item || !save.binding) return;
     const ref = { ...save.binding, taskId: item.taskId };
     try {
-      if (action === 'resume') await run(source, undefined, item.browser, item.taskId);
+      if (action === 'resume') await run(source, item.taskId);
       else if (action === 'background') {
         await client.account.mediaSave.background.mutate(ref);
         record(sourceKey(source), undefined);
@@ -346,15 +331,8 @@ export function useMediaSave({
     control,
     busy,
     binding: save.binding,
-    disabled: busy || !save.binding || save.settings.isLoading,
+    disabled: busy || !save.binding || waitingForSettings,
     isBusy: (source: MediaSaveSource) => busy && operation?.key === sourceKey(source),
-    downloading: busy && operation?.browser,
-    prompt: save.serverLocation ? (
-      <ServerSavePrompt
-        name={save.serverLocation.name}
-        onChoose={save.chooseServerLocation}
-        portalTarget={document.body}
-      />
-    ) : null,
+    downloading: IS_WEB && busy,
   };
 }

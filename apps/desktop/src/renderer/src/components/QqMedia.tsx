@@ -64,7 +64,6 @@ import { WebAvatarScope } from '../hooks/useAvatarImage';
 import { sharedAccountScope } from '../lib/remoteCacheBridge';
 import { MessageTextResult } from './MessageTextResult';
 import { useTabActive } from './RetainedTabs.shared';
-import { useRemoteClient } from '../lib/remoteClient';
 import { mediaRetryUrl } from '../lib/mediaRetryUrl';
 import { useTransferProgress } from '../lib/transferActivity';
 import {
@@ -842,7 +841,6 @@ export function QqFile({
   conv?: string;
   fwd?: ForwardRef;
 }) {
-  const remote = useRemoteClient();
   const active = useTabActive();
   const name = str(data, 'fileName'),
     size = num(data, 'fileSize'),
@@ -861,7 +859,7 @@ export function QqFile({
   const source: MediaSaveSource = previewPath
     ? { kind: 'url', url: localFileUrl(previewPath), name }
     : chatFile;
-  const canOpenHere = IS_ELECTRON && !remote;
+  const canOpenHere = IS_ELECTRON;
   const hasMessage = /^\d+$/.test(msgId) || Boolean(fwd?.fwdResId);
   const hasDownloadAction = hasMessage || (!canOpenHere && Boolean(previewPath));
   const lookup = {
@@ -956,89 +954,71 @@ export function QqFile({
       ? '正在打开…'
       : '准备保存…';
   return (
-    <>
-      <div className={cn('qq-media-file', hasDownloadAction && 'qq-media-file-downloadable')}>
-        <button
-          type="button"
-          className="qq-media-file-open"
-          onClick={() => onClick()}
-          disabled={working}
-          onKeyDown={mediaKeyDown}
-          title={
-            error?.message ??
-            (working
-              ? busyLabel
-              : remote
-                ? '下载文件到设备'
-                : opensFile
-                  ? '打开文件（本机）'
-                  : canOpenHere
-                    ? '保存文件'
-                    : '保存文件到服务器')
-          }
-        >
-          <img
-            className="qq-media-file-icon"
-            src={fileIconUrl(iconForName(name))}
-            alt=""
-            draggable={false}
-          />
-          <span className="qq-media-file-meta">
-            <span className="qq-media-file-name" title={name}>
-              {name || '[文件]'}
-            </span>
-            <span
-              className={cn('qq-media-file-size', error && !downloading && 'qq-media-file-error')}
-            >
-              {downloading ? (
-                <span className="qq-media-file-status">
-                  {percent === undefined ? (
-                    busyLabel
-                  ) : (
-                    <span className="weq-number">{percent}%</span>
-                  )}
-                </span>
-              ) : working ? (
-                <span className="qq-media-file-status">
-                  <Loader2 size={11} strokeWidth={2} className="weq-spin" aria-hidden /> {busyLabel}
-                </span>
-              ) : error ? (
-                `${error.action === 'open' ? '打开' : '保存'}失败：${error.message}`
-              ) : (
-                <span className="weq-number">{formatSize(size)}</span>
-              )}
-            </span>
+    <div className={cn('qq-media-file', hasDownloadAction && 'qq-media-file-downloadable')}>
+      <button
+        type="button"
+        className="qq-media-file-open"
+        onClick={() => onClick()}
+        disabled={working}
+        onKeyDown={mediaKeyDown}
+        title={error?.message ?? (working ? busyLabel : opensFile ? '打开文件（本机）' : '另存为')}
+      >
+        <img
+          className="qq-media-file-icon"
+          src={fileIconUrl(iconForName(name))}
+          alt=""
+          draggable={false}
+        />
+        <span className="qq-media-file-meta">
+          <span className="qq-media-file-name" title={name}>
+            {name || '[文件]'}
           </span>
-        </button>
-        {hasDownloadAction ? (
-          <div
-            className="qq-file-action"
-            onClick={(event) => event.stopPropagation()}
-            onMouseDown={(event) => event.stopPropagation()}
+          <span
+            className={cn('qq-media-file-size', error && !downloading && 'qq-media-file-error')}
           >
-            {progress ? (
-              <FileDownloadRing
-                progress={progress}
-                onCancel={mediaSave.downloading ? () => void mediaSave.cancel() : undefined}
-              />
-            ) : showSave ? (
-              <button
-                type="button"
-                className="icon-button"
-                title={remote ? '保存文件到设备' : IS_WEB ? '保存文件到服务器' : '保存文件'}
-                aria-label="保存文件"
-                disabled={working || mediaSave.disabled}
-                onClick={() => onClick(true)}
-                onKeyDown={mediaKeyDown}
-              >
-                <Download size={15} aria-hidden />
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
-      {mediaSave.prompt}
-    </>
+            {downloading ? (
+              <span className="qq-media-file-status">
+                {percent === undefined ? busyLabel : <span className="weq-number">{percent}%</span>}
+              </span>
+            ) : working ? (
+              <span className="qq-media-file-status">
+                <Loader2 size={11} strokeWidth={2} className="weq-spin" aria-hidden /> {busyLabel}
+              </span>
+            ) : error ? (
+              `${error.action === 'open' ? '打开' : '保存'}失败：${error.message}`
+            ) : (
+              <span className="weq-number">{formatSize(size)}</span>
+            )}
+          </span>
+        </span>
+      </button>
+      {hasDownloadAction ? (
+        <div
+          className="qq-file-action"
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          {progress ? (
+            <FileDownloadRing
+              progress={progress}
+              onCancel={mediaSave.downloading ? () => void mediaSave.cancel() : undefined}
+            />
+          ) : showSave ? (
+            <button
+              type="button"
+              className="icon-button"
+              title="另存为"
+              aria-label="保存文件"
+              disabled={working || mediaSave.disabled}
+              onClick={() => onClick(true)}
+              onKeyDown={mediaKeyDown}
+            >
+              <Download size={15} aria-hidden />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

@@ -750,7 +750,6 @@ export function ForwardRecordList({
           }
         />
       )}
-      {mediaSave.prompt}
       {decoration && (
         <MessageDecorationCard decoration={decoration} onClose={() => setDecoration(undefined)} />
       )}

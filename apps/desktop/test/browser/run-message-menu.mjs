@@ -296,15 +296,12 @@ try {
     }
     if (mode === 'downloaded') {
       assert(await page.getByRole('menuitem', { name: '在文件夹中显示', exact: true }).isVisible());
-      assert(await page.getByRole('menuitem', { name: '保存到服务器', exact: true }).isVisible());
+      assert(await page.getByRole('menuitem', { name: '另存为', exact: true }).isVisible());
     }
     if (mode === 'private') assert.equal(await page.locator('.message-reaction-strip').count(), 0);
     if (mode === 'record') {
       assert(await page.getByRole('menuitem', { name: '导出', exact: true }).isVisible());
-      assert.equal(
-        await page.getByRole('menuitem', { name: '保存到服务器', exact: true }).count(),
-        0,
-      );
+      assert.equal(await page.getByRole('menuitem', { name: '另存为', exact: true }).count(), 0);
     }
     if (output) await page.screenshot({ path: resolve(output, `${mode}-320.png`) });
     if (mode === 'voice' || mode === 'mixed') {

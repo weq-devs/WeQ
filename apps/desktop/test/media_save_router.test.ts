@@ -1,5 +1,13 @@
 // @vitest-environment node
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { EventEmitter } from 'node:events';
@@ -27,6 +35,7 @@ const state = vi.hoisted(() => ({
   configId: 'source-a',
   services: {} as object,
   picked: null as string | null,
+  exportRoot: undefined as string | undefined,
   afterPick: null as (() => void) | null,
   local: null as { fileName: string; localPath: string } | null,
   response: (_request?: Request): Response =>
@@ -74,6 +83,8 @@ vi.mock('@weq/service', async (original) => ({
   ...(await original<typeof import('@weq/service')>()),
   getHost: () => ({
     canReveal: true,
+    exportRoot: state.exportRoot,
+    registerDownload: state.exportRoot ? () => ({ url: '/_download/fixture' }) : undefined,
     revealPath: state.open,
     fetchMedia: state.fetch,
     pickSaveTarget: async () => {
@@ -90,6 +101,7 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'weq-media-save-'));
   state.configId = 'source-a';
   state.picked = null;
+  state.exportRoot = undefined;
   state.afterPick = null;
   state.local = null;
   state.response = () =>
@@ -321,16 +333,20 @@ it('单件媒体只在交接后进入当前任务，交接不重复下载且位�
     { id: taskId, status: 'completed', save: { status: 'saved' } },
   ]);
 });
-it('重启后还能取回已保存但尚未交给浏览器的单件媒体', async () => {
+it('当前设备下载只生成任务缓存，重启后仍能取回未交付的文件', async () => {
+  state.exportRoot = join(root, 'export');
+  mkdirSync(state.exportRoot);
   const task = await completed(
     await api().save({
       ...binding,
       source: image,
       foreground: true,
       browserOutput: true,
-      savePolicy: { mode: 'before', directory: root },
     }),
   );
+  expect(task.save).toBeUndefined();
+  expect(readFileSync(task.filePath!)).toEqual(Buffer.from(png));
+  expect(readdirSync(state.exportRoot)).toEqual([]);
   const cache = join(root, 'tasks');
   expect(manager.listTasks(true)).toEqual([]);
   const interrupted = new ExportTaskManager({} as MsgService, cache);

@@ -5793,14 +5793,9 @@ function ChatPaneContent({
     setClearMessagesConfirmOpen(false);
   }
 
-  function downloadMessageImage(
-    url: string,
-    _message: Message,
-    intent?: Parameters<typeof mediaSave.run>[1],
-    browser = false,
-  ) {
+  function downloadMessageImage(url: string) {
     setContextMenu(null);
-    void mediaSave.run({ kind: 'url', url, name: imageFilenameFromUrl(url) }, intent, browser);
+    void mediaSave.run({ kind: 'url', url, name: imageFilenameFromUrl(url) });
   }
 
   if (!conversation) {
@@ -7749,7 +7744,6 @@ function ChatPaneContent({
           onConfirm={clearConversationMessagesLocally}
         />
       ) : null}
-      {mediaSave.prompt}
       {contextMenu ? (
         <MessageContextMenu
           onClose={() => setContextMenu(null)}

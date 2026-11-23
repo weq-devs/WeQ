@@ -361,7 +361,6 @@ function FavoritePickerTabBody({
           </form>
         </Modal>
       )}
-      {save.prompt}
     </>
   );
 }

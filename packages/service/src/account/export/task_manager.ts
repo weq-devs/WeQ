@@ -897,7 +897,7 @@ export class ExportTaskManager extends EventEmitter {
           t.foreground &&
           (t.status === 'paused' ||
             t.status === 'failed' ||
-            (t.status === 'completed' && (t.save?.status !== 'saved' || t.foregroundBrowserOutput)))
+            (t.status === 'completed' && (t.foregroundBrowserOutput ?? t.save?.status !== 'saved')))
         )
           t.foreground = false;
         if (!Array.isArray(t.stages)) t.stages = []; // back-compat with pre-stages tasks
@@ -1118,8 +1118,13 @@ export class ExportTaskManager extends EventEmitter {
     return emitted;
   }
 
-  private registerTask(task: ExportTask, policy?: ExportSavePolicy): void {
+  private registerTask(task: ExportTask, policy?: ExportSavePolicy | null): void {
     task.networkClientId = transferOwner();
+    if (policy === null) {
+      // 当前设备下载只生成任务缓存，不应用宿主的保存策略。
+      this.tasks.set(task.id, task);
+      return;
+    }
     const resolved = copyExportSavePolicy(
       policy ?? this.deps.exportSavePolicy?.() ?? { mode: 'before' },
     );
@@ -2006,7 +2011,7 @@ export class ExportTaskManager extends EventEmitter {
     name: string;
     includeIntegrityReport?: boolean;
     foreground?: boolean;
-    foregroundBrowserOutput?: boolean;
+    browserOutput?: boolean;
     kind: NonNullable<ExportTask['resource']>['kind'];
     savePolicy?: ExportSavePolicy;
     output?: Extract<ExportOutputShape, { kind: 'file' }>;
@@ -2050,7 +2055,9 @@ export class ExportTaskManager extends EventEmitter {
         networkTransfer: opts.networkTransfer,
         kind: opts.kind,
         ...(output ? { output } : {}),
-        ...(output && (opts.kind === 'media' || opts.kind === 'mail-attachment')
+        ...(output &&
+        !opts.browserOutput &&
+        (opts.kind === 'media' || opts.kind === 'mail-attachment')
           ? { directDownload: true }
           : {}),
         ...(opts.sourceKey ? { sourceKey: opts.sourceKey } : {}),
@@ -2065,7 +2072,7 @@ export class ExportTaskManager extends EventEmitter {
       },
       includeIntegrityReport: opts.includeIntegrityReport,
       ...(opts.foreground ? { foreground: true, autoOpenTaskList: false } : {}),
-      ...(opts.foreground && opts.foregroundBrowserOutput ? { foregroundBrowserOutput: true } : {}),
+      ...(opts.foreground && opts.browserOutput ? { foregroundBrowserOutput: true } : {}),
       status: 'pending',
       progress: 0,
       current: 0,
@@ -2095,7 +2102,7 @@ export class ExportTaskManager extends EventEmitter {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    this.registerTask(task, opts.savePolicy);
+    this.registerTask(task, opts.browserOutput ? null : opts.savePolicy);
     this.log(id, 'task', `资源任务已创建：${task.name}`);
     if (tracksResourceTransfer(task)) this.beginResourceTransfer(task);
     this.saveTasks();

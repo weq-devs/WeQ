@@ -313,7 +313,6 @@ async function mount(
 async function click(host: HTMLElement, label: string) {
   await act(async () => host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click());
 }
-// 个性装扮的「下载」仍复用此 hook；通用保存控件不再额外展示浏览器下载按钮。
 function BrowserDownloadHarness() {
   const save = useMediaSave();
   return h(
@@ -322,11 +321,7 @@ function BrowserDownloadHarness() {
     h('button', {
       'aria-label': '保存图片到浏览器',
       onClick: () =>
-        void save.run(
-          { kind: 'url', url: 'weq-media://pic?name=photo.jpg', name: 'photo.jpg' },
-          undefined,
-          true,
-        ),
+        void save.run({ kind: 'url', url: 'weq-media://pic?name=photo.jpg', name: 'photo.jpg' }),
     }),
     h('button', { 'aria-label': '停止本次下载', onClick: () => void save.cancel() }),
   );
@@ -406,13 +401,21 @@ it.each(['handoff', 'close'])(
     expect(state.save).toHaveBeenCalledOnce();
   },
 );
-it('Remote 原位保存默认下载到设备，不弹电脑目录或使用电脑预设', async () => {
+it.each([false, true])('Web 和 Remote 原位另存直接交给当前设备（remote=%s）', async (remote) => {
   state.web = true;
-  state.remote = true;
+  state.remote = remote;
   const anchor = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
   const view = await mount();
+  expect(view.host.querySelectorAll('button')).toHaveLength(1);
   await click(view.host, '保存图片');
   expect(state.prepare).not.toHaveBeenCalled();
+  expect(state.save).toHaveBeenCalledWith({
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    source: { kind: 'url', url: 'weq-media://pic?name=photo.jpg', name: 'photo.jpg' },
+    foreground: true,
+    browserOutput: true,
+  });
   expect(state.download).toHaveBeenCalledWith({
     expectedAccountUin: '10001',
     expectedAccountConfigId: 'source-a',
@@ -421,9 +424,9 @@ it('Remote 原位保存默认下载到设备，不弹电脑目录或使用电脑
   expect(anchor).toHaveBeenCalledOnce();
 });
 
-it('Remote 已有本地缓存文件卡仍交付设备下载，不调用电脑打开文件', async () => {
+it.each([false, true])('网页文件卡可把电脑缓存下载到当前设备（remote=%s）', async (remote) => {
   state.web = true;
-  state.remote = true;
+  state.remote = remote;
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
   const view = await mount(
     h(QqFile, {
@@ -451,39 +454,17 @@ it('单按钮保存取消，不修改偏好、不退出控件或清理原资源'
   expect(view.host.querySelector('[aria-label="保存图片"]')).not.toBeNull();
   expect(state.toast).not.toHaveBeenCalled();
 });
-it('Web 保存和取回成品分开，专用下载 hook 仍等待完整任务', async () => {
-  state.web = true;
-  const view = await mount();
-  expect(view.host.querySelectorAll('button')).toHaveLength(1);
-  await click(view.host, '保存图片');
-  expect(view.host.querySelector('[aria-label="下载到此设备"]')).not.toBeNull();
-  expect(state.prepare).toHaveBeenCalledWith(undefined, { kind: 'bundle', name: 'photo.jpg' });
-  state.prepare.mockClear();
-  state.save.mockClear();
-  state.toast.mockClear();
-  const anchor = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-  const browser = await mount(h(BrowserDownloadHarness));
-  await click(browser.host, '保存图片到浏览器');
-  await vi.waitFor(() => expect(anchor).toHaveBeenCalledOnce());
-  expect(state.save.mock.calls[0]![0]).toMatchObject({
-    savePolicy: { mode: 'before', directory: '.' },
-  });
-  expect(state.prepare).not.toHaveBeenCalled();
-  expect(state.download).toHaveBeenCalledWith({
-    expectedAccountUin: '10001',
-    expectedAccountConfigId: 'source-a',
-    taskId: 'media-task',
-  });
-});
 it('Web 成品还没交给浏览器时关预览，任务列表仍可取回', async () => {
   state.web = true;
+  const anchor = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  const link = Promise.withResolvers<{ url: string }>();
+  state.download.mockReturnValueOnce(link.promise);
   const view = await mount();
   await click(view.host, '保存图片');
-  expect(state.save).toHaveBeenCalledWith(
-    expect.objectContaining({ foreground: true, browserOutput: true }),
-  );
-  expect(state.download).not.toHaveBeenCalled();
+  expect(state.download).toHaveBeenCalledOnce();
   view.close();
+  await act(async () => link.resolve({ url: '/_download/fixture' }));
+  expect(anchor).not.toHaveBeenCalled();
   await vi.waitFor(() =>
     expect(state.background).toHaveBeenCalledWith({
       expectedAccountUin: '10001',
@@ -747,7 +728,8 @@ it('独立 Web 窗口的同源绝对媒体地址还原成已有挂载路径', as
     source: { kind: 'url', url: '/_media/pic?name=photo.jpg' },
   });
 });
-it('图片右键只保留一个另存为动作并保留消息身份', async () => {
+it.each([false, true])('图片菜单用同一个另存为动作并保留消息身份（web=%s）', async (web) => {
+  state.web = web;
   const message = createTemplateDemoData().messages[0]!,
     download = vi.fn();
   await mount(

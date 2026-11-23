@@ -40,7 +40,6 @@ import { useSurfaceOutside } from '../../lib/surfaceOutside';
 import { OverlayLayerContext, useOverlayLayerScope } from '../../lib/overlayStack';
 import { useRenderDocument } from '../../lib/renderDocument';
 import { useTabActive } from '../../components/RetainedTabs.shared';
-import { IS_WEB } from '../../lib/target.shared';
 import { VoiceTranscribeMenuAction } from '../../components/VoiceTranscribeMenuAction';
 import { TextMarkdownMenuAction } from '../../components/TextMarkdownMenuAction';
 import type { MessageMediaTarget } from '../../../../shared/message_media';
@@ -533,7 +532,7 @@ export function MessageContextMenu(props: Props) {
                       )
                     : action(
                         'save',
-                        IS_WEB ? '保存到服务器' : '另存为',
+                        '另存为',
                         <Download {...icon} />,
                         save,
                         props.downloadDisabled ? '正在准备媒体保存，请稍候' : null,

@@ -515,16 +515,22 @@ export const mediaSaveRouter = router({
       { avatar: false, transcribe: false, ocr: false, dress: false },
     );
     if (output.kind !== 'file') throw new Error('媒体保存形态无效');
-    const settings = context.bootstrap?.userConfig.getSettings();
-    const policy = await prepareExportDestination(
-      selected.savePolicy ?? { mode: settings?.exportSaveMode ?? 'before' },
-      settings?.defaultExportDir,
-      getHost(),
-      output,
-      check,
-      `media:${selected.source.kind}:${output.extension}`,
-    );
-    if (!policy) return null;
+    const host = getHost();
+    if (selected.browserOutput && !host.registerDownload)
+      throw new Error('当前环境不支持浏览器下载');
+    let policy: Awaited<ReturnType<typeof prepareExportDestination>> | undefined;
+    if (!selected.browserOutput) {
+      const settings = context.bootstrap?.userConfig.getSettings();
+      policy = await prepareExportDestination(
+        selected.savePolicy ?? { mode: settings?.exportSaveMode ?? 'before' },
+        settings?.defaultExportDir,
+        host,
+        output,
+        check,
+        `media:${selected.source.kind}:${output.extension}`,
+      );
+      if (!policy) return null;
+    }
     const fileName = exportOutputFileName(output);
     const source = selected.source;
     const recoverable =
@@ -544,7 +550,7 @@ export const mediaSaveRouter = router({
     return services.exportManager.startResourceExport({
       kind: 'media',
       foreground: selected.foreground,
-      foregroundBrowserOutput: selected.browserOutput,
+      browserOutput: selected.browserOutput,
       resume,
       sourceKey: savedMediaSourceKey(selected.source),
       transferTarget: mediaTransferTarget(selected.source),
