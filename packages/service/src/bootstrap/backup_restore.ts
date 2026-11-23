@@ -880,6 +880,7 @@ function prepare(
           'mailNotifications',
           'mailShowUnread',
           'mailPollIntervalMinutes',
+          'qqClientSync',
           'annualReport',
           'groupKeyword',
           'nativeMediaEnabled',

@@ -125,6 +125,41 @@ async function tailText(files: LogFileEntry[], maxBytes: number): Promise<string
   return parts.join('');
 }
 
+export function nativeDebugLogStatus(): { enabled: boolean; available: boolean } {
+  const nt = getAppContext().platform?.native.ntHelper;
+  if (!nt) return { enabled: false, available: false };
+  try {
+    return { enabled: nt.isDebugLogEnabled(), available: true };
+  } catch {
+    return { enabled: false, available: true };
+  }
+}
+
+function setNativeDebugLog(enabled: boolean): { ok: boolean; enabled: boolean; error?: string } {
+  const nt = getAppContext().platform?.native.ntHelper;
+  if (!nt) return { ok: false, enabled: false, error: '原生组件未就绪' };
+  try {
+    nt.setDebugLog(enabled);
+    const active = nt.isDebugLogEnabled();
+    logger.info('native debug log toggled', { event: 'native-debug-log-toggle', enabled: active });
+    return { ok: true, enabled: active };
+  } catch (error) {
+    return {
+      ok: false,
+      enabled: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/** 恢复事务持有运行维护锁，直接应用运行状态。 */
+export function disableNativeDebugLog(): void {
+  const nt = getAppContext().platform?.native.ntHelper;
+  if (!nt?.isDebugLogEnabled()) return;
+  const result = setNativeDebugLog(false);
+  if (!result.ok || result.enabled) throw new Error(result.error ?? '原生调试日志仍已启用');
+}
+
 export const helpRouter = router({
   // ── 日志查看 ─────────────────────────────────────────────────────────────
 
@@ -182,32 +217,10 @@ export const helpRouter = router({
    */
   setNativeDebugLog: procedure
     .input(z.object({ enabled: z.boolean() }))
-    .mutation(({ input }): { ok: boolean; enabled: boolean; error?: string } => {
-      const nt = getAppContext().platform?.native.ntHelper;
-      if (!nt) return { ok: false, enabled: false, error: '原生组件未就绪' };
-      try {
-        nt.setDebugLog(input.enabled);
-        const enabled = nt.isDebugLogEnabled();
-        logger.info('native debug log toggled', {
-          event: 'native-debug-log-toggle',
-          enabled,
-        });
-        return { ok: true, enabled };
-      } catch (e) {
-        return { ok: false, enabled: false, error: e instanceof Error ? e.message : String(e) };
-      }
-    }),
+    .mutation(({ input }) => setNativeDebugLog(input.enabled)),
 
   /** 当前底层调试模式是否打开（面板初始化时对齐真实状态）。 */
-  getNativeDebugLog: procedure.query((): { enabled: boolean; available: boolean } => {
-    const nt = getAppContext().platform?.native.ntHelper;
-    if (!nt) return { enabled: false, available: false };
-    try {
-      return { enabled: nt.isDebugLogEnabled(), available: true };
-    } catch {
-      return { enabled: false, available: true };
-    }
-  }),
+  getNativeDebugLog: procedure.query(nativeDebugLogStatus),
 
   // ── 常见问题 ─────────────────────────────────────────────────────────────
 

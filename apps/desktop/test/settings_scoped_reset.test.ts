@@ -20,6 +20,14 @@ const state = vi.hoisted(() => ({
   source: 'synthetic-source',
   monitor: {} as MonitorSettings,
   intent: {} as Record<string, unknown>,
+  proxyEnabled: false,
+  qqSync: { enabled: false, liveMessages: false },
+  notifications: {} as Record<string, unknown>,
+  nativeDebug: false,
+  remote: { enabled: false, tailscaleEnabled: false },
+}));
+vi.mock('../src/main/qq_sync/runtime', () => ({
+  isQqSyncProxyEnabled: () => state.proxyEnabled,
 }));
 vi.mock('@weq/service/performance', async (importOriginal) => {
   const real = await importOriginal<typeof import('@weq/service/performance')>();
@@ -56,9 +64,22 @@ vi.mock('../src/main/context/app_context', () => ({
     bootstrap: {
       userConfig: {
         getSettings: () => state.settings,
+        setSettings: (patch: { modelResources: Partial<AppSettings['modelResources']> }) =>
+          Object.assign(state.settings.modelResources, patch.modelResources),
         getAutoEnter: () => null,
         getSharedPreference: (key: keyof AppSettings['sharedPreferences']) =>
           state.settings.sharedPreferences[key] ?? {},
+      },
+    },
+    account: state.account ? { context: { uin: 'synthetic' } } : undefined,
+    platform: {
+      native: {
+        ntHelper: {
+          isDebugLogEnabled: () => state.nativeDebug,
+          setDebugLog: (enabled: boolean) => {
+            state.nativeDebug = enabled;
+          },
+        },
       },
     },
     services: state.account
@@ -97,6 +118,12 @@ vi.mock('../src/main/ipc/routers/bootstrap', () => ({
         {
           get: (_target, method) => async (input: unknown) => {
             const name = String(method);
+            if (name === 'getSettings')
+              return {
+                ...state.settings,
+                qqClientSyncEnabled: state.qqSync.enabled,
+                qqLiveMessagesEnabled: state.qqSync.liveMessages,
+              };
             state.calls.push([name, input]);
             if (name === state.fail) throw new Error('合成写入失败');
             if (name === 'setQzonePagination')
@@ -107,6 +134,15 @@ vi.mock('../src/main/ipc/routers/bootstrap', () => ({
               ).priority;
             if (name === 'setCallRecording') Object.assign(state.settings.callRecording, input);
             if (name === 'setSsePushTuning') Object.assign(state.settings.ssePush, input);
+            if (name === 'setQqProxyEnabled') state.proxyEnabled = false;
+            if (name === 'setQqClientSyncEnabled') state.qqSync.enabled = false;
+            if (name === 'setQqLiveMessagesEnabled') state.qqSync.liveMessages = false;
+            if (name === 'saveOneBotConfig') {
+              state.settings.oneBotByUin.synthetic = (
+                input as { config: AppSettings['oneBotByUin'][string] }
+              ).config;
+              return { daemonCheck: null };
+            }
             if (name === 'setAiImagePreference') {
               const { feature, mode } = input as {
                 feature: keyof AppSettings['aiImages'];
@@ -120,11 +156,32 @@ vi.mock('../src/main/ipc/routers/bootstrap', () => ({
       ),
   },
 }));
-vi.mock('../src/main/ipc/routers/remote', () => ({ remoteRouter: { createCaller: () => ({}) } }));
+vi.mock('../src/main/ipc/routers/remote', () => ({
+  remoteRouter: {
+    createCaller: () => ({
+      webStatus: async () => ({ enabled: false }),
+      status: async () => ({
+        enabled: false,
+        configuredEnabled: state.remote.enabled,
+        tailscaleEnabled: state.remote.tailscaleEnabled,
+      }),
+      setEnabled: async ({ enabled }: { enabled: boolean }) => {
+        state.remote.enabled = enabled;
+      },
+      setTailscaleEnabled: async ({ enabled }: { enabled: boolean }) => {
+        state.remote.tailscaleEnabled = enabled;
+      },
+    }),
+  },
+}));
 vi.mock('../src/main/ipc/routers/update', () => ({ updateRouter: { createCaller: () => ({}) } }));
 vi.mock('../src/main/ipc/routers/client_state', () => ({
   clientStateRouter: {
     createCaller: () => ({
+      accountSnapshot: async () => ({ records: { notifications: state.notifications } }),
+      accountPatch: async ({ values }: { values: Record<string, null> }) => {
+        for (const key of Object.keys(values)) delete state.notifications[key];
+      },
       patch: async (patch: object) => {
         state.calls.push(['clientPreferences', patch]);
         state.settings.sharedPreferences.client ??= {};
@@ -142,6 +199,11 @@ beforeEach(() => {
   state.source = 'synthetic-source';
   state.monitor = { ...DEFAULT_MONITOR_SETTINGS };
   state.intent = structuredClone(DEFAULT_INTENT_SENSE_CONFIG);
+  state.proxyEnabled = false;
+  state.qqSync = { enabled: false, liveMessages: false };
+  state.notifications = {};
+  state.nativeDebug = false;
+  state.remote = { enabled: false, tailscaleEnabled: false };
 });
 const caller = () => settingsResetRouter.createCaller({});
 describe('分级恢复默认', () => {
@@ -166,12 +228,13 @@ describe('分级恢复默认', () => {
     });
     expect(await recall.getStatus()).toMatchObject({ enabled: false, mode: 'all' });
   });
-  it('各 AI 页只恢复本功能的图片偏好，日志页复位性能记录档位', async () => {
+  it('各 AI 页恢复本功能的图片与模型偏好，日志页复位档位和原生调试开关', async () => {
     Object.assign(state.settings.aiImages, {
       intent: 'ocr',
       suggestions: 'vision',
       profile: 'ocr',
     });
+    state.settings.modelResources.intent = 'laya-multilingual';
     for (const [page, feature, previous] of [
       ['intent-sense', 'intent', 'ocr'],
       ['reply-suggestions', 'suggestions', 'vision'],
@@ -181,17 +244,22 @@ describe('分级恢复默认', () => {
       await caller().restore({ page, source: null });
       expect(state.settings.aiImages[feature]).toBe(DEFAULT_APP_SETTINGS.aiImages[feature]);
     }
+    expect(state.settings.modelResources.intent).toBe(DEFAULT_APP_SETTINGS.modelResources.intent);
     state.monitor.mode = 'off';
+    state.nativeDebug = true;
     await caller().restore({ page: 'logs', source: null });
+    expect(state.nativeDebug).toBe(false);
     expect(state.monitor.mode).toBe(DEFAULT_MONITOR_SETTINGS.mode);
     expect(state.calls).toContainEqual(['resetRecordingMode', null]);
   });
-  it('助手页面成组恢复联动参数与图片偏好，预览不返回原始提示词和 MCP 配置', async () => {
-    const defaults = mergeAssistantConfig({}, {});
+  it('助手页面恢复通用选项并保留外部 MCP 连接', async () => {
+    const mcpServers = 'synthetic= https://example.invalid/synthetic-mcp-secret';
+    const defaults = mergeAssistantConfig({}, { mcpServers });
     state.settings.sharedPreferences.assistant = {
       sendMode: 'queue',
       customPrompt: 'synthetic-prompt',
-      mcpServers: 'synthetic= https://example.invalid/synthetic-mcp-secret',
+      localLightweight: true,
+      mcpServers,
       model: { providerId: 'synthetic', model: 'synthetic-model' },
     };
     state.settings.aiImages.assistant = 'ocr';
@@ -204,6 +272,63 @@ describe('分级恢复默认', () => {
     ]);
     expect(state.settings.sharedPreferences.assistant).toEqual(defaults);
     expect(state.settings.aiImages.assistant).toBe(DEFAULT_APP_SETTINGS.aiImages.assistant);
+  });
+  it('按当前账号读取 QQ 同步偏好，拒绝用旧账号的预览恢复', async () => {
+    state.account = true;
+    state.proxyEnabled = true;
+    state.qqSync = { enabled: true, liveMessages: true };
+    const input = { page: 'account', card: 'qq-client-sync' } as const;
+    const preview = await caller().preview(input);
+    expect(
+      preview.items
+        .filter(({ current, defaultValue }) => current !== defaultValue)
+        .map(({ id }) => id),
+    ).toEqual(['qq-client-sync:proxy', 'qq-client-sync:enabled', 'qq-client-sync:live']);
+    state.source = 'other-source';
+    await expect(caller().restore({ ...input, source: preview.source })).rejects.toThrow('已切换');
+    expect(state.qqSync).toEqual({ enabled: true, liveMessages: true });
+    await caller().restore({ ...input, source: (await caller().preview(input)).source });
+    expect(state.proxyEnabled).toBe(false);
+    expect(state.qqSync).toEqual({ enabled: false, liveMessages: false });
+  });
+  it('通知页清除当前账号的事件提醒范围，保留会话免打扰', async () => {
+    state.account = true;
+    state.notifications = {
+      specialCare: { mode: 'all', targets: [] },
+      mentionMe: { mode: 'selected', targets: ['group:synthetic'] },
+      'mute:assistant:synthetic': true,
+    };
+    const input = { page: 'global', card: 'notification-scopes' } as const;
+    const preview = await caller().preview(input);
+    expect(JSON.stringify(preview)).not.toContain('group:synthetic');
+    await caller().restore({ ...input, source: preview.source });
+    expect(state.notifications).toEqual({ 'mute:assistant:synthetic': true });
+  });
+  it('OneBot 页面停用连接并保留端点与令牌，预览不带连接详情', async () => {
+    state.account = true;
+    const network = {
+      name: 'synthetic',
+      enabled: true,
+      port: 19093,
+      accessToken: 'synthetic-token',
+      messageFormat: 'array',
+      reportSelfMessage: false,
+    } as const;
+    state.settings.oneBotByUin.synthetic = {
+      networks: { wsServers: [network], wsClients: [], httpServers: [], httpClients: [] },
+    };
+    const input = { page: 'onebot' } as const;
+    const preview = await caller().preview(input);
+    expect(preview.items).toMatchObject([{ current: 1, defaultValue: 0 }]);
+    await caller().restore({ ...input, source: preview.source });
+    expect(state.settings.oneBotByUin.synthetic.networks.wsServers).toEqual([
+      { ...network, enabled: false },
+    ]);
+  });
+  it('Remote 已保存开关可恢复，即使网络服务未启动', async () => {
+    state.remote = { enabled: true, tailscaleEnabled: true };
+    await caller().restore({ page: 'remote', source: null });
+    expect(state.remote).toEqual({ enabled: false, tailscaleEnabled: false });
   });
   it('QQ 在线能力卡片恢复右上角标记，不改变独立通知偏好', async () => {
     state.settings.restrictedModeIndicatorEnabled = false;

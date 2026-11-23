@@ -135,7 +135,10 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
         refresh.push(utils.account.getAssistantConfig.invalidate());
       if (cards.has('performance-recording'))
         refresh.push(utils.performanceMonitor.status.invalidate());
+      if (cards.has('logs')) refresh.push(utils.help.getNativeDebugLog.invalidate());
       if (cards.has('onebot')) refresh.push(utils.bootstrap.getOneBotStatus.invalidate());
+      if (cards.has('qq-client-sync'))
+        refresh.push(utils.bootstrap.getQqClientSyncStatus.invalidate());
       if (cards.has('sse-targets') || cards.has('sse-tuning'))
         refresh.push(utils.bootstrap.getSsePushStatus.invalidate());
       if (cards.has('startup-system'))
@@ -148,6 +151,11 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
           utils.bootstrap.getDefaultEmbeddingModel.invalidate(),
         );
       if (cards.has('typing')) refresh.push(utils.bootstrap.getTypingStatusSettings.invalidate());
+      if (cards.has('intent-basic'))
+        refresh.push(
+          utils.bootstrap.localModelResources.invalidate(),
+          utils.bootstrap.getLocalEngine.invalidate(),
+        );
       if ([...cards].some((card) => /^(intent|suggestion|profile)-/.test(card)))
         refresh.push(
           utils.account.intentSense.getStatus.invalidate(),
@@ -285,6 +293,9 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                     .join('、')}
                   。
                 </p>
+              ) : null}
+              {changed.some((item) => item.id === 'qq-client-sync:proxy') ? (
+                <p>停用 QQ 代理前，请先在 QQ 的「网络设置」中恢复直连。</p>
               ) : null}
               {directories.length ? <p>仅更改目录设置，不迁移或删除已有文件。</p> : null}
               {!busy && !changed.length && !error ? <p>当前已是默认设置。</p> : null}

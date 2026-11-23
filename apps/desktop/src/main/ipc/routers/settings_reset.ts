@@ -20,9 +20,11 @@ import { procedure, router, type RpcContext } from '../trpc';
 import { getAppContext } from '../../context/app_context';
 import { bootstrapRouter } from './bootstrap';
 import { remoteRouter } from './remote';
+import { isQqSyncProxyEnabled } from '../../qq_sync/runtime';
+import { disableNativeDebugLog, nativeDebugLogStatus } from './help';
 import { updateRouter } from './update';
 import { sharedSettingsRouter, sharedMailPreferences } from './shared_settings';
-import { sharedIntentStatus } from './intent_sense';
+import { isIntentModelDownloading, sharedIntentStatus } from './intent_sense';
 import { sharedAntiRecallStatus } from './anti_recall';
 import { clientStateRouter } from './client_state';
 import { dataSaverBehaviorDefaults } from '@weq/service/data-saver';
@@ -30,6 +32,10 @@ import { dataSaverSession } from '@weq/service/transfer-policy';
 import { preferenceDefaults } from '@weq/service/client-preferences';
 import { DEFAULT_MONITOR_SETTINGS, getPerformanceMonitor } from '@weq/service/performance';
 import { TOAST_TIMED_KINDS } from '@weq/service/toast-settings';
+import {
+  normalizeNotificationScope,
+  SCOPED_NOTIFICATION_EVENTS,
+} from '@weq/service/notification-settings';
 import {
   remoteResetCardAvailable,
   remoteSettingAvailable,
@@ -63,8 +69,9 @@ function identity() {
 }
 async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Promise<Entry[]> {
   const context = getAppContext();
-  const config = context.bootstrap?.userConfig;
-  if (!config) throw new Error('配置尚未就绪');
+  const boot = context.bootstrap;
+  if (!boot) throw new Error('配置尚未就绪');
+  const config = boot.userConfig;
   const current = config.getSettings();
   const defaults = settingsDefaults(DEFAULT_APP_SETTINGS);
   const b = bootstrapRouter.createCaller(ctx);
@@ -179,13 +186,20 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   if (!ctx.authorize)
     bind('startup-system:autostart', undefined, false, () => b.setAutostart({ enabled: false }));
 
-  bind('qq-client-sync:enabled', current.qqClientSyncEnabled, defaults.qqClientSyncEnabled, () =>
-    b.setQqClientSyncEnabled({ enabled: defaults.qqClientSyncEnabled }),
-  );
-
-  bind('qq-client-sync:live', current.qqLiveMessagesEnabled, defaults.qqLiveMessagesEnabled, () =>
-    b.setQqLiveMessagesEnabled({ enabled: defaults.qqLiveMessagesEnabled }),
-  );
+  if (selected.has('qq-client-sync')) {
+    bind('qq-client-sync:proxy', isQqSyncProxyEnabled(boot.qqSyncRoot), false, () =>
+      b.setQqProxyEnabled({ enabled: false }),
+    );
+    if (context.services && !context.accountIsStatic) {
+      const { qqClientSyncEnabled, qqLiveMessagesEnabled } = await b.getSettings();
+      bind('qq-client-sync:enabled', qqClientSyncEnabled, defaults.qqClientSyncEnabled, () =>
+        b.setQqClientSyncEnabled({ enabled: defaults.qqClientSyncEnabled }),
+      );
+      bind('qq-client-sync:live', qqLiveMessagesEnabled, defaults.qqLiveMessagesEnabled, () =>
+        b.setQqLiveMessagesEnabled({ enabled: defaults.qqLiveMessagesEnabled }),
+      );
+    }
+  }
 
   for (const kind of TOAST_TIMED_KINDS) {
     const key = `${kind}Seconds` as const;
@@ -265,18 +279,17 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   );
   if (selected.has('assistant-config')) {
     const assistant = shared.assistant;
-    const defaultConfig = mergeAssistantConfig({}, {});
+    const { mcpServers: _mcp, ...defaultConfig } = mergeAssistantConfig({}, {});
     const currentConfig = mergeAssistantConfig(await assistant.getConfig(), {});
-    // 恢复预览只说明文本已配置，不回传可能含密钥的 MCP 配置。
+    // 提示词只预览是否已配置，外部 MCP 由全局清除 API 配置处理。
     const previewConfig = ({
       customPrompt,
-      mcpServers,
+      mcpServers: _mcpServers,
       modelSettingsVersion: _version,
       ...value
-    }: typeof defaultConfig) => ({
+    }: ReturnType<typeof mergeAssistantConfig>) => ({
       ...value,
       customPrompt: Boolean(customPrompt),
-      mcpServers: Boolean(mcpServers),
     });
     bind(
       'assistant-config:config',
@@ -296,6 +309,20 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     bind(`${card}:imageMode`, current.aiImages[feature], defaults.aiImages[feature], () =>
       b.setAiImagePreference({ feature, mode: defaults.aiImages[feature] }),
     );
+  bind(
+    'intent-basic:localResource',
+    current.modelResources.intent,
+    defaults.modelResources.intent,
+    async () => {
+      if (isIntentModelDownloading()) throw new Error('模型下载期间不能切换资源');
+      config.setSettings({ modelResources: { intent: defaults.modelResources.intent } });
+    },
+  );
+  if (selected.has('logs')) {
+    const debug = nativeDebugLogStatus();
+    if (debug.available)
+      bind('logs:nativeDebug', debug.enabled, false, async () => disableNativeDebugLog());
+  }
   if (selected.has('performance-recording')) {
     const monitor = getPerformanceMonitor();
     await monitor.ready;
@@ -345,18 +372,28 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   bind('mcp:enabled', current.mcp.enabled, defaults.mcp.enabled, () =>
     b.setMcpEnabled({ enabled: defaults.mcp.enabled }),
   );
-  // OneBot 配置现在是**按账号**的（`oneBotByUin`），全局「恢复默认」不该清掉
-  // 某个账号的网络配置 —— 那是用户给那个号配的端口与令牌，跟着账号走才合理。
-  // 只把「当前账号」的这一份重置成空网络列表。
   const currentUin = context.account?.context.uin;
-  if (currentUin && current.oneBotByUin[currentUin]) {
-    const empty = { networks: { wsServers: [], wsClients: [], httpServers: [], httpClients: [] } };
-    bind(
-      'onebot:config',
-      JSON.stringify(current.oneBotByUin[currentUin]),
-      JSON.stringify(empty),
-      () => b.saveOneBotConfig({ config: empty }),
-    );
+  const oneBot = currentUin ? current.oneBotByUin[currentUin] : undefined;
+  if (selected.has('onebot') && oneBot) {
+    const { wsServers, wsClients, httpServers, httpClients } = oneBot.networks;
+    const enabled = [...wsServers, ...wsClients, ...httpServers, ...httpClients].filter(
+      (row) => row.enabled !== false,
+    ).length;
+    const disable = <T extends { enabled?: boolean }>(row: T) => ({ ...row, enabled: false });
+    bind('onebot:config', enabled, 0, async () => {
+      const result = await b.saveOneBotConfig({
+        config: {
+          ...oneBot,
+          networks: {
+            wsServers: wsServers.map(disable),
+            wsClients: wsClients.map(disable),
+            httpServers: httpServers.map(disable),
+            httpClients: httpClients.map(disable),
+          },
+        },
+      });
+      if (result.daemonCheck) throw new Error(result.daemonCheck);
+    });
   }
   bind('sse-targets:enabled', current.ssePush.enabledServerId, null, () =>
     b.setSsePushEnabled({ serverId: null }),
@@ -379,7 +416,15 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     const u = updateRouter.createCaller(ctx);
     bind('web:enabled', undefined, false, () => r.setWebEnabled({ enabled: false }));
 
-    bind('remote:enabled', undefined, false, () => r.setEnabled({ enabled: false }));
+    if (selected.has('remote')) {
+      const remote = await r.status();
+      bind('remote:enabled', remote.configuredEnabled || remote.enabled, false, () =>
+        r.setEnabled({ enabled: false }),
+      );
+      bind('remote:tailscale', remote.tailscaleEnabled, false, () =>
+        r.setTailscaleEnabled({ enabled: false }),
+      );
+    }
     bind(
       'update:interval',
       current.updateCheckIntervalMinutes,
@@ -403,6 +448,28 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
         }),
       );
     const record = services?.accountConfig.getRecord();
+    if (record && selected.has('notification-scopes')) {
+      const clientState = clientStateRouter.createCaller(ctx);
+      const account = { expectedAccountUin: record.uin, expectedAccountConfigId: record.configId };
+      const { records } = await clientState.accountSnapshot(account);
+      for (const event of SCOPED_NOTIFICATION_EVENTS) {
+        const summarize = (value: unknown) => {
+          const scope = normalizeNotificationScope(value, event);
+          return { mode: scope.mode, count: scope.targets.length };
+        };
+        bind(
+          `notification-scopes:${event}`,
+          summarize(records.notifications?.[event]),
+          summarize(undefined),
+          () =>
+            clientState.accountPatch({
+              ...account,
+              namespace: 'notifications',
+              values: { [event]: null },
+            }),
+        );
+      }
+    }
     if (record) {
       const selectedHidden = current.typingStatus.hidden.filter(
         (item) => item.accountUin === record.uin && item.accountConfigId === record.configId,
@@ -477,7 +544,14 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
 }
 
 async function preview(ctx: RpcContext, input: SettingsResetTarget) {
-  const accountCards = new Set(['recall-scope', 'recall-notifications', 'typing']);
+  const accountCards = new Set([
+    'recall-scope',
+    'recall-notifications',
+    'typing',
+    'notification-scopes',
+    'qq-client-sync',
+    'onebot',
+  ]);
   const selected = new Set(
     resetCards(input)
       .filter(
@@ -487,7 +561,8 @@ async function preview(ctx: RpcContext, input: SettingsResetTarget) {
       )
       .map(([, card]) => card),
   );
-  const source = [...selected].some((card) => accountCards.has(card)) ? identity() : null;
+  const usesAccount = [...selected].some((card) => accountCards.has(card));
+  const source = usesAccount ? identity() : null;
   const all = (await entries(ctx, selected)).filter(
     (entry) =>
       selected.has(entry.card) &&
@@ -500,10 +575,8 @@ async function preview(ctx: RpcContext, input: SettingsResetTarget) {
         entry.current = (await bootstrapRouter.createCaller(ctx).getAutostartStatus()).enabled;
       if (entry.id === 'web:enabled')
         entry.current = (await remoteRouter.createCaller(ctx).webStatus()).enabled;
-      if (entry.id === 'remote:enabled')
-        entry.current = (await remoteRouter.createCaller(ctx).status()).enabled;
     }
-  if (source !== null && source !== identity())
+  if (usesAccount && source !== identity())
     throw new Error('账号或数据源已切换，请重新读取恢复范围');
   return { source, items: all };
 }
@@ -528,9 +601,8 @@ export const settingsResetRouter = router({
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
-      if (input.source !== null && input.source !== identity())
-        throw new Error('账号或数据源已切换，请重新确认恢复范围');
       const result = await preview(ctx, input);
+      if (input.source !== result.source) throw new Error('账号或数据源已切换，请重新确认恢复范围');
       const results: SettingsResetResult[] = [];
       const candidates = planSettingsReset(result.items, input);
       const completed = new Set<string>();

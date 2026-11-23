@@ -70,6 +70,9 @@ export function DefaultsOptions({
         ) ? (
           <p>恢复服务开关会断开对应的浏览器或手机连接。</p>
         ) : null}
+        {choice.resetConnections?.includes('qqProxyEnabled') ? (
+          <p>停用 QQ 代理前，请先在 QQ 的「网络设置」中恢复直连。</p>
+        ) : null}
         {info.paths.length ? (
           <section aria-label="自定义目录">
             <h4>自定义目录</h4>

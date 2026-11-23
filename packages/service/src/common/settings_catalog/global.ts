@@ -21,8 +21,8 @@ export const APP_SETTINGS_RESET_POLICY = {
   webServiceAutoStart: 'connection',
   showWindowOnAutostart: 'connection',
   startupPage: 'preference',
-  qqClientSyncEnabled: 'connection',
-  qqLiveMessagesEnabled: 'connection',
+  qqClientSyncEnabled: 'preference',
+  qqLiveMessagesEnabled: 'preference',
   qqProxyIndicatorEnabled: 'preference',
   autoLockMinutes: 'preference',
   appLock: 'preference',
@@ -99,6 +99,8 @@ export const WEQ_DEFAULTS_CONNECTIONS = [
   'remoteEnabled',
   'remoteMode',
   'tailscaleEnabled',
+  'qqProxyEnabled',
+  'qqProxyPort',
   'weqAssistant',
 ] as const;
 export type WeqDefaultsConnection = (typeof WEQ_DEFAULTS_CONNECTIONS)[number];

@@ -253,6 +253,8 @@ it.each([false, true])('恢复所有账号偏好，API 清除选择=%s，数据�
   const f = fixture();
   f.config.setAutoEnter({ configId: '10001', uin: '10001' });
   f.config.setSettings({
+    qqClientSyncEnabled: true,
+    qqLiveMessagesEnabled: true,
     oneBot: {
       enabled: true,
       httpServers: [
@@ -311,6 +313,7 @@ it.each([false, true])('恢复所有账号偏好，API 清除选择=%s，数据�
       uin: id,
       mailNotifications: true,
       mailShowUnread: false,
+      qqClientSync: { enabled: true, liveMessages: true },
       annualReport: { pages: [] },
       groupKeyword: { enabled: true },
       nativeMediaEnabled: false,
@@ -359,6 +362,10 @@ it.each([false, true])('恢复所有账号偏好，API 清除选择=%s，数据�
   expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
   const reopened = new UserConfigService(f.platform);
   expect(reopened.getAutoEnter()).toBeNull();
+  expect(reopened.getSettings()).toMatchObject({
+    qqClientSyncEnabled: false,
+    qqLiveMessagesEnabled: false,
+  });
   expect(reopened.listAccountConfigs()).toHaveLength(2);
   for (const account of reopened.listAccountConfigs()) {
     expect(account.dbKey).toBe(saved.dbKey);
@@ -366,6 +373,7 @@ it.each([false, true])('恢复所有账号偏好，API 清除选择=%s，数据�
     for (const key of [
       'mailNotifications',
       'mailShowUnread',
+      'qqClientSync',
       'annualReport',
       'groupKeyword',
       'nativeMediaEnabled',

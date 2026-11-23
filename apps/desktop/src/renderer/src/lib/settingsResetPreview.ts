@@ -4,6 +4,7 @@ import {
   normalizeContactCard,
 } from '@weq/service/contact-card';
 import type { SettingsResetItem } from '../../../shared/settings_reset';
+import { NOTIFICATION_SCOPE_OPTIONS } from '@weq/service/notification-settings';
 import { CONTACT_CARD_SECTIONS, contactCardFieldGroup } from './contactCardSections';
 
 const labels: Record<string, string> = {
@@ -68,6 +69,7 @@ export function formatResetValue(value: unknown, id = ''): string {
     if (value === 'remark') return '备注优先';
     if (value === 'nickname') return '昵称优先';
   }
+  if (id === 'onebot:config' && typeof value === 'number') return `${value} 个启用的连接`;
   if (selections.has(id) && Array.isArray(value))
     return value.length ? `已选择 ${value.length} 个会话` : '未选择会话';
   if (value === undefined) return '当前状态未知';
@@ -93,6 +95,12 @@ export function formatResetValue(value: unknown, id = ''): string {
       : '空列表';
   if (typeof value === 'object') {
     const data = value as Record<string, unknown>;
+    if (id.startsWith('notification-scopes:')) {
+      const mode = NOTIFICATION_SCOPE_OPTIONS.find((option) => option.value === data.mode);
+      return mode?.value === 'selected'
+        ? `${mode.label}（${data.count} 个）`
+        : (mode?.label ?? '默认范围');
+    }
     if ('windowSeconds' in data && 'maxPages' in data)
       return `${data.windowSeconds} 秒内最多 ${data.maxPages} 页`;
     if ('debounceMs' in data)
@@ -139,13 +147,13 @@ export function describeSettingsReset(item: SettingsResetItem): ResetPreviewLine
     const fields = {
       model: '默认聊天模型',
       reasoningEffort: '默认思考强度',
+      localLightweight: '本地模型轻量模式',
       permissionMode: '运行模式',
       customPrompt: '额外提示词',
-      mcpServers: '外部 MCP 服务器',
       sendMode: '运行中默认发送方式',
     };
     const format = (key: string, value: unknown) => {
-      if (key === 'customPrompt' || key === 'mcpServers') return value ? '已配置' : '未设置';
+      if (key === 'customPrompt') return value ? '已配置' : '未设置';
       return formatResetValue(value);
     };
     const lines = Object.entries(fields)

@@ -15,10 +15,23 @@ import { backupProcedures } from '../src/main/ipc/routers/backup';
 import { backgroundTasks } from '../src/main/background_tasks';
 import { procedure, router } from '../src/main/ipc/trpc';
 import { runtimeMaintenance, MAINTENANCE_DRAIN_TIMEOUT_MS } from '../src/main/runtime_maintenance';
+import { DEFAULT_QQ_SYNC_PORT } from '../src/main/qq_sync/ipc';
 
 const context = vi.hoisted(() => ({
   current: null as WeqFileStartup | null,
   closing: vi.fn(async () => {}),
+  proxy: null as { enabled: boolean; port: number } | null,
+  debug: false,
+}));
+vi.mock('../src/main/qq_sync/runtime', () => ({
+  qqSyncStatus: async () => ({ ...context.proxy }),
+  setQqSyncProxyEnabled: async (_root: string, enabled: boolean) => {
+    context.proxy!.enabled = enabled;
+  },
+  setQqSyncPort: async (_root: string, port: number) => {
+    if (context.proxy!.enabled) throw new Error('代理仍在监听');
+    context.proxy!.port = port;
+  },
 }));
 vi.mock('../src/main/context/backup_context', () => ({
   getBackupContext: () => context.current,
@@ -32,7 +45,28 @@ vi.mock('../src/main/context/backup_context', () => ({
 }));
 vi.mock('../src/main/context/app_context', () => ({
   retryBackupRecovery: () => true,
-  getAppContext: () => ({ bootstrap: null, clearAccount: context.closing }),
+  getAppContext: () => ({
+    bootstrap: context.proxy
+      ? {
+          qqSyncRoot: context.current!.root,
+          userConfig: context.current!.config,
+          ocrModels: { listModels: () => [] },
+          voiceTranscribe: { listModels: () => [] },
+        }
+      : null,
+    applyWeqAssistant: async () => {},
+    clearAccount: context.closing,
+    platform: {
+      native: {
+        ntHelper: {
+          isDebugLogEnabled: () => context.debug,
+          setDebugLog: (enabled: boolean) => {
+            context.debug = enabled;
+          },
+        },
+      },
+    },
+  }),
 }));
 vi.mock('../src/main/ipc/routers/db_repair', () => ({ isDbRepairBusy: () => false }));
 vi.mock('../src/main/ipc/routers/intent_sense', () => ({ isIntentModelDownloading: () => false }));
@@ -45,6 +79,8 @@ afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
   context.current = null;
+  context.proxy = null;
+  context.debug = false;
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function fixture() {
@@ -133,6 +169,26 @@ it('恢复默认后系统自启变更失败，返回且持久记录具体未完�
   expect(result.status).toBe('applied');
   expect(result.warnings.join('；')).toContain('合成系统自启错误');
   expect((await f.caller.backupStatus()).result?.warnings).toEqual(result.warnings);
+});
+it('全局恢复关闭调试日志，QQ 代理连接设置仅在勾选后重置', async () => {
+  const f = fixture();
+  context.proxy = { enabled: true, port: 29317 };
+  context.debug = true;
+  expect((await f.caller.backupDefaultsInfo()).connections.map(({ id }) => id)).toEqual([
+    'qqProxyEnabled',
+    'qqProxyPort',
+  ]);
+  const first = await f.caller.backupDefaults();
+  expect(first.status).toBe('applied');
+  expect(context.debug).toBe(false);
+  expect(context.proxy).toEqual({ enabled: true, port: 29317 });
+  await f.caller.backupAcknowledgeClient({ id: first.id });
+  const { status, warnings } = await f.caller.backupDefaults({
+    resetConnections: ['qqProxyEnabled', 'qqProxyPort'],
+  });
+  expect(status).toBe('applied');
+  expect(warnings).toEqual([]);
+  expect(context.proxy).toEqual({ enabled: false, port: DEFAULT_QQ_SYNC_PORT });
 });
 it('账号收尾失败时取消本次暂存，弹窗重试可重新提交而不被旧暂存阻塞', async () => {
   const f = fixture();

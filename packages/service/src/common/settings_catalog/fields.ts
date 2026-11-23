@@ -8,6 +8,7 @@ import {
   type PreferenceKey,
 } from '../client_preferences';
 import type { SettingsResetCardId } from './reset';
+import { NOTIFICATION_LABELS, SCOPED_NOTIFICATION_EVENTS } from '../notification_settings';
 
 export interface SettingField {
   id: string;
@@ -331,8 +332,16 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   field('toast', 'successSeconds', 'toast-success', '成功通知停留时长', 'runtime'),
   field('toast', 'failureSeconds', 'toast-failure', '失败通知停留时长', 'runtime'),
   field('toast', 'messageSeconds', 'toast-message', '消息通知停留时长', 'runtime'),
-  field('qq-client-sync', 'enabled', 'qq-client-sync', '自动同步本人消息与已读', 'runtime'),
-  field('qq-client-sync', 'live', 'qq-live-messages', '通过 QQ 代理加速实时更新', 'runtime'),
+  field('qq-client-sync', 'proxy', 'qq-proxy-connection', 'QQ 代理', 'runtime', {
+    scope: '此设备',
+    stopsService: true,
+  }),
+  field('qq-client-sync', 'enabled', 'qq-client-sync', '自动同步本人消息与已读', 'runtime', {
+    scope: '当前账号',
+  }),
+  field('qq-client-sync', 'live', 'qq-live-messages', '通过 QQ 代理加速实时更新', 'runtime', {
+    scope: '当前账号',
+  }),
   field('app-lock', 'enabled', 'app-lock', '启用应用锁', 'runtime'),
   field('app-lock', 'method', 'unlock-method', '解锁方式', 'runtime'),
   field('message-content', 'autoTranscribe', 'auto-transcribe-voice', '语音自动转文字', 'runtime'),
@@ -354,9 +363,11 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   field('assistant-config', 'config', 'weq-assistant-default-model', '助手生成与执行', 'runtime'),
   field('assistant-images', 'mode', 'ai-images-assistant', '图片处理偏好', 'runtime'),
   field('intent-basic', 'imageMode', 'ai-images-intent', '图片处理偏好', 'runtime'),
+  field('intent-basic', 'localResource', 'intent-model-resources', '本地意图模型资源', 'runtime'),
   field('suggestion-basic', 'imageMode', 'ai-images-suggestions', '图片处理偏好', 'runtime'),
   field('profile-basic', 'imageMode', 'ai-images-profile', '图片处理偏好', 'runtime'),
   field('performance-recording', 'mode', 'performance-monitor', '性能记录档位', 'runtime'),
+  field('logs', 'nativeDebug', 'native-debug-log', '原生调试日志', 'runtime', { scope: '此设备' }),
   field('voice-online', 'concurrency', 'voice-online-concurrency', '转录并发', 'runtime'),
   field('ocr-online', 'concurrency', 'ocr-online-concurrency', '识别并发', 'runtime'),
   field('ocr-online', 'prefilter', 'ocr-prefilter-enabled', 'OCR 前先筛图', 'runtime'),
@@ -366,7 +377,8 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   field('rkey', 'enabled', 'external-rkey', '外部 RKEY 启用目标', 'runtime'),
   field('mcp', 'enabled', 'mcp-enabled', 'MCP 服务', 'runtime', { stopsService: true }),
   // OneBot 配置按账号存，重置的是当前账号那一份（见 settings_reset）。
-  field('onebot', 'config', 'onebot-config', 'OneBot 网络配置', 'runtime', {
+  field('onebot', 'config', 'onebot-config', 'OneBot 网络连接', 'runtime', {
+    scope: '当前账号',
     stopsService: true,
   }),
   field('sse-targets', 'enabled', 'sse-targets', 'SSE 推送', 'runtime', { stopsService: true }),
@@ -382,6 +394,10 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
     stopsService: true,
     desktopOnly: true,
   }),
+  field('remote', 'tailscale', 'remote-tailscale', 'Tailscale 网络连接', 'runtime', {
+    stopsService: true,
+    desktopOnly: true,
+  }),
   field('update', 'interval', 'update-check-interval', '自动检查更新频率', 'runtime', {
     desktopOnly: true,
   }),
@@ -391,6 +407,18 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   field('notification-badges', 'unread', 'mail-unread-badge', '邮箱导航未读角标', 'runtime'),
   field('mail', 'unread', 'mail-unread-badge', '邮箱导航未读角标', 'runtime'),
   field('mail', 'poll-interval', 'mail-poll-interval', '邮箱查询间隔', 'runtime'),
+  ...SCOPED_NOTIFICATION_EVENTS.map((event) =>
+    field(
+      'notification-scopes',
+      event,
+      `notification-${event}`,
+      `${NOTIFICATION_LABELS[event]}提醒会话`,
+      'runtime',
+      {
+        scope: '当前账号',
+      },
+    ),
+  ),
   field('recall-scope', 'method', 'anti-recall', '防撤回方式', 'runtime'),
   field('recall-scope', 'scope', 'anti-recall', '防撤回保护范围', 'runtime'),
   field('recall-scope', 'targets', 'anti-recall', '防撤回会话选择', 'runtime', {

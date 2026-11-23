@@ -213,7 +213,7 @@ export class RemoteRuntime {
   }
 
   status() {
-    const tailscaleEnabled = this.store?.read().tailscaleEnabled ?? false;
+    const { enabled: configuredEnabled, tailscaleEnabled } = this.preferences();
     const network =
       this.server && tailscaleEnabled && this.state.fingerprint ? this.tailscaleState : this.state;
     const addresses = remoteDirectAddresses(this.state.addresses ?? [], 'lan');
@@ -225,6 +225,7 @@ export class RemoteRuntime {
       available: this.config !== null,
       helperInstalled: !!this.config && existsSync(this.config.helper),
       enabled: this.server !== null,
+      configuredEnabled,
       mode: this.mode,
       tailscaleEnabled,
       network: { ...network, addresses, fingerprint: this.state.fingerprint },

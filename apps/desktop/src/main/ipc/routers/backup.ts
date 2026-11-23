@@ -20,13 +20,16 @@ import {
   recordWeqRestoreWarnings,
 } from '@weq/service';
 import { getBackupContext } from '../../context/backup_context';
-import { retryBackupRecovery } from '../../context/app_context';
+import { getAppContext, retryBackupRecovery } from '../../context/app_context';
 import { procedure } from '../trpc';
 import { observable } from '@trpc/server/observable';
 import { runtimeMaintenance } from '../../runtime_maintenance';
 import { applyBackupLive } from '../../context/runtime_files';
 import { desktopWebRuntime } from '../../web/runtime';
 import { remoteRuntime } from '../../remote/runtime';
+import { disableNativeDebugLog } from './help';
+import { DEFAULT_QQ_SYNC_PORT } from '../../qq_sync/ipc';
+import { qqSyncStatus, setQqSyncPort, setQqSyncProxyEnabled } from '../../qq_sync/runtime';
 
 const selection = z.object({
   parts: z.array(z.enum(WEQ_BACKUP_PARTS)).min(1).max(4),
@@ -160,6 +163,8 @@ export const backupProcedures = {
             'remoteEnabled',
             'remoteMode',
             'tailscaleEnabled',
+            'qqProxyEnabled',
+            'qqProxyPort',
           ].includes(id),
         )
       )
@@ -195,6 +200,14 @@ export const backupProcedures = {
               await attempt(`恢复${label}`, () => remoteRuntime.restorePreferences([id]));
           if (selected.includes('webEnabled'))
             await attempt('恢复 Web 服务开关', () => desktopWebRuntime.stop());
+          if (selected.includes('qqProxyEnabled') || selected.includes('qqProxyPort'))
+            await attempt('恢复 QQ 代理', async () => {
+              const root = getAppContext().bootstrap?.qqSyncRoot;
+              if (!root) throw new Error('QQ 代理配置尚未就绪');
+              if (selected.includes('qqProxyEnabled')) await setQqSyncProxyEnabled(root, false);
+              if (selected.includes('qqProxyPort')) await setQqSyncPort(root, DEFAULT_QQ_SYNC_PORT);
+            });
+          await attempt('关闭原生调试日志', disableNativeDebugLog);
           await attempt('保存恢复回执', () => recordWeqRestoreWarnings(ready().root, result));
         },
         false,
@@ -246,6 +259,14 @@ export const backupProcedures = {
         connections.push({ id: 'remoteMode', label: '远程连接模式', value: remote.mode });
       if (remote.tailscaleEnabled)
         connections.push({ id: 'tailscaleEnabled', label: 'Tailscale 网络连接', value: '已启用' });
+      const proxyRoot = getAppContext().bootstrap?.qqSyncRoot;
+      if (proxyRoot) {
+        const proxy = await qqSyncStatus(proxyRoot);
+        if (proxy.enabled)
+          connections.push({ id: 'qqProxyEnabled', label: 'QQ 代理开关', value: '已启用' });
+        if (proxy.port !== DEFAULT_QQ_SYNC_PORT)
+          connections.push({ id: 'qqProxyPort', label: 'QQ 代理端口', value: String(proxy.port) });
+      }
     }
     return { ...boot.backups.defaultsInfo(), connections };
   }),

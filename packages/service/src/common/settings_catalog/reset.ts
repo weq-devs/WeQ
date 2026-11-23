@@ -12,6 +12,7 @@ export const SETTINGS_RESET_CARDS = [
   ['appearance', 'window-appearance', '窗口外观'],
   ['global', 'toast', '应用内横幅提醒'],
   ['global', 'notification-events', '事件通知'],
+  ['global', 'notification-scopes', '事件提醒会话'],
   ['global', 'notification-badges', '未读角标'],
   ['global', 'recall-notifications', '撤回提醒'],
   ['privacy', 'privacy-mode', '隐私模式'],
