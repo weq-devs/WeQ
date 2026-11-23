@@ -1,6 +1,6 @@
 .weq-message-heading {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   gap: 2px 8px;
 }
@@ -16,6 +16,7 @@
 
 .weq-message-heading > .weq-message-provenance {
   display: inline-flex;
+  align-items: center;
   margin: 0;
   gap: 8px;
   font-size: 12px;
