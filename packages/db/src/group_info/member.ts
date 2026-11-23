@@ -122,15 +122,8 @@ export class GroupMemberDb {
     return measureMessageWork(this.dbPath, 'contactMembership', async () => {
       if (groups && !groups.size) return new Map();
       const friends = new Set(friendUids.filter(Boolean));
-      if (groups && (await this.qq.hasLeadingIndex('group_member3', '60001'))) {
-        try {
-          const indexed = await this.readIndexedMembershipSnapshot(friends, groups);
-          if (indexed) return indexed;
-        } catch (error) {
-          if (!membershipQueryTimedOut(error)) throw error;
-          // 按群汇总在异常大群或冷库中超过短预算时，沿用有界行页继续校准。
-        }
-      }
+      if (groups && (await this.qq.hasLeadingIndex('group_member3', '60001')))
+        return this.readIndexedMembershipSnapshot(friends, groups);
       return this.readContactMembershipSnapshot(friends, groups);
     });
   }
@@ -138,8 +131,9 @@ export class GroupMemberDb {
   private async readIndexedMembershipSnapshot(
     friends: ReadonlySet<string>,
     groups: ReadonlySet<string>,
-  ): Promise<MembershipSnapshot | undefined> {
+  ): Promise<MembershipSnapshot> {
     const result: MembershipSnapshot = new Map();
+    const fallback = new Set<string>();
     const codes = [...groups];
     const friendList = JSON.stringify([...friends]);
     let batchSize = MEMBERSHIP_GROUP_BATCH;
@@ -153,15 +147,17 @@ export class GroupMemberDb {
       try {
         rows = await (this.qq.supportsReadBudget ? withDatabaseReadBudget(35, read) : read());
       } catch (error) {
-        if (!membershipQueryTimedOut(error) || batchSize === 1) throw error;
-        batchSize = Math.max(1, Math.floor(batchSize / 2));
+        if (!membershipQueryTimedOut(error)) throw error;
+        if (batchSize === 1) fallback.add(codes[offset++]!);
+        else batchSize = Math.max(1, Math.floor(batchSize / 2));
         continue;
       }
       for (const [code, total, json, untyped] of rows) {
-        // 旧库异常字段交给原来的 Number 转换，保留其匹配语义。
-        if (Number(untyped) > 0) return undefined;
         const key = String(code);
-        if (Number(total) > 0 && groups.has(key))
+        if (!groups.has(key)) continue;
+        // 旧库异常字段交给原来的 Number 转换，保留其匹配语义。
+        if (Number(untyped) > 0) fallback.add(key);
+        else if (Number(total) > 0)
           result.set(key, {
             total: Number(total),
             friends: new Set<string>(JSON.parse(String(json))),
@@ -169,6 +165,9 @@ export class GroupMemberDb {
       }
       offset += batchSize;
     }
+    if (fallback.size)
+      for (const [code, group] of await this.readContactMembershipSnapshot(friends, fallback))
+        result.set(code, group);
     return result;
   }
 
@@ -178,7 +177,12 @@ export class GroupMemberDb {
   ): Promise<MembershipSnapshot> {
     const groups: MembershipSnapshot = new Map();
     const seen = new Map<string, Set<string>>();
-    for await (const rows of this.qq.rowidPages('group_member3', ['60001', '1000', '64016'])) {
+    for await (const rows of this.qq.rowidPages(
+      'group_member3',
+      ['60001', '1000', '64016'],
+      undefined,
+      selectedGroups ? { column: '60001', values: [...selectedGroups] } : undefined,
+    )) {
       for (const row of rows) {
         const code = String(row[1]);
         if (selectedGroups && !selectedGroups.has(code)) continue;

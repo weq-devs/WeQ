@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { afterEach, expect, it } from 'vitest';
 import { fixtureDb, createSqliteStub, closeAllFixtureDbs } from '@weq/testkit';
 import { GroupMemberDb } from '../src/group_info/member';
+import { databasePerformance } from '../src/query_schedule';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -69,6 +70,10 @@ it('按索引汇总指定群，和行页路径有相同的成员计数与好友�
 
   // 旧备份中空白字符串经 Number 转换等于零，仍按原行为计入。
   insert.run(1, 'u_old_flag', ' ');
-  const withLegacy = await db.contactMembershipSnapshot(friends, ['1']);
+  const rowsBefore = databasePerformance(path).returnedRows;
+  const withLegacy = await db.contactMembershipSnapshot(friends, ['1', '2']);
+  const transferred = databasePerformance(path).returnedRows - rowsBefore;
   expect(withLegacy.get('1')).toEqual({ total: 3, friends: new Set(['u_friend']) });
+  expect(withLegacy.get('2')).toEqual(expected.get('2'));
+  expect(transferred).toBeLessThan(20);
 });

@@ -153,11 +153,17 @@ export class QqDb {
     table: string,
     columns: readonly string[],
     pageSize = DATABASE_SCAN_PAGE_SIZE,
-    filter?: { column: string; value: SqlValue },
+    filter?: { column: string; value: SqlValue } | { column: string; values: readonly string[] },
   ) {
     if (![table, ...columns].every((name) => /^[\w]+$/.test(name)))
       throw new Error('分页表或字段名无效');
     if (filter && !columns.includes(filter.column)) throw new Error('分页筛选列不在投影中');
+    const filterValues = filter && 'values' in filter ? filter.values : undefined;
+    if (filterValues && !filterValues.length) return;
+    const filterParam =
+      filter && ('value' in filter ? filter.value : JSON.stringify(filter.values));
+    const target = filterValues ? 'SELECT value FROM json_each(?)' : 'VALUES(?)';
+    const filterOperator = filterValues ? 'IN' : '=';
     const end = (await this.query(`SELECT MAX(rowid) FROM "${table}"`))[0]?.[0];
     if (end === null || end === undefined) return;
     let cursor: SqlValue | undefined;
@@ -170,11 +176,11 @@ export class QqDb {
       const bounds = cursor === undefined ? [end] : [end, cursor];
       const page = await this.queryPage(
         filter
-          ? `WITH target(value) AS (VALUES(?)), page AS MATERIALIZED (${select})
-             SELECT rowid,${projection},0 FROM page WHERE "${filter.column}"=(SELECT value FROM target)
+          ? `WITH target(value) AS (${target}), page AS MATERIALIZED (${select})
+             SELECT rowid,${projection},0 FROM page WHERE "${filter.column}" ${filterOperator} (SELECT value FROM target)
              UNION ALL SELECT MAX(rowid),${columns.map(() => 'NULL').join(',')},1 FROM page`
           : select,
-        filter ? [filter.value, ...bounds] : bounds,
+        filter ? [filterParam ?? null, ...bounds] : bounds,
         limit,
       );
       limit = page.limit;
