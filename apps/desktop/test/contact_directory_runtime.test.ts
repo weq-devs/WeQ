@@ -15,7 +15,7 @@ const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0)) await close();
 });
-async function setup(online = true) {
+async function setup(online = true, groupReconcileInterval = 5) {
   const root = await mkdtemp(join(tmpdir(), 'weq-contact-runtime-'));
   const buddies = [{ uid: 'u_friend', uin: 12345n }];
   const profiles: Array<Partial<UserProfile> & Pick<UserProfile, 'uid' | 'uin' | 'isBot'>> = [];
@@ -132,6 +132,7 @@ async function setup(online = true) {
     () => current,
     'synthetic',
     5,
+    groupReconcileInterval,
   );
   cleanup.push(async () => {
     await runtime.dispose();
@@ -765,6 +766,37 @@ it('普通群资料变化不在线重查；好友成员变化才定向查询共�
   expect(services.accountWrite.commonRelationships).toHaveBeenCalledTimes(1);
   await runtime.dispose();
 });
+
+it('群文件连续变化合并全群校准，资料刷新和名册变更仍可先完成', async () => {
+  vi.useFakeTimers({ toFake: ['performance', 'setTimeout', 'clearTimeout'] });
+  try {
+    const f = await setup(false, 30_000);
+    await settled(f);
+    const groups = f.services.groupInfo.contactMembershipSnapshot;
+    const profiles = f.services.profile.profilesByUids;
+    const roster = f.services.profile.listBuddies;
+    expect(groups).toHaveBeenCalledOnce();
+    expect(roster).toHaveBeenCalledOnce();
+    profiles.mockClear();
+    for (let i = 0; i < 10; i++) f.callbacks[1]!();
+    f.callbacks[0]!();
+    await waitFor(() => expect(profiles).toHaveBeenCalledOnce());
+    expect(groups).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    await waitFor(() => expect(groups).toHaveBeenCalledTimes(2));
+    expect(roster).toHaveBeenCalledTimes(2);
+    f.callbacks[1]!();
+    f.buddies.push({ uid: 'u_added', uin: 12346n });
+    f.callbacks[0]!();
+    await waitFor(() => expect(groups).toHaveBeenCalledTimes(3));
+    expect(groups).toHaveBeenLastCalledWith(['u_friend', 'u_added']);
+    await f.runtime.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it('群成员不完整时不写入部分计数，而是通过在线接口补齐', async () => {
   const { runtime, services } = await setup();
   services.groupInfo.listExportMembers.mockResolvedValue([{ uid: 'u_other' }]);

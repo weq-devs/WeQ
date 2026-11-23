@@ -19,6 +19,7 @@
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { QqDb } from '../qq_db';
+import { measureMessageWork } from '../query_schedule';
 
 export interface GroupMember {
   groupCode: bigint;
@@ -96,6 +97,12 @@ export class GroupMemberDb {
 
   /** 联系人校准只读取有效成员总数与好友交集，不加载昵称、等级等整份成员资料。 */
   async contactMembershipSnapshot(friendUids: string[]) {
+    return measureMessageWork(this.dbPath, 'contactMembership', () =>
+      this.readContactMembershipSnapshot(friendUids),
+    );
+  }
+
+  private async readContactMembershipSnapshot(friendUids: string[]) {
     const groups = new Map<string, { total: number; friends: Set<string> }>();
     const ids = new Set(friendUids.filter(Boolean));
     const seen = new Map<string, Set<string>>();

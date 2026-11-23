@@ -2,10 +2,14 @@
 import { expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { measureMessageWork } from '@weq/db';
 import { startMcpServer, stopMcpServer } from '../src/main/mcp/server';
 
 const fake = vi.hoisted(() => ({
-  account: { msgDbPath: '/synthetic/mcp-performance.db' },
+  account: {
+    msgDbPath: '/synthetic/mcp-performance.db',
+    groupMembers: { dbPath: '/synthetic/mcp-membership.db' },
+  },
   attach: true,
   qqOnline: true,
   groupPage: vi.fn(),
@@ -152,11 +156,16 @@ it('lists the real registry without exposing SQL writes, messaging, wallet, cred
     expect(definitions.map((item: { id: string }) => item.id)).toEqual(['theme-mode']);
     expect(definitions[0].reset[0].defaultSource).toBe('client:preference');
     expect(definitions[0]).not.toHaveProperty('current');
+    await measureMessageWork(fake.account.groupMembers.dbPath, 'contactMembership', async () => {});
     const snapshot = await client.callTool({ name: 'get_message_performance', arguments: {} });
     expect(snapshot.isError).not.toBe(true);
     const text = (snapshot.content as Array<{ type: string; text?: string }>)[0]?.text ?? '';
-    expect(JSON.parse(text).database.jsQueueWait.count).toBe(0);
+    expect(JSON.parse(text)).toMatchObject({
+      database: { jsQueueWait: { count: 0 } },
+      contactMembership: { count: 1 },
+    });
     expect(text).not.toContain('/synthetic/mcp-performance.db');
+    expect(text).not.toContain('/synthetic/mcp-membership.db');
     // 账号切换是显式审核过要暴露给外部客户端的（见 tool_permissions.ts 的说明），
     // 别被误标成 assistantOnly 而在界面上消失。
     expect(names).toContain('list_accounts');

@@ -1263,7 +1263,7 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'get_message_performance',
     description:
-      '读取当前账号消息数据库的性能快照，不执行聊天查询。返回排队/原生等待、在途任务及固定阶段统计；' +
+      '读取当前账号消息数据库的性能快照和联系人群成员对账的耗时，不执行聊天查询。返回排队/原生等待、在途任务及固定阶段统计；' +
       '以 WEQ_DATABASE_DIAGNOSTICS=1 启动时额外返回匿名请求编号、查询指纹及源码调用点。' +
       '不含正文、账号/会话标识、SQL、参数或数据库路径；native 等待不等于纯 SQL 执行耗时。',
     input: z.object({}),
@@ -1271,9 +1271,13 @@ export const AI_TOOLS: AiTool[] = [
       services();
       const session = getAppContext().account;
       if (!session) throw new Error('账号尚未打开');
+      const membershipDb = session.groupMembers?.dbPath;
       return {
         runtime: { pid: process.pid, electron: process.versions.electron ?? null },
         database: databasePerformance(session.msgDbPath),
+        contactMembership: membershipDb
+          ? (databasePerformance(membershipDb).phases.contactMembership ?? null)
+          : null,
       };
     },
   }),

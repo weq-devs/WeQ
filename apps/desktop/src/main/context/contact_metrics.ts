@@ -71,6 +71,7 @@ const refreshCheckpoint = z.object({
 });
 type RefreshCheckpoint = z.infer<typeof refreshCheckpoint>;
 type RefreshOptions = z.infer<typeof refreshOptions>;
+const GROUP_MEMBERSHIP_RECONCILE_MS = 30_000;
 function needsMetricRefresh(
   cell: ContactMetricRows[string][ContactMetric],
   force: boolean,
@@ -125,8 +126,9 @@ export class ContactDirectoryRuntime {
   >;
   private watches: Array<{ unmount(): void }> = [];
   private timer?: ReturnType<typeof setTimeout>;
+  private timerDueAt = 0;
+  private nextGroupCheckAt = 0;
   private checking = false;
-  private checkAgain = false;
   private roster = new Map<string, string>();
   private rosterReady = false;
   private memberships = new Map<string, Set<string>>();
@@ -167,6 +169,7 @@ export class ContactDirectoryRuntime {
     private readonly current: () => boolean,
     configId: string,
     private readonly watchDelay = 2000,
+    private readonly groupReconcileInterval = GROUP_MEMBERSHIP_RECONCILE_MS,
   ) {
     this.scope = { uin: session.context.uin, configId };
     const source = createHash('sha256')
@@ -281,20 +284,14 @@ export class ContactDirectoryRuntime {
       this.watches.push(
         watcher.mount({
           dbPath,
-          onDbFileChangeHook: () =>
-            this.requestCheck(dbPath === session.profileInfo.dbPath ? 'profile' : 'group'),
+          onDbFileChangeHook: () => {
+            if (dbPath === session.profileInfo.dbPath) this.requestCheck('profile');
+            if (dbPath === session.groupMembers.dbPath) this.requestCheck('group');
+          },
         }),
       );
     }
-    // 初始仅记录名册，不扫描群成员或发起在线请求。
-    void withDatabaseSignal(this.lifetime.signal, () => services.profile.listBuddies())
-      .then((rows) => {
-        if (this.isCurrent() && !this.rosterReady) {
-          this.roster = new Map(rows.map((row) => [row.uid, String(row.uin)]));
-          this.rosterReady = true;
-        }
-      })
-      .catch(() => {});
+    // 首轮统一建立基线，避免启动先读一次名册、随后校准再读一次。
     this.requestCheck('group');
     this.requestCheck('profile');
   }
@@ -1353,33 +1350,51 @@ export class ContactDirectoryRuntime {
   private requestCheck(kind?: 'profile' | 'group') {
     if (!this.isCurrent()) return;
     if (kind) this.pendingKinds.add(kind);
-    this.checkAgain = true;
-    if (!this.timer && !this.checking)
-      this.timer = setTimeout(() => {
+    if (this.checking || !this.pendingKinds.size) return;
+    const now = performance.now();
+    const earliest = now + this.watchDelay;
+    const due = this.pendingKinds.has('profile')
+      ? earliest
+      : Math.max(earliest, this.nextGroupCheckAt);
+    if (this.timer && this.timerDueAt <= due) return;
+    clearTimeout(this.timer);
+    this.timerDueAt = due;
+    this.timer = setTimeout(
+      () => {
         this.timer = undefined;
         void withDatabasePriority('background', () => this.checkChanges(), this.lifetime.signal);
-      }, this.watchDelay);
+      },
+      Math.ceil(due - now),
+    );
+    this.timer.unref?.();
   }
 
   private async checkChanges() {
-    this.checking = true;
-    this.checkAgain = false;
+    if (!this.isCurrent()) return;
     const kinds = new Set(this.pendingKinds);
-    this.pendingKinds.clear();
+    if (performance.now() < this.nextGroupCheckAt) kinds.delete('group');
+    if (!kinds.size) {
+      this.requestCheck();
+      return;
+    }
+    this.checking = true;
+    for (const kind of kinds) this.pendingKinds.delete(kind);
     try {
       this.assertCurrent();
-      const friends = await this.friends();
-      this.assertCurrent();
-      const next = new Map(friends.map((row) => [row.uid, String(row.uin)]));
-      const rosterChanged = [...new Set([...this.roster.keys(), ...next.keys()])].filter(
-        (uid) => this.roster.get(uid) !== next.get(uid),
-      );
+      const next =
+        kinds.has('profile') || !this.rosterReady
+          ? new Map((await this.friends()).map((row) => [row.uid, String(row.uin)]))
+          : this.roster;
+      const rosterChanged =
+        this.rosterReady && next !== this.roster
+          ? [...new Set([...this.roster.keys(), ...next.keys()])].filter(
+              (uid) => this.roster.get(uid) !== next.get(uid),
+            )
+          : [];
       const addedFriends = rosterChanged.filter((uid) => next.has(uid) && !this.roster.has(uid));
-      const changedFriendKeys = this.rosterReady
-        ? rosterChanged.flatMap((uid) =>
-            [this.roster.get(uid), next.get(uid)].flatMap((uin) => (uin ? [`friend:${uin}`] : [])),
-          )
-        : [];
+      const changedFriendKeys = rosterChanged.flatMap((uid) =>
+        [this.roster.get(uid), next.get(uid)].flatMap((uin) => (uin ? [`friend:${uin}`] : [])),
+      );
       this.roster = next;
       this.rosterReady = true;
       if (changedFriendKeys.length) {
@@ -1423,6 +1438,9 @@ export class ContactDirectoryRuntime {
         this.profileSignature = signature;
       }
       if (!kinds.has('group') && !rosterChanged.length) return;
+      // 好友名册发生变化时及时重算交集，并合并已经等待的群资料校准。
+      if (this.pendingKinds.delete('group')) kinds.add('group');
+      this.nextGroupCheckAt = performance.now() + this.groupReconcileInterval;
       const groups = await this.services.groupInfo.listGroupDirectory();
       this.assertCurrent();
       const codes = new Set(groups.map((group) => group.groupCode));
@@ -1503,7 +1521,7 @@ export class ContactDirectoryRuntime {
         console.warn('[contacts] 增量校准失败', error);
     } finally {
       this.checking = false;
-      if (this.checkAgain) this.requestCheck();
+      this.requestCheck();
     }
   }
 
@@ -1517,7 +1535,6 @@ export class ContactDirectoryRuntime {
     this.lifetime.abort();
     this.groupTimes.flush();
     this.stopPreparing = 'cancel';
-    this.checkAgain = false;
     this.pendingKinds.clear();
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
