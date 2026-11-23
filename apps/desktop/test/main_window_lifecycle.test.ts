@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { createMainWindowLifecycle } from '../src/main/main_window_lifecycle.ts';
-import { macApplicationMenu, nativeMenuLabels } from '../src/main/application_menu.ts';
+import {
+  desktopApplicationMenu,
+  macApplicationMenu,
+  nativeMenuLabels,
+} from '../src/main/application_menu.ts';
 
 class FakeWindow {
   destroyed = false;
@@ -131,29 +135,24 @@ test('activation during shutdown cannot create or reveal windows', () => {
   assert.equal(created.length, 1);
 });
 
-test('the macOS File menu restores the one main window through the same lifecycle', () => {
-  const { lifecycle, created } = fixture();
-  const menu = macApplicationMenu(
-    () => {
-      lifecycle.open();
-    },
-    () => {},
-  );
-  assert.deepEqual(
-    menu.map((item) => item.role ?? item.label),
-    ['appMenu', 'File', 'editMenu', 'viewMenu', 'windowMenu'],
-  );
-  const file = menu[1]!.submenu;
-  assert.ok(Array.isArray(file));
-  const reopen = file[0]!;
-  assert.equal(reopen.accelerator, 'CmdOrCtrl+N');
-  assert.equal(typeof reopen.click, 'function');
-  const click = reopen.click as () => void;
-  click();
-  click();
-  assert.equal(created.length, 1);
-  assert.equal(created[0]!.visible, true);
-  assert.equal(file[2]!.role, 'close');
+test('the File menu requests a fresh account window on each invocation', () => {
+  for (const platform of ['mac', 'other']) {
+    let newWindows = 0;
+    const open = () => {
+      newWindows++;
+    };
+    const menu =
+      platform === 'mac' ? macApplicationMenu(open, () => {}) : desktopApplicationMenu(open, 'en');
+    const file = menu.find((item) => item.label === 'File')?.submenu;
+    assert.ok(Array.isArray(file));
+    const create = file[0]!;
+    assert.equal(create.accelerator, 'CmdOrCtrl+N');
+    const click = create.click as () => void;
+    click();
+    click();
+    assert.equal(newWindows, 2);
+    assert.equal(file[2]!.role, platform === 'mac' ? 'close' : 'quit');
+  }
 });
 
 test('the macOS application menu restarts WeQ and keeps native quit available', () => {

@@ -11,4 +11,5 @@ export interface AccountInstanceInfo {
 export interface AccountInstanceBridge {
   list(): Promise<AccountInstanceInfo[]>;
   open(configId: string): Promise<void>;
+  newWindow(): Promise<void>;
 }

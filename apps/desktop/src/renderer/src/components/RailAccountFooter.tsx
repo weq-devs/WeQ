@@ -27,6 +27,7 @@ import {
   Smartphone,
   RefreshCw,
   ExternalLink,
+  Plus,
 } from 'lucide-react';
 import { trpc, client } from '../trpc/client';
 import { leaveAccountForBootstrap } from '../lib/leaveAccount';
@@ -324,6 +325,19 @@ export function RailAccountFooter({
     }
   }
 
+  async function openAccountPicker(): Promise<void> {
+    if (busy || !instanceBridge?.newWindow) return;
+    setBusy(true);
+    try {
+      await instanceBridge.newWindow();
+      setOpen(false);
+    } catch (error) {
+      showError('无法新建窗口', errMsg(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // configId 尚未取到时退回按 uin 过滤（旧行为），避免把当前账号也列出来。
   const localConfigs = new Map((configs.data ?? []).map((cfg) => [cfg.configId, cfg]));
   const desktopAccounts = instanceBridge ? (instanceConfigs.data ?? []) : [];
@@ -391,6 +405,18 @@ export function RailAccountFooter({
           <section className="weq-rail-account-popover" role="menu" aria-label="切换账号">
             <div className="weq-rail-account-popover-head">
               <span className="weq-rail-account-popover-title">切换账号</span>
+              {instanceBridge?.newWindow ? (
+                <button
+                  type="button"
+                  className="weq-rail-account-instance-action"
+                  title="新建窗口"
+                  aria-label="新建窗口"
+                  disabled={busy}
+                  onClick={() => void openAccountPicker()}
+                >
+                  <Plus size={16} aria-hidden />
+                </button>
+              ) : null}
             </div>
             {configs.error ? (
               <div className="weq-rail-account-error" role="alert">

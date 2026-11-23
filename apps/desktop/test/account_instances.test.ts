@@ -8,10 +8,17 @@ import { afterEach, beforeEach, expect, it } from 'vitest';
 import {
   AccountInstances,
   accountIsRunning,
+  accountLaunchArgs,
+  accountPickerArg,
+  accountPickerDirectories,
+  accountPickerOwner,
+  accountPickerTarget,
   instanceArg,
   instanceDirectories,
   instanceTarget,
+  prepareAccountPicker,
   prepareInstanceAccount,
+  savedInstanceAccounts,
 } from '../src/main/account_instances';
 
 let root: string;
@@ -88,6 +95,68 @@ it('不同账号可并行，关闭和打开失败只释放对应账号的锁', a
   await second.run(
     null,
     async () => {},
+    () => undefined,
+  );
+});
+
+it('每次新建账号选择窗口独立保存配置并跳过现有自动进入设置', () => {
+  const origin = join(root, 'origin');
+  const config = {
+    autoEnter: { configId: '101', uin: '101' },
+    tencentFilesRootOverride: '/fixture/QQ',
+    settings: { webServiceAutoStart: true, appLock: { enabled: true } },
+  };
+  for (const [source, uin] of [
+    [root, '101'],
+    [origin, '202'],
+  ] as const) {
+    const accounts = join(source, 'config', 'accounts');
+    mkdirSync(accounts, { recursive: true });
+    writeFileSync(
+      join(accounts, `${uin}.json`),
+      JSON.stringify({ uin, dbKey: 'fixture-key', lastLoginAt: 1, session: { pid: 123 } }),
+    );
+  }
+  writeFileSync(join(origin, 'config.json'), JSON.stringify(config));
+  const first = prepareAccountPicker(root, origin);
+  const second = prepareAccountPicker(root, origin);
+  expect(first).not.toBe(second);
+  const args = ['electron', 'app', accountPickerArg(first)];
+  expect(accountPickerTarget(args)).toBe(first);
+  expect(accountLaunchArgs(args)).toEqual(['app']);
+  const { data } = accountPickerDirectories(root, first);
+  expect(JSON.parse(readFileSync(join(data, 'config.json'), 'utf8'))).toEqual({
+    tencentFilesRootOverride: config.tencentFilesRootOverride,
+    settings: { appLock: { enabled: true } },
+  });
+  expect(savedInstanceAccounts(data).map(({ uin, session }) => [uin, session])).toEqual([
+    ['101', undefined],
+    ['202', undefined],
+  ]);
+  rmSync(join(data, 'config', 'accounts', '202.json'));
+  expect(savedInstanceAccounts(origin)).toHaveLength(1);
+  expect(savedInstanceAccounts(accountPickerDirectories(root, second).data)).toHaveLength(2);
+  expect(JSON.parse(readFileSync(join(origin, 'config.json'), 'utf8'))).toEqual(config);
+});
+
+it('切换到在账号选择窗口中打开的账号时可找到实际持有窗口', async () => {
+  const id = prepareAccountPicker(root, root);
+  const picker = new AccountInstances(root, undefined, id);
+  await picker.run(
+    '101',
+    async () => {},
+    () => '101',
+  );
+  expect(accountPickerOwner(root, '101')).toBe(id);
+  await picker.run(
+    null,
+    async () => {},
+    () => undefined,
+  );
+  expect(accountPickerOwner(root, '101')).toBeUndefined();
+  await new AccountInstances(root).run(
+    '101',
+    async () => expect(accountPickerOwner(root, '101')).toBeUndefined(),
     () => undefined,
   );
 });

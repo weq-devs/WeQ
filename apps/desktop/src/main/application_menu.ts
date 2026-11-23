@@ -19,8 +19,36 @@ export function nativeMenuLabels(locale: string) {
       };
 }
 
+function fileMenu(
+  locale: string,
+  newWindow: () => void,
+  closeRole: 'close' | 'quit',
+): MenuItemConstructorOptions {
+  const labels = nativeMenuLabels(locale);
+  return {
+    label: labels.file,
+    submenu: [
+      { label: labels.newWindow, accelerator: 'CmdOrCtrl+N', click: newWindow },
+      { type: 'separator' },
+      { role: closeRole },
+    ],
+  };
+}
+
+export function desktopApplicationMenu(
+  newWindow: () => void,
+  locale: string,
+): MenuItemConstructorOptions[] {
+  return [
+    fileMenu(locale, newWindow, 'quit'),
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+  ];
+}
+
 export function macApplicationMenu(
-  openMainWindow: () => void,
+  newWindow: () => void,
   restart: () => void,
   locale = 'en',
   undo?: () => void,
@@ -43,14 +71,7 @@ export function macApplicationMenu(
         { role: 'quit' },
       ],
     },
-    {
-      label: labels.file,
-      submenu: [
-        { label: labels.newWindow, accelerator: 'CmdOrCtrl+N', click: openMainWindow },
-        { type: 'separator' },
-        { role: 'close' },
-      ],
-    },
+    fileMenu(locale, newWindow, 'close'),
     undo
       ? {
           role: 'editMenu',

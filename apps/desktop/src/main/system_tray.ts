@@ -5,6 +5,7 @@ import { resolveResource } from './resource';
 export function createSystemTray({
   locale,
   openMainWindow,
+  newWindow,
   restart,
   quit,
   title = 'WeQ',
@@ -12,6 +13,7 @@ export function createSystemTray({
 }: {
   locale: string;
   openMainWindow: () => void;
+  newWindow: () => void;
   restart: () => void;
   quit: () => void;
   title?: string;
@@ -36,6 +38,7 @@ export function createSystemTray({
   }
   const menu = Menu.buildFromTemplate([
     { label: labels.showWindow, click: openMainWindow },
+    { label: labels.newWindow, click: newWindow },
     { type: 'separator' },
     { label: labels.restart, click: restart },
     { label: labels.quit, click: quit },

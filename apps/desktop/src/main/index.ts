@@ -121,7 +121,7 @@ import {
   guardDatabaseMaintenanceQuit,
   guardDatabaseMaintenanceWindow,
 } from './db_maintenance_lifecycle';
-import { macApplicationMenu } from './application_menu';
+import { desktopApplicationMenu, macApplicationMenu } from './application_menu';
 import { createSystemTray } from './system_tray';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
 import { registerEditContextMenu } from './edit_context_menu';
@@ -156,11 +156,16 @@ import {
   AccountInstances,
   AccountInstanceBusy,
   accountIsRunning,
+  accountPickerArg,
+  accountPickerDirectories,
+  accountPickerOwner,
+  accountPickerTarget,
   focusAccountArg,
   focusAccountTarget,
   instanceArg,
   instanceDirectories,
   instanceTarget,
+  prepareAccountPicker,
   prepareInstanceAccount,
   savedInstanceAccounts,
   accountLaunchArgs,
@@ -191,19 +196,28 @@ relaunchForOzoneBackend();
 
 const defaultDataRoot = weqAppDataRoot();
 const accountTarget = instanceTarget(process.argv);
+const pickerId = accountPickerTarget(process.argv);
 const focusTarget = focusAccountTarget(process.argv);
+const pickerDirectories = pickerId
+  ? accountPickerDirectories(defaultDataRoot, pickerId)
+  : undefined;
 const accountDirectories = accountTarget
   ? instanceDirectories(defaultDataRoot, accountTarget.uin)
-  : undefined;
+  : pickerDirectories;
+const isIndependentInstance = Boolean(accountDirectories);
 if (accountDirectories) {
   fs.mkdirSync(accountDirectories.userData, { recursive: true, mode: 0o700 });
   app.setPath('userData', accountDirectories.userData);
   app.setPath('sessionData', accountDirectories.userData);
 }
-const accountInstances = new AccountInstances(defaultDataRoot, accountTarget?.uin);
+const accountInstances = new AccountInstances(
+  defaultDataRoot,
+  accountTarget?.uin,
+  accountTarget ? undefined : pickerId,
+);
 let instanceName: string | undefined;
 
-function launchAccountProcess(arg: string): Promise<void> {
+function launchAccountProcess(...instanceArgs: string[]): Promise<void> {
   const args = accountLaunchArgs(process.argv).filter((value) => value !== AUTOSTART_ARG);
   const appImage = process.platform === 'linux' ? process.env.APPIMAGE : undefined;
   const env = { ...process.env };
@@ -222,7 +236,7 @@ function launchAccountProcess(arg: string): Promise<void> {
     ])
       delete env[key];
   }
-  const child = spawn(appImage || process.execPath, [...args, arg], {
+  const child = spawn(appImage || process.execPath, [...args, ...instanceArgs], {
     detached: true,
     stdio: 'ignore',
     env,
@@ -312,6 +326,18 @@ function openMainWindow(): void {
   mainWindowLifecycle.open();
 }
 
+async function openAccountPicker(): Promise<void> {
+  const source = accountDirectories?.data ?? defaultDataRoot;
+  await launchAccountProcess(accountPickerArg(prepareAccountPicker(defaultDataRoot, source)));
+}
+
+function openPickerFromMenu(): void {
+  void openAccountPicker().catch((error) => {
+    logger.error('failed to open an account selection window', { error: String(error) });
+    dialog.showErrorBox('无法新建窗口', String(error));
+  });
+}
+
 /**
  * Resolve the current 关闭行为 from persisted settings. Falls back to `'quit'`
  * when bootstrap is unavailable (native-load failure → only an error window is
@@ -341,6 +367,7 @@ function buildTray(): void {
     tray = createSystemTray({
       locale: app.getPreferredSystemLanguages()[0] ?? app.getLocale(),
       openMainWindow,
+      newWindow: openPickerFromMenu,
       restart: restartFromMenu,
       quit: () => app.quit(),
       title: instanceName,
@@ -937,11 +964,19 @@ void app.whenReady().then(async () => {
   if (accountTarget) {
     try {
       accountInstances.claim(accountTarget.uin);
-      const record = prepareInstanceAccount(defaultDataRoot, accountTarget);
+      const record = prepareInstanceAccount(
+        defaultDataRoot,
+        accountTarget,
+        pickerDirectories?.data,
+      );
       instanceName = `WeQ · ${record.displayName || record.uin}`;
     } catch (error) {
       if (error instanceof AccountInstanceBusy) {
-        await launchAccountProcess(focusAccountArg(accountTarget.uin)).catch((reason: unknown) =>
+        const owner = accountPickerOwner(defaultDataRoot, accountTarget.uin);
+        const focusArgs = owner
+          ? [accountPickerArg(owner), focusAccountArg(accountTarget.uin)]
+          : [focusAccountArg(accountTarget.uin)];
+        await launchAccountProcess(...focusArgs).catch((reason: unknown) =>
           dialog.showErrorBox('无法唤出账号窗口', String(reason)),
         );
       } else {
@@ -953,7 +988,7 @@ void app.whenReady().then(async () => {
   }
   setAccountInstanceScope(accountInstances);
   const autostart =
-    !accountTarget &&
+    !isIndependentInstance &&
     app.isPackaged &&
     isAutostartLaunch(
       process.argv,
@@ -982,7 +1017,7 @@ void app.whenReady().then(async () => {
   );
   app.once('will-quit', stopNetwork);
   accountEventBus.on('closing', () => electronHost.setApplicationBadge?.(0));
-  if (!accountTarget)
+  if (!isIndependentInstance)
     await migrateLegacyAutostart().catch((error: unknown) => {
       logger.warn('legacy daemon migration failed', {
         event: 'legacy-daemon-migration-failed',
@@ -1028,7 +1063,7 @@ void app.whenReady().then(async () => {
   userConfig?.getStartupPage();
   // 旧版安卓备份的 uin 是从资料库猜的，可能猜错；纠正它会连带改 configId，
   // 所以必须在账号打开之前、且在任何按 id 建目录的服务之前跑完。
-  if (userConfig && !accountTarget) {
+  if (userConfig && !isIndependentInstance) {
     await migrateStaticAccountIdentity(requirePlatform(), userConfig).catch((error: unknown) => {
       logger.warn('static account identity migration failed', {
         event: 'static-account-identity-migration-failed',
@@ -1083,7 +1118,7 @@ void app.whenReady().then(async () => {
       web: () => new RemoteWebGateway(remoteRuntime.pairing, (auth) => webCore.entry(auth)),
       onRequest: openMainWindow,
     });
-    if (!accountTarget) {
+    if (!isIndependentInstance) {
       void remoteRuntime.resume().catch((error: unknown) =>
         logger.warn('远程连接恢复失败', {
           event: 'remote-resume-failed',
@@ -1205,7 +1240,14 @@ void app.whenReady().then(async () => {
       openMainWindow();
       return;
     }
-    await launchAccountProcess(instanceArg(record));
+    await launchAccountProcess(
+      instanceArg(record),
+      ...(pickerId && !accountTarget ? [accountPickerArg(pickerId)] : []),
+    );
+  });
+  ipcMain.handle('account-instances:new-window', async (event) => {
+    assertAccountMenuSender(event);
+    await openAccountPicker();
   });
 
   app.on('browser-window-created', (_, win) => {
@@ -1258,24 +1300,27 @@ void app.whenReady().then(async () => {
     }),
   });
   logger.info('main window created', { event: 'create-window', autostart });
-  if (process.platform === 'darwin') {
-    Menu.setApplicationMenu(
-      Menu.buildFromTemplate(
-        macApplicationMenu(
-          openMainWindow,
+  const locale = app.getPreferredSystemLanguages()[0] ?? app.getLocale();
+  const menu =
+    process.platform === 'darwin'
+      ? macApplicationMenu(
+          openPickerFromMenu,
           restartFromMenu,
-          app.getPreferredSystemLanguages()[0] ?? app.getLocale(),
+          locale,
           undoFocusedContent,
           redoFocusedContent,
-        ),
-      ),
-    );
-  }
+        )
+      : desktopApplicationMenu(openPickerFromMenu, locale);
+  const help =
+    process.platform === 'darwin'
+      ? undefined
+      : Menu.getApplicationMenu()?.items.find((item) => item.role === 'help');
+  Menu.setApplicationMenu(Menu.buildFromTemplate(help ? [...menu, help] : menu));
 
   // Silent background update check (packaged builds only). Result is cached and
   // pushed to the renderer via the `update.onEvent` subscription → settings red
   // dot. Deferred so it never competes with first paint; failures are ignored.
-  if (!accountTarget) startAutomaticUpdateChecks();
+  if (!isIndependentInstance) startAutomaticUpdateChecks();
 
   app.on('activate', (_event, hasVisibleWindows) => {
     // 已有可见窗口时由 macOS 恢复窗口顺序，不让主窗口盖过工具窗口。

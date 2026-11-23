@@ -7,6 +7,7 @@ const fixture = vi.hoisted(() => ({
   mutate: vi.fn(),
   refetch: vi.fn(async () => ({ data: undefined })),
   openInstance: vi.fn(async (_configId: string) => {}),
+  newWindow: vi.fn(async () => {}),
   running: false,
   mode: 'ready' as 'ready' | 'loading' | 'empty' | 'error' | 'stale',
   accounts: Array.from({ length: 24 }, (_, i) => ({
@@ -66,6 +67,7 @@ beforeEach(() => {
   fixture.mutate.mockClear();
   fixture.refetch.mockClear();
   fixture.openInstance.mockClear();
+  fixture.newWindow.mockClear();
   fixture.running = false;
   fixture.mode = 'ready';
   host = document.createElement('div');
@@ -90,6 +92,16 @@ function popup() {
 }
 
 describe('账号菜单的公共浮层契约', () => {
+  it('加号只打开账号选择窗口，保留当前账号', async () => {
+    vi.stubGlobal('weq', { accountInstances: { newWindow: fixture.newWindow } });
+    open();
+    const newWindow = popup().querySelector<HTMLButtonElement>('[aria-label="新建窗口"]')!;
+    await act(async () => newWindow.click());
+    expect(fixture.newWindow).toHaveBeenCalledOnce();
+    expect(fixture.mutate).not.toHaveBeenCalled();
+    expect(popup()).toBeNull();
+  });
+
   it.each([false, true])('独立账号窗口操作保留当前会话，已启动=%s', async (running) => {
     fixture.running = running;
     vi.stubGlobal('weq', { accountInstances: { open: fixture.openInstance } });
@@ -131,6 +143,7 @@ describe('账号菜单的公共浮层契约', () => {
   });
   it('菜单离开侧栏裁切树，完整保留账号与名称提示，内部点击不关闭', () => {
     open();
+    expect(popup().querySelector('[aria-label="新建窗口"]')).toBeNull();
     expect(host.contains(popup())).toBe(false);
     expect(popup().closest('.weq-overlay-layer')).not.toBeNull();
     expect(popup().querySelectorAll('.weq-rail-account-item')).toHaveLength(

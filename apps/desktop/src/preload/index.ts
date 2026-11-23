@@ -56,6 +56,7 @@ const weqBridge = {
   accountInstances: {
     list: () => ipcRenderer.invoke('account-instances:list'),
     open: (configId) => ipcRenderer.invoke('account-instances:open', configId),
+    newWindow: () => ipcRenderer.invoke('account-instances:new-window'),
   } satisfies AccountInstanceBridge,
   windowChrome: windowChromeBridge,
   rendererRecovery: rendererRecoveryBridge,

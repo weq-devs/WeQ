@@ -1,19 +1,41 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { type AccountConfig, writeFileAtomicSync } from '@weq/service';
+import { type AccountConfig, type UserConfig, writeFileAtomicSync } from '@weq/service';
 import type { AccountInstanceScope } from './account_instance_scope';
 
 const ACCOUNT_ARG = '--weq-account-instance=';
 const FOCUS_ARG = '--weq-focus-account=';
+const PICKER_ARG = '--weq-account-picker=';
 const CONFIG_ID = /^[a-z\d][a-z\d_-]{0,127}$/i;
+const PICKER_ID = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/;
 // Vite 5 的内置模块表不识别 node:sqlite，交给 Electron/Node 运行时加载。
 const nodeSqlite = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
 export function accountLaunchArgs(argv: readonly string[]): string[] {
-  return argv.slice(1).filter((arg) => !arg.startsWith(ACCOUNT_ARG) && !arg.startsWith(FOCUS_ARG));
+  return argv
+    .slice(1)
+    .filter(
+      (arg) => ![ACCOUNT_ARG, FOCUS_ARG, PICKER_ARG].some((prefix) => arg.startsWith(prefix)),
+    );
+}
+
+export function accountPickerArg(id: string): string {
+  return `${PICKER_ARG}${id}`;
+}
+
+export function accountPickerTarget(argv: readonly string[]): string | undefined {
+  const arg = argv.find((value) => value.startsWith(PICKER_ARG));
+  if (!arg) return undefined;
+  const id = arg.slice(PICKER_ARG.length);
+  if (!PICKER_ID.test(id)) throw new Error('账号选择窗口启动参数无效。');
+  return id;
+}
+
+export function accountPickerDirectories(root: string, id: string) {
+  return instanceDirectories(root, `picker-${id}`);
 }
 
 export interface AccountInstanceTarget {
@@ -84,19 +106,28 @@ export function savedInstanceAccounts(root: string): AccountConfig[] {
     .sort((a, b) => b.lastLoginAt - a.lastLoginAt);
 }
 
-/** 首次打开只带入打开此 QQ 数据源所需的配置。后续所有写入归该实例。 */
-export function prepareInstanceAccount(root: string, target: AccountInstanceTarget): AccountConfig {
-  const { data } = instanceDirectories(root, target.uin);
-  const directory = accountsDirectory(data);
-  const existing = readAccount(directory, target.configId);
-  if (existing?.uin === target.uin) return existing;
-  const path = join(directory, `${target.configId}.json`);
-  if (existsSync(path)) throw new Error('独立窗口的账号配置无法读取，请检查原配置。');
+function seedInstanceSettings(data: string, sourceRoot: string): void {
+  const configPath = join(data, 'config.json');
+  if (existsSync(configPath)) return;
+  const original = join(sourceRoot, 'config.json');
+  const config: UserConfig = existsSync(original) ? JSON.parse(readFileSync(original, 'utf8')) : {};
+  mkdirSync(data, { recursive: true, mode: 0o700 });
+  writeFileAtomicSync(
+    configPath,
+    JSON.stringify({
+      tencentFilesRootOverride: config.tencentFilesRootOverride,
+      settings: { appLock: config.settings?.appLock },
+      totpSecret: config.totpSecret,
+      welcomeAcknowledged: config.welcomeAcknowledged,
+      welcomePolicyVersion: config.welcomePolicyVersion,
+    }),
+  );
+}
 
-  const source = readAccount(accountsDirectory(root), target.configId);
-  if (source?.uin !== target.uin) throw new Error('找不到此账号的已保存数据源。');
+function seedInstanceAccount(data: string, source: AccountConfig): AccountConfig {
   const { configId, uin, uid, dbKey, algos, dataDir, backupAccountDir, displayName, avatarUrl } =
     source;
+  const directory = accountsDirectory(data);
   const record = {
     configId,
     uin,
@@ -111,23 +142,41 @@ export function prepareInstanceAccount(root: string, target: AccountInstanceTarg
     mobile: source.mobile,
     lastLoginAt: source.lastLoginAt,
   };
-  const configPath = join(data, 'config.json');
-  if (!existsSync(configPath)) {
-    const original = join(root, 'config.json');
-    const config = existsSync(original) ? JSON.parse(readFileSync(original, 'utf8')) : {};
-    mkdirSync(data, { recursive: true, mode: 0o700 });
-    writeFileAtomicSync(
-      configPath,
-      JSON.stringify({
-        tencentFilesRootOverride: config.tencentFilesRootOverride,
-        settings: { appLock: config.settings?.appLock },
-        totpSecret: config.totpSecret,
-      }),
-    );
-  }
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  writeFileAtomicSync(path, JSON.stringify(record));
+  writeFileAtomicSync(join(directory, `${configId}.json`), JSON.stringify(record));
   return record;
+}
+
+/** 每个账号选择窗口有独立的配置和缓存，初次打开时只带入可选数据源。 */
+export function prepareAccountPicker(root: string, sourceRoot: string): string {
+  const id = randomUUID();
+  const { data } = accountPickerDirectories(root, id);
+  const records = new Map(savedInstanceAccounts(root).map((record) => [record.configId, record]));
+  if (sourceRoot !== root) {
+    for (const record of savedInstanceAccounts(sourceRoot)) records.set(record.configId, record);
+  }
+  seedInstanceSettings(data, sourceRoot);
+  for (const record of records.values()) seedInstanceAccount(data, record);
+  return id;
+}
+
+/** 首次打开只带入打开此 QQ 数据源所需的配置。后续所有写入归该实例。 */
+export function prepareInstanceAccount(
+  root: string,
+  target: AccountInstanceTarget,
+  sourceRoot = root,
+): AccountConfig {
+  const { data } = instanceDirectories(root, target.uin);
+  const directory = accountsDirectory(data);
+  const existing = readAccount(directory, target.configId);
+  if (existing?.uin === target.uin) return existing;
+  if (existsSync(join(directory, `${target.configId}.json`)))
+    throw new Error('独立窗口的账号配置无法读取，请检查原配置。');
+
+  const source = readAccount(accountsDirectory(sourceRoot), target.configId);
+  if (source?.uin !== target.uin) throw new Error('找不到此账号的已保存数据源。');
+  seedInstanceSettings(data, sourceRoot);
+  return seedInstanceAccount(data, source);
 }
 
 function lockAccount(root: string, uin: string, probe = false): DatabaseSync | null {
@@ -152,6 +201,17 @@ export function accountIsRunning(root: string, uin: string): boolean {
   return probe === null;
 }
 
+function pickerOwnerPath(root: string, uin: string): string {
+  return join(instanceRoot(root, uin), 'picker-owner');
+}
+
+export function accountPickerOwner(root: string, uin: string): string | undefined {
+  const path = pickerOwnerPath(root, uin);
+  if (!existsSync(path) || !accountIsRunning(root, uin)) return undefined;
+  const id = readFileSync(path, 'utf8');
+  return PICKER_ID.test(id) ? id : undefined;
+}
+
 export class AccountInstanceBusy extends Error {
   constructor() {
     super('此账号已在另一个 WeQ 实例打开。');
@@ -166,6 +226,7 @@ export class AccountInstances implements AccountInstanceScope {
   constructor(
     private readonly root: string,
     private readonly assignedUin?: string,
+    private readonly pickerId?: string,
   ) {}
 
   owns(uin: string): boolean {
@@ -176,6 +237,14 @@ export class AccountInstances implements AccountInstanceScope {
     if (this.locks.has(uin)) return;
     const lock = lockAccount(this.root, uin);
     if (!lock) throw new AccountInstanceBusy();
+    try {
+      const ownerPath = pickerOwnerPath(this.root, uin);
+      if (this.pickerId || existsSync(ownerPath))
+        writeFileAtomicSync(ownerPath, this.pickerId ?? '');
+    } catch (error) {
+      lock.close();
+      throw error;
+    }
     this.locks.set(uin, lock);
   }
 
