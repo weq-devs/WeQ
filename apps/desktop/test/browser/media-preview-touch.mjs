@@ -10,11 +10,8 @@ export async function runMediaPreviewTouch(page, output) {
       type,
       touchPoints: points.map(([id, x, y]) => ({ id, x, y })),
     });
-  const scale = () =>
-    page.locator('.weq-lightbox-frame').evaluate((el) => {
-      const transform = new DOMMatrix(getComputedStyle(el).transform);
-      return transform.a;
-    });
+  const scale = async () =>
+    Number.parseInt(await page.getByLabel('缩放比例').textContent(), 10) / 100;
   const swipe = async (x, y, dx, dy = 0) => {
     await touch('touchStart', [[1, x, y]]);
     await touch('touchMove', [[1, x + dx, y + dy]]);
@@ -61,6 +58,7 @@ export async function runMediaPreviewTouch(page, output) {
       assert.equal(await image.evaluate((el) => getComputedStyle(el).transitionDuration), '0s');
       const enlarged = await image.boundingBox();
       assert.ok(Math.abs(enlarged.width / bounds.width - 2) < 0.01);
+      assert.ok(Math.abs(enlarged.y + enlarged.height / 2 - (y + 10)) < 1);
       assert.equal(await page.evaluate(() => visualViewport.scale), 1);
       if (output)
         await page.screenshot({ path: resolve(output, `${theme}-${size.width}-pinch.png`) });
@@ -69,7 +67,9 @@ export async function runMediaPreviewTouch(page, output) {
       await touch('touchEnd');
       assert.ok(Math.abs((await scale()) - 2) < 0.01);
       assert.equal(await page.locator('.weq-preview-count').textContent(), '1 / 3');
+      const beforeDrag = await image.boundingBox();
       await swipe(x, y, -90);
+      assert.ok(Math.abs((await image.boundingBox()).x - beforeDrag.x + 90) < 1);
       assert.equal(await page.locator('.weq-preview-count').textContent(), '1 / 3');
       await page.getByRole('button', { name: '适应窗口', exact: true }).click();
       await touch('touchStart', [[1, x - 60, y]]);
@@ -83,6 +83,7 @@ export async function runMediaPreviewTouch(page, output) {
       ]);
       await touch('touchEnd');
       assert.equal(await scale(), 1);
+      assert.deepEqual(await image.boundingBox(), bounds);
       assert.equal(
         await page.getByRole('button', { name: '缩小', exact: true }).isDisabled(),
         true,

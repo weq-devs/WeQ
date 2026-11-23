@@ -61,6 +61,7 @@ export function useZoomPan(
   resetKey: unknown,
   opts?: {
     clickZoom?: boolean;
+    layoutScale?: boolean;
     onSwipe?: (direction: 'left' | 'right') => void;
     onTapOutside?: (clientX: number, element: HTMLElement) => void;
   },
@@ -336,12 +337,15 @@ export function useZoomPan(
     [clickZoom, zoomAt, update, el],
   );
 
-  const style: CSSProperties = {
-    transform: `translate3d(${t.tx}px, ${t.ty}px, 0) scale(${t.scale})`,
-    transition: dragging ? 'none' : 'transform 140ms ease',
-    cursor: t.scale > 1 ? (dragging ? 'grabbing' : 'grab') : clickZoom ? 'zoom-in' : 'default',
-    willChange: 'transform',
-  };
+  const cursor = t.scale > 1 ? (dragging ? 'grabbing' : 'grab') : clickZoom ? 'zoom-in' : 'default';
+  const style: CSSProperties = opts?.layoutScale
+    ? { left: t.tx, top: t.ty, cursor }
+    : {
+        transform: `translate3d(${t.tx}px, ${t.ty}px, 0) scale(${t.scale})`,
+        transition: dragging ? 'none' : 'transform 140ms ease',
+        cursor,
+        willChange: 'transform',
+      };
 
   const step = (factor: number): void => {
     if (!el) return;

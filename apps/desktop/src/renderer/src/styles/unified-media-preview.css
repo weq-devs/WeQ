@@ -79,6 +79,7 @@ html[data-theme='dark'] .weq-lightbox-layer.weq-unified-preview {
   overflow: hidden;
 }
 .weq-unified-preview .weq-lightbox-stage {
+  --weq-preview-fit-height: calc(100dvh - 200px);
   position: relative;
   display: flex;
   align-items: center;
@@ -89,6 +90,28 @@ html[data-theme='dark'] .weq-lightbox-layer.weq-unified-preview {
   min-height: 120px;
   pointer-events: none;
 }
+.weq-unified-preview .weq-lightbox-image-stage {
+  width: 100%;
+  container-type: inline-size;
+}
+.weq-unified-preview .weq-lightbox-frame[data-image-sized] {
+  /* 在实际显示尺寸绘制，避免 WebKit 放大适屏时栅格化的图层。 */
+  flex: none;
+  width: calc(
+    min(
+      100cqw,
+      var(--weq-preview-natural-width),
+      var(--weq-preview-fit-height) *
+      var(--weq-preview-ratio)
+    ) *
+    var(--weq-preview-scale)
+  );
+}
+.weq-unified-preview .weq-lightbox-frame[data-image-sized] > .weq-lightbox-image {
+  display: block;
+  width: 100%;
+  max-height: none;
+}
 .weq-unified-preview .weq-lightbox-frame,
 .weq-unified-preview video,
 .weq-unified-preview .weq-media-load-error {
@@ -96,7 +119,7 @@ html[data-theme='dark'] .weq-lightbox-layer.weq-unified-preview {
 }
 .weq-unified-preview .weq-lightbox-image {
   max-width: 100%;
-  max-height: calc(100dvh - 200px);
+  max-height: var(--weq-preview-fit-height);
   object-fit: contain;
 }
 .weq-preview-footer {
@@ -195,11 +218,8 @@ html[data-theme='dark'] .weq-lightbox-layer.weq-unified-preview {
     overflow: hidden;
   }
   .weq-unified-preview .weq-lightbox-stage {
+    --weq-preview-fit-height: 55dvh;
     max-width: calc(100% - 72px);
-  }
-  .weq-unified-preview .weq-lightbox-image {
-    max-width: 100%;
-    max-height: 55dvh;
   }
   .weq-unified-preview .weq-lightbox-action {
     min-height: 44px;

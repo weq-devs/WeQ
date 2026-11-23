@@ -266,9 +266,7 @@ it('放大后方向键只平移，空白按左右切项且边界不关闭', () =
   act(() => button('放大').click());
   key('ArrowRight');
   expect(document.querySelector('img')?.src).toBe(items[0]!.src);
-  expect(document.querySelector<HTMLElement>('.weq-lightbox-frame')!.style.transform).toContain(
-    '-40px',
-  );
+  expect(document.querySelector('output[aria-label="缩放比例"]')?.textContent).toBe('125%');
   act(() =>
     document
       .querySelector('.weq-preview-viewport')!

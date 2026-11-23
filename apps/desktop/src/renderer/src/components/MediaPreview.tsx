@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from 'react';
 import { ChevronLeft, ChevronRight, Copy, RefreshCw } from 'lucide-react';
@@ -314,6 +315,7 @@ function MediaPreviewItemBody({
   const src = resourceForRenderDocument(source, ownerDocument);
   const zoom = useZoomPan(`${item.key}:${attempt}`, {
     clickZoom: current.kind === 'image',
+    layoutScale: current.kind === 'image',
     onSwipe: onMove
       ? (direction) => {
           if (direction === 'left' ? canNewer : canOlder)
@@ -338,7 +340,10 @@ function MediaPreviewItemBody({
   );
   const video = useRef<HTMLVideoElement | null>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
+  const [intrinsic, setIntrinsic] = useState<{ key: string; width: number; height: number }>();
   const eventKey = `${item.key}:${current.kind}:${previewSrc}:${attempt}`;
+  const imageKey = originalReady ? originalRequest.id : eventKey;
+  const imagePixels = intrinsic?.key === imageKey ? intrinsic : undefined;
   const buffering = useVideoBuffering(eventKey, active && current.kind === 'video');
   const latestEvent = useRef(eventKey);
   latestEvent.current = eventKey;
@@ -386,8 +391,15 @@ function MediaPreviewItemBody({
     setRequest(undefined);
   }, [item.key]);
   const measure = useCallback(() => {
-    if (image.current)
-      setSize({ width: image.current.offsetWidth, height: image.current.offsetHeight });
+    if (!image.current) return;
+    const { offsetWidth: width, offsetHeight: height } = image.current;
+    setSize((previous) =>
+      previous.width === width && previous.height === height ? previous : { width, height },
+    );
+  }, []);
+  const recordImageSize = useCallback((key: string, element: HTMLImageElement) => {
+    const { naturalWidth: width, naturalHeight: height } = element;
+    if (width && height) setIntrinsic({ key, width, height });
   }, []);
   const startOriginal = useCallback((key: string, source: string, automatic: boolean) => {
     const id = crypto.randomUUID();
@@ -414,8 +426,9 @@ function MediaPreviewItemBody({
     startOriginal,
   ]);
   useLayoutEffect(() => {
-    if (originalReady) measure();
-  }, [originalReady, measure]);
+    if (originalReady && image.current) recordImageSize(imageKey, image.current);
+  }, [imageKey, originalReady, recordImageSize]);
+  useLayoutEffect(measure, [imagePixels, zoom.scale, measure]);
   useEffect(() => {
     const viewport = ownerDocument.defaultView;
     viewport?.addEventListener('resize', measure);
@@ -595,7 +608,11 @@ function MediaPreviewItemBody({
         </button>
       ) : null}
       <div
-        className="weq-lightbox-stage"
+        className={
+          current.kind === 'image'
+            ? 'weq-lightbox-stage weq-lightbox-image-stage'
+            : 'weq-lightbox-stage'
+        }
         data-media-state={displayStatus}
         aria-busy={displayStatus === 'loading'}
         onMouseDown={(event) => event.stopPropagation()}
@@ -604,7 +621,18 @@ function MediaPreviewItemBody({
           <div
             ref={setFrame}
             className="weq-lightbox-frame"
-            style={{ ...zoom.style, touchAction: 'none' }}
+            data-image-sized={imagePixels ? '' : undefined}
+            style={
+              {
+                ...zoom.style,
+                touchAction: 'none',
+                ...(imagePixels && {
+                  '--weq-preview-natural-width': `${imagePixels.width}px`,
+                  '--weq-preview-ratio': imagePixels.width / imagePixels.height,
+                  '--weq-preview-scale': zoom.scale,
+                }),
+              } as CSSProperties
+            }
             onMouseDown={zoom.onMouseDown}
             onPointerDown={zoom.onPointerDown}
           >
@@ -616,8 +644,9 @@ function MediaPreviewItemBody({
                 src={mediaRetryUrl(previewSrc, attempt)}
                 alt={item.title || '图片'}
                 draggable={false}
-                onLoad={() => {
+                onLoad={(event) => {
                   if (latestEvent.current !== eventKey) return;
+                  recordImageSize(eventKey, event.currentTarget);
                   setStatus('ready');
                   measure();
                 }}

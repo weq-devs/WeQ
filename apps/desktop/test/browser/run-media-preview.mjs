@@ -100,6 +100,7 @@ try {
     await page.keyboard.press('Escape');
     await page.getByRole('dialog').waitFor({ state: 'detached' });
   };
+  const imageBounds = () => page.locator('.weq-lightbox-frame').boundingBox();
   const fits = async () => {
     await page.evaluate(async () => {
       await Promise.all(
@@ -287,13 +288,12 @@ try {
       await trigger.focus();
       await page.keyboard.press('Enter');
       await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
+      const fitted = await imageBounds();
       await page.keyboard.press('+');
-      assert.match(
-        await page.locator('.weq-lightbox-frame').getAttribute('style'),
-        /scale\(1\.25\)/,
-      );
+      const enlarged = await imageBounds();
+      assert.ok(Math.abs(enlarged.width / fitted.width - 1.25) < 0.01);
       await page.keyboard.press('ArrowRight');
-      assert.match(await page.locator('.weq-lightbox-frame').getAttribute('style'), /-40px/);
+      assert.ok(Math.abs((await imageBounds()).x - enlarged.x + 40) < 1);
       await page.getByRole('button', { name: '适应窗口', exact: true }).click();
       await page.getByRole('button', { name: 'OCR', exact: true }).click();
       await page.getByRole('button', { name: '重新识别', exact: true }).waitFor();
@@ -380,7 +380,7 @@ try {
       );
       await page.getByRole('button', { name: '打开混排', exact: true }).click();
       await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
-      assert.equal(await page.locator('.weq-preview-count').textContent(), '1 / 2');
+      await page.locator('.weq-preview-count').getByText('1 / 2', { exact: true }).waitFor();
       assert.equal(
         await page.getByRole('button', { name: '上一项媒体', exact: true }).isDisabled(),
         true,
@@ -451,18 +451,20 @@ try {
   ).stats();
   assert.ok(thumbnailPixels.channels[1].mean > 80);
   assert.equal(requests.filter((value) => value.includes('token=progressiveFull')).length, 0);
+  const fitted = await imageBounds();
   await page.getByRole('button', { name: '放大', exact: true }).click();
   await page.evaluate(() => window.releasePreviewDetail());
   await page.waitForFunction(() =>
     document.querySelector('.weq-unified-preview img')?.src.includes('token=progressiveFull'),
   );
   await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
-  assert.match(await page.locator('.weq-lightbox-frame').getAttribute('style'), /scale\(1\.25\)/);
+  assert.ok(Math.abs((await imageBounds()).width / fitted.width - 1.25) < 0.01);
   await close();
   // 在真实 Chromium 事件循环中合成单指拖动和取消，验证可继续下一次手势。
   await page.getByRole('button', { name: '打开图片', exact: true }).click();
   await page.locator('.weq-lightbox-stage[data-media-state="ready"]').waitFor();
   await page.getByRole('button', { name: '放大', exact: true }).click();
+  const beforeDrag = await imageBounds();
   await page.locator('.weq-lightbox-frame').evaluate((el) => {
     const send = (target, type, x) =>
       target.dispatchEvent(
@@ -482,7 +484,7 @@ try {
     send(window, 'pointermove', 40);
     send(window, 'pointercancel', 40);
   });
-  assert.match(await page.locator('.weq-lightbox-frame').getAttribute('style'), /30px/);
+  assert.ok(Math.abs((await imageBounds()).x - beforeDrag.x - 30) < 1);
   await close();
   const touchCases = await runMediaPreviewTouch(page, output);
   assert.deepEqual(errors, []);
