@@ -363,8 +363,12 @@ html[data-theme='dark'] .weq-qzn-like-popover {
   font-weight: 600;
 }
 
-.weq-qzn-visibility-popover footer {
+.weq-qzn-visibility-popover header {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
   gap: 8px;
+}
+
+.weq-qzn-visibility-popover header h2 {
+  margin-inline-end: auto;
 }

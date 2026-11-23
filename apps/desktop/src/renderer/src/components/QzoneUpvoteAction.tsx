@@ -9,6 +9,7 @@ import { QzonePersonIdentity } from './QzoneProfileAvatar';
 import { QqAvatar } from './QqAvatar';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
+import { QZONE_VISIBILITY } from '../../../shared/qzone';
 import { useQQAction } from './qq-actions/shared.shared';
 import { useToast } from './Toast.shared';
 import { qzoneMediaSource, qzonePlainText } from '../lib/qzone';
@@ -393,7 +394,9 @@ export function QzonePostArchive({
               busy={write.pending}
               disabled={write.disabled}
               onClose={() => setVisibilityEditor(undefined)}
-              onSave={async (expected, visibility) => {
+              onChange={async (expected, visibility) => {
+                const label = QZONE_VISIBILITY.find((option) => option.value === visibility)?.label;
+                if (!label) return;
                 let observed: QzoneTextVisibility | undefined;
                 const done = await write.perform(
                   async (binding) => {
@@ -408,7 +411,7 @@ export function QzonePostArchive({
                     return result;
                   },
                   undefined,
-                  undefined,
+                  `将这条说说的可见范围改为「${label}」？`,
                   { refreshCaches: false },
                 );
                 if (!done) return;
@@ -417,8 +420,7 @@ export function QzonePostArchive({
                   return;
                 }
                 onVisibilityChanged?.(observed);
-                setVisibilityEditor(undefined);
-                menuAnchor.current?.focus({ preventScroll: true });
+                return observed;
               }}
             />
           )}

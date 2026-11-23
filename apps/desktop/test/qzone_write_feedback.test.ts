@@ -1864,7 +1864,7 @@ it('视频预览只链接同一作者的说说，关闭原文后返回正在浏�
   expect(state.videos).toHaveBeenCalledOnce();
 });
 
-it('自己的纯文本说说从菜单修改可见范围，使用实际读回值更新卡片', async () => {
+it('切换纯文本说说范围须先确认，取消保留原选项，确认后自动提交', async () => {
   const tid = '112700000100000001000000';
   const post = {
     tid,
@@ -1904,7 +1904,13 @@ it('自己的纯文本说说从菜单修改可见范围，使用实际读回值�
     (item) => item.textContent === '好友可见',
   )!;
   await act(async () => friends.click());
-  await act(async () => dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+  expect(useDialog.getState().current?.message).toContain('好友可见');
+  expect(state.updatePostVisibility).not.toHaveBeenCalled();
+  await act(async () => useDialog.getState().current!.confirm!.resolve(false));
+  expect(state.updatePostVisibility).not.toHaveBeenCalled();
+  expect(scope.querySelector('[aria-checked="true"]')?.textContent).toBe('仅自己可见');
+  await act(async () => friends.click());
+  await act(async () => useDialog.getState().current!.confirm!.resolve(true));
   expect(state.updatePostVisibility).toHaveBeenCalledWith({
     expectedAccountUin: '10001',
     expectedAccountConfigId: 'source-a',
@@ -1912,6 +1918,12 @@ it('自己的纯文本说说从菜单修改可见范围，使用实际读回值�
     expected: 64,
     visibility: 4,
   });
+  expect(scope.querySelector('[aria-checked="true"]')?.textContent).toBe('好友可见');
+  expect(dialog.querySelector('button[type="submit"]')).toBeNull();
+  await act(async () =>
+    dialog.querySelector<HTMLButtonElement>('[aria-label="关闭修改可见范围"]')!.click(),
+  );
+  expect(dialog.isConnected).toBe(false);
   expect(view.host.textContent).toContain('好友可见');
   expect(view.host.textContent).not.toContain('仅自己可见');
   await view.openPane('主页');
