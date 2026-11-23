@@ -34,17 +34,9 @@ html[data-theme='dark'] {
 
 .weq-intent-chips {
   display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  justify-self: start;
-  margin-top: -1px;
   user-select: none;
-  min-height: 24px;
-  min-width: 108px;
-}
-
-.message-line.mine .weq-intent-chips {
-  justify-self: end;
+  min-height: 22px;
+  min-width: 110px;
 }
 
 @keyframes weq-intent-pop {
@@ -66,7 +58,7 @@ html[data-theme='dark'] {
   justify-items: center;
   box-sizing: border-box;
   width: 52px;
-  height: 21px;
+  height: 22px;
   flex-shrink: 0;
   gap: 3px;
   padding: 1px 7px;
@@ -198,8 +190,6 @@ html[data-theme='dark'] .weq-intent-pill:is(.is-loading, .is-placeholder) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  min-height: 24px;
   padding: 0;
   border: 0;
   border-radius: 4px;
@@ -209,13 +199,15 @@ html[data-theme='dark'] .weq-intent-pill:is(.is-loading, .is-placeholder) {
   cursor: default;
 }
 .weq-intent-details {
-  min-width: 108px;
+  flex: 1;
+  gap: inherit;
 }
 .weq-intent-focus-trigger {
   position: absolute;
   inset-inline-end: 0;
   bottom: 0;
   width: 24px;
+  min-height: 24px;
   opacity: 0;
 }
 .weq-intent-focus-trigger:focus-visible {

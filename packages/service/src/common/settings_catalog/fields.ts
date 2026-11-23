@@ -286,7 +286,7 @@ const intentIdentities: Partial<Record<keyof IntentSenseConfig, readonly [string
   providerRef: ['intent-api-model', '分析模型'],
   persistentDisplay: ['intent-persistent-display', '常驻显示'],
   hoverDisplay: ['intent-hover-display', '悬停显示'],
-  loadingAnimation: ['intent-loading-animation', '分析等待动画'],
+  loadingAnimation: ['intent-loading-animation', '自动分析时显示胶囊动画'],
   analyzeAfterSelf: ['intent-after-self', '自己发送后分析'],
   suggestionsEnabled: ['suggestions-enabled', '启用推荐回复'],
   suggestionMode: ['suggestions-mode', '推荐模式'],

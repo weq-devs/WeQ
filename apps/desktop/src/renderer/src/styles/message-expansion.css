@@ -16,6 +16,16 @@
   margin-block-start: calc(var(--weq-message-followup-gap) - var(--weq-message-parent-gap));
 }
 
+.weq-message-chip-row {
+  align-items: center;
+  justify-self: start;
+  gap: 4px 6px;
+}
+
+.message-line.mine .weq-message-chip-row {
+  justify-self: end;
+}
+
 /* 让前置间距也参与展开动画。 */
 :is(.message-bubble, .qq-voice-wrap) > .weq-message-expansion {
   min-width: 0;

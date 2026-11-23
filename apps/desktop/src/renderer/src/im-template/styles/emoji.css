@@ -612,7 +612,6 @@ html[data-theme='dark'] .emoji-panel {
 /* Sits below the original message; wraps after 7 emoji kinds per row. */
 .msg-reactions {
   display: inline-grid;
-  gap: 4px 6px;
   justify-content: start;
 }
 

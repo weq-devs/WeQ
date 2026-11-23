@@ -36,7 +36,12 @@ export const AI_SETTING_ITEMS: readonly AiSetting[] = [
     label: '意图感知显示方式',
     aliases: ['意图感知高级设置'],
   },
-  { id: 'intent-loading-animation', section: 'intent-sense', label: '显示分析等待动画' },
+  {
+    id: 'intent-loading-animation',
+    section: 'intent-sense',
+    label: '自动分析时显示胶囊动画',
+    aliases: ['显示分析等待动画', '批量分析时显示胶囊动画'],
+  },
   { id: 'suggestions-enabled', section: 'reply-suggestions', label: '启用推荐回复' },
   {
     id: 'suggestions-mode',

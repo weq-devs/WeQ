@@ -43,7 +43,7 @@ export function IntentSenseProvider({
   roamingMessageKey?: string;
   /** 菜单手动分析的待处理消息，与自动批次、悬停请求共同驱动等待动画。 */
   manualPendingMessageIds?: ReadonlySet<string>;
-  /** 单条手动分析始终显示等待胶囊，不受批量动画或常驻显示偏好影响。 */
+  /** 单条手动分析始终显示等待胶囊，不受自动分析动画或常驻显示偏好影响。 */
   manualSingleMessageId?: string;
   children: ReactNode;
 }) {

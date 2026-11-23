@@ -3,7 +3,7 @@
  *
  * 两种形态共用一套 pill：
  *  • 常驻行（.weq-intent-chips，气泡 grid 的一个子元素，位于正文下方）——所有已有
- *    结果的消息均显示胶囊，尚无结果的文本从首帧播放随机图标，槽位始终同高。
+ *    结果的消息均显示胶囊，自动分析可按设置在等待时播放随机图标。
  *  • 悬停弹层（.weq-intent-popover，portal + fixed，空间不足向上避让）——悬停任意消息
  *    250ms 后出现，未命中缓存时触发单条分析并显示加载态。悬停交互仿
  *    SetEmojiReactions 的「延迟开、延迟关」手法，弹层自身 pointer-events:none，
@@ -430,24 +430,21 @@ export function MessageIntentSense({
     };
   }, [anchor, ownerDocument]);
 
-  const showChips = Boolean(
-    active &&
-      (manualSingle ||
-        (persistentDisplay &&
-          (result ||
-            (ctx?.loadingAnimation !== false &&
-              analyzable !== false &&
-              (ctx?.automatic !== false || pending || failure))))),
-  );
+  const showWaitingChips =
+    analyzable !== false &&
+    (manualPending ||
+      (ctx?.loadingAnimation !== false && (ctx?.automatic !== false || pending || !!failure)));
+  const showChips =
+    active && (manualSingle || (persistentDisplay && (!!result || showWaitingChips)));
   const layout = (
     <MessageLayoutChange
       anchor={bubbleRef}
-      animateLayout={manualPending}
       details={[
         [
           '.weq-intent-chips',
           showChips,
-          showChips && displayState,
+          showChips && unavailable,
+          showChips && Boolean(failure),
           showChips && result?.intent,
           showChips && result?.emotion,
         ],
@@ -496,7 +493,7 @@ export function MessageIntentSense({
       {/* 单条手动等待始终可见，普通分析仍遵循显示偏好；正文不等待分析。 */}
       {showChips ? (
         <span
-          className="weq-message-followup weq-intent-chips"
+          className="weq-message-followup weq-message-chip-row weq-intent-chips"
           data-intent-state={displayState}
           aria-busy={displayState === 'pending'}
         >

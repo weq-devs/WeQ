@@ -139,10 +139,10 @@ export function IntentSenseSection() {
           >
             <Row
               settingId="intent-loading-animation"
-              label="批量分析时显示胶囊动画"
+              desc="关闭后，自动分析有结果时才显示胶囊。"
               control={
                 <Toggle
-                  label="批量分析时显示胶囊动画"
+                  label="自动分析时显示胶囊动画"
                   checked={s?.loadingAnimation !== false}
                   indeterminate={!s}
                   disabled={disabled || inactive}

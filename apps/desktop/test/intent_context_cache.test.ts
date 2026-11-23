@@ -195,8 +195,9 @@ function renderFixture() {
   return { render, get: () => context!, commits, host };
 }
 
-it('手动分析只标记本轮指定消息，首次提交即有动画，完成或失败后清理，不启动自动分析', async () => {
+it('关闭自动分析动画后，手动批量分析仍立即为指定消息显示动画，完成或失败后清理', async () => {
   fixture.status.analysisMode = 'manual';
+  fixture.status.loadingAnimation = false;
   const f = renderFixture();
   const ids = ['old', 'first', 'second', 'unselected'];
   await f.render('second', '', { ids });
