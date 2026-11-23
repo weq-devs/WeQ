@@ -71,6 +71,7 @@ import { resolveResource } from './resource';
 import { redPackSkinField, resourceSkinCover } from './redpack_catalog';
 import { CallRecordingStore, recordingsRootFor } from './call_recording_store';
 import { videoPreviewResponse } from './video_preview_response';
+import { videoPreviewSource } from './video_preview_source';
 import { observeDownload, transferIdInput } from './ipc/routers/transfer_progress';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
@@ -1039,35 +1040,67 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
               ? 'group'
               : 'c2c'
             : undefined;
-          const found = await findMediaElement(
-            msgId,
-            'video',
-            token,
-            fwdMsgId,
-            fwdKind,
-            q.get('fwdResId') ?? undefined,
-          );
-          if (!found) return notFound('video element not found');
+          const fwdResId = q.get('fwdResId') ?? undefined;
           const groupId = Number(conv) || 0;
-          let url: string;
-          try {
-            url =
-              found.conv === null
-                ? await services.mediaUrl.resolveVideoUrlUnknownScene(groupId, found.element)
-                : await services.mediaUrl.resolveVideoUrl(found.conv, groupId, found.element);
-          } catch (e) {
-            console.error('[media] video OIDB resolve failed:', e);
-            return notFound('video OIDB resolve failed');
-          }
-          if (!url) return notFound('video OIDB returned empty url');
-          mediaBinding.getStore()?.();
-          return await videoPreviewResponse(
-            url,
-            cachePath,
-            request,
-            mediaBinding.getStore(),
-            cacheVideo,
-          );
+          const accountServices = services;
+          const configId = accountServices.accountConfig?.getRecord()?.configId;
+          const scope = JSON.stringify([getAppContext().account?.context.uin, configId]);
+          const checkAccount = () => {
+            if (
+              getAppContext().services !== accountServices ||
+              accountServices.accountConfig?.getRecord()?.configId !== configId
+            )
+              throw new Error('账号数据源已切换');
+          };
+          const checkBinding = () => {
+            mediaBinding.getStore()?.();
+            checkAccount();
+          };
+          const checkPlayback = () => {
+            request.signal.throwIfAborted();
+            checkBinding();
+          };
+          const sign = async () => {
+            const found = await findMediaElement(
+              msgId,
+              'video',
+              token,
+              fwdMsgId,
+              fwdKind,
+              fwdResId,
+            );
+            checkAccount();
+            if (!found || found.element.fileToken !== token) return null;
+            try {
+              return found.conv === null
+                ? await accountServices.mediaUrl.resolveVideoUrlUnknownScene(groupId, found.element)
+                : await accountServices.mediaUrl.resolveVideoUrl(
+                    found.conv,
+                    groupId,
+                    found.element,
+                  );
+            } catch (error) {
+              console.error('[media] video OIDB resolve failed:', error);
+              return null;
+            }
+          };
+          const play = async (url: Promise<string | null>) => {
+            const signed = await bounded(url, request.signal);
+            checkPlayback();
+            return signed
+              ? videoPreviewResponse(signed, cachePath, request, checkBinding, cacheVideo, scope)
+              : notFound('video OIDB returned empty url');
+          };
+          checkPlayback();
+          if (cacheVideo === false) return await play(sign());
+          const key = JSON.stringify([scope, token, msgId, groupId, fwdMsgId, fwdKind, fwdResId]);
+          const signed = videoPreviewSource(accountServices, key, sign);
+          const response = await play(signed.url);
+          if (!signed.reused || response.status !== 502) return response;
+          await response.body?.cancel();
+          checkPlayback();
+          signed.invalidate();
+          return await play(videoPreviewSource(accountServices, key, sign).url);
         }
         case 'ptt': {
           const silk = await resolveVoiceSilk(services, {

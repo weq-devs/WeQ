@@ -158,6 +158,144 @@ it('关闭预览取消上游并清掉半片，不等待原片下载结束', asyn
   expect(await readdir(root)).toEqual([]);
 });
 
+it('拖动后复用已读片段，开放区间校验版本再只请求剩余部分', async () => {
+  const sample = Buffer.concat([video, Buffer.alloc(128 * 1024, 17)]);
+  const tag = '"stable-video"';
+  const client = new AbortController();
+  const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+    const header = new Headers(init?.headers);
+    if (header.get('range') === 'bytes=8-') {
+      return new Response(
+        new ReadableStream({ start: (stream) => stream.enqueue(sample.subarray(8, 96 * 1024)) }),
+        {
+          status: 206,
+          headers: {
+            'Content-Type': 'video/mp4',
+            'Content-Length': String(sample.length - 8),
+            'Content-Range': `bytes 8-${sample.length - 1}/${sample.length}`,
+            ETag: tag,
+          },
+        },
+      );
+    }
+    expect(header.get('range')).toBe(`bytes=${96 * 1024}-${sample.length - 1}`);
+    expect(header.get('if-range')).toBe(tag);
+    return response(
+      sample.subarray(96 * 1024),
+      {
+        'Content-Range': `bytes ${96 * 1024}-${sample.length - 1}/${sample.length}`,
+        ETag: tag,
+      },
+      206,
+    );
+  });
+  await withNetworkTransport(fetcher, async () => {
+    const first = await videoPreviewResponse(
+      url,
+      path,
+      request({ Range: 'bytes=8-' }, client.signal),
+    );
+    const read = first.body!.getReader();
+    expect(Buffer.from((await read.read()).value!)).toEqual(sample.subarray(8, 96 * 1024));
+    client.abort();
+    await read.cancel();
+
+    const hit = await videoPreviewResponse(url, path, request({ Range: 'bytes=10-17' }));
+    expect(hit.headers.get('cache-control')).toBe('no-store');
+    expect(hit.headers.get('content-range')).toBe(`bytes 10-17/${sample.length}`);
+    expect(Buffer.from(await hit.arrayBuffer())).toEqual(sample.subarray(10, 18));
+    expect(fetcher).toHaveBeenCalledOnce();
+
+    const resumed = await videoPreviewResponse(url, path, request({ Range: 'bytes=8-' }));
+    expect(resumed.headers.get('content-range')).toBe(
+      `bytes 8-${sample.length - 1}/${sample.length}`,
+    );
+    expect(Buffer.from(await resumed.arrayBuffer())).toEqual(sample.subarray(8));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(await readdir(root)).toEqual([]);
+  });
+});
+
+it('跨版本续接失败时按原 Range 重试，并丢弃上一版片段', async () => {
+  const sample = Buffer.concat([video, Buffer.alloc(128 * 1024, 17)]);
+  const updated = Buffer.concat([video, Buffer.alloc(128 * 1024, 29)]);
+  const oldTag = '"old"';
+  const newTag = '"new"';
+  const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+    const header = new Headers(init?.headers);
+    switch (header.get('range')) {
+      case 'bytes=0-65535':
+        return response(
+          sample.subarray(0, 64 * 1024),
+          {
+            'Content-Range': `bytes 0-65535/${sample.length}`,
+            ETag: oldTag,
+          },
+          206,
+        );
+      case `bytes=65536-${sample.length - 1}`:
+        expect(header.get('if-range')).toBe(oldTag);
+        return response(updated, { ETag: newTag });
+      default:
+        expect(header.get('range')).toBe('bytes=0-');
+        expect(header.has('if-range')).toBe(false);
+        return response(
+          updated,
+          {
+            'Content-Range': `bytes 0-${sample.length - 1}/${sample.length}`,
+            ETag: newTag,
+          },
+          206,
+        );
+    }
+  });
+  await withNetworkTransport(fetcher, async () => {
+    const initial = await videoPreviewResponse(url, path, request({ Range: 'bytes=0-65535' }));
+    await initial.arrayBuffer();
+    const fresh = await videoPreviewResponse(url, path, request({ Range: 'bytes=0-' }));
+    expect(fresh.headers.get('etag')).toBe(newTag);
+    expect(Buffer.from(await fresh.arrayBuffer()).equals(updated)).toBe(true);
+    expect((await readFile(path)).equals(updated)).toBe(true);
+    const hit = await videoPreviewResponse(url, path, request({ Range: 'bytes=0-65535' }));
+    expect(hit.headers.get('etag')).toBe(newTag);
+    expect(Buffer.from(await hit.arrayBuffer()).equals(updated.subarray(0, 64 * 1024))).toBe(true);
+  });
+  expect(fetcher).toHaveBeenCalledTimes(3);
+});
+
+it('片段遵循上游 no-store 和新鲜期，显式保存仍现取上游字节', async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn<typeof fetch>(async () => {
+    const headers = {
+      'Content-Range': `bytes 8-15/${video.length}`,
+      'Cache-Control': fetcher.mock.calls.length === 1 ? 'no-store' : 'max-age=1',
+      ETag: '"fixture"',
+    };
+    return response(video.subarray(8, 16), headers, 206);
+  });
+  await withNetworkTransport(fetcher, async () => {
+    const play = async (cache = true) => {
+      const out = await videoPreviewResponse(
+        url,
+        path,
+        request({ Range: 'bytes=8-15' }),
+        undefined,
+        cache,
+      );
+      expect(Buffer.from(await out.arrayBuffer())).toEqual(video.subarray(8, 16));
+    };
+    await play();
+    await play();
+    await play();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    await play(false);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1001);
+    await play();
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+});
+
 it('请求在响应头前取消，会中止等待首字节', async () => {
   const controller = new AbortController();
   const fetcher = vi.fn<typeof fetch>(() => new Promise(() => {}));

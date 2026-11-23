@@ -8,24 +8,35 @@ import { LARGE_TRANSFER_BYTES } from '@weq/service/data-saver';
 import { transferActivity } from '@weq/service/managed-download';
 import { handleMediaRequest } from '../src/main/media_protocol';
 
-const state = vi.hoisted(() => ({ root: '', source: null as string | null }));
-vi.mock('../src/main/context/app_context', () => ({
-  getAppContext: () => ({
-    bootstrap: {
-      userConfig: { cacheDir: () => state.root, getSharedPreference: () => ({}) },
+const state = vi.hoisted(() => ({ root: '', source: null as string | null, sign: vi.fn() }));
+vi.mock('../src/main/context/app_context', () => {
+  const makeServices = () => ({
+    fileSearch: { findFile: async () => ({ source: state.source }) },
+    msgs: {
+      getRawElements: async () => ({
+        kind: 'group',
+        elements: [{ kind: 'video', fileToken: 'synthetic-video' }],
+      }),
     },
-    services: {
-      fileSearch: { findFile: async () => ({ source: state.source }) },
-      msgs: {
-        getRawElements: async () => ({
-          kind: 'group',
-          elements: [{ kind: 'video', fileToken: 'synthetic-video' }],
-        }),
-      },
-      mediaUrl: { resolveVideoUrl: async () => 'https://fixture.invalid/video.mp4' },
+    mediaUrl: { resolveVideoUrl: state.sign },
+  });
+  let root = '';
+  let services = makeServices();
+  return {
+    getAppContext: () => {
+      if (root !== state.root) {
+        root = state.root;
+        services = makeServices();
+      }
+      return {
+        bootstrap: {
+          userConfig: { cacheDir: () => state.root, getSharedPreference: () => ({}) },
+        },
+        services,
+      };
     },
-  }),
-}));
+  };
+});
 
 const bytes = Buffer.alloc(LARGE_TRANSFER_BYTES);
 bytes.write('ftyp', 4);
@@ -35,6 +46,7 @@ const url = 'weq-media://video?t=1&name=video.mp4&token=synthetic-video&msgId=41
 beforeEach(async () => {
   state.root = await mkdtemp(join(tmpdir(), 'weq-video-preview-'));
   state.source = null;
+  state.sign.mockReset().mockResolvedValue('https://fixture.invalid/video.mp4');
   activity.mockClear();
   transferActivity.on('state', activity);
 });
@@ -69,4 +81,32 @@ it('Web／Remote 传送已缓存视频也不登记下载任务', async () => {
   expect(response.status).toBe(200);
   expect(Buffer.from(await response.arrayBuffer()).equals(bytes)).toBe(true);
   expect(activity).not.toHaveBeenCalled();
+});
+
+it('同一播放来源连续寻址只签一次，缓存签名被拒时重新签发', async () => {
+  state.sign.mockResolvedValueOnce('https://fixture.invalid/expired.mp4');
+  const fetcher = vi.fn<typeof fetch>(async (source, init) => {
+    const range = new Headers(init?.headers).get('range');
+    if (source.toString().endsWith('/expired.mp4') && range === 'bytes=8-15')
+      return new Response('expired', { status: 403 });
+    const start = range === 'bytes=8-15' ? 8 : 0;
+    return new Response(bytes.subarray(start, start + 8), {
+      status: 206,
+      headers: {
+        'Content-Range': `bytes ${start}-${start + 7}/${bytes.length}`,
+        'Content-Length': '8',
+        'Content-Type': 'video/mp4',
+        ETag: '"fixture"',
+      },
+    });
+  });
+  await withNetworkTransport(fetcher, async () => {
+    for (const range of ['bytes=0-7', 'bytes=0-7', 'bytes=8-15']) {
+      const out = await handleMediaRequest(new Request(url, { headers: { Range: range } }));
+      expect(out.status).toBe(206);
+      expect((await out.arrayBuffer()).byteLength).toBe(8);
+    }
+  });
+  expect(state.sign).toHaveBeenCalledTimes(2);
+  expect(fetcher).toHaveBeenCalledTimes(3);
 });

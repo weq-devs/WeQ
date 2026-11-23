@@ -5,6 +5,15 @@ import { bounded, networkFetch } from '@weq/network';
 import { mediaSignature } from '@weq/service';
 import { ManagedDownload } from '@weq/service/managed-download';
 import { scopedNetworkAllowed } from '@weq/service/network-scope';
+import {
+  cachedVideoRange,
+  captureVideoRange,
+  discardVideoRanges,
+  rangeSourceKey,
+  resumeVideoRange,
+  resumeVideoRangeHeaders,
+  reusableVideoRange,
+} from './video_preview_range';
 
 /** 原片边读边播；仅完整响应可以原子发布为缓存，取消或分段读取不留下半片。 */
 export async function videoPreviewResponse(
@@ -13,11 +22,27 @@ export async function videoPreviewResponse(
   request: Request,
   check: () => void = () => {},
   cacheVideo = true,
+  scope?: string,
 ): Promise<Response> {
   if (!scopedNetworkAllowed()) return new Response('省流量模式：点击加载', { status: 409 });
   check();
+  request.signal.throwIfAborted();
+  const requestedRange = request.headers.get('range');
+  const rangeKey = cacheVideo && requestedRange ? rangeSourceKey(cachePath, url, scope) : undefined;
+  const reused = rangeKey ? reusableVideoRange(rangeKey, request.headers) : undefined;
+  const cached =
+    reused &&
+    cachedVideoRange(reused, () => {
+      check();
+      request.signal.throwIfAborted();
+    });
+  if (cached) return new ManagedDownload().response(cached);
   const controller = new AbortController();
-  const abort = () => controller.abort(request.signal.reason);
+  let keepCancelledRange: (() => void) | undefined;
+  const abort = () => {
+    keepCancelledRange?.();
+    controller.abort(request.signal.reason);
+  };
   request.signal.addEventListener('abort', abort, { once: true });
   if (request.signal.aborted) abort();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -42,10 +67,19 @@ export async function videoPreviewResponse(
   try {
     controller.signal.throwIfAborted();
     armTimeout(15_000);
-    upstream = await bounded(
-      networkFetch(url, { headers, signal: controller.signal }),
-      controller.signal,
-    );
+    const fetchRange = (headers: Headers) =>
+      bounded(networkFetch(url, { headers, signal: controller.signal }), controller.signal);
+    if (reused && rangeKey) {
+      const tail = await fetchRange(resumeVideoRangeHeaders(headers, reused));
+      const combined = resumeVideoRange(tail, reused);
+      if (combined) upstream = combined;
+      else {
+        discardVideoRanges(rangeKey);
+        await tail.body?.cancel().catch(() => undefined);
+        controller.signal.throwIfAborted();
+        upstream = await fetchRange(headers);
+      }
+    } else upstream = await fetchRange(headers);
     clearTimeout(timer);
     try {
       check();
@@ -102,6 +136,18 @@ export async function videoPreviewResponse(
     (!range || Number(range[3]) === length);
   const temporary = `${cachePath}.${randomUUID()}.preview.part`;
   const reader = upstream.body.getReader();
+  const capture =
+    rangeKey && requestedRange ? captureVideoRange(rangeKey, requestedRange, upstream) : undefined;
+  if (capture) {
+    keepCancelledRange = () => {
+      try {
+        check();
+        capture.close(true);
+      } catch {
+        capture.close(false);
+      }
+    };
+  }
   let file: FileHandle | undefined;
   let received = 0;
   let prefix = Buffer.alloc(0);
@@ -153,6 +199,7 @@ export async function videoPreviewResponse(
                   if (error.code !== 'EEXIST') cacheable = false;
                 });
               }
+              capture?.close(true);
               await discard();
               release();
               stream.close();
@@ -163,8 +210,10 @@ export async function videoPreviewResponse(
               prefix = Buffer.concat([prefix, chunk.value.subarray(0, 32 - prefix.length)]);
             await cache(chunk.value);
             controller.signal.throwIfAborted();
+            capture?.append(chunk.value);
             stream.enqueue(chunk.value);
           } catch (error) {
+            capture?.close(false);
             controller.abort(error);
             await reader.cancel(error).catch(() => {});
             await discard();
@@ -175,6 +224,7 @@ export async function videoPreviewResponse(
         return writing;
       },
       async cancel(reason) {
+        keepCancelledRange?.();
         controller.abort(reason);
         await reader.cancel(reason).catch(() => {});
         await writing;
