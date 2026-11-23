@@ -18,11 +18,13 @@ import { HoverTooltip } from './HoverTooltip';
 import { QueryError } from './settings/controls';
 import '../styles/capture-window.css';
 
-const CapturePanel = lazyPanel<ComponentProps<typeof import('./CapturePanel').CapturePanel>>(() =>
-  import('./CapturePanel').then((module) => ({ default: module.CapturePanel })),
+const CapturePanel = lazyPanel<ComponentProps<typeof import('./CapturePanel').CapturePanel>>(
+  () => import('./CapturePanel').then((module) => ({ default: module.CapturePanel })),
+  'inline',
 );
-const UdpCapturePanel = lazyPanel<object>(() =>
-  import('./UdpCapturePanel').then((module) => ({ default: module.UdpCapturePanel })),
+const UdpCapturePanel = lazyPanel<object>(
+  () => import('./UdpCapturePanel').then((module) => ({ default: module.UdpCapturePanel })),
+  'inline',
 );
 
 export function CaptureWindowRequest({

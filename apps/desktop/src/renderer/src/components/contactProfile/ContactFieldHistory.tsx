@@ -14,7 +14,10 @@ import { contactHistoryFieldForLabel } from './ContactFieldHistory.shared';
 
 const FieldHistoryContent = lazyPanel<
   Parameters<typeof import('./FieldHistoryContent').FieldHistoryContent>[0]
->(() => import('./FieldHistoryContent').then((m) => ({ default: m.FieldHistoryContent })));
+>(
+  () => import('./FieldHistoryContent').then((m) => ({ default: m.FieldHistoryContent })),
+  'inline',
+);
 
 type FieldHistoryProviderProps = {
   entity: string;

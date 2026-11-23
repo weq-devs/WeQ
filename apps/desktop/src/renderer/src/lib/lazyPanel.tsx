@@ -4,7 +4,8 @@ import { PanelLoading } from '../components/LoadingIndicator';
 /** 导航意图与真正打开复用同一次模块请求；预热只加载代码，不发业务查询。 */
 export function lazyPanel<Props extends object>(
   load: () => Promise<{ default: ComponentType<Props> }>,
-  fallback: (props: Props) => ReactNode = () => <PanelLoading />,
+  // inline 只用于调用点已有可见容器；弹窗和独立页应提供自己的外壳。
+  fallback: 'startup' | 'inline' | ((props: Props) => ReactNode),
 ) {
   let pending: ReturnType<typeof load> | undefined;
   const module = () => {
@@ -18,7 +19,15 @@ export function lazyPanel<Props extends object>(
   return Object.assign(
     function DeferredPanel(props: Props) {
       return (
-        <Suspense fallback={fallback(props)}>
+        <Suspense
+          fallback={
+            typeof fallback === 'function' ? (
+              fallback(props)
+            ) : fallback === 'startup' || fallback === 'inline' ? (
+              <PanelLoading startup={fallback === 'startup'} />
+            ) : null
+          }
+        >
           <Component {...props} />
         </Suspense>
       );
@@ -42,7 +51,7 @@ export function lazyRetainedPanel<Props extends { active?: boolean }>(
       loaded = true;
       return result;
     },
-    ({ active }) => (active !== false ? <PanelLoading startup={false} /> : null),
+    ({ active }) => (active !== false ? <PanelLoading /> : null),
   );
   return Object.assign(
     function RetainedPanel(props: Props) {

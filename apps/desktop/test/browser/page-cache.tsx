@@ -11,6 +11,7 @@ const Tool = lazyPanel(
     new Promise<{ default: () => React.ReactElement }>((resolve) => {
       setTimeout(() => resolve({ default: () => <p>工具已就绪</p> }), 1000);
     }),
+  'inline',
 );
 Object.assign(window, { pageCacheQa: fixture });
 function App() {

@@ -13,7 +13,7 @@ export function LoadingIndicator({ children = '加载中…' }: { children?: Rea
   );
 }
 
-export function PanelLoading({ startup = true }: { startup?: boolean } = {}) {
+export function PanelLoading({ startup = false }: { startup?: boolean }) {
   return (
     <div
       className="weq-panel-loading"

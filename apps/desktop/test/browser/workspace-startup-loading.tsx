@@ -12,6 +12,7 @@ const Panel = lazyPanel(
     new Promise<{ default: () => React.ReactElement }>((resolve) => {
       Object.assign(window, { finishPanel: () => resolve({ default: () => <p>页面已就绪</p> }) });
     }),
+  'startup',
 );
 const surface = new URLSearchParams(location.search).get('surface');
 createRoot(document.getElementById('root')!).render(

@@ -43,6 +43,7 @@ function value(path) {
   if (path === 'account.getAccountConfig') return config;
   if (path === 'account.listRecentContacts') return { items: [], nextCursor: null };
   if (path === 'bootstrap.nativeStatus') return null;
+  if (path === 'bootstrap.getDevelopmentFeatures') return { dressTools: pendingPanels };
   if (path === 'account.getGroupAlbumAccessState') return { qqOnline: false, attachEnabled: true };
   if (path === 'clientState.snapshot')
     return { serverId: 'fixture', epoch: 'fixture', revision: 1, records: {}, values: {} };
@@ -166,13 +167,15 @@ async function checkPendingPanels(browser) {
     WorkspaceTools: Promise.withResolvers(),
     ExportView: Promise.withResolvers(),
     QzoneAlbumDialog: Promise.withResolvers(),
+    SettingsDialog: Promise.withResolvers(),
+    DressUpDialog: Promise.withResolvers(),
   };
   page.on('pageerror', (error) => errors.push(error.message));
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== '127.0.0.1') return route.abort();
     const panel = url.pathname.match(
-      /\/(WorkspaceTools|ExportView|QzoneAlbumDialog)-[^/]+\.js$/,
+      /\/(WorkspaceTools|ExportView|QzoneAlbumDialog|SettingsDialog|DressUpDialog)-[^/]+\.js$/,
     )?.[1];
     if (panel) {
       requested.add(panel);
@@ -196,6 +199,16 @@ async function checkPendingPanels(browser) {
       const [box, parent] = await Promise.all([feedback.boundingBox(), panel.boundingBox()]);
       assert.ok(
         box && parent && box.y >= parent.y && box.y + box.height <= parent.y + parent.height,
+      );
+      assert.equal(
+        await feedback.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+          return node.contains(
+            document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+          );
+        }),
+        true,
+        '状态文字处于面板的可见层',
       );
       assert.equal(await pending.count(), 1);
       assert.equal(await page.evaluate(() => window.weqRemoteStartup.state), 'ready');
@@ -227,8 +240,31 @@ async function checkPendingPanels(browser) {
     gates.QzoneAlbumDialog.resolve();
     await (await received).finished();
     assert.equal(await album.count(), 0, '关闭后模块返回不会重新打开相册');
+
+    const more = page.locator('.weq-mobile-more:visible');
+    for (const [chunk, label] of [
+      ['SettingsDialog', '设置'],
+      ['DressUpDialog', '个性装扮'],
+    ]) {
+      if (!(await more.isVisible()))
+        await page
+          .getByRole('navigation', { name: '主导航' })
+          .getByRole('button', { name: /^更多/ })
+          .click();
+      await more.getByRole('button', { name: label, exact: true }).click();
+      const panel = page.getByRole('region', { name: label, exact: true });
+      await checkContained(panel);
+      await panel.getByRole('button', { name: '关闭', exact: true }).click();
+      await pending.waitFor({ state: 'detached' });
+      const received = page.waitForResponse(new RegExp(`/${chunk}-[^/]+\\.js$`));
+      gates[chunk].resolve();
+      await (await received).finished();
+      assert.equal(await panel.count(), 0, `${label}关闭后不会由迟到代码重新打开`);
+    }
     assert.deepEqual(errors, []);
-    console.log('PASS: 手机首屏无占位；任务与相册在自身面板内等待，加载期间可返回或关闭。');
+    console.log(
+      'PASS: 手机首屏无占位；任务、相册、设置及装扮在自身面板内等待，加载期间可返回或关闭。',
+    );
   } finally {
     for (const gate of Object.values(gates)) gate.resolve();
     await page.close();

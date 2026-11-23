@@ -41,7 +41,10 @@ const BackupSection = lazy(() =>
 );
 const SelectScreen = lazyPanel<
   Parameters<typeof import('./bootstrap/SelectScreen').SelectScreen>[0]
->(() => import('./bootstrap/SelectScreen').then((module) => ({ default: module.SelectScreen })));
+>(
+  () => import('./bootstrap/SelectScreen').then((module) => ({ default: module.SelectScreen })),
+  'startup',
+);
 import '../styles/startup-shell.css';
 import { WebStartupCache, WEB_STARTUP_CACHE_KEY } from '../lib/webStartupCache';
 import { advanceStartup } from '../state/startupProgress';

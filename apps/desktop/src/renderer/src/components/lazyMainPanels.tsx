@@ -2,7 +2,10 @@ import { lazy, Suspense, useEffect, useState, type ComponentProps } from 'react'
 import { createPortal } from 'react-dom';
 import { Images, X } from 'lucide-react';
 import { lazyPanel } from '../lib/lazyPanel';
+import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { Modal } from './Dialog';
+import { DeferredSurfaceLoading } from './DeferredSurfaceLoading';
+import { surfaceLoading } from './DeferredSurfaceLoading.shared';
 import { LoadingIndicator, PanelLoading } from './LoadingIndicator';
 import { GroupFeatureSurface, type GroupFeaturePresentation } from './GroupFeatureSurface';
 import { OverlayLayer } from './OverlayLayer';
@@ -34,6 +37,19 @@ const CompositionContent = lazy(() =>
     default: module.CompositionWorkspace,
   })),
 );
+
+function CompositionLoading({ onClose }: { onClose: () => void }) {
+  const mobile = useMobileWebLayout();
+  return (
+    <DeferredSurfaceLoading
+      title="合成聊天记录"
+      presentation={mobile ? 'page' : 'floating'}
+      keepMobileNavigation
+      onClose={onClose}
+    />
+  );
+}
+
 export function CompositionWorkspace(props: ComponentProps<typeof CompositionContent>) {
   const requested = Boolean(props.popup || props.fallback || props.incoming?.length);
   const [visited, setVisited] = useState(requested);
@@ -45,11 +61,11 @@ export function CompositionWorkspace(props: ComponentProps<typeof CompositionCon
   return (
     <Suspense
       fallback={
-        props.popup
-          ? createPortal(loading, props.popup.document.body)
-          : props.fallback
-            ? loading
-            : null
+        props.popup ? (
+          createPortal(loading, props.popup.document.body)
+        ) : props.fallback ? (
+          <CompositionLoading onClose={props.onClose} />
+        ) : null
       }
     >
       <CompositionContent {...props} />
@@ -94,13 +110,22 @@ export function QzoneAlbumDialog(props: QzoneAlbumDialogProps) {
 }
 export const GroupAlbumDialog = lazyPanel<
   ComponentProps<typeof import('./GroupAlbumDialog').GroupAlbumDialog>
->(() => import('./GroupAlbumDialog').then((m) => ({ default: m.GroupAlbumDialog })));
+>(
+  () => import('./GroupAlbumDialog').then((m) => ({ default: m.GroupAlbumDialog })),
+  surfaceLoading('群相册', { presentation: 'sidecar' }),
+);
 export const GroupAlbumFeedDialog = lazyPanel<
   ComponentProps<typeof import('./GroupAlbumFeedDialog').GroupAlbumFeedDialog>
->(() => import('./GroupAlbumFeedDialog').then((m) => ({ default: m.GroupAlbumFeedDialog })));
+>(
+  () => import('./GroupAlbumFeedDialog').then((m) => ({ default: m.GroupAlbumFeedDialog })),
+  surfaceLoading('群相册动态', { presentation: 'sidecar' }),
+);
 export const GroupFileDialog = lazyPanel<
   ComponentProps<typeof import('./GroupFileDialog').GroupFileDialog>
->(() => import('./GroupFileDialog').then((m) => ({ default: m.GroupFileDialog })));
+>(
+  () => import('./GroupFileDialog').then((m) => ({ default: m.GroupFileDialog })),
+  surfaceLoading('群文件', { presentation: 'sidecar' }),
+);
 function ProfileLoading({ onClose }: { onClose: () => void }) {
   return (
     <OverlayLayer presentation="panel" onClose={onClose}>
@@ -140,15 +165,19 @@ export const ConversationIdentityCard = lazyPanel<
 );
 export const SpecialConversationPreview = lazyPanel<
   ComponentProps<typeof import('./SpecialConversationPreview').SpecialConversationPreview>
->(() =>
-  import('./SpecialConversationPreview').then((m) => ({ default: m.SpecialConversationPreview })),
+>(
+  () =>
+    import('./SpecialConversationPreview').then((m) => ({ default: m.SpecialConversationPreview })),
+  surfaceLoading('会话预览', { presentation: 'floating', width: 680 }),
 );
 export const CloneMemberProfileCard = lazyPanel<
   ComponentProps<typeof import('../views/agentlab/CloneMemberProfileCard').CloneMemberProfileCard>
->(() =>
-  import('../views/agentlab/CloneMemberProfileCard').then((m) => ({
-    default: m.CloneMemberProfileCard,
-  })),
+>(
+  () =>
+    import('../views/agentlab/CloneMemberProfileCard').then((m) => ({
+      default: m.CloneMemberProfileCard,
+    })),
+  ({ onClose }) => <ProfileLoading onClose={onClose} />,
 );
 const GroupTodosContent = lazy(() =>
   import('./qq-actions/GroupActions').then((m) => ({ default: m.GroupTodos })),
@@ -173,6 +202,9 @@ export function GroupTodos(props: ComponentProps<typeof GroupTodosContent>) {
 }
 export const MediaPreview = lazyPanel<ComponentProps<typeof import('./MediaPreview').MediaPreview>>(
   () => import('./MediaPreview').then((m) => ({ default: m.MediaPreview })),
+  ({ active, onClose }) => (
+    <DeferredSurfaceLoading title="媒体预览" open={active} onClose={onClose} />
+  ),
 );
 
 const groupLoadingFrames = {
@@ -260,32 +292,45 @@ export const GroupLeftMembersDialog = lazyPanel<
 );
 export const AddMessageModal = lazyPanel<
   ComponentProps<typeof import('./compose/AddMessageModal').AddMessageModal>
->(() => import('./compose/AddMessageModal').then((m) => ({ default: m.AddMessageModal })));
+>(
+  () => import('./compose/AddMessageModal').then((m) => ({ default: m.AddMessageModal })),
+  surfaceLoading('添加消息', { presentation: 'floating', width: 430 }),
+);
 export const MergeForwardDialog = lazyPanel<
   ComponentProps<typeof import('./mergeForward/MergeForwardDialog').MergeForwardDialog>
->(() =>
-  import('./mergeForward/MergeForwardDialog').then((m) => ({ default: m.MergeForwardDialog })),
+>(
+  () =>
+    import('./mergeForward/MergeForwardDialog').then((m) => ({ default: m.MergeForwardDialog })),
+  surfaceLoading('合并转发'),
 );
 export const ForwardedConversationsDialog = lazyPanel<
   ComponentProps<typeof import('./mergeForward/MergeForwardTargets').ForwardedConversationsDialog>
->(() =>
-  import('./mergeForward/MergeForwardTargets').then((m) => ({
-    default: m.ForwardedConversationsDialog,
-  })),
+>(
+  () =>
+    import('./mergeForward/MergeForwardTargets').then((m) => ({
+      default: m.ForwardedConversationsDialog,
+    })),
+  surfaceLoading('转发至会话'),
 );
 export const DeletedMessagesModal = lazyPanel<
   ComponentProps<typeof import('./compose/DeletedMessagesModal').DeletedMessagesModal>
->(() =>
-  import('./compose/DeletedMessagesModal').then((m) => ({ default: m.DeletedMessagesModal })),
+>(
+  () => import('./compose/DeletedMessagesModal').then((m) => ({ default: m.DeletedMessagesModal })),
+  surfaceLoading('已删除消息', { presentation: 'floating', width: 720 }),
 );
 export const RecalledMessagesModal = lazyPanel<
   ComponentProps<typeof import('./compose/RecalledMessagesModal').RecalledMessagesModal>
->(() =>
-  import('./compose/RecalledMessagesModal').then((m) => ({ default: m.RecalledMessagesModal })),
+>(
+  () =>
+    import('./compose/RecalledMessagesModal').then((m) => ({ default: m.RecalledMessagesModal })),
+  surfaceLoading('已撤回消息', { presentation: 'floating', width: 720 }),
 );
 export const GapMessagesModal = lazyPanel<
   ComponentProps<typeof import('./compose/GapMessagesModal').GapMessagesModal>
->(() => import('./compose/GapMessagesModal').then((m) => ({ default: m.GapMessagesModal })));
+>(
+  () => import('./compose/GapMessagesModal').then((m) => ({ default: m.GapMessagesModal })),
+  surfaceLoading('聊天记录', { presentation: 'floating', width: 720 }),
+);
 export const ChatRecordsModal = lazyPanel<
   ComponentProps<typeof import('./search/ChatRecordsModal').ChatRecordsModal>
 >(
@@ -306,37 +351,58 @@ export const ChatRecordsModal = lazyPanel<
 );
 export const SequentialForwardDialog = lazyPanel<
   ComponentProps<typeof import('./SequentialForwardDialog').SequentialForwardDialog>
->(() => import('./SequentialForwardDialog').then((m) => ({ default: m.SequentialForwardDialog })));
+>(
+  () => import('./SequentialForwardDialog').then((m) => ({ default: m.SequentialForwardDialog })),
+  surfaceLoading('逐条转发'),
+);
 export const MsgElementEditor = lazyPanel<
   ComponentProps<typeof import('./MsgElementEditor').MsgElementEditor>
->(() => import('./MsgElementEditor').then((m) => ({ default: m.MsgElementEditor })));
+>(
+  () => import('./MsgElementEditor').then((m) => ({ default: m.MsgElementEditor })),
+  surfaceLoading('编辑消息'),
+);
 export const SearchResultsPanel = lazyPanel<
   ComponentProps<typeof import('./search/SearchResultsPanel').SearchResultsPanel>
->(() => import('./search/SearchResultsPanel').then((m) => ({ default: m.SearchResultsPanel })));
-export const ChatHome = lazyPanel<ComponentProps<typeof import('../views/ChatHome').ChatHome>>(() =>
-  import('../views/ChatHome').then((m) => ({ default: m.ChatHome })),
+>(
+  () => import('./search/SearchResultsPanel').then((m) => ({ default: m.SearchResultsPanel })),
+  'inline',
+);
+export const ChatHome = lazyPanel<ComponentProps<typeof import('../views/ChatHome').ChatHome>>(
+  () => import('../views/ChatHome').then((m) => ({ default: m.ChatHome })),
+  'startup',
 );
 export const GroupCallWindow = lazyPanel<
   ComponentProps<typeof import('./call/GroupCallWindow').GroupCallWindow>
->(() => import('./call/GroupCallWindow').then((m) => ({ default: m.GroupCallWindow })));
+>(
+  () => import('./call/GroupCallWindow').then((m) => ({ default: m.GroupCallWindow })),
+  () => <DeferredSurfaceLoading title="群通话" presentation="panel" />,
+);
 export const GroupCallInvite = lazyPanel<
   ComponentProps<typeof import('./call/GroupCallWindow').GroupCallInvite>
->(() => import('./call/GroupCallWindow').then((m) => ({ default: m.GroupCallInvite })));
+>(
+  () => import('./call/GroupCallWindow').then((m) => ({ default: m.GroupCallInvite })),
+  ({ title, onClose }) => <DeferredSurfaceLoading title={title} onClose={onClose} width={460} />,
+);
 
-export const CallWindow = lazyPanel<ComponentProps<typeof import('./CallWindow').CallWindow>>(() =>
-  import('./CallWindow').then((m) => ({ default: m.CallWindow })),
+export const CallWindow = lazyPanel<ComponentProps<typeof import('./CallWindow').CallWindow>>(
+  () => import('./CallWindow').then((m) => ({ default: m.CallWindow })),
+  () => <DeferredSurfaceLoading title="通话" presentation="panel" />,
 );
 export const OfficialConversationPane = lazyPanel<
   ComponentProps<typeof import('./OfficialConversationPane').OfficialConversationPane>
->(() =>
-  import('./OfficialConversationPane').then((m) => ({ default: m.OfficialConversationPane })),
+>(
+  () => import('./OfficialConversationPane').then((m) => ({ default: m.OfficialConversationPane })),
+  'inline',
 );
 export const ContactNoticeDialog = lazyPanel<
   ComponentProps<typeof import('./ContactNoticeDialogs').ContactNoticeDialog>
->(() => import('./ContactNoticeDialogs').then((m) => ({ default: m.ContactNoticeDialog })));
+>(
+  () => import('./ContactNoticeDialogs').then((m) => ({ default: m.ContactNoticeDialog })),
+  'inline',
+);
 export const GroupNoticeDialog = lazyPanel<
   ComponentProps<typeof import('./ContactNoticeDialogs').GroupNoticeDialog>
->(() => import('./ContactNoticeDialogs').then((m) => ({ default: m.GroupNoticeDialog })));
+>(() => import('./ContactNoticeDialogs').then((m) => ({ default: m.GroupNoticeDialog })), 'inline');
 export const GroupAnnouncementsDialog = lazyPanel<
   ComponentProps<typeof import('./GroupAnnouncementsDialog').GroupAnnouncementsDialog>
 >(
@@ -381,26 +447,39 @@ export const ConversationSettingsDialog = lazyPanel<
 );
 export const QQRemarkDialog = lazyPanel<
   ComponentProps<typeof import('./QQRemarkDialog').QQRemarkDialog>
->(() => import('./QQRemarkDialog').then((m) => ({ default: m.QQRemarkDialog })));
+>(
+  () => import('./QQRemarkDialog').then((m) => ({ default: m.QQRemarkDialog })),
+  surfaceLoading('修改备注', { presentation: 'popover' }),
+);
 export const GroupMemberKickDialog = lazyPanel<
   ComponentProps<typeof import('./GroupMemberModerationDialogs').GroupMemberKickDialog>
->(() =>
-  import('./GroupMemberModerationDialogs').then((m) => ({ default: m.GroupMemberKickDialog })),
+>(
+  () =>
+    import('./GroupMemberModerationDialogs').then((m) => ({ default: m.GroupMemberKickDialog })),
+  ({ onCancel }) => <DeferredSurfaceLoading title="踢出群聊" onClose={onCancel} />,
 );
 export const GroupMemberRenameDialog = lazyPanel<
   ComponentProps<typeof import('./GroupMemberModerationDialogs').GroupMemberRenameDialog>
->(() =>
-  import('./GroupMemberModerationDialogs').then((m) => ({ default: m.GroupMemberRenameDialog })),
+>(
+  () =>
+    import('./GroupMemberModerationDialogs').then((m) => ({ default: m.GroupMemberRenameDialog })),
+  ({ onCancel }) => (
+    <DeferredSurfaceLoading title="修改群昵称" presentation="popover" onClose={onCancel} />
+  ),
 );
 export const GroupMemberTitleDialog = lazyPanel<
   ComponentProps<typeof import('./GroupMemberModerationDialogs').GroupMemberTitleDialog>
->(() =>
-  import('./GroupMemberModerationDialogs').then((m) => ({ default: m.GroupMemberTitleDialog })),
+>(
+  () =>
+    import('./GroupMemberModerationDialogs').then((m) => ({ default: m.GroupMemberTitleDialog })),
+  surfaceLoading('编辑专属头衔', { presentation: 'popover' }),
 );
 export const ConversationOverviewCalendar = lazyPanel<
   ComponentProps<typeof import('./ConversationOverviewCalendar').ConversationOverviewCalendar>
->(() =>
-  import('./ConversationOverviewCalendar').then((m) => ({
-    default: m.ConversationOverviewCalendar,
-  })),
+>(
+  () =>
+    import('./ConversationOverviewCalendar').then((m) => ({
+      default: m.ConversationOverviewCalendar,
+    })),
+  surfaceLoading('会话总日历', { width: 980 }),
 );

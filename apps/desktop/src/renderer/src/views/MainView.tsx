@@ -107,6 +107,7 @@ import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
 import {
   selectProfileContacts,
   conversationProfileTargets,
+  groupPreviewNameIndex,
 } from '../lib/visibleConversationProfiles';
 import {
   nextStartupQueryStage,
@@ -491,6 +492,8 @@ import type { SettingsSearchTarget } from '../components/settings/searchTarget';
 import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
 import { WorkspaceStartupLoading } from '../components/WorkspaceStartupLoading';
 import { PanelLoading } from '../components/LoadingIndicator';
+import { surfaceLoading } from '../components/DeferredSurfaceLoading.shared';
+import { lazyPanel } from '../lib/lazyPanel';
 import { displayGroupMemberName } from '../im-template/template/user';
 import {
   ChatNavigationContext,
@@ -580,10 +583,14 @@ import { qqMessageRenderer } from '../components/QqMessageContent.shared';
 import { ReplyJumpContext, ForwardKindContext, ConvContext } from '../state/messageContext';
 import type { ReplyJumpTarget } from '../components/QqMessageContent';
 
-const AnalysisReportPage = lazy(() =>
-  import('./analysis/AnalysisReportPage').then((module) => ({
-    default: module.AnalysisReportPage,
-  })),
+const AnalysisReportPage = lazyPanel<
+  React.ComponentProps<typeof import('./analysis/AnalysisReportPage').AnalysisReportPage>
+>(
+  () =>
+    import('./analysis/AnalysisReportPage').then((module) => ({
+      default: module.AnalysisReportPage,
+    })),
+  surfaceLoading('分析报告', { width: 1000 }),
 );
 const SearchGroupContentResult = lazy(() =>
   import('../components/search/SearchGroupContentResult').then((module) => ({
@@ -2763,26 +2770,10 @@ function MainWorkspace(): ReactElement {
     }
     return names;
   }, [profileByUid]);
-  const previewGroupNames = useMemo(() => {
-    const groups = new Map<string, ReadonlyMap<string, string>>();
-    for (const [code, members] of Object.entries(previewMembers)) {
-      const names = new Map<string, string>();
-      for (const member of Object.values(members)) {
-        const profile = profileByUid.get(member.uid);
-        const name = displayGroupMemberName(
-          member.card,
-          profile?.remark,
-          member.nick || profile?.nick,
-          member.uin || member.uid,
-        );
-        if (!name) continue;
-        names.set(member.uid, name);
-        if (member.uin && member.uin !== '0') names.set(member.uin, name);
-      }
-      groups.set(code, names);
-    }
-    return groups;
-  }, [previewMembers, profileByUid]);
+  const previewGroupNames = useMemo(
+    () => groupPreviewNameIndex(previewMembers, profileByUid),
+    [previewMembers, profileByUid],
+  );
   const {
     categoryById,
     botUids,
@@ -11265,9 +11256,10 @@ function MainWorkspace(): ReactElement {
               onClose={() => setForwardBatch(null)}
             />
           ) : null}
-          {analysisReports.map((request) => (
-            <Suspense key={request.id} fallback={workspaceLoading}>
+          {analysisReports.map((request) =>
+            request.scope.expectedAccountUin === openedUin ? (
               <AnalysisReportPage
+                key={request.id}
                 request={request}
                 onClose={() =>
                   setAnalysisReports((previous) =>
@@ -11275,8 +11267,8 @@ function MainWorkspace(): ReactElement {
                   )
                 }
               />
-            </Suspense>
-          ))}
+            ) : null,
+          )}
           {overviewCalendar && (!calendarTask || calendarTask.accountScope === messageScope) ? (
             <ConversationOverviewCalendar
               key={calendarTask?.taskId}

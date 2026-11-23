@@ -77,11 +77,12 @@ it('合成正文首次打开才加载，占位跟随所属窗口，关闭及重�
       root.render(h(CompositionWorkspace, { ...props, popup: popup as unknown as Window })),
     );
     expect(fixture.compositionLoaded).toHaveBeenCalledOnce();
-    expect(popup.document.querySelector('[data-weq-startup-pending]')).not.toBeNull();
-    expect(host.querySelector('[data-weq-startup-pending]')).toBeNull();
-    await act(async () => root.render(h(CompositionWorkspace, props)));
+    expect(popup.document.querySelector('[role="status"]')).not.toBeNull();
     expect(popup.document.querySelector('[data-weq-startup-pending]')).toBeNull();
-    expect(host.querySelector('[data-weq-startup-pending]')).toBeNull();
+    expect(host.querySelector('[role="status"]')).toBeNull();
+    await act(async () => root.render(h(CompositionWorkspace, props)));
+    expect(popup.document.querySelector('[role="status"]')).toBeNull();
+    expect(host.querySelector('[role="status"]')).toBeNull();
     await act(async () => release());
     await act(async () => root.render(h(CompositionWorkspace, { ...props, fallback: true })));
     const draft = host.querySelector('input')!;

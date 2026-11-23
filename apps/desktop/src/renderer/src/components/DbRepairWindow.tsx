@@ -20,6 +20,7 @@ import { useDatabaseMaintenanceNotifications } from '../hooks/useDatabaseMainten
 
 const DbRepairPanel = lazyPanel<ComponentProps<typeof import('./DbRepairPanel').DbRepairPanel>>(
   () => import('./DbRepairPanel').then((module) => ({ default: module.DbRepairPanel })),
+  'inline',
 );
 
 /** 旧的工具路由也只发起系统窗口请求，不再挂工作区内的修复面板。 */
