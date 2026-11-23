@@ -114,12 +114,15 @@ export function useGroupMemberResolver<T extends { uid: string }>(
     const index = jobs.current.findIndex((job) => {
       // 串行队列内 UID 去重；其他任务完成不会改变本任务的上次读取时间。
       if (job.dueAt === undefined || job.dueIntervalMs !== minRefreshIntervalMs) {
-        job.dueAt = Math.min(
-          ...job.uids.map((uid) => {
-            const at = lastRead.current.get(`${job.groupCode}:${uid}`);
-            return at === undefined ? 0 : at + minRefreshIntervalMs;
-          }),
-        );
+        job.dueAt =
+          minRefreshIntervalMs > 0
+            ? Math.min(
+                ...job.uids.map((uid) => {
+                  const at = lastRead.current.get(`${job.groupCode}:${uid}`);
+                  return at === undefined ? 0 : at + minRefreshIntervalMs;
+                }),
+              )
+            : 0;
         job.dueIntervalMs = minRefreshIntervalMs;
       }
       const due = job.dueAt;
@@ -135,7 +138,8 @@ export function useGroupMemberResolver<T extends { uid: string }>(
     const ready: string[] = [];
     const delayed: string[] = [];
     for (const uid of job.uids) {
-      const at = lastRead.current.get(`${job.groupCode}:${uid}`);
+      const at =
+        minRefreshIntervalMs > 0 ? lastRead.current.get(`${job.groupCode}:${uid}`) : undefined;
       (at === undefined || at + minRefreshIntervalMs <= now ? ready : delayed).push(uid);
     }
     if (delayed.length) jobs.current.push({ ...job, uids: delayed, dueAt: undefined });
@@ -155,8 +159,20 @@ export function useGroupMemberResolver<T extends { uid: string }>(
           for (const uid of job.uids) job.attempted.delete(uid);
           return;
         }
-        // 只有接收过的结果才进入冷却；失效中的首次查询不能延迟新发言人首屏补全。
-        for (const uid of job.uids) lastRead.current.set(`${job.groupCode}:${uid}`, Date.now());
+        if (minRefreshIntervalMs > 0) {
+          // 只为已接收的预览结果保留冷却时间，按最近读取顺序清理过期记录。
+          const readAt = Date.now();
+          const reads = lastRead.current;
+          for (const [key, at] of reads) {
+            if (at + minRefreshIntervalMs > readAt) break;
+            reads.delete(key);
+          }
+          for (const uid of job.uids) {
+            const key = `${job.groupCode}:${uid}`;
+            reads.delete(key);
+            reads.set(key, readAt);
+          }
+        }
         if (members.length > 0) {
           setMissingMembers((prev) => {
             if (attemptedRef.current[job.groupCode] !== job.attempted) return prev;
