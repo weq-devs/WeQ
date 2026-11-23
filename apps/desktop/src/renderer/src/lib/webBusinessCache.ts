@@ -12,6 +12,7 @@ import {
   recentMessageWindowTag,
 } from './recentMessageCache';
 import superjson from 'superjson';
+import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { isProfileCacheQuery } from './profileQuery';
 import {
   boundedBridgeReply,
@@ -32,6 +33,7 @@ export type { BusinessCacheStore, BusinessSnapshot } from './webBusinessCacheSto
 
 const MAX_ROWS = 10_000;
 const MAX_QUERIES = 160;
+const qzoneHomePath = ['account', 'qqActions', 'qzoneHome'] as const;
 export const PROFILE_SCOPE_PREFIX = 'profiles:';
 const writerId = Math.random().toString(36).slice(2);
 let commitSequence = 0;
@@ -88,6 +90,9 @@ const browsedPaths = new Set([
 
 /** 仅 Web 使用：恢复的数据立即可见，过期后在实际打开对应面板时后台刷新。 */
 export function configureBusinessCache(client: QueryClient): void {
+  client.setQueryDefaults([qzoneHomePath], {
+    refetchOnMount: (query) => query.state.isInvalidated,
+  });
   for (const path of additionalProcedures)
     client.setQueryDefaults([['account', ...path.split('.')]], {
       staleTime: 60_000,
@@ -215,9 +220,9 @@ export const businessCacheStore: BusinessCacheStore = {
   },
 };
 
-function profileQueryFilter(scope: string): (key: QueryKey) => boolean {
+function scopeBinding(scope: string): QQWriteBinding | undefined {
   const account = sharedAccountScope(scope);
-  if (!account) return () => false;
+  if (!account) return undefined;
   try {
     const binding: unknown = JSON.parse(account);
     if (
@@ -226,20 +231,28 @@ function profileQueryFilter(scope: string): (key: QueryKey) => boolean {
       typeof binding[0] === 'string' &&
       typeof binding[1] === 'string'
     ) {
-      const expected = { expectedAccountUin: binding[0], expectedAccountConfigId: binding[1] };
-      return (key) => isProfileCacheQuery(key, expected);
+      return { expectedAccountUin: binding[0], expectedAccountConfigId: binding[1] };
     }
   } catch {
     /* Legacy scopes may be opaque. */
   }
-  return () => false;
+  return undefined;
+}
+
+function isQzoneHomeQuery(key: QueryKey) {
+  const [path, target] = key;
+  return (
+    Array.isArray(path) &&
+    path.length === qzoneHomePath.length &&
+    qzoneHomePath.every((part, index) => part === path[index]) &&
+    (target as { type?: string } | undefined)?.type === 'infinite'
+  );
 }
 
 function persistedQueries(scope: string) {
   const profileOnly = scope.startsWith(PROFILE_SCOPE_PREFIX);
-  const profile = profileQueryFilter(
-    profileOnly ? scope.slice(PROFILE_SCOPE_PREFIX.length) : scope,
-  );
+  const binding = scopeBinding(profileOnly ? scope.slice(PROFILE_SCOPE_PREFIX.length) : scope);
+  const profile = (key: QueryKey) => !!binding && isProfileCacheQuery(key, binding);
   if (isMessageScope(scope)) {
     const directory = scope.slice(MESSAGE_SCOPE_PREFIX.length);
     const account = sharedAccountScope(directory) ?? directory;
@@ -252,6 +265,15 @@ function persistedQueries(scope: string) {
   return {
     profile,
     matches: (key: QueryKey) => {
+      if (isQzoneHomeQuery(key)) {
+        const { input } = key[1] as { input?: Partial<QQWriteBinding> & { hostUin?: string } };
+        return (
+          !!binding &&
+          input?.hostUin === binding.expectedAccountUin &&
+          input.expectedAccountUin === binding.expectedAccountUin &&
+          input.expectedAccountConfigId === binding.expectedAccountConfigId
+        );
+      }
       const path = key[0];
       return (
         path === resolvedProfilesKey[0] ||
@@ -275,7 +297,7 @@ export async function restoreBusinessCache(
     const value = await store.get(scope);
     if (!current() || value?.scope !== scope || !Array.isArray(value.state?.queries)) return;
     const { matches, profile } = persistedQueries(scope);
-    // 恢复成功数据，名片打开时再校准磁盘里的旧值。
+    // 恢复成功数据，名片与本人空间主页打开时再校准旧值。
     const queries = value.state.queries
       .filter(
         (query) =>
@@ -285,7 +307,7 @@ export async function restoreBusinessCache(
           Number.isFinite(query.state.dataUpdatedAt),
       )
       .map((query) =>
-        profile(query.queryKey)
+        profile(query.queryKey) || isQzoneHomeQuery(query.queryKey)
           ? { ...query, state: { ...query.state, isInvalidated: true } }
           : query,
       );
@@ -299,12 +321,12 @@ export async function restoreBusinessCache(
   );
 }
 
-function boundedData(data: unknown): unknown {
+function boundedData(data: unknown, pageLimit = Number.POSITIVE_INFINITY): unknown {
   if (Array.isArray(data)) return data.length > MAX_ROWS ? data.slice(0, MAX_ROWS) : data;
   if (data && typeof data === 'object' && 'pages' in data && Array.isArray(data.pages)) {
     let rows = 0;
-    const pages = data.pages.filter((page: { items?: unknown[] }) => {
-      if (rows >= MAX_ROWS) return false;
+    const pages = data.pages.filter((page: { items?: unknown[] }, index) => {
+      if (index >= pageLimit || rows >= MAX_ROWS) return false;
       rows += page.items?.length ?? 0;
       return true;
     });
@@ -325,7 +347,8 @@ function normalizedQuery(query: SavedQuery): SavedQuery {
     ...query,
     state: {
       ...query.state,
-      data: boundedData(query.state.data),
+      // 只恢复主页首屏，重新加载时无需顺序回源所有历史页。
+      data: boundedData(query.state.data, isQzoneHomeQuery(query.queryKey) ? 1 : undefined),
       status: 'success',
       fetchStatus: 'idle',
       error: null,

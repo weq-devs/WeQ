@@ -1,4 +1,4 @@
-import { QueryClient, QueryObserver } from '@tanstack/react-query';
+import { InfiniteQueryObserver, QueryClient, QueryObserver } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
 import superjson from 'superjson';
 import {
@@ -330,6 +330,74 @@ describe('Web 业务持久缓存', () => {
     stop();
     expect(client.getQueryDefaults(key('getAccountConfig'))?.refetchOnMount).toBeUndefined();
     client.clear();
+  });
+
+  it('整页重载先恢复本人空间动态首屏，失败保留旧数据，刷新后用新游标续页', async () => {
+    const storage = memoryStore();
+    const scope = JSON.stringify([location.origin, JSON.stringify(['10001', 'source-a'])]);
+    const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+    const homeKey = (hostUin: string, account = binding) =>
+      [
+        ['account', 'qqActions', 'qzoneHome'],
+        { type: 'infinite', input: { ...account, hostUin } },
+      ] as const;
+    const queryKey = homeKey('10001');
+    const otherHost = homeKey('10002');
+    const otherSource = homeKey('10001', { ...binding, expectedAccountConfigId: 'source-b' });
+    const first = createQueryClient(true);
+    const stop = watchBusinessCache(first, scope, storage);
+    const cachedPage = { feeds: ['cached'], next_cursor: 'old-cursor' };
+    const oldTail = { feeds: ['old-tail'], next_cursor: null };
+    const oldData = { pages: [cachedPage, oldTail], pageParams: [undefined, 'old-cursor'] };
+    first.setQueryData(queryKey, oldData);
+    first.setQueryData(otherHost, oldData);
+    first.setQueryData(otherSource, oldData);
+    await stop();
+
+    const next = createQueryClient(true);
+    configureBusinessCache(next);
+    await restoreBusinessCache(next, scope, storage);
+    expect(next.getQueryData(otherHost)).toBeUndefined();
+    expect(next.getQueryData(otherSource)).toBeUndefined();
+    const cached = { pages: [cachedPage], pageParams: [undefined] };
+    const freshPage = { feeds: ['fresh'], next_cursor: 'fresh-cursor' };
+    const freshTail = { feeds: ['fresh-tail'], next_cursor: null };
+    const request = vi.fn(async ({ pageParam }: { pageParam?: unknown }) =>
+      pageParam ? freshTail : freshPage,
+    );
+    request.mockRejectedValueOnce(new Error('offline'));
+    const observe = () =>
+      new InfiniteQueryObserver(next, {
+        queryKey,
+        queryFn: request,
+        getNextPageParam: (page) => page.next_cursor ?? undefined,
+        retry: false,
+      });
+    const observer = observe();
+    expect(observer.getCurrentResult().data).toEqual(cached);
+    expect(request).not.toHaveBeenCalled();
+    const unsubscribe = observer.subscribe(() => {});
+    expect(observer.getCurrentResult()).toMatchObject({ data: cached, isFetching: true });
+    await expect(next.getQueryCache().find(queryKey)!.promise).rejects.toThrow('offline');
+    expect(observer.getCurrentResult()).toMatchObject({ data: cached, isError: true });
+    await observer.refetch();
+    expect(observer.getCurrentResult().data).toEqual({
+      pages: [freshPage],
+      pageParams: [undefined],
+    });
+    expect(request.mock.calls.map(([context]) => context.pageParam)).toEqual([
+      undefined,
+      undefined,
+    ]);
+    await observer.fetchNextPage();
+    expect(request.mock.calls.at(-1)?.[0].pageParam).toBe('fresh-cursor');
+    expect(observer.getCurrentResult().data?.pages).toEqual([freshPage, freshTail]);
+    unsubscribe();
+    const reopen = observe().subscribe(() => {});
+    expect(request).toHaveBeenCalledTimes(3);
+    reopen();
+    first.clear();
+    next.clear();
   });
 
   it('表情包与 GIF 参数查询有数量上限，并保留最近成功访问的数据', async () => {

@@ -1,5 +1,5 @@
 import type { QzoneShare } from '@weqbot/protocol/web';
-import { useContext, useEffect, useMemo, useState, type ComponentType } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { Eye, MessageCircle, Repeat2, ThumbsUp } from 'lucide-react';
 import { trpc } from '../trpc/client';
 import {
@@ -430,8 +430,16 @@ export function QzoneSpaceHome({
   const cursor = pages.at(-1)?.next_cursor;
   const cursorStalled = !!cursor && pages.slice(0, -1).some((page) => page.next_cursor === cursor);
   const error = query.error?.message ?? '';
-  const next = () => void query.fetchNextPage({ cancelRefetch: false });
-  const retry = () => (query.hasNextPage ? next() : void query.refetch());
+  const nextPageFailed = useRef(false);
+  const next = () => {
+    void query.fetchNextPage({ cancelRefetch: false }).then((result) => {
+      nextPageFailed.current = result.isError;
+    });
+  };
+  const retry = () => {
+    if (nextPageFailed.current && query.hasNextPage) next();
+    else void query.refetch({ cancelRefetch: false });
+  };
   // 先续已读范围最浅的来源，不为合并提前扫完整历史。
   const nextPage = [
     { floor: feedFloor, next: available && query.hasNextPage && !error ? next : undefined },
