@@ -694,8 +694,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'qq-live-messages',
     section: 'account',
-    label: '通过 QQ 代理实时接收消息',
-    aliases: ['消息直推', '实时收信'],
+    label: '通过 QQ 代理加速实时更新',
+    aliases: ['通过 QQ 代理实时接收消息', '消息直推', '实时收信', '代理性能优化'],
     from: ['account'],
   },
   {

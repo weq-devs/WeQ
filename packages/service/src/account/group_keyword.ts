@@ -112,6 +112,7 @@ export interface GroupKeywordOptions {
   onHit: (hit: GroupKeywordHit) => void | Promise<void>;
   /** 轮询间隔毫秒，透传给 DbWatchService（默认 1000）。 */
   intervalMs?: number;
+  watch?: Pick<DbWatchService, 'mount'>;
 }
 
 /** How long the extracted text may be before it is truncated in a notification. */
@@ -120,7 +121,7 @@ const MAX_TEXT_LEN = 200;
 const MAX_SEEN = 5_000;
 
 export class GroupKeywordService {
-  private readonly watch: DbWatchService;
+  private readonly watch: Pick<DbWatchService, 'mount'>;
   private handle: DbWatchHandle | null = null;
   /** 当前生效的规则（前端推送 / 账号打开时注入）。 */
   private rules: GroupKeywordRules = {};
@@ -132,7 +133,7 @@ export class GroupKeywordService {
     private readonly session: AccountSession,
     private readonly opts: GroupKeywordOptions,
   ) {
-    this.watch = new DbWatchService({ intervalMs: opts.intervalMs ?? 1_000 });
+    this.watch = opts.watch ?? new DbWatchService({ intervalMs: opts.intervalMs ?? 1_000 });
   }
 
   /** 挂载 nt_msg.db 监听。幂等。 */

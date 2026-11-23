@@ -26,7 +26,7 @@ import { getLogger, logErrorContext } from '../common/logger';
 import { DbWatchService, type DbWatchHandle } from './db_watch';
 import { liftForwardRecords } from './export/forward_expand';
 import { bigintReplacer } from './export/serialize';
-import { toRenderElements, type RenderElement } from './msg_view';
+import { toObservedRenderElements, type RenderElement } from './msg_view';
 import { createNtMsgDbHook, type NewMessages } from './nt_msg_hook';
 
 /** 推送目标：接收端地址 + access_token。 */
@@ -98,7 +98,7 @@ const RETRY_MAX_MS = 60_000;
 export class SsePushService {
   private readonly session: AccountSession;
   private readonly opts: Required<SsePushOptions>;
-  private readonly watch = new DbWatchService({ intervalMs: 1_000 });
+  private readonly watch: Pick<DbWatchService, 'mount'>;
   private readonly logger = getLogger().child({ scope: 'sse-push' });
 
   private handle: DbWatchHandle | null = null;
@@ -111,8 +111,13 @@ export class SsePushService {
   private flushing: AbortController | null = null;
   private retryCount = 0;
 
-  constructor(session: AccountSession, opts: SsePushOptions = {}) {
+  constructor(
+    session: AccountSession,
+    opts: SsePushOptions = {},
+    watch: Pick<DbWatchService, 'mount'> = new DbWatchService(),
+  ) {
     this.session = session;
+    this.watch = watch;
     this.opts = {
       debounceMs: opts.debounceMs ?? 2_000,
       massThreshold: opts.massThreshold ?? 50,
@@ -423,9 +428,9 @@ export class SsePushService {
       signal.throwIfAborted();
       const lifted = liftForwardRecords(records);
       if (lifted.length === 0) return;
-      for (const el of event.elements) {
-        if (el.type === 'multiMsg') el.data.forwardMessages = lifted;
-      }
+      event.elements = event.elements.map((el) =>
+        el.type === 'multiMsg' ? { ...el, data: { ...el.data, forwardMessages: lifted } } : el,
+      );
     } catch (error) {
       signal.throwIfAborted();
       this.logger.warn('expand forward cache failed, keep placeholder', {
@@ -486,7 +491,7 @@ function toMessageEvent(kind: 'c2c' | 'group', msg: C2cMsg | GroupMsg): SseMessa
     senderUin: msg.senderUin.toString(),
     sendTime: msg.sendTime.toString(),
     text: summarizeElements(msg.elements),
-    elements: toRenderElements(msg.elements),
+    elements: toObservedRenderElements(msg.elements),
   };
 }
 

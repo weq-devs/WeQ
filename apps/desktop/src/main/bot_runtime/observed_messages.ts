@@ -1,6 +1,6 @@
 import type { AccountSession } from '@weq/account';
 import type { DbWatchService, DbWatchHandle, NewMessages } from '@weq/service';
-import { createNtMsgDbHook, toRenderElements } from '@weq/service';
+import { createNtMsgDbHook, toObservedRenderElements } from '@weq/service';
 import type { ControlObservedMessage } from '@weqbot/control';
 
 type Message = NewMessages['c2c'][number] | NewMessages['group'][number];
@@ -18,7 +18,7 @@ export async function projectObservedMessage(
   const peer = group ? row.targetGroupCode : row.targetUin || uinByUid(row.targetUid);
   if (!sender || !peer || !/^[1-9]\d*$/.test(String(peer))) return;
   const elements: ControlObservedMessage['elements'] = [];
-  for (const element of toRenderElements(row.elements)) {
+  for (const element of toObservedRenderElements(row.elements)) {
     switch (element.type) {
       case 'text':
         elements.push({ kind: 'text', textContent: element.data.textContent });

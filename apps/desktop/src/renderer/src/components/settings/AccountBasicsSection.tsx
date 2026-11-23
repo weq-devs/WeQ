@@ -715,13 +715,13 @@ export function AccountBasicsSection({
             />
             <Row
               settingId="qq-live-messages"
-              desc="连接 QQ 代理并启用实时消息后，普通文本可在落库前显示。断开后自动从数据库补齐。"
+              desc="利用 QQ 推送减少消息、未读和群资料的重复读库与刷新，可能显著提升性能。代理断开后由数据库监听接手。"
               control={
                 <Toggle
                   checked={settings.data?.qqLiveMessagesEnabled ?? false}
                   disabled={settingsLoading || setQqLiveMessages.isPending}
                   onChange={(enabled) => setQqLiveMessages.mutate({ enabled })}
-                  label="通过 QQ 代理实时接收消息"
+                  label="通过 QQ 代理加速实时更新"
                 />
               }
             />

@@ -1,8 +1,10 @@
 // @vitest-environment node
 import { expect, it, vi } from 'vitest';
 import { encode, MSG_PUSH_ENVELOPE } from '@weqbot/protocol';
+import { buildClientReadNotify } from '@weqbot/protocol/qq-sync';
+import { GROUP_ADMIN } from '../../../vendor/weqbot/packages/protocol/src/push/schemas';
 import { mergeRoamingTimeline } from '@weq/service/roaming-timeline';
-import { decodeLiveMessages, LiveMessages } from '../src/main/qq_sync/live_messages';
+import { decodeLivePush, LiveMessages } from '../src/main/qq_sync/live_messages';
 import { coalesceLiveDbWatch } from '../src/main/qq_sync/live_db_watch';
 
 const now = 1_800_000_000_000;
@@ -24,12 +26,12 @@ it('只接收当前账号的实时普通文本，私聊采用 NT 会话序号', 
   const unknown = { ...rawPrivate, contentHead: { ...rawPrivate.contentHead, c2cCmd: 73 } };
   const old = { ...rawGroup, contentHead: { ...rawGroup.contentHead, timestamp: now / 1000 - 31 } };
   const other = { ...rawPrivate, responseHead: { ...rawPrivate.responseHead, toUid: 'u_other' } };
-  const rows = decodeLiveMessages(
+  const rows = decodeLivePush(
     body(rawGroup, rawPrivate, unknown, old, other),
     self,
     account,
     now,
-  );
+  ).rows;
   expect(rows.map((row) => [row.kind, row.conv, row.msgSeq, row.msgRandom])).toEqual([
     ['group', '70001', '100', '7'],
     ['c2c', 'u_peer', '110', '7'],
@@ -37,8 +39,59 @@ it('只接收当前账号的实时普通文本，私聊采用 NT 会话序号', 
   expect(rows[0]?.elements).toMatchObject([{ type: 'text', data: { textContent: 'hello' } }]);
 });
 
+it('普通已读推送只更新收到的账号并保留最高水位', () => {
+  const recent = buildClientReadNotify(
+    { uin: account, uid: self },
+    {
+      kind: 'c2c',
+      targetUid: 'u_peer',
+      sequence: 110,
+      timestamp: now / 1000,
+    },
+  );
+  const earlier = buildClientReadNotify(
+    { uin: account, uid: self },
+    {
+      kind: 'c2c',
+      targetUid: 'u_peer',
+      sequence: 105,
+      timestamp: now / 1000,
+    },
+  );
+  const group = buildClientReadNotify(
+    { uin: account, uid: self },
+    {
+      kind: 'group',
+      groupUin: 70001,
+      sequence: 100,
+    },
+  );
+  expect(
+    decodeLivePush(Buffer.concat([recent, earlier, group]), self, account, now).updates.reads,
+  ).toEqual([
+    { chatType: 1, uid: 'u_peer', sequence: '110' },
+    { chatType: 2, uid: '70001', sequence: '100' },
+  ]);
+  expect(decodeLivePush(recent, 'u_other', '10009', now).updates.reads).toEqual([]);
+});
+
+it('只定位涉及的群，重复管理员推送合并为一次资料刷新', () => {
+  const change = {
+    contentHead: { msgType: 44, timestamp: now / 1000 },
+    body: {
+      msgContent: encode(GROUP_ADMIN, {
+        groupUin: 70001,
+        body: { extraEnable: { adminUid: 'u_peer' } },
+      }),
+    },
+  };
+  expect(decodeLivePush(body(change, rawGroup, change), self, account, now).updates.groups).toEqual(
+    [{ groupCode: '70001', directory: false }],
+  );
+});
+
 it('代理重放、先入库及晚入库均合并，保留同序号的其他灰条', () => {
-  const [row] = decodeLiveMessages(body(rawGroup), self, account, now);
+  const [row] = decodeLivePush(body(rawGroup), self, account, now).rows;
   if (!row) throw Error('fixture did not decode');
   const native = { ...row, sourceFormat: undefined, msgId: '12345' };
   const other = { ...native, msgRandom: '0', msgId: '90000' };

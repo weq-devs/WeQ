@@ -613,6 +613,21 @@ function toHex(bytes: Uint8Array | undefined): string {
   return out;
 }
 
+const observedElements = new WeakMap<Element[], RenderElement[] | null>();
+
+/** Register rows read once by the shared message watcher. */
+export function shareObservedElements(elements: Element[]): void {
+  if (!observedElements.has(elements)) observedElements.set(elements, null);
+}
+
+export function toObservedRenderElements(elements: Element[]): RenderElement[] {
+  const prior = observedElements.get(elements);
+  if (prior) return prior;
+  const result = toRenderElements(elements);
+  if (prior === null) observedElements.set(elements, result);
+  return result;
+}
+
 export function toRenderElements(elements: Element[]): RenderElement[] {
   return elements.map((el) => {
     switch (el.kind) {

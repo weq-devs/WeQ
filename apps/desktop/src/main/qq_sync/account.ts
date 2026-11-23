@@ -24,7 +24,7 @@ import {
 import type { RecallJournalEntry } from './recall_journal';
 import type { SyncProxyStatus } from './ipc';
 import { qqSyncRequest, subscribeQqLive } from './runtime';
-import { decodeLiveMessages, LiveMessages } from './live_messages';
+import { decodeLivePush, LiveMessages, type LivePushUpdates } from './live_messages';
 
 type SentIdentity = Pick<
   GapFetchedMessage,
@@ -48,6 +48,8 @@ export interface AccountQqSyncOptions {
   antiRecall?: AntiRecallService;
   liveEnabled?(): boolean;
   onLiveMessages?(messages: GapFetchedMessage[]): void;
+  onLiveUpdates?(updates: LivePushUpdates): void;
+  onLiveClosed?(): void;
   allowLiveMessage?(message: GapFetchedMessage): boolean;
   current(): QqSyncSession | null;
 }
@@ -67,6 +69,7 @@ export class AccountQqSync {
   readonly liveMessages = new LiveMessages();
   private liveSubscription?: { generation: string; abort: AbortController };
   private liveReceivedAt = 0;
+  private liveGroupChangedAt = 0;
 
   isLiveEnabled() {
     return this.options.liveEnabled?.() === true;
@@ -86,15 +89,26 @@ export class AccountQqSync {
     );
   }
 
+  hasRecentGroupUpdates(): boolean {
+    return (
+      this.isLiveEnabled() &&
+      Boolean(this.liveSubscription) &&
+      Date.now() - this.liveGroupChangedAt < 2000
+    );
+  }
+
   refreshLive() {
     if (!this.options.liveEnabled?.()) this.stopLive();
     void this.run();
   }
 
   private stopLive() {
-    this.liveSubscription?.abort.abort();
+    const old = this.liveSubscription;
     this.liveSubscription = undefined;
     this.liveReceivedAt = 0;
+    this.liveGroupChangedAt = 0;
+    old?.abort.abort();
+    if (old) this.options.onLiveClosed?.();
   }
 
   private startLive(uin: string, generation: string, valid: () => boolean) {
@@ -108,14 +122,13 @@ export class AccountQqSync {
       if (!valid() || !this.options.liveEnabled?.() || this.liveSubscription !== subscription)
         return;
       const now = Date.now();
-      const decoded = decodeLiveMessages(body, selfUid, uin, now).filter(
-        (row) => this.options.allowLiveMessage?.(row) !== false,
-      );
+      const { rows: messages, updates } = decodeLivePush(body, selfUid, uin, now);
+      const decoded = messages.filter((row) => this.options.allowLiveMessage?.(row) !== false);
       const rows = this.liveMessages.accept(decoded, now);
-      if (rows.length) {
-        this.liveReceivedAt = now;
-        this.options.onLiveMessages?.(rows);
-      }
+      if (rows.length || updates.reads.length) this.liveReceivedAt = now;
+      if (updates.groups.length) this.liveGroupChangedAt = now;
+      if (rows.length) this.options.onLiveMessages?.(rows);
+      if (updates.reads.length || updates.groups.length) this.options.onLiveUpdates?.(updates);
     })
       .catch(() => undefined)
       .finally(() => {

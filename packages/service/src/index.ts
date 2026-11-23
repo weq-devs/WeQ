@@ -527,7 +527,7 @@ export type {
   MergeForwardNode,
   MergeForwardSender,
 } from './account/merge_forward_drafts';
-export { toRenderElements } from './account/msg_view';
+export { toObservedRenderElements, toRenderElements } from './account/msg_view';
 export type { RenderElement, RenderTextElement } from './account/msg_view';
 // 渲染层要按这个类型读 RenderTextElement.urlVerify，从 codec 借道转出去。
 export type { UrlVerifyInfo } from '@weq/codec';
@@ -780,7 +780,7 @@ export type {
 
 // nt_msg.db watch task: fans every file change into onDbChanged (always) +
 // onNewMessages (rowid-delta). Mount the returned task on a DbWatchService.
-export { createNtMsgDbHook } from './account/nt_msg_hook';
+export { createNtMsgDbHook, setProxyMessageReadSharing } from './account/nt_msg_hook';
 export type { NewMessages, NtMsgHooks } from './account/nt_msg_hook';
 
 // 群关键词提醒：和 SSE 推送共用 createNtMsgDbHook，监听新插入的群消息，按用户

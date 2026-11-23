@@ -6,7 +6,8 @@ import {
   withDatabasePriority,
   type GroupMsg,
 } from '@weq/db';
-import { createNtMsgDbHook } from '../src/account/nt_msg_hook';
+import { createNtMsgDbHook, setProxyMessageReadSharing } from '../src/account/nt_msg_hook';
+import { toObservedRenderElements } from '../src/account/msg_view';
 import type { DbChange, DbWatchTask } from '../src/account/db_watch';
 
 const hooks: DbWatchTask[] = [];
@@ -108,6 +109,53 @@ it('同账号同轮共用水位，退出一个监听器保留其他读取，下�
   await second.onDbFileChangeHook({ ...change, observation: {} });
   expect(read).toHaveBeenCalledTimes(2);
   expect(b).toHaveBeenCalledTimes(2);
+});
+
+it('代理优化开启时同一观测只读一页正文，关闭后各订阅仍独立交付', async () => {
+  let seq = 0n;
+  let enabled = true;
+  const listAfter = vi.fn(async (_uid: string, cursor: bigint) => [
+    {
+      msgId: cursor + 1n,
+      msgSeq: cursor + 1n,
+      sendTime: 1n,
+      elements: [{ kind: 'text', textContent: 'a' }],
+    } as GroupMsg,
+  ]);
+  const session = {
+    msgDbPath: change.dbPath,
+    recentContacts: {
+      listSeqWatermarks: async () => [
+        { targetUid: '123456', chatType: 2, msgSeq: seq, sendTime: 1n },
+      ],
+    },
+    groupMsgs: { listAfter },
+  } as unknown as AccountSession;
+  setProxyMessageReadSharing(session, () => enabled);
+  const subscribers = Array.from({ length: 4 }, () => {
+    const notify = vi.fn();
+    const hook = createNtMsgDbHook(session, { onDbChanged: () => {}, onNewMessages: notify });
+    hooks.push(hook);
+    return { hook, notify };
+  });
+  await turn();
+  const publish = () => {
+    const event = { ...change, observation: {} };
+    return Promise.all(subscribers.map(({ hook }) => hook.onDbFileChangeHook(event)));
+  };
+  seq = 1n;
+  await publish();
+  expect(listAfter).toHaveBeenCalledOnce();
+  for (const { notify } of subscribers) expect(notify).toHaveBeenCalledOnce();
+  const conversions = subscribers.map(({ notify }) =>
+    toObservedRenderElements(notify.mock.calls[0]![0].group[0].elements),
+  );
+  expect(conversions.slice(1).every((value) => value === conversions[0])).toBe(true);
+  enabled = false;
+  seq = 2n;
+  await publish();
+  expect(listAfter).toHaveBeenCalledTimes(5);
+  for (const { notify } of subscribers) expect(notify).toHaveBeenCalledTimes(2);
 });
 
 it('启动基线还排队时退出，旧读取不会在阻塞任务结束后执行', async () => {

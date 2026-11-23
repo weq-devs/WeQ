@@ -204,6 +204,7 @@ import {
   DbWatchService,
   checkAccountDatabaseFile,
   createNtMsgDbHook,
+  setProxyMessageReadSharing,
   waitForUnreadWrites,
   formatDbHealthFailures,
   writeDbHealthReport,
@@ -635,6 +636,7 @@ function mountDbWatch(session: AccountSession): void {
     session.groupMembers.dbPath,
     () => getAppContext().account === session,
     (change) => dbEventBus.emit('group-info-changed', change),
+    () => getAppContext().services?.qqClientSync?.hasRecentGroupUpdates() === true,
   );
   const notification = createDbChangeNotification((file: DbChange) => {
     if (getAppContext().account !== session) return;
@@ -733,6 +735,7 @@ function unmountDbWatch(): void {
 function mountGroupKeyword(session: AccountSession, rules: GroupKeywordRules): void {
   if (!groupKeyword) {
     groupKeyword = new GroupKeywordService(session, {
+      watch: dbWatch,
       onHit: async (hit) => {
         const { services, account, platform } = getAppContext();
         if (account !== session || !services || !platform) return;
@@ -2167,6 +2170,16 @@ export function initAppContext(fileRoot?: string): AppContext {
             } satisfies RoamingCacheChange);
           }
         },
+        onLiveUpdates: ({ reads, groups }) => {
+          if (this.account !== session) return;
+          this.services?.unreadInfo.observeProxyReads(reads);
+          const at = Date.now();
+          for (const { groupCode, directory } of groups)
+            dbEventBus.emit('group-info-changed', { at, groupCode, directory });
+        },
+        onLiveClosed: () => {
+          if (this.account === session) this.services?.unreadInfo.clearProxyReads();
+        },
         readEnabled: () =>
           userConfig.getSetting('reportReadEnabled') ||
           userConfig.getSetting('manualReadReportEnabled'),
@@ -2183,6 +2196,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             : null;
         },
       });
+      setProxyMessageReadSharing(session, () => qqClientSync.isLiveEnabled());
       this.services = {
         qqClientSync,
         msgs,
@@ -3927,10 +3941,14 @@ export function initAppContext(fileRoot?: string): AppContext {
         return;
       }
       if (!ssePush) {
-        ssePush = new SsePushService(session, {
-          debounceMs: config.debounceMs,
-          massThreshold: config.massThreshold,
-        });
+        ssePush = new SsePushService(
+          session,
+          {
+            debounceMs: config.debounceMs,
+            massThreshold: config.massThreshold,
+          },
+          dbWatch,
+        );
         ssePush.start();
       } else {
         ssePush.setTuning({

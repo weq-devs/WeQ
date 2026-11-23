@@ -112,6 +112,40 @@ function fixture(
   };
 }
 
+it('跨端已读覆盖当前末条时直接收敛，较旧推送和手动未读不会被覆盖', async () => {
+  const { service, all, update, markRead } = fixture();
+  await service.getUnreadInfos([target]);
+  const readsBefore = all.mock.calls.length;
+  service.observeProxyReads([{ ...target, sequence: '100' }]);
+  service.observeProxyReads([{ ...target, sequence: '95' }]);
+  expect((await service.getUnreadInfos([target], false, true))[0]).toMatchObject({
+    readSeq: '100',
+    unreadCount: 0,
+  });
+  expect(all).toHaveBeenCalledTimes(readsBefore);
+  expect(markRead).not.toHaveBeenCalled();
+
+  update([row({ markUnread: true })]);
+  expect((await service.getUnreadInfos([target], false, true))[0]?.markUnread).toBe(true);
+  await service.setReadState([target], true);
+  expect((await service.getUnreadInfos([target], false, true))[0]?.markUnread).toBe(true);
+});
+
+it('跨端部分已读只补读目标会话，关闭代理后清掉临时水位', async () => {
+  const { service, all, update } = fixture();
+  await service.getUnreadInfos([target]);
+  const readsBefore = all.mock.calls.length;
+  service.observeProxyReads([{ ...target, sequence: '95' }]);
+  update([row({ msgSeq: 95 })], false);
+  await vi.waitFor(async () =>
+    expect((await service.getUnreadInfos([target], false, true))[0]?.readSeq).toBe('95'),
+  );
+  expect(all).toHaveBeenCalledTimes(readsBefore);
+  service.observeProxyReads([{ ...target, sequence: '100' }]);
+  service.clearProxyReads();
+  expect((await service.getUnreadInfos([target], false, true))[0]?.readSeq).toBe('95');
+});
+
 it('代理未读叠加已确认快照，合并重放和随后到来的 QQ 落库', async () => {
   const { service, update, markRead } = fixture();
   await service.getUnreadInfos([target]);

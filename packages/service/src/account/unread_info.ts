@@ -91,6 +91,17 @@ export class UnreadInfoService {
   private disposed = false;
   private readonly reads = new AbortController();
   private readonly snapshots = new Map<string, UnreadInfoSnapshot>();
+  private readonly proxyReads = new Map<
+    string,
+    {
+      target: UnreadInfoTarget;
+      sequence: bigint;
+      expires: number;
+    }
+  >();
+  private readonly proxyReadTargets = new Map<string, UnreadInfoTarget>();
+  private proxyReadTimer?: ReturnType<typeof setTimeout>;
+
   private readonly pushedUnread = new Map<
     string,
     {
@@ -253,7 +264,108 @@ export class UnreadInfoService {
     this.publish([target]);
   }
 
+  observeProxyReads(targets: readonly (UnreadInfoTarget & { sequence: string })[]): void {
+    if (this.disposed) return;
+    const changed: UnreadInfoTarget[] = [];
+    const expires = Date.now() + 30_000;
+    for (const { chatType, uid, sequence } of targets) {
+      if ((chatType !== 1 && chatType !== 2) || !/^[1-9]\d{0,9}$/.test(sequence)) continue;
+      const target = { chatType, uid };
+      const peer = this.key(target);
+      const seq = BigInt(sequence);
+      if (seq > 0xffffffffn || seq <= (this.proxyReads.get(peer)?.sequence ?? 0n)) continue;
+      const row = this.results.get(peer);
+      if (seq <= BigInt(row?.readSeq ?? '0') && !row?.markUnread) continue;
+      if (!this.proxyReads.has(peer) && this.proxyReads.size >= 512) continue;
+      this.proxyReads.set(peer, { target, sequence: seq, expires });
+      if (row?.latestSeq && !row.readError && !row.markUnread && seq >= BigInt(row.latestSeq)) {
+        changed.push(target);
+      } else {
+        this.proxyReadTargets.set(peer, target);
+      }
+    }
+    this.publish(changed);
+    if (!this.proxyReadTimer && this.proxyReadTargets.size) {
+      this.proxyReadTimer = setTimeout(() => {
+        this.proxyReadTimer = undefined;
+        void this.refreshProxyReadTargets();
+      }, 250).unref();
+    }
+  }
+
+  private async refreshProxyReadTargets(): Promise<void> {
+    const targets = [...this.proxyReadTargets];
+    this.proxyReadTargets.clear();
+    const before = new Map(
+      targets.map(([peer]) => [
+        peer,
+        { snapshot: this.snapshots.get(peer), proxy: this.proxyReads.get(peer) },
+      ]),
+    );
+    if (this.disposed || !targets.length) return;
+    try {
+      const rows = await withDatabasePriority(
+        'interactive',
+        () => this.session.unreadInfo.getUnreadInfos(targets.map(([, target]) => target)),
+        this.reads.signal,
+      );
+      await this.applySnapshots(
+        rows.filter((row) => !row.readError),
+        (row) => {
+          const previous = before.get(row.peer);
+          return Boolean(
+            previous?.proxy &&
+              previous.proxy === this.proxyReads.get(row.peer) &&
+              previous.snapshot === this.snapshots.get(row.peer),
+          );
+        },
+      );
+    } catch {
+      // 已读小表仍由正常文件监听和低频校准接管。
+    }
+  }
+
+  private reconcileProxyReads(): void {
+    const now = Date.now();
+    const expired: UnreadInfoTarget[] = [];
+    for (const [peer, entry] of this.proxyReads) {
+      if (entry.sequence <= BigInt(this.results.get(peer)?.readSeq ?? '0'))
+        this.proxyReads.delete(peer);
+      else if (entry.expires <= now) {
+        this.proxyReads.delete(peer);
+        expired.push(entry.target);
+      }
+    }
+    this.publish(expired);
+  }
+
+  clearProxyReads(): void {
+    const targets = [...this.proxyReads.values()].map(({ target }) => target);
+    clearTimeout(this.proxyReadTimer);
+    this.proxyReadTimer = undefined;
+    this.proxyReadTargets.clear();
+    this.proxyReads.clear();
+    this.publish(targets);
+  }
+
   private liveUnread(row: ResolvedUnreadInfo): ResolvedUnreadInfo {
+    const remote = this.proxyReads.get(row.peer);
+    if (
+      remote &&
+      remote.expires > Date.now() &&
+      row.latestSeq &&
+      !row.readError &&
+      !row.markUnread &&
+      remote.sequence >= BigInt(row.latestSeq) &&
+      remote.sequence > BigInt(row.readSeq ?? '0')
+    ) {
+      row = {
+        ...row,
+        unreadCount: 0,
+        readSeq: String(remote.sequence),
+        highlights: row.highlights?.filter((hit) => BigInt(hit.msgSeq) > remote.sequence),
+      };
+    }
     const pending = this.pushedUnread.get(row.peer);
     if (!pending || pending.expires <= Date.now() || !row.latestSeq || row.readError) return row;
     const latest = BigInt(row.latestSeq);
@@ -356,6 +468,7 @@ export class UnreadInfoService {
     this.countSource?.clear();
     this.countListeners.clear();
     this.pushedUnread.clear();
+    this.clearProxyReads();
     this.reads.abort();
     this.cancelReports();
     this.readHistory.clear();
@@ -383,6 +496,7 @@ export class UnreadInfoService {
     for (const [key, version] of this.targetVersions) this.targetVersions.set(key, version + 1);
     this.local.clear();
     this.pushedUnread.clear();
+    this.clearProxyReads();
     const targets = [...this.snapshots.values()];
     await this.project(targets);
     this.publish(targets);
@@ -710,6 +824,7 @@ export class UnreadInfoService {
           return;
         }
         this.reconcileLiveUnread(rows);
+        this.reconcileProxyReads();
         this.updatedAt = Date.now();
         void this.local.flush().catch((error) => console.error('[unread] 操作保存失败', error));
         void this.important
@@ -865,6 +980,8 @@ export class UnreadInfoService {
     this.manualRevision++;
     this.cancelReports();
     for (const target of unique) {
+      this.proxyReads.delete(this.key(target));
+      this.proxyReadTargets.delete(this.key(target));
       const pending = this.pushedUnread.get(this.key(target));
       if (pending) {
         pending.readThrough = undefined;

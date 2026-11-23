@@ -220,6 +220,7 @@ import {
   buildGroupWpaDeepLink,
   resolveGroupShareAuthKey,
   toRenderElements,
+  toObservedRenderElements,
   COMPOSE_IMAGE_EXTENSIONS,
   getHost,
   assertDestinationCapacity,
@@ -6415,9 +6416,11 @@ export const accountRouter = router({
       const handler = (change: NewMessages): void => {
         const rules = liveGroupKeywordRules();
         const messages: NewMessagesWire['messages'] = [
-          ...change.c2c.map((m) => c2cMsgToWire({ ...m, elements: toRenderElements(m.elements) })),
+          ...change.c2c.map((m) =>
+            c2cMsgToWire({ ...m, elements: toObservedRenderElements(m.elements) }),
+          ),
           ...change.group.map((m) => ({
-            ...groupMsgToWire({ ...m, elements: toRenderElements(m.elements) }),
+            ...groupMsgToWire({ ...m, elements: toObservedRenderElements(m.elements) }),
             groupKeyword: matchesRule(rules?.[m.targetGroupCode], m) ? (true as const) : undefined,
           })),
         ];

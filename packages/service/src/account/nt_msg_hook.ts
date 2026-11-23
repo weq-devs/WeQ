@@ -46,6 +46,7 @@ import {
   type GroupMsg,
 } from '@weq/db';
 import type { DbChange, DbWatchTask } from './db_watch';
+import { shareObservedElements } from './msg_view';
 import { NEW_CONV_FRESH_SEC } from '../common/live_message';
 export { NEW_CONV_FRESH_SEC } from '../common/live_message';
 
@@ -57,15 +58,24 @@ const NEW_CONV_CAP = 5;
 const WATERMARK_RECHECK_MS = 5_000;
 
 type Watermarks = Awaited<ReturnType<AccountSession['recentContacts']['listSeqWatermarks']>>;
-type WatermarkRead = {
+type SharedRead<T> = {
   startedAt: number;
   controller: AbortController;
-  result: Promise<Watermarks>;
+  result: Promise<T>;
   waiters: number;
   settled: boolean;
   interactive: boolean;
 };
-const watermarkReads = new WeakMap<AccountSession, WeakMap<object, WatermarkRead>>();
+const watermarkReads = new WeakMap<AccountSession, WeakMap<object, SharedRead<Watermarks>>>();
+const bodyReads = new WeakMap<
+  AccountSession,
+  WeakMap<object, Map<string, SharedRead<Fetched | null>>>
+>();
+const proxyReadSharing = new WeakMap<AccountSession, () => boolean>();
+
+export function setProxyMessageReadSharing(session: AccountSession, enabled: () => boolean) {
+  proxyReadSharing.set(session, enabled);
+}
 
 function readWatermarks(session: AccountSession): Promise<Watermarks> {
   return measureMessageWork(session.msgDbPath, 'messageWatchWatermarks', () =>
@@ -73,35 +83,51 @@ function readWatermarks(session: AccountSession): Promise<Watermarks> {
   );
 }
 
-async function sharedWatermarks(session: AccountSession, observation: object) {
-  const signal = databaseRequestSignal();
-  signal?.throwIfAborted();
+function sharedWatermarks(session: AccountSession, observation: object) {
   let reads = watermarkReads.get(session);
   if (!reads) {
     reads = new WeakMap();
     watermarkReads.set(session, reads);
   }
-  let read = reads.get(observation);
+  return shareObservedRead(reads, observation, () => readWatermarks(session));
+}
+
+async function shareObservedRead<K, T>(
+  reads: {
+    get(key: K): SharedRead<T> | undefined;
+    set(key: K, value: SharedRead<T>): unknown;
+    delete(key: K): unknown;
+  },
+  key: K,
+  run: (signal: AbortSignal) => Promise<T>,
+  cacheResult = (_: T) => true,
+): Promise<T> {
+  const signal = databaseRequestSignal();
+  signal?.throwIfAborted();
+  let read = reads.get(key);
   if (!read || (read.settled && performance.now() - read.startedAt >= WATERMARK_RECHECK_MS)) {
     const controller = new AbortController();
     const priority = databaseRequestPriority();
-    const entry: WatermarkRead = {
+    const entry: SharedRead<T> = {
       startedAt: performance.now(),
       controller,
       // 共享查询使用自己的信号，单个消费者退出时不会取消其他消费者的读取。
       result: Promise.resolve().then(() =>
-        withDatabasePriority(priority, () => readWatermarks(session), controller.signal),
+        withDatabasePriority(priority, () => run(controller.signal), controller.signal),
       ),
       waiters: 0,
       settled: false,
       interactive: priority === 'interactive',
     };
-    reads.set(observation, entry);
+    reads.set(key, entry);
     void entry.result.then(
-      () => (entry.settled = true),
+      (value) => {
+        entry.settled = true;
+        if (!cacheResult(value) && reads.get(key) === entry) reads.delete(key);
+      },
       () => {
         entry.settled = true;
-        if (reads.get(observation) === entry) reads.delete(observation);
+        if (reads.get(key) === entry) reads.delete(key);
       },
     );
     read = entry;
@@ -114,7 +140,7 @@ async function sharedWatermarks(session: AccountSession, observation: object) {
   entry.waiters++;
   const release = () => {
     if (--entry.waiters || entry.settled) return;
-    if (reads.get(observation) === entry) reads.delete(observation);
+    if (reads.get(key) === entry) reads.delete(key);
     entry.controller.abort();
   };
   signal?.addEventListener('abort', release, { once: true });
@@ -126,6 +152,44 @@ async function sharedWatermarks(session: AccountSession, observation: object) {
     signal?.removeEventListener('abort', release);
     if (!signal?.aborted) release();
   }
+}
+
+function readObservedMessages(
+  session: AccountSession,
+  file: DbChange,
+  uid: string,
+  chatType: number,
+  after: bigint | undefined,
+  signal: AbortSignal,
+): Promise<Fetched | null> {
+  const read = (activeSignal: AbortSignal) =>
+    after === undefined
+      ? fetchLatest(session, uid, chatType)
+      : fetchAfter(session, uid, chatType, after, activeSignal);
+  if (!file.observation || !proxyReadSharing.get(session)?.()) return read(signal);
+  let byObservation = bodyReads.get(session);
+  if (!byObservation) {
+    byObservation = new WeakMap();
+    bodyReads.set(session, byObservation);
+  }
+  let pages = byObservation.get(file.observation);
+  if (!pages) {
+    pages = new Map();
+    byObservation.set(file.observation, pages);
+  }
+  // 观测只保留有限页；积压大时让后续消费者照常从数据库推进。
+  const key = `${chatType}:${uid}:${after ?? 'latest'}`;
+  if (!pages.has(key) && pages.size >= 64) return read(signal);
+  return shareObservedRead(
+    pages,
+    key,
+    async (activeSignal) => {
+      const row = await read(activeSignal);
+      for (const msg of row?.msgs ?? []) if (msg.elements) shareObservedElements(msg.elements);
+      return row;
+    },
+    (row) => Boolean(row?.msgs.length),
+  );
 }
 
 /** Newly-inserted messages since the last baseline, per chat type. */
@@ -314,7 +378,14 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
         if (isFresh) {
           let fetched: Fetched | null;
           try {
-            fetched = await fetchLatest(session, uid, cur.chatType);
+            fetched = await readObservedMessages(
+              session,
+              file,
+              uid,
+              cur.chatType,
+              undefined,
+              reads.signal,
+            );
             if (disposed) return;
           } catch {
             retry();
@@ -356,7 +427,14 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
       }
 
       try {
-        const fetched = await fetchAfter(session, uid, cur.chatType, old.msgSeq, reads.signal);
+        const fetched = await readObservedMessages(
+          session,
+          file,
+          uid,
+          cur.chatType,
+          old.msgSeq,
+          reads.signal,
+        );
         if (disposed) return;
         if (fetched) {
           const observed = fetched.msgs.reduce(
