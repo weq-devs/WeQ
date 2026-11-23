@@ -13,7 +13,6 @@ import {
   decode,
   MuteGroupAll,
   MUTE_ALL_PERMANENT,
-  SetGroupInvitePolicy,
   SetGroupSearch,
 } from '@weqbot/protocol';
 
@@ -22,6 +21,9 @@ interface OidbCall {
   command: number;
   subCommand: number;
   body: Uint8Array;
+  uinForm: boolean;
+  needSign: boolean;
+  signMode: number;
 }
 interface TrpcCall {
   pid: number;
@@ -44,8 +46,19 @@ function fakeNative(
       command: number,
       subCommand: number,
       body: Buffer,
+      uinForm: boolean,
+      needSign: boolean,
+      signMode: number,
     ): Promise<Buffer> => {
-      oidb.push({ pid, command, subCommand, body: new Uint8Array(body) });
+      oidb.push({
+        pid,
+        command,
+        subCommand,
+        body: new Uint8Array(body),
+        uinForm,
+        needSign,
+        signMode,
+      });
       return command === 0x88d ? groupDetail : otherReply(command);
     },
     sendPacket: async (
@@ -89,24 +102,24 @@ function groupSearchDetail(keywordFlag: number, numberFlag: number) {
 }
 
 describe('GroupModerationService', () => {
-  it('成员邀请先写审核档位，再打开邀请，写入只包含各自字段', async () => {
-    // 0x88D_0：扩展标志有禁止邀请位，审核标志还保留不相关的相册限制。
-    const nt = fakeNative(Buffer.from('0a0f08b9601a0aa801b960208001c00301', 'hex'));
-    const service = makeService(nt);
-    expect((await service.advancedSettings(12345)).invitePolicy).toBe('disabled');
-    await service.setAdvancedSetting(
-      12345,
-      { key: 'invitePolicy', value: 'no_approval_under_100' },
-      () => {},
-    );
+  it.each([
+    [
+      'require_approval',
+      '0a0f08b9601a0aa801b960208001c00301',
+      '08b960120cb80100c0018080c030e80101',
+    ],
+    ['no_approval', '0a0e08b9601a09a801b9602000c00301', '08b960120eb801808040c0018080c030e80101'],
+    [
+      'no_approval_under_100',
+      '0a0e08b9601a09a801b9602000c00301',
+      '08b960120fb80180808020c0018080c030e80101',
+    ],
+  ] as const)('成员邀请设置 %s 时同包写入开关及审核档位', async (value, detail, expectedBody) => {
+    const nt = fakeNative(Buffer.from(detail, 'hex'));
+    await makeService(nt).setAdvancedSetting(12345, { key: 'invitePolicy', value }, () => {});
     const writes = nt.oidb.filter(({ command }) => command === 0x89a);
-    expect(writes.map(({ body }) => decode(SetGroupInvitePolicy.reqSchema, body))).toEqual([
-      {
-        groupUin: 12345n,
-        settings: { appPrivilegeFlag: 0x04000000, appPrivilegeMask: 0x06100000 },
-      },
-      { groupUin: 12345n, settings: { allowMemberInvite: 1 } },
-    ]);
+    expect(writes).toMatchObject([{ subCommand: 8, uinForm: false, needSign: true, signMode: 3 }]);
+    expect(Buffer.from(writes[0]!.body).toString('hex')).toBe(expectedBody);
   });
 
   it('允许邀请时按审核规则读回，禁止邀请只提交开关', async () => {
@@ -115,25 +128,22 @@ describe('GroupModerationService', () => {
     expect((await service.advancedSettings(12345)).invitePolicy).toBe('no_approval_under_100');
     await service.setAdvancedSetting(12345, { key: 'invitePolicy', value: 'disabled' }, () => {});
     const writes = nt.oidb.filter(({ command }) => command === 0x89a);
-    expect(writes.map(({ body }) => decode(SetGroupInvitePolicy.reqSchema, body))).toEqual([
-      { groupUin: 12345n, settings: { allowMemberInvite: 0 } },
-    ]);
+    expect(
+      writes.map(({ subCommand, body }) => [subCommand, Buffer.from(body).toString('hex')]),
+    ).toEqual([[8, '08b9601203e80100']]);
   });
 
-  it('已禁止邀请的群切回需要审核时只开启邀请', async () => {
-    const nt = fakeNative(Buffer.from('0a0f08b9601a0aa801b960208001c00301', 'hex'));
+  it('读回档位已相同时不重复保存成员邀请', async () => {
+    const nt = fakeNative(Buffer.from('0a1108b9601a0ca801b9602000c00381808020', 'hex'));
     await makeService(nt).setAdvancedSetting(
       12345,
-      { key: 'invitePolicy', value: 'require_approval' },
+      { key: 'invitePolicy', value: 'no_approval_under_100' },
       () => {},
     );
-    const writes = nt.oidb.filter(({ command }) => command === 0x89a);
-    expect(writes.map(({ body }) => decode(SetGroupInvitePolicy.reqSchema, body))).toEqual([
-      { groupUin: 12345n, settings: { allowMemberInvite: 1 } },
-    ]);
+    expect(nt.oidb.some(({ command }) => command === 0x89a)).toBe(false);
   });
 
-  it('审核规则写入被拒时，不以旧规则开放邀请', async () => {
+  it('成员邀请请求被拒时只发送一次并报告错误', async () => {
     const nt = fakeNative(Buffer.from('0a0f08b9601a0aa801b960208001c00301', 'hex'), (command) => {
       if (command === 0x89a) throw new Error('OIDB error 1006: ');
       return Buffer.alloc(0);
