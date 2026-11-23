@@ -43,6 +43,8 @@ allowBuilds:
 # 兜底，这里关掉冗余的二次校验。
 verifyDepsBeforeRun: false
 
-# 让菜单重启和源码热重载共用 electron-vite 的 Electron 子进程生命周期。
 patchedDependencies:
+  # 快滚时的主动测量复用虚拟列表的 ResizeObserver 批处理。
+  '@tanstack/virtual-core@3.19.7': patches/@tanstack__virtual-core@3.19.7.patch
+  # 让菜单重启和源码热重载共用 electron-vite 的 Electron 子进程生命周期。
   electron-vite@6.0.0: patches/electron-vite@6.0.0.patch

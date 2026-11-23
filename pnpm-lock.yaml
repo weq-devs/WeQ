@@ -163,6 +163,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
+  '@tanstack/virtual-core@3.19.7': be8612f92cc0eacaeaabde2068083dbfd8702ed0eaa1c6eba3b68b99c64bdd0a
   electron-vite@6.0.0: bdbef2491f3a7222468b97d4fc4f046dd333d820b6563de80c5fa0b5c2cb1b4a
 
 importers:
@@ -6554,11 +6555,11 @@ snapshots:
 
   '@tanstack/react-virtual@3.14.22(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
     dependencies:
-      '@tanstack/virtual-core': 3.19.7
+      '@tanstack/virtual-core': 3.19.7(patch_hash=be8612f92cc0eacaeaabde2068083dbfd8702ed0eaa1c6eba3b68b99c64bdd0a)
       react: 19.2.7
       react-dom: 19.2.7(react@19.2.7)
 
-  '@tanstack/virtual-core@3.19.7': {}
+  '@tanstack/virtual-core@3.19.7(patch_hash=be8612f92cc0eacaeaabde2068083dbfd8702ed0eaa1c6eba3b68b99c64bdd0a)': {}
 
   '@tootallnate/once@2.0.1': {}
 

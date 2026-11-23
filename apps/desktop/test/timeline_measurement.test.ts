@@ -1,7 +1,30 @@
 import { act, createElement, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Virtualizer } from '@tanstack/react-virtual';
 import { expect, it, vi } from 'vitest';
 import { useVirtualTimeline } from '../src/renderer/src/hooks/useVirtualTimeline';
+
+it('一批主动测量只通知一次，通知时所有行高及容器高度均已更新', () => {
+  const heights: number[] = [];
+  const virtualizer = new Virtualizer<HTMLElement, HTMLElement>({
+    count: 3,
+    estimateSize: () => 96,
+    getScrollElement: () => null,
+    scrollToFn: vi.fn(),
+    observeElementRect: () => undefined,
+    observeElementOffset: () => undefined,
+    onChange: (instance) => heights.push(instance.getTotalSize()),
+  });
+  expect(virtualizer.getTotalSize()).toBe(288);
+  virtualizer.resizeItems([
+    [0, 60],
+    [1, 72],
+    [2, 88],
+  ]);
+  expect(heights).toEqual([220]);
+  virtualizer.resizeItems([[2, 88]]);
+  expect(heights).toEqual([220]);
+});
 
 it('时间线使用现成行高，不重复读取布局，隐藏时仍保留已测高度', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

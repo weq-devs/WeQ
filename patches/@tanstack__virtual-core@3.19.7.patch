@@ -1,0 +1,196 @@
+diff --git a/dist/cjs/index.cjs b/dist/cjs/index.cjs
+index 4c580b201848e5cc7d1aa07600b71879137ece0e..75cfd0d7d1aac2973dfa114ac743cb93701057ae 100644
+--- a/dist/cjs/index.cjs
++++ b/dist/cjs/index.cjs
+@@ -266,19 +266,7 @@ class Virtualizer {
+         const frames = _frames = createFrameQueue(targetWindow);
+         return _ro = new targetWindow.ResizeObserver((entries) => {
+           const run = () => {
+-            const batch = { sync: false };
+-            this._resizeBatch = batch;
+-            try {
+-              entries.forEach(measureEntry);
+-            } finally {
+-              this._resizeBatch = null;
+-              if (batch.notify) {
+-                this.notify(batch.sync);
+-                this._noteClampMax();
+-                this._flushHoldIfReady(true);
+-                this._retryClampedAdjustment();
+-              }
+-            }
++            this._withResizeBatch(() => entries.forEach(measureEntry));
+           };
+           this.options.useAnimationFrameWithResizeObserver ? frames.schedule(run) : run();
+         });
+@@ -990,6 +978,30 @@ class Virtualizer {
+         this.resizeItem(index, this.options.measureElement(node, void 0, this));
+       }
+     };
++    this._withResizeBatch = (resize) => {
++      if (this._resizeBatch) {
++        resize();
++        return;
++      }
++      const batch = { sync: false };
++      this._resizeBatch = batch;
++      try {
++        resize();
++      } finally {
++        this._resizeBatch = null;
++        if (batch.notify) {
++          this.notify(batch.sync);
++          this._noteClampMax();
++          this._flushHoldIfReady(true);
++          this._retryClampedAdjustment();
++        }
++      }
++    };
++    this.resizeItems = (items) => {
++      this._withResizeBatch(() => {
++        for (const [index, size] of items) this.resizeItem(index, size);
++      });
++    };
+     this.resizeItem = (index, size) => {
+       var _a, _b, _c;
+       if (!this.isIndexInRange(index)) return;
+diff --git a/dist/cjs/index.d.cts b/dist/cjs/index.d.cts
+index a997104ee5f27b4d15b5d4ae1ae4ba1f92bed879..a64441dcb9afa4b34067ddd2242e08eecbb4ff7f 100644
+--- a/dist/cjs/index.d.cts
++++ b/dist/cjs/index.d.cts
+@@ -183,6 +183,8 @@ export declare class Virtualizer<TScrollElement extends Element | Window, TItemE
+      */
+     private shouldMeasureDuringScroll;
+     measureElement: (node: TItemElement | null) => void;
++    private _withResizeBatch;
++    resizeItems: (items: ReadonlyArray<readonly [number, number]>) => void;
+     resizeItem: (index: number, size: number) => void;
+     getVirtualItems: {
+         (): VirtualItem[];
+diff --git a/dist/esm/index.d.ts b/dist/esm/index.d.ts
+index d838733d11c3c649212c5174ec22ae9b0ab4935c..f4550a4166116c79f0cea07c596d7558c41eada6 100644
+--- a/dist/esm/index.d.ts
++++ b/dist/esm/index.d.ts
+@@ -183,6 +183,8 @@ export declare class Virtualizer<TScrollElement extends Element | Window, TItemE
+      */
+     private shouldMeasureDuringScroll;
+     measureElement: (node: TItemElement | null) => void;
++    private _withResizeBatch;
++    resizeItems: (items: ReadonlyArray<readonly [number, number]>) => void;
+     resizeItem: (index: number, size: number) => void;
+     getVirtualItems: {
+         (): VirtualItem[];
+diff --git a/dist/esm/index.js b/dist/esm/index.js
+index b3ca8c79391c44d07e8bd47c11e776b68516d849..29a0b56180590da304f0a3ec892f4986cc4eba97 100644
+--- a/dist/esm/index.js
++++ b/dist/esm/index.js
+@@ -265,19 +265,7 @@ class Virtualizer {
+         const frames = _frames = createFrameQueue(targetWindow);
+         return _ro = new targetWindow.ResizeObserver((entries) => {
+           const run = () => {
+-            const batch = { sync: false };
+-            this._resizeBatch = batch;
+-            try {
+-              entries.forEach(measureEntry);
+-            } finally {
+-              this._resizeBatch = null;
+-              if (batch.notify) {
+-                this.notify(batch.sync);
+-                this._noteClampMax();
+-                this._flushHoldIfReady(true);
+-                this._retryClampedAdjustment();
+-              }
+-            }
++            this._withResizeBatch(() => entries.forEach(measureEntry));
+           };
+           this.options.useAnimationFrameWithResizeObserver ? frames.schedule(run) : run();
+         });
+@@ -989,6 +977,30 @@ class Virtualizer {
+         this.resizeItem(index, this.options.measureElement(node, void 0, this));
+       }
+     };
++    this._withResizeBatch = (resize) => {
++      if (this._resizeBatch) {
++        resize();
++        return;
++      }
++      const batch = { sync: false };
++      this._resizeBatch = batch;
++      try {
++        resize();
++      } finally {
++        this._resizeBatch = null;
++        if (batch.notify) {
++          this.notify(batch.sync);
++          this._noteClampMax();
++          this._flushHoldIfReady(true);
++          this._retryClampedAdjustment();
++        }
++      }
++    };
++    this.resizeItems = (items) => {
++      this._withResizeBatch(() => {
++        for (const [index, size] of items) this.resizeItem(index, size);
++      });
++    };
+     this.resizeItem = (index, size) => {
+       var _a, _b, _c;
+       if (!this.isIndexInRange(index)) return;
+diff --git a/src/index.ts b/src/index.ts
+index d007c63da433675812bbb39f5900deeb0da6098d..665689ab7ee4500607f50718f882ff4782d2f2e9 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -661,19 +661,7 @@ export class Virtualizer<
+           // nodes whose entries are still queued here, leaving them
+           // unmeasured. With lanes, a half-measured row lets one lane drift
+           // away from the others (#1036).
+-          const batch: { sync: boolean; notify?: boolean } = { sync: false }
+-          this._resizeBatch = batch
+-          try {
+-            entries.forEach(measureEntry)
+-          } finally {
+-            this._resizeBatch = null
+-            if (batch.notify) {
+-              this.notify(batch.sync)
+-              this._noteClampMax()
+-              this._flushHoldIfReady(true)
+-              this._retryClampedAdjustment()
+-            }
+-          }
++          this._withResizeBatch(() => entries.forEach(measureEntry))
+         }
+         this.options.useAnimationFrameWithResizeObserver
+           ? frames.schedule(run)
+@@ -1973,6 +1961,32 @@ export class Virtualizer<
+     }
+   }
+ 
++  private _withResizeBatch = (resize: () => void) => {
++    if (this._resizeBatch) {
++      resize()
++      return
++    }
++    const batch: { sync: boolean; notify?: boolean } = { sync: false }
++    this._resizeBatch = batch
++    try {
++      resize()
++    } finally {
++      this._resizeBatch = null
++      if (batch.notify) {
++        this.notify(batch.sync)
++        this._noteClampMax()
++        this._flushHoldIfReady(true)
++        this._retryClampedAdjustment()
++      }
++    }
++  }
++
++  resizeItems = (items: ReadonlyArray<readonly [number, number]>) => {
++    this._withResizeBatch(() => {
++      for (const [index, size] of items) this.resizeItem(index, size)
++    })
++  }
++
+   resizeItem = (index: number, size: number) => {
+     if (!this.isIndexInRange(index)) return
+ 

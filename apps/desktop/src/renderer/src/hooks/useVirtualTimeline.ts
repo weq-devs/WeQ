@@ -515,9 +515,7 @@ export function useVirtualTimeline({
       }
     }
     pending.clear();
-    for (const [index, height] of measurements) {
-      virtualizer.resizeItem(index, height);
-    }
+    virtualizer.resizeItems(measurements);
   });
 
   const measure = useCallback(
