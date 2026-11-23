@@ -3,6 +3,7 @@ import { createTemplateDemoData } from './support/templateDemoData';
 import type { GroupMember } from '../src/renderer/src/im-template/template/types';
 import {
   mergeMessageMembers,
+  rememberSenderMemberPages,
   localProfileUser,
   messageSender,
   optimisticMessageSender,
@@ -231,5 +232,39 @@ describe('群消息发送者资料', () => {
     const updates = [{ uid: 'u_self', customTitle: '' }];
     expect(mergeMessageMembers(previous, updates)).toEqual([updates[0], previous[1]]);
     expect(previous[0].customTitle).toBe('旧头衔');
+  });
+
+  it('长会话轮换只保留近期快照，打开中的记录保留旧名片', () => {
+    let cache: ReadonlyMap<string, readonly { uid: string; card: string }[]> = new Map();
+    for (let group = 1; group <= 80; group++) {
+      const members = Array.from({ length: 120 }, (_, i) => ({
+        uid: `u_${i}`,
+        card: `${group}:${i}`,
+      }));
+      cache = rememberSenderMemberPages(cache, String(group), members, ['1']);
+    }
+    expect(cache.size).toBe(12);
+    expect([...cache.values()].reduce((count, rows) => count + rows.length, 0)).toBe(1_440);
+    expect(cache.get('1')?.[0]?.card).toBe('1:0');
+    expect(cache.get('2')).toBeUndefined();
+    expect(cache.get('80')?.[0]?.card).toBe('80:0');
+
+    const updated = { uid: 'u_0', card: '' };
+    const next = rememberSenderMemberPages(cache, '80', [updated], ['1']);
+    expect(next.get('80')?.[0]).toBe(updated);
+    expect(next.get('80')?.[1]).toBe(cache.get('80')?.[1]);
+    expect(next.get('1')).toBe(cache.get('1'));
+  });
+
+  it('大群关闭后应用停用快照的总行数预算，打开中的大群仍保留全部展示资料', () => {
+    const rows = Array.from({ length: 3_200 }, (_, i) => ({ uid: `u_${i}` }));
+    const first = rememberSenderMemberPages(new Map(), '1', rows, []);
+    const second = rememberSenderMemberPages(first, '2', rows, ['1']);
+    expect(second.size).toBe(2);
+    expect(second.get('1')).toHaveLength(3_200);
+    expect(second.get('2')).toHaveLength(3_200);
+    const afterClose = rememberSenderMemberPages(second, '', [], []);
+    expect([...afterClose.keys()]).toEqual(['2']);
+    expect(afterClose.get('2')).toBe(second.get('2'));
   });
 });

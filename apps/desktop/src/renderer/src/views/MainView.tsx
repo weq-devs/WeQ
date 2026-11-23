@@ -216,6 +216,7 @@ import {
   messageSender,
   optimisticMessageSender,
   mergeMessageMembers,
+  rememberSenderMemberPages,
   localProfileUser,
   createMemberUinLookup,
   senderUinsWithoutUid,
@@ -2656,7 +2657,9 @@ function MainWorkspace(): ReactElement {
     {},
   );
   // 分页更新时为历史发言人保留名片快照，不将已退群成员重新加入当前名单。
-  const [senderMemberPages, setSenderMemberPages] = useState<Record<string, GroupMemberWire[]>>({});
+  const [senderMemberPages, setSenderMemberPages] = useState<
+    ReadonlyMap<string, readonly GroupMemberWire[]>
+  >(() => new Map());
   const [groupInfoRevisions, setGroupInfoRevisions] = useState<ReadonlyMap<string, number>>(
     () => new Map(),
   );
@@ -4192,19 +4195,24 @@ function MainWorkspace(): ReactElement {
     : groupMembers.data?.pages[0]?.length === 0
       ? '数据库中没有该群的成员信息'
       : null;
-  useEffect(() => {
-    if (!isGroup || !selectedGroupMemberWires.length) return;
-    setSenderMemberPages((current) => ({
-      ...current,
-      [selectedUid]: mergeMessageMembers(current[selectedUid] ?? [], selectedGroupMemberWires),
-    }));
-  }, [isGroup, selectedUid, selectedGroupMemberWires]);
-
   const groupInfoRevision = groupFileRevision + (groupInfoRevisions.get(selectedUid) ?? 0);
   const deletedGroup =
     deletedConv?.type === 'group' ? deletedConv.group.identityValue || deletedConv.id : '';
   const recalledGroup =
     recalledConv?.type === 'group' ? recalledConv.group.identityValue || recalledConv.id : '';
+  const recordsGroup =
+    chatRecordsTarget?.scope === messageScope && chatRecordsTarget.hit.source === 'group'
+      ? chatRecordsTarget.hit.targetUid
+      : '';
+  useEffect(() => {
+    setSenderMemberPages((current) =>
+      rememberSenderMemberPages(current, isGroup ? selectedUid : '', selectedGroupMemberWires, [
+        deletedGroup,
+        recalledGroup,
+        recordsGroup,
+      ]),
+    );
+  }, [isGroup, selectedUid, selectedGroupMemberWires, deletedGroup, recalledGroup, recordsGroup]);
   const deletedGroupRevision = groupFileRevision + (groupInfoRevisions.get(deletedGroup) ?? 0);
   const recalledGroupRevision = groupFileRevision + (groupInfoRevisions.get(recalledGroup) ?? 0);
   const groupRefreshTargets = useStableCallback(() => ({
@@ -4465,7 +4473,7 @@ function MainWorkspace(): ReactElement {
   const messageGroupMembers = useMemo(() => {
     const members = new Map(
       mergeMessageMembers(
-        senderMemberPages[selectedUid] ?? [],
+        senderMemberPages.get(selectedUid) ?? [],
         Object.values(missingMembers[selectedUid] ?? {}),
       ).map((wire) => {
         const member = mapGroupMemberWire(wire);
@@ -5122,7 +5130,7 @@ function MainWorkspace(): ReactElement {
       if (groupCode === selectedUid) return messageGroupMembers;
       return new Map(
         mergeMessageMembers(
-          senderMemberPages[groupCode] ?? [],
+          senderMemberPages.get(groupCode) ?? [],
           Object.values(missingMembers[groupCode] ?? {}),
         )
           .map((wire) => mapGroupMemberForGroup(wire, groupCode))

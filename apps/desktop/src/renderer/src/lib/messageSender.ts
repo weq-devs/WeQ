@@ -3,6 +3,7 @@ import { avatarFromUin } from './avatarResolver';
 import { isMineMessage } from './messageDirection';
 import { displayGroupMemberName } from '../im-template/template/user';
 import { isMemberUin } from './groupMemberRefresh';
+import { CONVERSATION_WINDOW_LIMIT } from './conversationWindowCache';
 
 type SenderMessage = { senderUid: string; senderUin: string; elements: readonly unknown[] };
 export interface SenderProfile {
@@ -148,4 +149,40 @@ export function mergeMessageMembers<T extends { uid: string }>(
   return Array.from(
     new Map([...previous, ...updates].map((member) => [member.uid, member])).values(),
   );
+}
+
+const INACTIVE_SENDER_MEMBER_LIMIT = 6_000;
+
+/** 当前聊天和打开的记录仍可用旧名片。其余群按最近使用顺序留存。 */
+export function rememberSenderMemberPages<T extends { uid: string }>(
+  previous: ReadonlyMap<string, readonly T[]>,
+  activeGroup: string,
+  updates: readonly T[],
+  openGroups: readonly string[],
+): ReadonlyMap<string, readonly T[]> {
+  const pinned = new Set([activeGroup, ...openGroups]);
+  let next: Map<string, readonly T[]> | undefined;
+  const cached = previous.get(activeGroup);
+  const updated = updates.length ? mergeMessageMembers(cached ?? [], updates) : cached;
+  if (activeGroup && updated) {
+    next = new Map(previous);
+    next.delete(activeGroup);
+    next.set(activeGroup, updated);
+  }
+  let inactiveRows = 0;
+  for (const [group, members] of next ?? previous) {
+    if (!pinned.has(group)) inactiveRows += members.length;
+  }
+  for (const [group, members] of next ?? previous) {
+    if (
+      (next ?? previous).size <= CONVERSATION_WINDOW_LIMIT &&
+      inactiveRows <= INACTIVE_SENDER_MEMBER_LIMIT
+    )
+      break;
+    if (pinned.has(group)) continue;
+    next ??= new Map(previous);
+    next.delete(group);
+    inactiveRows -= members.length;
+  }
+  return next ?? previous;
 }
