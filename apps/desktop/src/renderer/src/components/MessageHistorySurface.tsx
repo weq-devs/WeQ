@@ -1,9 +1,19 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { ListFilter, X } from 'lucide-react';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
 import { OverlayLayer } from './OverlayLayer';
 import '../styles/important-messages.css';
+
+export const MessageHistoryClosingContext = createContext(false);
 
 export function MessageHistorySurface({
   id,
@@ -25,24 +35,27 @@ export function MessageHistorySurface({
   navigationAnchor?: HTMLElement | null;
 }) {
   const mobile = useMobileWebLayout();
+  const closing = useContext(MessageHistoryClosingContext);
+  const visible = open && !closing;
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersId = useId();
   const ref = useRef<HTMLElement>(null);
-  useSurfaceEscapeDismissal(ref, onClose, open && !mobile);
+  useSurfaceEscapeDismissal(ref, onClose, visible && !mobile);
   useEffect(() => {
-    if (!open) setFiltersOpen(false);
+    if (!visible) setFiltersOpen(false);
     else if (!mobile) ref.current?.focus({ preventScroll: true });
-  }, [open, mobile]);
+  }, [visible, mobile]);
 
   const content = (
     <aside
       ref={ref}
       tabIndex={-1}
-      data-weq-escape-surface={open && !mobile ? '' : undefined}
+      data-weq-escape-surface={visible && !mobile ? '' : undefined}
       id={id}
       className={`weq-message-history-panel ${id}`}
       aria-label={title}
-      hidden={!mobile && !open}
+      hidden={!mobile && !visible}
+      inert={!visible}
     >
       <header>
         <strong>{title}</strong>
@@ -84,7 +97,7 @@ export function MessageHistorySurface({
 
   return mobile ? (
     <OverlayLayer
-      open={open}
+      open={visible}
       presentation="panel"
       title={title}
       className="weq-message-history-drawer"

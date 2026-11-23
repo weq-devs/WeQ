@@ -1,9 +1,3 @@
-@property --weq-group-sidebar-space {
-  syntax: '<length>';
-  inherits: true;
-  initial-value: 0px;
-}
-
 @property --weq-composer-quote-space {
   syntax: '<length>';
   inherits: true;
@@ -23,7 +17,9 @@
   min-width: 0;
   --chat-header-height: var(--weq-pane-toolbar-height, 40px);
   --group-info-panel-width: clamp(220px, 17vw, 248px);
+  --weq-message-history-width: 320px;
   --weq-group-sidebar-space: 0px;
+  --weq-chat-slide: 160ms cubic-bezier(0.16, 1, 0.3, 1);
   --weq-composer-quote-space: 0px;
   display: grid;
   grid-template-rows: var(--chat-header-height) minmax(0, 1fr) var(--composer-height, 190px);
@@ -44,15 +40,37 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .chat-pane {
-    transition:
-      --weq-group-sidebar-space 160ms cubic-bezier(0.16, 1, 0.3, 1),
-      --weq-composer-quote-space 160ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition: --weq-composer-quote-space var(--weq-chat-slide);
   }
 }
 
 :where(html:not([data-weq-layout='single'])) .chat-pane > .group-info-panel.weq-group-sections {
   width: var(--group-info-panel-width);
-  justify-self: start;
+  justify-self: end;
+}
+
+.chat-pane > .group-info-panel.weq-group-sections[inert] {
+  translate: 100% 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .chat-pane > .group-info-panel.weq-group-sections {
+    translate: 0 0;
+    transition: translate var(--weq-chat-slide);
+  }
+
+  /* 网格直接到最终尺寸，侧栏独立滑出，避免消息在每帧重新换行。 */
+  .chat-pane > .group-info-panel.weq-group-sections[inert] {
+    z-index: 2;
+    background: var(--weq-bg-surface);
+  }
+
+  @starting-style {
+    .chat-pane:is([data-group-info-motion], .is-mobile-group-info-open)
+      > .group-info-panel.weq-group-sections:not([inert]) {
+      translate: 100% 0;
+    }
+  }
 }
 
 .chat-pane.with-group-info .chat-header {
@@ -104,7 +122,7 @@
   position: absolute;
   z-index: 7;
   top: calc(var(--chat-header-height) + (100% - var(--chat-header-height)) / 2);
-  right: var(--weq-group-sidebar-space, 0px);
+  right: 0;
   width: 20px;
   height: 50px;
   place-items: center;
@@ -119,6 +137,7 @@
   opacity: 0;
   pointer-events: auto;
   transform: translateY(-50%);
+  translate: calc(-1 * var(--weq-group-sidebar-space)) 0;
   transition:
     opacity 100ms ease-out,
     background 100ms ease-out,
@@ -140,9 +159,7 @@
 /* 收起 / 展开输入区 —— 与群资料栏同一套交互：把手贴在两个区域的交界线上（这里是
  * 输入区上沿，群资料栏是面板左边），平时隐形，鼠标压上去或键盘聚焦才浮出来。
  *
- * 挂在 .chat-pane 上而不是 .composer 里 —— 收起时 .composer 是 display:none，
- * 放在里面会连把手一起藏掉。bottom 直接吃 --composer-height：收起时那个变量被
- * 置 0，把手自动贴到底边，不用再写一条 collapsed 覆盖。
+ * 把手留在 .chat-pane 上，可以在输入区收起之后独立操作。
  *
  * z-index 9 压过 .composer-resize（8）—— 那根拖拽条横跨整条交界线，把手得在上面
  * 才点得动；中间这 50px 让给把手，其余位置照常拖高度。 */
@@ -151,7 +168,7 @@
   position: absolute;
   z-index: 9;
   left: 50%;
-  bottom: var(--composer-height, 190px);
+  bottom: 0;
   width: 50px;
   height: 20px;
   place-items: center;
@@ -165,6 +182,8 @@
   cursor: pointer;
   opacity: 0;
   transform: translateX(-50%);
+  translate: calc(var(--weq-group-sidebar-space) / -2)
+    calc(-1 * (var(--composer-height, 190px) + var(--composer-toggle-extra-offset, 0px)));
   transition:
     opacity 100ms ease-out,
     background 100ms ease-out,
@@ -188,9 +207,15 @@
   opacity: 1;
 }
 
-/* 群资料栏展开时输入区只占左列，把手跟着挪到那一列的正中间。 */
-.chat-pane.with-group-info .composer-toggle {
-  left: calc(50% - var(--weq-group-sidebar-space, 0px) / 2);
+@media (prefers-reduced-motion: no-preference) {
+  .chat-pane[data-group-info-motion] > .group-info-toggle,
+  .chat-pane:not(:has(.composer-resize:active)) > .composer-toggle {
+    transition:
+      translate var(--weq-chat-slide),
+      opacity 100ms ease-out,
+      background 100ms ease-out,
+      color 100ms ease-out;
+  }
 }
 
 .contact-profile-empty,
@@ -2525,12 +2550,21 @@ html[data-theme='dark'] .member-role-badge.admin {
 :where(html:not([data-weq-layout='single'])) .composer:has(> .composer-send) > .composer-editor {
   padding-right: 96px;
 }
-/* 收起输入区：那一行高度已被 --composer-height:0 归零，这里再把 .composer 整个
-	 * 从布局里拿走（否则内容会溢出到消息区上）。消息区顺势长高，右下角「N 条新
-	 * 消息」气泡的 bottom 就是 --composer-height，于是自动落回底边。小屏有自己
-	 * 的输入框展开方式（.mobile-composer-expand-button），不参与这套。 */
-:where(html:not([data-weq-layout='single'])) .chat-pane.composer-collapsed .composer {
-  display: none;
+/* 网格一次释放输入区的占位，输入区保持原高，沿底边滑出并停止交互。 */
+:where(html:not([data-weq-layout='single'])) .chat-pane.composer-collapsed > .composer {
+  grid-row: -2 / -1;
+  align-self: end;
+  height: max(var(--desktop-composer-height, 190px), var(--weq-voice-composer-height, 0px));
+  translate: 0 100%;
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  :where(html:not([data-weq-layout='single'])) .chat-pane > .composer:not(.selection-mode) {
+    transition:
+      translate var(--weq-chat-slide),
+      visibility var(--weq-chat-slide);
+  }
 }
 
 html[data-theme='dark'] .composer-send:disabled {

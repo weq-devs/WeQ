@@ -13,6 +13,7 @@ import type { PreferencePatch } from '@weq/service/client-preferences';
 import { resolveTranslation } from './group-chat-settings.stub';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
+import '../../src/renderer/src/styles/remote-window-layout.css';
 import '../../src/renderer/src/im-template/styles.css';
 
 const demo = createTemplateDemoData();

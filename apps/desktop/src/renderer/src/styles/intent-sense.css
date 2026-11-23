@@ -551,7 +551,7 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
 }
 
 .chat-pane:has(> .weq-int-suggest) > .composer-toggle {
-  bottom: calc(var(--composer-height, 190px) + 28px);
+  --composer-toggle-extra-offset: 28px;
 }
 
 .chat-pane:has(> .weq-int-suggest) > .new-message-pill {

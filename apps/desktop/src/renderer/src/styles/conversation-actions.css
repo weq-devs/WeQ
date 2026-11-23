@@ -339,8 +339,8 @@ html[data-theme='dark'] .weq-group-content-actions button {
   display: none;
 }
 :where(html[data-weq-layout='single'])
-  .chat-pane.with-group-info.is-mobile-group-info-open
-  > .group-info-panel {
+  .chat-pane.with-group-info.is-mobile-group-info-present
+  > .group-info-panel:not([hidden]) {
   display: flex;
   position: absolute;
   grid-area: auto;
@@ -354,7 +354,7 @@ html[data-theme='dark'] .weq-group-content-actions button {
   box-shadow: var(--weq-shadow-card);
 }
 html:where([data-weq-layout='single'])[data-theme='dark']
-  .chat-pane.is-mobile-group-info-open
+  .chat-pane.is-mobile-group-info-present
   > .group-info-panel {
   border-color: var(--weq-border-strong);
 }

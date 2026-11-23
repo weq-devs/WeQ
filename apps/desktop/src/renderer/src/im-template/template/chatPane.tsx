@@ -44,6 +44,7 @@ import { WindowedList } from '../../components/WindowedList';
 import { observeConversationPaging } from '../../lib/conversationPaging';
 import { isDataline } from '../../lib/deviceAvatar';
 import { MessageSelectionBar } from '../../components/MessageSelectionBar';
+import { MessageHistoryClosingContext } from '../../components/MessageHistorySurface';
 import { useMediaSave } from '../../components/MediaSaveControls.shared';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import { useStableCallback } from '../../hooks/useStableCallback';
@@ -149,6 +150,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import { flushSync } from 'react-dom';
 import { ReplyJumpContext } from '../../state/messageContext';
@@ -407,6 +409,12 @@ function loadComposerCollapsed() {
 
 function isMobileWebComposer() {
   return isMobileComposerViewport();
+}
+
+function isGroupInfoOverlayLayout() {
+  return (
+    isSingleColumnLayout() || (isMobileClient() && window.matchMedia('(max-width: 1100px)').matches)
+  );
 }
 
 function saveComposerCollapsed(value: boolean) {
@@ -949,9 +957,19 @@ function ChatPaneContent({
     ),
   );
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
+  const [groupInfoMotionId, setGroupInfoMotionId] = useState<string>();
   const [mobileGroupInfoOpen, setMobileGroupInfoOpen] = useState(false);
-  const groupInfoVisible = !groupInfoCollapsed || mobileGroupInfoOpen;
-  const groupInfoPresent = useClosingContent(groupInfoVisible ? true : null, conversation?.id);
+  const groupInfoOverlay = useSyncExternalStore(
+    subscribeResponsiveLayout,
+    isGroupInfoOverlayLayout,
+    () => false,
+  );
+  const mobileGroupInfoVisible = groupInfoOverlay && mobileGroupInfoOpen;
+  const groupInfoVisible = groupInfoOverlay ? mobileGroupInfoVisible : !groupInfoCollapsed;
+  const groupInfoPresent = useClosingContent(
+    groupInfoVisible ? true : null,
+    `${conversation?.id}:${groupInfoOverlay}`,
+  );
   const [importantMessagesOpen, setImportantMessagesOpen] = useState(false);
   const importantDockRef = useRef<HTMLDivElement>(null);
   const [importantMessagesVisited, setImportantMessagesVisited] = useState<string | null>(null);
@@ -969,16 +987,7 @@ function ChatPaneContent({
     }
   }, [tabActive, onCloseMessageRecords]);
   const groupInfoTriggerRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => setMobileGroupInfoOpen(false), [conversation?.id, tabActive]);
-  useEffect(() => {
-    let single = isSingleColumnLayout();
-    const update = () => {
-      const next = isSingleColumnLayout();
-      if (next !== single) setMobileGroupInfoOpen(false);
-      single = next;
-    };
-    return subscribeResponsiveLayout(update);
-  }, []);
+  useEffect(() => setMobileGroupInfoOpen(false), [conversation?.id, tabActive, groupInfoOverlay]);
   /**
    * 关闭浮层并把焦点还给打开它的按钮。布局切换导致的自动关闭不走这里 ——
    * 那时用户并没有在操作这个浮层，抢焦点只会打断别的输入。
@@ -990,7 +999,7 @@ function ChatPaneContent({
   // 空间不足时群资料是浮在聊天区上的最上层，系统返回必须先关掉它，
   // 否则 Android 的返回会穿过聊天页直接结束应用。
   useMobileBack(
-    mobileGroupInfoOpen,
+    mobileGroupInfoVisible,
     closeMobileGroupInfo,
     20,
     () =>
@@ -1337,6 +1346,10 @@ function ChatPaneContent({
     return () => onGroupMemberDemand(rosterGroup, false);
   }, [onGroupMemberDemand, rosterGroup, rosterNeeded]);
   const [mobileComposerExpanded, setMobileComposerExpanded] = useState(false);
+  const mobileComposerPresent = useClosingContent(
+    mobileComposerExpanded && tabActive ? true : null,
+    conversation?.id,
+  );
   const [slashMenu, setSlashMenu] = useState<
     (SlashEmojiTrigger & { editor: HTMLDivElement; activeIndex: number }) | null
   >(null);
@@ -1615,6 +1628,10 @@ function ChatPaneContent({
     });
   }, [groupConsecutiveMessages, visibleMessages, deletedKeys, timelineGaps, unreadBoundaryId]);
   const compactHeader = useMobileWebLayout();
+  const desktopMessageRecords = useClosingContent(
+    !compactHeader && tabActive ? (messageRecords ?? null) : null,
+    conversation?.id,
+  );
   // 分析和回复使用不同目标，自己的消息不触发推荐；跳过灰条、撤回和删除。
   const intentSupported = Boolean(
     !restrictedSource &&
@@ -5793,11 +5810,10 @@ function ChatPaneContent({
   }
 
   function toggleGroupInfoCollapsed() {
-    setGroupInfoCollapsed((current) => {
-      const next = !current;
-      saveGroupInfoCollapsed(next);
-      return next;
-    });
+    const next = !groupInfoCollapsed;
+    setGroupInfoMotionId(conversation?.id);
+    setGroupInfoCollapsed(next);
+    saveGroupInfoCollapsed(next);
   }
 
   /**
@@ -6068,20 +6084,19 @@ function ChatPaneContent({
   // 输入区高度固定：语音条内联时就装在正文那一行里，不再临时抬高（避免开录音时
   // 整个聊天区往下跳）。面板内容装不下时它自己在内部滚动。
   //
-  // 收起时置 0：网格那一行、把手的 bottom、右下角「N 条新消息」气泡的 bottom 都
-  // 吃这个变量，于是整条输入区从布局里消失、气泡自动落回底边，不用各处单独判断。
+  // 收起时只清空网格占位，保留输入区原高用于退出过渡。把手和新消息提示随占位移动。
   // 多选时输入区让位给操作条 —— 只留一条矮栏（即使输入区本来是收起的也要露出来）。
-  const effectiveComposerHeight = selectionMode
+  const expandedComposerHeight = selectionMode
     ? 64
-    : composerCollapsed || !composerVisible
+    : !composerVisible
       ? 0
       : Math.min(
           composerHeight,
           composerPaneHeight ? Math.max(96, composerPaneHeight * 0.35) : composerHeight,
         ) + composerExtensionsHeight;
   const paneStyle = {
-    '--composer-height': `${effectiveComposerHeight}px`,
-    '--desktop-composer-height': `${effectiveComposerHeight}px`,
+    '--composer-height': `${composerCollapsed && !selectionMode ? 0 : expandedComposerHeight}px`,
+    '--desktop-composer-height': `${expandedComposerHeight}px`,
     '--mobile-composer-editor-height': `${mobileComposerEditorHeight}px`,
     '--composer-extensions-height': `${composerExtensionsHeight}px`,
     '--composer-extensions-max-height': `${composerPaneHeight ? Math.min(240, Math.max(40, composerPaneHeight * 0.3)) : 240}px`,
@@ -6270,12 +6285,14 @@ function ChatPaneContent({
           !messageHistoryActive
           ? 'group-info-collapsed'
           : '',
-        mobileGroupInfoOpen && 'is-mobile-group-info-open',
+        mobileGroupInfoVisible && 'is-mobile-group-info-open',
+        groupInfoOverlay && groupInfoPresent && 'is-mobile-group-info-present',
         composerCollapsed && !selectionMode ? 'composer-collapsed' : '',
         selectionMode ? 'selection-mode' : '',
         mobileComposerLong ? 'mobile-composer-long' : '',
         mobileComposerExpanded ? 'mobile-composer-expanded-open' : '',
       )}
+      data-group-info-motion={groupInfoMotionId === conversation.id ? '' : undefined}
       style={paneStyle}
       onPointerDownCapture={(event) => {
         multi.rootProps.onPointerDownCapture();
@@ -6454,7 +6471,7 @@ function ChatPaneContent({
                         groupInfoTriggerRef.current = anchor;
                         setImportantMessagesOpen(false);
                         onCloseMessageRecords?.();
-                        if (compactHeader) setMobileGroupInfoOpen((previous) => !previous);
+                        if (groupInfoOverlay) setMobileGroupInfoOpen((previous) => !previous);
                         else if (messageHistoryActive) {
                           setGroupInfoCollapsed(false);
                           saveGroupInfoCollapsed(false);
@@ -6971,7 +6988,7 @@ function ChatPaneContent({
               {groupInfoCollapsed ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
             </button>
           ) : null}
-          {mobileGroupInfoOpen ? (
+          {mobileGroupInfoVisible ? (
             // 浮在上层时，聊天区那一侧既不能"看得见点不着"，也不能让点击
             // 穿透到消息上（会误触语音、图片、引用）。这层透明遮罩负责吃掉
             // 那一下：只关浮层，不动消息。
@@ -7007,7 +7024,7 @@ function ChatPaneContent({
               }
               onOpenAlbums={onOpenGroupAlbums ? () => onOpenGroupAlbums(conversation) : undefined}
               onOpenFiles={onOpenGroupFiles ? () => onOpenGroupFiles(conversation) : undefined}
-              onClose={mobileGroupInfoOpen ? closeMobileGroupInfo : undefined}
+              onClose={mobileGroupInfoVisible ? closeMobileGroupInfo : undefined}
               onOpenMember={effectiveOpenGroupMember}
               getMemberChatShortcut={getAvatarShortcut}
               onMemberContextMenu={!selectionMode ? openAvatarMenu : undefined}
@@ -7045,7 +7062,11 @@ function ChatPaneContent({
         />
       ) : null}
 
-      {tabActive && !importantMessagesActive ? messageRecords : null}
+      {tabActive && !importantMessagesActive ? (
+        <MessageHistoryClosingContext.Provider value={!messageRecords}>
+          {compactHeader ? messageRecords : desktopMessageRecords}
+        </MessageHistoryClosingContext.Provider>
+      ) : null}
 
       {/* 收纳输入区的把手 —— 与群资料栏同一个交互：贴在两个区域的交界线上，
           平时隐形，压上去（或键盘聚焦）才浮出来；收起来以后整条输入区从布局里
@@ -7092,6 +7113,7 @@ function ChatPaneContent({
 
       {composerVisible || selectionMode ? (
         <div
+          inert={composerCollapsed && !selectionMode && !compactHeader}
           className={cn(
             'composer',
             hasComposerExtensions && !selectionMode && 'has-extensions',
@@ -7815,8 +7837,8 @@ function ChatPaneContent({
           </button>
         </div>
       ) : null}
-      {mobileComposerExpanded ? (
-        <div className={cn('mobile-composer-expanded')}>
+      {mobileComposerPresent && tabActive && compactHeader ? (
+        <div className={cn('mobile-composer-expanded')} inert={!mobileComposerExpanded}>
           <section
             className={cn('mobile-composer-expanded-sheet', pendingSuperEmoji && 'has-super-emoji')}
           >

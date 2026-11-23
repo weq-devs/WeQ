@@ -363,9 +363,14 @@ button.composer-single-thumb {
 
 :where(html:not([data-weq-layout='single']))
   .chat-pane:has(.composer.voice-open .voice-panel-body) {
+  --weq-voice-composer-height: calc(190px + var(--weq-composer-quote-space, 0px) * 30 / 38);
+}
+
+:where(html:not([data-weq-layout='single']))
+  .chat-pane:not(.composer-collapsed):has(.composer.voice-open .voice-panel-body) {
   --composer-height: max(
     var(--desktop-composer-height, 190px),
-    calc(190px + var(--weq-composer-quote-space, 0px) * 30 / 38)
+    var(--weq-voice-composer-height)
   ) !important;
 }
 

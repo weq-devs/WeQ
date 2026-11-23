@@ -1,6 +1,5 @@
 .chat-pane.with-message-history {
-  --group-info-panel-width: 320px;
-  grid-template-columns: minmax(0, 1fr) var(--group-info-panel-width);
+  grid-template-columns: minmax(0, 1fr) var(--weq-message-history-width);
 }
 .chat-pane.with-message-history > .chat-header {
   grid-column: 1 / -1;
@@ -10,7 +9,7 @@
   grid-column: 1;
 }
 .chat-pane.with-message-history .unread-dock-button {
-  right: calc(var(--group-info-panel-width) + 24px);
+  right: calc(var(--weq-message-history-width) + 24px);
 }
 .chat-pane.with-message-history > .weq-panel-loading {
   grid-column: 2;
@@ -34,6 +33,32 @@
 .weq-history-filter-panel[hidden] {
   display: none;
 }
+
+.chat-pane > .weq-message-history-panel {
+  position: absolute;
+  grid-area: auto;
+  inset: var(--chat-header-height) 0 0 auto;
+  width: var(--weq-message-history-width);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .chat-pane > .weq-message-history-panel {
+    transition:
+      translate var(--weq-chat-slide),
+      display var(--weq-chat-slide) allow-discrete;
+  }
+
+  .chat-pane > .weq-message-history-panel[hidden] {
+    translate: 100% 0;
+  }
+
+  @starting-style {
+    .chat-pane > .weq-message-history-panel:not([hidden]) {
+      translate: 100% 0;
+    }
+  }
+}
+
 .weq-message-history-panel:focus {
   outline: none;
 }

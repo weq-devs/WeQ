@@ -141,6 +141,8 @@
   height: 34px;
   min-height: 34px;
   color: var(--weq-fg-primary);
+  content-visibility: auto;
+  contain-intrinsic-block-size: 34px;
 }
 
 .weq-group-sections .group-info-member-row .member-name-text {
@@ -182,13 +184,13 @@ html[data-theme='dark'] .weq-group-sections {
 }
 
 :where(html[data-weq-layout='single'])
-  .chat-pane:not(.is-mobile-group-info-open)
+  .chat-pane:not(.is-mobile-group-info-present)
   > .group-info-panel.weq-group-sections {
   display: none;
 }
 :where(html[data-weq-layout='single'])
-  .chat-pane.is-mobile-group-info-open
-  > .group-info-panel.weq-group-sections {
+  .chat-pane.is-mobile-group-info-present
+  > .group-info-panel.weq-group-sections:not([hidden]) {
   display: flex;
   overflow: hidden;
 }

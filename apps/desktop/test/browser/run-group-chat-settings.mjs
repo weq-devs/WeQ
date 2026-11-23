@@ -204,7 +204,7 @@ async function checkMotion(page, width, reduced = false) {
   const smooth = (values, direction, label) => {
     const first = values[0] * direction;
     const last = values.at(-1) * direction;
-    assert.ok(last - first > 8, label);
+    assert.ok(last - first > 8, `${label}未到达最终位置：${JSON.stringify(values)}`);
     const intermediate = values.filter(
       (x) => x * direction > first + 1 && x * direction < last - 1,
     );
@@ -240,15 +240,75 @@ async function checkMotion(page, width, reduced = false) {
   smooth(await geometry(removeQuote, composerTarget, composerEdge), compact ? 1 : -1, '取消引用');
   await page.locator('.composer-quote').waitFor({ state: 'detached' });
   assert.equal(await editor.evaluate((node) => document.activeElement === node), true);
-  if (compact) return;
+  if (compact) {
+    await page.getByRole('button', { name: '更多会话操作' }).click();
+    await page.getByRole('menuitem', { name: '工具', exact: true }).click();
+    await page.getByRole('menuitem', { name: '群聊侧栏', exact: true }).click();
+    await page.getByRole('button', { name: '关闭群聊侧栏', exact: true }).click();
+    await page.locator('.chat-pane > .group-info-panel').waitFor({ state: 'detached' });
 
-  const collapse = page.getByRole('button', { name: '收起群聊侧栏' });
-  smooth(await geometry(collapse, '.message-scroll', 'width'), 1, '收起群资料');
-  await page.getByRole('complementary', { name: '群聊侧栏' }).waitFor({ state: 'hidden' });
-  const expand = page.getByRole('button', { name: '展开群聊侧栏' });
-  smooth(await geometry(expand, '.message-scroll', 'width'), -1, '展开群资料');
-  await page.getByRole('complementary', { name: '群聊侧栏' }).waitFor();
+    const text = '需要展开的长文\n'.repeat(10).trimEnd();
+    await editor.fill(text);
+    await page.getByRole('button', { name: '展开输入', exact: true }).click();
+    const sheet = page.locator('.mobile-composer-expanded');
+    const expandedEditor = sheet.getByRole('textbox', { name: '消息' });
+    await page.waitForFunction(() =>
+      document.activeElement?.classList.contains('mobile-composer-expanded-editor'),
+    );
+    assert.equal((await expandedEditor.innerText()).trimEnd(), text);
+    await sheet.getByRole('button', { name: '收起输入', exact: true }).click();
+    await sheet.waitFor({ state: 'detached' });
+    assert.equal((await editor.innerText()).trimEnd(), text);
+    return;
+  }
+
+  const checkPaneSlide = async (side, expanded, label) => {
+    const group = side === 'sidebar';
+    const toggle = page.getByRole('button', { name: label, exact: true });
+    const { bounds, sizes, blocked } = await toggle.evaluate(
+      async (button, { group, expanded }) => {
+        const pane = button.closest('.chat-pane');
+        const panel = () => pane.querySelector(group ? '.group-info-panel' : '.composer');
+        const scroll = pane.querySelector('.message-scroll');
+        const read = () =>
+          group
+            ? (panel()?.getBoundingClientRect().left ?? pane.getBoundingClientRect().right)
+            : panel().getBoundingClientRect().top;
+        const bounds = [read()];
+        const sizes = new Set([group ? scroll.clientWidth : scroll.clientHeight]);
+        button.click();
+        const from = performance.now();
+        let blocked = true;
+        while (performance.now() - from < 250) {
+          await new Promise(requestAnimationFrame);
+          bounds.push(read());
+          sizes.add(group ? scroll.clientWidth : scroll.clientHeight);
+          if (
+            !expanded &&
+            panel() &&
+            !panel().inert &&
+            button.getAttribute('aria-expanded') === 'false'
+          )
+            blocked = false;
+        }
+        return { bounds, sizes: [...sizes], blocked };
+      },
+      { group, expanded },
+    );
+    smooth(bounds, expanded ? -1 : 1, label);
+    assert.equal(sizes.length, 2, `${label}时消息区应一次到达最终尺寸`);
+    assert.equal(blocked, true, `${label}时关闭中的内容应退出交互`);
+  };
+  await checkPaneSlide('sidebar', false, '收起群聊侧栏');
+  await checkPaneSlide('sidebar', true, '展开群聊侧栏');
+  await editor.fill('收起时保留的草稿');
+  await checkPaneSlide('composer', false, '收起输入框');
+  await checkPaneSlide('composer', true, '展开输入框');
+  assert.equal(await editor.textContent(), '收起时保留的草稿');
+  await editor.fill('');
+
   if (!reduced) {
+    const collapse = page.getByRole('button', { name: '收起群聊侧栏' });
     const reversed = await collapse.evaluate(async (button) => {
       const scroll = document.querySelector('.message-scroll');
       const openWidth = scroll.clientWidth;
@@ -265,18 +325,19 @@ async function checkMotion(page, width, reduced = false) {
     assert.equal(await collapse.getAttribute('aria-expanded'), 'true');
   }
 
-  const following = '[data-message-id="following"].message-line';
+  // 短会话贴底，内容变高时上方的消息上移，最后一条留在原处。
+  const firstMessage = '[data-message-id="quote-target"].message-line';
   const transcript = message('voice').getByRole('group', { name: '转文字结果' });
   const hideTranscript = await menu(transcript, '收起');
-  smooth(await geometry(hideTranscript, following, 'top'), -1, '收起转写结果');
+  smooth(await geometry(hideTranscript, firstMessage, 'top'), 1, '收起转写结果');
   const showTranscript = message('voice').getByTitle('展开转文字结果');
-  smooth(await geometry(showTranscript, following, 'top'), 1, '重新展开转写结果');
+  smooth(await geometry(showTranscript, firstMessage, 'top'), -1, '重新展开转写结果');
 
   await message('quote-target').locator('.message-content').click({ button: 'right' });
   const translate = page.getByText('翻译成中文', { exact: true });
-  smooth(await geometry(translate, following, 'top'), 1, '展开译文');
+  smooth(await geometry(translate, firstMessage, 'top'), -1, '展开译文');
   const navigate = (action) =>
-    page.locator(following).evaluate(async (element, action) => {
+    page.locator(firstMessage).evaluate(async (element, action) => {
       const positions = [element.getBoundingClientRect().top];
       if (action === 'translation')
         window.groupChatSettings.resolveTranslation('需要逐行展开的模拟翻译结果。'.repeat(8));
@@ -288,16 +349,23 @@ async function checkMotion(page, width, reduced = false) {
       }
       return positions;
     }, action);
-  smooth(await navigate('translation'), 1, '译文由短变长');
+  smooth(await navigate('translation'), -1, '译文由短变长');
   const hideTranslation = await menu(
     message('quote-target').getByRole('group', { name: '译文' }),
     '收起',
   );
-  smooth(await geometry(hideTranslation, following, 'top'), -1, '收起译文');
+  smooth(await geometry(hideTranslation, firstMessage, 'top'), 1, '收起译文');
 
-  smooth(await navigate('failed'), 1, '显示发送失败');
+  smooth(await navigate('failed'), -1, '显示发送失败');
   await message('outgoing').getByText('发送失败').waitFor();
-  smooth(await navigate('sending'), -1, '移除发送失败');
-  smooth(await navigate('sent'), 1, '显示可能未送达');
+  smooth(await navigate('sending'), 1, '移除发送失败');
+  smooth(await navigate('sent'), -1, '显示可能未送达');
   await message('outgoing').getByText('可能未送达').waitFor();
+
+  await page.getByRole('button', { name: '消息', exact: true }).click();
+  await page.getByRole('menuitem', { name: '重要消息', exact: true }).click();
+  const history = page.getByRole('complementary', { name: '重要消息', exact: true });
+  await history.waitFor();
+  await history.getByRole('button', { name: '关闭重要消息', exact: true }).click();
+  await page.locator('.chat-pane > .weq-message-history-panel').waitFor({ state: 'hidden' });
 }

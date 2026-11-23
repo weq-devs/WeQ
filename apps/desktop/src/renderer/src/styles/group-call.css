@@ -171,7 +171,7 @@
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 288px;
-  transition: grid-template-columns 200ms ease;
+  overflow: clip;
 }
 
 .weq-group-call-window[data-rail='closed'] .weq-group-call-body {
@@ -179,7 +179,8 @@
 }
 
 .weq-group-call-window[data-rail='closed'] .weq-group-call-rail {
-  border-left-color: transparent;
+  translate: 100% 0;
+  visibility: hidden;
 }
 
 .weq-group-call-stage-column {
@@ -497,13 +498,16 @@
 /* ── 成员栏 ── */
 
 .weq-group-call-rail {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 288px;
   min-width: 0;
   overflow: hidden;
   border-left: 1px solid var(--weq-border-subtle);
   background: var(--weq-bg-surface);
   transition:
-    transform 200ms ease,
-    visibility 200ms ease;
+    translate 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 160ms;
 }
 
 .weq-group-call-rail-inner {
@@ -976,8 +980,6 @@
   }
 
   .weq-group-call-rail {
-    position: absolute;
-    inset: 0 0 0 auto;
     z-index: 6;
     width: min(300px, 86%);
     border-left: 1px solid var(--weq-border-subtle);
@@ -986,11 +988,6 @@
 
   .weq-group-call-rail-inner {
     width: 100%;
-  }
-
-  .weq-group-call-window[data-rail='closed'] .weq-group-call-rail {
-    transform: translateX(100%);
-    visibility: hidden;
   }
 
   .weq-group-call-title {
@@ -1013,7 +1010,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .weq-group-call-body,
   .weq-group-call-rail,
   .weq-group-call-thumb,
   .weq-group-call-action,

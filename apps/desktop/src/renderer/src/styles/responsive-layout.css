@@ -162,8 +162,8 @@ html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-editor {
   }
 
   html[data-weq-mobile-client='true'][data-weq-layout='wide']
-    .chat-pane.is-mobile-group-info-open
-    > .group-info-panel {
+    .chat-pane.is-mobile-group-info-present
+    > .group-info-panel:not([hidden]) {
     position: absolute;
     /* 基类把它放在 grid 第 2 列（chat.css `.group-info-panel`），这里已经改成单列模板，
        第 2 列只剩一个隐式空列；绝对定位元素的包含块就是那块 grid area，不重置
