@@ -4,18 +4,23 @@ import { NumericText } from '../NumericText';
 export function TaskName({ display }: { display: TaskDisplay }) {
   const subject = taskInlineText(display.subject ?? '');
   const extension = display.fileName ? /\.[a-z\d]{1,12}$/i.exec(subject)?.[0] : undefined;
-  return extension ? (
-    <span className="weq-task-file-name">
-      <span>{display.action}</span>
-      <span className="weq-task-file-subject">
-        <span className="weq-task-file-stem">
-          <NumericText>{subject.slice(0, -extension.length)}</NumericText>
+  if (extension) {
+    return (
+      <span className="weq-task-file-name">
+        <span>{display.action}</span>
+        <span className="weq-task-file-subject">
+          <span className="weq-task-file-stem">{subject.slice(0, -extension.length)}</span>
+          <span className="weq-task-file-extension">{extension}</span>
         </span>
-        <span className="weq-task-file-extension">{extension}</span>
       </span>
-    </span>
+    );
+  }
+  return display.numericSubject && subject ? (
+    <>
+      {display.action} · <NumericText>{subject}</NumericText>
+    </>
   ) : (
-    <NumericText>{taskDisplayTitle(display)}</NumericText>
+    taskDisplayTitle(display)
   );
 }
 

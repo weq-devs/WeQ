@@ -24,6 +24,7 @@ const receiptSchema = downloadTaskReceipt.extend({
     .object({
       action: z.string(),
       subject: z.string().optional(),
+      numericSubject: z.boolean().optional(),
       context: z.string().optional(),
       category: z.string().optional(),
       fileName: z.boolean().optional(),

@@ -7538,6 +7538,7 @@ export const accountRouter = router({
         display: {
           action: '导出明文数据库',
           subject: single ? items[0]!.name : `${items.length} 个库`,
+          numericSubject: !single,
           context: input.mode === 'safe' ? '安全保存' : '快速解密',
           fileName: single,
         },
@@ -8142,6 +8143,7 @@ export const accountRouter = router({
         display: {
           action: '保存相册媒体',
           subject: resolved ? resolved.fileName : `${selected.items.length} 项`,
+          numericSubject: !resolved,
           context: 'QQ 空间相册',
           fileName: Boolean(resolved),
         },
@@ -8217,6 +8219,7 @@ export const accountRouter = router({
               ? '导出群相册'
               : '导出相册',
           subject: `${selected.length} 个相册`,
+          numericSubject: true,
           context: [
             ...new Set(
               selected.map((item) => (item.provider === 'qzone' ? 'QQ 空间相册' : '群相册')),
@@ -8282,6 +8285,7 @@ export const accountRouter = router({
             selected.albums.length === 1
               ? selected.albums[0]!.title
               : `${selected.albums.length} 个相册`,
+          numericSubject: selected.albums.length !== 1,
           context: selected.name,
         },
         includeIntegrityReport: selected.includeIntegrityReport,
@@ -8345,6 +8349,7 @@ export const accountRouter = router({
             selected.albums.length === 1
               ? selected.albums[0]!.title
               : `${selected.albums.length} 个相册`,
+          numericSubject: selected.albums.length !== 1,
           context: selected.name,
         },
         includeIntegrityReport: selected.includeIntegrityReport,

@@ -496,6 +496,7 @@ export function CurrentTaskList({
     const display = {
       action: '下载闪传文件',
       subject: single ? task.name : `${task.files!.length} 个文件`,
+      numericSubject: !single,
       fileName: single,
     };
     const retryFlash = async () => {

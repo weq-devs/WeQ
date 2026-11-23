@@ -392,6 +392,7 @@ export const qzoneRouter = router({
         action: '导出空间视频',
         context: 'QQ 空间视频',
         subject: single?.fileName ?? `${items.length} 个视频`,
+        numericSubject: !single,
         fileName: Boolean(single),
       },
       savePolicy: policy,

@@ -1205,7 +1205,7 @@ export function createQQActionsRouter(
           kind: 'favorite-import',
           foreground: true,
           name: '收藏表情导入',
-          display: { action: '导入收藏表情', subject: `${i.keys.length} 张` },
+          display: { action: '导入收藏表情', subject: `${i.keys.length} 张`, numericSubject: true },
           scope,
         });
         const save = recordAccountTask(id, scope);

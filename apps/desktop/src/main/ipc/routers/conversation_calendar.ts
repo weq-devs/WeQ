@@ -346,7 +346,7 @@ export function restoreCalendarTasks(scope: BackgroundTaskScope) {
         id: record.id,
         kind: 'calendar',
         name: `会话日历 · ${record.request.month}`,
-        display: { action: '统计会话日历', subject: record.request.month },
+        display: { action: '统计会话日历', subject: record.request.month, numericSubject: true },
         scope,
         status,
         statusLabel: status === 'paused' ? '等待继续' : undefined,
@@ -663,7 +663,7 @@ export const conversationCalendarRouter = router({
     if (!value.taskId || !backgroundTasks.snapshot().some((task) => task.id === value.taskId)) {
       value.taskId = backgroundTasks.start({
         name: `会话日历 · ${value.job.month}`,
-        display: { action: '统计会话日历', subject: value.job.month },
+        display: { action: '统计会话日历', subject: value.job.month, numericSubject: true },
         kind: 'calendar',
         scope: {
           uin: value.session.context.uin,

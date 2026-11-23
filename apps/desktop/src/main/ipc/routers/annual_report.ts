@@ -178,6 +178,7 @@ async function startReportSave(
     display: {
       action: '导出年度报告',
       subject: `${input.year} 年`,
+      numericSubject: true,
       context: extension.toUpperCase(),
     },
     output,

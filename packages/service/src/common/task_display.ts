@@ -4,6 +4,8 @@ import type { ExportTask } from '../account/export/task_manager';
 export interface TaskDisplay {
   action: string;
   subject?: string;
+  /** 仅程序生成的读数使用数字字体，名称按普通文本显示。 */
+  numericSubject?: boolean;
   context?: string;
   category?: string;
   fileName?: boolean;
@@ -26,6 +28,7 @@ export function roamingTaskDisplay(targets: readonly { name: string }[]): TaskDi
     action: '拉取漫游消息',
     subject:
       targets.length === 1 ? targets[0]!.name : `${targets.length.toLocaleString('en-US')} 个会话`,
+    numericSubject: targets.length !== 1,
   };
 }
 
@@ -114,9 +117,11 @@ export function exportTaskDisplay(task: DisplaySource): TaskDisplay {
   }
   if (task.marketpack || task.isMarketPack) {
     const packs = task.marketpack?.packs;
+    const count = packs?.length ?? 0;
     return {
       action: '下载商城表情包',
-      subject: packs && packs.length > 1 ? `${packs.length} 套` : (packs?.[0]?.name ?? task.name),
+      subject: count > 1 ? `${count} 套` : (packs?.[0]?.name ?? task.name),
+      numericSubject: count > 1,
     };
   }
   if (task.emojipack || task.isEmojiPack) {
@@ -149,11 +154,13 @@ export function exportTaskDisplay(task: DisplaySource): TaskDisplay {
       return {
         action: '导出群聊名单',
         subject: selection.groupIds ? `${selection.groupIds.length} 个群` : undefined,
+        numericSubject: true,
         context: selection.groupIds ? undefined : '全部群聊',
       };
     return {
       action: selection ? '导出好友名单' : '导出联系人名单',
       subject: selection?.uids ? `${selection.uids.length} 人` : undefined,
+      numericSubject: true,
       context: !selection
         ? undefined
         : selection.categoryIds?.length
@@ -167,6 +174,7 @@ export function exportTaskDisplay(task: DisplaySource): TaskDisplay {
     return {
       action: '导出收藏',
       subject: task.collection?.cids ? `${task.collection.cids.length} 项` : undefined,
+      numericSubject: true,
       context: !task.collection
         ? undefined
         : task.collection.kinds?.length

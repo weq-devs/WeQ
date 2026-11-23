@@ -153,6 +153,7 @@ export const mailRouter = router({
           action: '导出邮件',
           subject:
             input.ids !== null && !input.expandThreads ? `${input.ids.length} 封` : undefined,
+          numericSubject: true,
           context:
             input.ids === null
               ? '当前邮件筛选范围'
