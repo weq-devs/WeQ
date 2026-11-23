@@ -432,19 +432,14 @@ it('商城表情的添加保存整包，单张插入只选择当前表情', asyn
         }),
       ),
     );
-    const card = host.querySelector<HTMLButtonElement>('.weq-market-pack-card')!;
-    expect(card.getAttribute('aria-disabled')).not.toBe('true');
-    act(() => card.click());
-    const action = host.querySelector<HTMLButtonElement>('.weq-emb-detail-head button')!;
+    const action = host.querySelector<HTMLButtonElement>('[aria-label="添加 合成表情包"]')!;
     await act(async () => action.click());
     expect(add).toHaveBeenCalledWith('123');
     expect(insert).not.toHaveBeenCalled();
-    act(() => host.querySelector<HTMLButtonElement>('.weq-mface-lb-cell')!.click());
-    const insertButton = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '插入',
-    )!;
-    expect(insertButton).toBeDefined();
-    act(() => insertButton.click());
+    act(() => host.querySelector<HTMLButtonElement>('button[title="合成表情包"]')!.click());
+    act(() =>
+      host.querySelector<HTMLButtonElement>('button[title="开心 · 点击插入输入框"]')!.click(),
+    );
     expect(insert).toHaveBeenCalledWith('123', expect.objectContaining({ name: '开心' }));
     expect(add).toHaveBeenCalledOnce();
     expect(saveState.download).toHaveBeenCalledTimes(downloadCalls);

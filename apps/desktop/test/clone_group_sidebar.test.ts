@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 import { cloneRequests } from './browser/clone-conversation.stub';
+import { stubNarrowViewport } from './support/narrowViewport';
 import { GroupChatPanel } from '../src/renderer/src/views/agentlab/GroupChatPanel';
 import { GroupInfoPanel } from '../src/renderer/src/im-template/template/groupInfoPanel';
 import {
@@ -18,10 +19,6 @@ const binding = vi.hoisted(() => ({
 vi.mock('../src/renderer/src/lib/clientPreferences', async (original) => ({
   ...(await original<typeof import('../src/renderer/src/lib/clientPreferences')>()),
   accountBinding: () => binding,
-}));
-vi.mock('../src/renderer/src/hooks/useMobileWebViewport', async (original) => ({
-  ...(await original<object>()),
-  useMobileWebLayout: () => true,
 }));
 const confirm = vi.hoisted(() => vi.fn(async () => true));
 vi.mock('../src/renderer/src/lib/dialogUtils', () => ({
@@ -141,6 +138,7 @@ it('虚拟群成员没有 QQ 号仍显示并支持键盘打开名片，普通群
 });
 
 it('克隆群成员右键复用普通菜单，支持提及与确认移除，不执行真实 QQ 操作', async () => {
+  stubNarrowViewport();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   const host = document.createElement('div');

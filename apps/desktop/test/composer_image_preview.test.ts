@@ -2,6 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
+import { stubNarrowViewport } from './support/narrowViewport';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
@@ -39,6 +40,7 @@ afterEach(() => {
 it.each([false, true])(
   '输入框图片预览不改草稿，关闭后恢复光标；展开输入框=%s',
   async (expanded) => {
+    if (expanded) stubNarrowViewport();
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const demo = createTemplateDemoData();

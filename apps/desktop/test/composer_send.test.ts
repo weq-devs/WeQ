@@ -2,6 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { stubNarrowViewport } from './support/narrowViewport';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 // 发送生命周期使用离线持久化边界替身；真实素材往返由 composer_draft_media 单测与 Electron 验证。
 vi.mock('../src/renderer/src/lib/composerDraftMedia', async (importOriginal) => {
@@ -1120,6 +1121,7 @@ describe('输入区发送交接', () => {
   });
 
   it('移动端展开输入发送后回到可继续输入的紧凑框', async () => {
+    stubNarrowViewport();
     const f = mount();
     try {
       act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="展开输入"]')!.click());

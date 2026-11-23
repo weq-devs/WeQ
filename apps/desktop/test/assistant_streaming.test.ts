@@ -36,6 +36,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => fixture.utils,
     bootstrap: {
+      getDevelopmentFeatures: { useQuery: () => ({ data: { dressTools: false } }) },
       getSettings: { useQuery: () => ({ data: undefined }) },
       listAgentLabProviders: { useQuery: () => ({ data: [] }) },
       synthesizeSpeech: { useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }) },

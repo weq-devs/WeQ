@@ -2,6 +2,7 @@ import { act, createElement as h, type ComponentProps } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubNarrowViewport } from './support/narrowViewport';
 import { ComposerSendButton } from '../src/renderer/src/im-template/template/composerSendButton';
 import { muteCountdownText } from '../src/renderer/src/im-template/template/composerSendButton.shared';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
@@ -195,6 +196,7 @@ it.each([false, true])('个人禁言倒计时不重绘聊天区，到期处理�
 });
 
 it('提前解除后恢复发送，手机展开页使用相同禁言状态', async () => {
+  stubNarrowViewport();
   rpc.permissions.muteAll = true;
   const f = await mountChat();
   act(() => f.element.querySelector<HTMLButtonElement>('.mobile-composer-expand-button')!.click());

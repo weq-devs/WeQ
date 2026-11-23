@@ -44,7 +44,7 @@ import { WindowedList } from '../../components/WindowedList';
 import { observeConversationPaging } from '../../lib/conversationPaging';
 import { isDataline } from '../../lib/deviceAvatar';
 import { MessageImageProgress, MessageSelectionBar } from '../../components/MessageSelectionBar';
-import { MessageHistoryClosingContext } from '../../components/MessageHistorySurface';
+import { MessageHistoryClosingContext } from '../../components/MessageHistorySurface.shared';
 import { useMediaSave } from '../../components/MediaSaveControls.shared';
 import { useMessageMarquee } from '../../hooks/useMessageMarquee';
 import { useStableCallback } from '../../hooks/useStableCallback';
@@ -304,7 +304,8 @@ import {
 } from './composerActions';
 import { GroupInfoPanel, type GroupInfoDetail, type GroupSidebarFeature } from './groupInfoPanel';
 import { EmojiPanel } from './emojiPanel';
-import { ComposerFontPanel, useComposerFont } from './composerFontPanel';
+import { ComposerFontPanel } from './composerFontPanel';
+import { useComposerFont } from './composerFontPanel.shared';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { loadHiddenMessageIds, saveHiddenMessageIds } from './hiddenMessages';
 import { MessageRow } from './messageRow';

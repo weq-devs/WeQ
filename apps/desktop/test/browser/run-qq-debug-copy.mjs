@@ -381,7 +381,7 @@ try {
         }
     if (view === 'main') {
       await panel.getByRole('button', { name: '准备并打开 QQ', exact: true }).click();
-      await panel.getByText('请在 QQ 中完成登录，登录后会自动继续。', { exact: true }).waitFor();
+      await panel.getByRole('status').filter({ hasText: '请在 QQ 中完成登录' }).waitFor();
       if (await page.getByRole('region', { name: '副本权限引导' }).count())
         throw new Error('一键打开不应自动展开权限引导');
       await page.evaluate(() => window.debugCopyQa.setOnlineFixture({ qqOnline: true }));
@@ -432,7 +432,7 @@ try {
       if (output)
         await page.screenshot({ path: resolve(output, `progress-${width}-${theme}.png`) });
       await page.evaluate(() => window.debugCopyQa.resumeAction());
-      await panel.getByText('请在 QQ 中完成登录，登录后会自动继续。', { exact: true }).waitFor();
+      await panel.getByRole('status').filter({ hasText: '请在 QQ 中完成登录' }).waitFor();
     }
   if (errors.length) throw new Error(errors.join('\n'));
   console.log(

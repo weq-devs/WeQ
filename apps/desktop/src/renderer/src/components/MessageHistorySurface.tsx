@@ -1,19 +1,10 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ListFilter, X } from 'lucide-react';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
 import { OverlayLayer } from './OverlayLayer';
+import { MessageHistoryClosingContext } from './MessageHistorySurface.shared';
 import '../styles/important-messages.css';
-
-export const MessageHistoryClosingContext = createContext(false);
 
 export function MessageHistorySurface({
   id,

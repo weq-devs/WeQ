@@ -2,6 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
+import { stubNarrowViewport } from './support/narrowViewport';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
 import {
@@ -168,6 +169,7 @@ it.each([
   [true, 'copy'],
   [true, 'cut'],
 ] as const)('复杂消息跨输入框再次剪贴不丢结构；展开=%s，操作=%s', async (expanded, operation) => {
+  if (expanded) stubNarrowViewport();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   const demo = createTemplateDemoData();
@@ -252,6 +254,7 @@ it.each([
 ] as const)(
   '选区剪贴往返不丢图片；展开=%s，操作=%s，单图=%s',
   async (expanded, operation, single, kind) => {
+    if (expanded) stubNarrowViewport();
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const demo = createTemplateDemoData();

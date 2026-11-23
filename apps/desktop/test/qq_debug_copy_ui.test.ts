@@ -387,7 +387,7 @@ it.each([
   expect(f.action).toHaveBeenCalledOnce();
   expect(f.action).toHaveBeenCalledWith({ action: 'open' });
   expect(v.onOpened).toHaveBeenCalledOnce();
-  expect(v.host.textContent).toContain('登录后会自动继续');
+  expect(v.host.querySelector('[role="status"]')?.textContent).toContain('完成登录');
   expect(v.host.querySelector('.weq-qq-debug-permissions')).toBeNull();
 });
 it('精简入口启动期间不重复提交，失败保留重试且不继续启用', async () => {
