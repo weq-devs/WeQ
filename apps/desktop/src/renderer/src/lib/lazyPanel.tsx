@@ -1,5 +1,6 @@
 import { lazy, Suspense, type ComponentType, type ReactNode } from 'react';
 import { PanelLoading } from '../components/LoadingIndicator';
+import { reportRemoteStartupImportFailure } from './remoteStartup';
 
 /** 导航意图与真正打开复用同一次模块请求；预热只加载代码，不发业务查询。 */
 export function lazyPanel<Props extends object>(
@@ -11,6 +12,7 @@ export function lazyPanel<Props extends object>(
   const module = () => {
     pending ??= load().catch((error: unknown) => {
       pending = undefined;
+      if (fallback === 'startup') reportRemoteStartupImportFailure();
       throw error;
     });
     return pending;

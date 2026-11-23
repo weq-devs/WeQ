@@ -32,6 +32,7 @@ import {
   LocationSharePanel,
 } from './lazyComposerPanels';
 import { ChatHeader } from '../../components/ChatHeader';
+import { ConversationRenderBoundary } from '../../components/ConversationRenderBoundary';
 import { OverlayScrollbar } from '../../components/OverlayScrollbar';
 import { WindowedList } from '../../components/WindowedList';
 import { observeConversationPaging } from '../../lib/conversationPaging';
@@ -748,11 +749,14 @@ export type ChatPaneProps = {
 
 export function ChatPane(props: ChatPaneProps) {
   const voice = useVoiceMode();
-  if (voice) return <ChatPaneContent {...props} />;
+  const content = <ChatPaneContent {...props} />;
   return (
-    <VoiceWorkspace>
-      <ChatPaneContent {...props} />
-    </VoiceWorkspace>
+    <ConversationRenderBoundary
+      resetKey={JSON.stringify([props.user.id, props.conversation.type, props.conversation.id])}
+      onBack={props.onBack}
+    >
+      {voice ? content : <VoiceWorkspace>{content}</VoiceWorkspace>}
+    </ConversationRenderBoundary>
   );
 }
 

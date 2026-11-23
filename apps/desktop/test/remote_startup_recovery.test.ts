@@ -133,8 +133,8 @@ function page(
       window.weqRemoteStartup = state;
       window.dispatchEvent(new Event('weq-remote-startup'));
     },
-    preloadError() {
-      window.dispatchEvent(new Event('vite:preloadError'));
+    startupImportError() {
+      window.dispatchEvent(new Event('weq-remote-startup-import-failed'));
     },
   };
 }
@@ -180,10 +180,10 @@ it('只在开始进入工作区后把离线清单里的分包纳入重试', asyn
 
 it('同一轮多个资源同时失败、模块预载异常只触发一次重载', async () => {
   const first = page();
-  first.preloadError();
+  first.startupImportError();
   await vi.advanceTimersByTimeAsync(0);
   first.resource('error');
-  first.preloadError();
+  first.startupImportError();
   expect(first.location.reload).toHaveBeenCalledOnce();
   expect(first.window.weqRemoteStartup?.state).toBe('loading');
 });
@@ -233,7 +233,7 @@ it.each(['ready', 'action-required', 'error'])('%s 后停止监听和计时，�
   const first = page();
   first.startup({ state });
   first.resource('error');
-  first.preloadError();
+  first.startupImportError();
   vi.advanceTimersByTime(60_000);
   expect(first.location.reload).not.toHaveBeenCalled();
   expect(first.window.weqRemoteStartup?.state).toBe(state);
@@ -315,5 +315,7 @@ it('图片、外站脚本和非首屏资源失败不触发首屏重载', () => {
   first.resource('error', '/assets/main-12345678.js', 'IMG');
   first.resource('error', 'https://external.invalid/assets/main-12345678.js');
   first.resource('error', '/assets/optional-12345678.js');
+  first.window.dispatchEvent(new Event('vite:preloadError'));
+  expect(first.fetch).not.toHaveBeenCalled();
   expect(first.location.reload).not.toHaveBeenCalled();
 });

@@ -29,7 +29,7 @@ export function OfficialConversationPane({
     [service, id],
   );
   // 切换左侧视图可以保留当前聊天，资料仍从该会话所属目录读取。
-  const known = directory?.views?.[service ? 'service' : 'official'].find(
+  const known = directory?.views?.[service ? 'service' : 'official']?.find(
     (row) => row.type === 'direct' && row.id === conversationId,
   );
   const conversation = useMemo<DirectConversation>(

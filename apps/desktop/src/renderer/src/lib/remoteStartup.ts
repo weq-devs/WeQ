@@ -1,3 +1,5 @@
+import { IS_WEB } from './target.shared';
+
 export type RemoteStartupState = {
   state: 'loading' | 'ready' | 'error' | 'action-required';
   message?: string;
@@ -14,4 +16,8 @@ declare global {
 export function publishRemoteStartup(state: RemoteStartupState): void {
   window.weqRemoteStartup = state;
   window.dispatchEvent(new Event('weq-remote-startup'));
+}
+
+export function reportRemoteStartupImportFailure(): void {
+  if (IS_WEB) window.dispatchEvent(new Event('weq-remote-startup-import-failed'));
 }

@@ -10,6 +10,7 @@ import { LoadingIndicator, PanelLoading } from './LoadingIndicator';
 import { GroupFeatureSurface, type GroupFeaturePresentation } from './GroupFeatureSurface';
 import { OverlayLayer } from './OverlayLayer';
 import { ChatRecordsHeader } from './search/ChatRecordsHeader';
+import { ConversationRenderBoundary } from './ConversationRenderBoundary';
 import '../styles/conversation-settings.css';
 import '../styles/group-left-members.css';
 import '../styles/group-sign.css';
@@ -385,12 +386,24 @@ export const CallWindow = lazyPanel<ComponentProps<typeof import('./CallWindow')
   () => import('./CallWindow').then((m) => ({ default: m.CallWindow })),
   () => <DeferredSurfaceLoading title="通话" presentation="panel" />,
 );
-export const OfficialConversationPane = lazyPanel<
-  ComponentProps<typeof import('./OfficialConversationPane').OfficialConversationPane>
->(
+type OfficialConversationProps = ComponentProps<
+  typeof import('./OfficialConversationPane').OfficialConversationPane
+>;
+const OfficialConversationContent = lazyPanel<OfficialConversationProps>(
   () => import('./OfficialConversationPane').then((m) => ({ default: m.OfficialConversationPane })),
   'inline',
 );
+
+export function OfficialConversationPane(props: OfficialConversationProps) {
+  return (
+    <ConversationRenderBoundary
+      resetKey={JSON.stringify([props.user.id, props.conversationId])}
+      onBack={props.onBack}
+    >
+      <OfficialConversationContent {...props} />
+    </ConversationRenderBoundary>
+  );
+}
 export const ContactNoticeDialog = lazyPanel<
   ComponentProps<typeof import('./ContactNoticeDialogs').ContactNoticeDialog>
 >(

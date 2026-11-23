@@ -27,7 +27,7 @@ export const remoteStartupRecovery = `
     clearTimeout(timer);
     document.removeEventListener('load', resource, true);
     document.removeEventListener('error', resource, true);
-    window.removeEventListener('vite:preloadError', failed);
+    window.removeEventListener('weq-remote-startup-import-failed', failed);
     window.removeEventListener('weq-remote-workspace-loading', workspaceLoading);
     window.removeEventListener('weq-remote-startup', startup);
     window.removeEventListener('pagehide', stop);
@@ -115,7 +115,8 @@ export const remoteStartupRecovery = `
   }
   document.addEventListener('load', resource, true);
   document.addEventListener('error', resource, true);
-  window.addEventListener('vite:preloadError', failed);
+  // 只处理首屏必需模块，聊天富文本等按需分包可自行降级。
+  window.addEventListener('weq-remote-startup-import-failed', failed);
   window.addEventListener('weq-remote-workspace-loading', workspaceLoading);
   window.addEventListener('weq-remote-startup', startup);
   window.addEventListener('pagehide', stop);

@@ -54,7 +54,11 @@ export function developmentStartupAssets(): Plugin {
         for (const chunk of Object.values(bundle)) {
           if (
             chunk.type === 'chunk' &&
-            Object.keys(chunk.modules).some((id) => /\/views\/(?:MainView|ChatHome)\.tsx$/.test(id))
+            Object.keys(chunk.modules).some((id) =>
+              /\/(?:views\/(?:MainView|ChatHome)|components\/(?:QqMarkdownContent|OfficialConversationPane))\.tsx$/.test(
+                id,
+              ),
+            )
           )
             staticAssets(bundle, chunk.fileName, required);
         }

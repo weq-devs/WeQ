@@ -23,6 +23,37 @@ type Entry = {
   hasOlder: boolean;
 };
 
+function validMessageRow(row: MessageWire | null | undefined): row is MessageWire {
+  return (
+    !!row &&
+    typeof row.msgId === 'string' &&
+    typeof row.msgSeq === 'string' &&
+    typeof row.senderUid === 'string' &&
+    typeof row.senderUin === 'string' &&
+    typeof row.sendTime === 'string' &&
+    Array.isArray(row.elements) &&
+    row.elements.every(
+      (element) =>
+        !!element &&
+        typeof element === 'object' &&
+        'type' in element &&
+        typeof element.type === 'string',
+    ) &&
+    (row.setEmojiList === undefined || Array.isArray(row.setEmojiList))
+  );
+}
+
+function validEntry(entry: Entry | null | undefined): entry is Entry {
+  return (
+    !!entry &&
+    typeof entry.key === 'string' &&
+    Number.isFinite(entry.savedAt) &&
+    Number.isFinite(entry.bytes) &&
+    typeof entry.hasOlder === 'boolean' &&
+    Array.isArray(entry.rows)
+  );
+}
+
 /** 原生桥仍收单份消息快照，跨页面来源也能继续读取旧格式。 */
 export function legacyRecentMessageState(state: DehydratedState): DehydratedState {
   const index = state.queries.find(({ queryKey }) => queryKey[2] === recentMessageIndexTag);
@@ -66,17 +97,14 @@ export function readRecentMessageCache(
       ? client.getQueryData<Entry>(windowKey(scope, key))
       : undefined
     : Array.isArray(legacy)
-      ? legacy.find((entry) => entry.key === key)
+      ? legacy.find((entry) => entry?.key === key)
       : undefined;
-  if (
-    !entry ||
-    (!isRemoteClient() && entry.savedAt + TTL < Date.now()) ||
-    !Array.isArray(entry.rows) ||
-    !entry.rows.length
-  )
+  if (!validEntry(entry) || (!isRemoteClient() && entry.savedAt + TTL < Date.now()))
     return undefined;
+  const rows = entry.rows.filter(validMessageRow);
+  if (!rows.length) return undefined;
   return {
-    rows: entry.rows,
+    rows,
     anchored: true,
     hasOlder: entry.hasOlder,
     hasNewer: false,
@@ -111,7 +139,8 @@ export function rememberRecentMessageCache(
   const savedAt = Date.now();
   const keepOffline = isRemoteClient();
   const retained = existing.filter(
-    (entry) => entry.key !== key && (keepOffline || entry.savedAt + TTL >= savedAt),
+    (entry) =>
+      validEntry(entry) && entry.key !== key && (keepOffline || entry.savedAt + TTL >= savedAt),
   );
   const tail = rows.slice(-50);
   const bytes = new TextEncoder().encode(superjson.stringify(tail)).byteLength;

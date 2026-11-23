@@ -1,6 +1,7 @@
 import { act, createElement as h, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
+import { ContentErrorBoundary } from '../src/renderer/src/components/ContentErrorBoundary';
 import { RendererErrorBoundary } from '../src/renderer/src/components/RendererErrorBoundary';
 
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
@@ -86,6 +87,50 @@ it('正常界面和事件处理不受影响', () => {
     expect(host.querySelector('[role="alert"]')).toBeNull();
     act(() => host.querySelector('button')!.click());
     expect(clicked).toHaveBeenCalledTimes(1);
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it('单个会话抛错时保留导航，重试或切换会话可以恢复会话内容', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host, { onCaughtError: () => {} });
+  let fails = true;
+  function Conversation() {
+    if (fails) throw Error('fixture');
+    return h('p', null, '消息正文');
+  }
+  const render = (resetKey: string) =>
+    act(() =>
+      root.render(
+        h(
+          RendererErrorBoundary,
+          null,
+          h('nav', null, '会话列表'),
+          h(
+            ContentErrorBoundary,
+            {
+              resetKey,
+              fallback: (retry: () => void) => h('button', { onClick: retry }, '重试'),
+            },
+            h(Conversation),
+          ),
+        ),
+      ),
+    );
+  try {
+    render('first');
+    expect(host.querySelector('nav')?.textContent).toBe('会话列表');
+    expect(host.querySelector('p')).toBeNull();
+    fails = false;
+    act(() => host.querySelector('button')!.click());
+    expect(host.querySelector('p')?.textContent).toBe('消息正文');
+    fails = true;
+    render('first');
+    fails = false;
+    render('second');
+    expect(host.querySelector('p')?.textContent).toBe('消息正文');
   } finally {
     act(() => root.unmount());
   }

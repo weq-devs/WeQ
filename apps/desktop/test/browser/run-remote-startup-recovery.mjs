@@ -150,7 +150,9 @@ try {
             );
             assert.equal(new URL(page.url()).searchParams.has('__weqStartupRetry'), false);
             assert.equal(new URL(page.url()).hash, '#chat');
-            await page.evaluate(() => window.dispatchEvent(new Event('vite:preloadError')));
+            await page.evaluate(() =>
+              window.dispatchEvent(new Event('weq-remote-startup-import-failed')),
+            );
             await page.clock.runFor(REMOTE_STARTUP_RESOURCE_STALL_MS * 2);
             assert.equal(documents, expectedDocuments, '就绪后不得再重载');
           } else {

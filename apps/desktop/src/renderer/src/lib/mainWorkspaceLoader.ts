@@ -1,6 +1,7 @@
 import { useStartupProgress } from '../state/startupProgress';
 import { useAccountSwitch } from '../state/accountSwitch';
 import { IS_WEB } from './target.shared';
+import { reportRemoteStartupImportFailure } from './remoteStartup';
 
 let pending: Promise<{ default: typeof import('../views/MainView').MainView }> | undefined;
 
@@ -11,6 +12,7 @@ export function loadMainWorkspace() {
     .then((module) => ({ default: module.MainView }))
     .catch((error: unknown) => {
       pending = undefined;
+      reportRemoteStartupImportFailure();
       throw error;
     });
   return pending;

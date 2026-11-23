@@ -12,6 +12,7 @@ import {
 } from '../src/renderer/src/lib/webBusinessCache';
 import {
   legacyRecentMessageState,
+  recentMessageCacheTag,
   rememberRecentMessageCache,
   readRecentMessageCache,
 } from '../src/renderer/src/lib/recentMessageCache';
@@ -185,6 +186,41 @@ describe('Web 业务持久缓存', () => {
     ).toBeUndefined();
     first.clear();
     next.clear();
+  });
+  it('旧版消息快照夹有坏记录时仍可读取和保存有效正文', () => {
+    const client = new QueryClient();
+    const scope = 'source';
+    const cachedKey = conversationWindowKey(scope, 'group', '1');
+    const row = {
+      msgId: 'original',
+      msgSeq: '1',
+      senderUid: 'friend',
+      senderUin: '123',
+      sendTime: '1',
+      elements: [{ type: 'text', data: { textContent: '缓存正文' } }],
+    };
+    try {
+      client.setQueryData(
+        [recentMessageCacheTag, scope],
+        [
+          null,
+          {
+            key: cachedKey,
+            savedAt: Date.now(),
+            bytes: 100,
+            hasOlder: false,
+            rows: [null, row, { ...row, elements: null }, { ...row, elements: [null] }],
+          },
+        ],
+      );
+      expect(readRecentMessageCache(client, scope, cachedKey)?.rows).toEqual([row]);
+      rememberRecentMessageCache(client, scope, 'group', '2', [row], false);
+      expect(readRecentMessageCache(client, scope, cachedKey)?.rows).toEqual([row]);
+      const newKey = conversationWindowKey(scope, 'group', '2');
+      expect(readRecentMessageCache(client, scope, newKey)?.rows).toEqual([row]);
+    } finally {
+      client.clear();
+    }
   });
   it('更新已打开的同一消息窗口只修改该记录，原生镜像仍能恢复旧格式', async () => {
     const storage = memoryStore();

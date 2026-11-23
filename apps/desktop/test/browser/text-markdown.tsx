@@ -68,7 +68,7 @@ function Fixture() {
   );
 }
 createRoot(document.getElementById('root')!).render(
-  <TextMarkdownContext.Provider value={false}>
+  <TextMarkdownContext.Provider value={new URLSearchParams(location.search).has('auto')}>
     <Fixture />
   </TextMarkdownContext.Provider>,
 );
