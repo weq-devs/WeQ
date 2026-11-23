@@ -227,6 +227,19 @@ export class RecentContactDb {
     return rows.map(rowToWatermark);
   }
 
+  /** 读取指定会话的当前水位，保留其原始会话类型供调用方区分。 */
+  async listSeqWatermarksFor(targetUids: readonly string[]): Promise<readonly RecentContactSeq[]> {
+    const targets = [...new Set(targetUids.filter(Boolean))];
+    if (!targets.length) return [];
+    const marks = targets.map(() => '?').join(',');
+    const rows = await this.qq.query(
+      `SELECT "40021","40010","40003","40050" FROM recent_contact_v3_table
+        WHERE "40021" IN (${marks})`,
+      targets,
+    );
+    return rows.map(rowToWatermark);
+  }
+
   private unpackWatermarks(rows: SqlRow[]): readonly RecentContactSeq[] {
     const blocks = new Map<string, WatermarkBlock>();
     let changed = rows.length !== this.watermarkBlocks.size;

@@ -56,6 +56,19 @@ it('水位只解码变化块，保留 64 位序号以及新增、删除与下调
   ]);
 });
 
+it('只返回指定会话的水位并保留原始类型和 64 位序号', async () => {
+  const { sql, db } = createFixture();
+  const insert = sql.prepare(`INSERT INTO recent_contact_v3_table
+    ("40021","40010","40003","40050") VALUES (?,?,?,?)`);
+  insert.run('u_peer', 1, 9007199254740997n, 123);
+  insert.run('123456', 2, 77n, 122);
+  insert.run('u_other', 1, 90n, 111);
+  expect(await db.listSeqWatermarksFor(['123456', 'u_peer', 'u_peer', ''])).toEqual([
+    { targetUid: 'u_peer', chatType: 1, msgSeq: 9007199254740997n, sendTime: 123n },
+    { targetUid: '123456', chatType: 2, msgSeq: 77n, sendTime: 122n },
+  ]);
+});
+
 it('旧格式水位仍采用原转换，不把十六进制序号丢成零', async () => {
   const { sql, db } = createFixture();
   sql.exec(`INSERT INTO recent_contact_v3_table ("40021","40010","40003","40050") VALUES

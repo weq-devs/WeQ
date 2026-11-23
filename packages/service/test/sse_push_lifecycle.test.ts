@@ -7,6 +7,7 @@ import type { SsePushPayload } from '../src/account/sse_push';
 const state = vi.hoisted(() => ({
   receive: undefined as ((change: NewMessages) => void) | undefined,
   warn: vi.fn(),
+  share: false,
 }));
 vi.mock('../src/common/logger', () => ({
   getLogger: () => ({ child: () => ({ info: vi.fn(), warn: state.warn }) }),
@@ -20,6 +21,7 @@ vi.mock('../src/account/db_watch', () => ({
   },
 }));
 vi.mock('../src/account/nt_msg_hook', () => ({
+  isProxyMessageReadSharingEnabled: () => state.share,
   createNtMsgDbHook: (_session: unknown, hooks: { onNewMessages: typeof state.receive }) => {
     state.receive = hooks.onNewMessages;
     return {};
@@ -56,12 +58,15 @@ function fixture(options: { massThreshold?: number; maxPending?: number } = {}) 
   const watermarks = vi.fn(
     async (): Promise<Array<{ targetUid: string; chatType: number; msgSeq: bigint }>> => [],
   );
+  const targeted = vi
+    .fn<(targets: string[]) => ReturnType<typeof watermarks>>()
+    .mockResolvedValue([]);
   const forwards = vi.fn(async (): Promise<[]> => []);
   const latest = vi.fn(async (): Promise<GroupMsg[]> => []);
   const service = new SsePushService(
     {
       context: { uin: 10001n },
-      recentContacts: { listSeqWatermarks: watermarks },
+      recentContacts: { listSeqWatermarks: watermarks, listSeqWatermarksFor: targeted },
       groupMsgs: { listLatest: latest },
       forwardMsgs: { listGroupForward: forwards },
     } as unknown as AccountSession,
@@ -70,7 +75,7 @@ function fixture(options: { massThreshold?: number; maxPending?: number } = {}) 
   services.push(service);
   service.start();
   service.setTarget(target);
-  return { service, watermarks, forwards, latest };
+  return { service, watermarks, targeted, forwards, latest };
 }
 function receive(...rows: GroupMsg[]) {
   state.receive!({
@@ -86,6 +91,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   network.mockReset().mockResolvedValue(new Response(null, { status: 200 }));
   state.warn.mockClear();
+  state.share = false;
   vi.stubGlobal('fetch', network);
 });
 afterEach(async () => {
@@ -95,6 +101,22 @@ afterEach(async () => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   state.receive = undefined;
+});
+
+it('开关开启时 SSE 只补读待发会话水位，并保留积压合并规则', async () => {
+  state.share = true;
+  const f = fixture();
+  f.targeted.mockResolvedValue([{ targetUid: '123456', chatType: 2, msgSeq: 90n }]);
+  receive(message(1), message(2));
+  await vi.advanceTimersByTimeAsync(10);
+  expect(f.targeted.mock.calls).toEqual([[['123456']]]);
+  expect(f.watermarks).not.toHaveBeenCalled();
+  expect(payload(0).events).toMatchObject([{ type: 'mass', toSeq: '90' }]);
+  state.share = false;
+  receive(message(91));
+  await vi.advanceTimersByTimeAsync(10);
+  expect(f.watermarks).toHaveBeenCalledOnce();
+  expect(payload(1).events).toMatchObject([{ type: 'message', msgSeq: '91' }]);
 });
 
 it.each(['watermarks', 'forward', 'preview'] as const)(

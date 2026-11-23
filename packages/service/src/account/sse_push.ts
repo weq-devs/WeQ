@@ -27,7 +27,11 @@ import { DbWatchService, type DbWatchHandle } from './db_watch';
 import { liftForwardRecords } from './export/forward_expand';
 import { bigintReplacer } from './export/serialize';
 import { toObservedRenderElements, type RenderElement } from './msg_view';
-import { createNtMsgDbHook, type NewMessages } from './nt_msg_hook';
+import {
+  createNtMsgDbHook,
+  isProxyMessageReadSharingEnabled,
+  type NewMessages,
+} from './nt_msg_hook';
 
 /** 推送目标：接收端地址 + access_token。 */
 export interface SsePushTarget {
@@ -312,7 +316,12 @@ export class SsePushService {
     // 会话当前 watermark（40003），用于识别「seq 一次性跳很大」的场景。
     const watermarks = new Map<string, bigint>();
     try {
-      const list = await this.session.recentContacts.listSeqWatermarks();
+      const directory = this.session.recentContacts;
+      const list = await (isProxyMessageReadSharingEnabled(this.session) && convs.size <= 128
+        ? directory.listSeqWatermarksFor(
+            [...convs.keys()].map((key) => key.slice(key.indexOf(':') + 1)),
+          )
+        : directory.listSeqWatermarks());
       signal.throwIfAborted();
       for (const r of list) {
         if (!r.targetUid) continue;

@@ -77,6 +77,10 @@ export function setProxyMessageReadSharing(session: AccountSession, enabled: () 
   proxyReadSharing.set(session, enabled);
 }
 
+export function isProxyMessageReadSharingEnabled(session: AccountSession): boolean {
+  return proxyReadSharing.get(session)?.() === true;
+}
+
 function readWatermarks(session: AccountSession): Promise<Watermarks> {
   return measureMessageWork(session.msgDbPath, 'messageWatchWatermarks', () =>
     session.recentContacts.listSeqWatermarks(),
@@ -166,7 +170,7 @@ function readObservedMessages(
     after === undefined
       ? fetchLatest(session, uid, chatType)
       : fetchAfter(session, uid, chatType, after, activeSignal);
-  if (!file.observation || !proxyReadSharing.get(session)?.()) return read(signal);
+  if (!file.observation || !isProxyMessageReadSharingEnabled(session)) return read(signal);
   let byObservation = bodyReads.get(session);
   if (!byObservation) {
     byObservation = new WeakMap();
