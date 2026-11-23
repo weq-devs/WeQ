@@ -425,7 +425,7 @@ function CompositionWorkspaceBody({
       setDirty(false);
     }
     setPersisted(false);
-    setKind('history');
+    setTab({ kind: 'history', request: materialTabRequest });
   };
   const copy = async (value: MfDraft) => {
     if (!(await copyTextToClipboard(compositionText(value), ownerDocument)))

@@ -5824,7 +5824,11 @@ function MainWorkspace(): ReactElement {
 
       if (!readPolicy.current.readThroughViewport)
         request.autoRead = { snapshot: info, revision: startedAt };
-      finishSnapshot(dock, { readSeq, unreadCount: unread, latestSeq: info.latestSeq });
+      finishSnapshot(dock, {
+        readSeq: info.readSeq,
+        unreadCount: unread,
+        latestSeq: info.latestSeq,
+      });
     })();
     return undefined;
   }, [
