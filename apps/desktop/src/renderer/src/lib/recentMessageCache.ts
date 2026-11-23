@@ -3,7 +3,7 @@ import superjson from 'superjson';
 import type { MessageWire } from '../views/workspace/types';
 import { conversationWindowKey, type ConversationWindow } from './conversationWindowCache';
 import { IS_WEB } from './target.shared';
-import { reportVerifiedRemoteChat } from './remoteInstantBridge';
+import { isRemoteClient } from './remoteClient';
 
 export const recentMessageCacheTag = 'weq-recent-message-windows-v1';
 const queryKey = (scope: string) => [recentMessageCacheTag, scope] as const;
@@ -18,13 +18,6 @@ type Entry = {
   hasOlder: boolean;
 };
 
-export function recentMessageEntries(client: QueryClient, scope: string, now = Date.now()) {
-  return (client.getQueryData<Entry[]>(queryKey(scope)) ?? []).flatMap((entry) => {
-    const expiresAt = entry.savedAt + TTL;
-    return Array.isArray(entry.rows) && expiresAt >= now ? [{ ...entry, expiresAt }] : [];
-  });
-}
-
 export function readRecentMessageCache(
   client: QueryClient,
   scope: string,
@@ -34,7 +27,7 @@ export function readRecentMessageCache(
   const entry = client.getQueryData<Entry[]>(queryKey(scope))?.find((entry) => entry.key === key);
   if (
     !entry ||
-    entry.savedAt + TTL < Date.now() ||
+    (!isRemoteClient() && entry.savedAt + TTL < Date.now()) ||
     !Array.isArray(entry.rows) ||
     !entry.rows.length
   )
@@ -61,11 +54,13 @@ export function rememberRecentMessageCache(
   hasOlder: boolean,
 ) {
   if (!IS_WEB || !scope) return;
-  reportVerifiedRemoteChat();
   const key = conversationWindowKey(scope, kind, conv);
   const existing = client.getQueryData<Entry[]>(queryKey(scope)) ?? [];
   const savedAt = Date.now();
-  const retained = existing.filter((entry) => entry.key !== key && entry.savedAt + TTL >= savedAt);
+  const keepOffline = isRemoteClient();
+  const retained = existing.filter(
+    (entry) => entry.key !== key && (keepOffline || entry.savedAt + TTL >= savedAt),
+  );
   const tail = rows.slice(-50);
   const bytes = new TextEncoder().encode(superjson.stringify(tail)).byteLength;
   if (tail.length && bytes <= MAX_BYTES)

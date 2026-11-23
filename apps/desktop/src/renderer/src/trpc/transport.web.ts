@@ -23,6 +23,18 @@ import { networkClientId } from '../lib/networkClientId';
 import { HTTP_BATCH_MAX_URL_LENGTH } from '../lib/unreadRequests';
 import { fetchRpcWithDeadline } from './httpDeadline';
 import { prepareRpcBatchResponse } from './httpBatchStream';
+import { remoteWorkspaceCheckPending } from '../lib/remoteWorkspaceCheck';
+
+function checkCachedWorkspace(input: RequestInfo | URL) {
+  if (!remoteWorkspaceCheckPending()) return;
+  const path = new URL(input instanceof Request ? input.url : input, location.href).pathname;
+  if (
+    !/^\/trpc\/(?:startup\.snapshot|bootstrap\.backup[A-Za-z]+|clientState\.restoreLegacyPreferences)$/.test(
+      path,
+    )
+  )
+    throw new Error('正在连接电脑，本机缓存可继续浏览');
+}
 
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 
@@ -33,6 +45,7 @@ const wsClient = createWSClient({
 });
 
 const independentReads = new Set([
+  'startup.snapshot',
   'account.listRecentContacts',
   // 完整群目录单独返回，避免大响应拖住首批的会话摘要和未读。
   'account.listAllGroups',
@@ -103,6 +116,7 @@ export function createLinks(): TRPCLink<AppRouter>[] {
     headers: () => ({ 'x-weq-client-id': networkClientId }),
     url: '/trpc',
     async fetch(input: RequestInfo | URL, init?: RequestInit) {
+      checkCachedWorkspace(input);
       const res = await fetchRpcWithDeadline(input, init);
       if (res.status === 401) location.reload();
       return res;
@@ -168,6 +182,7 @@ export function createLinks(): TRPCLink<AppRouter>[] {
         true: httpLink({
           ...httpOptions,
           async fetch(input, init) {
+            checkCachedWorkspace(input);
             const res = await fetchRpcWithDeadline(input, init, true);
             if (res.status === 401) location.reload();
             return res;

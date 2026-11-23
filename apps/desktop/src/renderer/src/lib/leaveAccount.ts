@@ -24,6 +24,7 @@ import { getQueryKey } from '@trpc/react-query';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { resolvedProfilesKey } from './webBusinessCache';
+import { clearRemoteWorkspace } from './remoteWebStartup';
 import { recentMessageCacheTag } from './recentMessageCache';
 
 /**
@@ -43,6 +44,7 @@ export async function leaveAccountForBootstrap(queryClient: QueryClient): Promis
   // 主进程可能早就把它关掉了（例如数据库修复的 `releaseHandles`）；`clearAccount` 对
   // 空会话是无害的空操作，所以这里不需要先问"还开着吗"。
   await client.bootstrap.closeAccount.mutate();
+  clearRemoteWorkspace();
   purgeAccountQueries(queryClient);
   const view = useViewState.getState();
   view.setOpenedUin(null);

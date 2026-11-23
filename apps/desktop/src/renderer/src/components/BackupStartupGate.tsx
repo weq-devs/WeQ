@@ -1,4 +1,12 @@
-import { useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { FolderOpen, RefreshCw, ShieldAlert } from 'lucide-react';
 import { client } from '../trpc/client';
 import {
@@ -14,6 +22,18 @@ import { publishRemoteStartup } from '../lib/remoteStartup';
 import '../styles/backup.css';
 import { IS_WEB } from '../lib/target.shared';
 import { WebStartupCache, hydrateWebStartupCache } from '../lib/webStartupCache';
+import {
+  clearRemoteWorkspace,
+  openRemoteWorkspace,
+  readRemoteWorkspace,
+  saveRemoteWorkspace,
+  watchRemoteRelease,
+  type RemoteStartupSnapshot,
+} from '../lib/remoteWebStartup';
+import { setRemoteWorkspaceCheckPending } from '../lib/remoteWorkspaceCheck';
+import { purgeAccountQueries } from '../lib/leaveAccount';
+import { useViewState } from '../state/view';
+import { useWebConnection } from '../state/webConnection';
 import { WarmupSplash } from './WarmupSplash';
 import { advanceStartup } from '../state/startupProgress';
 
@@ -27,6 +47,23 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(true);
   const [confirmSkip, setConfirmSkip] = useState(false);
   const generation = useRef(0);
+  const cached = useRef(readRemoteWorkspace());
+  const [cachedReady, setCachedReady] = useState(false);
+  useLayoutEffect(() => {
+    if (!cached.current || !queryCache) return;
+    usePrivacyStore.getState().hydrate();
+    if (usePrivacyStore.getState().effective) {
+      cached.current = undefined;
+      clearRemoteWorkspace();
+      return;
+    }
+    openRemoteWorkspace(queryCache, cached.current);
+    setCachedReady(true);
+  }, [queryCache]);
+  useEffect(() => {
+    if (!cachedReady && (busy || !state?.ok || error)) return;
+    return watchRemoteRelease();
+  }, [cachedReady, busy, state?.ok, error]);
   useEffect(() => {
     let revision: number | undefined;
     const subscription = client.bootstrap.onRuntimeFilesChanged.subscribe(undefined, {
@@ -46,10 +83,12 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
   const load = useCallback(
     async (recover = false) => {
       const seq = ++generation.current;
-      setBusy(true);
+      const cachedWorkspace = cached.current;
+      if (!cachedWorkspace) setBusy(true);
       setError(null);
       advanceStartup('restore');
-      publishRemoteStartup({ state: 'loading', message: '正在检查恢复状态' });
+      if (!cachedWorkspace) publishRemoteStartup({ state: 'loading', message: '正在检查恢复状态' });
+      let verified: RemoteStartupSnapshot | null = null;
       try {
         if (recover) await client.bootstrap.backupRetryRecovery.mutate();
         const result = await startupDeadline((signal) =>
@@ -61,8 +100,7 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
                     const input = clientId ? { clientId } : undefined;
                     if (!IS_WEB) return client.bootstrap.backupStartup.query(input, { signal });
                     const response = await client.startup.snapshot.query(input, { signal });
-                    if (response.snapshot && queryCache)
-                      hydrateWebStartupCache(queryCache, response.snapshot);
+                    if (seq === generation.current) verified = response.snapshot;
                     return response.backup;
                   },
                   applyShared: async (receiptId, values) => {
@@ -82,6 +120,33 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
           ),
         );
         if (seq !== generation.current) return;
+        // An online result is authoritative only after recovery and account/source verification.
+        const snapshot = verified as RemoteStartupSnapshot | null;
+        let same = false;
+        if (cachedWorkspace && queryCache) {
+          same =
+            result.ok &&
+            snapshot?.config?.uin === cachedWorkspace.uin &&
+            snapshot.config.configId === cachedWorkspace.configId &&
+            !snapshot.settings.appLock?.enabled;
+          if (!same) {
+            clearRemoteWorkspace();
+            purgeAccountQueries(queryCache);
+            useViewState.setState({ openedUin: null, view: 'bootstrap', homeStage: 'booting' });
+          }
+          cached.current = undefined;
+          setRemoteWorkspaceCheckPending(false);
+          setCachedReady(false);
+        }
+        if (snapshot && queryCache) {
+          hydrateWebStartupCache(queryCache, snapshot);
+          saveRemoteWorkspace(
+            snapshot.config,
+            snapshot.settings,
+            usePrivacyStore.getState().effective,
+          );
+        }
+        if (same) useWebConnection.getState().workspaceVerified();
         setState(result);
         if (result.toastDurations) useToast.getState().setDurations(result.toastDurations);
         if (result.ok) {
@@ -95,6 +160,7 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
         } else setError(result.error || '文件恢复尚未完成');
       } catch (e) {
         if (seq !== generation.current) return;
+        if (cachedWorkspace) return;
         setError(e instanceof Error ? e.message : String(e));
         // 界面交接文件损坏时仍可显示已提交的数据回执，供用户明确放弃界面部分。
         try {
@@ -124,18 +190,34 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
     [queryCache],
   );
   useEffect(() => {
-    void load();
+    let pending = false;
+    const check = () => {
+      if (pending) return;
+      pending = true;
+      void load().finally(() => {
+        pending = false;
+      });
+    };
+    check();
+    const retry = () => {
+      if (cached.current && !document.hidden) check();
+    };
+    const timer = cached.current ? window.setInterval(retry, 5_000) : undefined;
+    window.addEventListener('weq-remote-connection', retry);
     return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('weq-remote-connection', retry);
       generation.current++;
     };
   }, [load]);
   useEffect(() => {
-    if (busy) return;
+    if (busy || cachedReady) return;
     if (state?.ok && !error) return;
     if ((state?.ok === false && state.error) || state?.result?.clientPending)
       publishRemoteStartup({ state: 'action-required' });
     else if (error) publishRemoteStartup({ state: 'error', message: error });
-  }, [busy, error, state]);
+  }, [busy, cachedReady, error, state]);
+  if (cachedReady) return children;
   if (!busy && state?.ok && !error) return children;
   if (busy)
     return (

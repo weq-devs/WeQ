@@ -6,6 +6,7 @@ type WebConnection = {
   recovery: number;
   connected: () => void;
   disconnected: () => void;
+  workspaceVerified: () => void;
 };
 
 export const useWebConnection = create<WebConnection>((set) => ({
@@ -19,6 +20,7 @@ export const useWebConnection = create<WebConnection>((set) => ({
       recovery:
         state.connectedBefore && state.status !== 'connected' ? state.recovery + 1 : state.recovery,
     })),
+  workspaceVerified: () => set((state) => ({ recovery: state.recovery + 1 })),
   disconnected: () =>
     set((state) => ({ status: state.connectedBefore ? 'reconnecting' : 'connecting' })),
 }));

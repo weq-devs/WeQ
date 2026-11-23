@@ -5,7 +5,7 @@ import { useAccountSwitch } from '../state/accountSwitch';
 import { publishRemoteStartup } from '../lib/remoteStartup';
 import { IS_WEB } from '../lib/target.shared';
 import { observeRemoteStartupSurface } from '../lib/remoteStartupSurface';
-import { clearRemoteInstant } from '../lib/remoteInstantBridge';
+import { remoteWorkspaceCheckPending } from '../lib/remoteWorkspaceCheck';
 
 /** 启动只等待必要配置与真实界面，业务列表在界面内异步加载。 */
 export function RemoteStartupReporter() {
@@ -21,7 +21,7 @@ export function RemoteStartupReporter() {
   useEffect(() => {
     if (!IS_WEB) return;
     const error = native.error || (enabled ? config.error : install.error);
-    if (error) {
+    if (error && !remoteWorkspaceCheckPending()) {
       publishRemoteStartup({ state: 'error', message: error.message });
     } else if (native.data) {
       publishRemoteStartup({ state: 'action-required' });
@@ -46,10 +46,7 @@ export function RemoteStartupReporter() {
       return observeRemoteStartupSurface(
         root,
         view === 'main' ? '.app-shell-root' : '.weq-account-workspace',
-        () => {
-          if (view === 'bootstrap') clearRemoteInstant();
-          publishRemoteStartup({ state: 'ready' });
-        },
+        () => publishRemoteStartup({ state: 'ready' }),
         (message) => publishRemoteStartup({ state: 'loading', message }),
       );
     }

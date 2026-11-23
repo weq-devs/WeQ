@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import type { Plugin, Rolldown } from 'vite';
 
@@ -48,7 +49,33 @@ export function developmentStartupAssets(): Plugin {
           });
         if (!resources.length) return;
         const meta = `<meta name="weq-development-startup-resources" content='${JSON.stringify({ version: 1, resources })}'>`;
-        html.source = html.source.replace(/<head\b[^>]*>/i, (head) => head + meta);
+        const required = staticAssets(bundle, entry.fileName);
+        for (const chunk of Object.values(bundle)) {
+          if (
+            chunk.type === 'chunk' &&
+            Object.keys(chunk.modules).some((id) => /\/views\/(?:MainView|ChatHome)\.tsx$/.test(id))
+          )
+            staticAssets(bundle, chunk.fileName, required);
+        }
+        const revision = createHash('sha256');
+        const offline = [...required]
+          .filter((name) => /^assets\/[\w.-]+\.(?:js|css)$/.test(name))
+          .sort()
+          .map((name) => {
+            const item = bundle[name]!;
+            revision.update(name).update(item.type === 'chunk' ? item.code : item.source);
+            return { path: `/${name}` };
+          });
+        const offlineMeta = `<meta name="weq-offline-bundle" content='${JSON.stringify({
+          version: 1,
+          revision: revision.digest('hex'),
+          resources: [
+            ...offline,
+            { path: '/bundledDevClient.mjs' },
+            { path: '/@rolldown/experimental-runtime.mjs' },
+          ],
+        })}'>`;
+        html.source = html.source.replace(/<head\b[^>]*>/i, (head) => head + meta + offlineMeta);
       },
     },
   };

@@ -11,12 +11,21 @@ import { WebStartupCache } from '../lib/webStartupCache';
 import { installDevelopmentTiming } from '../lib/developmentTiming';
 import { configureBusinessCache } from '../lib/webBusinessCache';
 import { IS_WEB } from '../lib/target.shared';
+import { isRemoteClient } from '../lib/remoteClient';
 import { createQueryClient } from './queryClient';
 
 export function TrpcProvider({ children }: { children: ReactNode }): ReactElement {
   const [queryClient] = useState(() => {
     const client = createQueryClient(IS_WEB);
     if (IS_WEB) configureBusinessCache(client);
+    if (isRemoteClient()) {
+      // 手机离线时立即交由连接壳反馈失败，恢复连接不排队提交写操作。
+      const defaults = client.getDefaultOptions();
+      client.setDefaultOptions({
+        ...defaults,
+        mutations: { ...defaults.mutations, networkMode: 'always' },
+      });
+    }
     return client;
   });
   useEffect(() => {
