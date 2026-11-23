@@ -50,7 +50,13 @@ import { useRenderDocument, resourceForRenderDocument } from '../lib/renderDocum
 import { openMarketFaceLightbox } from '../state/marketFaceLightbox';
 import { ShimmerImage } from './ShimmerImage';
 import { IS_ELECTRON } from '../lib/target.shared';
-import { cdnImageUrl, cdnVideoCoverUrl, flashPicUrl, useCdn } from '@renderer/lib/cdn';
+import {
+  cdnImageUrl,
+  cdnVideoCoverUrl,
+  flashPicUrl,
+  remoteChatThumbnailUrl,
+  useCdn,
+} from '@renderer/lib/cdn';
 import { useMediaSave } from './MediaSaveControls.shared';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { useVoiceTranscription } from '../hooks/useVoiceTranscription';
@@ -274,7 +280,11 @@ export function QqImage({
   const flash =
     !localPreviewUrl && (Boolean((data as { isFlash?: unknown }).isFlash) || token.startsWith('/'));
   const flashFullSrc = flash ? flashPicUrl(token, 0) : null;
-  const cdnSrc = flash ? null : cdnImageUrl(cdn, conv !== '', token, orig);
+  const cdnSrc = flash || cdn.remote ? null : cdnImageUrl(cdn, conv !== '', token, orig);
+  const directThumbnail =
+    flash || isAnimatedEmoji || localPath || localPreviewUrl
+      ? null
+      : remoteChatThumbnailUrl(cdn, str(data, 'thumbnailUrl'), token, conv !== '');
   const candidates: string[] = [];
   if (localPreviewUrl) candidates.push(localPreviewUrl);
   if (localPath && (!limited || !IS_WEB || requested)) candidates.push(localFileUrl(localPath));
@@ -420,6 +430,7 @@ export function QqImage({
         ) : (
           <ShimmerImage
             suspendOffscreen
+            remoteImageSrc={source === proxySrc ? directThumbnail : null}
             mediaLoading={!isAnimatedEmoji && !usingLocalPreview}
             className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
             style={gridTile ? undefined : w && h ? style : { ...style, objectFit: 'contain' }}
@@ -516,7 +527,7 @@ export function QqVideo({
   // 封面同图片：CDN 直链优先，失败落回代理。原片不参与——那要 OIDB 现签 URL。
   const cdn = useCdn();
   const [coverCdnFailed, setCoverCdnFailed] = useState(false);
-  const coverCdn = cdnVideoCoverUrl(cdn, conv !== '', coverToken);
+  const coverCdn = cdn.remote ? null : cdnVideoCoverUrl(cdn, conv !== '', coverToken);
   const proxyCover = mediaUrl('video', { t: sendTimeMs, name, v: 'thumb', token: coverToken });
   // 合并转发编辑器里拼的视频带 `localPath` / `thumbLocalPath`（本机绝对路径）——
   // 还没上传、不在 Video 缓存里，按发送时间 / 文件名去找会 404，直接从本机文件流

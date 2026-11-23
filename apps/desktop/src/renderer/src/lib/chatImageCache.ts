@@ -44,6 +44,9 @@ export function createChatImageCache(initialMiB = DEFAULT_CHAT_IMAGE_CACHE_MIB) 
     has(key: string) {
       return entries.has(key);
     },
+    source(key: string) {
+      return entries.get(key)?.image.src;
+    },
     activate(key: string) {
       visible.set(key, (visible.get(key) ?? 0) + 1);
       touch(key);
@@ -59,16 +62,19 @@ export function createChatImageCache(initialMiB = DEFAULT_CHAT_IMAGE_CACHE_MIB) 
       };
     },
     remember(key: string, image: Preview) {
-      const size = image.naturalWidth * image.naturalHeight * 4;
+      const source = image.currentSrc || image.src;
+      const size =
+        image.naturalWidth * image.naturalHeight * 4 +
+        (source.startsWith('data:') ? source.length * 2 : 0);
       if (!limit || !Number.isSafeInteger(size) || size <= 0 || size > limit) return;
       const previous = entries.get(key);
-      if (previous?.bytes === size) {
+      if (previous?.bytes === size && previous.image.src === source) {
         touch(key);
         return;
       }
       // React 节点带有 Fiber/事件闭包；保留同源独立节点即可复用浏览器图片资源。
       const retained = image.ownerDocument.createElement('img');
-      retained.src = image.currentSrc || image.src;
+      retained.src = source;
       previous?.image.removeAttribute('src');
       bytes -= previous?.bytes ?? 0;
       entries.delete(key);

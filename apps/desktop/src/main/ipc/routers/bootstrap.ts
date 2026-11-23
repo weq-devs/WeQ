@@ -1317,10 +1317,14 @@ export const bootstrapRouter = router({
    * 头像与图片/视频封面是否由渲染层直连 QQ CDN（省服务端带宽，代价是绕开本地缓存）。
    * 渲染层通过 App.tsx 的 PreferCdnContext 读取——纯持久化，无需主进程侧应用。
    */
-  setPreferCdn: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
-    requireBootstrap().userConfig.setSettings({ preferCdn: input.enabled });
-    return true;
-  }),
+  setPreferCdn: procedure
+    .input(z.object({ enabled: z.boolean(), remote: z.boolean().optional() }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings(
+        input.remote ? { preferRemoteCdn: input.enabled } : { preferCdn: input.enabled },
+      );
+      return true;
+    }),
 
   getTypingStatusSettings: procedure.query(
     () => requireBootstrap().userConfig.getSettings().typingStatus,

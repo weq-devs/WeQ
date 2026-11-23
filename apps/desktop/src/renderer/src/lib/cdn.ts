@@ -38,6 +38,7 @@ const GROUP_VIDEO = 22;
 export interface CdnState {
   enabled: boolean;
   rkeys: CdnRkey[];
+  remote?: boolean;
 }
 
 const OFF: CdnState = { enabled: false, rkeys: [] };
@@ -127,6 +128,47 @@ export function cdnVideoCoverUrl(
   if (!state.enabled || !coverToken) return null;
   const rkey = pickRkey(state.rkeys, isGroup ? GROUP_VIDEO : PRIVATE_VIDEO);
   return rkey ? buildDownloadUrl(coverToken, isGroup ? '1407' : '1406', rkey) : null;
+}
+
+/** Remote 只取消息实际携带的缩略图，不把原图链接改造为缩略图。 */
+export function remoteChatThumbnailUrl(
+  state: CdnState,
+  raw: string,
+  token: string,
+  isGroup: boolean,
+): string | null {
+  if (!state.enabled || !state.remote || !raw || !token) return null;
+  try {
+    const url = new URL(raw, MEDIA_HOST);
+    const appid = isGroup ? '1407' : '1406';
+    if (
+      url.origin !== MEDIA_HOST ||
+      url.username ||
+      url.password ||
+      url.hash ||
+      url.pathname !== '/download' ||
+      url.searchParams.get('appid') !== appid ||
+      url.searchParams.get('fileid') !== token ||
+      !/^(?:198|720)$/.test(url.searchParams.get('spec') ?? '')
+    )
+      return null;
+    const fresh = pickRkey(state.rkeys, isGroup ? GROUP_IMAGE : PRIVATE_IMAGE)?.rkey;
+    if (fresh?.startsWith('&rkey=')) {
+      const value = new URLSearchParams(fresh).get('rkey');
+      if (value) url.searchParams.set('rkey', value);
+    }
+    const rkey = url.searchParams.get('rkey');
+    if (!rkey) return null;
+    const query = new URLSearchParams({
+      appid,
+      fileid: token,
+      spec: url.searchParams.get('spec')!,
+      rkey,
+    });
+    return `${MEDIA_HOST}/download?${query}`;
+  } catch {
+    return null;
+  }
 }
 
 function buildDownloadUrl(fileToken: string, appid: string, rkey: CdnRkey): string {

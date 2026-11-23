@@ -2,6 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { createChatImageCache } from '../src/renderer/src/lib/chatImageCache';
+import { remoteChatThumbnailUrl } from '../src/renderer/src/lib/cdn';
 import { ChatImageCacheContext } from '../src/renderer/src/components/ChatImageCacheProvider.shared';
 import { ChatImageCacheProvider } from '../src/renderer/src/components/ChatImageCacheProvider';
 import { ShimmerImage } from '../src/renderer/src/components/ShimmerImage';
@@ -17,6 +18,22 @@ function preview(width = 512, height = 512) {
 }
 const image = preview();
 afterEach(() => vi.unstubAllGlobals());
+
+it('Remote 只为原消息携带的匹配缩略图换用当前场景的图片票据', () => {
+  const raw = '/download?appid=1406&fileid=fixture&spec=198&rkey=old';
+  const state = {
+    remote: true,
+    enabled: true,
+    rkeys: [{ type: 10, rkey: '&rkey=fresh', ttlSeconds: 30, createTime: Date.now() / 1000 }],
+  };
+  expect(remoteChatThumbnailUrl(state, raw, 'fixture', false)).toBe(
+    'https://multimedia.nt.qq.com.cn/download?appid=1406&fileid=fixture&spec=198&rkey=fresh',
+  );
+  expect(remoteChatThumbnailUrl(state, raw, 'other', false)).toBeNull();
+  expect(remoteChatThumbnailUrl(state, raw, 'fixture', true)).toBeNull();
+  expect(remoteChatThumbnailUrl(state, raw.replace('198', '0'), 'fixture', false)).toBeNull();
+  expect(remoteChatThumbnailUrl({ ...state, enabled: false }, raw, 'fixture', false)).toBeNull();
+});
 
 it('缓存只保留独立图片，不持有 React 节点、事件闭包或父树，淘汰时释放资源', () => {
   const original = preview();
@@ -206,6 +223,47 @@ it('切换账号清空旧资源，虚拟列表卸载不丢缓存，预算更新�
     expect(host.querySelector('img')!.hasAttribute('src')).toBe(false);
     render('two', 1);
     expect(host.querySelector('img')!.hasAttribute('src')).toBe(false);
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it('Remote 缩略图优先复用手机缓存，手机直取失败后使用电脑地址', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('IntersectionObserver', undefined);
+  const postMessage = vi
+    .fn()
+    .mockResolvedValueOnce({ type: 'image/png', base64: 'Zml4dHVyZQ==' })
+    .mockRejectedValueOnce(new Error('CDN unavailable'));
+  vi.stubGlobal('webkit', { messageHandlers: { weqQqImage: { postMessage } } });
+  const cache = createChatImageCache(1);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const thumbnail =
+    'https://multimedia.nt.qq.com.cn/download?appid=1406&fileid=fixture&spec=198&rkey=fixture';
+  const render = (src?: string) =>
+    act(async () =>
+      root.render(
+        h(
+          ChatImageCacheContext.Provider,
+          { value: cache },
+          src ? h(ShimmerImage, { src, suspendOffscreen: true, remoteImageSrc: thumbnail }) : null,
+        ),
+      ),
+    );
+  try {
+    await render('/first.jpg');
+    const img = host.querySelector('img')!;
+    expect(img.getAttribute('src')).toBe('data:image/png;base64,Zml4dHVyZQ==');
+    Object.defineProperties(img, { naturalWidth: { value: 100 }, naturalHeight: { value: 100 } });
+    act(() => img.dispatchEvent(new Event('load')));
+    await render();
+    await render('/first.jpg');
+    expect(host.querySelector('img')?.getAttribute('src')).toBe(img.getAttribute('src'));
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    await render('/second.jpg');
+    expect(postMessage).toHaveBeenCalledTimes(2);
+    expect(host.querySelector('img')?.getAttribute('src')).toBe('/second.jpg');
   } finally {
     act(() => root.unmount());
   }

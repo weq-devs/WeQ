@@ -354,16 +354,16 @@ export function GlobalSettingsSection({
     }
   }
 
-  async function onSetPreferCdn(next: boolean): Promise<void> {
+  async function onSetPreferCdn(next: boolean, remote = false): Promise<void> {
     const prev = preferCdn;
-    setPreferCdn(next);
+    if (!remote) setPreferCdn(next);
     try {
-      await setPreferCdnMut.mutateAsync({ enabled: next });
+      await setPreferCdnMut.mutateAsync({ enabled: next, remote });
       await settings.refetch();
     } catch (e) {
-      setPreferCdn(prev);
+      if (!remote) setPreferCdn(prev);
       await settings.refetch();
-      showError('保存 CDN 设置失败', errMsg(e));
+      showError(remote ? '保存 Remote 图片设置失败' : '保存 CDN 设置失败', errMsg(e));
     }
   }
 
@@ -514,17 +514,30 @@ export function GlobalSettingsSection({
         <Card title="加载来源" icon={<Cloud size={15} strokeWidth={1.8} />} settingId="prefer-cdn">
           <Row
             label="优先直连 QQ 加载图片"
-            desc={`桌面端与 Web 共用。${
+            desc={
               preferCdn
-                ? '头像与聊天图片、视频封面由界面直接向 QQ 服务器获取，不经 WeQ 中转。本地已存的头像和媒体缓存会被绕过（离线时看不到），获取失败会自动回退到原来的方式。'
-                : '默认由 WeQ 读取本地文件、缺失时代取并缓存——离线可用，但浏览器访问模式下所有图片都要占用服务器带宽。开启后改由界面直连，服务器零流量。语音、视频原片与文件不受影响。'
-            }`}
+                ? '桌面端与 Web 共用，不影响 Remote。优先向 QQ 加载头像、图片和视频封面，失败时回退。'
+                : '桌面端与 Web 共用，不影响 Remote。优先读取电脑缓存，缺失时代取并缓存。'
+            }
             control={
               <Toggle
                 checked={preferCdn}
                 disabled={settings.isLoading || setPreferCdnMut.isLoading}
                 onChange={(next) => void onSetPreferCdn(next)}
                 label="优先直连 QQ 加载图片"
+              />
+            }
+          />
+          <Row
+            settingId="prefer-remote-cdn"
+            label="Remote 缺图时优先直取"
+            desc="手机没有缓存时，优先从 QQ 加载头像和聊天缩略图，失败再由电脑加载。省流量模式下不直取，需要新版 Remote。"
+            control={
+              <Toggle
+                checked={settings.data?.preferRemoteCdn ?? false}
+                disabled={settings.isLoading || setPreferCdnMut.isLoading}
+                onChange={(next) => void onSetPreferCdn(next, true)}
+                label="Remote 缺图时优先直取"
               />
             }
           />

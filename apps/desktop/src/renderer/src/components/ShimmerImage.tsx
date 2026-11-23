@@ -27,6 +27,7 @@ import '../styles/chat-image-preview.css';
 import { useDataSaver } from '../lib/dataSaver';
 import { thumbnailPolicyRequest } from '../lib/resourceUrl';
 import { MediaLoadingRing } from './TransferRing';
+import { requestRemoteImage } from '../lib/remoteImage';
 
 const noSubscription = () => () => {};
 
@@ -37,10 +38,12 @@ export function ShimmerImage({
   onError,
   suspendOffscreen = false,
   mediaLoading = false,
+  remoteImageSrc,
   ...rest
 }: ImgHTMLAttributes<HTMLImageElement> & {
   suspendOffscreen?: boolean;
   mediaLoading?: boolean;
+  remoteImageSrc?: string | null;
 }): ReactElement {
   const [loaded, setLoaded] = useState(false);
   const limited = useDataSaver((state) => state.enabled);
@@ -68,6 +71,31 @@ export function ShimmerImage({
   );
   const active = tabActive && visible;
   const enabled = !suspendOffscreen || active || retained;
+  const directUrl = limited ? null : remoteImageSrc;
+  const cachedSource = directUrl && retained ? cache?.source(cacheKey) : undefined;
+  const [direct, setDirect] = useState<{ url: string; key: string; src: string | null }>();
+  const result = direct && direct.url === directUrl && direct.key === cacheKey ? direct : undefined;
+  const displayedSrc = directUrl ? (result ? (result.src ?? src) : cachedSource) : src;
+  const showingDirect = Boolean(
+    directUrl && displayedSrc?.startsWith('data:') && displayedSrc !== src,
+  );
+  useEffect(() => {
+    if (!enabled) {
+      setDirect(undefined);
+      return;
+    }
+    if (!active || !directUrl || cachedSource || result) return;
+    const controller = new AbortController();
+    void requestRemoteImage(directUrl, controller.signal).then((reply) => {
+      if (controller.signal.aborted) return;
+      setDirect({
+        url: directUrl,
+        key: cacheKey,
+        src: reply ? `data:${reply.type};base64,${reply.base64}` : null,
+      });
+    });
+    return () => controller.abort();
+  }, [active, directUrl, cacheKey, cachedSource, enabled, result]);
   const observeLoading = mediaLoading && rest.loading === 'lazy';
   const showRing =
     mediaLoading &&
@@ -127,7 +155,7 @@ export function ShimmerImage({
     if (image?.complete && image.naturalWidth > 0) {
       setLoaded(true);
     }
-  }, [src, image, rest.srcSet]);
+  }, [displayedSrc, image, rest.srcSet]);
 
   return (
     <>
@@ -149,7 +177,7 @@ export function ShimmerImage({
       ) : null}
       <img
         // 暂停和换源使用独立节点，旧请求（含移除 src）的迟到事件不能触发当前回退。
-        key={JSON.stringify(enabled ? [src, rest.srcSet, request.policyKey] : null)}
+        key={JSON.stringify(enabled ? [src, rest.srcSet, request.policyKey, showingDirect] : null)}
         ref={setImage}
         className={className}
         alt={alt}
@@ -166,6 +194,10 @@ export function ShimmerImage({
         }}
         onError={(event) => {
           if (!enabled) return;
+          if (directUrl && showingDirect) {
+            setDirect({ url: directUrl, key: cacheKey, src: null });
+            return;
+          }
           setLoaded(false);
           setFailed(true);
           onError?.(event);
@@ -174,7 +206,7 @@ export function ShimmerImage({
         style={{ ...rest.style, opacity: enabled && loaded ? rest.style?.opacity : 0 }}
         width={rest.width ?? (suspendOffscreen ? (dimensions?.width ?? 120) : undefined)}
         height={rest.height ?? (suspendOffscreen ? (dimensions?.height ?? 96) : undefined)}
-        src={enabled ? src : undefined}
+        src={enabled ? displayedSrc : undefined}
         srcSet={enabled ? rest.srcSet : undefined}
       />
     </>

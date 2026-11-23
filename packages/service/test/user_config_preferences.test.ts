@@ -5,6 +5,18 @@ import { UserConfigService, DEFAULT_APP_SETTINGS } from '../src/bootstrap/user_c
 import { snapshotWeqSettings, validateWeqAppSettings } from '../src/bootstrap/backup_settings';
 import { configFixture as fixture } from './support/user_config';
 
+it('桌面与 Remote 的图片加载来源分别持久化，旧设置不自动开启手机直取', () => {
+  const f = fixture({ settings: { preferCdn: true } });
+  expect(f.open().getSettings()).toMatchObject({ preferCdn: true, preferRemoteCdn: false });
+  f.service.setSettings({ preferRemoteCdn: true });
+  f.service.setSettings({ preferCdn: false });
+  const settings = f.open().getSettings();
+  expect(settings).toMatchObject({ preferCdn: false, preferRemoteCdn: true });
+  const snapshot = snapshotWeqSettings(settings);
+  expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
+  expect(snapshot).toMatchObject({ preferCdn: false, preferRemoteCdn: true });
+});
+
 describe('QQ 秀分钟缓存配置', () => {
   it.each([
     [{}, 5],

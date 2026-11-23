@@ -43,6 +43,7 @@ export const APP_SETTINGS_RESET_POLICY = {
   qqShowCacheMinutes: 'preference',
   linkPreview: 'preference',
   preferCdn: 'preference',
+  preferRemoteCdn: 'preference',
   home: 'preference',
   typingStatus: 'preference',
   showMsgDecoration: 'preference',

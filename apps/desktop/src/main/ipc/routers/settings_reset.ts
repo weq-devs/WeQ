@@ -126,6 +126,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     qqProxyIndicatorEnabled: () =>
       b.setQqProxyIndicatorEnabled({ enabled: defaults.qqProxyIndicatorEnabled }),
     preferCdn: () => b.setPreferCdn({ enabled: defaults.preferCdn }),
+    preferRemoteCdn: () => b.setPreferCdn({ enabled: defaults.preferRemoteCdn, remote: true }),
     logRetentionDays: () => b.setLogRetentionDays({ days: defaults.logRetentionDays }),
     databaseReadConcurrency: () =>
       b.setDatabaseReadConcurrency({ concurrency: defaults.databaseReadConcurrency }),

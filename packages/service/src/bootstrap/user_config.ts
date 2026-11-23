@@ -904,6 +904,7 @@ export interface AppSettings {
    * 自动回退到原来的 `weq-media://` 代理路径。
    */
   preferCdn: boolean;
+  preferRemoteCdn: boolean;
   /** 聊天首页展示与一言屏蔽词，全局偏好。 */
   home: HomeSettings;
   /** 私聊输入状态广播：默认展示，可整体或按会话隐藏「正在输入」。 */
@@ -1285,6 +1286,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   qqShowCacheMinutes: 5,
   linkPreview: { enabled: true, autoFetch: false, screenshot: false },
   preferCdn: false,
+  preferRemoteCdn: false,
   home: DEFAULT_HOME_SETTINGS,
   typingStatus: { mode: 'off', hidden: [] },
   showMsgDecoration: true,
@@ -2096,6 +2098,7 @@ export class UserConfigService {
         normalizeQqShowCacheMinutes(s?.qqShowCacheMinutes, s?.qqShowCacheDays) ??
         d.qqShowCacheMinutes,
       preferCdn: s?.preferCdn ?? d.preferCdn,
+      preferRemoteCdn: s?.preferRemoteCdn ?? d.preferRemoteCdn,
       home: normalizeHomeSettings(s?.home),
       typingStatus: normalizeTypingStatus(s?.typingStatus),
       showMsgDecoration: s?.showMsgDecoration ?? d.showMsgDecoration,
@@ -2293,6 +2296,7 @@ export class UserConfigService {
         normalizeQqShowCacheMinutes(patch.qqShowCacheMinutes, patch.qqShowCacheDays) ??
         current.qqShowCacheMinutes,
       preferCdn: patch.preferCdn ?? current.preferCdn,
+      preferRemoteCdn: patch.preferRemoteCdn ?? current.preferRemoteCdn,
       home: normalizeHomeSettings({ ...current.home, ...patch.home }),
       typingStatus: normalizeTypingStatus(patch.typingStatus ?? current.typingStatus),
       showMsgDecoration: patch.showMsgDecoration ?? current.showMsgDecoration,

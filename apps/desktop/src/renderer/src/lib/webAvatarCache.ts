@@ -1,3 +1,5 @@
+import { remoteAvatarSource, requestRemoteImage } from './remoteImage';
+
 export interface StoredAvatar {
   key: string;
   blob: Blob;
@@ -350,6 +352,26 @@ export function createWebAvatarCache({
           if (!current()) return;
           if (!force && entry?.value && now() - entry.value.updatedAt < WEB_AVATAR_LIMITS.freshMs)
             return;
+          const direct = remoteAvatarSource(source);
+          if (direct) {
+            try {
+              const reply = await requestRemoteImage(direct, controller.signal);
+              if (!current()) return;
+              if (reply && remoteAvatarSource(source)) {
+                const bytes = Uint8Array.from(atob(reply.base64), (value) => value.charCodeAt(0));
+                const blob = new Blob([bytes], { type: reply.type });
+                if (blob.size > 0 && blob.size <= WEB_AVATAR_LIMITS.maxBlobBytes) {
+                  const value = { key, blob, etag: null, updatedAt: now() };
+                  await install(value);
+                  if (current()) void store.put(value).catch(() => {});
+                  return;
+                }
+              }
+            } catch {
+              // 手机未拿到可显示的头像，继续用电脑原来的加载路径。
+            }
+          }
+          if (!current()) return;
           const response = await abortable(
             fetchImage(source, {
               cache: 'no-store',

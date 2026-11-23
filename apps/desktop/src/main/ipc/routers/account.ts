@@ -4559,6 +4559,13 @@ export const accountRouter = router({
     };
   }),
 
+  /** Remote 缩略图只需现有图片下载票据，不读取或刷新 QQ 登录物料。 */
+  getImageDownloadRkeys: procedure.query(() =>
+    (requireServices().accountConfig.getRecord()?.rkeys ?? []).filter(
+      (key) => key.type === 10 || key.type === 20,
+    ),
+  ),
+
   /** List QQ buddies from profile_info.db. Omit input to fetch all (used by AgentLab). */
   listBuddies: directoryProcedure.input(pageInput.optional()).query(async ({ input }) => {
     const buddies = await requireServices().profile.listBuddies(input?.limit, input?.offset ?? 0);

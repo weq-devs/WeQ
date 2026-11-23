@@ -6,6 +6,7 @@ import {
   WEB_AVATAR_LIMITS,
   type StoredAvatar,
 } from '../src/renderer/src/lib/webAvatarCache';
+import { setPreferRemoteImage } from '../src/renderer/src/lib/remoteImage';
 
 const source = '/_media/avatar?scope=user&uin=10001&v=small&cid=client';
 const key = webAvatarKey('account-a', source)!;
@@ -43,7 +44,11 @@ function fixture(initial?: StoredAvatar) {
     },
   };
 }
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  setPreferRemoteImage(false);
+});
 
 it('同图地址规范化但账号、配置、分辨率和省流量策略不混用', () => {
   expect(webAvatarKey('account-a', source + '&_weq_avatar_refresh=3&_weq_avatar_remote=1')).toBe(
@@ -65,6 +70,29 @@ it('新鲜的持久头像解码后直接复用，卸载重进不再读取磁盘�
   expect(f.store.get).toHaveBeenCalledTimes(1);
   expect(f.fetchImage).not.toHaveBeenCalled();
   expect(f.prepare).toHaveBeenCalledTimes(1);
+});
+
+it('Remote 头像先查持久缓存，未命中才直取，解码失败回退电脑', async () => {
+  const postMessage = vi.fn().mockResolvedValue({ type: 'image/png', base64: 'Zml4dHVyZQ==' });
+  vi.stubGlobal(
+    'window',
+    Object.assign(new EventTarget(), {
+      webkit: { messageHandlers: { weqQqImage: { postMessage } } },
+    }),
+  );
+  setPreferRemoteImage(true);
+  const direct = 'https://thirdqq.qlogo.cn/g?b=sdk&s=100&nk=10001';
+  const proxy = `${source}&fb=${encodeURIComponent(direct)}`;
+  const proxyKey = webAvatarKey('account-a', proxy)!;
+  const hit = fixture({ key: proxyKey, blob: blob('old'), etag: null, updatedAt: 200 });
+  await hit.cache.load(proxyKey, proxy);
+  expect(postMessage).not.toHaveBeenCalled();
+  const miss = fixture();
+  miss.prepare.mockRejectedValueOnce(new Error('invalid image'));
+  await miss.cache.load(proxyKey, proxy);
+  expect(postMessage).toHaveBeenCalledWith(direct);
+  expect(miss.fetchImage).toHaveBeenCalledTimes(1);
+  expect(miss.cache.peek(proxyKey)?.src).toBe('blob:new');
 });
 
 it('缩略图失败时显示已加载的原图，缩略图恢复后仍优先使用缩略图', async () => {

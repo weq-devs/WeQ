@@ -58,6 +58,9 @@ import {
 import { SelfBubbleContext, SelfPendantContext } from './hooks/useSelfPendant';
 import { ActiveWidgetProvider } from './hooks/useActiveWidget';
 import { CdnContext, setPreferCdnFlag } from './lib/cdn';
+import { remoteImageAvailable, setPreferRemoteImage } from './lib/remoteImage';
+import { useRemoteClient } from './lib/remoteClient';
+import { useDataSaver } from './lib/dataSaver';
 import { ChatQqShowEnabledContext, resetChatQqShowCache } from './lib/chatQqShow';
 import { WarmupSplash } from './components/WarmupSplash';
 import { WorkspaceStartupLoading } from './components/WorkspaceStartupLoading';
@@ -192,20 +195,35 @@ function CdnProvider({
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
-  const enabled = settings.data?.preferCdn ?? false;
+  const remote = useRemoteClient();
+  const limited = useDataSaver((state) => state.enabled);
+  const desktopCdn = !remote && Boolean(settings.data?.preferCdn);
+  const remoteCdn =
+    remote && !limited && Boolean(settings.data?.preferRemoteCdn) && remoteImageAvailable();
   // 同步镜像（而不是放 effect）：子树在本次 render 里就会读它，effect 要等提交后才跑，
   // 那一帧的头像会先按旧值拼一遍 URL。赋值幂等，StrictMode 重复渲染也无副作用。
-  setPreferCdnFlag(enabled);
+  setPreferCdnFlag(desktopCdn);
+  setPreferRemoteImage(remoteCdn);
   const config = trpc.account.getAccountConfig.useQuery(undefined, {
-    enabled: accountOpen && enabled,
+    enabled: accountOpen && desktopCdn,
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+  });
+  const imageRkeys = trpc.account.getImageDownloadRkeys.useQuery(undefined, {
+    enabled: accountOpen && remoteCdn,
     refetchOnWindowFocus: false,
     staleTime: 60_000,
     refetchInterval: 5 * 60_000,
   });
 
   const state = useMemo(
-    () => ({ enabled, rkeys: enabled ? (config.data?.rkeys ?? []) : [] }),
-    [enabled, config.data?.rkeys],
+    () => ({
+      enabled: remoteCdn || desktopCdn,
+      remote,
+      rkeys: remote ? (imageRkeys.data ?? []) : (config.data?.rkeys ?? []),
+    }),
+    [remoteCdn, desktopCdn, remote, imageRkeys.data, config.data?.rkeys],
   );
   return <CdnContext.Provider value={state}>{children}</CdnContext.Provider>;
 }
