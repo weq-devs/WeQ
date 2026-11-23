@@ -28,7 +28,7 @@ function fixture(early: Entry[] = [], platform?: 'ios' | 'android') {
         ? { developmentResources: (value: string) => progress.push(JSON.parse(value)) }
         : undefined,
   });
-  const document = new EventTarget();
+  const document = Object.assign(new EventTarget(), { querySelector: () => null });
   const reports: State[] = [];
   const timers = new Map<number, () => void>();
   let id = 0,

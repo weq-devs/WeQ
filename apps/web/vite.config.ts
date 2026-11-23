@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { tsImport } from 'tsx/esm/api';
 import { webChunkBudget } from './scripts/chunk-budget.ts';
-import { remoteStartupAssets } from './scripts/startup-assets.ts';
+import { developmentStartupAssets, remoteStartupAssets } from './scripts/startup-assets.ts';
 import { remoteStartupChunks } from './scripts/startup-chunks.ts';
 import { developmentSourceMaps } from './scripts/development-assets.ts';
 import { developmentIconSubset } from './scripts/icon-subset.ts';
@@ -41,6 +41,7 @@ export default defineConfig({
     chunkBudget.plugin,
     startupChunks.plugin,
     remoteStartupAssets(),
+    developmentStartupAssets(),
     react(),
     tailwindcss(),
   ],

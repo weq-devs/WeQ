@@ -13,6 +13,7 @@ import type { AuthGate } from './auth';
 import { developmentStartupProgress } from './development_progress';
 import { acceptsGzip } from './compression';
 import { lockRemoteViewport } from './remote_viewport';
+import { startupResourceTracker } from './startup_assets';
 
 /** 仅开发入口显式启用；页面、模块与 HMR 都经原宿主认证，客户端无需访问环回端口。 */
 export class DevelopmentWebProxy {
@@ -182,8 +183,18 @@ export class DevelopmentWebProxy {
 function developmentHtml(html: string, remote: boolean): string {
   const document = parse(html);
   let head: DefaultTreeAdapterMap['element'] | undefined;
+  let startupManifest: DefaultTreeAdapterMap['element'] | undefined;
   const visit = (node: DefaultTreeAdapterMap['node']) => {
     if ('tagName' in node && node.tagName === 'head') head = node;
+    if (
+      'tagName' in node &&
+      node.tagName === 'meta' &&
+      node.attrs.some(
+        (attr) => attr.name === 'name' && attr.value === 'weq-development-startup-resources',
+      )
+    ) {
+      startupManifest = node;
+    }
     if (
       'tagName' in node &&
       node.tagName === 'meta' &&
@@ -210,12 +221,20 @@ function developmentHtml(html: string, remote: boolean): string {
     if ('childNodes' in node) node.childNodes.forEach(visit);
   };
   visit(document);
+  if (startupManifest) {
+    if (remote)
+      startupManifest.attrs.find((attr) => attr.name === 'name')!.value = 'weq-startup-resources';
+    else defaultTreeAdapter.detachNode(startupManifest);
+  }
   if (remote && head) {
     lockRemoteViewport(head);
     const progress = defaultTreeAdapter.createElement('script', htmlNames.NS.HTML, [
       { name: 'data-weq-development-progress', value: '' },
     ]);
-    defaultTreeAdapter.insertText(progress, developmentStartupProgress);
+    defaultTreeAdapter.insertText(
+      progress,
+      (startupManifest ? startupResourceTracker : '') + developmentStartupProgress,
+    );
     const first = head.childNodes.find(
       (node) => 'tagName' in node && (node.tagName === 'script' || node.tagName === 'link'),
     );

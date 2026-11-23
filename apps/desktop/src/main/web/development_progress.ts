@@ -1,13 +1,23 @@
-/** 开发模块无固定总量；旧手机壳通过阶段协议接收完成项数和有来源证据的下载量。 */
+/** 打包页用原生百分比桥；逐模块模式及旧手机壳仍可显示已完成项数。 */
 export const developmentStartupProgress = String.raw`
 (function () {
   if (window.__weqDevelopmentProgress) return;
   window.__weqDevelopmentProgress = true;
+  var handlers = window.webkit && window.webkit.messageHandlers;
+  var links = window.weqRemoteLinks;
+  var measured = document.querySelector('meta[name="weq-startup-resources"]');
+  var phase = measured ? '正在加载开发版首批资源' : '正在加载网页资源';
+  if (measured && (typeof handlers?.weqResources?.postMessage === 'function' ||
+      typeof links?.resources === 'function')) {
+    window.weqRemoteStartup = { state: 'loading', message: phase };
+    window.dispatchEvent(new Event('weq-remote-startup'));
+    return;
+  }
   var seen = new Set(), bytes = 0, cached = 0, unknown = 0, count = 0;
-  var timer, observer, closed = false, last = '', phase = '正在加载网页资源';
-  var direct = !!(window.webkit && window.webkit.messageHandlers.weqResources);
-  var nativeProgress = window.webkit && window.webkit.messageHandlers.weqDevelopmentResources;
-  var androidProgress = window.weqRemoteLinks && typeof window.weqRemoteLinks.developmentResources === 'function';
+  var timer, observer, closed = false, last = '';
+  var direct = !!handlers?.weqResources;
+  var nativeProgress = handlers?.weqDevelopmentResources;
+  var androidProgress = typeof links?.developmentResources === 'function';
   var lastCount = -1;
   function code(value) {
     try {

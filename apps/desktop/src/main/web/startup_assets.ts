@@ -15,7 +15,7 @@ import {
 
 const compress = promisify(gzip);
 // WebKit 内存缓存命中时 timing 尺寸可能全为零；在资源标签之前保存真实 load/error，供稍后接入的手机壳补读。
-const tracker = String.raw`
+export const startupResourceTracker = String.raw`
 (function () {
   var state = window.weqRemoteResourceLoads = Object.create(null);
   function record(event) {
@@ -37,7 +37,8 @@ const tracker = String.raw`
   document.addEventListener('load', record, true);
   document.addEventListener('error', record, true);
   window.addEventListener('weq-remote-startup', stop);
-})();${remoteStartupRecovery}`;
+})();`;
+const tracker = startupResourceTracker + remoteStartupRecovery;
 const trackerHash = `'sha256-${createHash('sha256').update(tracker).digest('base64')}'`;
 type Asset = { path: string; raw: number; gzip: number; preload?: boolean };
 function validAsset(value: unknown): value is Asset {

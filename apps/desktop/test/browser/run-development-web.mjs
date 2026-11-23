@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { mkdtemp, mkdir, realpath, writeFile, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +31,9 @@ let remote;
 const desktop = createServer();
 const pairing = new RemotePairing();
 const bundled = process.env.WEQ_DEV_WEB_UNBUNDLED !== '1';
+const client = process.env.WEQ_REMOTE_CLIENT_REPO;
+const resourceBridge =
+  client && (await readFile(join(client, 'resources/web-startup-progress.js'), 'utf8'));
 const dependencyRequests = new Map();
 const responses = [];
 
@@ -128,38 +131,47 @@ try {
     });
     activeContext = context;
     await context.addCookies([{ name: 'weq_remote', value: token, url: base }]);
-    await context.addInitScript(
-      (platform) => {
-        window.legacyStartupReports = [];
-        window.startupGate = new Promise((resolve) => {
-          window.releaseStartup = resolve;
-        });
-        const receive = (state) => {
-          if (Object.values(state).some((value) => typeof value !== 'string'))
-            throw new Error('旧壳仅接受字符串阶段字段');
-          window.legacyStartupReports.push({ ...state });
+    const measured = bundled && width === 390 && Boolean(resourceBridge);
+    const installBridge = (platform, measured) => {
+      window.legacyStartupReports = [];
+      window.resourceReports = [];
+      window.startupGate = new Promise((resolve) => {
+        window.releaseStartup = resolve;
+      });
+      const receive = (state) => {
+        if (Object.values(state).some((value) => typeof value !== 'string'))
+          throw new Error('旧壳仅接受字符串阶段字段');
+        window.legacyStartupReports.push({ ...state });
+      };
+      if (platform === 'ios') {
+        window.webkit = {
+          messageHandlers: {
+            weqStartup: { postMessage: receive },
+            weqResources: measured
+              ? { postMessage: (value) => window.resourceReports.push(value) }
+              : {},
+          },
         };
-        if (platform === 'ios') {
-          window.webkit = {
-            messageHandlers: { weqStartup: { postMessage: receive }, weqResources: {} },
-          };
-          window.addEventListener('weq-remote-startup', () =>
-            window.webkit.messageHandlers.weqStartup.postMessage(window.weqRemoteStartup),
-          );
-        } else {
-          window.weqRemoteLinks = {
-            startup: (state, message) => receive({ state, message: message || '' }),
-          };
-          window.addEventListener('weq-remote-startup', () =>
-            window.weqRemoteLinks.startup(
-              window.weqRemoteStartup.state,
-              window.weqRemoteStartup.message,
-            ),
-          );
-        }
-      },
-      width === 390 ? 'ios' : 'android',
-    );
+        window.addEventListener('weq-remote-startup', () =>
+          window.webkit.messageHandlers.weqStartup.postMessage(window.weqRemoteStartup),
+        );
+      } else {
+        window.weqRemoteLinks = {
+          startup: (state, message) => receive({ state, message: message || '' }),
+        };
+        window.addEventListener('weq-remote-startup', () =>
+          window.weqRemoteLinks.startup(
+            window.weqRemoteStartup.state,
+            window.weqRemoteStartup.message,
+          ),
+        );
+      }
+    };
+    await context.addInitScript({
+      content:
+        `(${installBridge})(${JSON.stringify(width === 390 ? 'ios' : 'android')}, ${measured});` +
+        (measured ? resourceBridge : ''),
+    });
     const page = await context.newPage();
     const errors = [];
     dependencyRequests.clear();
@@ -175,10 +187,36 @@ try {
     }
     await waitForSource('version one');
     await page.goto(base, { waitUntil: 'commit' });
+    const manifest = await page
+      .locator('meta[name="weq-startup-resources"]')
+      .getAttribute('content', {
+        timeout: bundled ? 10_000 : 100,
+      })
+      .then(JSON.parse, (error) => {
+        if (bundled) throw error;
+        return null;
+      });
+    if (manifest) {
+      assert.equal(manifest.version, 1);
+      assert(manifest.resources.length > 1);
+      assert(manifest.resources.some(({ path }) => path === '/assets/index.js'));
+      assert(manifest.resources.every(({ path }) => !path.includes('/lazy-')));
+      await Promise.all(
+        manifest.resources.map(async ({ path, size }) => {
+          const response = await fetch(process.env.WEQ_DEV_WEB_URL + path);
+          assert.equal(response.status, 200);
+          assert.equal((await response.arrayBuffer()).byteLength, size, path);
+        }),
+      );
+    }
     try {
       await page.waitForFunction(
-        () => window.legacyStartupReports.some((state) => /完成 \d+ 项/.test(state.message || '')),
-        undefined,
+        (measured) =>
+          measured
+            ? window.resourceReports.at(-1)?.completed === window.resourceReports.at(-1)?.total &&
+              window.resourceReports.length > 0
+            : window.legacyStartupReports.some((state) => /完成 \d+ 项/.test(state.message || '')),
+        measured,
         { timeout: 20_000 },
       );
     } catch (error) {
@@ -200,7 +238,17 @@ try {
       throw error;
     }
     assert.equal(await page.getByRole('heading', { name: 'version one' }).count(), 0);
-    if (width === 390)
+    if (measured) {
+      const { progress, stages } = await page.evaluate(() => ({
+        progress: window.resourceReports,
+        stages: window.legacyStartupReports,
+      }));
+      const size = manifest.resources.reduce((bytes, item) => bytes + item.size, 0);
+      assert.equal(progress[0].totalBytes, size);
+      assert.equal(progress.at(-1).loadedBytes, size);
+      assert.equal(progress.at(-1).total, manifest.resources.length);
+      assert(stages.some(({ message }) => message === '正在加载开发版首批资源'));
+    } else if (width === 390)
       assert(
         await page.evaluate(() =>
           window.legacyStartupReports.some((state) =>
@@ -226,6 +274,7 @@ try {
       window.dispatchEvent(new Event('weq-remote-startup'));
     });
     const progressCount = await page.evaluate(() => window.legacyStartupReports.length);
+    const resourceCount = await page.evaluate(() => window.resourceReports.length);
     const code = await Promise.all(scripts);
     assert(code.length > 0);
     assert(code.every((source) => !source.includes('sourceMappingURL=data:')));
@@ -268,6 +317,7 @@ try {
     assert.equal(await page.getByText('lazy pane loaded').count(), 1);
     assert.deepEqual(errors, []);
     assert.equal(await page.evaluate(() => window.legacyStartupReports.length), progressCount);
+    assert.equal(await page.evaluate(() => window.resourceReports.length), resourceCount);
     console.log(
       `PASS ${width}px: startup progress, Remote auth, lazy pane, React/CSS HMR, counter/draft/scroll/document retained`,
     );
@@ -293,6 +343,12 @@ try {
     });
     await reconnected.goto(base, { waitUntil: 'commit' });
     await reconnected.getByRole('heading', { name: /version (?:two|repaired)/ }).waitFor();
+    if (manifest) {
+      const rebuilt = JSON.parse(
+        await reconnected.locator('meta[name="weq-startup-resources"]').getAttribute('content'),
+      );
+      assert.notDeepEqual(rebuilt.resources, manifest.resources);
+    }
     assert.equal(await page.evaluate(() => window.hmrPageIdentity), 'retained');
     assert.equal(await page.getByRole('textbox').inputValue(), 'keep this draft');
     assert.deepEqual([...dependencyRequests], before, '重连不应重新下载未变的版本化依赖');

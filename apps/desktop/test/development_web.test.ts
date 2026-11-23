@@ -28,7 +28,7 @@ async function listen(server: Server) {
   if (!address || typeof address === 'string') throw new Error('缺少监听地址');
   return `http://127.0.0.1:${address.port}`;
 }
-async function fixture() {
+async function fixture(bundled = false) {
   const root = mkdtempSync(join(tmpdir(), 'weq-development-web-'));
   cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   const seen: string[] = [];
@@ -60,7 +60,7 @@ async function fixture() {
     res.setHeader('Content-Type', req.url === '/' ? 'text/html' : 'text/javascript');
     res.end(
       req.url === '/'
-        ? `<html><head><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data:"><script type="module" src="/src/main.tsx"></script></head><body>dev page</body></html>`
+        ? `<html><head><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data:">${bundled ? '<meta name="weq-development-startup-resources" content=\'{"version":1,"resources":[{"path":"/assets/index.js","size":111}]}\'>' : ''}<script type="module" src="${bundled ? '/assets/index.js' : '/src/main.tsx'}"></script></head><body>dev page</body></html>`
         : 'export const updated = true;',
     );
   });
@@ -124,6 +124,18 @@ it('无静态构建仍可使用开发页，资源实时转发，业务 API 不�
   f.deny();
   expect((await fetch(`${f.base}/@vite/client`)).status).toBe(401);
   expect(f.seen).toHaveLength(2);
+});
+it('打包清单只交给 Remote，资源监听先于入口模块且不接管 Vite 重载', async () => {
+  const f = await fixture(true);
+  const browser = await (await fetch(f.base)).text();
+  expect(browser).not.toContain('startup-resources');
+  const remote = await (await fetch(f.base, { headers: { 'User-Agent': 'WeQRemote' } })).text();
+  expect(remote).toContain('name="weq-startup-resources"');
+  expect(remote).toContain('&quot;size&quot;:111');
+  expect(remote.indexOf('weqRemoteResourceLoads')).toBeLessThan(
+    remote.indexOf('src="/assets/index.js"'),
+  );
+  expect(remote).not.toContain('weqRemoteStartupRecovery');
 });
 function rawGet(url: string, encoding: string) {
   return new Promise<{ headers: import('node:http').IncomingHttpHeaders; body: Buffer }>(
