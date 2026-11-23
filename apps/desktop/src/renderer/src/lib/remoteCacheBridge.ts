@@ -1,6 +1,21 @@
 type CacheAction =
-  | { action: 'get'; newerThan?: number }
-  | { action: 'put'; payload: string; savedAt: number };
+  | { action: 'get' | 'getRecords'; newerThan?: number }
+  | { action: 'put'; payload: string; savedAt: number }
+  | {
+      action: 'putRecords';
+      savedAt: number;
+      revision: string;
+      base?: string;
+      keys: string[];
+      records: { key: string; payload: string }[];
+    };
+
+export function remoteCacheSupportsRecords(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    (window as Window & { weqRemoteBusinessRecords?: number }).weqRemoteBusinessRecords === 1
+  );
+}
 
 export function remoteCacheBridge() {
   if (typeof window === 'undefined') return undefined;
@@ -30,15 +45,19 @@ export function sharedAccountScope(scope: string): string | undefined {
 }
 
 export async function boundedBridgeRead(read: Promise<unknown>): Promise<string | undefined> {
+  const value = await boundedBridgeReply(read);
+  return typeof value === 'string' ? value : undefined;
+}
+
+export async function boundedBridgeReply(read: Promise<unknown>): Promise<unknown> {
   let timer: number | undefined;
   try {
-    const value = await Promise.race([
+    return await Promise.race([
       read,
       new Promise<undefined>((resolve) => {
         timer = window.setTimeout(resolve, 120);
       }),
     ]);
-    return typeof value === 'string' ? value : undefined;
   } catch {
     return undefined;
   } finally {

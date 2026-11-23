@@ -17,7 +17,7 @@ const bundle = await build({
     import { createRoot } from 'react-dom/client';
     import { QueryClient, QueryClientProvider, useQuery, dehydrate } from '@tanstack/react-query';
     import { WebBusinessCache } from './src/renderer/src/components/WebBusinessCache';
-    import { configureBusinessCache, restoreBusinessCache } from './src/renderer/src/lib/webBusinessCache';
+    import { businessCacheStore, configureBusinessCache, restoreBusinessCache } from './src/renderer/src/lib/webBusinessCache';
     import { localBusinessCache } from './src/renderer/src/lib/webBusinessCacheStore';
     const key = name => [['account', name], {type:'query'}];
     const emojiKey = [['account','emojiPanel','overview'],{type:'query'}];
@@ -97,6 +97,38 @@ const bundle = await build({
         const evicted = await localBusinessCache.get(scope);
         state.clear();
         return {failed, previous:previous?.state.queries[0].state.data, next:next?.state.queries.map(q=>q.state.data), late:late?.savedAt, evicted:!evicted};
+      },
+      async nativeRecords() {
+        const account = 'native-fixture';
+        const scope = JSON.stringify([location.origin, account]);
+        const client = new QueryClient();
+        const calls = [];
+        let received;
+        Object.defineProperty(window, 'weqRemoteBusinessRecords', {value:1, configurable:true});
+        Object.defineProperty(window, 'webkit', {configurable:true, value:{messageHandlers:{weqBusinessCache:{
+          async postMessage(message) {
+            calls.push([message.action, message.base ?? null, message.records?.length ?? 0]);
+            if (message.action === 'getRecords') return {scope:account, savedAt:3, records:received};
+            if (message.base === 'seed') return 'needsFull';
+            received = message.records;
+            return 'stored';
+          },
+        }}}});
+        try {
+          client.setQueryData(key('listProfiles'), {value:BigInt(42)});
+          client.setQueryData(key('listRecentContacts'), ['before']);
+          await businessCacheStore.put({scope,savedAt:1,state:dehydrate(client)}, {revision:'seed',changed:new Set()});
+          client.setQueryData(key('listRecentContacts'), ['after']);
+          const state = dehydrate(client);
+          const hash = state.queries.find(({queryKey})=>queryKey[0][1]==='listRecentContacts').queryHash;
+          await businessCacheStore.put({scope,savedAt:2,state}, {base:'seed',revision:'patch',changed:new Set([hash])});
+          const restored = await businessCacheStore.get(scope);
+          return {calls, savedAt:restored?.savedAt, contents:restored?.state.queries.map(q=>q.state.data)};
+        } finally {
+          delete window.weqRemoteBusinessRecords;
+          delete window.webkit;
+          client.clear();
+        }
       },
       async read(scope) {const c=new QueryClient(); await restoreBusinessCache(c,scope); const result=c.getQueryData(key('listProfiles')); c.clear(); return result},
     };
@@ -190,6 +222,16 @@ try {
       await page.evaluate(() => window.fixture.mount('computer-a/account-a/config-a'));
       await page.getByRole('heading', { name: '订阅更新后的备注', exact: true }).waitFor();
       assert.equal(await page.locator('aside').textContent(), '缓存系统表情');
+      assert.deepEqual(await page.evaluate(() => window.fixture.nativeRecords()), {
+        calls: [
+          ['putRecords', null, 2],
+          ['putRecords', 'seed', 1],
+          ['putRecords', null, 2],
+          ['getRecords', null, 0],
+        ],
+        savedAt: 3,
+        contents: [{ value: 42n }, ['after']],
+      });
       console.log(
         JSON.stringify({
           browser: name,
@@ -202,6 +244,7 @@ try {
           migratedVersionOne: true,
           onlyChangedQueryWritten: true,
           transactionLossRecovered: true,
+          nativeRecordsReplayed: true,
           emojiRestartCache: true,
           emojiRetainedAfterMemoryRemoval: true,
         }),

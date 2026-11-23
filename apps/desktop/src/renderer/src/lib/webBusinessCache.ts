@@ -12,11 +12,17 @@ import {
   recentMessageWindowTag,
 } from './recentMessageCache';
 import superjson from 'superjson';
-import { boundedBridgeRead, remoteCacheBridge, sharedAccountScope } from './remoteCacheBridge';
+import {
+  boundedBridgeReply,
+  remoteCacheBridge,
+  remoteCacheSupportsRecords,
+  sharedAccountScope,
+} from './remoteCacheBridge';
 import {
   MESSAGE_SCOPE_PREFIX,
   isMessageScope,
   localBusinessCache,
+  type BusinessCacheDelta,
   type BusinessCacheStore,
   type BusinessSnapshot,
 } from './webBusinessCacheStore';
@@ -89,6 +95,61 @@ export function configureBusinessCache(client: QueryClient): void {
 
 export const resolvedProfilesKey = ['weq-business-resolved-profiles'] as const;
 
+function nativeSnapshot(payload: unknown): BusinessSnapshot | undefined {
+  if (typeof payload === 'string') return superjson.parse<BusinessSnapshot>(payload);
+  if (!payload || typeof payload !== 'object') return undefined;
+  const value = payload as { scope?: unknown; savedAt?: unknown; records?: unknown };
+  if (
+    typeof value.scope !== 'string' ||
+    typeof value.savedAt !== 'number' ||
+    !Array.isArray(value.records) ||
+    value.records.length > MAX_QUERIES
+  )
+    return undefined;
+  const queries: SavedQuery[] = [];
+  const keys = new Set<string>();
+  for (const record of value.records) {
+    if (
+      typeof record?.key !== 'string' ||
+      typeof record.payload !== 'string' ||
+      keys.has(record.key)
+    )
+      return undefined;
+    const query = superjson.parse<SavedQuery>(record.payload);
+    if (query?.queryHash !== record.key) return undefined;
+    keys.add(record.key);
+    queries.push(query);
+  }
+  return { scope: value.scope, savedAt: value.savedAt, state: { mutations: [], queries } };
+}
+
+async function putNativeRecords(
+  bridge: NonNullable<ReturnType<typeof remoteCacheBridge>>,
+  account: string,
+  kind: 'business' | 'messages',
+  snapshot: BusinessSnapshot,
+  delta?: BusinessCacheDelta,
+): Promise<void> {
+  const queries = snapshot.state.queries;
+  const revision = delta?.revision ?? `${writerId}:${++commitSequence}`;
+  const keys = queries.map(({ queryHash }) => queryHash);
+  const write = (base?: string) =>
+    bridge.postMessage({
+      action: 'putRecords',
+      kind,
+      scope: account,
+      savedAt: snapshot.savedAt,
+      revision,
+      ...(base === undefined ? {} : { base }),
+      keys,
+      records: queries
+        .filter((query) => !base || delta?.changed.has(query.queryHash))
+        .map((query) => ({ key: query.queryHash, payload: superjson.stringify(query) })),
+    });
+  const result = await write(delta?.base);
+  if (delta?.base && result === 'needsFull') await write();
+}
+
 export const businessCacheStore: BusinessCacheStore = {
   async get(scope) {
     const local = localBusinessCache.get(scope);
@@ -96,14 +157,19 @@ export const businessCacheStore: BusinessCacheStore = {
     const { account, kind } = nativeScope(scope);
     if (!bridge || !account) return local;
     const current = await local.catch(() => undefined);
-    const payload = await boundedBridgeRead(
-      bridge.postMessage({ action: 'get', kind, scope: account, newerThan: current?.savedAt ?? 0 }),
+    const payload = await boundedBridgeReply(
+      bridge.postMessage({
+        action: remoteCacheSupportsRecords() ? 'getRecords' : 'get',
+        kind,
+        scope: account,
+        newerThan: current?.savedAt ?? 0,
+      }),
     );
     if (!payload) return current;
     try {
-      const read = superjson.parse<BusinessSnapshot>(payload);
+      const read = nativeSnapshot(payload);
       if (
-        read.scope === account &&
+        read?.scope === account &&
         Number.isFinite(read.savedAt) &&
         read.savedAt > (current?.savedAt ?? 0)
       ) {
@@ -125,18 +191,22 @@ export const businessCacheStore: BusinessCacheStore = {
         account &&
         Promise.resolve()
           .then(() =>
-            bridge.postMessage({
-              action: 'put',
-              kind,
-              scope: account,
-              savedAt: snapshot.savedAt,
-              payload: superjson.stringify({
-                ...snapshot,
-                scope: account,
-                state:
-                  kind === 'messages' ? legacyRecentMessageState(snapshot.state) : snapshot.state,
-              }),
-            }),
+            remoteCacheSupportsRecords()
+              ? putNativeRecords(bridge, account, kind, snapshot, delta)
+              : bridge.postMessage({
+                  action: 'put',
+                  kind,
+                  scope: account,
+                  savedAt: snapshot.savedAt,
+                  payload: superjson.stringify({
+                    ...snapshot,
+                    scope: account,
+                    state:
+                      kind === 'messages'
+                        ? legacyRecentMessageState(snapshot.state)
+                        : snapshot.state,
+                  }),
+                }),
           )
           .catch(() => undefined),
     ]);
