@@ -313,6 +313,9 @@ import type { MessageRenderer } from './messageRenderers';
 import { filterMentionMembers, mentionText } from './mentions';
 import { canRepeatMessage, repeatTarget } from '../../lib/messageRepeat';
 import { messageForwardTarget } from '../../lib/messageForwardTarget';
+import { parseFlashShareCode } from '../../lib/flashShare';
+import { soleLink } from '../../lib/linkify';
+import { textMarkdownBody } from '../../state/textMarkdown';
 import { MessageMenuButton } from '../../components/MessageMenuButton';
 import { MessageTextResult } from '../../components/MessageTextResult';
 import { mediaUrl } from '../../lib/resourceUrl';
@@ -454,6 +457,16 @@ function pureImageUrl(message: Message) {
   return elements.length === 1 && elements[0]?.type === 'pic'
     ? getMessageDownloadUrl(message)
     : undefined;
+}
+
+function messageTranslationText(message: Message): string | null {
+  if (message.flashPhotoPlaceholder) return null;
+  const elements = message.qqElements?.filter(
+    ({ type }) => type !== 'reply' && type !== 'at' && type !== 'face',
+  );
+  const text = (elements ? textMarkdownBody(elements) : message.body)?.trim();
+  if (!text || text.length > 4096 || !/\b[A-Za-z]{2,}\b/.test(text)) return null;
+  return parseFlashShareCode(text) || soleLink(text) ? null : text;
 }
 
 function formatUnreadJumpCount(value: number) {
@@ -1184,7 +1197,16 @@ function ChatPaneContent({
     error?: boolean;
   } | null>(null);
   const translationScope = JSON.stringify([recallBinding, conversation?.id]);
-  async function translateMessage(message: Message) {
+  const translationText =
+    contextMenu &&
+    !restrictedSource &&
+    sendAvailable &&
+    recallBinding &&
+    !grayTipOf(contextMenu.message) &&
+    !isLocalOutgoingMessage(contextMenu.message)
+      ? messageTranslationText(contextMenu.message)
+      : null;
+  async function translateMessage(message: Message, text: string) {
     if (!recallBinding) return;
     setContextMenu(null);
     const pending = { scope: translationScope, id: message.id, value: null };
@@ -1192,7 +1214,7 @@ function ChatPaneContent({
     try {
       const value = await client.account.qqActions.translateEnglish.mutate({
         ...recallBinding,
-        text: message.body.trim(),
+        text,
       });
       setTranslation((current) => (current === pending ? { ...pending, value } : current));
     } catch (error) {
@@ -7864,16 +7886,10 @@ function ChatPaneContent({
             ) : null
           }
           translationAction={
-            !restrictedSource &&
-            sendAvailable &&
-            recallBinding &&
-            !grayTipOf(contextMenu.message) &&
-            !isLocalOutgoingMessage(contextMenu.message) &&
-            /\b[A-Za-z]{2,}\b/.test(contextMenu.message.body) &&
-            contextMenu.message.body.trim().length <= 4096 ? (
+            translationText ? (
               <MessageMenuButton
                 type="button"
-                onClick={() => void translateMessage(contextMenu.message)}
+                onClick={() => void translateMessage(contextMenu.message, translationText)}
               >
                 <Languages size={17} />
                 <span>翻译成中文</span>
