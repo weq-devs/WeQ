@@ -8,7 +8,7 @@ import { ConversationMessageActions } from '../src/renderer/src/components/Conve
 import { OverlayAnchorContext } from '../src/renderer/src/lib/overlayAnchor.shared';
 import { createTemplateDemoData } from './support/templateDemoData';
 
-const state = vi.hoisted(() => ({ status: 'paused' }));
+const listRoamingTasks = vi.hoisted(() => vi.fn(() => ({ data: { jobs: [] } })));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({
@@ -29,21 +29,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
     account: {
       roamingBackfill: {
-        list: {
-          useQuery: () => ({
-            data: {
-              jobs: [
-                {
-                  status: state.status,
-                  createdAt: 1,
-                  plannedSeqs: 100,
-                  remainingSeqs: 50,
-                  targets: [{ kind: 'group', conv: '10001' }],
-                },
-              ],
-            },
-          }),
-        },
+        list: { useQuery: listRoamingTasks },
       },
     },
   },
@@ -194,16 +180,12 @@ describe('邮箱与会话入口界面细节', () => {
       f.close();
     }
   });
-  it.each(['paused', 'pausing'])('漫游 %s 用暂停符号，不在工具图标旁铺状态文字', (status) => {
-    state.status = status;
+  it('会话工具栏不订阅后台漫游任务', () => {
     const base = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
     const conversation = { ...base, id: '10001', group: { ...base.group, id: '10001' } };
     const f = mount(h(ConversationMessageActions, { conversation, onRoaming: vi.fn() }));
     try {
-      const button = f.host.querySelector<HTMLButtonElement>('[aria-label="工具"]')!;
-      expect(button.textContent).toBe('');
-      expect(button.title).toContain(status === 'paused' ? '已暂停' : '暂停收尾中');
-      expect(button.querySelector('.weq-roaming-paused-indicator svg')).not.toBeNull();
+      expect(listRoamingTasks).not.toHaveBeenCalled();
     } finally {
       f.close();
     }

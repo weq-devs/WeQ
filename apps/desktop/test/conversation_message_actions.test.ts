@@ -8,9 +8,6 @@ import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversati
 import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelection';
 import { useContentExportRequest } from '../src/renderer/src/state/contentSelection.shared';
 
-vi.mock('../src/renderer/src/trpc/client', () => ({
-  trpc: { account: { roamingBackfill: { list: { useQuery: () => ({ data: { jobs: [] } }) } } } },
-}));
 vi.mock('../src/renderer/src/components/OverlayLayer', () => ({
   OverlayLayer: ({ children }: { children: ReactNode }) => children,
 }));

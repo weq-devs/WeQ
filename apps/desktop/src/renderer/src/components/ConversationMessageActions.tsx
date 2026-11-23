@@ -9,7 +9,6 @@ import {
   ListX,
   MessageSquareText,
   MoreHorizontal,
-  Pause,
   Search,
   Settings2,
   Users,
@@ -27,12 +26,10 @@ import {
 import { ConversationDirectoryContext } from '../lib/conversationDirectory';
 import { useRequestContentExport } from '../state/contentSelection.shared';
 import { useTabActive } from './RetainedTabs.shared';
-import { trpc } from '../trpc/client';
 import { ConversationActionsMenu, type ConversationMenuAction } from './ConversationActionsMenu';
 import { useRemoteShellAvailable } from './RemoteShellMenus.shared';
 import '../styles/conversation-actions.css';
 import { FEATURE_ICONS } from '../lib/featureIcons.shared';
-import { roamingJobProgress } from '../../../shared/roaming_task_status';
 
 const ExportIcon = FEATURE_ICONS.export;
 const BackfillIcon = FEATURE_ICONS.backfill;
@@ -83,23 +80,6 @@ export function ConversationMessageActions({
     label: string;
   } | null>(null);
   useEffect(() => setMenu(null), [conversation.id, active, compact]);
-  const state = trpc.account.roamingBackfill.list.useQuery(undefined, {
-    enabled: active && Boolean(target && onRoaming),
-    refetchInterval: active && target && onRoaming ? 1000 : false,
-    refetchOnWindowFocus: false,
-  });
-  const job =
-    target && onRoaming
-      ? state.data?.jobs
-          .filter((item) =>
-            item.targets.some((value) => value.kind === target.kind && value.conv === target.conv),
-          )
-          .sort((a, b) => b.createdAt - a.createdAt)[0]
-      : undefined;
-  const progress =
-    job?.status === 'running' ? `${Math.floor(roamingJobProgress(job) ?? 0)}%` : undefined;
-  const status =
-    job?.status === 'pausing' ? '暂停收尾中' : job?.status === 'paused' ? '已暂停' : progress;
   const messages: ConversationMenuAction[] = [
     ...(onImportant
       ? [{ label: '重要消息', icon: <ListFilter size={16} />, action: onImportant }]
@@ -239,27 +219,14 @@ export function ConversationMessageActions({
     setMenu(null);
     trigger.current?.focus({ preventScroll: true });
   };
-  const taskDescription = status ? `漫游拉取任务 ${status}` : undefined;
-  const progressRing = progress ? (
-    <span className="weq-conversation-progress-ring" aria-hidden="true">
-      {progress}
-    </span>
-  ) : null;
-  const taskIndicator =
-    job?.status === 'paused' || job?.status === 'pausing' ? (
-      <span className="weq-roaming-paused-indicator" aria-hidden="true">
-        <Pause size={9} strokeWidth={3} />
-      </span>
-    ) : null;
   return (
     <>
       {compact ? (
         <button
           type="button"
           className="icon-button group-header-info-action weq-conversation-message-actions"
-          title={taskDescription ? `更多 · ${taskDescription}` : '更多'}
+          title="更多"
           aria-label="更多会话操作"
-          aria-description={taskDescription}
           aria-haspopup="menu"
           aria-expanded={Boolean(menu)}
           onClick={(event) => open(event.currentTarget, '会话操作')}
@@ -270,8 +237,7 @@ export function ConversationMessageActions({
             }
           }}
         >
-          {progressRing ?? <MoreHorizontal size={18} />}
-          {taskIndicator}
+          <MoreHorizontal size={18} />
         </button>
       ) : (
         actions.map((item) => (
@@ -279,12 +245,8 @@ export function ConversationMessageActions({
             key={item.label}
             type="button"
             className="icon-button group-header-info-action weq-conversation-message-actions"
-            title={
-              item.reason ??
-              (item.label === '工具' && taskDescription ? `工具 · ${taskDescription}` : item.label)
-            }
+            title={item.reason ?? item.label}
             aria-label={item.label}
-            aria-description={item.label === '工具' ? taskDescription : undefined}
             disabled={item.disabled}
             aria-haspopup={item.children ? 'menu' : undefined}
             aria-expanded={item.children ? menu?.label === item.label : undefined}
@@ -302,8 +264,7 @@ export function ConversationMessageActions({
               }
             }}
           >
-            {item.label === '工具' ? (progressRing ?? item.icon) : item.icon}
-            {item.label === '工具' ? taskIndicator : null}
+            {item.icon}
           </button>
         ))
       )}
