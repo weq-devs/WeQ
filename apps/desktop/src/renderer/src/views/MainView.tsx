@@ -2671,8 +2671,10 @@ function MainWorkspace(): ReactElement {
   const groupMemberLookup = useMemo(() => {
     const binding = messageScope ? messageBindingRef.current : null;
     return createGroupMemberLookup<GroupMemberWire>(
-      (input) => client.account.getGroupMembersByUids.query({ ...binding, ...input }),
-      (input) => client.account.getGroupMembersByUins.query({ ...binding, ...input }),
+      (input) =>
+        client.account.getGroupMembersByUids.query({ ...binding, ...input, historyFallback: true }),
+      (input) =>
+        client.account.getGroupMembersByUins.query({ ...binding, ...input, historyFallback: true }),
     );
   }, [messageScope, messageBindingRef]);
   const {

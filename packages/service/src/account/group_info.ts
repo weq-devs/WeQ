@@ -1500,6 +1500,50 @@ export class GroupInfoService {
     );
   }
 
+  /** 仅用于消息展示。原库中仍存在的资料优先，历史行不进入当前群成员名单。 */
+  async fillMessageMemberHistory(
+    groupCode: bigint,
+    local: GroupMember[],
+    identities: string[],
+    byUin: boolean,
+  ): Promise<GroupMember[]> {
+    const history = this.contactHistory;
+    if (!history) return local;
+    const known = new Set(local.map((member) => (byUin ? String(member.uin) : member.uid)));
+    const missing = identities.filter((identity) => !known.has(identity));
+    if (!missing.length) return local;
+    const values = await history
+      .groupMembersByIdentity(String(groupCode), missing, byUin)
+      .catch(() => []);
+    const recovered = values.flatMap((value): GroupMember[] => {
+      if (!value || typeof value !== 'object') return [];
+      const row = value as Record<string, unknown>;
+      if (typeof row.uid !== 'string' || !/^u_[\w-]+$/.test(row.uid)) return [];
+      const uin = String(row.uin ?? '');
+      if (!/^[1-9]\d*$/.test(uin)) return [];
+      const number = (input: unknown) =>
+        typeof input === 'number' && Number.isFinite(input) ? input : 0;
+      const text = (input: unknown) => (typeof input === 'string' ? input : '');
+      return [
+        {
+          groupCode,
+          uid: row.uid,
+          uin: BigInt(uin),
+          card: text(row.card),
+          nick: text(row.nick ?? row.nickname),
+          joinTime: number(row.joinTime),
+          lastSpeakTime: number(row.lastSpeakTime ?? row.lastSentTime),
+          muteUntil: 0,
+          adminFlag: row.adminFlag === 1 || row.permission === 1 || row.permission === 2 ? 1 : 0,
+          memberFlag: 1,
+          customTitle: text(row.customTitle ?? row.specialTitle),
+          memberLevel: number(row.memberLevel ?? row.level),
+        },
+      ];
+    });
+    return recovered.length ? local.concat(recovered) : local;
+  }
+
   /**
    * Search one group's members by group card / nick / uin, paged. Lets the chat
    * page's 群资料面板 search the whole group instead of only the member pages it

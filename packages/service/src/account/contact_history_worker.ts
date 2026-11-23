@@ -47,6 +47,15 @@ export function contactHistoryWorker(
   db.exec(
     'CREATE TABLE IF NOT EXISTS field_index_meta(key TEXT PRIMARY KEY,version INTEGER NOT NULL)',
   );
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS group_member_history_latest(
+      entity TEXT NOT NULL, uid TEXT NOT NULL, uin TEXT NOT NULL, version_id INTEGER NOT NULL,
+      at REAL NOT NULL, hash TEXT NOT NULL, PRIMARY KEY(entity,uid));
+    CREATE INDEX IF NOT EXISTS group_member_history_uin
+      ON group_member_history_latest(entity,uin,at DESC,version_id DESC);
+    CREATE TABLE IF NOT EXISTS group_member_history_progress(
+      entity TEXT PRIMARY KEY, version_id INTEGER NOT NULL, row_offset INTEGER NOT NULL);
+  `);
   if (
     Number(
       db.prepare("SELECT version FROM field_index_meta WHERE key='format'").get()?.version ?? 0,
@@ -261,7 +270,103 @@ export function contactHistoryWorker(
         : {}),
     };
   }
+  const memberCategories = new Set([
+    'members',
+    'listMembersInGroup',
+    'listLeftMembersInGroup',
+    'listMembersByLevel',
+    'getMemberInfo',
+    'getMembersByUids',
+    'getMembersByUins',
+  ]);
+  const indexGroupMember = db.prepare(`INSERT INTO group_member_history_latest VALUES(?,?,?,?,?,?)
+    ON CONFLICT(entity,uid) DO UPDATE SET uin=excluded.uin,version_id=excluded.version_id,
+      at=excluded.at,hash=excluded.hash
+    WHERE (excluded.at,excluded.version_id)>=(group_member_history_latest.at,group_member_history_latest.version_id)`);
+  function indexGroupMemberPage(key: string, through: number) {
+    const cursor = db
+      .prepare('SELECT * FROM group_member_history_progress WHERE entity=?')
+      .get(key);
+    const versionId = Number(cursor?.version_id ?? 0);
+    const offset = Number(cursor?.row_offset ?? 0);
+    const versions = db
+      .prepare(`SELECT id,category,first_at,hash FROM versions
+      WHERE entity=? AND id>=? AND id<=? ORDER BY id LIMIT 17`)
+      .all(key, versionId + (offset ? 0 : 1), through);
+    let indexed = 0;
+    let lastId = versionId;
+    let nextOffset = 0;
+    const started = performance.now();
+    for (const row of versions.slice(0, 16)) {
+      const id = Number(row.id);
+      const firstOffset = id === versionId ? offset : 0;
+      if (memberCategories.has(String(row.category))) {
+        const hash = String(row.hash);
+        const root = readBlob(hash) as { a?: string[]; o?: Record<string, unknown> };
+        const hashes = root.a ?? (root.o ? [hash] : []);
+        for (let index = firstOffset; index < hashes.length; index++) {
+          if (index > firstOffset && (indexed >= 256 || performance.now() - started >= 8)) {
+            nextOffset = index;
+            break;
+          }
+          const memberHash = hashes[index]!;
+          const item = unpack(root.a ? readBlob(memberHash) : root) as Record<
+            string,
+            unknown
+          > | null;
+          indexed++;
+          if (!item || typeof item.uid !== 'string' || !/^u_[\w-]+$/.test(item.uid)) continue;
+          const uin = String(
+            (item.uin as { $type?: string; value?: string } | null)?.$type === 'bigint'
+              ? (item.uin as { value: string }).value
+              : (item.uin ?? ''),
+          );
+          if (!/^[1-9]\d*$/.test(uin)) continue;
+          indexGroupMember.run(key, item.uid, uin, id, Number(row.first_at), memberHash);
+        }
+      }
+      if (nextOffset) {
+        lastId = id;
+        break;
+      }
+      lastId = id;
+      if (indexed >= 256 || performance.now() - started >= 8) break;
+    }
+    if (lastId !== versionId || nextOffset !== offset)
+      db.prepare('INSERT OR REPLACE INTO group_member_history_progress VALUES(?,?,?)').run(
+        key,
+        lastId,
+        nextOffset,
+      );
+    return nextOffset > 0 || versions.some((row) => Number(row.id) > lastId);
+  }
   function dispatch(method: string, input: Record<string, unknown>): unknown {
+    if (method === 'groupMemberIndexTarget') {
+      const key = String(input.entity);
+      const latest = Number(
+        db.prepare('SELECT MAX(id) AS id FROM versions WHERE entity=?').get(key)?.id ?? 0,
+      );
+      const cursor = db
+        .prepare('SELECT version_id,row_offset FROM group_member_history_progress WHERE entity=?')
+        .get(key);
+      return latest > Number(cursor?.version_id ?? 0) || Number(cursor?.row_offset ?? 0) > 0
+        ? latest
+        : 0;
+    }
+    if (method === 'indexGroupMembers')
+      return indexGroupMemberPage(String(input.entity), Number(input.through));
+    if (method === 'groupMembersByIdentity') {
+      const key = String(input.entity);
+      const query = input.byUin
+        ? db.prepare(
+            'SELECT hash FROM group_member_history_latest WHERE entity=? AND uin=? ORDER BY at DESC,version_id DESC LIMIT 1',
+          )
+        : db.prepare('SELECT hash FROM group_member_history_latest WHERE entity=? AND uid=?');
+      return (input.identities as string[]).flatMap((identity) => {
+        const row = query.get(key, identity);
+        return row ? [unpack(readBlob(String(row.hash)))] : [];
+      });
+    }
     if (method === 'fieldAvatarCandidates') {
       const key = entity(String(input.entity));
       const cursor = Number(
@@ -660,6 +765,7 @@ export function contactHistoryWorker(
           'migration',
           'importMetrics',
           'fieldSummary',
+          'indexGroupMembers',
         ].includes(message.method);
         if (transactional) db.exec('BEGIN IMMEDIATE');
         try {

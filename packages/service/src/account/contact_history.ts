@@ -110,6 +110,7 @@ export class ContactHistoryService {
   }> = [];
   private waiting: Array<() => void> = [];
   private captures = new Set<Promise<void>>();
+  private memberIndexing = new Map<string, Promise<void>>();
   private admissions = 0;
   private accepting = true;
   private retryTimer?: ReturnType<typeof setTimeout>;
@@ -308,6 +309,30 @@ export class ContactHistoryService {
     await this.migration;
     await this.drain();
     return this.request<string[]>('groups');
+  }
+  /** 只为需要回读名片的群索引已有名单，worker 每批都让出其他历史查询。 */
+  async groupMembersByIdentity(groupCode: string, identities: string[], byUin: boolean) {
+    const keys = [...new Set(identities)].slice(0, 200);
+    if (!keys.length) return [];
+    await this.migration;
+    const entity = `group:${groupCode}`;
+    let task = this.memberIndexing.get(entity);
+    if (!task) {
+      task = (async () => {
+        const through = await this.request<number>('groupMemberIndexTarget', { entity });
+        while (through && (await this.request<boolean>('indexGroupMembers', { entity, through }))) {
+          // 每次等待一条 worker 响应，避免单次长事务占用历史数据库。
+        }
+      })().finally(() => this.memberIndexing.delete(entity));
+      this.memberIndexing.set(entity, task);
+    }
+    await task;
+    const rows = await this.request<unknown[]>('groupMembersByIdentity', {
+      entity,
+      identities: keys,
+      byUin,
+    });
+    return rows.map(decodeContactValue);
   }
   async categories(entity: string) {
     await this.migration;

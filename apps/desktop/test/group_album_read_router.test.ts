@@ -12,6 +12,7 @@ const rpc = vi.hoisted(() => ({
   remember: vi.fn(),
   membersByUid: vi.fn(),
   membersByUin: vi.fn(),
+  memberHistory: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => {
   const services = {
@@ -21,7 +22,11 @@ vi.mock('../src/main/context/app_context', () => {
     webQuery: { getGroupAlbumFeed: rpc.feed, getGroupAlbumList: rpc.albums },
     groupAlbumMedia: { getMediaList: rpc.media },
     contentSearch: { remember: rpc.remember },
-    groupInfo: { getMembersByUids: rpc.membersByUid, getMembersByUins: rpc.membersByUin },
+    groupInfo: {
+      getMembersByUids: rpc.membersByUid,
+      getMembersByUins: rpc.membersByUin,
+      fillMessageMemberHistory: rpc.memberHistory,
+    },
   };
   return {
     accountEventBus: new EventEmitter(),
@@ -57,6 +62,7 @@ beforeEach(() => {
   rpc.media.mockResolvedValue({ mediaList: [], nextAttachInfo: '' });
   rpc.membersByUid.mockResolvedValue([]);
   rpc.membersByUin.mockResolvedValue([]);
+  rpc.memberHistory.mockResolvedValue([]);
 });
 it('动态读取使用完整卡片目标和捕获来源，不传绑定字段给 Web 请求', async () => {
   await accountRouter
@@ -129,6 +135,28 @@ it('公告发布者按 UID 与 QQ 号批量读取群成员，使用捕获的账�
   await api.getGroupMembersByUins({ ...binding, groupCode: '123456', uins: ['10002'] });
   expect(rpc.membersByUid).toHaveBeenCalledWith(123456n, ['u_peer']);
   expect(rpc.membersByUin).toHaveBeenCalledWith(123456n, [10002n]);
+});
+
+it('历史名片仅用于主动请求的消息展示，换源时丢弃迟到结果', async () => {
+  const api = accountRouter.createCaller({});
+  const uinInput = { ...binding, groupCode: '123456', uins: ['10002'] };
+  await api.getGroupMembersByUins(uinInput);
+  expect(rpc.memberHistory).not.toHaveBeenCalled();
+  await api.getGroupMembersByUins({ ...uinInput, historyFallback: true });
+  expect(rpc.memberHistory).toHaveBeenCalledWith(123456n, [], ['10002'], true);
+  rpc.memberHistory.mockImplementationOnce(async () => {
+    rpc.configId = 'source-b';
+    return [];
+  });
+  await expect(
+    api.getGroupMembersByUids({
+      ...binding,
+      groupCode: '123456',
+      uids: ['u_peer'],
+      historyFallback: true,
+    }),
+  ).rejects.toThrow('数据源已切换');
+  expect(rpc.memberHistory).toHaveBeenLastCalledWith(123456n, [], ['u_peer'], false);
 });
 it('公告发布者补全拒绝错误来源，并丢弃读取期间换源的响应', async () => {
   const api = accountRouter.createCaller({});

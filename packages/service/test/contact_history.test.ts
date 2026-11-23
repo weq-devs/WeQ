@@ -71,6 +71,87 @@ it('无损保留类型、字段缺失和显式清空，分页与来源分别存�
   await expect(h.version('group:other', id)).rejects.toThrow('不属于');
 });
 
+it('群名片索引跨批读取已有分页，按 UID 和 QQ 号回读时保持群及版本隔离', async () => {
+  const history = await open();
+  const group = { entity: 'group:12345', source: 'local' as const };
+  const members = Array.from({ length: 600 }, (_, i) => ({
+    uid: `u_${i}`,
+    uin: BigInt(10001 + i),
+    card: `历史名片 ${i}`,
+  }));
+  await history.observe({
+    ...group,
+    category: 'listMembersInGroup',
+    completeness: 'page',
+    value: members,
+    at: 100,
+  });
+  const initial = await Promise.all([
+    history.groupMembersByIdentity('12345', ['u_598'], false),
+    history.groupMembersByIdentity('12345', ['10600'], true),
+  ]);
+  expect(initial).toEqual([[members[598]], [members[599]]]);
+
+  await history.observe({
+    ...group,
+    category: 'getMemberInfo',
+    value: { ...members[599], card: '' },
+    at: 300,
+  });
+  await history.observe({
+    ...group,
+    category: 'listLeftMembersInGroup',
+    value: [{ ...members[599], card: '迟到版本' }],
+    at: 200,
+  });
+  await history.observe({
+    ...group,
+    entity: 'group:12346',
+    category: 'getMemberInfo',
+    value: { ...members[599], card: '另一群' },
+    at: 400,
+  });
+  expect(await history.groupMembersByIdentity('12345', ['10600'], true)).toEqual([
+    { ...members[599], card: '' },
+  ]);
+  expect(await history.groupMembersByIdentity('12346', ['u_599'], false)).toEqual([
+    { ...members[599], card: '另一群' },
+  ]);
+  expect(await history.groupMembersByIdentity('12346', ['u_598'], false)).toEqual([]);
+
+  await history.dispose();
+  const reopened = new ContactHistoryService(history.root);
+  opened.push(reopened);
+  expect(await reopened.groupMembersByIdentity('12345', ['u_0', 'u_599'], false)).toEqual([
+    members[0],
+    { ...members[599], card: '' },
+  ]);
+  const service = new GroupInfoService({} as AccountSession);
+  service.setContactHistory(reopened);
+  const live = {
+    groupCode: 12345n,
+    uid: 'u_0',
+    uin: 10001n,
+    nick: '',
+    card: '当前名片',
+    memberFlag: 0,
+    joinTime: 0,
+    lastSpeakTime: 0,
+    muteUntil: 0,
+    adminFlag: 0,
+    customTitle: '',
+    memberLevel: 0,
+  };
+  const recovered = await service.fillMessageMemberHistory(
+    12345n,
+    [live],
+    ['10001', '10600'],
+    true,
+  );
+  expect(recovered[0]).toBe(live);
+  expect(recovered[1]).toMatchObject({ uid: 'u_599', uin: 10600n, card: '', memberFlag: 1 });
+});
+
 it('名单的小变化复用条目，压缩占用小于重复全量 JSON，并能完整回读', async () => {
   const h = await open();
   const members = Array.from({ length: 600 }, (_, n) => ({
