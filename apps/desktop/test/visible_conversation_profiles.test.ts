@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import {
   selectProfileContacts,
   conversationProfileTargets,
+  groupPreviewNameIndex,
 } from '../src/renderer/src/lib/visibleConversationProfiles';
 
 const direct = (id: string, sender = '') => ({
@@ -45,4 +46,31 @@ it('群名片按群隔离，只查询可见群的预览身份，不把群号当�
     ['12345', ['u_sender']],
     ['67890', ['u_sender']],
   ]);
+});
+
+it('群预览按引用的身份取名，支持 QQ 号和资料迟到且不展开无关群', () => {
+  const member = (uid: string, uin: string, card = '', nick = '') => ({ uid, uin, card, nick });
+  const inactive = new Proxy(
+    {},
+    {
+      ownKeys: () => {
+        throw new Error('无关群被遍历');
+      },
+    },
+  );
+  const groups = {
+    '12345': { u_peer: member('u_peer', '20000', '', '群昵称') },
+    '67890': { u_peer: member('u_peer', '20000', '另一张名片') },
+    '99999': inactive,
+  };
+  const old = groupPreviewNameIndex(groups, new Map());
+  expect(old.get('12345')?.get('u_peer')).toBe('群昵称');
+  expect(old.get('12345')?.get('u_missing')).toBeUndefined();
+  expect(old.get('12345')?.get('20000')).toBe('群昵称');
+  expect(old.get('67890')?.get('20000')).toBe('另一张名片');
+  const next = groupPreviewNameIndex(groups, new Map([['u_peer', { remark: '好友备注' }]]));
+  expect(next.get('12345')?.get('20000')).toBe('好友备注');
+  expect(next.get('67890')?.get('u_peer')).toBe('另一张名片');
+  expect(old.get('12345')?.get('20000')).toBe('群昵称');
+  expect(next.get('missing')).toBeUndefined();
 });

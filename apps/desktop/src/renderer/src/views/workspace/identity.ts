@@ -9,6 +9,7 @@ import { selfIdentityValues } from '../../lib/selfIdentity';
 import { classifyChatType, isGroupTempChatType } from '@weq/codec';
 import { contactSenderName, contactTitle } from '../../lib/contactTitle';
 import { displayGroupMemberName } from '../../im-template/template/user';
+import type { GroupPreviewNameIndex } from '../../lib/visibleConversationProfiles';
 import type {
   Contact,
   Conversation,
@@ -468,7 +469,7 @@ export function contactToConversation(
   groupNameByCode: NameIndex,
   botUids: ReadonlySet<string>,
   displayNames: NameIndex = new Map(),
-  groupNames: Pick<ReadonlyMap<string, NameIndex>, 'get'> = new Map(),
+  groupNames: GroupPreviewNameIndex = new Map(),
   profiles: ContactProfiles = new Map(),
 ): Conversation | null {
   const kind = chatTypeKind(c.chatType);
@@ -571,7 +572,7 @@ export function contactToConversation(
 interface ContactProjectionSources {
   groupTitles: ReadonlyMap<string, string>;
   displayNames: ReadonlyMap<string, string>;
-  groupNames: ReadonlyMap<string, ReadonlyMap<string, string>>;
+  groupNames: GroupPreviewNameIndex;
   profiles: ContactProfiles;
   botUids: ReadonlySet<string>;
 }

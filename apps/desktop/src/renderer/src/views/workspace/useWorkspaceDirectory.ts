@@ -10,6 +10,7 @@ import { conversationSortTime, conversationActivityTime } from '@weq/service/con
 import { reconcileConversationRows, sortConversationRows } from '../../lib/conversationListOrder';
 import { createConversationProjection } from '../../lib/conversationProjection';
 import { archivedConversationRow } from '../../lib/conversationDirectoryRows';
+import type { GroupPreviewNameIndex } from '../../lib/visibleConversationProfiles';
 import type {
   Contact,
   Conversation,
@@ -49,7 +50,7 @@ type DirectoryInput = {
   user: User;
   profileByUid: Map<string, UserProfileWire>;
   previewDisplayNames: Map<string, string>;
-  previewGroupNames: Map<string, ReadonlyMap<string, string>>;
+  previewGroupNames: GroupPreviewNameIndex;
   recentContactsData: RecentContactWire[];
   categories: QueryData<CategoryWire[]>;
   botUidList: QueryData<string[]>;
