@@ -66,7 +66,7 @@ it('长查询到预算后继续逐页读取，保留群分区和命中排序', a
       }
       const rows = await nt.executeSql(path, statement, params);
       if (statement.includes('page AS MATERIALIZED')) {
-        const plan = sql.prepare(`EXPLAIN QUERY PLAN ${statement}`).all(...params);
+        const plan = sql.prepare(`EXPLAIN QUERY PLAN ${statement}`).all(...(params ?? []));
         expect(
           plan.some(({ detail }) => String(detail).includes('USING INDEX group_partition')),
         ).toBe(true);
