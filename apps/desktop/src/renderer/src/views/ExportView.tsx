@@ -51,7 +51,8 @@ import { ConversationPicker } from './export/ConversationPicker';
 import { SingleSelectPicker } from './export/SingleSelectPicker';
 import { EmojiPackExportPane } from './export/EmojiPackExportPane';
 import { TaskList, type UiFailure, type UiLogLine, type UiTask } from './export/TaskList';
-import { CurrentTaskList } from '../components/tasks/CurrentTaskList';
+import { CurrentTaskList, type TaskLayout } from '../components/tasks/CurrentTaskList';
+import { TaskDetailPage } from '../components/tasks/TaskDetailPage';
 import { TaskQuickActions } from '../components/tasks/TaskQuickActions';
 import { EmptyState } from '../components/EmptyState';
 
@@ -96,6 +97,7 @@ import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { DatabasePlainExport } from './export/DatabasePlainExport';
 import type { DatabaseExportTarget } from '../../../shared/database_export_target';
 import { useViewState } from '../state/view';
+import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useExportCollections } from '../hooks/useExportCollections';
 import {
   fixedScopeSummary,
@@ -407,7 +409,7 @@ function ExportToolBody({
   databaseTarget,
 }: {
   surface?: 'export' | 'tasks';
-  taskLayout?: 'inline' | 'compact' | 'split';
+  taskLayout?: TaskLayout;
   onTaskExpand?: () => void;
   taskTabRequest?: TaskPanelTab;
   onTaskTabRequestApplied?: () => void;
@@ -508,18 +510,34 @@ function ExportToolBody({
     'tasks',
     z.enum(['tasks', 'schedules']),
   );
+  const pagedTasks = taskLayout === 'page';
+  const [openedScheduleId, setOpenedScheduleId] = useState<string | null>(null);
+  const taskFocusId = useWorkspaceMenu((state) => (pagedTasks ? state.taskFocusId : null));
+  const requestedTaskTab = taskTabRequest ?? (taskFocusId ? 'tasks' : undefined);
+  const visibleTaskTab = taskLayout === 'compact' ? 'tasks' : (requestedTaskTab ?? taskTab);
   useEffect(() => {
-    if (!active || surface !== 'tasks' || !taskTabRequest || taskLayout === 'compact') return;
-    setTaskTab(taskTabRequest);
-    onTaskTabRequestApplied?.();
-  }, [active, surface, taskLayout, taskTabRequest, setTaskTab, onTaskTabRequestApplied]);
+    if (!active || surface !== 'tasks' || !requestedTaskTab || taskLayout === 'compact') return;
+    setTaskTab(requestedTaskTab);
+    setOpenedScheduleId(null);
+    if (taskTabRequest) onTaskTabRequestApplied?.();
+  }, [
+    active,
+    surface,
+    taskLayout,
+    requestedTaskTab,
+    taskTabRequest,
+    setTaskTab,
+    onTaskTabRequestApplied,
+  ]);
+  const taskSelection = useState<string | null>();
   const [selectedSchedule, setSelectedSchedule] = usePageState<string | null>(
     'export:schedule',
     null,
     pageValue.optionalString,
   );
-  const activeScheduleId =
-    schedules.data?.find((item) => item.id === selectedSchedule)?.id ?? schedules.data?.[0]?.id;
+  const activeSchedule = pagedTasks
+    ? schedules.data?.find((item) => item.id === openedScheduleId)
+    : (schedules.data?.find((item) => item.id === selectedSchedule) ?? schedules.data?.[0]);
   // 频道私聊会话列表（guild_msg.db；只在该模式下加载）。
   const guildSessions = trpc.account.guildDirectListSessions.useQuery(undefined, {
     enabled: active && surface === 'export' && mode === 'guild',
@@ -2016,28 +2034,100 @@ function ExportToolBody({
     }
   };
 
+  const chooseSaveLocation = (directory: string | null) => {
+    saveLocationPending.current?.(directory);
+    saveLocationPending.current = null;
+    setSaveLocationTask(null);
+  };
+  const saveLocation = saveLocationTask ? (
+    <SaveResultLocation
+      key={saveLocationTask.id}
+      name={saveLocationTask.name}
+      onChoose={chooseSaveLocation}
+      onCancel={() => chooseSaveLocation(null)}
+    />
+  ) : null;
+
+  const scheduleList = (
+    <div className="weq-exp-sched-list">
+      {onNewSchedule ? (
+        <button type="button" className="weq-set-btn" onClick={onNewSchedule}>
+          <CalendarClock size={15} />
+          新建定时任务
+        </button>
+      ) : null}
+      {schedules.isLoading ? (
+        <ScheduleListSkeleton />
+      ) : schedules.isError ? (
+        <div role="status">
+          定时任务加载失败
+          <button
+            type="button"
+            title="重试加载计划"
+            aria-label="重试加载计划"
+            onClick={() => void schedules.refetch()}
+          >
+            <RefreshCw size={14} aria-hidden />
+          </button>
+        </div>
+      ) : (schedules.data ?? []).length === 0 ? (
+        <EmptyState compact icon={<CalendarClock />} title="暂无定时任务" />
+      ) : (
+        (schedules.data as ScheduledTask[]).map((s) => (
+          <button
+            type="button"
+            key={s.id}
+            className={`weq-schedule-select${activeSchedule?.id === s.id ? ' is-selected' : ''}`}
+            onClick={() => {
+              setSelectedSchedule(s.id);
+              if (pagedTasks) setOpenedScheduleId(s.id);
+            }}
+          >
+            <strong>{s.name}</strong>
+            {!pagedTasks ? (
+              <span>
+                <NumericText>{scheduleSummary(s)}</NumericText>
+              </span>
+            ) : null}
+            <small>
+              {s.enabled ? <NumericText>{`下次 ${fmtRunAt(s.nextRunAt)}`}</NumericText> : '已暂停'}
+            </small>
+          </button>
+        ))
+      )}
+    </div>
+  );
+  const scheduleDetail = activeSchedule ? (
+    <RetainedTabs snapshotKey="export-schedule" activeKey={activeSchedule.id}>
+      <div>
+        <ScheduleRow
+          schedule={activeSchedule}
+          onToggle={() => onToggleSchedule(activeSchedule)}
+          onDelete={() => onDeleteSchedule(activeSchedule)}
+          onRunNow={() => onRunScheduleNow(activeSchedule)}
+        />
+        <ScheduleSettings schedule={activeSchedule} />
+      </div>
+    </RetainedTabs>
+  ) : null;
+
   return (
     <div className={`weq-exp weq-export-tool is-${surface}`}>
       {report.dialog}
       {serverLocation && (
         <ServerSavePrompt name={serverLocation.name} onChoose={chooseServerLocation} />
       )}
-      {saveLocationTask ? (
-        <SaveResultLocation
-          key={saveLocationTask.id}
-          name={saveLocationTask.name}
-          onChoose={(directory) => {
-            saveLocationPending.current?.(directory);
-            saveLocationPending.current = null;
-            setSaveLocationTask(null);
-          }}
-          onCancel={() => {
-            saveLocationPending.current?.(null);
-            saveLocationPending.current = null;
-            setSaveLocationTask(null);
-          }}
-        />
-      ) : null}
+      {saveLocation && pagedTasks ? (
+        <TaskDetailPage
+          title="保存结果"
+          backLabel="返回任务详情"
+          onBack={() => chooseSaveLocation(null)}
+        >
+          {saveLocation}
+        </TaskDetailPage>
+      ) : (
+        saveLocation
+      )}
       {surface === 'export' && ((!lightbox && !fixedMessages) || editingList) ? (
         <div className="weq-exp-top">
           {fixedMessages && initialSelection ? (
@@ -2625,8 +2715,11 @@ function ExportToolBody({
             <div className="weq-task-workspace-tabs">
               <SegmentedControl<TaskPanelTab>
                 label="任务视图"
-                value={taskTab}
-                onChange={setTaskTab}
+                value={visibleTaskTab}
+                onChange={(tab) => {
+                  if (pagedTasks) useWorkspaceMenu.setState({ taskFocusId: null });
+                  setTaskTab(tab);
+                }}
                 options={[
                   { value: 'tasks', label: TASK_PANEL_FEATURES.tasks.label },
                   { value: 'schedules', label: TASK_PANEL_FEATURES.schedules.label },
@@ -2634,80 +2727,28 @@ function ExportToolBody({
               />
             </div>
           ) : null}
-          <RetainedTabs
-            snapshotKey="export-tasks"
-            activeKey={taskTab === 'schedules' && taskLayout !== 'compact' ? 'schedules' : 'tasks'}
-          >
-            {taskTab === 'schedules' && taskLayout !== 'compact' ? (
-              <div className="weq-schedule-workspace">
-                <div className="weq-exp-sched-list">
-                  {onNewSchedule ? (
-                    <button type="button" className="weq-set-btn" onClick={onNewSchedule}>
-                      <CalendarClock size={15} />
-                      新建定时任务
-                    </button>
-                  ) : null}
-                  {schedules.isLoading ? (
-                    <ScheduleListSkeleton />
-                  ) : schedules.isError ? (
-                    <div role="status">
-                      定时任务加载失败
-                      <button
-                        type="button"
-                        title="重试加载计划"
-                        aria-label="重试加载计划"
-                        onClick={() => void schedules.refetch()}
-                      >
-                        <RefreshCw size={14} aria-hidden />
-                      </button>
-                    </div>
-                  ) : (schedules.data ?? []).length === 0 ? (
-                    <EmptyState compact icon={<CalendarClock />} title="暂无定时任务" />
-                  ) : (
-                    (schedules.data as ScheduledTask[]).map((s) => (
-                      <button
-                        type="button"
-                        key={s.id}
-                        className={`weq-schedule-select${activeScheduleId === s.id ? ' is-selected' : ''}`}
-                        onClick={() => setSelectedSchedule(s.id)}
-                      >
-                        <strong>{s.name}</strong>
-                        <span>
-                          <NumericText>{scheduleSummary(s)}</NumericText>
-                        </span>
-                        <small>
-                          {s.enabled ? (
-                            <NumericText>{`下次 ${fmtRunAt(s.nextRunAt)}`}</NumericText>
-                          ) : (
-                            '已暂停'
-                          )}
-                        </small>
-                      </button>
-                    ))
-                  )}
-                </div>
-                <div className="weq-schedule-details">
-                  <RetainedTabs
-                    snapshotKey="export-schedule"
-                    activeKey={activeScheduleId ?? 'empty'}
+          <RetainedTabs snapshotKey="export-tasks" activeKey={visibleTaskTab}>
+            {visibleTaskTab === 'schedules' ? (
+              pagedTasks ? (
+                activeSchedule ? (
+                  <TaskDetailPage
+                    title="计划详情"
+                    backLabel="返回定时任务"
+                    onBack={() => setOpenedScheduleId(null)}
                   >
-                    {(schedules.data as ScheduledTask[] | undefined)
-                      ?.filter((s) => s.id === activeScheduleId)
-                      .map((s) => (
-                        <div key={s.id}>
-                          <ScheduleRow
-                            key={s.id}
-                            schedule={s}
-                            onToggle={() => onToggleSchedule(s)}
-                            onDelete={() => onDeleteSchedule(s)}
-                            onRunNow={() => onRunScheduleNow(s)}
-                          />
-                          <ScheduleSettings schedule={s} />
-                        </div>
-                      ))}
+                    {scheduleDetail}
+                  </TaskDetailPage>
+                ) : (
+                  <RetainedTabs snapshotKey="schedule-task-page" activeKey="list">
+                    {scheduleList}
                   </RetainedTabs>
+                )
+              ) : (
+                <div className="weq-schedule-workspace">
+                  {scheduleList}
+                  <div className="weq-schedule-details">{scheduleDetail}</div>
                 </div>
-              </div>
+              )
             ) : (
               <CurrentTaskList
                 cleanupBinding={saveBinding}
@@ -2732,6 +2773,7 @@ function ExportToolBody({
                 loadingExports={tasks.isLoading}
                 onOpenClone={onOpenClone}
                 autoSelectId={autoSelectTaskId}
+                selection={taskSelection}
                 renderExport={(task) => (
                   <TaskList
                     onDatabaseRecovery={async (task, decision, skipRemaining) => {
@@ -2758,6 +2800,7 @@ function ExportToolBody({
                       }
                     }}
                     detailOnly
+                    foldCompletedStages={pagedTasks}
                     tasks={[task]}
                     onPause={onPause}
                     onFinalize={(t) => {

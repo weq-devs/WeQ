@@ -48,7 +48,10 @@
 
 /* 详情页只隐藏导航，不移除布局，侧滑露出的列表保持原来的上下边界。 */
 
-:where(html[data-weq-layout='single']) .weq-web-shell .weq-mobile-navigation[aria-hidden='true'] {
+:where(html[data-weq-layout='single']) .weq-web-shell .weq-mobile-navigation[aria-hidden='true'],
+:where(html[data-weq-layout='single'])
+  .weq-web-shell:has(.weq-workspace-page:not([hidden]) [data-mobile-workspace-detail])
+  .weq-mobile-navigation {
   visibility: hidden;
   pointer-events: none;
 }
@@ -275,7 +278,13 @@ html:where([data-weq-layout='single'])[data-component-style][data-theme]
   pointer-events: auto;
 }
 
-:where(html[data-weq-layout='single']) .weq-web-shell[data-mobile-detail] .app-shell > .chat-main {
+:where(html[data-weq-layout='single'])
+  .weq-web-shell:is(
+    [data-mobile-detail],
+    :has(.weq-workspace-page:not([hidden]) [data-mobile-workspace-detail])
+  )
+  .app-shell
+  > .chat-main {
   /* 全屏详情共用一次系统占位；内部聊天/设置标题栏不再重复计算安全区。 */
   --weq-window-safe-top: 0px;
   --weq-mobile-header-height: calc(56px + var(--weq-window-header-top, 0px));

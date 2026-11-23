@@ -261,6 +261,7 @@ export function WorkspaceTools({
     [closeMenu, resetTaskBadges],
   );
   const closeWorkspace = () => {
+    if (mobile) useWorkspaceMenu.setState({ taskFocusId: null });
     closeMenu();
     setExpanded(false);
   };
@@ -495,8 +496,9 @@ export function WorkspaceTools({
                 }
               >
                 <ExportTool
+                  key={accountScope}
                   surface="tasks"
-                  taskLayout={expanded ? 'split' : 'compact'}
+                  taskLayout={expanded ? (mobile ? 'page' : 'split') : 'compact'}
                   onTaskExpand={() => setExpanded(true)}
                   taskTabRequest={
                     taskTabRequest && taskTabRequest.scope === accountScope

@@ -11,11 +11,13 @@ export function LongTaskRow({
   active,
   onSelect,
   showQuickActions = false,
+  pageLink = false,
 }: {
   task: LongTaskItem;
   active: boolean;
   onSelect: () => void;
   showQuickActions?: boolean;
+  pageLink?: boolean;
 }) {
   const Icon = {
     pending: Clock,
@@ -25,12 +27,13 @@ export function LongTaskRow({
     failed: CircleAlert,
     cancelled: Ban,
   }[task.status];
-  const progress = longTaskProgress(task.progress);
+  const showProgress = !pageLink || task.status === 'running';
+  const progress = showProgress ? longTaskProgress(task.progress) : undefined;
   const row = (
     <button
       type="button"
       className={`weq-long-task is-${task.status}${active ? ' is-selected' : ''}`}
-      aria-expanded={active}
+      aria-expanded={pageLink ? undefined : active}
       onClick={onSelect}
     >
       <span className="weq-long-task-icon" aria-hidden>
@@ -42,13 +45,19 @@ export function LongTaskRow({
         </span>
         <span className="weq-long-task-meta">
           <NumericText>
-            {[task.kind, task.note, task.createdAt ? taskCreatedLabel(task.createdAt) : undefined]
+            {[
+              task.kind,
+              task.note,
+              !pageLink && task.createdAt ? taskCreatedLabel(task.createdAt) : undefined,
+            ]
               .filter(Boolean)
               .join(' · ')}
           </NumericText>
         </span>
-        <TaskProgressBar value={progress} label={`${task.name}进度`} status={task.status} />
-        {task.metrics ? (
+        {showProgress ? (
+          <TaskProgressBar value={progress} label={`${task.name}进度`} status={task.status} />
+        ) : null}
+        {!pageLink && task.metrics ? (
           <span className="weq-long-task-metrics">
             <NumericText>{task.metrics}</NumericText>
           </span>

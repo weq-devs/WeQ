@@ -508,10 +508,44 @@ html[data-theme='dark'] .weq-long-task-detail {
   }
 }
 
-@media (max-width: 700px) {
-  .weq-current-tasks.is-split .weq-current-task-columns {
-    grid-template-rows: minmax(0, 210px) minmax(0, 1fr);
-  }
+.weq-current-tasks.is-page .weq-current-task-columns {
+  flex: none;
+}
+
+.weq-current-tasks.is-page,
+.weq-task-workspace.is-page .weq-exp-sched-list {
+  overscroll-behavior: contain;
+}
+
+.weq-current-tasks.is-page .weq-long-task {
+  padding-inline: 12px;
+}
+
+.weq-current-tasks.is-page .weq-long-task-meta {
+  -webkit-line-clamp: 1;
+}
+
+.weq-current-tasks.is-page .weq-long-task-state {
+  width: auto;
+  max-width: 26%;
+  min-width: 55px;
+  text-align: right;
+}
+
+.weq-task-ended-head {
+  display: flex;
+  min-height: 44px;
+  padding: 0 12px 0 16px;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--weq-bg-canvas, var(--background));
+}
+
+.weq-task-ended-head h3 {
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .weq-contact-task-stages .weq-exp-detail-stage-label {

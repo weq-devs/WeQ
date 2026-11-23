@@ -13,6 +13,7 @@ import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import {
   CloudDownload,
   Download,
+  Ellipsis,
   FolderOpen,
   ExternalLink,
   FileCheck,
@@ -75,6 +76,15 @@ import {
 import { backgroundTaskDisplay } from '../../../../shared/background_task';
 import { isRoamingJobComplete, roamingJobProgress } from '../../../../shared/roaming_task_status';
 import { TaskName } from './TaskName';
+import { ConversationActionsMenu } from '../ConversationActionsMenu';
+import { RetainedTabs } from '../RetainedTabs';
+import { TaskDetailPage } from './TaskDetailPage';
+
+export type TaskLayout = 'inline' | 'compact' | 'split' | 'page';
+
+function isEnded(task: LongTaskItem) {
+  return task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled';
+}
 
 export interface ExportTaskActions {
   pause: (task: UiTask) => unknown;
@@ -94,6 +104,7 @@ export function CurrentTaskList({
   renderExport,
   onOpenClone,
   autoSelectId,
+  selection,
   layout = 'inline',
   onOpenDetail,
   toolbarAction,
@@ -106,7 +117,8 @@ export function CurrentTaskList({
   renderExport: (task: UiTask) => ReactNode;
   onOpenClone?: (id: string) => void;
   autoSelectId?: string | null;
-  layout?: 'inline' | 'compact' | 'split';
+  selection?: readonly [string | null | undefined, (id: string | null) => void];
+  layout?: TaskLayout;
   onOpenDetail?: () => void;
   toolbarAction?: ReactNode;
   cleanupBinding?: { expectedAccountUin: string; expectedAccountConfigId: string } | null;
@@ -120,6 +132,7 @@ export function CurrentTaskList({
   const confirm = useDialog((state) => state.confirm);
   const showInfo = useDialog((state) => state.showInfo);
   const [clearing, setClearing] = useState(false);
+  const [cleanupMenu, setCleanupMenu] = useState<{ x: number; y: number } | null>(null);
   const [openingFlash, setOpeningFlash] = useState<string | null>(null);
   const openingFlashRef = useRef<string | null>(null);
   const clearingRef = useRef(false);
@@ -141,13 +154,15 @@ export function CurrentTaskList({
     enabled: active,
     refetchInterval: active ? 2000 : false,
   });
-  const [selected, setSelected] = useState<string | null | undefined>(undefined);
+  const paged = layout === 'page';
+  const localSelection = useState<string | null>();
+  const [selected, setSelected] = selection ?? localSelection;
   const taskFocusId = useWorkspaceMenu((state) => state.taskFocusId);
   const taskOpenRequest = useWorkspaceMenu((state) => state.taskOpenRequest);
   const appliedFocus = useRef<string | null>(null);
   useEffect(() => {
-    if (autoSelectId) setSelected(`export:${autoSelectId}`);
-  }, [autoSelectId]);
+    if (!paged && autoSelectId) setSelected(`export:${autoSelectId}`);
+  }, [autoSelectId, paged, setSelected]);
 
   const items: LongTaskItem[] = exports.map((task): LongTaskItem => {
     const display = exportTaskDisplay(task);
@@ -849,22 +864,31 @@ export function CurrentTaskList({
     ) {
       appliedFocus.current = request;
       setSelected(taskFocusId);
+      if (paged) {
+        setCleanupMenu(null);
+        useWorkspaceMenu.setState({ taskFocusId: null });
+      }
     }
-  }, [taskFocusId, taskOpenRequest, items]);
+  }, [taskFocusId, taskOpenRequest, items, paged, setSelected]);
+  const loading =
+    loadingExports || roaming.isLoading || flash.isLoading || background.query.isLoading;
   useEffect(() => {
-    if (selected !== null && !ordered.some((task) => task.id === selected) && ordered[0])
-      setSelected(ordered[0].id);
-  }, [selected, ordered]);
+    if (ordered.some((task) => task.id === selected)) return;
+    if (paged) {
+      if (selected && !loading && !ordered.some((task) => task.id === taskFocusId))
+        setSelected(null);
+    } else if (selected !== null && ordered[0]) setSelected(ordered[0].id);
+  }, [selected, ordered, paged, loading, taskFocusId, setSelected]);
   const missingFocusedTask = Boolean(taskFocusId && !items.some((task) => task.id === taskFocusId));
   const selectedId =
     missingFocusedTask || selected === null
       ? null
       : ordered.some((item) => item.id === selected)
         ? selected
-        : ordered[0]?.id;
+        : paged
+          ? null
+          : ordered[0]?.id;
   const running = items.filter((task) => task.status === 'running').length;
-  const loading =
-    loadingExports || roaming.isLoading || flash.isLoading || background.query.isLoading;
   const visible = useTabActive();
   const unreadResults = useWorkspaceMenu((state) => state.finished);
   const readTasks = useWorkspaceMenu((state) => state.readTasks);
@@ -873,11 +897,8 @@ export function CurrentTaskList({
   }, [visible, active, loading, unreadResults, readTasks]);
   const hasError = exportError || roaming.error || flash.error || background.error;
   /** 已结束的任务都可移除；进行中、等待和可续传的暂停任务保留。 */
-  const finished = items.filter(
-    (task) =>
-      !desktopOnlyIds.has(task.id) &&
-      (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled'),
-  );
+  const finished = items.filter((task) => !desktopOnlyIds.has(task.id) && isEnded(task));
+  const cleanupDisabled = clearing || loading || !cleanupBinding || !finished.length;
   const clearFinished = async (): Promise<void> => {
     if (clearingRef.current || !cleanupBinding || !finished.length) return;
     clearingRef.current = true;
@@ -956,34 +977,58 @@ export function CurrentTaskList({
       if (mounted.current) setClearing(false);
     }
   };
-  return (
+  const renderRow = (task: LongTaskItem) => (
+    <Fragment
+      key={`${cleanupBinding?.expectedAccountUin ?? accountId}:${cleanupBinding?.expectedAccountConfigId ?? ''}:${task.id}`}
+    >
+      <LongTaskRow
+        task={task}
+        active={task.id === selectedId}
+        pageLink={paged}
+        showQuickActions={layout === 'compact'}
+        onSelect={() => {
+          useWorkspaceMenu.setState({ taskFocusId: null });
+          setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
+          if (layout === 'compact') onOpenDetail?.();
+        }}
+      />
+      {layout === 'inline' && task.id === selectedId ? (
+        <div className="weq-long-task-detail">{task.detail}</div>
+      ) : null}
+    </Fragment>
+  );
+  const selectedTask = ordered.find((task) => task.id === selectedId);
+  const ended = paged ? ordered.filter(isEnded) : [];
+  const list = (
     <section
       className={`weq-current-tasks is-${layout}${!items.length ? ' is-empty' : ''}`}
       aria-label="当前任务列表"
     >
-      <header className="weq-current-tasks-head">
-        <div className="weq-current-tasks-summary">
-          <span>
-            <span className="weq-number weq-number-inherit">{items.length}</span> 项任务
-            <NumericText>{running ? ` · ${running} 项进行中` : ''}</NumericText>
-          </span>
-          {toolbarAction}
-        </div>
-        <div className="weq-current-tasks-actions">
-          <button
-            data-danger="outline"
-            type="button"
-            className="weq-set-btn weq-set-btn-soft"
-            title="清理已结束任务"
-            aria-label="清理已结束任务"
-            disabled={clearing || loading || !cleanupBinding || !finished.length}
-            onClick={() => void clearFinished()}
-          >
-            <Trash2 size={14} />
-            清理已结束任务
-          </button>
-        </div>
-      </header>
+      {!paged ? (
+        <header className="weq-current-tasks-head">
+          <div className="weq-current-tasks-summary">
+            <span>
+              <span className="weq-number weq-number-inherit">{items.length}</span> 项任务
+              <NumericText>{running ? ` · ${running} 项进行中` : ''}</NumericText>
+            </span>
+            {toolbarAction}
+          </div>
+          <div className="weq-current-tasks-actions">
+            <button
+              data-danger="outline"
+              type="button"
+              className="weq-set-btn weq-set-btn-soft"
+              title="清理已结束任务"
+              aria-label="清理已结束任务"
+              disabled={cleanupDisabled}
+              onClick={() => void clearFinished()}
+            >
+              <Trash2 size={14} />
+              清理已结束任务
+            </button>
+          </div>
+        </header>
+      ) : null}
       {exportError ? (
         <p role="alert" className="weq-current-tasks-notice">
           导出任务读取失败：{exportError}
@@ -1015,40 +1060,81 @@ export function CurrentTaskList({
       {items.length ? (
         <div className="weq-current-task-columns">
           <div className="weq-current-task-list">
-            {ordered.map((task) => (
-              <Fragment
-                key={`${cleanupBinding?.expectedAccountUin ?? accountId}:${cleanupBinding?.expectedAccountConfigId ?? ''}:${task.id}`}
-              >
-                <LongTaskRow
-                  task={task}
-                  active={task.id === selectedId}
-                  showQuickActions={layout === 'compact'}
-                  onSelect={() => {
-                    useWorkspaceMenu.setState({ taskFocusId: null });
-                    setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
-                    if (layout === 'compact') onOpenDetail?.();
-                  }}
-                />
-                {layout === 'inline' && task.id === selectedId ? (
-                  <div className="weq-long-task-detail">{task.detail}</div>
-                ) : null}
-              </Fragment>
-            ))}
+            {(paged ? ordered.filter((task) => !isEnded(task)) : ordered).map(renderRow)}
+            {ended.length ? (
+              <section aria-label="已结束任务">
+                <header className="weq-task-ended-head">
+                  <h3>
+                    已结束 <NumericText>{String(ended.length)}</NumericText>
+                  </h3>
+                  {!cleanupDisabled ? (
+                    <button
+                      type="button"
+                      className="weq-page-back"
+                      aria-label="已结束任务操作"
+                      aria-haspopup="menu"
+                      aria-expanded={Boolean(cleanupMenu)}
+                      onClick={(event) => {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setCleanupMenu({ x: rect.right, y: rect.bottom });
+                      }}
+                    >
+                      <Ellipsis size={20} aria-hidden />
+                    </button>
+                  ) : null}
+                </header>
+                {ended.map(renderRow)}
+              </section>
+            ) : null}
           </div>
           {layout === 'split' ? (
             <div key={selectedId} className="weq-current-task-details" aria-label="任务步骤详情">
-              {ordered.find((task) => task.id === selectedId)?.detail ?? (
+              {selectedTask?.detail ?? (
                 <EmptyState compact icon={<ListTodo />} title="请选择任务" />
               )}
             </div>
           ) : null}
         </div>
       ) : null}
-      <div className="weq-current-tasks-results" role="group" aria-label="已结束任务">
-        <span>
-          <NumericText>{`${finished.length} 项已结束`}</NumericText>
-        </span>
-      </div>
+      {!paged ? (
+        <div className="weq-current-tasks-results" role="group" aria-label="已结束任务">
+          <span>
+            <NumericText>{`${finished.length} 项已结束`}</NumericText>
+          </span>
+        </div>
+      ) : null}
+      {paged && cleanupMenu ? (
+        <ConversationActionsMenu
+          {...cleanupMenu}
+          dropdown
+          label="已结束任务操作"
+          onClose={() => setCleanupMenu(null)}
+          actions={[
+            {
+              label: '清理已结束任务',
+              icon: <Trash2 size={16} aria-hidden />,
+              danger: 'outline',
+              disabled: cleanupDisabled,
+              action: () => void clearFinished(),
+            },
+          ]}
+        />
+      ) : null}
     </section>
+  );
+  if (!paged) return list;
+  return selectedTask ? (
+    <TaskDetailPage
+      key={selectedTask.id}
+      title="任务详情"
+      backLabel="返回当前任务"
+      onBack={() => setSelected(null)}
+    >
+      {selectedTask.detail}
+    </TaskDetailPage>
+  ) : (
+    <RetainedTabs snapshotKey="current-task-page" activeKey="list">
+      {list}
+    </RetainedTabs>
   );
 }

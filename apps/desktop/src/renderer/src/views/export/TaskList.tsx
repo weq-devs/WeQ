@@ -310,6 +310,7 @@ function TaskDetail({
   onDelete,
   onShowFailures,
   onDatabaseRecovery,
+  foldCompletedStages = false,
 }: {
   task: UiTask;
   onPause: (t: UiTask) => void;
@@ -324,6 +325,7 @@ function TaskDetail({
   onBrowserDownload?: (t: UiTask) => void;
   onDelete: (t: UiTask) => void;
   onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
+  foldCompletedStages?: boolean;
   onDatabaseRecovery?: (
     t: UiTask,
     decision: RecoveryDecision,
@@ -361,6 +363,33 @@ function TaskDetail({
       (onSkipStage &&
         ['running', 'paused', 'failed'].includes(t.status) &&
         (SKIPPABLE_STAGE_KEYS as readonly string[]).includes(s.key)),
+  );
+  const foldStage = (stage: UiStage) =>
+    foldCompletedStages &&
+    (stage.status === 'completed' || stage.status === 'skipped') &&
+    !stage.failed &&
+    !stage.failures?.length;
+  const foldedStages = mounted.filter(foldStage);
+  const renderStage = (s: UiStage) => (
+    <StageRow
+      key={s.key}
+      stage={s}
+      logs={stageLogs(s.key)}
+      onShowFailures={(failures) => onShowFailures(t, failures)}
+      onSkip={
+        onSkipStage &&
+        !t.isFinalizing &&
+        !t.isContacts &&
+        !t.isQzone &&
+        !t.isGenerated &&
+        !t.resource &&
+        ['running', 'paused', 'failed'].includes(t.status) &&
+        ['pending', 'running', 'failed'].includes(s.status) &&
+        (SKIPPABLE_STAGE_KEYS as readonly string[]).includes(s.key)
+          ? () => onSkipStage(t, s.key as SkippableStage)
+          : undefined
+      }
+    />
   );
 
   const actions: TaskQuickAction[] = [];
@@ -634,27 +663,15 @@ function TaskDetail({
       ) : null}
 
       <div className="weq-exp-detail-stages">
-        {mounted.map((s) => (
-          <StageRow
-            key={s.key}
-            stage={s}
-            logs={stageLogs(s.key)}
-            onShowFailures={(failures) => onShowFailures(t, failures)}
-            onSkip={
-              onSkipStage &&
-              !t.isFinalizing &&
-              !t.isContacts &&
-              !t.isQzone &&
-              !t.isGenerated &&
-              !t.resource &&
-              ['running', 'paused', 'failed'].includes(t.status) &&
-              ['pending', 'running', 'failed'].includes(s.status) &&
-              (SKIPPABLE_STAGE_KEYS as readonly string[]).includes(s.key)
-                ? () => onSkipStage(t, s.key as SkippableStage)
-                : undefined
-            }
-          />
-        ))}
+        {mounted.filter((s) => !foldStage(s)).map(renderStage)}
+        {foldedStages.length ? (
+          <details className="weq-task-finished-stages">
+            <summary>
+              <NumericText>{`已完成或跳过 ${foldedStages.length} 个步骤`}</NumericText>
+            </summary>
+            {foldedStages.map(renderStage)}
+          </details>
+        ) : null}
       </div>
 
       {showTaskLog ? (
@@ -694,6 +711,7 @@ export function TaskList({
   isExpanded = false,
   onToggleExpanded,
   detailOnly = false,
+  foldCompletedStages = false,
 }: {
   tasks: UiTask[];
   onPause: (t: UiTask) => void;
@@ -721,6 +739,7 @@ export function TaskList({
   /** 切换展开/收起。 */
   onToggleExpanded?: () => void;
   detailOnly?: boolean;
+  foldCompletedStages?: boolean;
 }): ReactElement | null {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -761,6 +780,7 @@ export function TaskList({
         onDatabaseRecovery={onDatabaseRecovery}
         key={selected.id}
         task={selected}
+        foldCompletedStages={foldCompletedStages}
         onPause={onPause}
         onResume={onResume}
         onFinalize={onFinalize}

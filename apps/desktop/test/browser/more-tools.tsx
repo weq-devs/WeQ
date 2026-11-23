@@ -5,9 +5,12 @@ import { ChatShell } from '../../src/renderer/src/im-template/template/chatShell
 import { WorkspaceContent, WorkspacePages } from '../../src/renderer/src/components/WorkspacePages';
 import { WorkspaceTools } from '../../src/renderer/src/components/WorkspaceTools';
 import { WorkspaceMenuButton } from '../../src/renderer/src/components/WorkspaceMenuButton';
+import { PageSnapshots } from '../../src/renderer/src/components/PageSnapshots';
+import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { CompositionWorkspace } from '../../src/renderer/src/components/mergeForward/CompositionWorkspace';
 import { useCompositionWindow } from '../../src/renderer/src/hooks/useCompositionWindow';
 import { useViewState } from '../../src/renderer/src/state/view';
+import { useWorkspaceMenu } from '../../src/renderer/src/state/workspaceMenu';
 import { MailWorkspace } from '../../src/renderer/src/views/MailView';
 import { ChannelView } from '../../src/renderer/src/views/ChannelView';
 import { DressUpDialog } from '../../src/renderer/src/components/DressUpDialog';
@@ -17,6 +20,7 @@ import {
 } from '../../src/renderer/src/im-template/template/shellController';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import type { MainView } from '../../src/renderer/src/im-template/template/types';
+import { seedMobileSurfaceData } from './mobile-surfaces.stub';
 import '../../src/renderer/src/styles/index.css';
 
 const noop = () => {};
@@ -30,6 +34,45 @@ const user = {
 };
 ensureThemeInitialized();
 useViewState.setState({ openedUin: 'fixture' });
+seedMobileSurfaceData({ 'bootstrap.getDevelopmentFeatures': { dressTools: true } });
+const taskFixture = new URLSearchParams(location.search).has('tasks');
+if (taskFixture) {
+  useViewState.setState({ openedUin: '10001' });
+  seedMobileSurfaceData({
+    'bootstrap.getSettings': { exportSaveMode: 'before' },
+    'account.listExportTasks': Array.from({ length: 18 }, (_, i) => ({
+      id: `export-fixture-${i}`,
+      name: `合成聊天 ${i}`,
+      kind: 'c2c',
+      format: 'txt',
+      status: i < 2 ? 'running' : 'completed',
+      progress: i < 2 ? 63 : 100,
+      current: i < 2 ? 63 : 100,
+      total: 100,
+      canPause: i < 2,
+      stages:
+        i === 0
+          ? [
+              { key: 'dress', label: '合成已完步骤', status: 'completed', current: 1, total: 1 },
+              { key: 'message', label: '合成当前步骤', status: 'running', current: 63, total: 100 },
+            ]
+          : [],
+    })),
+    'account.listSchedules': [
+      {
+        id: 'schedule-fixture',
+        name: '合成定时计划',
+        format: 'txt',
+        conversations: [],
+        schedule: { mode: 'daily', time: '02:30' },
+        options: { range: { preset: 'all' } },
+        enabled: true,
+        nextRunAt: 1795521600000,
+        history: [],
+      },
+    ],
+  });
+}
 
 function Fixture() {
   const [dressUpOpen, setDressUpOpen] = useState(false);
@@ -52,6 +95,7 @@ function Fixture() {
         setMainOpen(true);
       },
       openDressUp: () => setDressUpOpen(true),
+      focusTask: (id: string) => useWorkspaceMenu.getState().focusTask(`export:${id}`),
     },
   });
   return (
@@ -120,6 +164,9 @@ function Fixture() {
 }
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={new QueryClient()}>
-    <Fixture />
+    <PageSnapshots scope={taskFixture ? 'task-navigation-fixture' : null}>
+      <Fixture />
+      {taskFixture ? <DialogHost /> : null}
+    </PageSnapshots>
   </QueryClientProvider>,
 );

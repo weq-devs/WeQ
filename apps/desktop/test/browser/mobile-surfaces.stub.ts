@@ -138,6 +138,10 @@ const data: Record<string, unknown> = {
   'mail.list': { items: [], page: 0, total: 0, unread: 0, hasMore: false },
 };
 const results = new Map<string, object>();
+export function seedMobileSurfaceData(values: Record<string, unknown>) {
+  Object.assign(data, values);
+  results.clear();
+}
 const noop = () => {};
 function proxy(path = ''): unknown {
   return new Proxy(noop, {

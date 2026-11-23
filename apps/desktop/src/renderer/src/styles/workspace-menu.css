@@ -229,7 +229,7 @@
 .weq-current-tasks.is-split .weq-current-task-columns,
 .weq-schedule-workspace {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: min(280px, 42%) minmax(0, 1fr);
   flex: 1;
   min-height: 0;
   overflow: hidden;
@@ -371,20 +371,96 @@ html[data-theme='dark'] .weq-workspace-controls .weq-rail-account-avatar {
   background: transparent;
 }
 
-@media (max-width: 700px) {
-  .weq-current-tasks.is-split .weq-current-task-columns,
-  .weq-schedule-workspace {
-    grid-template-columns: minmax(0, 1fr);
-    overflow-y: auto;
-  }
+.weq-workspace-menu:has(.weq-task-detail-page) .weq-workspace-menu-head,
+.weq-task-workspace:has(.weq-task-detail-page) .weq-task-workspace-tabs {
+  display: none;
+}
 
-  .weq-current-tasks.is-split .weq-current-task-list,
-  .weq-schedule-workspace .weq-exp-sched-list {
-    max-height: 210px;
-    overflow-y: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--weq-border-subtle);
-  }
+.weq-task-detail-page {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--weq-bg-surface);
+}
+
+.weq-task-detail-page > .weq-page-head {
+  min-height: 52px;
+  padding: 4px 12px;
+}
+
+.weq-task-detail-page-body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 16px max(16px, var(--weq-safe-bottom, 0px));
+  overflow: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+}
+
+.weq-task-detail-page .weq-task-detail-page-body .weq-exp-detail {
+  gap: 8px;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+}
+
+.weq-task-detail-page-body :is(.weq-exp-detail-title strong, .weq-exp-detail-meta) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.weq-task-detail-page-body .weq-exp-detail-title strong {
+  font-size: 15px;
+}
+
+.weq-task-detail-page-body .weq-task-detail-actions > .weq-set-btn {
+  min-height: 44px;
+}
+
+.weq-task-detail-page-body .weq-exp-detail-stage .weq-exp-detail-stage-head {
+  grid-template-columns: minmax(0, 1fr) minmax(20px, 1fr) auto auto;
+}
+
+.weq-task-detail-page-body
+  .weq-exp-detail-stage
+  .weq-exp-detail-stage-head:has(.weq-exp-detail-stage-failures) {
+  grid-template-columns: minmax(0, 1fr) auto minmax(20px, 1fr) auto auto;
+}
+
+.weq-task-detail-page-body .weq-exp-detail-stage-label {
+  white-space: normal;
+}
+
+.weq-task-detail-page-body .weq-exp-detail-stage-actions {
+  width: auto;
+}
+
+.weq-task-detail-page-body .weq-exp-detail-stage-actions .weq-exp-detail-stage-toggle {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+}
+
+.weq-task-finished-stages > summary {
+  min-height: 44px;
+  padding: 12px 0;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.weq-task-workspace.is-page .weq-exp-sched-list > .weq-set-btn {
+  flex: none;
+  align-self: flex-start;
+  min-height: 44px;
+  margin: 4px 12px 8px;
+}
+
+.weq-task-workspace.is-page .weq-schedule-select {
+  flex: none;
+  padding: 12px 16px;
 }
 
 @media (pointer: coarse) {

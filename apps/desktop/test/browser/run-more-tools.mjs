@@ -45,11 +45,7 @@ try {
   await page.route('**/*', (route) =>
     new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
   );
-  await page.goto(
-    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/more-tools.html`,
-  );
-  await page.waitForSelector('.weq-mobile-more');
-  const names = ['任务', '分析', '分析报告', '导出', '导出查看器', '合成聊天记录'];
+  const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/more-tools.html`;
   const swipeBack = async (selector) => {
     await page.evaluate(async (selector) => {
       const target = document.querySelector(selector);
@@ -80,6 +76,19 @@ try {
     assert.ok(Math.abs(bounds.y + bounds.height - bottom.y) < 1);
     assert.equal(await page.locator('.weq-mobile-navigation > .weq-mobile-more').count(), 0);
   };
+  const checks = { chrome, swipeBack, output, url };
+  if (!process.argv.includes('--tasks')) await checkMoreTools(page, checks);
+  await checkTaskPages(page, checks);
+  assert.deepEqual(errors, []);
+} finally {
+  await browser?.close();
+  await server.close();
+}
+
+async function checkMoreTools(page, { chrome, swipeBack, output, url }) {
+  await page.goto(url);
+  await page.waitForSelector('.weq-mobile-more');
+  const names = ['任务', '分析', '分析报告', '导出', '导出查看器', '合成聊天记录'];
   for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 844 });
     for (const theme of ['light', 'dark']) {
@@ -141,7 +150,11 @@ try {
       for (const name of names) {
         await page.locator('.weq-mobile-more').getByRole('button', { name, exact: true }).click();
         const modal = name === '分析报告';
-        const tool = page.getByRole(modal ? 'dialog' : 'region', { name, exact: true });
+        const tool = modal
+          ? page.getByRole('dialog', { name, exact: true })
+          : page
+              .locator('.weq-workspace-page')
+              .and(page.getByRole('region', { name, exact: true }));
         await tool.waitFor();
         await tool.getByText('正在加载…', { exact: true }).waitFor({ state: 'hidden' });
         if (!modal) await chrome();
@@ -188,11 +201,70 @@ try {
   await page.locator('.weq-workspace-menu-trigger:visible').click();
   assert.ok(await page.locator('.weq-dialog-layer:not([hidden]) .weq-workspace-menu').isVisible());
   assert.equal(await page.locator('.weq-workspace-page').count(), 0);
-  assert.deepEqual(errors, []);
   console.log(
     'PASS: 个性装扮顶底栏与返回、更多移除频道与助手、三个次级页面与六个工具、真实邮箱写信分层侧滑、320/390 深浅色、顶底栏边界、同标签返回、跨标签关闭及系统返回',
   );
-} finally {
-  await browser?.close();
-  await server.close();
+}
+
+async function checkTaskPages(page, { chrome, swipeBack, output, url }) {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(`${url}?tasks=1`);
+  await page.locator('.weq-mobile-more').getByRole('button', { name: /^任务/ }).click();
+  const taskList = page.getByRole('region', { name: '当前任务列表', exact: true });
+  const taskDetail = page.getByRole('region', { name: '任务详情', exact: true });
+  await taskList.waitFor();
+  assert.equal(await taskDetail.count(), 0);
+  await chrome();
+  if (output) await page.screenshot({ path: resolve(output, 'tasks-portrait-list.png') });
+  const runningTask = taskList.getByRole('button', { name: /合成聊天 0\b/ });
+  const finishedTask = taskList.getByRole('button', { name: /合成聊天 16\b/ });
+  assert.equal(await finishedTask.getByRole('progressbar').count(), 0);
+  await runningTask.click();
+  await taskDetail.waitFor();
+  assert.equal(await taskList.count(), 0);
+  assert.equal(await page.locator('.weq-mobile-header').isVisible(), false);
+  assert.equal(await page.locator('.weq-mobile-tabs').isVisible(), false);
+  assert.ok(await taskDetail.getByRole('button', { name: '暂停', exact: true }).isVisible());
+  assert.ok(await taskDetail.getByText('合成当前步骤', { exact: true }).isVisible());
+  assert.equal(await taskDetail.getByText('合成已完步骤', { exact: true }).isVisible(), false);
+  if (output) await page.screenshot({ path: resolve(output, 'tasks-portrait-detail.png') });
+  await taskDetail.getByText(/已完成或跳过/).click();
+  assert.ok(await taskDetail.getByText('合成已完步骤', { exact: true }).isVisible());
+  await taskDetail.getByRole('button', { name: '返回当前任务', exact: true }).click();
+  await taskList.waitFor();
+  await chrome();
+  await taskList.getByRole('button', { name: '已结束任务操作' }).click();
+  await page.getByRole('menuitem', { name: '清理已结束任务' }).click();
+  assert.ok(await page.getByText(/尚未保存，清除后将无法/).isVisible());
+  await page.getByRole('button', { name: '保留', exact: true }).click();
+  await finishedTask.scrollIntoViewIfNeeded();
+  const scrollTop = await taskList.evaluate((node) => node.scrollTop);
+  assert.ok(scrollTop > 210);
+  await finishedTask.click();
+  await taskDetail.waitFor();
+  await taskDetail.getByRole('button', { name: '保存结果', exact: true }).click();
+  await page.getByRole('region', { name: '保存结果', exact: true }).waitFor();
+  await page.evaluate(() => window.weqMobileNavigation.back());
+  await taskDetail.getByRole('button', { name: '保存结果', exact: true }).waitFor();
+  await swipeBack('.weq-task-detail-page');
+  await taskList.waitFor();
+  await page.waitForFunction(
+    (top) => Math.abs(document.querySelector('.weq-current-tasks').scrollTop - top) < 1,
+    scrollTop,
+  );
+  await page.getByText('定时任务', { exact: true }).click();
+  await page.getByRole('button', { name: /合成定时计划/ }).click();
+  const scheduleDetail = page.getByRole('region', { name: '计划详情', exact: true });
+  await scheduleDetail.getByRole('textbox', { name: '任务名称' }).waitFor();
+  assert.equal(await page.locator('.weq-exp-sched-list').count(), 0);
+  await page.evaluate(() => window.weqMobileNavigation.back());
+  await page.getByRole('button', { name: /合成定时计划/ }).waitFor();
+  await page.evaluate(() => window.moreToolsQa.focusTask('export-fixture-0'));
+  await taskDetail.getByText('合成当前步骤', { exact: true }).waitFor();
+  await page.setViewportSize({ width: 1180, height: 844 });
+  await page.locator('.weq-current-task-details').waitFor();
+  assert.ok(await page.locator('.weq-current-task-list').isVisible());
+
+  console.log('PASS: 竖屏任务列表/详情、滚动恢复、清理确认、定时任务、通知直达及宽屏双栏');
 }
