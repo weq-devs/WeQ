@@ -479,6 +479,9 @@ import {
 } from '../components/search/appSearchCatalog';
 import { OPEN_FEATURE_EVENT } from '../../../shared/feature_links';
 import { useAppLock } from '../state/lock';
+import { usePrivacyStore } from '../state/privacy';
+import { instantChatEligible, instantChatRows, watchRemoteInstant } from '../lib/remoteInstant';
+import { instantNativeNotify, type InstantTarget } from '../lib/remoteInstantBridge';
 import type { DressKind } from '../components/DressUpDialog';
 import type { SettingsSearchTarget } from '../components/settings/searchTarget';
 import { WorkspaceContent, WorkspacePages } from '../components/WorkspacePages';
@@ -8587,6 +8590,102 @@ function MainWorkspace(): ReactElement {
         }))
       : rows;
   }, [conversationViews, conversationView, allConversationOptions, groupAssistantPins]);
+  const instantPrivacy = usePrivacyStore((state) => state.effective);
+  const instantScope =
+    instantPrivacy || interactionViewportLocked || displaySettings.data?.appLock?.enabled
+      ? null
+      : displaySettings.isSuccess && messageScope
+        ? messageScope
+        : undefined;
+  const instantRows = useStableCallback(() =>
+    hiddenSessions.data && deletedSessions.data && recentHead.data
+      ? instantChatRows(
+          queryClient,
+          messageScope,
+          conversationViews.regular,
+          user.identityValue,
+          user.uid,
+        )
+      : undefined,
+  );
+  useEffect(() => {
+    if (IS_WEB && instantScope !== undefined)
+      return watchRemoteInstant(queryClient, instantScope, instantRows);
+  }, [
+    instantScope,
+    hiddenSessions.data,
+    deletedSessions.data,
+    recentHead.data,
+    instantRows,
+    queryClient,
+  ]);
+  const [instantOpening, setInstantOpening] = useState<{
+    target: InstantTarget;
+    done: (opened: boolean) => void;
+  }>();
+  const openInstantChat = useStableCallback(async (target: InstantTarget) => {
+    if (
+      !instantScope ||
+      target.scope !== instantScope ||
+      !conversationViews.regular.some((row) => row.id === target.id && instantChatEligible(row))
+    )
+      return false;
+    handleSelectConversation(target.id);
+    return new Promise<boolean>((resolve) => {
+      const timer = window.setTimeout(() => {
+        setInstantOpening(undefined);
+        resolve(false);
+      }, 1_500);
+      setInstantOpening({
+        target,
+        done: (opened) => {
+          window.clearTimeout(timer);
+          resolve(opened);
+        },
+      });
+    });
+  });
+  useLayoutEffect(() => {
+    if (!IS_WEB || !instantNativeNotify()) return;
+    window.weqRemoteOpenCachedChat = openInstantChat;
+    return () => {
+      delete window.weqRemoteOpenCachedChat;
+    };
+  }, [openInstantChat]);
+  useEffect(() => {
+    if (!instantOpening) return;
+    if (instantOpening.target.scope !== instantScope) {
+      instantOpening.done(false);
+      setInstantOpening(undefined);
+      return;
+    }
+    if (!messagesTabActive || selectedUid !== instantOpening.target.id || loadingInitialMessages)
+      return;
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      const { anchor } = instantOpening.target;
+      if (anchor) {
+        if (loadedRef.current.some((message) => timelineRowKey(message) === anchor))
+          scrollToMsgId(anchor, false);
+      }
+      secondFrame = requestAnimationFrame(() => {
+        instantOpening.done(true);
+        setInstantOpening(undefined);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, [
+    instantOpening,
+    instantScope,
+    messagesTabActive,
+    selectedUid,
+    loadingInitialMessages,
+    loadedRef,
+    scrollToMsgId,
+  ]);
   const accountPins = useAccountRecords('pins', messageScope);
   const regularViewPreferences = useMemo(
     () => aggregatePinPreferences(conversationViews.regular, conversationPrefs, accountPins),

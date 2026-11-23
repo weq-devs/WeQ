@@ -3,6 +3,7 @@ import superjson from 'superjson';
 import type { MessageWire } from '../views/workspace/types';
 import { conversationWindowKey, type ConversationWindow } from './conversationWindowCache';
 import { IS_WEB } from './target.shared';
+import { reportVerifiedRemoteChat } from './remoteInstantBridge';
 
 export const recentMessageCacheTag = 'weq-recent-message-windows-v1';
 const queryKey = (scope: string) => [recentMessageCacheTag, scope] as const;
@@ -16,6 +17,13 @@ type Entry = {
   bytes: number;
   hasOlder: boolean;
 };
+
+export function recentMessageEntries(client: QueryClient, scope: string, now = Date.now()) {
+  return (client.getQueryData<Entry[]>(queryKey(scope)) ?? []).flatMap((entry) => {
+    const expiresAt = entry.savedAt + TTL;
+    return Array.isArray(entry.rows) && expiresAt >= now ? [{ ...entry, expiresAt }] : [];
+  });
+}
 
 export function readRecentMessageCache(
   client: QueryClient,
@@ -54,6 +62,7 @@ export function rememberRecentMessageCache(
   hasOlder: boolean,
 ) {
   if (!IS_WEB || !scope) return;
+  reportVerifiedRemoteChat();
   const key = conversationWindowKey(scope, kind, conv);
   const existing = client.getQueryData<Entry[]>(queryKey(scope)) ?? [];
   const savedAt = Date.now();

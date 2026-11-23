@@ -53,6 +53,7 @@ const EXCLUDE_FROM_EXTERNAL = [
 
 let remoteWebBuilt = false;
 const development = process.env.NODE_ENV_ELECTRON_VITE === 'development';
+const staticRemoteWeb = development && process.env.WEQ_DEV_WEB_STATIC === '1';
 const initialSummary = developmentLogging?.developmentBuildSummary();
 const mainLogging = developmentViteLogging(
   'main',
@@ -94,7 +95,7 @@ export default defineConfig({
       {
         name: 'weq-remote-web-assets',
         async buildStart() {
-          if (development) return;
+          if (development && !staticRemoteWeb) return;
           if (remoteWebBuilt) return;
           await prepareWebAssets(resolve(import.meta.dirname, '../..'));
           remoteWebBuilt = true;
@@ -196,9 +197,13 @@ export default defineConfig({
     plugins: [
       ...rendererLogging.plugins,
       developmentReload.rendererPlugin({ clearOnMenuRestart: true }),
-      developmentWeb(resolve(import.meta.dirname, '../..'), {
-        plugins: [createDevelopmentReload().rendererPlugin()],
-      }),
+      ...(staticRemoteWeb
+        ? []
+        : [
+            developmentWeb(resolve(import.meta.dirname, '../..'), {
+              plugins: [createDevelopmentReload().rendererPlugin()],
+            }),
+          ]),
       react(),
       tailwindcss(),
     ],

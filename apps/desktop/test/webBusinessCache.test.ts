@@ -14,6 +14,8 @@ import {
   readRecentMessageCache,
 } from '../src/renderer/src/lib/recentMessageCache';
 import { conversationWindowKey } from '../src/renderer/src/lib/conversationWindowCache';
+import { instantChatRows, watchRemoteInstant } from '../src/renderer/src/lib/remoteInstant';
+import { createTemplateDemoData } from './support/templateDemoData';
 
 vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 
@@ -33,6 +35,67 @@ function memoryStore(): BusinessCacheStore {
 }
 
 describe('Web 业务持久缓存', () => {
+  it('原生首屏只投影当前来源打开过的普通会话，过滤撤回与删除正文', () => {
+    const cache = new QueryClient();
+    const chat = {
+      ...createTemplateDemoData().conversations.find((row) => row.type === 'direct')!,
+      directoryKind: 'qq' as const,
+    };
+    const row = {
+      msgId: '4',
+      msgSeq: '2',
+      senderUid: 'friend',
+      senderUin: '123',
+      sendTime: '1',
+      elements: [{ type: 'text', data: { textContent: '最近消息' } }],
+    };
+    const timestamp = Date.now();
+    rememberRecentMessageCache(
+      cache,
+      'source',
+      'c2c',
+      chat.id,
+      [row, { ...row, msgId: '5', deletedKind: 'qq' }],
+      false,
+    );
+    expect(instantChatRows(cache, 'source', [chat], '123')).toEqual([
+      {
+        id: chat.id,
+        title: expect.any(String),
+        expiresAt: expect.any(Number),
+        rows: [{ id: expect.any(String), text: '最近消息', mine: true }],
+      },
+    ]);
+    expect(instantChatRows(cache, 'source', [{ ...chat, hidden: true }], '123')).toEqual([]);
+    expect(instantChatRows(cache, 'new-account', [chat], '123')).toBeUndefined();
+    vi.spyOn(Date, 'now').mockReturnValue(timestamp + 90_000_000);
+    expect(instantChatRows(cache, 'source', [chat], '123')).toBeUndefined();
+    vi.restoreAllMocks();
+    cache.clear();
+  });
+
+  it('手机桥切账号时先作废旧快照，目录未就绪不写空列表', async () => {
+    const notify = vi.fn();
+    const cache = new QueryClient();
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Test WeQRemote');
+    vi.stubGlobal('weqRemoteLinks', { instantChanged: notify });
+    window.weqRemoteInstantSnapshot = { scope: 'old', chats: [] };
+    const stop = watchRemoteInstant(cache, 'new', () => undefined);
+    try {
+      expect(window.weqRemoteInstantSnapshot).toEqual({ scope: 'new' });
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(notify).toHaveBeenCalledOnce();
+      watchRemoteInstant(cache, null, () => undefined);
+      expect(window.weqRemoteInstantSnapshot).toEqual({ scope: null, chats: [] });
+    } finally {
+      stop?.();
+      delete window.weqRemoteInstantSnapshot;
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+      cache.clear();
+    }
+  });
+
   it('新网页来源可从 iOS 共享快照恢复，不接受其他数据源的快照', async () => {
     const account = JSON.stringify(['qq', 'snapshot-a']);
     const other = JSON.stringify(['qq', 'snapshot-b']);
