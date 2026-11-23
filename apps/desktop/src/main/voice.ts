@@ -5,7 +5,8 @@
  * QQ stores PTT as Tencent SILK v3 (`.amr` extension, header `#!SILK_V3`,
  * preceded by a 1-byte flag). No browser plays SILK, so we decode to 24 kHz
  * mono PCM via `silk-wasm` and wrap it in a WAV container. Results cache under
- * `appData/cache/voice/<name>.wav`, so a clip decodes once and replays off disk.
+ * `appData/cache/voice`, keyed by source file revision, so concurrent players
+ * share a decode and replays stream the previously generated WAV.
  *
  * silk-wasm's wasm decoder only accepts `0x02` as that flag byte, but QQ also
  * emits clips with a `0x03` flag (both are valid Tencent SILK, they just decode
@@ -16,10 +17,14 @@
  * wasm runtime belongs in the Electron main process.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, type BigIntStats } from 'node:fs';
+import { open, readFile, stat } from 'node:fs/promises';
+import { basename, dirname, join, resolve } from 'node:path';
+import { writeFileAtomic } from '@weq/service/atomic-write';
 import { decode, encode as silkEncode, getDuration, isSilk } from 'silk-wasm';
 import { requirePlatform } from './context/app_context';
+import { decodePlayback } from './voice_playback_worker';
 
 const SAMPLE_RATE = 24000;
 const TRANSCRIBE_SAMPLE_RATE = 16000;
@@ -28,6 +33,7 @@ const BITS_PER_SAMPLE = 16;
 
 const SILK_MAGIC = Buffer.from('#!SILK_V3');
 const SILK_FLAG = 0x02;
+const pendingPlayback = new Map<string, Promise<string | null>>();
 
 /**
  * Normalize a Tencent SILK buffer so silk-wasm accepts it: the wasm decoder
@@ -38,7 +44,7 @@ const SILK_FLAG = 0x02;
  */
 function normalizeSilk(silk: Buffer): Buffer {
   const idx = silk.indexOf(SILK_MAGIC);
-  if (idx < 0) return silk;
+  if (idx < 0 || (idx === 1 && silk[0] === SILK_FLAG)) return silk;
   return Buffer.concat([Buffer.from([SILK_FLAG]), silk.subarray(idx)]);
 }
 
@@ -48,12 +54,36 @@ function normalizeSilk(silk: Buffer): Buffer {
  * 只认魔数，不看扩展名 —— QQ 的语音落盘是 `.amr`，用户手选的文件可能是 `.silk`，
  * 也可能压根没扩展名。用魔数判断，非 SILK（wav/mp3/m4a…）直接流原文件。
  */
-export function isSilkFile(filePath: string): boolean {
-  if (!filePath || !existsSync(filePath)) return false;
+export async function isSilkFile(filePath: string, signal?: AbortSignal): Promise<boolean> {
   try {
-    const bytes = readFileSync(filePath);
-    return isSilk(bytes) || bytes.indexOf(SILK_MAGIC) >= 0;
+    signal?.throwIfAborted();
+    if (!filePath) return false;
+    const handle = await open(filePath, 'r');
+    try {
+      const buffer = Buffer.allocUnsafe(32 * 1024 + 11);
+      let carried = 0;
+      let checkedHeader = false;
+      for (;;) {
+        signal?.throwIfAborted();
+        const { bytesRead } = await handle.read(buffer, carried, 32 * 1024, null);
+        if (!bytesRead) return false;
+        const size = carried + bytesRead;
+        const bytes = buffer.subarray(0, size);
+        if (!checkedHeader && size >= 7) {
+          if (isWavMagic(bytes)) return false;
+          if (isSilk(bytes.subarray(0, 7))) return true;
+          checkedHeader = size >= 12;
+        }
+        if (bytes.includes(SILK_MAGIC)) return true;
+        // QQ 的变体可能有前缀，保留跨块的魔数匹配。
+        carried = checkedHeader ? Math.min(size, SILK_MAGIC.length - 1) : size;
+        buffer.copyWithin(0, size - carried, size);
+      }
+    } finally {
+      await handle.close();
+    }
   } catch {
+    signal?.throwIfAborted();
     return false;
   }
 }
@@ -63,20 +93,41 @@ export function isSilkFile(filePath: string): boolean {
  * null if the source is missing or decoding fails.
  */
 export async function decodeSilkToWav(silkPath: string): Promise<string | null> {
-  if (!silkPath || !existsSync(silkPath)) return null;
+  if (!silkPath) return null;
+  const source = resolve(silkPath);
+  const info = await stat(source, { bigint: true }).catch(() => undefined);
+  if (!info?.isFile()) return null;
+  const original = voiceSourceRevision(info);
+  const hash = createHash('sha256').update(source).update('\0').update(original).digest('hex');
+  const cachePath = join(requirePlatform().appDataRoot(), 'cache', 'voice', `v2-${hash}.wav`);
+  const pending = pendingPlayback.get(cachePath);
+  if (pending) return pending;
+  const task = cachedPlayback(source, original, cachePath).finally(() => {
+    pendingPlayback.delete(cachePath);
+  });
+  pendingPlayback.set(cachePath, task);
+  return task;
+}
 
-  const cacheDir = join(requirePlatform().appDataRoot(), 'cache', 'voice');
-  const cachePath = join(cacheDir, `${basename(silkPath)}.wav`);
-  if (existsSync(cachePath)) return cachePath;
+function voiceSourceRevision(info: BigIntStats): string {
+  return `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+}
 
+async function cachedPlayback(
+  source: string,
+  revision: string,
+  cachePath: string,
+): Promise<string | null> {
   try {
-    const silk = normalizeSilk(readFileSync(silkPath));
-    const { data: pcm } = await decode(silk, SAMPLE_RATE);
-    mkdirSync(cacheDir, { recursive: true });
-    writeFileSync(cachePath, wrapWav(pcm));
+    const cached = await stat(cachePath).catch(() => undefined);
+    if (cached?.isFile() && cached.size > 44) return cachePath;
+    const silk = normalizeSilk(await readFile(source));
+    if (voiceSourceRevision(await stat(source, { bigint: true })) !== revision) return null;
+    const pcm = await decodePlayback(silk, SAMPLE_RATE);
+    await writeFileAtomic(cachePath, wrapWav(pcm));
     return cachePath;
   } catch (e) {
-    console.error(`[voice] failed to decode SILK ${silkPath}:`, e);
+    console.error(`[voice] failed to decode SILK ${source}:`, e);
     return null;
   }
 }
@@ -194,5 +245,5 @@ function wrapWav(pcm: Uint8Array, sampleRate: number = SAMPLE_RATE): Buffer {
   header.writeUInt16LE(BITS_PER_SAMPLE, 34);
   header.write('data', 36);
   header.writeUInt32LE(pcm.length, 40);
-  return Buffer.concat([header, Buffer.from(pcm)]);
+  return Buffer.concat([header, pcm]);
 }

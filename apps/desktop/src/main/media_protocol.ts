@@ -1,4 +1,4 @@
-import { networkFetch } from '@weq/network';
+import { bounded, networkFetch } from '@weq/network';
 /**
  * `weq-media://` — streams a chat message's on-disk media to the renderer.
  *
@@ -251,6 +251,28 @@ const currentRequest = new AsyncLocalStorage<Request>();
 
 function fileResponse(path: string): Promise<Response> {
   return streamFile(path, currentRequest.getStore());
+}
+
+async function voiceResponse(
+  path: string,
+  kind: 'ptt' | 'localvoice' | 'localfilevoice',
+  request: Request,
+): Promise<Response> {
+  const check = () => {
+    request.signal.throwIfAborted();
+    mediaBinding.getStore()?.();
+  };
+  check();
+  const { decodeSilkToWav, isSilkFile } = await import('./voice');
+  check();
+  if (kind === 'localfilevoice') {
+    const silk = await isSilkFile(path, request.signal);
+    check();
+    if (!silk) return fileResponse(path);
+  }
+  const wav = await bounded(decodeSilkToWav(path), request.signal);
+  check();
+  return wav ? fileResponse(wav) : notFound(`${kind} decode failed`);
 }
 
 /** 媒体在原路径被覆盖时要求重新校验，不让浏览器按原 URL 保留旧内容。 */
@@ -1060,10 +1082,7 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
               : undefined,
           });
           if (!silk) return notFound('ptt not found');
-          const { decodeSilkToWav } = await import('./voice');
-          mediaBinding.getStore()?.();
-          const wav = await decodeSilkToWav(silk);
-          return wav ? fileResponse(wav) : notFound('ptt decode failed');
+          return await voiceResponse(silk, kind, request);
         }
         case 'mface': {
           const pack = q.get('pack') ?? '';
@@ -1223,11 +1242,7 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
           if (!path) return notFound('localfilevoice needs path');
           const resolved = await services.fileResource.resolveLocalFile(path);
           if (!resolved) return notFound('localfilevoice not found');
-          const { decodeSilkToWav, isSilkFile } = await import('./voice');
-          mediaBinding.getStore()?.();
-          if (!isSilkFile(resolved)) return fileResponse(resolved);
-          const wav = await decodeSilkToWav(resolved);
-          return wav ? fileResponse(wav) : notFound('localfilevoice decode failed');
+          return await voiceResponse(resolved, kind, request);
         }
         case 'localmedia': {
           // Local media caches (PhotoWall / Qzone / Pic / Video). `kind` picks the
@@ -1250,10 +1265,7 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
           if (!rel) return notFound('localvoice needs rel');
           const silk = await services.mediaResource.resolveFile('ptt', rel);
           if (!silk) return notFound('localvoice not found');
-          const { decodeSilkToWav } = await import('./voice');
-          mediaBinding.getStore()?.();
-          const wav = await decodeSilkToWav(silk);
-          return wav ? fileResponse(wav) : notFound('localvoice decode failed');
+          return await voiceResponse(silk, kind, request);
         }
         case 'album': {
           return albumRemoteResponse(q.get('src') ?? '');

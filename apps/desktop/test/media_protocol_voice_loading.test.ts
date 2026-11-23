@@ -60,6 +60,18 @@ it('普通媒体和缺失语音不加载编解码器，首次语音加载后各�
     expect(state.decode).toHaveBeenLastCalledWith(state.source);
     state.decode.mockResolvedValueOnce(null);
     expect((await handleMediaRequest(voice)).status).toBe(404);
+
+    let finish!: (path: string) => void;
+    state.decode.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+    const controller = new AbortController();
+    const cancelled = handleMediaRequest(new Request(voice.url, { signal: controller.signal }));
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    controller.abort();
+    expect(await cancelled).toMatchObject({ status: 499, body: null });
+    finish(state.wav);
+    const range = await handleMediaRequest(new Request(voice, { headers: { Range: 'bytes=0-8' } }));
+    expect(range.status).toBe(206);
+    expect(await range.text()).toBe('synthetic');
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
