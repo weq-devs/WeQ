@@ -23,7 +23,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { AccountQqSync } from '../qq_sync/account';
 import { GroupReactionWatch } from '../qq_sync/group_reaction_watch';
 import { coalesceLiveDbWatch, createLiveMessageObservers } from '../qq_sync/live_db_watch';
-import { ensureQqSyncProxy } from '../qq_sync/runtime';
+import { ensureQqSyncProxy, isQqSyncProxyEnabled } from '../qq_sync/runtime';
 import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { onSettingsChanged } from '@weq/service/settings-changes';
@@ -1685,10 +1685,7 @@ export function initAppContext(fileRoot?: string): AppContext {
     logDir: getLogDir(),
   });
   const userConfig = files.config;
-  if (
-    userConfig.getSetting('qqClientSyncEnabled') ||
-    (userConfig.getSetting('qqLiveMessagesEnabled') && userConfig.getSetting('realtimeEnabled'))
-  )
+  if (isQqSyncProxyEnabled(platform.appDataRoot()))
     void ensureQqSyncProxy(platform.appDataRoot()).catch((error) =>
       getLogger().warn('QQ 同步代理启动失败', { error: String(error) }),
     );
@@ -2198,6 +2195,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         ),
         session,
         nt: platform.native.ntHelper,
+        proxyEnabled: () => isQqSyncProxyEnabled(platform.appDataRoot()),
         enabled: () => this.account === session && userConfig.getSetting('qqClientSyncEnabled'),
         liveEnabled: () =>
           this.account === session &&

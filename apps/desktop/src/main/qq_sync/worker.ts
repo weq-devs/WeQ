@@ -99,6 +99,7 @@ const schema = z.discriminatedUnion('op', [
     token: z.string(),
     port: z.number().int().min(1).max(65535).optional(),
   }),
+  z.object({ op: z.literal('set-enabled'), token: z.string(), enabled: z.boolean() }),
   z.object({
     op: z.literal('credential'),
     token: z.string(),
@@ -147,10 +148,11 @@ async function serve() {
   const startedAt = Date.now();
   let listenError = '';
   let retryListen: ReturnType<typeof setInterval> | undefined;
-  let pendingListen: Promise<number> | undefined;
+  let pendingChange = Promise.resolve();
   let stopping = false;
   const status = () => ({
     ...proxy.status(),
+    enabled: config.enabled !== false,
     pid: process.pid,
     port: config.port,
     error: listenError,
@@ -163,50 +165,59 @@ async function serve() {
         pid: process.pid,
         port: config.port,
         startedAt,
-        state: proxy.status().running ? '正常' : '监听失败',
+        state: config.enabled === false ? '已关闭' : proxy.status().running ? '正常' : '监听失败',
         error: listenError,
         protocolVersion: QQ_SYNC_CONTROL_VERSION,
       }),
     ).catch(() => undefined);
-  async function listen(requestedPort?: number): Promise<number> {
-    if (stopping) throw new Error('QQ 同步代理正在退出');
-    if (pendingListen) {
-      if (requestedPort === undefined) return pendingListen;
-      throw new Error('QQ 同步代理正在切换端口，请稍后重试');
-    }
-    const port = requestedPort ?? config.port;
-    if (port === config.port && proxy.status().running) return port;
-    pendingListen = (async () => {
+  function configure(
+    change: Partial<Pick<SyncProxyConfig, 'enabled' | 'port'>>,
+    requireEnabled = false,
+  ) {
+    const operation = pendingChange.then(async () => {
+      if (stopping) throw new Error('QQ 同步代理正在退出');
+      const port = change.port ?? config.port;
+      const enabled = change.enabled ?? config.enabled !== false;
+      if (requireEnabled && !enabled) throw new Error('QQ 代理已关闭');
+      const changed = port !== config.port || enabled !== (config.enabled !== false);
+      if (!changed && enabled === proxy.status().running) return { port };
+      const persist = () =>
+        writeFileAtomic(configPath, JSON.stringify({ ...config, port, enabled }));
       try {
-        await proxy.start(
-          port,
-          port === config.port
-            ? undefined
-            : () => writeFileAtomic(configPath, JSON.stringify({ ...config, port })),
-        );
-        config.port = port;
-        listenError = '';
-        clearInterval(retryListen);
-        await recordStatus();
-        return port;
+        if (enabled && (!proxy.status().running || port !== config.port))
+          await proxy.start(port, changed ? persist : undefined);
+        else if (changed) await persist();
       } catch (error) {
         const cause = error as NodeJS.ErrnoException;
         const message =
           cause.code === 'EADDRINUSE'
             ? `本机端口 ${port} 已被占用，请选择其他端口`
             : `无法使用本机端口 ${port}：${cause.message}`;
-        if (port === config.port && !proxy.status().running && listenError !== message) {
+        if (
+          enabled &&
+          config.enabled !== false &&
+          port === config.port &&
+          !proxy.status().running &&
+          listenError !== message
+        ) {
           listenError = message;
           await recordStatus();
         }
         throw new Error(message);
       }
-    })();
-    try {
-      return await pendingListen;
-    } finally {
-      pendingListen = undefined;
-    }
+      config.port = port;
+      config.enabled = enabled;
+      if (!enabled) await proxy.close();
+      listenError = '';
+      clearInterval(retryListen);
+      await recordStatus();
+      return { port };
+    });
+    pendingChange = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
   }
   const server = createServer((socket) => {
     let buffer = '';
@@ -230,11 +241,15 @@ async function serve() {
           throw Error('代理认证失败');
         let result: unknown;
         if (request.op === 'status') result = status();
+        else if (request.op === 'listen')
+          result = await configure({ port: request.port }, request.port === undefined);
+        else if (request.op === 'set-enabled')
+          result = await configure({ enabled: request.enabled });
+        else if (config.enabled === false) throw new Error('QQ 代理已关闭');
         else if (request.op === 'live') {
           proxy.subscribeLive(request.uin, request.generation, socket);
           return;
-        } else if (request.op === 'listen') result = { port: await listen(request.port) };
-        else if (request.op === 'credential') {
+        } else if (request.op === 'credential') {
           proxy.setCredential(request.value);
           result = true;
         } else if (request.op === 'recall-policy') {
@@ -263,9 +278,9 @@ async function serve() {
   // 监护进程串行启动子进程，此处清理上一代退出后留下的 Unix socket。
   if (process.platform !== 'win32') await unlink(config.socket).catch(() => undefined);
   // 端口占用时仍开放私有控制通道，供设置页改到可用端口。
-  if (!process.argv.includes('--defer-listen')) {
-    await listen().catch(() => {
-      retryListen = setInterval(() => void listen().catch(() => undefined), 5000).unref();
+  if (!process.argv.includes('--defer-listen') && config.enabled !== false) {
+    await configure({}).catch(() => {
+      retryListen = setInterval(() => void configure({}).catch(() => undefined), 5000).unref();
     });
   }
   await new Promise<void>((resolve, reject) => {
@@ -280,7 +295,7 @@ async function serve() {
   const stop = async () => {
     stopping = true;
     clearInterval(retryListen);
-    await pendingListen?.catch(() => undefined);
+    await pendingChange;
     await proxy.close();
     server.close(() => process.exit(0));
   };

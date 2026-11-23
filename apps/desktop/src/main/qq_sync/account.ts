@@ -43,6 +43,7 @@ export interface AccountQqSyncOptions {
   path: string;
   session: AccountSession;
   nt: NtHelperBinding;
+  proxyEnabled(): boolean;
   enabled(): boolean;
   readEnabled(): boolean;
   antiRecall?: AntiRecallService;
@@ -86,7 +87,7 @@ export class AccountQqSync {
   private liveGroupChangedAt = 0;
 
   isLiveEnabled() {
-    return this.options.liveEnabled?.() === true;
+    return this.options.proxyEnabled() && this.options.liveEnabled?.() === true;
   }
 
   liveRows(kind: GapFetchedMessage['kind'], conv: string) {
@@ -97,9 +98,7 @@ export class AccountQqSync {
 
   hasRecentLiveMessages(): boolean {
     return Boolean(
-      this.liveSubscription &&
-        this.options.liveEnabled?.() &&
-        Date.now() - this.liveReceivedAt < 2000,
+      this.liveSubscription && this.isLiveEnabled() && Date.now() - this.liveReceivedAt < 2000,
     );
   }
 
@@ -112,8 +111,10 @@ export class AccountQqSync {
   }
 
   refreshLive() {
-    if (!this.options.liveEnabled?.()) this.stopLive();
-    void this.run();
+    if (!this.isLiveEnabled()) this.stopLive();
+    const flight = this.flight;
+    if (flight) void flight.then(() => this.run());
+    else void this.run();
   }
 
   private stopLive() {
@@ -128,7 +129,7 @@ export class AccountQqSync {
   }
 
   private startLive(uin: string, generation: string, valid: () => boolean) {
-    if (!this.options.liveEnabled?.() || !this.options.onLiveMessages) return;
+    if (!this.isLiveEnabled() || !this.options.onLiveMessages) return;
     if (this.liveSubscription?.generation === generation) return;
     this.stopLive();
     const subscription = { generation, abort: new AbortController() };
@@ -136,8 +137,7 @@ export class AccountQqSync {
     this.recallReadAt = 0;
     const selfUid = this.options.session.selfUid ?? '';
     void subscribeQqLive(this.options.root, uin, generation, subscription.abort.signal, (body) => {
-      if (!valid() || !this.options.liveEnabled?.() || this.liveSubscription !== subscription)
-        return;
+      if (!valid() || !this.isLiveEnabled() || this.liveSubscription !== subscription) return;
       const now = Date.now();
       this.liveStats.receivedFrames++;
       this.liveStats.lastReceivedAt = now;
@@ -220,6 +220,7 @@ export class AccountQqSync {
   sent(message: GapFetchedMessage) {
     if (
       !this.options.enabled() ||
+      !this.options.proxyEnabled() ||
       this.disposed ||
       !message.msgRandom ||
       message.senderUid !== this.options.session.selfUid
@@ -237,7 +238,13 @@ export class AccountQqSync {
     });
   }
   read(target: ClientReadTarget) {
-    if (!this.options.enabled() || !this.options.readEnabled() || this.disposed) return;
+    if (
+      !this.options.proxyEnabled() ||
+      !this.options.enabled() ||
+      !this.options.readEnabled() ||
+      this.disposed
+    )
+      return;
     const id = `read:${target.kind}:${target.kind === 'group' ? target.groupUin : target.targetUid}`;
     const prior = this.tasks.get(id);
     if (prior?.kind === 'read' && readReportWatermark(prior.target) >= readReportWatermark(target))
@@ -306,7 +313,7 @@ export class AccountQqSync {
     await this.flight;
     await this.persistence.catch(() => undefined);
     const current = this.options.current();
-    if (current && this.options.antiRecall) {
+    if (current && this.options.antiRecall && this.options.proxyEnabled()) {
       const generation = createHash('sha256').update(`${current.pid}:${current.key}`).digest('hex');
       await qqSyncRequest(this.options.root, {
         op: 'recall-policy',
@@ -376,7 +383,12 @@ export class AccountQqSync {
   }
   private async runOnce() {
     const protection = this.options.antiRecall?.protection();
-    if (!this.options.liveEnabled?.()) this.stopLive();
+    if (!this.isLiveEnabled()) this.stopLive();
+    if (!this.options.proxyEnabled()) {
+      this.recallActive = false;
+      this.options.antiRecall?.setProxyState(false, 'QQ 代理已关闭');
+      return;
+    }
     if (
       this.disposed ||
       this.running ||
@@ -407,6 +419,7 @@ export class AccountQqSync {
       const now = this.options.current();
       return (
         !this.disposed &&
+        this.options.proxyEnabled() &&
         (this.options.enabled() ||
           this.options.antiRecall?.protection().enabled ||
           this.recallActive ||
@@ -501,6 +514,7 @@ export class AccountQqSync {
               : buildClientReadNotify({ uin, uid: this.options.session.selfUid! }, task.target);
           if (
             !valid() ||
+            !this.options.enabled() ||
             this.tasks.get(task.id) !== task ||
             (task.kind === 'read' && !this.options.readEnabled())
           )

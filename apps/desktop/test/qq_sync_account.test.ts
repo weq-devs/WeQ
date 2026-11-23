@@ -36,6 +36,7 @@ function fixture(path?: string) {
   if (!path) directories.push(root);
   let online = false;
   let enabled = true;
+  let proxyEnabled = true;
   let present = false;
   let readState = { msgSeq: 0, localReadSeq: '0', markUnread: false };
   let current = { pid: 123, key: '07'.repeat(16) };
@@ -52,6 +53,7 @@ function fixture(path?: string) {
     path: join(root, 'tasks.json'),
     session,
     nt: {} as NtHelperBinding,
+    proxyEnabled: () => proxyEnabled,
     enabled: () => enabled,
     readEnabled: () => enabled,
     current: () => (online ? current : null),
@@ -82,6 +84,10 @@ function fixture(path?: string) {
     disable: () => {
       enabled = false;
     },
+    setProxyEnabled: (value: boolean) => {
+      proxyEnabled = value;
+      service.refreshLive();
+    },
     changeSession: () => {
       current = { pid: 456, key: '08'.repeat(16) };
     },
@@ -99,6 +105,25 @@ const sent = {
   sendTime: '1700000000',
   elements: [],
 } as const;
+it('代理关闭时保留待同步任务，重新开启后接续已有任务', async () => {
+  const state = fixture();
+  state.service.read({ kind: 'group', groupUin: 55555, sequence: 10 });
+  await vi.waitFor(() => expect(state.saved().tasks).toHaveLength(1));
+  state.setProxyEnabled(false);
+  state.setOnline();
+  state.service.read({ kind: 'group', groupUin: 55555, sequence: 20 });
+  expect(state.service.status().pending).toBe(1);
+  expect(f.request).not.toHaveBeenCalled();
+
+  await Promise.resolve();
+  state.setProxyEnabled(true);
+  await vi.waitFor(() => expect(state.service.status().completed).toBe(1));
+  const push = f.request.mock.calls.find(([, request]) => request.op === 'push');
+  expect(clientReadTargets(Buffer.from(push?.[1].body, 'base64'))).toEqual([
+    { kind: 'group', groupUin: 55555, sequence: 10 },
+  ]);
+});
+
 it('同一会话待补读水位合并到最高位置', async () => {
   const state = fixture();
   state.service.read({ kind: 'group', groupUin: 55555, sequence: 10 });
@@ -263,6 +288,7 @@ it('实时撤回唤醒持久队列，空闲时保留低频校准', async () => {
       session,
       antiRecall,
       nt: {} as NtHelperBinding,
+      proxyEnabled: () => true,
       enabled: () => false,
       readEnabled: () => false,
       liveEnabled: () => enabled,

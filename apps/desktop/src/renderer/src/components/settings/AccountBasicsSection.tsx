@@ -165,6 +165,12 @@ export function AccountBasicsSection({
     staleTime: 0,
     refetchInterval: active && page === 'account' ? 5000 : false,
   });
+  const setQqProxyEnabled = trpc.bootstrap.setQqProxyEnabled.useMutation({
+    onSuccess: async () => {
+      await qqSyncStatus.refetch();
+    },
+    onError: (error) => showError('更改 QQ 代理状态失败', error.message),
+  });
   const setQqProxyIndicator = trpc.bootstrap.setQqProxyIndicatorEnabled.useMutation({
     onSuccess: async () => {
       await settings.refetch();
@@ -198,25 +204,43 @@ export function AccountBasicsSection({
     onError: (error) => showError('更改 QQ 代理端口失败', error.message),
   });
   const proxy = qqSyncStatus.data;
+  const proxyEnabled = proxy?.enabled === true;
   const qqSyncPort = proxy?.port;
+  const toggleQqProxy = async (enabled: boolean) => {
+    if (
+      !enabled &&
+      proxy?.tunnels &&
+      !(await confirm(
+        '关闭 QQ 代理',
+        '关闭后，正在使用代理的 QQ 连接会断开。请先在 QQ 登录窗口的「网络设置」中恢复直连。',
+        { okLabel: '关闭代理' },
+      ))
+    )
+      return;
+    setQqProxyEnabled.mutate({ enabled });
+  };
   const proxyStatusText = qqSyncStatus.isError
     ? '无法读取代理状态'
     : !proxy
       ? '正在检查代理'
-      : proxy.connected
-        ? 'QQ 已连接代理'
-        : proxy.connecting
-          ? QQ_PROXY_CONNECTING
-          : proxy.running
-            ? 'QQ 代理未连接'
-            : proxy.error || '本机代理尚未启动';
+      : !proxyEnabled
+        ? 'QQ 代理已关闭'
+        : proxy.connected
+          ? 'QQ 已连接代理'
+          : proxy.connecting
+            ? QQ_PROXY_CONNECTING
+            : proxy.running
+              ? 'QQ 代理未连接'
+              : proxy.error || '本机代理尚未启动';
   const syncTasks = settings.data?.qqClientSyncEnabled ? proxy?.tasks : null;
   const taskError = syncTasks?.error;
   const proxyStatusDetails = [
     proxyStatusText,
     syncTasks?.pending ? `待同步 ${syncTasks.pending} 项` : '',
     // 等待连接由当前代理状态表示。队列在重试前可能仍保留上一次等待的原因。
-    taskError !== '等待 QQ 通过代理连接' && taskError !== proxyStatusText ? taskError : '',
+    proxyEnabled && taskError !== '等待 QQ 通过代理连接' && taskError !== proxyStatusText
+      ? taskError
+      : '',
   ]
     .filter(Boolean)
     .join(' · ');
@@ -227,6 +251,7 @@ export function AccountBasicsSection({
     newQqSyncPort >= 1 &&
     newQqSyncPort <= 65535 &&
     newQqSyncPort !== qqSyncPort &&
+    !setQqProxyEnabled.isPending &&
     !setQqClientSync.isPending &&
     !setQqClientSyncPort.isPending;
   const setExternalChatpic = trpc.bootstrap.setExternalChatpic.useMutation();
@@ -700,13 +725,34 @@ export function AccountBasicsSection({
             resetId="qq-client-sync"
           >
             <Row
+              label="启用 QQ 代理"
+              desc="关闭会停止本机转发。停用前请先在 QQ 的「网络设置」中恢复直连。"
+              control={
+                <Toggle
+                  checked={proxyEnabled}
+                  disabled={
+                    !proxy ||
+                    qqSyncStatus.isError ||
+                    setQqProxyEnabled.isPending ||
+                    setQqClientSyncPort.isPending
+                  }
+                  onChange={(enabled) => void toggleQqProxy(enabled)}
+                  label="启用 QQ 代理"
+                />
+              }
+            />
+            <Row
               settingId="qq-client-sync"
               desc="QQ 通过本机代理连接后生效。已读同步沿用上方的上报设置。"
               control={
                 <Toggle
                   checked={settings.data?.qqClientSyncEnabled ?? false}
                   disabled={
-                    settingsLoading || setQqClientSync.isPending || setQqClientSyncPort.isPending
+                    !proxyEnabled ||
+                    setQqProxyEnabled.isPending ||
+                    settingsLoading ||
+                    setQqClientSync.isPending ||
+                    setQqClientSyncPort.isPending
                   }
                   onChange={(enabled) => setQqClientSync.mutate({ enabled })}
                   label="自动同步本人消息与已读"
@@ -719,7 +765,12 @@ export function AccountBasicsSection({
               control={
                 <Toggle
                   checked={settings.data?.qqLiveMessagesEnabled ?? false}
-                  disabled={settingsLoading || setQqLiveMessages.isPending}
+                  disabled={
+                    !proxyEnabled ||
+                    setQqProxyEnabled.isPending ||
+                    settingsLoading ||
+                    setQqLiveMessages.isPending
+                  }
                   onChange={(enabled) => setQqLiveMessages.mutate({ enabled })}
                   label="通过 QQ 代理加速实时更新"
                 />
@@ -731,7 +782,11 @@ export function AccountBasicsSection({
                 <Toggle
                   checked={settings.data?.qqProxyIndicatorEnabled ?? true}
                   disabled={
-                    !settings.data || Boolean(settings.error) || setQqProxyIndicator.isLoading
+                    !proxyEnabled ||
+                    setQqProxyEnabled.isPending ||
+                    !settings.data ||
+                    Boolean(settings.error) ||
+                    setQqProxyIndicator.isLoading
                   }
                   onChange={(enabled) => setQqProxyIndicator.mutate({ enabled })}
                   label="QQ 代理未连接时在窗口右上角显示"
@@ -740,7 +795,7 @@ export function AccountBasicsSection({
             />
             <Row
               label="代理端口"
-              desc={qqProxySetupGuide(qqSyncPort)}
+              desc={proxyEnabled ? qqProxySetupGuide(qqSyncPort) : undefined}
               control={
                 <form
                   className="weq-set-btn-group"
@@ -754,7 +809,11 @@ export function AccountBasicsSection({
                     aria-label="QQ 代理端口"
                     inputMode="numeric"
                     value={qqSyncPortDraft ?? qqSyncPort ?? ''}
-                    disabled={qqSyncPort === undefined || setQqClientSyncPort.isPending}
+                    disabled={
+                      qqSyncPort === undefined ||
+                      setQqProxyEnabled.isPending ||
+                      setQqClientSyncPort.isPending
+                    }
                     onChange={(event) =>
                       setQqSyncPortDraft(event.target.value.replace(/\D/g, '').slice(0, 5))
                     }
@@ -773,13 +832,12 @@ export function AccountBasicsSection({
             <p className="weq-set-note" role="status">
               {proxyStatusDetails}
             </p>
-            {proxy?.connectionExpected && !proxy.connected && !qqSyncStatus.isError && (
-              <QqProxyRecovery onLaunch={() => void qqSyncStatus.refetch()} />
-            )}
-            <p className="weq-set-note">
-              代理独立保持运行，WeQ 重启后自动接续。关闭自动同步会保留转发；停用代理前请先恢复 QQ
-              的网络设置。
-            </p>
+            {proxyEnabled &&
+              proxy?.connectionExpected &&
+              !proxy.connected &&
+              !qqSyncStatus.isError && (
+                <QqProxyRecovery onLaunch={() => void qqSyncStatus.refetch()} />
+              )}
           </Card>
           <LongTermAuthorizationSection />
         </>

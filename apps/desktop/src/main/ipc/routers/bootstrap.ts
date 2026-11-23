@@ -19,9 +19,11 @@ import { observable } from '@trpc/server/observable';
 import type { TranscribeResult } from '../../transcribe/engine';
 import {
   ensureQqSyncProxy,
+  isQqSyncProxyEnabled,
   qqSyncStatus,
   qqSyncRequest,
   setQqSyncPort,
+  setQqSyncProxyEnabled,
 } from '../../qq_sync/runtime';
 import {
   consumeNotificationClick,
@@ -1041,18 +1043,20 @@ export const bootstrapRouter = router({
 
   getQqClientSyncStatus: procedure.query(async () => {
     const ctx = getAppContext();
+    const { userConfig } = requireBootstrap();
     const accountUin = ctx.account ? String(ctx.account.context.uin) : null;
     const liveAccount = accountUin !== null && !ctx.accountIsStatic;
     const sync = ctx.services?.qqClientSync;
     const protection = ctx.services?.antiRecall.protection();
+    const status = await qqSyncStatus(requirePlatform().appDataRoot());
     const connectionExpected =
+      status.enabled &&
       liveAccount &&
       Boolean(sync) &&
-      (requireBootstrap().userConfig.getSetting('qqClientSyncEnabled') ||
-        (requireBootstrap().userConfig.getSetting('qqLiveMessagesEnabled') &&
-          requireBootstrap().userConfig.getSetting('realtimeEnabled')) ||
-        (protection?.enabled === true && protection.method === 'proxy'));
-    const status = await qqSyncStatus(requirePlatform().appDataRoot());
+      (userConfig.getSetting('qqClientSyncEnabled') ||
+        (userConfig.getSetting('qqLiveMessagesEnabled') &&
+          userConfig.getSetting('realtimeEnabled')) ||
+        (protection?.enabled === true && protection.method !== 'database'));
     const connected =
       status.running &&
       (liveAccount ? status.accounts.includes(accountUin) : status.accounts.length > 0);
@@ -1067,11 +1071,21 @@ export const bootstrapRouter = router({
     };
   }),
 
+  setQqProxyEnabled: procedure
+    .input(z.object({ enabled: z.boolean() }).strict())
+    .mutation(async ({ input }) => {
+      await setQqSyncProxyEnabled(requirePlatform().appDataRoot(), input.enabled);
+      getAppContext().services?.qqClientSync?.refreshLive();
+      return true;
+    }),
+
   setQqLiveMessagesEnabled: procedure
     .input(z.object({ enabled: z.boolean() }).strict())
     .mutation(async ({ input }) => {
-      if (input.enabled) await ensureQqSyncProxy(requirePlatform().appDataRoot());
-      requireBootstrap().userConfig.setSettings({ qqLiveMessagesEnabled: input.enabled });
+      const { userConfig } = requireBootstrap();
+      const root = requirePlatform().appDataRoot();
+      if (input.enabled && isQqSyncProxyEnabled(root)) await ensureQqSyncProxy(root);
+      userConfig.setSettings({ qqLiveMessagesEnabled: input.enabled });
       getAppContext().services?.qqClientSync?.refreshLive();
       return true;
     }),
@@ -1091,13 +1105,15 @@ export const bootstrapRouter = router({
     .input(z.object({ enabled: z.boolean() }).strict())
     .mutation(async ({ input }) => {
       const ctx = getAppContext();
+      const { userConfig } = requireBootstrap();
       const root = requirePlatform().appDataRoot();
-      if (input.enabled) await ensureQqSyncProxy(root);
-      requireBootstrap().userConfig.setSettings({ qqClientSyncEnabled: input.enabled });
+      if (input.enabled && isQqSyncProxyEnabled(root)) await ensureQqSyncProxy(root);
+      userConfig.setSettings({ qqClientSyncEnabled: input.enabled });
       if (
         !input.enabled &&
+        isQqSyncProxyEnabled(root) &&
         ctx.account &&
-        !requireBootstrap().userConfig.getSetting('qqLiveMessagesEnabled') &&
+        !userConfig.getSetting('qqLiveMessagesEnabled') &&
         !ctx.services?.antiRecall.protection().enabled
       )
         await qqSyncRequest(root, { op: 'forget', uin: String(ctx.account.context.uin) }).catch(

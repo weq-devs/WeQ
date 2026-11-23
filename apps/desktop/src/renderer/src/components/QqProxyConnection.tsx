@@ -211,7 +211,8 @@ export function QqProxyIndicator() {
   if (
     !enabled ||
     status.isError ||
-    data?.accountUin !== uin ||
+    !data?.enabled ||
+    data.accountUin !== uin ||
     !data.connectionExpected ||
     data.connected
   )

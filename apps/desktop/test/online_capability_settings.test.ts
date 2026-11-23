@@ -21,6 +21,7 @@ const ready: OnlineAccess = {
 };
 function waitingProxy() {
   return {
+    enabled: true,
     accountUin: '10001',
     connectionExpected: true,
     connected: false,
@@ -44,6 +45,7 @@ const mock = vi.hoisted(() => ({
   failed: false,
   queryOptions: vi.fn(),
   save: vi.fn(),
+  saveProxyEnabled: vi.fn(),
   saveProxyIndicator: vi.fn(),
   launchQq: vi.fn(),
   restartQq: vi.fn(),
@@ -86,6 +88,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             reset: () => {},
             mutate: (input?: { enabled: boolean }) => {
               const method = path.at(-1);
+              if (method === 'setQqProxyEnabled' && input) mock.saveProxyEnabled(input);
               if (method === 'setQqProxyIndicatorEnabled' && input) mock.saveProxyIndicator(input);
               if (method === 'launchQq') mock.launchQq();
               if (method === 'restartQq') mock.restartQq();
@@ -126,6 +129,9 @@ beforeEach(() => {
   mock.error.mockClear();
   mock.launchQq.mockClear();
   mock.restartQq.mockClear();
+  mock.saveProxyEnabled.mockReset().mockImplementation(({ enabled }) => {
+    mock.proxyStatus = { ...waitingProxy(), enabled, running: enabled };
+  });
   mock.saveProxyIndicator.mockReset().mockImplementation(({ enabled }) => {
     mock.settings.qqProxyIndicatorEnabled = enabled;
   });
@@ -230,6 +236,19 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   expect(indicator()).toBeNull();
   expect(card.querySelector('[role="status"]')?.textContent).toBe('QQ 代理未连接 · 待同步 7 项');
   expect(mock.settings.restrictedModeIndicatorEnabled).toBe(true);
+  expect(mock.settings.qqClientSyncEnabled).toBe(true);
+
+  mock.settings.qqProxyIndicatorEnabled = true;
+  f.render();
+  const master = card.querySelector<HTMLButtonElement>(
+    '[role="switch"][aria-label="启用 QQ 代理"]',
+  )!;
+  await act(async () => master.click());
+  f.render();
+  expect(mock.saveProxyEnabled).toHaveBeenCalledWith({ enabled: false });
+  expect(master.getAttribute('aria-checked')).toBe('false');
+  expect(card.querySelector('[role="status"]')?.textContent).toBe('QQ 代理已关闭 · 待同步 7 项');
+  expect(indicator()).toBeNull();
   expect(mock.settings.qqClientSyncEnabled).toBe(true);
 });
 it.each([

@@ -1,10 +1,13 @@
 // @vitest-environment node
 import { afterEach, expect, it, vi } from 'vitest';
 import { createServer, connect, type Socket, type Server } from 'node:net';
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { encode } from '@weqbot/protocol';
 import { decodePushEnvelope } from '../../../vendor/weqbot/packages/protocol/src/push/decode';
 import { PUSH_MSG_BODY } from '../../../vendor/weqbot/packages/protocol/src/msg/schemas';
@@ -14,6 +17,7 @@ import {
 } from '../../../vendor/weqbot/packages/protocol/src/push/schemas';
 import { RecallJournal } from '../src/main/qq_sync/recall_journal';
 import { FrameBuffer, QqSyncProxy } from '../src/main/qq_sync/proxy';
+import { requestProxy, type SyncProxyConfig, type SyncProxyStatus } from '../src/main/qq_sync/ipc';
 import {
   buildServerFrame,
   buildServerPlain,
@@ -125,6 +129,74 @@ it('切换端口保留已建立的隧道，端口占用或保存失败时保留�
   sockets.push(rejected);
   await expect(once(rejected, 'connect')).rejects.toMatchObject({ code: 'ECONNREFUSED' });
 });
+
+it('代理关闭后断开连接并释放端口，保存新端口后重启也保持关闭', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'wq-'));
+  roots.push(root);
+  const occupied = createServer();
+  servers.push(occupied);
+  occupied.listen(0, '127.0.0.1');
+  await once(occupied, 'listening');
+  const port = (occupied.address() as { port: number }).port;
+  const config: SyncProxyConfig = {
+    port,
+    enabled: false,
+    socket:
+      process.platform === 'win32' ? `\\\\.\\pipe\\weq-test-${randomUUID()}` : join(root, 'c.sock'),
+    token: 'test-token',
+  };
+  const configPath = join(root, 'config.json');
+  const workerPath = fileURLToPath(new URL('../src/main/qq_sync/worker.ts', import.meta.url));
+  writeFileSync(configPath, JSON.stringify(config));
+  const request = <T>(input: Parameters<typeof requestProxy>[1]) =>
+    requestProxy<T>(config, input, 1000);
+  const status = () => request<SyncProxyStatus>({ op: 'status' });
+  let worker: ReturnType<typeof spawn> | undefined;
+  async function stopWorker() {
+    if (!worker || worker.exitCode !== null || worker.signalCode !== null) return;
+    const exited = once(worker, 'exit');
+    worker.kill();
+    await exited;
+  }
+  async function startWorker() {
+    worker = spawn(process.execPath, ['--import', 'tsx', workerPath, '--config', configPath], {
+      stdio: 'ignore',
+    });
+    await vi.waitFor(status, { timeout: 5000 });
+  }
+  try {
+    await startWorker();
+    await expect(request({ op: 'set-enabled', enabled: true })).rejects.toThrow('已被占用');
+    expect(await status()).toMatchObject({ enabled: false, running: false });
+    await new Promise<void>((resolve) => occupied.close(() => resolve()));
+
+    await request({ op: 'set-enabled', enabled: true });
+    expect(await status()).toMatchObject({ enabled: true, running: true, port });
+    const client = connect(port, '127.0.0.1');
+    sockets.push(client);
+    await once(client, 'connect');
+    const disconnected = once(client, 'close');
+    await request({ op: 'set-enabled', enabled: false });
+    await disconnected;
+    expect(await status()).toMatchObject({ enabled: false, running: false, tunnels: 0 });
+    const rejected = connect(port, '127.0.0.1');
+    sockets.push(rejected);
+    await expect(once(rejected, 'connect')).rejects.toMatchObject({ code: 'ECONNREFUSED' });
+    await expect(request({ op: 'listen' })).rejects.toThrow('代理已关闭');
+
+    const nextPort = port === 65535 ? port - 1 : port + 1;
+    await request({ op: 'listen', port: nextPort });
+    expect(JSON.parse(readFileSync(configPath, 'utf8'))).toMatchObject({
+      enabled: false,
+      port: nextPort,
+    });
+    await stopWorker();
+    await startWorker();
+    expect(await status()).toMatchObject({ enabled: false, running: false, port: nextPort });
+  } finally {
+    await stopWorker();
+  }
+}, 15000);
 
 it('分片、连续帧与前导登录数据保持完整边界', () => {
   const f = frame();

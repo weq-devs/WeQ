@@ -2,15 +2,17 @@ import { connect } from 'node:net';
 import type { SyncCredential, RecallPolicy } from './proxy';
 
 export const DEFAULT_QQ_SYNC_PORT = 19081;
-export const QQ_SYNC_CONTROL_VERSION = 4;
+export const QQ_SYNC_CONTROL_VERSION = 5;
 
 export interface SyncProxyConfig {
   socket: string;
   token: string;
   port: number;
+  enabled?: boolean;
 }
 export interface SyncProxyStatus {
   running: boolean;
+  enabled?: boolean;
   tunnels: number;
   accounts: string[];
   connecting?: boolean;
@@ -26,6 +28,7 @@ export interface SyncProxyStatus {
 export type SyncProxyRequest =
   | { op: 'status' }
   | { op: 'listen'; port?: number }
+  | { op: 'set-enabled'; enabled: boolean }
   | { op: 'recall-policy'; uin: string; generation: string; value: RecallPolicy }
   | { op: 'recall-events'; uin: string; generation: string; ack: string[] }
   | { op: 'credential'; value: SyncCredential }

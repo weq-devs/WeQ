@@ -210,6 +210,8 @@ export class QqSyncProxy {
   async close() {
     for (const subscription of this.live.values()) subscription.socket.destroy();
     this.live.clear();
+    this.credentials.clear();
+    this.policies.clear();
     for (const tunnel of this.tunnels.values()) {
       clearTimeout(tunnel.fragmentTimer);
       tunnel.client.destroy();
