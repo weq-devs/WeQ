@@ -263,6 +263,8 @@ export type MessageWorkPhase =
   | 'unreadSnapshotProjection'
   | 'unreadDeviceAndGrayTipLookup'
   | 'unreadRecallLookup'
+  | 'unreadRecallExtents'
+  | 'unreadRecallPresence'
   | 'unreadSnapshotApply'
   | 'unreadPersistence'
   | 'replyCache'

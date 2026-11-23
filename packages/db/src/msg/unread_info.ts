@@ -136,6 +136,7 @@ const MAX_CACHED_UNREAD_BYTES = 8 * 1024 * 1024;
 const PROTECTED_RECALL_TARGET_BATCH = 128;
 const PROTECTED_RECALL_RESULT_LIMIT = 256;
 const PROTECTED_RECALL_EXTENTS_LIMIT = 512;
+const PROTECTED_RECALL_PRESENCE_BATCH = 512;
 
 const GRAY_TIP = MsgType.GRAY_TIP;
 const RECENT_CHAT_TYPE = `CAST(r."40010" AS INTEGER)`;
@@ -513,12 +514,21 @@ export class UnreadInfoDb {
       if (after <= 0n || through === null || through <= after) return [];
       return [{ snapshot, kind: chatType === 1 ? 'c2c' : 'group', uid, after, through }];
     });
-    const targets =
+    let targets = candidates;
+    if (
       candidates.length > 2 * PROTECTED_RECALL_TARGET_BATCH &&
       this.qq.supportsReadBudget &&
       !databaseReadBudget()
-        ? await this.filterProtectedRecallTargets(candidates)
-        : candidates;
+    ) {
+      const byExtents = await measureMessageWork(this.qq.dbPath, 'unreadRecallExtents', () =>
+        this.recallTargetsFromExtents(candidates),
+      );
+      targets =
+        byExtents ??
+        (await measureMessageWork(this.qq.dbPath, 'unreadRecallPresence', () =>
+          this.filterRecallTargetsByPresence(candidates),
+        ));
+    }
     for (let offset = 0; offset < targets.length; offset += PROTECTED_RECALL_TARGET_BATCH) {
       await this.resolveProtectedRecallBatch(
         targets.slice(offset, offset + PROTECTED_RECALL_TARGET_BATCH),
@@ -527,9 +537,9 @@ export class UnreadInfoDb {
   }
 
   /** 记录稀疏时，用完整的索引摘要排除不相交的会话，再查具体序号。 */
-  private async filterProtectedRecallTargets(
+  private async recallTargetsFromExtents(
     targets: ProtectedRecallTarget[],
-  ): Promise<ProtectedRecallTarget[]> {
+  ): Promise<ProtectedRecallTarget[] | undefined> {
     try {
       const rows = await withDatabaseReadBudget(15, () =>
         this.qq.query(
@@ -539,7 +549,7 @@ export class UnreadInfoDb {
            GROUP BY table_kind, conv LIMIT ${PROTECTED_RECALL_EXTENTS_LIMIT + 1}`,
         ),
       );
-      if (rows.length > PROTECTED_RECALL_EXTENTS_LIMIT) return targets;
+      if (rows.length > PROTECTED_RECALL_EXTENTS_LIMIT) return undefined;
       const bounds = new Map(
         rows.map(([kind, uid, lo, hi]) => [
           `${kind}:${uid}`,
@@ -557,8 +567,49 @@ export class UnreadInfoDb {
       });
     } catch {
       databaseRequestSignal()?.throwIfAborted();
-      return targets;
+      return undefined;
     }
+  }
+
+  /** 摘要不可用时逐批探测索引，每个区间找到第一条命中就停止。 */
+  private async filterRecallTargetsByPresence(
+    targets: ProtectedRecallTarget[],
+  ): Promise<ProtectedRecallTarget[]> {
+    const selected: ProtectedRecallTarget[] = [];
+    let size = PROTECTED_RECALL_PRESENCE_BATCH;
+    for (let offset = 0; offset < targets.length; ) {
+      const batch = targets.slice(offset, offset + size);
+      try {
+        const page = await this.qq.queryPage(
+          `WITH input(idx, kind, conv, lo, hi) AS (VALUES ${batch.map(() => '(?,?,?,?,?)').join(',')}),
+           targets AS MATERIALIZED (SELECT * FROM input ORDER BY idx LIMIT ?)
+           SELECT t.idx FROM targets t WHERE EXISTS (
+             SELECT 1 FROM weq_recall_log r INDEXED BY ${RECALL_UNREAD_INDEX}
+             WHERE r.table_kind=t.kind AND r.conv=t.conv AND r.orig_seq>t.lo AND r.orig_seq<=t.hi
+           )`,
+          batch.flatMap(({ kind, uid, after, through }, idx) => [
+            BigInt(idx),
+            kind,
+            uid,
+            after,
+            through,
+          ]),
+          batch.length,
+        );
+        if (offset === 0 && page.rows.length === page.limit) return targets;
+        for (const [idx] of page.rows) {
+          const target = batch[Number(idx)];
+          if (target) selected.push(target);
+        }
+        // 输入页包含没有命中的区间，必须按已检查的输入数前进。
+        size = page.limit;
+        offset += size;
+      } catch {
+        databaseRequestSignal()?.throwIfAborted();
+        return selected.concat(targets.slice(offset));
+      }
+    }
+    return selected;
   }
 
   private async resolveProtectedRecallBatch(

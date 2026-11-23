@@ -116,7 +116,7 @@ it('撤回补查超预算后缩小会话批次，单个大区间按序号读完�
   }
 });
 
-it('撤回索引摘要只为重叠区间补查，摘要超限或超时保留完整读取', async () => {
+it('撤回摘要和索引探测只补查可能命中的会话，探测失败保留未检查的区间', async () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-recall-extents-'));
   roots.push(root);
   const path = join(root, 'msg.db');
@@ -129,8 +129,8 @@ it('撤回索引摘要只为重叠区间补查，摘要超限或超时保留完�
     WITH RECURSIVE groups(uid) AS (VALUES(70001) UNION ALL SELECT uid+1 FROM groups WHERE uid<70300)
       INSERT INTO recent_contact_v3_table("40021","40003","40010") SELECT CAST(uid AS TEXT),200,2 FROM groups;
     INSERT INTO weq_recall_log(table_kind,conv,orig_seq) VALUES
-      ('group','70001',100),('group','70002',201),('group','70003',101),('group','70003',101),
-      ('group','70007',200),('c2c','70004',123),('group','70006',NULL);`);
+      ('group','70001',100),('group','70002',201),('group','70203',101),('group','70203',101),
+      ('group','70270',200),('c2c','70004',123),('group','70006',NULL);`);
   const readState = new ProtoMsg(UnreadInfo).encode({ info: { msgSeq: 100 } });
   sql
     .prepare(`INSERT INTO msg_unread_info_table
@@ -138,9 +138,16 @@ it('撤回索引摘要只为重叠区间补查，摘要超限或超时保留完�
     .run(readState);
   const nt = createSqliteStub();
   let timeout = false;
+  let maxProbe = 512n;
+  let failSecondPage = false;
+  const isPresence = (sql: string) => sql.includes('SELECT t.idx FROM targets t WHERE EXISTS');
   const budgeted = vi.fn(async (dbPath: string, text: string, params: SqlValue[] | null) => {
     if (timeout && text.includes('MIN(orig_seq)'))
       throw new Error('database_query_execution_timeout');
+    if (isPresence(text) && BigInt(String(params?.at(-1))) > maxProbe)
+      throw new Error('database_query_execution_timeout');
+    if (failSecondPage && isPresence(text) && params?.[2] === '70151')
+      throw new Error('synthetic read failure for second page');
     return nt.executeSql(dbPath, text, params);
   });
   nt.executeSqlBudgeted = budgeted;
@@ -149,14 +156,15 @@ it('撤回索引摘要只为重叠区间补查，摘要超限或超时保留完�
     budgeted.mock.calls
       .filter(([, text]) => text.includes('CROSS JOIN weq_recall_log'))
       .map(([, , params]) => (params?.length ?? 0) / 5);
+  const probes = () => budgeted.mock.calls.filter(([, text]) => isPresence(text));
   const checkResults = async () => {
     const rows = await db.getAllUnreadInfos();
     expect(rows).toHaveLength(300);
     expect(
       rows.flatMap(({ uid, recalledSeqs }) => recalledSeqs?.map((seq) => [uid, seq]) ?? []),
     ).toEqual([
-      ['70003', '101'],
-      ['70007', '200'],
+      ['70203', '101'],
+      ['70270', '200'],
     ]);
   };
   try {
@@ -168,20 +176,39 @@ it('撤回索引摘要只为重叠区间补查，摘要超限或超时保留完�
     expect(plan.map((row) => row.detail).join('\n')).toContain('USING COVERING INDEX');
 
     timeout = true;
+    maxProbe = 150n;
     budgeted.mockClear();
     await checkResults();
-    expect(groupsChecked()).toEqual([128, 128, 44]);
+    expect(groupsChecked()).toEqual([2]);
+    expect(probes().map(([, , params]) => params?.at(-1))).toEqual([300n, 150n, 150n]);
+    const [, presenceSql, presenceArgs] = probes()[2]!;
+    const presencePlan = sql
+      .prepare(`EXPLAIN QUERY PLAN ${presenceSql}`)
+      .all(...(presenceArgs ?? []));
+    expect(presencePlan.map((node) => node.detail).join('\n')).toContain(
+      'USING COVERING INDEX weq_recall_by_conversation_seq',
+    );
+
+    failSecondPage = true;
+    budgeted.mockClear();
+    await checkResults();
+    expect(groupsChecked()).toEqual([128, 22]);
 
     timeout = false;
+    failSecondPage = false;
+    maxProbe = 512n;
     sql.exec(`WITH RECURSIVE more(uid) AS (VALUES(80001) UNION ALL SELECT uid+1 FROM more WHERE uid<80513)
       INSERT INTO weq_recall_log(table_kind,conv,orig_seq) SELECT 'group',CAST(uid AS TEXT),111 FROM more;`);
     budgeted.mockClear();
     await checkResults();
-    expect(groupsChecked()).toEqual([128, 128, 44]);
+    expect(groupsChecked()).toEqual([2]);
+    expect(probes()).toHaveLength(1);
     expect(databasePerformance(path).phases).toMatchObject({
-      unreadSmallTables: { count: 3 },
-      unreadSnapshotProjection: { count: 3 },
-      unreadRecallLookup: { count: 3 },
+      unreadSmallTables: { count: 4 },
+      unreadSnapshotProjection: { count: 4 },
+      unreadRecallLookup: { count: 4 },
+      unreadRecallExtents: { count: 4 },
+      unreadRecallPresence: { count: 3 },
     });
   } finally {
     db.close();
