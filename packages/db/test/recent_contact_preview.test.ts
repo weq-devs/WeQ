@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { RecentContactDb } from '@weq/db';
+import { databasePerformance, RecentContactDb } from '@weq/db';
 import { ProtoMsg, ChatType } from '@weq/codec';
 import { RecentContactBody } from '@weq/codec/proto/msg/40051';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
@@ -28,29 +28,32 @@ function createFixture() {
     "60001" INTEGER, "41103" INTEGER, "41104" INTEGER)`);
   const nt = createSqliteStub();
   db = new RecentContactDb(nt, { dbPath: path });
-  return { sql, db, nt };
+  return { path, sql, db, nt };
 }
 
 const preview = (text: string) =>
   new ProtoMsg(RecentContactBody).encode({ preview: [{ elementType: 1, textContent: text }] });
 
-it('水位只解码变化块，保留 64 位序号以及新增、删除与下调', async () => {
-  const { sql, db } = createFixture();
+it('稀疏行号仍分块复用，保留 64 位序号以及新增、删除与下调', async () => {
+  const { path, sql, db } = createFixture();
   const insert = sql.prepare(`INSERT INTO recent_contact_v3_table
     (rowid,"40021","40010","40003","40050") VALUES (?,?,?,?,?)`);
   insert.run(1, 'u_old', 1, 9007199254740997n, 123);
-  insert.run(64, 'u_removed', 1, 7, 100);
-  insert.run(128, 'u_other', 2, 20, 200);
+  for (let i = 1; i < 135; i++) insert.run(i * 10000, `u_fill_${i}`, 2, i, 80 + i);
+  insert.run(2_000_000, 'u_removed', 1, 7, 100);
+  insert.run(2_010_000, 'u_other', 2, 20, 200);
   const first = await db.listSeqWatermarks();
   expect(first[0]?.msgSeq).toBe(9007199254740997n);
+  const before = databasePerformance(path).returnedRows;
   expect(await db.listSeqWatermarks()).toBe(first);
-  sql.exec(`DELETE FROM recent_contact_v3_table WHERE rowid=64;
-    UPDATE recent_contact_v3_table SET "40003"=18 WHERE rowid=128;`);
-  insert.run(192, 'u_arrived', 2, 30, 240);
+  expect(databasePerformance(path).returnedRows - before).toBe(3);
+  sql.exec(`DELETE FROM recent_contact_v3_table WHERE rowid=2000000;
+    UPDATE recent_contact_v3_table SET "40003"=18 WHERE rowid=2010000;`);
+  insert.run(2_020_000, 'u_arrived', 2, 30, 240);
   const next = await db.listSeqWatermarks();
   expect(next[0]).toBe(first[0]);
-  expect(next.map(({ targetUid, msgSeq }) => [targetUid, msgSeq])).toEqual([
-    ['u_old', 9007199254740997n],
+  expect(next).toHaveLength(first.length);
+  expect(next.slice(-2).map(({ targetUid, msgSeq }) => [targetUid, msgSeq])).toEqual([
     ['u_other', 18n],
     ['u_arrived', 30n],
   ]);

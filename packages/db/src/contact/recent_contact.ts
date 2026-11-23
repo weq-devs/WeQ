@@ -38,16 +38,24 @@ import { decodeBody } from '../msg/util';
 const SELECT_COLUMNS = `"40003","40010","40020","40021","40030","40050","40051","40090","40093","40094","40095","41110","41135","41148","41220","60001","41103","41104"`;
 const SUMMARY_COLUMNS = SELECT_COLUMNS.replace('"40051"', 'NULL');
 const contactCodec = new ProtoMsg(RecentContactBody);
-const WATERMARK_BLOCK_SHIFT = 6;
+const WATERMARK_BLOCK_SIZE = 64;
 const WATERMARK_BLOCK_LIMIT = 128;
-const PACKED_WATERMARKS = `SELECT rowid >> ${WATERMARK_BLOCK_SHIFT},
-  json_group_array(json_array(CASE WHEN typeof("40021") = 'text' THEN "40021" END,
-    CAST("40010" AS INTEGER), CAST(CAST("40003" AS INTEGER) AS TEXT),
-    CAST(CAST("40050" AS INTEGER) AS TEXT)) ORDER BY rowid),
-  MAX(NOT (typeof(rowid) = 'integer' AND typeof("40021") IN ('text','null')
-    AND typeof("40010") IN ('integer','null') AND typeof("40003") IN ('integer','null')
-    AND typeof("40050") IN ('integer','null')))
-  FROM recent_contact_v3_table GROUP BY (rowid >> ${WATERMARK_BLOCK_SHIFT}) ORDER BY 1 LIMIT ?`;
+const MIN_SQLITE_ROWID = -(1n << 63n);
+const MAX_SQLITE_ROWID = (1n << 63n) - 1n;
+const PACKED_WATERMARKS = `WITH bounds(lo,hi) AS (
+    SELECT CAST(json_extract(value,'$[0]') AS INTEGER),CAST(json_extract(value,'$[1]') AS INTEGER)
+    FROM json_each(?)
+  )
+  SELECT b.lo,
+    json_group_array(json_array(CASE WHEN typeof("40021") IN ('text','integer') THEN CAST("40021" AS TEXT) END,
+      CASE WHEN typeof("40010") IN ('text','integer') THEN CAST("40010" AS TEXT) END,
+      CASE WHEN typeof("40003") IN ('text','integer') THEN CAST("40003" AS TEXT) END,
+      CASE WHEN typeof("40050") IN ('text','integer') THEN CAST("40050" AS TEXT) END) ORDER BY r.rowid),
+    MAX(NOT (typeof("40021") IN ('text','integer','null')
+      AND typeof("40010") IN ('text','integer','null') AND typeof("40003") IN ('text','integer','null')
+      AND typeof("40050") IN ('text','integer','null'))), COUNT(*)
+  FROM bounds b CROSS JOIN recent_contact_v3_table r WHERE r.rowid BETWEEN b.lo AND b.hi
+  GROUP BY b.lo ORDER BY b.lo`;
 
 export const RECENT_CONTACT_PREVIEW_CACHE_LIMITS = {
   entries: 1024,
@@ -143,6 +151,7 @@ export class RecentContactDb {
   >();
   private previewBytes = 0;
   private canPackWatermarks = true;
+  private watermarkRanges?: string;
   private watermarkBlocks = new Map<string, WatermarkBlock>();
   private watermarks: readonly RecentContactSeq[] = [];
 
@@ -206,9 +215,17 @@ export class RecentContactDb {
   async listSeqWatermarks(): Promise<readonly RecentContactSeq[]> {
     if (this.canPackWatermarks) {
       try {
-        const rows = await this.qq.query(PACKED_WATERMARKS, [WATERMARK_BLOCK_LIMIT + 1]);
-        if (rows.length <= WATERMARK_BLOCK_LIMIT && rows.every((row) => Number(row[2]) === 0))
-          return this.unpackWatermarks(rows);
+        const ranges = this.watermarkRanges ?? (await this.prepareWatermarkRanges());
+        if (ranges) {
+          const rows = await this.qq.query(PACKED_WATERMARKS, [ranges]);
+          if (rows.every((row) => Number(row[2]) === 0)) {
+            // 穿过旧边界的新会话仍立即可见；某个范围变大时，下一轮重新划分。
+            this.watermarkRanges = rows.some((row) => Number(row[3]) > WATERMARK_BLOCK_SIZE * 4)
+              ? undefined
+              : ranges;
+            return this.unpackWatermarks(rows);
+          }
+        }
       } catch (error) {
         // 旧 SQLite 或不支持 rowid 的备份表仍走逐行读取。
         if (
@@ -225,6 +242,28 @@ export class RecentContactDb {
       `SELECT "40021","40010","40003","40050" FROM recent_contact_v3_table`,
     );
     return rows.map(rowToWatermark);
+  }
+
+  private async prepareWatermarkRanges(): Promise<string | undefined> {
+    const limit = WATERMARK_BLOCK_LIMIT * WATERMARK_BLOCK_SIZE;
+    const keys = await this.qq.query(
+      'SELECT rowid FROM recent_contact_v3_table ORDER BY rowid LIMIT ?',
+      [limit + 1],
+    );
+    if (
+      keys.length > limit ||
+      keys.some(([key]) => typeof key !== 'bigint' && typeof key !== 'number')
+    )
+      return undefined;
+    const ranges: Array<[string, string]> = [];
+    let first = MIN_SQLITE_ROWID;
+    for (let i = WATERMARK_BLOCK_SIZE; i < keys.length; i += WATERMARK_BLOCK_SIZE) {
+      const next = toBigint(keys[i]?.[0]);
+      ranges.push([String(first), String(next - 1n)]);
+      first = next;
+    }
+    ranges.push([String(first), String(MAX_SQLITE_ROWID)]);
+    return JSON.stringify(ranges);
   }
 
   /** 读取指定会话的当前水位，保留其原始会话类型供调用方区分。 */
@@ -264,14 +303,18 @@ export class RecentContactDb {
   async recentInteractionWindow(
     kind: 'c2c' | 'group',
     since: number,
+    conversations?: readonly string[],
   ): Promise<RecentInteractionWindow> {
+    const targets = conversations ? [...new Set(conversations.filter(Boolean))] : [];
+    if (conversations && !targets.length) return { latest: new Map(), tips: [] };
+    const scope = conversations ? `"40021" IN (${targets.map(() => '?').join(',')})` : '"40050">=?';
     const table = kind === 'group' ? 'group_msg_table' : 'c2c_msg_table';
     const partition = kind === 'group' ? 'CAST("40021" AS INTEGER)' : '"40027"';
     const types = kind === 'group' ? ChatType.KCHATTYPEGROUP : DIRECT_INTERACTION_TYPES;
     const rows = await this.qq.query(
       `WITH targets(conv, partition, seq) AS MATERIALIZED (
          SELECT "40021", ${partition}, MAX("40003") FROM recent_contact_v3_table
-         WHERE "40010" IN (${types}) AND "40050">=? AND ${partition}>0
+         WHERE "40010" IN (${types}) AND ${scope} AND ${partition}>0
          GROUP BY "40021", ${partition} ORDER BY MAX("40050") DESC LIMIT 128
        )
        SELECT t.conv, m."40003", m."40001", m."40050", m."40800", m."40020"
@@ -286,7 +329,7 @@ export class RecentContactDb {
        CROSS JOIN ${table} m ON m."40027"=t.partition AND m."40003" IS s.seq
        WHERE m."40050">=?
        UNION ALL SELECT conv, seq, NULL, NULL, NULL, NULL FROM targets`,
-      [BigInt(since), BigInt(since)],
+      [...(conversations ? targets : [BigInt(since)]), BigInt(since)],
     );
     // 撤回者为 47703，戳一戳详细动作 48212=1061。字节仅预筛，仍解码确认类型和身份。
     const latest = new Map<string, bigint>();
@@ -506,6 +549,7 @@ export class RecentContactDb {
     this.previews.clear();
     this.previewBytes = 0;
     this.canPackWatermarks = true;
+    this.watermarkRanges = undefined;
     this.watermarkBlocks.clear();
     this.watermarks = [];
     this.qq.close();
