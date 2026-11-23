@@ -99,6 +99,59 @@ it('共享快照复用撤回区间，同水位撤回只使对应会话失效', a
   }
 });
 
+it('共享快照保留长撤回区间，读水位前移时裁剪且只读增长的尾部', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-long-recall-window-'));
+  roots.push(root);
+  const path = join(root, 'msg.db');
+  const sql = fixtureDb(path);
+  sql.exec(`CREATE TABLE msg_unread_info_table("48901" TEXT PRIMARY KEY,"48902" BLOB);
+    CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40020" TEXT,
+      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40027" INTEGER,"40050" INTEGER);
+    INSERT INTO recent_contact_v3_table("40021","40003","40010") VALUES ('70001',2009,2);
+    CREATE TABLE weq_recall_log(msgid INTEGER PRIMARY KEY, table_kind TEXT, conv TEXT, orig_seq INTEGER);
+    CREATE INDEX weq_recall_by_conversation_seq ON weq_recall_log(table_kind,conv,orig_seq);
+    WITH RECURSIVE seq(value) AS (VALUES(101) UNION ALL SELECT value+1 FROM seq WHERE value<2408)
+      INSERT INTO weq_recall_log(table_kind,conv,orig_seq) SELECT 'group','70001',value FROM seq;`);
+  const proto = new ProtoMsg(UnreadInfo);
+  const write = sql.prepare('INSERT OR REPLACE INTO msg_unread_info_table VALUES (?,?)');
+  const setRead = (msgSeq: number) => write.run('2_70001', proto.encode({ info: { msgSeq } }));
+  setRead(100);
+  const nt = createSqliteStub();
+  const query = vi.spyOn(nt, 'executeSql');
+  const db = new UnreadInfoDb(nt, { dbPath: path });
+  const sequenceRange = (after: number, through: number) =>
+    Array.from({ length: through - after }, (_, index) => String(after + index + 1));
+  const sequences = async () => (await db.getAllUnreadInfos())[0]?.recalledSeqs;
+  const recallBounds = () =>
+    query.mock.calls.find(([, text]) => text.includes('CROSS JOIN weq_recall_log'))?.[2];
+  try {
+    const first = await sequences();
+    expect(first).toEqual(sequenceRange(100, 2009));
+    first?.push('3000');
+    query.mockClear();
+    expect(await sequences()).toEqual(sequenceRange(100, 2009));
+    expect(query).toHaveBeenCalledTimes(2);
+
+    setRead(1200);
+    sql.exec(`UPDATE recent_contact_v3_table SET "40003"=2408`);
+    query.mockClear();
+    expect(await sequences()).toEqual(sequenceRange(1200, 2408));
+    expect(recallBounds()).toEqual([0n, 'group', '70001', 2009n, 2408n]);
+
+    setRead(2100);
+    query.mockClear();
+    expect(await sequences()).toEqual(sequenceRange(2100, 2408));
+    expect(query).toHaveBeenCalledTimes(2);
+
+    setRead(1190);
+    query.mockClear();
+    expect(await sequences()).toEqual(sequenceRange(1190, 2408));
+    expect(recallBounds()).toEqual([0n, 'group', '70001', 1190n, 2408n]);
+  } finally {
+    db.close();
+  }
+});
+
 it('撤回补查超预算后缩小会话批次，单个大区间按序号读完且跨页去重', async () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-paged-protected-recalls-'));
   roots.push(root);

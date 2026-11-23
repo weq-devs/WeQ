@@ -141,7 +141,7 @@ const PROTECTED_RECALL_EXTENTS_OVERFLOW_RETRY_MS = 30_000;
 const PROTECTED_RECALL_EXTENTS_FAILURE_RETRY_MS = 3_000;
 const MAX_RECALL_CONVERSATION_COUNTS = 16_384;
 const MAX_CACHED_RECALL_WINDOWS = 4_096;
-const MAX_SEQUENCES_PER_RECALL_WINDOW = 64;
+const MAX_CACHED_RECALL_SEQUENCES = 32_768;
 
 const GRAY_TIP = MsgType.GRAY_TIP;
 const RECENT_CHAT_TYPE = `CAST(r."40010" AS INTEGER)`;
@@ -577,34 +577,50 @@ export class UnreadInfoDb {
   }
 
   private async applySharedProtectedRecalls(targets: ProtectedRecallTarget[]): Promise<void> {
-    if (!targets.length) return;
+    if (!targets.length) {
+      this.protectedRecallCache?.windows.clear();
+      return;
+    }
     const cache = await measureMessageWork(this.qq.dbPath, 'unreadRecallRevision', () =>
       this.readProtectedRecallCache(),
     );
-    const pending: ProtectedRecallTarget[] = [];
+    const windows = new Map<string, ProtectedRecallWindow>();
+    let remaining = MAX_CACHED_RECALL_SEQUENCES;
+    const retain = (target: ProtectedRecallTarget, sequences: readonly string[]) => {
+      if (windows.size >= MAX_CACHED_RECALL_WINDOWS || sequences.length > remaining) return;
+      const { kind, uid, after, through } = target;
+      windows.set(`${kind}:${uid}`, { after, through, sequences });
+      remaining -= sequences.length;
+    };
+    const pending: Array<{ target: ProtectedRecallTarget; after: bigint }> = [];
     for (const target of targets) {
       const key = `${target.kind}:${target.uid}`;
+      if (cache?.counts && !cache.counts.has(key)) continue;
       const window = cache?.windows.get(key);
-      if (window && window.after <= target.after && window.through >= target.through) {
-        const sequences = window.sequences.filter((sequence) => {
-          const seq = BigInt(sequence);
-          return target.after < seq && seq <= target.through;
-        });
-        if (sequences.length) target.snapshot.recalledSeqs = sequences;
-      } else if (!cache?.counts || cache.counts.has(key)) pending.push(target);
+      if (!window || target.after < window.after || target.after >= window.through) {
+        pending.push({ target, after: target.after });
+        continue;
+      }
+      const sequences =
+        target.after === window.after && target.through >= window.through
+          ? window.sequences
+          : window.sequences.filter((sequence) => {
+              const seq = BigInt(sequence);
+              return target.after < seq && seq <= target.through;
+            });
+      if (sequences.length) target.snapshot.recalledSeqs = sequences.slice();
+      if (target.through <= window.through) retain(target, sequences);
+      else pending.push({ target, after: window.through });
     }
-    if (!pending.length) return;
-    const complete = await measureMessageWork(this.qq.dbPath, 'unreadRecallLookup', () =>
-      this.resolveProtectedRecalls(pending),
-    );
-    if (!complete || !cache || this.protectedRecallCache !== cache) return;
-    for (const { kind, uid, after, through, snapshot } of pending) {
-      const key = `${kind}:${uid}`;
-      const sequences = snapshot.recalledSeqs ?? [];
-      if (sequences.length > MAX_SEQUENCES_PER_RECALL_WINDOW) continue;
-      if (cache.windows.size >= MAX_CACHED_RECALL_WINDOWS && !cache.windows.has(key)) break;
-      cache.windows.set(key, { after, through, sequences: sequences.slice() });
+    if (pending.length) {
+      const complete = await measureMessageWork(this.qq.dbPath, 'unreadRecallLookup', () =>
+        this.resolveProtectedRecalls(pending.map(({ target, after }) => ({ ...target, after }))),
+      );
+      if (!complete || !cache || this.protectedRecallCache !== cache) return;
+      // 保留仍命中的窗口，剩余预算再收录本轮补查，避免超预算时每轮互相挤掉。
+      for (const { target } of pending) retain(target, target.snapshot.recalledSeqs?.slice() ?? []);
     }
+    if (cache && this.protectedRecallCache === cache) cache.windows = windows;
   }
 
   private async resolveProtectedRecalls(candidates: ProtectedRecallTarget[]): Promise<boolean> {
@@ -779,7 +795,8 @@ export class UnreadInfoDb {
   }: ProtectedRecallTarget) {
     try {
       const sequences = await this.pageProtectedRecallSeqs(kind, uid, after, through);
-      if (sequences.length) snapshot.recalledSeqs = sequences;
+      if (sequences.length)
+        snapshot.recalledSeqs = snapshot.recalledSeqs?.concat(sequences) ?? sequences;
       return true;
     } catch {
       databaseRequestSignal()?.throwIfAborted();
