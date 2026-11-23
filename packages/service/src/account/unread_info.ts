@@ -1,7 +1,7 @@
 import type { AccountSession } from '@weq/account';
 import { classifyChatType, isDatalineSelfUid, isDatalineUid } from '@weq/codec';
 import { MsgType } from '@weq/codec/proto/msg/40900';
-import { recordMessageWork, withDatabasePriority } from '@weq/db';
+import { recordMessageWork, withDatabasePriority, type DatabasePriority } from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import {
   ReportRead,
@@ -19,6 +19,7 @@ import { resolveC2cPartition } from './c2c_partition';
 import { queueSsoWork, ssoWorkState } from './sso_lifecycle';
 import { LocalUnreadStore, type ResolvedUnreadInfo, validDeviceReadPosition } from './local_unread';
 import type { NewMessages } from './nt_msg_hook';
+import type { DbChange } from './db_watch';
 import type {
   UnreadHighlightInput,
   UnreadInfoResult,
@@ -80,6 +81,8 @@ interface ManualReadEntry extends UnreadInfoTarget {
 
 const UNREAD_POLL_MS = 1500;
 const WATCHED_UNREAD_RECONCILE_MS = 6000;
+const FILE_SNAPSHOT_MIN_INTERVAL_MS = 750;
+const CHANGE_COALESCE_MS = 50;
 
 export class UnreadInfoService {
   private readonly local: LocalUnreadStore;
@@ -94,10 +97,14 @@ export class UnreadInfoService {
   private readonly sequenceRefreshes = new Map<string, symbol>();
   private loading?: Promise<void>;
   private updatedAt = 0;
+  private lastReadStartedAt = Number.NEGATIVE_INFINITY;
   private dirty = true;
+  private immediateChange = true;
   private messageFileWatch?: symbol;
+  private readonly observedFiles = new WeakSet<DbChange>();
   private refreshTimer?: ReturnType<typeof setInterval>;
   private changeTimer?: ReturnType<typeof setTimeout>;
+  private changeDueAt = 0;
   private retryTimer?: ReturnType<typeof setTimeout>;
   private readonly writes = new Map<string, () => Promise<void>>();
   private readonly writeTasks = new Map<string, Promise<unknown>>();
@@ -146,8 +153,8 @@ export class UnreadInfoService {
       this.refreshTimer = setInterval(() => {
         if (
           this.messageFileWatch &&
-          !this.dirty &&
-          Date.now() - this.updatedAt < WATCHED_UNREAD_RECONCILE_MS
+          (this.changeTimer ||
+            (!this.dirty && Date.now() - this.updatedAt < WATCHED_UNREAD_RECONCILE_MS))
         )
           return;
         void this.refreshSnapshots('background').catch(() => {});
@@ -177,20 +184,43 @@ export class UnreadInfoService {
     };
   }
 
-  /** 文件通知仅请求小表快照，不累加消息、不使历史区间失效。 */
+  /** 本地写入后的校准优先于后台文件事件。 */
   invalidate(): void {
     if (this.disposed) return;
     this.dirty = true;
-    if (!this.countListeners.size || this.changeTimer || this.loading) return;
+    this.immediateChange = true;
+    this.scheduleSnapshot();
+  }
+
+  /** 同一次库文件变化和它衍生的消息通知共用一个刷新。 */
+  invalidateMessageFile(change: DbChange): void {
+    if (this.disposed || this.observedFiles.has(change)) return;
+    this.observedFiles.add(change);
+    this.dirty = true;
+    this.scheduleSnapshot();
+  }
+
+  private scheduleSnapshot(): void {
+    if (this.disposed || !this.dirty || !this.countListeners.size || this.loading) return;
+    const now = performance.now();
+    const due = this.immediateChange
+      ? now + CHANGE_COALESCE_MS
+      : Math.max(now + CHANGE_COALESCE_MS, this.lastReadStartedAt + FILE_SNAPSHOT_MIN_INTERVAL_MS);
+    if (this.changeTimer && this.changeDueAt <= due) return;
+    clearTimeout(this.changeTimer);
+    this.changeDueAt = due;
     this.changeTimer = setTimeout(() => {
       this.changeTimer = undefined;
-      void this.refreshSnapshots().catch(() => {});
-    }, 50);
+      if (this.dirty)
+        void this.refreshSnapshots(this.immediateChange ? 'interactive' : 'background').catch(
+          () => {},
+        );
+    }, due - now);
     this.changeTimer.unref?.();
   }
 
-  async observeNewMessages(_change: NewMessages): Promise<void> {
-    this.invalidate();
+  async observeNewMessages(change: NewMessages): Promise<void> {
+    this.invalidateMessageFile(change.file);
   }
 
   /** 发送缓存写入后，即使 QQ 小表未变也重算对应会话。 */
@@ -430,13 +460,16 @@ export class UnreadInfoService {
     );
   }
 
-  private async countDeviceUnread(row: UnreadInfoSnapshot): Promise<number> {
+  private async countDeviceUnread(
+    row: UnreadInfoSnapshot,
+    priority: DatabasePriority = 'interactive',
+  ): Promise<number> {
     const through = row.deviceLatest;
     if (!through) return 0;
     const after = this.local.deviceReadFloor(row);
     if (!newerReadPosition(through, after)) return 0;
     return withDatabasePriority(
-      'interactive',
+      priority,
       () => this.session.unreadInfo.countDeviceIncoming(row, after, through),
       this.reads.signal,
     );
@@ -453,6 +486,7 @@ export class UnreadInfoService {
   private async applySnapshots(
     rows: UnreadInfoSnapshot[],
     accepts: (row: UnreadInfoSnapshot) => boolean,
+    priority: DatabasePriority = 'interactive',
   ): Promise<void> {
     const versions = new Map(rows.map(({ peer }) => [peer, this.sequenceRefreshes.get(peer)]));
     const ranges: UnreadSequenceRange[] = [];
@@ -472,7 +506,7 @@ export class UnreadInfoService {
     const empty = new Map<string, string[]>();
     const [sent, recalled] = ranges.length
       ? await withDatabasePriority(
-          'interactive',
+          priority,
           () =>
             Promise.all([
               readSent ? readSent(ranges).catch(() => undefined) : empty,
@@ -483,7 +517,9 @@ export class UnreadInfoService {
       : [empty, empty];
     const counts = await Promise.all(
       rows.map((row) =>
-        this.isDeviceSnapshot(row) ? this.countDeviceUnread(row).catch(() => null) : undefined,
+        this.isDeviceSnapshot(row)
+          ? this.countDeviceUnread(row, priority).catch(() => null)
+          : undefined,
       ),
     );
     if (this.disposed) return;
@@ -524,14 +560,16 @@ export class UnreadInfoService {
     this.publish(changed);
   }
 
-  private async refreshSnapshots(
-    priority: 'interactive' | 'background' = 'interactive',
-  ): Promise<void> {
+  private async refreshSnapshots(priority: DatabasePriority = 'interactive'): Promise<void> {
     if (this.disposed) return;
     if (this.loading) return this.loading;
     const revision = this.manualRevision;
     const began = performance.now();
+    clearTimeout(this.changeTimer);
+    this.changeTimer = undefined;
+    this.lastReadStartedAt = began;
     this.dirty = false;
+    this.immediateChange = false;
     const reading = withDatabasePriority(
       priority,
       () => {
@@ -564,6 +602,7 @@ export class UnreadInfoService {
                 JSON.stringify(this.snapshots.get(row.peer)) !== JSON.stringify(row)),
           ),
           () => revision === this.manualRevision,
+          priority,
         );
         if (revision !== this.manualRevision) {
           this.invalidate();
@@ -581,7 +620,7 @@ export class UnreadInfoService {
       } finally {
         recordMessageWork(this.session.msgDbPath, 'watermarks', performance.now() - began);
         this.loading = undefined;
-        if (!failed && this.dirty) this.invalidate();
+        if (!failed) this.scheduleSnapshot();
       }
     })();
     return this.loading;

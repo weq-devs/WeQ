@@ -7,6 +7,7 @@
  */
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import { QqDb } from '../qq_db';
 import {
   ChatType,
@@ -123,6 +124,10 @@ export interface UnreadInfoSnapshot extends UnreadInfoResult {
   readError?: true;
 }
 
+type UnreadFields = Omit<UnreadInfoResult, 'peer' | 'chatType' | 'uid'>;
+const MAX_CACHED_UNREAD_FIELDS = 16_384;
+const MAX_CACHED_UNREAD_BYTES = 8 * 1024 * 1024;
+
 const GRAY_TIP = MsgType.GRAY_TIP;
 const RECENT_CHAT_TYPE = `CAST(r."40010" AS INTEGER)`;
 const TEMP_DIRECT_TYPES = [
@@ -214,6 +219,8 @@ export class UnreadInfoDb {
   private readonly qq: QqDb;
   private readonly proto = new ProtoMsg(UnreadInfo);
   private readonly seqIndexes = new Map<string, Promise<boolean>>();
+  private readonly unreadFields = new Map<string, { bytes: Uint8Array; decoded: UnreadFields }>();
+  private unreadFieldBytes = 0;
 
   constructor(nt: NtHelperBinding, opts: UnreadInfoDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
@@ -302,14 +309,12 @@ export class UnreadInfoDb {
       if (recent && row[0] == null) recent[3] = row[3] ?? null;
       else if (!recent || preferRecentUnreadRow(row, recent)) merged.set(peer, [...row]);
     }
-    return (await this.decodeAndResolveSnapshots([...merged.values()])).filter((row) =>
+    return (await this.decodeAndResolveSnapshots([...merged.values()], true)).filter((row) =>
       [1, 2, 8, 134].includes(row.chatType),
     );
   }
 
-  private readFields(
-    decoded: ReturnType<ProtoMsg<typeof UnreadInfo>['decode']>,
-  ): Omit<UnreadInfoResult, 'peer' | 'chatType' | 'uid'> {
+  private readFields(decoded: ReturnType<ProtoMsg<typeof UnreadInfo>['decode']>): UnreadFields {
     const info = decoded.info;
     return {
       msgSeq: info?.msgSeq,
@@ -333,9 +338,48 @@ export class UnreadInfoDb {
     };
   }
 
-  private async decodeAndResolveSnapshots(rows: SqlRow[]): Promise<UnreadInfoSnapshot[]> {
+  private decodeUnreadFields(blob: unknown): UnreadFields {
+    const decoded = blob instanceof Uint8Array ? this.proto.decode(blob) : {};
+    const highlights = extractHighlights(decoded.info?.ext);
+    return { ...this.readFields(decoded), highlights: highlights.length ? highlights : undefined };
+  }
+
+  /** 只复用相同的 QQ 原始未读字段，灰条、撤回与数据线仍从最新快照求值。 */
+  private snapshotUnreadFields(peer: string, blob: unknown): UnreadFields {
+    if (!(blob instanceof Uint8Array)) return this.decodeUnreadFields(blob);
+    let cached = this.unreadFields.get(peer);
+    if (!cached || Buffer.compare(blob, cached.bytes) !== 0) {
+      if (cached) {
+        this.unreadFieldBytes -= cached.bytes.byteLength;
+        this.unreadFields.delete(peer);
+      }
+      const decoded = this.decodeUnreadFields(blob);
+      if (
+        this.unreadFields.size >= MAX_CACHED_UNREAD_FIELDS ||
+        this.unreadFieldBytes + blob.byteLength > MAX_CACHED_UNREAD_BYTES
+      )
+        return decoded;
+      cached = { bytes: Uint8Array.from(blob), decoded };
+      this.unreadFields.set(peer, cached);
+      this.unreadFieldBytes += blob.byteLength;
+    }
+    return {
+      ...cached.decoded,
+      decreasedSeqs: cached.decoded.decreasedSeqs?.slice(),
+      highlights: cached.decoded.highlights?.map((row) => ({ ...row })),
+    };
+  }
+
+  private async decodeAndResolveSnapshots(
+    rows: SqlRow[],
+    reuseUnreadFields = false,
+  ): Promise<UnreadInfoSnapshot[]> {
     const targets = new Map<number, GrayTipUnreadTarget[]>();
-    const snapshots = rows.map((row) => {
+    const snapshots: UnreadInfoSnapshot[] = [];
+    const signal = databaseRequestSignal();
+    let sliceStarted = performance.now();
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index]!;
       const peer = String(row[2]);
       const split = peer.indexOf('_');
       const identity = {
@@ -346,19 +390,27 @@ export class UnreadInfoDb {
         latestSenderUid: row[5] == null ? undefined : String(row[5]),
       };
       try {
-        const decoded = row[3] instanceof Uint8Array ? this.proto.decode(row[3]) : {};
-        const highlights = extractHighlights(decoded.info?.ext);
         const snapshot: UnreadInfoSnapshot = {
           ...identity,
-          ...this.readFields(decoded),
-          highlights: highlights.length ? highlights : undefined,
+          ...(reuseUnreadFields
+            ? this.snapshotUnreadFields(peer, row[3])
+            : this.decodeUnreadFields(row[3])),
         };
         this.collectGrayTipTarget(row, snapshot, targets);
-        return snapshot;
+        snapshots.push(snapshot);
       } catch {
-        return { ...identity, readError: true as const };
+        snapshots.push({ ...identity, readError: true });
       }
-    });
+      if (
+        reuseUnreadFields &&
+        (index + 1) % 256 === 0 &&
+        index + 1 < rows.length &&
+        performance.now() - sliceStarted >= 8
+      ) {
+        await yieldToEventLoop(undefined, { signal });
+        sliceStarted = performance.now();
+      }
+    }
     await Promise.all(
       snapshots.flatMap((snapshot) =>
         snapshot.chatType === 8 || snapshot.chatType === 134
@@ -893,6 +945,8 @@ export class UnreadInfoDb {
   }
 
   close(): void {
+    this.unreadFields.clear();
+    this.unreadFieldBytes = 0;
     this.qq.close();
   }
 }

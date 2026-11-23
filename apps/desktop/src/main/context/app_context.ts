@@ -640,7 +640,7 @@ function mountDbWatch(session: AccountSession): void {
     createNtMsgDbHook(session, {
       onDbChanged: (file) => {
         if (getAppContext().account !== session) return;
-        getAppContext().services?.unreadInfo.invalidate();
+        getAppContext().services?.unreadInfo.invalidateMessageFile(file);
         getAppContext().services?.interactionBadges.requestScan();
         notification.request(file);
       },

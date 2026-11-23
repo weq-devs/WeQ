@@ -136,3 +136,26 @@ it('无关会话写入和同水位内容修正只重读小表，不存在消息�
     f.db.close();
   }
 });
+
+it('共享快照复用相同未读字段，返回副本并单独解码同水位的新减项', async () => {
+  const f = fixture();
+  const write = f.sql.prepare('INSERT OR REPLACE INTO msg_unread_info_table VALUES (?,?)');
+  const proto = new ProtoMsg(UnreadInfo);
+  const input = (msgSeq: number) => proto.encode({ info: { msgSeq: 90, decreases: [{ msgSeq }] } });
+  write.run('2_70001', input(96));
+  write.run('2_70002', input(97));
+  const decode = vi.spyOn(ProtoMsg.prototype, 'decode');
+  try {
+    const first = await f.db.getAllUnreadInfos();
+    expect(decode).toHaveBeenCalledTimes(2);
+    first[0]!.decreasedSeqs!.push('200');
+    write.run('2_70002', input(98));
+    decode.mockClear();
+    const second = await f.db.getAllUnreadInfos();
+    expect(second.map((row) => row.decreasedSeqs)).toEqual([['96'], ['98']]);
+    expect(decode).toHaveBeenCalledOnce();
+  } finally {
+    decode.mockRestore();
+    f.db.close();
+  }
+});

@@ -105,9 +105,9 @@ function fixture(
     markRead,
     undoReadState,
     query: (fast = false) => service.getUnreadInfos([target], fast),
-    update: (next: UnreadInfoSnapshot[]) => {
+    update: (next: UnreadInfoSnapshot[], notify = true) => {
       rows = next;
-      service.invalidate();
+      if (notify) service.invalidate();
     },
   };
 }
@@ -436,6 +436,60 @@ it('读取期间到达的文件变动在完成后补一次，不等定时对账'
   await vi.advanceTimersByTimeAsync(50);
   expect(f.all).toHaveBeenCalledTimes(2);
   expect((await f.query())[0]?.unreadCount).toBe(5);
+});
+const fileChange = () => ({
+  dbPath: '/synthetic/small-unread.db',
+  at: Date.now(),
+  prevTotal: 1,
+  total: 2,
+  delta: 1,
+  files: [],
+});
+it('一次库文件变化及迟到消息通知共用已经完成的快照', async () => {
+  vi.useFakeTimers({
+    toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+  });
+  const f = fixture();
+  await f.query();
+  f.service.attachMessageFileWatch();
+  f.service.onCountsChanged(() => {});
+  await vi.advanceTimersByTimeAsync(800);
+  f.all.mockClear();
+  const file = fileChange();
+  f.service.invalidateMessageFile(file);
+  await vi.advanceTimersByTimeAsync(800);
+  expect(f.all).toHaveBeenCalledOnce();
+  await f.service.observeNewMessages({ file, c2c: [], group: [] });
+  await vi.advanceTimersByTimeAsync(800);
+  expect(f.all).toHaveBeenCalledOnce();
+});
+it('连续 WAL 变化合并全量读取，本地写入仍优先校准', async () => {
+  vi.useFakeTimers({
+    toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+  });
+  const f = fixture();
+  await f.query();
+  f.service.attachMessageFileWatch();
+  f.service.onCountsChanged(() => {});
+  await vi.advanceTimersByTimeAsync(800);
+  f.all.mockClear();
+  f.service.invalidateMessageFile(fileChange());
+  await vi.advanceTimersByTimeAsync(50);
+  expect(f.all).toHaveBeenCalledOnce();
+  for (let i = 0; i < 6; i++) {
+    f.service.invalidateMessageFile(fileChange());
+    await vi.advanceTimersByTimeAsync(100);
+  }
+  expect(f.all).toHaveBeenCalledOnce();
+  f.update([row({ msgSeq: 95 })], false);
+  await vi.advanceTimersByTimeAsync(150);
+  expect(f.all).toHaveBeenCalledTimes(2);
+  expect((await f.query())[0]?.unreadCount).toBe(5);
+  f.service.invalidateMessageFile(fileChange());
+  f.update([row({ msgSeq: 98 })]);
+  await vi.advanceTimersByTimeAsync(50);
+  expect(f.all).toHaveBeenCalledTimes(3);
+  expect((await f.query())[0]?.unreadCount).toBe(2);
 });
 it('只读账号阅读和撤销不写 QQ，后来的新消息仍显示', async () => {
   const f = fixture(true);
