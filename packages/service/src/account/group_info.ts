@@ -32,6 +32,8 @@ const ONLINE_MEMBERS_TTL_MS = 60_000;
 /** 单群翻页上限，兜底防止服务端 token 不收敛。 */
 const ONLINE_MEMBERS_MAX_PAGES = 200;
 
+type OnlineMemberRole = Pick<GroupMemberListItem, 'uin' | 'permission'>;
+
 function onlineMemberRole(permission: number): QQGroupRole | undefined {
   switch (permission) {
     case 1:
@@ -342,7 +344,7 @@ export class GroupInfoService {
         return value &&
           this.online &&
           value.pid === this.online.resolvePid() &&
-          Date.now() - value.at < ONLINE_MEMBERS_TTL_MS
+          performance.now() - value.at < ONLINE_MEMBERS_TTL_MS
           ? convert(value.members.slice(0, GROUP_PREVIEW_CANDIDATES))
           : [];
       },
@@ -396,12 +398,13 @@ export class GroupInfoService {
     number,
     { at: number; pid: number; members: GroupMemberListItem[] }
   >();
+  private onlineMembersExpiry?: ReturnType<typeof setTimeout>;
   /** 同一群的并发拉取合并，避免 0xFE7_3 被并发打爆触发风控。 */
   private onlineMembersInflight = new Map<number, Promise<GroupMemberListItem[]>>();
   private memberRoleReads = new Map<number, number>();
   private memberRoleSnapshots = new Map<
     number,
-    { pid: number; byUid: Map<string, GroupMemberListItem> }
+    { pid: number; byUid: Map<string, OnlineMemberRole> }
   >();
   private messagePoliciesInflight?: { pid: number; task: Promise<GroupMessagePolicySnapshot[]> };
   private analysis: AnalyticsMessageSource;
@@ -482,6 +485,10 @@ export class GroupInfoService {
 
   disposeGroupProfiles(): void {
     this.groupProfiles.dispose();
+    if (this.onlineMembersExpiry) clearTimeout(this.onlineMembersExpiry);
+    this.onlineMembersExpiry = undefined;
+    this.onlineMembersCache.clear();
+    this.memberRoleSnapshots.clear();
   }
 
   /** 复用完整在线分页，只更新名单，不触发联系人其他指标的观察回调。 */
@@ -560,11 +567,12 @@ export class GroupInfoService {
     options: { force?: boolean; priority?: number; observe?: boolean } = {},
   ): Promise<GroupMemberListItem[]> {
     if (!this.online) throw new Error('该账号当前不在线，无法拉取在线群成员。');
+    this.groupProfiles.assertActive();
     const cached = this.onlineMembersCache.get(groupId);
     if (
       !options.force &&
       cached?.pid === this.online.resolvePid() &&
-      Date.now() - cached.at < ONLINE_MEMBERS_TTL_MS
+      performance.now() - cached.at < ONLINE_MEMBERS_TTL_MS
     ) {
       return cached.members;
     }
@@ -594,8 +602,11 @@ export class GroupInfoService {
         all.push(...result.members);
         if (resolvePid() !== pid) throw new Error('QQ 运行时已切换');
         if (!result.token) {
+          this.groupProfiles.assertActive();
           const members = [...new Map(all.map((member) => [String(member.uin), member])).values()];
-          this.onlineMembersCache.set(groupId, { at: Date.now(), pid, members });
+          this.onlineMembersCache.delete(groupId);
+          this.onlineMembersCache.set(groupId, { at: performance.now(), pid, members });
+          this.scheduleOnlineMembersExpiry();
           if (options.observe !== false) await this.contactMembersObserved?.(groupId, members);
           return members;
         }
@@ -609,6 +620,22 @@ export class GroupInfoService {
     });
     this.onlineMembersInflight.set(groupId, task);
     return task;
+  }
+
+  private scheduleOnlineMembersExpiry(): void {
+    if (this.onlineMembersExpiry) return;
+    const oldest = this.onlineMembersCache.values().next().value;
+    if (!oldest) return;
+    const delay = Math.max(0, Math.ceil(oldest.at + ONLINE_MEMBERS_TTL_MS - performance.now()));
+    this.onlineMembersExpiry = setTimeout(() => {
+      this.onlineMembersExpiry = undefined;
+      const now = performance.now();
+      for (const [group, entry] of this.onlineMembersCache) {
+        if (now - entry.at < ONLINE_MEMBERS_TTL_MS) break;
+        this.onlineMembersCache.delete(group);
+      }
+      this.scheduleOnlineMembersExpiry();
+    }, delay).unref();
   }
 
   /** 群通知或写操作成功后，等旧分页结束，再读变更后的完整名单。 */
@@ -631,26 +658,30 @@ export class GroupInfoService {
     // 历史名单回退不是本次读回。写操作也不能使用发包前已有的缓存。
     if (
       result?.pid !== pid ||
-      Date.now() - result.at >= ONLINE_MEMBERS_TTL_MS ||
+      performance.now() - result.at >= ONLINE_MEMBERS_TTL_MS ||
       (fresh && result === before) ||
       this.online?.resolvePid() !== pid
     )
       return;
     const previous = this.memberRoleSnapshots.get(groupId);
-    const byUid = new Map(result.members.filter((member) => member.uid).map((m) => [m.uid, m]));
+    const byUid = new Map<string, OnlineMemberRole>();
+    for (const { uid, uin, permission } of result.members) {
+      if (uid) byUid.set(uid, { uin, permission });
+    }
     this.memberRoleSnapshots.delete(groupId);
     this.memberRoleSnapshots.set(groupId, { pid, byUid });
     if (this.memberRoleSnapshots.size > 200)
       this.memberRoleSnapshots.delete(this.memberRoleSnapshots.keys().next().value!);
-    if (
-      previous?.pid !== pid ||
-      previous.byUid.size !== byUid.size ||
-      [...byUid.values()].some((member) => {
-        const old = previous.byUid.get(member.uid);
-        return old?.uin !== member.uin || old.permission !== member.permission;
-      })
-    )
-      this.onMemberRolesChanged?.(groupId);
+    let changed = previous?.pid !== pid || previous.byUid.size !== byUid.size;
+    if (!changed && previous) {
+      for (const [uid, role] of byUid) {
+        const old = previous.byUid.get(uid);
+        if (old?.uin === role.uin && old.permission === role.permission) continue;
+        changed = true;
+        break;
+      }
+    }
+    if (changed) this.onMemberRolesChanged?.(groupId);
     return result.members;
   }
 
@@ -669,7 +700,7 @@ export class GroupInfoService {
     return roles ? members.map((member) => this.applyMemberRole(member, roles)) : members;
   }
 
-  private applyMemberRole(member: GroupMember, roles?: ReadonlyMap<string, GroupMemberListItem>) {
+  private applyMemberRole(member: GroupMember, roles?: ReadonlyMap<string, OnlineMemberRole>) {
     if (member.memberFlag !== 0) return member;
     const online = roles?.get(member.uid);
     if (!online || String(online.uin) !== String(member.uin)) return member;
