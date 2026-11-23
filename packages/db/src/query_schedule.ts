@@ -262,6 +262,7 @@ export type MessageWorkPhase =
   | 'unreadSmallTables'
   | 'unreadSnapshotProjection'
   | 'unreadDeviceAndGrayTipLookup'
+  | 'unreadRecallRevision'
   | 'unreadRecallLookup'
   | 'unreadRecallExtents'
   | 'unreadRecallPresence'

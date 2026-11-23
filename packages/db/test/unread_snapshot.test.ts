@@ -51,6 +51,54 @@ it('防撤回保留的正文按会话及未读区间从撤回索引查出', asyn
   }
 });
 
+it('共享快照复用撤回区间，同水位撤回只使对应会话失效', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-recall-window-cache-'));
+  roots.push(root);
+  const path = join(root, 'msg.db');
+  const sql = fixtureDb(path);
+  sql.exec(`CREATE TABLE msg_unread_info_table("48901" TEXT PRIMARY KEY,"48902" BLOB);
+    CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40020" TEXT,
+      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40027" INTEGER,"40050" INTEGER);
+    INSERT INTO recent_contact_v3_table("40021","40003","40010")
+      VALUES ('70001',110,2),('70002',110,2),('70003',110,2);
+    CREATE TABLE weq_recall_log(msgid INTEGER PRIMARY KEY, table_kind TEXT, conv TEXT, orig_seq INTEGER);
+    CREATE INDEX weq_recall_by_conversation_seq ON weq_recall_log(table_kind,conv,orig_seq);
+    INSERT INTO weq_recall_log VALUES (20,'group','70001',104),(30,'group','70002',105);`);
+  const proto = new ProtoMsg(UnreadInfo);
+  const write = sql.prepare('INSERT OR REPLACE INTO msg_unread_info_table VALUES (?,?)');
+  for (const uid of ['70001', '70002', '70003'])
+    write.run(`2_${uid}`, proto.encode({ info: { msgSeq: 100 } }));
+  const nt = createSqliteStub();
+  const query = vi.spyOn(nt, 'executeSql');
+  const db = new UnreadInfoDb(nt, { dbPath: path });
+  const reads = () =>
+    query.mock.calls.filter(([, text]) => text.includes('CROSS JOIN weq_recall_log'));
+  const sequences = async () => (await db.getAllUnreadInfos()).map((row) => row.recalledSeqs);
+  try {
+    expect(await sequences()).toEqual([['104'], ['105'], undefined]);
+    query.mockClear();
+    sql.exec(`UPDATE recent_contact_v3_table SET "40003"=111 WHERE "40021"='70003'`);
+    write.run('2_70001', proto.encode({ info: { msgSeq: 104 } }));
+    expect(await sequences()).toEqual([undefined, ['105'], undefined]);
+    expect(reads()).toHaveLength(0);
+    expect(query).toHaveBeenCalledTimes(2);
+
+    // 新追加记录的消息 ID 可以更小，消息和已读水位保持不变。
+    sql.exec(`INSERT INTO weq_recall_log VALUES (10,'group','70001',107)`);
+    expect(await sequences()).toEqual([['107'], ['105'], undefined]);
+    expect(reads().map(([, , params]) => params)).toEqual([[0n, 'group', '70001', 104n, 110n]]);
+
+    sql.exec(`DROP TABLE weq_recall_log;
+      CREATE TABLE weq_recall_log(msgid INTEGER PRIMARY KEY, table_kind TEXT, conv TEXT, orig_seq INTEGER);
+      CREATE INDEX weq_recall_by_conversation_seq ON weq_recall_log(table_kind,conv,orig_seq);
+      INSERT INTO weq_recall_log VALUES (1,'group','70003',108),(2,'group','70003',108),
+        (3,'group','70003',108);`);
+    expect(await sequences()).toEqual([undefined, undefined, ['108']]);
+  } finally {
+    db.close();
+  }
+});
+
 it('撤回补查超预算后缩小会话批次，单个大区间按序号读完且跨页去重', async () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-paged-protected-recalls-'));
   roots.push(root);
@@ -90,7 +138,10 @@ it('撤回补查超预算后缩小会话批次，单个大区间按序号读完�
     for (const timeout of [true, false]) {
       simulateTimeout = timeout;
       budgeted.mockClear();
-      const all = await db.getAllUnreadInfos();
+      const all = await db.getUnreadInfos([
+        { chatType: 2, uid: '70001' },
+        { chatType: 2, uid: '70002' },
+      ]);
       expect(all.find(({ uid }) => uid === '70001')?.recalledSeqs).toEqual(
         Array.from({ length: 300 }, (_, index) => String(101 + index)),
       );
@@ -116,7 +167,7 @@ it('撤回补查超预算后缩小会话批次，单个大区间按序号读完�
   }
 });
 
-it('撤回摘要和索引探测只补查可能命中的会话，探测失败保留未检查的区间', async () => {
+it('撤回版本不可用时走原索引补查，探测失败保留未检查的区间', async () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-recall-extents-'));
   roots.push(root);
   const path = join(root, 'msg.db');
@@ -137,6 +188,11 @@ it('撤回摘要和索引探测只补查可能命中的会话，探测失败保�
     SELECT '2_' || "40021", ? FROM recent_contact_v3_table`)
     .run(readState);
   const nt = createSqliteStub();
+  const execute = nt.executeSql.bind(nt);
+  vi.spyOn(nt, 'executeSql').mockImplementation(async (path, text, params) => {
+    if (text.includes('FROM pragma_schema_version')) throw new Error('synthetic version failure');
+    return execute(path, text, params);
+  });
   let now = 0;
   let timeout = false;
   let maxProbe = 512n;

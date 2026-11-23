@@ -139,6 +139,9 @@ const PROTECTED_RECALL_EXTENTS_LIMIT = 512;
 const PROTECTED_RECALL_PRESENCE_BATCH = 512;
 const PROTECTED_RECALL_EXTENTS_OVERFLOW_RETRY_MS = 30_000;
 const PROTECTED_RECALL_EXTENTS_FAILURE_RETRY_MS = 3_000;
+const MAX_RECALL_CONVERSATION_COUNTS = 16_384;
+const MAX_CACHED_RECALL_WINDOWS = 4_096;
+const MAX_SEQUENCES_PER_RECALL_WINDOW = 64;
 
 const GRAY_TIP = MsgType.GRAY_TIP;
 const RECENT_CHAT_TYPE = `CAST(r."40010" AS INTEGER)`;
@@ -177,6 +180,19 @@ interface ProtectedRecallTarget {
   uid: string;
   after: bigint;
   through: bigint;
+}
+
+interface ProtectedRecallWindow {
+  after: bigint;
+  through: bigint;
+  sequences: readonly string[];
+}
+
+interface ProtectedRecallCache {
+  schema: number;
+  total: bigint;
+  counts?: ReadonlyMap<string, bigint>;
+  windows: Map<string, ProtectedRecallWindow>;
 }
 
 function unreadGrayTip(blob: Uint8Array): 'recall' | 'poke' | undefined {
@@ -237,6 +253,7 @@ export interface UnreadHighlightInput {
 
 export class UnreadInfoDb {
   private nextRecallExtentsAt = 0;
+  private protectedRecallCache: ProtectedRecallCache | null = null;
   private readonly qq: QqDb;
   private readonly proto = new ProtoMsg(UnreadInfo);
   private readonly seqIndexes = new Map<string, Promise<boolean>>();
@@ -454,10 +471,10 @@ export class UnreadInfoDb {
       await measureMessageWork(this.qq.dbPath, 'unreadDeviceAndGrayTipLookup', supplement);
     else await supplement();
     if (rows.some((row) => Number(row[10]) === 1)) {
-      const recall = () => this.resolveProtectedRecalls(snapshots);
-      if (shared) await measureMessageWork(this.qq.dbPath, 'unreadRecallLookup', recall);
-      else await recall();
-    }
+      const recallTargets = this.protectedRecallTargets(snapshots);
+      if (shared) await this.applySharedProtectedRecalls(recallTargets);
+      else await this.resolveProtectedRecalls(recallTargets);
+    } else if (shared) this.protectedRecallCache = null;
     return snapshots;
   }
 
@@ -506,8 +523,8 @@ export class UnreadInfoDb {
       snapshot.deviceLatest = readPosition(BigInt(String(message[0])), BigInt(String(message[1])));
   }
 
-  private async resolveProtectedRecalls(snapshots: UnreadInfoSnapshot[]): Promise<void> {
-    const candidates = snapshots.flatMap<ProtectedRecallTarget>((snapshot) => {
+  private protectedRecallTargets(snapshots: UnreadInfoSnapshot[]): ProtectedRecallTarget[] {
+    return snapshots.flatMap<ProtectedRecallTarget>((snapshot) => {
       const { chatType, uid, msgSeq, localReadSeq, latestSeq, readError } = snapshot;
       if (readError || (chatType !== 1 && chatType !== 2) || latestSeq === null) return [];
       const serverRead = BigInt(msgSeq ?? 0);
@@ -517,6 +534,78 @@ export class UnreadInfoDb {
       if (after <= 0n || through === null || through <= after) return [];
       return [{ snapshot, kind: chatType === 1 ? 'c2c' : 'group', uid, after, through }];
     });
+  }
+
+  private async readProtectedRecallCache(): Promise<ProtectedRecallCache | null> {
+    const previous = this.protectedRecallCache;
+    try {
+      // 写入只追加撤回记录，msgid 不是插入序号。同水位撤回也会改变记录数。
+      const [[schema, total]] = await this.qq.query(
+        `SELECT schema_version, (SELECT COUNT(*) FROM weq_recall_log)
+         FROM pragma_schema_version`,
+      );
+      const version = Number(schema);
+      const size = BigInt(String(total));
+      if (previous?.schema === version && previous.total === size) return previous;
+
+      const rows = await this.qq.query(
+        `SELECT table_kind, conv, COUNT(*) FROM weq_recall_log INDEXED BY ${RECALL_UNREAD_INDEX}
+         GROUP BY table_kind, conv LIMIT ${MAX_RECALL_CONVERSATION_COUNTS + 1}`,
+      );
+      const windows = new Map<string, ProtectedRecallWindow>();
+      // 两条查询同属一轮，但连接池可读到不同提交。仅在记录总数一致时复用分组。
+      const counts =
+        rows.length <= MAX_RECALL_CONVERSATION_COUNTS &&
+        rows.reduce((sum, row) => sum + BigInt(String(row[2])), 0n) === size
+          ? new Map(rows.map(([kind, uid, count]) => [`${kind}:${uid}`, BigInt(String(count))]))
+          : undefined;
+      if (previous?.schema === version && previous.total < size && previous.counts && counts) {
+        for (const [peer, window] of previous.windows) {
+          if (previous.counts.get(peer) === counts.get(peer)) windows.set(peer, window);
+        }
+      }
+      const cache = { schema: version, total: size, counts, windows };
+      if (this.protectedRecallCache === previous) this.protectedRecallCache = cache;
+      return cache;
+    } catch {
+      databaseRequestSignal()?.throwIfAborted();
+      if (this.protectedRecallCache === previous) this.protectedRecallCache = null;
+      return null;
+    }
+  }
+
+  private async applySharedProtectedRecalls(targets: ProtectedRecallTarget[]): Promise<void> {
+    if (!targets.length) return;
+    const cache = await measureMessageWork(this.qq.dbPath, 'unreadRecallRevision', () =>
+      this.readProtectedRecallCache(),
+    );
+    const pending: ProtectedRecallTarget[] = [];
+    for (const target of targets) {
+      const key = `${target.kind}:${target.uid}`;
+      const window = cache?.windows.get(key);
+      if (window && window.after <= target.after && window.through >= target.through) {
+        const sequences = window.sequences.filter((sequence) => {
+          const seq = BigInt(sequence);
+          return target.after < seq && seq <= target.through;
+        });
+        if (sequences.length) target.snapshot.recalledSeqs = sequences;
+      } else if (!cache?.counts || cache.counts.has(key)) pending.push(target);
+    }
+    if (!pending.length) return;
+    const complete = await measureMessageWork(this.qq.dbPath, 'unreadRecallLookup', () =>
+      this.resolveProtectedRecalls(pending),
+    );
+    if (!complete || !cache || this.protectedRecallCache !== cache) return;
+    for (const { kind, uid, after, through, snapshot } of pending) {
+      const key = `${kind}:${uid}`;
+      const sequences = snapshot.recalledSeqs ?? [];
+      if (sequences.length > MAX_SEQUENCES_PER_RECALL_WINDOW) continue;
+      if (cache.windows.size >= MAX_CACHED_RECALL_WINDOWS && !cache.windows.has(key)) break;
+      cache.windows.set(key, { after, through, sequences: sequences.slice() });
+    }
+  }
+
+  private async resolveProtectedRecalls(candidates: ProtectedRecallTarget[]): Promise<boolean> {
     let targets = candidates;
     if (
       candidates.length > 2 * PROTECTED_RECALL_TARGET_BATCH &&
@@ -535,11 +624,14 @@ export class UnreadInfoDb {
           this.filterRecallTargetsByPresence(candidates),
         ));
     }
+    let complete = true;
     for (let offset = 0; offset < targets.length; offset += PROTECTED_RECALL_TARGET_BATCH) {
-      await this.resolveProtectedRecallBatch(
+      const resolved = await this.resolveProtectedRecallBatch(
         targets.slice(offset, offset + PROTECTED_RECALL_TARGET_BATCH),
       );
+      complete &&= resolved;
     }
+    return complete;
   }
 
   /** 记录稀疏时，用完整的索引摘要排除不相交的会话，再查具体序号。 */
@@ -625,12 +717,11 @@ export class UnreadInfoDb {
   private async resolveProtectedRecallBatch(
     batch: ProtectedRecallTarget[],
     subdivided = false,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const signal = databaseRequestSignal();
     signal?.throwIfAborted();
     if (subdivided && batch.length === 1) {
-      await this.resolveProtectedRecallTarget(batch[0]!);
-      return;
+      return this.resolveProtectedRecallTarget(batch[0]!);
     }
     const read = () =>
       this.qq.query(
@@ -657,7 +748,7 @@ export class UnreadInfoDb {
       signal?.throwIfAborted();
       // 辅助表重建或读取失败时仍交付 QQ 小表。
       if (!(error instanceof Error) || !error.message.includes('database_query_execution_timeout'))
-        return;
+        return false;
     }
     if (rows && rows.length <= PROTECTED_RECALL_RESULT_LIMIT) {
       for (const [idx, seq] of rows) {
@@ -666,15 +757,15 @@ export class UnreadInfoDb {
         snapshot.recalledSeqs ??= [];
         snapshot.recalledSeqs.push(String(seq));
       }
-      return;
+      return true;
     }
     if (batch.length > 1) {
       const middle = Math.floor(batch.length / 2);
-      await this.resolveProtectedRecallBatch(batch.slice(0, middle), true);
-      await this.resolveProtectedRecallBatch(batch.slice(middle), true);
-      return;
+      const first = await this.resolveProtectedRecallBatch(batch.slice(0, middle), true);
+      const second = await this.resolveProtectedRecallBatch(batch.slice(middle), true);
+      return first && second;
     }
-    await this.resolveProtectedRecallTarget(batch[0]!);
+    return this.resolveProtectedRecallTarget(batch[0]!);
   }
 
   private async resolveProtectedRecallTarget({
@@ -687,8 +778,10 @@ export class UnreadInfoDb {
     try {
       const sequences = await this.pageProtectedRecallSeqs(kind, uid, after, through);
       if (sequences.length) snapshot.recalledSeqs = sequences;
+      return true;
     } catch {
       databaseRequestSignal()?.throwIfAborted();
+      return false;
     }
   }
 
@@ -1168,6 +1261,7 @@ export class UnreadInfoDb {
 
   close(): void {
     this.nextRecallExtentsAt = 0;
+    this.protectedRecallCache = null;
     this.unreadFields.clear();
     this.unreadFieldBytes = 0;
     this.qq.close();
