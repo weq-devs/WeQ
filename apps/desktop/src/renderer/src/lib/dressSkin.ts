@@ -26,11 +26,9 @@
  *     `@keyframes` 逐帧切换 `border-image-source`)叠在上面。把帧图当成整泡图去
  *     **替换**底图,气泡本体就会整块透明 —— 这是修掉过的老 bug。
  *
- *  3. **必须给 min-width / min-height。** 小于四角固定区之和的尺寸会让对角切片互相
- *     挤压,浏览器按比例压缩,气泡就变形了。
+ *  3. PNG 自带九宫格的气泡保留最小宽高；有 zoom_point 的气泡按轴压缩放不下的固定区。
  *
- * slice 保留素材坐标；桌面按 QQNT 的方式把九宫格向左右外扩，缩小横向固定区。
- * 纵向尺寸继续按 Android 的 density / 2 映射，供连续消息的透明留白计算复用。
+ * slice 保留素材坐标。固定区统一按客户端比例绘制，桌面贴图另外向左右外扩。
  *
  * ## 右键高亮
  *
@@ -152,11 +150,15 @@ function scopeFilter(scope: DressScope, kind: 'bubble' | 'font' | 'widget'): str
   return scope === 'fallback' ? `:not([data-record-${kind}])` : '';
 }
 
-// Android 9.3.85 的 density / 2 和 padding.j 普通装扮留白。
-const BUBBLE_SCALE = 0.5;
-const BUBBLE_TEXT_PADDING = { horizontal: 22, vertical: 17 };
-// QQNT 桌面贴图外扩 6px，横向固定区和正文留白由真实短消息轮廓标定。
-const DESKTOP_BUBBLE_INLINE = { scale: 1 / 3, outset: 6, padding: 10 };
+// 手机沿用 Android 的 density / 2 和 padding.j 普通装扮留白。
+const MOBILE_BUBBLE_LAYOUT = { scale: 0.5, inlineOutset: 0, inlinePadding: 22, blockPadding: 17 };
+// 桌面沿用 QQNT 样本的横向绘制尺寸，上下固定区使用同一比例保留边角的形状。
+const DESKTOP_BUBBLE_LAYOUT = {
+  scale: 1 / 3,
+  inlineOutset: 6,
+  inlinePadding: 10,
+  blockPadding: 11,
+};
 
 const STYLE_ID = 'weq-dress-skin';
 
@@ -478,6 +480,8 @@ export function bubbleLinkMentionRules(sel: string, linkColor?: string): string 
 
 /** 一款气泡的九宫格几何量 + 静态底图 —— 聊天渲染与本地预览共用同一份计算。 */
 interface BubbleMetrics {
+  scale: number;
+  blockPadding: number;
   inlineOutset: number;
   frameAnim: { keyframes: string; animation: string } | null;
   /** 静态底图 url(恒为本地九宫格 PNG,见 {@link bubbleImageUrl})。 */
@@ -494,14 +498,12 @@ interface BubbleMetrics {
 
 export function bubbleMetrics(skin: BubbleSkinCss, mobileClient = isMobileClient()): BubbleMetrics {
   const { left, top, right, bottom } = skin.slice;
-  const inlineScale = mobileClient ? BUBBLE_SCALE : DESKTOP_BUBBLE_INLINE.scale;
-  const inlineOutset = mobileClient ? 0 : DESKTOP_BUBBLE_INLINE.outset;
-  const horizontalPadding = mobileClient
-    ? BUBBLE_TEXT_PADDING.horizontal
-    : DESKTOP_BUBBLE_INLINE.padding;
+  const { scale, blockPadding, inlinePadding, inlineOutset } = mobileClient
+    ? MOBILE_BUBBLE_LAYOUT
+    : DESKTOP_BUBBLE_LAYOUT;
 
   // Skia 按各自轴压缩固定边；直接交给 CSS 的重叠处理会一起压缩四边。
-  const edge = (size: number, sum: number, scale: number) => {
+  const edge = (size: number, sum: number) => {
     const nominal = px(size * scale);
     return skin.configuredPatch === true && size > 0
       ? `min(${nominal}, ${(100 * size) / sum}%)`
@@ -511,12 +513,12 @@ export function bubbleMetrics(skin: BubbleSkinCss, mobileClient = isMobileClient
   const horizontal = left + right;
   const vertical = top + bottom;
   const edges = [
-    [top, vertical, BUBBLE_SCALE],
-    [right, horizontal, inlineScale],
-    [bottom, vertical, BUBBLE_SCALE],
-    [left, horizontal, inlineScale],
+    [top, vertical],
+    [right, horizontal],
+    [bottom, vertical],
+    [left, horizontal],
   ] as const;
-  const width = edges.map(([size, sum, scale]) => edge(size, sum, scale)).join(' ');
+  const width = edges.map(([size, sum]) => edge(size, sum)).join(' ');
 
   const frameAnim =
     validDecorationFrames(skin.animationFrameCount) && skin.animationFrameTimeMs
@@ -529,26 +531,28 @@ export function bubbleMetrics(skin: BubbleSkinCss, mobileClient = isMobileClient
       : null;
 
   return {
+    scale,
+    blockPadding,
     inlineOutset,
     frameAnim,
     imageUrl: bubbleImageUrl(skin),
     slice,
     width,
     physicalWidth: edges
-      .map(([size, sum, scale]) =>
+      .map(([size, sum]) =>
         size
           ? `round(down, min(calc(${px(size * scale)} * var(--weq-bubble-dpr)), ${(100 * size) / sum}%), 1px)`
           : '0px',
       )
       .join(' '),
-    rightPad: px(horizontalPadding),
-    topPad: px(BUBBLE_TEXT_PADDING.vertical),
-    bottomPad: px(BUBBLE_TEXT_PADDING.vertical),
+    rightPad: px(inlinePadding),
+    topPad: px(blockPadding),
+    bottomPad: px(blockPadding),
     minWidth:
       skin.configuredPatch === true
         ? '0px'
-        : px(Math.max(0, horizontal * inlineScale - 2 * inlineOutset)),
-    minHeight: skin.configuredPatch === true ? '0px' : px(vertical * BUBBLE_SCALE),
+        : px(Math.max(0, horizontal * scale - 2 * inlineOutset)),
+    minHeight: skin.configuredPatch === true ? '0px' : px(vertical * scale),
   };
 }
 
@@ -561,18 +565,22 @@ export function bubblePaintOutsetCss({ inlineOutset }: BubbleMetrics): string {
 }
 
 /** 组内只扣掉固定区里完全透明的外沿，保留原布局盒、前景和字体绘制尺寸。 */
-export function bubbleGroupSpacingCss(skin: BubbleSkinCss, sel: string): string {
+export function bubbleGroupSpacingCss(
+  skin: BubbleSkinCss,
+  { scale, blockPadding }: BubbleMetrics,
+  sel: string,
+): string {
   const insets = skin.transparentInsets;
   if (!insets || skin.animationFrameCount) return '';
   const { top, bottom } = skin.slice;
-  const scale = skin.configuredPatch
-    ? Math.min(BUBBLE_SCALE, (2 * BUBBLE_TEXT_PADDING.vertical) / (top + bottom))
-    : BUBBLE_SCALE;
+  const trimScale = skin.configuredPatch
+    ? Math.min(scale, (2 * blockPadding) / (top + bottom))
+    : scale;
   // 后一行的点击区域最多向前进入 3px，留在 4px 的组内间隔内。
   const trim = (edge: number, inset: number, max: number) =>
-    Math.max(0, Math.min(max, Math.floor(Math.min(edge, inset) * scale)));
+    Math.max(0, Math.min(max, Math.floor(Math.min(edge, inset) * trimScale)));
   const leading = trim(top, insets.top, 3);
-  const trailing = trim(bottom, insets.bottom, BUBBLE_TEXT_PADDING.vertical);
+  const trailing = trim(bottom, insets.bottom, blockPadding);
   // 装饰已撑到边缘的紧凑款式保留原间距。
   if (!Number.isFinite(leading + trailing) || leading + trailing < 3) return '';
   return `${sel} {
@@ -736,7 +744,7 @@ function bubbleRules(skin: BubbleSkinCss, scope: DressScope, animated = true): s
   const rules = [
     m.frameAnim?.keyframes ?? '',
     baseBubbleRule(skin, m, sel),
-    bubbleGroupSpacingCss(skin, sel),
+    bubbleGroupSpacingCss(skin, m, sel),
     fractionalBubbleBase(m, sel),
   ];
 

@@ -742,8 +742,7 @@ html[data-theme='dark'] .weq-qqshow-avatar {
     [data-message-group='middle'],
     [data-grouped-dress-bubble='first'],
     [data-grouped-dress-bubble='middle']
-  )
-  > .message-bubble
+  ) > .message-bubble
   > .msg-reactions:last-child {
   margin-block-end: 4px;
 }
@@ -867,7 +866,7 @@ html[data-theme='dark'] .weq-qqshow-avatar {
 
 /* 只缩同行之间的透明留白。译文、表态等跟在气泡后时，保留它们的间隔。 */
 .message-line:is([data-grouped-dress-bubble='middle'], [data-grouped-dress-bubble='last']) :is(
-    .message-bubble,
+    .message-bubble > .weq-repeat-content,
     .weq-forward-bubble
   )
   > .message-content {
@@ -875,8 +874,10 @@ html[data-theme='dark'] .weq-qqshow-avatar {
 }
 
 .message-line:is([data-grouped-dress-bubble='first'], [data-grouped-dress-bubble='middle'])
-  :is(.message-bubble, .weq-forward-bubble)
-  > .message-content:last-child {
+  :is(
+    .message-bubble > .weq-repeat-content:last-child > .message-content,
+    .weq-forward-bubble > .message-content:last-child
+  ) {
   margin-block-end: calc(-1 * var(--weq-bubble-group-trim-end, 0px));
 }
 

@@ -134,7 +134,7 @@ export function injectBubbleCss(skin: MessageBubbleSkin, staticOnly = false) {
       `  min-height: ${minHeight};`,
       `}`,
       bubbleContentAlignmentCss(sel),
-      bubbleGroupSpacingCss(skin, sel),
+      bubbleGroupSpacingCss(skin, metrics, sel),
       fractionalBubbleBase(metrics, sel),
     ];
 

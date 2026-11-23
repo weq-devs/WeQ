@@ -34,7 +34,7 @@ describe('手机装扮气泡的内容与图像几何分离', () => {
   });
 });
 
-it('桌面气泡按横向外扩后的绘制范围量测，纵向仍使用素材的固定区', () => {
+it('桌面气泡四边等比绘制，并按横向外扩后的范围量测', () => {
   const metrics = bubbleMetrics(
     {
       itemId: 149,
@@ -46,7 +46,8 @@ it('桌面气泡按横向外扩后的绘制范围量测，纵向仍使用素材�
     false,
   );
   expect(metrics.inlineOutset).toBe(6);
-  expect(metrics.width).toBe('24.5px 17px 31px 25px');
+  expect(metrics.width).toBe('16.33px 17px 20.67px 25px');
+  expect([metrics.topPad, metrics.rightPad, metrics.bottomPad]).toEqual(['11px', '10px', '11px']);
   expect(metrics.minWidth).toBe('30px');
-  expect(metrics.minHeight).toBe('55.5px');
+  expect(metrics.minHeight).toBe('37px');
 });
