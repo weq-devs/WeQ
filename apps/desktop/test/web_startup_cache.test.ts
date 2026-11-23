@@ -14,10 +14,32 @@ import {
   type RemoteStartupSnapshot,
 } from '../src/renderer/src/lib/remoteWebStartup';
 import { setRemoteWorkspaceCheckPending } from '../src/renderer/src/lib/remoteWorkspaceCheck';
+import { PageSnapshots, PageSnapshotScope } from '../src/renderer/src/components/PageSnapshots';
+import { PageScrollSnapshot } from '../src/renderer/src/components/PageScrollSnapshot';
+import { usePageState } from '../src/renderer/src/components/PageSnapshots.shared';
+import { pageSnapshots, pageValue } from '../src/renderer/src/lib/pageSnapshots';
 import { useViewState } from '../src/renderer/src/state/view';
 import { trpc } from '../src/renderer/src/trpc/client';
 
 const startup = vi.hoisted(() => vi.fn());
+const config: RemoteStartupSnapshot['config'] = {
+  uin: '10001',
+  configId: 'cached-remote-account',
+  static: false,
+  mobile: false,
+  qzoneStagedImageUpload: undefined,
+  dbKey: '',
+  a1: null,
+  guid: null,
+  session: null,
+  algos: {},
+  dataDir: null,
+  qqOnline: false,
+  qqPid: null,
+  rkeys: [],
+  rkeyUpdatedAt: null,
+  clientKey: null,
+};
 vi.mock('../src/renderer/src/lib/target.shared', async (load) => ({
   ...(await load<typeof import('../src/renderer/src/lib/target.shared')>()),
   IS_WEB: true,
@@ -65,24 +87,6 @@ it.each(['home', 'messages', 'last'] as const)(
 );
 
 it('Remote 离线恢复直取设置，重连收到关闭后更新当前页面和下次启动缓存', async () => {
-  const config: RemoteStartupSnapshot['config'] = {
-    uin: '10001',
-    configId: 'offline-avatar-test',
-    static: false,
-    mobile: false,
-    qzoneStagedImageUpload: undefined,
-    dbKey: '',
-    a1: null,
-    guid: null,
-    session: null,
-    algos: {},
-    dataDir: null,
-    qqOnline: false,
-    qqPid: null,
-    rkeys: [],
-    rkeyUpdatedAt: null,
-    clientKey: null,
-  };
   const cache = new QueryClient();
   const host = document.createElement('div');
   const root = createRoot(host);
@@ -153,3 +157,113 @@ it('Remote 离线恢复直取设置，重连收到关闭后更新当前页面和
     vi.unstubAllGlobals();
   }
 });
+
+it.each(['启动', '已交互', '断网后恢复', '保留上次页面'] as const)(
+  'Remote %s收到电脑的当前启动设置',
+  async (phase) => {
+    const cache = new QueryClient();
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const previousView = useViewState.getState();
+    const scope = JSON.stringify([config.uin, config.configId]);
+    const space = JSON.stringify([scope, 'qzone']);
+    const scrollKey = JSON.stringify([space, 'scroll']);
+    const draftKey = JSON.stringify([space, 'draft']);
+    function Space() {
+      const [draft] = usePageState('draft', '', pageValue.string, true);
+      return createElement(
+        'output',
+        {
+          ref: (node: HTMLOutputElement | null) => {
+            if (node)
+              Object.defineProperties(node, {
+                clientHeight: { value: 600, configurable: true },
+                scrollHeight: { value: 3000, configurable: true },
+              });
+          },
+        },
+        draft,
+      );
+    }
+    function Workspace() {
+      const startupPage = useViewState((state) => state.startupPage);
+      const navigationRevision = useViewState((state) => state.startupNavigationRevision);
+      return createElement(
+        PageSnapshots,
+        { scope, key: navigationRevision, resetOnMount: startupPage !== null },
+        createElement(
+          PageSnapshotScope,
+          { name: 'qzone' },
+          createElement(PageScrollSnapshot, null, createElement(Space)),
+        ),
+      );
+    }
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    vi.stubGlobal('sessionStorage', new Storage());
+    vi.stubGlobal('location', { hostname: '127.0.0.1' });
+    vi.stubGlobal('weqRemoteShell', { openMenu() {} });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(null, { status: 404 })),
+    );
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    const result = {
+      backup: { ok: true, error: null, result: null },
+      snapshot: {
+        native: null,
+        current: { uin: config.uin },
+        settings: {
+          ...DEFAULT_APP_SETTINGS,
+          startupPage: phase === '保留上次页面' ? 'last' : 'home',
+        },
+        config,
+        home: null,
+      } satisfies RemoteStartupSnapshot,
+    };
+    let verify!: (value: typeof result) => void;
+    if (phase === '断网后恢复') startup.mockRejectedValueOnce(new Error('电脑不可达'));
+    else
+      startup.mockImplementationOnce(
+        () =>
+          new Promise<typeof result>((resolve) => {
+            verify = resolve;
+          }),
+      );
+    startup.mockResolvedValue(result);
+    try {
+      saveRemoteWorkspace(config, { ...DEFAULT_APP_SETTINGS, startupPage: 'last' }, false);
+      pageSnapshots.write(scrollKey, [{ path: [0], top: 900, left: 0 }]);
+      pageSnapshots.write(draftKey, '未发送草稿', true);
+      await act(async () => {
+        root.render(
+          createElement(
+            WebStartupCache.Provider,
+            { value: cache },
+            createElement(BackupStartupGate, null, createElement(Workspace)),
+          ),
+        );
+      });
+      expect(host.querySelector('output')?.scrollTop).toBe(900);
+      await act(async () => {
+        if (phase === '断网后恢复') window.dispatchEvent(new Event('weq-remote-connection'));
+        else {
+          if (phase === '已交互') document.dispatchEvent(new Event('pointerdown'));
+          verify(result);
+        }
+      });
+      expect(readRemoteWorkspace()?.page).toBe(phase === '保留上次页面' ? null : 'home');
+      expect(useViewState.getState().startupPage).toBe(phase === '启动' ? 'home' : null);
+      expect(host.querySelector('output')?.scrollTop).toBe(phase === '启动' ? 0 : 900);
+      expect(host.textContent).toBe('未发送草稿');
+    } finally {
+      act(() => root.unmount());
+      cache.clear();
+      useViewState.setState(previousView);
+      setRemoteWorkspaceCheckPending(false);
+      startup.mockReset();
+      hidden.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  },
+);

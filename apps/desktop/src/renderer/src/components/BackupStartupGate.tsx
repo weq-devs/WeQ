@@ -52,6 +52,7 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
   const generation = useRef(0);
   const cached = useRef(readRemoteWorkspace());
   const [cachedReady, setCachedReady] = useState(false);
+  const canCorrectStartup = useRef(true);
   useLayoutEffect(() => {
     if (!cached.current || !queryCache) return;
     usePrivacyStore.getState().hydrate();
@@ -60,9 +61,26 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
       clearRemoteWorkspace();
       return;
     }
-    openRemoteWorkspace(queryCache, cached.current);
+    if (!openRemoteWorkspace(queryCache, cached.current)) canCorrectStartup.current = false;
     setCachedReady(true);
   }, [queryCache]);
+  useLayoutEffect(() => {
+    if (!cachedReady || !canCorrectStartup.current) return;
+    const keepCurrentPage = () => {
+      canCorrectStartup.current = false;
+    };
+    const events = ['pointerdown', 'click', 'keydown', 'wheel'] as const;
+    for (const event of events)
+      document.addEventListener(event, keepCurrentPage, { capture: true, passive: true });
+    const onVisibilityChange = () => {
+      if (document.hidden) keepCurrentPage();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      for (const event of events) document.removeEventListener(event, keepCurrentPage, true);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [cachedReady]);
   useEffect(() => {
     if (!cachedReady && (busy || !state?.ok || error)) return;
     return watchRemoteRelease();
@@ -137,6 +155,15 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
             clearRemoteWorkspace();
             purgeAccountQueries(queryCache);
             useViewState.setState({ openedUin: null, view: 'bootstrap', homeStage: 'booting' });
+          } else if (canCorrectStartup.current && useViewState.getState().view === 'main') {
+            const page = snapshot?.settings.startupPage;
+            if ((page === 'home' || page === 'messages') && page !== cachedWorkspace.page) {
+              // 缓存只决定临时首屏。首次校验仍在进行且用户尚未交互时，按电脑设置重置现场。
+              useViewState.setState((current) => ({
+                startupPage: page,
+                startupNavigationRevision: current.startupNavigationRevision + 1,
+              }));
+            }
           }
           cached.current = undefined;
           setRemoteWorkspaceCheckPending(false);
@@ -164,7 +191,11 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
         } else setError(result.error || '文件恢复尚未完成');
       } catch (e) {
         if (seq !== generation.current) return;
-        if (cachedWorkspace) return;
+        if (cachedWorkspace) {
+          // 离线首屏已投入使用，后续重连只同步下次启动的设置。
+          canCorrectStartup.current = false;
+          return;
+        }
         setError(e instanceof Error ? e.message : String(e));
         // 界面交接文件损坏时仍可显示已提交的数据回执，供用户明确放弃界面部分。
         try {

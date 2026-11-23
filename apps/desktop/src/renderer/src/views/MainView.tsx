@@ -667,6 +667,7 @@ export function MainView(): ReactElement {
   const queryClient = useQueryClient();
   const uin = useViewState((state) => state.openedUin);
   const startupPage = useViewState((state) => state.startupPage);
+  const startupNavigationRevision = useViewState((state) => state.startupNavigationRevision);
   const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled: Boolean(uin) });
   const scope =
     config.data?.uin === uin && config.data.configId
@@ -684,7 +685,11 @@ export function MainView(): ReactElement {
   }, [queryClient, scope, uin, configId]);
   if (config.isLoading) return <WorkspaceStartupLoading />;
   const workspace = (
-    <PageSnapshots scope={scope} resetOnMount={startupPage !== null}>
+    <PageSnapshots
+      key={startupNavigationRevision}
+      scope={scope}
+      resetOnMount={startupPage !== null}
+    >
       <TransferActivityProvider
         key={scope ?? `pending:${uin ?? ''}`}
         binding={
@@ -713,10 +718,15 @@ export function MainView(): ReactElement {
 function MainWorkspace(): ReactElement {
   const transferActivity = useTransferActivity();
   const firstPageStreamReady = useWebConnection((state) => state.status === 'connected');
-  const [startupView] = useState(() => useViewState.getState().startupPage);
+  const [startup] = useState(() => {
+    const { startupPage, startupNavigationRevision } = useViewState.getState();
+    return { page: startupPage, revision: startupNavigationRevision };
+  });
+  const startupView = startup.page;
   useEffect(() => {
-    useViewState.setState({ startupPage: null });
-  }, []);
+    if (useViewState.getState().startupNavigationRevision === startup.revision)
+      useViewState.setState({ startupPage: null });
+  }, [startup.revision]);
   const utils = trpc.useUtils();
   const queryClient = useQueryClient();
   const [contactsPageOpen, setContactsPageOpen] = useState(false);
