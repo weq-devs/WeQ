@@ -62,7 +62,8 @@ export function ConversationPicker({
   }, [items, query]);
 
   const allFilteredSelected = filtered.length > 0 && filtered.every((it) => selected.has(it.id));
-  const selection = useMultiSelection({ ids: filtered.map((item) => item.id), selected, onChange });
+  const ids = useMemo(() => filtered.map((item) => item.id), [filtered]);
+  const selection = useMultiSelection({ ids, selected, onChange });
 
   function selectAll(): void {
     const next = new Set(selected);

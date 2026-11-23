@@ -8,6 +8,7 @@ import { useMemo, useState, type ReactElement } from 'react';
 import { Circle, CircleDot, Search, X, ListFilter, SearchX } from 'lucide-react';
 import { Avatar } from './widgets';
 import { PickerListSkeleton } from './ExportSkeleton';
+import { WindowedList } from '../../components/WindowedList';
 import type { PickItem } from './types';
 
 export function SingleSelectPicker({
@@ -53,24 +54,34 @@ export function SingleSelectPicker({
         ) : null}
       </div>
 
-      <div className="weq-exp-list">
-        {loading ? (
-          <PickerListSkeleton />
-        ) : filtered.length === 0 ? (
-          <EmptyState
-            compact
-            icon={query ? <SearchX /> : <ListFilter />}
-            title={query ? '没有匹配项' : emptyText}
-            body={!query ? hint : undefined}
-          />
-        ) : (
-          filtered.map((it) => {
+      {loading || filtered.length === 0 ? (
+        <div className="weq-exp-list">
+          {loading ? (
+            <PickerListSkeleton />
+          ) : (
+            <EmptyState
+              compact
+              icon={query ? <SearchX /> : <ListFilter />}
+              title={query ? '没有匹配项' : emptyText}
+              body={!query ? hint : undefined}
+            />
+          )}
+        </div>
+      ) : (
+        <WindowedList
+          items={filtered}
+          rowHeight={59}
+          height={480}
+          itemKey={(it) => it.id}
+          className="weq-exp-list"
+          resetKey={query}
+          renderItem={(it) => {
             const active = it.id === selectedId;
             return (
               <button
-                key={it.id}
                 type="button"
                 className={`weq-exp-row${active ? ' is-on' : ''}`}
+                aria-pressed={active}
                 onClick={() => onSelect(it.id)}
               >
                 <Avatar url={it.avatarUrl} name={it.name} size={38} />
@@ -83,9 +94,9 @@ export function SingleSelectPicker({
                 </span>
               </button>
             );
-          })
-        )}
-      </div>
+          }}
+        />
+      )}
     </div>
   );
 }

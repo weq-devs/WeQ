@@ -32,3 +32,8 @@ html[data-theme='dark'] .weq-mf-targets-header {
 .weq-mf-forwarded-picker .weq-mf-target-scroll {
   max-height: min(60dvh, 480px);
 }
+
+.weq-mf-body:has(> :is(.weq-mf-targets, .weq-mf-picker)) {
+  display: flex;
+  flex-direction: column;
+}

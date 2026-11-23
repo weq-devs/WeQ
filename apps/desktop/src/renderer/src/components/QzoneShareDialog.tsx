@@ -1,4 +1,4 @@
-import { useContext, useId, useRef, useState } from 'react';
+import { useContext, useId, useMemo, useRef, useState } from 'react';
 import { Forward, Loader2, X } from 'lucide-react';
 import type { client } from '../trpc/client';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
@@ -46,11 +46,15 @@ export function QzoneShareDialog({
   const [outcomes, setOutcomes] = useState<
     { target: MfTarget; status: 'sent' | 'unconfirmed' | 'failed'; error?: string }[]
   >([]);
-  const settled = new Set(
-    outcomes.filter(({ status }) => status !== 'failed').map(({ target }) => target.id),
-  );
-  const targets = forward?.targets.filter(({ id }) => !settled.has(id)) ?? [];
-  const picked = targets.filter(({ id }) => selected.has(id));
+  const sourceTargets = forward?.targets;
+  const targets = useMemo(() => {
+    if (!sourceTargets || !outcomes.length) return sourceTargets ?? [];
+    const settled = new Set(
+      outcomes.filter(({ status }) => status !== 'failed').map(({ target }) => target.id),
+    );
+    return sourceTargets.filter(({ id }) => !settled.has(id));
+  }, [sourceTargets, outcomes]);
+  const picked = useMemo(() => targets.filter(({ id }) => selected.has(id)), [targets, selected]);
 
   async function send() {
     if (

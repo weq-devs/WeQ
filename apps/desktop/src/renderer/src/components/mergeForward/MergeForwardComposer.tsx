@@ -66,6 +66,7 @@ import { grayTipOf } from '../../im-template/template/messageRow.shared';
 import { FaceEmoji } from '../FaceEmoji';
 import { FacePicker } from '../compose/FacePicker';
 import { QqAvatar } from '../QqAvatar';
+import { WindowedList } from '../WindowedList';
 import { useToast } from '../Toast.shared';
 import { useMsgDecoration } from '../../hooks/useMsgDecoration';
 import { useActiveWidget } from '../../hooks/useActiveWidget.shared';
@@ -76,7 +77,7 @@ import { localFileUrl } from '../../lib/resourceUrl';
 import { trpc } from '../../trpc/client';
 import { pickAccountFile } from '../../lib/accountFilePicker';
 import { cn } from '../../im-template/template/classNames';
-import { dedupePersons } from './SenderPicker.shared';
+import { dedupePersons, personKey } from './SenderPicker.shared';
 import { SenderPicker, type MfPerson } from './SenderPicker';
 import { MsgDressEditor } from './MsgDressEditor';
 import { moveCompositionNode } from './workspaceModel';
@@ -1850,12 +1851,15 @@ function AtPicker({
     { enabled: senderMode === 'global' && debounced.length > 0, staleTime: 30_000 },
   );
 
+  const localPeople = useMemo(
+    () => (senderMode === 'conversation' ? dedupePersons([self, ...(members ?? [])]) : []),
+    [senderMode, members, self],
+  );
   const rows: MfPerson[] = useMemo(() => {
     if (senderMode === 'conversation') {
-      const base = dedupePersons([self, ...(members ?? [])]);
-      if (!needle) return base;
+      if (!needle) return localPeople;
       const term = needle.toLowerCase();
-      return base.filter((p) => p.name.toLowerCase().includes(term) || p.uin.includes(term));
+      return localPeople.filter((p) => p.name.toLowerCase().includes(term) || p.uin.includes(term));
     }
     const friends = dedupePersons(
       (quick.data?.friends ?? []).map((f) => ({
@@ -1872,9 +1876,34 @@ function AtPicker({
       })),
     );
     return [...friends, ...groupMembers];
-  }, [senderMode, self, members, needle, quick.data]);
+  }, [senderMode, localPeople, needle, quick.data]);
+  const localItems = useMemo(
+    () => (senderMode === 'conversation' ? [null, ...rows] : []),
+    [senderMode, rows],
+  );
 
   const canManual = manualUid.trim().length > 0 || manualUin.trim().length >= 5;
+  const allMembers = (
+    <CompositionButton type="button" className="weq-mf-at-item" onClick={() => onPick(self, true)}>
+      @全体成员
+    </CompositionButton>
+  );
+  const renderPerson = (person: MfPerson) => (
+    <CompositionButton
+      key={personKey(person)}
+      type="button"
+      className="weq-mf-at-item"
+      onClick={() => onPick(person, false)}
+    >
+      <QqAvatar uin={person.uin} size={22} />
+      <span className="weq-mf-person-name">{person.name}</span>
+      {person.uin && person.uin !== '0' ? (
+        <span className="weq-mf-person-uin">
+          <span className="weq-number weq-number-inherit">{person.uin}</span>
+        </span>
+      ) : null}
+    </CompositionButton>
+  );
 
   return (
     <PortaledPopover anchor={anchor} onClose={onClose} className="weq-mf-at-menu">
@@ -1889,39 +1918,30 @@ function AtPicker({
         />
       </div>
 
-      <div className="weq-mf-at-scroll">
-        <CompositionButton
-          type="button"
-          className="weq-mf-at-item"
-          onClick={() => onPick(self, true)}
-        >
-          @全体成员
-        </CompositionButton>
-        {senderMode === 'global' && needle && quick.isLoading ? (
-          <div className="weq-mf-empty">搜索中…</div>
-        ) : rows.length === 0 ? (
-          <div className="weq-mf-empty">
-            {senderMode === 'global' && !needle ? '输入昵称或 QQ 号开始搜索' : '没有匹配的人'}
-          </div>
-        ) : (
-          rows.map((p) => (
-            <CompositionButton
-              key={p.uid || `uin:${p.uin}`}
-              type="button"
-              className="weq-mf-at-item"
-              onClick={() => onPick(p, false)}
-            >
-              <QqAvatar uin={p.uin} size={22} />
-              <span className="weq-mf-person-name">{p.name}</span>
-              {p.uin && p.uin !== '0' ? (
-                <span className="weq-mf-person-uin">
-                  <span className="weq-number weq-number-inherit">{p.uin}</span>
-                </span>
-              ) : null}
-            </CompositionButton>
-          ))
-        )}
-      </div>
+      {senderMode === 'conversation' && rows.length ? (
+        <WindowedList
+          items={localItems}
+          rowHeight={34}
+          height={380}
+          itemKey={(person) => (person ? personKey(person) : 'all-members')}
+          className="weq-mf-at-scroll"
+          resetKey={needle}
+          renderItem={(person) => (person ? renderPerson(person) : allMembers)}
+        />
+      ) : (
+        <div className="weq-mf-at-scroll">
+          {allMembers}
+          {senderMode === 'global' && needle && quick.isLoading ? (
+            <div className="weq-mf-empty">搜索中…</div>
+          ) : rows.length === 0 ? (
+            <div className="weq-mf-empty">
+              {senderMode === 'global' && !needle ? '输入昵称或 QQ 号开始搜索' : '没有匹配的人'}
+            </div>
+          ) : (
+            rows.map(renderPerson)
+          )}
+        </div>
+      )}
 
       <div className="weq-mf-manual">
         {manualOpen ? (

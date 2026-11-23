@@ -16,7 +16,8 @@ import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { ChevronLeft, Search, UserPlus, SearchX } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { QqAvatar } from '../QqAvatar';
-import { type MfPerson, dedupePersons } from './SenderPicker.shared';
+import { WindowedList } from '../WindowedList';
+import { type MfPerson, dedupePersons, personKey } from './SenderPicker.shared';
 
 export function SenderPicker({
   mode,
@@ -40,12 +41,15 @@ export function SenderPicker({
 
   const needle = keyword.trim();
 
+  const localPeople = useMemo(
+    () => (mode === 'conversation' ? dedupePersons([self, ...(members ?? [])]) : []),
+    [mode, members, self],
+  );
   const localFiltered = useMemo(() => {
-    const base = dedupePersons([self, ...(members ?? [])]);
-    if (!needle) return base;
+    if (!needle) return localPeople;
     const term = needle.toLowerCase();
-    return base.filter((p) => p.name.toLowerCase().includes(term) || p.uin.includes(term));
-  }, [members, self, needle]);
+    return localPeople.filter((p) => p.name.toLowerCase().includes(term) || p.uin.includes(term));
+  }, [localPeople, needle]);
 
   // 全局模式：防抖后走统一搜索（好友在前、群友在后）。
   const [debounced, setDebounced] = useState('');
@@ -103,53 +107,59 @@ export function SenderPicker({
         />
       </div>
 
-      <div className="weq-mf-picker-scroll">
-        {mode === 'global' ? (
-          <>
-            <div className="weq-mf-section">自己</div>
-            <PersonRow person={self} onPick={onPick} />
-          </>
-        ) : null}
-        {mode === 'conversation' ? (
-          localFiltered.length === 0 ? (
+      {mode === 'conversation' && localFiltered.length ? (
+        <WindowedList
+          items={localFiltered}
+          rowHeight={46}
+          height={520}
+          itemKey={personKey}
+          className="weq-mf-picker-scroll"
+          resetKey={needle}
+          renderItem={(person) => <PersonRow person={person} onPick={onPick} />}
+        />
+      ) : (
+        <div className="weq-mf-picker-scroll">
+          {mode === 'conversation' ? (
             <EmptyState variant="inline" icon={<SearchX />} title="没有匹配的成员" />
           ) : (
-            localFiltered.map((p) => (
-              <PersonRow key={p.uid || `uin:${p.uin}`} person={p} onPick={onPick} />
-            ))
-          )
-        ) : !needle ? (
-          <div className="weq-mf-empty">输入昵称或 QQ 号开始搜索（好友优先，其次群友）</div>
-        ) : quick.isLoading ? (
-          <div className="weq-mf-empty">搜索中…</div>
-        ) : friends.length === 0 && groupMembers.length === 0 ? (
-          <EmptyState
-            compact
-            icon={<SearchX />}
-            title="没有匹配的好友或群友"
-            body="可在下方直接填写"
-          />
-        ) : (
-          <>
-            {friends.length > 0 ? (
-              <>
-                <div className="weq-mf-section">好友</div>
-                {friends.map((p) => (
-                  <PersonRow key={`f:${p.uid || p.uin}`} person={p} onPick={onPick} />
-                ))}
-              </>
-            ) : null}
-            {groupMembers.length > 0 ? (
-              <>
-                <div className="weq-mf-section">群友</div>
-                {groupMembers.map((p) => (
-                  <PersonRow key={`g:${p.uid || p.uin}`} person={p} onPick={onPick} />
-                ))}
-              </>
-            ) : null}
-          </>
-        )}
-      </div>
+            <>
+              <div className="weq-mf-section">自己</div>
+              <PersonRow person={self} onPick={onPick} />
+              {!needle ? (
+                <div className="weq-mf-empty">输入昵称或 QQ 号开始搜索（好友优先，其次群友）</div>
+              ) : quick.isLoading ? (
+                <div className="weq-mf-empty">搜索中…</div>
+              ) : friends.length === 0 && groupMembers.length === 0 ? (
+                <EmptyState
+                  compact
+                  icon={<SearchX />}
+                  title="没有匹配的好友或群友"
+                  body="可在下方直接填写"
+                />
+              ) : (
+                <>
+                  {friends.length > 0 ? (
+                    <>
+                      <div className="weq-mf-section">好友</div>
+                      {friends.map((p) => (
+                        <PersonRow key={`f:${p.uid || p.uin}`} person={p} onPick={onPick} />
+                      ))}
+                    </>
+                  ) : null}
+                  {groupMembers.length > 0 ? (
+                    <>
+                      <div className="weq-mf-section">群友</div>
+                      {groupMembers.map((p) => (
+                        <PersonRow key={`g:${p.uid || p.uin}`} person={p} onPick={onPick} />
+                      ))}
+                    </>
+                  ) : null}
+                </>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="weq-mf-manual">
         {manualOpen ? (

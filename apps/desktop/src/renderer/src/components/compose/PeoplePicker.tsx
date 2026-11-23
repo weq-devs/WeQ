@@ -8,6 +8,7 @@ import { EmptyState } from '../EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
 import { Search, SearchX } from 'lucide-react';
 import { QqAvatar } from '../QqAvatar';
+import { WindowedList } from '../WindowedList';
 
 export interface Person {
   uid: string;
@@ -44,17 +45,20 @@ export function PeoplePicker({
           autoFocus
         />
       </div>
-      <div className="weq-people-scroll">
-        {filtered.length === 0 ? (
+      {filtered.length === 0 ? (
+        <div className="weq-people-scroll">
           <EmptyState variant="inline" icon={<SearchX />} title="没有匹配的成员" />
-        ) : (
-          filtered.map((p) => (
-            <button
-              key={p.uid || p.uin}
-              type="button"
-              className="weq-people-row"
-              onClick={() => onPick(p)}
-            >
+        </div>
+      ) : (
+        <WindowedList
+          items={filtered}
+          rowHeight={46}
+          height={520}
+          itemKey={(p) => p.uid || p.uin}
+          className="weq-people-scroll"
+          resetKey={kw}
+          renderItem={(p) => (
+            <button type="button" className="weq-people-row" onClick={() => onPick(p)}>
               <QqAvatar uin={p.uin} size={30} className="weq-people-avatar" />
               <span className="weq-people-name">{p.name}</span>
               {p.uin && p.uin !== '0' ? (
@@ -63,9 +67,9 @@ export function PeoplePicker({
                 </span>
               ) : null}
             </button>
-          ))
-        )}
-      </div>
+          )}
+        />
+      )}
     </div>
   );
 }

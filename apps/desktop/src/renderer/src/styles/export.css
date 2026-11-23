@@ -300,6 +300,12 @@
     border-color 120ms ease;
 }
 
+.weq-exp-list[data-weq-windowed-list] .weq-exp-row {
+  width: 100%;
+  min-width: 0;
+  height: calc(100% - 3px);
+}
+
 .weq-exp-row:hover {
   background: #f4f9fe;
 }

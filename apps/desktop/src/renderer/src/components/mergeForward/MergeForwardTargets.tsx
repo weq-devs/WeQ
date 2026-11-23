@@ -21,10 +21,14 @@ import {
 } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
+import { WindowedList } from '../WindowedList';
 import { cn } from '../../im-template/template/classNames';
 import type { MfTarget } from './model';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import '../../styles/composition-targets.css';
+
+const targetRowHeight = 46;
+const targetKey = (target: MfTarget | null) => target?.id ?? 'group-assistant-entry';
 
 export function MergeForwardTargets({
   targets,
@@ -48,11 +52,28 @@ export function MergeForwardTargets({
       ),
     [targets, needle, insideAssistant],
   );
-  const assistantTargets = targets.filter((target) => target.groupAssistant);
-  const assistantSelected = assistantTargets.filter((target) => selected.has(target.id)).length;
+  const assistantTargets = useMemo(
+    () => targets.filter((target) => target.groupAssistant),
+    [targets],
+  );
+  const assistantSelected = useMemo(
+    () => assistantTargets.reduce((count, target) => count + Number(selected.has(target.id)), 0),
+    [assistantTargets, selected],
+  );
+  const assistantEntry = !insideAssistant && assistantTargets.length > 0;
+  const items = useMemo(
+    () => (assistantEntry ? [null, ...visible] : visible),
+    [assistantEntry, visible],
+  );
+  const ids = useMemo(() => visible.map((target) => target.id), [visible]);
+  const assistantSummary = assistantSelected ? (
+    `已选 ${assistantSelected}`
+  ) : (
+    <NumericText>{`${assistantTargets.length} 个群`}</NumericText>
+  );
 
   const selection = useMultiSelection({
-    ids: visible.map((target) => target.id),
+    ids,
     selected,
     onChange,
   });
@@ -68,13 +89,7 @@ export function MergeForwardTargets({
             <ArrowLeft size={16} />
           </CompositionButton>
           <strong>群助手</strong>
-          <span>
-            {assistantSelected ? (
-              `已选 ${assistantSelected}`
-            ) : (
-              <NumericText>{`${assistantTargets.length} 个群`}</NumericText>
-            )}
-          </span>
+          <span>{assistantSummary}</span>
         </div>
       ) : null}
       <div className="weq-mf-search">
@@ -87,40 +102,45 @@ export function MergeForwardTargets({
           autoFocus
         />
       </div>
-      <div className="weq-mf-target-scroll">
-        {!insideAssistant && assistantTargets.length ? (
-          <CompositionButton
-            type="button"
-            className="weq-mf-target weq-mf-assistant-entry"
-            title="进入群助手选择转发目标"
-            onClick={() => setInsideAssistant(true)}
-          >
-            <span className="weq-mf-avatar-fallback weq-mf-target-avatar">
-              <FolderOpen size={18} />
-            </span>
-            <span className="weq-mf-target-name">群助手</span>
-            <span>
-              {assistantSelected ? (
-                `已选 ${assistantSelected}`
-              ) : (
-                <NumericText>{`${assistantTargets.length} 个群`}</NumericText>
-              )}
-            </span>
-            <ChevronRight size={16} />
-          </CompositionButton>
-        ) : null}
-        {visible.length === 0 && (insideAssistant || !assistantTargets.length) ? (
+      {items.length ? (
+        <WindowedList
+          items={items}
+          rowHeight={targetRowHeight}
+          height={520}
+          itemKey={targetKey}
+          className="weq-mf-target-scroll"
+          resetKey={`${insideAssistant}:${needle}`}
+          scrollToKey={selection.focusRequest?.id}
+          scrollRevision={selection.focusRequest?.revision}
+          renderItem={(target) =>
+            target ? (
+              <TargetRow
+                target={target}
+                checked={selected.has(target.id)}
+                selectionProps={selection.itemProps(target.id)}
+              />
+            ) : (
+              <CompositionButton
+                type="button"
+                className="weq-mf-target weq-mf-assistant-entry"
+                title="进入群助手选择转发目标"
+                onClick={() => setInsideAssistant(true)}
+              >
+                <span className="weq-mf-avatar-fallback weq-mf-target-avatar">
+                  <FolderOpen size={18} />
+                </span>
+                <span className="weq-mf-target-name">群助手</span>
+                <span>{assistantSummary}</span>
+                <ChevronRight size={16} />
+              </CompositionButton>
+            )
+          }
+        />
+      ) : (
+        <div className="weq-mf-target-scroll">
           <EmptyState compact icon={<SearchX />} title="没有匹配的会话" />
-        ) : null}
-        {visible.map((t) => (
-          <TargetRow
-            key={t.id}
-            target={t}
-            checked={selected.has(t.id)}
-            selectionProps={selection.itemProps(t.id)}
-          />
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -138,6 +158,7 @@ function TargetRow({
     <CompositionButton
       type="button"
       className={cn('weq-mf-target', checked && 'checked')}
+      aria-pressed={checked}
       title={target.kind === 'c2c' && target.conv ? `${target.name} ${target.conv}` : target.name}
       {...selectionProps}
     >
@@ -203,10 +224,14 @@ export function ForwardedConversationsDialog({
           <X size={16} aria-hidden />
         </CompositionButton>
       </header>
-      <div className="weq-mf-target-scroll">
-        {targets.map((target) => (
+      <WindowedList
+        items={targets}
+        rowHeight={targetRowHeight}
+        height={480}
+        itemKey={targetKey}
+        className="weq-mf-target-scroll"
+        renderItem={(target) => (
           <CompositionButton
-            key={target.id}
             type="button"
             className="weq-mf-target"
             title={target.conv ? `${target.name} ${target.conv}` : target.name}
@@ -215,8 +240,8 @@ export function ForwardedConversationsDialog({
             <TargetIdentity target={target} showGroupCode />
             <ChevronRight size={16} aria-hidden />
           </CompositionButton>
-        ))}
-      </div>
+        )}
+      />
     </Modal>
   );
 }

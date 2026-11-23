@@ -33,6 +33,7 @@ import {
 } from './lazyComposerPanels';
 import { ChatHeader } from '../../components/ChatHeader';
 import { OverlayScrollbar } from '../../components/OverlayScrollbar';
+import { WindowedList } from '../../components/WindowedList';
 import { observeConversationPaging } from '../../lib/conversationPaging';
 import { isDataline } from '../../lib/deviceAvatar';
 import { MessageSelectionBar } from '../../components/MessageSelectionBar';
@@ -376,6 +377,7 @@ type MentionMenuState = {
   query: string;
   activeIndex: number;
   members: GroupMember[];
+  keyboardScroll?: { id: string; revision: number };
 };
 
 function loadGroupInfoCollapsed() {
@@ -4273,6 +4275,7 @@ function ChatPaneContent({
   function rescanMentionOnKeyUp(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (event.nativeEvent.isComposing) return;
     if (!MENTION_RESCAN_KEYS.has(event.key)) return;
+    if (mentionMenu && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) return;
     // 用事件源而不是 currentComposerEditor()：桌面的窄输入框与移动端展开态是两个
     // 编辑器，按「当前该用哪个」去猜会在切换瞬间扫错对象。
     saveComposerSelection(event.currentTarget);
@@ -4339,14 +4342,22 @@ function ChatPaneContent({
             return current;
           }
           const offset = event.key === 'ArrowDown' ? 1 : -1;
+          const activeIndex = nextMentionIndex(
+            current.members,
+            current.activeIndex,
+            offset,
+            atAllMention.selectable,
+          );
+          const member = current.members[activeIndex];
           return {
             ...current,
-            activeIndex: nextMentionIndex(
-              current.members,
-              current.activeIndex,
-              offset,
-              atAllMention.selectable,
-            ),
+            activeIndex,
+            keyboardScroll: member
+              ? {
+                  id: member.id,
+                  revision: Math.max(Date.now(), (current.keyboardScroll?.revision ?? 0) + 1),
+                }
+              : undefined,
           };
         });
         return;
@@ -8261,72 +8272,85 @@ export function MentionMenu({
   onSelect: (member: GroupMember) => void;
   onLoadMore?: () => void;
 }) {
+  const singleColumn = useMobileWebLayout();
   return (
-    <div
-      className={cn('mention-menu')}
-      ref={menuRef}
-      role="listbox"
-      aria-label="提及群成员"
-      onScroll={(event) => {
-        const node = event.currentTarget;
-        if (node.scrollHeight - node.scrollTop - node.clientHeight < 80) onLoadMore?.();
-      }}
-    >
-      {menu.members.map((member, index) => (
-        <button
-          key={member.id}
-          role="option"
-          aria-selected={index === menu.activeIndex && (member.id !== 'all' || atAll.selectable)}
-          aria-disabled={member.id === 'all' && !atAll.selectable}
-          disabled={member.id === 'all' && !atAll.selectable}
-          title={member.id === 'all' ? atAll.detail : undefined}
-          type="button"
-          className={cn(index === menu.activeIndex && 'active')}
-          onMouseEnter={() => onActiveIndexChange(index)}
-          onMouseDown={(event) => {
-            event.preventDefault();
-          }}
-          onClick={() => onSelect(member)}
-        >
-          {member.id === 'all' ? (
-            <span className="mention-all-icon" aria-hidden="true">
-              <UsersRound size={20} />
-            </span>
-          ) : (
-            <Avatar
-              name={displayUserName(member)}
-              avatarUrl={member.avatarUrl}
-              seed={member.identityValue}
-            />
-          )}
-          <span className={cn('mention-member-name')}>{displayUserName(member)}</span>
-          {member.id === 'all' ? (
-            <span className="mention-all-quota" aria-label={atAll.detail}>
-              {atAll.summary}
-            </span>
-          ) : member.role !== 'member' || member.kind === 'bot' ? (
-            <span className={cn('mention-member-trailing')}>
-              {member.role !== 'member' ? (
-                <small
-                  className={cn('mention-role-badge', member.role === 'owner' ? 'owner' : 'admin')}
-                >
-                  {member.role === 'owner' ? '群主' : '管理'}
-                </small>
-              ) : null}
-              {member.kind === 'bot' ? (
-                <span
-                  className={cn('bot-badge mention-bot-badge')}
-                  aria-label="机器人"
-                  title="机器人"
-                >
-                  <Bot size={12} strokeWidth={2.4} />
+    <div className={cn('mention-menu')} ref={menuRef} role="listbox" aria-label="提及群成员">
+      {menu.members.length ? (
+        <WindowedList
+          items={menu.members}
+          rowHeight={singleColumn ? 58 : 42}
+          height={320}
+          itemKey={(member) => member.id}
+          resetKey={menu.query}
+          scrollAlign="nearest"
+          scrollToKey={menu.keyboardScroll?.id}
+          scrollRevision={menu.keyboardScroll?.revision}
+          onNearEnd={onLoadMore}
+          nearEndOffset={80}
+          renderItem={(member, index) => (
+            <button
+              role="option"
+              aria-selected={
+                index === menu.activeIndex && (member.id !== 'all' || atAll.selectable)
+              }
+              aria-disabled={member.id === 'all' && !atAll.selectable}
+              disabled={member.id === 'all' && !atAll.selectable}
+              title={member.id === 'all' ? atAll.detail : undefined}
+              type="button"
+              className={cn(index === menu.activeIndex && 'active')}
+              onMouseMove={() => {
+                if (menu.activeIndex !== index) onActiveIndexChange(index);
+              }}
+              onMouseDown={(event) => {
+                event.preventDefault();
+              }}
+              onClick={() => onSelect(member)}
+            >
+              {member.id === 'all' ? (
+                <span className="mention-all-icon" aria-hidden="true">
+                  <UsersRound size={20} />
+                </span>
+              ) : (
+                <Avatar
+                  name={displayUserName(member)}
+                  avatarUrl={member.avatarUrl}
+                  seed={member.identityValue}
+                />
+              )}
+              <span className={cn('mention-member-name')}>{displayUserName(member)}</span>
+              {member.id === 'all' ? (
+                <span className="mention-all-quota" aria-label={atAll.detail}>
+                  {atAll.summary}
+                </span>
+              ) : member.role !== 'member' || member.kind === 'bot' ? (
+                <span className={cn('mention-member-trailing')}>
+                  {member.role !== 'member' ? (
+                    <small
+                      className={cn(
+                        'mention-role-badge',
+                        member.role === 'owner' ? 'owner' : 'admin',
+                      )}
+                    >
+                      {member.role === 'owner' ? '群主' : '管理'}
+                    </small>
+                  ) : null}
+                  {member.kind === 'bot' ? (
+                    <span
+                      className={cn('bot-badge mention-bot-badge')}
+                      aria-label="机器人"
+                      title="机器人"
+                    >
+                      <Bot size={12} strokeWidth={2.4} />
+                    </span>
+                  ) : null}
                 </span>
               ) : null}
-            </span>
-          ) : null}
-        </button>
-      ))}
-      {!menu.members.length ? <span className="mention-member-empty">暂无匹配成员</span> : null}
+            </button>
+          )}
+        />
+      ) : (
+        <span className="mention-member-empty">暂无匹配成员</span>
+      )}
     </div>
   );
 }

@@ -333,23 +333,33 @@ it('发生实际失败后再主动停止，仍保留失败时长', async () => {
   }
 });
 
-it('转发目标的群助手独立入口保留内外已选群', () => {
+it('大量转发目标按窗口渲染，群助手保留内外已选群', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   const inside = { ...target, id: 'inside', name: '助手内群', groupAssistant: true };
+  const targets = [
+    target,
+    inside,
+    ...Array.from({ length: 1_000 }, (_, i) => ({
+      ...target,
+      id: `group-${i}`,
+      conv: String(20_000 + i),
+    })),
+  ];
   function View() {
     const [selected, onChange] = useState(new Set<string>());
     return createElement(
       'div',
       null,
-      createElement(MergeForwardTargets, { targets: [target, inside], selected, onChange }),
+      createElement(MergeForwardTargets, { targets, selected, onChange }),
       createElement('output', null, [...selected].join(',')),
     );
   }
   try {
     act(() => root.render(createElement(View)));
+    expect(host.querySelectorAll('[data-weq-select-id]').length).toBeLessThan(50);
     expect(host.querySelectorAll('.weq-mf-target.checked')).toHaveLength(0);
     act(() =>
       host.querySelector<HTMLButtonElement>('.weq-mf-target:not(.weq-mf-assistant-entry)')!.click(),

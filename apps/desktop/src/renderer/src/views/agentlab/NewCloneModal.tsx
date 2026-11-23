@@ -22,6 +22,7 @@ import { AiImagePreferenceSetting } from '../../components/settings/AiImageSetti
 import { ArrowLeft, Check, Search, X, SearchX, UsersRound } from 'lucide-react';
 import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import { Modal } from '../../components/Dialog';
+import { WindowedList } from '../../components/WindowedList';
 import { qqAvatarUrl } from '../../components/QqAvatar.shared';
 import { Avatar } from '../export/widgets';
 import { useAppDialog } from '../../lib/dialogUtils';
@@ -114,6 +115,7 @@ export function NewCloneModal({
     if (!q) return buddies;
     return buddies.filter((b) => b.label.toLowerCase().includes(q) || b.uin.includes(q));
   }, [buddies, query]);
+  const selectedUids = useMemo(() => new Set(targets.map((target) => target.uid)), [targets]);
 
   function toggleTarget(buddy: BuddyOption): void {
     setTargets((current) =>
@@ -217,20 +219,27 @@ export function NewCloneModal({
                 </button>
               ) : null}
             </div>
-            <div className="weq-exp-list">
-              {filtered.length === 0 ? (
+            {filtered.length === 0 ? (
+              <div className="weq-exp-list">
                 <EmptyState
                   compact
                   icon={query ? <SearchX /> : <UsersRound />}
                   title={query ? '没有匹配的好友' : '没有可克隆的好友'}
                 />
-              ) : (
-                filtered.map((b) => (
+              </div>
+            ) : (
+              <WindowedList
+                items={filtered}
+                rowHeight={59}
+                height={480}
+                itemKey={(buddy) => buddy.uid}
+                className="weq-exp-list"
+                resetKey={query}
+                renderItem={(b) => (
                   <button
-                    key={b.uid}
                     type="button"
-                    className={`weq-exp-row is-selectable${targets.some((item) => item.uid === b.uid) ? ' is-on' : ''}`}
-                    aria-pressed={targets.some((item) => item.uid === b.uid)}
+                    className={`weq-exp-row is-selectable${selectedUids.has(b.uid) ? ' is-on' : ''}`}
+                    aria-pressed={selectedUids.has(b.uid)}
                     onClick={() => toggleTarget(b)}
                   >
                     <Avatar
@@ -245,14 +254,12 @@ export function NewCloneModal({
                       </small>
                     </span>
                     <span className="weq-clone-pick-check" aria-hidden>
-                      {targets.some((item) => item.uid === b.uid) ? (
-                        <Check size={13} strokeWidth={3} />
-                      ) : null}
+                      {selectedUids.has(b.uid) ? <Check size={13} strokeWidth={3} /> : null}
                     </span>
                   </button>
-                ))
-              )}
-            </div>
+                )}
+              />
+            )}
           </div>
         ) : (
           /* step 2: 配置 */

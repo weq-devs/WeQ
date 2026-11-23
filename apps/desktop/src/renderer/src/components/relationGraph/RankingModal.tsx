@@ -22,6 +22,7 @@ import { Activity, Award, ChevronLeft, Heart, Search, Users2, X } from 'lucide-r
 import { client } from '../../trpc/client';
 import { OverlayLayer } from '../OverlayLayer';
 import { EmptyState } from '../EmptyState';
+import { WindowedList } from '../WindowedList';
 import { groupAvatar, personAvatar } from './graphModel';
 import './relationGraph.css';
 
@@ -463,19 +464,22 @@ function GroupChooser({ groups, onPick }: { groups: any[]; onPick: (g: any) => v
           </button>
         ) : null}
       </div>
-      <div className="weq-rank-list">
-        {filtered.length === 0 ? (
+      {filtered.length === 0 ? (
+        <div className="weq-rank-list">
           <EmptyState compact icon={<Search />} title="没有匹配的群聊" />
-        ) : (
-          filtered.map((g) => {
+        </div>
+      ) : (
+        <WindowedList
+          items={filtered}
+          rowHeight={49}
+          height={480}
+          itemKey={(group) => group.code}
+          className="weq-rank-list"
+          resetKey={query}
+          renderItem={(g) => {
             const avatar = groupAvatar(g.code);
             return (
-              <button
-                key={g.code}
-                type="button"
-                className="weq-rank-grouprow"
-                onClick={() => onPick(g)}
-              >
+              <button type="button" className="weq-rank-grouprow" onClick={() => onPick(g)}>
                 <span className="weq-rank-avatar">
                   {avatar ? (
                     <img src={avatar} alt="" referrerPolicy="no-referrer" />
@@ -492,9 +496,9 @@ function GroupChooser({ groups, onPick }: { groups: any[]; onPick: (g: any) => v
                 <ChevronLeft size={15} className="weq-rank-grouprow-go" />
               </button>
             );
-          })
-        )}
-      </div>
+          }}
+        />
+      )}
       <footer className="weq-rank-foot">
         <span>选择一个群聊查看等级排行</span>
         <span>

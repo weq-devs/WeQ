@@ -2559,11 +2559,12 @@ html[data-theme='dark'] .composer-send:disabled {
   bottom: calc(100% + 8px);
   left: 22px;
   z-index: 24;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   width: min(300px, calc(100% - 44px));
   max-height: 310px;
   padding: 8px;
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 10px;
   background: #ffffff;
@@ -2577,6 +2578,7 @@ html[data-theme='dark'] .composer-send:disabled {
 
 .mention-menu button {
   display: grid;
+  width: 100%;
   min-width: 0;
   grid-template-columns: 30px minmax(0, 1fr) auto;
   align-items: center;

@@ -96,6 +96,7 @@ export function WindowedList<T>({
   scrollRevision,
   scrollAlign = 'center',
   onNearEnd,
+  nearEndOffset = rowHeight * 8,
   resetKey,
   onVisibleItems,
   bufferScreens = 0,
@@ -107,13 +108,14 @@ export function WindowedList<T>({
   rowHeight: number;
   height: number;
   itemKey: (item: T) => string;
-  renderItem: (item: T) => ReactNode;
+  renderItem: (item: T, index: number) => ReactNode;
   className?: string;
   label?: string;
   scrollToKey?: string | null;
   scrollRevision?: number;
-  scrollAlign?: 'start' | 'center';
+  scrollAlign?: 'start' | 'center' | 'nearest';
   onNearEnd?: () => void;
+  nearEndOffset?: number;
   resetKey?: string;
   onVisibleItems?: (items: readonly T[]) => void;
   /** 主滚动列表可显式预留视口缓冲；选择器默认保留紧凑 DOM 预算。 */
@@ -148,10 +150,11 @@ export function WindowedList<T>({
       if (index < 0) return false;
       const viewportHeight = viewport.clientHeight || height;
       const rowTop = index * rowHeight;
-      const next =
-        scrollAlign === 'start'
-          ? Math.min(rowTop, Math.max(0, items.length * rowHeight - viewportHeight))
-          : Math.max(0, rowTop - viewportHeight / 2 + rowHeight / 2);
+      let next = Math.max(0, rowTop - viewportHeight / 2 + rowHeight / 2);
+      if (scrollAlign === 'start')
+        next = Math.min(rowTop, Math.max(0, items.length * rowHeight - viewportHeight));
+      if (scrollAlign === 'nearest')
+        next = Math.max(rowTop + rowHeight - viewportHeight, Math.min(viewport.scrollTop, rowTop));
       viewport.scrollTop = next;
       setTop(viewport.clientHeight ? Math.max(0, viewport.scrollTop) : next);
       if (!viewport.clientHeight) return false;
@@ -245,7 +248,7 @@ export function WindowedList<T>({
         )
           flushSync(() => setTop(offset));
         if (viewportHeight) publishVisible(offset, viewportHeight);
-        if (onNearEnd && offset + viewportHeight >= items.length * rowHeight - rowHeight * 8)
+        if (onNearEnd && offset + viewportHeight >= items.length * rowHeight - nearEndOffset)
           onNearEnd();
       }}
     >
@@ -264,7 +267,7 @@ export function WindowedList<T>({
                 right: 0,
               }}
             >
-              {renderItem(item)}
+              {renderItem(item, range.start + offset)}
             </div>
           );
         })}

@@ -37,6 +37,7 @@ import { trpc } from '../../trpc/client';
 import { useGroupMemberRefresh } from '../../hooks/useGroupMemberRefresh';
 import { GraphCanvas } from './GraphCanvas';
 import { OverlayLayer } from '../OverlayLayer';
+import { WindowedList } from '../WindowedList';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useRenderDocument } from '../../lib/renderDocument';
@@ -613,8 +614,9 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
 
   const allSelected = filtered.length > 0 && filtered.every((group) => draft.has(group.code));
 
+  const ids = useMemo(() => filtered.map((group) => group.code), [filtered]);
   const multi = useMultiSelection({
-    ids: filtered.map((group) => group.code),
+    ids,
     selected: draft,
     onChange: setDraft,
     onExit: onClose,
@@ -671,18 +673,28 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
           <span>{<span className="weq-number weq-number-inherit">{filtered.length}</span>} 个</span>
         </button>
 
-        <div className="weq-grouppick-list">
-          {filtered.length === 0 ? (
+        {filtered.length === 0 ? (
+          <div className="weq-grouppick-list">
             <EmptyState variant="inline" icon={<SearchX />} title="没有匹配的群聊" />
-          ) : (
-            filtered.map((group) => {
+          </div>
+        ) : (
+          <WindowedList
+            items={filtered}
+            rowHeight={52}
+            height={480}
+            itemKey={(group) => group.code}
+            className="weq-grouppick-list"
+            resetKey={query}
+            scrollToKey={multi.focusRequest?.id}
+            scrollRevision={multi.focusRequest?.revision}
+            renderItem={(group) => {
               const checked = draft.has(group.code);
               const avatar = groupAvatar(group.code);
               return (
                 <button
-                  key={group.code}
                   type="button"
                   className={`weq-grouppick-row${checked ? ' is-on' : ''}`}
+                  aria-pressed={checked}
                   {...multi.itemProps(group.code)}
                 >
                   <span className="weq-grouppick-avatar">
@@ -706,9 +718,9 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
                   </span>
                 </button>
               );
-            })
-          )}
-        </div>
+            }}
+          />
+        )}
 
         <footer className="weq-grouppick-foot">
           <span>

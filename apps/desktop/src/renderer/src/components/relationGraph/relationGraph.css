@@ -716,6 +716,17 @@
   background: rgba(0, 153, 255, 0.06);
 }
 
+.weq-grouppick-list[data-weq-windowed-list],
+.weq-rank-list[data-weq-windowed-list] {
+  display: block;
+  max-height: 100%;
+}
+
+.weq-grouppick-row,
+.weq-rank-grouprow {
+  width: 100%;
+}
+
 .weq-grouppick-row.is-on {
   background: rgba(0, 153, 255, 0.1);
 }
