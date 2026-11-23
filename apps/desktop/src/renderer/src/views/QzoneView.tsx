@@ -1,5 +1,12 @@
 /** Qzone's known web capabilities, rendered in the local WeQ UI. */
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  defaultRangeExtractor,
+  measureElement,
+  observeElementOffset,
+  observeElementRect,
+  useVirtualizer,
+} from '@tanstack/react-virtual';
 import { FormSelect } from '../components/FormSelect';
 import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
@@ -43,6 +50,7 @@ import { z } from 'zod';
 import { PageSnapshotScope } from '../components/PageSnapshots';
 import { usePageDataCache, usePageState } from '../components/PageSnapshots.shared';
 import { PageScrollSnapshot } from '../components/PageScrollSnapshot';
+import { PageDataCache } from '../lib/pageDataCache';
 import { TabActivity } from '../components/RetainedTabs';
 import { useTabActive } from '../components/RetainedTabs.shared';
 import { pageValue } from '../lib/pageSnapshots';
@@ -180,6 +188,8 @@ const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : '加载失败，请重试。';
 
 const QzoneReadsEnabled = createContext(true);
+const PinFeedCard = createContext<((pinned: boolean) => void) | null>(null);
+const FeedCardData = createContext<PageDataCache | null>(null);
 const TIMELINE_REENTRY_REFRESH_MS = 5 * 60_000;
 
 /** 长列表切换栏目时保留已读卡片和图片；其它子页仍按需挂载。 */
@@ -237,6 +247,7 @@ function QzonePage({
   return (
     <div
       className="weq-qzn-scroll"
+      data-weq-windowed-list={retainTimeline ? '' : undefined}
       hidden={!active}
       ref={scroll}
       onScroll={(event) => {
@@ -1800,8 +1811,10 @@ function Post({
   const readsPaused = useContext(QzoneReadPauseContext);
   const { run, cancel } = useQzoneRequests();
   const sourceSignature = useMemo(() => JSON.stringify(sourcePost), [sourcePost]);
+  const cardData = useContext(FeedCardData);
+  const completionKey = `post:${selfUin}:${hostUin}:${sourcePost.tid}:${refresh}`;
   const [completed, setCompleted] = useState<{ signature: string; post: QzoneEmotion } | null>(
-    null,
+    () => cardData?.get<{ signature: string; post: QzoneEmotion }>(completionKey) ?? null,
   );
   const completedRef = useRef(completed);
   completedRef.current = completed;
@@ -1908,6 +1921,8 @@ function Post({
       if (!live) return;
       settled = true;
       completedRef.current = { signature: sourceSignature, post: next };
+      if (!issues.post.length && !issues.repost.length)
+        cardData?.put(completionKey, completedRef.current);
       setCompleted(completedRef.current);
       setCompletionError({ post: issues.post.join(' · '), repost: issues.repost.join(' · ') });
       setCompleting(idlePostCompletion);
@@ -1923,6 +1938,8 @@ function Post({
     imageScope,
     sourceSignature,
     sourcePost,
+    cardData,
+    completionKey,
     selfUin,
     hostUin,
     refresh,
@@ -2176,6 +2193,9 @@ function PostActionsBody({
   const [likeError, setLikeError] = useState('');
   const [loading, setLoading] = useState(false);
   const { refresh } = useContext(QzonePageContext);
+  const cardData = useContext(FeedCardData);
+  const summaryKey = `summary:${selfUin}:${hostUin}:${post.tid}:${refresh}`;
+  const forwardKey = `forwards:${selfUin}:${hostUin}:${post.tid}:${refresh}`;
   const summaryRefresh = useRef<number | null>(null);
   const summaryGeneration = useRef(0);
   const [writeRevision, setWriteRevision] = useState(0);
@@ -2191,6 +2211,15 @@ function PostActionsBody({
   } | null>(null);
   const previousLikeChange = useRef(likeChange);
   const likePending = likeChange?.write.pending === true;
+  const pinCard = useContext(PinFeedCard);
+  const interacting = Boolean(
+    expanded || forwardOpen || commentDraft || commentPicture || likePending,
+  );
+  useLayoutEffect(() => {
+    if (!pinCard || !interacting) return;
+    pinCard(true);
+    return () => pinCard(false);
+  }, [interacting, pinCard]);
   const readsPaused = useContext(QzoneReadPauseContext);
   const [commentCount, setCommentCount] = useState(post.commentNum);
   useEffect(() => {
@@ -2202,6 +2231,28 @@ function PostActionsBody({
   useEffect(() => {
     if (readsPaused || !visible || likePending || summaryRefresh.current === refresh)
       return undefined;
+    type Summary = Awaited<ReturnType<typeof client.account.qzone.summary.query>>;
+    const apply = (result: Summary) => {
+      summaryRefresh.current = refresh;
+      if (result.likes) {
+        setLikes(result.likes);
+        setLikeChange(null);
+        previousLikeChange.current = null;
+        setLikeRevision((value) => value + 1);
+      }
+      if (result.commentCount !== null) setCommentCount(result.commentCount);
+      setLikeError(
+        result.likes && (result.commentCount !== null || writeRevision === 0)
+          ? ''
+          : '互动数据不完整，请重试。',
+      );
+    };
+    const cached = writeRevision === 0 ? cardData?.get<Summary>(summaryKey) : undefined;
+    if (cached) {
+      apply(cached);
+      setLoading(false);
+      return;
+    }
     let live = true;
     const generation = ++summaryGeneration.current;
     const current = () => live && generation === summaryGeneration.current;
@@ -2219,19 +2270,9 @@ function PostActionsBody({
     )
       .then((result) => {
         if (current()) {
-          summaryRefresh.current = refresh;
-          if (result.likes) {
-            setLikes(result.likes);
-            setLikeChange(null);
-            previousLikeChange.current = null;
-            setLikeRevision((value) => value + 1);
-          }
-          if (result.commentCount !== null) setCommentCount(result.commentCount);
-          setLikeError(
-            result.likes && (result.commentCount !== null || writeRevision === 0)
-              ? ''
-              : '互动数据不完整，请重试。',
-          );
+          apply(result);
+          if (result.likes && (result.commentCount !== null || writeRevision === 0))
+            cardData?.put(summaryKey, result);
         }
       })
       .catch((error: unknown) => {
@@ -2252,6 +2293,8 @@ function PostActionsBody({
     post.tid,
     post.commentNum,
     refresh,
+    cardData,
+    summaryKey,
     run,
     cancel,
     writeRevision,
@@ -2278,6 +2321,7 @@ function PostActionsBody({
         setCommentReadback({ revision: writeRevision + 1, refresh, page })
       }
       onChanged={() => {
+        cardData?.delete(summaryKey);
         summaryGeneration.current++;
         summaryRefresh.current = null;
         setWriteRevision((value) => value + 1);
@@ -2298,6 +2342,7 @@ function PostActionsBody({
               initialLiked={qzoneSelfLiked(likes, selfUin)}
               likeRevision={likeRevision}
               onLikeChange={(change) => {
+                cardData?.delete(summaryKey);
                 summaryGeneration.current++;
                 summaryRefresh.current = null;
                 if (change?.pending) {
@@ -2313,6 +2358,7 @@ function PostActionsBody({
                 else setLikeChange(previousLikeChange.current);
               }}
               onChanged={() => {
+                cardData?.delete(summaryKey);
                 summaryGeneration.current++;
                 summaryRefresh.current = null;
                 setWriteRevision((value) => value + 1);
@@ -2341,6 +2387,8 @@ function PostActionsBody({
           onClick={() => setForwardOpen(true)}
           target={{ selfUin, hostUin, tid: post.tid }}
           autoRead={visible}
+          cache={cardData}
+          cacheKey={forwardKey}
           onSpace={onSpace}
           paused={readsPaused}
           renderContent={(content) => <QzoneText content={content} onSpace={onSpace} />}
@@ -2353,6 +2401,7 @@ function PostActionsBody({
             title="重试互动数据校准"
             aria-label="重试互动数据校准"
             onClick={() => {
+              cardData?.delete(summaryKey);
               summaryRefresh.current = null;
               setWriteRevision((value) => value + 1);
             }}
@@ -2473,6 +2522,7 @@ function FeedCounts({
   const ref = useRef<HTMLDivElement>(null);
   const visible = useNearViewport(ref, true);
   const { refresh } = useContext(QzonePageContext);
+  const cardData = useContext(FeedCardData);
   const completed = useRef<number | null>(null);
   const [counts, setCounts] = useState<{
     likeCount: number | null;
@@ -2484,6 +2534,15 @@ function FeedCounts({
   useEffect(() => {
     if (!visible || !body.counterKey || appid !== 4 || completed.current === refresh)
       return undefined;
+    const key = `counts:${selfUin}:${body.counterKey}:${refresh}`;
+    const cached = cardData?.get<NonNullable<typeof counts>>(key);
+    if (cached) {
+      setCounts(cached);
+      completed.current = refresh;
+      setError('');
+      setLoading(false);
+      return;
+    }
     let live = true;
     setLoading(true);
     void run(
@@ -2493,6 +2552,7 @@ function FeedCounts({
     )
       .then((value) => {
         if (live) {
+          cardData?.put(key, value);
           setCounts(value);
           completed.current = refresh;
           setError('');
@@ -2508,7 +2568,7 @@ function FeedCounts({
       live = false;
       cancel();
     };
-  }, [visible, selfUin, appid, body.counterKey, refresh, run, cancel]);
+  }, [visible, selfUin, appid, body.counterKey, refresh, run, cancel, cardData]);
   return (
     <QzoneActionsRow rowRef={ref} title={error || undefined}>
       <span>
@@ -2920,6 +2980,215 @@ interface FeedSnapshot {
   stalledPages: number;
   bridge: { cursor: string | undefined; keys: string[]; incomplete: boolean } | null;
 }
+
+interface FeedRow {
+  key: string;
+  selectionId: string;
+  reference: ContentReference | null;
+  feed: QzoneFeed;
+  body: ReturnType<typeof projectQzoneFeed>;
+}
+
+// 切到其他栏目时容器会隐藏，保留最后一次可见尺寸和已测的行高。
+const observeFeedRect: typeof observeElementRect = (instance, update) =>
+  observeElementRect(instance, (rect) => {
+    if (rect.height > 0) update(rect);
+  });
+const observeFeedOffset: typeof observeElementOffset = (instance, update) =>
+  observeElementOffset(instance, (offset, scrolling) => {
+    if (!instance.scrollElement?.hasAttribute('hidden')) update(offset, scrolling);
+  });
+
+function FriendFeedRows({
+  rows,
+  active,
+  selectionMode,
+  selected,
+  focusRequest,
+  itemProps,
+  selfUin,
+  onSpace,
+  lookup,
+}: {
+  rows: FeedRow[];
+  active: boolean;
+  selectionMode: boolean;
+  selected: ReadonlySet<string>;
+  focusRequest: ReturnType<typeof useMultiSelection<string>>['focusRequest'];
+  itemProps: (id: string) => MultiSelectionItemProps;
+  selfUin: string;
+  onSpace: (uin: string, nickname?: string) => void;
+  lookup: (feed: QzoneFeed, tid: string | null) => Promise<QzoneEmotion | null>;
+}) {
+  const content = useRef<HTMLDivElement>(null);
+  const getScrollElement = useCallback(
+    () => content.current?.closest<HTMLDivElement>('.weq-qzn-scroll') ?? null,
+    [],
+  );
+  const appliedFocus = useRef<typeof focusRequest>(null);
+  const [offset, setOffset] = useState(0);
+  const [focused, setFocused] = useState<string>();
+  const [pinned, setPinned] = useState<ReadonlySet<string>>(() => new Set());
+  const [cardData] = useState(() => new PageDataCache(128));
+  const indices = useMemo(() => new Map(rows.map((row, index) => [row.key, index])), [rows]);
+  const rangeExtractor = useCallback(
+    (range: Parameters<typeof defaultRangeExtractor>[0]) => {
+      const visible = defaultRangeExtractor(range);
+      if (!pinned.size && !focused) return visible;
+      const retained = new Set(visible);
+      for (const key of pinned) {
+        const index = indices.get(key);
+        if (index !== undefined) retained.add(index);
+      }
+      const focusedIndex = focused === undefined ? undefined : indices.get(focused);
+      if (focusedIndex !== undefined) retained.add(focusedIndex);
+      return [...retained].sort((a, b) => a - b);
+    },
+    [pinned, focused, indices],
+  );
+  const list = useVirtualizer({
+    count: rows.length,
+    getScrollElement,
+    getItemKey: useCallback((index: number) => rows[index]!.key, [rows]),
+    estimateSize: () => 180,
+    overscan: 4,
+    initialRect: { width: 0, height: 900 },
+    observeElementRect: observeFeedRect,
+    observeElementOffset: observeFeedOffset,
+    useAnimationFrameWithResizeObserver: true,
+    measureElement: (element, entry, instance) => {
+      const actual = measureElement(element, entry, instance);
+      if (actual > 0) return actual;
+      const index = instance.indexFromElement(element);
+      return (
+        instance.itemSizeCache.get(rows[index]?.key ?? '') ?? instance.options.estimateSize(index)
+      );
+    },
+    rangeExtractor,
+    scrollMargin: offset,
+    anchorTo: 'end',
+  });
+  useLayoutEffect(() => {
+    const scroll = getScrollElement();
+    const element = content.current;
+    if (!active || !scroll || !element) return;
+    const update = () =>
+      setOffset(
+        element.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop,
+      );
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(update);
+    observer.observe(scroll);
+    for (
+      let sibling = element.previousElementSibling;
+      sibling;
+      sibling = sibling.previousElementSibling
+    )
+      observer.observe(sibling);
+    return () => observer.disconnect();
+  }, [active, getScrollElement, selectionMode]);
+  useLayoutEffect(() => {
+    if (!active || !focusRequest || appliedFocus.current === focusRequest) return;
+    const index = rows.findIndex((row) => row.selectionId === focusRequest.id);
+    if (index >= 0) {
+      appliedFocus.current = focusRequest;
+      list.scrollToIndex(index, { align: 'auto' });
+    }
+  }, [active, focusRequest, rows, list]);
+  const setPinnedRow = useCallback((key: string, keep: boolean) => {
+    setPinned((current) => {
+      if (keep === current.has(key)) return current;
+      const next = new Set(current);
+      if (keep) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+  return (
+    <div
+      className="weq-qzn-feed-rows"
+      ref={content}
+      style={{ height: list.getTotalSize() }}
+      onFocusCapture={(event) => {
+        const row = event.target.closest<HTMLElement>('[data-qzone-feed-row]');
+        if (row) setFocused(row.dataset.qzoneFeedRow);
+      }}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocused(undefined);
+      }}
+    >
+      <FeedCardData.Provider value={cardData}>
+        {list.getVirtualItems().map((virtual) => {
+          const row = rows[virtual.index]!;
+          return (
+            <div
+              key={row.key}
+              {...(row.selectionId ? itemProps(row.selectionId) : {})}
+              ref={list.measureElement}
+              data-index={virtual.index}
+              data-qzone-feed-row={row.key}
+              className={`weq-reference-item${selected.has(row.selectionId) ? ' is-selected' : ''}`}
+              style={{ transform: `translateY(${virtual.start - offset}px)` }}
+            >
+              <FriendFeedCard
+                row={row}
+                selfUin={selfUin}
+                onSpace={onSpace}
+                lookup={lookup}
+                setPinnedRow={setPinnedRow}
+              />
+            </div>
+          );
+        })}
+      </FeedCardData.Provider>
+    </div>
+  );
+}
+
+const FriendFeedCard = memo(function FriendFeedCard({
+  row,
+  selfUin,
+  onSpace,
+  lookup,
+  setPinnedRow,
+}: {
+  row: FeedRow;
+  selfUin: string;
+  onSpace: (uin: string, nickname?: string) => void;
+  lookup: (feed: QzoneFeed, tid: string | null) => Promise<QzoneEmotion | null>;
+  setPinnedRow: (key: string, keep: boolean) => void;
+}) {
+  const pinCard = useCallback(
+    (keep: boolean) => setPinnedRow(row.key, keep),
+    [row.key, setPinnedRow],
+  );
+  return (
+    <PinFeedCard.Provider value={pinCard}>
+      <FeedCard
+        feed={row.feed}
+        body={row.body}
+        selfUin={selfUin}
+        onSpace={onSpace}
+        lookup={lookup}
+      />
+    </PinFeedCard.Provider>
+  );
+});
+
+function mergeOlderFeedPage(history: QzoneFeed[], added: QzoneFeed[]) {
+  added.sort((a, b) => b.time - a.time);
+  if (!history.length || history.at(-1)!.time >= added[0]!.time) return history.concat(added);
+  const merged: QzoneFeed[] = [];
+  let pageIndex = 0;
+  for (const feed of history) {
+    while (pageIndex < added.length && added[pageIndex]!.time > feed.time)
+      merged.push(added[pageIndex++]!);
+    merged.push(feed);
+  }
+  return merged.concat(added.slice(pageIndex));
+}
+
 function FeedTimeline({
   selfUin,
   onSpace,
@@ -2963,6 +3232,9 @@ function FeedTimeline({
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(cached?.done ?? false);
   const accumulated = useRef<QzoneFeed[]>(cached?.feeds ?? []);
+  const keyForFeed = kind === 'related' ? qzoneRelatedKey : qzoneFriendFeedKey;
+  const [feedKeys] = useState(() => new Set(accumulated.current.map(keyForFeed)));
+  const [snapshotRevision, publishSnapshot] = useState(0);
   const fetchedPages = useRef(new Set<string>(cached?.pages));
   const nextCursor = useRef<string | undefined>(cached?.nextCursor);
   const seenCursors = useRef(new Set<string>(cached?.seenCursors));
@@ -2986,7 +3258,7 @@ function FeedTimeline({
       stalledPages: stalledPages.current,
       bridge: bridge ? { ...bridge, keys: [...bridge.keys] } : null,
     } satisfies FeedSnapshot);
-  }, [feeds, incomplete, done, cacheKey, dataCache]);
+  }, [feeds, incomplete, done, cacheKey, dataCache, snapshotRevision]);
   useEffect(() => {
     const recovery = `${refresh}:${retry}`;
     const request = `${refresh}:${pageRequest}:${retry}`;
@@ -3026,14 +3298,19 @@ function FeedTimeline({
         fetchedPages.current.add(pageCursor ?? 'head');
         let carriedTail = false;
         let pageIncomplete = page.incomplete === true;
-        const key = kind === 'related' ? qzoneRelatedKey : qzoneFriendFeedKey;
-        const merged = new Map(accumulated.current.map((feed) => [key(feed), feed]));
-        const previousSize = merged.size;
-        const incoming = page.feeds.map((feed) => [key(feed), feed] as const);
-        const overlaps = incoming.some(([id]) => merged.has(id));
-        for (const [id, feed] of incoming)
-          if (pageCursor === undefined || kind === 'related' || !merged.has(id))
-            merged.set(id, feed);
+        const previousSize = feedKeys.size;
+        const incoming = page.feeds.map((feed) => [keyForFeed(feed), feed] as const);
+        const overlaps = incoming.some(([id]) => feedKeys.has(id));
+        const added = new Map<string, QzoneFeed>();
+        const replaced = new Map<string, QzoneFeed>();
+        const replaceExisting = pageCursor === undefined || kind === 'related';
+        for (const [id, feed] of incoming) {
+          const known = feedKeys.has(id);
+          if (known && !replaceExisting) continue;
+          const changes = !known || added.has(id) ? added : replaced;
+          changes.set(id, feed);
+          feedKeys.add(id);
+        }
         const recovering = kind === 'friends' && incompleteRef.current && !nextCursor.current;
         if (
           refreshing &&
@@ -3045,7 +3322,7 @@ function FeedTimeline({
           if (!overlaps && !recovering) {
             bridgeTail.current ??= {
               cursor: nextCursor.current,
-              keys: new Set(accumulated.current.map(key)),
+              keys: new Set(accumulated.current.map(keyForFeed)),
               incomplete: incompleteRef.current,
             };
           } else if (recovering) {
@@ -3057,13 +3334,13 @@ function FeedTimeline({
           setDone(false);
         } else if (!refreshing || previousSize === 0) {
           const tail = bridgeTail.current;
-          if (tail && page.feeds.some((feed) => tail.keys.has(key(feed)))) {
+          if (tail && incoming.some(([id]) => tail.keys.has(id))) {
             nextCursor.current = tail.cursor;
             bridgeTail.current = null;
             carriedTail = true;
             pageIncomplete = tail.incomplete;
           } else {
-            stalledPages.current = merged.size === previousSize ? stalledPages.current + 1 : 0;
+            stalledPages.current = feedKeys.size === previousSize ? stalledPages.current + 1 : 0;
             if (pageCursor) seenCursors.current.add(pageCursor);
             const continuation = page.nextCursor;
             nextCursor.current =
@@ -3090,8 +3367,17 @@ function FeedTimeline({
           pageIncomplete = true;
         incompleteRef.current = pageIncomplete;
         setIncomplete(pageIncomplete);
-        accumulated.current = [...merged.values()].sort((a, b) => b.time - a.time);
+        if (replaced.size) {
+          // 同时间的已加载动态保留原来的相对顺序。
+          accumulated.current = accumulated.current
+            .map((feed) => replaced.get(keyForFeed(feed)) ?? feed)
+            .concat([...added.values()])
+            .sort((a, b) => b.time - a.time);
+        } else if (added.size) {
+          accumulated.current = mergeOlderFeedPage(accumulated.current, [...added.values()]);
+        }
         setFeeds(accumulated.current);
+        publishSnapshot((revision) => revision + 1);
       })
       .catch((error: unknown) => {
         if (live) {
@@ -3110,7 +3396,20 @@ function FeedTimeline({
       live = false;
       cancel();
     };
-  }, [active, selfUin, cursor, pageRequest, retry, refresh, scope, kind, run, cancel]);
+  }, [
+    active,
+    selfUin,
+    cursor,
+    pageRequest,
+    retry,
+    refresh,
+    scope,
+    kind,
+    run,
+    cancel,
+    feedKeys,
+    keyForFeed,
+  ]);
   const continuation = nextCursor.current;
   const roundExhausted = kind === 'related' && relatedRound.current.exhausted;
   const retryFeed = () => {
@@ -3121,9 +3420,10 @@ function FeedTimeline({
     new Map<
       string,
       {
-        html: string;
+        feed: QzoneFeed;
         projector: typeof projectQzoneFeed;
         body: ReturnType<typeof projectQzoneFeed>;
+        row: FeedRow | null;
       }
     >(),
   );
@@ -3300,46 +3600,56 @@ function FeedTimeline({
   const relatedShown = related?.filter((item) => item.activity.kind === selectedInteractionTab);
   const shown = useMemo(
     () =>
-      (kind === 'friends' ? feeds : undefined)
-        ?.filter((feed) => feed.uin > 0)
-        .map((feed) => {
-          const key = qzoneFriendFeedKey(feed);
-          const cached = projections.current.get(key);
-          const reusable = cached?.html === feed.html && cached.projector === currentProjector;
-          const body = reusable ? cached.body : currentProjector(feed.html);
-          if (!reusable)
-            projections.current.set(key, { html: feed.html, projector: currentProjector, body });
-          return { feed, body };
-        })
-        .filter(({ body }) => !body.advertisement),
+      (kind === 'friends' ? feeds : undefined)?.flatMap((feed) => {
+        if (feed.uin <= 0) return [];
+        const key = qzoneFriendFeedKey(feed);
+        const cached = projections.current.get(key);
+        if (cached?.feed === feed && cached.projector === currentProjector)
+          return cached.row ? [cached.row] : [];
+        const body =
+          cached?.feed.html === feed.html && cached.projector === currentProjector
+            ? cached.body
+            : currentProjector(feed.html);
+        const tid = body.tid || (/^[a-f0-9]{6,128}$/i.test(feed.key) ? feed.key : null);
+        const reference: ContentReference | null =
+          feed.appid === 311 && tid
+            ? {
+                kind: 'qzone-post',
+                uin: String(feed.uin),
+                tid,
+                name: `${feed.nickname}：${body.text.slice(0, 60)}`,
+              }
+            : null;
+        const row = body.advertisement
+          ? null
+          : {
+              key,
+              feed,
+              body,
+              reference,
+              selectionId: reference ? contentReferenceKey(reference) : '',
+            };
+        projections.current.set(key, { feed, projector: currentProjector, body, row });
+        return row ? [row] : [];
+      }),
     [kind, feeds, currentProjector],
   );
   const pageCountLabel = `（已获取 ${fetchedPages.current.size} 页）`;
-  const feedReferences = useMemo(
-    () =>
-      new Map<string, ContentReference>(
-        (shown ?? []).flatMap(({ feed, body }) => {
-          const tid = body.tid || (/^[a-f0-9]{6,128}$/i.test(feed.key) ? feed.key : null);
-          if (feed.appid !== 311 || !tid) return [];
-          const item: ContentReference = {
-            kind: 'qzone-post',
-            uin: String(feed.uin),
-            tid,
-            name: `${feed.nickname}：${body.text.slice(0, 60)}`,
-          };
-          return [[contentReferenceKey(item), item]];
-        }),
-      ),
-    [shown],
-  );
+  const feedReferences = useMemo(() => {
+    const references = new Map<string, ContentReference>();
+    for (const row of shown ?? [])
+      if (row.reference) references.set(row.selectionId, row.reference);
+    return references;
+  }, [shown]);
   const feedOwner = { kind: 'qzone-posts' as const, container: `feeds:${selfUin}:${kind}` };
   const feedSelection = useContentMultiSelect(
     feedOwner,
     active && kind === 'friends',
     feedReferences,
   );
+  const feedSelectionIds = useMemo(() => [...feedReferences.keys()], [feedReferences]);
   const feedMulti = useMultiSelection({
-    ids: [...feedReferences.keys()],
+    ids: feedSelectionIds,
     selected: feedSelection.selectedIds,
     onChange: feedSelection.setSelectedIds,
     enabled: feedSelection.selectionMode,
@@ -3354,7 +3664,7 @@ function FeedTimeline({
         <ContentReferenceToolbar
           owner={feedOwner}
           selection={feedSelection}
-          loaded={[...feedReferences.keys()]}
+          loaded={feedSelectionIds}
         />
       ) : null}
       <div className="weq-qzn-section-title">
@@ -3474,28 +3784,19 @@ function FeedTimeline({
           retry={retryFeed}
         />
       ) : null}
-      {shown?.map(({ feed, body }) => {
-        const tid = body.tid || (/^[a-f0-9]{6,128}$/i.test(feed.key) ? feed.key : null);
-        const id = tid
-          ? contentReferenceKey({ kind: 'qzone-post', uin: String(feed.uin), tid })
-          : '';
-        const selectable = feedReferences.has(id);
-        return (
-          <div
-            key={qzoneFriendFeedKey(feed)}
-            {...(selectable ? feedMulti.itemProps(id) : {})}
-            className={`weq-reference-item${feedSelection.selectedIds.has(id) ? ' is-selected' : ''}`}
-          >
-            <FeedCard
-              feed={feed}
-              body={body}
-              selfUin={selfUin}
-              onSpace={onSpace}
-              lookup={lookupPost}
-            />
-          </div>
-        );
-      })}
+      {shown?.length ? (
+        <FriendFeedRows
+          rows={shown}
+          active={active}
+          selectionMode={feedSelection.selectionMode}
+          selected={feedSelection.selectedIds}
+          focusRequest={feedMulti.focusRequest}
+          itemProps={feedMulti.itemProps}
+          selfUin={selfUin}
+          onSpace={onSpace}
+          lookup={lookupPost}
+        />
+      ) : null}
       <div className="weq-qzn-page-sentinel">
         {feeds && error ? (
           <State

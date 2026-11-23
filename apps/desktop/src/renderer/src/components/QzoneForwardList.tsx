@@ -7,6 +7,7 @@ import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import type { QzoneForwardPage } from '../views/qzone_types';
 import { QzonePageButton } from '../views/QzonePagination';
 import { QzonePersonIdentity } from './QzoneProfileAvatar';
+import type { PageDataCache } from '../lib/pageDataCache';
 
 export interface QzoneForwardTarget {
   selfUin: string;
@@ -22,6 +23,8 @@ export function QzoneForwardList({
   paused = false,
   enabled = true,
   open = true,
+  cache,
+  cacheKey,
 }: {
   target: QzoneForwardTarget;
   onCount: (count: number | null) => void;
@@ -30,6 +33,8 @@ export function QzoneForwardList({
   paused?: boolean;
   enabled?: boolean;
   open?: boolean;
+  cache?: PageDataCache | null;
+  cacheKey?: string;
 }) {
   const { selfUin, hostUin, tid } = target;
   const [page, setPage] = useState<QzoneForwardPage | null>(null);
@@ -48,18 +53,22 @@ export function QzoneForwardList({
       setLoading(true);
       setError('');
       try {
-        const result = await run(
-          (requestId) =>
-            client.account.qzone.forwards.query({
-              selfUin,
-              hostUin,
-              tid,
-              cursor,
-              requestId,
-            }),
-          background,
-        );
+        const cached = !cursor && cacheKey ? cache?.get<QzoneForwardPage>(cacheKey) : undefined;
+        const result =
+          cached ??
+          (await run(
+            (requestId) =>
+              client.account.qzone.forwards.query({
+                selfUin,
+                hostUin,
+                tid,
+                cursor,
+                requestId,
+              }),
+            background,
+          ));
         if (request !== generation.current) return;
+        if (!cached && !cursor && cacheKey) cache?.put(cacheKey, result);
         setRows((previous) => {
           const merged = new Map((cursor ? previous : []).map((row) => [row.key, row]));
           for (const row of result.forwards) merged.set(row.key, row);
@@ -78,7 +87,7 @@ export function QzoneForwardList({
         }
       }
     },
-    [selfUin, hostUin, tid, paused, onCount, run],
+    [selfUin, hostUin, tid, paused, onCount, run, cache, cacheKey],
   );
   useEffect(() => {
     if (enabled && !paused && !firstRead.current) void load(null, true);

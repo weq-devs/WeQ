@@ -276,6 +276,17 @@
 .weq-qzn-post:first-of-type:not(:where(.weq-reference-item + .weq-reference-item > *)) {
   padding-top: 4px;
 }
+.weq-qzn-feed-rows {
+  position: relative;
+  overflow-anchor: none;
+}
+.weq-qzn-feed-rows > .weq-reference-item {
+  position: absolute;
+  inset: 0 0 auto;
+}
+.weq-qzn-feed-rows > .weq-reference-item:not([data-index='0']) > .weq-qzn-post {
+  padding-top: 22px;
+}
 .weq-qzn-post-head {
   display: flex;
   align-items: center;

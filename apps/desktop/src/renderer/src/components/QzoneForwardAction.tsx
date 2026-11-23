@@ -2,6 +2,7 @@ import { useCallback, useState, type ReactNode } from 'react';
 import { Repeat2 } from 'lucide-react';
 import { QzoneLikesPopover } from './QzoneLikesPopover';
 import { QzoneForwardList, type QzoneForwardTarget } from './QzoneForwardList';
+import type { PageDataCache } from '../lib/pageDataCache';
 
 export function QzoneForwardAction({
   onClick,
@@ -12,6 +13,8 @@ export function QzoneForwardAction({
   renderContent,
   paused,
   autoRead = true,
+  cache,
+  cacheKey,
 }: {
   onClick: () => void;
   count?: number | null;
@@ -21,6 +24,8 @@ export function QzoneForwardAction({
   renderContent?: (content: string) => ReactNode;
   paused?: boolean;
   autoRead?: boolean;
+  cache?: PageDataCache | null;
+  cacheKey?: string;
 }) {
   const targetId = target ? `${target.selfUin}:${target.hostUin}:${target.tid}` : '';
   const [observed, setObserved] = useState<{ targetId: string; total: number | null } | null>(null);
@@ -52,6 +57,8 @@ export function QzoneForwardAction({
             paused={paused}
             enabled={autoRead || open}
             open={open}
+            cache={cache}
+            cacheKey={cacheKey}
           />
         )
       ) : (

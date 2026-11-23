@@ -12,7 +12,7 @@ export class PageDataCache {
     if (!entry) return undefined;
     const age = Date.now() - entry.savedAt;
     if (age < 0 || age > this.maxAge) {
-      this.remove(key);
+      this.delete(key);
       return undefined;
     }
     this.entries.delete(key);
@@ -20,7 +20,7 @@ export class PageDataCache {
     return entry.value as T;
   }
   put(key: string, value: unknown): void {
-    this.remove(key);
+    this.delete(key);
     let bytes: number;
     try {
       let visited = 0;
@@ -42,10 +42,10 @@ export class PageDataCache {
     while (this.entries.size > this.maxEntries || this.bytes > this.maxBytes) {
       const oldest = this.entries.keys().next().value;
       if (oldest === undefined) break;
-      this.remove(oldest);
+      this.delete(oldest);
     }
   }
-  private remove(key: string) {
+  delete(key: string) {
     this.bytes -= this.entries.get(key)?.bytes ?? 0;
     this.entries.delete(key);
   }
