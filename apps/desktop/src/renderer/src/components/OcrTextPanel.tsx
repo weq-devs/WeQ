@@ -9,6 +9,7 @@
  * 会把灯箱一起关掉。视觉（深色玻璃 + 主题色）见 styles/lightbox-actions.css。
  */
 
+import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { Check, Copy, LogOut, X } from 'lucide-react';
 import type { OcrBlock } from '@weqbot/protocol';
@@ -135,18 +136,19 @@ export function OcrTextPanel({ blocks, source, cached, onExit }: OcrTextPanelPro
         })}
       </div>
 
-      <div className="weq-ocr-panel-foot">
+      <div ref={observeCompactToolbar} className="weq-ocr-panel-foot">
         <button
+          title="复制全部识别文字"
           className="weq-ocr-panel-btn weq-ocr-panel-btn-primary"
           type="button"
           onClick={() => void copy(blocks.map((b) => b.text).join('\n'), setCopiedAll)}
         >
           {copiedAll ? <Check size={14} /> : <Copy size={14} />}
-          {copiedAll ? '已复制' : '一键复制'}
+          <ToolbarLabel>{copiedAll ? '已复制' : '一键复制'}</ToolbarLabel>
         </button>
-        <button className="weq-ocr-panel-btn" type="button" onClick={onExit}>
+        <button title="退出 OCR" className="weq-ocr-panel-btn" type="button" onClick={onExit}>
           <LogOut size={14} />
-          退出 OCR
+          <ToolbarLabel>退出 OCR</ToolbarLabel>
         </button>
       </div>
     </div>

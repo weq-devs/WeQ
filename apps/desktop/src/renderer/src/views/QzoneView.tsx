@@ -1,4 +1,5 @@
 /** Qzone's known web capabilities, rendered in the local WeQ UI. */
+import { observeCompactToolbar, ToolbarLabel } from '../components/CompactToolbar';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   defaultRangeExtractor,
@@ -682,7 +683,7 @@ export function QzoneView({
         aria-label="QQ 空间"
         data-qzone-loading-preview={loadingPreview || undefined}
       >
-        <header className="weq-qzn-header">
+        <header ref={observeCompactToolbar} className="weq-qzn-header">
           <div className="weq-qzn-identity">
             <QzoneProfileAvatar uin={selfUin} nickname={nickname} size={36} />
             <div>
@@ -692,7 +693,7 @@ export function QzoneView({
               </QzonePersonButton>
             </div>
           </div>
-          <div className="weq-qzn-tools">
+          <div className="weq-qzn-tools" data-toolbar-group="">
             <button
               type="button"
               title="空间设置"
@@ -726,9 +727,14 @@ export function QzoneView({
             >
               <Download size={17} />
             </button>
-            <button type="button" className="weq-qzn-primary" onClick={() => setCompose(true)}>
+            <button
+              title="写说说"
+              type="button"
+              className="weq-qzn-primary"
+              onClick={() => setCompose(true)}
+            >
               <Send size={15} />
-              写说说
+              <ToolbarLabel>写说说</ToolbarLabel>
             </button>
           </div>
         </header>

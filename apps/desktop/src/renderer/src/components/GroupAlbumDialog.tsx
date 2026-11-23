@@ -1,3 +1,4 @@
+import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
 import { NumericText } from './NumericText';
 import {
   useEffect,
@@ -660,7 +661,7 @@ function AlbumMediaView({
         selection={selection}
         loaded={[...references.keys()]}
       />
-      <div className="group-album-toolbar">
+      <div ref={observeCompactToolbar} className="group-album-toolbar">
         {!hideNavigation ? (
           <button
             type="button"
@@ -670,7 +671,7 @@ function AlbumMediaView({
             onClick={onBack}
           >
             <ArrowLeft size={15} />
-            相册
+            <ToolbarLabel>相册</ToolbarLabel>
           </button>
         ) : null}
         <span>{state.status === 'loading' && !items.length ? '正在读取' : countText}</span>

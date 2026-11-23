@@ -1,3 +1,4 @@
+import { observeCompactToolbar, ToolbarLabel } from '../../components/CompactToolbar';
 import { NumericText } from '../../components/NumericText';
 import { formatDateTime } from '@weq/time';
 import { TimeLabel } from '../../components/TimeLabel';
@@ -1052,7 +1053,7 @@ export function MailPage({
               />
             ) : null}
             <section className="weq-mail-reader" hidden={showCompose} aria-label="邮件阅读区">
-              <div className="weq-mail-reader-tools">
+              <div ref={observeCompactToolbar} className="weq-mail-reader-tools">
                 <button
                   type="button"
                   className="weq-mail-mobile-back"
@@ -1065,21 +1066,35 @@ export function MailPage({
                 {detail ? (
                   <>
                     {threadRoot && selectedId !== threadRoot ? (
-                      <button type="button" onClick={() => setSelectedId(threadRoot)}>
+                      <button
+                        title="返回会话"
+                        type="button"
+                        onClick={() => setSelectedId(threadRoot)}
+                      >
                         <ArrowLeft size={16} />
-                        会话
+                        <ToolbarLabel>会话</ToolbarLabel>
                       </button>
                     ) : null}
                     {detail.thread ? null : detail.draft ? (
-                      <button type="button" onClick={() => start('edit')} disabled={composeBusy}>
+                      <button
+                        title="编辑草稿"
+                        type="button"
+                        onClick={() => start('edit')}
+                        disabled={composeBusy}
+                      >
                         <FilePenLine size={16} />
-                        编辑草稿
+                        <ToolbarLabel>编辑草稿</ToolbarLabel>
                       </button>
                     ) : (
                       <>
-                        <button type="button" onClick={() => start('reply')} disabled={composeBusy}>
+                        <button
+                          title="回复邮件"
+                          type="button"
+                          onClick={() => start('reply')}
+                          disabled={composeBusy}
+                        >
                           <Reply size={16} />
-                          回复
+                          <ToolbarLabel>回复</ToolbarLabel>
                         </button>
                         <button
                           type="button"
@@ -1091,12 +1106,13 @@ export function MailPage({
                           <ReplyAll size={17} />
                         </button>
                         <button
+                          title="转发邮件"
                           type="button"
                           onClick={() => start('forward')}
                           disabled={composeBusy}
                         >
                           <Forward size={16} />
-                          转发
+                          <ToolbarLabel>转发</ToolbarLabel>
                         </button>
                       </>
                     )}

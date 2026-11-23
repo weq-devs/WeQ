@@ -1,3 +1,4 @@
+import { observeCompactToolbar } from '../CompactToolbar';
 import { EmptyState } from '../EmptyState';
 import { useEffect, useState } from 'react';
 import {
@@ -38,9 +39,9 @@ function FavoriteActionsBody() {
   };
   return (
     <section className="weq-qq-actions weq-favorite-management" aria-label="QQ 收藏表情管理">
-      <div className="weq-content-toolbar">
+      <div ref={observeCompactToolbar} className="weq-content-toolbar">
         <h3>收藏表情</h3>
-        <div>
+        <div data-toolbar-group="">
           <span>
             <span className="weq-number weq-number-inherit">{list.data?.length ?? 0}</span> 项
           </span>

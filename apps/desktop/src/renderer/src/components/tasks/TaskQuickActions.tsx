@@ -1,3 +1,4 @@
+import { observeCompactToolbar, ToolbarLabel } from '../CompactToolbar';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { useDialog } from '../Dialog.shared';
@@ -62,6 +63,7 @@ export function TaskQuickActions({
   };
   return (
     <div
+      ref={detail ? observeCompactToolbar : undefined}
       className={detail ? 'weq-task-detail-actions' : 'weq-task-quick-actions'}
       role="group"
       aria-label={detail ? '任务操作' : '任务快捷操作'}
@@ -79,7 +81,7 @@ export function TaskQuickActions({
           onClick={() => void act(action)}
         >
           {action.icon}
-          {detail ? action.label : null}
+          {detail ? <ToolbarLabel>{action.label}</ToolbarLabel> : null}
         </button>
       ))}
       {more.length ? (

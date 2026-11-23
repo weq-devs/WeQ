@@ -8,6 +8,7 @@
  * weq-media://mface?...&enc=tea（密钥后端自动恢复），不过 tRPC。
  */
 
+import { observeCompactToolbar, ToolbarLabel } from '../../components/CompactToolbar';
 import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
@@ -134,7 +135,7 @@ function PackDetailPane({
 
   return (
     <div className="weq-emb-detail">
-      <div className="weq-emb-detail-head">
+      <div ref={observeCompactToolbar} className="weq-emb-detail-head">
         <Store size={15} className="weq-emb-detail-head-icon" />
         <span className="weq-mface-lb-title">
           {detail.data?.name || name || `表情包 ${packId}`}
@@ -153,7 +154,7 @@ function PackDetailPane({
           title="解密下载这一整套到本地文件夹"
         >
           {saving ? <Loader2 size={14} className="weq-emb-spin" /> : <Download size={14} />}
-          一键下载
+          <ToolbarLabel>一键下载</ToolbarLabel>
         </button>
       </div>
       {description ? <p className="weq-market-description">{description}</p> : null}
@@ -679,7 +680,7 @@ function DevelopmentMarketEmojiBrowser({
             ) : null}
           </div>
           {selection.selectionMode ? (
-            <div className="weq-market-selection-actions">
+            <div ref={observeCompactToolbar} className="weq-market-selection-actions">
               <span>
                 <span className="weq-number weq-number-inherit">{selection.selectedIds.size}</span>{' '}
                 / <span className="weq-number weq-number-inherit">{MARKET_DOWNLOAD_MAX_PACKS}</span>{' '}
@@ -708,7 +709,7 @@ function DevelopmentMarketEmojiBrowser({
                   ) : (
                     <Download size={15} />
                   )}
-                  下载选中
+                  <ToolbarLabel>下载选中</ToolbarLabel>
                 </button>
               </div>
             </div>

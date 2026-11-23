@@ -1,6 +1,7 @@
 // @ts-nocheck
 /** 输入区语音模式，包含录音、TTS 和群聊 AI 声聊。 */
 
+import { observeCompactToolbar, ToolbarLabel } from '../../components/CompactToolbar';
 import { AiVoiceControls, type AiVoiceDraft } from './aiVoicePanel';
 import { FormSelect } from '../../components/FormSelect';
 import {
@@ -1611,7 +1612,7 @@ function VoiceReview({
         </div>
       ) : null}
 
-      <div className="voice-review-actions" inert={inert}>
+      <div ref={observeCompactToolbar} className="voice-review-actions" inert={inert}>
         {transcriptReady ? null : (
           <button
             data-danger="outline"
@@ -1625,12 +1626,13 @@ function VoiceReview({
           </button>
         )}
         <button
+          title={transcribing || transcriptReady ? cancelLabel : '转文字'}
           type="button"
           className="voice-btn ghost voice-transcribe-btn"
           onClick={transcribing || transcriptReady ? onCancelTranscription : onTranscribe}
         >
           {transcribing || transcriptReady ? <X size={14} /> : <Captions size={14} />}
-          <span>{transcribing || transcriptReady ? cancelLabel : '转文字'}</span>
+          <ToolbarLabel>{transcribing || transcriptReady ? cancelLabel : '转文字'}</ToolbarLabel>
         </button>
         {transcriptReady ? (
           <button

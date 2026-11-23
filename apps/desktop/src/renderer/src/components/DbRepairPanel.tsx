@@ -1,3 +1,4 @@
+import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
@@ -639,7 +640,7 @@ export function DbRepairPanel({
       await refresh();
     });
   const scanControls = (
-    <div className="weq-dbm-scan-controls">
+    <div ref={observeCompactToolbar} className="weq-dbm-scan-controls">
       <SegmentedControl
         label="体检模式"
         value={scanKind}
@@ -652,6 +653,7 @@ export function DbRepairPanel({
       />
       {running && !repairing ? (
         <button
+          title={stop.isLoading || live?.operation?.stopping ? '正在暂停' : '暂停扫描'}
           type="button"
           className="weq-set-btn"
           disabled={stop.isLoading || !!live?.operation?.stopping}
@@ -664,17 +666,22 @@ export function DbRepairPanel({
           }
         >
           <Pause size={14} />
-          {stop.isLoading || live?.operation?.stopping ? '正在暂停' : '暂停扫描'}
+          <ToolbarLabel>
+            {stop.isLoading || live?.operation?.stopping ? '正在暂停' : '暂停扫描'}
+          </ToolbarLabel>
         </button>
       ) : (
         <button
+          title={continuing ? '继续扫描' : rescanning ? '重新扫描' : '开始扫描'}
           type="button"
           className={`weq-set-btn${rescanning ? '' : ' weq-set-btn-primary'}`}
           disabled={!canScan}
           onClick={() => void startScan(scanKind)}
         >
           {rescanning ? <RefreshCw size={14} /> : <Play size={14} />}
-          {continuing ? '继续扫描' : rescanning ? '重新扫描' : '开始扫描'}
+          <ToolbarLabel>
+            {continuing ? '继续扫描' : rescanning ? '重新扫描' : '开始扫描'}
+          </ToolbarLabel>
         </button>
       )}
     </div>

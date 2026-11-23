@@ -3,6 +3,7 @@
  * Supports nesting, hex editing for bytes, and numeric inputs.
  */
 
+import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
 import { useId, useState } from 'react';
 import { X, Save, ChevronLeft, ChevronRight, Hash, Type, Binary, Box, Copy } from 'lucide-react';
 import { cn } from '../im-template/template/classNames';
@@ -134,25 +135,33 @@ export function MsgElementEditor({
         )}
       </main>
 
-      <footer className="weq-editor-footer">
-        <div className="weq-editor-pager">
-          <button disabled={activeIndex <= 0} onClick={() => setActiveIndex(activeIndex - 1)}>
-            <ChevronLeft size={16} /> 上一个
+      <footer ref={observeCompactToolbar} className="weq-editor-footer">
+        <div className="weq-editor-pager" data-toolbar-group="">
+          <button
+            title="上一个"
+            disabled={activeIndex <= 0}
+            onClick={() => setActiveIndex(activeIndex - 1)}
+          >
+            <ChevronLeft size={16} />
+            <ToolbarLabel>上一个</ToolbarLabel>
           </button>
           <span className="weq-editor-pager-count">
             <span className="weq-number weq-number-inherit">{activeIndex + 1}</span> /{' '}
             <span className="weq-number weq-number-inherit">{elements.length}</span>
           </span>
           <button
+            title="下一个"
             disabled={activeIndex >= elements.length - 1}
             onClick={() => setActiveIndex(activeIndex + 1)}
           >
-            下一个 <ChevronRight size={16} />
+            <ToolbarLabel>下一个</ToolbarLabel>
+            <ChevronRight size={16} />
           </button>
         </div>
-        <div className="weq-editor-actions">
-          <button className="weq-btn-cancel" onClick={() => void copyJson()}>
-            <Copy size={16} /> 复制 JSON
+        <div className="weq-editor-actions" data-toolbar-group="">
+          <button title="复制 JSON" className="weq-btn-cancel" onClick={() => void copyJson()}>
+            <Copy size={16} />
+            <ToolbarLabel>复制 JSON</ToolbarLabel>
           </button>
           <button className="weq-btn-cancel" onClick={onClose}>
             取消

@@ -15,6 +15,7 @@
  * 聊天背景与浮屏挂件一律离线可用(QQ 同款的直链 bootstrap 时已存进 config,浮屏挂件是 bundle 的)。
  */
 
+import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
 import {
   useCallback,
   useEffect,
@@ -827,7 +828,7 @@ export function DressUpDialog({
             disabled={!target}
           />
         ) : (
-          <div className="weq-dress-card-actions">
+          <div ref={observeCompactToolbar} className="weq-dress-card-actions">
             <button
               type="button"
               className="weq-dress-use"
@@ -857,7 +858,7 @@ export function DressUpDialog({
               ) : (
                 <Download size={14} />
               )}
-              <span>下载</span>
+              <ToolbarLabel>下载</ToolbarLabel>
             </button>
           </div>
         )}
@@ -1365,7 +1366,7 @@ export function DressUpDialog({
             </div>
           ) : null}
           {isMall ? (
-            <div className="weq-dress-toolbar">
+            <div ref={observeCompactToolbar} className="weq-dress-toolbar">
               <div className="weq-dress-toolbar-leading" role="group" aria-label="装扮列表">
                 <button
                   type="button"
@@ -1412,6 +1413,7 @@ export function DressUpDialog({
               </div>
               {selecting ? (
                 <button
+                  title="下载选中"
                   type="button"
                   className="weq-set-btn weq-set-btn-primary weq-dress-download-selection"
                   disabled={download.disabled || applying || !selectedDownloads.length}
@@ -1425,7 +1427,7 @@ export function DressUpDialog({
                   ) : (
                     <Download size={14} aria-hidden />
                   )}
-                  下载选中
+                  <ToolbarLabel>下载选中</ToolbarLabel>
                 </button>
               ) : null}
             </div>

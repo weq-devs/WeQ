@@ -1,3 +1,4 @@
+import { observeCompactToolbar, ToolbarLabel } from '../components/CompactToolbar';
 import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
 import { eventTimeFormatter } from '@weq/time';
@@ -549,7 +550,7 @@ export function ExportViewer({
             ))}
           </nav>
           <div className="weq-ev-content">
-            <div className="weq-ev-actions">
+            <div ref={observeCompactToolbar} className="weq-ev-actions">
               <label className="weq-ev-search">
                 <Search size={15} />
                 <input
@@ -574,7 +575,7 @@ export function ExportViewer({
                 onClick={() => void jump()}
               >
                 <ExternalLink size={15} />
-                打开会话
+                <ToolbarLabel>打开会话</ToolbarLabel>
               </button>
               <button
                 type="button"
@@ -596,7 +597,7 @@ export function ExportViewer({
                 }
               >
                 <RefreshCw size={15} />
-                增量导出
+                <ToolbarLabel>增量导出</ToolbarLabel>
               </button>
             </div>
             {source && !source.conversation ? (

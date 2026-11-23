@@ -1,3 +1,4 @@
+import { ToolbarLabel } from './CompactToolbar';
 import { useRef, useState } from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
@@ -65,7 +66,7 @@ export function MarketImageSave({
           aria-label={IS_WEB ? '保存到服务器' : '保存表情'}
         >
           {busy ? <Loader2 size={15} className="weq-spin" /> : <Download size={15} />}
-          {IS_WEB ? '保存到服务器' : '保存'}
+          <ToolbarLabel>{IS_WEB ? '保存到服务器' : '保存'}</ToolbarLabel>
         </button>
       </div>
       {save.serverLocation && (

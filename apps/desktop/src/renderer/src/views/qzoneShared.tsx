@@ -1,3 +1,4 @@
+import { ToolbarLabel } from '../components/CompactToolbar';
 import { EmptyState } from '../components/EmptyState';
 /**
  * 空间页与空友爱看共用的展示件。
@@ -97,6 +98,7 @@ export function QzoneAlbumPreviewAction({
   if (!navigation) return null;
   return (
     <button
+      title={picKey ? '在相册中查看' : '打开相册'}
       type="button"
       className="weq-lightbox-action"
       onClick={() =>
@@ -120,7 +122,7 @@ export function QzoneAlbumPreviewAction({
       }
     >
       <Images size={16} aria-hidden />
-      {picKey ? '在相册中查看' : '打开相册'}
+      <ToolbarLabel>{picKey ? '在相册中查看' : '打开相册'}</ToolbarLabel>
     </button>
   );
 }

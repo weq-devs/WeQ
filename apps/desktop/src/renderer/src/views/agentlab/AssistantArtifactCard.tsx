@@ -3,6 +3,7 @@
  * 查看保留既有隔离 HTML 查看器；保存复用全局偏好与任务回执，不重新调用模型。
  */
 
+import { observeCompactToolbar, ToolbarLabel } from '../../components/CompactToolbar';
 import { formatBytes } from '../../lib/format';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import {
@@ -242,22 +243,25 @@ export function AssistantArtifactCard({ artifact }: { artifact: AssistantArtifac
           </span>
         )}
       </div>
-      <div className="weq-asst-artifact-actions">
+      <div ref={observeCompactToolbar} className="weq-asst-artifact-actions">
         <button
+          title={isExport ? '打开' : '查看'}
           type="button"
           className="weq-set-btn weq-set-btn-sm"
           disabled={busy !== null || !binding}
           onClick={() => void onView()}
         >
-          <Eye size={13} /> {isExport ? '打开' : '查看'}
+          <Eye size={13} /> <ToolbarLabel>{isExport ? '打开' : '查看'}</ToolbarLabel>
         </button>
         <button
           type="button"
           className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+          title={IS_WEB ? '保存到服务器' : '保存'}
           disabled={busy !== null || !binding}
           onClick={() => void onSave()}
         >
-          <Download size={13} /> {IS_WEB ? '保存到服务器' : '保存'}
+          <Download size={13} aria-hidden />
+          {IS_WEB ? '保存到服务器' : <ToolbarLabel>保存</ToolbarLabel>}
         </button>
         {saved?.path && !IS_WEB && (
           <>

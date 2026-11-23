@@ -142,6 +142,21 @@ button.qq-media-wrap > :is(img, .qq-media-missing) {
   font-variant-numeric: tabular-nums;
   color: var(--weq-lightbox-control-fg);
 }
+.weq-media-zoom-compact {
+  display: none;
+}
+.weq-lightbox-actions[data-toolbar-compact]:not([data-toolbar-measuring])
+  :is(.weq-media-zoom-controls output, .weq-media-zoom-reset > svg) {
+  display: none;
+}
+.weq-lightbox-actions[data-toolbar-compact]:not([data-toolbar-measuring]) .weq-media-zoom-compact {
+  display: inline;
+  font-size: 12px;
+}
+.weq-lightbox-actions[data-toolbar-compact]:not([data-toolbar-measuring])
+  .weq-media-zoom-reset:disabled {
+  opacity: 1;
+}
 @media (max-width: 600px) {
   .weq-media-zoom-controls .weq-lightbox-action {
     width: 44px;

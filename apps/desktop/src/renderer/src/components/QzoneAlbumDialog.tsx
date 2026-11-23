@@ -1,3 +1,4 @@
+import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
 import { usePageDataCache } from './PageSnapshots.shared';
 import { PageDataCache } from '../lib/pageDataCache';
 import { NumericText } from './NumericText';
@@ -196,6 +197,7 @@ export function QzoneAlbumDestination({
       onClose={onClose}
       renderToolbarActions={() => (
         <button
+          title="打开相册"
           type="button"
           className="weq-lightbox-action"
           onClick={() => {
@@ -204,7 +206,7 @@ export function QzoneAlbumDestination({
           }}
         >
           <Images size={16} aria-hidden />
-          打开相册
+          <ToolbarLabel>打开相册</ToolbarLabel>
         </button>
       )}
     />
@@ -1145,7 +1147,7 @@ export function MediaView({
           }}
         />
       ) : null}
-      <div className="weq-qzal-toolbar">
+      <div ref={observeCompactToolbar} className="weq-qzal-toolbar">
         {onJumpToAlbum ? (
           <button type="button" className="weq-qzal-back" onClick={onJumpToAlbum}>
             跳转到相册
@@ -1155,8 +1157,9 @@ export function MediaView({
             <ArrowLeft size={17} aria-hidden />
           </button>
         ) : (
-          <button type="button" className="weq-qzal-back" onClick={onBack}>
-            返回相册
+          <button title="返回相册" type="button" className="weq-qzal-back" onClick={onBack}>
+            <ArrowLeft size={17} aria-hidden />
+            <ToolbarLabel>返回相册</ToolbarLabel>
           </button>
         )}
         <span className="weq-qzal-count">

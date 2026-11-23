@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Eye, EyeOff, Loader2, ScanText } from 'lucide-react';
+import { Eye, EyeOff, FileText, Loader2, MoreHorizontal, ScanText } from 'lucide-react';
+import { ToolbarLabel } from './CompactToolbar';
 import type { OcrBlock } from '@weqbot/protocol';
 import { trpc } from '../trpc/client';
 import { OcrTextPanel } from './OcrTextPanel';
+import { ConversationActionsMenu } from './ConversationActionsMenu';
 import { useToastApi } from './Toast.shared';
 import type { PreviewOcrContext } from './mediaPreviewTypes';
 
@@ -19,6 +21,8 @@ export function usePreviewOcr(src: string, context: PreviewOcrContext | null | u
   const [busy, setBusy] = useState(false);
   const [visible, setVisible] = useState(true);
   const [panel, setPanel] = useState(false);
+  const [resultsMenu, setResultsMenu] = useState<{ x: number; y: number } | null>(null);
+  const moreButton = useRef<HTMLButtonElement>(null);
   const generation = useRef(0);
   useEffect(() => {
     generation.current++;
@@ -26,6 +30,7 @@ export function usePreviewOcr(src: string, context: PreviewOcrContext | null | u
     setBusy(false);
     setVisible(true);
     setPanel(false);
+    setResultsMenu(null);
     return () => {
       generation.current++;
     };
@@ -94,6 +99,13 @@ export function usePreviewOcr(src: string, context: PreviewOcrContext | null | u
       if (request === generation.current) setBusy(false);
     }
   }
+  const toggleResults = () => setVisible((previous) => !previous);
+  const closeMenu = () => {
+    setResultsMenu(null);
+    moreButton.current?.focus({ preventScroll: true });
+  };
+  const toggleLabel = visible ? '查看原图' : '查看识别结果';
+  const ToggleIcon = visible ? Eye : EyeOff;
   return {
     overlay(width: number, height: number) {
       if (!result || !visible || !width || !height || !result.width || !result.height) return null;
@@ -139,23 +151,63 @@ export function usePreviewOcr(src: string, context: PreviewOcrContext | null | u
             onClick={() => void run()}
           >
             {busy ? <Loader2 className="weq-spin" size={15} /> : <ScanText size={15} />}
-            {result ? '重新识别' : 'OCR'}
+            <ToolbarLabel>{result ? '重新识别' : 'OCR'}</ToolbarLabel>
           </button>
           {result && result.blocks.length > 0 ? (
             <>
+              <span data-toolbar-overflow-actions="">
+                <button
+                  type="button"
+                  className="weq-lightbox-action"
+                  onClick={toggleResults}
+                  title={toggleLabel}
+                >
+                  <ToggleIcon size={15} aria-hidden />
+                  <ToolbarLabel>{visible ? '原始' : '结果'}</ToolbarLabel>
+                </button>
+                <button
+                  type="button"
+                  className="weq-lightbox-action"
+                  title="打开识别文字"
+                  onClick={() => setPanel(true)}
+                >
+                  <FileText size={15} aria-hidden />
+                  <ToolbarLabel>文字</ToolbarLabel>
+                </button>
+              </span>
               <button
+                ref={moreButton}
                 type="button"
                 className="weq-lightbox-action"
-                onClick={() => setVisible(!visible)}
-                title={visible ? '查看原图' : '查看识别结果'}
+                data-toolbar-overflow-trigger=""
+                title="更多文字识别操作"
+                aria-label="更多文字识别操作"
+                aria-expanded={resultsMenu !== null}
+                aria-haspopup="menu"
+                onClick={(event) => {
+                  if (resultsMenu) return closeMenu();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setResultsMenu({ x: rect.right, y: rect.top - 4 });
+                }}
               >
-                {visible ? <Eye size={15} /> : <EyeOff size={15} />}
-                {visible ? '原始' : '结果'}
+                <MoreHorizontal size={16} aria-hidden />
               </button>
-              <button type="button" className="weq-lightbox-action" onClick={() => setPanel(true)}>
-                <ScanText size={15} />
-                文字
-              </button>
+              {resultsMenu ? (
+                <ConversationActionsMenu
+                  {...resultsMenu}
+                  dropdown="above"
+                  label="文字识别操作"
+                  onClose={closeMenu}
+                  actions={[
+                    { label: toggleLabel, icon: <ToggleIcon size={15} />, action: toggleResults },
+                    {
+                      label: '打开识别文字',
+                      icon: <FileText size={15} />,
+                      action: () => setPanel(true),
+                    },
+                  ]}
+                />
+              ) : null}
             </>
           ) : null}
         </>
@@ -168,6 +220,7 @@ export function usePreviewOcr(src: string, context: PreviewOcrContext | null | u
           source={result.source}
           cached={result.cached}
           onExit={() => {
+            setResultsMenu(null);
             setPanel(false);
             setResult(null);
           }}

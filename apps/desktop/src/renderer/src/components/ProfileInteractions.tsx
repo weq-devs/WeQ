@@ -26,6 +26,7 @@ import { useDialog } from './Dialog.shared';
 import { QqAvatar } from './QqAvatar';
 import { ProfileAvatar } from './ProfileAvatar';
 import { QzoneLikesPopover } from './QzoneLikesPopover';
+import { QzoneActionsRow } from './QzoneActionsRow';
 import { ConversationDirectoryContext } from '../lib/conversationDirectory';
 import { chooseBrowserFiles, stageAccountFile } from '../lib/accountFilePicker';
 import { profileLikeSummary } from '../lib/profileInteractionPresentation';
@@ -33,6 +34,7 @@ import { mergeExtrasPages, nextExtrasCursor } from '../lib/profileExtrasPages';
 import { usePhotoUploadReadback } from '../hooks/usePhotoUploadReadback';
 import '../styles/profile-interactions.css';
 import '../styles/qzone-interactions.css';
+import '../styles/qzone-actions.css';
 
 type Target = QQWriteBinding & { uin: string };
 const options = { staleTime: 60_000, retry: false as const, refetchOnWindowFocus: false };
@@ -334,7 +336,7 @@ export function SignatureInteractions({
   ) : null;
   return (
     <div className="weq-signature-interactions">
-      <div className="weq-qzn-actions">
+      <QzoneActionsRow>
         <QzoneLikesPopover
           contextMenu={false}
           trigger={
@@ -354,7 +356,9 @@ export function SignatureInteractions({
                 })
               }
             >
-              <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} />赞 {item.likes ?? '?'}
+              <ThumbsUp size={16} fill={liked ? 'currentColor' : 'none'} aria-hidden />
+              <span className="weq-qzn-action-label">赞</span>
+              <span className="weq-number">{item.likes ?? '?'}</span>
             </button>
           }
         >
@@ -409,9 +413,9 @@ export function SignatureInteractions({
           onClick={() => setExpanded(!expanded)}
         >
           <MessageCircle size={16} />
-          评论
+          <span className="weq-qzn-action-label">评论</span>
         </button>
-      </div>
+      </QzoneActionsRow>
       {expanded ? (
         <div className="weq-qzn-interaction">
           {!reply ? composer : null}

@@ -12,6 +12,7 @@ import { ChevronLeft, ChevronRight, CircleDot, Copy, RefreshCw } from 'lucide-re
 import { interactiveMediaUrl } from '../lib/resourceUrl';
 import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
 import { MediaPreviewShell } from './MediaPreviewShell';
+import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
 import { MediaLoadStatus, MediaZoomControls, type MediaLoadState } from './MediaPreviewControls';
 import { mediaZoomKeyDown } from './MediaPreviewControls.shared';
 import { useZoomPan } from './useZoomPan';
@@ -348,6 +349,7 @@ function MediaPreviewItemBody({
   const image = useRef<HTMLImageElement | null>(null);
   const [imageFrame, setImageFrame] = useState<HTMLDivElement | null>(null);
   const [ocrActions, setOcrActions] = useState<HTMLSpanElement | null>(null);
+  const [saveStatus, setSaveStatus] = useState<HTMLDivElement | null>(null);
   const setFrame = useCallback(
     (element: HTMLDivElement | null) => {
       setImageFrame(element);
@@ -521,49 +523,31 @@ function MediaPreviewItemBody({
       }}
       footer={
         <>
-          <div
-            className="weq-lightbox-actions"
-            data-extra-actions={toolbarActions ? '' : undefined}
-          >
+          <div className="weq-lightbox-actions" ref={observeCompactToolbar}>
             {toolbarActions}
             <MediaZoomControls zoom={zoom} disabled={!ready} />
             {livePhotoPoster ? (
               <button
                 type="button"
                 className="weq-lightbox-action"
+                title="实况"
                 aria-pressed={!showingStaticPhoto}
                 onClick={() => setStaticPhotoKey(showingStaticPhoto ? undefined : media.key)}
               >
                 <CircleDot size={16} aria-hidden />
-                实况
+                <ToolbarLabel>实况</ToolbarLabel>
               </button>
             ) : null}
-            <span ref={setOcrActions} style={{ display: 'contents' }} />
-            {original && usingThumbnail ? (
-              originalPending ? (
-                <span className="weq-lightbox-action weq-lightbox-original weq-transfer-control">
-                  <TransferRing
-                    size={16}
-                    label={originalProgressLabel}
-                    progress={
-                      decodingOriginal
-                        ? { phase: 'confirming' }
-                        : (originalProgress ?? { phase: 'download' })
-                    }
-                  />
-                  {originalProgressLabel}
-                  {originalSize}
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  className="weq-lightbox-action weq-lightbox-original"
-                  onClick={() => startOriginal(item.key, original.src, false)}
-                >
-                  {originalRequest?.phase === 'failed' ? '重试原图' : '查看原图'}
-                  {originalSize}
-                </button>
-              )
+            <span ref={setOcrActions} className="weq-preview-ocr-actions" />
+            {original && usingThumbnail && !originalPending ? (
+              <button
+                type="button"
+                className="weq-lightbox-action weq-lightbox-original"
+                onClick={() => startOriginal(item.key, original.src, false)}
+              >
+                {originalRequest?.phase === 'failed' ? '重试原图' : '查看原图'}
+                {originalSize}
+              </button>
             ) : null}
             {item.saveSource !== null &&
             (!original || ready) &&
@@ -596,6 +580,7 @@ function MediaPreviewItemBody({
                       : '保存视频')
                 }
                 ownerDocument={ownerDocument}
+                statusTarget={saveStatus}
               />
             ) : null}
             {current.kind === 'image' ? (
@@ -608,7 +593,7 @@ function MediaPreviewItemBody({
                 onClick={() => void copy()}
               >
                 <Copy size={15} />
-                复制
+                <ToolbarLabel>复制</ToolbarLabel>
               </button>
             ) : null}
             {detailError ? (
@@ -620,10 +605,26 @@ function MediaPreviewItemBody({
                 aria-label="重试读取原图"
               >
                 <RefreshCw size={16} aria-hidden />
-                重试原图
+                <ToolbarLabel>重试原图</ToolbarLabel>
               </button>
             ) : null}
           </div>
+          {originalPending && usingThumbnail ? (
+            <div className="weq-preview-transfer-status" role="status">
+              <TransferRing
+                size={16}
+                label={originalProgressLabel}
+                progress={
+                  decodingOriginal
+                    ? { phase: 'confirming' }
+                    : (originalProgress ?? { phase: 'download' })
+                }
+              />
+              {originalProgressLabel}
+              {originalSize}
+            </div>
+          ) : null}
+          <div ref={setSaveStatus} className="weq-preview-transfer-status" />
           <div className="weq-preview-business">{business}</div>
         </>
       }

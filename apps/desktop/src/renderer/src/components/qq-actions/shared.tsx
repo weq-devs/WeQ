@@ -4,6 +4,7 @@ import { QQWriteResult } from '../QQWriteControls';
 import type { DangerLevel } from '../Dialog';
 import '../../styles/qq-actions.css';
 import type { useQQAction } from './shared.shared';
+import { ToolbarLabel } from '../CompactToolbar';
 
 export function ActionIcon({
   label,
@@ -35,7 +36,7 @@ export function ActionIcon({
       onClick={onClick}
     >
       {children}
-      {text && <span className="weq-set-iconbtn-label">{text}</span>}
+      {text && <ToolbarLabel className="weq-set-iconbtn-label">{text}</ToolbarLabel>}
     </button>
   );
 }

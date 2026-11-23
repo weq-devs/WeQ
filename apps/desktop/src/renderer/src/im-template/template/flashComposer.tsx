@@ -27,12 +27,22 @@
  * 面板自己不碰 trpc / 协议；样式见 styles/flash-composer.css，颜色全走主题 token。
  */
 
+import { observeCompactToolbar, ToolbarLabel } from '../../components/CompactToolbar';
 import { NumericText } from '../../components/NumericText';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import type { RefObject } from 'react';
-import { ImagePlus, Loader2, RotateCcw, SendHorizontal, Sparkles, X, Zap } from 'lucide-react';
+import {
+  ArrowLeft,
+  ImagePlus,
+  Loader2,
+  RotateCcw,
+  SendHorizontal,
+  Sparkles,
+  X,
+  Zap,
+} from 'lucide-react';
 import { useOverlayLayer } from '../../lib/overlayStack';
 import { cn } from './classNames';
 import { dataTransferHasFiles } from './composerMedia';
@@ -571,14 +581,15 @@ export function FlashComposer({
                   {error ? <span className={cn('flash-error')}>{error}</span> : null}
                 </div>
 
-                <div className={cn('flash-lightbox-actions')}>
+                <div ref={observeCompactToolbar} className={cn('flash-lightbox-actions')}>
                   <button
                     type="button"
                     className={cn('flash-btn ghost')}
                     title="上传一张自己的封面（PNG / JPEG，≤ 1 MB，原图直通）"
                     onClick={() => coverInputRef.current?.click()}
                   >
-                    <ImagePlus size={14} /> 换封面
+                    <ImagePlus size={14} />
+                    <ToolbarLabel>换封面</ToolbarLabel>
                   </button>
                   <button
                     type="button"
@@ -587,14 +598,17 @@ export function FlashComposer({
                     disabled={coverBusy}
                     onClick={() => void restoreCover()}
                   >
-                    <RotateCcw size={14} /> 默认封面
+                    <RotateCcw size={14} />
+                    <ToolbarLabel>默认封面</ToolbarLabel>
                   </button>
                   <button
+                    title="返回"
                     type="button"
                     className={cn('flash-btn ghost')}
                     onClick={() => setLightbox(false)}
                   >
-                    返回
+                    <ArrowLeft size={14} aria-hidden />
+                    <ToolbarLabel>返回</ToolbarLabel>
                   </button>
                   <button
                     ref={sendButtonRef}

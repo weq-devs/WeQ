@@ -1,5 +1,6 @@
 /** The unified search dropdown under the sidebar search box. */
 
+import { observeCompactToolbar, ToolbarLabel } from '../CompactToolbar';
 import { EmptyState } from '../EmptyState';
 import { useCallback, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Layers, RefreshCw, Settings2, SearchX } from 'lucide-react';
@@ -506,11 +507,12 @@ export function SearchDropdown({
                 return null;
               return (
                 <div className="weq-search-section" key={category}>
-                  <div className="weq-search-section-header">
+                  <div ref={observeCompactToolbar} className="weq-search-section-header">
                     <span className="weq-search-section-name">{CATEGORY_META[category].label}</span>
-                    <div className="weq-search-section-actions">
+                    <div className="weq-search-section-actions" data-toolbar-group="">
                       {canRefine ? (
                         <button
+                          title="筛选 QQ 消息"
                           type="button"
                           className="weq-search-more"
                           data-search-hit-key="filter:qqMessages"
@@ -520,7 +522,7 @@ export function SearchDropdown({
                           }}
                         >
                           <Settings2 size={13} aria-hidden />
-                          筛选 QQ 消息
+                          <ToolbarLabel>筛选 QQ 消息</ToolbarLabel>
                         </button>
                       ) : null}
                       {hits && hits.length >= 3 ? (

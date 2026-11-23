@@ -1,3 +1,4 @@
+import { observeCompactToolbar, ToolbarLabel } from '../../components/CompactToolbar';
 import { EmptyState } from '../../components/EmptyState';
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { Check, CheckCheck, FlipHorizontal2, Image, Loader2, X, Images } from 'lucide-react';
@@ -109,17 +110,19 @@ export function AlbumExportLightbox({
         </header>
 
         <div className="weq-exp-dialog-body">
-          <section className="weq-exp-album-tools">
+          <section ref={observeCompactToolbar} className="weq-exp-album-tools">
             <button
+              title="全选"
               type="button"
               className="weq-exp-tool"
               disabled={loadingAlbums || albums.length === 0 || submitting}
               onClick={() => setSelection(new Set(albums.map((album) => album.id)))}
             >
               <CheckCheck size={14} aria-hidden="true" />
-              全选
+              <ToolbarLabel>全选</ToolbarLabel>
             </button>
             <button
+              title="反选"
               type="button"
               className="weq-exp-tool"
               disabled={loadingAlbums || albums.length === 0 || submitting}
@@ -133,7 +136,7 @@ export function AlbumExportLightbox({
               }
             >
               <FlipHorizontal2 size={14} aria-hidden="true" />
-              反选
+              <ToolbarLabel>反选</ToolbarLabel>
             </button>
             <span className="weq-exp-tools-spacer" />
             <span className="weq-exp-tools-count">

@@ -1,3 +1,4 @@
+import { observeCompactToolbar, ToolbarLabel } from '../CompactToolbar';
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Eye } from 'lucide-react';
 import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
@@ -109,6 +110,7 @@ function GroupProfileBody({
     : undefined;
   const chatAction = canChat ? (
     <button
+      title={embedded ? '打开会话' : '查看消息'}
       type="button"
       className="weq-contact-secondary"
       onClick={() => {
@@ -118,21 +120,23 @@ function GroupProfileBody({
       }}
     >
       <FEATURE_ICONS.messages size={14} aria-hidden />
-      {embedded ? '打开会话' : '查看消息'}
+      <ToolbarLabel>{embedded ? '打开会话' : '查看消息'}</ToolbarLabel>
     </button>
   ) : null;
   const previewAction = canPreview ? (
     <button
       type="button"
+      title="预览消息"
       className="weq-contact-secondary"
       onClick={() => preview?.open(conversation)}
     >
-      <Eye size={14} />
-      预览消息
+      <Eye size={14} aria-hidden />
+      <ToolbarLabel>预览消息</ToolbarLabel>
     </button>
   ) : null;
   const pageActions = embedded ? (
     <nav
+      ref={observeCompactToolbar}
       className="weq-profile-actions weq-contact-actions weq-profile-card-actions"
       aria-label="群操作"
     >
@@ -232,6 +236,7 @@ function GroupProfileBody({
             压在正文与视口边缘上，所以只在快速名片里保留底部操作行。 */}
             {!embedded && (canChat || canPreview) ? (
               <nav
+                ref={observeCompactToolbar}
                 className="weq-profile-actions weq-contact-actions weq-profile-card-actions"
                 aria-label="群操作"
               >

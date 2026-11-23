@@ -7,6 +7,7 @@
  *
  * 下载按批次在本页展示，可交给后台继续。
  */
+import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
 import { NumericText } from './NumericText';
 import { formatBytes as formatSize } from '../lib/format';
 import {
@@ -765,71 +766,81 @@ export function FlashTransferViewer({
                         {batch.error && <p className="weq-ft-batch-error">{batch.error}</p>}
                       </details>
                       {running && <TaskProgressBar value={value} label="本批次下载进度" />}
-                      <div className="weq-ft-batch-actions">
+                      <div ref={observeCompactToolbar} className="weq-ft-batch-actions">
                         {running && (
                           <>
                             <button
+                              title="暂停"
                               type="button"
                               className="weq-set-btn"
                               disabled={disabled}
                               onClick={() => void control(batch, 'pause')}
                             >
                               <Pause size={14} aria-hidden />
-                              暂停
+                              <ToolbarLabel>暂停</ToolbarLabel>
                             </button>
                             <button
+                              title="停止"
                               type="button"
                               className="weq-set-btn"
                               disabled={disabled}
                               onClick={() => void control(batch, 'cancel')}
                             >
                               <Square size={14} aria-hidden />
-                              停止
+                              <ToolbarLabel>停止</ToolbarLabel>
                             </button>
                           </>
                         )}
                         {batch.foreground && (running || batch.paused) && (
                           <button
+                            title="后台进行"
                             type="button"
                             className="weq-set-btn"
                             disabled={disabled}
                             onClick={() => void control(batch, 'background')}
                           >
                             <ListTodo size={14} aria-hidden />
-                            后台进行
+                            <ToolbarLabel>后台进行</ToolbarLabel>
                           </button>
                         )}
                         {batch.canRetry && (
                           <button
+                            title={batch.paused ? '继续' : '重试未完成文件'}
                             type="button"
                             className="weq-set-btn"
                             disabled={disabled}
                             onClick={() => void control(batch, 'retry')}
                           >
                             <RefreshCw size={14} aria-hidden />
-                            {batch.paused ? '继续' : '重试未完成文件'}
+                            <ToolbarLabel>{batch.paused ? '继续' : '重试未完成文件'}</ToolbarLabel>
                           </button>
                         )}
                         {IS_WEB && batch.files.some((file) => file.status === 'done') && (
                           <button
+                            title={batch.files.length === 1 ? '下载到此设备' : '下载已完成文件'}
                             type="button"
                             className="weq-set-btn"
                             disabled={disabled}
                             onClick={() => void control(batch, 'download')}
                           >
                             <Download size={14} aria-hidden />
-                            {batch.files.length === 1 ? '下载到此设备' : '下载已完成文件'}
+                            <ToolbarLabel>
+                              {batch.files.length === 1 ? '下载到此设备' : '下载已完成文件'}
+                            </ToolbarLabel>
                           </button>
                         )}
                         {!IS_WEB && batch.files.some((file) => file.status === 'done') && (
                           <button
+                            title={batch.files.length === 1 ? '打开文件' : '打开下载目录'}
                             type="button"
                             className="weq-set-btn"
                             disabled={disabled}
                             onClick={() => void control(batch, 'open')}
                           >
                             <FolderOpen size={14} aria-hidden />
-                            {batch.files.length === 1 ? '打开文件' : '打开下载目录'}
+                            <ToolbarLabel>
+                              {batch.files.length === 1 ? '打开文件' : '打开下载目录'}
+                            </ToolbarLabel>
                           </button>
                         )}
                       </div>

@@ -1,3 +1,4 @@
+import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
 import { FormSelect } from './FormSelect';
 import { NumericText } from './NumericText';
 import * as timeFormat from '@weq/time';
@@ -930,7 +931,7 @@ export function CapturePanel({
   return (
     <div className="weq-cap">
       {/* 工具条 */}
-      <div className="weq-cap-bar">
+      <div ref={observeCompactToolbar} className="weq-cap-bar">
         <span className={`weq-cap-led${running ? ' is-live' : ''}`} aria-hidden />
         <span
           className="weq-cap-env"
@@ -1018,7 +1019,7 @@ export function CapturePanel({
           ) : (
             <Play size={13} />
           )}
-          {primaryLabel}
+          <ToolbarLabel>{primaryLabel}</ToolbarLabel>
         </button>
 
         <button
@@ -1029,7 +1030,7 @@ export function CapturePanel({
           title="停止抓包并清空列表（释放网卡）"
         >
           <Square size={12} />
-          停止
+          <ToolbarLabel>停止</ToolbarLabel>
         </button>
 
         <button
@@ -1041,7 +1042,7 @@ export function CapturePanel({
           title="导出当前列表（按过滤条件）为 JSON / JSONL 文件"
         >
           {exporting ? <Loader2 size={13} className="weq-spin" /> : <Download size={13} />}
-          导出
+          <ToolbarLabel>导出</ToolbarLabel>
         </button>
 
         <button

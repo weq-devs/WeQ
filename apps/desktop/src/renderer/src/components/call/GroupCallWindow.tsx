@@ -1,13 +1,13 @@
+import { observeCompactToolbar, ToolbarLabel } from '../CompactToolbar';
 import {
   Loader2,
   MessageCircle,
   MicOff,
-  PanelRightClose,
-  PanelRightOpen,
   PhoneOff,
   Search,
   UserMinus,
   UserPlus,
+  Users,
   Video,
   VideoOff,
   Volume2,
@@ -441,7 +441,7 @@ export function GroupCallWindow({
       hidden={locked}
       inert={locked}
     >
-      <header className="weq-group-call-heading">
+      <header ref={observeCompactToolbar} className="weq-group-call-heading">
         <div className="weq-group-call-title">
           <h2 title={groupName}>{groupName || '群通话'}</h2>
           <p className="weq-group-call-meta" aria-live="polite">
@@ -455,33 +455,32 @@ export function GroupCallWindow({
         <p className="weq-group-call-notice" role="status">
           {notice}
         </p>
-        <div className="weq-group-call-heading-actions">
+        <div className="weq-group-call-heading-actions" data-toolbar-group="">
           {finished ? null : (
             <button
+              title="邀请"
               type="button"
               className="weq-group-call-action"
               disabled={!live}
               onClick={() => showInvite(true)}
             >
               <UserPlus size={16} aria-hidden />
-              邀请
+              <ToolbarLabel>邀请</ToolbarLabel>
             </button>
           )}
           <button
+            title="查看成员"
             type="button"
             className="weq-group-call-action"
             aria-expanded={rail === 'members'}
             aria-controls={railId}
             onClick={() => setRail(rail === 'members' ? null : 'members')}
           >
-            {rail === 'members' ? (
-              <PanelRightClose size={16} aria-hidden />
-            ) : (
-              <PanelRightOpen size={16} aria-hidden />
-            )}
-            成员
+            <Users size={16} aria-hidden />
+            <ToolbarLabel>成员</ToolbarLabel>
           </button>
           <button
+            title="查看群通话消息"
             type="button"
             className="weq-group-call-action"
             aria-expanded={rail === 'chat'}
@@ -489,7 +488,7 @@ export function GroupCallWindow({
             onClick={() => setRail(rail === 'chat' ? null : 'chat')}
           >
             <MessageCircle size={16} aria-hidden />
-            消息
+            <ToolbarLabel>消息</ToolbarLabel>
           </button>
         </div>
       </header>

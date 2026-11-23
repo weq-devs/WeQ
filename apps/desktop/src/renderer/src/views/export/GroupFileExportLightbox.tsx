@@ -7,6 +7,7 @@
  *   - 勾选的文件导出时按 path 在输出目录里重建文件夹树。
  */
 
+import { observeCompactToolbar, ToolbarLabel } from '../../components/CompactToolbar';
 import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
@@ -280,15 +281,17 @@ export function GroupFileExportLightbox({
 
         <div className="weq-exp-dialog-body">
           {/* 目录浏览条：返回上级 + 面包屑 + 当前目录摘要（聊天页同款）。 */}
-          <div className="group-file-toolbar weq-exp-file-toolbar">
+          <div ref={observeCompactToolbar} className="group-file-toolbar weq-exp-file-toolbar">
             <div className="group-file-crumbs">
               {crumbs.length > 1 ? (
                 <button
+                  title="返回上级"
                   type="button"
                   className="group-album-back"
                   onClick={() => setCrumbs((c) => c.slice(0, -1))}
                 >
-                  <ArrowLeft size={14} /> 返回上级
+                  <ArrowLeft size={14} />
+                  <ToolbarLabel>返回上级</ToolbarLabel>
                 </button>
               ) : null}
               <span title={crumbs.map((c) => c.name).join(' / ')}>
@@ -305,8 +308,9 @@ export function GroupFileExportLightbox({
           </div>
 
           {/* 选择工具条。 */}
-          <div className="weq-exp-file-tools">
+          <div ref={observeCompactToolbar} className="weq-exp-file-tools">
             <button
+              title="全选当前目录"
               type="button"
               className="weq-exp-tool"
               disabled={
@@ -319,9 +323,10 @@ export function GroupFileExportLightbox({
               onClick={selectAllVisible}
             >
               <CheckCheck size={14} aria-hidden="true" />
-              全选当前目录
+              <ToolbarLabel>全选当前目录</ToolbarLabel>
             </button>
             <button
+              title="反选当前目录"
               type="button"
               className="weq-exp-tool"
               disabled={
@@ -334,16 +339,17 @@ export function GroupFileExportLightbox({
               onClick={invertVisible}
             >
               <FlipHorizontal2 size={14} aria-hidden="true" />
-              反选当前目录
+              <ToolbarLabel>反选当前目录</ToolbarLabel>
             </button>
             <button
+              title="清空已选"
               type="button"
               className="weq-exp-tool"
               disabled={selection.size === 0 || submitting || selecting}
               onClick={() => void applySelection(new Set())}
             >
               <X size={14} aria-hidden="true" />
-              清空已选
+              <ToolbarLabel>清空已选</ToolbarLabel>
             </button>
             <span className="weq-exp-tools-spacer" />
             <span className="weq-exp-tools-count">

@@ -17,6 +17,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { FavoriteBundleControls } from '../../components/qq-actions/FavoriteBundleControls';
+import { observeCompactToolbar } from '../../components/CompactToolbar';
 import { FavoritePickerTab } from '../../components/qq-actions/FavoritePickerTab';
 import { ActionIcon } from '../../components/qq-actions/shared';
 import {
@@ -187,7 +188,7 @@ export function EmojiPanel({
 
   return (
     <div className={cn('emoji-panel')} ref={panelRef} aria-label="表情面板">
-      <header className="emoji-panel-header">
+      <header ref={observeCompactToolbar} className="emoji-panel-header">
         <h3>
           {bouncing
             ? '弹射表情'

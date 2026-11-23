@@ -58,6 +58,7 @@ export function MediaZoomControls({
   zoom: ZoomPan;
   disabled?: boolean;
 }) {
+  const percent = Math.round(zoom.scale * 100);
   return (
     <div className="weq-media-zoom-controls" role="group" aria-label="预览缩放">
       <button
@@ -71,7 +72,7 @@ export function MediaZoomControls({
         <ZoomOut size={18} aria-hidden />
       </button>
       <output aria-label="缩放比例">
-        <span className="weq-number weq-number-inherit">{Math.round(zoom.scale * 100)}</span>%
+        <span className="weq-number weq-number-inherit">{percent}</span>%
       </output>
       <button
         type="button"
@@ -85,13 +86,17 @@ export function MediaZoomControls({
       </button>
       <button
         type="button"
-        className="weq-lightbox-action"
+        className="weq-lightbox-action weq-media-zoom-reset"
         aria-label="适应窗口"
+        aria-description={`当前缩放 ${percent}%`}
         title="适应窗口"
         disabled={disabled || !zoom.canReset}
         onClick={zoom.reset}
       >
         <Maximize size={18} aria-hidden />
+        <span className="weq-media-zoom-compact weq-number weq-number-inherit" aria-hidden>
+          {percent}%
+        </span>
       </button>
     </div>
   );

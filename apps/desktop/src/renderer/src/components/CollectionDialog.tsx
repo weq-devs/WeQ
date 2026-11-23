@@ -1,3 +1,4 @@
+import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
 import { NumericText } from './NumericText';
 import { TimeLabel } from './TimeLabel';
 import * as timeFormat from '@weq/time';
@@ -1051,7 +1052,7 @@ export function CollectionDialog({
           </button>
         ) : null}
         <header className="weq-collection-head">
-          <div className="weq-collection-title-row">
+          <div ref={observeCompactToolbar} className="weq-collection-title-row">
             {selected ? (
               <button
                 type="button"
@@ -1088,13 +1089,14 @@ export function CollectionDialog({
                   条收藏
                 </span>
                 <button
+                  title="全选筛选结果"
                   type="button"
                   onClick={() =>
                     multiSelect.setSelectedIds(new Set(filtered.map((item) => item.cid)))
                   }
                 >
                   <CheckCheck size={14} aria-hidden="true" />
-                  全选筛选结果
+                  <ToolbarLabel>全选筛选结果</ToolbarLabel>
                 </button>
               </>
             ) : null}
@@ -1143,16 +1145,18 @@ export function CollectionDialog({
                   </button>
                 )}
                 <button
+                  title={mediaLoading ? '下载中' : '下载附件'}
                   type="button"
                   className="weq-collection-sync-button"
                   disabled={detailLoading || mediaLoading}
                   onClick={() => void downloadAttachments()}
                 >
                   <Download size={13} />
-                  {mediaLoading ? '下载中' : '下载附件'}
+                  <ToolbarLabel>{mediaLoading ? '下载中' : '下载附件'}</ToolbarLabel>
                 </button>
                 {mediaLoading ? (
                   <button
+                    title="停止"
                     type="button"
                     className="weq-collection-sync-button"
                     onClick={() => {
@@ -1164,7 +1168,7 @@ export function CollectionDialog({
                     }}
                   >
                     <Square size={10} />
-                    停止
+                    <ToolbarLabel>停止</ToolbarLabel>
                   </button>
                 ) : null}
               </>
@@ -1187,23 +1191,25 @@ export function CollectionDialog({
                 )}
                 {detailSyncRun.current ? (
                   <button
+                    title={detailSync?.cancelling ? '正在取消' : '停止'}
                     type="button"
                     className="weq-collection-sync-button"
                     onClick={cancelDetailSync}
                     disabled={detailSync?.cancelling}
                   >
                     <Square size={10} fill="currentColor" />
-                    {detailSync?.cancelling ? '正在取消' : '停止'}
+                    <ToolbarLabel>{detailSync?.cancelling ? '正在取消' : '停止'}</ToolbarLabel>
                   </button>
                 ) : (
                   <button
+                    title="同步详情"
                     type="button"
                     className="weq-collection-sync-button"
                     onClick={() => void syncAllDetails()}
                     disabled={loading || refreshing || items.length === 0}
                   >
                     <Download size={13} />
-                    同步详情
+                    <ToolbarLabel>同步详情</ToolbarLabel>
                   </button>
                 )}
               </>

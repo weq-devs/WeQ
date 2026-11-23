@@ -1,3 +1,4 @@
+import { ToolbarLabel } from '../components/CompactToolbar';
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, Play, VideoOff } from 'lucide-react';
 import { transferTarget } from '../../../shared/transfer_progress';
@@ -247,12 +248,13 @@ export function QzoneVideoGrid({
                 ) : null}
                 {tid ? (
                   <button
+                    title="查看原说说"
                     type="button"
                     className="weq-lightbox-action"
                     onClick={() => navigation.open({ kind: 'post', hostUin, tid })}
                   >
                     <FileText size={16} aria-hidden />
-                    查看原说说
+                    <ToolbarLabel>查看原说说</ToolbarLabel>
                   </button>
                 ) : null}
               </>

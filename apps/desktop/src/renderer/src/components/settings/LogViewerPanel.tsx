@@ -1,3 +1,4 @@
+import { observeCompactToolbar, ToolbarLabel } from '../CompactToolbar';
 import * as timeFormat from '@weq/time';
 import { TimeLabel } from '../TimeLabel';
 /**
@@ -642,7 +643,7 @@ export function LogViewerPanel(): ReactElement {
       </div>
 
       {/* 等级筛选 + 跟随开关 */}
-      <div className="weq-help-log-tools">
+      <div ref={observeCompactToolbar} className="weq-help-log-tools">
         <div className="weq-help-log-module">
           <IconPicker
             width="100%"
@@ -673,7 +674,7 @@ export function LogViewerPanel(): ReactElement {
           ))}
           {allOff ? <span className="weq-help-log-empty-hint">全部关闭，无内容显示</span> : null}
         </div>
-        <div className="weq-help-log-tools-right">
+        <div className="weq-help-log-tools-right" data-toolbar-group="">
           {loading ? <Loader2 size={13} className="weq-help-log-spin" aria-hidden /> : null}
           <button
             type="button"
@@ -682,7 +683,7 @@ export function LogViewerPanel(): ReactElement {
             title={followTail ? '暂停跟随，可向上滚动查看历史' : '恢复跟随文件尾部'}
           >
             {followTail ? <Pause size={12} aria-hidden /> : <Play size={12} aria-hidden />}
-            {followTail ? '跟随最新' : '已暂停跟随'}
+            <ToolbarLabel>{followTail ? '跟随最新' : '已暂停跟随'}</ToolbarLabel>
           </button>
           <button
             type="button"
@@ -692,7 +693,7 @@ export function LogViewerPanel(): ReactElement {
             title="回到文件尾部"
           >
             <ArrowDownToLine size={12} aria-hidden />
-            回到最新
+            <ToolbarLabel>回到最新</ToolbarLabel>
           </button>
         </div>
       </div>

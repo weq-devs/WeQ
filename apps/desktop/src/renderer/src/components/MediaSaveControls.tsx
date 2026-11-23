@@ -1,4 +1,5 @@
 import { AlertCircle, Check, Download, ListTodo, Play, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { IS_WEB } from '../lib/target.shared';
 import { RenderDocumentContext, useRenderDocument } from '../lib/renderDocument';
@@ -7,6 +8,14 @@ import { useMediaSave } from './MediaSaveControls.shared';
 import { mediaTransferTarget } from '../../../shared/transfer_progress';
 import { useTransferProgress } from '../lib/transferActivity';
 import { TransferRing } from './TransferRing';
+import { ToolbarLabel } from './CompactToolbar';
+
+type MediaSaveOptions = {
+  className: string;
+  label?: string;
+  iconOnly?: boolean;
+  statusTarget?: HTMLElement | null;
+};
 
 export function MediaSaveControls({
   save,
@@ -14,12 +23,10 @@ export function MediaSaveControls({
   className,
   label = '保存媒体',
   iconOnly = false,
-}: {
+  statusTarget,
+}: MediaSaveOptions & {
   save: ReturnType<typeof useMediaSave>;
   source: MediaSaveSource;
-  className: string;
-  label?: string;
-  iconOnly?: boolean;
 }) {
   const transfer = useTransferProgress(mediaTransferTarget(source));
   const working = save.isBusy(source);
@@ -30,9 +37,28 @@ export function MediaSaveControls({
     saved || paused
       ? undefined
       : (transfer ?? (working ? { phase: 'preparing' as const } : undefined));
+  const progressStatus = progress ? (
+    <span className={statusTarget ? 'weq-transfer-control' : `${className} weq-transfer-control`}>
+      <TransferRing progress={progress} size={19} />
+      {iconOnly ? null : <span>{IS_WEB ? '下载' : '保存'}</span>}
+    </span>
+  ) : null;
+  const errorStatus =
+    record?.status === 'failed' ? (
+      <span
+        className="weq-media-save-error"
+        role="status"
+        title={record.error}
+        aria-label={`保存失败：${record.error ?? '请重试'}`}
+      >
+        <AlertCircle size={15} aria-hidden />
+        {!iconOnly && record.error}
+      </span>
+    ) : null;
   return (
     <div
       className="weq-save-action-group weq-media-save-controls"
+      data-toolbar-group=""
       onClick={(event) => event.stopPropagation()}
       onMouseDown={(event) => event.stopPropagation()}
     >
@@ -45,7 +71,7 @@ export function MediaSaveControls({
           onClick={() => void save.control(source, 'open')}
         >
           {IS_WEB ? <Download size={15} /> : <Check size={15} />}
-          {iconOnly ? null : <span>{IS_WEB ? '再次下载' : '打开已保存文件'}</span>}
+          {iconOnly ? null : <ToolbarLabel>{IS_WEB ? '再次下载' : '打开已保存文件'}</ToolbarLabel>}
         </button>
       ) : paused ? (
         <button
@@ -57,13 +83,14 @@ export function MediaSaveControls({
           onClick={() => void save.control(source, 'resume')}
         >
           <Play size={15} />
-          {iconOnly ? null : <span>继续下载</span>}
+          {iconOnly ? null : <ToolbarLabel>继续下载</ToolbarLabel>}
         </button>
       ) : progress ? (
-        <span className={`${className} weq-transfer-control`}>
-          <TransferRing progress={progress} size={19} />
-          {iconOnly ? null : <span>{IS_WEB ? '下载' : '保存'}</span>}
-        </span>
+        statusTarget ? (
+          createPortal(progressStatus, statusTarget)
+        ) : (
+          progressStatus
+        )
       ) : (
         <button
           type="button"
@@ -74,7 +101,7 @@ export function MediaSaveControls({
           onClick={() => void save.run(source)}
         >
           <Download size={15} />
-          {iconOnly ? null : <span>另存为</span>}
+          {iconOnly ? null : <ToolbarLabel>另存为</ToolbarLabel>}
         </button>
       )}
       {saved && !IS_WEB && (
@@ -87,20 +114,10 @@ export function MediaSaveControls({
           onClick={() => void save.run(source)}
         >
           <Download size={15} aria-hidden />
-          {iconOnly ? null : <span>再次保存</span>}
+          {iconOnly ? null : <ToolbarLabel>再次保存</ToolbarLabel>}
         </button>
       )}
-      {record?.status === 'failed' && (
-        <span
-          className="weq-media-save-error"
-          role="status"
-          title={record.error}
-          aria-label={`保存失败：${record.error ?? '请重试'}`}
-        >
-          <AlertCircle size={15} aria-hidden />
-          {!iconOnly && record.error}
-        </span>
-      )}
+      {statusTarget ? createPortal(errorStatus, statusTarget) : errorStatus}
       {record && (record.status === 'running' || paused) && (
         <button
           type="button"
@@ -110,7 +127,7 @@ export function MediaSaveControls({
           onClick={() => void save.control(source, 'background')}
         >
           <ListTodo size={15} aria-hidden />
-          {iconOnly ? null : <span>后台进行</span>}
+          {iconOnly ? null : <ToolbarLabel>后台进行</ToolbarLabel>}
         </button>
       )}
       {(((save.downloading || save.foreground) && working) || paused) && (
@@ -130,11 +147,8 @@ export function MediaSaveControls({
 function SourceSave({
   source,
   ...props
-}: {
+}: MediaSaveOptions & {
   source: MediaSaveSource;
-  className: string;
-  label?: string;
-  iconOnly?: boolean;
 }) {
   const save = useMediaSave({ foreground: true });
   return <MediaSaveControls {...props} source={source} save={save} />;
@@ -142,11 +156,8 @@ function SourceSave({
 export function MediaSourceSave({
   ownerDocument,
   ...props
-}: {
+}: MediaSaveOptions & {
   source: MediaSaveSource;
-  className: string;
-  label?: string;
-  iconOnly?: boolean;
   ownerDocument?: Document;
 }) {
   const currentDocument = useRenderDocument();

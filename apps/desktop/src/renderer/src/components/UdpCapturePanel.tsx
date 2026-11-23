@@ -1,3 +1,4 @@
+import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
 import { FormSelect } from './FormSelect';
 import { NumericText } from './NumericText';
 import { TimeLabel } from './TimeLabel';
@@ -445,7 +446,7 @@ export function UdpCapturePanel(): ReactElement {
 
   return (
     <div className="weq-udp">
-      <div className="weq-udp-bar">
+      <div ref={observeCompactToolbar} className="weq-udp-bar">
         <span className={`weq-udp-led${running ? ' is-live' : ''}`} aria-hidden />
         <span
           className="weq-udp-env"
@@ -483,6 +484,7 @@ export function UdpCapturePanel(): ReactElement {
           )}
         </button>
         <button
+          title={primaryLabel}
           type="button"
           className="weq-udp-btn is-primary"
           onClick={() => {
@@ -492,7 +494,7 @@ export function UdpCapturePanel(): ReactElement {
           disabled={busy || (!canStart && !session)}
         >
           {running ? <Pause size={14} /> : <Play size={14} />}
-          {primaryLabel}
+          <ToolbarLabel>{primaryLabel}</ToolbarLabel>
         </button>
         <button
           type="button"
@@ -502,7 +504,7 @@ export function UdpCapturePanel(): ReactElement {
           title="停止并释放会话"
         >
           <Square size={14} />
-          停止
+          <ToolbarLabel>停止</ToolbarLabel>
         </button>
         <button
           type="button"
@@ -512,7 +514,7 @@ export function UdpCapturePanel(): ReactElement {
           title="导出为 JSON"
         >
           <Download size={14} />
-          导出
+          <ToolbarLabel>导出</ToolbarLabel>
         </button>
         <button
           type="button"
@@ -535,7 +537,8 @@ export function UdpCapturePanel(): ReactElement {
             }
           }}
         >
-          <Download size={14} /> 全量 pcapng
+          <Download size={14} />
+          <ToolbarLabel>全量 pcapng</ToolbarLabel>
         </button>
         <button
           data-danger="outline"

@@ -13,9 +13,10 @@
  * 展柜里只出现一张。
  */
 
+import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
 import { NumericText } from './NumericText';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ImageOff, Loader2, Maximize2, RefreshCw, Sparkles, X } from 'lucide-react';
+import { ImageOff, Loader2, Maximize2, RefreshCw, Sparkles, Square, X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { openMediaPreview } from './mediaPreviewStore.shared';
 import { qqShowUrl } from '../lib/resourceUrl';
@@ -145,13 +146,13 @@ export function QqShowGallery({
         aria-modal={anchor ? undefined : true}
         aria-labelledby="weq-qqshow-gallery-title"
       >
-        <header className="weq-qqshow-gallery-head">
+        <header ref={observeCompactToolbar} className="weq-qqshow-gallery-head">
           <div className="weq-qqshow-gallery-title">
             <Sparkles size={17} strokeWidth={1.9} />
             <h2 id="weq-qqshow-gallery-title">QQ 秀展柜</h2>
             <span className="weq-qqshow-gallery-sub">{name}</span>
           </div>
-          <div className="weq-qqshow-gallery-tools">
+          <div className="weq-qqshow-gallery-tools" data-toolbar-group="">
             <span className="weq-qqshow-gallery-count">
               {running ? (
                 <>
@@ -163,8 +164,9 @@ export function QqShowGallery({
               )}
             </span>
             {running ? (
-              <button type="button" className="weq-qqshow-gallery-btn" onClick={stop}>
-                停止
+              <button title="停止" type="button" className="weq-qqshow-gallery-btn" onClick={stop}>
+                <Square size={12} aria-hidden />
+                <ToolbarLabel>停止</ToolbarLabel>
               </button>
             ) : (
               <button
@@ -174,7 +176,7 @@ export function QqShowGallery({
                 title="重新扫描（CDN 可能补上了之前缺号的版本）"
               >
                 <RefreshCw size={12} />
-                重扫
+                <ToolbarLabel>重扫</ToolbarLabel>
               </button>
             )}
             <button

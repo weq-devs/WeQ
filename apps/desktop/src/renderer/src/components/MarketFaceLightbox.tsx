@@ -4,6 +4,7 @@
  * 保留整包网格、单张详情及分级 Esc；详情也供商城整页浏览器复用。
  */
 
+import { observeCompactToolbar, ToolbarLabel } from './CompactToolbar';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { OverlayLayer } from './OverlayLayer';
 import { ChevronLeft, ChevronRight, Copy, Store, RefreshCw, X } from 'lucide-react';
@@ -292,9 +293,10 @@ export function MarketFaceDetail({
 
   return (
     <div className={`weq-mface-lb-panel weq-mface-detail${embedded ? ' is-embedded' : ''}`}>
-      <div className="weq-mface-lb-head">
-        <button type="button" className="weq-mface-detail-back" onClick={onBack}>
-          <ChevronLeft size={15} /> 返回整组
+      <div ref={observeCompactToolbar} className="weq-mface-lb-head">
+        <button title="返回整组" type="button" className="weq-mface-detail-back" onClick={onBack}>
+          <ChevronLeft size={15} />
+          <ToolbarLabel>返回整组</ToolbarLabel>
         </button>
         <span className="weq-mface-lb-title">{item.name || item.hash}</span>
         <span className="weq-mface-lb-count">

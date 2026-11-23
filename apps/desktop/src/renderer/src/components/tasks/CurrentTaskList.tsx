@@ -1,3 +1,4 @@
+import { observeCompactToolbar, ToolbarLabel } from '../CompactToolbar';
 import { NumericText } from '../NumericText';
 import {
   Fragment,
@@ -1005,7 +1006,7 @@ export function CurrentTaskList({
       aria-label="当前任务列表"
     >
       {!paged ? (
-        <header className="weq-current-tasks-head">
+        <header ref={observeCompactToolbar} className="weq-current-tasks-head">
           <div className="weq-current-tasks-summary">
             <span>
               <span className="weq-number weq-number-inherit">{items.length}</span> 项任务
@@ -1013,7 +1014,7 @@ export function CurrentTaskList({
             </span>
             {toolbarAction}
           </div>
-          <div className="weq-current-tasks-actions">
+          <div className="weq-current-tasks-actions" data-toolbar-group="">
             <button
               data-danger="outline"
               type="button"
@@ -1024,7 +1025,7 @@ export function CurrentTaskList({
               onClick={() => void clearFinished()}
             >
               <Trash2 size={14} />
-              清理已结束任务
+              <ToolbarLabel>清理已结束任务</ToolbarLabel>
             </button>
           </div>
         </header>
