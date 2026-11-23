@@ -382,7 +382,9 @@ it('小表直接交付本地水位、减项、标志及最新发送者，不需�
       latestSenderUid: 'u_self',
       decreasedSeqs: ['99', '102', '111'],
     });
-    expect(query).toHaveBeenCalledTimes(2);
+    expect(
+      query.mock.calls.filter(([, statement]) => !statement.includes('pragma_index_list(')),
+    ).toHaveLength(2);
     expect(
       query.mock.calls.every(
         ([, text]) => !/group_msg_table|c2c_msg_table|data_version/.test(text),

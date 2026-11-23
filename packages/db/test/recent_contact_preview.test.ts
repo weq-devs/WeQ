@@ -34,6 +34,37 @@ function createFixture() {
 const preview = (text: string) =>
   new ProtoMsg(RecentContactBody).encode({ preview: [{ elementType: 1, textContent: text }] });
 
+it('水位只解码变化块，保留 64 位序号以及新增、删除与下调', async () => {
+  const { sql, db } = createFixture();
+  const insert = sql.prepare(`INSERT INTO recent_contact_v3_table
+    (rowid,"40021","40010","40003","40050") VALUES (?,?,?,?,?)`);
+  insert.run(1, 'u_old', 1, 9007199254740997n, 123);
+  insert.run(64, 'u_removed', 1, 7, 100);
+  insert.run(128, 'u_other', 2, 20, 200);
+  const first = await db.listSeqWatermarks();
+  expect(first[0]?.msgSeq).toBe(9007199254740997n);
+  expect(await db.listSeqWatermarks()).toBe(first);
+  sql.exec(`DELETE FROM recent_contact_v3_table WHERE rowid=64;
+    UPDATE recent_contact_v3_table SET "40003"=18 WHERE rowid=128;`);
+  insert.run(192, 'u_arrived', 2, 30, 240);
+  const next = await db.listSeqWatermarks();
+  expect(next[0]).toBe(first[0]);
+  expect(next.map(({ targetUid, msgSeq }) => [targetUid, msgSeq])).toEqual([
+    ['u_old', 9007199254740997n],
+    ['u_other', 18n],
+    ['u_arrived', 30n],
+  ]);
+});
+
+it('旧格式水位仍采用原转换，不把十六进制序号丢成零', async () => {
+  const { sql, db } = createFixture();
+  sql.exec(`INSERT INTO recent_contact_v3_table ("40021","40010","40003","40050") VALUES
+    ('u_backup', 1, '0x32', 100)`);
+  expect(await db.listSeqWatermarks()).toEqual([
+    { targetUid: 'u_backup', chatType: 1, msgSeq: 50n, sendTime: 100n },
+  ]);
+});
+
 it('轻量目录保留原分页及元数据，正文只有定向补读时才解码', async () => {
   const { sql, db } = createFixture();
   const insert = sql.prepare(`INSERT INTO recent_contact_v3_table

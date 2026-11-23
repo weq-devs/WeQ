@@ -38,6 +38,16 @@ import { decodeBody } from '../msg/util';
 const SELECT_COLUMNS = `"40003","40010","40020","40021","40030","40050","40051","40090","40093","40094","40095","41110","41135","41148","41220","60001","41103","41104"`;
 const SUMMARY_COLUMNS = SELECT_COLUMNS.replace('"40051"', 'NULL');
 const contactCodec = new ProtoMsg(RecentContactBody);
+const WATERMARK_BLOCK_SHIFT = 6;
+const WATERMARK_BLOCK_LIMIT = 128;
+const PACKED_WATERMARKS = `SELECT rowid >> ${WATERMARK_BLOCK_SHIFT},
+  json_group_array(json_array(CASE WHEN typeof("40021") = 'text' THEN "40021" END,
+    CAST("40010" AS INTEGER), CAST(CAST("40003" AS INTEGER) AS TEXT),
+    CAST(CAST("40050" AS INTEGER) AS TEXT)) ORDER BY rowid),
+  MAX(NOT (typeof(rowid) = 'integer' AND typeof("40021") IN ('text','null')
+    AND typeof("40010") IN ('integer','null') AND typeof("40003") IN ('integer','null')
+    AND typeof("40050") IN ('integer','null')))
+  FROM recent_contact_v3_table GROUP BY (rowid >> ${WATERMARK_BLOCK_SHIFT}) ORDER BY 1 LIMIT ?`;
 
 export const RECENT_CONTACT_PREVIEW_CACHE_LIMITS = {
   entries: 1024,
@@ -72,6 +82,11 @@ export interface RecentContactSeq {
   msgSeq: bigint;
   /** 40050 — latest message sendTime (unix seconds). */
   sendTime: bigint;
+}
+
+interface WatermarkBlock {
+  packed: string;
+  rows: RecentContactSeq[];
 }
 
 export interface RecentInteractionWindow {
@@ -127,6 +142,9 @@ export class RecentContactDb {
     { bytes: Buffer; value: NonNullable<RecentContact['preview']> }
   >();
   private previewBytes = 0;
+  private canPackWatermarks = true;
+  private watermarkBlocks = new Map<string, WatermarkBlock>();
+  private watermarks: readonly RecentContactSeq[] = [];
 
   constructor(nt: NtHelperBinding, opts: RecentContactDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
@@ -184,22 +202,49 @@ export class RecentContactDb {
     return new Set(rows.map((row) => toStr(row[0])));
   }
 
-  /**
-   * Every conversation's current seq watermark (40021 -> 40003). The table is
-   * small (the recent-chats list), so re-reading it whole per poll is cheap and
-   * never touches the big msg tables. Drives the new-message watcher: a grown
-   * 40003 means new rows landed in that conversation's msg table.
-   */
-  async listSeqWatermarks(): Promise<RecentContactSeq[]> {
+  /** 读取完整水位快照，只对发生变化的目录块重新分配和解码行对象。 */
+  async listSeqWatermarks(): Promise<readonly RecentContactSeq[]> {
+    if (this.canPackWatermarks) {
+      try {
+        const rows = await this.qq.query(PACKED_WATERMARKS, [WATERMARK_BLOCK_LIMIT + 1]);
+        if (rows.length <= WATERMARK_BLOCK_LIMIT && rows.every((row) => Number(row[2]) === 0))
+          return this.unpackWatermarks(rows);
+      } catch (error) {
+        // 旧 SQLite 或不支持 rowid 的备份表仍走逐行读取。
+        if (
+          !(error instanceof Error) ||
+          !/no such column: rowid|near "ORDER": syntax error/i.test(error.message)
+        )
+          throw error;
+      }
+      this.canPackWatermarks = false;
+      this.watermarkBlocks.clear();
+      this.watermarks = [];
+    }
     const rows = await this.qq.query(
       `SELECT "40021","40010","40003","40050" FROM recent_contact_v3_table`,
     );
-    return rows.map((row) => ({
-      targetUid: toStr(row[0]),
-      chatType: toNum(row[1]),
-      msgSeq: toBigint(row[2]),
-      sendTime: toBigint(row[3]),
-    }));
+    return rows.map(rowToWatermark);
+  }
+
+  private unpackWatermarks(rows: SqlRow[]): readonly RecentContactSeq[] {
+    const blocks = new Map<string, WatermarkBlock>();
+    let changed = rows.length !== this.watermarkBlocks.size;
+    for (const [id, value] of rows) {
+      const key = String(id);
+      const packed = String(value);
+      const previous = this.watermarkBlocks.get(key);
+      if (previous?.packed === packed) blocks.set(key, previous);
+      else {
+        changed = true;
+        blocks.set(key, { packed, rows: (JSON.parse(packed) as SqlRow[]).map(rowToWatermark) });
+      }
+    }
+    if (changed) {
+      this.watermarkBlocks = blocks;
+      this.watermarks = [...blocks.values()].flatMap((block) => block.rows);
+    }
+    return this.watermarks;
   }
 
   /** 走会话和序号索引，包含共用序号的灰条以及近期原位撤回。 */
@@ -447,6 +492,9 @@ export class RecentContactDb {
   close(): void {
     this.previews.clear();
     this.previewBytes = 0;
+    this.canPackWatermarks = true;
+    this.watermarkBlocks.clear();
+    this.watermarks = [];
     this.qq.close();
   }
 
@@ -479,6 +527,15 @@ export class RecentContactDb {
       [draft, sortKey, targetUid],
     );
   }
+}
+
+function rowToWatermark(row: SqlRow): RecentContactSeq {
+  return {
+    targetUid: toStr(row[0]),
+    chatType: toNum(row[1]),
+    msgSeq: toBigint(row[2]),
+    sendTime: toBigint(row[3]),
+  };
 }
 
 // ---------- row → RecentContact ------------------------------------------

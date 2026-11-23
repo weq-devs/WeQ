@@ -18,7 +18,7 @@
  * message, so it is a cheap, monotonic "something new arrived here" signal.
  *
  * Per change:
- *   - re-read the whole recent-contact list (small);
+ *   - read the recent-contact watermarks, reusing unchanged directory rows;
  *   - for each conversation whose 40003 grew past our watermark, fetch the new
  *     rows from `c2c_msg_table` / `group_msg_table` with the (40027,40003)
  *     composite index (`WHERE 40027 = ? AND 40003 > ?`) — never a full scan;
@@ -212,14 +212,19 @@ export interface NtMsgHooks {
   onNewMessages: (change: NewMessages) => void | Promise<void>;
 }
 
-/** Per-conversation seq watermark, keyed by targetUid (40021). */
-interface ConvWatermark {
-  uid: string;
-  chatType: number;
-  /** Latest 40003 already surfaced. */
-  msgSeq: bigint;
-  /** Latest 40050 seen (used by the fresh-new-conversation heuristic). */
-  sendTime: bigint;
+type ConvWatermark = Watermarks[number];
+const watermarkMaps = new WeakMap<Watermarks, ReadonlyMap<string, ConvWatermark>>();
+
+/** Observers reuse the directory snapshot. Each watcher keeps its own delivered position. */
+function conversationWatermarks(rows: Watermarks): ReadonlyMap<string, ConvWatermark> {
+  const cached = watermarkMaps.get(rows);
+  if (cached) return cached;
+  const current = new Map<string, ConvWatermark>();
+  for (const row of rows) {
+    if (row.targetUid) current.set(`${row.chatType}:${row.targetUid}`, row);
+  }
+  watermarkMaps.set(rows, current);
+  return current;
 }
 
 /** Fetched rows tagged by table so the caller can fan them into c2c/group. */
@@ -260,19 +265,7 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
   const initial = withDatabaseSignal(reads.signal, () => readWatermarks(session))
     .then((rows) => {
       if (disposed) return;
-      prev = new Map(
-        rows
-          .filter((row) => row.targetUid)
-          .map((row) => [
-            `${row.chatType}:${row.targetUid}`,
-            {
-              uid: row.targetUid,
-              chatType: row.chatType,
-              msgSeq: row.msgSeq,
-              sendTime: row.sendTime,
-            },
-          ]),
-      );
+      prev = new Map(conversationWatermarks(rows));
     })
     .catch(() => {});
 
@@ -281,20 +274,11 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
       ? sharedWatermarks(session, file.observation)
       : readWatermarks(session));
     if (disposed) return;
-    const current = new Map<string, ConvWatermark>();
-    for (const r of rows) {
-      if (!r.targetUid) continue;
-      current.set(`${r.chatType}:${r.targetUid}`, {
-        uid: r.targetUid,
-        chatType: r.chatType,
-        msgSeq: r.msgSeq,
-        sendTime: r.sendTime,
-      });
-    }
+    const current = conversationWatermarks(rows);
 
     // First run: align to the current watermarks, emit nothing.
     if (prev === null) {
-      prev = current;
+      prev = new Map(current);
       return;
     }
 
@@ -302,12 +286,14 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
     for (const key of previous.keys()) if (!current.has(key)) previous.delete(key);
 
     // 优先当前新消息，不让旧会话补齐排在它前面。
-    const prioritized = [...current]
-      .filter(([key, cur]) => {
-        const old = previous.get(key);
-        return !old || cur.msgSeq > old.msgSeq;
-      })
-      .sort(([, a], [, b]) => (a.sendTime > b.sendTime ? -1 : a.sendTime < b.sendTime ? 1 : 0));
+    const prioritized: Array<[string, ConvWatermark]> = [];
+    for (const [key, cur] of current) {
+      const old = previous.get(key);
+      if (!old || cur.msgSeq > old.msgSeq) prioritized.push([key, cur]);
+    }
+    prioritized.sort(([, a], [, b]) =>
+      a.sendTime > b.sendTime ? -1 : a.sendTime < b.sendTime ? 1 : 0,
+    );
     for (const [key, cur] of prioritized) {
       if (!previous.has(key) && Date.now() / 1000 - Number(cur.sendTime) <= NEW_CONV_FRESH_SEC)
         freshTargets.add(key);
@@ -358,7 +344,7 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
           ...(dataline.length ? { dataline: dataline.sort(compareMessageOrder) } : {}),
         });
       };
-      const uid = cur.uid;
+      const uid = cur.targetUid;
       const old = previous.get(key);
 
       const retry = () => {

@@ -155,6 +155,28 @@ const RECENT_UNREAD_TYPE = `CASE WHEN ${RECENT_CHAT_TYPE} IN (${TEMP_DIRECT_TYPE
 const RECENT_UNREAD_COLUMNS = `r."40003", r."40020", CASE WHEN r."40011"=${GRAY_TIP} THEN r."40051" END, r."40001", r."40027", ${RECENT_CHAT_TYPE}`;
 const HAS_RECALL_UNREAD_INDEX = `EXISTS(SELECT 1 FROM sqlite_master
   WHERE type='index' AND name='${RECALL_UNREAD_INDEX}')`;
+const UNREAD_RECENT_TYPES = `(1,2,8,134,${TEMP_DIRECT_TYPES})`;
+const UNREAD_PEER = `(${RECENT_UNREAD_TYPE}) || '_' || r."40021"`;
+const UNREAD_RECORD = `SELECT NULL,NULL,u."48901",u."48902",NULL,NULL,NULL,NULL,NULL,NULL,NULL
+  FROM msg_unread_info_table u`;
+const ALL_UNREAD_ROWS = `SELECT ${RECENT_UNREAD_TYPE}, r."40021", ${UNREAD_PEER}, NULL,
+    ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}
+  FROM recent_contact_v3_table r WHERE ${RECENT_CHAT_TYPE} IN ${UNREAD_RECENT_TYPES}
+  UNION ALL ${UNREAD_RECORD}`;
+
+// 私聊和群的同键行在 SQLite 内合并。设备双键还需要从 JS 判明真实设备身份。
+const JOINED_UNREAD_ROWS = `WITH recent(type, uid, peer, seq, sender, preview, msgid, part, rawType) AS MATERIALIZED (
+    SELECT ${RECENT_UNREAD_TYPE}, r."40021", ${UNREAD_PEER}, ${RECENT_UNREAD_COLUMNS}
+    FROM recent_contact_v3_table r WHERE ${RECENT_CHAT_TYPE} IN ${UNREAD_RECENT_TYPES}
+  )
+  SELECT r.type,r.uid,r.peer,u."48902",r.seq,r.sender,r.preview,r.msgid,r.part,r.rawType,
+    ${HAS_RECALL_UNREAD_INDEX}
+  FROM recent r LEFT JOIN msg_unread_info_table u
+    ON r.type IN (1,2) AND u."48901" = r.peer COLLATE BINARY
+  UNION ALL ${UNREAD_RECORD}
+  WHERE u."48901" COLLATE BINARY NOT IN (
+    SELECT peer FROM recent WHERE type IN (1,2) AND peer IS NOT NULL
+  )`;
 function deviceStorageType(chatType: number, uid: string): number {
   if (!isDatalineUid(uid)) return chatType;
   return chatType === 8 ? 10 : chatType === 134 ? 53 : chatType;
@@ -255,6 +277,7 @@ export class UnreadInfoDb {
   private nextRecallExtentsAt = 0;
   private protectedRecallCache: ProtectedRecallCache | null = null;
   private readonly qq: QqDb;
+  private uniqueUnreadPeer?: Promise<boolean>;
   private readonly proto = new ProtoMsg(UnreadInfo);
   private readonly seqIndexes = new Map<string, Promise<boolean>>();
   private readonly unreadFields = new Map<string, { bytes: Uint8Array; decoded: UnreadFields }>();
@@ -321,14 +344,8 @@ export class UnreadInfoDb {
 
   /** 账号共享快照由两张小表驱动，包含没有最近会话行的未读记录。 */
   async getAllUnreadInfos(): Promise<UnreadInfoSnapshot[]> {
-    const rows = await measureMessageWork(this.qq.dbPath, 'unreadSmallTables', () =>
-      this.qq.query(
-        `SELECT ${RECENT_UNREAD_TYPE}, r."40021", (${RECENT_UNREAD_TYPE}) || '_' || r."40021", NULL, ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}
-       FROM recent_contact_v3_table r
-       WHERE ${RECENT_CHAT_TYPE} IN (1,2,8,134,${TEMP_DIRECT_TYPES})
-       UNION ALL
-       SELECT NULL,NULL,u."48901",u."48902",NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM msg_unread_info_table u`,
-      ),
+    const rows = await measureMessageWork(this.qq.dbPath, 'unreadSmallTables', async () =>
+      this.qq.query((await this.hasUniqueUnreadPeer()) ? JOINED_UNREAD_ROWS : ALL_UNREAD_ROWS),
     );
     // 同一 SQL 快照分别返回小表行，再线性合并；避免缺行检测逐个重扫最近会话表。
     const mergeStarted = performance.now();
@@ -348,11 +365,28 @@ export class UnreadInfoDb {
       }
       const recent = merged.get(peer);
       if (recent && row[0] == null) recent[3] = row[3] ?? null;
-      else if (!recent || preferRecentUnreadRow(row, recent)) merged.set(peer, [...row]);
+      else if (!recent || preferRecentUnreadRow(row, recent)) merged.set(peer, row);
     }
     const input = [...merged.values()];
     const snapshots = await this.decodeAndResolveSnapshots(input, performance.now() - mergeStarted);
     return snapshots.filter((row) => [1, 2, 8, 134].includes(row.chatType));
+  }
+
+  private hasUniqueUnreadPeer(): Promise<boolean> {
+    this.uniqueUnreadPeer ??= this.qq
+      .query(
+        `SELECT 1 FROM pragma_index_list('msg_unread_info_table') i
+       WHERE i."unique" = 1 AND i.partial = 0
+         AND (SELECT COUNT(*) FROM pragma_index_xinfo(i.name) WHERE "key" = 1) = 1
+         AND EXISTS (SELECT 1 FROM pragma_index_xinfo(i.name)
+           WHERE "key" = 1 AND name = '48901' AND coll = 'BINARY') LIMIT 1`,
+      )
+      .then((rows) => rows.length > 0)
+      .catch((error: unknown) => {
+        this.uniqueUnreadPeer = undefined;
+        throw error;
+      });
+    return this.uniqueUnreadPeer;
   }
 
   private readFields(decoded: ReturnType<ProtoMsg<typeof UnreadInfo>['decode']>): UnreadFields {
@@ -1279,6 +1313,7 @@ export class UnreadInfoDb {
   }
 
   close(): void {
+    this.uniqueUnreadPeer = undefined;
     this.nextRecallExtentsAt = 0;
     this.protectedRecallCache = null;
     this.unreadFields.clear();
