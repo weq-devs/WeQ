@@ -19,13 +19,33 @@ html[data-component-style='qqnt'] {
 }
 
 html[data-theme] :is(.conversation-row, .contact-row).active:not(.is-multiselected) {
-  background: var(--weq-list-row-selected-background);
   color: var(--weq-skin-selection-fg, var(--weq-fg-primary));
+}
+html[data-theme] :is(.conversation-row, .contact-row).active:not(.pinned, .is-multiselected),
+html[data-theme] .conversation-row.pinned.active:not(.is-multiselected)::before {
+  background: var(--weq-list-row-selected-background);
   box-shadow: var(--weq-list-row-selected-shadow);
+}
+html[data-theme] .conversation-row.pinned:not(.is-multiselected) {
+  isolation: isolate;
+}
+/* 底色独立留边，保留虚拟列表的固定行高和整行点击区域。 */
+html[data-theme] .conversation-row.pinned:not(.is-multiselected)::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 2px;
+  border-radius: inherit;
+  pointer-events: none;
+}
+html[data-theme][data-component-style='qqnt']
+  .conversation-row.pinned:not(.is-multiselected)::before {
+  /* QQ NT 的内阴影原本用画布色模拟留边。 */
+  box-shadow: none;
 }
 @supports (color: oklch(from black l min(calc(c * 0.12), 0.02) h)) {
   html[data-theme][data-component-style='qqnt']
-    .conversation-row.pinned.active:not(.is-multiselected) {
+    .conversation-row.pinned.active:not(.is-multiselected)::before {
     /* 对齐 QQ NT 常规选中态的明度，轻微带入置顶使用的主题色。 */
     background-color: oklch(
       from var(--weq-accent-effective) var(--weq-qqnt-pinned-selected-lightness)
@@ -33,7 +53,7 @@ html[data-theme] :is(.conversation-row, .contact-row).active:not(.is-multiselect
     );
   }
 }
-html[data-theme] .conversation-row.pinned:not(.active, .is-multiselected) {
+html[data-theme] .conversation-row.pinned:not(.active, .is-multiselected)::before {
   background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
 }
 html[data-theme] .conversation-row .row-pinned {
@@ -41,11 +61,12 @@ html[data-theme] .conversation-row .row-pinned {
   color: var(--weq-accent-ink, var(--weq-fg-secondary));
 }
 @media (hover: hover) and (pointer: fine) {
-  html[data-theme] :is(.conversation-row, .contact-row):hover:not(.active, .is-multiselected) {
+  html[data-theme]
+    :is(.conversation-row, .contact-row):hover:not(.pinned, .active, .is-multiselected) {
     background: var(--weq-list-row-hover-background);
     box-shadow: var(--weq-list-row-hover-shadow);
   }
-  html[data-theme] .conversation-row.pinned:hover:not(.active, .is-multiselected) {
+  html[data-theme] .conversation-row.pinned:hover:not(.active, .is-multiselected)::before {
     background: color-mix(in srgb, var(--weq-accent-effective) 11%, transparent);
   }
 }
