@@ -104,6 +104,15 @@ describe('阅读锚点', () => {
     });
     expect(reads.mock.calls.length).toBeLessThan(20);
   });
+  it('滚出已挂载范围时保留像素位置，避免用视口外的旧消息做锚点', () => {
+    const { scroll } = fixture(20);
+    scroll.scrollTop = 1000;
+    expect(captureReadingPosition(scroll, { transient: true })).toEqual({ scrollTop: 1000 });
+
+    for (const row of Array.from(scroll.children).slice(0, 10)) row.remove();
+    scroll.scrollTop = 100;
+    expect(captureReadingPosition(scroll, { transient: true })).toEqual({ scrollTop: 100 });
+  });
   it('消息前面有新增或裁剪时，仍按锚点而非旧绝对高度恢复', () => {
     const { scroll } = fixture(20);
     restoreReadingPosition(scroll, { scrollTop: 9000, anchorId: 'row-5', offset: -12 });

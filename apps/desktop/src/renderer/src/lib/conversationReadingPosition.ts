@@ -38,7 +38,8 @@ export function captureReadingPosition(
 }
 
 function captureMountedReadingPosition(scroll: HTMLElement): ConversationReadingPosition {
-  const top = scroll.getBoundingClientRect().top;
+  const { top, bottom } = scroll.getBoundingClientRect();
+  const scrollTop = scroll.scrollTop;
   const rows = scroll.querySelectorAll<HTMLElement>(TIMELINE_MESSAGE_SELECTOR);
   let low = 0;
   let high = rows.length;
@@ -47,12 +48,12 @@ function captureMountedReadingPosition(scroll: HTMLElement): ConversationReading
     if (rows[mid]!.getBoundingClientRect().bottom <= top) low = mid + 1;
     else high = mid;
   }
-  const anchor = rows[Math.min(low, rows.length - 1)];
-  return {
-    scrollTop: scroll.scrollTop,
-    anchorId: anchor?.dataset.messageId,
-    offset: anchor ? anchor.getBoundingClientRect().top - top : undefined,
-  };
+  // 快滚后 DOM 可能仍是上一个范围。只用与当前视口相交的正文做锚点。
+  const anchor = rows[low];
+  if (!anchor) return { scrollTop };
+  const rect = anchor.getBoundingClientRect();
+  if (rect.height <= 0 || rect.top >= bottom) return { scrollTop };
+  return { scrollTop, anchorId: anchor.dataset.messageId, offset: rect.top - top };
 }
 
 export function restoreReadingPosition(
