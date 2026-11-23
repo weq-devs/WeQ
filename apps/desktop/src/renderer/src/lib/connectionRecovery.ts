@@ -57,7 +57,7 @@ function procedureName(query: Query): string {
   return Array.isArray(path) ? path.join('.') : '';
 }
 
-/** 目录由聊天层校准首批和可见行。其余活动读取按优先级补查并复用在途请求。 */
+/** 目录由聊天层校准。其余活动读取按优先级补查并复用在途请求。 */
 export function createWorkspaceQueryRecovery(client: QueryClient) {
   const cache = client.getQueryCache();
   const primary = new Map<string, Query>();
@@ -74,10 +74,9 @@ export function createWorkspaceQueryRecovery(client: QueryClient) {
   };
 
   function drain(queue: Map<string, Query>, priority: boolean) {
-    const active = () => (priority ? primaryActive : secondaryActive);
-    const limit = priority ? 2 : 3;
     for (const [hash, query] of queue) {
-      if (active() >= limit) break;
+      // 优先读取先占用至多两席，余下容量可由普通查询使用。
+      if (primaryActive + secondaryActive >= 5 || (priority && primaryActive >= 2)) break;
       if (running.has(hash)) continue;
       queue.delete(hash);
       if (

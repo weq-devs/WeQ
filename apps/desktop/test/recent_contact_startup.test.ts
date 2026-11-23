@@ -10,6 +10,7 @@ import {
   useRecentContactQueries,
 } from '../src/renderer/src/hooks/useRecentContactQueries';
 import { trpc } from '../src/renderer/src/trpc/client';
+import { useWebConnection } from '../src/renderer/src/state/webConnection';
 
 const api = vi.hoisted(() => ({ read: vi.fn(), validate: vi.fn() }));
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
@@ -31,6 +32,7 @@ afterEach(() => {
   for (const stop of cleanups.splice(0)) stop();
   api.read.mockReset();
   api.validate.mockReset().mockRejectedValue({ data: { code: 'NOT_FOUND' } });
+  useWebConnection.setState({ recovery: 0 });
   vi.unstubAllGlobals();
 });
 
@@ -245,4 +247,46 @@ it('超过千条会话按真实游标补齐，无跳页、重复或丢失', asyn
     [550, RECENT_DIRECTORY_SIZE],
     [1050, RECENT_DIRECTORY_SIZE],
   ]);
+});
+
+it('Web 重连后台校准旧页，同数量增删也能收敛且只查一次首批', async () => {
+  const f = fixture();
+  const head = Array.from({ length: RECENT_HEAD_SIZE }, (_, index) => ({
+    targetUid: `u_${index}`,
+  }));
+  const old = { targetUid: 'removed-while-offline' };
+  const added = { targetUid: 'added-while-offline' };
+  const first = { items: head, total: head.length + 1, nextCursor: head.length };
+  const directoryKey = getQueryKey(
+    trpc.account.listRecentContacts,
+    { ...binding, limit: RECENT_DIRECTORY_SIZE },
+    'infinite',
+  );
+  f.cache.setQueryData(recentContactHeadOptions(binding).queryKey, first);
+  f.cache.setQueryData(directoryKey, {
+    pages: [first, { items: [old], total: first.total }],
+    pageParams: [undefined, head.length],
+  });
+  api.validate.mockImplementation(async ({ cursor }) =>
+    cursor === 0
+      ? { unchanged: true }
+      : { unchanged: false, data: { items: [added], total: first.total } },
+  );
+  await f.render();
+  expect(f.host.textContent).toContain(old.targetUid);
+  await act(async () => {
+    useWebConnection.getState().workspaceVerified();
+    useWebConnection.getState().workspaceVerified();
+  });
+  await act(async () => {
+    await vi.waitFor(() =>
+      expect(f.cache.getQueryData(directoryKey)).toMatchObject({
+        pages: [first, { items: [added] }],
+      }),
+    );
+  });
+  await settle();
+  expect(f.host.textContent).not.toContain(old.targetUid);
+  expect(api.validate.mock.calls.map(([input]) => input.cursor)).toEqual([0, head.length]);
+  expect(api.read).not.toHaveBeenCalled();
 });

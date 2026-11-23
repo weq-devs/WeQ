@@ -47,7 +47,7 @@ it('工作区验证未完成时等后台恢复，同一轮的 socket 与鉴权�
   expect(callback.mock.calls).toEqual([[2], [3]]);
 });
 
-it('不重取历史目录或在途活动请求，优先批与普通批独立限量，隐藏后暂停余下读取', async () => {
+it('目录独立校准，优先查询先取空位，隐藏后暂停余下读取', async () => {
   const client = new QueryClient({
     defaultOptions: { queries: { refetchOnMount: false, retry: false } },
   });
@@ -76,7 +76,7 @@ it('不重取历史目录或在途活动请求，优先批与普通批独立限�
   const priority = ['startup.snapshot', 'bootstrap.getSettings', 'clientState.snapshot'].map(
     (name) => add(name),
   );
-  const ordinary = Array.from({ length: 6 }, (_, i) => add(`account.fixture${i}`));
+  const ordinary = Array.from({ length: 8 }, (_, i) => add(`account.fixture${i}`));
   const recovery = createWorkspaceQueryRecovery(client);
   cleanup.push(recovery.dispose);
   recovery.request();
@@ -103,6 +103,10 @@ it('不重取历史目录或在途活动请求，优先批与普通批独立限�
   expect(calls).not.toContain('account.fixture3');
   expect(calls).not.toContain('account.fixture4');
   expect(calls.filter((name) => name === 'account.getGroupDetail')).toHaveLength(1);
+  // 剩余优先任务完成后，普通面板可用空位，不必等前面的慢面板。
+  priority[1]!.release.resolve('fresh');
+  priority[2]!.release.resolve('fresh');
+  await vi.waitFor(() => expect(calls).toContain('account.fixture7'));
   for (const item of [...priority, ...ordinary, already]) item.release.resolve('fresh');
   await ownRead;
 });

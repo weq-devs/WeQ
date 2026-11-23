@@ -3976,12 +3976,11 @@ function MainWorkspace(): ReactElement {
     if (!IS_WEB) return;
     return subscribeWorkspaceRecovery(() => {
       conversationWindows.markDirty();
-      refreshRecentHead();
       refreshRecentTargets();
       requestUnreadRefreshRef.current?.();
       void refreshWindow();
     });
-  }, [conversationWindows, refreshRecentHead, refreshRecentTargets, refreshWindow]);
+  }, [conversationWindows, refreshRecentTargets, refreshWindow]);
   useEffect(() => {
     requestNewDirectoryUnreadRef.current?.();
   }, [unreadDirectoryTargets]);

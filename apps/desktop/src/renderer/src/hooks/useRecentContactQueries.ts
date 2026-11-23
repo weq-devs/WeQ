@@ -1,4 +1,5 @@
 import { getQueryKey } from '@trpc/react-query';
+import { useEffect } from 'react';
 import {
   useInfiniteQuery,
   useQuery,
@@ -10,6 +11,8 @@ import { client, trpc } from '../trpc/client';
 import type { QQWriteBinding } from './useQQWriteSession';
 import { IS_WEB } from '../lib/target.shared';
 import { readDirectory } from '../lib/conditionalCache';
+import { subscribeWorkspaceRecovery } from '../lib/connectionRecovery';
+import { createUnreadRefresh } from '../lib/unreadRefresh';
 
 type RecentContactPage = Awaited<ReturnType<typeof client.account.listRecentContacts.query>>;
 
@@ -80,5 +83,29 @@ export function useRecentContactQueries(binding: QQWriteBinding | null, active: 
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
+  const { refetch } = contacts;
+  const { expectedAccountUin, expectedAccountConfigId } = scope;
+  useEffect(() => {
+    if (!IS_WEB || !expectedAccountUin || !expectedAccountConfigId) return;
+    const key = getQueryKey(
+      trpc.account.listRecentContacts,
+      { expectedAccountUin, expectedAccountConfigId, limit: RECENT_DIRECTORY_SIZE },
+      'infinite',
+    );
+    let disposed = false;
+    const refresh = createUnreadRefresh(async () => {
+      // 翻页在途时先等它完成；一次续页成功并不等于已校准旧页。
+      if (cache.getQueryState(key)?.fetchStatus !== 'idle') await refetch({ cancelRefetch: false });
+      if (disposed) return true;
+      // 从首批起按新游标续读。旧目录在校准完成前继续显示。
+      return !(await refetch({ cancelRefetch: false })).isError;
+    });
+    const unsubscribe = subscribeWorkspaceRecovery(refresh.request);
+    return () => {
+      disposed = true;
+      unsubscribe();
+      refresh.dispose();
+    };
+  }, [cache, expectedAccountUin, expectedAccountConfigId, refetch]);
   return { contacts, head };
 }
