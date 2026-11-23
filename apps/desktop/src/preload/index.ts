@@ -22,6 +22,7 @@ import type { LongTermAuthorizationBridge } from '../shared/long_term_authorizat
 import { rendererRecoveryBridge } from './renderer_recovery';
 import { windowChromeBridge } from './window_chrome';
 import type { AccountInstanceBridge } from '../shared/account_instances';
+import { MESSAGE_IMAGE_CHANNEL, type MessageImageResult } from '../shared/message_image';
 
 // Same CJS workaround as src/main/index.ts — electron-trpc 0.7's ESM
 // build statically imports `ipcMain` from 'electron', which is not
@@ -190,6 +191,7 @@ const weqBridge = {
   capture: {
     /** 抓取 WeQ 窗口客户区写入系统剪贴板（含隐私遮罩效果）。截完即可粘贴。 */
     window: () => ipcRenderer.invoke('capture:window') as Promise<{ ok: boolean; error?: string }>,
+    messageImage: () => ipcRenderer.invoke(MESSAGE_IMAGE_CHANNEL) as Promise<MessageImageResult>,
   },
   analyticsShot: {
     /**

@@ -59,6 +59,7 @@ declare global {
       };
       capture: {
         window(): Promise<{ ok: boolean; error?: string }>;
+        messageImage(): Promise<import('../shared/message_image').MessageImageResult>;
       };
       /** 通话视频上行（二进制 IPC，不经 superjson）。 */
       callVideo: import('../shared/call_video_ipc').CallVideoBridge;

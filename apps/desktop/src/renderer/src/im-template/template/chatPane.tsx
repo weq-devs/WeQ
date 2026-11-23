@@ -1,7 +1,13 @@
 import { Languages } from 'lucide-react';
 import { useChatTimelineNavigation } from './useChatTimelineNavigation';
 import { ChatTimeline } from './chatTimeline';
-import { messageGroups, unreadTimelineBoundary, unreadTimelineStart } from './chatTimelineModel';
+import {
+  messageGroups,
+  messageTimelineSpacing,
+  unreadTimelineBoundary,
+  unreadTimelineStart,
+  type MessageGroupPosition,
+} from './chatTimelineModel';
 import type { ConversationInteraction } from '../../../../shared/conversation_interaction';
 import { PICKED_BROWSER_FILE_MAX_BYTES } from '../../../../shared/browser_file_upload';
 import { preferenceValue, useClientPreferences } from '../../lib/clientPreferences';
@@ -68,6 +74,7 @@ import { messageFavoriteEmojiUrl } from '../../lib/messageFavoriteEmoji';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useMessageSelectionFlow } from '../../hooks/useMessageSelectionFlow';
+import { messageImageAvailable, useMessageImage } from '../../hooks/useMessageImage';
 import { selectionGapId, parseSelectionGap, type SelectionGap } from '../../lib/messageSelection';
 import { createSelectionGapIndex } from '../../lib/selectionGapIndex';
 import { hasActiveModal } from '../../lib/overlayStack';
@@ -1673,6 +1680,7 @@ function ChatPaneContent({
     missingJumpSeq,
     active: tabActive,
   });
+  const messageImage = useMessageImage();
   selectionCancelRef.current = selectionFlow.cancel;
   const selectionOrder = selectionFlow.order;
   const hasComposerExtensions = Boolean(composerTools || composerAttachments);
@@ -6144,6 +6152,109 @@ function ChatPaneContent({
         peerName={displayUserName(conversation.otherUser)}
       />
     ) : null;
+  function timelineMessageAppearance(message: Message, groupPosition?: MessageGroupPosition) {
+    const translationResult =
+      translation?.scope === translationScope && translation.id === message.id
+        ? translation
+        : undefined;
+    return {
+      message,
+      groupPosition,
+      conversation: conversation!,
+      user,
+      sender: resolveMessageSender(message, conversation!, user),
+      renderers: messageRenderers,
+      showSenderName: showSenderNames,
+      deleted: deletedKeys.has(deletionIdentity(message.id)),
+      deletedKind: message.deletedKind,
+      recallRevokerName: message.recallRevokerName,
+      textResultRevision: translationResult,
+      textResult: translationResult ? (
+        <MessageTextResult
+          label="译文"
+          error={translationResult.error}
+          onCollapse={() => setTranslation(null)}
+        >
+          <span
+            role="status"
+            data-privacy-sensitive={
+              Boolean(translationResult.value && !translationResult.error) || undefined
+            }
+          >
+            {translationResult.value ?? '正在翻译…'}
+          </span>
+        </MessageTextResult>
+      ) : undefined,
+    };
+  }
+
+  async function copySelectedMessagesImage() {
+    if (!conversation || messageImage.busy) return;
+    if (selectionBlockedReason) {
+      pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
+      return;
+    }
+    const picked = await selectionFlow.prepare('复制图片');
+    const source = messageScrollRef.current;
+    if (!source || !picked?.length) return;
+    const positions = new Map(visibleMessages.map(({ id }, index) => [id, index]));
+    const fallbackGroups = groupConsecutiveMessages
+      ? messageGroups(picked, {
+          standalone: (message) => deletedKeys.has(deletionIdentity(message.id)),
+          breakBefore: (_previous, message) => timelineGaps.has(message.id),
+        })
+      : undefined;
+    try {
+      await messageImage.copy(
+        source,
+        <div className="weq-virtual-timeline">
+          {picked.map((message, index) => {
+            const position = positions.get(message.id);
+            const groupPosition =
+              position === undefined ? fallbackGroups?.[index] : groupPositions?.[position];
+            const previous =
+              position === undefined ? picked[index - 1] : visibleMessages[position - 1];
+            return (
+              <div
+                className="weq-virtual-timeline-row"
+                data-weq-message-image-row
+                key={message.id}
+                style={{
+                  paddingBlockEnd: messageTimelineSpacing(
+                    groupPosition,
+                    index === picked.length - 1,
+                  ),
+                }}
+              >
+                <MessageTimeDivider
+                  value={message.createdAt}
+                  visible={shouldShowMessageTime(previous?.createdAt, message.createdAt)}
+                  precision={
+                    conversation.generated || message.optimistic ? 'millisecond' : 'second'
+                  }
+                />
+                {showUnreadDivider && message.id === unreadBoundaryId ? (
+                  <div className="weq-unread-divider" role="separator" aria-label="以下为未读消息">
+                    <span aria-hidden>以下为未读消息</span>
+                  </div>
+                ) : null}
+                <MessageRow {...timelineMessageAppearance(message, groupPosition)} />
+              </div>
+            );
+          })}
+        </div>,
+        picked.length,
+      );
+      pushToast({ tone: 'success', title: '已复制聊天长图' });
+    } catch (error) {
+      pushToast({
+        tone: 'error',
+        title: '复制为图片失败',
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   const pane = (
     <section
       {...multi.rootProps}
@@ -6534,11 +6645,6 @@ function ChatPaneContent({
                         />,
                       );
                     }
-                    const sender = resolveMessageSender(message, conversation, user);
-                    const translationResult =
-                      translation?.scope === translationScope && translation.id === message.id
-                        ? translation
-                        : undefined;
                     out.push(
                       <Fragment key={virtualRow.key}>
                         <MessageTimeDivider
@@ -6559,37 +6665,8 @@ function ChatPaneContent({
                           </div>
                         ) : null}
                         <MessageRow
-                          message={message}
-                          groupPosition={groupPositions?.[index]}
-                          conversation={conversation}
-                          user={user}
-                          sender={sender}
-                          renderers={messageRenderers}
-                          textResultRevision={translationResult}
-                          textResult={
-                            translationResult ? (
-                              <MessageTextResult
-                                label="译文"
-                                error={translationResult.error}
-                                onCollapse={() => setTranslation(null)}
-                              >
-                                <span
-                                  role="status"
-                                  data-privacy-sensitive={
-                                    Boolean(translationResult.value && !translationResult.error) ||
-                                    undefined
-                                  }
-                                >
-                                  {translationResult.value ?? '正在翻译…'}
-                                </span>
-                              </MessageTextResult>
-                            ) : undefined
-                          }
-                          showSenderName={showSenderNames}
+                          {...timelineMessageAppearance(message, groupPositions?.[index])}
                           active={contextMenu?.message.id === message.id}
-                          deleted={deleted}
-                          deletedKind={message.deletedKind}
-                          recallRevokerName={message.recallRevokerName}
                           onRestore={rowRestore}
                           onContextMenu={rowContext}
                           onLongPress={rowLongPress}
@@ -6734,6 +6811,7 @@ function ChatPaneContent({
             </div>
           )}
         </ChatTimeline>
+        {messageImage.portal}
       </IntentSenseProvider>
       {loadingOlder ? (
         <div className="weq-conversation-loading is-older" role="status">
@@ -7128,13 +7206,14 @@ function ChatPaneContent({
                 type="button"
                 className="selection-action"
                 aria-label="复制"
-                title={selectionBlockedReason || '复制'}
+                title={messageImage.busy ? '正在生成聊天长图' : selectionBlockedReason || '复制'}
+                aria-busy={messageImage.busy || undefined}
                 aria-haspopup="menu"
                 aria-expanded={selectionMenu?.kind === 'copy'}
-                disabled={Boolean(selectionBlockedReason) || !selectedIds.size}
+                disabled={messageImage.busy || Boolean(selectionBlockedReason) || !selectedIds.size}
                 onClick={(event) => openSelectionMenu('copy', event.currentTarget)}
               >
-                <Copy size={17} />
+                {messageImage.busy ? <Loader2 className="spin" size={17} /> : <Copy size={17} />}
               </button>
               {!restrictedSource ? (
                 <button
@@ -7231,6 +7310,16 @@ function ChatPaneContent({
                         icon: <Share2 size={16} />,
                         action: mergeForwardSelected,
                       },
+                      ...(messageImageAvailable()
+                        ? [
+                            {
+                              label: '复制为图片',
+                              icon: <ImageIcon size={16} />,
+                              disabled: messageImage.busy,
+                              action: () => void copySelectedMessagesImage(),
+                            },
+                          ]
+                        : []),
                       {
                         label: '逐条转发',
                         icon: <Forward size={16} />,

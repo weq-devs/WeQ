@@ -13,7 +13,8 @@
  * 宁可多取，也别让内容永远停在占位上。
  */
 
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useContext, useEffect, useRef, useState, type RefObject } from 'react';
+import { MessageImageContext } from '../lib/messageImageContext';
 
 export interface NearViewportState {
   /** 当前是否在观察根（含 rootMargin）范围内。 */
@@ -27,12 +28,13 @@ export function useNearViewport(
   opts: { rootSelector?: string; rootMargin?: string; enabled?: boolean } = {},
 ): NearViewportState {
   const { rootSelector, rootMargin = '200px', enabled = true } = opts;
+  const image = useContext(MessageImageContext);
   const [near, setNear] = useState(false);
   const [entered, setEntered] = useState(false);
   const enteredRef = useRef(false);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || image) return;
     const element = ref.current;
     if (!element) return;
     const Observer = element.ownerDocument.defaultView?.IntersectionObserver;
@@ -55,7 +57,7 @@ export function useNearViewport(
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, [ref, rootSelector, rootMargin, enabled]);
+  }, [ref, rootSelector, rootMargin, enabled, image]);
 
-  return { near: enabled && near, entered };
+  return { near: enabled && (image || near), entered: entered || (enabled && image) };
 }

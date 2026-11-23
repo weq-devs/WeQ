@@ -501,6 +501,7 @@ const ForwardRow = memo(function ForwardRow({
       data-message-group={dressed ? undefined : entry.groupPosition}
       data-grouped-dress-bubble={dressed ? entry.groupPosition : undefined}
       data-bubble={msgDec.bubbleId || undefined}
+      data-weq-message-image-pending={msgDec.imagePending || undefined}
       data-font={msgDec.fontId || undefined}
       data-weq-system-font={msgDec.systemFont || undefined}
       data-fontfx={fontFxAttr}

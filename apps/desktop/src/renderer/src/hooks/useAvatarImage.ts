@@ -12,6 +12,7 @@ import { avatarRecovery, type AvatarSuccess } from '../lib/avatarRecovery';
 import { dataSaverActive } from '../lib/dataSaver';
 import { thumbnailPolicyRequest } from '../lib/resourceUrl';
 import { webAvatarCache, webAvatarKey } from '../lib/webAvatarCache';
+import { MessageImageContext } from '../lib/messageImageContext';
 
 export const WebAvatarScope = createContext<string | null>(null);
 const noSubscription = () => () => {};
@@ -23,6 +24,7 @@ export function useAvatarImage(
 ) {
   const { original, uin, identitySource = source } = options ?? {};
   const scope = useContext(WebAvatarScope);
+  const messageImage = useContext(MessageImageContext);
   const key = scope && source ? webAvatarKey(scope, source) : null;
   const originalUrl = key && original ? cachedAvatarUrl(original) : null;
   const originalKey = scope && originalUrl ? webAvatarKey(scope, originalUrl) : null;
@@ -115,12 +117,12 @@ export function useAvatarImage(
   useEffect(() => {
     if ((!key && !reuseKey) || !source || !observed) return;
     const doc = observed.ownerDocument;
-    const Observer = doc.defaultView?.IntersectionObserver;
+    const Observer = messageImage ? undefined : doc.defaultView?.IntersectionObserver;
     let visible = !Observer;
     let release: (() => void) | undefined;
     let releaseOriginal: (() => void) | undefined;
     let releaseReuse: (() => void) | undefined;
-    const isVisible = () => visible && doc.visibilityState !== 'hidden';
+    const isVisible = () => visible && (messageImage || doc.visibilityState !== 'hidden');
     const refreshOriginal = () => {
       if (!key || !fallbackKey || !originalUrl) return;
       const preferred = webAvatarCache.peek(key);
@@ -171,7 +173,7 @@ export function useAvatarImage(
       releaseOriginal?.();
       releaseReuse?.();
     };
-  }, [key, source, observed, fallbackKey, originalUrl, reuseKey]);
+  }, [key, source, observed, fallbackKey, originalUrl, reuseKey, messageImage]);
   return {
     src,
     // 同地址也要换掉失败的 DOM 节点，否则浏览器不会重新加载。

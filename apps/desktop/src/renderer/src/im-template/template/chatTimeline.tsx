@@ -15,7 +15,7 @@ import { estimateTimelinePrewarmBytes } from '../../lib/timelinePrewarm';
 import { IS_ELECTRON } from '../../lib/target.shared';
 import { deletionIdentity } from '../../lib/messageDeletion';
 import type { Message } from './types';
-import type { MessageGroupPosition } from './chatTimelineModel';
+import { messageTimelineSpacing, type MessageGroupPosition } from './chatTimelineModel';
 import { timelineViewport, TIMELINE_MESSAGE_SELECTOR } from '../../lib/timelineViewport';
 import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
 import { allowsLayoutMotion, RowLayoutMotion, visibleLayoutRows } from '../../lib/layoutMotion';
@@ -604,11 +604,8 @@ function ChatTimelineContent({
   const ids = useMemo(() => messages.map(({ id }) => id), [messages]);
   const keys = useMemo(() => messages.map(messageKey), [messages]);
   const rowSpacing = useCallback(
-    (index: number) => {
-      if (index === messages.length - 1) return 0;
-      const position = groupPositions?.[index];
-      return position === 'first' || position === 'middle' ? 4 : 18;
-    },
+    (index: number) =>
+      messageTimelineSpacing(groupPositions?.[index], index === messages.length - 1),
     [groupPositions, messages.length],
   );
   const estimatedHeights = useMemo(

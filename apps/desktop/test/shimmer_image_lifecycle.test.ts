@@ -2,8 +2,11 @@ import { act, createElement as h, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ShimmerImage } from '../src/renderer/src/components/ShimmerImage';
+import { ChatImageCacheContext } from '../src/renderer/src/components/ChatImageCacheProvider.shared';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
+import { createChatImageCache } from '../src/renderer/src/lib/chatImageCache';
 import { useDataSaver } from '../src/renderer/src/lib/dataSaver';
+import { MessageImageContext } from '../src/renderer/src/lib/messageImageContext';
 import { thumbnailPolicyRequest } from '../src/renderer/src/lib/resourceUrl';
 
 const initialPolicy = useDataSaver.getState();
@@ -26,6 +29,40 @@ function stubVisibility(initial: DocumentVisibilityState) {
     },
   };
 }
+
+it('聊天长图在隐藏文档里加载屏外图片，导出节点不留在日常缓存', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const visibility = stubVisibility('hidden');
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const cache = createChatImageCache();
+  try {
+    act(() =>
+      root.render(
+        h(
+          ChatImageCacheContext.Provider,
+          { value: cache },
+          h(
+            MessageImageContext.Provider,
+            { value: true },
+            h(ShimmerImage, { src: '/fixture.png', loading: 'lazy', suspendOffscreen: true }),
+          ),
+        ),
+      ),
+    );
+    const image = host.querySelector('img')!;
+    expect(image.getAttribute('src')).toBe('/fixture.png');
+    expect(image.loading).toBe('eager');
+    expect(image.hasAttribute('data-weq-message-image-pending')).toBe(true);
+    Object.defineProperties(image, { naturalWidth: { value: 640 }, naturalHeight: { value: 480 } });
+    act(() => image.dispatchEvent(new Event('load')));
+    expect(image.hasAttribute('data-weq-message-image-pending')).toBe(false);
+    expect(cache.stats().images).toBe(0);
+  } finally {
+    act(() => root.unmount());
+    visibility.restore();
+  }
+});
 
 it('无关下载设置不重挂缩略图，聊天参数、外站 URL 和主动意图保持原样', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

@@ -1,6 +1,12 @@
 import { controlCompositionWindow } from './composition_window';
 import { flushConversationCalendarResults } from './ipc/routers/conversation_calendar';
 import { applicationToolPopupOptions, createToolWindowRegistry } from './tool_window';
+import {
+  allowMessageImageWindow,
+  isMessageImageWindow,
+  registerMessageImageIpc,
+  registerMessageImageWindow,
+} from './message_image';
 import { labelPerformanceWindow } from './performance_process_labels';
 import { installCallDisplayMediaHandler } from './call_display_media';
 import {
@@ -811,12 +817,17 @@ function createWindow(
   });
 
   win.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    if (isMessageImageWindow(url, frameName)) return allowMessageImageWindow(win);
     const options = applicationToolPopupOptions(url, frameName);
     if (options) return { action: 'allow', overrideBrowserWindowOptions: options };
     shell.openExternal(url);
     return { action: 'deny' };
   });
   win.webContents.on('did-create-window', (child, details) => {
+    if (isMessageImageWindow(details.url, details.frameName)) {
+      registerMessageImageWindow(win, child);
+      return;
+    }
     const options = applicationToolPopupOptions(details.url, details.frameName);
     if (!options) return;
     labelPerformanceWindow(child, options.title ?? '应用工具窗口');
@@ -1135,6 +1146,7 @@ void app.whenReady().then(async () => {
   // 启动时立即在后台探测 Windows Hello 可用性，避免 UI 首次调用时卡顿。
   systemAuthService.warmup();
   registerCaptureIpc();
+  registerMessageImageIpc(writeImageToClipboard);
   registerAnalyticsExportIpc();
   registerChannelIpc();
   registerQzoneIpc();

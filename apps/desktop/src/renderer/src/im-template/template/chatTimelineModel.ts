@@ -60,6 +60,11 @@ export function unreadTimelineBoundary(
 
 export type MessageGroupPosition = 'first' | 'middle' | 'last';
 
+export function messageTimelineSpacing(position: MessageGroupPosition | undefined, last: boolean) {
+  if (last) return 0;
+  return position === 'first' || position === 'middle' ? 4 : 18;
+}
+
 type MessageGroupKey = {
   senderId?: string;
   senderUid?: string;

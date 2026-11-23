@@ -17,7 +17,9 @@ import {
   Download,
   FileText,
   Forward,
+  Image as ImageIcon,
   ListPlus,
+  Loader2,
   Share2,
   X,
 } from 'lucide-react';
@@ -30,6 +32,7 @@ import {
 import { copyTextToClipboard } from '../im-template/template/clipboard';
 import { MessageTimeDivider } from '../im-template/template/messageTime';
 import { useMessageMarquee } from '../hooks/useMessageMarquee';
+import { messageImageAvailable, useMessageImage } from '../hooks/useMessageImage';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { useRequestContentExport } from '../state/contentSelection.shared';
 import { useForwardStore, type ForwardWindowState } from '../state/forwardWindow';
@@ -103,6 +106,7 @@ export function ForwardRecordList({
   dismissRef: { current: (() => boolean) | null };
 }) {
   const bodyRef = useRef<HTMLDivElement>(null);
+  const messageImage = useMessageImage();
   const anchor = useRef<string | null>(null);
   const [mode, setMode] = useState(false);
   const [ids, setIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -376,6 +380,33 @@ export function ForwardRecordList({
     }
   }
 
+  async function copySelectedImage() {
+    const source = bodyRef.current;
+    const selection = picked();
+    if (!source || !selection.length || messageImage.busy) return;
+    try {
+      await messageImage.copy(
+        source,
+        selection.map((entry) => (
+          <Fragment key={entry.id}>
+            {entry.showTime ? <MessageTimeDivider value={entry.sendTimeMs} /> : null}
+            <div
+              className="weq-forward-item weq-message-selectable"
+              data-forward-continuation={isForwardContinuation(entry) || undefined}
+              data-weq-message-image-row
+            >
+              {renderRow(entry)}
+            </div>
+          </Fragment>
+        )),
+        selection.length,
+      );
+      pushToast({ tone: 'success', title: '已复制聊天长图' });
+    } catch (cause) {
+      error('复制为图片失败', cause);
+    }
+  }
+
   async function merge() {
     if (!actions.sendAvailable || mergePending.current) return;
     const rows = messages(picked());
@@ -565,6 +596,7 @@ export function ForwardRecordList({
           <div className="weq-message-marquee" aria-hidden style={marquee.box} />
         ) : null}
       </div>
+      {messageImage.portal}
       {mode && (
         <MessageSelectionBar count={visibleIds.size}>
           {intentEnabled && (
@@ -613,10 +645,12 @@ export function ForwardRecordList({
           <SelectionAction
             label="复制"
             menu
-            disabled={!ids.size}
+            busy={messageImage.busy}
+            reason={messageImage.busy ? '正在生成聊天长图' : undefined}
+            disabled={!ids.size || messageImage.busy}
             run={(button) => openTools('copy', button)}
           >
-            <Copy size={17} />
+            {messageImage.busy ? <Loader2 className="spin" size={17} /> : <Copy size={17} />}
           </SelectionAction>
           <SelectionAction label="退出多选" run={exit}>
             <X size={17} />
@@ -643,6 +677,16 @@ export function ForwardRecordList({
                     icon: <Copy size={16} />,
                     action: () => void copySelected('rich'),
                   },
+                  ...(messageImageAvailable()
+                    ? [
+                        {
+                          label: '复制为图片',
+                          icon: <ImageIcon size={16} />,
+                          disabled: messageImage.busy,
+                          action: () => void copySelectedImage(),
+                        },
+                      ]
+                    : []),
                   {
                     label: 'JSON',
                     icon: <ClipboardCopy size={16} />,
@@ -762,6 +806,7 @@ function SelectionAction({
   label,
   reason,
   disabled,
+  busy,
   menu,
   run,
   children,
@@ -769,6 +814,7 @@ function SelectionAction({
   label: string;
   reason?: string;
   disabled?: boolean;
+  busy?: boolean;
   menu?: boolean;
   run: (button: HTMLButtonElement) => void;
   children: ReactNode;
@@ -780,6 +826,7 @@ function SelectionAction({
       title={reason ?? label}
       aria-label={label}
       disabled={disabled}
+      aria-busy={busy || undefined}
       aria-haspopup={menu ? 'menu' : undefined}
       onClick={(event) => run(event.currentTarget)}
     >

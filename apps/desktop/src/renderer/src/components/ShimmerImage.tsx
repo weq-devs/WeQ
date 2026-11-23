@@ -31,6 +31,7 @@ import { MediaLoadingRing } from './TransferRing';
 import { requestRemoteImage } from '../lib/remoteImage';
 import { createChatImageUrl } from '../lib/chatImageCache';
 import { fetchChatThumbnail } from '../lib/chatThumbnail';
+import { MessageImageContext } from '../lib/messageImageContext';
 
 const noSubscription = () => () => {};
 
@@ -59,6 +60,7 @@ export function ShimmerImage({
   const [failed, setFailed] = useState(false);
   const [image, setImage] = useState<HTMLImageElement | null>(null);
   const ownerDocument = useRenderDocument();
+  const messageImage = useContext(MessageImageContext);
   const tabActive = useTabActive();
   const [visible, setVisible] = useState(false);
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
@@ -76,7 +78,7 @@ export function ShimmerImage({
     suspendOffscreen && cache ? cache.subscribe : noSubscription,
     () => cache?.stats().limit ?? 0,
   );
-  const active = tabActive && visible;
+  const active = messageImage || (tabActive && visible);
   const enabled = !suspendOffscreen || active || retained;
   const directUrl = limited ? null : remoteImageSrc;
   const proxyUrl = abortableThumbnail && !rest.srcSet ? src : undefined;
@@ -170,12 +172,19 @@ export function ShimmerImage({
 
   // 调大预算时，当前已加载的图片也能加入缓存，不必等一次新的 load。
   useLayoutEffect(() => {
-    if (budget > 0 && suspendOffscreen && active && image?.complete && image.naturalWidth > 0)
+    if (
+      !messageImage &&
+      budget > 0 &&
+      suspendOffscreen &&
+      active &&
+      image?.complete &&
+      image.naturalWidth > 0
+    )
       cache?.remember(cacheKey, image, asset);
-  }, [cache, cacheKey, budget, suspendOffscreen, active, image, asset]);
+  }, [cache, cacheKey, budget, suspendOffscreen, active, image, asset, messageImage]);
 
   useEffect(() => {
-    if ((!suspendOffscreen && !observeLoading) || !image) return;
+    if (messageImage || (!suspendOffscreen && !observeLoading) || !image) return;
     if (!tabActive) {
       setVisible(false);
       return;
@@ -205,7 +214,7 @@ export function ShimmerImage({
       observer?.disconnect();
       doc.removeEventListener('visibilitychange', update);
     };
-  }, [suspendOffscreen, observeLoading, tabActive, ownerDocument, image, noPrefetch]);
+  }, [suspendOffscreen, observeLoading, tabActive, ownerDocument, image, noPrefetch, messageImage]);
 
   // src 变化（首次挂载 / 失败回退换源）时重置；已缓存完成的直接显示，避免闪一下。
   useLayoutEffect(() => {
@@ -247,7 +256,7 @@ export function ShimmerImage({
           // 保留固有比例，移除 src 后未知尺寸的图片也不能压塌时间线。
           if (suspendOffscreen && image.naturalWidth && image.naturalHeight)
             setDimensions({ width: image.naturalWidth, height: image.naturalHeight });
-          if (suspendOffscreen) cache?.remember(cacheKey, image, asset);
+          if (suspendOffscreen && !messageImage) cache?.remember(cacheKey, image, asset);
           setLoaded(true);
           onLoad?.(event);
         }}
@@ -262,6 +271,10 @@ export function ShimmerImage({
           onError?.(event);
         }}
         {...rest}
+        loading={messageImage ? 'eager' : rest.loading}
+        data-weq-message-image-pending={
+          (messageImage && Boolean(src) && !loaded && !failed) || undefined
+        }
         style={{ ...rest.style, opacity: enabled && loaded ? rest.style?.opacity : 0 }}
         width={rest.width ?? (suspendOffscreen ? (dimensions?.width ?? 120) : undefined)}
         height={rest.height ?? (suspendOffscreen ? (dimensions?.height ?? 96) : undefined)}

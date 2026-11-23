@@ -20,6 +20,7 @@ import {
 import { toFontFxSkin, type FontFxSkin } from '../lib/dressSkin';
 import { useTabActive } from '../components/RetainedTabs.shared';
 import { messageBubble } from '../lib/messageBubbles';
+import { MessageImageContext } from '../lib/messageImageContext';
 
 type DecorationIds =
   | {
@@ -57,9 +58,11 @@ export function useMsgDecoration(
   systemFont: boolean;
   /** 这款字体的炫彩帧素材（没字体 / 没有 `eimg` 时 null）——气泡按尺寸决定挂不挂。 */
   fontFx: FontFxSkin | null;
+  imagePending: boolean;
 } {
   const enabled = useContext(MsgDecorationEnabledContext);
-  const tabActive = useTabActive();
+  const image = useContext(MessageImageContext);
+  const tabActive = useTabActive() || image;
   const bubbleId = enabled.bubble ? (decoration?.bubbleId ?? 0) : 0;
   const fontId = enabled.font ? (decoration?.fontId ?? 0) : 0;
   const widgetId = enabled.widget ? (decoration?.widgetId ?? 0) : 0;
@@ -71,11 +74,12 @@ export function useMsgDecoration(
   const needsVisibility = Boolean(
     fontId || widgetId || (bubbleId && !localBubble) || localBubble?.animationFrameCount,
   );
-  const [visible, setVisible] = useState(
+  const [inViewport, setVisible] = useState(
     !needsVisibility || !element || typeof IntersectionObserver === 'undefined',
   );
+  const visible = image || inViewport;
   useLayoutEffect(() => {
-    if (!needsVisibility) return;
+    if (image || !needsVisibility) return;
     const node = element?.current;
     if (!node || typeof IntersectionObserver === 'undefined') return;
     // 新记录接替发送预览时，不能等异步可见性回调才恢复已缓存的字体与气泡。
@@ -90,7 +94,7 @@ export function useMsgDecoration(
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [element, needsVisibility]);
+  }, [element, image, needsVisibility]);
   // 按种类共享缓存，挂件不影响字体与气泡的就绪状态。
   const bubbleQuery = trpc.account.dressup.resolveMsgDecoration.useQuery(
     { bubbleId, fontId: 0, widgetId: 0 },
@@ -117,7 +121,12 @@ export function useMsgDecoration(
   const widget = widgetId ? (widgetQuery.data?.widget ?? null) : null;
 
   const [failedBubble, setFailedBubble] = useState<typeof bubble>(null);
-  const [preparedFont, setPreparedFont] = useState<{ font: typeof font; id: number } | null>(null);
+  const [settledImageBubble, setSettledImageBubble] = useState<typeof bubble>(null);
+  const [preparedFont, setPreparedFont] = useState<{
+    font: typeof font;
+    id: number;
+    ok: boolean;
+  } | null>(null);
   useInsertionEffect(() => {
     if (!bubble) return;
     const lease = injectBubbleCss(bubble, true);
@@ -126,12 +135,13 @@ export function useMsgDecoration(
       if (disposed) return;
       // 预解码预算/取消不代表内联底图不可绘制，不能据此把缓存气泡改回默认。
       if (!ok && !bubble.baseImage) setFailedBubble(bubble);
+      if (image) setSettledImageBubble(bubble);
     });
     return () => {
       disposed = true;
       lease();
     };
-  }, [bubble]);
+  }, [bubble, image]);
   useLayoutEffect(() => {
     if (!visible || !tabActive || !bubble?.animationFrameCount) return;
     return injectBubbleCss(bubble);
@@ -141,14 +151,14 @@ export function useMsgDecoration(
     const lease = injectFontCss(fontId, font, true);
     let disposed = false;
     void lease.ready.then((ok) => {
-      if (!disposed && ok) setPreparedFont({ font, id: fontId });
+      if (!disposed && (ok || image)) setPreparedFont({ font, id: fontId, ok });
     });
     return () => {
       disposed = true;
       setPreparedFont(null);
       lease();
     };
-  }, [font, fontId, prepareFont, tabActive]);
+  }, [font, fontId, image, prepareFont, tabActive]);
   useLayoutEffect(() => {
     if (visible && tabActive && font?.fx && fontId) return injectFontCss(fontId, font);
   }, [font, fontId, visible, tabActive]);
@@ -157,10 +167,11 @@ export function useMsgDecoration(
   }, [widget, visible, tabActive]);
 
   const bubbleReady = Boolean(bubble && failedBubble !== bubble);
+  const finishedFont = preparedFont?.font === font && preparedFont?.id === fontId;
   const fontReady = Boolean(
     tabActive &&
       font &&
-      (reusableFont || (preparedFont?.font === font && preparedFont?.id === fontId)) &&
+      (reusableFont || (finishedFont && preparedFont.ok)) &&
       (!bubbleId || bubbleReady),
   );
   // 仅确认是 packed 字体槽生效时读 Android 的高位类型，不按 TTF 文件后缀猜测。
@@ -171,5 +182,12 @@ export function useMsgDecoration(
     fontId: fontReady ? fontId : 0,
     systemFont: fontReady && !decoration?.fontId1Raw && packedFontType === 2,
     fontFx: fontReady ? toFontFxSkin(font) : null,
+    imagePending:
+      image &&
+      (bubbleQuery.isFetching ||
+        fontQuery.isFetching ||
+        widgetQuery.isFetching ||
+        Boolean(bubble && bubble !== settledImageBubble) ||
+        Boolean(font && !reusableFont && !finishedFont)),
   };
 }
