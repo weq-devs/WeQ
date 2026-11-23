@@ -144,6 +144,7 @@ export function useChatTimelineNavigation({
   // Tracks whether the view is pinned to the bottom of the message list.
   // Drives auto-scroll-on-new-message vs. "new messages" pill behaviour.
   const atBottomRef = useRef(true);
+  const holdingHistoryPosition = useRef(false);
 
   const readingPositionApplied = useRef(false);
 
@@ -155,7 +156,10 @@ export function useChatTimelineNavigation({
     async (target: ReplyJumpTarget): Promise<boolean> => {
       // 滚动事件晚于消息刷新提交；先退出贴底，避免原消息刚定位就被刷新拉回末尾。
       atBottomRef.current = false;
+      holdingHistoryPosition.current = true;
       readGestureUntil.current = 0;
+      const scroll = messageScrollRef.current;
+      if (scroll) timelineViewport(scroll)?.cancelScroll?.();
       const started = navigationScope.current;
       const task = {};
       locateTask.current = task;
@@ -261,6 +265,11 @@ export function useChatTimelineNavigation({
     const newestId = newest?.outgoingId ?? newest?.id ?? null;
     const wasAtLatest = scrollAtLatestRef.current;
     scrollAtLatestRef.current = atLatest;
+    // 历史分页接到实时窗口只改变数据范围，不代表用户已滚到实际底部。
+    if (!wasAtLatest && atLatest) {
+      atBottomRef.current = false;
+      holdingHistoryPosition.current = true;
+    }
     if (loading || (loadingNewer && wasAtLatest))
       bottomAfterLoadingRef.current = !initialReadingPosition;
 
@@ -272,6 +281,7 @@ export function useChatTimelineNavigation({
       bottomLayoutRef.current = null;
       bottomAfterLoadingRef.current = !initialReadingPosition && (loading || loadingNewer);
       atBottomRef.current = !initialReadingPosition;
+      holdingHistoryPosition.current = Boolean(initialReadingPosition);
       setNewMessagePill(0);
       setShowBottomJump(false);
       lastScrollTopRef.current = 0;
@@ -310,6 +320,7 @@ export function useChatTimelineNavigation({
       lastScrollTopRef.current = messageScrollRef.current.scrollTop;
       readingPositionApplied.current = true;
       atBottomRef.current = false;
+      holdingHistoryPosition.current = true;
       lastMessageIdRef.current = newestId;
       return;
     }
@@ -463,6 +474,7 @@ export function useChatTimelineNavigation({
       setJumpMissing(!found);
       if (!found) return;
       atBottomRef.current = false;
+      holdingHistoryPosition.current = true;
       readGestureUntil.current = 0;
       locatedJump.current = jumpRequest;
     });
@@ -479,6 +491,7 @@ export function useChatTimelineNavigation({
     if (viewport) viewport.bottom();
     else scroll.scrollTop = scroll.scrollHeight;
     atBottomRef.current = true;
+    holdingHistoryPosition.current = false;
     bottomLayoutRef.current = {
       height: scroll.scrollHeight,
       viewportHeight: scroll.clientHeight,
@@ -506,14 +519,16 @@ export function useChatTimelineNavigation({
     readGestureUntil.current = 0;
     if (!atLatest) {
       if (!onJumpToLatest) return;
+      const previousLocate = locateTask.current;
       setJumpingToLatest(true);
       try {
-        if (!(await onJumpToLatest())) return;
+        if (!(await onJumpToLatest()) || locateTask.current !== previousLocate) return;
         // 等最新窗口提交后再定位；失败时保留提示，供用户重试。
         window.requestAnimationFrame(() => {
           const current = readContextRef.current;
           if (
             current.conversation?.id !== conversation?.id ||
+            locateTask.current !== previousLocate ||
             !current.atLatest ||
             !current.tabActive
           )
@@ -591,15 +606,20 @@ export function useChatTimelineNavigation({
       (layout.height !== height || layout.viewportHeight !== viewportHeight);
     const delta = top - lastScrollTopRef.current;
     lastScrollTopRef.current = top;
+    const userReachedLatest =
+      bottom && atLatest && delta > 0 && readGestureUntil.current > performance.now();
+    if (userReachedLatest) holdingHistoryPosition.current = false;
     if (distanceFromBottom <= 48 && atLatest) setShowBottomJump(false);
     else if (Math.abs(delta) > 1) setShowBottomJump(delta > 0);
-    if (
+    if (!atLatest || holdingHistoryPosition.current) {
+      atBottomRef.current = false;
+    } else if (
       !bottomResized &&
       (!bottom || !initialReadingPosition || readGestureUntil.current > performance.now())
     ) {
       atBottomRef.current = bottom;
     }
-    if (bottom && atLatest)
+    if (bottom && atBottomRef.current)
       bottomLayoutRef.current = {
         height,
         viewportHeight,
@@ -1015,6 +1035,7 @@ export function useChatTimelineNavigation({
   return {
     leaveBottom: () => {
       atBottomRef.current = false;
+      holdingHistoryPosition.current = true;
     },
     dockIndex,
     dockRemaining,

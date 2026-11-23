@@ -10578,6 +10578,9 @@ function MainWorkspace(): ReactElement {
                               const selection = selectionRef.current;
                               const previousWindow = windowRef.current;
                               const account = user.identityValue;
+                              const scroll = nativeMessageScrollRef.current;
+                              const viewport = scroll && timelineViewport(scroll);
+                              const scrollRevision = viewport?.scrollRevision?.();
                               if (!selection) return false;
                               try {
                                 const page = await client.account.listLatest.query({
@@ -10591,6 +10594,7 @@ function MainWorkspace(): ReactElement {
                                 if (
                                   selectionRef.current !== selection ||
                                   windowRef.current !== previousWindow ||
+                                  viewport?.scrollRevision?.() !== scrollRevision ||
                                   useViewState.getState().openedUin !== account
                                 )
                                   return false;

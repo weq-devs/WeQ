@@ -168,3 +168,63 @@ it('列表与队列共享定位进度，乱序选择只完成自身，重定位�
     vi.unstubAllGlobals();
   }
 });
+
+it.each([false, true])(
+  '历史滚动与未读定位后追加消息不会拖回最新（实时窗口 %s）',
+  async (atLatest) => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const demo = createTemplateDemoData();
+    const conversation = demo.conversations[0]!;
+    const rows = demo.messages.filter((row) => row.conversationId === conversation.id);
+    const initial = rows.slice(0, -1);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    let state!: ReturnType<typeof useChatTimelineNavigation>;
+    let height = 1000;
+    const jump = vi.fn(async () => true);
+    function Harness({ latest, messages }: { latest: boolean; messages: typeof rows }) {
+      state = useChatTimelineNavigation({
+        atLatest: latest,
+        conversation,
+        initialReadingPosition: undefined,
+        jumpRequest: undefined,
+        latestMessageSeq: undefined,
+        loadError: null,
+        loading: false,
+        loadingNewer: false,
+        timelineSettings: undefined,
+        messages,
+        onJumpToLatest: undefined,
+        onReadCurrentConversation: undefined,
+        parentJumpToSeq: jump,
+        selectionOrder: [],
+        tabActive: true,
+        unreadDock: undefined,
+        user: demo.user,
+        visibleMessages: messages,
+      });
+      return h('div', { ref: state.messageScrollRef });
+    }
+    try {
+      expect(initial.length).toBeGreaterThan(0);
+      act(() => root.render(h(Harness, { latest: atLatest, messages: initial })));
+      const scroll = host.firstElementChild as HTMLElement;
+      Object.defineProperties(scroll, {
+        scrollHeight: { get: () => height },
+        clientHeight: { get: () => 400 },
+      });
+      if (atLatest) await act(async () => state.jumpToSeq({ seq: '101', mode: 'firstUnread' }));
+      scroll.scrollTop = 600;
+      act(() => state.handleMessageScroll());
+
+      height = 1500;
+      act(() => root.render(h(Harness, { latest: true, messages: rows })));
+      expect(scroll.scrollTop).toBe(600);
+      await act(async () => state.jumpToBottomAndRead());
+      expect(scroll.scrollTop).toBe(1500);
+    } finally {
+      act(() => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  },
+);
