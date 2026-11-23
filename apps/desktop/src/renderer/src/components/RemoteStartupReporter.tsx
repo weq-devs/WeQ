@@ -40,7 +40,6 @@ export function RemoteStartupReporter() {
               : '正在初始化工作区',
       });
     } else {
-      publishRemoteStartup({ state: 'loading', message: '正在绘制 WeQ 界面' });
       const root = document.getElementById('root');
       if (!root) return;
       return observeRemoteStartupSurface(

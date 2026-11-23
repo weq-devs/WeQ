@@ -5,10 +5,28 @@ import { developmentStartupProgress } from '../src/main/web/development_progress
 
 type State = { state: string; message?: string };
 type Entry = Record<string, unknown>;
-function fixture(early: Entry[] = []) {
+type Progress = { completed: number; downloadedBytes: number; cached: number; unknown: number };
+function fixture(early: Entry[] = [], platform?: 'ios' | 'android') {
+  const progress: Progress[] = [];
   const window = Object.assign(new EventTarget(), {
     weqRemoteStartup: undefined as State | undefined,
-    webkit: { messageHandlers: { weqResources: {} } },
+    weqRemoteDevelopmentResources: undefined as Progress | undefined,
+    webkit:
+      platform === 'android'
+        ? undefined
+        : {
+            messageHandlers: {
+              weqResources: {},
+              weqDevelopmentResources:
+                platform === 'ios'
+                  ? { postMessage: (value: Progress) => progress.push(value) }
+                  : undefined,
+            },
+          },
+    weqRemoteLinks:
+      platform === 'android'
+        ? { developmentResources: (value: string) => progress.push(JSON.parse(value)) }
+        : undefined,
   });
   const document = new EventTarget();
   const reports: State[] = [];
@@ -47,6 +65,7 @@ function fixture(early: Entry[] = []) {
   return {
     window,
     reports,
+    progress,
     context,
     notify: (...entries: Entry[]) => notify({ getEntries: () => entries }),
     flush: () => {
@@ -161,6 +180,35 @@ it('没有大小时不编造百分比，恢复检查期间仍显示资源回执�
   f.flush();
   expect(f.window.weqRemoteStartup?.message).toContain('正在加载界面模块（完成 1 项');
   expect(f.window.weqRemoteStartup?.message).not.toContain('%');
+});
+
+it.each(['ios', 'android'] as const)('新版 %s 只更新资源桥，不重发或改写阶段', (platform) => {
+  const first = entry('/@vite/client', 2000, { responseStatus: 304 });
+  const f = fixture([first], platform);
+  expect(f.reports).toEqual([]);
+  const initial = { completed: 1, cached: 1, downloadedBytes: 0, unknown: 0 };
+  expect(f.progress).toEqual([initial]);
+  const restore = { state: 'loading', message: '正在检查恢复状态' };
+  f.stage(restore);
+  f.notify(
+    first,
+    entry('/src/workspace.tsx', 5000, {
+      encodedBodySize: 2000,
+      transferSize: 2300,
+      serverTiming: [{ name: 'weq-remote-source', description: 'network' }],
+    }),
+  );
+  f.flush();
+  const latest = { completed: 2, cached: 1, downloadedBytes: 2000, unknown: 0 };
+  expect(f.window.weqRemoteStartup).toEqual(restore);
+  expect(f.reports).toEqual([restore]);
+  expect(f.progress).toEqual([initial, latest]);
+  expect(f.window.weqRemoteDevelopmentResources).toEqual(latest);
+  f.notify(entry('/src/late.ts', 2000));
+  f.stage({ state: 'ready' });
+  f.flush();
+  expect(f.progress).toEqual([initial, latest]);
+  expect(f.disconnected()).toBe(1);
 });
 
 it.each(['ready', 'error', 'action-required'])(

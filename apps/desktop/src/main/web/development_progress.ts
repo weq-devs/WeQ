@@ -6,6 +6,9 @@ export const developmentStartupProgress = String.raw`
   var seen = new Set(), bytes = 0, cached = 0, unknown = 0, count = 0;
   var timer, observer, closed = false, last = '', phase = '正在加载网页资源';
   var direct = !!(window.webkit && window.webkit.messageHandlers.weqResources);
+  var nativeProgress = window.webkit && window.webkit.messageHandlers.weqDevelopmentResources;
+  var androidProgress = window.weqRemoteLinks && typeof window.weqRemoteLinks.developmentResources === 'function';
+  var lastCount = -1;
   function code(value) {
     try {
       var url = new URL(value, location.href);
@@ -43,6 +46,15 @@ export const developmentStartupProgress = String.raw`
     if (closed) return;
     var state = window.weqRemoteStartup;
     if (state && state.state !== 'loading') return;
+    if (nativeProgress || androidProgress) {
+      if (count === lastCount) return;
+      lastCount = count;
+      var progress = { completed: count, downloadedBytes: bytes, cached: cached, unknown: unknown };
+      window.weqRemoteDevelopmentResources = progress;
+      if (nativeProgress) nativeProgress.postMessage(progress);
+      else window.weqRemoteLinks.developmentResources(JSON.stringify(progress));
+      return;
+    }
     if (state && state.message && state.message !== last) phase = state.message;
     var amount = bytes >= 1000000 ? (bytes / 1000000).toFixed(1) + ' MB' : (bytes / 1000).toFixed(1) + ' KB';
     var details = ['完成 ' + count + ' 项'];
@@ -70,7 +82,7 @@ export const developmentStartupProgress = String.raw`
   function startup() {
     var state = window.weqRemoteStartup;
     if (state && state.state !== 'loading') stop();
-    else if (state && state.message !== last) schedule();
+    else if (!nativeProgress && !androidProgress && state && state.message !== last) schedule();
   }
   if (typeof PerformanceObserver !== 'undefined') {
     observer = new PerformanceObserver(function (list) { collect(list.getEntries()); schedule(); });

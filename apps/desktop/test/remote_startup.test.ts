@@ -69,6 +69,8 @@ async function frame() {
 const reporter = () => createElement(RemoteStartupReporter);
 
 it('查询全部完成但代码分包仍显示整页加载时不能离开首页', async () => {
+  const firstStage = vi.fn(() => window.weqRemoteStartup?.message);
+  window.addEventListener('weq-remote-startup', firstStage, { once: true });
   let finish!: (value: { default: () => ReturnType<typeof createElement> }) => void;
   const Surface = lazy(
     () =>
@@ -95,6 +97,7 @@ it('查询全部完成但代码分包仍显示整页加载时不能离开首页'
   expect(host.textContent).toContain('正在加载');
   expect(window.weqRemoteStartup?.state).toBe('loading');
   expect(window.weqRemoteStartup?.message).toBe('正在加载界面模块');
+  expect(firstStage).toHaveReturnedWith('正在加载界面模块');
   await act(async () =>
     finish({
       default: () => createElement('main', { className: 'app-shell-root' }, '合成 WeQ 界面'),
