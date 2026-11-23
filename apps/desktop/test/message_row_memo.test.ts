@@ -46,6 +46,13 @@ it('连续分组纳入本地发送占位，仍按身份、时间与时间线分�
   expect(positions([row(1), row(2), row(3)])).toEqual(['first', 'middle', 'last']);
   expect(
     positions([
+      row(1),
+      row(2, { recall: { revokeUid: 'uid-a', sameSender: true, recallTs: 1795188000 } }),
+      row(3),
+    ]),
+  ).toEqual(['first', 'middle', 'last']);
+  expect(
+    positions([
       row(1, { qqElements: [{ type: 'reply', data: {} }] }),
       row(2, { qqElements: [{ type: 'file', data: {} }] }),
       row(3, { qqElements: [{ type: 'reply', data: {} }] }),

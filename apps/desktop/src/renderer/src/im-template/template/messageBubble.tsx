@@ -857,7 +857,7 @@ function MessageBubbleBody({
         />
         {pendingAction}
         {isEssence ? (
-          <span className={cn('weq-msg-essence-badge')} title="该消息为群精华">
+          <span className="weq-message-followup weq-msg-essence-badge" title="该消息为群精华">
             <FEATURE_ICONS.groupEssence size={10} strokeWidth={2.6} aria-hidden />
             <span>精华</span>
           </span>
@@ -865,7 +865,7 @@ function MessageBubbleBody({
         {recallText && !hideRecallTag ? (
           <StatusTag
             {...statusProps}
-            className={cn('weq-msg-recall-tag', reeditClass)}
+            className={cn('weq-message-followup weq-msg-recall-tag', reeditClass)}
             title="防撤回已保留原消息"
           >
             <RotateCcw size={12} />

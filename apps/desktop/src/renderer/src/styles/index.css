@@ -15434,7 +15434,6 @@ html[data-theme='dark'] .message-line.is-deleted .message-bubble {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-top: 3px;
   padding: 1px 8px;
   font-size: 11px;
   font-weight: 500;
@@ -15480,7 +15479,6 @@ html[data-theme='dark'] .message-line.is-deleted .message-bubble {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-top: 3px;
   padding: 1px 8px;
   font-size: 11px;
   font-weight: 500;
@@ -15529,15 +15527,11 @@ html[data-theme='dark'] .message-line.is-deleted .message-bubble {
 
 /* ─────────────────────────────────────────────────────────────────────────
    群精华角标 (im-template/messageBubble)
-   消息 seq 命中本地 group_essence 表（仅数据库，不联网）时，气泡右下角打一个
-   「四芒星 精华」小标。作为气泡 grid 的最后一行，右对齐、margin-top 上贴气泡
-   底边（视觉上是挂在右下角的角标），不绝对定位、不压正文。 */
+   消息 seq 命中本地 group_essence 表时，在所属气泡下方显示「四芒星 精华」小标。 */
 .weq-msg-essence-badge {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  justify-self: end;
-  margin-top: -3px;
   padding: 1px 8px;
   font-size: 10px;
   font-weight: 600;
@@ -15548,6 +15542,7 @@ html[data-theme='dark'] .message-line.is-deleted .message-bubble {
   border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 30%, transparent);
   border-radius: 999px;
   backdrop-filter: blur(3px);
+  width: fit-content;
   user-select: none;
   pointer-events: none;
 }

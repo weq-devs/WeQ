@@ -1458,10 +1458,15 @@ html[data-theme='dark'] .qq-flash-cover {
    the result bubble below it. The button stays hidden until the wrapper is
    hovered, mirroring QQ's on-demand transcription affordance. */
 .qq-voice-wrap {
+  --weq-voice-gap: 6px;
   display: inline-flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--weq-voice-gap);
   max-width: 280px;
+}
+
+.qq-voice-only .qq-voice-wrap {
+  display: flex;
 }
 
 .qq-voice-row {

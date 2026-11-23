@@ -10,13 +10,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 3px;
   width: fit-content;
-}
-
-/* 行容器已经顶了外边距，行内标签不再各自叠一层。 */
-.weq-msg-status-row > .weq-msg-optimistic-tag {
-  margin-top: 0;
 }
 
 .weq-msg-dismiss-unsent {

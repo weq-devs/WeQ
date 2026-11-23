@@ -47,7 +47,7 @@ export function MessageExpansion({ children }: ExpansionProps) {
     return <StandaloneExpansion>{children}</StandaloneExpansion>;
   if (!children) return null;
   return (
-    <div className="weq-message-expansion">
+    <div className="weq-message-followup weq-message-expansion">
       <div className="weq-message-expansion-content">{children}</div>
     </div>
   );
@@ -109,7 +109,11 @@ class StandaloneExpansion extends Component<ExpansionProps, State> {
   override render() {
     if (!this.state.content) return null;
     return (
-      <div className="weq-message-expansion" ref={this.block} inert={!this.props.children}>
+      <div
+        className="weq-message-followup weq-message-expansion"
+        ref={this.block}
+        inert={!this.props.children}
+      >
         <div className="weq-message-expansion-content" ref={this.content}>
           {this.state.content}
         </div>

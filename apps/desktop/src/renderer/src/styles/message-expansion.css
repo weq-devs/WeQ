@@ -1,21 +1,35 @@
-.weq-message-expansion {
-  min-width: 0;
-  max-width: 100%;
-  margin-block-start: calc(-1 * var(--weq-message-expansion-gap));
+/* 气泡与附加内容之间的间距不受连续发言设置影响。 */
+.message-bubble,
+.qq-voice-wrap {
+  --weq-message-followup-gap: 2px;
 }
 
-.message-bubble > .weq-message-expansion {
-  --weq-message-expansion-gap: 5px;
-  width: fit-content;
+.message-bubble > .weq-message-followup {
+  --weq-message-parent-gap: var(--weq-message-bubble-gap);
 }
 
 .qq-voice-wrap > .weq-message-expansion {
-  --weq-message-expansion-gap: 6px;
+  --weq-message-parent-gap: var(--weq-voice-gap);
+}
+
+:is(.message-bubble, .qq-voice-wrap) > .weq-message-followup {
+  margin-block-start: calc(var(--weq-message-followup-gap) - var(--weq-message-parent-gap));
+}
+
+/* 让前置间距也参与展开动画。 */
+:is(.message-bubble, .qq-voice-wrap) > .weq-message-expansion {
+  min-width: 0;
+  max-width: 100%;
+  margin-block-start: calc(-1 * var(--weq-message-parent-gap));
+}
+
+.message-bubble > .weq-message-expansion {
+  width: fit-content;
 }
 
 .weq-message-expansion-content {
   display: grid;
-  padding-block-start: var(--weq-message-expansion-gap);
+  padding-block-start: var(--weq-message-followup-gap);
 }
 
 .weq-message-expansion[inert] {
@@ -25,4 +39,18 @@
 
 .message-line.mine .qq-voice-wrap > .weq-message-expansion {
   align-self: flex-end;
+}
+
+/* 组内附加内容贴近所属气泡，和下一条消息留出间距。 */
+.message-line:is(
+    [data-message-group='first'],
+    [data-message-group='middle'],
+    [data-grouped-dress-bubble='first'],
+    [data-grouped-dress-bubble='middle']
+  ) > .message-bubble
+  :is(
+    .message-bubble > .weq-message-followup:last-child,
+    .weq-repeat-content:last-child > .qq-voice-only .qq-voice-wrap > .weq-message-expansion
+  ) {
+  margin-block-end: 4px;
 }

@@ -127,7 +127,6 @@ export function messageGroups(
         !message.senderId ||
         message.senderId === '0' ||
         message.deletedKind ||
-        message.recall ||
         grayTipOf(message) ||
         standalone(message)
       )

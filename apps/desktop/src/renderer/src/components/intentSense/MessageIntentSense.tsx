@@ -496,7 +496,7 @@ export function MessageIntentSense({
       {/* 单条手动等待始终可见，普通分析仍遵循显示偏好；正文不等待分析。 */}
       {showChips ? (
         <span
-          className="weq-intent-chips"
+          className="weq-message-followup weq-intent-chips"
           data-intent-state={displayState}
           aria-busy={displayState === 'pending'}
         >
