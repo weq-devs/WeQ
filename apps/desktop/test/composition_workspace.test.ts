@@ -2,6 +2,7 @@ import { act, createElement, Fragment, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Window as HappyWindow, Storage } from 'happy-dom';
+import { buildForwardNodeBody, decodeMessage, encode, PUSH_MSG_BODY } from '@weqbot/protocol';
 import { useAppLock } from '../src/renderer/src/state/lock';
 import {
   backupComposition,
@@ -19,6 +20,10 @@ import {
 } from '../src/renderer/src/components/mergeForward/workspaceModel';
 import {
   coerceDraft,
+  createEmptyDraft,
+  createNode,
+  codecElementToSeg,
+  renderElementsToSegs,
   blankSeg,
   MAX_COMPOSITION_DEPTH,
   type MfSeg,
@@ -40,6 +45,59 @@ import {
   nodeTimeValue,
   parseNodeTime,
 } from '../src/renderer/src/components/mergeForward/NodeTimeInput.shared';
+
+it.each(['c2c', 'group'] as const)(
+  '转发至 %s 保留原会话序号和未选入包内的引用正文',
+  async (kind) => {
+    const author = { uid: 'u_author', uin: '10002', name: '发送者' };
+    const quote = codecElementToSeg({
+      kind: 'reply',
+      origMsgSeq: 42,
+      origMsgIndex: 91,
+      origSenderUin: 10003,
+      origElements: [{ kind: 'text', textContent: '包外原文\n保留换行' }],
+    })!;
+    const node = createNode(author, [quote, { t: 'text', id: 'body', text: '回复' }], 1700000000, {
+      msgSeq: '92',
+      clientSeq: '43',
+    });
+    const draft = coerceDraft(JSON.parse(JSON.stringify({ ...createEmptyDraft(), nodes: [node] })));
+    const [sendNode] = draftToSendNodes(draft, kind);
+    const body = await buildForwardNodeBody(sendNode!, {
+      nt: { sendPacket: vi.fn(), sendOidbPacket: vi.fn() },
+      pid: 1,
+      selfUin: 10001,
+      selfUid: 'u_self',
+      scene: kind,
+      ...(kind === 'group' ? { groupId: 12345 } : {}),
+    });
+    const decoded = decodeMessage(encode(PUSH_MSG_BODY, body));
+    expect(decoded.head.sequence).toBe(92);
+    expect(decoded.head.clientSequence).toBe(kind === 'c2c' ? 43 : undefined);
+    expect(decoded.elements[0]).toMatchObject({
+      kind: 'reply',
+      origMsgSeq: kind === 'c2c' ? 42 : 91,
+      origElements: [{ kind: 'text', textContent: '包外原文\n保留换行' }],
+    });
+  },
+);
+
+it('从只读卡片重新合并转发时保留引用文本和媒体摘要', () => {
+  const [reply] = renderElementsToSegs([
+    {
+      type: 'reply',
+      data: {
+        origClientSeq: 42,
+        origSenderUin: '10002',
+        origElements: [
+          { type: 'text', data: { textContent: '原文' } },
+          { type: 'pic', data: { fileName: 'example.png' } },
+        ],
+      },
+    },
+  ]);
+  expect(reply).toMatchObject({ origMsgSeq: 42, origSenderUin: 10002, summary: '原文[图片]' });
+});
 
 const fixture = vi.hoisted(() => ({
   material: [] as unknown[],

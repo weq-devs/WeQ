@@ -358,6 +358,8 @@ it.each([false, true])('转发引用显示正确的昵称并定位本层原消�
   const child = document.querySelector<HTMLElement>('[aria-label="子记录"]')!;
   const [linked, ambiguous, missing] = child.querySelectorAll<HTMLElement>('.qq-reply-quote');
   expect(linked!.textContent).toContain('原作者昵称');
+  expect(linked!.textContent).toContain('原消息正文');
+  expect(ambiguous!.textContent).not.toContain('原消息正文');
   expect(ambiguous!.getAttribute('role')).toBeNull();
   expect(missing!.textContent).toContain('包外作者');
   expect(missing!.getAttribute('role')).toBeNull();

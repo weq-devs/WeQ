@@ -30,8 +30,9 @@ function positiveNumberKey(value: unknown): string | undefined {
 
 function resolveForwardReplies(entries: ForwardEntry[]) {
   const replies = entries.flatMap((entry) => {
-    const reply = entry.record.elements.find((element) => element.type === 'reply');
-    return reply ? [{ entry, data: reply.data ?? {} }] : [];
+    const replyIndex = entry.record.elements.findIndex((element) => element.type === 'reply');
+    const reply = entry.record.elements[replyIndex];
+    return reply ? [{ entry, replyIndex, data: reply.data ?? {} }] : [];
   });
   if (!replies.length) return;
 
@@ -53,7 +54,7 @@ function resolveForwardReplies(entries: ForwardEntry[]) {
     }
   }
 
-  for (const { entry, data } of replies) {
+  for (const { entry, replyIndex, data } of replies) {
     const { record } = entry;
     // 回复消息的独立 40900 快照可以提供原文身份，即使转发后序号已变。
     const snapshot =
@@ -83,6 +84,16 @@ function resolveForwardReplies(entries: ForwardEntry[]) {
       targetId: target?.id,
       senderName: target?.record.sendNick?.trim() || snapshot?.sendNick?.trim(),
     };
+    if (Array.isArray(data.origElements) && data.origElements.length > 0) continue;
+    const snapshotElements = snapshot?.elements.filter((el) => el.type !== 'reply');
+    const origElements = snapshotElements?.length
+      ? snapshotElements
+      : target?.record.elements.filter((el) => el.type !== 'reply');
+    if (origElements?.length) {
+      const elements = record.elements.slice();
+      elements[replyIndex] = { type: 'reply', data: { ...data, origElements } };
+      entry.record = { ...record, elements };
+    }
   }
 }
 
@@ -138,9 +149,12 @@ export function forwardMessage(win: ForwardWindowState, entry: ForwardEntry): Me
   const { id, record, sendTimeMs } = entry;
   const uin = /^[1-9]\d*$/.test(record.senderUin ?? '') ? record.senderUin! : '';
   const senderId = record.senderUid || uin || forwardSenderKey(entry);
+  const msgSeq = positiveNumberKey(record.msgSeq);
   return {
     id,
     msgId: record.msgId || undefined,
+    msgSeq,
+    clientSeq: msgSeq ? positiveNumberKey(record.clientSeq) : undefined,
     conversationId: `forward:${win.id}`,
     senderId,
     sender: {

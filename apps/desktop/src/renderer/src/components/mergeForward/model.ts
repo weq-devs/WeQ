@@ -58,14 +58,15 @@ export interface MfAtSeg {
 /**
  * 引用（回复）—— 指向同一条聊天记录里另一条消息。
  *
- * 合并转发里的引用只带**指针**（会话内序号 + 发送人 + 时间），所以它不需要
- * 「被引消息的元素」；`senderName` / `summary` 纯粹是编辑态和预览态给人看的。
+ * 保留引用指针和可独立显示的正文摘要，即使被引消息没有选入这张卡片。
  */
 export interface MfReplySeg {
   t: 'reply';
   id: string;
-  /** 被引用消息的会话内序号（群=群 seq，私聊=index）。0 = 还没填。 */
+  /** 群内序号或私聊发送方的 clientSeq。0 = 还没填。 */
   origMsgSeq: number;
+  /** 私聊原消息的会话序号，转发到群时用于匹配包内节点。 */
+  origMsgIndex?: number;
   origSenderUin?: number;
   origMsgTime?: number;
   /** 引用条上显示的发送人。 */
@@ -258,6 +259,8 @@ export interface MfNodeSeg {
   userUin: string;
   nickname: string;
   time: number;
+  msgSeq?: number;
+  clientSeq?: number;
   segs: MfSeg[];
   sourceCompositionId?: string;
   decoration?: MfDecoration;
@@ -316,6 +319,8 @@ export interface MfNode {
   segs: MfSeg[];
   /** 展示时间（unix 秒）。 */
   time: number;
+  msgSeq?: number;
+  clientSeq?: number;
   /** 逐条消息装扮（列 40801）。0 = 未设置。 */
   decoration?: MfDecoration;
   /** 来源消息 msgId（从真实消息带入时存在）。 */
@@ -373,8 +378,24 @@ export function createEmptyDraft(): MfDraft {
 }
 
 /** 由发送者信息造一条空消息。 */
-export function createNode(sender: MfSender, segs: MfSeg[] = [], time = nowSeconds()): MfNode {
-  return { id: mfId('node'), sender, segs, time };
+export function createNode(
+  sender: MfSender,
+  segs: MfSeg[] = [],
+  time = nowSeconds(),
+  source?: { msgSeq?: string; clientSeq?: string },
+): MfNode {
+  return { id: mfId('node'), sender, segs, time, ...forwardSequences(source) };
+}
+
+function forwardSequence(value: unknown): number | undefined {
+  const seq = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
+  if (typeof seq === 'number' && Number.isInteger(seq) && seq > 0 && seq <= 0xffff_ffff) return seq;
+}
+
+function forwardSequences(source?: { msgSeq?: unknown; clientSeq?: unknown }) {
+  const msgSeq = forwardSequence(source?.msgSeq);
+  const clientSeq = forwardSequence(source?.clientSeq);
+  return { ...(msgSeq ? { msgSeq } : {}), ...(clientSeq ? { clientSeq } : {}) };
 }
 
 /** 新建一个空白分段（带稳定 id）。 */
@@ -893,7 +914,7 @@ export function segsToRenderElements(segs: MfSeg[]): MfElement[] {
  * 把一个普通分段转成协议发送元素（媒体给本机绝对路径 `source`，发送时真实上传）。
  * 嵌套节点 / 空分段不应该走到这里。
  */
-export function segToSendElement(seg: MfSeg): SendElement {
+export function segToSendElement(seg: MfSeg, kind?: 'c2c' | 'group'): SendElement {
   switch (seg.t) {
     case 'text':
       return { kind: 'text', textContent: seg.text };
@@ -990,9 +1011,13 @@ export function segToSendElement(seg: MfSeg): SendElement {
     case 'reply':
       return {
         kind: 'reply',
-        origMsgSeq: seg.origMsgSeq,
+        origMsgSeq:
+          kind === 'group' ? (forwardSequence(seg.origMsgIndex) ?? seg.origMsgSeq) : seg.origMsgSeq,
         ...(seg.origSenderUin !== undefined ? { origSenderUin: seg.origSenderUin } : {}),
         ...(seg.origMsgTime !== undefined ? { origMsgTime: seg.origMsgTime } : {}),
+        ...(seg.summary?.trim()
+          ? { origElements: [{ kind: 'text', textContent: seg.summary }] }
+          : {}),
       };
     case 'card':
       // uniseq + 原卡片预览一并带过去：协议层把它当 `forwardUuid`（收端按它匹配
@@ -1034,13 +1059,13 @@ export function segsHaveSendableContent(segs: MfSeg[]): boolean {
 }
 
 /** 分段数组 → 发送元素数组（要求全部是非 node 段；不可发送的 opaque 段被跳过）。 */
-export function segsToSendElements(segs: MfSeg[]): SendElement[] {
+export function segsToSendElements(segs: MfSeg[], kind?: 'c2c' | 'group'): SendElement[] {
   const usable = segs.filter(segIsSendable);
   if (usable.length === 0) throw new Error('转发节点内容为空');
   if (usable.some((seg) => seg.t === 'node')) {
     throw new Error('一个节点里不能把嵌套转发和普通内容混在一起');
   }
-  return usable.map(segToSendElement);
+  return usable.map((seg) => segToSendElement(seg, kind));
 }
 
 /**
@@ -1073,36 +1098,41 @@ function decorationToDress(
 }
 
 /** 一个普通预览消息 → 协议节点（内容为元素）。 */
-export function nodeToSendNode(node: MfNode): SendForwardNodeInput {
+export function nodeToSendNode(node: MfNode, kind?: 'c2c' | 'group'): SendForwardNodeInput {
   const uin = Number(node.sender?.uin) || 0;
-  const inner = isNestedContent(node.segs) ? nestedSegsToSendNodes(node.segs) : undefined;
+  const inner = isNestedContent(node.segs) ? nestedSegsToSendNodes(node.segs, kind) : undefined;
   const dress = decorationToDress(node.decoration);
   return {
     ...(uin > 0 ? { userUin: uin } : {}),
     ...(node.sender?.name ? { nickname: node.sender.name } : {}),
     ...(node.time ? { time: node.time } : {}),
+    ...forwardSequences(node),
     ...(dress ? { dress } : {}),
-    elements: inner ? [] : segsToSendElements(node.segs),
+    elements: inner ? [] : segsToSendElements(node.segs, kind),
     ...(inner ? { innerForward: inner } : {}),
   };
 }
 
 /** 嵌套转发内容（全是 node 段）→ 协议 `innerForward` 节点数组。 */
-export function nestedSegsToSendNodes(segs: MfSeg[]): SendForwardNodeInput[] {
+export function nestedSegsToSendNodes(
+  segs: MfSeg[],
+  kind?: 'c2c' | 'group',
+): SendForwardNodeInput[] {
   const nodes: SendForwardNodeInput[] = [];
   for (const seg of segs) {
     if (seg.t !== 'node') continue;
     // 记录里还没写内容的消息不占位置（用户随手加了一条空消息也能发）。
     if (!seg.segs.some(segHasContent)) continue;
     const uin = Number(seg.userUin) || 0;
-    const inner = isNestedContent(seg.segs) ? nestedSegsToSendNodes(seg.segs) : undefined;
+    const inner = isNestedContent(seg.segs) ? nestedSegsToSendNodes(seg.segs, kind) : undefined;
     const dress = decorationToDress(seg.decoration);
     nodes.push({
       ...(uin > 0 ? { userUin: uin } : {}),
       ...(seg.nickname ? { nickname: seg.nickname } : {}),
       ...(seg.time ? { time: seg.time } : {}),
+      ...forwardSequences(seg),
       ...(dress ? { dress } : {}),
-      elements: inner ? [] : segsToSendElements(seg.segs),
+      elements: inner ? [] : segsToSendElements(seg.segs, kind),
       ...(inner ? { innerForward: inner } : {}),
     });
   }
@@ -1111,13 +1141,13 @@ export function nestedSegsToSendNodes(segs: MfSeg[]): SendForwardNodeInput[] {
 }
 
 /** 草稿 → 协议节点数组。发送前会先做 {@link validateDraft} 校验。 */
-export function draftToSendNodes(draft: MfDraft): SendForwardNodeInput[] {
+export function draftToSendNodes(draft: MfDraft, kind?: 'c2c' | 'group'): SendForwardNodeInput[] {
   if (draft.nodes.length === 0) throw new Error('合并转发至少需要一条预览消息');
   // 只发**发得出去**的消息：一条消息如果全是纯展示元素（灰条…），它在服务端会变成
   // 一个空节点，不如整条跳过 —— 这与改造前「这些元素根本进不来」的收端结果一致。
   const sendable = draft.nodes.filter((node) => segsHaveSendableContent(node.segs));
   if (sendable.length === 0) throw new Error('这些内容发不出去');
-  return sendable.map(nodeToSendNode);
+  return sendable.map((node) => nodeToSendNode(node, kind));
 }
 
 /** 「复制 JSON」用的可读载荷（协议发送形状；校验不过时给出原因而不是抛错）。 */
@@ -1388,20 +1418,46 @@ function opaqueFor(rendered: MfElement | undefined, sendText: string): MfSeg | n
 
 /** 引用元素里「被引消息」的摘要（origElements 的文本部分；媒体取占位标签）。 */
 function replySummary(element: Record<string, unknown>): string | undefined {
-  const list = element.origElements;
-  if (!Array.isArray(list)) return undefined;
+  const list = Array.isArray(element.origElements) ? element.origElements : [];
   const text = list
     .map((item) => {
       if (!item || typeof item !== 'object') return '';
       const box = item as Record<string, unknown>;
-      const kind = typeof box.kind === 'string' ? box.kind : '';
-      if (kind === 'text' || kind === 'at') return str(box, 'textContent');
+      const { type, data } = box as MfElement;
+      const kind = type ?? str(box, 'kind');
+      const fields = data ?? box;
+      if (kind === 'text' || kind === 'at') return str(fields, 'textContent');
+      if (kind === 'face') return str(fields, 'faceText') || '[表情]';
       return MEDIA_LABEL[kind] ?? '';
     })
-    .join('')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return text || undefined;
+    .join('');
+  return text.trim()
+    ? text
+    : str(element, 'replyTextSummary') || str(element, 'origText') || undefined;
+}
+
+function replySegment(
+  element: Record<string, unknown>,
+  rendered?: Record<string, unknown>,
+): MfReplySeg {
+  const origMsgIndex = forwardSequence(element.origMsgIndex);
+  const origMsgSeq =
+    forwardSequence(element.origClientSeq) ??
+    forwardSequence(element.origMsgSeq) ??
+    origMsgIndex ??
+    0;
+  const origSenderUin = forwardSequence(element.origSenderUin);
+  const origMsgTime = forwardSequence(element.origMsgTime);
+  const summary = replySummary(element) ?? (rendered && replySummary(rendered));
+  return {
+    t: 'reply',
+    id: mfId('seg'),
+    origMsgSeq,
+    ...(origMsgIndex ? { origMsgIndex } : {}),
+    ...(origSenderUin ? { origSenderUin } : {}),
+    ...(origMsgTime ? { origMsgTime } : {}),
+    ...(summary ? { summary } : {}),
+  };
 }
 
 function markdownSegOf(element: Record<string, unknown>): MfMarkdownSeg {
@@ -1454,17 +1510,8 @@ export function codecElementToSeg(
         uin: '',
         name: str(element, 'textContent').replace(/^@/, '').trim(),
       };
-    case 'reply': {
-      const summary = replySummary(element);
-      return {
-        t: 'reply',
-        id: mfId('seg'),
-        origMsgSeq: num(element, 'origMsgSeq'),
-        ...(num(element, 'origSenderUin') ? { origSenderUin: num(element, 'origSenderUin') } : {}),
-        ...(num(element, 'origMsgTime') ? { origMsgTime: num(element, 'origMsgTime') } : {}),
-        ...(summary ? { summary } : {}),
-      };
-    }
+    case 'reply':
+      return replySegment(element, renderElement?.data);
     case 'face':
       return {
         t: 'face',
@@ -1643,13 +1690,7 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
         });
         break;
       case 'reply':
-        segs.push({
-          t: 'reply',
-          id: mfId('seg'),
-          origMsgSeq: num(data, 'origMsgSeq'),
-          ...(num(data, 'origSenderUin') ? { origSenderUin: num(data, 'origSenderUin') } : {}),
-          ...(num(data, 'origMsgTime') ? { origMsgTime: num(data, 'origMsgTime') } : {}),
-        });
+        segs.push(replySegment(data));
         break;
       case 'face':
         segs.push({
@@ -1979,6 +2020,8 @@ export function coerceDraft(raw: {
     segs?: unknown[];
     elements?: unknown[];
     time: number;
+    msgSeq?: number;
+    clientSeq?: number;
     decoration?: MfDecoration;
     sourceMsgId?: string;
     sourceCompositionId?: string;
@@ -2024,6 +2067,7 @@ export function coerceDraft(raw: {
         sender: node.sender,
         segs,
         time: node.time,
+        ...forwardSequences(node),
         ...(node.decoration ? { decoration: node.decoration } : {}),
         ...(node.sourceMsgId ? { sourceMsgId: node.sourceMsgId } : {}),
         ...(node.sourceCompositionId ? { sourceCompositionId: node.sourceCompositionId } : {}),

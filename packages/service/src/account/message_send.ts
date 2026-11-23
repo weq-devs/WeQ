@@ -379,6 +379,9 @@ export interface SendForwardNodeInput {
   elements: SendElement[];
   /** 显示时间（Unix 秒）；缺省当前时间。 */
   time?: number;
+  /** 原消息的会话序号、私聊发送方序号。 */
+  msgSeq?: number;
+  clientSeq?: number;
   /**
    * 该节点自己的装扮（气泡 / 字体 / 挂件），可选。
    *

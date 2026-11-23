@@ -138,6 +138,8 @@ export function insertCompositionEntry(
                 userUin: node.sender.uin,
                 nickname: node.sender.name,
                 time: node.time,
+                ...(node.msgSeq ? { msgSeq: node.msgSeq } : {}),
+                ...(node.clientSeq ? { clientSeq: node.clientSeq } : {}),
                 segs: node.segs,
                 ...(node.decoration ? { decoration: node.decoration } : {}),
                 ...(node.sourceCompositionId
