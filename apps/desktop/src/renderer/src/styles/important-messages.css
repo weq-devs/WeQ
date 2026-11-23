@@ -305,3 +305,7 @@ html[data-theme='dark'] {
     animation: none;
   }
 }
+
+.unread-dock-button.reading-position-below-unread {
+  top: calc(var(--chat-header-height) + 44px);
+}

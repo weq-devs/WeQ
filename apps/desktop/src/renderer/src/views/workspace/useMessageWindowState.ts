@@ -63,6 +63,7 @@ export function useMessageWindowState({
     stage: 'entry' | 'older' | 'newer';
   } | null>(null);
   const entryLoadingRef = useRef(false);
+  const visitedHistoryRef = useRef(false);
   useEffect(() => {
     const binding = messageBindingRef.current;
     messageScopeRef.current = binding
@@ -190,7 +191,6 @@ export function useMessageWindowState({
           anchored: true,
           hasOlder: rows.length >= target.limit,
           hasNewer: false,
-          scrollTop: 0,
           revision: dbRevisionRef.current,
           dirty: false,
           storedAt: Date.now(),
@@ -388,6 +388,7 @@ export function useMessageWindowState({
     readFailure,
     setReadFailure,
     entryLoadingRef,
+    visitedHistoryRef,
     loadedWindow,
     setLoadedWindow,
     loaded,

@@ -61,6 +61,7 @@ export const preferenceDefaults = {
   showMessageSeq: false,
   groupConsecutiveMessages: false,
   showUnreadDivider: true,
+  showReadingPositionButton: true,
   swipeToQuote: true,
   showGroupMemberName: true,
   showGroupMemberLevel: true,

@@ -1066,7 +1066,8 @@ function AppearanceSection({
                 {
                   key: 'readFromFirstUnread' as const,
                   settingId: 'read-first-unread',
-                  label: '从第一条新消息开始阅读',
+                  label: '定位到上次阅读的位置',
+                  desc: '打开会话时回到离开前的阅读位置。贴着会话底部离开时，下次打开显示最新消息。',
                   fallback: false,
                   mutation: setReadFromFirstUnread,
                 },
@@ -1123,7 +1124,7 @@ function AppearanceSection({
                   ({ key }) =>
                     key !== 'preserveUnreadUntilRead' || settings.data?.readFromFirstUnread,
                 )
-                .map(({ key, settingId, label, desc, fallback, mutation }) => (
+                .flatMap(({ key, settingId, label, desc, fallback, mutation }) => [
                   <Row
                     key={key}
                     settingId={settingId}
@@ -1133,8 +1134,10 @@ function AppearanceSection({
                     control={
                       <span
                         data-setting-fallback={
-                          key === 'readFromFirstUnread' && !settings.data?.readFromFirstUnread
-                            ? 'preserve-unread-until-read'
+                          key === 'readFromFirstUnread'
+                            ? settings.data?.readFromFirstUnread
+                              ? 'show-reading-position-button'
+                              : 'preserve-unread-until-read'
                             : undefined
                         }
                       >
@@ -1155,8 +1158,21 @@ function AppearanceSection({
                         />
                       </span>
                     }
-                  />
-                ))}
+                  />,
+                  key === 'readFromFirstUnread' && !settings.data?.readFromFirstUnread ? (
+                    <Row
+                      key="show-reading-position-button"
+                      settingId="show-reading-position-button"
+                      indent
+                      control={
+                        <SharedDisplayToggle
+                          name="showReadingPositionButton"
+                          label="显示跳转到上次阅读位置按钮"
+                        />
+                      }
+                    />
+                  ) : null,
+                ])}
               {category === 'display' ? (
                 <>
                   <Row

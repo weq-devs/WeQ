@@ -65,6 +65,9 @@ export function createPageSnapshotStorage(source: () => SnapshotStorage) {
       const record = envelope.parse(JSON.parse(raw));
       return schema.parse(superjson.parse<unknown>(record.data));
     },
+    remove(key: string): void {
+      source().removeItem(PREFIX + key);
+    },
     write<T>(key: string, value: T, draft = false): void {
       const store = source();
       const name = (draft ? DRAFT_PREFIX : PREFIX) + key;

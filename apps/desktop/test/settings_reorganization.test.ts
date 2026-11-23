@@ -525,7 +525,8 @@ describe('设置归位后的实际页面', () => {
       expect(
         [...display.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
       ).toEqual([
-        '从第一条新消息开始阅读',
+        '定位到上次阅读的位置',
+        '显示跳转到上次阅读位置按钮',
         '自动跟随最新消息',
         '发送消息后定位到最新消息',
         '向下滚动时显示定位到底部按钮',

@@ -1,5 +1,6 @@
 import { act, createElement, useCallback, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useMessageWindowState } from '../src/renderer/src/views/workspace/useMessageWindowState';
@@ -79,7 +80,7 @@ async function fixture() {
       isGroup: false,
       selectedMessageWindowKey: conversationWindowKey(state.messageScope, 'c2c', conversation.id),
       messagesTabActive: true,
-      readFromFirstUnread: false,
+      resumeReadingPosition: false,
       onScopeChange: useCallback(() => {}, []),
     });
     useMessageReadSelection(state, {
@@ -94,24 +95,28 @@ async function fixture() {
       isDirect: true,
       isGroup: false,
       messagesTabActive: true,
-      loadingInitialMessages: state.messagesLoading,
-      readFromFirstUnread: false,
-      messageCount: state.loaded.length,
+      resumeReadingPosition: false,
       centerWindowOnSeq: f.center,
     });
     return null;
   }
   const root = createRoot(document.createElement('div'));
+  const queryClient = new QueryClient();
   const render = async (next?: { config?: string; conv?: string }) => {
     if (next?.config) configId = next.config;
     if (next?.conv) conversation = { ...direct, id: next.conv };
-    await act(async () => root.render(createElement(Probe)));
+    await act(async () =>
+      root.render(
+        createElement(QueryClientProvider, { client: queryClient }, createElement(Probe)),
+      ),
+    );
   };
   let disposed = false;
   const dispose = async () => {
     if (disposed) return;
     disposed = true;
     await act(async () => root.unmount());
+    queryClient.clear();
   };
   cleanups.push(dispose);
   await render();

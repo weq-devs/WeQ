@@ -13,7 +13,6 @@ import {
 import { mergeRoamingTimeline, timelineRowKey } from '../../../../shared/roaming_timeline';
 import { useWebConnection } from '../../state/webConnection';
 import { client } from '../../trpc/client';
-import { unreadChatType } from '@weq/codec';
 import {
   conversationWindowKey,
   restorableConversationWindow,
@@ -28,9 +27,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { readRecentMessageCache, rememberRecentMessageCache } from '../../lib/recentMessageCache';
 import { mergeRefreshedWindow } from '../../lib/conversationRefresh';
 import {
+  atConversationBottom,
   captureReadingPosition,
   restoreReadingPosition,
   restoreReadingPositionAfterPrepend,
+  type ConversationReadingPosition,
 } from '../../lib/conversationReadingPosition';
 import { useConversationRecoveryPosition } from '../../hooks/useConversationRecoveryPosition';
 import type { Conversation } from '../../im-template/template';
@@ -41,18 +42,13 @@ type WindowSelectionInput = SelectionInput & {
   activeConversationId: string | null;
   selectedMessageWindowKey: string;
   messagesTabActive: boolean;
-  readFromFirstUnread: boolean;
+  resumeReadingPosition: boolean;
   onScopeChange: () => void;
 };
 type EntryInput = SelectionInput & {
   selectedConversation: Conversation | null | undefined;
   messagesTabActive: boolean;
-  loadingInitialMessages: boolean;
-  readFromFirstUnread: boolean;
-  readEntryUnreadInfo: (
-    chatType: UnreadRequest['targets'][number]['chatType'],
-    uid: string,
-  ) => Promise<Awaited<ReturnType<typeof readUnreadInfos>>[number] | undefined>;
+  resumeReadingPosition: boolean;
   centerWindowOnSeq: (
     conv: string,
     kind: 'group' | 'c2c',
@@ -79,7 +75,7 @@ export function useConversationWindowSelection(
     isGroup,
     selectedMessageWindowKey,
     messagesTabActive,
-    readFromFirstUnread,
+    resumeReadingPosition,
     onScopeChange,
   }: WindowSelectionInput,
 ) {
@@ -95,6 +91,7 @@ export function useConversationWindowSelection(
     setInitialReadingPosition,
     setLoadingNewerMessages,
     entryLoadingRef,
+    visitedHistoryRef,
     loadedWindow,
     setLoadedWindow,
     loaded,
@@ -135,21 +132,33 @@ export function useConversationWindowSelection(
       (!messagesLoading || loaded.length > 0)
     ) {
       const scroll = nativeMessageScrollRef.current;
-      const position = scroll ? captureReadingPosition(scroll) : undefined;
+      const windowKey = conversationWindowKey(
+        messageScope,
+        old.kind === 'group' ? 'group' : 'c2c',
+        old.id,
+      );
+      const bottom = scroll && atConversationBottom(scroll, anchoredToLatest);
+      let position = scroll?.clientHeight && !bottom ? captureReadingPosition(scroll) : undefined;
       const anchorIndex = loaded.findIndex((row) => timelineRowKey(row) === position?.anchorId);
       if (position && anchorIndex >= 0) {
         const anchor = loaded[anchorIndex]!;
-        if (old.kind === 'group' || anchor.source !== 'roaming' || anchor.ntSeqVerified)
+        if (
+          /^[1-9]\d*$/.test(anchor.msgSeq) &&
+          (old.kind === 'group' || anchor.source !== 'roaming' || anchor.ntSeqVerified)
+        )
           position.anchorSeq = anchor.msgSeq;
+      } else {
+        position = undefined;
+        if (bottom && (resumeReadingPosition || visitedHistoryRef.current))
+          conversationWindows.setPosition(windowKey, undefined);
       }
       conversationWindows.put(
-        conversationWindowKey(messageScope, old.kind === 'group' ? 'group' : 'c2c', old.id),
+        windowKey,
         {
           rows: loaded,
           anchored: anchoredToLatest,
           hasOlder,
           hasNewer,
-          scrollTop: scroll?.scrollTop ?? 0,
           readingPosition: position,
           revision: loadedRevisionRef.current,
           dirty:
@@ -182,10 +191,15 @@ export function useConversationWindowSelection(
             conversationWindowKey(messageScope, isGroup ? 'group' : 'c2c', selectedUid),
           )
         : undefined;
+    const saved = conversationWindows.getPosition(selectedMessageWindowKey);
+    const position =
+      resumeReadingPosition && (saved?.anchorSeq || cached?.readingPosition === saved)
+        ? saved
+        : undefined;
     if (
       !cached &&
       IS_WEB &&
-      !readFromFirstUnread &&
+      !position &&
       selectedUid &&
       messageScope &&
       (isDirect || isGroup) &&
@@ -194,10 +208,11 @@ export function useConversationWindowSelection(
       cached = readRecentMessageCache(cache, messageScope, selectedMessageWindowKey);
       if (cached) conversationWindows.put(selectedMessageWindowKey, cached);
     }
-    const restored = restorableConversationWindow(cached, readFromFirstUnread ?? false);
+    const restored = restorableConversationWindow(cached, position);
     // 新窗口提交前就拒收旧读取；不能等 passive effect 换 selection，
     // 否则这段间隙收到的旧首屏／实时刷新仍能覆盖新会话。
     selectionRef.current = null;
+    visitedHistoryRef.current = false;
     windowRef.current = {
       minSeq: restored?.rows[0]?.msgSeq ?? null,
       anchored: restored?.anchored ?? true,
@@ -218,11 +233,7 @@ export function useConversationWindowSelection(
     entryLoadingRef.current = false;
     loadedRevisionRef.current = restored?.revision ?? 0;
     windowVerifiedAtRef.current = restored?.verifiedAt ?? 0;
-    setInitialReadingPosition(
-      readFromFirstUnread
-        ? (restored?.readingPosition ?? (restored ? { scrollTop: restored.scrollTop } : undefined))
-        : undefined,
-    );
+    setInitialReadingPosition(restored?.readingPosition === position ? position : undefined);
     cachedScrollRef.current = null;
     loadingOlderRef.current = false;
     loadingNewerRef.current = false;
@@ -307,9 +318,7 @@ export function useConversationWindowEntry(
     isDirect,
     isGroup,
     messagesTabActive,
-    loadingInitialMessages,
-    readFromFirstUnread,
-    readEntryUnreadInfo,
+    resumeReadingPosition,
     centerWindowOnSeq,
   }: EntryInput,
 ) {
@@ -329,6 +338,7 @@ export function useConversationWindowEntry(
     readFailure,
     setReadFailure,
     entryLoadingRef,
+    visitedHistoryRef,
     loaded,
     nativeMessageScrollRef,
     pendingMessageCommit,
@@ -356,16 +366,15 @@ export function useConversationWindowEntry(
   const readKey = conversationWindowKey(messageScope, isGroup ? 'group' : 'c2c', selectedUid ?? '');
 
   // 命中缓存先恢复窗口，随后按水位增量读取；有变更或较久未校准时才重读已有范围。
-  const entryChatType =
-    selectedConversation?.type === 'direct'
-      ? (unreadChatType(selectedConversation.chatType ?? 1) ?? 1)
-      : 2;
   const { read: readRecoveryPosition, applied: recoveryPositionApplied } =
     useConversationRecoveryPosition({
       conv: selectedUid,
       kind: isGroup ? 'group' : 'c2c',
       rows: loaded,
-      enabled: messagesTabActive && !loadingInitialMessages && Boolean(messageScope),
+      enabled: messagesTabActive && !messagesLoading && Boolean(messageScope),
+      atLatest: windowRef.current.anchored,
+      resumeReadingPosition,
+      visitedHistoryRef,
       scrollRef: nativeMessageScrollRef,
     });
   useEffect(() => {
@@ -406,8 +415,19 @@ export function useConversationWindowEntry(
         cancelled = true;
       };
     }
-    const candidate = conversationWindows.get(conversationWindowKey(scope, kind, conv));
-    const cached = restorableConversationWindow(candidate, readFromFirstUnread ?? false);
+    const candidate = conversationWindows.get(readKey);
+    const recoveryPosition = readRecoveryPosition(conv, kind);
+    if (recoveryPosition) {
+      if (recoveryPosition.anchorSeq && !conversationWindows.getPosition(readKey))
+        conversationWindows.setPosition(readKey, recoveryPosition);
+      recoveryPositionApplied();
+    }
+    const position = conversationWindows.getPosition(readKey);
+    const resumable =
+      resumeReadingPosition && (position?.anchorSeq || candidate?.readingPosition === position)
+        ? position
+        : undefined;
+    const cached = restorableConversationWindow(candidate, resumable);
     if (cached?.prefetched) recordMessageCounter('prefetchHit');
     const dirty = Boolean(
       cached &&
@@ -435,7 +455,7 @@ export function useConversationWindowEntry(
     if (!cached) setMessagesLoading(true);
     entryLoadingRef.current = true;
     setLoadingNewerMessages(false);
-    if (cached?.anchored && readFromFirstUnread) {
+    if (cached?.anchored && resumable) {
       // 增量页失败后仍保留向下重试入口，也避免在途实时刷新抢占阅读窗口。
       setHasNewer(true);
       setAnchoredToLatest(false);
@@ -443,15 +463,8 @@ export function useConversationWindowEntry(
     }
     void (async () => {
       try {
-        const recoveryPosition = !cached ? readRecoveryPosition(conv, kind) : undefined;
-        const saved = recoveryPosition
-          ? recoveryPosition.anchorSeq
-            ? recoveryPosition
-            : undefined
-          : readFromFirstUnread
-            ? conversationWindows.getPosition(conversationWindowKey(scope, kind, conv))
-            : undefined;
-        let readSeq = saved?.anchorSeq;
+        const readSeq = resumable?.anchorSeq;
+        let pendingReadingPosition: ConversationReadingPosition | undefined;
         let localShown = false;
         const entryStarted = performance.now();
         let firstRows = false;
@@ -459,18 +472,10 @@ export function useConversationWindowEntry(
           cached,
           dirty,
           readSeq,
-          readFromFirstUnread: recoveryPosition
-            ? Boolean(recoveryPosition.anchorSeq)
-            : (readFromFirstUnread ?? false),
+          readFromFirstUnread: Boolean(resumable),
           limit,
           current: valid,
           active,
-          resolveReadSeq: async () => {
-            const info = await readEntryUnreadInfo(entryChatType, conv);
-            if (info && !info.readError && (info.unreadCount ?? 0) > 0)
-              readSeq = info.readSeq ?? undefined;
-            return readSeq;
-          },
           settled: () => {
             finishEntry();
             if (!valid() || dbRevisionRef.current !== revision) void refreshWindow();
@@ -582,16 +587,16 @@ export function useConversationWindowEntry(
               recordMessagePhase('entryFirstRows', performance.now() - entryStarted);
               firstRows = true;
             }
-            recoveryPositionApplied();
-            if (first && readSeq) {
-              setInitialReadingPosition(
-                saved ?? {
-                  scrollTop: 0,
-                  anchorId: next.rows.length ? timelineRowKey(next.rows.at(-1)!) : undefined,
-                  alignToEnd: true,
-                  bottomInset: 64,
-                },
-              );
+            if (first && readSeq && resumable) {
+              const anchor =
+                next.rows.find((row) => timelineRowKey(row) === resumable.anchorId) ??
+                next.rows.findLast((row) => row.msgSeq === readSeq) ??
+                next.rows.at(-1);
+              if (anchor) {
+                pendingReadingPosition = { ...resumable, anchorId: timelineRowKey(anchor) };
+                entryScrollIntentRef.current = { selection, revision: null };
+                setInitialReadingPosition(pendingReadingPosition);
+              }
             } else if (!first) {
               const scroll = nativeMessageScrollRef.current;
               const intent = entryScrollIntentRef.current;
@@ -600,12 +605,14 @@ export function useConversationWindowEntry(
                 intent.revision !== null &&
                 intent.revision !==
                   (scroll ? timelineViewport(scroll)?.scrollRevision?.() : undefined);
-              if (
+              if (pendingReadingPosition && !interacted) {
+                // 首批只含锚点之前的消息，补齐后续页后才能准确恢复屏幕偏移。
+                cachedScrollRef.current = { id: conv, position: pendingReadingPosition };
+              } else if (
                 scroll &&
                 (!localShown ||
                   interacted ||
-                  readFromFirstUnread ||
-                  recoveryPosition ||
+                  resumable ||
                   !next.anchored ||
                   scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 48)
               ) {
@@ -653,9 +660,7 @@ export function useConversationWindowEntry(
     readKey,
     setReadFailure,
     centerWindowOnSeq,
-    entryChatType,
-    readFromFirstUnread,
-    readEntryUnreadInfo,
+    resumeReadingPosition,
     messageScope,
     conversationWindows,
     refreshWindow,
@@ -902,5 +907,6 @@ export function useConversationWindowEntry(
   ]);
 
   const failedStage = readFailure?.key === readKey ? readFailure.stage : undefined;
-  return { requestOlderMessages, requestNewerMessages, failedStage };
+  const readingPosition = conversationWindows.getPosition(readKey);
+  return { requestOlderMessages, requestNewerMessages, failedStage, readingPosition };
 }

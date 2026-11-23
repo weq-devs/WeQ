@@ -14,6 +14,11 @@ export interface ConversationReadingPosition {
   bottomInset?: number;
 }
 
+/** 只有会话的最新一页才有可清除阅读位置的真正底部。 */
+export function atConversationBottom(scroll: HTMLElement, atLatest: boolean): boolean {
+  return atLatest && scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop <= 4;
+}
+
 // 临时布局补偿不能越过新的滚动意图；切会话保存的位置不附带此守卫。
 const transientPositions = new WeakMap<
   ConversationReadingPosition,

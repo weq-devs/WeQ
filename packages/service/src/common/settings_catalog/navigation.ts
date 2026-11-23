@@ -185,6 +185,7 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
       'auto-transcribe-voice',
       'chat-image-cache',
       'read-first-unread',
+      'show-reading-position-button',
       'preserve-unread-until-read',
       'unread-divider',
       'swipe-to-quote',
@@ -763,7 +764,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['group-assistant-count', '群助手', '群助手未读汇总角标', '群助手显示总消息数'],
       ['all-conversations-include-hidden', '包含已隐藏会话', '全部会话隐藏范围'],
       ['all-conversations-include-deleted', '包含已删除会话', '全部会话删除范围'],
-      ['read-first-unread', '从第一条新消息开始阅读'],
+      ['read-first-unread', '定位到上次阅读的位置'],
+      ['show-reading-position-button', '显示跳转到上次阅读位置按钮'],
       [
         'preserve-unread-until-read',
         '保留尚未读到的消息的未读计数',

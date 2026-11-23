@@ -11,7 +11,6 @@ const window = (count: number) => ({
   anchored: true,
   hasOlder: false,
   hasNewer: false,
-  scrollTop: 120,
   readingPosition: { scrollTop: 120, anchorId: '600', anchorSeq: '601', offset: -12 },
   revision: 0,
   dirty: false,
@@ -75,13 +74,13 @@ describe('会话阅读窗口缓存', () => {
     expect(cache.get('old')).toBeUndefined();
     cache.clear();
   });
-  it('预取尾页不冒充从未读处开始的阅读现场，偏好改变后仍会读取未读位置', () => {
+  it('预取尾页不冒充已保存的历史阅读窗口', () => {
     const prefetched = { ...window(25), prefetched: true };
-    expect(restorableConversationWindow(prefetched, false)).toBe(prefetched);
-    expect(restorableConversationWindow(prefetched, true)).toBeUndefined();
-    const history = { ...window(25), anchored: false };
-    expect(restorableConversationWindow(history, false)).toBeUndefined();
-    expect(restorableConversationWindow(history, true)).toBe(history);
+    expect(restorableConversationWindow(prefetched)).toBe(prefetched);
+    expect(restorableConversationWindow(prefetched, { scrollTop: 1 })).toBeUndefined();
+    const history = { ...window(25), anchored: false, readingPosition: { scrollTop: 1 } };
+    expect(restorableConversationWindow(history)).toBeUndefined();
+    expect(restorableConversationWindow(history, history.readingPosition)).toBe(history);
   });
   it('切换时不序列化消息，下一轮核算预算；清空会取消未完成的核算', () => {
     vi.useFakeTimers();

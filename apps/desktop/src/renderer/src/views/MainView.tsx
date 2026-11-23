@@ -126,7 +126,11 @@ import { WEB_NOTICE_OPEN } from '../lib/browserNotifications';
 import type { WebNotice } from '../../../main/web/notices';
 import type { ChatMsgWire as IncomingMessageWire } from '../../../main/ipc/serde';
 import { createReplyPreviewIndex } from '../lib/replyPreview';
-import { revealTimelineMessage } from '../lib/timelineViewport';
+import { messageElement, revealTimelineMessage, timelineViewport } from '../lib/timelineViewport';
+import {
+  restoreReadingPosition,
+  type ConversationReadingPosition,
+} from '../lib/conversationReadingPosition';
 import { recordMessagePhase } from '../lib/messagePerformance';
 import { specialCareBlocker } from '../lib/specialCareAccess';
 import {
@@ -749,6 +753,7 @@ function MainWorkspace(): ReactElement {
     loadingNewerMessages,
     loaded,
     nativeMessageScrollRef,
+    visitedHistoryRef,
     captureNativeTimeline,
     anchoredToLatest,
     setAnchoredToLatest,
@@ -3150,8 +3155,7 @@ function MainWorkspace(): ReactElement {
           displaySettings.isSuccess &&
           messagesTabActive &&
           messageActivity.enabled &&
-          (!IS_WEB || firstPageStreamReady) &&
-          !displaySettings.data?.readFromFirstUnread,
+          (!IS_WEB || firstPageStreamReady),
       ),
       key,
     );
@@ -3164,7 +3168,6 @@ function MainWorkspace(): ReactElement {
     messagesTabActive,
     messageActivity.enabled,
     messageScope,
-    displaySettings.data?.readFromFirstUnread,
     displaySettings.isSuccess,
   ]);
 
@@ -3963,7 +3966,7 @@ function MainWorkspace(): ReactElement {
     isGroup,
     selectedMessageWindowKey,
     messagesTabActive,
-    readFromFirstUnread: displaySettings.data?.readFromFirstUnread ?? false,
+    resumeReadingPosition: displaySettings.data?.readFromFirstUnread ?? false,
     onScopeChange: () => {
       setConversationPrefs({});
       setOptimisticMessages([]);
@@ -5933,6 +5936,7 @@ function MainWorkspace(): ReactElement {
       messageId?: string,
       mode?: ReplyJumpTarget['mode'],
       importantMessage?: ReplyJumpTarget['importantMessage'],
+      readingPosition?: ConversationReadingPosition,
     ): Promise<boolean> =>
       runMessageLocate(
         async (isCurrent) => {
@@ -6093,6 +6097,14 @@ function MainWorkspace(): ReactElement {
           if (anchor) {
             await new Promise<void>((resolve) => window.setTimeout(resolve, 160));
             if (!current()) return false;
+            const scroll = nativeMessageScrollRef.current;
+            if (readingPosition && scroll) {
+              restoreReadingPosition(scroll, {
+                ...readingPosition,
+                anchorId: timelineRowKey(anchor),
+              });
+              return true;
+            }
             const positioned = scrollToMsgId(timelineRowKey(anchor), Boolean(target));
             if (target && !positioned && (exactId || importantMessage || mode === 'firstUnread')) {
               pushToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
@@ -6105,6 +6117,7 @@ function MainWorkspace(): ReactElement {
       ),
     [
       scrollToMsgId,
+      nativeMessageScrollRef,
       pushToast,
       runMessageLocate,
       setLoaded,
@@ -6803,20 +6816,60 @@ function MainWorkspace(): ReactElement {
     };
   }, [jumpToConvSeq]);
 
-  const { requestOlderMessages, requestNewerMessages, failedStage } = useConversationWindowEntry(
-    messageWindow,
-    {
+  const { requestOlderMessages, requestNewerMessages, failedStage, readingPosition } =
+    useConversationWindowEntry(messageWindow, {
       selectedConversation,
       selectedUid,
       isDirect,
       isGroup,
       messagesTabActive,
-      loadingInitialMessages,
-      readFromFirstUnread: displaySettings.data?.readFromFirstUnread ?? false,
-      readEntryUnreadInfo,
+      resumeReadingPosition: displaySettings.data?.readFromFirstUnread ?? false,
       centerWindowOnSeq,
-    },
-  );
+    });
+  const jumpToReadingPosition = useCallback(async () => {
+    const scroll = nativeMessageScrollRef.current;
+    const selection = selectionRef.current;
+    if (!readingPosition || !scroll || !selection || selection.id !== selectedUid) return false;
+    const { anchorId, anchorSeq } = readingPosition;
+    if (
+      anchorId &&
+      (timelineViewport(scroll)?.offset(anchorId) !== undefined || messageElement(scroll, anchorId))
+    ) {
+      restoreReadingPosition(scroll, readingPosition);
+      visitedHistoryRef.current = true;
+      return true;
+    }
+    const positioned = anchorSeq
+      ? await centerWindowOnSeq(
+          selection.id,
+          selection.kind === 'group' ? 'group' : 'c2c',
+          anchorSeq,
+          undefined,
+          anchorId,
+          undefined,
+          undefined,
+          readingPosition,
+        )
+      : false;
+    if (positioned && selectionRef.current === selection) visitedHistoryRef.current = true;
+    return positioned;
+  }, [
+    centerWindowOnSeq,
+    nativeMessageScrollRef,
+    readingPosition,
+    selectedUid,
+    selectionRef,
+    visitedHistoryRef,
+  ]);
+  const showReadingPositionButton =
+    readSettingsReady &&
+    !displaySettings.data?.readFromFirstUnread &&
+    preferenceValue('showReadingPositionButton') &&
+    Boolean(
+      readingPosition &&
+        (readingPosition.anchorSeq ||
+          loaded.some((row) => timelineRowKey(row) === readingPosition.anchorId)),
+    );
   // 目标已是选中的会话，但从联系人等页面返回时不会重新触发会话首屏读取。
   useEffect(() => {
     const jump = pendingSearchJumpRef.current;
@@ -10572,6 +10625,9 @@ function MainWorkspace(): ReactElement {
                                 return false;
                               }
                             }}
+                            onJumpToReadingPosition={
+                              showReadingPositionButton ? jumpToReadingPosition : undefined
+                            }
                             readThroughViewport={readThroughViewport}
                             confirmedReadSeq={
                               readThroughViewport

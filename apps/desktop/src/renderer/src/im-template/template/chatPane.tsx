@@ -79,6 +79,7 @@ import {
   BrainCircuit,
   Bot,
   ChevronDown,
+  Bookmark,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
@@ -529,6 +530,7 @@ export type ChatPaneProps = {
   latestMessageSeq?: string;
   onPreviewLatest?: (conversation: Conversation) => void;
   onJumpToLatest?: () => Promise<boolean>;
+  onJumpToReadingPosition?: () => Promise<boolean>;
   readThroughViewport?: boolean;
   confirmedReadSeq?: string;
   onReadCurrentConversation?: (conversation: Conversation, visibleSeqs?: string[]) => void;
@@ -751,6 +753,7 @@ function ChatPaneContent({
   latestMessageSeq,
   onPreviewLatest,
   onJumpToLatest,
+  onJumpToReadingPosition,
   readThroughViewport,
   confirmedReadSeq,
   onReadCurrentConversation,
@@ -876,6 +879,10 @@ function ChatPaneContent({
   const tabActive = useTabActive();
   useClientPreferences((state) => state.tick);
   const autoFetchGaps = tabActive && preferenceValue('autoFetchMissingMessages');
+  const [readingJump, setReadingJump] = useState<{
+    run: NonNullable<ChatPaneProps['onJumpToReadingPosition']>;
+    done: boolean;
+  }>();
   const showUnreadDivider = preferenceValue('showUnreadDivider');
   const swipeToQuote = preferenceValue('swipeToQuote');
   const directory = useContext(ConversationDirectoryContext);
@@ -6673,6 +6680,35 @@ function ChatPaneContent({
             ) : null}
           </button>
         </div>
+      ) : null}
+
+      {onJumpToReadingPosition &&
+      !loading &&
+      !(readingJump?.run === onJumpToReadingPosition && readingJump.done) ? (
+        <button
+          type="button"
+          className={cn(
+            'unread-dock-button tone-info',
+            dockVisible && 'reading-position-below-unread',
+          )}
+          disabled={readingJump?.run === onJumpToReadingPosition}
+          onClick={async () => {
+            const run = onJumpToReadingPosition;
+            const pending = { run, done: false };
+            setReadingJump(pending);
+            try {
+              const done = await run();
+              setReadingJump((current) =>
+                current === pending ? (done ? { run, done } : undefined) : current,
+              );
+            } catch {
+              setReadingJump((current) => (current === pending ? undefined : current));
+            }
+          }}
+        >
+          <Bookmark size={13} aria-hidden />
+          跳到上次阅读位置
+        </button>
       ) : null}
 
       {/* 未读跳转坞：重要消息与索引共用类型色，普通未读保留原有样式。 */}

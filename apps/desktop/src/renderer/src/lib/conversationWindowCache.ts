@@ -7,7 +7,6 @@ export interface ConversationWindow<T> {
   anchored: boolean;
   hasOlder: boolean;
   hasNewer: boolean;
-  scrollTop: number;
   revision: number;
   dirty: boolean;
   storedAt: number;
@@ -31,6 +30,12 @@ export class ConversationWindowCache<T> {
   private readonly positions = new Map<string, ConversationReadingPosition>();
   getPosition(key: string): ConversationReadingPosition | undefined {
     return this.positions.get(key);
+  }
+  setPosition(key: string, position: ConversationReadingPosition | undefined): void {
+    this.positions.delete(key);
+    if (!position) return;
+    this.positions.set(key, position);
+    if (this.positions.size > 1000) this.positions.delete(this.positions.keys().next().value!);
   }
   /** 后台检查不算用户访问，避免预取改变已阅读窗口的 LRU 顺序。 */
   peek(key: string): ConversationWindow<T> | undefined {
@@ -63,11 +68,7 @@ export class ConversationWindowCache<T> {
   put(key: string, value: ConversationWindow<T>, anchorIndex?: number): void {
     const speculative = value.prefetched === true && (this.entries.get(key)?.speculative ?? true);
     this.remove(key);
-    if (value.readingPosition) {
-      this.positions.delete(key);
-      this.positions.set(key, value.readingPosition);
-      if (this.positions.size > 1000) this.positions.delete(this.positions.keys().next().value!);
-    }
+    if (value.readingPosition) this.setPosition(key, value.readingPosition);
     // 长窗口只留下阅读锚点附近的一页上下文，避免切换时序列化整段历史。
     const start = Math.max(
       0,
@@ -143,8 +144,11 @@ export const conversationWindowKey = (source: string, kind: 'c2c' | 'group', con
 
 export function restorableConversationWindow<T>(
   cached: ConversationWindow<T> | undefined,
-  readFromFirstUnread: boolean,
+  position?: ConversationReadingPosition,
 ): ConversationWindow<T> | undefined {
-  if (readFromFirstUnread && cached?.prefetched) return undefined;
-  return readFromFirstUnread || cached?.anchored ? cached : undefined;
+  if (position) {
+    // 范围曾因打开最新消息或预取而被替换时，按保存的消息重新读取。
+    return cached?.readingPosition === position ? cached : undefined;
+  }
+  return cached?.anchored ? cached : undefined;
 }

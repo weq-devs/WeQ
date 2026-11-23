@@ -225,7 +225,7 @@ const sharedToggles = [
 ] as const;
 
 const toggles = [
-  ['从第一条新消息开始阅读', 'readFromFirstUnread', false],
+  ['定位到上次阅读的位置', 'readFromFirstUnread', false],
   ['自动跟随最新消息', 'autoFollowLatestMessages', true],
   ['发送消息后定位到最新消息', 'jumpToLatestAfterSend', true],
   ['向下滚动时显示定位到底部按钮', 'showScrollToBottomButton', true],
@@ -271,12 +271,9 @@ it('消息开关分别按默认值展示、保存、刷新共享设置，重开�
   let f = mount();
   const toggle = (label: string) => f.toggle(label);
   try {
-    f.toggle('从第一条新消息开始阅读');
+    f.toggle('定位到上次阅读的位置');
     const setting = f.host.querySelector('[data-setting-id="read-first-unread"]');
-    expect(setting?.querySelector('.weq-set-row-label')?.textContent).toBe(
-      '从第一条新消息开始阅读',
-    );
-    expect(setting?.querySelector('.weq-set-row-desc')).toBeNull();
+    expect(setting?.querySelector('.weq-set-row-label')?.textContent).toBe('定位到上次阅读的位置');
     for (const [label, key, defaultValue] of toggles) {
       vi.clearAllMocks();
       expect(toggle(label).getAttribute('aria-checked'), label).toBe(String(defaultValue));
@@ -349,14 +346,17 @@ it('每个消息开关保存失败均保留原值并提示，保存期间不能�
   }
 });
 
-it('首条新消息的未读计数子项默认开启，关闭上级后保留子项的选择', () => {
+it('阅读位置开关切换时显示相应子项，并保留未读计数偏好', () => {
   const f = mount();
-  const parent = () => f.toggle('从第一条新消息开始阅读');
+  const parent = () => f.toggle('定位到上次阅读的位置');
+  const manual = () => f.toggle('显示跳转到上次阅读位置按钮');
   const child = () => f.toggle('保留尚未读到的消息的未读计数');
   try {
     expect(child()).toBeUndefined();
+    expect(manual().getAttribute('aria-checked')).toBe('true');
     act(() => parent().click());
     f.render();
+    expect(manual()).toBeUndefined();
     expect(child().getAttribute('aria-checked')).toBe('true');
     act(() => child().click());
     f.render();
@@ -365,8 +365,10 @@ it('首条新消息的未读计数子项默认开启，关闭上级后保留子�
     act(() => parent().click());
     f.render();
     expect(child()).toBeUndefined();
+    expect(manual().getAttribute('aria-checked')).toBe('true');
     act(() => parent().click());
     f.render();
+    expect(manual()).toBeUndefined();
     expect(child().getAttribute('aria-checked')).toBe('false');
   } finally {
     f.close();

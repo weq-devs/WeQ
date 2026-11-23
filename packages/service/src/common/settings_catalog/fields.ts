@@ -55,7 +55,7 @@ export const APP_SETTING_FIELDS = (
       CONTACT_UNREAD_COUNT_LABEL,
     ],
     ['notification-badges', 'showGroupAssistantMessageCount', 'group-assistant-count', '群助手'],
-    ['reading', 'readFromFirstUnread', 'read-first-unread', '从首条未读开始'],
+    ['reading', 'readFromFirstUnread', 'read-first-unread', '定位到上次阅读的位置'],
     [
       'reading',
       'preserveUnreadUntilRead',
@@ -151,6 +151,12 @@ export const CLIENT_SETTING_FIELDS = (
       'closeConversationOutsideView',
       'close-conversation-outside-view',
       '切换视图时关闭不在新视图中的会话',
+    ],
+    [
+      'reading',
+      'showReadingPositionButton',
+      'show-reading-position-button',
+      '显示跳转到上次阅读位置按钮',
     ],
     ['reading', 'showUnreadDivider', 'unread-divider', '显示未读分界线'],
     ['reading', 'swipeToQuote', 'swipe-to-quote', '触屏左滑引用'],

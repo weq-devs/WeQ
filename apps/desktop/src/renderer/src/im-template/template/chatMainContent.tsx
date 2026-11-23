@@ -51,6 +51,7 @@ export function ChatMainContent({
   latestMessageSeq,
   onPreviewLatest,
   onJumpToLatest,
+  onJumpToReadingPosition,
   readThroughViewport,
   confirmedReadSeq,
   onReadCurrentConversation,
@@ -148,6 +149,7 @@ export function ChatMainContent({
   | 'latestMessageSeq'
   | 'onPreviewLatest'
   | 'onJumpToLatest'
+  | 'onJumpToReadingPosition'
   | 'onReadCurrentConversation'
   | 'readThroughViewport'
   | 'confirmedReadSeq'
@@ -350,6 +352,7 @@ export function ChatMainContent({
       latestMessageSeq={latestMessageSeq}
       onPreviewLatest={onPreviewLatest}
       onJumpToLatest={onJumpToLatest}
+      onJumpToReadingPosition={onJumpToReadingPosition}
       readThroughViewport={readThroughViewport}
       confirmedReadSeq={confirmedReadSeq}
       onReadCurrentConversation={onReadCurrentConversation}

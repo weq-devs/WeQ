@@ -44,7 +44,6 @@ export function readRecentMessageCache(
     anchored: true,
     hasOlder: entry.hasOlder,
     hasNewer: false,
-    scrollTop: 0,
     revision: 0,
     dirty: true,
     storedAt: Date.now(),

@@ -1226,11 +1226,11 @@ it.each([false, true])('首批消息立即显示未读分界线，进入会话�
   }
 });
 
-it('首条新消息模式在消息滑出上沿或触底时提交已读，并保留跳过的序号', async () => {
+it('续读模式在消息滑出上沿或触底时提交已读，并保留跳过的序号', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
-  vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+  const hasFocus = vi.spyOn(document, 'hasFocus').mockReturnValue(false);
   useViewState.getState().setOpenedUin('90001');
   f.readFromFirstUnread = true;
   f.unreadMode = true;
@@ -1246,8 +1246,6 @@ it('首条新消息模式在消息滑出上沿或触底时提交已读，并保�
     senderUin: '20001',
     elements: [{ type: 'text', data: { textContent: `消息 ${seq}` } }],
   });
-  f.beforeRows = [message(100)];
-  f.afterReply = () => [101, 102, 103, 104, 105].map(message);
   let offset = 0;
   const realBounds = HTMLElement.prototype.getBoundingClientRect;
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
@@ -1280,6 +1278,9 @@ it('首条新消息模式在消息滑出上沿或触底时提交已读，并保�
         .find((button) => button.textContent === '10001')!
         .click(),
     );
+    await act(async () =>
+      f.reads.at(-1)!.show({ complete: true, rows: [105, 104, 103, 102, 101, 100].map(message) }),
+    );
     await act(async () => vi.advanceTimersByTimeAsync(32));
     expect(f.markedRead).toEqual([]);
     expect(
@@ -1290,6 +1291,12 @@ it('首条新消息模式在消息滑出上沿或触底时提交已读，并保�
     expect(f.unreadReads.filter(({ targets }) => targets.length === 1)).toHaveLength(1);
 
     const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+    hasFocus.mockReturnValue(true);
+    await act(async () => {
+      offset = scroll.scrollTop = 0;
+      scroll.dispatchEvent(new Event('scroll'));
+      await vi.advanceTimersByTimeAsync(32);
+    });
     await act(async () => {
       scroll.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 100 }));
       offset = scroll.scrollTop = 100;
@@ -1322,80 +1329,161 @@ it.each([
   ['u_peer', false],
   ['10001', true],
   ['u_peer', true],
-] as const)(
-  '会话 %s 最新页后台校准不显示后续加载，真实向下读取仍显示：未读模式=%s',
-  async (id, unread) => {
-    vi.useFakeTimers();
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    vi.stubGlobal('localStorage', new Storage());
-    useViewState.getState().setOpenedUin('90001');
-    f.readFromFirstUnread = unread;
-    const host = document.createElement('div');
-    document.body.append(host);
-    const root = createRoot(host);
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const select = (target: string) =>
-      act(async () =>
-        [...host.querySelectorAll<HTMLButtonElement>('nav button')]
-          .find((button) => button.textContent === target)!
-          .click(),
-      );
-    const message = (seq: string): TestMessage => ({
-      msgId: seq,
-      msgSeq: seq,
+] as const)('会话 %s 无阅读位置时保持最新页且不显示后续加载：续读模式=%s', async (id, resume) => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.readFromFirstUnread = resume;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const select = (target: string) =>
+    act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === target)!
+        .click(),
+    );
+  const message = (seq: string): TestMessage => ({
+    msgId: seq,
+    msgSeq: seq,
+    sendTime: '1794200000',
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    elements: [{ type: 'text', text: `消息 ${seq}` }],
+  });
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await select(id);
+    const read = f.reads.at(-1)!;
+    await act(async () => read.show({ complete: false, rows: [message('1')] }));
+    // 本地最新页已经可读，后台合并迟迟未完成也不应冒充向下分页。
+    await act(async () => vi.advanceTimersByTimeAsync(5000));
+    expect(host.querySelector('[data-message-id="1"]')).not.toBeNull();
+    expect(f.atLatest).toBe(true);
+    expect(host.querySelector('[aria-label="正在加载后续消息"]')).toBeNull();
+    await act(async () => read.show({ complete: true, rows: [message('1')] }));
+    await select('10002');
+    await act(async () => vi.advanceTimersByTimeAsync(4000));
+    const readAfter = vi.fn(() => []);
+    f.afterReply = readAfter;
+    await select(id);
+    expect(host.querySelector('[data-message-id="1"]')).not.toBeNull();
+    expect(readAfter).not.toHaveBeenCalled();
+    expect(f.atLatest).toBe(true);
+    expect(host.querySelector('[aria-label="正在加载后续消息"]')).toBeNull();
+    await act(async () =>
+      f.reads.at(-1)!.show({ complete: true, rows: [message('2'), message('1')] }),
+    );
+    expect(host.querySelector('[aria-label="正在加载后续消息"]')).toBeNull();
+    expect(host.querySelector('[data-message-id="2"]')).not.toBeNull();
+    expect(f.atLatest).toBe(true);
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
+
+it.each([false, true])('保留非底部阅读位置并在读到底后清除：自动续读=%s', async (resume) => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.readFromFirstUnread = resume;
+  const rows = [106, 105, 104, 103, 102, 101].map(
+    (seq): TestMessage => ({
+      msgId: String(seq),
+      msgSeq: String(seq),
       sendTime: '1794200000',
       senderUid: 'u_peer',
       senderUin: '20001',
       elements: [{ type: 'text', text: `消息 ${seq}` }],
+    }),
+  );
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const scroll = () => host.querySelector<HTMLElement>('.message-scroll')!;
+  const jumpButton = () =>
+    Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.textContent === '跳到上次阅读位置',
+    );
+  const select = (id: string) =>
+    act(async () => {
+      Array.from(host.querySelectorAll<HTMLButtonElement>('nav button'))
+        .find((button) => button.textContent === id)!
+        .click();
     });
-    let finishAfter: ((rows: TestMessage[]) => void) | undefined;
-    try {
-      await act(async () =>
-        root.render(
-          h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
-        ),
-      );
-      await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
-      await select(id);
-      const read = f.reads.at(-1)!;
-      await act(async () => read.show({ complete: false, rows: [message('1')] }));
-      // 本地最新页已经可读，后台合并迟迟未完成也不应冒充向下分页。
-      await act(async () => vi.advanceTimersByTimeAsync(5000));
-      expect(host.querySelector('[data-message-id="1"]')).not.toBeNull();
-      expect(f.atLatest).toBe(true);
-      expect(host.querySelector('[aria-label="正在加载后续消息"]')).toBeNull();
-      await act(async () => read.show({ complete: true, rows: [message('1')] }));
-      await select('10002');
-      await act(async () => vi.advanceTimersByTimeAsync(4000));
-      f.afterReply = () =>
-        new Promise((resolve) => {
-          finishAfter = resolve;
-        });
-      await select(id);
-      expect(host.querySelector('[data-message-id="1"]')).not.toBeNull();
-      if (unread) {
-        expect(finishAfter).toBeTypeOf('function');
-        expect(host.querySelector('[aria-label="正在加载后续消息"]')).not.toBeNull();
-        await act(async () => finishAfter!([message('2')]));
-      } else {
-        expect(finishAfter).toBeUndefined();
-        expect(f.atLatest).toBe(true);
-        expect(host.querySelector('[aria-label="正在加载后续消息"]')).toBeNull();
-        await act(async () =>
-          f.reads.at(-1)!.show({ complete: true, rows: [message('2'), message('1')] }),
-        );
-      }
-      expect(host.querySelector('[aria-label="正在加载后续消息"]')).toBeNull();
-      expect(host.querySelector('[data-message-id="2"]')).not.toBeNull();
-      expect(f.atLatest).toBe(true);
-    } finally {
-      act(() => root.unmount());
-      finishAfter?.([]);
-      client.clear();
-      host.remove();
+  const position = (top: number) =>
+    act(async () => {
+      scroll().scrollTop = top;
+      scroll().dispatchEvent(new Event('scroll'));
+    });
+  const bounds = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    if (this.classList.contains('message-scroll')) {
+      Object.defineProperties(this, {
+        clientHeight: { value: 100, configurable: true },
+        scrollHeight: { value: 300, configurable: true },
+      });
+      return new DOMRect(0, 0, 400, 100);
     }
-  },
-);
+    if (this.classList.contains('message-line'))
+      return new DOMRect(
+        0,
+        (Number(this.dataset.messageId) - 101) * 50 - (scroll()?.scrollTop ?? 0),
+        400,
+        50,
+      );
+    return bounds.call(this);
+  });
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await select('10001');
+    await act(async () => f.reads.at(-1)!.show({ complete: true, rows }));
+    expect(jumpButton()).toBeUndefined();
+    await position(75);
+    await select('10002');
+    await select('10001');
+    if (resume) {
+      expect(jumpButton()).toBeUndefined();
+    } else {
+      expect(jumpButton()).toBeDefined();
+      await position(200);
+      await select('10002');
+      await select('10001');
+      expect(jumpButton()).toBeDefined();
+      await act(async () => jumpButton()!.click());
+      expect(jumpButton()).toBeUndefined();
+    }
+    expect(scroll().scrollTop).toBe(75);
+    await position(200);
+    await select('10002');
+    await select('10001');
+    expect(jumpButton()).toBeUndefined();
+    await act(async () => vi.advanceTimersByTimeAsync(32));
+    expect(scroll().scrollTop).not.toBe(75);
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
 
 it('等值删除标记迟到不重复贴底，真实标记增删和正文更新仍即时出现', async () => {
   vi.useFakeTimers();
