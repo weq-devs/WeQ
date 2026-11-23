@@ -1,4 +1,4 @@
-import { PAGE_SIZE, GROUP_INITIAL_PAGE_SIZE } from './paging';
+import { PAGE_SIZE, GROUP_INITIAL_PAGE_SIZE, REFRESH_CAP } from './paging';
 import { toMessageWire } from './messageProjection';
 import type { MessageWire, ChatMsgWire } from './types';
 import { useCallback, useEffect, useLayoutEffect, useReducer } from 'react';
@@ -23,6 +23,9 @@ import {
   scheduleConversationPagingCheck,
 } from '../../lib/conversationPaging';
 import { loadConversationEntry } from '../../lib/conversationEntry';
+import { readCachedMessageWindow } from '../../lib/cachedMessageRead';
+import { useQueryClient } from '@tanstack/react-query';
+import { readRecentMessageCache, rememberRecentMessageCache } from '../../lib/recentMessageCache';
 import { mergeRefreshedWindow } from '../../lib/conversationRefresh';
 import {
   captureReadingPosition,
@@ -80,6 +83,7 @@ export function useConversationWindowSelection(
     onScopeChange,
   }: WindowSelectionInput,
 ) {
+  const cache = useQueryClient();
   const {
     messageScope,
     conversationWindows,
@@ -169,7 +173,7 @@ export function useConversationWindowSelection(
         onScopeChange();
       }
     }
-    const cached =
+    let cached =
       messageScope &&
       selectedUid &&
       (isDirect || isGroup) &&
@@ -178,6 +182,18 @@ export function useConversationWindowSelection(
             conversationWindowKey(messageScope, isGroup ? 'group' : 'c2c', selectedUid),
           )
         : undefined;
+    if (
+      !cached &&
+      IS_WEB &&
+      !readFromFirstUnread &&
+      selectedUid &&
+      messageScope &&
+      (isDirect || isGroup) &&
+      pendingSearchJumpRef.current?.conv !== selectedUid
+    ) {
+      cached = readRecentMessageCache(cache, messageScope, selectedMessageWindowKey);
+      if (cached) conversationWindows.put(selectedMessageWindowKey, cached);
+    }
     const restored = restorableConversationWindow(cached, readFromFirstUnread ?? false);
     // 新窗口提交前就拒收旧读取；不能等 passive effect 换 selection，
     // 否则这段间隙收到的旧首屏／实时刷新仍能覆盖新会话。
@@ -297,6 +313,7 @@ export function useConversationWindowEntry(
     centerWindowOnSeq,
   }: EntryInput,
 ) {
+  const queryCache = useQueryClient();
   const {
     messageScope,
     messageScopeRef,
@@ -509,6 +526,29 @@ export function useConversationWindowEntry(
                 }),
               )
             ).map(toMessageWire),
+          validateCachedLatest: async (window) => {
+            const first = window.rows[0];
+            if (
+              !IS_WEB ||
+              !selection ||
+              !first ||
+              (kind === 'c2c' && first.source === 'roaming' && !first.ntSeqVerified)
+            )
+              return;
+            return measureMessagePhase('entryQuery', () =>
+              readCachedMessageWindow(
+                {
+                  ...binding,
+                  kind,
+                  conv,
+                  sinceSeq: first.msgSeq,
+                  limit: REFRESH_CAP,
+                  readWindow: selection.readWindow,
+                },
+                window.rows,
+              ),
+            );
+          },
           progressiveLatest: async (size, show) => {
             try {
               if (IS_WEB && useWebConnection.getState().status !== 'connected')
@@ -576,6 +616,8 @@ export function useConversationWindowEntry(
             const page = mergeRoamingTimeline(kind, next.rows, []);
             const rows =
               complete && localShown ? mergeRefreshedWindow(loadedRef.current, page, limit) : page;
+            if (complete && next.anchored && next !== cached)
+              rememberRecentMessageCache(queryCache, scope, kind, conv, rows, next.hasOlder);
             if (!complete) localShown = true;
             loadedRevisionRef.current = revision;
             windowVerifiedAtRef.current = complete ? Date.now() : 0;
@@ -605,6 +647,7 @@ export function useConversationWindowEntry(
     };
   }, [
     selectedUid,
+    queryCache,
     isDirect,
     isGroup,
     readKey,

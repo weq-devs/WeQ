@@ -1,19 +1,34 @@
 import { getQueryKey } from '@trpc/react-query';
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+  type InfiniteData,
+  type QueryClient,
+} from '@tanstack/react-query';
 import { client, trpc } from '../trpc/client';
 import type { QQWriteBinding } from './useQQWriteSession';
 import { IS_WEB } from '../lib/target.shared';
+import { readDirectory } from '../lib/conditionalCache';
 
 type RecentContactPage = Awaited<ReturnType<typeof client.account.listRecentContacts.query>>;
 
 export const RECENT_HEAD_SIZE = 50;
 export const RECENT_DIRECTORY_SIZE = 500;
 
-export function recentContactHeadOptions(binding: QQWriteBinding) {
+export function recentContactHeadOptions(binding: QQWriteBinding, cache?: QueryClient) {
   const input = { ...binding, limit: RECENT_HEAD_SIZE, cursor: 0 };
+  const queryKey = getQueryKey(trpc.account.listRecentContacts, input, 'query');
   return {
-    queryKey: getQueryKey(trpc.account.listRecentContacts, input, 'query'),
-    queryFn: () => client.account.listRecentContacts.query(input),
+    queryKey,
+    queryFn: () =>
+      readDirectory(
+        'listRecentContacts',
+        binding,
+        cache?.getQueryData<RecentContactPage>(queryKey),
+        () => client.account.listRecentContacts.query(input),
+        input,
+      ),
     staleTime: 0,
   };
 }
@@ -22,7 +37,7 @@ export function recentContactHeadOptions(binding: QQWriteBinding) {
 export function useRecentContactQueries(binding: QQWriteBinding | null, active: boolean) {
   const cache = useQueryClient();
   const scope = binding ?? { expectedAccountUin: '', expectedAccountConfigId: '' };
-  const headOptions = recentContactHeadOptions(scope);
+  const headOptions = recentContactHeadOptions(scope, cache);
   const head = useQuery<RecentContactPage, Error>({
     ...headOptions,
     enabled: Boolean(binding) && active,
@@ -46,7 +61,19 @@ export function useRecentContactQueries(binding: QQWriteBinding | null, active: 
                 ? 0
                 : Infinity,
           })
-        : client.account.listRecentContacts.query({ ...input, cursor: pageParam as number }),
+        : (() => {
+            const cursor = pageParam as number;
+            const saved = cache.getQueryData<InfiniteData<RecentContactPage>>(directoryKey);
+            const index = saved?.pageParams.indexOf(cursor) ?? -1;
+            const page = { ...input, cursor };
+            return readDirectory(
+              'listRecentContacts',
+              binding,
+              index < 0 ? undefined : saved?.pages[index],
+              () => client.account.listRecentContacts.query(page),
+              page,
+            );
+          })(),
     enabled: Boolean(binding),
     getNextPageParam: (lastPage) => (lastPage.items.length ? lastPage.nextCursor : undefined),
     refetchOnMount: false,

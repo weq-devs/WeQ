@@ -16,6 +16,7 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
   after,
   latest,
   progressiveLatest,
+  validateCachedLatest,
   current,
   show,
   cursor = (rows) => rows.at(-1)?.msgSeq,
@@ -32,6 +33,7 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
   after: (seq: string, limit: number) => Promise<T[]>;
   latest: (limit: number) => Promise<T[]>;
   progressiveLatest?: (limit: number, show: (rows: T[]) => void) => Promise<T[]>;
+  validateCachedLatest?: (cached: EntryWindow<T>) => Promise<T[] | undefined>;
   current: () => boolean;
   show: (window: EntryWindow<T>, first: boolean, complete?: boolean) => void;
   cursor?: (rows: T[]) => string | undefined;
@@ -61,8 +63,18 @@ export async function loadConversationEntry<T extends { msgSeq: string }>({
     };
     if (!readFromFirstUnread) {
       // 普通模式只恢复尾部缓存，历史窗口不冒充最新页。
-      if (cached?.anchored && cached.rows.length) show(cached, true);
-      else cached = undefined;
+      if (cached?.anchored && cached.rows.length) {
+        show(cached, true);
+        if (validateCachedLatest) {
+          const rows = await validateCachedLatest(cached);
+          if (!current()) return;
+          if (rows !== undefined && (rows.length >= limit || !cached.hasOlder)) {
+            show({ ...cached, rows, hasOlder: cached.hasOlder || rows.length >= limit }, false);
+            return;
+          }
+          // 删除后不足一页时继续读取更早消息，不能把空尾窗当成整个会话。
+        }
+      } else cached = undefined;
       await readLatest();
       return;
     }

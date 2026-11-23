@@ -943,14 +943,34 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
           // pic subType 1 = received animated emoji: lives under Emoji/emoji-recv
           // with no "original"; the displayable image comes back as `thumb`.
           const picType = q.get('recv') === '1' ? 'emoji' : 'pic';
-          const { path, deferred } = await resolveChatImageFile(q);
+          const context = getAppContext();
+          const services = context.services;
+          const configId = services?.accountConfig?.getRecord()?.configId;
+          const scope =
+            request.headers.get('x-weq-web') === '1' && configId && context.account
+              ? JSON.stringify([String(context.account.context.uin), configId])
+              : undefined;
+          const scopedUrl = q.get('cacheScope');
+          if (scopedUrl && scopedUrl !== scope) return notFound('image account changed');
+          const check = () => {
+            mediaBinding.getStore()?.();
+            if (
+              scope &&
+              (getAppContext().services !== services ||
+                services?.accountConfig.getRecord()?.configId !== configId)
+            )
+              throw new Error('账号数据源已切换');
+          };
+          const { path, deferred } = await resolveChatImageFile(q, check);
           const respond = (path: string) =>
             wantThumb && picType !== 'emoji'
               ? chatImageResponse(
                   path,
                   currentRequest.getStore(),
-                  mediaBinding.getStore(),
+                  check,
                   q.get('ds') === '1',
+                  scope,
+                  Boolean(scopedUrl),
                 )
               : fileResponse(path);
           if (deferred)

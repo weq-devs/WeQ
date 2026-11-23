@@ -18,6 +18,9 @@ import { ConversationWindowCache, conversationWindowKey } from '../../lib/conver
 import { ConversationFirstPage } from '../../lib/conversationFirstPage';
 import type { MessageReadWindow } from '../../../../shared/message_read';
 import { mergeRefreshedWindow } from '../../lib/conversationRefresh';
+import { readCachedMessageWindow } from '../../lib/cachedMessageRead';
+import { rememberRecentMessageCache } from '../../lib/recentMessageCache';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   captureReadingPosition,
   type ConversationReadingPosition,
@@ -39,6 +42,7 @@ export function useMessageWindowState({
   messageActivity,
   setVisibleConversationIds,
 }: WindowStateInput) {
+  const queryCache = useQueryClient();
   const messageScopeRef = useRef(messageScope);
   messageScopeRef.current = messageScope;
   const messageBindingRef = useRef(binding);
@@ -235,22 +239,37 @@ export function useMessageWindowState({
   // window. Only when anchored to latest — a history/search window (not yet
   // wired) must NOT be dragged up to the latest. Stable identity → the
   // subscription below mounts once.
-  const refreshWindow = useMemo(
-    () =>
-      createCoalescedRefresh(async (): Promise<void> => {
-        const scope = messageScopeRef.current,
-          binding = messageBindingRef.current;
-        const revision = dbRevisionRef.current;
-        if (!scope || !binding || entryLoadingRef.current || document.visibilityState === 'hidden')
-          return;
-        const sel = selectionRef.current;
-        const win = windowRef.current;
-        if (!sel || !win.anchored) return;
-        const kind = sel.kind === 'group' ? 'group' : 'c2c';
-        const conv = sel.id;
-        recordMessageCounter('windowStarted');
-        try {
-          const page = await measureMessagePhase('windowQuery', async () =>
+  const refreshWindow = useMemo(() => {
+    const request = createCoalescedRefresh(async (): Promise<void> => {
+      const scope = messageScopeRef.current,
+        binding = messageBindingRef.current;
+      const revision = dbRevisionRef.current;
+      if (!scope || !binding || entryLoadingRef.current || document.visibilityState === 'hidden')
+        return;
+      const sel = selectionRef.current;
+      const win = windowRef.current;
+      if (!sel || !win.anchored) return;
+      const kind = sel.kind === 'group' ? 'group' : 'c2c';
+      const conv = sel.id;
+      const previous = loadedRef.current;
+      recordMessageCounter('windowStarted');
+      try {
+        const rows = await measureMessagePhase('windowQuery', async () => {
+          if (win.minSeq !== null) {
+            const cached = await readCachedMessageWindow(
+              {
+                ...binding,
+                kind,
+                conv,
+                sinceSeq: win.minSeq,
+                limit: REFRESH_CAP,
+                readWindow: sel.readWindow,
+              },
+              previous,
+            );
+            if (cached !== undefined) return cached;
+          }
+          const page =
             win.minSeq === null
               ? await client.account.listLatest.query({
                   ...binding,
@@ -268,57 +287,67 @@ export function useMessageWindowState({
                   ...binding,
                   readWindow: sel.readWindow,
                   deferReplyMedia: true,
-                }),
-          );
-          // Reject results after a conversation switch or a history-window change,
-          // including switching away and back to the same conversation.
-          if (
-            revision < loadedRevisionRef.current ||
-            messageScopeRef.current !== scope ||
-            selectionRef.current !== sel ||
-            windowRef.current !== win ||
-            !windowRef.current.anchored
-          ) {
-            recordMessageCounter('windowDiscarded');
-            return;
-          }
-          const key = conversationWindowKey(scope, kind, conv);
-          setReadFailure((failure) =>
-            failure?.key === key && failure.stage === 'entry' ? null : failure,
-          );
-          loadedRevisionRef.current = revision;
-          windowVerifiedAtRef.current = Date.now();
-          const rows = mergeRefreshedWindow(
-            loadedRef.current,
+                });
+          return mergeRefreshedWindow(
+            previous,
             page.map(toMessageWire).reverse(),
             win.minSeq === null ? PAGE_SIZE : REFRESH_CAP,
           );
-          const scroll = nativeMessageScrollRef.current;
-          if (
-            rows !== loadedRef.current &&
-            scroll &&
-            scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 48
-          ) {
-            cachedScrollRef.current = {
-              id: conv,
-              position: captureReadingPosition(scroll, { transient: true }),
-            };
-          }
-          verifiedWindowRowsRef.current = rows;
-          if (rows !== loadedRef.current) pendingMessageCommit.current = performance.now();
-          setLoaded(rows);
-        } catch (err) {
-          console.error('[live] refreshWindow failed', err);
+        });
+        // Reject results after a conversation switch or a history-window change,
+        // including switching away and back to the same conversation.
+        if (
+          revision < loadedRevisionRef.current ||
+          messageScopeRef.current !== scope ||
+          selectionRef.current !== sel ||
+          windowRef.current !== win ||
+          !windowRef.current.anchored
+        ) {
+          recordMessageCounter('windowDiscarded');
+          return;
         }
-      }),
-    [setLoaded],
-  );
+        if (loadedRef.current !== previous) {
+          // 读期间收到漫游记录：重新比较新窗口，不用旧前缀覆盖它。
+          void request();
+          return;
+        }
+        const key = conversationWindowKey(scope, kind, conv);
+        setReadFailure((failure) =>
+          failure?.key === key && failure.stage === 'entry' ? null : failure,
+        );
+        loadedRevisionRef.current = revision;
+        windowVerifiedAtRef.current = Date.now();
+        const scroll = nativeMessageScrollRef.current;
+        if (
+          rows !== loadedRef.current &&
+          scroll &&
+          scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight > 48
+        ) {
+          cachedScrollRef.current = {
+            id: conv,
+            position: captureReadingPosition(scroll, { transient: true }),
+          };
+        }
+        verifiedWindowRowsRef.current = rows;
+        if (rows !== loadedRef.current) {
+          pendingMessageCommit.current = performance.now();
+          rememberRecentMessageCache(queryCache, scope, kind, conv, rows, hasOlderRef.current);
+        }
+        setLoaded(rows);
+      } catch (err) {
+        console.error('[live] refreshWindow failed', err);
+      }
+    });
+    return request;
+  }, [setLoaded, queryCache]);
 
   useEffect(() => {
     if (messageActivity.enabled && messageActivity.revision > 0) void refreshWindow();
   }, [messageActivity.enabled, messageActivity.revision, refreshWindow]);
 
   const [hasOlder, setHasOlder] = useState(true);
+  const hasOlderRef = useRef(hasOlder);
+  hasOlderRef.current = hasOlder;
   // True only in a "jump context" window (anchored=false) that has newer
   // messages below it; drives scroll-down paging via `requestNewerMessages`.
   const [hasNewer, setHasNewer] = useState(false);

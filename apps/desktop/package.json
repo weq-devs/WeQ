@@ -22,6 +22,7 @@
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^4.0.0",
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "@noble/hashes": "2.3.0",
     "@resvg/resvg-js": "^2.6.2",
     "@resvg/resvg-js-darwin-arm64": "2.6.2",
     "@resvg/resvg-js-darwin-x64": "2.6.2",

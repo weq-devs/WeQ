@@ -60,6 +60,8 @@ import {
 import { useMediaSave } from './MediaSaveControls.shared';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { useVoiceTranscription } from '../hooks/useVoiceTranscription';
+import { WebAvatarScope } from '../hooks/useAvatarImage';
+import { sharedAccountScope } from '../lib/remoteCacheBridge';
 import { MessageTextResult } from './MessageTextResult';
 import { useTabActive } from './RetainedTabs.shared';
 import { useRemoteClient } from '../lib/remoteClient';
@@ -221,6 +223,8 @@ export function QqImage({
   const [requested, setRequested] = useState(false);
   const galleryOpen = useChatMediaOpen();
   const previewKey = useContext(MediaItemKeyContext);
+  const webScope = useContext(WebAvatarScope);
+  const cacheScope = webScope && sharedAccountScope(webScope);
   const [broken, setBroken] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const actionRef = useRef<HTMLElement | null>(null);
@@ -240,6 +244,7 @@ export function QqImage({
 
   // 定位规则升级后换 URL，避免继续命中此前空文件名误选图片的浏览器缓存。
   const params: Record<string, string | number> = { t: sendTimeMs, name, token, lookup: 2 };
+  if (cacheScope && !isAnimatedEmoji) params.cacheScope = cacheScope;
   if (isAnimatedEmoji) params.recv = 1;
   if (orig) params.orig = orig;
   if (str(data, 'thumbnailUrl')) params.small = str(data, 'thumbnailUrl');

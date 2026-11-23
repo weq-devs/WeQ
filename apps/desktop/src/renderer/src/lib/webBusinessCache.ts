@@ -5,10 +5,23 @@ import {
   type QueryClient,
   type QueryKey,
 } from '@tanstack/react-query';
+import { recentMessageCacheTag } from './recentMessageCache';
+import superjson from 'superjson';
+import { boundedBridgeRead, remoteCacheBridge, sharedAccountScope } from './remoteCacheBridge';
 
 const MAX_PARTITIONS = 4;
 const MAX_ROWS = 10_000;
 const MAX_QUERIES = 160;
+const MESSAGE_SCOPE_PREFIX = 'messages:';
+const isMessageScope = (scope: string) => scope.startsWith(MESSAGE_SCOPE_PREFIX);
+function nativeScope(scope: string) {
+  return isMessageScope(scope)
+    ? {
+        kind: 'messages' as const,
+        account: sharedAccountScope(scope.slice(MESSAGE_SCOPE_PREFIX.length)),
+      }
+    : { kind: 'business' as const, account: sharedAccountScope(scope) };
+}
 const procedures = new Set([
   'getSelfProfile',
   'listBuddies',
@@ -107,7 +120,7 @@ function openDatabase(): Promise<IDBDatabase> {
   return database;
 }
 
-export const businessCacheStore: BusinessCacheStore = {
+const localBusinessCache: BusinessCacheStore = {
   async get(scope) {
     const db = await openDatabase();
     return new Promise((resolve, reject) => {
@@ -122,11 +135,12 @@ export const businessCacheStore: BusinessCacheStore = {
       const tx = db.transaction('snapshots', 'readwrite');
       const store = tx.objectStore('snapshots');
       store.put(snapshot);
-      let retained = 0;
+      const retained = { messages: 0, directory: 0 };
       const cursor = store.index('savedAt').openCursor(null, 'prev');
       cursor.onsuccess = () => {
         if (!cursor.result) return;
-        if (++retained > MAX_PARTITIONS) cursor.result.delete();
+        const bucket = isMessageScope(String(cursor.result.primaryKey)) ? 'messages' : 'directory';
+        if (++retained[bucket] > MAX_PARTITIONS) cursor.result.delete();
         cursor.result.continue();
       };
       tx.oncomplete = () => resolve();
@@ -135,8 +149,63 @@ export const businessCacheStore: BusinessCacheStore = {
   },
 };
 
-function persisted(key: QueryKey): boolean {
+export const businessCacheStore: BusinessCacheStore = {
+  async get(scope) {
+    const local = localBusinessCache.get(scope);
+    const bridge = remoteCacheBridge();
+    const { account, kind } = nativeScope(scope);
+    if (!bridge || !account) return local;
+    const current = await local.catch(() => undefined);
+    const payload = await boundedBridgeRead(
+      bridge.postMessage({ action: 'get', kind, scope: account, newerThan: current?.savedAt ?? 0 }),
+    );
+    if (!payload) return current;
+    try {
+      const read = superjson.parse<BusinessSnapshot>(payload);
+      if (
+        read.scope === account &&
+        Number.isFinite(read.savedAt) &&
+        read.savedAt > (current?.savedAt ?? 0)
+      ) {
+        const restored = { ...read, scope };
+        void localBusinessCache.put(restored).catch(() => undefined);
+        return restored;
+      }
+    } catch {
+      /* An unreadable mirror doesn't replace IndexedDB. */
+    }
+    return current;
+  },
+  async put(snapshot) {
+    const bridge = remoteCacheBridge();
+    const { account, kind } = nativeScope(snapshot.scope);
+    await Promise.all([
+      localBusinessCache.put(snapshot),
+      bridge &&
+        account &&
+        Promise.resolve()
+          .then(() =>
+            bridge.postMessage({
+              action: 'put',
+              kind,
+              scope: account,
+              savedAt: snapshot.savedAt,
+              payload: superjson.stringify({ ...snapshot, scope: account }),
+            }),
+          )
+          .catch(() => undefined),
+    ]);
+  },
+};
+
+function persisted(key: QueryKey, scope: string): boolean {
   const path = key[0];
+  if (isMessageScope(scope)) {
+    const directory = scope.slice(MESSAGE_SCOPE_PREFIX.length);
+    return (
+      path === recentMessageCacheTag && key[1] === (sharedAccountScope(directory) ?? directory)
+    );
+  }
   return (
     key[0] === resolvedProfilesKey[0] ||
     (Array.isArray(path) &&
@@ -152,21 +221,21 @@ export async function restoreBusinessCache(
   store = businessCacheStore,
   current = () => true,
 ): Promise<void> {
-  try {
+  const restore = async (scope: string) => {
     const value = await store.get(scope);
     if (!current() || value?.scope !== scope || !Array.isArray(value.state?.queries)) return;
     // 仅恢复明确允许的目录项，不恢复 mutation、错误或账号配置。
     const queries = value.state.queries.filter(
       (query) =>
         Array.isArray(query.queryKey) &&
-        persisted(query.queryKey) &&
+        persisted(query.queryKey, scope) &&
         query.state?.status === 'success' &&
         Number.isFinite(query.state.dataUpdatedAt),
     );
     hydrate(client, { mutations: [], queries });
-  } catch {
-    /* 存储损坏或不可用时继续使用现有在线读取。 */
-  }
+  };
+  // 任一存储损坏时，另一份快照仍可以恢复。
+  await Promise.allSettled([restore(scope), restore(MESSAGE_SCOPE_PREFIX + scope)]);
 }
 
 function boundedData(data: unknown): unknown {
@@ -194,9 +263,19 @@ export function watchBusinessCache(
   scope: string,
   store = businessCacheStore,
 ): () => Promise<void> {
+  const stopDirectory = watchSnapshot(client, scope, store);
+  const stopMessages = watchSnapshot(client, MESSAGE_SCOPE_PREFIX + scope, store);
+  return async () => {
+    await Promise.all([stopDirectory(), stopMessages()]);
+  };
+}
+
+/** 正文和目录分开写盘，聊天更新不会重复拷贝整份联系人目录。 */
+function watchSnapshot(client: QueryClient, scope: string, store: BusinessCacheStore) {
   const retained = new Map(
     dehydrate(client, {
-      shouldDehydrateQuery: (query) => persisted(query.queryKey) && query.state.data !== undefined,
+      shouldDehydrateQuery: (query) =>
+        persisted(query.queryKey, scope) && query.state.data !== undefined,
     }).queries.map((query) => [query.queryHash, query]),
   );
   const trim = () => {
@@ -243,10 +322,11 @@ export function watchBusinessCache(
     if (
       event.type !== 'updated' ||
       event.action.type !== 'success' ||
-      !persisted(event.query.queryKey)
+      !persisted(event.query.queryKey, scope)
     )
       return;
     const { queryHash, queryKey, state } = event.query;
+    if (retained.get(queryHash)?.state.data === state.data) return;
     // 成功事件只保存该查询的不可变状态；全量快照留到空闲写入，不随每次更新扫描。
     retained.delete(queryHash);
     retained.set(queryHash, {

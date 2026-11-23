@@ -1,12 +1,21 @@
 import { QueryClient, QueryObserver } from '@tanstack/react-query';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import superjson from 'superjson';
 import {
+  businessCacheStore,
   restoreBusinessCache,
   configureBusinessCache,
   watchBusinessCache,
   type BusinessCacheStore,
   type BusinessSnapshot,
 } from '../src/renderer/src/lib/webBusinessCache';
+import {
+  rememberRecentMessageCache,
+  readRecentMessageCache,
+} from '../src/renderer/src/lib/recentMessageCache';
+import { conversationWindowKey } from '../src/renderer/src/lib/conversationWindowCache';
+
+vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 
 const key = (name: string) => [['account', name], { type: 'query' }];
 const nestedKey = (path: string, input?: unknown) => [
@@ -24,6 +33,89 @@ function memoryStore(): BusinessCacheStore {
 }
 
 describe('Web 业务持久缓存', () => {
+  it('新网页来源可从 iOS 共享快照恢复，不接受其他数据源的快照', async () => {
+    const account = JSON.stringify(['qq', 'snapshot-a']);
+    const other = JSON.stringify(['qq', 'snapshot-b']);
+    const first = new QueryClient();
+    const store = memoryStore();
+    const stop = watchBusinessCache(first, account, store);
+    first.setQueryData(key('listProfiles'), ['cached']);
+    await stop();
+    const nativeData = superjson.stringify(await store.get(account));
+    const postMessage = vi.fn(async ({ kind }) => (kind === 'business' ? nativeData : null));
+    vi.stubGlobal('webkit', { messageHandlers: { weqBusinessCache: { postMessage } } });
+    vi.stubGlobal('indexedDB', {
+      open() {
+        throw new Error('new origin has no IndexedDB');
+      },
+    });
+    const next = new QueryClient();
+    const separate = new QueryClient();
+    try {
+      await restoreBusinessCache(
+        next,
+        JSON.stringify([location.origin, account]),
+        businessCacheStore,
+      );
+      expect(next.getQueryData(key('listProfiles'))).toEqual(['cached']);
+      expect(postMessage).toHaveBeenCalledWith({
+        action: 'get',
+        kind: 'business',
+        scope: account,
+        newerThan: 0,
+      });
+      await restoreBusinessCache(
+        separate,
+        JSON.stringify([location.origin, other]),
+        businessCacheStore,
+      );
+      expect(separate.getQueryData(key('listProfiles'))).toBeUndefined();
+    } finally {
+      first.clear();
+      next.clear();
+      separate.clear();
+      vi.unstubAllGlobals();
+    }
+  });
+  it('重建页后只恢复本账号最近真实打开的有界尾窗，恢复结果仍待校准', async () => {
+    const storage = memoryStore();
+    const first = new QueryClient();
+    const stop = watchBusinessCache(first, 'source', storage);
+    const rows = Array.from({ length: 60 }, (_, i) => ({
+      msgId: String(i),
+      msgSeq: String(i),
+      senderUid: 'friend',
+      senderUin: '123',
+      sendTime: '1',
+      elements: [],
+    }));
+    for (let i = 0; i < 7; i++)
+      rememberRecentMessageCache(first, 'source', 'group', String(i), rows, false);
+    rememberRecentMessageCache(first, 'other', 'group', '6', rows, false);
+    await stop();
+    const next = new QueryClient();
+    await restoreBusinessCache(next, 'source', storage);
+    expect(
+      readRecentMessageCache(next, 'source', conversationWindowKey('source', 'group', '6')),
+    ).toMatchObject({
+      rows: rows.slice(10),
+      hasOlder: true,
+      dirty: true,
+      verifiedAt: 0,
+    });
+    expect(
+      readRecentMessageCache(next, 'source', conversationWindowKey('source', 'group', '0')),
+    ).toBeUndefined();
+    expect(
+      readRecentMessageCache(next, 'other', conversationWindowKey('other', 'group', '6')),
+    ).toBeUndefined();
+    rememberRecentMessageCache(first, 'source', 'group', '6', [], false);
+    expect(
+      readRecentMessageCache(first, 'source', conversationWindowKey('source', 'group', '6')),
+    ).toBeUndefined();
+    first.clear();
+    next.clear();
+  });
   it('重进恢复各来源表情、已浏览表情包及通知目录，不保存发送操作或实时权限', async () => {
     const storage = memoryStore();
     const first = new QueryClient();

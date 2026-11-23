@@ -1,4 +1,5 @@
 import { remoteAvatarSource, requestRemoteImage } from './remoteImage';
+import { boundedBridgeRead, remoteCacheBridge, sharedAccountScope } from './remoteCacheBridge';
 
 export interface StoredAvatar {
   key: string;
@@ -55,7 +56,7 @@ function openDatabase(): Promise<IDBDatabase> {
   });
   return database;
 }
-export const avatarStore: AvatarStore = {
+const localAvatarStore: AvatarStore = {
   async get(key) {
     const db = await openDatabase();
     return new Promise((resolve, reject) => {
@@ -84,6 +85,88 @@ export const avatarStore: AvatarStore = {
       tx.oncomplete = () => resolve();
       tx.onabort = tx.onerror = () => reject(new Error('头像缓存保存失败'));
     });
+  },
+};
+
+function bridgeAvatarKey(key: string): string | undefined {
+  try {
+    const [scope, path] = JSON.parse(key);
+    const account = typeof scope === 'string' ? sharedAccountScope(scope) : undefined;
+    return account && typeof path === 'string' ? JSON.stringify([account, path]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export const avatarStore: AvatarStore = {
+  async get(key) {
+    const bridge = remoteCacheBridge();
+    const scope = bridge && bridgeAvatarKey(key);
+    if (!bridge || !scope) return localAvatarStore.get(key);
+    const local = await localAvatarStore.get(key).catch(() => undefined);
+    if (local && Date.now() - local.updatedAt < WEB_AVATAR_LIMITS.freshMs) return local;
+    const payload = await boundedBridgeRead(
+      bridge.postMessage({
+        action: 'get',
+        kind: 'avatar',
+        scope,
+        newerThan: local?.updatedAt ?? 0,
+      }),
+    );
+    if (!payload) return local;
+    try {
+      const { mime, base64, etag, updatedAt } = JSON.parse(payload);
+      if (
+        typeof mime !== 'string' ||
+        !mime.startsWith('image/') ||
+        typeof base64 !== 'string' ||
+        !Number.isFinite(updatedAt) ||
+        updatedAt <= (local?.updatedAt ?? 0)
+      )
+        return local;
+      const restored = {
+        key,
+        blob: new Blob([Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))], {
+          type: mime,
+        }),
+        etag: typeof etag === 'string' ? etag : null,
+        updatedAt,
+      };
+      void localAvatarStore.put(restored).catch(() => undefined);
+      return restored;
+    } catch {
+      return local;
+    }
+  },
+  async put(value) {
+    const local = localAvatarStore.put(value);
+    const bridge = remoteCacheBridge();
+    const scope = bridge && bridgeAvatarKey(value.key);
+    if (bridge && scope && value.blob.size <= 256 * 1024) {
+      void value.blob
+        .arrayBuffer()
+        .then((buffer) => {
+          const bytes = new Uint8Array(buffer);
+          let binary = '';
+          for (let i = 0; i < bytes.length; i += 8192)
+            binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+          const payload = JSON.stringify({
+            mime: value.blob.type,
+            base64: btoa(binary),
+            etag: value.etag,
+            updatedAt: value.updatedAt,
+          });
+          return bridge.postMessage({
+            action: 'put',
+            kind: 'avatar',
+            scope,
+            savedAt: value.updatedAt,
+            payload,
+          });
+        })
+        .catch(() => undefined);
+    }
+    return local;
   },
 };
 

@@ -24,6 +24,7 @@ import { dbRepairRouter } from './routers/db_repair';
 import { mergeForwardRouter } from './routers/merge_forward';
 import { mailRouter } from './routers/mail';
 import { remoteRouter } from './routers/remote';
+import { remoteCacheRouter } from './routers/remote_cache';
 import { exportViewerRouter } from './routers/export_viewer';
 import { callRouter } from './routers/call';
 import { groupCallRouter } from './routers/group_call';
@@ -43,6 +44,7 @@ const utilityRoutes = {
   backgroundTasks: backgroundTasksRouter,
   exportViewer: exportViewerRouter,
   remote: remoteRouter,
+  remoteCache: remoteCacheRouter,
   /** 语音通话（仅主动发起）。 */
   call: callRouter,
   groupCall: groupCallRouter,

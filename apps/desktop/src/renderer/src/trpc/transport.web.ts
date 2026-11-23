@@ -59,6 +59,7 @@ const independentReads = new Set([
   'account.listBefore',
   'account.listAfter',
   'account.listFrom',
+  'remoteCache.messages',
   'account.cancelMessageRead',
   'account.promoteMessageRead',
   // 本地气泡查询不能被同批次中的字体/挂件下载拖住。
@@ -89,6 +90,13 @@ const aggregateDirectoryReads = new Set([
   'account.listAgentLabPersonas',
   'account.listAgentLabGroups',
 ]);
+
+const directoryName = (operation: { path: string; input: unknown }): string => {
+  const { path, input } = operation;
+  if (path !== 'remoteCache.directory') return path;
+  const name = (input as { name?: unknown } | undefined)?.name;
+  return typeof name === 'string' ? `account.${name}` : path;
+};
 
 export function createLinks(): TRPCLink<AppRouter>[] {
   const httpOptions = {
@@ -136,16 +144,16 @@ export function createLinks(): TRPCLink<AppRouter>[] {
   };
   const reads = splitLink<AppRouter>({
     condition: (op) =>
-      independentReads.has(op.path) ||
+      independentReads.has(directoryName(op)) ||
       // 空间读取有独立的请求与取消生命周期，单个外部接口挂起时让其他页面和本地读取先返回。
       op.path.startsWith('account.qzone.') ||
       op.path.startsWith('account.qzonePublic.'),
     true: httpLink(httpOptions),
     false: splitLink({
-      condition: (op) => conversationBatchedReads.has(op.path),
+      condition: (op) => conversationBatchedReads.has(directoryName(op)),
       true: readBatch(),
       false: splitLink({
-        condition: (op) => aggregateDirectoryReads.has(op.path),
+        condition: (op) => aggregateDirectoryReads.has(directoryName(op)),
         true: readBatch(),
         false: readBatch(),
       }),

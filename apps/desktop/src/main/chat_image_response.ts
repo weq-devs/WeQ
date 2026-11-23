@@ -1,8 +1,10 @@
 import { open, readFile, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { sniffImageExt } from '@weq/service';
 import { imageMetadata, imageProcessor } from './image_processor';
 import { createImagePreviewer } from './image_preview';
 import { fileResponse, mimeOf } from './file_response';
+import { matchesIfNoneMatch } from './protocol_response';
 
 const preview = createImagePreviewer({ preserveAnimation: true });
 const reducedPreview = createImagePreviewer();
@@ -62,20 +64,58 @@ export async function chatImageResponse(
   request?: Request,
   check?: () => void,
   reduced = false,
+  scope?: string,
+  scopedUrl = false,
 ): Promise<Response> {
   try {
+    check?.();
+    const info = await stat(path);
+    if (!info.isFile() || info.size === 0 || info.size > MAX_FALLBACK_BYTES)
+      throw new Error('preview input size');
+    const etag = scope
+      ? `W/"${createHash('sha256')
+          .update(
+            JSON.stringify([
+              1,
+              scope,
+              path,
+              reduced,
+              info.ino,
+              info.size,
+              info.mtimeMs,
+              info.ctimeMs,
+            ]),
+          )
+          .digest('base64url')}"`
+      : undefined;
+    const headers: Record<string, string> = etag
+      ? { 'Cache-Control': scopedUrl ? 'private, max-age=300' : 'private, no-cache', ETag: etag }
+      : { 'Cache-Control': 'no-cache' };
+    check?.();
+    if (etag && matchesIfNoneMatch(request?.headers.get('if-none-match') ?? null, etag))
+      return new Response(null, { status: 304, headers });
     const output = await (reduced ? reducedPreview : preview)(async () => {
       check?.();
-      const info = await stat(path);
-      if (info.size > 32 * 1024 * 1024) throw new Error('preview input size');
+      // 解码队列等待期间，QQ 可能用更大的原图替换同一路径。
+      const current = await stat(path);
+      if (!current.isFile() || current.size === 0 || current.size > MAX_FALLBACK_BYTES)
+        throw new Error('preview input size');
       return readFile(path);
     });
     check?.();
+    // 缩略图生成期间文件可能被 QQ 替换；不能把新内容标为旧版本。
+    const current = etag ? await stat(path) : info;
+    check?.();
+    const unchanged =
+      current.ino === info.ino &&
+      current.size === info.size &&
+      current.mtimeMs === info.mtimeMs &&
+      current.ctimeMs === info.ctimeMs;
     return new Response(new Uint8Array(output), {
       headers: {
+        ...(unchanged ? headers : { 'Cache-Control': 'no-store' }),
         'Content-Type': 'image/webp',
         'Content-Length': String(output.byteLength),
-        'Cache-Control': 'no-cache',
       },
     });
   } catch (error) {
@@ -110,7 +150,7 @@ export async function chatImageResponse(
       }
     }
     return new Response(PREVIEW_UNAVAILABLE, {
-      headers: { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-cache' },
+      headers: { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-store' },
     });
   }
 }

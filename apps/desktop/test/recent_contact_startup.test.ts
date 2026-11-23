@@ -11,14 +11,17 @@ import {
 } from '../src/renderer/src/hooks/useRecentContactQueries';
 import { trpc } from '../src/renderer/src/trpc/client';
 
-const api = vi.hoisted(() => ({ read: vi.fn() }));
+const api = vi.hoisted(() => ({ read: vi.fn(), validate: vi.fn() }));
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 vi.mock('../src/renderer/src/trpc/client', async () => {
   const { createTRPCReact } = await import('@trpc/react-query');
   return {
     trpc: createTRPCReact(),
-    client: { account: { listRecentContacts: { query: api.read } } },
+    client: {
+      account: { listRecentContacts: { query: api.read } },
+      remoteCache: { directory: { query: api.validate } },
+    },
   };
 });
 
@@ -27,7 +30,36 @@ const cleanups: Array<() => void> = [];
 afterEach(() => {
   for (const stop of cleanups.splice(0)) stop();
   api.read.mockReset();
+  api.validate.mockReset().mockRejectedValue({ data: { code: 'NOT_FOUND' } });
   vi.unstubAllGlobals();
+});
+
+it('旧页分开校准，未变化复用缓存，变化后保留新页', async () => {
+  const f = fixture();
+  const head = page('new', 50);
+  const retained = page('old', 550);
+  f.cache.setQueryData(recentContactHeadOptions(binding).queryKey, head);
+  f.cache.setQueryData(
+    getQueryKey(
+      trpc.account.listRecentContacts,
+      { ...binding, limit: RECENT_DIRECTORY_SIZE },
+      'infinite',
+    ),
+    { pages: [head, retained, page('removed')], pageParams: [undefined, 50, 550] },
+  );
+  api.validate.mockImplementation(async ({ cursor }) =>
+    cursor === 550 ? { unchanged: false, data: page('corrected') } : { unchanged: true },
+  );
+  await f.render();
+  await act(async () => {
+    const result = await f.queries().contacts.refetch();
+    expect(result.data?.pages[2]?.items[0]?.targetUid).toBe('corrected');
+  });
+  await settle();
+  expect(api.validate.mock.calls.map(([input]) => input.cursor)).toEqual([0, 50, 550]);
+  expect(api.read).not.toHaveBeenCalled();
+  expect(f.queries().contacts.data?.pages[1]).toBe(retained);
+  expect(f.queries().contacts.data?.pages[2]?.items[0]?.targetUid).toBe('corrected');
 });
 function fixture() {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

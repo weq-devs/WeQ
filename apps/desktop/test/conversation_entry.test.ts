@@ -64,6 +64,18 @@ describe('会话分阶段打开', () => {
     expect(f.show.mock.calls[0]![0].rows).toEqual([row('9'), row('10')]);
     expect(f.show.mock.calls[1]![0].rows).toEqual([row('11')]);
   });
+
+  it('已验证的窗口不再读取整页；删除导致尾窗过短时仍可补齐更旧历史', async () => {
+    const f = fixture();
+    const old = cached([row('9'), row('10')]);
+    const validate = vi.fn().mockResolvedValueOnce(old.rows).mockResolvedValueOnce([]);
+    const job = { ...f, cached: old, readFromFirstUnread: false, validateCachedLatest: validate };
+    await loadConversationEntry(job);
+    expect(f.latest).not.toHaveBeenCalled();
+    expect(f.show).toHaveBeenLastCalledWith(old, false);
+    await loadConversationEntry(job);
+    expect(f.latest).toHaveBeenCalledOnce();
+  });
   it('普通模式立即显示最新窗口缓存，校准只读最新页，不等待未读水位', async () => {
     const f = fixture();
     let release!: (rows: Row[]) => void;

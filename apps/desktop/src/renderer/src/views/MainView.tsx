@@ -98,6 +98,8 @@ import {
   useRecentContactQueries,
 } from '../hooks/useRecentContactQueries';
 import { resolvedProfilesKey } from '../lib/webBusinessCache';
+import { getQueryKey } from '@trpc/react-query';
+import { useConditionalDirectory } from '../hooks/useConditionalDirectory';
 import { scheduleBackgroundLoad } from '../lib/backgroundLoad';
 import {
   selectProfileContacts,
@@ -648,7 +650,10 @@ export function MainView(): ReactElement {
   useEffect(() => {
     if (!IS_WEB || !scope || !uin || !configId) return;
     void queryClient.prefetchQuery(
-      recentContactHeadOptions({ expectedAccountUin: uin, expectedAccountConfigId: configId }),
+      recentContactHeadOptions(
+        { expectedAccountUin: uin, expectedAccountConfigId: configId },
+        queryClient,
+      ),
     );
   }, [queryClient, scope, uin, configId]);
   if (config.isLoading) return <WorkspaceStartupLoading />;
@@ -875,11 +880,15 @@ function MainWorkspace(): ReactElement {
     messageBindingRef,
     messageScopeRef,
   ]);
-  const topContacts = trpc.account.listTopContacts.useQuery(
-    {
-      expectedAccountUin: pinSession.binding?.expectedAccountUin ?? '',
-      expectedAccountConfigId: pinSession.binding?.expectedAccountConfigId ?? '',
-    },
+  const topInput = {
+    expectedAccountUin: pinSession.binding?.expectedAccountUin ?? '',
+    expectedAccountConfigId: pinSession.binding?.expectedAccountConfigId ?? '',
+  };
+  const topContacts = useConditionalDirectory(
+    getQueryKey(trpc.account.listTopContacts, topInput, 'query'),
+    'listTopContacts',
+    pinSession.binding,
+    () => client.account.listTopContacts.query(topInput),
     {
       enabled: Boolean(pinSession.binding),
       keepPreviousData: false,
@@ -945,12 +954,17 @@ function MainWorkspace(): ReactElement {
         : recentContactsData,
     [recentContactsByUid, recentContactsData, visibleConversationIds],
   );
-  const allGroups = trpc.account.listAllGroups.useQuery(
-    { limit: 2000 },
+  const directoryPage = { limit: 2000 };
+  const allGroups = useConditionalDirectory(
+    getQueryKey(trpc.account.listAllGroups, directoryPage, 'query'),
+    'listAllGroups',
+    pinSession.binding,
+    () => client.account.listAllGroups.query(directoryPage),
     {
       ...regularDirectoryOptions,
       enabled: groupsReady || contactsPageOpen || (IS_WEB && regularDirectoryReady),
     },
+    directoryPage,
   );
   // Official QQ setting: observed 4 → 2 when switching from muted to group helper.
   const previousGroupAssistantIds = useRef(new Set<string>());
@@ -985,25 +999,40 @@ function MainWorkspace(): ReactElement {
       void contacts.fetchNextPage();
     }
   };
-  const hiddenSessions = trpc.account.listHiddenSessions.useQuery(
-    undefined,
+  const hiddenSessions = useConditionalDirectory(
+    getQueryKey(trpc.account.listHiddenSessions, undefined, 'query'),
+    'listHiddenSessions',
+    pinSession.binding,
+    () => client.account.listHiddenSessions.query(),
     regularDirectoryOptions,
   );
-  const deletedSessions = trpc.account.listDeletedSessions.useQuery(
-    undefined,
+  const deletedSessions = useConditionalDirectory(
+    getQueryKey(trpc.account.listDeletedSessions, undefined, 'query'),
+    'listDeletedSessions',
+    pinSession.binding,
+    () => client.account.listDeletedSessions.query(),
     regularDirectoryOptions,
   );
-  const officialAccounts = trpc.account.listOfficialAccounts.useQuery(
-    undefined,
+  const officialAccounts = useConditionalDirectory(
+    getQueryKey(trpc.account.listOfficialAccounts, undefined, 'query'),
+    'listOfficialAccounts',
+    pinSession.binding,
+    () => client.account.listOfficialAccounts.query(),
     regularDirectoryOptions,
   );
-  const serviceAccounts = trpc.account.listServiceAccounts.useQuery(
-    undefined,
+  const serviceAccounts = useConditionalDirectory(
+    getQueryKey(trpc.account.listServiceAccounts, undefined, 'query'),
+    'listServiceAccounts',
+    pinSession.binding,
+    () => client.account.listServiceAccounts.query(),
     regularDirectoryOptions,
   );
   // 频道私聊聚合入口：与公众号一样只取「有没有 / 最新一条」，详情在展开面板里拉。
-  const guildDirectSessions = trpc.account.guildDirectListSessions.useQuery(
-    undefined,
+  const guildDirectSessions = useConditionalDirectory(
+    getQueryKey(trpc.account.guildDirectListSessions, undefined, 'query'),
+    'guildDirectListSessions',
+    pinSession.binding,
+    () => client.account.guildDirectListSessions.query(),
     regularDirectoryOptions,
   );
   const guildConversationRows = useMemo(
@@ -1040,10 +1069,30 @@ function MainWorkspace(): ReactElement {
     refetchOnWindowFocus: true,
     staleTime: 8000,
   });
-  const buddies = trpc.account.listBuddies.useQuery({ limit: 2000 }, directoryOptions);
+  const buddies = useConditionalDirectory(
+    getQueryKey(trpc.account.listBuddies, directoryPage, 'query'),
+    'listBuddies',
+    pinSession.binding,
+    () => client.account.listBuddies.query(directoryPage),
+    directoryOptions,
+    directoryPage,
+  );
   const botUidList = trpc.account.botUids.useQuery(undefined, profileOptions);
-  const categories = trpc.account.listCategories.useQuery(undefined, directoryOptions);
-  const profiles = trpc.account.listProfiles.useQuery({ limit: 2000 }, profileOptions);
+  const categories = useConditionalDirectory(
+    getQueryKey(trpc.account.listCategories, undefined, 'query'),
+    'listCategories',
+    pinSession.binding,
+    () => client.account.listCategories.query(),
+    directoryOptions,
+  );
+  const profiles = useConditionalDirectory(
+    getQueryKey(trpc.account.listProfiles, directoryPage, 'query'),
+    'listProfiles',
+    pinSession.binding,
+    () => client.account.listProfiles.query(directoryPage),
+    profileOptions,
+    directoryPage,
+  );
   const noticeOptions = { enabled: secondaryReady || contactsPageOpen, staleTime: 60_000 };
   const buddyRequests = trpc.account.listBuddyRequests.useQuery(
     { limit: CONTACT_NOTICE_LIMIT },

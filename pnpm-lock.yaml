@@ -202,6 +202,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.2
         version: 1.32.2(supports-color@7.2.0)(zod@3.25.76)
+      '@noble/hashes':
+        specifier: 2.3.0
+        version: 2.3.0
       '@resvg/resvg-js':
         specifier: ^2.6.2
         version: 2.6.2
