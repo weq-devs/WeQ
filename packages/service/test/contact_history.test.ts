@@ -152,6 +152,37 @@ it('群名片索引跨批读取已有分页，按 UID 和 QQ 号回读时保持�
   expect(recovered[1]).toMatchObject({ uid: 'u_599', uin: 10600n, card: '', memberFlag: 1 });
 });
 
+it('冷群名片索引等待写锁时，同一 worker 仍可读取好友资料，解锁后继续回读', async () => {
+  const history = await open();
+  const friend = { entity: 'friend:u_peer', category: 'getProfile', source: 'local' as const };
+  const member = { uid: 'u_peer', uin: 10001n, card: '旧名片' };
+  await history.observe({ ...friend, value: { nick: '正常资料' } });
+  await history.observe({
+    entity: 'group:12345',
+    category: 'members',
+    source: 'local',
+    value: [member],
+  });
+  const writer = new DatabaseSync(join(history.root, 'history.sqlite'));
+  const worker = Reflect.get(history, 'worker') as Worker;
+  const requests = vi.spyOn(worker, 'postMessage');
+  writer.exec('BEGIN IMMEDIATE');
+  const fallback = history.groupMembersByIdentity('12345', ['u_peer'], false);
+  void fallback.catch(() => undefined);
+  try {
+    await vi.waitFor(() =>
+      expect(requests).toHaveBeenCalledWith(
+        expect.objectContaining({ method: 'indexGroupMembers' }),
+      ),
+    );
+    expect((await history.latest(friend))?.value).toEqual({ nick: '正常资料' });
+  } finally {
+    writer.exec('ROLLBACK');
+    writer.close();
+  }
+  expect(await fallback).toEqual([member]);
+});
+
 it('名单的小变化复用条目，压缩占用小于重复全量 JSON，并能完整回读', async () => {
   const h = await open();
   const members = Array.from({ length: 600 }, (_, n) => ({

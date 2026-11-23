@@ -16,7 +16,8 @@ export function contactHistoryWorker(
   const { dirname } = load('node:path') as typeof import('node:path');
   mkdirSync(dirname(workerData.path), { recursive: true });
   const db = new DatabaseSync(workerData.path);
-  db.exec('PRAGMA busy_timeout=1000');
+  const defaultBusyTimeout = 'PRAGMA busy_timeout=1000';
+  db.exec(defaultBusyTimeout);
   db.exec(`PRAGMA auto_vacuum=INCREMENTAL; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
     PRAGMA journal_size_limit=8388608; PRAGMA wal_autocheckpoint=256;
     CREATE TABLE IF NOT EXISTS content(hash TEXT PRIMARY KEY, codec INTEGER NOT NULL, data BLOB NOT NULL);
@@ -774,6 +775,7 @@ export function contactHistoryWorker(
   parentPort!.on(
     'message',
     (message: { id: number; method: string; input: Record<string, unknown> }) => {
+      const indexing = message.method === 'indexGroupMembers';
       try {
         if (message.method === 'close') {
           db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
@@ -793,6 +795,8 @@ export function contactHistoryWorker(
           'fieldSummary',
           'indexGroupMembers',
         ].includes(message.method);
+        // 后台索引遇到写锁时由调用方让出 worker，再重试同一页。
+        if (indexing) db.exec('PRAGMA busy_timeout=0');
         if (transactional) db.exec('BEGIN IMMEDIATE');
         try {
           const value = dispatch(message.method, message.input);
@@ -805,11 +809,20 @@ export function contactHistoryWorker(
           throw error;
         }
       } catch (error) {
-        if (message.method === 'indexGroupMembers') memberIndexCache = undefined;
+        if (indexing) {
+          const sqliteCode = Number((error as { errcode?: number } | null)?.errcode) & 0xff;
+          if (sqliteCode === 5 || sqliteCode === 6) {
+            parentPort!.postMessage({ id: message.id, value: 'busy' });
+            return;
+          }
+          memberIndexCache = undefined;
+        }
         parentPort!.postMessage({
           id: message.id,
           error: error instanceof Error ? error.message : String(error),
         });
+      } finally {
+        if (indexing) db.exec(defaultBusyTimeout);
       }
     },
   );

@@ -2,6 +2,7 @@ import { Worker } from 'node:worker_threads';
 import { createHash } from 'node:crypto';
 import { readFile, readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { contactHistoryWorker } from './contact_history_worker';
 import type { ContactMetricRows } from './contact_metrics';
 import { validGroupProfile, validGroupRosterMember } from './contact_cache_validation';
@@ -320,8 +321,22 @@ export class ContactHistoryService {
     if (!task) {
       task = (async () => {
         const through = await this.request<number>('groupMemberIndexTarget', { entity });
-        while (through && (await this.request<boolean>('indexGroupMembers', { entity, through }))) {
-          // 每次等待一条 worker 响应，避免单次长事务占用历史数据库。
+        if (!through) return;
+        let busySince: number | undefined;
+        while (true) {
+          const more = await this.request<boolean | 'busy'>('indexGroupMembers', {
+            entity,
+            through,
+          });
+          if (!more) break;
+          if (more === 'busy') {
+            const now = performance.now();
+            busySince ??= now;
+            if (now - busySince >= 1_000) break;
+            await delay(20);
+          } else {
+            busySince = undefined;
+          }
         }
       })().finally(() => this.memberIndexing.delete(entity));
       this.memberIndexing.set(entity, task);
