@@ -93,6 +93,18 @@ export function createDevelopmentReload() {
   return controller;
 }
 
+/** 旧进程仍会按需导入带哈希的分块；只在监听器首次构建时清理旧产物。 */
+export function retainDevelopmentMainChunks(): Plugin {
+  return {
+    name: 'weq-retain-development-main-chunks',
+    apply: 'build',
+    writeBundle() {
+      const { build } = this.environment.config;
+      if (build.watch) build.emptyOutDir = false;
+    },
+  };
+}
+
 /** electron-vite 6 的 closeBundle 在失败构建后也触发；只有实际写出产物才允许重启／刷新。 */
 export function successfulDevelopmentReload(
   target?: Target,

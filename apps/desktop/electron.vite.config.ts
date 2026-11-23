@@ -6,6 +6,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { ozonePlatformArgs } from './src/main/linux_window_backend';
 import {
   createDevelopmentReload,
+  retainDevelopmentMainChunks,
   successfulDevelopmentReload,
 } from './src/main/development_reload';
 import { tsImport } from 'tsx/esm/api';
@@ -88,6 +89,7 @@ export default defineConfig({
     clearScreen: false,
     plugins: [
       ...mainLogging.plugins,
+      retainDevelopmentMainChunks(),
       successfulDevelopmentReload('main', developmentReload),
       {
         name: 'weq-remote-web-assets',

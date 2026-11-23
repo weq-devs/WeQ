@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
@@ -48,24 +48,37 @@ test('真实 electron-vite：菜单和开发更新都在原 Vite 会话中重启
   );
   const log = join(root, 'started.jsonl');
   const menuRestart = join(root, 'menu-restart');
+  const lazyRequest = join(root, 'lazy-request');
+  const lazyResult = join(root, 'lazy-result');
+  const lazy = join(root, 'lazy.js');
   const main = join(root, 'main.js');
   const source = (value) =>
-    `import {appendFileSync,existsSync,readFileSync,unlinkSync} from 'node:fs';
+    `import {appendFileSync,existsSync,readFileSync,unlinkSync,writeFileSync} from 'node:fs';
       const request = ${JSON.stringify(menuRestart)};
+      const readLazy = ${JSON.stringify(lazyRequest)};
       appendFileSync(${JSON.stringify(log)}, JSON.stringify({
         value:${value},pid:process.pid,parent:process.ppid,url:process.env.ELECTRON_RENDERER_URL,
         restarting:process.env.WEQ_DEV_RESTART,managed:process.env.WEQ_DEV_RESTART_MANAGED,
         args:process.argv.slice(2)
       })+'\\n');
-      setInterval(()=>{
+      setInterval(async()=>{
+        if (existsSync(readLazy)) {
+          unlinkSync(readLazy);
+          const value = await import('./lazy.js').then((mod) => mod.value, (error) => error.code);
+          writeFileSync(${JSON.stringify(lazyResult)}, value);
+        }
         if (!existsSync(request)) return;
         const code = Number.parseInt(readFileSync(request,'utf8'), 10);
         if (!Number.isInteger(code)) return;
         unlinkSync(request);
         process.exit(code);
       },25);`;
+  await writeFile(lazy, 'export const value = "old-chunk";');
   await writeFile(main, source(1));
   await writeFile(join(root, 'preload.js'), 'export const value = 1;');
+  const staleChunk = join(root, 'out/main/chunks/previous-session.js');
+  await mkdir(join(root, 'out/main/chunks'), { recursive: true });
+  await writeFile(staleChunk, 'export {}');
   const { stdout } = await run(
     process.execPath,
     [
@@ -88,14 +101,14 @@ test('真实 electron-vite：菜单和开发更新都在原 Vite 会话中重启
     join(root, 'electron.vite.config.mjs'),
     `
     import {tsImport} from ${JSON.stringify(pathToFileURL(createRequire(import.meta.url).resolve('tsx/esm/api')).href)};
-    const {createDevelopmentReload,successfulDevelopmentReload} = await tsImport(${JSON.stringify(new URL('../apps/desktop/src/main/development_reload.ts', import.meta.url).href)}, import.meta.url);
+    const {createDevelopmentReload,retainDevelopmentMainChunks,successfulDevelopmentReload} = await tsImport(${JSON.stringify(new URL('../apps/desktop/src/main/development_reload.ts', import.meta.url).href)}, import.meta.url);
     const {developmentBuildSummary, developmentViteLogging} = await tsImport(${JSON.stringify(new URL('../apps/desktop/src/main/development_vite.ts', import.meta.url).href)}, import.meta.url);
     const summary = developmentBuildSummary();
     const mainLogging = developmentViteLogging('main', process.env, undefined, undefined, summary);
     const preloadLogging = developmentViteLogging('preload', process.env, undefined, undefined, summary);
     const reload = createDevelopmentReload();
     export default {
-      main: {...mainLogging.config, plugins:[...mainLogging.plugins, successfulDevelopmentReload('main',reload)], build: {watch: ${JSON.stringify(watch.main)}, rollupOptions: {input: ${JSON.stringify(main)}}}},
+      main: {...mainLogging.config, plugins:[...mainLogging.plugins, retainDevelopmentMainChunks(), successfulDevelopmentReload('main',reload)], build: {watch: ${JSON.stringify(watch.main)}, rollupOptions: {input: ${JSON.stringify(main)}}}},
       preload: {...preloadLogging.config, plugins:[...preloadLogging.plugins, successfulDevelopmentReload('preload',reload)], build: {watch: ${JSON.stringify(watch.preload)}, rollupOptions: {input: ${JSON.stringify(join(root, 'preload.js'))}}}},
       renderer: {root: ${JSON.stringify(root)}, plugins:[reload.rendererPlugin({clearOnMenuRestart:true})], server: {host:'127.0.0.1',port:0}, build:{rollupOptions:{input:${JSON.stringify(join(root, 'index.html'))}}}}
     };
@@ -155,6 +168,7 @@ test('真实 electron-vite：菜单和开发更新都在原 Vite 会话中重启
     }
   };
   await until(async () => (await starts()).length === 1);
+  await assert.rejects(readFile(staleChunk), { code: 'ENOENT' });
   const first = (await starts())[0];
   assert.equal(first.restarting, undefined);
   assert.equal(first.managed, '1');
@@ -189,10 +203,27 @@ test('真实 electron-vite：菜单和开发更新都在原 Vite 会话中重启
   assert.equal((await starts()).length, 1, output);
   assert.match(output, /仍运行上次成功构建/);
   process.kill(first.pid, 0);
+  await writeFile(lazy, 'export const value = "new-chunk";');
   await writeFile(main, source(2));
   await until(() => pending?.ready && pending.restart);
   const batch = pending.id;
   assert.equal((await starts()).length, 1, '成功构建不能自动重启');
+  const readLazy = async () => {
+    await rm(lazyResult, { force: true });
+    await writeFile(lazyRequest, '');
+    let value;
+    await until(async () => {
+      try {
+        value = await readFile(lazyResult, 'utf8');
+        return Boolean(value);
+      } catch (error) {
+        if (error.code === 'ENOENT') return false;
+        throw error;
+      }
+    });
+    return value;
+  };
+  assert.equal(await readLazy(), 'old-chunk', '待重启期间旧进程仍能加载旧分块');
   await writeFile(main, source(3));
   const previous = statuses.length;
   await until(() => statuses.length > previous && pending?.ready);
@@ -201,6 +232,7 @@ test('真实 electron-vite：菜单和开发更新都在原 Vite 会话中重启
   await until(async () => (await starts()).length === 2);
   assert.equal((await starts())[1].value, 3);
   assert.equal((await starts())[1].restarting, '1');
+  assert.equal(await readLazy(), 'new-chunk', '重启后按需加载新分块');
   assert.match(output, /主进程增量构建完成（构建已恢复）/);
   await writeFile(main, source(4));
   await until(() => pending?.ready && pending.restart);
