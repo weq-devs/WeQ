@@ -16,7 +16,8 @@ import { createRequire } from 'node:module';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
 import { installPerformanceSampling } from './performance_monitor';
 import type { EditMenuState } from '../shared/edit_menu';
-import { CALL_VIDEO_FRAME_CHANNEL, type CallVideoFrame } from '../shared/call_video_ipc';
+import { CALL_VIDEO_FRAME_CHANNEL, type CallVideoBridge } from '../shared/call_video_ipc';
+import { groupVideoBridge } from './group_video';
 import type { LongTermAuthorizationBridge } from '../shared/long_term_authorization';
 import { rendererRecoveryBridge } from './renderer_recovery';
 import { windowChromeBridge } from './window_chrome';
@@ -209,10 +210,11 @@ const weqBridge = {
      * 克隆（0.17 ms），经 tRPC + superjson 会被展开成十进制数组（一帧 1.2 MB
      * 文本、30 ms）。视频帧本来就该 fire-and-forget，不等回执。
      */
-    pushFrame(frame: CallVideoFrame): void {
+    pushFrame(frame): void {
       ipcRenderer.send(CALL_VIDEO_FRAME_CHANNEL, frame);
     },
-  },
+    ...groupVideoBridge,
+  } satisfies CallVideoBridge,
   /**
    * 通话摄像头按标签指定（排障用）。
    *

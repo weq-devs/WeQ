@@ -11,10 +11,21 @@
  * 只注册一次；没有进行中的通话时直接丢弃（视频帧不需要排队，过期的画面没有意义）。
  */
 
-import { ipcMain } from 'electron';
+import { ipcMain, MessageChannelMain, type WebContents } from 'electron';
 import { getLogger } from '@weq/service';
-import { CALL_VIDEO_FRAME_CHANNEL, type CallVideoFrame } from '../shared/call_video_ipc';
+import {
+  CALL_VIDEO_FRAME_CHANNEL,
+  GROUP_VIDEO_PORT_CHANNEL,
+  GROUP_VIDEO_PUSH_CHANNEL,
+  GROUP_VIDEO_SUBSCRIBE_CHANNEL,
+  GROUP_VIDEO_UPLOAD_MAX_BYTES,
+  type CallVideoFrame,
+  type GroupVideoFrame,
+} from '../shared/call_video_ipc';
 import { findCallManager } from './call_registry';
+import { currentGroupCall } from './group_call';
+import { GroupVideoDeliveryQueue } from './group_video_delivery';
+import { runtimeMaintenance } from './runtime_maintenance';
 
 const logger = getLogger().child({ scope: 'call-video-ipc' });
 
@@ -28,7 +39,7 @@ function asBytes(value: unknown): Uint8Array | null {
   return null;
 }
 
-export function registerCallVideoIpc(): void {
+export function registerCallVideoIpc(mainContents: () => WebContents | undefined): void {
   ipcMain.on(CALL_VIDEO_FRAME_CHANNEL, (_event, raw: unknown) => {
     if (!raw || typeof raw !== 'object') return;
     const frame = raw as Partial<CallVideoFrame>;
@@ -41,6 +52,66 @@ export function registerCallVideoIpc(): void {
     if (!manager) return;
     // 主进程侧还会再校验一次尺寸（见 NativeVideoEncoder.pushFrame）。
     manager.pushVideoFrame(y, u, v);
+  });
+  const isMainFrame = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) =>
+    event.sender === mainContents() && event.senderFrame === event.sender.mainFrame;
+  ipcMain.handle(GROUP_VIDEO_PUSH_CHANNEL, async (event, raw: unknown) => {
+    if (!isMainFrame(event) || !raw || typeof raw !== 'object') return;
+    const { id, data, secondary, keyframe } = raw as Partial<GroupVideoFrame>;
+    if (
+      typeof id !== 'string' ||
+      typeof keyframe !== 'boolean' ||
+      !(data instanceof Uint8Array) ||
+      !(secondary instanceof Uint8Array) ||
+      !data.length ||
+      !secondary.length ||
+      data.length > GROUP_VIDEO_UPLOAD_MAX_BYTES ||
+      secondary.length > GROUP_VIDEO_UPLOAD_MAX_BYTES
+    )
+      throw new Error('群视频帧无效');
+    await runtimeMaintenance.operation(async () => {
+      currentGroupCall(id)?.session?.pushVideoFrame(data, keyframe, secondary);
+    }, 'groupCall.pushVideo');
+  });
+
+  let stopDelivery: (() => void) | undefined;
+  ipcMain.on(GROUP_VIDEO_SUBSCRIBE_CHANNEL, (event, id: unknown, subscription: unknown) => {
+    const frame = event.senderFrame;
+    if (!frame || !isMainFrame(event) || typeof id !== 'string' || typeof subscription !== 'number')
+      return;
+    const session = currentGroupCall(id)?.session;
+    if (!session) return;
+    stopDelivery?.();
+    const { port1, port2 } = new MessageChannelMain();
+    const delivery = new GroupVideoDeliveryQueue();
+    const unbindVideo = session.onVideo((data, info) => {
+      const seq = delivery.offer(info.uin, info.keyframe, data.byteLength);
+      if (seq !== undefined) port1.postMessage({ ...info, data, seq });
+    });
+    const unbindState = session.onUpdate(({ state }) => {
+      if (state === 'ended' || state === 'failed') close();
+    });
+    function close() {
+      if (stopDelivery !== close) return;
+      stopDelivery = undefined;
+      unbindVideo();
+      unbindState();
+      port1.close();
+    }
+    stopDelivery = close;
+    port1.on('message', ({ data }) => {
+      if (data === 'close') close();
+      else if (typeof data === 'number') delivery.acknowledge(data);
+    });
+    port1.once('close', close);
+    port1.start();
+    try {
+      frame.postMessage(GROUP_VIDEO_PORT_CHANNEL, subscription, [port2]);
+    } catch (error) {
+      close();
+      port2.close();
+      logger.debug('群视频接收窗口已关闭', { error: String(error) });
+    }
   });
   logger.debug('通话视频帧 IPC 已注册');
 }

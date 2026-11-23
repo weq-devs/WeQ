@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { client, trpc } from '../trpc/client';
+import type { GroupVideoDelivery } from '../../../shared/call_video_ipc';
+import { client } from '../trpc/client';
 
 const PRIMARY = { width: 640, height: 360, bitrate: 500_000 };
 const SECONDARY = { width: 192, height: 144, bitrate: 120_000 };
@@ -64,8 +65,18 @@ export function useGroupCamera(id: string, enabled: boolean, onError: (message: 
           if (pair.data && pair.secondary) {
             pairs.delete(chunk.timestamp);
             busy = true;
-            void client.groupCall.pushVideo
-              .mutate({ id, data: pair.data, secondary: pair.secondary, keyframe: pair.keyframe })
+            const frame = {
+              id,
+              data: pair.data,
+              secondary: pair.secondary,
+              keyframe: pair.keyframe,
+            };
+            const bridge = window.weq?.callVideo;
+            void (
+              bridge?.pushGroupFrame
+                ? bridge.pushGroupFrame(frame)
+                : client.groupCall.pushVideo.mutate(frame)
+            )
               .catch(failed)
               .finally(() => {
                 busy = false;
@@ -176,6 +187,8 @@ interface RemoteVideo {
 export function useGroupRemoteVideo(id: string, live: boolean, activeUins: ReadonlySet<number>) {
   const streams = useRef(new Map<number, RemoteVideo>());
   const targets = useRef(new Map<number, Set<HTMLCanvasElement>>());
+  const activeUinsRef = useRef(activeUins);
+  activeUinsRef.current = activeUins;
   const [ready, setReady] = useState<ReadonlySet<number>>(new Set());
   const paint = useCallback((uin: number) => {
     const frame = streams.current.get(uin)?.canvas;
@@ -223,72 +236,75 @@ export function useGroupRemoteVideo(id: string, live: boolean, activeUins: Reado
     },
     [],
   );
-  trpc.groupCall.video.useSubscription(
-    { id },
-    {
-      enabled: live,
-      onData: ({ uin, data, keyframe }) => {
-        if (!activeUins.has(uin) || typeof VideoDecoder === 'undefined') return;
-        let stream = streams.current.get(uin);
-        if (!stream) {
-          if (!keyframe) return;
-          const annexB = new Uint8Array(data);
-          const sps = avcCodec(annexB);
-          if (!sps) return;
-          const canvas = new OffscreenCanvas(0, 0);
-          const decoder = new VideoDecoder({
-            output: (frame) => {
-              try {
-                if (streams.current.get(uin)?.decoder !== decoder) return;
-                const first = canvas.width === 0;
-                if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
-                  canvas.width = frame.displayWidth;
-                  canvas.height = frame.displayHeight;
-                }
-                canvas.getContext('2d')?.drawImage(frame, 0, 0);
-                if (first) setReady((prior) => (prior.has(uin) ? prior : new Set([...prior, uin])));
-                paint(uin);
-              } finally {
-                frame.close();
-              }
-            },
-            error: () => {
+  useEffect(() => {
+    if (!live || typeof VideoDecoder === 'undefined') return;
+    const onData = ({ uin, data, keyframe }: GroupVideoDelivery) => {
+      if (!activeUinsRef.current.has(uin)) return;
+      let stream = streams.current.get(uin);
+      if (!stream) {
+        if (!keyframe) return;
+        const sps = avcCodec(data);
+        if (!sps) return;
+        const canvas = new OffscreenCanvas(0, 0);
+        const decoder = new VideoDecoder({
+          output: (frame) => {
+            try {
               if (streams.current.get(uin)?.decoder !== decoder) return;
-              streams.current.delete(uin);
-              setReady((prior) => new Set([...prior].filter((value) => uin !== value)));
-            },
-          });
-          try {
-            decoder.configure({ codec: sps, optimizeForLatency: true });
-          } catch {
-            decoder.close();
-            return;
-          }
-          stream = { decoder, canvas, timestamp: 0 };
-          streams.current.set(uin, stream);
-        }
-        if (stream.decoder.decodeQueueSize > 16) {
-          stream.decoder.close();
-          streams.current.delete(uin);
-          setReady((prior) => new Set([...prior].filter((value) => uin !== value)));
+              const first = canvas.width === 0;
+              if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+                canvas.width = frame.displayWidth;
+                canvas.height = frame.displayHeight;
+              }
+              canvas.getContext('2d')?.drawImage(frame, 0, 0);
+              if (first) setReady((prior) => (prior.has(uin) ? prior : new Set([...prior, uin])));
+              paint(uin);
+            } finally {
+              frame.close();
+            }
+          },
+          error: () => {
+            if (streams.current.get(uin)?.decoder !== decoder) return;
+            streams.current.delete(uin);
+            setReady((prior) => new Set([...prior].filter((value) => uin !== value)));
+          },
+        });
+        try {
+          decoder.configure({ codec: sps, optimizeForLatency: true });
+        } catch {
+          decoder.close();
           return;
         }
-        try {
-          stream.decoder.decode(
-            new EncodedVideoChunk({
-              data: new Uint8Array(data),
-              timestamp: stream.timestamp++,
-              type: keyframe ? 'key' : 'delta',
-            }),
-          );
-        } catch {
-          if (stream.decoder.state !== 'closed') stream.decoder.close();
-          streams.current.delete(uin);
-          setReady((prior) => new Set([...prior].filter((value) => uin !== value)));
-        }
-      },
-    },
-  );
+        stream = { decoder, canvas, timestamp: 0 };
+        streams.current.set(uin, stream);
+      }
+      if (stream.decoder.decodeQueueSize > 16) {
+        stream.decoder.close();
+        streams.current.delete(uin);
+        setReady((prior) => new Set([...prior].filter((value) => uin !== value)));
+        return;
+      }
+      try {
+        stream.decoder.decode(
+          new EncodedVideoChunk({
+            data:
+              data.buffer instanceof ArrayBuffer
+                ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+                : new Uint8Array(data),
+            timestamp: stream.timestamp++,
+            type: keyframe ? 'key' : 'delta',
+          }),
+        );
+      } catch {
+        if (stream.decoder.state !== 'closed') stream.decoder.close();
+        streams.current.delete(uin);
+        setReady((prior) => new Set([...prior].filter((value) => uin !== value)));
+      }
+    };
+    const bridge = window.weq?.callVideo;
+    if (bridge?.subscribeGroup) return bridge.subscribeGroup(id, onData);
+    const subscription = client.groupCall.video.subscribe({ id }, { onData });
+    return () => subscription.unsubscribe();
+  }, [id, live, paint]);
   return { ready, register };
 }
 

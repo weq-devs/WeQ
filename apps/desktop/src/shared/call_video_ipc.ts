@@ -16,6 +16,10 @@
 
 /** 渲染层 → 主进程：一帧 I420。 */
 export const CALL_VIDEO_FRAME_CHANNEL = 'call:video-frame';
+export const GROUP_VIDEO_PUSH_CHANNEL = 'group-call:video-push';
+export const GROUP_VIDEO_SUBSCRIBE_CHANNEL = 'group-call:video-subscribe';
+export const GROUP_VIDEO_PORT_CHANNEL = 'group-call:video-port';
+export const GROUP_VIDEO_UPLOAD_MAX_BYTES = 200_000;
 
 /** 一帧 I420 的三个平面（Y 全尺寸、U/V 各四分之一）。 */
 export interface CallVideoFrame {
@@ -24,8 +28,23 @@ export interface CallVideoFrame {
   v: Uint8Array;
 }
 
+export interface GroupVideoFrame {
+  id: string;
+  data: Uint8Array;
+  secondary: Uint8Array;
+  keyframe: boolean;
+}
+
+export interface GroupVideoDelivery {
+  uin: number;
+  data: Uint8Array;
+  keyframe: boolean;
+}
+
 /** preload 暴露给渲染层的视频帧桥。 */
 export interface CallVideoBridge {
   /** 推一帧 I420（不等待主进程，失败静默）。 */
   pushFrame(frame: CallVideoFrame): void;
+  pushGroupFrame(frame: GroupVideoFrame): Promise<void>;
+  subscribeGroup(id: string, onFrame: (frame: GroupVideoDelivery) => void): () => void;
 }

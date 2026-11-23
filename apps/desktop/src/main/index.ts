@@ -1136,7 +1136,7 @@ void app.whenReady().then(async () => {
   registerLongTermAuthorizationIpc();
   registerEditUndoIpc();
   registerEditContextMenu();
-  registerCallVideoIpc();
+  registerCallVideoIpc(() => getMainWindow()?.webContents);
   const visibleAccountConfigs = () =>
     new Map(
       [
