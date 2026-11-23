@@ -83,7 +83,6 @@ function Fixture() {
       className="app-shell-root weq-web-shell"
       data-mobile-detail={shell.mainOpen || settings || undefined}
       data-mobile-root-view={shell.view}
-      data-mobile-workspace={shell.view === 'qzone' || undefined}
     >
       <MobileNavigationRuntime root={root} />
       <MobileWebNavigation
@@ -179,9 +178,6 @@ function Fixture() {
             </aside>
           </div>
         ))}
-        <div data-mobile-root-preview="qzone">
-          <main className="chat-main">合成空间</main>
-        </div>
       </div>
       {menu && (
         <ConversationActionsMenu

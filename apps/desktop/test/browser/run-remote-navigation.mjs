@@ -312,7 +312,6 @@ try {
   );
   for (const [tab, distance] of [
     ['contacts', -160],
-    ['qzone', -160],
     ['more', -160],
   ]) {
     await swipe(distance, 200, '.sidebar');
@@ -331,7 +330,7 @@ try {
   await page.evaluate(() => window.weqMobileNavigation.back());
   await page.waitForSelector('.weq-settings-dialog', { state: 'detached' });
   assert.ok(await morePage.isVisible());
-  for (const tab of ['qzone', 'contacts', 'messages']) {
+  for (const tab of ['contacts', 'messages']) {
     const target = (await morePage.count())
       ? '.weq-mobile-navigation > .weq-mobile-more'
       : '.sidebar';

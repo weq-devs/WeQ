@@ -315,11 +315,11 @@ it('空间预热不读内容，停稳才读；再次滑动暂停读取但不清�
     f.close();
   }
 });
-it('侧滑用的空间预览已有真实栏目和骨架，但不读取动态或说说', async () => {
+it('空间停稳前显示栏目和骨架，但不读取动态或说说', async () => {
   const f = mount(
     createElement(QzoneWorkspace, {
-      active: false,
-      previewOnly: true,
+      active: true,
+      readEnabled: false,
       selfUin: '10001',
       nickname: '合成自己',
     }),

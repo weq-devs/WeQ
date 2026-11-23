@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
-  mobilePageLoaders,
   mobileMorePageLoaders,
   preloadWorkspace,
 } from '../src/renderer/src/components/lazyWorkspaces.shared';
@@ -41,9 +40,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it('首屏只预热空间代码，更多只准备设置和收藏，不遍历重工具表', () => {
-  expect(mobilePageLoaders).toEqual([QzoneWorkspace.preload]);
-  expect(mobileMorePageLoaders).toEqual([SettingsDialog.preload, CollectionDialog.preload]);
+it('更多只预热空间、设置和收藏，不遍历重工具表', () => {
+  expect(mobileMorePageLoaders).toEqual([
+    QzoneWorkspace.preload,
+    SettingsDialog.preload,
+    CollectionDialog.preload,
+  ]);
 });
 
 it('用户实际导航意图绕过慢后台模块，预热不挂载页面或启动组件查询', async () => {
@@ -51,7 +53,7 @@ it('用户实际导航意图绕过慢后台模块，预热不挂载页面或启�
   fixture.pending = new Promise<void>((resolve) => {
     release = resolve;
   });
-  const stop = preloadMobilePages(mobilePageLoaders);
+  const stop = preloadMobilePages(mobileMorePageLoaders);
   try {
     await vi.advanceTimersByTimeAsync(80);
     expect(fixture.loads).toEqual(['qzone']);

@@ -97,14 +97,12 @@ try {
         ['主页', 'home'],
       ]) {
         if (single && label === 'QQ 频道') continue;
-        if (single && !['QQ 空间'].includes(label))
-          await nav.getByRole('button', { name: '更多', exact: true }).click();
-        const button =
-          single && label !== 'QQ 空间'
-            ? page.locator('.weq-mobile-more').getByRole('button', { name: label, exact: true })
-            : label === '主页'
-              ? page.getByRole('button', { name: label, exact: true }).first()
-              : nav.getByRole('button', { name: label, exact: true });
+        if (single) await nav.getByRole('button', { name: '更多', exact: true }).click();
+        const button = single
+          ? page.locator('.weq-mobile-more').getByRole('button', { name: label, exact: true })
+          : label === '主页'
+            ? page.getByRole('button', { name: label, exact: true }).first()
+            : nav.getByRole('button', { name: label, exact: true });
         await button.click();
         await page.locator(`[data-navigation-view="${target}"]`).waitFor();
       }

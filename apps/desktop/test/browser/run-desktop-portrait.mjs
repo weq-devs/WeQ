@@ -163,11 +163,11 @@ try {
               sidebar.bottom <= rail.top + 1 &&
               getComputedStyle(document.querySelector('.sidebar-body')).paddingBottom === '0px' &&
               getComputedStyle(document.querySelector('.app-rail')).display === 'none' &&
-              document.querySelectorAll('.weq-mobile-tabs > button').length === 4
+              document.querySelectorAll('.weq-mobile-tabs > button').length === 3
             );
           }),
           true,
-          '直接使用 Remote 四入口底栏，隐藏旧桌面导航',
+          '直接使用 Remote 三入口底栏，隐藏旧桌面导航',
         );
         if (output)
           await page.screenshot({

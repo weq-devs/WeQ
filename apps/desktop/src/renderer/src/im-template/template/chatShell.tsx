@@ -257,7 +257,7 @@ export function ChatShell({
         </main>
       </div>
       {sharedShell && (
-        <MobileRootPreviews user={user} renderHeader={(page) => renderSidebarHeader(page, true)} />
+        <MobileRootPreviews renderHeader={(page) => renderSidebarHeader(page, true)} />
       )}
       {children}
     </div>

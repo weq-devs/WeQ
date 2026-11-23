@@ -111,6 +111,7 @@ const data: Record<string, unknown> = {
   },
   'account.qzone.posts': { list: [], total: 0 },
   'account.qzone.blogs': { items: [], total: 0, nextOffset: null },
+  'account.qzone.shares': { items: [], next: null },
   'account.qzone.forwards': { forwards: [], reportedTotal: 0 },
   'account.qzone.albumPage': {
     albums: [{ id: 'fixture-album', name: '合成相册', mediaCount: 1, coverUrl: '', desc: '' }],

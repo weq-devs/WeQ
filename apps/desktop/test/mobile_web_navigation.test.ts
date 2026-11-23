@@ -79,27 +79,30 @@ async function click(label: string) {
   expect(button, label).toBeTruthy();
   await act(async () => button!.click());
 }
+async function openMore() {
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-mobile-tab="more"]')!.click());
+}
 
-it('底栏固定四个入口，未读数封顶但不会增加导航宽度', async () => {
+it('底栏固定三个入口，未读数封顶但不会增加导航宽度', async () => {
   await act(async () => root.render(createElement(MobileWebNavigation, props)));
   const tabs = host.querySelectorAll('nav > button');
-  expect(tabs).toHaveLength(4);
+  expect(tabs).toHaveLength(3);
   expect(tabs[0]!.getAttribute('aria-current')).toBe('page');
   expect(tabs[0]!.textContent).toContain('99+');
   expect(host.querySelector('[aria-label="更多功能"]')).toBeNull();
 });
 
-it('导航使用完整统一名称，收藏入口不再带有个人前缀', async () => {
+it('QQ 空间从更多打开，进入后底栏仍选中更多', async () => {
   await act(async () => root.render(createElement(MobileWebNavigation, props)));
-  expect(host.querySelector('[data-mobile-tab="qzone"]')?.textContent).toBe('QQ 空间');
-  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
-  await click('收藏');
-  expect(props.onOpenCollection).toHaveBeenCalledOnce();
+  await openMore();
+  await click('QQ 空间');
+  expect(props.onViewChange).toHaveBeenLastCalledWith('qzone');
+  expect(host.querySelector('nav > [aria-current="page"]')?.textContent).toContain('更多');
 });
 
 it('更多保留其余次级入口，选中后关闭列表并调用原有操作', async () => {
   await act(async () => root.render(createElement(MobileWebNavigation, props)));
-  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
+  await openMore();
   expect(host.querySelector('[aria-label="更多功能"]')).not.toBeNull();
   const more = host.querySelector('[aria-label="更多功能"]')!;
   for (const label of ['QQ 频道', '频道私聊', 'WeQ 助手'])
@@ -107,7 +110,7 @@ it('更多保留其余次级入口，选中后关闭列表并调用原有操作'
   await click('年度报告');
   expect(props.onViewChange).toHaveBeenCalledWith('annual');
   expect(host.querySelector('[aria-label="更多功能"]')).toBeNull();
-  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
+  await openMore();
   await click('设置');
   expect(props.onOpenSettings).toHaveBeenCalledOnce();
 });
@@ -164,10 +167,10 @@ it('搜索在手机标题中可展开，聊天详情隐藏整套主导航', asyn
 it('更多中的收藏入口复用现有回调，不增加底栏入口', async () => {
   await act(async () => root.render(createElement(MobileWebNavigation, props)));
   expect(host.textContent).not.toContain('收藏');
-  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
+  await openMore();
   await click('收藏');
   expect(props.onOpenCollection).toHaveBeenCalledOnce();
-  expect(host.querySelectorAll('nav > button')).toHaveLength(4);
+  expect(host.querySelectorAll('nav > button')).toHaveLength(3);
 });
 
 it('更多精简重复功能，QQ 资料仍从顶栏头像进入', async () => {
@@ -201,11 +204,11 @@ it('更多精简重复功能，QQ 资料仍从顶栏头像进入', async () => {
   expect(host.querySelector('[role="dialog"]')).toBeNull();
   expect(props.onOpenSettings).not.toHaveBeenCalled();
   expect(host.querySelector('.weq-mobile-actions-toggle')).toBeNull();
-  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
+  await openMore();
   const more = host.querySelector('[aria-label="更多功能"]')!;
   for (const label of ['QQ 资料与状态', '应用', 'QQ 号搜索', '群号搜索', '好友通知', '群通知'])
     expect(more.textContent).not.toContain(label);
-  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
+  await openMore();
   expect(host.querySelector('[aria-label="更多功能"]')).toBe(more);
   expect(props.onViewChange).toHaveBeenCalledTimes(1);
 });
@@ -217,7 +220,7 @@ it('各页面和更多页顶栏始终显示昵称，不再显示页面标题', a
     expect(host.querySelector('.weq-mobile-account .avatar')).not.toBeNull();
     expect(host.querySelector('.weq-mobile-header > strong')).toBeNull();
   }
-  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
+  await openMore();
   expect(host.querySelector('.weq-mobile-account > strong')?.textContent).toBe('合成账号');
 });
 
@@ -456,12 +459,12 @@ it.each([0, 123])('消息汇总数为 %s 时仅当前消息页点击可定位', 
 
 it('外部导航更新根页面，进入详情后关闭详情仍回到更多且不闪回', async () => {
   await act(async () => root.render(createElement(MobileWebNavigation, props)));
-  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
+  await openMore();
   await act(async () =>
     root.render(createElement(MobileWebNavigation, { ...props, view: 'qzone' })),
   );
   expect(host.querySelector('[aria-label="更多功能"]')).toBeNull();
-  await act(async () => host.querySelectorAll<HTMLButtonElement>('nav > button')[3]!.click());
+  await openMore();
   await act(async () =>
     root.render(createElement(MobileWebNavigation, { ...props, view: 'qzone', hidden: true })),
   );

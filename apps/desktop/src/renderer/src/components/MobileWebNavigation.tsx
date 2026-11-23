@@ -20,11 +20,7 @@ import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { preloadMobilePages } from '../lib/mobilePageLoading';
-import {
-  mobilePageLoaders,
-  mobileMorePageLoaders,
-  preloadWorkspace,
-} from './lazyWorkspaces.shared';
+import { mobileMorePageLoaders, preloadWorkspace } from './lazyWorkspaces.shared';
 import { useDataSaver } from '../lib/dataSaver';
 import { registerMobileBack } from '../hooks/useMobileNavigation';
 import { mobileRootTab } from '../lib/mobileRootTransition';
@@ -91,10 +87,6 @@ export function MobileWebNavigation({
       target: () => document.querySelector<HTMLElement>('.weq-web-shell .app-shell > .chat-main'),
     });
   }, [mobile, view]);
-  useEffect(() => {
-    if (mobile && !dataSaver) return preloadMobilePages(mobilePageLoaders);
-    return undefined;
-  }, [mobile, dataSaver]);
   const openTool = useWorkspaceMenu((state) => state.openMobileTool);
   const moreOpen = view === 'more' && !mobilePage;
   useEffect(() => {

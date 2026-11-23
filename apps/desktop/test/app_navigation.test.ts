@@ -35,8 +35,14 @@ describe('共用功能导航', () => {
       for (const { id, ...entry } of entries)
         expect(entry).toEqual(APP_NAVIGATION[id as keyof typeof APP_NAVIGATION]);
     }
-    const tabs = navigationEntries('mobile-tabs');
-    expect(tabs.map(({ id }) => id)).toEqual(['messages', 'contacts', 'qzone', 'more']);
+    expect(navigationEntries('mobile-tabs').map(({ id }) => id)).toEqual([
+      'messages',
+      'contacts',
+      'more',
+    ]);
+    const moreIds = navigationEntries('mobile-more').map(({ id }) => id);
+    expect(moreIds[moreIds.indexOf('mail') - 1]).toBe('qzone');
+    expect(navigationEntries('rail').map(({ id }) => id)).toContain('qzone');
   });
 
   it('竖版更多不再展示频道、频道私聊和助手，保留搜索及横版频道入口', () => {

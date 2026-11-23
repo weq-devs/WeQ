@@ -265,7 +265,6 @@ function QzonePage({
 export const QzoneWorkspace = memo(function QzoneWorkspace({
   active,
   readEnabled = active,
-  previewOnly = false,
   selfUin,
   nickname,
   localProfiles,
@@ -274,7 +273,6 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
 }: {
   active: boolean;
   readEnabled?: boolean;
-  previewOnly?: boolean;
   selfUin: string;
   nickname: string;
   localProfiles?: ReadonlyMap<string, QzoneLocalProfile>;
@@ -285,9 +283,9 @@ export const QzoneWorkspace = memo(function QzoneWorkspace({
   const [loaded, setLoaded] = useState(readEnabled);
   if (readEnabled && !loaded) setLoaded(true);
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
-    enabled: active && parentActive && readEnabled && !previewOnly,
+    enabled: active && parentActive && readEnabled,
   });
-  if (previewOnly || (active && parentActive && !loaded && !readEnabled))
+  if (active && parentActive && !loaded && !readEnabled)
     return (
       <TabActivity active={false}>
         <PageSnapshotScope name="qzone-preview">

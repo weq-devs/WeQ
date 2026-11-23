@@ -1,4 +1,4 @@
-export const mobileRootTabs = ['messages', 'contacts', 'qzone', 'more'] as const;
+export const mobileRootTabs = ['messages', 'contacts', 'more'] as const;
 export type MobileRootTab = (typeof mobileRootTabs)[number];
 
 export function mobileRootTab(value: string | undefined | null): MobileRootTab | undefined {
@@ -35,11 +35,7 @@ function copyPage(source: HTMLElement) {
 function pageSource(root: HTMLElement, tab: MobileRootTab, current: boolean) {
   if (current) {
     const selector =
-      tab === 'more'
-        ? '.weq-mobile-navigation > .weq-mobile-more'
-        : tab === 'qzone'
-          ? '.app-shell > .chat-main'
-          : '.app-shell > .sidebar';
+      tab === 'more' ? '.weq-mobile-navigation > .weq-mobile-more' : '.app-shell > .sidebar';
     return root.querySelector<HTMLElement>(selector);
   }
   return root.querySelector<HTMLElement>(`[data-mobile-root-preview="${tab}"] > *`);

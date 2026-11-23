@@ -13,7 +13,7 @@ function fixture() {
       <div hidden style="display:none" data-mobile-sidebar-page="contacts"><input id="private-id" value="旧值">联系人列表</div>
     </div></aside></div>
     <div hidden data-mobile-root-preview="contacts"><aside class="sidebar"><header>联系人</header><div class="sidebar-body"></div></aside></div>
-    <div hidden data-mobile-root-preview="qzone"><main class="chat-main"><header>QQ 空间</header></main></div>`;
+    <div hidden data-mobile-root-preview="more"><section class="weq-mobile-more">更多功能</section></div>`;
   host.querySelector('input')!.value = '当前值';
 }
 it('半程已经显示目标页，源页和目标页连续相邻，副本不参与交互', () => {
@@ -48,9 +48,9 @@ it('取消后目标页退回边缘；提交后目标页到位且仍留待实际�
 
 it('减少动态效果时使用两页交叉淡变，不作横向移动', async () => {
   fixture();
-  const transition = createMobileRootTransition(host, 'messages', 'qzone', true)!;
+  const transition = createMobileRootTransition(host, 'messages', 'more', true)!;
   transition.move(-200);
-  const incoming = host.querySelector<HTMLElement>('[data-mobile-transition-page="qzone"]')!;
+  const incoming = host.querySelector<HTMLElement>('[data-mobile-transition-page="more"]')!;
   expect(incoming.style.opacity).toBe('0.5');
   expect(incoming.style.transform).toBe('');
   await transition.finish(-200, true);

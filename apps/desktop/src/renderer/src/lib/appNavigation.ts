@@ -89,13 +89,13 @@ export const APP_NAVIGATION = {
     icon: FEATURE_ICONS.qzone,
     target: { kind: 'view', view: 'qzone' },
     workspace: 'qzone',
-    placements: { rail: 2, 'mobile-tabs': 2, search: 4 },
+    placements: { rail: 2, 'mobile-more': 1, search: 4 },
   },
   mail: {
     ...navigationMetadata('mail'),
     icon: FEATURE_ICONS.mail,
     target: { kind: 'view', view: 'mail' },
-    placements: { rail: 4, 'mobile-more': 1, search: 5 },
+    placements: { rail: 4, 'mobile-more': 2, search: 5 },
   },
   channel: {
     ...navigationMetadata('channel'),
@@ -195,7 +195,7 @@ export const APP_NAVIGATION = {
     ...navigationMetadata('more'),
     icon: Grid2X2,
     target: { kind: 'view', view: 'more' },
-    placements: { 'mobile-tabs': 3 },
+    placements: { 'mobile-tabs': 2 },
   },
   'friend-notice': {
     ...navigationMetadata('friend-notice'),

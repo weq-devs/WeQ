@@ -86,11 +86,12 @@ try {
   );
   assert.equal(half.length, 2);
   assert.equal(half[0].page, 'contacts');
-  assert.equal(half[1].page, 'qzone');
+  assert.equal(half[1].page, 'more');
   assert.ok(Math.abs(half[0].right - half[1].left) < 1);
   assert.ok(half[1].left > 0 && half[1].left < 390);
   assert.ok(half[1].text.includes('QQ 空间'));
-  if (output) await page.screenshot({ path: resolve(output, 'contacts-qzone-half.png') });
+  assert.ok(half[1].text.includes('QQ 邮箱'));
+  if (output) await page.screenshot({ path: resolve(output, 'contacts-more-half.png') });
   await page.locator('.app-shell > .sidebar').dispatchEvent('touchcancel', { touches: [] });
   await settled();
   assert.equal(
@@ -115,7 +116,9 @@ try {
     await page.locator('.app-shell .weq-qzn:not([data-qzone-loading-preview])').count(),
     0,
   );
-  await page.locator('[data-mobile-tab="qzone"]').click();
+  const morePage = page.locator('.weq-mobile-navigation > .weq-mobile-more');
+  const openQzone = () => morePage.getByRole('button', { name: 'QQ 空间', exact: true }).click();
+  await openQzone();
   await settled();
   await page.locator('.app-shell .weq-qzn:not([data-qzone-loading-preview])').waitFor();
   const qzone = await page
@@ -140,43 +143,39 @@ try {
   await page.getByRole('button', { name: '返回相册列表' }).click();
   await album.waitFor({ timeout: 5000 });
   await page.getByRole('button', { name: '好友动态', exact: true }).click();
-  await page
-    .locator('.app-shell > .chat-main')
-    .dispatchEvent('touchstart', { touches: [{ clientX: 180, clientY: 400 }] });
-  await page
-    .locator('.app-shell > .chat-main')
-    .dispatchEvent('touchmove', { touches: [{ clientX: 120, clientY: 400 }], cancelable: true });
+  const workspace = page.locator('.app-shell > .chat-main');
+  await workspace.dispatchEvent('touchstart', { touches: [{ clientX: 180, clientY: 400 }] });
+  await workspace.dispatchEvent('touchmove', {
+    touches: [{ clientX: 120, clientY: 400 }],
+    cancelable: true,
+  });
+  assert.equal(await page.locator('[data-mobile-transition-page]').count(), 0);
+  await workspace.dispatchEvent('touchcancel', { touches: [] });
   assert.equal(await qzone.evaluate((el) => el.isConnected), true);
-  assert.ok(
-    await page
-      .locator('[data-mobile-transition-page="more"]')
-      .textContent()
-      .then((text) => text.includes('QQ 邮箱')),
-  );
-  await page.locator('.app-shell > .chat-main').dispatchEvent('touchcancel', { touches: [] });
-  await settled();
-  assert.equal(await qzone.evaluate((el) => el.isConnected), true);
+  const startTouch = { identifier: 1, clientX: 12, clientY: 400 };
+  const backTouch = { ...startTouch, clientX: 212 };
+  await workspace.dispatchEvent('touchstart', { touches: [startTouch] });
+  await workspace.dispatchEvent('touchmove', { touches: [backTouch], cancelable: true });
+  await workspace.dispatchEvent('touchend', { touches: [], changedTouches: [backTouch] });
+  await morePage.waitFor();
+  await openQzone();
+  await page.locator('.app-shell .weq-qzn:not([data-qzone-loading-preview])').waitFor();
+  await page.evaluate(() => history.back());
+  await morePage.waitFor();
   let gestureCases = 0;
   for (const [from, to] of [
     ['messages', 'contacts'],
-    ['contacts', 'qzone'],
-    ['qzone', 'more'],
-    ['more', 'qzone'],
-    ['qzone', 'contacts'],
+    ['contacts', 'more'],
+    ['more', 'contacts'],
     ['contacts', 'messages'],
   ]) {
     await page.evaluate((from) => window.remotePreloadQa.navigate(from), from);
     await page.waitForTimeout(400);
     const source = page.locator(
-      from === 'more'
-        ? '.weq-mobile-navigation > .weq-mobile-more'
-        : from === 'qzone'
-          ? '.app-shell > .chat-main'
-          : '.app-shell > .sidebar',
+      from === 'more' ? '.weq-mobile-navigation > .weq-mobile-more' : '.app-shell > .sidebar',
     );
-    const forward =
-      ['messages', 'contacts', 'qzone', 'more'].indexOf(to) >
-      ['messages', 'contacts', 'qzone', 'more'].indexOf(from);
+    const tabs = ['messages', 'contacts', 'more'];
+    const forward = tabs.indexOf(to) > tabs.indexOf(from);
     const x = forward ? 280 : 100;
     await source.dispatchEvent('touchstart', {
       touches: [{ identifier: 1, clientX: x, clientY: 400 }],
@@ -264,6 +263,7 @@ try {
       cases,
       retainedLists: true,
       qzoneSettling: true,
+      qzoneBackToMore: true,
       qzoneFeedPictureTap: true,
       qzoneAlbums: true,
       gestureCases,
