@@ -12,6 +12,7 @@ import {
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
 import { useUpdateStore } from '../src/renderer/src/state/update';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
+import { AnnouncementUnread } from '../src/renderer/src/lib/announcementPresentation';
 
 const fixture = vi.hoisted(() => ({
   clones: [],
@@ -267,38 +268,34 @@ describe('统一竖向工作菜单', () => {
       act(() => root.unmount());
     }
   });
-  it('菜单优先显示进行中数量，查看结果后只保留增强包红点', () => {
+  it('菜单按钮汇总菜单内角标，红点优先于任务进度', () => {
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
-    const render = () =>
+    const render = (unreadAnnouncements = 0) =>
       act(() =>
         root.render(
           h(
-            'div',
-            null,
+            AnnouncementUnread.Provider,
+            { value: unreadAnnouncements },
             h(WorkspaceMenuButton),
             h(WorkspaceTools, {
               accountScope: 'indicators',
-              footerControls: null,
+              footerControls: h(WorkspaceSettingsButton, { onClick: vi.fn() }),
               onOpenAnalysis: vi.fn(),
             }),
           ),
         ),
       );
     const trigger = () => host.querySelector<HTMLButtonElement>('.weq-workspace-menu-trigger')!;
-    const head = () => document.querySelector('.weq-workspace-menu-head-actions');
+    const taskBadge = () => document.querySelector('.weq-workspace-menu-body .weq-reminder');
     try {
       render();
       act(() => trigger().click());
       act(() => useUpdateStore.setState({ packsAvailable: true }));
       expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
       expect(trigger().querySelector('.weq-reminder-count')).toBeNull();
-      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
-      act(() => useWorkspaceMenu.setState({ running: 1 }));
-      expect(trigger().querySelector('.is-running')).not.toBeNull();
-      expect(trigger().querySelector('.is-running')?.textContent).toBe('1');
-      expect(head()?.querySelector('.is-running') ?? null).toBeNull();
+      expect(taskBadge()).toBeNull();
       const output = process.env.WEQ_WORKSPACE_LAYOUT_DIR;
       if (output) {
         mkdirSync(output, { recursive: true });
@@ -321,28 +318,37 @@ describe('统一竖向工作菜单', () => {
         finished: 2,
         unreadFailed: 1,
       });
-      expect(trigger().querySelector('.is-running')).not.toBeNull();
+      act(() => document.querySelector<HTMLButtonElement>('[aria-label="收起到菜单"]')!.click());
+      expect(taskBadge()?.getAttribute('data-tone')).toBe('running');
+      expect(taskBadge()?.textContent).toBe('1');
+      expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
+      act(() => useUpdateStore.setState({ packsAvailable: false }));
       expect(trigger().querySelector('.is-running')?.textContent).toBe('1');
       expect(trigger().title).toContain('1 项任务失败');
-      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
+      render(1);
+      expect(document.querySelector('[aria-label^="官方公告"] .weq-reminder-dot')).not.toBeNull();
+      expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
       fixture.exports = [
         { id: 'a', status: 'completed' },
         { id: 'b', status: 'completed' },
         { id: 'c', status: 'failed' },
       ];
       render();
+      expect(taskBadge()?.textContent).toBe('');
       expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
       expect(trigger().querySelector('.weq-reminder-count')).toBeNull();
       act(() => useWorkspaceMenu.getState().readTasks());
-      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
+      expect(taskBadge()).toBeNull();
       expect(trigger().title).not.toContain('任务失败');
+      expect(trigger().querySelector('.weq-reminder')).toBeNull();
+      act(() => useUpdateStore.setState({ packsAvailable: true }));
       expect(trigger().getAttribute('aria-label')).toContain('有增强包更新');
       expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
       render();
       expect(trigger().title).not.toContain('任务失败');
       fixture.exports = [];
       render();
-      expect(head()?.querySelector('.weq-workspace-dot') ?? null).toBeNull();
+      expect(taskBadge()).toBeNull();
       expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
     } finally {
       act(() => root.unmount());

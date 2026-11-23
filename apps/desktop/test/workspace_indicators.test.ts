@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   summarizeWorkspaceTasks,
   workspaceIndicator,
+  workspaceTaskBadge,
 } from '../src/renderer/src/lib/workspaceIndicators';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
@@ -33,7 +34,9 @@ describe('工作菜单状态汇总', () => {
     [100, 3, '99+'],
     [0, 120, ''],
   ] as const)('只为在途任务显示数字（在途 %s，未读 %s）', (running, finished, text) => {
-    const markup = renderToStaticMarkup(createElement(WorkspaceStatusDot, { running, finished }));
+    const markup = renderToStaticMarkup(
+      createElement(WorkspaceStatusDot, { badge: workspaceTaskBadge(running, finished) }),
+    );
     expect(markup).toContain(`>${text}</span>`);
   });
   it('各类在途与结束任务逐项计数，部分完成的漫游计入结束，暂停和待执行不计入', () => {

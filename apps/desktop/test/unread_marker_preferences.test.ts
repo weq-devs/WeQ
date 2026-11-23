@@ -91,7 +91,18 @@ it('菜单汇总任务和增强包更新；关闭角标不清空对应状态', (
   expect(host.querySelector('.weq-reminder-count')).toBeNull();
   expect(useWorkspaceMenu.getState().running).toBe(1);
   act(() =>
-    acceptPreferences({ revision: 2, values: { showTaskRunningBadge: true }, records: {} }, false),
+    acceptPreferences(
+      {
+        revision: 2,
+        values: {
+          showTaskRunningBadge: true,
+          showTaskResultBadge: false,
+          showUpdateBadge: false,
+        },
+        records: {},
+      },
+      false,
+    ),
   );
   expect(host.querySelector('.weq-reminder-count')?.textContent).toBe('1');
 });

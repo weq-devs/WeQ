@@ -181,11 +181,14 @@ export function AnnouncementCenter({
 export function AnnouncementEntry({
   placement,
   beforeOpen,
+  unreadCount,
 }: {
   placement: 'workspace' | 'startup' | 'mobile';
   beforeOpen?: () => void;
+  unreadCount?: number;
 }) {
-  const { unread, open } = useAnnouncementPresentation();
+  const { unread: presentationUnread, open } = useAnnouncementPresentation();
+  const unread = unreadCount ?? presentationUnread;
   const preview = useContext(AnnouncementPreviewTitle);
   const { label, icon: Icon } = APP_NAVIGATION.announcements;
   const mobile = placement === 'mobile';

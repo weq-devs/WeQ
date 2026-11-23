@@ -2,11 +2,13 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { Avatar } from '../im-template/template/primitives';
 import { AnnouncementEntry } from './AnnouncementCenter';
-import { ReminderCount, ReminderDot } from './ReminderBadge';
-import { WorkspaceStatusDot } from './WorkspaceStatusDot';
-import { useAnnouncementPresentation } from '../lib/announcementPresentation';
-import { useEnhancementUpdateBadge } from '../lib/unreadMarkers';
-import { useWorkspaceTaskBadges } from '../hooks/useWorkspaceTaskBadges';
+import { NavigationBadgeMark } from './ReminderBadge';
+import {
+  navigationBadge,
+  summarizeNavigationBadges,
+  type NavigationBadge,
+} from '../lib/navigationBadges';
+import { useWorkspaceEntryBadges } from '../hooks/useWorkspaceEntryBadges';
 import { SelfProfileAvatar } from './SelfProfileAvatar';
 import type { ProfileGroup } from '../lib/profileNavigation';
 import type { MainView, User } from '../im-template/template/types';
@@ -68,9 +70,7 @@ export function MobileWebNavigation({
   onOpenCollection: () => void;
 }) {
   const mobilePage = useWorkspaceMobilePage();
-  const { unread: announcementUnread } = useAnnouncementPresentation();
-  const taskBadges = useWorkspaceTaskBadges();
-  const packUpdate = useEnhancementUpdateBadge();
+  const entryBadges = useWorkspaceEntryBadges();
   const mobile = useMobileWebLayout();
   const developmentDressTools = useDevelopmentDressTools();
   const dataSaver = useDataSaver((state) => state.enabled);
@@ -117,8 +117,17 @@ export function MobileWebNavigation({
       onOpenTool: openTool,
       onOpenNotice: () => {},
     });
-  const badgeFor = (id: string) =>
-    id === 'messages' ? messageBadgeCount : id === 'mail' || id === 'more' ? mailBadgeCount : 0;
+  const moreBadges: Partial<Record<string, NavigationBadge>> = {
+    ...entryBadges,
+    mail: navigationBadge('unread', mailBadgeCount, `${mailBadgeCount} 封未读邮件`),
+  };
+  const moreEntries = navigationEntries('mobile-more', developmentDressTools).map((entry) => ({
+    ...entry,
+    badge: moreBadges[entry.id],
+  }));
+  const { badge: moreBadge, description: moreBadgeDescription } = summarizeNavigationBadges(
+    moreEntries.map(({ badge }) => badge),
+  );
   const moreContent = (
     <section className="weq-mobile-more" aria-label="更多功能">
       <div className="weq-mobile-more-account">
@@ -128,48 +137,31 @@ export function MobileWebNavigation({
           <span>{user.identityValue}</span>
         </div>
       </div>
-      {navigationEntries('mobile-more', developmentDressTools).map(
-        ({ id, label, icon: Icon, target, workspace }) =>
-          target.kind === 'announcements' ? (
-            <AnnouncementEntry key={id} placement="mobile" />
-          ) : (
-            <button
-              key={id}
-              type="button"
-              aria-label={
-                id === 'tasks' && taskBadges.label
-                  ? `${label}${taskBadges.label}`
-                  : id === 'settings' && packUpdate
-                    ? `${label}，有增强包更新`
-                    : undefined
-              }
-              onClick={() => activate(target)}
-              onPointerEnter={() => {
-                if (workspace) preloadWorkspace(workspace);
-              }}
-              onFocus={() => {
-                if (workspace) preloadWorkspace(workspace);
-              }}
-              onPointerDown={() => {
-                if (workspace) preloadWorkspace(workspace);
-              }}
-            >
-              <Icon size={22} aria-hidden />
-              <span>{label}</span>
-              {badgeFor(id) > 0 ? (
-                <ReminderCount count={badgeFor(id)} className="weq-mobile-badge" />
-              ) : id === 'tasks' ? (
-                <WorkspaceStatusDot
-                  running={taskBadges.running}
-                  finished={taskBadges.finished}
-                  overlay={false}
-                />
-              ) : id === 'settings' && packUpdate ? (
-                <ReminderDot aria-hidden />
-              ) : null}
-              <ChevronRight size={18} aria-hidden />
-            </button>
-          ),
+      {moreEntries.map(({ id, label, icon: Icon, target, workspace, badge }) =>
+        target.kind === 'announcements' ? (
+          <AnnouncementEntry key={id} placement="mobile" unreadCount={badge?.count ?? 0} />
+        ) : (
+          <button
+            key={id}
+            type="button"
+            aria-label={badge ? `${label}，${badge.description}` : undefined}
+            onClick={() => activate(target)}
+            onPointerEnter={() => {
+              if (workspace) preloadWorkspace(workspace);
+            }}
+            onFocus={() => {
+              if (workspace) preloadWorkspace(workspace);
+            }}
+            onPointerDown={() => {
+              if (workspace) preloadWorkspace(workspace);
+            }}
+          >
+            <Icon size={22} aria-hidden />
+            <span>{label}</span>
+            <NavigationBadgeMark badge={badge} className="weq-mobile-badge" />
+            <ChevronRight size={18} aria-hidden />
+          </button>
+        ),
       )}
     </section>
   );
@@ -211,13 +203,16 @@ export function MobileWebNavigation({
       )}
       <nav className="weq-mobile-tabs" aria-label="主导航">
         {tabs.map(({ id, label, icon: Icon, target }) => {
-          const badge = badgeFor(id);
-          const dotLabel =
-            id === 'contacts' && contactBadgeCount > 0
-              ? '有新的好友或群通知'
-              : id === 'more' && announcementUnread > 0
-                ? '有未读官方公告'
-                : '';
+          const badge =
+            id === 'more'
+              ? moreBadge
+              : id === 'messages'
+                ? navigationBadge('unread', messageBadgeCount, `${messageBadgeCount} 条未读`)
+                : id === 'contacts'
+                  ? navigationBadge('notice', contactBadgeCount, '有新的好友或群通知')
+                  : undefined;
+          const description =
+            id === 'more' ? moreBadgeDescription : badge ? `，${badge.description}` : '';
           return (
             <button
               key={id}
@@ -225,7 +220,7 @@ export function MobileWebNavigation({
               aria-current={active === id ? 'page' : undefined}
               data-mobile-tab={id}
               aria-expanded={id === 'more' ? moreOpen : undefined}
-              aria-label={`${label}${badge > 0 ? `，${badge} 条未读` : ''}${dotLabel ? `，${dotLabel}` : ''}`}
+              aria-label={`${label}${description}`}
               onClick={() => {
                 if (id === 'messages' && locateUnread) locateUnread();
                 else activate(target);
@@ -233,11 +228,7 @@ export function MobileWebNavigation({
             >
               <span className="weq-mobile-tab-icon">
                 <Icon size={24} aria-hidden />
-                {badge > 0 ? (
-                  <ReminderCount count={badge} overlay className="weq-mobile-badge" />
-                ) : dotLabel ? (
-                  <ReminderDot overlay className="weq-mobile-badge" aria-hidden />
-                ) : null}
+                <NavigationBadgeMark badge={badge} className="weq-mobile-badge" overlay />
               </span>
               <span>{label}</span>
             </button>

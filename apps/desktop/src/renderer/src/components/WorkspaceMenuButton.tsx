@@ -2,20 +2,21 @@ import { Menu } from 'lucide-react';
 import { APP_NAVIGATION } from '../lib/appNavigation';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { WorkspaceStatusDot } from './WorkspaceStatusDot';
-import { useAnnouncementPresentation } from '../lib/announcementPresentation';
-import { useEnhancementUpdateBadge } from '../lib/unreadMarkers';
-import { useWorkspaceTaskBadges } from '../hooks/useWorkspaceTaskBadges';
+import { summarizeNavigationBadges } from '../lib/navigationBadges';
+import {
+  useWorkspaceEntryBadges,
+  useWorkspaceSettingsBadge,
+} from '../hooks/useWorkspaceEntryBadges';
 import { preloadWorkspace } from './lazyWorkspaces.shared';
 import '../styles/rail-navigation.css';
 import '../styles/workspace-menu.css';
 
 export function WorkspaceMenuButton() {
-  const { running, finished, label: taskLabel } = useWorkspaceTaskBadges();
-  const { unread } = useAnnouncementPresentation();
+  const entryBadges = useWorkspaceEntryBadges();
+  const { badge, description } = summarizeNavigationBadges(Object.values(entryBadges));
   const anchor = useWorkspaceMenu((state) => state.anchor);
   const toggle = useWorkspaceMenu((state) => state.toggle);
-  const packUpdate = useEnhancementUpdateBadge();
-  const label = `菜单${taskLabel}${packUpdate ? '，有增强包更新' : ''}${unread ? '，有未读官方公告' : ''}`;
+  const label = `菜单${description}`;
   return (
     <button
       type="button"
@@ -29,23 +30,20 @@ export function WorkspaceMenuButton() {
       onClick={(event) => toggle(event.currentTarget)}
     >
       <Menu size={22} strokeWidth={1.75} aria-hidden />
-      <WorkspaceStatusDot
-        running={running}
-        finished={finished + Number(packUpdate || unread > 0)}
-      />
+      <WorkspaceStatusDot badge={badge} />
     </button>
   );
 }
 
 export function WorkspaceSettingsButton({ onClick }: { onClick: () => void }) {
   const { label, icon: Settings, workspace } = APP_NAVIGATION.settings;
-  const packUpdate = useEnhancementUpdateBadge();
+  const badge = useWorkspaceSettingsBadge();
   return (
     <button
       type="button"
       className="weq-workspace-control"
-      title={packUpdate ? `${label} · 有增强包更新` : label}
-      aria-label={packUpdate ? `${label}，有增强包更新` : label}
+      title={badge ? `${label} · ${badge.description}` : label}
+      aria-label={badge ? `${label}，${badge.description}` : label}
       onPointerEnter={() => preloadWorkspace(workspace)}
       onFocus={() => preloadWorkspace(workspace)}
       onClick={() => {
@@ -54,7 +52,7 @@ export function WorkspaceSettingsButton({ onClick }: { onClick: () => void }) {
       }}
     >
       <Settings size={18} aria-hidden />
-      <WorkspaceStatusDot running={0} finished={Number(packUpdate)} />
+      <WorkspaceStatusDot badge={badge} />
     </button>
   );
 }

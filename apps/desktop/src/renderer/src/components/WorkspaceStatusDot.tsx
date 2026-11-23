@@ -1,28 +1,18 @@
-import { workspaceIndicator } from '../lib/workspaceIndicators';
-import { ReminderCount, ReminderDot } from './ReminderBadge';
+import type { NavigationBadge } from '../lib/navigationBadges';
+import { NavigationBadgeMark } from './ReminderBadge';
 
 export function WorkspaceStatusDot({
-  running,
-  finished,
+  badge,
   overlay = true,
 }: {
-  running: number;
-  finished: number;
+  badge?: NavigationBadge;
   overlay?: boolean;
 }) {
-  const status = workspaceIndicator(running, finished);
-  if (status === 'running') {
-    return (
-      <ReminderCount
-        count={running}
-        tone="running"
-        overlay={overlay}
-        className="weq-workspace-dot weq-workspace-status-count is-running"
-        aria-hidden
-      />
-    );
-  }
-  return status === 'finished' ? (
-    <ReminderDot overlay={overlay} className="weq-workspace-dot" aria-hidden />
-  ) : null;
+  return (
+    <NavigationBadgeMark
+      badge={badge}
+      overlay={overlay}
+      className={`weq-workspace-dot${badge?.kind === 'running' ? ' weq-workspace-status-count is-running' : ''}`}
+    />
+  );
 }

@@ -8,6 +8,7 @@ import { ShieldAlert, X, Maximize2, Minimize2 } from 'lucide-react';
 import type { ExportAuthorizationIndicatorState } from '../views/export/authorization';
 import { Modal } from './Dialog';
 import { AnnouncementEntry } from './AnnouncementCenter';
+import { WorkspaceStatusDot } from './WorkspaceStatusDot';
 import { RetainedTabs } from './RetainedTabs';
 import {
   ExportTool,
@@ -20,6 +21,10 @@ import { preloadWorkspace } from './lazyWorkspaces.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { summarizeWorkspaceTasks } from '../lib/workspaceIndicators';
 import { useTaskNotifications } from '../hooks/useTaskNotifications';
+import {
+  useWorkspaceAnnouncementBadge,
+  useWorkspaceTaskBadge,
+} from '../hooks/useWorkspaceEntryBadges';
 import { trpc } from '../trpc/client';
 import {
   useContentExportRequest,
@@ -56,6 +61,25 @@ import {
 
 type Tool = 'export' | 'viewer' | 'backfill' | 'analysis' | 'analysis-reports';
 
+function TaskToolbarAction({ onExpand }: { onExpand: () => void }) {
+  const badge = useWorkspaceTaskBadge();
+  return (
+    <>
+      <WorkspaceStatusDot badge={badge} overlay={false} />
+      <button
+        type="button"
+        className="weq-workspace-control"
+        title="打开完整任务面板"
+        aria-label="打开完整任务面板"
+        aria-description={badge?.description}
+        onClick={onExpand}
+      >
+        <Maximize2 size={16} aria-hidden />
+      </button>
+    </>
+  );
+}
+
 export function WorkspaceTools({
   accountScope,
   footerControls,
@@ -89,6 +113,7 @@ export function WorkspaceTools({
   onOpenCalendarTask?: (taskId: string) => Promise<boolean>;
 }) {
   const mobile = useMobileWebLayout();
+  const announcementBadge = useWorkspaceAnnouncementBadge();
   const [open, setOpen] = useState(false);
   const anchor = useWorkspaceMenu((state) => state.anchor);
   const closeMenu = useWorkspaceMenu((state) => state.close);
@@ -510,15 +535,7 @@ export function WorkspaceTools({
                   }
                   taskToolbarAction={
                     !expanded && !mobile ? (
-                      <button
-                        type="button"
-                        className="weq-workspace-control"
-                        title="打开完整任务面板"
-                        aria-label="打开完整任务面板"
-                        onClick={() => setExpanded(true)}
-                      >
-                        <Maximize2 size={16} />
-                      </button>
+                      <TaskToolbarAction onExpand={() => setExpanded(true)} />
                     ) : null
                   }
                   onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
@@ -546,7 +563,11 @@ export function WorkspaceTools({
                 </button>
               ))}
             </nav>
-            <AnnouncementEntry placement="workspace" beforeOpen={closeWorkspace} />
+            <AnnouncementEntry
+              placement="workspace"
+              beforeOpen={closeWorkspace}
+              unreadCount={announcementBadge?.count ?? 0}
+            />
             {footerControls}
           </>
         ) : null}

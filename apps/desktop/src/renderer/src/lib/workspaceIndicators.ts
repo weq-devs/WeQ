@@ -5,6 +5,7 @@ import { backgroundTaskDisplay } from '../../../shared/background_task';
 import { exportTaskResult } from '../../../shared/export_task_result';
 import { isRoamingJobComplete } from '../../../shared/roaming_task_status';
 import { roamingTaskDisplay, taskNoticeTitle } from '@weq/service/task-display';
+import { navigationBadge } from './navigationBadges';
 
 export interface WorkspaceTaskIndicator {
   id: string;
@@ -37,6 +38,19 @@ const QUICK_SAVE_RESOURCE_KINDS = new Set<NonNullable<ExportTask['resource']>['k
 
 export function workspaceIndicator(running: number, finished: number) {
   return running > 0 ? 'running' : finished > 0 ? 'finished' : null;
+}
+
+export function workspaceTaskBadge(running: number, finished: number, unreadFailed = 0) {
+  const description = [
+    running ? `${running} 项任务进行中` : '',
+    finished ? `${finished} 项任务结果未查看` : '',
+    unreadFailed ? `其中 ${unreadFailed} 项任务失败` : '',
+  ]
+    .filter(Boolean)
+    .join('，');
+  return workspaceIndicator(running, finished) === 'running'
+    ? navigationBadge('running', running, description)
+    : navigationBadge('notice', finished, description);
 }
 
 /** 保存阶段沿用同一任务，不能同时贡献蓝点和红点。 */

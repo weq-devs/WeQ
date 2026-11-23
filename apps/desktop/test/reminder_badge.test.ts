@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ReminderCount, ReminderDot } from '../src/renderer/src/components/ReminderBadge';
 import { WorkspaceStatusDot } from '../src/renderer/src/components/WorkspaceStatusDot';
+import { workspaceTaskBadge } from '../src/renderer/src/lib/workspaceIndicators';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -82,18 +83,18 @@ describe('共用提醒组件', () => {
     }
   });
 
-  it('菜单优先展示进行中数量，结束结果只显示红点', () => {
+  it('任务角标优先展示进行中数量，结束结果只显示红点', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     const root = createRoot(host);
     try {
-      act(() => root.render(h(WorkspaceStatusDot, { running: 2, finished: 5 })));
+      act(() => root.render(h(WorkspaceStatusDot, { badge: workspaceTaskBadge(2, 5) })));
       expect(host.querySelector<HTMLElement>('.weq-reminder-count')?.dataset.tone).toBe('running');
       expect(host.textContent).toBe('2');
-      act(() => root.render(h(WorkspaceStatusDot, { running: 0, finished: 105 })));
+      act(() => root.render(h(WorkspaceStatusDot, { badge: workspaceTaskBadge(0, 105) })));
       expect(host.querySelector('.weq-reminder-dot')).not.toBeNull();
       expect(host.textContent).toBe('');
-      act(() => root.render(h(WorkspaceStatusDot, { running: 0, finished: 0 })));
+      act(() => root.render(h(WorkspaceStatusDot, { badge: workspaceTaskBadge(0, 0) })));
       expect(host.childElementCount).toBe(0);
     } finally {
       act(() => root.unmount());

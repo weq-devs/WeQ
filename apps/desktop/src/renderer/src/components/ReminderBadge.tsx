@@ -1,4 +1,5 @@
 import type { HTMLAttributes } from 'react';
+import type { NavigationBadge } from '../lib/navigationBadges';
 import { useUnreadMarkers } from '../lib/unreadMarkers';
 import '../styles/reminder-badge.css';
 
@@ -53,5 +54,28 @@ export function ReminderCount({
     <span {...props} className={classes} data-tone={tone}>
       {label}
     </span>
+  );
+}
+
+export function NavigationBadgeMark({
+  badge,
+  className,
+  overlay = false,
+}: {
+  badge?: NavigationBadge;
+  className?: string;
+  overlay?: boolean;
+}) {
+  if (!badge) return null;
+  return badge.kind === 'notice' ? (
+    <ReminderDot overlay={overlay} className={className} aria-hidden />
+  ) : (
+    <ReminderCount
+      count={badge.count}
+      tone={badge.kind === 'running' ? 'running' : 'notice'}
+      overlay={overlay}
+      className={className}
+      aria-hidden
+    />
   );
 }

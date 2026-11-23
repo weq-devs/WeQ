@@ -115,19 +115,23 @@ it('更多保留其余次级入口，选中后关闭列表并调用原有操作'
   expect(props.onOpenSettings).toHaveBeenCalledOnce();
 });
 
-it('更多中的任务与设置分别标记，底栏仍优先显示邮箱未读数', async () => {
+it('更多底栏从列表角标汇总，按邮箱数字、红点、任务进度排序', async () => {
+  const render = (mailBadgeCount: number, announcementUnread: number) =>
+    act(async () =>
+      root.render(
+        createElement(
+          AnnouncementUnread.Provider,
+          { value: announcementUnread },
+          createElement(MobileWebNavigation, { ...props, view: 'more', mailBadgeCount }),
+        ),
+      ),
+    );
   try {
     await act(async () => {
       useWorkspaceMenu.setState({ running: 2, finished: 1, unreadFailed: 1 });
       useUpdateStore.setState({ packsAvailable: true });
-      root.render(
-        createElement(
-          AnnouncementUnread.Provider,
-          { value: 1 },
-          createElement(MobileWebNavigation, { ...props, view: 'more' }),
-        ),
-      );
     });
+    await render(3, 1);
     const more = host.querySelector('[aria-label="更多功能"]')!;
     const task = more.querySelector('[aria-label^="任务，"]')!;
     const settings = more.querySelector('[aria-label^="设置，"]')!;
@@ -136,11 +140,21 @@ it('更多中的任务与设置分别标记，底栏仍优先显示邮箱未读�
     expect(settings.querySelector('.weq-reminder-dot')).not.toBeNull();
     expect(more.querySelector('[aria-label^="官方公告"] .weq-reminder-dot')).not.toBeNull();
     expect(moreTab.querySelector('.weq-reminder-count')?.textContent).toBe('3');
+
+    await render(0, 0);
+    expect(moreTab.querySelector('.weq-reminder-dot')).not.toBeNull();
+    await act(async () => useUpdateStore.setState({ packsAvailable: false }));
+    expect(moreTab.querySelector('[data-tone="running"]')?.textContent).toBe('2');
+
     await act(async () => useWorkspaceMenu.setState({ running: 0 }));
     expect(task.querySelector('.weq-reminder-dot')).not.toBeNull();
+    expect(moreTab.querySelector('.weq-reminder-dot')).not.toBeNull();
     await act(async () => useWorkspaceMenu.getState().readTasks());
     expect(task.querySelector('.weq-reminder-dot')).toBeNull();
-    expect(settings.querySelector('.weq-reminder-dot')).not.toBeNull();
+    expect(moreTab.querySelector('.weq-reminder')).toBeNull();
+
+    await render(0, 1);
+    expect(moreTab.querySelector('.weq-reminder-dot')).not.toBeNull();
   } finally {
     await act(async () => {
       useWorkspaceMenu.getState().resetTaskBadges();
