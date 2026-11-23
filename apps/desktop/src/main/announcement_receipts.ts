@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { ANNOUNCEMENT_ID } from '@weq/network/announcement-metadata';
 import { writeFileAtomic } from '@weq/service/atomic-write';
 
-const require = createRequire(import.meta.url);
+const requireFromHere = createRequire(import.meta.url);
 const receiptsSchema = z.object({
   read: z.array(z.string().regex(ANNOUNCEMENT_ID)),
   reminded: z.array(z.string().regex(ANNOUNCEMENT_ID)),
@@ -125,7 +125,7 @@ class SharedAnnouncementReceipts implements AnnouncementReceipts {
     const directory = join(sharedDataRoot, 'announcements');
     await mkdir(directory, { recursive: true });
     // Vite 5 不识别 node:sqlite 内置模块，交给 Electron/Node 运行时加载。
-    const { DatabaseSync } = require('node:sqlite') as typeof import('node:sqlite');
+    const { DatabaseSync } = requireFromHere('node:sqlite') as typeof import('node:sqlite');
     const db = new DatabaseSync(join(directory, 'receipts.sqlite'));
     try {
       db.exec(`
