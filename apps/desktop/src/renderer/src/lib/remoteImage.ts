@@ -1,11 +1,17 @@
-type ImageReply = { type: string; base64: string };
 type ImageWindow = Window & {
   weqRemoteLinks?: {
     loadQqImage?: (id: string, url: string) => void;
+    loadQqImageBinary?: (id: string, url: string) => void;
+    supportsBinaryImages?: () => boolean;
     supportsDressImages?: () => boolean;
   };
   weqRemoteDressImages?: boolean;
-  webkit?: { messageHandlers?: { weqQqImage?: { postMessage(url: string): Promise<unknown> } } };
+  weqRemoteBinaryImages?: boolean;
+  webkit?: {
+    messageHandlers?: {
+      weqQqImage?: { postMessage(request: string | { url: string; id: string }): Promise<unknown> };
+    };
+  };
 };
 
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -85,8 +91,10 @@ export function remoteAvatarSource(source: string): string | null {
   }
 }
 
-/** 原生桥取完整且有界的图片，旧壳或失败时不改变原有电脑路径。 */
-export function requestRemoteImage(url: string, signal: AbortSignal): Promise<ImageReply | null> {
+const binaryImagePath = '/_weq-remote-local/image/';
+
+/** 新壳通过环回提供原始字节，旧壳的 Base64 回复在这里统一还原为 Blob。 */
+export function requestRemoteImage(url: string, signal: AbortSignal): Promise<Blob | null> {
   return new Promise((resolve) => {
     const shell = window as ImageWindow;
     const ios = shell.webkit?.messageHandlers?.weqQqImage;
@@ -95,36 +103,65 @@ export function requestRemoteImage(url: string, signal: AbortSignal): Promise<Im
     const id = Array.from(crypto.getRandomValues(new Uint32Array(4)), (part) =>
       part.toString(16).padStart(8, '0'),
     ).join('');
+    const path = binaryImagePath + id;
+    const download = new AbortController();
     let done = false;
-    const finish = (value: unknown) => {
+    let receiving = false;
+    const finish = (blob: Blob | null) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       signal.removeEventListener('abort', abort);
       shell.removeEventListener('weq-remote-qq-image', receive);
-      const reply = value as Partial<ImageReply> | null;
-      resolve(
-        reply?.type &&
+      download.abort();
+      resolve(blob?.size && blob.size <= MAX_BYTES && TYPES.has(blob.type) ? blob : null);
+    };
+    const accept = async (value: unknown) => {
+      if (done || receiving) return;
+      receiving = true;
+      const reply = value as { path?: unknown; type?: unknown; base64?: unknown } | null;
+      try {
+        if (reply?.path === path) {
+          const response = await fetch(path, {
+            signal: download.signal,
+            redirect: 'error',
+            cache: 'no-store',
+          });
+          const length = Number(response.headers.get('Content-Length'));
+          if (!response.ok || !(length > 0) || length > MAX_BYTES) return finish(null);
+          const blob = await response.blob();
+          return finish(blob.size === length ? blob : null);
+        }
+        if (
+          typeof reply?.type === 'string' &&
           TYPES.has(reply.type) &&
           typeof reply.base64 === 'string' &&
           reply.base64.length > 0 &&
           reply.base64.length <= Math.ceil(MAX_BYTES / 3) * 4
-          ? { type: reply.type, base64: reply.base64 }
-          : null,
-      );
+        ) {
+          const bytes = Uint8Array.from(atob(reply.base64), (char) => char.charCodeAt(0));
+          return finish(new Blob([bytes], { type: reply.type }));
+        }
+      } catch {
+        // 图片源失败仍使用电脑上的原路径。
+      }
+      finish(null);
     };
     const abort = () => finish(null);
     const receive = (event: Event) => {
       const detail = (event as CustomEvent<{ id: string; image: unknown }>).detail;
-      if (detail?.id === id) finish(detail.image);
+      if (detail?.id === id) void accept(detail.image);
     };
     const timer = setTimeout(abort, 5500);
     signal.addEventListener('abort', abort, { once: true });
     try {
-      if (ios) void ios.postMessage(url).then(finish, abort);
+      if (ios)
+        void ios.postMessage(shell.weqRemoteBinaryImages ? { url, id } : url).then(accept, abort);
       else {
         shell.addEventListener('weq-remote-qq-image', receive);
-        android?.loadQqImage?.(id, url);
+        if (android?.loadQqImageBinary && android.supportsBinaryImages?.())
+          android.loadQqImageBinary(id, url);
+        else android?.loadQqImage?.(id, url);
       }
     } catch {
       abort();

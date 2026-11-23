@@ -9,9 +9,34 @@ type Preview = Pick<
 >;
 const MAX_RETAINED_IMAGES = 512;
 
+export function createChatImageUrl(blob: Blob) {
+  const src = URL.createObjectURL(blob);
+  let references = 0;
+  return {
+    src,
+    bytes: blob.size,
+    retain() {
+      references++;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        if (--references === 0) URL.revokeObjectURL(src);
+      };
+    },
+  };
+}
+
+type ChatImageUrl = ReturnType<typeof createChatImageUrl>;
+type Entry = { image: HTMLImageElement; bytes: number; asset?: ChatImageUrl; release?: () => void };
+function discard(entry: Entry) {
+  entry.image.removeAttribute('src');
+  entry.release?.();
+}
+
 /** 独立图片保留解码资源，不持有 React 挂载节点与其组件树；只淘汰离屏项。 */
 export function createChatImageCache(initialMiB = DEFAULT_CHAT_IMAGE_CACHE_MIB) {
-  const entries = new Map<string, { image: HTMLImageElement; bytes: number }>();
+  const entries = new Map<string, Entry>();
   const visible = new Map<string, number>();
   const listeners = new Set<() => void>();
   let limit = normalizeChatImageCacheMiB(initialMiB) * 1024 * 1024;
@@ -30,7 +55,7 @@ export function createChatImageCache(initialMiB = DEFAULT_CHAT_IMAGE_CACHE_MIB) 
       if (bytes <= limit && entries.size <= MAX_RETAINED_IMAGES) break;
       if (limit > 0 && visible.has(key)) continue;
       entries.delete(key);
-      entry.image.removeAttribute('src');
+      discard(entry);
       bytes -= entry.bytes;
     }
   };
@@ -61,13 +86,19 @@ export function createChatImageCache(initialMiB = DEFAULT_CHAT_IMAGE_CACHE_MIB) 
         notify();
       };
     },
-    remember(key: string, image: Preview) {
+    remember(key: string, image: Preview, direct?: ChatImageUrl) {
       const source = image.currentSrc || image.src;
+      const previous = entries.get(key);
+      const asset =
+        direct?.src === source
+          ? direct
+          : previous?.asset?.src === source
+            ? previous.asset
+            : undefined;
       const size =
         image.naturalWidth * image.naturalHeight * 4 +
-        (source.startsWith('data:') ? source.length * 2 : 0);
+        (asset?.bytes ?? (source.startsWith('data:') ? source.length * 2 : 0));
       if (!limit || !Number.isSafeInteger(size) || size <= 0 || size > limit) return;
-      const previous = entries.get(key);
       if (previous?.bytes === size && previous.image.src === source) {
         touch(key);
         return;
@@ -75,10 +106,11 @@ export function createChatImageCache(initialMiB = DEFAULT_CHAT_IMAGE_CACHE_MIB) 
       // React 节点带有 Fiber/事件闭包；保留同源独立节点即可复用浏览器图片资源。
       const retained = image.ownerDocument.createElement('img');
       retained.src = source;
-      previous?.image.removeAttribute('src');
+      const release = asset?.retain();
+      if (previous) discard(previous);
       bytes -= previous?.bytes ?? 0;
       entries.delete(key);
-      entries.set(key, { image: retained, bytes: size });
+      entries.set(key, { image: retained, bytes: size, asset, release });
       bytes += size;
       trim();
       notify();
@@ -89,7 +121,7 @@ export function createChatImageCache(initialMiB = DEFAULT_CHAT_IMAGE_CACHE_MIB) 
       notify();
     },
     clear() {
-      for (const entry of entries.values()) entry.image.removeAttribute('src');
+      for (const entry of entries.values()) discard(entry);
       entries.clear();
       bytes = 0;
       notify();

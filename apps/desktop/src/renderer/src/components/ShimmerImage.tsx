@@ -28,6 +28,7 @@ import { useDataSaver } from '../lib/dataSaver';
 import { thumbnailPolicyRequest } from '../lib/resourceUrl';
 import { MediaLoadingRing } from './TransferRing';
 import { requestRemoteImage } from '../lib/remoteImage';
+import { createChatImageUrl } from '../lib/chatImageCache';
 
 const noSubscription = () => () => {};
 
@@ -73,11 +74,30 @@ export function ShimmerImage({
   const enabled = !suspendOffscreen || active || retained;
   const directUrl = limited ? null : remoteImageSrc;
   const cachedSource = directUrl && retained ? cache?.source(cacheKey) : undefined;
-  const [direct, setDirect] = useState<{ url: string; key: string; src: string | null }>();
+  const [direct, setDirect] = useState<{ url: string; key: string; blob: Blob | null }>();
   const result = direct && direct.url === directUrl && direct.key === cacheKey ? direct : undefined;
-  const displayedSrc = directUrl ? (result ? (result.src ?? src) : cachedSource) : src;
+  const blob = result?.blob;
+  const [directImage, setDirectImage] = useState<{
+    blob: Blob;
+    asset: ReturnType<typeof createChatImageUrl>;
+  }>();
+  const asset = directImage && directImage.blob === blob ? directImage.asset : undefined;
+  useLayoutEffect(() => {
+    if (!blob) {
+      setDirectImage(undefined);
+      return;
+    }
+    const asset = createChatImageUrl(blob);
+    const release = asset.retain();
+    setDirectImage({ blob, asset });
+    return release;
+  }, [blob]);
+  const displayedSrc = directUrl ? (result ? (blob ? asset?.src : src) : cachedSource) : src;
   const showingDirect = Boolean(
-    directUrl && displayedSrc?.startsWith('data:') && displayedSrc !== src,
+    directUrl &&
+      displayedSrc &&
+      displayedSrc !== src &&
+      (displayedSrc.startsWith('blob:') || displayedSrc.startsWith('data:')),
   );
   useEffect(() => {
     if (!enabled) {
@@ -86,12 +106,12 @@ export function ShimmerImage({
     }
     if (!active || !directUrl || cachedSource || result) return;
     const controller = new AbortController();
-    void requestRemoteImage(directUrl, controller.signal).then((reply) => {
+    void requestRemoteImage(directUrl, controller.signal).then((blob) => {
       if (controller.signal.aborted) return;
       setDirect({
         url: directUrl,
         key: cacheKey,
-        src: reply ? `data:${reply.type};base64,${reply.base64}` : null,
+        blob,
       });
     });
     return () => controller.abort();
@@ -112,8 +132,8 @@ export function ShimmerImage({
   // 调大预算时，当前已加载的图片也能加入缓存，不必等一次新的 load。
   useLayoutEffect(() => {
     if (budget > 0 && suspendOffscreen && active && image?.complete && image.naturalWidth > 0)
-      cache?.remember(cacheKey, image);
-  }, [cache, cacheKey, budget, suspendOffscreen, active, image]);
+      cache?.remember(cacheKey, image, asset);
+  }, [cache, cacheKey, budget, suspendOffscreen, active, image, asset]);
 
   useEffect(() => {
     if ((!suspendOffscreen && !observeLoading) || !image) return;
@@ -188,14 +208,14 @@ export function ShimmerImage({
           // 保留固有比例，移除 src 后未知尺寸的图片也不能压塌时间线。
           if (suspendOffscreen && image.naturalWidth && image.naturalHeight)
             setDimensions({ width: image.naturalWidth, height: image.naturalHeight });
-          if (suspendOffscreen) cache?.remember(cacheKey, image);
+          if (suspendOffscreen) cache?.remember(cacheKey, image, asset);
           setLoaded(true);
           onLoad?.(event);
         }}
         onError={(event) => {
           if (!enabled) return;
           if (directUrl && showingDirect) {
-            setDirect({ url: directUrl, key: cacheKey, src: null });
+            setDirect({ url: directUrl, key: cacheKey, blob: null });
             return;
           }
           setLoaded(false);

@@ -1,7 +1,7 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { createChatImageCache } from '../src/renderer/src/lib/chatImageCache';
+import { createChatImageCache, createChatImageUrl } from '../src/renderer/src/lib/chatImageCache';
 import { remoteChatThumbnailUrl } from '../src/renderer/src/lib/cdn';
 import { ChatImageCacheContext } from '../src/renderer/src/components/ChatImageCacheProvider.shared';
 import { ChatImageCacheProvider } from '../src/renderer/src/components/ChatImageCacheProvider';
@@ -58,6 +58,31 @@ it('缓存只保留独立图片，不持有 React 节点、事件闭包或父树
     expect(original.hasAttribute('src')).toBe(true);
   } finally {
     create.mockRestore();
+  }
+});
+
+it('直取图片随缓存保留对象地址，最后一方释放才回收', () => {
+  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:http://localhost/image');
+  const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  try {
+    const data = new Blob(['image'], { type: 'image/png' });
+    const asset = createChatImageUrl(data);
+    const release = asset.retain();
+    const cache = createChatImageCache(1);
+    const node = preview(32, 32);
+    node.src = asset.src;
+    cache.remember('direct', node, asset);
+    release();
+    expect(revoke).not.toHaveBeenCalled();
+    expect(cache.source('direct')).toBe(asset.src);
+    cache.remember('direct', node);
+    expect(cache.stats().bytes).toBe(32 * 32 * 4 + data.size);
+    cache.clear();
+    expect(revoke).toHaveBeenCalledOnce();
+    expect(revoke).toHaveBeenCalledWith(asset.src);
+  } finally {
+    create.mockRestore();
+    revoke.mockRestore();
   }
 });
 
@@ -254,7 +279,7 @@ it('Remote 缩略图优先复用手机缓存，手机直取失败后使用电脑
   try {
     await render('/first.jpg');
     const img = host.querySelector('img')!;
-    expect(img.getAttribute('src')).toBe('data:image/png;base64,Zml4dHVyZQ==');
+    expect(img.getAttribute('src')).toMatch(/^blob:/);
     Object.defineProperties(img, { naturalWidth: { value: 100 }, naturalHeight: { value: 100 } });
     act(() => img.dispatchEvent(new Event('load')));
     await render();
