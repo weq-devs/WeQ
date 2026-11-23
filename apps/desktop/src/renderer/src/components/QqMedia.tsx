@@ -249,12 +249,13 @@ export function QqImage({
   if (orig) params.orig = orig;
   if (str(data, 'thumbnailUrl')) params.small = str(data, 'thumbnailUrl');
   if (md5) params.md5 = md5;
+  const wantThumbnail =
+    !isAnimatedEmoji && !(limited && behavior.dataSaverImageLoading === 'original');
   const originalProxySrc = mediaUrl('pic', { ...params, intent: 'interactive' });
   const proxySrc = mediaUrl('pic', {
     ...params,
     ...(requested ? { intent: 'interactive' } : {}),
-    ...((!isAnimatedEmoji && !(limited && behavior.dataSaverImageLoading === 'original')) ||
-    (isAnimatedEmoji && limited && !behavior.dataSaverEmoji)
+    ...(wantThumbnail || (isAnimatedEmoji && limited && !behavior.dataSaverEmoji)
       ? { v: 'thumb' }
       : {}),
   });
@@ -306,6 +307,10 @@ export function QqImage({
     setSrcIndex(0);
     setAttempt((value) => value + 1);
     setBroken(false);
+  };
+  const tryNextImage = () => {
+    if (srcIndex < candidates.length - 1) setSrcIndex((index) => index + 1);
+    else setBroken(true);
   };
 
   useEffect(() => {
@@ -436,6 +441,8 @@ export function QqImage({
           <ShimmerImage
             suspendOffscreen
             remoteImageSrc={source === proxySrc ? directThumbnail : null}
+            abortableThumbnail={source === proxySrc && wantThumbnail && !flash}
+            onThumbnailError={tryNextImage}
             mediaLoading={!isAnimatedEmoji && !usingLocalPreview}
             className={isAnimatedEmoji ? 'qq-media-mface' : 'qq-media-image'}
             style={gridTile ? undefined : w && h ? style : { ...style, objectFit: 'contain' }}
@@ -450,10 +457,7 @@ export function QqImage({
               const { naturalWidth, naturalHeight } = event.currentTarget;
               if (!w || !h) previewSize.remember(naturalWidth, naturalHeight);
             }}
-            onError={() => {
-              if (srcIndex < candidates.length - 1) setSrcIndex((index) => index + 1);
-              else setBroken(true);
-            }}
+            onError={tryNextImage}
           />
         )}
       </ImageControl>

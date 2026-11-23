@@ -633,6 +633,7 @@ export async function resolveChatImageFile(
   if (originalOnly && q.get('localOnly') === '1')
     return { path: null, variant: 'unknown' as const };
   const restricted = await hostDataSaver(q.get('ds') === '1');
+  check();
   const behavior = transferBehavior();
   if (originalOnly && q.get('autoOriginal') === '1' && restricted)
     return { path: null, variant: 'unknown' as const, deferred: true };
@@ -975,6 +976,7 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
           const scopedUrl = q.get('cacheScope');
           if (scopedUrl && scopedUrl !== scope) return notFound('image account changed');
           const check = () => {
+            request.signal.throwIfAborted();
             mediaBinding.getStore()?.();
             if (
               scope &&
@@ -983,7 +985,8 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
             )
               throw new Error('账号数据源已切换');
           };
-          const { path, deferred } = await resolveChatImageFile(q, check);
+          const { path, deferred } = await bounded(resolveChatImageFile(q, check), request.signal);
+          check();
           const respond = (path: string) =>
             wantThumb && picType !== 'emoji'
               ? chatImageResponse(
@@ -1000,7 +1003,7 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
               status: 409,
               headers: { 'Cache-Control': 'no-store', 'X-WeQ-Media-State': 'deferred' },
             });
-          return path ? respond(path) : notFound('pic not found');
+          return path ? await respond(path) : notFound('pic not found');
         }
         case 'video': {
           // ?v=thumb → cover image (rkey is fine for covers); otherwise →

@@ -12,6 +12,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+function stubVisibility(initial: DocumentVisibilityState) {
+  let state = initial;
+  const previous = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+  return {
+    set(next: DocumentVisibilityState) {
+      state = next;
+    },
+    restore() {
+      if (previous) Object.defineProperty(document, 'visibilityState', previous);
+      else Reflect.deleteProperty(document, 'visibilityState');
+    },
+  };
+}
+
 it('无关下载设置不重挂缩略图，聊天参数、外站 URL 和主动意图保持原样', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   useDataSaver.setState({ enabled: true });
@@ -199,8 +214,7 @@ it('离屏、隐藏标签和隐藏文档释放图片源，恢复时不丢尺寸�
         ),
       ),
     );
-  const visibility = vi.spyOn(document, 'visibilityState', 'get');
-  visibility.mockReturnValue('visible');
+  const visibility = stubVisibility('visible');
   try {
     render(true);
     let image = host.querySelector('img')!;
@@ -226,12 +240,12 @@ it('离屏、隐藏标签和隐藏文档释放图片源，恢复时不丢尺寸�
     act(() => observers.at(-1)!.notify(true));
     image = host.querySelector('img')!;
     expect(image.getAttribute('src')).toBe('/fixture.png');
-    visibility.mockReturnValue('hidden');
+    visibility.set('hidden');
     act(() => document.dispatchEvent(new Event('visibilitychange')));
     image = host.querySelector('img')!;
     expect(image.hasAttribute('src')).toBe(false);
     act(() => observers.at(-1)!.notify(true));
-    visibility.mockReturnValue('visible');
+    visibility.set('visible');
     act(() => document.dispatchEvent(new Event('visibilitychange')));
     image = host.querySelector('img')!;
     expect(image.getAttribute('src')).toBe('/fixture.png');
@@ -240,7 +254,7 @@ it('离屏、隐藏标签和隐藏文档释放图片源，恢复时不丢尺寸�
   } finally {
     act(() => root.unmount());
     host.remove();
-    visibility.mockRestore();
+    visibility.restore();
   }
   expect(observers.every((observer) => observer.disconnect.mock.calls.length > 0)).toBe(true);
 });
@@ -254,6 +268,61 @@ it('不启用离屏释放时保留原有图片行为', () => {
     expect(host.querySelector('img')!.getAttribute('src')).toBe('/fixture.png');
   } finally {
     act(() => root.unmount());
+  }
+});
+
+it('聊天缩图离屏会取消读取，回到视口后才重试，HTTP 缺图只走一次回退', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  let visibility = (_visible: boolean) => {};
+  vi.stubGlobal(
+    'IntersectionObserver',
+    class {
+      observe() {}
+      disconnect() {}
+      constructor(notify: (entries: { isIntersecting: boolean }[]) => void) {
+        visibility = (isIntersecting) => notify([{ isIntersecting }]);
+      }
+    },
+  );
+  let firstSignal: AbortSignal | undefined;
+  const fetchImage = vi
+    .fn<(src: string, init?: RequestInit) => Promise<Response>>()
+    .mockImplementationOnce((_src, init) => {
+      firstSignal = init?.signal ?? undefined;
+      return new Promise((_resolve, reject) => {
+        firstSignal?.addEventListener('abort', () => reject(firstSignal?.reason), { once: true });
+      });
+    })
+    .mockResolvedValueOnce(new Response(null, { status: 404 }));
+  vi.stubGlobal('fetch', fetchImage);
+  const unavailable = vi.fn();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    act(() =>
+      root.render(
+        h(ShimmerImage, {
+          src: '/_media/pic?v=thumb',
+          suspendOffscreen: true,
+          abortableThumbnail: true,
+          onThumbnailError: unavailable,
+        }),
+      ),
+    );
+    expect(fetchImage.mock.calls.length).toBe(0);
+    await act(async () => visibility(true));
+    expect(fetchImage.mock.calls.length).toBe(1);
+    await act(async () => visibility(false));
+    expect(firstSignal?.aborted).toBe(true);
+    expect(unavailable).not.toHaveBeenCalled();
+    await act(async () => visibility(true));
+    expect(fetchImage.mock.calls.length).toBe(2);
+    expect(unavailable).toHaveBeenCalledOnce();
+    expect(host.querySelector('img')!.hasAttribute('src')).toBe(false);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
   }
 });
 
@@ -286,7 +355,7 @@ it('换源与 srcSet 更新隔离旧事件，当前源失败仍可正常回退',
 it('没有 IntersectionObserver 时仍遵守文档可见性和显式尺寸', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('IntersectionObserver', undefined);
-  const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+  const visibility = stubVisibility('hidden');
   const host = document.createElement('div');
   const root = createRoot(host);
   try {
@@ -297,7 +366,7 @@ it('没有 IntersectionObserver 时仍遵守文档可见性和显式尺寸', () 
     );
     let image = host.querySelector('img')!;
     expect(image.hasAttribute('src')).toBe(false);
-    visibility.mockReturnValue('visible');
+    visibility.set('visible');
     act(() => document.dispatchEvent(new Event('visibilitychange')));
     image = host.querySelector('img')!;
     expect(image.getAttribute('src')).toBe('/fallback.png');
@@ -307,6 +376,6 @@ it('没有 IntersectionObserver 时仍遵守文档可见性和显式尺寸', () 
     expect(image.height).toBe(60);
   } finally {
     act(() => root.unmount());
-    visibility.mockRestore();
+    visibility.restore();
   }
 });

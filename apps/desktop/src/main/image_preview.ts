@@ -9,17 +9,32 @@ const MAX_CACHE_BYTES = 16 * 1024 * 1024;
 export function createImagePreviewer(
   options: { maxPending?: number; maxPixels?: number; preserveAnimation?: boolean } = {},
 ) {
-  const waiting: (() => void)[] = [];
+  const waiting = new Set<() => void>();
   const cache = new Map<string, Buffer>();
   let cacheBytes = 0;
   let active = false;
-  return async (load: () => Promise<Uint8Array>): Promise<Buffer> => {
+  return async (load: () => Promise<Uint8Array>, signal?: AbortSignal): Promise<Buffer> => {
+    signal?.throwIfAborted();
     if (active) {
-      if (waiting.length >= (options.maxPending ?? 128)) throw new Error('preview capacity');
-      await new Promise<void>((resolve) => waiting.push(resolve));
+      if (waiting.size >= (options.maxPending ?? 128)) throw new Error('preview capacity');
+      await new Promise<void>((resolve, reject) => {
+        const cancel = () => {
+          waiting.delete(start);
+          reject(signal?.reason);
+        };
+        const start = () => {
+          waiting.delete(start);
+          signal?.removeEventListener('abort', cancel);
+          resolve();
+        };
+        waiting.add(start);
+        signal?.addEventListener('abort', cancel, { once: true });
+      });
     } else active = true;
     try {
+      signal?.throwIfAborted();
       const input = await load();
+      signal?.throwIfAborted();
       if (input.byteLength === 0 || input.byteLength > MAX_INPUT_BYTES)
         throw new Error('preview input size');
       const key = createHash('sha256').update(input).digest('hex');
@@ -46,7 +61,7 @@ export function createImagePreviewer(
       }
       return output;
     } finally {
-      const next = waiting.shift();
+      const next = waiting.values().next().value;
       if (next) next();
       else active = false;
     }

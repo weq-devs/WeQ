@@ -10,6 +10,7 @@
 
 import {
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useContext,
   useState,
@@ -29,6 +30,7 @@ import { thumbnailPolicyRequest } from '../lib/resourceUrl';
 import { MediaLoadingRing } from './TransferRing';
 import { requestRemoteImage } from '../lib/remoteImage';
 import { createChatImageUrl } from '../lib/chatImageCache';
+import { fetchChatThumbnail } from '../lib/chatThumbnail';
 
 const noSubscription = () => () => {};
 
@@ -40,11 +42,15 @@ export function ShimmerImage({
   suspendOffscreen = false,
   mediaLoading = false,
   remoteImageSrc,
+  abortableThumbnail = false,
+  onThumbnailError,
   ...rest
 }: ImgHTMLAttributes<HTMLImageElement> & {
   suspendOffscreen?: boolean;
   mediaLoading?: boolean;
   remoteImageSrc?: string | null;
+  abortableThumbnail?: boolean;
+  onThumbnailError?: () => void;
 }): ReactElement {
   const [loaded, setLoaded] = useState(false);
   const limited = useDataSaver((state) => state.enabled);
@@ -73,9 +79,16 @@ export function ShimmerImage({
   const active = tabActive && visible;
   const enabled = !suspendOffscreen || active || retained;
   const directUrl = limited ? null : remoteImageSrc;
-  const cachedSource = directUrl && retained ? cache?.source(cacheKey) : undefined;
-  const [direct, setDirect] = useState<{ url: string; key: string; blob: Blob | null }>();
-  const result = direct && direct.url === directUrl && direct.key === cacheKey ? direct : undefined;
+  const proxyUrl = abortableThumbnail && !rest.srcSet ? src : undefined;
+  const managed = Boolean(directUrl || proxyUrl);
+  const requestKey = JSON.stringify([cacheKey, directUrl, proxyUrl]);
+  const cachedSource = managed && retained ? cache?.source(cacheKey) : undefined;
+  const [fetched, setFetched] = useState<{
+    key: string;
+    blob: Blob | null;
+    source?: 'proxy' | 'error';
+  }>();
+  const result = fetched?.key === requestKey ? fetched : undefined;
   const blob = result?.blob;
   const [directImage, setDirectImage] = useState<{
     blob: Blob;
@@ -92,30 +105,56 @@ export function ShimmerImage({
     setDirectImage({ blob, asset });
     return release;
   }, [blob]);
-  const displayedSrc = directUrl ? (result ? (blob ? asset?.src : src) : cachedSource) : src;
-  const showingDirect = Boolean(
-    directUrl &&
+  const displayedSrc = managed
+    ? result
+      ? blob
+        ? asset?.src
+        : result.source === 'error'
+          ? undefined
+          : src
+      : cachedSource
+    : src;
+  const showingBlob = Boolean(
+    managed &&
       displayedSrc &&
       displayedSrc !== src &&
       (displayedSrc.startsWith('blob:') || displayedSrc.startsWith('data:')),
   );
+  const reportThumbnailError = useEffectEvent(() => {
+    setFailed(true);
+    onThumbnailError?.();
+  });
   useEffect(() => {
     if (!enabled) {
-      setDirect(undefined);
+      setFetched(undefined);
       return;
     }
-    if (!active || !directUrl || cachedSource || result) return;
+    if (!active || !managed || cachedSource || result) return;
     const controller = new AbortController();
-    void requestRemoteImage(directUrl, controller.signal).then((blob) => {
-      if (controller.signal.aborted) return;
-      setDirect({
-        url: directUrl,
-        key: cacheKey,
-        blob,
-      });
-    });
+    const { signal } = controller;
+    void (async () => {
+      const direct = directUrl ? await requestRemoteImage(directUrl, signal) : null;
+      if (signal.aborted) return;
+      if (direct || !proxyUrl) {
+        setFetched({ key: requestKey, blob: direct });
+        return;
+      }
+      try {
+        // Safari 移除图片节点后仍可继续读原响应，显式取消 fetch 才会释放电脑端队列。
+        const blob = await fetchChatThumbnail(proxyUrl, signal);
+        if (signal.aborted) return;
+        if (!blob) {
+          setFetched({ key: requestKey, blob: null, source: 'error' });
+          reportThumbnailError();
+          return;
+        }
+        setFetched({ key: requestKey, blob, source: 'proxy' });
+      } catch {
+        if (!signal.aborted) setFetched({ key: requestKey, blob: null });
+      }
+    })();
     return () => controller.abort();
-  }, [active, directUrl, cacheKey, cachedSource, enabled, result]);
+  }, [active, directUrl, proxyUrl, managed, requestKey, cachedSource, enabled, result]);
   const observeLoading = mediaLoading && rest.loading === 'lazy';
   const showRing =
     mediaLoading &&
@@ -197,7 +236,7 @@ export function ShimmerImage({
       ) : null}
       <img
         // 暂停和换源使用独立节点，旧请求（含移除 src）的迟到事件不能触发当前回退。
-        key={JSON.stringify(enabled ? [src, rest.srcSet, request.policyKey, showingDirect] : null)}
+        key={JSON.stringify(enabled ? [src, rest.srcSet, request.policyKey, showingBlob] : null)}
         ref={setImage}
         className={className}
         alt={alt}
@@ -214,8 +253,8 @@ export function ShimmerImage({
         }}
         onError={(event) => {
           if (!enabled) return;
-          if (directUrl && showingDirect) {
-            setDirect({ url: directUrl, key: cacheKey, blob: null });
+          if (directUrl && showingBlob && result?.source !== 'proxy') {
+            setFetched({ key: requestKey, blob: null });
             return;
           }
           setLoaded(false);

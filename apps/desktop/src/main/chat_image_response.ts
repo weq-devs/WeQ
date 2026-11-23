@@ -1,5 +1,6 @@
 import { open, readFile, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { bounded } from '@weq/network';
 import { sniffImageExt } from '@weq/service';
 import { imageMetadata, imageProcessor } from './image_processor';
 import { createImagePreviewer } from './image_preview';
@@ -67,8 +68,13 @@ export async function chatImageResponse(
   scope?: string,
   scopedUrl = false,
 ): Promise<Response> {
-  try {
+  const signal = request?.signal;
+  const currentRequest = () => {
+    signal?.throwIfAborted();
     check?.();
+  };
+  try {
+    currentRequest();
     const info = await stat(path);
     if (!info.isFile() || info.size === 0 || info.size > MAX_FALLBACK_BYTES)
       throw new Error('preview input size');
@@ -91,21 +97,22 @@ export async function chatImageResponse(
     const headers: Record<string, string> = etag
       ? { 'Cache-Control': scopedUrl ? 'private, max-age=300' : 'private, no-cache', ETag: etag }
       : { 'Cache-Control': 'no-cache' };
-    check?.();
+    currentRequest();
     if (etag && matchesIfNoneMatch(request?.headers.get('if-none-match') ?? null, etag))
       return new Response(null, { status: 304, headers });
-    const output = await (reduced ? reducedPreview : preview)(async () => {
-      check?.();
+    const pending = (reduced ? reducedPreview : preview)(async () => {
+      currentRequest();
       // 解码队列等待期间，QQ 可能用更大的原图替换同一路径。
       const current = await stat(path);
       if (!current.isFile() || current.size === 0 || current.size > MAX_FALLBACK_BYTES)
         throw new Error('preview input size');
-      return readFile(path);
-    });
-    check?.();
+      return readFile(path, { signal });
+    }, signal);
+    const output = await (signal ? bounded(pending, signal) : pending);
+    currentRequest();
     // 缩略图生成期间文件可能被 QQ 替换；不能把新内容标为旧版本。
     const current = etag ? await stat(path) : info;
-    check?.();
+    currentRequest();
     const unchanged =
       current.ino === info.ino &&
       current.size === info.size &&
@@ -119,12 +126,13 @@ export async function chatImageResponse(
       },
     });
   } catch (error) {
-    check?.();
+    currentRequest();
     // sharp 在这个环境里整体起不来（典型是 Linux/Electron 的 glib 符号冲突）：
     // 继续每张图都返回占位图等于聊天里完全看不到图片，改为按体积/文件头直接
     // 展示本机已有文件；单张坏图或超限仍走下面的占位图。
     if (imageProcessor.isUnavailable()) {
       const fallback = await imageFallbackResponse(path, request);
+      currentRequest();
       if (fallback) return fallback;
     }
     // 仅限小体积、合理帧数与分辨率的动画原样播放；失败或超限不能把原图
@@ -145,10 +153,11 @@ export async function chatImageResponse(
         // 不可信图片的元数据无法校验时走占位，灯箱仍可独立查看原图。
       }
       if (safeAnimation) {
-        check?.();
+        currentRequest();
         return fileResponse(path, request);
       }
     }
+    currentRequest();
     return new Response(PREVIEW_UNAVAILABLE, {
       headers: { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-store' },
     });

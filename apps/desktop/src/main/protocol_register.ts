@@ -7,13 +7,51 @@
  * routes. This file is the desktop-only shim that binds them to custom schemes.
  */
 
-import { protocol } from 'electron';
+import { ipcMain, protocol, type WebContents } from 'electron';
 import { MEDIA_SCHEME, handleMediaRequest } from './media_protocol';
 import { AVATAR_SCHEME, handleAvatarRequest } from './avatar_protocol';
 import { RESOURCE_SCHEME, handleResourceRequest } from './resource_protocol';
 
 export function registerMediaProtocol(): void {
   protocol.handle(MEDIA_SCHEME, handleMediaRequest);
+  // Electron 的 protocol.handle 不会把 Chromium 断连传到 Request.signal。
+  const thumbnails = new WeakMap<WebContents, Map<string, AbortController>>();
+  ipcMain.handle('media:thumbnail', async ({ sender }, id: string, url: string) => {
+    if (typeof id !== 'string' || typeof url !== 'string') return null;
+    const parsed = URL.parse(url);
+    if (
+      parsed?.protocol !== 'weq-media:' ||
+      parsed.hostname !== 'pic' ||
+      parsed.searchParams.get('v') !== 'thumb' ||
+      parsed.searchParams.get('recv') === '1'
+    )
+      return null;
+    let active = thumbnails.get(sender);
+    if (!active) {
+      const tasks = new Map<string, AbortController>();
+      thumbnails.set(sender, tasks);
+      sender.once('destroyed', () => {
+        for (const controller of tasks.values()) controller.abort();
+      });
+      active = tasks;
+    }
+    if (active.has(id)) return null;
+    const controller = new AbortController();
+    active.set(id, controller);
+    try {
+      const response = await handleMediaRequest(new Request(parsed, { signal: controller.signal }));
+      if (!response.ok || controller.signal.aborted) {
+        await response.body?.cancel();
+        return null;
+      }
+      return { bytes: await response.arrayBuffer(), type: response.headers.get('Content-Type') };
+    } finally {
+      active.delete(id);
+    }
+  });
+  ipcMain.on('media:cancel-thumbnail', ({ sender }, id: string) => {
+    thumbnails.get(sender)?.get(id)?.abort();
+  });
 }
 
 export function registerAvatarProtocol(): void {

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import sharp from 'sharp';
 import { createImagePreviewer, PREVIEW_MAX_SIDE } from '../src/main/image_preview';
 import { setupImageWorker } from './support/image-worker';
@@ -75,5 +75,27 @@ describe('受限图片预览', () => {
       .png()
       .toBuffer();
     await expect(preview(async () => image)).resolves.toBeInstanceOf(Buffer);
+  });
+
+  it('取消排队立即释放容量，切回后只读取仍需要的图片', async () => {
+    const preview = createImagePreviewer({ maxPending: 1 });
+    let release!: (data: Buffer) => void;
+    const first = preview(() => new Promise<Buffer>((resolve) => (release = resolve)));
+    const cancelled = new AbortController();
+    const load = vi.fn(async () => Buffer.from('unused'));
+    const abandoned = preview(load, cancelled.signal);
+    const result = expect(abandoned).rejects.toMatchObject({ name: 'AbortError' });
+    cancelled.abort();
+    await result;
+
+    const image = await sharp({
+      create: { width: 2, height: 2, channels: 3, background: '#ff00ff' },
+    })
+      .png()
+      .toBuffer();
+    const next = preview(async () => image);
+    release(image);
+    await expect(next).resolves.toEqual(await first);
+    expect(load).not.toHaveBeenCalled();
   });
 });
