@@ -5,6 +5,7 @@ import {
   type FirstPageTarget,
 } from '../src/renderer/src/lib/conversationFirstPage';
 import type { MessagePageStage } from '../src/shared/message_read';
+import { ConversationWindowCache } from '../src/renderer/src/lib/conversationWindowCache';
 
 type Row = { msgSeq: string };
 const target = (conv: string): FirstPageTarget => ({ kind: 'group', conv, limit: 25 });
@@ -13,7 +14,7 @@ afterEach(() => vi.useRealTimers());
 function fixture(canPrefetch = (_target: FirstPageTarget) => true) {
   vi.useFakeTimers();
   const cached = new Set<string>();
-  let version = 0;
+  const revisions = new ConversationWindowCache<Row>();
   const reads: {
     target: FirstPageTarget;
     stage: (value: MessagePageStage<Row>) => void;
@@ -30,7 +31,8 @@ function fixture(canPrefetch = (_target: FirstPageTarget) => true) {
     fresh: (value) => cached.has(firstPageKey(value)),
     canPrefetch,
     valid: () => true,
-    version: () => version,
+    version: () => revisions.revision,
+    changedSince: (target, version) => revisions.changedSince(firstPageKey(target), version),
     store,
     promote,
     cancel,
@@ -46,11 +48,21 @@ function fixture(canPrefetch = (_target: FirstPageTarget) => true) {
     store,
     promote,
     cancel,
-    change: () => {
-      version++;
-    },
+    change: (value?: FirstPageTarget) =>
+      revisions.markDirty(value ? firstPageKey(value) : undefined),
   };
 }
+it('预取期间别的会话发生变化，完整结果仍可缓存', async () => {
+  const f = fixture();
+  f.loader.activate(true, '');
+  f.loader.setVisible([target('a')]);
+  await vi.advanceTimersByTimeAsync(300);
+  f.change(target('b'));
+  f.reads[0]!.stage({ rows: [row('1')], complete: true });
+  expect(f.store).toHaveBeenCalledOnce();
+  expect(f.store.mock.calls[0]?.[0]).toEqual(target('a'));
+  f.loader.dispose();
+});
 it('缓存无空位时跳过后台预取，完成后立即点击别的会话不复用旧任务', async () => {
   const f = fixture((value) => value.conv !== 'a');
   f.loader.activate(true, '');

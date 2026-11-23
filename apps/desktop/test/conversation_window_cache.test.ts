@@ -20,6 +20,35 @@ const window = (count: number) => ({
 afterEach(() => vi.useRealTimers());
 
 describe('会话阅读窗口缓存', () => {
+  it('已知事件只使目标失效，未知文件变化只硬失效当前窗口', () => {
+    const cache = new ConversationWindowCache<{ id: number }>();
+    const baseline = cache.revision;
+    cache.markDirty('peer');
+    expect(cache.changedSince('current', baseline)).toBe(false);
+    expect(cache.changedSince('peer', baseline)).toBe(true);
+    expect(cache.unknownChangeSince(baseline)).toBe(false);
+    const confirmed = cache.revision;
+    cache.noteUnknownChange('current');
+    expect(cache.changedSince('peer', confirmed)).toBe(false);
+    expect(cache.changedSince('current', confirmed)).toBe(true);
+    expect(cache.unknownChangeSince(confirmed)).toBe(true);
+    const beforeReconnect = cache.revision;
+    cache.markDirty();
+    expect(cache.changedSince('peer', beforeReconnect)).toBe(true);
+    expect(cache.changedSince('current', beforeReconnect)).toBe(true);
+  });
+  it('旧标记被淘汰后仍能拒绝更早开始的读，换号清除全部旧版本', () => {
+    const cache = new ConversationWindowCache<{ id: number }>();
+    const baseline = cache.revision;
+    cache.markDirty('early');
+    const confirmed = cache.revision;
+    for (let i = 0; i < 256; i++) cache.markDirty(`chat:${i}`);
+    expect(cache.changedSince('early', baseline)).toBe(true);
+    expect(cache.changedSince('early', confirmed)).toBe(false);
+    cache.clear();
+    expect(cache.revision).toBe(0);
+    expect(cache.changedSince('early', 0)).toBe(false);
+  });
   it('预取检查不改变淘汰顺序，真正读取才提升窗口优先级', () => {
     vi.useFakeTimers();
     const cache = new ConversationWindowCache<{ id: number }>();

@@ -124,7 +124,11 @@ import {
   type DatabasePriority,
 } from '@weq/db';
 import { MessageReadWindows } from '../message_reads';
-import type { MessagePageStage, MessageReadWindow } from '../../../shared/message_read';
+import type {
+  MessageDbNotice,
+  MessagePageStage,
+  MessageReadWindow,
+} from '../../../shared/message_read';
 import { classifyChatType, ProtoMsg } from '@weq/codec';
 import { WalletFlag48417Wire } from '@weq/codec/proto/msg/element';
 import { buildShareLocationElements, detectThumbType, type OcrBlock } from '@weqbot/protocol';
@@ -231,7 +235,6 @@ import {
   ocrCacheFor,
   localOcrBlocker,
   type NewMessages,
-  type DbChange,
   type OcrResultCache,
   type RenderC2cMsg,
   type RenderGroupMsg,
@@ -6239,10 +6242,10 @@ export const accountRouter = router({
     const services = input
       ? requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId)
       : null;
-    return observable<{ at: number }>((emit) => {
-      const handler = (file: DbChange): void => {
+    return observable<MessageDbNotice>((emit) => {
+      const handler = (notice: MessageDbNotice): void => {
         if (services && getAppContext().services !== services) return;
-        emit.next({ at: file.at });
+        emit.next(notice);
       };
       dbEventBus.on('changed', handler);
       return () => {

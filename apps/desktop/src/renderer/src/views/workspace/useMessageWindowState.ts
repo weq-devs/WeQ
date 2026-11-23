@@ -143,20 +143,24 @@ export function useMessageWindowState({
         Boolean(
           messageScope && messageScopeRef.current === messageScope && messageBindingRef.current,
         ),
-      version: () => dbRevisionRef.current,
+      version: () => conversationWindows.revision,
+      changedSince: (target, version) =>
+        conversationWindows.changedSince(
+          conversationWindowKey(messageScope, target.kind, target.conv),
+          version,
+        ),
       canPrefetch: (target) =>
         (!IS_WEB || !dataSaverActive() || useDataSaver.getState().behavior.dataSaverPrefetch) &&
         conversationWindows.canPrefetch(
           conversationWindowKey(messageScope, target.kind, target.conv),
         ),
       fresh: (target) => {
-        const cached = conversationWindows.peek(
-          conversationWindowKey(messageScope, target.kind, target.conv),
-        );
+        const key = conversationWindowKey(messageScope, target.kind, target.conv);
+        const cached = conversationWindows.peek(key);
         return Boolean(
           cached &&
             !cached.dirty &&
-            cached.revision === dbRevisionRef.current &&
+            !conversationWindows.changedSince(key, cached.revision) &&
             Date.now() - cached.verifiedAt < 3000,
         );
       },
@@ -184,14 +188,14 @@ export function useMessageWindowState({
       cancel: (readWindow) => {
         void client.account.cancelMessageRead.mutate({ ...binding, readWindow }).catch(() => {});
       },
-      store: (target, rows, prefetch) => {
+      store: (target, rows, prefetch, revision) => {
         if (prefetch) recordMessageCounter('prefetchReady');
         conversationWindows.put(conversationWindowKey(messageScope, target.kind, target.conv), {
           rows: [...rows].reverse(),
           anchored: true,
           hasOlder: rows.length >= target.limit,
           hasNewer: false,
-          revision: dbRevisionRef.current,
+          revision,
           dirty: false,
           storedAt: Date.now(),
           verifiedAt: Date.now(),
@@ -243,7 +247,7 @@ export function useMessageWindowState({
     const request = createCoalescedRefresh(async (): Promise<void> => {
       const scope = messageScopeRef.current,
         binding = messageBindingRef.current;
-      const revision = dbRevisionRef.current;
+      const revision = conversationWindows.revision;
       if (!scope || !binding || entryLoadingRef.current || document.visibilityState === 'hidden')
         return;
       const sel = selectionRef.current;
@@ -251,6 +255,7 @@ export function useMessageWindowState({
       if (!sel || !win.anchored) return;
       const kind = sel.kind === 'group' ? 'group' : 'c2c';
       const conv = sel.id;
+      const key = conversationWindowKey(scope, kind, conv);
       const previous = loadedRef.current;
       recordMessageCounter('windowStarted');
       try {
@@ -311,7 +316,6 @@ export function useMessageWindowState({
           void request();
           return;
         }
-        const key = conversationWindowKey(scope, kind, conv);
         setReadFailure((failure) =>
           failure?.key === key && failure.stage === 'entry' ? null : failure,
         );
@@ -339,7 +343,7 @@ export function useMessageWindowState({
       }
     });
     return request;
-  }, [setLoaded, queryCache]);
+  }, [conversationWindows, setLoaded, queryCache]);
 
   useEffect(() => {
     if (messageActivity.enabled && messageActivity.revision > 0) void refreshWindow();

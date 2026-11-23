@@ -23,7 +23,7 @@ import type { ChatMainContent } from '../src/renderer/src/im-template/template/c
 import type { ChatSidebarContent } from '../src/renderer/src/im-template/template/chatSidebarContent';
 import { ConversationList } from '../src/renderer/src/im-template/template/conversationLists';
 import type { GroupSearchHit } from '../src/renderer/src/components/search/types';
-import type { MessagePageStage } from '../src/shared/message_read';
+import type { MessageDbNotice, MessagePageStage } from '../src/shared/message_read';
 import { publishQQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
 import type { GapMessagesModal } from '../src/renderer/src/components/compose/GapMessagesModal';
 import {
@@ -117,7 +117,7 @@ const f = vi.hoisted(() => ({
   }>,
   readCurrent: undefined as (() => void) | undefined,
   markReadReply: undefined as (() => Promise<void>) | undefined,
-  dbChanged: undefined as (() => void) | undefined,
+  dbChanged: undefined as ((notice?: MessageDbNotice) => void) | undefined,
   notificationSubscriptions: { group: [], conversation: [] } as Record<
     'group' | 'conversation',
     Array<{ notify: () => void; unsubscribe: () => void }>
@@ -135,6 +135,7 @@ const f = vi.hoisted(() => ({
     | undefined,
   unreadChanged: undefined as ((targets: UnreadInput['targets']) => void) | undefined,
   refreshRows: undefined as TestMessage[] | undefined,
+  refreshReads: [] as string[],
   gapRows: [] as TestMessage[],
   gapRequests: [] as unknown[],
   jump: undefined as ((target: ReplyJumpTarget) => void | Promise<void>) | undefined,
@@ -249,7 +250,12 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         if (key === 'useSubscription') return () => {};
         if (key === 'query' || key === 'mutate' || key === 'invalidate')
           return async (
-            input?: UnreadInput & { beforeSeq?: string; afterSeq?: string; random?: number },
+            input?: UnreadInput & {
+              conv?: string;
+              beforeSeq?: string;
+              afterSeq?: string;
+              random?: number;
+            },
           ) => {
             if (path.at(-1) === 'searchQuick')
               return { conversations: [], friends: [], groupMembers: [], groups: f.searchGroups };
@@ -306,7 +312,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               return f.deletedReply?.() ?? [...f.deletedResponse];
             if (path.at(-1) === 'hiddenDeletedMsgIds')
               return f.hiddenDeletionReply?.() ?? [...f.hiddenDeletionResponse];
-            if (['listLatest', 'listFrom'].includes(path.at(-1) ?? '')) return f.refreshRows;
+            if (['listLatest', 'listFrom'].includes(path.at(-1) ?? '')) {
+              if (input?.conv) f.refreshReads.push(input.conv);
+              return f.refreshRows;
+            }
             if (path.at(-1) === 'getUnreadInfos' && f.unreadMode && input) {
               f.unreadReads.push(input);
               if (f.unreadFailures > 0) {
@@ -357,7 +366,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             }
             if (path.at(-1) === 'latestPage')
               f.reads.push({ conv: input.conv, show: handlers.onData });
-            if (path.at(-1) === 'onDbChanged') f.dbChanged = () => handlers.onData({});
+            if (path.at(-1) === 'onDbChanged')
+              f.dbChanged = (notice) => handlers.onData(notice ?? {});
             if (path.at(-1) === 'onUnreadChanged')
               f.unreadChanged = (targets) => handlers.onData(targets);
             return { unsubscribe: vi.fn() };
@@ -573,6 +583,7 @@ afterEach(() => {
   f.conversationJumpReply = undefined;
   f.unreadChanged = undefined;
   f.refreshRows = undefined;
+  f.refreshReads = [];
   f.gapRows = [];
   f.gapRequests = [];
   f.jump = undefined;
@@ -885,6 +896,126 @@ it.each(['10001', 'u_peer'])(
     }
   },
 );
+
+it('其他会话的新消息和当前未读变化都不重读当前正文，当前新消息仍即时校准', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.unreadMode = true;
+  f.headEnabled = true;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const original: TestMessage = {
+    msgId: 'original',
+    msgSeq: '1',
+    sendTime: '1794200000',
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    elements: [{ type: 'text', data: { textContent: '原消息' } }],
+  };
+  const latest = { ...original, msgId: 'latest', msgSeq: '2', sendTime: '1794200001' };
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === '10001')!
+        .click(),
+    );
+    await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [original] }));
+    f.refreshReads.length = 0;
+    f.refreshRows = [latest, original];
+    await act(async () => {
+      f.dbChanged!({ at: Date.now(), targets: [{ kind: 'group', conv: '10002' }] });
+      f.unreadChanged!([{ chatType: 2, uid: '10001' }]);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(f.refreshReads).toEqual([]);
+    expect(f.messages.map((row) => row.msgId)).toEqual(['original']);
+    await act(async () =>
+      f.dbChanged!({ at: Date.now(), targets: [{ kind: 'group', conv: '10001' }] }),
+    );
+    expect(f.refreshReads).toEqual(['10001']);
+    expect(f.messages.map((row) => row.msgId)).toEqual(['original', 'latest']);
+    await act(async () => vi.advanceTimersByTimeAsync(200));
+    f.headRefreshes = 0;
+    await act(async () => {
+      const observedAt = Date.now();
+      f.dbChanged!({ at: observedAt });
+      f.dbChanged!({ at: observedAt, targets: [{ kind: 'group', conv: '10002' }] });
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(f.headRefreshes).toBe(1);
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
+
+it('未知文件变化后快速返回仍复用最近窗口，停留时只校准返回的窗口', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const row = (msgId: string): TestMessage => ({
+    msgId,
+    msgSeq: '1',
+    sendTime: '1794200000',
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    elements: [{ type: 'text', data: { textContent: msgId } }],
+  });
+  const open = (id: string) =>
+    act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === id)!
+        .click(),
+    );
+  const show = (msgId: string) =>
+    act(async () => f.reads.at(-1)!.show({ complete: true, rows: [row(msgId)] }));
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await open('10001');
+    await show('first');
+    await open('10002');
+    await show('second');
+    f.refreshRows = [row('second')];
+    await act(async () => f.dbChanged!());
+    f.refreshReads.length = 0;
+    f.refreshRows = [
+      { ...row('first'), elements: [{ type: 'text', data: { textContent: '编辑后' } }] },
+    ];
+    const coldReads = f.reads.length;
+    await open('10001');
+    expect(f.reads).toHaveLength(coldReads);
+    expect(f.messages.map((message) => message.body)).toEqual(['first']);
+    expect(f.refreshReads).toEqual([]);
+    await act(async () => vi.advanceTimersByTimeAsync(120));
+    expect(f.refreshReads).toEqual(['10001']);
+    expect(f.messages.map((message) => message.body)).toEqual(['编辑后']);
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
 
 it.each(['10001', 'u_peer'])(
   '会话 %s 首屏完成与阅读设置更新交错时，采用完整缓存并结束底部加载',

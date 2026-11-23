@@ -162,7 +162,7 @@ export function useConversationWindowSelection(
           readingPosition: position,
           revision: loadedRevisionRef.current,
           dirty:
-            loadedRevisionRef.current !== dbRevisionRef.current ||
+            conversationWindows.changedSince(windowKey, loadedRevisionRef.current) ||
             verifiedWindowRowsRef.current !== loaded,
           storedAt: Date.now(),
           verifiedAt: windowVerifiedAtRef.current,
@@ -328,7 +328,6 @@ export function useConversationWindowEntry(
     messageScopeRef,
     messageBindingRef,
     conversationWindows,
-    dbRevisionRef,
     loadedRevisionRef,
     windowVerifiedAtRef,
     verifiedWindowRowsRef,
@@ -389,7 +388,7 @@ export function useConversationWindowEntry(
     const conv = selectedUid;
     let cancelled = false;
     const selection = selectionRef.current,
-      revision = dbRevisionRef.current;
+      revision = conversationWindows.revision;
     let expectedWindow = windowRef.current;
     const limit = isGroup ? GROUP_INITIAL_PAGE_SIZE : PAGE_SIZE;
     const active = () =>
@@ -429,9 +428,13 @@ export function useConversationWindowEntry(
         : undefined;
     const cached = restorableConversationWindow(candidate, resumable);
     if (cached?.prefetched) recordMessageCounter('prefetchHit');
+    const verifyUnknown = cached && conversationWindows.unknownChangeSince(cached.revision);
     const dirty = Boolean(
       cached &&
-        (cached.dirty || cached.revision !== revision || Date.now() - cached.verifiedAt > 30_000),
+        (cached.dirty ||
+          conversationWindows.changedSince(readKey, cached.revision) ||
+          (verifyUnknown && !cached.anchored) ||
+          Date.now() - cached.verifiedAt > 30_000),
     );
     if (cached && !dirty && Date.now() - cached.verifiedAt < 3000) {
       // 完整首屏可能刚写入缓存，旧 effect 却在交付前被设置更新取消。
@@ -448,7 +451,14 @@ export function useConversationWindowEntry(
         setAnchoredToLatest(cached.anchored);
         finishEntry();
       }
+      // 最近已验证的窗口立即交付，停留后只校准这个会话。切走取消尚未开始的校准。
+      const verify = verifyUnknown
+        ? setTimeout(() => {
+            if (active()) void refreshWindow();
+          }, 120)
+        : undefined;
       return () => {
+        clearTimeout(verify);
         cancelled = true;
       };
     }
@@ -470,7 +480,7 @@ export function useConversationWindowEntry(
         let firstRows = false;
         await loadConversationEntry<MessageWire>({
           cached,
-          dirty,
+          dirty: dirty || Boolean(verifyUnknown),
           readSeq,
           readFromFirstUnread: Boolean(resumable),
           limit,
@@ -478,7 +488,8 @@ export function useConversationWindowEntry(
           active,
           settled: () => {
             finishEntry();
-            if (!valid() || dbRevisionRef.current !== revision) void refreshWindow();
+            if (!valid() || conversationWindows.changedSince(readKey, revision))
+              void refreshWindow();
           },
           cursor: (rows) =>
             rows
@@ -671,7 +682,6 @@ export function useConversationWindowEntry(
     messageBindingRef,
     setMessagesLoading,
     selectionRef,
-    dbRevisionRef,
     windowRef,
     messageScopeRef,
     pendingSearchJumpRef,

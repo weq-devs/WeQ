@@ -249,13 +249,13 @@ import { collectionItemToWire, collectionDetailToWire } from '../ipc/serde';
 import { mountGroupInfoWatch } from '../group_info_watch';
 import { mountContactNoticeWatch } from '../contact_notice_watch';
 import { CONTACT_NOTICE_LIMIT } from '../../shared/contact_notices';
+import type { MessageDbNotice } from '../../shared/message_read';
 import { ContactDirectoryRuntime } from './contact_metrics';
 
 /**
  * Process-wide bus for message / group-info changes, fed by the shared `dbWatch` loop
  * below. Events:
- *   - `'changed'` ({@link DbChange})    — every db change (debounced); drives
- *     the open conversation's seq-window re-query in the renderer.
+ *   - `'changed'` ({@link MessageDbNotice}) — 文件变化校准当前会话，已确认的新消息按目标通知。
  *   - `'new'`     ({@link NewMessages}) — only when a rowid-delta found newly
  *     inserted rows; reserved for unread / popup notifications.
  *   - 'roaming' — newly committed WeQ cache rows; never treated as QQ unread writes.
@@ -633,7 +633,7 @@ function mountDbWatch(session: AccountSession): void {
   );
   const notification = createDbChangeNotification((file: DbChange) => {
     if (getAppContext().account !== session) return;
-    dbEventBus.emit('changed', file);
+    dbEventBus.emit('changed', { at: file.at } satisfies MessageDbNotice);
   });
   dbChangeNotification = notification;
   dbWatchHandle = dbWatch.mount(
@@ -660,7 +660,16 @@ function mountDbWatch(session: AccountSession): void {
         }
         if (ctx.account !== session) return;
         dbEventBus.emit('new', change);
-        notification.request(change.file);
+        const c2c = new Set(change.c2c.map((message) => message.targetUid));
+        for (const message of change.dataline ?? []) c2c.add(message.targetUid);
+        const groups = new Set(change.group.map((message) => message.targetGroupCode));
+        dbEventBus.emit('changed', {
+          at: change.file.at,
+          targets: [
+            ...[...c2c].map((conv) => ({ kind: 'c2c' as const, conv })),
+            ...[...groups].map((conv) => ({ kind: 'group' as const, conv })),
+          ],
+        } satisfies MessageDbNotice);
       },
     }),
   );

@@ -1258,13 +1258,21 @@ function MainWorkspace(): ReactElement {
     selectionRef,
   ]);
 
-  // Subscribe once to the debounced "db changed" ping: refresh recent contacts
-  // and re-read the open conversation's window. (onNewMessages stays a backend
-  // signal reserved for future popups; the open view no longer needs it.)
+  // 已知新消息按会话校准。文件事件没有变化范围，仍立即检查当前正文里的同序号灰条。
   useEffect(() => {
     const binding = messageBindingRef.current;
     if (!messageScope || !binding) return;
-    // 文件事件不知道变了哪张表；低频校准辅助目录，正文与角标仍走即时通道。
+    let pendingFileAt: number | undefined;
+    let headFileAt: number | undefined;
+    const draftRefresh = createUnreadRefresh(async () => {
+      if (messageScopeRef.current !== messageScope) return true;
+      await Promise.all([
+        utils.account.listConversationDraftTimes.invalidate(binding),
+        utils.account.listDrafts.invalidate(binding),
+      ]);
+      return true;
+    }, 5000);
+    // 隐藏、置顶和聚合目录的本机操作有定向更新；外部 QQ 的未知变化合并校准。
     const metadataRefresh = createUnreadRefresh(async () => {
       if (messageScopeRef.current !== messageScope) return true;
       await Promise.all([
@@ -1272,14 +1280,15 @@ function MainWorkspace(): ReactElement {
         utils.account.listHiddenSessions.invalidate(),
         utils.account.listOfficialAccounts.invalidate(),
         utils.account.listServiceAccounts.invalidate(),
-        utils.account.listConversationDraftTimes.invalidate(),
-        utils.account.listDrafts.invalidate(),
       ]);
       return true;
-    }, 5000);
+    }, 30_000);
     const unknownRefresh = createUnreadRefresh(async () => {
       if (messageScopeRef.current !== messageScope) return true;
-      refreshRecentHead();
+      if (pendingFileAt === undefined || headFileAt !== pendingFileAt) {
+        headFileAt = pendingFileAt;
+        refreshRecentHead();
+      }
       refreshRecentTargets();
       return true;
     }, 1000);
@@ -1288,11 +1297,36 @@ function MainWorkspace(): ReactElement {
         if (messageScopeRef.current !== messageScope) return;
         if (!IS_WEB && notice?.at) recordMessagePhase('observedToRenderer', Date.now() - notice.at);
         dbRevisionRef.current += 1;
-        conversationWindows.markDirty();
-        // 灰条可共用旧序号且不改变未读数；正文不等待一秒目录校准。
+        const selected = selectionRef.current;
+        const activeKey = selected
+          ? conversationWindowKey(
+              messageScope,
+              selected.kind === 'group' ? 'group' : 'c2c',
+              selected.id,
+            )
+          : undefined;
+        if (notice?.targets) {
+          let selectedChanged = false;
+          for (const { kind, conv } of notice.targets) {
+            const key = conversationWindowKey(messageScope, kind, conv);
+            conversationWindows.markDirty(key);
+            selectedChanged ||= key === activeKey;
+          }
+          if (selectedChanged) void refreshWindow();
+          if (notice.targets.length) {
+            if (headFileAt !== notice.at) {
+              headFileAt = notice.at;
+              refreshRecentHead();
+            }
+            refreshRecentTargets(notice.targets.map(({ conv }) => conv));
+          }
+          return;
+        }
+        pendingFileAt = notice?.at;
+        conversationWindows.noteUnknownChange(activeKey);
         void refreshWindow();
-        // Read watermarks can change while recent contacts remain identical.
         unknownRefresh.request();
+        draftRefresh.request();
         metadataRefresh.request();
       },
       onError(err) {
@@ -1302,6 +1336,7 @@ function MainWorkspace(): ReactElement {
     return () => {
       metadataRefresh.dispose();
       unknownRefresh.dispose();
+      draftRefresh.dispose();
       sub.unsubscribe();
     };
   }, [
@@ -1314,6 +1349,7 @@ function MainWorkspace(): ReactElement {
     messageBindingRef,
     messageScopeRef,
     dbRevisionRef,
+    selectionRef,
   ]);
 
   useEnhancementUpdates();
@@ -3886,18 +3922,6 @@ function MainWorkspace(): ReactElement {
             if (targets.some((target) => archivedUnreadRef.current.has(target.uid))) {
               refreshArchivedUnread();
             }
-            const selection = selectionRef.current;
-            for (const target of targets) {
-              const kind = target.chatType === 2 ? 'group' : 'c2c';
-              conversationWindows.markDirty(conversationWindowKey(source, kind, target.uid));
-              if (
-                selection?.id === target.uid &&
-                (selection.kind === 'group' ? 'group' : 'c2c') === kind
-              )
-                void refreshWindow();
-            }
-            refreshRecentHead();
-            refreshRecentTargets(targets.map((target) => target.uid));
             liveRefresh.request(
               targets.flatMap((target) => {
                 const chatType = unreadChatType(target.chatType);
@@ -3946,10 +3970,6 @@ function MainWorkspace(): ReactElement {
   }, [
     openedUin,
     messageScope,
-    conversationWindows,
-    refreshRecentHead,
-    refreshRecentTargets,
-    refreshWindow,
     messageBindingRef,
     messageScopeRef,
     selectionRef,
@@ -6004,7 +6024,7 @@ function MainWorkspace(): ReactElement {
           );
           const scope = messageScopeRef.current,
             binding = messageBindingRef.current,
-            revision = dbRevisionRef.current;
+            revision = conversationWindows.revision;
           const previousSelection = selectionRef.current?.id === conv ? selectionRef.current : null;
           if (!scope || !binding) return false;
           let before: ChatMsgWire[];
@@ -6182,7 +6202,7 @@ function MainWorkspace(): ReactElement {
       setLoaded,
       messageScopeRef,
       messageBindingRef,
-      dbRevisionRef,
+      conversationWindows,
       selectionRef,
       windowRef,
       verifiedWindowRowsRef,

@@ -44,9 +44,10 @@ export class ConversationFirstPage<T> {
       ) => () => void;
       promote: (window: MessageReadWindow) => void;
       cancel: (window: MessageReadWindow) => void;
-      store: (target: FirstPageTarget, rows: T[], prefetch: boolean) => void;
+      store: (target: FirstPageTarget, rows: T[], prefetch: boolean, version: number) => void;
       valid: () => boolean;
       version: () => number;
+      changedSince: (target: FirstPageTarget, version: number) => boolean;
     },
   ) {}
 
@@ -208,7 +209,8 @@ export class ConversationFirstPage<T> {
             return;
           }
           try {
-            if (version === this.options.version()) this.options.store(target, rows, prefetch);
+            if (!this.options.changedSince(target, version))
+              this.options.store(target, rows, prefetch, version);
           } catch {
             /* 缓存失败不阻断正文交付。 */
           }
