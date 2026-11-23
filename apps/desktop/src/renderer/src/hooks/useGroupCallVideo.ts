@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GroupVideoDelivery } from '../../../shared/call_video_ipc';
-import { client } from '../trpc/client';
+import type { GroupVideoTransport } from '../lib/groupVideoTransport';
 
 const PRIMARY = { width: 640, height: 360, bitrate: 500_000 };
 const SECONDARY = { width: 192, height: 144, bitrate: 120_000 };
 const FPS = 12;
 
-export function useGroupCamera(id: string, enabled: boolean, onError: (message: string) => void) {
+export function useGroupCamera(
+  id: string,
+  enabled: boolean,
+  onError: (message: string) => void,
+  transport: GroupVideoTransport,
+) {
   const [preview, setPreview] = useState<MediaStream | null>(null);
   const errorRef = useRef(onError);
   errorRef.current = onError;
@@ -71,12 +76,8 @@ export function useGroupCamera(id: string, enabled: boolean, onError: (message: 
               secondary: pair.secondary,
               keyframe: pair.keyframe,
             };
-            const bridge = window.weq?.callVideo;
-            void (
-              bridge?.pushGroupFrame
-                ? bridge.pushGroupFrame(frame)
-                : client.groupCall.pushVideo.mutate(frame)
-            )
+            void transport
+              .push(frame)
               .catch(failed)
               .finally(() => {
                 busy = false;
@@ -168,7 +169,7 @@ export function useGroupCamera(id: string, enabled: boolean, onError: (message: 
     };
     void start().catch(failed);
     return stop;
-  }, [id, enabled]);
+  }, [id, enabled, transport]);
   return enabled ? preview : null;
 }
 
@@ -184,7 +185,11 @@ interface RemoteVideo {
  * 每个成员只解码一次（`OffscreenCanvas` 里保存最新一帧），再画到界面注册的
  * 任意多块 `<canvas>` 上 —— 主舞台和缩略条可以同时显示同一个人。
  */
-export function useGroupRemoteVideo(id: string, live: boolean, activeUins: ReadonlySet<number>) {
+export function useGroupRemoteVideo(
+  live: boolean,
+  activeUins: ReadonlySet<number>,
+  transport: GroupVideoTransport,
+) {
   const streams = useRef(new Map<number, RemoteVideo>());
   const targets = useRef(new Map<number, Set<HTMLCanvasElement>>());
   const activeUinsRef = useRef(activeUins);
@@ -237,9 +242,9 @@ export function useGroupRemoteVideo(id: string, live: boolean, activeUins: Reado
     [],
   );
   useEffect(() => {
-    if (!live || typeof VideoDecoder === 'undefined') return;
+    if (!live) return;
     const onData = ({ uin, data, keyframe }: GroupVideoDelivery) => {
-      if (!activeUinsRef.current.has(uin)) return;
+      if (!activeUinsRef.current.has(uin) || typeof VideoDecoder === 'undefined') return;
       let stream = streams.current.get(uin);
       if (!stream) {
         if (!keyframe) return;
@@ -300,11 +305,8 @@ export function useGroupRemoteVideo(id: string, live: boolean, activeUins: Reado
         setReady((prior) => new Set([...prior].filter((value) => uin !== value)));
       }
     };
-    const bridge = window.weq?.callVideo;
-    if (bridge?.subscribeGroup) return bridge.subscribeGroup(id, onData);
-    const subscription = client.groupCall.video.subscribe({ id }, { onData });
-    return () => subscription.unsubscribe();
-  }, [id, live, paint]);
+    return transport.subscribe(onData);
+  }, [live, paint, transport]);
   return { ready, register };
 }
 

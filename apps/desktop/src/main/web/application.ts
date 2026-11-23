@@ -8,6 +8,7 @@ import { handleRequest, type RequestOptions } from './http';
 import { createWebHost } from './host';
 import { attachWsHandler, createTrpcHandler } from './trpc_adapter';
 import { DevelopmentWebProxy } from './development';
+import type { ResolveGroupVideo } from './group_video';
 
 export type WebAuth = Pick<AuthGate, 'login' | 'logout' | 'isAuthed' | 'watchSession'> & {
   remoteClient?: boolean;
@@ -18,6 +19,7 @@ export interface WebCoreConfig {
   exportDir: string;
   version: string;
   router: AnyRouter;
+  groupVideoSession?: ResolveGroupVideo;
   developmentUrl?: string;
   renderer?: Pick<HostBridge, 'renderHtmlToPdf' | 'renderHtmlToSlidesPng' | 'renderHtmlToLongPng'>;
 }
@@ -92,6 +94,7 @@ export class WebApplication {
       this.auth,
       this.host,
       this.development?.upgrade,
+      this.config.groupVideoSession,
     );
   }
 

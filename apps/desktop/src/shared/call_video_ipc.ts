@@ -30,8 +30,8 @@ export interface CallVideoFrame {
 
 export interface GroupVideoFrame {
   id: string;
-  data: Uint8Array;
-  secondary: Uint8Array;
+  data: Uint8Array<ArrayBuffer>;
+  secondary: Uint8Array<ArrayBuffer>;
   keyframe: boolean;
 }
 

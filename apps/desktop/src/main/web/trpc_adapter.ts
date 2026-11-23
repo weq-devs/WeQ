@@ -19,6 +19,7 @@ import type { HostBridge } from '@weq/service';
 import { logTransportError } from '@weq/service';
 import { WebSocketServer } from 'ws';
 import type { AuthGate } from './auth';
+import { createGroupVideoWebUpgrade, type ResolveGroupVideo } from './group_video';
 
 // 单图上传允许 14 MiB base64；附件使用既有分段入口。批量只用于读取。
 export const HTTP_RPC_MAX_BODY_BYTES = 16 * 1024 * 1024;
@@ -151,12 +152,15 @@ export function attachWsHandler(
   auth: Pick<AuthGate, 'isAuthed' | 'watchSession'>,
   host?: HostBridge,
   extraUpgrade?: (req: IncomingMessage, socket: Duplex, head: Buffer) => boolean,
+  groupVideoSession?: ResolveGroupVideo,
 ): () => void {
   const wss = new WebSocketServer({ noServer: true });
+  const video = groupVideoSession && createGroupVideoWebUpgrade(auth, groupVideoSession);
 
   const upgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const path = (req.url ?? '').split('?')[0];
     if (path !== '/trpc-ws') {
+      if (video?.upgrade(req, socket, head)) return;
       if (extraUpgrade?.(req, socket, head)) return;
       socket.destroy();
       return;
@@ -189,5 +193,6 @@ export function attachWsHandler(
     server.off('upgrade', upgrade);
     for (const client of wss.clients) client.terminate();
     wss.close();
+    video?.close();
   };
 }

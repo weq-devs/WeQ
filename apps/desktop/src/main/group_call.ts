@@ -35,9 +35,9 @@ export function hasGroupCall(): boolean {
   return active !== undefined;
 }
 
-export function currentGroupCall(id?: string) {
+export function currentGroupCall(id: string) {
   const call = active;
-  if (!call || (id && call.id !== id) || getAppContext().account !== call.account) return undefined;
+  if (!call || call.id !== id || getAppContext().account !== call.account) return undefined;
   return call;
 }
 

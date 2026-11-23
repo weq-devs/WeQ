@@ -119,6 +119,7 @@ import { createSystemTray } from './system_tray';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
 import { registerEditContextMenu } from './edit_context_menu';
 import { registerCallVideoIpc } from './call_video_ipc';
+import { currentGroupCall } from './group_call';
 import { registerAttachHintIpc } from './attach_hint_ipc';
 import { backgroundServicesRunning } from './background_services';
 import { registerElevationIpc } from './elevation_ipc';
@@ -1037,6 +1038,7 @@ void app.whenReady().then(async () => {
       renderer: electronHost,
       version: app.getVersion(),
       router: appRouter,
+      groupVideoSession: (id) => currentGroupCall(id)?.session,
     });
     desktopWebRuntime.configure({
       core: webCore,

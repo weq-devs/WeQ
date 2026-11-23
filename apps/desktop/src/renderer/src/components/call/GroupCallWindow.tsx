@@ -19,6 +19,7 @@ import type { GroupCallSnapshot } from '@weq/service';
 import { useGroupCallAudio } from '../../hooks/useCallAudio';
 import { useToolWindow } from '../../hooks/useCompositionWindow';
 import { useGroupCamera, useGroupRemoteVideo } from '../../hooks/useGroupCallVideo';
+import { createGroupVideoTransport } from '../../lib/groupVideoTransport';
 import { RenderDocumentContext } from '../../lib/renderDocument';
 import { useAppLock } from '../../state/lock';
 import { client, trpc } from '../../trpc/client';
@@ -301,11 +302,21 @@ export function GroupCallWindow({
   const focused =
     focusedUin !== undefined && videoUins.has(focusedUin) ? focusedUin : videoMembers[0]?.uin;
   const focusedMember = info.members.find((member) => member.uin === focused);
-  const { ready, register } = useGroupRemoteVideo(id, live, videoUins);
-  const preview = useGroupCamera(id, live && info.cameraOn, (message) => {
-    setError(message);
-    action(client.groupCall.camera.mutate({ id, on: false }));
-  });
+  const videoTransport = useMemo(() => createGroupVideoTransport(id), [id]);
+  const { ready, register } = useGroupRemoteVideo(
+    live && (info.cameraOn || videoUins.size > 0),
+    videoUins,
+    videoTransport,
+  );
+  const preview = useGroupCamera(
+    id,
+    live && info.cameraOn,
+    (message) => {
+      setError(message);
+      action(client.groupCall.camera.mutate({ id, on: false }));
+    },
+    videoTransport,
+  );
   const previewRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     if (previewRef.current) previewRef.current.srcObject = preview;

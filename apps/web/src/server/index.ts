@@ -34,6 +34,7 @@ import {
 import { getIntentSenseLocalEngine } from '@weq/desktop/main/intent_sense/bridge';
 import { assistantResourceServer } from '@weq/desktop/main/weq_assistant/server';
 import { appRouter } from '@weq/desktop/main/ipc/router';
+import { currentGroupCall } from '@weq/desktop/main/group_call';
 import { startAnnouncements } from '@weq/desktop/main/announcements';
 import { AuthGate } from './auth';
 import { createWebHost } from './host';
@@ -152,7 +153,14 @@ async function main(): Promise<void> {
     auth,
     trpc: createTrpcHandler(appRouter, auth),
   });
-  attachWsHandler(server, appRouter, auth);
+  const closeSockets = attachWsHandler(
+    server,
+    appRouter,
+    auth,
+    undefined,
+    undefined,
+    (id) => currentGroupCall(id)?.session,
+  );
 
   console.log(`\n  WeQ Web  →  http://${isLoopback ? '127.0.0.1' : HOST}:${port}`);
   if (generated) console.log(`  访问令牌  →  ${token}    (设置 WEQ_TOKEN 可固定)`);
@@ -163,6 +171,7 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     stopAnnouncements();
+    closeSockets();
     getAppContext().bootstrap?.enhancements.updates.stop();
     void assistantResourceServer.shutdown();
     const servicesStopped = Promise.allSettled([performanceMonitor.dispose(), intentEngine.stop()]);
