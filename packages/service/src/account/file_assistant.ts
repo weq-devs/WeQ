@@ -3,9 +3,11 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import type { FileAssistantRow } from '@weq/db';
+import { databaseRequestSignal, type FileAssistantRow } from '@weq/db';
 
 export class FileAssistantService {
+  private readonly pendingByMsgId = new Map<bigint, Promise<FileAssistantRow | null>>();
+
   constructor(private readonly session: AccountSession) {}
 
   /**
@@ -19,6 +21,14 @@ export class FileAssistantService {
    * Search file info by its msgId.
    */
   async getFileInfoByMsgId(msgId: bigint): Promise<FileAssistantRow | null> {
-    return this.session.fileAssistant.getByMsgId(msgId);
+    // 可取消的调用各自保留数据库生命周期，避免一次取消影响其他请求。
+    if (databaseRequestSignal()) return this.session.fileAssistant.getByMsgId(msgId);
+    const pending = this.pendingByMsgId.get(msgId);
+    if (pending) return pending;
+    const lookup = this.session.fileAssistant.getByMsgId(msgId).finally(() => {
+      this.pendingByMsgId.delete(msgId);
+    });
+    this.pendingByMsgId.set(msgId, lookup);
+    return lookup;
   }
 }

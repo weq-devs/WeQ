@@ -23,24 +23,35 @@ export function useReadStateUndo(
   useEffect(() => {
     const bridge = window.weq?.editUndo;
     if (!bridge) return;
-    let previous = '';
+    let previous: EditMenuState['undo'] | undefined;
     const publish = () => {
-      const state: EditMenuState = { ...EMPTY_EDIT_MENU };
-      if (document.visibilityState !== 'hidden') {
-        if (editingText()) {
-          state.undo = document.queryCommandEnabled?.('undo') ? 'text' : null;
-          state.redo = document.queryCommandEnabled?.('redo') ? 'text' : null;
-        } else if (current.current.enabled && !hasActiveModal()) {
-          state.undo = current.current.action;
-        }
-      }
-      const key = JSON.stringify(state);
-      if (key !== previous) {
-        previous = key;
-        bridge.update?.(state);
-      }
+      // 文字撤销与重做由常规 Electron 菜单项处理，桥只需报告会话标记撤销。
+      const undo =
+        current.current.enabled &&
+        document.visibilityState !== 'hidden' &&
+        !editingText() &&
+        !hasActiveModal()
+          ? current.current.action
+          : null;
+      if (undo === previous) return;
+      previous = undo;
+      bridge.update?.({ undo, redo: null });
     };
-    refresh.current = publish;
+    const observer = new MutationObserver(publish);
+    const refreshMenu = () => {
+      if (current.current.enabled) {
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['aria-modal', 'hidden', 'inert', 'contenteditable', 'role'],
+        });
+      } else {
+        observer.disconnect();
+      }
+      publish();
+    };
+    refresh.current = refreshMenu;
     const unsubscribe = bridge.onUndo(() => {
       if (!current.current.enabled || document.visibilityState === 'hidden' || hasActiveModal())
         return false;
@@ -48,22 +59,13 @@ export function useReadStateUndo(
       current.current.undo();
       return true;
     });
-    const events = ['focusin', 'focusout', 'input', 'selectionchange', 'visibilitychange'];
+    const events = ['focusin', 'focusout', 'visibilitychange'];
     for (const event of events) document.addEventListener(event, publish);
-    const unsubscribeRefresh = bridge.onRefresh?.(publish);
-    const observer = new MutationObserver(publish);
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['aria-modal', 'hidden', 'inert', 'contenteditable'],
-    });
-    publish();
+    refreshMenu();
     return () => {
       unsubscribe();
       refresh.current = null;
       for (const event of events) document.removeEventListener(event, publish);
-      unsubscribeRefresh?.();
       observer.disconnect();
       bridge.update?.(EMPTY_EDIT_MENU);
     };

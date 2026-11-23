@@ -42,13 +42,13 @@ it('系统编辑菜单按桥接状态控制撤销和重做，保留原生剪贴�
   );
 });
 
-it('系统撤销处理当前标记，编辑框、弹窗及无可撤销标记时回退原生撤销，卸载解除监听', () => {
+it('系统撤销处理当前标记，编辑框、弹窗及无可撤销标记时回退原生撤销，卸载解除监听', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   let handler: (() => boolean) | undefined;
   const unsubscribe = vi.fn();
   const update = vi.fn();
   const originalQuery = Object.getOwnPropertyDescriptor(document, 'queryCommandEnabled');
-  const query = vi.fn((command: string) => command === 'redo');
+  const query = vi.fn(() => true);
   Object.defineProperty(document, 'queryCommandEnabled', { configurable: true, value: query });
   vi.stubGlobal('weq', {
     editUndo: {
@@ -88,19 +88,26 @@ it('系统撤销处理当前标记，编辑框、弹窗及无可撤销标记时�
     expect(handler!()).toBe(true);
     expect(undo).toHaveBeenCalledTimes(1);
     host.querySelector('input')!.focus();
-    expect(update).toHaveBeenLastCalledWith({ undo: null, redo: 'text' });
-    query.mockReturnValue(true);
+    expect(update).toHaveBeenLastCalledWith({ undo: null, redo: null });
+    update.mockClear();
     document.dispatchEvent(new Event('input'));
-    expect(update).toHaveBeenLastCalledWith({ undo: 'text', redo: 'text' });
+    document.dispatchEvent(new Event('selectionchange'));
+    await act(async () => host.append(document.createElement('span')));
+    expect(query).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
     expect(handler!()).toBe(false);
     host.querySelector<HTMLElement>('[contenteditable]')!.focus();
     expect(handler!()).toBe(false);
     host.querySelector('button')!.focus();
     const modal = document.createElement('div');
     modal.setAttribute('aria-modal', 'true');
-    host.append(modal);
+    await act(async () => host.append(modal));
+    await vi.waitFor(() => expect(update).toHaveBeenLastCalledWith({ undo: null, redo: null }));
     expect(handler!()).toBe(false);
     modal.remove();
+    await vi.waitFor(() =>
+      expect(update).toHaveBeenLastCalledWith({ undo: 'mark-unread', redo: null }),
+    );
     act(() => root.render(h(Fixture, { enabled: false })));
     expect(update).toHaveBeenLastCalledWith({ undo: null, redo: null });
     expect(handler!()).toBe(false);

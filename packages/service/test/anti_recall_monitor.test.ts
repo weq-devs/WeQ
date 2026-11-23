@@ -37,7 +37,7 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
-function fixture(notificationsEnabled?: () => boolean) {
+function fixture(notificationsEnabled?: () => boolean, withArchive = false) {
   const root = mkdtempSync(join(tmpdir(), 'weq-recall-monitor-'));
   roots.push(root);
   const path = join(root, 'msg.db');
@@ -63,13 +63,19 @@ function fixture(notificationsEnabled?: () => boolean) {
     {
       msgDbPath: path,
       context: { dbKey: '', algos: {}, uin: '10001' },
+      recentContacts: { listSeqWatermarks: async () => [] },
     } as unknown as AccountSession,
     {
       native: { ntHelper: nt },
       isQqLoggedIn: () => false,
     } as unknown as Platform,
     config,
-    { onRecall: notify, onObservedRecall: observed, notificationsEnabled },
+    {
+      onRecall: notify,
+      onObservedRecall: observed,
+      notificationsEnabled,
+      archivePath: withArchive ? join(root, 'retained.db') : undefined,
+    },
   );
   services.push(service);
   return { service, nt, path, close, notify, observed };
@@ -88,10 +94,36 @@ function rows(count: number, start = 1): RecallLogRow[] {
 const poll = () => state.tasks.at(-1)!.onDbFileChangeHook(change);
 afterEach(() => {
   for (const service of services.splice(0)) service.stopMonitor();
+  vi.useRealTimers();
   vi.restoreAllMocks();
   closeAllFixtureDbs();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   state.tasks.length = 0;
+});
+
+it('连续落库只触发一次补查，停止监听会取消冷却期内的补查', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+  const { service } = fixture(undefined, true);
+  const firstScan = deferred<[]>();
+  const scan = vi
+    .spyOn(service.archive!, 'pendingNativeIds')
+    .mockReturnValueOnce(firstScan.promise)
+    .mockResolvedValue([]);
+  service.startMonitor();
+  expect(scan).toHaveBeenCalledOnce();
+  await poll();
+  await poll();
+  firstScan.resolve([]);
+  await turn();
+  await vi.advanceTimersByTimeAsync(4999);
+  expect(scan).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(scan).toHaveBeenCalledTimes(2);
+
+  await poll();
+  service.stopMonitor();
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(scan).toHaveBeenCalledTimes(2);
 });
 
 it('统一渠道开启但名单为空不通知；选择后以渠道为准而非旧总开关', async () => {

@@ -10,10 +10,11 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { FileResourceService } from '../src/account/file_resource';
+import { FileAssistantService } from '../src/account/file_assistant';
 
 let dir: string;
 let ntData: string;
@@ -99,4 +100,23 @@ it('发送原路径按附件标识持久化，重开后可用，不匹配同名�
   await expect(reopened.resolveSentFile('sent-token', 'report.txt')).resolves.toBeNull();
   rmSync(file);
   await expect(reopened.resolveSentFile('sent-token', 'report.txt')).resolves.toBeNull();
+});
+
+it('同一附件的并发定位共享数据库读取，失败结束后仍可重新查询', async () => {
+  const getByMsgId = vi
+    .fn(async (_id: bigint) => null)
+    .mockRejectedValueOnce(new Error('database busy'));
+  const svc = new FileAssistantService({
+    fileAssistant: { getByMsgId },
+  } as unknown as AccountSession);
+  const pending = [svc.getFileInfoByMsgId(1n), svc.getFileInfoByMsgId(1n)];
+  const unrelated = svc.getFileInfoByMsgId(2n);
+  expect(getByMsgId.mock.calls).toEqual([[1n], [2n]]);
+  expect((await Promise.allSettled(pending)).map(({ status }) => status)).toEqual([
+    'rejected',
+    'rejected',
+  ]);
+  await expect(unrelated).resolves.toBeNull();
+  await expect(svc.getFileInfoByMsgId(1n)).resolves.toBeNull();
+  expect(getByMsgId.mock.calls).toEqual([[1n], [2n], [1n]]);
 });

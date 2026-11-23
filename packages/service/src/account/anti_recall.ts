@@ -29,6 +29,7 @@ import type { GapFetchedMessage } from './gap_history';
 import { getLogger, logErrorContext } from '../common/logger';
 
 const logger = getLogger().child({ scope: 'anti-recall' });
+const SNAPSHOT_SCAN_INTERVAL_MS = 5_000;
 
 /** Persisted anti-recall config for one account. */
 export type AntiRecallMethod = 'weq' | 'proxy' | 'database';
@@ -153,6 +154,8 @@ export class AntiRecallService {
   private reconcileQueue: Promise<void> = Promise.resolve();
   private reconcileRevision = 0;
   private snapshotScanPending = false;
+  private snapshotScanTimer?: ReturnType<typeof setTimeout>;
+  private nextSnapshotScanAt = 0;
   private snapshotBaselining = true;
   private readonly startedAtSeconds = Math.floor(Date.now() / 1000);
   private snapshotScan: Promise<void> | null = null;
@@ -441,16 +444,14 @@ export class AntiRecallService {
     this.monitor = new DbWatchService({ intervalMs: 1_000 });
     const snapshotHook = this.archive
       ? createNtMsgDbHook(this.session, {
-          onDbChanged: () => {
-            void this.scanSnapshots();
-          },
+          onDbChanged: () => this.requestSnapshotScan(),
           onNewMessages: async (change) => {
             await this.archive!.observeNative([
               ...change.c2c,
               ...change.group,
               ...(change.dataline ?? []),
             ]);
-            await this.scanSnapshots();
+            if (generation === this.monitorGeneration) this.requestSnapshotScan();
           },
         })
       : undefined;
@@ -476,65 +477,85 @@ export class AntiRecallService {
     });
   }
 
-  private async scanSnapshots() {
-    if (!this.archive || !this.config.enabled) return;
+  private requestSnapshotScan(): void {
+    const signal = this.reconcileAbort.signal;
+    const archive = this.archive;
+    if (!archive || !this.monitorHandle || signal.aborted || !this.config.enabled) return;
     if (this.snapshotScan) {
       this.snapshotScanPending = true;
       return;
     }
-    const generation = this.monitorGeneration;
-    this.snapshotScan = (async () => {
-      const ids = await this.archive!.pendingNativeIds();
-      const db = new QqDb(this.platform.native.ntHelper, {
-        dbPath: this.session.msgDbPath,
-        key: this.session.context.dbKey,
-        algo: algoFor(this.session.context, this.session.msgDbPath),
-      });
-      for (const kind of ['c2c', 'group', 'dataline'] as const) {
-        if (generation !== this.monitorGeneration) return;
-        const selected = ids
-          .filter((row) =>
-            kind === 'group'
-              ? row.kind === 'group'
-              : row.kind === 'c2c' && isDatalineUid(row.conv) === (kind === 'dataline'),
-          )
-          .map((row) => row.id);
-        if (!selected.length) continue;
-        const table =
-          kind === 'group'
-            ? 'group_msg_table'
-            : kind === 'dataline'
-              ? 'dataline_msg_table'
-              : 'c2c_msg_table';
-        const candidates = await db.query(
-          `SELECT "40001" FROM ${table}
-          WHERE "40001" IN (SELECT CAST(value AS INTEGER) FROM json_each(?))
-          AND instr("40800",X'd0fc1508')>0`,
-          [JSON.stringify(selected)],
-        );
-        if (!candidates.length) continue;
-        const source =
-          kind === 'group'
-            ? this.session.groupMsgs
-            : kind === 'dataline'
-              ? this.session.datalineMsgs
-              : this.session.c2cMsgs;
-        const rows = await source.listByMsgIds(candidates.map((row) => BigInt(String(row[0]))));
-        await this.archive!.observeNative(rows);
-      }
-    })()
+    if (this.snapshotScanTimer) return;
+    const now = performance.now();
+    const delay = this.nextSnapshotScanAt - now;
+    if (delay > 0) {
+      // 合并 QQ 的连续落库事件，最后一次变化即使后续没有新消息也会补查。
+      this.snapshotScanTimer = setTimeout(() => {
+        this.snapshotScanTimer = undefined;
+        this.requestSnapshotScan();
+      }, Math.ceil(delay)).unref();
+      return;
+    }
+    this.nextSnapshotScanAt = now + SNAPSHOT_SCAN_INTERVAL_MS;
+    this.snapshotScan = withDatabasePriority(
+      'background',
+      () => this.scanSnapshots(archive, signal),
+      signal,
+    )
       .catch((error) => {
-        this.error = (error as Error).message;
+        if (!signal.aborted) this.error = (error as Error).message;
       })
       .finally(() => {
-        this.snapshotBaselining = false;
+        if (!signal.aborted) this.snapshotBaselining = false;
         this.snapshotScan = null;
-        if (this.snapshotScanPending && generation === this.monitorGeneration) {
+        if (this.snapshotScanPending) {
           this.snapshotScanPending = false;
-          void this.scanSnapshots();
+          this.requestSnapshotScan();
         }
       });
-    await this.snapshotScan;
+  }
+
+  private async scanSnapshots(archive: RecallArchive, signal: AbortSignal): Promise<void> {
+    const ids = await archive.pendingNativeIds();
+    const db = new QqDb(this.platform.native.ntHelper, {
+      dbPath: this.session.msgDbPath,
+      key: this.session.context.dbKey,
+      algo: algoFor(this.session.context, this.session.msgDbPath),
+    });
+    for (const kind of ['c2c', 'group', 'dataline'] as const) {
+      if (signal.aborted || !this.config.enabled) return;
+      const selected = ids
+        .filter((row) =>
+          kind === 'group'
+            ? row.kind === 'group'
+            : row.kind === 'c2c' && isDatalineUid(row.conv) === (kind === 'dataline'),
+        )
+        .map((row) => row.id);
+      if (!selected.length) continue;
+      const table =
+        kind === 'group'
+          ? 'group_msg_table'
+          : kind === 'dataline'
+            ? 'dataline_msg_table'
+            : 'c2c_msg_table';
+      const candidates = await db.query(
+        `SELECT "40001" FROM ${table}
+          WHERE "40001" IN (SELECT CAST(value AS INTEGER) FROM json_each(?))
+          AND instr("40800",X'd0fc1508')>0`,
+        [JSON.stringify(selected)],
+      );
+      if (signal.aborted || !this.config.enabled) return;
+      if (!candidates.length) continue;
+      const source =
+        kind === 'group'
+          ? this.session.groupMsgs
+          : kind === 'dataline'
+            ? this.session.datalineMsgs
+            : this.session.c2cMsgs;
+      const rows = await source.listByMsgIds(candidates.map((row) => BigInt(String(row[0]))));
+      if (signal.aborted || !this.config.enabled) return;
+      await archive.observeNative(rows);
+    }
   }
 
   async dispose() {
@@ -548,6 +569,10 @@ export class AntiRecallService {
   stopMonitor(): void {
     this.reconcileAbort.abort();
     this.monitorGeneration++;
+    clearTimeout(this.snapshotScanTimer);
+    this.snapshotScanTimer = undefined;
+    this.snapshotScanPending = false;
+    this.nextSnapshotScanAt = 0;
     this.monitorReads?.abort();
     this.monitorReads = null;
     this.recallBaseline = null;
