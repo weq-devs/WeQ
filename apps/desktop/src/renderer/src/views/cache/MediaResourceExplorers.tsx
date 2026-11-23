@@ -35,13 +35,33 @@ import { useTabActive } from '../../components/RetainedTabs.shared';
 type FlatKind = 'photoWall' | 'qzone';
 type MonthKind = 'pic' | 'video';
 
+async function readMediaPage<T>(signal: AbortSignal, read: (requestId: string) => Promise<T>) {
+  signal.throwIfAborted();
+  const requestId = crypto.randomUUID();
+  const cancel = () =>
+    void client.account.mediaResource.cancelPage.mutate({ requestId }).catch(() => undefined);
+  signal.addEventListener('abort', cancel, { once: true });
+  try {
+    return await read(requestId);
+  } finally {
+    signal.removeEventListener('abort', cancel);
+  }
+}
+
 // ── 图片墙 / QQ空间 (flat hash grid) ────────────────────────────────────────────
 
 /** Flat image grid for a hex-bucketed cache (图片墙 / QQ空间缓存). */
 export function FlatMediaExplorer({ kind }: { kind: FlatKind }): ReactElement {
   const fetchPage = useCallback(
-    (cursor: string | null) =>
-      client.account.mediaResource.listFlat.query({ kind, cursor, limit: CURSOR_PAGE }),
+    (cursor: string | null, signal: AbortSignal) =>
+      readMediaPage(signal, (requestId) =>
+        client.account.mediaResource.listFlat.query({
+          kind,
+          cursor,
+          limit: CURSOR_PAGE,
+          requestId,
+        }),
+      ),
     [kind],
   );
   const { entries, loading, error, done, sentinelRef } = useCursorPaged<FlatMediaEntry>(fetchPage);
@@ -101,8 +121,15 @@ function FlatCard({ kind, entry }: { kind: FlatKind; entry: FlatMediaEntry }): R
 /** Avatar-style month grid for a Pic / Video cache with a 原图/缩略图 badge. */
 export function MonthMediaExplorer({ kind }: { kind: MonthKind }): ReactElement {
   const fetchPage = useCallback(
-    (cursor: string | null) =>
-      client.account.mediaResource.listMonth.query({ kind, cursor, limit: CURSOR_PAGE }),
+    (cursor: string | null, signal: AbortSignal) =>
+      readMediaPage(signal, (requestId) =>
+        client.account.mediaResource.listMonth.query({
+          kind,
+          cursor,
+          limit: CURSOR_PAGE,
+          requestId,
+        }),
+      ),
     [kind],
   );
   const { entries, loading, error, done, sentinelRef } = useCursorPaged<MonthMediaEntry>(fetchPage);
@@ -261,8 +288,10 @@ function fakeWaveform(seedStr: string, count = WAVE_BARS): number[] {
 /** Voice-clip grid for the Ptt cache (语音). */
 export function VoiceExplorer(): ReactElement {
   const fetchPage = useCallback(
-    (cursor: string | null) =>
-      client.account.mediaResource.listVoice.query({ cursor, limit: CURSOR_PAGE }),
+    (cursor: string | null, signal: AbortSignal) =>
+      readMediaPage(signal, (requestId) =>
+        client.account.mediaResource.listVoice.query({ cursor, limit: CURSOR_PAGE, requestId }),
+      ),
     [],
   );
   const { entries, loading, error, done, sentinelRef } = useCursorPaged<VoiceMediaEntry>(fetchPage);

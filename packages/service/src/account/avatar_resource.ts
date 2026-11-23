@@ -35,6 +35,7 @@
 
 import { createHash } from 'node:crypto';
 import { readdir, stat } from 'node:fs/promises';
+import type { Stats } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
@@ -276,6 +277,7 @@ export class AvatarResourceService {
     scope: AvatarScope,
     hash: string,
     variant: AvatarVariant,
+    observed?: Map<string, Promise<Stats>>,
   ): Promise<{ path: string; mtimeMs: number } | null> {
     if (!AVATAR_SCOPES.includes(scope)) return null;
     if (!/^[0-9a-f]{1,64}$/i.test(hash)) return null;
@@ -302,7 +304,9 @@ export class AvatarResourceService {
       // Guard against path traversal: the file must stay under the scope dir.
       if (abs !== base && !abs.startsWith(base + sep)) continue;
       try {
-        const st = await stat(abs);
+        const request = observed?.get(abs) ?? stat(abs);
+        observed?.set(abs, request);
+        const st = await request;
         if (st.isFile()) return { path: abs, mtimeMs: st.mtimeMs };
       } catch {
         /* not this candidate */
@@ -356,9 +360,12 @@ export class AvatarResourceService {
   ): Promise<AvatarLocalFile | null> {
     if (!uid) return null;
     const hash = avatarHashForUid(uid);
-    const requested = await this.statVariant(scope, hash, variant);
     const other: AvatarVariant = variant === 'big' ? 'small' : 'big';
-    const alternate = await this.statVariant(scope, hash, other);
+    const observed = new Map<string, Promise<Stats>>();
+    const [requested, alternate] = await Promise.all([
+      this.statVariant(scope, hash, variant, observed),
+      this.statVariant(scope, hash, other, observed),
+    ]);
     if (!alternate) return requested ? { ...requested, variant, stale: false } : null;
     if (!requested) return { ...alternate, variant: other, stale: false };
     // `big` asked, thumbnail clearly newer → the big file is an old avatar.

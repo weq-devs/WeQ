@@ -27,7 +27,7 @@ afterEach(() => {
 });
 function Cursor() {
   const [filter, setFilter] = useState('');
-  const data = useCursorPaged<string>((cursor) => read({ cursor, filter }));
+  const data = useCursorPaged<string>((cursor, signal) => read({ cursor, filter, signal }));
   return h(
     'div',
     null,
@@ -87,7 +87,9 @@ it.each(['cursor', 'offset'] as const)(
         }),
     );
     const page = await mount(kind);
+    const request: AbortSignal | undefined = read.mock.calls[0]?.[0].signal;
     await page.render(false);
+    if (kind === 'cursor') expect(request?.aborted).toBe(true);
     await act(async () => finish({ entries: ['old-private'], nextCursor: null, total: 1 }));
     expect(page.host.querySelector('p')?.textContent).toBe('');
     await page.render();

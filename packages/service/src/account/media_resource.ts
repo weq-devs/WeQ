@@ -32,7 +32,8 @@ import { readdir, stat } from 'node:fs/promises';
 import { join, resolve, sep, extname } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
-import { clampLimit, parseBucketCursor, walkBuckets } from './resource_paging';
+import { clampLimit, parseBucketCursor, walkBucketPages } from './resource_paging';
+import { MediaBucketPages, mediaFileNames, readMediaFileStats } from './media_resource_listing';
 import { walkResourceTree } from './resource_tree_walk';
 
 /** Which media tree to browse. */
@@ -175,11 +176,22 @@ interface MonthAcc {
   thumbRank: number;
   oriBytes: number;
   thumbBytes: number;
+  oriModified: number;
+  thumbModified: number;
   ext: string;
   mtimeMs: number;
 }
 
+interface MediaPageOptions {
+  limit?: number;
+  cursor?: string | null;
+  signal?: AbortSignal;
+}
+
 export class MediaResourceService {
+  private readonly monthPages = new MediaBucketPages<MonthMediaEntry>();
+  private readonly voicePages = new MediaBucketPages<VoiceMediaEntry>();
+
   constructor(
     private readonly session: AccountSession,
     private readonly platform: Platform,
@@ -215,32 +227,30 @@ export class MediaResourceService {
    * order; the cursor is `"<bucketIndex>:<fileIndex>"` so paging is stable and
    * resumable without holding the whole tree in memory.
    */
-  async listFlat(
-    kind: MediaResourceKind,
-    opts: { limit?: number; cursor?: string | null } = {},
-  ): Promise<FlatMediaPage> {
+  async listFlat(kind: MediaResourceKind, opts: MediaPageOptions = {}): Promise<FlatMediaPage> {
     if (!FLAT_KINDS.includes(kind)) return { entries: [], nextCursor: null };
     const root = this.rootFor(kind);
     if (!root) return { entries: [], nextCursor: null };
-    const buckets = await this.readSubdirs(root);
+    const buckets = await this.readSubdirs(root, opts.signal);
     if (buckets === null) return { entries: [], nextCursor: null };
 
-    return walkBuckets<FlatMediaEntry>(
+    return walkBucketPages<FlatMediaEntry>(
       buckets,
       parseBucketCursor(opts.cursor ?? null),
       clampLimit(opts.limit),
-      async (bucket) => {
-        const files = await this.readFiles(join(root, bucket));
-        // Stable within a bucket: sort by name so a cursor points at the same
-        // file across calls (readdir order is not guaranteed stable).
-        files.sort((x, y) => x.name.localeCompare(y.name));
-        return files.map((f) => ({
-          rel: `${bucket}/${f.name}`,
-          name: f.name,
-          bucket,
-          size: f.size,
-          mtimeMs: f.mtimeMs,
-        }));
+      async (bucket, offset, limit) => {
+        const dir = join(root, bucket);
+        const names = (await mediaFileNames(dir, opts.signal)).sort((a, b) => a.localeCompare(b));
+        const entries: FlatMediaEntry[] = [];
+        let next = offset;
+        while (next < names.length && entries.length < limit) {
+          const end = Math.min(names.length, next + limit - entries.length);
+          const files = await readMediaFileStats(dir, names.slice(next, end), opts.signal);
+          for (const file of files)
+            entries.push({ ...file, bucket, rel: `${bucket}/${file.name}` });
+          next = end;
+        }
+        return { entries, nextOffset: next < names.length ? next : null };
       },
     );
   }
@@ -253,24 +263,29 @@ export class MediaResourceService {
    * newest mtime first (hash tie-break) for a stable, resumable cursor
    * `"<monthIndex>:<entryIndex>"`.
    */
-  async listMonth(
-    kind: MediaResourceKind,
-    opts: { limit?: number; cursor?: string | null } = {},
-  ): Promise<MonthMediaPage> {
+  async listMonth(kind: MediaResourceKind, opts: MediaPageOptions = {}): Promise<MonthMediaPage> {
     if (!MONTH_KINDS.includes(kind)) return { entries: [], nextCursor: null };
     const root = this.rootFor(kind);
     if (!root) return { entries: [], nextCursor: null };
-    const months = await this.readMonths(root);
+    const months = await this.readMonths(root, opts.signal);
     if (months === null) return { entries: [], nextCursor: null };
 
-    return walkBuckets<MonthMediaEntry>(
+    return walkBucketPages<MonthMediaEntry>(
       months,
       parseBucketCursor(opts.cursor ?? null),
       clampLimit(opts.limit),
-      async (month) => {
-        // Newest first within a month, hash as a stable tie-break.
-        return (await this.mergeMonth(root, month)).sort(
-          (x, y) => y.mtimeMs - x.mtimeMs || x.hash.localeCompare(y.hash),
+      (month, offset, limit) => {
+        const dirs = [join(root, month, 'Ori'), join(root, month, 'Thumb')];
+        return this.monthPages.page(
+          dirs,
+          offset,
+          limit,
+          Boolean(opts.cursor),
+          async () =>
+            (await this.mergeMonth(dirs[0]!, dirs[1]!, month, opts.signal)).sort(
+              (x, y) => y.mtimeMs - x.mtimeMs || x.hash.localeCompare(y.hash),
+            ),
+          opts.signal,
         );
       },
     );
@@ -284,31 +299,41 @@ export class MediaResourceService {
    * walk newest-first; within a month, clips are newest mtime first, so the
    * cursor `"<monthIndex>:<fileIndex>"` stays stable and resumable.
    */
-  async listVoice(opts: { limit?: number; cursor?: string | null } = {}): Promise<VoiceMediaPage> {
+  async listVoice(opts: MediaPageOptions = {}): Promise<VoiceMediaPage> {
     const root = this.rootFor('ptt');
     if (!root) return { entries: [], nextCursor: null };
-    const months = await this.readMonths(root);
+    const months = await this.readMonths(root, opts.signal);
     if (months === null) return { entries: [], nextCursor: null };
 
-    return walkBuckets<VoiceMediaEntry>(
+    return walkBucketPages<VoiceMediaEntry>(
       months,
       parseBucketCursor(opts.cursor ?? null),
       clampLimit(opts.limit),
-      async (month) => {
-        const files = (await this.readFiles(join(root, month, 'Ori'))).sort(
-          (x, y) => y.mtimeMs - x.mtimeMs || x.name.localeCompare(y.name),
+      (month, offset, limit) => {
+        const dir = join(root, month, 'Ori');
+        return this.voicePages.page(
+          [dir],
+          offset,
+          limit,
+          Boolean(opts.cursor),
+          async () => {
+            const files = (await this.readFiles(dir, opts.signal)).sort(
+              (x, y) => y.mtimeMs - x.mtimeMs || x.name.localeCompare(y.name),
+            );
+            return files.map((f) => {
+              const ext = extname(f.name);
+              return {
+                rel: `${month}/Ori/${f.name}`,
+                name: f.name,
+                hash: ext ? f.name.slice(0, -ext.length) : f.name,
+                month,
+                bytes: f.size,
+                mtimeMs: f.mtimeMs,
+              };
+            });
+          },
+          opts.signal,
         );
-        return files.map((f) => {
-          const ext = extname(f.name);
-          return {
-            rel: `${month}/Ori/${f.name}`,
-            name: f.name,
-            hash: ext ? f.name.slice(0, -ext.length) : f.name,
-            month,
-            bytes: f.size,
-            mtimeMs: f.mtimeMs,
-          };
-        });
       },
     );
   }
@@ -388,13 +413,16 @@ export class MediaResourceService {
   // ── internals ──────────────────────────────────────────────────────────────
 
   /** Immediate sub-directory names (sorted), or null when the dir is absent. */
-  private async readSubdirs(dir: string): Promise<string[] | null> {
+  private async readSubdirs(dir: string, signal?: AbortSignal): Promise<string[] | null> {
+    signal?.throwIfAborted();
     let entries: import('node:fs').Dirent[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch {
+      signal?.throwIfAborted();
       return null;
     }
+    signal?.throwIfAborted();
     return entries
       .filter((e) => e.isDirectory())
       .map((e) => e.name)
@@ -402,39 +430,24 @@ export class MediaResourceService {
   }
 
   /** `YYYY-MM` sub-dirs of a month tree, NEWEST first, or null when absent. */
-  private async readMonths(root: string): Promise<string[] | null> {
-    const subs = await this.readSubdirs(root);
+  private async readMonths(root: string, signal?: AbortSignal): Promise<string[] | null> {
+    const subs = await this.readSubdirs(root, signal);
     if (subs === null) return null;
     return subs.filter((n) => /^\d{4}-\d{2}$/.test(n)).sort((a, b) => b.localeCompare(a));
   }
 
   /** File entries (name + size + mtime) directly under a dir. */
-  private async readFiles(
-    dir: string,
-  ): Promise<Array<{ name: string; size: number; mtimeMs: number }>> {
-    let dirents: import('node:fs').Dirent[];
-    try {
-      dirents = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return [];
-    }
-    const out: Array<{ name: string; size: number; mtimeMs: number }> = [];
-    await Promise.all(
-      dirents.map(async (ent) => {
-        if (!ent.isFile()) return;
-        try {
-          const st = await stat(join(dir, ent.name));
-          out.push({ name: ent.name, size: st.size, mtimeMs: st.mtimeMs });
-        } catch {
-          /* vanished between readdir and stat */
-        }
-      }),
-    );
-    return out;
+  private async readFiles(dir: string, signal?: AbortSignal) {
+    return readMediaFileStats(dir, await mediaFileNames(dir, signal), signal);
   }
 
   /** Merge one month's `Ori/` + `Thumb/` files into merged entries (rel built here). */
-  private async mergeMonth(root: string, month: string): Promise<MonthMediaEntry[]> {
+  private async mergeMonth(
+    ori: string,
+    thumb: string,
+    month: string,
+    signal?: AbortSignal,
+  ): Promise<MonthMediaEntry[]> {
     const out = new Map<string, MonthAcc>();
     const get = (hash: string): MonthAcc => {
       let acc = out.get(hash);
@@ -447,6 +460,8 @@ export class MediaResourceService {
           thumbRank: Number.POSITIVE_INFINITY,
           oriBytes: 0,
           thumbBytes: 0,
+          oriModified: Number.NEGATIVE_INFINITY,
+          thumbModified: Number.NEGATIVE_INFINITY,
           ext: '',
           mtimeMs: 0,
         };
@@ -455,21 +470,28 @@ export class MediaResourceService {
       return acc;
     };
 
+    const originals = await this.readFiles(ori, signal);
     // Originals: `<hash>.<ext>` → hash is the basename without extension.
-    for (const f of await this.readFiles(join(root, month, 'Ori'))) {
+    for (const f of originals) {
       const ext = extname(f.name).toLowerCase().replace(/^\./, '');
       const hash = ext ? f.name.slice(0, -(ext.length + 1)) : f.name;
       if (!hash) continue;
       const acc = get(hash);
       acc.hasOri = true;
-      acc.oriName = f.name;
-      acc.oriBytes = f.size;
-      acc.ext = ext;
+      if (
+        f.mtimeMs > acc.oriModified ||
+        (f.mtimeMs === acc.oriModified && f.name.localeCompare(acc.oriName) < 0)
+      ) {
+        acc.oriName = f.name;
+        acc.oriBytes = f.size;
+        acc.oriModified = f.mtimeMs;
+        acc.ext = ext;
+      }
       if (f.mtimeMs > acc.mtimeMs) acc.mtimeMs = f.mtimeMs;
     }
 
     // Previews: `<hash>_<n>.<ext>` → keep the lowest-numbered thumb (`_0` = base).
-    for (const f of await this.readFiles(join(root, month, 'Thumb'))) {
+    for (const f of await this.readFiles(thumb, signal)) {
       const base = f.name.replace(/\.[^.]+$/, '');
       const m = /^(.*)_(\d+)$/.exec(base);
       const hash = m ? m[1]! : base;
@@ -477,10 +499,16 @@ export class MediaResourceService {
       if (!hash) continue;
       const acc = get(hash);
       acc.hasThumb = true;
-      if (rank < acc.thumbRank) {
+      if (
+        rank < acc.thumbRank ||
+        (rank === acc.thumbRank &&
+          (f.mtimeMs > acc.thumbModified ||
+            (f.mtimeMs === acc.thumbModified && f.name.localeCompare(acc.thumbName) < 0)))
+      ) {
         acc.thumbRank = rank;
         acc.thumbName = f.name;
         acc.thumbBytes = f.size;
+        acc.thumbModified = f.mtimeMs;
       }
       if (f.mtimeMs > acc.mtimeMs) acc.mtimeMs = f.mtimeMs;
     }

@@ -122,3 +122,26 @@ export async function walkBuckets<T>(
   const done = bucketIndex >= buckets.length;
   return { entries, nextCursor: done ? null : `${bucketIndex}:${entryIndex}` };
 }
+
+/** 分桶分页，允许调用方只读取当前页需要的元数据。 */
+export async function walkBucketPages<T>(
+  buckets: readonly string[],
+  start: BucketCursor,
+  limit: number,
+  page: (
+    bucket: string,
+    offset: number,
+    remaining: number,
+  ) => Promise<{ entries: T[]; nextOffset: number | null }>,
+): Promise<{ entries: T[]; nextCursor: string | null }> {
+  const entries: T[] = [];
+  let bucketIndex = Math.floor(start.bucketIndex);
+  let offset = Math.floor(start.entryIndex);
+  for (; bucketIndex < buckets.length && entries.length < limit; bucketIndex++, offset = 0) {
+    const result = await page(buckets[bucketIndex]!, offset, limit - entries.length);
+    entries.push(...result.entries);
+    if (result.nextOffset !== null)
+      return { entries, nextCursor: `${bucketIndex}:${result.nextOffset}` };
+  }
+  return { entries, nextCursor: bucketIndex < buckets.length ? `${bucketIndex}:0` : null };
+}

@@ -43,7 +43,55 @@ const treeKey = z.enum(['avatar', 'emoji', 'pic', 'video', 'ptt', 'photoWall', '
 const pageInput = z.object({
   limit: z.number().int().positive().optional(),
   cursor: z.string().nullish(),
+  requestId: z.string().uuid().optional(),
 });
+
+const pages = new WeakMap<
+  AccountServices,
+  {
+    active: Map<string, AbortController>;
+    retired: Map<string, number>;
+  }
+>();
+function accountPages(services: AccountServices) {
+  let state = pages.get(services);
+  if (!state) {
+    state = { active: new Map(), retired: new Map() };
+    pages.set(services, state);
+  }
+  return state;
+}
+
+async function mediaPage<T>(
+  requestId: string | undefined,
+  read: (services: AccountServices, signal?: AbortSignal) => Promise<T>,
+) {
+  const services = requireServices();
+  const source = {
+    expectedAccountUin: String(getAppContext().account?.context.uin ?? ''),
+    expectedAccountConfigId: services.accountConfig.getRecord()?.configId,
+  };
+  if (!requestId) {
+    const result = await read(services);
+    assertResourceSource(services, source);
+    return result;
+  }
+  const { active, retired } = accountPages(services);
+  const cancelledUntil = retired.get(requestId) ?? 0;
+  retired.delete(requestId);
+  if (cancelledUntil > Date.now()) throw new DOMException('已取消资源分页', 'AbortError');
+  if (active.has(requestId)) throw new Error('资源分页请求已开始');
+  const controller = new AbortController();
+  active.set(requestId, controller);
+  try {
+    const result = await read(services, controller.signal);
+    controller.signal.throwIfAborted();
+    assertResourceSource(services, source);
+    return result;
+  } finally {
+    active.delete(requestId);
+  }
+}
 
 const messageMediaInput = resourceSourceInput.extend({
   target: z.object({
@@ -137,26 +185,50 @@ export const mediaResourceRouter = router({
     }),
   /** One page of a flat hash cache (图片墙 / QQ空间缓存). */
   listFlat: procedure.input(pageInput.extend({ kind: flatKind })).query(({ input }) => {
-    return requireServices().mediaResource.listFlat(input.kind, {
-      limit: input.limit,
-      cursor: input.cursor ?? null,
-    });
+    return mediaPage(input.requestId, ({ mediaResource }, signal) =>
+      mediaResource.listFlat(input.kind, {
+        limit: input.limit,
+        cursor: input.cursor ?? null,
+        signal,
+      }),
+    );
   }),
 
   /** One page of merged month entries (图片 / 视频, Ori + Thumb by hash). */
   listMonth: procedure.input(pageInput.extend({ kind: monthKind })).query(({ input }) => {
-    return requireServices().mediaResource.listMonth(input.kind, {
-      limit: input.limit,
-      cursor: input.cursor ?? null,
-    });
+    return mediaPage(input.requestId, ({ mediaResource }, signal) =>
+      mediaResource.listMonth(input.kind, {
+        limit: input.limit,
+        cursor: input.cursor ?? null,
+        signal,
+      }),
+    );
   }),
 
   /** One page of voice clips (语音, Ptt cache — SILK, decoded on demand). */
   listVoice: procedure.input(pageInput).query(({ input }) => {
-    return requireServices().mediaResource.listVoice({
-      limit: input.limit,
-      cursor: input.cursor ?? null,
-    });
+    return mediaPage(input.requestId, ({ mediaResource }, signal) =>
+      mediaResource.listVoice({
+        limit: input.limit,
+        cursor: input.cursor ?? null,
+        signal,
+      }),
+    );
+  }),
+
+  cancelPage: procedure.input(z.object({ requestId: z.string().uuid() })).mutation(({ input }) => {
+    const services = getAppContext().services;
+    if (!services) return;
+    const { active, retired } = accountPages(services);
+    const controller = active.get(input.requestId);
+    if (controller) controller.abort();
+    else {
+      // Web 的读与取消可走两个连接，记录短期取消以处理反序送达。
+      const now = Date.now();
+      for (const [id, expires] of retired) if (expires <= now) retired.delete(id);
+      retired.set(input.requestId, now + 15_000);
+      while (retired.size > 128) retired.delete(retired.keys().next().value!);
+    }
   }),
 
   /**

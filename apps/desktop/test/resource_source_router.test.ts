@@ -9,6 +9,7 @@ const f = vi.hoisted(() => ({
   static: false,
   services: {} as object,
   analyze: vi.fn(),
+  list: vi.fn(),
   targets: vi.fn(),
   cleanup: vi.fn(),
 }));
@@ -25,13 +26,36 @@ beforeEach(() => {
   f.configId = 'synthetic-source';
   f.static = false;
   f.analyze.mockReset().mockResolvedValue({ key: 'pic' });
+  f.list.mockReset().mockResolvedValue({ entries: [], nextCursor: null });
   f.targets.mockReset().mockResolvedValue([]);
   f.cleanup.mockReset().mockResolvedValue({ freedBytes: 0, perTarget: [] });
   f.services = {
     accountConfig: { getRecord: () => ({ configId: f.configId }) },
-    mediaResource: { analyzeTree: f.analyze },
+    mediaResource: { analyzeTree: f.analyze, listMonth: f.list },
     resourceCleanup: { listTargets: f.targets, cleanup: f.cleanup },
   };
+});
+
+it('中止资源分页，也能处理取消请求先于页面请求到达', async () => {
+  const caller = mediaResourceRouter.createCaller({});
+  const requestId = '104dd157-10fd-4c62-9eea-b66f283e8b37';
+  await caller.cancelPage({ requestId });
+  await expect(caller.listMonth({ kind: 'pic', requestId })).rejects.toThrow('已取消');
+  expect(f.list).not.toHaveBeenCalled();
+
+  const active = Promise.withResolvers<AbortSignal>();
+  f.list.mockImplementationOnce(async (_kind, opts: { signal: AbortSignal }) => {
+    active.resolve(opts.signal);
+    return new Promise((_resolve, reject) => {
+      opts.signal.addEventListener('abort', () => reject(opts.signal.reason), { once: true });
+    });
+  });
+  const result = caller.listMonth({ kind: 'pic', requestId });
+  const rejected = expect(result).rejects.toBeDefined();
+  const signal = await active.promise;
+  await caller.cancelPage({ requestId });
+  await rejected;
+  expect(signal.aborted).toBe(true);
 });
 it.each(['account', 'source'] as const)(
   '分析、清理目标和删除在 %s 不匹配时都拒绝，未调用文件服务',

@@ -254,7 +254,7 @@ export interface CursorPagedResult<T> {
  * the walk from page 1 (dropping any in-flight page that raced it).
  */
 export function useCursorPaged<T>(
-  fetchPage: (cursor: string | null) => Promise<CursorPage<T>>,
+  fetchPage: (cursor: string | null, signal: AbortSignal) => Promise<CursorPage<T>>,
 ): CursorPagedResult<T> {
   const active = useTabActive(),
     revision = useContext(ResourceRevisionContext);
@@ -272,6 +272,7 @@ export function useCursorPaged<T>(
   const doneRef = useRef(false);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const fetchRef = useRef(fetchPage);
+  const pendingRequest = useRef<AbortController | null>(null);
   fetchRef.current = fetchPage;
   // Bump on every reload so a late in-flight page from the old walk can't
   // append into the reset list.
@@ -284,8 +285,10 @@ export function useCursorPaged<T>(
     setLoading(true);
     setError(null);
     const gen = genRef.current;
+    const request = new AbortController();
+    pendingRequest.current = request;
     try {
-      const page = await fetchRef.current(cursorRef.current);
+      const page = await fetchRef.current(cursorRef.current, request.signal);
       if (gen !== genRef.current || !activeRef.current) return;
       setEntries((prev) => [...prev, ...page.entries]);
       if (typeof page.total === 'number') setTotal(page.total);
@@ -302,6 +305,7 @@ export function useCursorPaged<T>(
       setDone(true);
     } finally {
       if (gen === genRef.current) {
+        pendingRequest.current = null;
         loadingRef.current = false;
         setLoading(false);
       }
@@ -325,6 +329,8 @@ export function useCursorPaged<T>(
   // Imperative reset: drop everything and refetch page 1.
   const reload = useCallback(async (): Promise<void> => {
     genRef.current += 1;
+    pendingRequest.current?.abort();
+    pendingRequest.current = null;
     cursorRef.current = null;
     loadingRef.current = false;
     doneRef.current = false;
@@ -344,6 +350,8 @@ export function useCursorPaged<T>(
     } else {
       if (loadingRef.current) needed.current = true;
       genRef.current += 1;
+      pendingRequest.current?.abort();
+      pendingRequest.current = null;
       loadingRef.current = false;
       setLoading(false);
     }
@@ -351,6 +359,8 @@ export function useCursorPaged<T>(
   useEffect(
     () => () => {
       genRef.current += 1;
+      pendingRequest.current?.abort();
+      pendingRequest.current = null;
     },
     [],
   );
