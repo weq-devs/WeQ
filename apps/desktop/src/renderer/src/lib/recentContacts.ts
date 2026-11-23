@@ -9,6 +9,7 @@ interface RecentContactSnapshot {
   source?: 'roaming';
   ntSeqVerified?: boolean;
   preview?: unknown;
+  previewDeferred?: true;
 }
 
 export interface ContactPreviewMessage {
@@ -164,6 +165,7 @@ function withOlderContactPreview<T extends RecentContactSnapshot & Partial<Previ
   )
     return contact;
   if (!fromTimeline) {
+    if (contact.previewDeferred) return contact;
     if (!hasContactPreview(previous.preview)) return contact;
     if (!recentContactPreviewIsBehind(previous, contact)) return contact;
     // 同序号的空行可能是原消息被删除，不能用旧目录把原文重新显示出来。
@@ -251,9 +253,35 @@ export function patchRecentContactRows<T extends RecentContactSnapshot & Contact
     const update = byId.get(row.targetUid);
     if (!update || recentContactPreviewIsBehind(update, row)) return row;
     changed = true;
-    return update;
+    return row.previewDeferred ? { ...update, preview: null, previewDeferred: true } : update;
   });
   return changed ? next : rows;
+}
+
+/** 完整预览离开有界缓存后，目录仍保留原排序和定位字段。 */
+export function hydrateRecentContactPreviews<T extends RecentContactSnapshot & PreviewFields>(
+  rows: T[],
+  previews: ReadonlyMap<string, RecentContactSnapshot & PreviewFields>,
+): T[] {
+  if (!previews.size) return rows;
+  return rows.map((row) => {
+    if (!row.previewDeferred) return row;
+    const preview = previews.get(row.targetUid);
+    if (!preview || preview.chatType !== row.chatType || recentContactPreviewIsBehind(preview, row))
+      return row;
+    const hydrated = {
+      ...row,
+      sendTime: preview.sendTime,
+      msgSeq: preview.msgSeq,
+      senderUid: preview.senderUid,
+      senderDisplayName: preview.senderDisplayName,
+      senderNick: preview.senderNick,
+      senderRemark: preview.senderRemark,
+      preview: preview.preview,
+    };
+    delete hydrated.previewDeferred;
+    return hydrated;
+  });
 }
 
 /** 最新页和分页目录可能短暂重叠；不能让后面的旧副本把新消息时间覆盖回去。 */

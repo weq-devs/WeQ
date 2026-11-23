@@ -346,6 +346,7 @@ export interface RecentContactWire {
   pinned: boolean;
   /** Sanitized preview element (carries `displayText`), or null. */
   preview: unknown | null;
+  previewDeferred?: true;
   senderDisplayName: string;
   senderNick: string;
   targetDisplayName: string;

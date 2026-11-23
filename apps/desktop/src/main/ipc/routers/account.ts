@@ -3025,6 +3025,7 @@ export const accountRouter = router({
         .object({
           limit: z.union([z.literal(-1), z.number().int().min(1).max(500)]).default(200),
           cursor: z.number().int().min(0).default(0),
+          summaryOnly: z.boolean().optional(),
         })
         .merge(exportAccountBindingInput)
         .default({}),
@@ -3040,7 +3041,10 @@ export const accountRouter = router({
       const [items, total] = await measureDatabaseStartup('recentContacts', () =>
         withDatabasePriority(input.cursor > 0 ? 'background' : 'interactive', () =>
           Promise.all([
-            svc.getRecentContact(input.limit, input.cursor, { excludeChatTypes }),
+            svc.getRecentContact(input.limit, input.cursor, {
+              excludeChatTypes,
+              ...(input.summaryOnly ? { summaryOnly: true } : {}),
+            }),
             svc.countRecentContact({ excludeChatTypes }),
           ]),
         ),
@@ -3050,14 +3054,25 @@ export const accountRouter = router({
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
       )
         throw new Error('账号或数据源已切换');
-      return { items: items.map(recentContactToWire), total, nextCursor: next };
+      return {
+        items: items.map((item) => {
+          const wire = recentContactToWire(item);
+          if (input.summaryOnly) wire.previewDeferred = true;
+          return wire;
+        }),
+        total,
+        nextCursor: next,
+      };
     }),
 
   /** 可见旧会话与实时变更的摘要，按目标批量读取，不受最新页大小限制。 */
   listRecentContactTargets: procedure
     .input(
       z
-        .object({ targetUids: z.array(z.string().min(1).max(256)).max(256) })
+        .object({
+          targetUids: z.array(z.string().min(1).max(256)).max(256),
+          includeSentPreview: z.boolean().optional(),
+        })
         .merge(exportAccountBindingInput),
     )
     .query(async ({ input }) => {
@@ -3066,7 +3081,9 @@ export const accountRouter = router({
         input.expectedAccountConfigId,
       );
       const rows = await withDatabasePriority('interactive', () =>
-        services.recentContacts.getByTargetUids(input.targetUids),
+        input.includeSentPreview
+          ? services.recentContacts.readPreviewTargets(input.targetUids)
+          : services.recentContacts.getByTargetUids(input.targetUids),
       );
       if (
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
@@ -6350,8 +6367,8 @@ export const accountRouter = router({
       input.expectedAccountConfigId,
     );
     return observable<GroupInfoChange>((emit) => {
-      const handler = ({ at, groupCode }: GroupInfoChange): void => {
-        if (getAppContext().services === services) emit.next({ at, groupCode });
+      const handler = (change: GroupInfoChange): void => {
+        if (getAppContext().services === services) emit.next(change);
       };
       dbEventBus.on('group-info-changed', handler);
       return () => dbEventBus.off('group-info-changed', handler);

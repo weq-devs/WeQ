@@ -80,7 +80,7 @@ export const ConversationDirectoryContext = createContext<{
   onRoaming?: (targets: RoamingTarget[]) => void;
   onReadState?: (conversations: Conversation[], unread: boolean) => void;
   readStateBusy?: boolean;
-  onVisibleConversations?: (rows: readonly Conversation[]) => void;
+  onVisibleConversations?: (rows: readonly Conversation[], warmMessages?: boolean) => void;
   onConversationIntent?: (row: Conversation) => void;
   onCalendar?: (query: string) => void;
 } | null>(null);

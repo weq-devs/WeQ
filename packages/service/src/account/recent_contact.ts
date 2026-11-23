@@ -12,26 +12,46 @@ import type { RecentContact, RecentContactTop } from '@weq/db';
 import type { GapFetchedMessage } from './gap_history';
 import { elementToText } from './export/element_text';
 
+function applySentPreview(
+  row: RecentContact,
+  latest: ReadonlyMap<string, GapFetchedMessage>,
+  summaryOnly = false,
+): RecentContact {
+  const kind = classifyChatType(row.chatType);
+  const message = latest.get(`${kind === 'direct' ? 'c2c' : kind}:${row.targetUid}`);
+  if (!message || BigInt(message.msgSeq) <= row.msgSeq || BigInt(message.sendTime) < row.sendTime)
+    return row;
+  const elements: PreviewElement[] = summaryOnly
+    ? []
+    : message.elements.map((element) =>
+        element.type === 'face'
+          ? { kind: 'face', faceId: element.data.faceId, faceText: element.data.faceText }
+          : { kind: 'text', textContent: elementToText(element) },
+      );
+  return {
+    ...row,
+    sendTime: BigInt(message.sendTime),
+    senderUid: message.senderUid,
+    senderDisplayName: '',
+    senderNick: '',
+    // 未读水位仍以 QQ 的真实 msgSeq 为准。
+    preview: elements[0] ? { ...elements[0], previewElements: elements } : null,
+  };
+}
+
 export class RecentContactService {
   constructor(
     private readonly session: AccountSession,
     private readonly latestSent?: () => Promise<GapFetchedMessage[]>,
   ) {}
 
-  /** Recent conversations, newest first. Defaults to 200. */
-  async getRecentContact(
-    limit = 200,
-    offset = 0,
-    opts: { excludeChatTypes?: readonly number[] } = {},
-  ): Promise<RecentContact[]> {
+  private async sentPreviews() {
     let sent: GapFetchedMessage[] = [];
     try {
       sent = (await this.latestSent?.()) ?? [];
     } catch (error) {
       console.warn('[RecentContact] 读取已发送摘要失败，保留 QQ 会话列表', error);
     }
-    if (!sent.length) return this.session.recentContacts.getRecentContact(limit, offset, opts);
-
     const latest = new Map<string, GapFetchedMessage>();
     for (const message of sent) {
       if (!message.localSent || (message.kind === 'c2c' && !message.ntSeqVerified)) continue;
@@ -39,13 +59,23 @@ export class RecentContactService {
       const previous = latest.get(key);
       if (!previous || BigInt(message.msgSeq) > BigInt(previous.msgSeq)) latest.set(key, message);
     }
-    if (!latest.size) return this.session.recentContacts.getRecentContact(limit, offset, opts);
+    return { latest, targets: [...new Set(sent.map((row) => row.conv))] };
+  }
+
+  /** Recent conversations, newest first. Defaults to 200. */
+  async getRecentContact(
+    limit = 200,
+    offset = 0,
+    opts: { excludeChatTypes?: readonly number[]; summaryOnly?: boolean } = {},
+  ): Promise<RecentContact[]> {
+    const sent = await this.sentPreviews();
+    if (!sent.latest.size) return this.session.recentContacts.getRecentContact(limit, offset, opts);
     // 摘要只会向前移动：读取原始前缀并精确补入发送目标即可，不必每页扫描完整列表。
     const [prefix, targets] = await Promise.all([
       this.session.recentContacts.getRecentContact(limit < 0 ? -1 : offset + limit, 0, opts),
       limit < 0
         ? Promise.resolve([])
-        : this.session.recentContacts.getByTargetUids([...new Set(sent.map((row) => row.conv))]),
+        : this.session.recentContacts.getByTargetUids(sent.targets, opts),
     ]);
     const byId = new Map(prefix.map((row) => [`${row.chatType}:${row.targetUid}`, row]));
     for (const row of targets) {
@@ -61,31 +91,9 @@ export class RecentContactService {
         continue;
       byId.set(`${row.chatType}:${row.targetUid}`, row);
     }
-    const rows = [...byId.values()];
-    const merged = rows.map((row) => {
-      const kind = classifyChatType(row.chatType);
-      const message = latest.get(`${kind === 'direct' ? 'c2c' : kind}:${row.targetUid}`);
-      if (
-        !message ||
-        BigInt(message.msgSeq) <= row.msgSeq ||
-        BigInt(message.sendTime) < row.sendTime
-      )
-        return row;
-      const previewElements: PreviewElement[] = message.elements.map((element) =>
-        element.type === 'face'
-          ? { kind: 'face', faceId: element.data.faceId, faceText: element.data.faceText }
-          : { kind: 'text', textContent: elementToText(element) },
-      );
-      return {
-        ...row,
-        sendTime: BigInt(message.sendTime),
-        senderUid: message.senderUid,
-        senderDisplayName: '',
-        senderNick: '',
-        // 未读水位仍以 QQ 的真实 msgSeq 为准，不把发送缓存当成收到的新消息。
-        preview: previewElements[0] ? { ...previewElements[0], previewElements } : null,
-      };
-    });
+    const merged = Array.from(byId.values(), (row) =>
+      applySentPreview(row, sent.latest, opts.summaryOnly),
+    );
     merged.sort((a, b) => (a.sendTime === b.sendTime ? 0 : a.sendTime > b.sendTime ? -1 : 1));
     return limit < 0 ? merged.slice(offset) : merged.slice(offset, offset + limit);
   }
@@ -102,6 +110,11 @@ export class RecentContactService {
 
   getByTargetUids(ids: readonly string[]): Promise<RecentContact[]> {
     return this.session.recentContacts.getByTargetUids(ids);
+  }
+
+  async readPreviewTargets(ids: readonly string[]): Promise<RecentContact[]> {
+    const [rows, sent] = await Promise.all([this.getByTargetUids(ids), this.sentPreviews()]);
+    return rows.map((row) => applySentPreview(row, sent.latest));
   }
 
   /**

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getQueryKey } from '@trpc/react-query';
-import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
+import { replaceEqualDeep, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { client, trpc } from '../trpc/client';
-import { patchRecentContactRows } from '../lib/recentContacts';
+import { patchRecentContactRows, recentContactPreviewIsBehind } from '../lib/recentContacts';
 import { createUnreadTargetRefresh } from '../lib/unreadRefresh';
 import { RECENT_DIRECTORY_SIZE, recentContactHeadOptions } from './useRecentContactQueries';
 import type { QQWriteBinding } from './useQQWriteSession';
@@ -10,6 +10,9 @@ import { queryInputBatches } from '../lib/queryInputBatches';
 import { IS_WEB } from '../lib/target.shared';
 
 type Page = Awaited<ReturnType<typeof client.account.listRecentContacts.query>>;
+type Contact = Page['items'][number];
+const EMPTY_PREVIEWS: ReadonlyMap<string, Contact> = new Map();
+const RECENT_PREVIEW_LIMIT = 128;
 
 /** 可见旧行与实时变更按目标读取小表，不等待完整目录或逐会话查正文。 */
 export function useRecentContactTargets(
@@ -23,10 +26,16 @@ export function useRecentContactTargets(
   const scope = JSON.stringify([uin, configId]);
   const visible = useRef(visibleIds);
   visible.current = visibleIds;
+  const [previews, setPreviews] = useState<{ scope: string; rows: ReadonlyMap<string, Contact> }>();
+  useEffect(
+    () => setPreviews((previous) => (previous?.scope === scope ? previous : undefined)),
+    [scope],
+  );
   const current = useRef<{
     scope: string;
     queue: ReturnType<typeof createUnreadTargetRefresh>;
     visibleIds: ReadonlySet<string>;
+    assistantPreview?: string;
   } | null>(null);
   useEffect(() => {
     if (!uin || !configId || !active) return;
@@ -50,6 +59,7 @@ export function useRecentContactTargets(
           (batch) => ({
             ...binding,
             targetUids: batch.map((target) => target.uid),
+            ...(!IS_WEB ? { includeSentPreview: true } : {}),
           }),
           IS_WEB,
           256,
@@ -65,6 +75,32 @@ export function useRecentContactTargets(
               ? { ...directory, pages: directory.pages.map((page) => patch(page, rows)) }
               : directory,
           );
+          if (!IS_WEB) {
+            const protectedIds = new Set(visible.current);
+            if (current.current?.assistantPreview)
+              protectedIds.add(current.current.assistantPreview);
+            const displayed = rows.filter((row) => protectedIds.has(row.targetUid));
+            if (displayed.length)
+              setPreviews((previous) => {
+                const currentRows = previous?.scope === scope ? previous.rows : EMPTY_PREVIEWS;
+                let next: Map<string, Contact> | undefined;
+                for (const row of displayed) {
+                  const old = (next ?? currentRows).get(row.targetUid);
+                  if (old && recentContactPreviewIsBehind(row, old)) continue;
+                  const updated = replaceEqualDeep(old, row);
+                  if (updated === old) continue;
+                  next ??= new Map(currentRows);
+                  next.delete(row.targetUid);
+                  next.set(row.targetUid, updated);
+                }
+                if (!next) return previous;
+                for (const id of next.keys()) {
+                  if (next.size <= RECENT_PREVIEW_LIMIT) break;
+                  if (!protectedIds.has(id)) next.delete(id);
+                }
+                return { scope, rows: next };
+              });
+          }
         }
         return true;
       },
@@ -86,6 +122,15 @@ export function useRecentContactTargets(
     },
     [scope],
   );
+  const setAssistantPreview = useCallback(
+    (id: string | undefined) => {
+      const observer = current.current;
+      if (!active || observer?.scope !== scope || observer.assistantPreview === id) return;
+      observer.assistantPreview = id;
+      if (id) observer.queue.request([{ chatType: 0, uid: id }], false);
+    },
+    [active, scope],
+  );
   useEffect(() => {
     const observer = current.current;
     if (!active || observer?.scope !== scope) return;
@@ -99,5 +144,9 @@ export function useRecentContactTargets(
         false,
       );
   }, [active, visibleIds, scope, cache]);
-  return refresh;
+  return {
+    refresh,
+    previewRows: previews?.scope === scope ? previews.rows : EMPTY_PREVIEWS,
+    setAssistantPreview,
+  };
 }

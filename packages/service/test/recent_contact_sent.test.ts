@@ -93,6 +93,23 @@ it('在合并后分页，旧会话的新发送消息不会被原始分页截掉'
   expect(await service.getRecentContact(-1)).toHaveLength(2);
 });
 
+it('轻量目录仍按已发送时间排序，定向补齐的预览保留 QQ 水位', async () => {
+  const { service } = setup([contact('u_other', 150), contact('u_friend')], [sent()]);
+  const [summary] = await service.getRecentContact(1, 0, { summaryOnly: true });
+  expect(summary).toMatchObject({
+    targetUid: 'u_friend',
+    sendTime: 200n,
+    msgSeq: 10n,
+    preview: null,
+  });
+  const [detail] = await service.readPreviewTargets(['u_friend']);
+  expect(detail).toMatchObject({
+    sendTime: summary?.sendTime,
+    msgSeq: summary?.msgSeq,
+    preview: { textContent: '新消息' },
+  });
+});
+
 it.each([
   [210, 12],
   [200, 11],

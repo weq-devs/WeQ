@@ -34,6 +34,34 @@ function createFixture() {
 const preview = (text: string) =>
   new ProtoMsg(RecentContactBody).encode({ preview: [{ elementType: 1, textContent: text }] });
 
+it('轻量目录保留原分页及元数据，正文只有定向补读时才解码', async () => {
+  const { sql, db } = createFixture();
+  const insert = sql.prepare(`INSERT INTO recent_contact_v3_table
+    ("40003","40010","40021","40050","40051","40094","41220","41103","41104")
+    VALUES (?,?,?,?,?,?,?,?,?)`);
+  insert.run(3, 1, 'u_first', 300, preview('首屏'), '首屏', 1, 0, 0);
+  insert.run(2, 1, 'u_hidden', 250, preview('被排除'), '过滤项', 4, 0, 0);
+  insert.run(1, 2, '12345', 200, preview('旧群预览'), '旧群', 2, 150, 1);
+  const decode = vi.spyOn(ProtoMsg.prototype, 'decode');
+  const [summary] = await db.getRecentContact(1, 1, { summaryOnly: true, excludeChatTypes: [1] });
+  expect(summary).toBeUndefined();
+  const [group] = await db.getRecentContact(1, 2, { summaryOnly: true });
+  expect(group).toMatchObject({
+    targetUid: '12345',
+    msgSeq: 1n,
+    sendTime: 200n,
+    preview: null,
+    targetDisplayName: '旧群',
+    notifyLevel: 2,
+    topTime: 150n,
+    pinned: true,
+  });
+  expect(decode).not.toHaveBeenCalled();
+  const [loaded] = await db.getByTargetUids(['12345']);
+  expect(loaded?.preview).toMatchObject({ kind: 'text', textContent: '旧群预览' });
+  expect({ ...loaded, preview: null }).toEqual(group);
+});
+
 it('读取全部会话时不截在一千条，混排预览保留文字与表情的顺序', async () => {
   const { sql, db } = createFixture();
   const blob = new ProtoMsg(RecentContactBody).encode({

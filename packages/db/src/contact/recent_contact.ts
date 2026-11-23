@@ -36,6 +36,7 @@ import { QqDb } from '../qq_db';
 import { decodeBody } from '../msg/util';
 
 const SELECT_COLUMNS = `"40003","40010","40020","40021","40030","40050","40051","40090","40093","40094","40095","41110","41135","41148","41220","60001","41103","41104"`;
+const SUMMARY_COLUMNS = SELECT_COLUMNS.replace('"40051"', 'NULL');
 const contactCodec = new ProtoMsg(RecentContactBody);
 
 export const RECENT_CONTACT_PREVIEW_CACHE_LIMITS = {
@@ -138,17 +139,19 @@ export class RecentContactDb {
   async getRecentContact(
     limit = 200,
     offset = 0,
-    opts: { excludeChatTypes?: readonly number[] } = {},
+    opts: { excludeChatTypes?: readonly number[]; summaryOnly?: boolean } = {},
   ): Promise<RecentContact[]> {
     const excluded = [...BLOCKED_CHAT_TYPES, ...(opts.excludeChatTypes ?? [])];
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM recent_contact_v3_table
+      `SELECT ${opts.summaryOnly ? SUMMARY_COLUMNS : SELECT_COLUMNS} FROM recent_contact_v3_table
         WHERE "40010" NOT IN (${excluded.join(',')})
         ORDER BY "40050" DESC
         LIMIT ? OFFSET ?`,
       [BigInt(limit), BigInt(offset)],
     );
-    return rows.map((row) => rowToRecentContact(row, this.previewFor(row)));
+    return rows.map((row) =>
+      rowToRecentContact(row, opts.summaryOnly ? null : this.previewFor(row)),
+    );
   }
 
   /** Total rows visible to {@link getRecentContact} (same exclusion rules). */
@@ -386,17 +389,22 @@ export class RecentContactDb {
    * Used to resolve a buddy FTS 40027 partition back to a display name /
    * avatar / chatType without one query per conversation.
    */
-  async getByTargetUids(targetUids: readonly string[]): Promise<RecentContact[]> {
+  async getByTargetUids(
+    targetUids: readonly string[],
+    opts: { summaryOnly?: boolean } = {},
+  ): Promise<RecentContact[]> {
     const unique = [...new Set(targetUids.filter((uid) => uid))];
     if (unique.length === 0) return [];
     const placeholders = unique.map(() => '?').join(',');
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM recent_contact_v3_table
+      `SELECT ${opts.summaryOnly ? SUMMARY_COLUMNS : SELECT_COLUMNS} FROM recent_contact_v3_table
         WHERE "40021" IN (${placeholders})
         ORDER BY "40050" DESC`,
       unique,
     );
-    return rows.map((row) => rowToRecentContact(row, this.previewFor(row)));
+    return rows.map((row) =>
+      rowToRecentContact(row, opts.summaryOnly ? null : this.previewFor(row)),
+    );
   }
 
   private evictPreview(key: string): void {

@@ -16,6 +16,7 @@ export type RecentContactWire = {
   topTime: string;
   pinned: boolean;
   preview: unknown | null;
+  previewDeferred?: true;
   senderDisplayName: string;
   senderNick: string;
   targetDisplayName: string;

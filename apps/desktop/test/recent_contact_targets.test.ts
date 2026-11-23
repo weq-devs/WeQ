@@ -11,12 +11,17 @@ import {
 import {
   patchRecentContactRows,
   mergeRecentContactPages,
+  hydrateRecentContactPreviews,
 } from '../src/renderer/src/lib/recentContacts';
 import { trpc } from '../src/renderer/src/trpc/client';
 
-const api = vi.hoisted(() => ({ read: vi.fn() }));
+const api = vi.hoisted(() => ({ read: vi.fn(), web: true }));
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_WEB: true }));
-vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
+vi.mock('../src/renderer/src/lib/target.shared', () => ({
+  get IS_WEB() {
+    return api.web;
+  },
+}));
 vi.mock('../src/renderer/src/trpc/client', async () => {
   const { createTRPCReact } = await import('@trpc/react-query');
   return {
@@ -30,12 +35,17 @@ const row = (targetUid: string, sendTime = '1', msgSeq = '1', preview = '旧摘�
   sendTime,
   msgSeq,
   preview,
+  senderUid: 'u_sender',
+  senderDisplayName: '',
+  senderNick: '',
+  senderRemark: '',
 });
 const page = (items: ReturnType<typeof row>[]) => ({ items, total: 1200, nextCursor: 550 });
 const stops: (() => void)[] = [];
 afterEach(() => {
   for (const stop of stops.splice(0)) stop();
   api.read.mockReset();
+  api.web = true;
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -44,7 +54,7 @@ function fixture() {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const root = createRoot(document.createElement('div'));
-  let refresh!: ReturnType<typeof useRecentContactTargets>;
+  let observed!: ReturnType<typeof useRecentContactTargets>;
   const directoryKey = (configId = binding.expectedAccountConfigId) =>
     getQueryKey(
       trpc.account.listRecentContacts,
@@ -52,7 +62,11 @@ function fixture() {
       'infinite',
     );
   function Probe({ ids, configId }: { ids: string[]; configId: string }) {
-    refresh = useRecentContactTargets({ ...binding, expectedAccountConfigId: configId }, true, ids);
+    observed = useRecentContactTargets(
+      { ...binding, expectedAccountConfigId: configId },
+      true,
+      ids,
+    );
     return null;
   }
   const render = (ids: string[] = [], configId = binding.expectedAccountConfigId) =>
@@ -73,7 +87,9 @@ function fixture() {
   return {
     cache,
     render,
-    refresh: (ids?: string[]) => refresh(ids),
+    refresh: (ids?: string[]) => observed.refresh(ids),
+    previews: () => observed.previewRows,
+    setAssistantPreview: (id: string) => observed.setAssistantPreview(id),
     directoryKey,
     rows: () =>
       cache
@@ -81,6 +97,40 @@ function fixture() {
         .pages.flatMap((page) => page.items),
   };
 }
+
+it('桌面旧行只持久保留摘要，可见行和群助手入口按需补全', async () => {
+  api.web = false;
+  const f = fixture();
+  const summary = (id: string) => ({ ...row(id), preview: null, previewDeferred: true as const });
+  f.cache.setQueryData(f.directoryKey(), {
+    pages: [page([row('u_head')]), { items: [summary('u_1000'), summary('u_1001')], total: 3 }],
+    pageParams: [undefined, 50],
+  });
+  api.read.mockImplementation(async ({ targetUids }) =>
+    targetUids.map((id: string) => row(id, '2', '2', `补回${id}`)),
+  );
+  f.render(['u_1000']);
+  act(() => f.setAssistantPreview('u_1001'));
+  await act(async () => vi.advanceTimersByTimeAsync(0));
+  expect(api.read).toHaveBeenLastCalledWith({
+    ...binding,
+    targetUids: ['u_1000', 'u_1001'],
+    includeSentPreview: true,
+  });
+  const tail = f.rows().slice(1);
+  expect(tail).toMatchObject([
+    { preview: null, previewDeferred: true },
+    { preview: null, previewDeferred: true },
+  ]);
+  expect(hydrateRecentContactPreviews(tail, f.previews()).map((item) => item.preview)).toEqual([
+    '补回u_1000',
+    '补回u_1001',
+  ]);
+  expect(
+    hydrateRecentContactPreviews([{ ...summary('u_1000'), sendTime: '3' }], f.previews())[0]
+      ?.preview,
+  ).toBeNull();
+});
 
 it('首次滚到缓存的非首屏会话即批量更新，目录仍在后台读取也不阻塞', async () => {
   const f = fixture();

@@ -332,6 +332,11 @@ export function ConversationList({
   const showPreview = preferenceValue('showConversationPreview');
   const account = useViewState((state) => state.openedUin);
   const listKey = `${account}:${view}:${keyword}`;
+  const reportVisibleConversations = directory?.onVisibleConversations;
+  const onVisibleRows = useCallback(
+    (rows: readonly Conversation[]) => reportVisibleConversations?.(rows, !selectionMode),
+    [reportVisibleConversations, selectionMode],
+  );
   const directoryError = directory?.loadingError;
   const retryDirectory = directory?.onRetry ?? onLoadMore;
   const toast = useToastApi(null);
@@ -804,7 +809,7 @@ export function ConversationList({
         <WindowedList
           bufferScreens={1}
           items={filtered.rows}
-          onVisibleItems={selectionMode ? undefined : directory?.onVisibleConversations}
+          onVisibleItems={reportVisibleConversations ? onVisibleRows : undefined}
           rowHeight={rowHeight}
           height={listHeight}
           resetKey={listKey}

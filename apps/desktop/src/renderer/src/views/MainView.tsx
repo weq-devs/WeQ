@@ -272,6 +272,7 @@ import { draftSortTimes } from '@weq/service/conversation-order';
 import {
   canPreviewContactMessage,
   mergeRecentContactPages,
+  hydrateRecentContactPreviews,
   observeContactPreview,
   latestContactPreviewMessage,
   recentContactPreviewIsBehind,
@@ -797,7 +798,7 @@ function MainWorkspace(): ReactElement {
     pendingSearchJumpRef,
   } = messageWindow;
   const prefetchVisibleConversations = useCallback(
-    (rows: readonly Conversation[]) =>
+    (rows: readonly Conversation[], warmMessages = true) =>
       prefetchVisible(
         rows.filter(
           (row) =>
@@ -805,6 +806,7 @@ function MainWorkspace(): ReactElement {
             !row.generated &&
             (!row.directoryKind || row.directoryKind === 'qq'),
         ),
+        warmMessages,
       ),
     [prefetchVisible],
   );
@@ -823,11 +825,11 @@ function MainWorkspace(): ReactElement {
     pinSession.binding,
     messageActivity.enabled,
   );
-  const refreshRecentTargets = useRecentContactTargets(
-    pinSession.binding,
-    messageActivity.enabled,
-    visibleConversationIds,
-  );
+  const {
+    refresh: refreshRecentTargets,
+    previewRows: recentContactPreviewRows,
+    setAssistantPreview,
+  } = useRecentContactTargets(pinSession.binding, messageActivity.enabled, visibleConversationIds);
   const firstContactsReady = Boolean(contacts.data) || contacts.isError;
   // Remote 的常规视图在首批会话可用后就补齐各聚合入口，缓存先显示并立即向宿主校准。
   const regularDirectoryReady =
@@ -949,11 +951,14 @@ function MainWorkspace(): ReactElement {
   // below (the sidebar can scroll-load more pages past the first window).
   const rawRecentContactsData = useMemo<RecentContactWire[]>(
     () =>
-      mergeRecentContactPages([
-        recentHead.data?.items ?? [],
-        ...(contacts.data?.pages ?? []).map((page) => page.items),
-      ]),
-    [contacts.data, recentHead.data],
+      hydrateRecentContactPreviews(
+        mergeRecentContactPages([
+          recentHead.data?.items ?? [],
+          ...(contacts.data?.pages ?? []).map((page) => page.items),
+        ]),
+        recentContactPreviewRows,
+      ),
+    [contacts.data, recentHead.data, recentContactPreviewRows],
   );
   const [observedContactPreviews, setObservedContactPreviews] = useState<
     ReadonlyMap<string, ObservedContactPreview>
@@ -1017,6 +1022,22 @@ function MainWorkspace(): ReactElement {
         (contact) => contact.chatType === 'KCHATTYPEGROUPHELPER' || Number(contact.chatType) === 7,
       ),
     [recentContactsData],
+  );
+  const assistantPreviewId = useMemo(() => {
+    if (IS_WEB) return undefined;
+    let latest: RecentContactWire | undefined;
+    for (const row of recentContactsData)
+      if (
+        chatTypeKind(row.chatType) === 'group' &&
+        groupAssistantIds.has(row.targetUid) &&
+        (!latest || Number(row.sendTime) > Number(latest.sendTime))
+      )
+        latest = row;
+    return latest?.targetUid;
+  }, [groupAssistantIds, recentContactsData]);
+  useEffect(
+    () => setAssistantPreview(assistantPreviewId),
+    [assistantPreviewId, setAssistantPreview],
   );
   const contactsHasMore = Boolean(contacts.hasNextPage);
   const contactsLoadingMore = contacts.isFetchingNextPage;
@@ -4410,7 +4431,7 @@ function MainWorkspace(): ReactElement {
           directoryChanged = true;
         }
         refresh.request();
-        reconcile.request();
+        if (change.directory !== false) reconcile.request();
       },
       onError(error) {
         console.error('[group-members] 群资料变更订阅失败', error);

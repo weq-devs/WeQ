@@ -207,7 +207,7 @@ export function useMessageWindowState({
   }, [messageScope, conversationWindows]);
   useEffect(() => () => firstPages.dispose(), [firstPages]);
   const prefetchVisible = useCallback(
-    (rows: readonly Conversation[]) => {
+    (rows: readonly Conversation[], warmMessages = true) => {
       const ids = rows.map((row) => row.id);
       setVisibleConversationIds((previous) =>
         previous.length === ids.length && previous.every((id, index) => id === ids[index])
@@ -215,7 +215,7 @@ export function useMessageWindowState({
           : ids,
       );
       firstPages.setVisible(
-        rows.flatMap((row) => {
+        (warmMessages ? rows : []).flatMap((row) => {
           const target = prefetchTarget(row);
           return target ? [target] : [];
         }),

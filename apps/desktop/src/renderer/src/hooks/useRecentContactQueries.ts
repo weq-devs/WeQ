@@ -68,7 +68,7 @@ export function useRecentContactQueries(binding: QQWriteBinding | null, active: 
             const cursor = pageParam as number;
             const saved = cache.getQueryData<InfiniteData<RecentContactPage>>(directoryKey);
             const index = saved?.pageParams.indexOf(cursor) ?? -1;
-            const page = { ...input, cursor };
+            const page = { ...input, cursor, ...(!IS_WEB ? { summaryOnly: true } : {}) };
             return readDirectory(
               'listRecentContacts',
               binding,
