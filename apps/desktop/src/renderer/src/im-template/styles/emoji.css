@@ -1540,10 +1540,6 @@ html[data-theme='dark'] .qq-flash-cover {
   border-radius: 12px 4px 12px 12px;
 }
 
-.message-bubble > .qq-message-text-result {
-  width: fit-content;
-}
-
 .qq-message-text-result:focus-visible {
   outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
   outline-offset: 2px;

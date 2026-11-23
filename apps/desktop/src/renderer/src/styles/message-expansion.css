@@ -1,0 +1,28 @@
+.weq-message-expansion {
+  min-width: 0;
+  max-width: 100%;
+  margin-block-start: calc(-1 * var(--weq-message-expansion-gap));
+}
+
+.message-bubble > .weq-message-expansion {
+  --weq-message-expansion-gap: 5px;
+  width: fit-content;
+}
+
+.qq-voice-wrap > .weq-message-expansion {
+  --weq-message-expansion-gap: 6px;
+}
+
+.weq-message-expansion-content {
+  display: grid;
+  padding-block-start: var(--weq-message-expansion-gap);
+}
+
+.weq-message-expansion[inert] {
+  height: 0;
+  overflow: clip;
+}
+
+.message-line.mine .qq-voice-wrap > .weq-message-expansion {
+  align-self: flex-end;
+}

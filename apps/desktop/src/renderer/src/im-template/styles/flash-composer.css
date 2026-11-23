@@ -176,7 +176,9 @@
   border-top: 0;
 }
 /* 引用条占正文上面那一行时，闪传文件框跟着到第三行（同 .voice-panel）。 */
-:where(html:not([data-weq-layout='single'])) .composer.has-quote.flash-open > .flash-composer {
+:where(html:not([data-weq-layout='single']))
+  .composer.flash-open:not(.has-extensions)
+  > .flash-composer {
   grid-row: 3;
 }
 /* 文件框占掉正文那一行、自己带「确认」键，主发送键让位（同 .composer.voice-open）。

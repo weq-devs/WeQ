@@ -739,6 +739,7 @@
   --composer-height: calc(
     var(--mobile-composer-editor-height, 42px) +
     62px +
+    var(--weq-composer-quote-space, 0px) +
     var(--mobile-composer-safe-bottom)
   ) !important;
   grid-template-rows: var(--chat-header-height) minmax(0, 1fr) var(--composer-height);

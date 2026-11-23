@@ -227,6 +227,7 @@ export type BubbleVideoSendPayload = {
   templateName?: string;
 };
 import { ComposerQuoteBar, type ComposerQuote } from './composerQuote';
+import { useClosingContent } from '../../hooks/useClosingContent';
 import { composerQuoteToken, quoteBlockReason, quoteFromMessage } from './composerQuote.shared';
 import type { LocationCardPayload } from './locationCardPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
@@ -913,6 +914,8 @@ function ChatPaneContent({
   );
   const [groupInfoCollapsed, setGroupInfoCollapsed] = useState(loadGroupInfoCollapsed);
   const [mobileGroupInfoOpen, setMobileGroupInfoOpen] = useState(false);
+  const groupInfoVisible = !groupInfoCollapsed || mobileGroupInfoOpen;
+  const groupInfoPresent = useClosingContent(groupInfoVisible ? true : null, conversation?.id);
   const [importantMessagesOpen, setImportantMessagesOpen] = useState(false);
   const importantDockRef = useRef<HTMLDivElement>(null);
   const [importantMessagesVisited, setImportantMessagesVisited] = useState<string | null>(null);
@@ -1007,6 +1010,7 @@ function ChatPaneContent({
   const [pendingSuperEmoji, setPendingSuperEmoji] = useState<EmojiItem | null>(null);
   // 右键「引用」挂上的待发送引用：显示在输入框上方，与「只能单独发」的卡片互斥。
   const [pendingQuote, setPendingQuote] = useState<ComposerQuote | null>(null);
+  const displayedQuote = useClosingContent(pendingQuote, conversation?.id);
   const pendingQuoteRef = useRef(pendingQuote);
   pendingQuoteRef.current = pendingQuote;
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -6758,9 +6762,10 @@ function ChatPaneContent({
               }}
             />
           ) : null}
-          {(!groupInfoCollapsed || mobileGroupInfoOpen) && !messageHistoryActive ? (
+          {groupInfoPresent && !messageHistoryActive ? (
             <GroupInfoPanel
               hidden={sidecarOpen}
+              closing={!groupInfoVisible}
               conversation={conversation}
               onOpenDetail={handleOpenGroupInfoDetail}
               onOpenAnnouncements={
@@ -7317,7 +7322,11 @@ function ChatPaneContent({
               onSend={() => void submitMessage()}
             />
           ) : null}
-          {pendingQuote ? <ComposerQuoteBar quote={pendingQuote} onRemove={removeQuote} /> : null}
+          {displayedQuote ? (
+            <div className="composer-quote-slot" inert={!pendingQuote}>
+              <ComposerQuoteBar quote={displayedQuote} onRemove={removeQuote} />
+            </div>
+          ) : null}
           {emojiOpen && !mobileComposerExpanded ? (
             <EmojiPanel
               panelRef={emojiPanelRef}

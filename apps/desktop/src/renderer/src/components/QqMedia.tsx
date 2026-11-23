@@ -63,6 +63,7 @@ import { useVoiceTranscription } from '../hooks/useVoiceTranscription';
 import { WebAvatarScope } from '../hooks/useAvatarImage';
 import { sharedAccountScope } from '../lib/remoteCacheBridge';
 import { MessageTextResult } from './MessageTextResult';
+import { MessageExpansion } from './MessageExpansion';
 import { useTabActive } from './RetainedTabs.shared';
 import { mediaRetryUrl } from '../lib/mediaRetryUrl';
 import { useTransferProgress } from '../lib/transferActivity';
@@ -1284,35 +1285,37 @@ export function QqVoice({
         </p>
       ) : null}
 
-      {hasResult && !transcribe.collapsed ? (
-        <MessageTextResult
-          label="转文字结果"
-          error={Boolean(transcribeError)}
-          onCollapse={() => transcribe.setCollapsed(true)}
-        >
-          {!transcribeError && (emotion || events.length > 0) ? (
-            <div className="qq-voice-tone">
-              {emotion ? (
-                <span className="qq-voice-tone-chip is-emotion">
-                  {emotion.emoji ? `${emotion.emoji} ` : ''}
-                  {emotion.label}
-                </span>
-              ) : null}
-              {events.map((ev) => (
-                <span key={ev} className="qq-voice-tone-chip">
-                  {ev}
-                </span>
-              ))}
-            </div>
-          ) : null}
-          {shownTranscript !== null ? (
-            <span data-privacy-sensitive={Boolean(shownTranscript) || undefined}>
-              {shownTranscript || '（未识别到内容）'}
-            </span>
-          ) : null}
-          {transcribeError ? <span role="status">{transcribeError}</span> : null}
-        </MessageTextResult>
-      ) : null}
+      <MessageExpansion>
+        {hasResult && !transcribe.collapsed ? (
+          <MessageTextResult
+            label="转文字结果"
+            error={Boolean(transcribeError)}
+            onCollapse={() => transcribe.setCollapsed(true)}
+          >
+            {!transcribeError && (emotion || events.length > 0) ? (
+              <div className="qq-voice-tone">
+                {emotion ? (
+                  <span className="qq-voice-tone-chip is-emotion">
+                    {emotion.emoji ? `${emotion.emoji} ` : ''}
+                    {emotion.label}
+                  </span>
+                ) : null}
+                {events.map((ev) => (
+                  <span key={ev} className="qq-voice-tone-chip">
+                    {ev}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {shownTranscript !== null ? (
+              <span data-privacy-sensitive={Boolean(shownTranscript) || undefined}>
+                {shownTranscript || '（未识别到内容）'}
+              </span>
+            ) : null}
+            {transcribeError ? <span role="status">{transcribeError}</span> : null}
+          </MessageTextResult>
+        ) : null}
+      </MessageExpansion>
     </div>
   );
 }

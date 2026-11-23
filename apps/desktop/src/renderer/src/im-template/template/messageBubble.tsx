@@ -41,6 +41,7 @@ import { useMsgDecoration } from '../../hooks/useMsgDecoration';
 import { localDressApplies } from '../../lib/dressSkin';
 import { MsgDecorationEnabledContext } from '../../state/messageAppearance';
 import { MessageProvenance } from '../../components/MessageProvenance';
+import { MessageExpansion } from '../../components/MessageExpansion';
 import { OutgoingMessageName } from './outgoingMessageName';
 import '../../styles/message-deletion.css';
 import { useToastApi } from '../../components/Toast.shared';
@@ -829,7 +830,7 @@ function MessageBubbleBody({
             repeatAction
           )}
         </div>
-        {textResult}
+        <MessageExpansion>{textResult}</MessageExpansion>
         {/* 贴表情：悬停某一枚会弹出回应人名单（靠在线 QQ 实时查，见 0x9083_1）；
             只有群聊 + 有会话内序号时才可查。 */}
         <SetEmojiReactions
@@ -855,45 +856,18 @@ function MessageBubbleBody({
             <span>{reeditArmed && reeditClass ? '重新编辑' : recallText}</span>
           </StatusTag>
         ) : null}
-        {mine && !selectionMode && optimistic === 'queued' ? (
-          <button
-            type="button"
-            className={cn(
-              'weq-msg-optimistic-tag weq-msg-reedit-trigger is-queued',
-              reeditArmed && 'is-armed',
-            )}
-            title="立即发送这条消息"
-            aria-label="立即发送"
-            disabled={!onStartOutgoing}
-            onMouseEnter={() => setReeditArmed(true)}
-            onMouseLeave={() => setReeditArmed(false)}
-            onFocus={() => setReeditArmed(true)}
-            onBlur={() => setReeditArmed(false)}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onStartOutgoing?.(message);
-            }}
-          >
-            {reeditArmed ? (
-              <SendHorizontal size={12} aria-hidden />
-            ) : (
-              <Clock size={12} aria-hidden />
-            )}
-            <span>{reeditArmed ? '立即发送' : '排队中'}</span>
-          </button>
-        ) : null}
-        {optimisticText ? (
-          // 状态条与「移除」并排：未送达占位没有可信序号、只能挂在时间线末尾，
-          // 一键移除比一路点开右键菜单短得多。
-          <span className={cn('weq-msg-status-row')}>
-            {optimistic === 'failed' ? (
+        {outgoingMetadata ? (
+          <MessageExpansion>
+            {mine && !selectionMode && optimistic === 'queued' ? (
               <button
                 type="button"
-                className="weq-msg-optimistic-tag weq-msg-reedit-trigger is-failed"
-                aria-label="重试发送"
-                title={message.optimisticError || '重试发送'}
-                disabled={!onStartOutgoing || selectionMode || !mine}
+                className={cn(
+                  'weq-msg-optimistic-tag weq-msg-reedit-trigger is-queued',
+                  reeditArmed && 'is-armed',
+                )}
+                title="立即发送这条消息"
+                aria-label="立即发送"
+                disabled={!onStartOutgoing}
                 onMouseEnter={() => setReeditArmed(true)}
                 onMouseLeave={() => setReeditArmed(false)}
                 onFocus={() => setReeditArmed(true)}
@@ -904,42 +878,72 @@ function MessageBubbleBody({
                   onStartOutgoing?.(message);
                 }}
               >
-                <RefreshCw size={12} aria-hidden />
-                <span>{reeditArmed ? '重试发送' : '发送失败'}</span>
-              </button>
-            ) : (
-              <div
-                className={cn(
-                  'weq-msg-optimistic-tag',
-                  `is-${optimistic}`,
-                  optimisticRejected && 'is-rejected',
+                {reeditArmed ? (
+                  <SendHorizontal size={12} aria-hidden />
+                ) : (
+                  <Clock size={12} aria-hidden />
                 )}
-                title={
-                  '服务端回了成功但没有分配消息序号，这条很可能被静默丢弃了 —— 请让对方确认是否收到'
-                }
-              >
-                <TriangleAlert size={12} />
-                <span>{optimisticText}</span>
-              </div>
-            )}
-            {dismissable ? (
-              <button
-                data-danger="outline"
-                type="button"
-                className={cn('weq-msg-dismiss-unsent')}
-                title="从本机列表移除这条（对方是否收到不受影响）"
-                aria-label="移除这条未送达的消息"
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onDismissUnsent?.(message);
-                }}
-              >
-                <X size={12} />
-                <span>移除</span>
+                <span>{reeditArmed ? '立即发送' : '排队中'}</span>
               </button>
+            ) : optimisticText ? (
+              // 状态条与「移除」并排：未送达占位没有可信序号、只能挂在时间线末尾，
+              // 一键移除比一路点开右键菜单短得多。
+              <span className={cn('weq-msg-status-row')}>
+                {optimistic === 'failed' ? (
+                  <button
+                    type="button"
+                    className="weq-msg-optimistic-tag weq-msg-reedit-trigger is-failed"
+                    aria-label="重试发送"
+                    title={message.optimisticError || '重试发送'}
+                    disabled={!onStartOutgoing || selectionMode || !mine}
+                    onMouseEnter={() => setReeditArmed(true)}
+                    onMouseLeave={() => setReeditArmed(false)}
+                    onFocus={() => setReeditArmed(true)}
+                    onBlur={() => setReeditArmed(false)}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onStartOutgoing?.(message);
+                    }}
+                  >
+                    <RefreshCw size={12} aria-hidden />
+                    <span>{reeditArmed ? '重试发送' : '发送失败'}</span>
+                  </button>
+                ) : (
+                  <div
+                    className={cn(
+                      'weq-msg-optimistic-tag',
+                      `is-${optimistic}`,
+                      optimisticRejected && 'is-rejected',
+                    )}
+                    title={
+                      '服务端回了成功但没有分配消息序号，这条很可能被静默丢弃了 —— 请让对方确认是否收到'
+                    }
+                  >
+                    <TriangleAlert size={12} />
+                    <span>{optimisticText}</span>
+                  </div>
+                )}
+                {dismissable ? (
+                  <button
+                    data-danger="outline"
+                    type="button"
+                    className={cn('weq-msg-dismiss-unsent')}
+                    title="从本机列表移除这条（对方是否收到不受影响）"
+                    aria-label="移除这条未送达的消息"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDismissUnsent?.(message);
+                    }}
+                  >
+                    <X size={12} />
+                    <span>移除</span>
+                  </button>
+                ) : null}
+              </span>
             ) : null}
-          </span>
+          </MessageExpansion>
         ) : null}
         {/* 意图感知：已有结果的消息展示胶囊，分析中逐条展示窄条，悬停文本消息出弹层。
             数据与悬停监听都在组件内部（经 IntentSenseContext），关掉功能时渲染 null。 */}

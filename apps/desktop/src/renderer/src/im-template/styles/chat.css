@@ -1,3 +1,15 @@
+@property --weq-group-sidebar-space {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0px;
+}
+
+@property --weq-composer-quote-space {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0px;
+}
+
 .chat-main {
   min-width: 0;
   min-height: 0;
@@ -11,6 +23,8 @@
   min-width: 0;
   --chat-header-height: var(--weq-pane-toolbar-height, 40px);
   --group-info-panel-width: clamp(220px, 17vw, 248px);
+  --weq-group-sidebar-space: 0px;
+  --weq-composer-quote-space: 0px;
   display: grid;
   grid-template-rows: var(--chat-header-height) minmax(0, 1fr) var(--composer-height, 190px);
   grid-template-columns: minmax(0, 1fr);
@@ -21,11 +35,24 @@
 }
 
 .chat-pane.with-group-info {
-  grid-template-columns: minmax(0, 1fr) var(--group-info-panel-width);
+  grid-template-columns: minmax(0, 1fr) var(--weq-group-sidebar-space, 0px);
 }
 
-.chat-pane.with-group-info.group-info-collapsed {
-  grid-template-columns: minmax(0, 1fr);
+:where(html:not([data-weq-layout='single'])) .chat-pane.with-group-info:not(.group-info-collapsed) {
+  --weq-group-sidebar-space: var(--group-info-panel-width);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .chat-pane {
+    transition:
+      --weq-group-sidebar-space 160ms cubic-bezier(0.16, 1, 0.3, 1),
+      --weq-composer-quote-space 160ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+}
+
+:where(html:not([data-weq-layout='single'])) .chat-pane > .group-info-panel.weq-group-sections {
+  width: var(--group-info-panel-width);
+  justify-self: start;
 }
 
 .chat-pane.with-group-info .chat-header {
@@ -77,7 +104,7 @@
   position: absolute;
   z-index: 7;
   top: calc(var(--chat-header-height) + (100% - var(--chat-header-height)) / 2);
-  right: var(--group-info-panel-width);
+  right: var(--weq-group-sidebar-space, 0px);
   width: 20px;
   height: 50px;
   place-items: center;
@@ -108,11 +135,6 @@
   background: #ffffff;
   color: #666666;
   opacity: 1;
-}
-
-.chat-pane.group-info-collapsed .group-info-toggle {
-  right: 0;
-  transform: translateY(-50%);
 }
 
 /* 收起 / 展开输入区 —— 与群资料栏同一套交互：把手贴在两个区域的交界线上（这里是
@@ -167,8 +189,8 @@
 }
 
 /* 群资料栏展开时输入区只占左列，把手跟着挪到那一列的正中间。 */
-.chat-pane.with-group-info:not(.group-info-collapsed) .composer-toggle {
-  left: calc(50% - var(--group-info-panel-width) / 2);
+.chat-pane.with-group-info .composer-toggle {
+  left: calc(50% - var(--weq-group-sidebar-space, 0px) / 2);
 }
 
 .contact-profile-empty,
@@ -331,12 +353,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  min-width: var(--group-info-panel-width);
-}
-
-.chat-pane:not(.with-group-info) .chat-actions,
-.chat-pane.group-info-collapsed .chat-actions {
-  min-width: 0;
+  min-width: var(--weq-group-sidebar-space, 0px);
 }
 
 .group-header-info-action {
@@ -501,8 +518,8 @@
   opacity: 0.85;
 }
 
-.chat-pane.with-group-info:not(.group-info-collapsed) .unread-dock-button {
-  right: calc(var(--group-info-panel-width) + 24px);
+.chat-pane.with-group-info .unread-dock-button {
+  right: calc(var(--weq-group-sidebar-space, 0px) + 24px);
 }
 
 @keyframes unread-dock-in {

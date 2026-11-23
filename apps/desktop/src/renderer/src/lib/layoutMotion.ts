@@ -1,3 +1,5 @@
+export const layoutMotionTiming = { duration: 160, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' };
+
 export function allowsLayoutMotion(root: HTMLElement) {
   return !root.ownerDocument.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 }
@@ -50,10 +52,7 @@ export class RowLayoutMotion {
 
   private play(element: HTMLElement, frames: Keyframe[]) {
     if (!element.animate) return;
-    const animation = element.animate(frames, {
-      duration: 160,
-      easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
-    });
+    const animation = element.animate(frames, layoutMotionTiming);
     this.animations.add(animation);
     animation.onfinish = () => this.animations.delete(animation);
   }

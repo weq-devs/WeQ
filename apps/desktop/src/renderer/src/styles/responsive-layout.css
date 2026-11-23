@@ -223,9 +223,7 @@ html[data-weq-mobile-client='true'][data-weq-layout='wide'] :where(
     )
   ) !important;
 
-  &:has(> .composer.has-quote) {
-    --weq-compact-composer-min-height: 144px;
-  }
+  --weq-compact-composer-min-height: calc(104px + var(--weq-composer-quote-space, 0px) * 40 / 38);
 
   & > .composer {
     padding: 2px 8px calc(8px + var(--weq-mobile-safe-bottom, env(safe-area-inset-bottom, 0px)));

@@ -363,12 +363,10 @@ button.composer-single-thumb {
 
 :where(html:not([data-weq-layout='single']))
   .chat-pane:has(.composer.voice-open .voice-panel-body) {
-  --composer-height: max(var(--desktop-composer-height, 190px), 190px) !important;
-}
-
-:where(html:not([data-weq-layout='single']))
-  .chat-pane:has(.composer.voice-open.has-quote .voice-panel-body) {
-  --composer-height: max(var(--desktop-composer-height, 220px), 220px) !important;
+  --composer-height: max(
+    var(--desktop-composer-height, 190px),
+    calc(190px + var(--weq-composer-quote-space, 0px) * 30 / 38)
+  ) !important;
 }
 
 .voice-record-track {
@@ -900,6 +898,17 @@ button.composer-single-thumb {
  * 只描述「待发送的引用」，真正送出去的只有 reply 元素（见 composerQuote.tsx）。
  */
 
+.composer-quote-slot {
+  grid-column: 1 / -1;
+  min-width: 0;
+  min-height: 0;
+  overflow: clip;
+}
+
+.composer:is(.has-single-send, .has-media-attachments, .selection-mode) > .composer-quote-slot {
+  display: none;
+}
+
 .composer-quote {
   display: flex;
   min-width: 0;
@@ -1201,22 +1210,25 @@ html[data-theme='dark'] .link-card-preview-card {
 
 /* 引用条占正文上面那一行：正文让出一行，整条输入区高度不变（不推挤消息列表）。 */
 
-:where(html:not([data-weq-layout='single'])) .composer.has-quote {
-  grid-template-rows: 42px auto minmax(0, 1fr);
+:where(html:not([data-weq-layout='single'])) .chat-pane:has(> .composer.has-quote) {
+  --weq-composer-quote-space: 38px;
 }
 
-:where(html:not([data-weq-layout='single'])) .composer.has-quote > .composer-quote {
-  grid-row: 2;
-}
+:where(html:not([data-weq-layout='single']))
+  .composer:not(.has-single-send, .has-media-attachments, .has-extensions, .selection-mode) {
+  grid-template-rows: 42px var(--weq-composer-quote-space, 0px) minmax(0, 1fr);
 
-:where(html:not([data-weq-layout='single'])) .composer.has-quote > .composer-editor {
-  grid-row: 3;
-}
+  > .composer-tools {
+    grid-row: 1;
+  }
 
-/* 语音条本来就顶掉正文那一行：有引用时它跟着到第三行，引用条留在上面。 */
+  > .composer-quote-slot {
+    grid-row: 2;
+  }
 
-:where(html:not([data-weq-layout='single'])) .composer.has-quote.voice-open > .voice-panel {
-  grid-row: 3;
+  > :is(.composer-editor, .voice-panel) {
+    grid-row: 3;
+  }
 }
 
 /* ── 小屏：「只能单独发」的卡片挤进输入框第一行 ────────────────────────────────
@@ -1265,57 +1277,46 @@ html[data-theme='dark'] .link-card-preview-card {
      这一整套只在面板没开时生效（下面 :not 链），所以不会把面板那三行布局搞乱。 */
 
 :where(html[data-weq-layout='single'])
-  .composer.has-quote:not(.voice-open):not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel)) {
-  grid-template-rows: auto var(--mobile-composer-editor-height, 42px) 48px;
+  .chat-pane:has(> .composer.has-quote:not(.voice-open, .selection-mode)):not(
+    :has(> .composer > :is(.emoji-panel, .composer-plus-panel))
+  ) {
+  --weq-composer-quote-space: 40px;
 }
 
 :where(html[data-weq-layout='single'])
-  .composer.has-quote:not(.voice-open):not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
-  > .composer-quote {
-  grid-row: 1;
+  .composer:not(
+    .voice-open,
+    .has-single-send,
+    .has-media-attachments,
+    .has-extensions,
+    .selection-mode
+  ):not(:has(> .emoji-panel, > .composer-plus-panel)) {
+  grid-template-rows: var(--weq-composer-quote-space, 0px) var(
+      --mobile-composer-editor-height,
+      42px
+    ) 48px;
+
+  > .composer-quote-slot {
+    grid-row: 1;
+  }
+
+  > :is(.composer-editor, .mobile-composer-expand-button) {
+    grid-row: 2;
+  }
+
+  > .composer-tools {
+    grid-row: 3;
+  }
+}
+
+:where(html[data-weq-layout='single']) .composer-quote-slot > .composer-quote {
   margin: 0 0 6px;
 }
 
 :where(html[data-weq-layout='single'])
-  .composer.has-quote:not(.voice-open):not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
-  > .composer-editor {
-  grid-row: 2;
-}
-
-:where(html[data-weq-layout='single'])
-  .composer.has-quote:not(.voice-open):not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
-  > :is(.composer-send, .mobile-composer-expand-button) {
-  grid-row: 2;
-}
-
-:where(html[data-weq-layout='single'])
-  .composer.has-quote:not(.voice-open):not(:has(> .emoji-panel)):not(:has(> .composer-plus-panel))
-  > .composer-tools {
-  grid-row: 3;
-}
-
-/* 面板打开时引用条让位（display:none）：待发送的引用还在，发送时依旧带上，
-     只是不跟面板挤同一格。 */
-
-:where(html[data-weq-layout='single']) .composer.has-quote:has(> .emoji-panel) > .composer-quote,
-:where(html[data-weq-layout='single'])
-  .composer.has-quote:has(> .composer-plus-panel)
-  > .composer-quote {
+  .composer:has(> .emoji-panel, > .composer-plus-panel)
+  > .composer-quote-slot {
   display: none;
-}
-
-/* 引用条那一行要从输入区高度里要回来，而且只在它真看得见时才加。 */
-
-:where(html[data-weq-layout='single'])
-  .chat-pane:has(.composer.has-quote:not(.voice-open)):not(:has(.composer > .emoji-panel)):not(
-    :has(.composer > .composer-plus-panel)
-  ) {
-  --composer-height: calc(
-    var(--mobile-composer-editor-height, 42px) +
-    62px +
-    40px +
-    var(--mobile-composer-safe-bottom)
-  ) !important;
 }
 
 /* ── AI 声聊控件 ─────────────────────────────────────────────────────────── */
@@ -1484,7 +1485,7 @@ html[data-theme='dark'] .link-card-preview-card {
 
 :where(html[data-weq-layout='single'])
   .composer.voice-open
-  > :is(.composer-quote, .mobile-composer-expand-button) {
+  > :is(.composer-quote-slot, .mobile-composer-expand-button) {
   display: none;
 }
 

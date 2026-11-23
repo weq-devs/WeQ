@@ -163,6 +163,7 @@ export function GroupInfoPanel({
   membersOnly = false,
   layout = 'sidebar',
   hidden = false,
+  closing = false,
   conversation,
   onLoadMoreMembers,
   loadingMoreMembers,
@@ -190,6 +191,7 @@ export function GroupInfoPanel({
   membersOnly?: boolean;
   layout?: 'sidebar' | 'profile';
   hidden?: boolean;
+  closing?: boolean;
   conversation: GroupConversationView;
   onLoadMoreMembers?: () => void;
   loadingMoreMembers?: boolean;
@@ -232,6 +234,7 @@ export function GroupInfoPanel({
   onClose?: () => void;
 }) {
   const active = useTabActive();
+  const suspended = hidden || closing;
   const [rankingGroup, setRankingGroup] = useState<string | null>(null);
   const [memberMenu, setMemberMenu] = useState<{
     x: number;
@@ -241,10 +244,10 @@ export function GroupInfoPanel({
   useEffect(() => {
     setRankingGroup(null);
     setMemberMenu(null);
-  }, [conversation.id, hidden, active]);
+  }, [conversation.id, suspended, active]);
   const memberListRef = useRef<HTMLDivElement | null>(null);
   const group = conversation.group;
-  const readEntranceQuestion = active && !hidden && !membersOnly && !conversation.generated;
+  const readEntranceQuestion = active && !suspended && !membersOnly && !conversation.generated;
   const { binding } = useGroupReadScope(readEntranceQuestion);
   const entranceQ = useGroupEntranceQuestion(
     conversation.id,
@@ -287,7 +290,7 @@ export function GroupInfoPanel({
   const fetchingMore = searching ? Boolean(memberSearch?.loadingMore) : Boolean(loadingMoreMembers);
 
   const requestMoreNearBottom = useCallback(() => {
-    if (hidden || !active) return;
+    if (suspended || !active) return;
     const list = memberListRef.current;
     if (!list) return;
     const distanceToBottom = list.scrollHeight - list.clientHeight - list.scrollTop;
@@ -297,16 +300,16 @@ export function GroupInfoPanel({
       return;
     }
     onLoadMoreMembers?.();
-  }, [hidden, active, searching, memberSearch?.hasMore, onLoadMoreSearch, onLoadMoreMembers]);
+  }, [suspended, active, searching, memberSearch?.hasMore, onLoadMoreSearch, onLoadMoreMembers]);
 
   // 列表比容器短时没有滚动事件，只能渲染后自己探一次底部；搜索把列表变短
   // （甚至空）时同样要重跑，否则「加载更多」永远不会被触发。
   useEffect(() => {
     const list = memberListRef.current;
-    if (!list || hidden || !active) return undefined;
+    if (!list || suspended || !active) return undefined;
     const frame = window.requestAnimationFrame(requestMoreNearBottom);
     return () => window.cancelAnimationFrame(frame);
-  }, [hidden, active, rows.length, searching, requestMoreNearBottom]);
+  }, [suspended, active, rows.length, searching, requestMoreNearBottom]);
 
   const overview = (
     <section className={cn('group-info-section', 'group-info-overview')} aria-label="群资料">
@@ -627,6 +630,7 @@ export function GroupInfoPanel({
   return (
     <aside
       hidden={hidden}
+      inert={closing}
       className={cn(
         'group-info-panel',
         layout === 'sidebar' && 'weq-group-sections',
@@ -640,7 +644,7 @@ export function GroupInfoPanel({
         }
       }}
     >
-      {memberMenu && active && !hidden ? (
+      {memberMenu && active && !suspended ? (
         conversation.generated ? (
           <ConversationActionsMenu
             {...memberMenu}
@@ -660,7 +664,7 @@ export function GroupInfoPanel({
           />
         )
       ) : null}
-      {rankingGroup === conversation.id && active && !hidden ? (
+      {rankingGroup === conversation.id && active && !suspended ? (
         <RankingModal
           key={conversation.id}
           kind="memberLevel"

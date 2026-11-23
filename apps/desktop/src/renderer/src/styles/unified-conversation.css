@@ -3,7 +3,7 @@
 }
 
 .composer.has-extensions {
-  grid-template-rows: auto 42px minmax(0, 1fr);
+  grid-template-rows: auto 42px var(--weq-composer-quote-space, 0px) minmax(0, 1fr);
 }
 
 .composer-extensions {
@@ -17,28 +17,38 @@
 .composer.has-extensions > .composer-tools {
   grid-row: 2;
 }
-.composer.has-extensions > .composer-editor {
+.composer.has-extensions > .composer-quote-slot {
   grid-row: 3;
+}
+.composer.has-extensions > :is(.composer-editor, .voice-panel, .flash-composer) {
+  grid-row: 4;
 }
 
 html[data-weq-layout='single'] .chat-pane.has-composer-extensions {
   --composer-height: calc(
     var(--mobile-composer-editor-height, 42px) +
     62px +
+    var(--weq-composer-quote-space, 0px) +
     var(--mobile-composer-safe-bottom, 0px) +
     var(--composer-extensions-height, 0px)
   ) !important;
 }
 
 html[data-weq-layout='single'] .composer.has-extensions {
-  grid-template-rows: auto var(--mobile-composer-editor-height, 42px) 48px;
+  grid-template-rows: auto var(--weq-composer-quote-space, 0px) var(
+      --mobile-composer-editor-height,
+      42px
+    ) 48px;
+}
+html[data-weq-layout='single'] .composer.has-extensions > .composer-quote-slot {
+  grid-row: 2;
 }
 html[data-weq-layout='single'] .composer.has-extensions > .composer-editor,
 html[data-weq-layout='single'] .composer.has-extensions > .mobile-composer-expand-button {
-  grid-row: 2;
+  grid-row: 3;
 }
 html[data-weq-layout='single'] .composer.has-extensions > .composer-tools {
-  grid-row: 3;
+  grid-row: 4;
 }
 html[data-weq-layout='single']
   .chat-pane.has-composer-extensions:has(.composer > :is(.emoji-panel, .composer-plus-panel)) {
@@ -155,7 +165,10 @@ html[data-weq-layout='single'] .chat-pane.without-composer {
   cursor: default;
 }
 html[data-weq-layout='single'] .composer.has-extensions:has(.weq-assistant-parameters) {
-  grid-template-rows: max-content minmax(var(--mobile-composer-editor-height, 42px), 1fr) max-content;
+  grid-template-rows: max-content var(--weq-composer-quote-space, 0px) minmax(
+      var(--mobile-composer-editor-height, 42px),
+      1fr
+    ) max-content;
 }
 html[data-weq-layout='single'] .composer:has(.weq-assistant-parameters) > .composer-tools {
   overflow: visible;
@@ -173,7 +186,7 @@ html[data-weq-layout='single'] .composer:has(.weq-assistant-parameters) > .compo
   width: 32px;
 }
 .composer.has-extensions:has(.weq-assistant-parameters) {
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto var(--weq-composer-quote-space, 0px) minmax(0, 1fr);
 }
 @container (max-width: 620px) {
   .composer:has(.weq-assistant-parameters) > .composer-tools {
