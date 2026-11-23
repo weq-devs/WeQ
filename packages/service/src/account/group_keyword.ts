@@ -15,7 +15,12 @@
 import type { AccountSession } from '@weq/account';
 import type { GroupMsg } from '@weq/db';
 import { DbWatchService, type DbWatchHandle } from './db_watch';
-import { createNtMsgDbHook, type NewMessages } from './nt_msg_hook';
+import {
+  createNtMsgDbHook,
+  isProxyMessageReadSharingEnabled,
+  type NewMessages,
+} from './nt_msg_hook';
+import type { GapFetchedMessage } from './gap_history';
 
 /**
  * 一个关键词，以及它**自己**的成员范围。
@@ -119,6 +124,15 @@ export interface GroupKeywordOptions {
 const MAX_TEXT_LEN = 200;
 /** Cap on the dedup set — a long-lived session would otherwise grow it forever. */
 const MAX_SEEN = 5_000;
+const MAX_LIVE_CANDIDATES = 512;
+const LIVE_CANDIDATE_MS = 30_000;
+
+type KeywordResult = { text: string; keyword: string | null };
+type LiveKeywordCandidate = KeywordResult & { expires: number };
+
+function proxyIdentity(group: string, seq: string, random: string, sender: string, time: string) {
+  return JSON.stringify([group, seq, random, sender, time]);
+}
 
 export class GroupKeywordService {
   private readonly watch: Pick<DbWatchService, 'mount'>;
@@ -128,6 +142,8 @@ export class GroupKeywordService {
   /** 已提醒过的 `group:seq`，避免同一 seq 因重复扫描被推两次。 */
   private readonly seen = new Set<string>();
   private generation = 0;
+  private readonly liveCandidates = new Map<string, LiveKeywordCandidate>();
+  private matches = new WeakMap<GroupMsg, KeywordResult>();
 
   constructor(
     private readonly session: AccountSession,
@@ -157,15 +173,78 @@ export class GroupKeywordService {
     this.handle.unmount();
     this.handle = null;
     this.seen.clear();
+    this.clearProxyMatches();
   }
 
   /** 更新规则（前端配置变化时调用）。 */
   setRules(rules: GroupKeywordRules): void {
     this.rules = rules;
+    this.clearProxyMatches();
   }
 
-  getRules(): GroupKeywordRules {
-    return this.rules;
+  observeLiveText(messages: readonly GapFetchedMessage[]): void {
+    if (!this.handle) return;
+    const expires = Date.now() + LIVE_CANDIDATE_MS;
+    for (const msg of messages) {
+      const rule = msg.kind === 'group' && this.rules[msg.conv];
+      if (
+        !rule ||
+        !msg.msgRandom ||
+        msg.msgRandom === '0' ||
+        msg.elements.some((el) => el.type !== 'text')
+      )
+        continue;
+      const text = msg.elements
+        .map((el) => (el.type === 'text' ? el.data.textContent : ''))
+        .join(' ')
+        .trim();
+      const id = proxyIdentity(msg.conv, msg.msgSeq, msg.msgRandom, msg.senderUid, msg.sendTime);
+      this.liveCandidates.delete(id);
+      this.liveCandidates.set(id, {
+        expires,
+        text,
+        keyword: matchesText(rule, msg.senderUid, text),
+      });
+      if (this.liveCandidates.size > MAX_LIVE_CANDIDATES)
+        this.liveCandidates.delete(this.liveCandidates.keys().next().value!);
+    }
+  }
+
+  clearProxyMatches(): void {
+    this.liveCandidates.clear();
+    this.matches = new WeakMap();
+  }
+
+  matchMessage(msg: GroupMsg): string | null {
+    return this.classify(msg)?.keyword ?? null;
+  }
+
+  private classify(msg: GroupMsg): KeywordResult | undefined {
+    const rule = this.rules[msg.targetGroupCode];
+    if (!rule) return undefined;
+    const share = isProxyMessageReadSharingEnabled(this.session);
+    const previous = share ? this.matches.get(msg) : undefined;
+    if (previous) return previous;
+    const text = plainTextOf(msg);
+    const live =
+      share && msg.msgRandom
+        ? this.liveCandidates.get(
+            proxyIdentity(
+              msg.targetGroupCode,
+              String(msg.msgSeq),
+              String(msg.msgRandom),
+              msg.senderUid,
+              String(msg.sendTime),
+            ),
+          )
+        : undefined;
+    // 灰条或异步编辑可能占用同一个序号，只有确认持久化正文相同才使用代理判定。
+    const result =
+      live && live.expires > Date.now() && live.text === text
+        ? live
+        : { text, keyword: matchesText(rule, msg.senderUid, text) };
+    if (share) this.matches.set(msg, result);
+    return result;
   }
 
   private isCurrent(generation: number): boolean {
@@ -183,9 +262,9 @@ export class GroupKeywordService {
 
   private async evaluate(msg: GroupMsg, generation: number): Promise<void> {
     const groupCode = msg.targetGroupCode;
-    const rule = this.rules[groupCode];
-    const keyword = matchesRule(rule, msg);
-    if (!keyword) return;
+    const result = this.classify(msg);
+    if (!result?.keyword) return;
+    const { keyword, text } = result;
 
     const key = `${groupCode}:${msg.msgSeq}`;
     if (this.seen.has(key)) return;
@@ -209,7 +288,7 @@ export class GroupKeywordService {
         senderUin: msg.senderUin,
         sendTime: msg.sendTime,
         keyword,
-        text: keywordExcerpt(plainTextOf(msg), keyword),
+        text: keywordExcerpt(text, keyword),
       });
     } catch (error) {
       if (!this.isCurrent(generation)) return;
@@ -238,14 +317,16 @@ export function matchesRule(
   rule: GroupKeywordRule | undefined,
   msg: Pick<GroupMsg, 'senderUid' | 'elements'>,
 ): string | null {
-  if (!rule || rule.keywords.length === 0) return null;
+  return rule ? matchesText(rule, msg.senderUid, plainTextOf(msg)) : null;
+}
 
-  const text = plainTextOf(msg).toLowerCase();
+function matchesText(rule: GroupKeywordRule, senderUid: string, message: string): string | null {
+  const text = message.toLowerCase();
   if (!text) return null;
   for (const entry of rule.keywords) {
     // 每个关键词各自带成员范围：非空时只认列表内成员发的消息（不指定即全部）。
     // 未命中范围的词直接跳过，继续看后面的词 —— 不能整条规则一起否决。
-    if (entry.memberUids.length > 0 && !entry.memberUids.includes(msg.senderUid)) continue;
+    if (entry.memberUids.length > 0 && !entry.memberUids.includes(senderUid)) continue;
     const needle = entry.keyword.trim().toLowerCase();
     if (needle && text.includes(needle)) return entry.keyword.trim();
   }

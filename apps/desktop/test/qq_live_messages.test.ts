@@ -10,7 +10,9 @@ import {
 } from '../../../vendor/weqbot/packages/protocol/src/push/schemas';
 import { mergeRoamingTimeline } from '@weq/service/roaming-timeline';
 import { decodeLivePush, LiveMessages } from '../src/main/qq_sync/live_messages';
-import { coalesceLiveDbWatch } from '../src/main/qq_sync/live_db_watch';
+import { coalesceLiveDbWatch, createLiveMessageObservers } from '../src/main/qq_sync/live_db_watch';
+import { createNtMsgDbHook, setProxyMessageReadSharing, type DbWatchTask } from '@weq/service';
+import type { AccountSession } from '@weq/account';
 import { GroupReactionWatch } from '../src/main/qq_sync/group_reaction_watch';
 
 const now = 1_800_000_000_000;
@@ -106,12 +108,19 @@ it('代理重放、先入库及晚入库均合并，保留同序号的其他灰�
   expect(
     mergeRoamingTimeline('group', [native, other], store.forConversation('group', '70001', now)),
   ).toEqual([native, other]);
-  store.confirm(native, now);
+  const storedText = [{ kind: 'text', textContent: 'hello' }] as const;
+  expect(store.confirm(native, now, storedText)).toBe(true);
   expect(store.forConversation('group', '70001', now)).toEqual([]);
   expect(store.accept([row], now)).toEqual([]);
   const dbFirst = new LiveMessages();
-  dbFirst.confirm(native, now);
+  expect(dbFirst.confirm(native, now, storedText)).toBe(false);
   expect(dbFirst.accept([row], now)).toEqual([]);
+  const changedAtWrite = new LiveMessages();
+  changedAtWrite.accept([row], now);
+  expect(changedAtWrite.confirm(native, now, [{ kind: 'text', textContent: 'edited' }])).toBe(
+    false,
+  );
+  expect(changedAtWrite.forConversation('group', '70001', now)).toEqual([]);
 });
 
 it('代理活跃时合并读库，持续写入也在固定时间内校准未知变化', async () => {
@@ -238,4 +247,72 @@ it('戳一戳只调度戳到当前账号的会话', () => {
   });
   const result = decodeLivePush(body(poke(self), poke('u_other'), poke(self)), self, account, now);
   expect(result.updates.interactions).toEqual([{ kind: 'c2c', conv: 'u_peer' }]);
+});
+
+it('有下游消费时桌面同步读取同一观测，保持独立交付且只查一遍消息', async () => {
+  vi.useFakeTimers();
+  const watches = new Set<DbWatchTask>();
+  const coordinator = createLiveMessageObservers({
+    mount(task) {
+      watches.add(task);
+      return {
+        unmount: () => {
+          watches.delete(task);
+          task.dispose?.();
+        },
+      };
+    },
+  });
+  let latest = 0n;
+  const listAfter = vi.fn(async (_group: string, start: bigint) => [
+    { msgId: 99n, msgSeq: start + 1n, sendTime: 1n, elements: [] },
+  ]);
+  const session = {
+    msgDbPath: 'nt_msg.db',
+    recentContacts: {
+      listSeqWatermarks: async () => [
+        { targetUid: '70001', chatType: 2, msgSeq: latest, sendTime: 1n },
+      ],
+    },
+    groupMsgs: { listAfter },
+  } as unknown as AccountSession;
+  setProxyMessageReadSharing(session, () => true);
+  let readerEnabled = true;
+  const desktop = vi.fn();
+  const external = vi.fn();
+  const downstream = coordinator
+    .consumer(session, () => readerEnabled)
+    .mount(createNtMsgDbHook(session, { onDbChanged: () => {}, onNewMessages: external }));
+  const primary = coalesceLiveDbWatch(
+    createNtMsgDbHook(session, { onDbChanged: () => {}, onNewMessages: desktop }),
+    () => !coordinator.hasConsumer(session),
+  );
+  watches.add(primary);
+  try {
+    await vi.advanceTimersByTimeAsync(0);
+    latest = 1n;
+    const change = {
+      dbPath: 'nt_msg.db',
+      prevTotal: 0,
+      total: 1,
+      delta: 1,
+      files: [],
+      at: 1,
+      observation: {},
+    };
+    const read = Promise.all([...watches].map((watch) => watch.onDbFileChangeHook(change)));
+    await vi.advanceTimersByTimeAsync(10);
+    await read;
+    expect(listAfter.mock.calls.map(([group, start]) => [group, start])).toEqual([['70001', 0n]]);
+    expect(desktop).toHaveBeenCalledOnce();
+    expect(external).toHaveBeenCalledOnce();
+
+    readerEnabled = false;
+    expect(coordinator.hasConsumer(session)).toBe(false);
+    downstream.unmount();
+    expect(coordinator.hasConsumer(session)).toBe(false);
+  } finally {
+    for (const watch of watches) watch.dispose?.();
+    vi.useRealTimers();
+  }
 });

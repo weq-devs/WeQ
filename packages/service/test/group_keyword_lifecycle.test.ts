@@ -5,6 +5,7 @@ import type { NewMessages } from '../src/account/nt_msg_hook';
 
 const state = vi.hoisted(() => ({
   receive: undefined as ((change: NewMessages) => Promise<void>) | undefined,
+  sharing: false,
 }));
 vi.mock('../src/account/db_watch', () => ({
   DbWatchService: class {
@@ -14,6 +15,7 @@ vi.mock('../src/account/db_watch', () => ({
   },
 }));
 vi.mock('../src/account/nt_msg_hook', () => ({
+  isProxyMessageReadSharingEnabled: () => state.sharing,
   createNtMsgDbHook: (_session: unknown, hooks: { onNewMessages: typeof state.receive }) => {
     state.receive = hooks.onNewMessages;
     return {};
@@ -59,6 +61,7 @@ function receive(...seqs: number[]) {
 afterEach(() => {
   for (const service of services.splice(0)) service.stop();
   state.receive = undefined;
+  state.sharing = false;
 });
 
 it('一页命中逐条交付并向消息 hook 返回背压，不同时展开所有通知', async () => {
@@ -128,4 +131,58 @@ it('旧批次迟到失败不删除重启后的去重标记，也不成为未处�
   await pending;
   await receive(1);
   expect(onHit).toHaveBeenCalledTimes(2);
+});
+
+it('代理正文先匹配，确认本地行后在普通通知和提醒词间复用判定', async () => {
+  state.sharing = true;
+  const onHit = vi.fn();
+  const watcher = fixture(onHit);
+  const readRules = vi.fn(() => [{ keyword: '提醒', memberUids: ['u_fixture'] }]);
+  watcher.setRules({
+    '123456': {
+      get keywords() {
+        return readRules();
+      },
+    },
+  });
+  const row = {
+    msgSeq: 187n,
+    msgRandom: 23n,
+    msgId: 9007199254741993n,
+    senderUid: 'u_fixture',
+    senderUin: 20001n,
+    sendTime: 30n,
+    targetGroupCode: '123456',
+    elements: [{ kind: 'text', textContent: '提醒 187' }],
+  } as GroupMsg;
+  watcher.observeLiveText([
+    {
+      kind: 'group',
+      conv: '123456',
+      msgId: '23',
+      msgSeq: '187',
+      msgRandom: '23',
+      senderUid: 'u_fixture',
+      senderUin: '20001',
+      sendTime: '30',
+      elements: [{ type: 'text', data: { textContent: '提醒 187' } }],
+    },
+  ]);
+  expect(readRules).toHaveBeenCalledOnce();
+  expect(watcher.matchMessage(row)).toBe('提醒');
+  await state.receive!({
+    file: { dbPath: '/fixture/nt_msg.db', prevTotal: 0, total: 1, delta: 1, files: [], at: 1 },
+    c2c: [],
+    group: [row],
+  });
+  expect(onHit).toHaveBeenCalledWith(
+    expect.objectContaining({ msgId: row.msgId, keyword: '提醒' }),
+  );
+  expect(readRules).toHaveBeenCalledOnce();
+
+  const modified: GroupMsg = { ...row, elements: [{ kind: 'text', textContent: '更正' }] };
+  expect(watcher.matchMessage(modified)).toBeNull();
+  expect(readRules).toHaveBeenCalledTimes(2);
+  watcher.setRules({ '123456': { keywords: [{ keyword: '更正', memberUids: [] }] } });
+  expect(watcher.matchMessage(modified)).toBe('更正');
 });

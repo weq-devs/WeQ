@@ -22,7 +22,7 @@ import { EventEmitter } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AccountQqSync } from '../qq_sync/account';
 import { GroupReactionWatch } from '../qq_sync/group_reaction_watch';
-import { coalesceLiveDbWatch } from '../qq_sync/live_db_watch';
+import { coalesceLiveDbWatch, createLiveMessageObservers } from '../qq_sync/live_db_watch';
 import { ensureQqSyncProxy } from '../qq_sync/runtime';
 import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
@@ -367,6 +367,7 @@ export function rememberAccountUid(uin: string, uid: string): void {
 
 /** One polling loop for the whole process; we (un)mount the active db on it. */
 const dbWatch = new DbWatchService();
+const liveMessageObservers = createLiveMessageObservers(dbWatch);
 /** Handle for the currently-watched account db, if any. */
 let dbWatchHandle: DbWatchHandle | null = null;
 let releaseUnreadWatch: (() => void) | undefined;
@@ -387,8 +388,8 @@ export function isSsePushActive(): boolean {
 }
 /** 群关键词提醒匹配器（随账号打开常驻），null = 无账号。 */
 let groupKeyword: GroupKeywordService | null = null;
-export function liveGroupKeywordRules() {
-  return groupKeyword?.getRules();
+export function matchLiveGroupKeyword(message: Parameters<GroupKeywordService['matchMessage']>[0]) {
+  return groupKeyword?.matchMessage(message) ?? null;
 }
 /**
  * 群关键词命中的「通知」实现（Electron 系统通知 + 写 2006 高亮）。由 app 层注入
@@ -654,13 +655,28 @@ function mountDbWatch(session: AccountSession): void {
     dbEventBus.emit('changed', { at: file.at } satisfies MessageDbNotice);
   });
   dbChangeNotification = notification;
+  const hasRecentPush = () =>
+    getAppContext().account === session &&
+    getAppContext().services?.qqClientSync?.hasRecentLiveMessages() === true;
+  const usesSharedRead = () => hasRecentPush() && liveMessageObservers.hasConsumer(session);
+  const deferredChanges = new WeakSet<DbChange>();
+  const reconcile = coalesceLiveDbWatch(
+    {
+      dbPath: session.msgDbPath,
+      onDbFileChangeHook(file) {
+        if (getAppContext().account !== session) return;
+        const services = getAppContext().services;
+        services?.unreadInfo.invalidateMessageFile(file);
+        services?.interactionBadges.requestScan(services.qqClientSync?.hasRecentLiveMessages());
+        notification.request(file);
+      },
+    },
+    usesSharedRead,
+  );
   const messageWatch = createNtMsgDbHook(session, {
     onDbChanged: (file) => {
-      if (getAppContext().account !== session) return;
-      const services = getAppContext().services;
-      services?.unreadInfo.invalidateMessageFile(file);
-      services?.interactionBadges.requestScan(services.qqClientSync?.hasRecentLiveMessages());
-      notification.request(file);
+      if (usesSharedRead()) deferredChanges.add(file);
+      return reconcile.onDbFileChangeHook(file);
     },
     onNewMessages: async (change: NewMessages) => {
       const ctx = getAppContext();
@@ -668,7 +684,7 @@ function mountDbWatch(session: AccountSession): void {
       ctx.services?.contactDirectory?.prioritizeGroupTimes(
         change.group.map((message) => message.targetGroupCode),
       );
-      if (ctx.account === session) {
+      if (ctx.account === session && !deferredChanges.has(change.file)) {
         try {
           await ctx.services?.unreadInfo.observeNewMessages(change);
         } catch (error) {
@@ -678,47 +694,59 @@ function mountDbWatch(session: AccountSession): void {
       }
       if (ctx.account !== session) return;
       const sync = ctx.services?.qqClientSync;
-      if (sync?.isLiveEnabled()) {
-        const now = Date.now();
-        for (const row of change.c2c)
-          sync.liveMessages.confirm(
-            {
-              kind: 'c2c',
-              conv: row.targetUid,
-              msgSeq: String(row.msgSeq),
-              senderUid: row.senderUid,
-              msgRandom: row.msgRandom?.toString(),
-            },
-            now,
-          );
-        for (const row of change.group)
-          sync.liveMessages.confirm(
-            {
-              kind: 'group',
-              conv: row.targetGroupCode,
-              msgSeq: String(row.msgSeq),
-              senderUid: row.senderUid,
-              msgRandom: row.msgRandom?.toString(),
-            },
-            now,
-          );
+      const live = sync?.isLiveEnabled() ? sync.liveMessages : undefined;
+      const now = Date.now();
+      const c2c = new Set((change.dataline ?? []).map((message) => message.targetUid));
+      for (const row of change.c2c) {
+        const confirmed = live?.confirm(
+          {
+            kind: 'c2c',
+            conv: row.targetUid,
+            msgSeq: String(row.msgSeq),
+            senderUid: row.senderUid,
+            msgRandom: row.msgRandom?.toString(),
+          },
+          now,
+          row.elements,
+        );
+        if (!confirmed) c2c.add(row.targetUid);
+      }
+      const groups = new Set<string>();
+      for (const row of change.group) {
+        const confirmed = live?.confirm(
+          {
+            kind: 'group',
+            conv: row.targetGroupCode,
+            msgSeq: String(row.msgSeq),
+            senderUid: row.senderUid,
+            msgRandom: row.msgRandom?.toString(),
+          },
+          now,
+          row.elements,
+        );
+        if (!confirmed || row.setEmojiList?.length) groups.add(row.targetGroupCode);
       }
       dbEventBus.emit('new', change);
-      const c2c = new Set(change.c2c.map((message) => message.targetUid));
-      for (const message of change.dataline ?? []) c2c.add(message.targetUid);
-      const groups = new Set(change.group.map((message) => message.targetGroupCode));
-      dbEventBus.emit('changed', {
-        at: change.file.at,
-        targets: [
-          ...[...c2c].map((conv) => ({ kind: 'c2c' as const, conv })),
-          ...[...groups].map((conv) => ({ kind: 'group' as const, conv })),
-        ],
-      } satisfies MessageDbNotice);
+      if (c2c.size || groups.size)
+        dbEventBus.emit('changed', {
+          at: change.file.at,
+          targets: [
+            ...[...c2c].map((conv) => ({ kind: 'c2c' as const, conv })),
+            ...[...groups].map((conv) => ({ kind: 'group' as const, conv })),
+          ],
+        } satisfies MessageDbNotice);
     },
   });
   dbWatchHandle = dbWatch.mount(
-    coalesceLiveDbWatch(messageWatch, () =>
-      Boolean(getAppContext().services?.qqClientSync?.hasRecentLiveMessages()),
+    coalesceLiveDbWatch(
+      {
+        ...messageWatch,
+        dispose() {
+          reconcile.dispose?.();
+          messageWatch.dispose?.();
+        },
+      },
+      () => hasRecentPush() && !liveMessageObservers.hasConsumer(session),
     ),
   );
   releaseUnreadWatch = getAppContext().services?.unreadInfo.attachMessageFileWatch();
@@ -747,7 +775,7 @@ function unmountDbWatch(): void {
 function mountGroupKeyword(session: AccountSession, rules: GroupKeywordRules): void {
   if (!groupKeyword) {
     groupKeyword = new GroupKeywordService(session, {
-      watch: dbWatch,
+      watch: liveMessageObservers.consumer(session),
       onHit: async (hit) => {
         const { services, account, platform } = getAppContext();
         if (account !== session || !services || !platform) return;
@@ -1080,7 +1108,7 @@ export async function syncAccountOneBot(
       binding.observer = {
         sessionId,
         handle: watchObservedMessages(
-          dbWatch,
+          liveMessageObservers.consumer(session),
           session,
           canPublish,
           async (uid) => (await profile.getProfile(uid))?.nick,
@@ -2053,7 +2081,7 @@ export function initAppContext(fileRoot?: string): AppContext {
       );
       // 防撤回 service：既装 trigger，又是「读 weq_recall_log」的入口。先建好，
       // 供 MsgService 给消息打「撤回」标（明文直显 + 撤回者），同时进 services。
-      const antiRecall = new AntiRecallService(
+      const antiRecall: AntiRecallService = new AntiRecallService(
         session,
         platform,
         join(userConfig.cacheDir(join('anti_recall', exportConfigId)), 'config.json'),
@@ -2062,7 +2090,10 @@ export function initAppContext(fileRoot?: string): AppContext {
             userConfig.cacheDir(join('anti_recall', exportConfigId)),
             'retained.db',
           ),
-          messageWatch: dbWatch,
+          messageWatch: liveMessageObservers.consumer(
+            session,
+            () => antiRecall.protection().enabled,
+          ),
           onArchiveChanged: (message) => {
             if (getAppContext().account !== session) return;
             this.services?.unreadInfo.invalidateRecall(message.kind, message.conv);
@@ -2167,6 +2198,7 @@ export function initAppContext(fileRoot?: string): AppContext {
         allowLiveMessage: (row) => !deletedMsgs.isHiddenCached(row),
         onLiveMessages: (messages) => {
           if (this.account !== session) return;
+          groupKeyword?.observeLiveText(messages);
           const byConversation = new Map<string, GapFetchedMessage[]>();
           for (const row of messages) {
             const key = `${row.kind}:${row.conv}`;
@@ -2204,6 +2236,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           if (this.account === session) {
             this.services?.unreadInfo.clearProxyReads();
             this.services?.interactionBadges.clearProxyConversations();
+            groupKeyword?.clearProxyMatches();
           }
         },
         readEnabled: () =>
@@ -4000,7 +4033,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             debounceMs: config.debounceMs,
             massThreshold: config.massThreshold,
           },
-          dbWatch,
+          liveMessageObservers.consumer(session, () => ssePush?.hasTarget === true),
         );
         ssePush.start();
       } else {

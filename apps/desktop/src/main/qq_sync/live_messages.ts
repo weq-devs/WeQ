@@ -1,3 +1,4 @@
+import type { Element } from '@weq/codec';
 import { toGapMessage, type GapFetchedMessage } from '@weq/service/gap-history';
 import { createMsgPushRegistry, decodeMessageBodies, decodePushEnvelope } from '@weqbot/protocol';
 import { clientReadTargets } from '@weqbot/protocol/qq-sync';
@@ -192,12 +193,29 @@ export class LiveMessages {
     return accepted;
   }
 
-  confirm(row: IdentityRow, now: number) {
+  confirm(row: IdentityRow, now: number, storedElements: readonly Element[]): boolean {
     const id = key(row);
-    if (!id) return;
+    if (!id) return false;
+    const entry = this.entries.get(id);
+    const shown = entry?.row?.elements;
+    const displayed = Boolean(
+      entry &&
+        now - entry.at <= LIVE_WINDOW_MS &&
+        shown &&
+        shown.length === storedElements.length &&
+        storedElements.every((element, index) => {
+          const previous = shown[index];
+          return (
+            previous?.type === 'text' &&
+            element.kind === 'text' &&
+            previous.data.textContent === element.textContent
+          );
+        }),
+    );
     this.entries.delete(id);
     this.entries.set(id, { at: now });
     this.expire(now);
+    return displayed;
   }
 
   forConversation(kind: GapFetchedMessage['kind'], conv: string, now: number) {

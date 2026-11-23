@@ -11,7 +11,7 @@
  * page, `listBefore` to page up, `listFrom` to re-read the loaded window live.
  */
 import { setTimeout as delay } from 'node:timers/promises';
-import { matchesRule, MESSAGE_CATEGORIES, OperationError } from '@weq/service';
+import { MESSAGE_CATEGORIES, OperationError } from '@weq/service';
 
 import { z } from 'zod';
 import { plainContentText } from '@weq/service/message-plain-text';
@@ -110,7 +110,7 @@ import {
   getAppContext,
   requireBootstrap,
   dbEventBus,
-  liveGroupKeywordRules,
+  matchLiveGroupKeyword,
   accountEventBus,
   type AccountServices,
   type RoamingCacheChange,
@@ -6433,14 +6433,13 @@ export const accountRouter = router({
   onNewMessages: procedure.subscription(() => {
     return observable<NewMessagesWire>((emit) => {
       const handler = (change: NewMessages): void => {
-        const rules = liveGroupKeywordRules();
         const messages: NewMessagesWire['messages'] = [
           ...change.c2c.map((m) =>
             c2cMsgToWire({ ...m, elements: toObservedRenderElements(m.elements) }),
           ),
           ...change.group.map((m) => ({
             ...groupMsgToWire({ ...m, elements: toObservedRenderElements(m.elements) }),
-            groupKeyword: matchesRule(rules?.[m.targetGroupCode], m) ? (true as const) : undefined,
+            groupKeyword: matchLiveGroupKeyword(m) ? (true as const) : undefined,
           })),
         ];
         const context = getAppContext();
