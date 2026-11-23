@@ -297,6 +297,7 @@ import {
   GROUP_MEMBER_PREVIEW_REFRESH_MS,
   useGroupMemberResolver,
 } from '../hooks/useGroupMemberResolver';
+import { createGroupMemberResults } from '../lib/groupMemberResults';
 import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
 import {
   activeGroupMembers,
@@ -2729,20 +2730,24 @@ function MainWorkspace(): ReactElement {
         client.account.getGroupMembersByUins.query({ ...binding, ...input, historyFallback: true }),
     );
   }, [messageScope, messageBindingRef]);
+  const groupMemberResults = useMemo(
+    () => createGroupMemberResults<GroupMemberWire>(),
+    [messageScope],
+  );
   const {
     missingMembers,
     resolveMembers,
     updateMembers: updateCachedMembers,
     invalidate: invalidateCachedMembers,
-  } = useGroupMemberResolver<GroupMemberWire>(0, groupMemberLookup.load);
+  } = useGroupMemberResolver<GroupMemberWire>(0, groupMemberLookup.load, groupMemberResults);
   const {
-    missingMembers: previewMembers,
     resolveMembers: resolvePreviewMembers,
     updateMembers: updatePreviewMembers,
     invalidate: invalidatePreviewMembers,
   } = useGroupMemberResolver<GroupMemberWire>(
     GROUP_MEMBER_PREVIEW_REFRESH_MS,
     groupMemberLookup.load,
+    groupMemberResults,
   );
   const [analysisReports, setAnalysisReports] = useState<AnalysisReportRequest[]>([]);
   useEffect(() => {
@@ -2830,8 +2835,8 @@ function MainWorkspace(): ReactElement {
     return names;
   }, [profileByUid]);
   const previewGroupNames = useMemo(
-    () => groupPreviewNameIndex(previewMembers, profileByUid),
-    [previewMembers, profileByUid],
+    () => groupPreviewNameIndex(missingMembers, profileByUid),
+    [missingMembers, profileByUid],
   );
   const {
     categoryById,
@@ -4553,13 +4558,14 @@ function MainWorkspace(): ReactElement {
     () => createReplyPreviewIndex(loadedMessageWires),
     [loadedMessageWires],
   );
+  const currentResolvedMembers = missingMembers[selectedUid];
   const currentGroupMembers = useMemo(() => {
     if (selectedConversation?.type !== 'group') return [];
 
     const allMemberWires = [...selectedGroupMemberWires];
     const knownUids = new Set(allMemberWires.map((member) => member.uid));
     // Merge in only THIS group's on-demand-resolved senders.
-    const groupMissing = missingMembers[selectedUid] ?? {};
+    const groupMissing = currentResolvedMembers ?? {};
     Object.values(groupMissing).forEach((m) => {
       if (!knownUids.has(m.uid)) {
         knownUids.add(m.uid);
@@ -4585,9 +4591,8 @@ function MainWorkspace(): ReactElement {
     });
   }, [
     selectedConversation?.type,
-    selectedUid,
     selectedGroupMemberWires,
-    missingMembers,
+    currentResolvedMembers,
     mapGroupMemberWire,
   ]);
 
@@ -4595,7 +4600,7 @@ function MainWorkspace(): ReactElement {
     const members = new Map(
       mergeMessageMembers(
         senderMemberPages.get(selectedUid) ?? [],
-        Object.values(missingMembers[selectedUid] ?? {}),
+        Object.values(currentResolvedMembers ?? {}),
       ).map((wire) => {
         const member = mapGroupMemberWire(wire);
         return [member.id, member] as const;
@@ -4603,7 +4608,13 @@ function MainWorkspace(): ReactElement {
     );
     for (const member of currentGroupMembers) members.set(member.id, member);
     return members;
-  }, [senderMemberPages, missingMembers, selectedUid, mapGroupMemberWire, currentGroupMembers]);
+  }, [
+    senderMemberPages,
+    currentResolvedMembers,
+    selectedUid,
+    mapGroupMemberWire,
+    currentGroupMembers,
+  ]);
 
   /**
    * 群资料面板的群内成员搜索。以前面板只在已加载的成员分页里做客户端过滤，
@@ -9236,6 +9247,29 @@ function MainWorkspace(): ReactElement {
     hasMore: boolean;
   } | null>(null);
   const previewRequest = useRef(0);
+  const privatePreviewGroup =
+    privatePreview?.conversation.type === 'group' ? privatePreview.conversation.id : '';
+  const activeMemberGroup = isGroup ? selectedUid : '';
+  useLayoutEffect(() => {
+    groupMemberResults.protect(
+      [
+        activeMemberGroup,
+        deletedGroup,
+        recalledGroup,
+        recordsGroup,
+        privatePreviewGroup,
+        ...visibleConversationIds,
+      ].filter(Boolean),
+    );
+  }, [
+    groupMemberResults,
+    activeMemberGroup,
+    deletedGroup,
+    recalledGroup,
+    recordsGroup,
+    privatePreviewGroup,
+    visibleConversationIds,
+  ]);
   const closePrivatePreview = () => {
     previewRequest.current++;
     setPrivatePreview(null);
@@ -9467,7 +9501,7 @@ function MainWorkspace(): ReactElement {
       [
         ...conversation.members,
         ...(selectedUid === conversation.id ? currentGroupMembers : []),
-        ...Object.values(previewMembers[conversation.id] ?? {}).map(mapGroupMemberWire),
+        ...Object.values(missingMembers[conversation.id] ?? {}).map(mapGroupMemberWire),
       ].map((member) => [member.id, member]),
     );
     return { ...conversation, members: [...members.values()] };
@@ -9475,7 +9509,7 @@ function MainWorkspace(): ReactElement {
     privatePreview?.conversation,
     selectedUid,
     currentGroupMembers,
-    previewMembers,
+    missingMembers,
     mapGroupMemberWire,
     profileByUid,
   ]);

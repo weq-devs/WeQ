@@ -7,6 +7,7 @@ import {
   type GroupMemberResolver,
 } from '../src/renderer/src/hooks/useGroupMemberResolver';
 import { createGroupMemberLookup } from '../src/renderer/src/lib/groupMemberRefresh';
+import { createGroupMemberResults } from '../src/renderer/src/lib/groupMemberResults';
 
 type Member = { uid: string; card: string };
 const mock = vi.hoisted(() => ({
@@ -50,6 +51,73 @@ it('当前聊天与列表解析器实际共用同一在途读取，各自正常�
   await act(async () => finish([{ uid: 'u_peer', card: '最新名片' }]));
   expect(chat.missingMembers['123'].u_peer.card).toBe('最新名片');
   expect(preview.missingMembers['123'].u_peer).toBe(chat.missingMembers['123'].u_peer);
+});
+
+it('聊天和预览共享一份展示结果，淘汰冷群后允许按原身份重新补全', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const cache = createGroupMemberResults<Member>(1, 2);
+  cache.protect(['active']);
+  const lookup = vi.fn(async ({ groupCode }: { groupCode: string }) => [
+    { uid: 'u_peer', card: groupCode },
+  ]);
+  let chat!: GroupMemberResolver<Member>, preview!: GroupMemberResolver<Member>;
+  const root = createRoot(document.createElement('div'));
+  function Probe() {
+    chat = useGroupMemberResolver<Member>(0, lookup, cache);
+    preview = useGroupMemberResolver<Member>(GROUP_MEMBER_PREVIEW_REFRESH_MS, lookup, cache);
+    return null;
+  }
+  act(() => root.render(h(Probe)));
+  cleanups.push(() => act(() => root.unmount()));
+  const read = (resolver: GroupMemberResolver<Member>, group: string) =>
+    act(async () => resolver.resolveMembers(group, ['u_peer'], new Set(), () => true));
+  await read(chat, 'active');
+  const pinned = chat.missingMembers.active;
+  expect(preview.missingMembers).toBe(chat.missingMembers);
+  await read(preview, 'recent');
+  await read(chat, 'other');
+  expect(preview.missingMembers.recent).toBeUndefined();
+  expect(preview.missingMembers.active).toBe(pinned);
+  await read(preview, 'recent');
+  expect(lookup).toHaveBeenLastCalledWith({ groupCode: 'recent', identities: ['u_peer'] });
+  expect(lookup).toHaveBeenCalledTimes(4);
+  expect(chat.missingMembers).toEqual({
+    active: pinned,
+    recent: { u_peer: { uid: 'u_peer', card: 'recent' } },
+  });
+});
+
+it('淘汰大群后迟到的结果不能把成员放回缓存', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const cache = createGroupMemberResults<Member>(4, 2);
+  let finish!: (members: Member[]) => void;
+  const lookup = vi.fn(
+    () =>
+      new Promise<Member[]>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  let resolver!: GroupMemberResolver<Member>;
+  const root = createRoot(document.createElement('div'));
+  function Probe() {
+    resolver = useGroupMemberResolver<Member>(0, lookup, cache);
+    return null;
+  }
+  act(() => root.render(h(Probe)));
+  cleanups.push(() => act(() => root.unmount()));
+  act(() => {
+    cache.protect(['active']);
+    resolver.updateMembers('active', [
+      { uid: 'u_old_a', card: '甲' },
+      { uid: 'u_old_b', card: '乙' },
+      { uid: 'u_old_c', card: '丙' },
+    ]);
+    resolver.resolveMembers('active', ['u_new'], new Set(), () => true);
+    cache.protect([]);
+  });
+  expect(resolver.missingMembers.active).toBeUndefined();
+  await act(async () => finish([{ uid: 'u_new', card: '迟到结果' }]));
+  expect(resolver.missingMembers.active).toBeUndefined();
 });
 
 it('仅带 QQ 号的历史发言人单独分批回填，迟到成员不覆盖群资料写回', async () => {

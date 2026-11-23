@@ -10,9 +10,9 @@
  * 与 useProfileResolver 同理，缓存活在 MainView 生命周期内，切号随重挂清空。
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { client } from '../trpc/client';
-import { reconcileResolvedRows } from '../lib/resolvedRows';
+import { createGroupMemberResults, type GroupMemberResults } from '../lib/groupMemberResults';
 import { isMemberUin, type GroupMemberLookup } from '../lib/groupMemberRefresh';
 
 /** getGroupMembersByUids 的单次 uid 上限（与 IPC 层一致）。 */
@@ -52,8 +52,10 @@ export interface GroupMemberResolver<T> {
 export function useGroupMemberResolver<T extends { uid: string; uin?: string }>(
   minRefreshIntervalMs = 0,
   lookup?: GroupMemberLookup<T>,
+  sharedResults?: GroupMemberResults<T>,
 ): GroupMemberResolver<T> {
-  const [missingMembers, setMissingMembers] = useState<Record<string, Record<string, T>>>({});
+  const results = useMemo(() => sharedResults ?? createGroupMemberResults<T>(), [sharedResults]);
+  const missingMembers = useSyncExternalStore(results.subscribe, results.snapshot);
   // 每个群已发起过 getGroupMembersByUids 的 uid（含查无结果的，例如已退群的戳一戳
   // / 禁言对象），避免每次渲染重复请求。用 ref 以便在同一轮内即时去重。
   const attemptedRef = useRef<Record<string, Set<string>>>({});
@@ -84,26 +86,35 @@ export function useGroupMemberResolver<T extends { uid: string; uin?: string }>(
   );
   useEffect(() => {
     mounted.current = true;
+    const unsubscribe = results.onEvict((group) => {
+      invalidate(group);
+      const prefix = `${group}:`;
+      for (const key of versions.current.keys())
+        if (key.startsWith(prefix)) versions.current.delete(key);
+      for (const key of lastRead.current.keys())
+        if (key.startsWith(prefix)) lastRead.current.delete(key);
+    });
     return () => {
       mounted.current = false;
+      unsubscribe();
       invalidate();
     };
-  }, [invalidate]);
-  const updateMembers = useCallback((groupCode: string, members: readonly T[]) => {
-    for (const member of members) {
-      const key = `${groupCode}:${member.uid}`;
-      versions.current.set(key, (versions.current.get(key) ?? 0) + 1);
-      if (member.uin && isMemberUin(member.uin)) {
-        const numberKey = `${groupCode}:${member.uin}`;
-        versions.current.set(numberKey, (versions.current.get(numberKey) ?? 0) + 1);
+  }, [invalidate, results]);
+  const updateMembers = useCallback(
+    (groupCode: string, members: readonly T[]) => {
+      results.touch(groupCode);
+      for (const member of members) {
+        const key = `${groupCode}:${member.uid}`;
+        versions.current.set(key, (versions.current.get(key) ?? 0) + 1);
+        if (member.uin && isMemberUin(member.uin)) {
+          const numberKey = `${groupCode}:${member.uin}`;
+          versions.current.set(numberKey, (versions.current.get(numberKey) ?? 0) + 1);
+        }
       }
-    }
-    setMissingMembers((previous) => {
-      const current = previous[groupCode] ?? {};
-      const next = reconcileResolvedRows(current, members);
-      return next === current ? previous : { ...previous, [groupCode]: next };
-    });
-  }, []);
+      results.merge(groupCode, members);
+    },
+    [results],
+  );
 
   const drain = useCallback(() => {
     if (!mounted.current || running.current) return;
@@ -179,22 +190,13 @@ export function useGroupMemberResolver<T extends { uid: string; uin?: string }>(
           }
         }
         if (members.length > 0) {
-          setMissingMembers((prev) => {
-            if (attemptedRef.current[job.groupCode] !== job.attempted) return prev;
-            const current = prev[job.groupCode] ?? {};
-            const groupCache = reconcileResolvedRows(
-              current,
-              members as unknown as T[],
-              (member) => {
-                const identity = byUin ? member.uin : member.uid;
-                return (
-                  identity !== undefined &&
-                  job.captured.get(identity) ===
-                    (versions.current.get(`${job.groupCode}:${identity}`) ?? 0)
-                );
-              },
+          results.merge(job.groupCode, members as unknown as T[], (member) => {
+            const identity = byUin ? member.uin : member.uid;
+            return (
+              identity !== undefined &&
+              job.captured.get(identity) ===
+                (versions.current.get(`${job.groupCode}:${identity}`) ?? 0)
             );
-            return groupCache === current ? prev : { ...prev, [job.groupCode]: groupCache };
           });
         }
       } catch (err) {
@@ -206,7 +208,7 @@ export function useGroupMemberResolver<T extends { uid: string; uin?: string }>(
         drainRef.current();
       }
     })();
-  }, [cancelTimer, minRefreshIntervalMs, lookup]);
+  }, [cancelTimer, minRefreshIntervalMs, lookup, results]);
   drainRef.current = drain;
 
   const resolveMembers = useCallback(
@@ -217,6 +219,7 @@ export function useGroupMemberResolver<T extends { uid: string; uin?: string }>(
       isCurrent: () => boolean,
     ): void => {
       if (!groupCode || !mounted.current) return;
+      results.touch(groupCode);
       let attempted = attemptedRef.current[groupCode];
       if (!attempted) {
         attempted = new Set();
@@ -244,7 +247,7 @@ export function useGroupMemberResolver<T extends { uid: string; uin?: string }>(
       }
       drainRef.current();
     },
-    [],
+    [results],
   );
 
   return { missingMembers, resolveMembers, updateMembers, invalidate };
