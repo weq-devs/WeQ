@@ -35,7 +35,16 @@
 
 import type { AccountSession } from '@weq/account';
 import { classifyChatType, compareMessageOrder } from '@weq/codec';
-import { measureMessageWork, withDatabaseSignal, type C2cMsg, type GroupMsg } from '@weq/db';
+import {
+  databaseRequestPriority,
+  databaseRequestSignal,
+  measureMessageWork,
+  promoteDatabaseSignal,
+  withDatabasePriority,
+  withDatabaseSignal,
+  type C2cMsg,
+  type GroupMsg,
+} from '@weq/db';
 import type { DbChange, DbWatchTask } from './db_watch';
 import { NEW_CONV_FRESH_SEC } from '../common/live_message';
 export { NEW_CONV_FRESH_SEC } from '../common/live_message';
@@ -46,6 +55,78 @@ const MAX_DELTA = 500;
 const NEW_CONV_CAP = 5;
 /** 长时间无新文件事件的重试仍会重新观察一次全量水位。 */
 const WATERMARK_RECHECK_MS = 5_000;
+
+type Watermarks = Awaited<ReturnType<AccountSession['recentContacts']['listSeqWatermarks']>>;
+type WatermarkRead = {
+  startedAt: number;
+  controller: AbortController;
+  result: Promise<Watermarks>;
+  waiters: number;
+  settled: boolean;
+  interactive: boolean;
+};
+const watermarkReads = new WeakMap<AccountSession, WeakMap<object, WatermarkRead>>();
+
+function readWatermarks(session: AccountSession): Promise<Watermarks> {
+  return measureMessageWork(session.msgDbPath, 'messageWatchWatermarks', () =>
+    session.recentContacts.listSeqWatermarks(),
+  );
+}
+
+async function sharedWatermarks(session: AccountSession, observation: object) {
+  const signal = databaseRequestSignal();
+  signal?.throwIfAborted();
+  let reads = watermarkReads.get(session);
+  if (!reads) {
+    reads = new WeakMap();
+    watermarkReads.set(session, reads);
+  }
+  let read = reads.get(observation);
+  if (!read || (read.settled && performance.now() - read.startedAt >= WATERMARK_RECHECK_MS)) {
+    const controller = new AbortController();
+    const priority = databaseRequestPriority();
+    const entry: WatermarkRead = {
+      startedAt: performance.now(),
+      controller,
+      // 共享查询使用自己的信号，单个消费者退出时不会取消其他消费者的读取。
+      result: Promise.resolve().then(() =>
+        withDatabasePriority(priority, () => readWatermarks(session), controller.signal),
+      ),
+      waiters: 0,
+      settled: false,
+      interactive: priority === 'interactive',
+    };
+    reads.set(observation, entry);
+    void entry.result.then(
+      () => (entry.settled = true),
+      () => {
+        entry.settled = true;
+        if (reads.get(observation) === entry) reads.delete(observation);
+      },
+    );
+    read = entry;
+  }
+  const entry = read;
+  if (!entry.interactive && databaseRequestPriority() === 'interactive') {
+    entry.interactive = true;
+    promoteDatabaseSignal(entry.controller.signal);
+  }
+  entry.waiters++;
+  const release = () => {
+    if (--entry.waiters || entry.settled) return;
+    if (reads.get(observation) === entry) reads.delete(observation);
+    entry.controller.abort();
+  };
+  signal?.addEventListener('abort', release, { once: true });
+  try {
+    const rows = await entry.result;
+    signal?.throwIfAborted();
+    return rows;
+  } finally {
+    signal?.removeEventListener('abort', release);
+    if (!signal?.aborted) release();
+  }
+}
 
 /** Newly-inserted messages since the last baseline, per chat type. */
 export interface NewMessages {
@@ -111,12 +192,8 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
     }, delay);
     timer.unref();
   };
-  const listWatermarks = () =>
-    measureMessageWork(session.msgDbPath, 'messageWatchWatermarks', () =>
-      session.recentContacts.listSeqWatermarks(),
-    );
   // 挂载即取基线，不能等第一条新消息触发文件变化后才把它当历史吞掉。
-  const initial = withDatabaseSignal(reads.signal, listWatermarks)
+  const initial = withDatabaseSignal(reads.signal, () => readWatermarks(session))
     .then((rows) => {
       if (disposed) return;
       prev = new Map(
@@ -135,8 +212,10 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
     })
     .catch(() => {});
 
-  async function syncWatermarks(): Promise<void> {
-    const rows = await listWatermarks();
+  async function syncWatermarks(file: DbChange): Promise<void> {
+    const rows = await (file.observation
+      ? sharedWatermarks(session, file.observation)
+      : readWatermarks(session));
     if (disposed) return;
     const current = new Map<string, ConvWatermark>();
     for (const r of rows) {
@@ -187,7 +266,7 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
       scannedFileRevision !== fileRevision ||
       performance.now() - scannedAt >= WATERMARK_RECHECK_MS
     ) {
-      await syncWatermarks();
+      await syncWatermarks(file);
       if (disposed) return;
       scannedFileRevision = fileRevision;
       scannedAt = performance.now();

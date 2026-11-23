@@ -1415,6 +1415,7 @@ export class UserConfigService {
   private readonly root: string;
   private readonly configPath: string;
   private cached: UserConfig | undefined;
+  private settingsCache?: { source: UserConfig['settings']; value: AppSettings };
   private readFailure: unknown;
   private skipAutoEnterThisStartup: boolean | undefined;
   private startupPageThisStartup: AppSettings['startupPage'] | undefined;
@@ -1987,6 +1988,7 @@ export class UserConfigService {
 
   reload(): void {
     this.cached = undefined;
+    this.settingsCache = undefined;
     this.readFailure = undefined;
     emitSettingsChanged();
   }
@@ -2013,6 +2015,7 @@ export class UserConfigService {
       throw error;
     }
     this.cached = next;
+    if (Object.hasOwn(patch, 'settings')) this.settingsCache = undefined;
     if (patch.settings)
       emitSettingsChanged(settingsChange ?? diffSettings(current.settings, patch.settings));
     this.logger.info('wrote user config', {
@@ -2030,12 +2033,25 @@ export class UserConfigService {
   }
 
   getSettings(): AppSettings {
+    return structuredClone(this.settingsSnapshot());
+  }
+
+  /** 高频调用可只取所需字段，返回的对象仍由调用方独立持有。 */
+  getSetting<K extends keyof AppSettings>(key: K): AppSettings[K] {
+    const value = this.settingsSnapshot()[key];
+    return value !== null && typeof value === 'object' ? structuredClone(value) : value;
+  }
+
+  private settingsSnapshot(): AppSettings {
     const s = this.read().settings;
+    const cached = this.settingsCache;
+    if (cached && cached.source === s) return cached.value;
     const d = DEFAULT_APP_SETTINGS;
     const resources = localModelResources(s);
     // 只补资源引用，不重写原始 provider / 密钥和未知旧字段；不搬动任何模型文件。
     if (s && !s.modelResources) {
       this.write({ settings: { ...s, modelResources: resources } });
+      return this.settingsSnapshot();
     }
     // 三端现在都能读内存：macOS 需要 root **且**目标未开启强化运行时保护
     // （QQ 已开启，所以要先关 SIP），但门槛只是「能不能读」，不再是平台开关 ——
@@ -2052,8 +2068,8 @@ export class UserConfigService {
       ?.suppressPtraceHint;
     const suppressAttachHint =
       s?.suppressAttachHint ?? legacySuppressAttachHint ?? d.suppressAttachHint;
-    return {
-      sharedPreferences: structuredClone(s?.sharedPreferences ?? {}),
+    const value: AppSettings = {
+      sharedPreferences: s?.sharedPreferences ?? {},
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
       contactCard: normalizeContactCard(s?.contactCard),
       updateCheckPrerelease: s?.updateCheckPrerelease === true,
@@ -2221,6 +2237,8 @@ export class UserConfigService {
       },
       aiImages: normalizeImagePreferences(s?.aiImages),
     };
+    this.settingsCache = { source: s, value };
+    return value;
   }
 
   /** WeQ 验证器（应用锁 TOTP）的 Base32 密钥，未配置时为 null。 */

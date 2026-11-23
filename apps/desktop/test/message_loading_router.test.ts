@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { EventEmitter } from 'node:events';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { scheduleDatabase } from '@weq/db';
+import { databaseRequestSignal, scheduleDatabase } from '@weq/db';
 import { accountRouter } from '../src/main/ipc/routers/account';
 
 const fixture = vi.hoisted(() => ({
@@ -9,6 +9,7 @@ const fixture = vi.hoisted(() => ({
   latest: vi.fn(),
   media: vi.fn(),
   cached: vi.fn(),
+  search: vi.fn(),
   switched: false,
 }));
 vi.mock('../src/main/context/app_context', () => {
@@ -20,6 +21,7 @@ vi.mock('../src/main/context/app_context', () => {
       getReplyMedia: (...args: unknown[]) => fixture.media(...args),
     },
     gapHistory: { cachedTimeline: (...args: unknown[]) => fixture.cached(...args) },
+    unifiedSearch: { slowSearch: (...args: unknown[]) => fixture.search(...args) },
   };
   const other = { ...services };
   return {
@@ -55,6 +57,40 @@ const local = () => ({
   deletedKind: 'qq',
 });
 const readWindow = { owner: '22222222-2222-4222-8222-222222222222', generation: 1 };
+
+it('侧栏搜索换代取消正在运行的读取，迟到的取消不影响新关键词', async () => {
+  const api = accountRouter.createCaller({});
+  const first = { owner: 'a'.repeat(32), generation: 1 };
+  const second = { ...first, generation: 2 };
+  let release!: () => void;
+  fixture.search.mockImplementationOnce(async () => {
+    const signal = databaseRequestSignal()!;
+    await new Promise<void>((_, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      release = () => expect(signal.aborted).toBe(true);
+    });
+  });
+  fixture.search.mockImplementationOnce(async () => {
+    const signal = databaseRequestSignal();
+    expect(signal?.aborted).toBe(false);
+    return { chatRecords: [] };
+  });
+  const old = api.searchSlow({ keyword: '旧词', searchWindow: first });
+  const cancelled = expect(old).rejects.toThrow();
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  expect(await api.searchSlow({ keyword: '新词', searchWindow: second })).toEqual({
+    chatRecords: [],
+  });
+  await cancelled;
+  release();
+  await api.cancelSidebarSearch(first);
+  fixture.search.mockResolvedValueOnce({ chatRecords: [] });
+  await expect(api.searchSlow({ keyword: '新词', searchWindow: second })).resolves.toEqual({
+    chatRecords: [],
+  });
+  await api.cancelSidebarSearch(second);
+  await expect(api.searchSlow({ keyword: '迟到', searchWindow: second })).rejects.toThrow();
+});
 
 it('冷首屏在慢漫游缓存之前交付本地正文与删除状态，随后发送完整合并页', async () => {
   let release!: (rows: unknown[]) => void;

@@ -74,6 +74,8 @@ describe('数据库文件变化监听', () => {
       expect(fs.scan).toHaveBeenCalledTimes(2);
       expect(first).toHaveBeenCalledTimes(2);
       expect(second).toHaveBeenCalledOnce();
+      expect(second.mock.calls[0]?.[0].observation).toBe(first.mock.calls[1]?.[0].observation);
+      expect(second.mock.calls[0]?.[0].observation).not.toBe(first.mock.calls[0]?.[0].observation);
       expect(second.mock.calls[0]?.[0]).toMatchObject({
         prevTotal: 20,
         total: 30,

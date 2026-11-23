@@ -178,23 +178,29 @@ export class GroupMsgFtsDb {
     keyword: string,
     limit = 20,
     offset = 0,
+    lookAhead = false,
   ): Promise<{ items: BuddyMsgFtsHit[]; total: number }> {
     const needle = keyword.trim();
     if (!needle) return { items: [], total: 0 };
     const like = `%${escapeLike(needle)}%`;
     const [countRows, rows] = await Promise.all([
-      this.qq.query(`SELECT COUNT(*) FROM group_msg_fts WHERE "41702" LIKE ? ESCAPE '\\'`, [like]),
+      lookAhead
+        ? undefined
+        : this.qq.query(`SELECT COUNT(*) FROM group_msg_fts WHERE "41702" LIKE ? ESCAPE '\\'`, [
+            like,
+          ]),
       this.qq.query(
         `SELECT ${SELECT_COLUMNS} FROM group_msg_fts
           WHERE "41702" LIKE ? ESCAPE '\\'
           ORDER BY "40050" DESC
           LIMIT ? OFFSET ?`,
-        [like, BigInt(limit), BigInt(offset)],
+        [like, BigInt(lookAhead ? limit + 1 : limit), BigInt(offset)],
       ),
     ]);
     return {
-      items: rows.map(rowToHit),
-      total: Number(countRows[0]?.[0] ?? 0),
+      items: (lookAhead ? rows.slice(0, limit) : rows).map(rowToHit),
+      // 候选池只需判断是否截断，多读一项即可。
+      total: countRows ? Number(countRows[0]?.[0] ?? 0) : offset + rows.length,
     };
   }
 

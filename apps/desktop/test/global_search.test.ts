@@ -1,7 +1,7 @@
 import './support/development-features.stub';
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useGlobalSearch } from '../src/renderer/src/hooks/useGlobalSearch';
 import type {
   ConversationScope,
@@ -19,9 +19,15 @@ import {
   type ChatRecordSearchHit,
 } from '../src/renderer/src/components/search/types';
 
-const rpc = vi.hoisted(() => ({ quick: vi.fn(), slow: vi.fn() }));
+const rpc = vi.hoisted(() => ({ quick: vi.fn(), slow: vi.fn(), cancel: vi.fn(async () => true) }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  client: { account: { searchQuick: { query: rpc.quick }, searchSlow: { query: rpc.slow } } },
+  client: {
+    account: {
+      searchQuick: { query: rpc.quick },
+      searchSlow: { query: rpc.slow },
+      cancelSidebarSearch: { mutate: rpc.cancel },
+    },
+  },
 }));
 
 const quickResult: QuickSearchResult = {
@@ -100,6 +106,9 @@ function mountSearch() {
   };
 }
 
+beforeEach(() => {
+  rpc.cancel.mockResolvedValue(true);
+});
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -268,13 +277,15 @@ describe('全局搜索请求生命周期', () => {
       f.render('合成', categories, 'account-a', ['clone']);
       expect(f.result.quick).toBeNull();
       await act(async () => vi.advanceTimersByTimeAsync(200));
-      expect(rpc.quick).toHaveBeenLastCalledWith({
-        keyword: '合成',
-        categories,
-        limit: 3,
-        conversationScope: 'all',
-        sources: ['clone'],
-      });
+      expect(rpc.quick).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          keyword: '合成',
+          categories,
+          limit: 3,
+          conversationScope: 'all',
+          sources: ['clone'],
+        }),
+      );
       await act(async () => old.resolve(quickResult));
       expect(f.result.quick?.contacts).toEqual([]);
     } finally {
@@ -302,12 +313,14 @@ describe('全局搜索请求生命周期', () => {
         await vi.advanceTimersByTimeAsync(200);
       });
       expect(rpc.quick).not.toHaveBeenCalled();
-      expect(rpc.slow).toHaveBeenCalledWith({
-        keyword: '关键词',
-        limit: 3,
-        categories: ['file'],
-        conversationScope: 'all',
-      });
+      expect(rpc.slow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keyword: '关键词',
+          limit: 3,
+          categories: ['file'],
+          conversationScope: 'all',
+        }),
+      );
     } finally {
       f.close();
     }
@@ -327,12 +340,14 @@ describe('全局搜索请求生命周期', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(200);
       });
-      expect(rpc.quick).toHaveBeenCalledWith({
-        keyword: '第一次',
-        limit: 3,
-        categories: ['friend'],
-        conversationScope: 'all',
-      });
+      expect(rpc.quick).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keyword: '第一次',
+          limit: 3,
+          categories: ['friend'],
+          conversationScope: 'all',
+        }),
+      );
       expect(f.result.quick?.friends).toHaveLength(1);
       f.render('第二次', ['friend']);
       expect(f.result.quick).toBeNull();
@@ -373,12 +388,14 @@ describe('全局搜索请求生命周期', () => {
       });
       expect(f.result.quick).toBeNull();
       expect(f.result.slow).toMatchObject(slowResult);
-      expect(rpc.slow).toHaveBeenCalledWith({
-        keyword: '关键词',
-        limit: 3,
-        categories: ['file'],
-        conversationScope: 'all',
-      });
+      expect(rpc.slow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keyword: '关键词',
+          limit: 3,
+          categories: ['file'],
+          conversationScope: 'all',
+        }),
+      );
       f.render('关键词', []);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(200);
@@ -416,7 +433,7 @@ describe('全局搜索请求生命周期', () => {
     }
   });
 
-  it('卸载前取消防抖，已经发出的响应在卸载后被丢弃', async () => {
+  it('卸载前取消防抖，已经发出的读取使对应服务端搜索窗口取消', async () => {
     vi.useFakeTimers();
     const f = mountSearch();
     f.render('关键词');
@@ -426,6 +443,7 @@ describe('全局搜索请求生命周期', () => {
     });
     expect(rpc.quick).not.toHaveBeenCalled();
     expect(rpc.slow).not.toHaveBeenCalled();
+    expect(rpc.cancel).not.toHaveBeenCalled();
     const late = deferred<QuickSearchResult>();
     rpc.quick.mockReturnValue(late.promise);
     const active = mountSearch();
@@ -435,6 +453,8 @@ describe('全局搜索请求生命周期', () => {
     });
     const before = active.result;
     active.close();
+    expect(rpc.cancel).toHaveBeenCalledOnce();
+    expect(rpc.cancel).toHaveBeenCalledWith(rpc.quick.mock.calls[0]?.[0].searchWindow);
     await act(async () => {
       late.resolve(quickResult);
     });

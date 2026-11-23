@@ -13,6 +13,7 @@ import {
 import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { algoFor, type AccountSession } from '@weq/account';
 import {
+  databaseRequestSignal,
   SourceMsgSearchDb,
   withDatabaseWorkload,
   type SourceSearchQuery,
@@ -292,6 +293,7 @@ export class UnifiedSearchService {
     {
       at: number;
       result: Promise<{ items: ConversationRecordHit[]; limited: boolean }>;
+      signal?: AbortSignal;
     }
   >();
   private readonly chatRecordCache = new Map<
@@ -300,7 +302,7 @@ export class UnifiedSearchService {
   >();
   private readonly filteredRecordCache = new Map<
     string,
-    { at: number; result: Promise<FilteredChatRecords> }
+    { at: number; result: Promise<FilteredChatRecords>; signal?: AbortSignal }
   >();
   private readonly fileCache = new Map<
     string,
@@ -551,6 +553,7 @@ export class UnifiedSearchService {
       try {
         return await withDatabaseWorkload('bulk', query);
       } catch (error) {
+        databaseRequestSignal()?.throwIfAborted();
         failures.add(category);
         console.error(`[unified-search] ${category} failed:`, error);
         return [];
@@ -1321,8 +1324,10 @@ export class UnifiedSearchService {
   private filteredRecords(keyword: string, filter: GlobalChatRecordFilter) {
     const key = JSON.stringify([keyword, filter.sender, filter.start, filter.end, filter.category]);
     const now = Date.now();
+    const signal = databaseRequestSignal();
     const cached = this.filteredRecordCache.get(key);
-    if (cached && now - cached.at < 30_000) return cached.result;
+    if (cached && now - cached.at < 30_000 && (!cached.signal || cached.signal === signal))
+      return cached.result;
     this.filteredRecordCache.delete(key);
     const oldest = this.filteredRecordCache.keys().next().value;
     if (oldest !== undefined && this.filteredRecordCache.size >= 8)
@@ -1332,7 +1337,14 @@ export class UnifiedSearchService {
         this.filteredRecordCache.delete(key);
       throw error;
     });
-    this.filteredRecordCache.set(key, { at: now, result });
+    const entry = { at: now, result, signal };
+    this.filteredRecordCache.set(key, entry);
+    void result.then(
+      () => {
+        entry.signal = undefined;
+      },
+      () => {},
+    );
     return result;
   }
 
@@ -1430,6 +1442,7 @@ export class UnifiedSearchService {
         ? this.groupIndex.topPartitions(keyword, 200)
         : this.session.groupMsgFts.topConversationsByKeyword(keyword, 200),
     ]);
+    databaseRequestSignal()?.throwIfAborted();
     this.maybeRetire('buddy');
     this.maybeRetire('group');
     if (buddy.status === 'rejected' && group.status === 'rejected')
@@ -1526,8 +1539,10 @@ export class UnifiedSearchService {
   private serviceRecords(
     appId: string,
   ): Promise<{ items: ConversationRecordHit[]; limited: boolean }> {
+    const signal = databaseRequestSignal();
     const cached = this.serviceMessageCache.get(appId);
-    if (cached && Date.now() - cached.at < 30_000) return cached.result;
+    if (cached && Date.now() - cached.at < 30_000 && (!cached.signal || cached.signal === signal))
+      return cached.result;
     const result = (async () => {
       const rows =
         (await this.session.serviceAssistantMsgs?.listLatest(
@@ -1558,16 +1573,22 @@ export class UnifiedSearchService {
         }),
       };
     })();
-    this.serviceMessageCache.set(appId, { at: Date.now(), result });
+    const entry = { at: Date.now(), result, signal };
+    this.serviceMessageCache.set(appId, entry);
     while (this.serviceMessageCache.size > 32) {
       const oldest = this.serviceMessageCache.keys().next().value;
       if (oldest === undefined) break;
       this.serviceMessageCache.delete(oldest);
     }
-    void result.catch(() => {
-      if (this.serviceMessageCache.get(appId)?.result === result)
-        this.serviceMessageCache.delete(appId);
-    });
+    void result.then(
+      () => {
+        entry.signal = undefined;
+      },
+      () => {
+        if (this.serviceMessageCache.get(appId)?.result === result)
+          this.serviceMessageCache.delete(appId);
+      },
+    );
     return result;
   }
 
@@ -1584,11 +1605,21 @@ export class UnifiedSearchService {
     // 候选池有界；只去掉同一来源、会话、消息的重复索引行。
     const [buddyPool, groupPool] = await Promise.all([
       this.buddyIndex?.ready && [...keyword].length >= 3
-        ? this.buddyIndex.searchFiles(keyword, FILE_SEARCH_CANDIDATE_LIMIT, 0)
-        : this.session.buddyMsgFts.searchFilesByKeyword(keyword, FILE_SEARCH_CANDIDATE_LIMIT, 0),
+        ? this.buddyIndex.searchFiles(keyword, FILE_SEARCH_CANDIDATE_LIMIT, 0, true)
+        : this.session.buddyMsgFts.searchFilesByKeyword(
+            keyword,
+            FILE_SEARCH_CANDIDATE_LIMIT,
+            0,
+            true,
+          ),
       this.groupIndex?.ready && [...keyword].length >= 3
-        ? this.groupIndex.searchFiles(keyword, FILE_SEARCH_CANDIDATE_LIMIT, 0)
-        : this.session.groupMsgFts.searchFilesByKeyword(keyword, FILE_SEARCH_CANDIDATE_LIMIT, 0),
+        ? this.groupIndex.searchFiles(keyword, FILE_SEARCH_CANDIDATE_LIMIT, 0, true)
+        : this.session.groupMsgFts.searchFilesByKeyword(
+            keyword,
+            FILE_SEARCH_CANDIDATE_LIMIT,
+            0,
+            true,
+          ),
     ]);
     this.maybeRetire('buddy');
     this.maybeRetire('group');
@@ -1599,6 +1630,7 @@ export class UnifiedSearchService {
       ...groupPool.items.map((hit) => ({ hit, source: 'group' as const })),
     ].sort((a, b) => Number(b.hit.sendTime) - Number(a.hit.sendTime));
     for (const { hit: h, source } of candidates) {
+      databaseRequestSignal()?.throwIfAborted();
       const name = h.fileName || '';
       const key = JSON.stringify([source, h.targetUid, h.msgId.toString()]);
       if (!name || seen.has(key)) continue;

@@ -10,6 +10,21 @@ import { snapshotWeqSettings, validateWeqAppSettings } from '../src/bootstrap/ba
 import { configFixture } from './support/user_config';
 import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '../src/common/update_settings';
 
+it('单字段设置与整份快照隔离调用方修改，并在保存和重载后读到新值', () => {
+  const f = configFixture({ settings: { reportReadEnabled: true } });
+  const snapshot = f.service.getSettings();
+  const originalOrder = snapshot.contactCard.order.slice();
+  snapshot.contactCard.order.length = 0;
+  f.service.getSetting('contactCard').order.length = 0;
+  expect(f.service.getSetting('contactCard').order).toEqual(originalOrder);
+  expect(f.service.getSetting('reportReadEnabled')).toBe(true);
+  f.service.setSettings({ reportReadEnabled: false });
+  expect(f.service.getSetting('reportReadEnabled')).toBe(false);
+  f.open().setSettings({ reportReadEnabled: true });
+  f.service.reload();
+  expect(f.service.getSetting('reportReadEnabled')).toBe(true);
+});
+
 describe('自动检查更新频率', () => {
   it('旧配置默认 60 分钟，正数不设上限并随备份保留', () => {
     const f = configFixture();

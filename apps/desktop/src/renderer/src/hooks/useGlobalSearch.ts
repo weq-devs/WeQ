@@ -55,13 +55,21 @@ export function useGlobalSearch(
     revision,
   ]);
   const [state, setState] = useState<SearchState>(() => ({ key, results: {} }));
+  const [owner] = useState(() =>
+    Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+      byte.toString(16).padStart(2, '0'),
+    ).join(''),
+  );
+  const generation = useRef(0);
   const currentKey = useRef(key);
   currentKey.current = key;
 
   useEffect(() => {
     let cancelled = false;
+    let remaining = 0;
     setState({ key, results: {} });
     const update = (category: SearchCategory, result: CategoryResult) => {
+      remaining--;
       if (cancelled || currentKey.current !== key) return;
       setState((previous) => ({
         key,
@@ -69,22 +77,26 @@ export function useGlobalSearch(
       }));
     };
     if (!accountKey || !query || !enabledCategories.length) return undefined;
+    const searchWindow = { owner, generation: ++generation.current };
     const timer = window.setTimeout(() => {
-      for (const category of new Set(enabledCategories)) {
+      const categories = new Set(enabledCategories);
+      remaining = categories.size;
+      for (const category of categories) {
         const input = {
           keyword: query,
           limit: 3,
           categories: [category],
           conversationScope,
+          searchWindow,
+          expectedAccountUin,
+          expectedAccountConfigId,
           ...(sources ? { sources: [...sources] } : {}),
         };
         if (isSlowSearchCategory(category)) {
           void client.account.searchSlow
             .query({
               ...input,
-              ...(category === 'chatRecord' && recordFilter
-                ? { recordFilter, expectedAccountUin, expectedAccountConfigId }
-                : {}),
+              ...(category === 'chatRecord' && recordFilter ? { recordFilter } : {}),
             })
             .then(
               (slow) => update(category, { slow, error: false }),
@@ -101,6 +113,8 @@ export function useGlobalSearch(
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      if (remaining > 0)
+        void client.account.cancelSidebarSearch.mutate(searchWindow).catch(() => {});
     };
   }, [
     key,
@@ -112,6 +126,7 @@ export function useGlobalSearch(
     recordFilter,
     expectedAccountUin,
     expectedAccountConfigId,
+    owner,
   ]);
 
   return useMemo(() => {

@@ -79,6 +79,7 @@ const independentReads = new Set([
   'account.listFrom',
   'remoteCache.messages',
   'account.cancelMessageRead',
+  'account.cancelSidebarSearch',
   'account.promoteMessageRead',
   // 本地气泡查询不能被同批次中的字体/挂件下载拖住。
   'account.dressup.resolveMsgDecoration',

@@ -58,6 +58,8 @@ export interface DbChange {
   files: DbFileSize[];
   /** Epoch ms when the change was observed. */
   at: number;
+  /** 同一路径在一次轮询中的共同观测标识。 */
+  readonly observation?: object;
 }
 
 /**
@@ -236,6 +238,7 @@ export class DbWatchService {
         // 仅本轮共享文件读取；各 hook 的可变 payload 仍互相独立。
         files: files.map((file) => ({ ...file })),
         at,
+        observation: snapshot,
       };
       // Fire-and-forget, but serialized per task via `running`. Hooks must
       // recompute their own delta (msgId diff, etc.) rather than trusting

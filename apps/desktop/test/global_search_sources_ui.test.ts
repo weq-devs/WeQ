@@ -12,9 +12,15 @@ import {
 } from '@weq/service/search-policy';
 import type { SearchCategory } from '../src/renderer/src/components/search/types';
 
-const rpc = vi.hoisted(() => ({ quick: vi.fn(), slow: vi.fn() }));
+const rpc = vi.hoisted(() => ({ quick: vi.fn(), slow: vi.fn(), cancel: vi.fn(async () => true) }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  client: { account: { searchQuick: { query: rpc.quick }, searchSlow: { query: rpc.slow } } },
+  client: {
+    account: {
+      searchQuick: { query: rpc.quick },
+      searchSlow: { query: rpc.slow },
+      cancelSidebarSearch: { mutate: rpc.cancel },
+    },
+  },
   trpc: {},
 }));
 beforeEach(() => vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true));
@@ -167,13 +173,15 @@ describe('全局搜索两层筛选', () => {
       });
       expect(rpc.quick).not.toHaveBeenCalled();
       expect(rpc.slow).toHaveBeenCalledOnce();
-      expect(rpc.slow).toHaveBeenCalledWith({
-        keyword: '合成',
-        limit: 3,
-        categories: ['chatRecord'],
-        conversationScope: 'all',
-        sources: ['assistant'],
-      });
+      expect(rpc.slow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keyword: '合成',
+          limit: 3,
+          categories: ['chatRecord'],
+          conversationScope: 'all',
+          sources: ['assistant'],
+        }),
+      );
       await act(async () => {
         root.render(h(Harness, { sources: clone }));
         vi.advanceTimersByTime(200);
@@ -181,13 +189,15 @@ describe('全局搜索两层筛选', () => {
       await act(async () => {
         vi.advanceTimersByTime(200);
       });
-      expect(rpc.quick).toHaveBeenCalledWith({
-        keyword: '合成',
-        limit: 3,
-        categories: ['contact'],
-        conversationScope: 'all',
-        sources: ['clone'],
-      });
+      expect(rpc.quick).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keyword: '合成',
+          limit: 3,
+          categories: ['contact'],
+          conversationScope: 'all',
+          sources: ['clone'],
+        }),
+      );
       expect(rpc.slow.mock.calls.some((call) => call[0].categories.includes('file'))).toBe(false);
     } finally {
       act(() => root.unmount());

@@ -410,7 +410,7 @@ function webNotice(session: AccountSession, notice: WebNoticePayload): void {
   } satisfies WebNoticeEvent);
 }
 function recallNotificationsEnabled(config: UserConfigService): boolean {
-  const { banner, system } = config.getSettings().notificationEvents.recall;
+  const { banner, system } = config.getSetting('notificationEvents').recall;
   return banner || system;
 }
 function observeInteractionRecall(session: AccountSession, event: RecallNotifyEvent): void {
@@ -421,7 +421,7 @@ function notifyRecall(session: AccountSession, event: RecallNotifyEvent): void {
   const ctx = getAppContext();
   if (
     ctx.account === session &&
-    ctx.bootstrap?.userConfig.getSettings().notificationEvents.recall.banner
+    ctx.bootstrap?.userConfig.getSetting('notificationEvents').recall.banner
   )
     ctx.services?.interactionBadges.observeRecall(event, true);
   if (ctx.account !== session || !ctx.services) return;
@@ -455,7 +455,7 @@ function notifyMail(session: AccountSession, notice: MailNotice): boolean {
   });
   mailNotifier?.(String(session.context.uin), notice);
   return (
-    getAppContext().bootstrap?.userConfig.getSettings().notificationEvents.mail.banner === true
+    getAppContext().bootstrap?.userConfig.getSetting('notificationEvents').mail.banner === true
   );
 }
 let mailNotifier: ((uin: string, notice: MailNotice) => void) | null = null;
@@ -1125,7 +1125,7 @@ function startDbHealthCheck(
       details,
       reportPath,
     });
-    const channels = ctx.bootstrap?.userConfig.getSettings().notificationEvents.databaseDamage;
+    const channels = ctx.bootstrap?.userConfig.getSetting('notificationEvents').databaseDamage;
     if (channels && !channels.banner && !channels.system) return;
     const signature = JSON.stringify([...failure.corruptedTables].sort());
     if (reportedDbDamage.get(key) === signature) return;
@@ -1602,7 +1602,7 @@ export function initAppContext(fileRoot?: string): AppContext {
     logDir: getLogDir(),
   });
   const userConfig = files.config;
-  if (userConfig.getSettings().qqClientSyncEnabled)
+  if (userConfig.getSetting('qqClientSyncEnabled'))
     void ensureQqSyncProxy(platform.appDataRoot()).catch((error) =>
       getLogger().warn('QQ 同步代理启动失败', { error: String(error) }),
     );
@@ -1653,7 +1653,7 @@ export function initAppContext(fileRoot?: string): AppContext {
   // 日志保留清理：启动时先按用户设置的保留天数清一轮旧日志，之后每 6 小时兜底一次
   // （常驻托盘的应用可能几周不重启，而日志是按天切文件的）。0 = 永久保留。
   // 定时器是 unref 的，不阻止进程退出，因此这里不需要持有 stop 句柄。
-  startLogRetention(() => userConfig.getSettings().logRetentionDays);
+  startLogRetention(() => userConfig.getSetting('logRetentionDays'));
 
   // macOS 启动时跳过未知目标的预热，待 QQ 在线能力确认运行中 QQ 后再加载同一份模块。
   // 否则先载安装旧版、再载热更新版，会重复注册 Objective-C 类并刷满原生警告。
@@ -1757,7 +1757,7 @@ export function initAppContext(fileRoot?: string): AppContext {
    * `applyMcp`。失败只记日志 —— 打不开账号不该因为 MCP 端口被占而失败。
    */
   const startConfiguredMcp = (): void => {
-    const mcp = userConfig.getSettings().mcp;
+    const mcp = userConfig.getSetting('mcp');
     if (!mcp.enabled || !mcp.token) return;
     startMcpServer({ port: mcp.port, token: mcp.token })
       .then((boundPort) => {
@@ -2103,10 +2103,10 @@ export function initAppContext(fileRoot?: string): AppContext {
         ),
         session,
         nt: platform.native.ntHelper,
-        enabled: () => this.account === session && userConfig.getSettings().qqClientSyncEnabled,
+        enabled: () => this.account === session && userConfig.getSetting('qqClientSyncEnabled'),
         readEnabled: () =>
-          userConfig.getSettings().reportReadEnabled ||
-          userConfig.getSettings().manualReadReportEnabled,
+          userConfig.getSetting('reportReadEnabled') ||
+          userConfig.getSetting('manualReadReportEnabled'),
         current: () => {
           const record = accountConfig.getRecord();
           return this.account === session &&
@@ -2162,8 +2162,8 @@ export function initAppContext(fileRoot?: string): AppContext {
           session,
           {
             nt: platform.native.ntHelper,
-            enabled: () => userConfig.getSettings().reportReadEnabled,
-            manualEnabled: () => userConfig.getSettings().manualReadReportEnabled,
+            enabled: () => userConfig.getSetting('reportReadEnabled'),
+            manualEnabled: () => userConfig.getSetting('manualReadReportEnabled'),
             onAcknowledged: (target) => qqClientSync.read(target),
             resolvePid: () => {
               if (
@@ -2290,7 +2290,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             service: bootstrap.tts,
             getProvider: (id: string) =>
-              userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === id) ??
+              userConfig.getSetting('voiceTranscribe').ttsProviders.find((p) => p.id === id) ??
               null,
           },
         ),
@@ -2349,10 +2349,10 @@ export function initAppContext(fileRoot?: string): AppContext {
               return resolveGeneratedResource(ref, services);
             },
             exportSavePolicy: () => ({
-              mode: userConfig.getSettings().exportSaveMode,
+              mode: userConfig.getSetting('exportSaveMode'),
               directory:
-                userConfig.getSettings().exportSaveMode === 'preset'
-                  ? (userConfig.getSettings().defaultExportDir ?? getHost().exportRoot)
+                userConfig.getSetting('exportSaveMode') === 'preset'
+                  ? (userConfig.getSetting('defaultExportDir') ?? getHost().exportRoot)
                   : undefined,
             }),
             resolveSaveDirectory: (directory) => {
@@ -2392,7 +2392,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             // 闭包会自己返回失败，导出阶段据此回退 / 记失败。
             ocrLocal: runLocalOcrFile,
             ocrFilter: runLocalOcrFilterFile,
-            ocrPrefilterEnabled: () => userConfig.getSettings().ocr.prefilterEnabled,
+            ocrPrefilterEnabled: () => userConfig.getSetting('ocr').prefilterEnabled,
             onlineOcr: onlineOcr.recognize,
             // 识别结果缓存：与灯箱 / MCP 共用同一份（内容寻址，`<缓存根>/ocr/`）。
             // 灯箱里识别过的图，导出直接命中；过期图（CDN 失效 + 本机没本体）也只有它还能出文字。
@@ -2573,8 +2573,8 @@ export function initAppContext(fileRoot?: string): AppContext {
           },
           {
             notificationsEnabled:
-              userConfig.getSettings().notificationEvents.mail.banner ||
-              userConfig.getSettings().notificationEvents.mail.system,
+              userConfig.getSetting('notificationEvents').mail.banner ||
+              userConfig.getSetting('notificationEvents').mail.system,
             allowOnline: () => fullModeAllowed(this, session),
             onNotice: (notice) => notifyMail(session, notice),
             onRead: (mailIds) => webNotice(session, { kind: 'mail-read', mailIds }),
@@ -2620,7 +2620,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             exportConfigId,
             'qqshow.json',
           ),
-          ttlMinutes: () => userConfig.getSettings().qqShowCacheMinutes,
+          ttlMinutes: () => userConfig.getSetting('qqShowCacheMinutes'),
           fetchShow: (uin) =>
             new PeerStatsService(platform.native.ntHelper, session, resolveOnlinePid).getQqShow(
               uin,
@@ -2664,13 +2664,13 @@ export function initAppContext(fileRoot?: string): AppContext {
             } satisfies RoamingCacheChange);
           },
           () => accountConfig.getRecord()?.homeDress?.fontId,
-          () => userConfig.getSettings().sendWithQqFont,
+          () => userConfig.getSetting('sendWithQqFont'),
           () => accountConfig.getRecord()?.homeDress?.bubbleId,
           mediaDownload,
           (groupId, uploadFile) => groupInfo.assertCanSend(groupId, uploadFile),
           // 只用「个性装扮」里的显式选择；普通模式下装扮页不开放，选中款也不会生效。
           () => (developmentDressToolsEnabled() ? dressInstall.read().activeFont : undefined),
-          () => userConfig.getSettings().sendWithDressFont,
+          () => userConfig.getSetting('sendWithDressFont'),
           () => emojiService.listSystemFaces(),
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
@@ -2749,8 +2749,8 @@ export function initAppContext(fileRoot?: string): AppContext {
       const mail = this.services.mail;
       mail.startBackground({
         notifications:
-          userConfig.getSettings().notificationEvents.mail.banner ||
-          userConfig.getSettings().notificationEvents.mail.system,
+          userConfig.getSetting('notificationEvents').mail.banner ||
+          userConfig.getSetting('notificationEvents').mail.system,
         showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
         pollIntervalMinutes: accountConfig.getRecord()?.mailPollIntervalMinutes,
       });
@@ -2809,11 +2809,11 @@ export function initAppContext(fileRoot?: string): AppContext {
 
       // Watch this account's nt_msg.db only when 实时消息 is enabled. Toggling
       // it later is handled live by `applyRealtime` (no re-open needed).
-      if (userConfig.getSettings().realtimeEnabled) {
+      if (userConfig.getSetting('realtimeEnabled')) {
         mountDbWatch(session);
       }
       // SSE 推送监听同一份 nt_msg.db，随账号打开按配置启动/停用。
-      void this.applySsePush(userConfig.getSettings().ssePush);
+      void this.applySsePush(userConfig.getSetting('ssePush'));
       // 群关键词提醒同样监听 nt_msg.db，但与 SSE 无关 —— 只要账号打开就挂上，
       // SSE 未开启也要提醒（产品要求）。
       void this.applyGroupKeyword(accountConfig.getGroupKeywordRules());
@@ -2856,7 +2856,7 @@ export function initAppContext(fileRoot?: string): AppContext {
 
       // WeQ 助手 is account-bound too: ensure the fabricated conversation exists
       // + start the loopback server when enabled. Live toggling → applyWeqAssistant.
-      const weq = userConfig.getSettings().weqAssistant;
+      const weq = userConfig.getSetting('weqAssistant');
       if (weq.enabled) {
         void this.applyWeqAssistant(weq).catch((error) => {
           logger.error('failed to start weq assistant on account open', {
@@ -3252,7 +3252,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           {
             service: bootstrap.tts,
             getProvider: (id: string) =>
-              userConfig.getSettings().voiceTranscribe.ttsProviders.find((p) => p.id === id) ??
+              userConfig.getSetting('voiceTranscribe').ttsProviders.find((p) => p.id === id) ??
               null,
           },
         ),
@@ -3322,10 +3322,10 @@ export function initAppContext(fileRoot?: string): AppContext {
               return resolveGeneratedResource(ref, services);
             },
             exportSavePolicy: () => ({
-              mode: userConfig.getSettings().exportSaveMode,
+              mode: userConfig.getSetting('exportSaveMode'),
               directory:
-                userConfig.getSettings().exportSaveMode === 'preset'
-                  ? (userConfig.getSettings().defaultExportDir ?? getHost().exportRoot)
+                userConfig.getSetting('exportSaveMode') === 'preset'
+                  ? (userConfig.getSetting('defaultExportDir') ?? getHost().exportRoot)
                   : undefined,
             }),
             resolveSaveDirectory: (directory) => {
@@ -3354,7 +3354,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             // 在线 QQ；在线那条腿不注入（导入目录账号的 rkey 链路未必可用）。
             ocrLocal: runLocalOcrFile,
             ocrFilter: runLocalOcrFilterFile,
-            ocrPrefilterEnabled: () => userConfig.getSettings().ocr.prefilterEnabled,
+            ocrPrefilterEnabled: () => userConfig.getSetting('ocr').prefilterEnabled,
             // 识别结果缓存（同上：与灯箱 / MCP 共用一份）。
             ocrCache,
             ocrFilterModelId: () => resolveLocalOcrFilterModel()?.modelId ?? null,
@@ -3510,8 +3510,8 @@ export function initAppContext(fileRoot?: string): AppContext {
           },
           {
             notificationsEnabled:
-              userConfig.getSettings().notificationEvents.mail.banner ||
-              userConfig.getSettings().notificationEvents.mail.system,
+              userConfig.getSetting('notificationEvents').mail.banner ||
+              userConfig.getSetting('notificationEvents').mail.system,
             allowOnline: () => fullModeAllowed(this, session),
             onNotice: (notice) => notifyMail(session, notice),
             onRead: (mailIds) => webNotice(session, { kind: 'mail-read', mailIds }),
@@ -3553,7 +3553,7 @@ export function initAppContext(fileRoot?: string): AppContext {
             exportConfigId,
             'qqshow.json',
           ),
-          ttlMinutes: () => userConfig.getSettings().qqShowCacheMinutes,
+          ttlMinutes: () => userConfig.getSetting('qqShowCacheMinutes'),
           fetchShow: (uin) =>
             new PeerStatsService(platform.native.ntHelper, session, livePid).getQqShow(uin),
         }),
@@ -3590,13 +3590,13 @@ export function initAppContext(fileRoot?: string): AppContext {
             } satisfies RoamingCacheChange);
           },
           () => accountConfig.getRecord()?.homeDress?.fontId,
-          () => userConfig.getSettings().sendWithQqFont,
+          () => userConfig.getSetting('sendWithQqFont'),
           () => accountConfig.getRecord()?.homeDress?.bubbleId,
           mediaDownload,
           (groupId, uploadFile) => groupInfo.assertCanSend(groupId, uploadFile),
           // 只用「个性装扮」里的显式选择；普通模式下装扮页不开放，选中款也不会生效。
           () => (developmentDressToolsEnabled() ? dressInstall.read().activeFont : undefined),
-          () => userConfig.getSettings().sendWithDressFont,
+          () => userConfig.getSetting('sendWithDressFont'),
           () => emojiService.listSystemFaces(),
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
@@ -3668,8 +3668,8 @@ export function initAppContext(fileRoot?: string): AppContext {
       const mail = this.services.mail;
       mail.startBackground({
         notifications:
-          userConfig.getSettings().notificationEvents.mail.banner ||
-          userConfig.getSettings().notificationEvents.mail.system,
+          userConfig.getSetting('notificationEvents').mail.banner ||
+          userConfig.getSetting('notificationEvents').mail.system,
         showUnread: accountConfig.getRecord()?.mailShowUnread ?? true,
         pollIntervalMinutes: accountConfig.getRecord()?.mailPollIntervalMinutes,
       });
@@ -3723,11 +3723,11 @@ export function initAppContext(fileRoot?: string): AppContext {
 
       // 监听走和在线账号完全相同的一套：导入目录里的库照样会变（同步工具落盘、
       // 手动覆盖、WeQ 自己写入），没理由区别对待。
-      if (userConfig.getSettings().realtimeEnabled) {
+      if (userConfig.getSetting('realtimeEnabled')) {
         mountDbWatch(session);
       }
       // SSE 推送监听同一份 nt_msg.db，随账号打开按配置启动/停用。
-      void this.applySsePush(userConfig.getSettings().ssePush);
+      void this.applySsePush(userConfig.getSetting('ssePush'));
       // 群关键词提醒同样监听 nt_msg.db，但与 SSE 无关 —— 只要账号打开就挂上，
       // SSE 未开启也要提醒（产品要求）。
       void this.applyGroupKeyword(accountConfig.getGroupKeywordRules());

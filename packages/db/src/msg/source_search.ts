@@ -290,6 +290,7 @@ export class SourceMsgSearchDb {
     filesOnly = false,
     bodyOnly = false,
     useIndex = true,
+    lookAhead = false,
   ): Promise<{ items: BuddyMsgFtsHit[]; total: number }> {
     const needle = this.validate(keyword, limit, offset);
     if (!needle) return { items: [], total: 0 };
@@ -299,39 +300,44 @@ export class SourceMsgSearchDb {
     try {
       rows = await this.query(
         `SELECT p.*,t.total,v.schema_version FROM pragma_schema_version v CROSS JOIN
-        (SELECT COUNT(*) total ${plan.from}) t LEFT JOIN
+        (${lookAhead ? 'SELECT NULL AS total' : `SELECT COUNT(*) total ${plan.from}`}) t LEFT JOIN
         (SELECT ${plan.indexed ? FIELDS : CONTENT_FIELDS} ${plan.from}
          ORDER BY ${plan.alias}."40050" DESC,${plan.alias}."41700" DESC LIMIT ? OFFSET ?) p ON 1`,
-        [...plan.args, ...plan.args, BigInt(limit), BigInt(offset)],
+        [
+          ...(lookAhead ? [] : plan.args),
+          ...plan.args,
+          BigInt(lookAhead ? limit + 1 : limit),
+          BigInt(offset),
+        ],
       );
     } catch (error) {
+      databaseRequestSignal()?.throwIfAborted();
       if (plan.indexed && !this.closed && generation === this.generation)
-        return this.page(keyword, limit, offset, partition, filesOnly, bodyOnly, false);
+        return this.page(keyword, limit, offset, partition, filesOnly, bodyOnly, false, lookAhead);
       throw error;
     }
     this.assertCurrent(rows, 10, generation);
     if (plan.indexed && rows.some((row) => row[8] !== null)) this.indexedReadVerified = true;
+    const found = rows.filter((row) => row[8] !== null);
     return {
-      total: Number(rows[0]?.[9] ?? 0),
-      items: rows
-        .filter((row) => row[8] !== null)
-        .map((row) => ({
-          msgId: toBigint(row[0]),
-          chatType: Number(row[1] ?? 0),
-          targetUid: toStr(row[2]),
-          senderUid: toStr(row[3]),
-          content: toStr(row[4]),
-          sendTime: toBigint(row[5]),
-          fileName: toStr(row[6]) || undefined,
-          msgSeq: toBigint(row[7]),
-        })),
+      total: lookAhead ? offset + found.length : Number(rows[0]?.[9] ?? 0),
+      items: (lookAhead ? found.slice(0, limit) : found).map((row) => ({
+        msgId: toBigint(row[0]),
+        chatType: Number(row[1] ?? 0),
+        targetUid: toStr(row[2]),
+        senderUid: toStr(row[3]),
+        content: toStr(row[4]),
+        sendTime: toBigint(row[5]),
+        fileName: toStr(row[6]) || undefined,
+        msgSeq: toBigint(row[7]),
+      })),
     };
   }
   searchPartition(partition: bigint, keyword: string, limit = 20, offset = 0, bodyOnly = false) {
     return this.page(keyword, limit, offset, partition, false, bodyOnly);
   }
-  searchFiles(keyword: string, limit = 20, offset = 0) {
-    return this.page(keyword, limit, offset, undefined, true);
+  searchFiles(keyword: string, limit = 20, offset = 0, lookAhead = false) {
+    return this.page(keyword, limit, offset, undefined, true, false, true, lookAhead);
   }
   async topPartitions(
     keyword: string,
@@ -351,6 +357,7 @@ export class SourceMsgSearchDb {
         [...plan.args, BigInt(limit)],
       );
     } catch (error) {
+      databaseRequestSignal()?.throwIfAborted();
       if (plan.indexed && !this.closed && generation === this.generation)
         return this.topPartitions(keyword, limit, false);
       throw error;

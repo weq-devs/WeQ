@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SourceMsgSearchDb } from '@weq/db';
+import { SourceMsgSearchDb, withDatabasePriority, type SourceSearchQuery } from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 import { sourceFtsContract } from '../src/msg/source_search_contract';
 
@@ -55,6 +55,37 @@ function fixture(complete = true) {
   return { db, nt, path, search, write, decrypt };
 }
 describe('SourceMsgSearchDb', () => {
+  it('已取消的索引读取不会触发内容表回退', async () => {
+    const f = fixture();
+    const controller = new AbortController();
+    const query = vi.fn<SourceSearchQuery>(async (target, sql, params, purpose, signal) => {
+      if (purpose === 'search') {
+        controller.abort();
+        signal?.throwIfAborted();
+      }
+      return f.nt.executeSql(target.dbPath, sql, params);
+    });
+    search = new SourceMsgSearchDb({ nt: f.nt, dbPath: f.path, tableName: TABLE, query });
+    await search.sync();
+    query.mockClear();
+    const current = search;
+    await expect(
+      withDatabasePriority('background', () => current.topPartitions('数据库'), controller.signal),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(query).toHaveBeenCalledOnce();
+  });
+
+  it('文件候选用一条探测保留相同首页，精确分页仍返回完整计数', async () => {
+    const f = fixture();
+    await f.search.sync();
+    const query = vi.spyOn(f.nt, 'executeSql');
+    const candidates = await f.search.searchFiles('数据库', 1, 0, true);
+    expect(candidates.total).toBe(2);
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0]?.[1]).not.toContain('COUNT(*)');
+    expect(await f.search.searchFiles('数据库', 1)).toEqual(candidates);
+    expect((await f.search.searchFiles('数据库', 1, 1)).total).toBe(2);
+  });
   it('keeps partition filtering correct after bigint parameters cross a JSON worker boundary', async () => {
     const f = fixture();
     const remote = new SourceMsgSearchDb({

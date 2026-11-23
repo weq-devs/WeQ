@@ -578,6 +578,29 @@ const messageReadWindowInput = z.object({
   owner: z.string().uuid(),
   generation: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
 });
+const sidebarSearchWindowInput = messageReadWindowInput.extend({
+  owner: z.string().regex(/^[a-f0-9]{32}$/),
+});
+const sidebarSearchBinding = exportAccountBindingInput.extend({
+  searchWindow: sidebarSearchWindowInput.optional(),
+});
+const sidebarSearchWindows = new MessageReadWindows();
+
+async function readSidebarSearch<T>(
+  input: z.infer<typeof sidebarSearchBinding>,
+  read: (search: AccountServices['unifiedSearch']) => Promise<T>,
+  priority: DatabasePriority,
+): Promise<T> {
+  const services = requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+  const run = () => read(services.unifiedSearch);
+  const result = await (input.searchWindow
+    ? sidebarSearchWindows.run(input.searchWindow, run, priority)
+    : run());
+  if (requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services)
+    throw new Error('账号或数据源已切换，请重新搜索');
+  return result;
+}
+
 const messagePageInput = convInput.merge(exportAccountBindingInput).extend({
   readWindow: messageReadWindowInput.optional(),
   deferReplyMedia: z.boolean().optional(),
@@ -5319,7 +5342,7 @@ export const accountRouter = router({
   /** Unified sidebar search — fast categories (conversations / friends / group members). */
   searchQuick: procedure
     .input(
-      z.object({
+      sidebarSearchBinding.extend({
         keyword: z.string().trim().min(1),
         limit: z.number().int().min(1).max(20).default(3),
         categories: z.array(z.enum(SEARCH_CATEGORIES)).optional(),
@@ -5328,42 +5351,52 @@ export const accountRouter = router({
       }),
     )
     .query(async ({ input }) => {
-      return requireServices().unifiedSearch.quickSearch(
-        input.keyword,
-        input.limit,
-        input.categories,
-        input.conversationScope,
-        input.sources,
+      return readSidebarSearch(
+        input,
+        (search) =>
+          search.quickSearch(
+            input.keyword,
+            input.limit,
+            input.categories,
+            input.conversationScope,
+            input.sources,
+          ),
+        'interactive',
       );
     }),
 
   /** Unified sidebar search — slow categories (chat records / files). */
   searchSlow: procedure
     .input(
-      z.object({
+      sidebarSearchBinding.extend({
         keyword: z.string().trim().min(1),
         limit: z.number().int().min(1).max(20).default(3),
         categories: z.array(z.enum(SEARCH_CATEGORIES)).optional(),
         conversationScope: z.enum(['all', 'real', 'virtual', 'guild']).default('all'),
         sources: z.array(z.enum(SEARCH_SOURCES)).optional(),
         recordFilter: globalRecordFilterInput,
-        ...exportAccountBindingInput.shape,
       }),
     )
     .query(async ({ input }) => {
-      const { unifiedSearch } = requireExpectedAccount(
-        input.expectedAccountUin,
-        input.expectedAccountConfigId,
-      );
-      return unifiedSearch.slowSearch(
-        input.keyword,
-        input.limit,
-        input.categories,
-        input.conversationScope,
-        input.sources,
-        input.recordFilter,
+      return readSidebarSearch(
+        input,
+        (search) =>
+          search.slowSearch(
+            input.keyword,
+            input.limit,
+            input.categories,
+            input.conversationScope,
+            input.sources,
+            input.recordFilter,
+          ),
+        'background',
       );
     }),
+
+  cancelSidebarSearch: procedure.input(sidebarSearchWindowInput).mutation(({ input }) => {
+    sidebarSearchWindows.cancel(input);
+    return true;
+  }),
 
   /**
    * QQ 自己的「最近搜索」（nt_msg.db 的 search_history 表）——搜索框空着、刚点开

@@ -1,6 +1,11 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import type { AccountSession } from '@weq/account';
-import { scheduleDatabase, withDatabasePriority, type GroupMsg } from '@weq/db';
+import {
+  databaseRequestSignal,
+  scheduleDatabase,
+  withDatabasePriority,
+  type GroupMsg,
+} from '@weq/db';
 import { createNtMsgDbHook } from '../src/account/nt_msg_hook';
 import type { DbChange, DbWatchTask } from '../src/account/db_watch';
 
@@ -55,6 +60,54 @@ function fixture() {
 }
 afterEach(() => {
   for (const hook of hooks.splice(0)) hook.dispose?.();
+});
+
+it('同账号同轮共用水位，退出一个监听器保留其他读取，下轮重新查询', async () => {
+  const watermarks = (msgSeq: bigint) => [
+    { targetUid: '123456', chatType: 2, msgSeq, sendTime: 1n },
+  ];
+  const read = vi.fn(async () => watermarks(0n));
+  const listAfter = vi.fn(async (_uid: string, cursor: bigint) => [
+    { msgId: cursor + 1n, msgSeq: cursor + 1n, sendTime: 1n } as GroupMsg,
+  ]);
+  const session = {
+    msgDbPath: change.dbPath,
+    recentContacts: { listSeqWatermarks: read },
+    groupMsgs: { listAfter },
+  } as unknown as AccountSession;
+  const a = vi.fn();
+  const b = vi.fn();
+  const first = createNtMsgDbHook(session, { onDbChanged: () => {}, onNewMessages: a });
+  const second = createNtMsgDbHook(session, { onDbChanged: () => {}, onNewMessages: b });
+  hooks.push(first, second);
+  await turn();
+  read.mockClear();
+  const gate = deferred<ReturnType<typeof watermarks>>();
+  let sharedSignal: AbortSignal | undefined;
+  read.mockImplementationOnce(() => {
+    sharedSignal = databaseRequestSignal();
+    return gate.promise;
+  });
+  const observation = {};
+  const pending = [
+    first.onDbFileChangeHook({ ...change, observation }),
+    second.onDbFileChangeHook({ ...change, observation }),
+  ];
+  await turn();
+  expect(read).toHaveBeenCalledOnce();
+  first.dispose?.();
+  expect(sharedSignal?.aborted).toBe(false);
+  gate.resolve(watermarks(1n));
+  await Promise.all(pending);
+  expect(a).not.toHaveBeenCalled();
+  expect(b).toHaveBeenCalledWith(
+    expect.objectContaining({ group: [{ msgId: 1n, msgSeq: 1n, sendTime: 1n }] }),
+  );
+
+  read.mockResolvedValueOnce(watermarks(2n));
+  await second.onDbFileChangeHook({ ...change, observation: {} });
+  expect(read).toHaveBeenCalledTimes(2);
+  expect(b).toHaveBeenCalledTimes(2);
 });
 
 it('启动基线还排队时退出，旧读取不会在阻塞任务结束后执行', async () => {
