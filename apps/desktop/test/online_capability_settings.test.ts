@@ -160,7 +160,10 @@ function mount(showProxyIndicator = false) {
   return {
     host,
     render,
-    badge: () => host.querySelector<HTMLButtonElement>('button[aria-label^="QQ 在线能力："]')!,
+    badge: () =>
+      host.querySelector<HTMLElement>(
+        '[data-setting-id="full-features"] .weq-set-card-head :is([role="status"], button[aria-label^="QQ 在线能力："])',
+      )!,
   };
 }
 it('代理断开提示使用当前账号，指向代理卡片，关闭提示后仍可查看等待任务', async () => {
@@ -278,7 +281,7 @@ it.each([
     'QQ 在线能力',
   );
 });
-it('等待授权与启用中优先显示，标签始终可以打开统一状态详情', () => {
+it('等待授权与启用中优先显示，待授权时可打开状态详情', () => {
   const f = mount();
   act(() => useRestrictedMode.getState().beginEntering());
   expect(f.badge().textContent).toBe('正在启用');

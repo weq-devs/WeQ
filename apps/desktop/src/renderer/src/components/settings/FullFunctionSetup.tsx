@@ -49,12 +49,11 @@ function OnlineCapabilityStatus() {
               : restrictionReasons({ access: currentAccess }).length
                 ? '在线能力受限'
                 : '已就绪';
+  if (label === '已就绪') return <SettingsStatusBadge label={label} tone="ready" />;
   const tone =
-    label === '已就绪'
-      ? 'ready'
-      : label === '在线能力受限' || label === '等待授权' || label === '状态待确认'
-        ? 'warning'
-        : 'neutral';
+    label === '在线能力受限' || label === '等待授权' || label === '状态待确认'
+      ? 'warning'
+      : 'neutral';
   return (
     <SettingsStatusBadge
       label={label}

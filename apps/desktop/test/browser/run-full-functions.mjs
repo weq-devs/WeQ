@@ -101,9 +101,8 @@ try {
   await indicator.click();
   assert.equal(await indicator.getAttribute('aria-checked'), 'false');
   await page.getByText('在线能力受限时通知', { exact: true }).waitFor();
-  const status = page.locator('[data-setting-id="full-features"]').getByRole('button', {
-    name: /QQ 在线能力：.*，查看详情/,
-  });
+  const onlineCapability = page.locator('[data-setting-id="full-features"]');
+  const status = onlineCapability.getByRole('button', { name: /QQ 在线能力：.*，查看详情/ });
   await page.evaluate(() =>
     window.fullFunctionsQa.setOnlineFixture({
       qqOnline: true,
@@ -116,12 +115,8 @@ try {
       ssoReady: true,
     }),
   );
-  await page.getByRole('button', { name: 'QQ 在线能力：已就绪，查看详情', exact: true }).waitFor();
-  await status.click();
-  const readyDetails = page.getByRole('dialog', { name: 'QQ 在线能力', exact: true });
-  await readyDetails.getByText('当前账号的 QQ 在线能力已就绪。').waitFor({ timeout: 3000 });
-  await status.click();
-  await readyDetails.waitFor({ state: 'detached' });
+  await onlineCapability.getByRole('status').getByText('已就绪', { exact: true }).waitFor();
+  assert.equal(await status.count(), 0);
   await page.evaluate(() => window.fullFunctionsQa.setOnlineFixture({ hasUid: false }));
   await page
     .getByRole('button', { name: 'QQ 在线能力：在线能力受限，查看详情', exact: true })
