@@ -137,6 +137,7 @@ it('撤回摘要和索引探测只补查可能命中的会话，探测失败保�
     SELECT '2_' || "40021", ? FROM recent_contact_v3_table`)
     .run(readState);
   const nt = createSqliteStub();
+  let now = 0;
   let timeout = false;
   let maxProbe = 512n;
   let failSecondPage = false;
@@ -157,16 +158,18 @@ it('撤回摘要和索引探测只补查可能命中的会话，探测失败保�
       .filter(([, text]) => text.includes('CROSS JOIN weq_recall_log'))
       .map(([, , params]) => (params?.length ?? 0) / 5);
   const probes = () => budgeted.mock.calls.filter(([, text]) => isPresence(text));
+  const expected = [
+    ['70203', '101'],
+    ['70270', '200'],
+  ];
   const checkResults = async () => {
     const rows = await db.getAllUnreadInfos();
     expect(rows).toHaveLength(300);
     expect(
       rows.flatMap(({ uid, recalledSeqs }) => recalledSeqs?.map((seq) => [uid, seq]) ?? []),
-    ).toEqual([
-      ['70203', '101'],
-      ['70270', '200'],
-    ]);
+    ).toEqual(expected);
   };
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
   try {
     await checkResults();
     // 空区间也可安全继续校验，含 NULL 的旧记录保守留给补查。
@@ -193,7 +196,9 @@ it('撤回摘要和索引探测只补查可能命中的会话，探测失败保�
     budgeted.mockClear();
     await checkResults();
     expect(groupsChecked()).toEqual([128, 22]);
+    expect(budgeted.mock.calls.some(([, text]) => text.includes('MIN(orig_seq)'))).toBe(false);
 
+    now += 3_000;
     timeout = false;
     failSecondPage = false;
     maxProbe = 512n;
@@ -203,14 +208,29 @@ it('撤回摘要和索引探测只补查可能命中的会话，探测失败保�
     await checkResults();
     expect(groupsChecked()).toEqual([2]);
     expect(probes()).toHaveLength(1);
+
+    sql.exec(`INSERT INTO weq_recall_log(table_kind,conv,orig_seq) VALUES ('group','70001',150);`);
+    expected.unshift(['70001', '150']);
+    budgeted.mockClear();
+    await checkResults();
+    expect(groupsChecked()).toEqual([3]);
+    expect(budgeted.mock.calls.some(([, text]) => text.includes('MIN(orig_seq)'))).toBe(false);
+
+    now += 30_000;
+    sql.exec(`DELETE FROM weq_recall_log WHERE CAST(conv AS INTEGER)>=80001;`);
+    budgeted.mockClear();
+    await checkResults();
+    expect(groupsChecked()).toEqual([4]);
+    expect(probes()).toHaveLength(0);
     expect(databasePerformance(path).phases).toMatchObject({
-      unreadSmallTables: { count: 4 },
-      unreadSnapshotProjection: { count: 4 },
-      unreadRecallLookup: { count: 4 },
+      unreadSmallTables: { count: 6 },
+      unreadSnapshotProjection: { count: 6 },
+      unreadRecallLookup: { count: 6 },
       unreadRecallExtents: { count: 4 },
-      unreadRecallPresence: { count: 3 },
+      unreadRecallPresence: { count: 4 },
     });
   } finally {
+    clock.mockRestore();
     db.close();
   }
 });

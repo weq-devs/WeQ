@@ -137,6 +137,8 @@ const PROTECTED_RECALL_TARGET_BATCH = 128;
 const PROTECTED_RECALL_RESULT_LIMIT = 256;
 const PROTECTED_RECALL_EXTENTS_LIMIT = 512;
 const PROTECTED_RECALL_PRESENCE_BATCH = 512;
+const PROTECTED_RECALL_EXTENTS_OVERFLOW_RETRY_MS = 30_000;
+const PROTECTED_RECALL_EXTENTS_FAILURE_RETRY_MS = 3_000;
 
 const GRAY_TIP = MsgType.GRAY_TIP;
 const RECENT_CHAT_TYPE = `CAST(r."40010" AS INTEGER)`;
@@ -234,6 +236,7 @@ export interface UnreadHighlightInput {
 }
 
 export class UnreadInfoDb {
+  private nextRecallExtentsAt = 0;
   private readonly qq: QqDb;
   private readonly proto = new ProtoMsg(UnreadInfo);
   private readonly seqIndexes = new Map<string, Promise<boolean>>();
@@ -520,9 +523,12 @@ export class UnreadInfoDb {
       this.qq.supportsReadBudget &&
       !databaseReadBudget()
     ) {
-      const byExtents = await measureMessageWork(this.qq.dbPath, 'unreadRecallExtents', () =>
-        this.recallTargetsFromExtents(candidates),
-      );
+      const byExtents =
+        performance.now() >= this.nextRecallExtentsAt
+          ? await measureMessageWork(this.qq.dbPath, 'unreadRecallExtents', () =>
+              this.recallTargetsFromExtents(candidates),
+            )
+          : undefined;
       targets =
         byExtents ??
         (await measureMessageWork(this.qq.dbPath, 'unreadRecallPresence', () =>
@@ -549,7 +555,10 @@ export class UnreadInfoDb {
            GROUP BY table_kind, conv LIMIT ${PROTECTED_RECALL_EXTENTS_LIMIT + 1}`,
         ),
       );
-      if (rows.length > PROTECTED_RECALL_EXTENTS_LIMIT) return undefined;
+      if (rows.length > PROTECTED_RECALL_EXTENTS_LIMIT) {
+        this.nextRecallExtentsAt = performance.now() + PROTECTED_RECALL_EXTENTS_OVERFLOW_RETRY_MS;
+        return undefined;
+      }
       const bounds = new Map(
         rows.map(([kind, uid, lo, hi]) => [
           `${kind}:${uid}`,
@@ -567,6 +576,7 @@ export class UnreadInfoDb {
       });
     } catch {
       databaseRequestSignal()?.throwIfAborted();
+      this.nextRecallExtentsAt = performance.now() + PROTECTED_RECALL_EXTENTS_FAILURE_RETRY_MS;
       return undefined;
     }
   }
@@ -1157,6 +1167,7 @@ export class UnreadInfoDb {
   }
 
   close(): void {
+    this.nextRecallExtentsAt = 0;
     this.unreadFields.clear();
     this.unreadFieldBytes = 0;
     this.qq.close();
