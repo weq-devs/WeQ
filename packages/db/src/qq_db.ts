@@ -64,6 +64,10 @@ export class QqDb {
   private readonly encrypted: boolean;
   private readonly columns = new Map<string, Promise<ReadonlySet<string>>>();
 
+  get supportsReadBudget(): boolean {
+    return Boolean(this.nt.executeDatabaseRead || this.nt.executeSqlBudgeted);
+  }
+
   async hasLeadingIndex(table: string, column: string): Promise<boolean> {
     return this.hasIndexPrefix(table, [column]);
   }

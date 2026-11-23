@@ -7,6 +7,7 @@ import type { BuddyMsgFtsHit } from './types';
 import { toBigint, toStr } from './util';
 import { QqDb } from '../qq_db';
 import { ftsRecordCandidates, type FtsRecordBounds } from './fts_record_candidates';
+import { searchFtsContent } from './fts_content_search';
 
 const SELECT_COLUMNS = `"40001","40010","40021","40020","41701","40050","41702","40003"`;
 
@@ -53,13 +54,12 @@ export class GroupMsgFtsDb {
     if (!needle) return [];
 
     const poolSize = Math.min(MAX_POOL, Math.max(limit * POOL_FACTOR, MIN_POOL));
-    const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_fts
-        WHERE ("41701" LIKE ? ESCAPE '\\' OR "41702" LIKE ? ESCAPE '\\')
-        ORDER BY "40050" DESC
-        LIMIT ?`,
-      [`%${escapeLike(needle)}%`, `%${escapeLike(needle)}%`, BigInt(poolSize)],
-    );
+    const rows = await searchFtsContent(this.qq, {
+      table: 'group_msg_fts',
+      columns: SELECT_COLUMNS,
+      pattern: `%${escapeLike(needle)}%`,
+      poolSize,
+    });
 
     const hits = rows.map(rowToHit);
     return rankByRelevance(hits, needle).slice(0, limit);
@@ -74,13 +74,13 @@ export class GroupMsgFtsDb {
     if (!needle) return [];
 
     const poolSize = Math.min(MAX_POOL, Math.max(limit * POOL_FACTOR, MIN_POOL));
-    const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_fts
-        WHERE "40027" = ? AND ("41701" LIKE ? ESCAPE '\\' OR "41702" LIKE ? ESCAPE '\\')
-        ORDER BY "40050" DESC
-        LIMIT ?`,
-      [groupCode, `%${escapeLike(needle)}%`, `%${escapeLike(needle)}%`, BigInt(poolSize)],
-    );
+    const rows = await searchFtsContent(this.qq, {
+      table: 'group_msg_fts',
+      columns: SELECT_COLUMNS,
+      pattern: `%${escapeLike(needle)}%`,
+      poolSize,
+      partition: { column: '40027', value: groupCode },
+    });
 
     const hits = rows.map(rowToHit);
     return rankByRelevance(hits, needle).slice(0, limit);
@@ -94,13 +94,13 @@ export class GroupMsgFtsDb {
     if (!needle) return [];
 
     const poolSize = Math.min(MAX_POOL, Math.max(limit * POOL_FACTOR, MIN_POOL));
-    const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_fts
-        WHERE "41702" LIKE ? ESCAPE '\\'
-        ORDER BY "40050" DESC
-        LIMIT ?`,
-      [`%${escapeLike(needle)}%`, BigInt(poolSize)],
-    );
+    const rows = await searchFtsContent(this.qq, {
+      table: 'group_msg_fts',
+      columns: SELECT_COLUMNS,
+      pattern: `%${escapeLike(needle)}%`,
+      poolSize,
+      filenameOnly: true,
+    });
 
     const hits = rows.map(rowToHit);
     return rankByRelevance(hits, needle).slice(0, limit);

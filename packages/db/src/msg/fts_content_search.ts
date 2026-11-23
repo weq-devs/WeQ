@@ -1,0 +1,116 @@
+import type { SqlRow, SqlValue } from '@weq/native';
+import type { QqDb } from '../qq_db';
+import { databaseRequestSignal, withDatabasePriority } from '../query_schedule';
+import { toBigint } from './util';
+
+const SCAN_ROWS = 512;
+const DETAIL_ROWS = 64;
+
+interface ContentSearch {
+  table: 'buddy_msg_fts' | 'group_msg_fts';
+  columns: string;
+  pattern: string;
+  poolSize: number;
+  filenameOnly?: boolean;
+  partition?: { column: '40021' | '40027' | '40035'; value: SqlValue };
+}
+interface Candidate {
+  rowId: bigint;
+  time: bigint | null;
+}
+
+function newestFirst(left: Candidate, right: Candidate) {
+  if (left.time !== right.time) {
+    if (left.time === null) return 1;
+    if (right.time === null) return -1;
+    return left.time > right.time ? -1 : 1;
+  }
+  return left.rowId > right.rowId ? -1 : left.rowId < right.rowId ? 1 : 0;
+}
+
+/** LIMIT 约束候选池；稀疏命中按真实 rowid 分页，每批只回传命中的键和时间。 */
+export function searchFtsContent(qq: QqDb, input: ContentSearch): Promise<SqlRow[]> {
+  const signal = databaseRequestSignal();
+  return withDatabasePriority('background', () => search(qq, input), signal);
+}
+
+async function search(
+  qq: QqDb,
+  { table, columns, pattern, poolSize, filenameOnly, partition }: ContentSearch,
+): Promise<SqlRow[]> {
+  const signal = databaseRequestSignal();
+  const needle = '(SELECT pattern FROM needle)';
+  const file = `"41702" LIKE ${needle} ESCAPE '\\'`;
+  const like = filenameOnly ? file : `("41701" LIKE ${needle} ESCAPE '\\' OR ${file})`;
+  const match = partition ? `${like} AND "${partition.column}"=?` : like;
+  const prefix = 'WITH needle(pattern) AS (VALUES(?))';
+  if (qq.supportsReadBudget) {
+    try {
+      // 热词或使用分区索引时复用原查询；长扫描到预算后进入下面的有界分页。
+      const { rows, limit } = await qq.queryPage(
+        `${prefix} SELECT ${columns} FROM ${table} WHERE ${match}
+         ORDER BY "40050" DESC, rowid DESC LIMIT ?`,
+        partition ? [pattern, partition.value] : [pattern],
+        poolSize,
+      );
+      signal?.throwIfAborted();
+      if (limit === poolSize || rows.length < limit) return rows;
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('database_query_execution_timeout'))
+        throw error;
+    }
+  }
+
+  let candidates: Candidate[] = [];
+  let cursor: SqlValue | undefined;
+  let pageSize = SCAN_ROWS;
+  const scope = partition ? ', scope(value) AS (VALUES(?))' : '';
+  const scopedMatch = partition
+    ? `${like} AND "${partition.column}"=(SELECT value FROM scope)`
+    : like;
+  const projection = ['rowid AS scan_key', '"40050"', '"41701"', '"41702"'];
+  if (partition) projection.push(`"${partition.column}"`);
+  for (;;) {
+    signal?.throwIfAborted();
+    const args: SqlValue[] = partition ? [pattern, partition.value] : [pattern];
+    if (cursor !== undefined) args.push(cursor);
+    const page = await qq.queryPage(
+      `${prefix}${scope}, page AS MATERIALIZED (
+         SELECT ${projection.join(',')} FROM ${table}
+         ${cursor === undefined ? '' : 'WHERE rowid < ?'} ORDER BY rowid DESC LIMIT ?
+       )
+       SELECT scan_key, "40050" FROM page WHERE ${scopedMatch}
+       UNION ALL SELECT MIN(scan_key), COUNT(*) FROM page`,
+      args,
+      pageSize,
+    );
+    signal?.throwIfAborted();
+    pageSize = page.limit;
+    const end = page.rows.pop();
+    cursor = end?.[0] ?? undefined;
+    if (page.rows.length) {
+      for (const [rowId, time] of page.rows)
+        candidates.push({ rowId: toBigint(rowId), time: time == null ? null : toBigint(time) });
+      candidates = candidates.sort(newestFirst).slice(0, poolSize);
+    }
+    if (cursor === undefined || Number(end?.[1]) < pageSize) break;
+    await new Promise<void>((done) => setImmediate(done));
+  }
+
+  const details = new Map<bigint, SqlRow>();
+  for (let i = 0; i < candidates.length; i += DETAIL_ROWS) {
+    signal?.throwIfAborted();
+    const ids = candidates.slice(i, i + DETAIL_ROWS).map(({ rowId }) => String(rowId));
+    const rows = await qq.query(
+      `${prefix} SELECT rowid,${columns} FROM ${table}
+       WHERE rowid IN (SELECT CAST(value AS INTEGER) FROM json_each(?)) AND ${match}`,
+      partition ? [pattern, JSON.stringify(ids), partition.value] : [pattern, JSON.stringify(ids)],
+    );
+    signal?.throwIfAborted();
+    for (const row of rows) details.set(toBigint(row[0]), row.slice(1));
+  }
+  return candidates.flatMap(({ rowId }) => {
+    const detail = details.get(rowId);
+    return detail ? [detail] : [];
+  });
+}

@@ -856,16 +856,17 @@ export const AI_TOOLS: AiTool[] = [
     run: async ({ keyword, scope, limit }) => {
       const svc = services();
       const search = svc.msgSearch;
+      const { signal } = toolExecutionOptions();
       // 多探一条判断是否还有更多命中（诚实的 hasMore）；合并 all 时两路各探再并。
       const probe = limit + 1;
       const raw =
         scope === 'buddy'
-          ? await search.searchBuddy(keyword, probe)
+          ? await search.searchBuddy(keyword, probe, signal)
           : scope === 'group'
-            ? await search.searchGroup(keyword, probe)
+            ? await search.searchGroup(keyword, probe, signal)
             : [
-                ...(await search.searchBuddy(keyword, probe)),
-                ...(await search.searchGroup(keyword, probe)),
+                ...(await search.searchBuddy(keyword, probe, signal)),
+                ...(await search.searchGroup(keyword, probe, signal)),
               ].sort((a, b) => Number(b.sendTime - a.sendTime));
       const hasMore = raw.length > limit;
       const hits = raw.slice(0, limit);
@@ -922,11 +923,12 @@ export const AI_TOOLS: AiTool[] = [
     }),
     run: async ({ kind, conv, keyword, limit }) => {
       const svc = services();
+      const { signal } = toolExecutionOptions();
       const probe = limit + 1;
       const raw =
         kind === 'group'
-          ? await svc.msgSearch.searchInGroupConversation(conv, keyword, probe)
-          : await svc.msgSearch.searchInBuddyConversation(conv, keyword, probe);
+          ? await svc.msgSearch.searchInGroupConversation(conv, keyword, probe, signal)
+          : await svc.msgSearch.searchInBuddyConversation(conv, keyword, probe, signal);
       const hasMore = raw.length > limit;
       const hits = raw.slice(0, limit);
 
@@ -981,16 +983,17 @@ export const AI_TOOLS: AiTool[] = [
     }),
     run: async ({ keyword, scope, days, includeMe, limit }) => {
       const svc = services();
+      const { signal } = toolExecutionOptions();
       // FTS 末尾会 slice(0, POOL)，聚合要尽量多的命中垫底 → 顶到池上限 500。
       const POOL = 500;
       const raw =
         scope === 'buddy'
-          ? await svc.msgSearch.searchBuddy(keyword, POOL)
+          ? await svc.msgSearch.searchBuddy(keyword, POOL, signal)
           : scope === 'group'
-            ? await svc.msgSearch.searchGroup(keyword, POOL)
+            ? await svc.msgSearch.searchGroup(keyword, POOL, signal)
             : [
-                ...(await svc.msgSearch.searchBuddy(keyword, POOL)),
-                ...(await svc.msgSearch.searchGroup(keyword, POOL)),
+                ...(await svc.msgSearch.searchBuddy(keyword, POOL, signal)),
+                ...(await svc.msgSearch.searchGroup(keyword, POOL, signal)),
               ];
 
       const selfUid = (await svc.profile.getSelfProfile())?.uid ?? '';

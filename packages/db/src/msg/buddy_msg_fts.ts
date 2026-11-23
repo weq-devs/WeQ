@@ -27,9 +27,10 @@
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
 import type { BuddyMsgFtsHit } from './types';
 import { toBigint, toStr } from './util';
-import { partitionWhere, type C2cPartition } from './c2c';
+import type { C2cPartition } from './c2c';
 import { QqDb } from '../qq_db';
 import { ftsRecordCandidates, type FtsRecordBounds } from './fts_record_candidates';
+import { searchFtsContent } from './fts_content_search';
 
 const SELECT_COLUMNS = `"40001","40010","40021","40020","41701","40050","41702","40003"`;
 
@@ -81,13 +82,12 @@ export class BuddyMsgFtsDb {
     if (!needle) return [];
 
     const poolSize = Math.min(MAX_POOL, Math.max(limit * POOL_FACTOR, MIN_POOL));
-    const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM buddy_msg_fts
-        WHERE ("41701" LIKE ? ESCAPE '\\' OR "41702" LIKE ? ESCAPE '\\')
-        ORDER BY "40050" DESC
-        LIMIT ?`,
-      [`%${escapeLike(needle)}%`, `%${escapeLike(needle)}%`, BigInt(poolSize)],
-    );
+    const rows = await searchFtsContent(this.qq, {
+      table: 'buddy_msg_fts',
+      columns: SELECT_COLUMNS,
+      pattern: `%${escapeLike(needle)}%`,
+      poolSize,
+    });
 
     const hits = rows.map(rowToHit);
     return rankByRelevance(hits, needle).slice(0, limit);
@@ -107,15 +107,19 @@ export class BuddyMsgFtsDb {
     const needle = keyword.trim();
     if (!needle) return [];
 
-    const { clause, value } = partitionWhere(part);
     const poolSize = Math.min(MAX_POOL, Math.max(limit * POOL_FACTOR, MIN_POOL));
-    const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM buddy_msg_fts
-        WHERE ${clause} AND ("41701" LIKE ? ESCAPE '\\' OR "41702" LIKE ? ESCAPE '\\')
-        ORDER BY "40050" DESC
-        LIMIT ?`,
-      [value, `%${escapeLike(needle)}%`, `%${escapeLike(needle)}%`, BigInt(poolSize)],
-    );
+    const rows = await searchFtsContent(this.qq, {
+      table: 'buddy_msg_fts',
+      columns: SELECT_COLUMNS,
+      pattern: `%${escapeLike(needle)}%`,
+      poolSize,
+      partition:
+        'sortNo' in part
+          ? { column: '40027', value: part.sortNo }
+          : 'appId' in part
+            ? { column: '40035', value: part.appId }
+            : { column: '40021', value: part.uid },
+    });
 
     const hits = rows.map(rowToHit);
     return rankByRelevance(hits, needle).slice(0, limit);
@@ -129,13 +133,13 @@ export class BuddyMsgFtsDb {
     if (!needle) return [];
 
     const poolSize = Math.min(MAX_POOL, Math.max(limit * POOL_FACTOR, MIN_POOL));
-    const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM buddy_msg_fts
-        WHERE "41702" LIKE ? ESCAPE '\\'
-        ORDER BY "40050" DESC
-        LIMIT ?`,
-      [`%${escapeLike(needle)}%`, BigInt(poolSize)],
-    );
+    const rows = await searchFtsContent(this.qq, {
+      table: 'buddy_msg_fts',
+      columns: SELECT_COLUMNS,
+      pattern: `%${escapeLike(needle)}%`,
+      poolSize,
+      filenameOnly: true,
+    });
 
     const hits = rows.map(rowToHit);
     return rankByRelevance(hits, needle).slice(0, limit);

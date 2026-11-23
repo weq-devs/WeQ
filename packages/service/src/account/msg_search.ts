@@ -12,7 +12,11 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import type { BuddyMsgFtsHit, C2cPartition } from '@weq/db';
+import { type BuddyMsgFtsHit, type C2cPartition, withDatabaseSignal } from '@weq/db';
+
+function searchWithSignal<T>(signal: AbortSignal | undefined, read: () => Promise<T>): Promise<T> {
+  return signal ? withDatabaseSignal(signal, read) : read();
+}
 
 export class MsgSearchService {
   constructor(private readonly session: AccountSession) {}
@@ -20,15 +24,15 @@ export class MsgSearchService {
   /**
    * Find friend messages whose text or filename matches `keyword`.
    */
-  searchBuddy(keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
-    return this.session.buddyMsgFts.search(keyword, limit);
+  searchBuddy(keyword: string, limit = 20, signal?: AbortSignal): Promise<BuddyMsgFtsHit[]> {
+    return searchWithSignal(signal, () => this.session.buddyMsgFts.search(keyword, limit));
   }
 
   /**
    * Find group messages whose text or filename matches `keyword`.
    */
-  searchGroup(keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
-    return this.session.groupMsgFts.search(keyword, limit);
+  searchGroup(keyword: string, limit = 20, signal?: AbortSignal): Promise<BuddyMsgFtsHit[]> {
+    return searchWithSignal(signal, () => this.session.groupMsgFts.search(keyword, limit));
   }
 
   /**
@@ -41,11 +45,10 @@ export class MsgSearchService {
     targetUid: string,
     keyword: string,
     limit = 20,
+    signal?: AbortSignal,
   ): Promise<BuddyMsgFtsHit[]> {
-    return this.session.buddyMsgFts.searchInConversation(
-      this.c2cPartition(targetUid),
-      keyword,
-      limit,
+    return searchWithSignal(signal, () =>
+      this.session.buddyMsgFts.searchInConversation(this.c2cPartition(targetUid), keyword, limit),
     );
   }
 
@@ -62,8 +65,11 @@ export class MsgSearchService {
     groupCode: string,
     keyword: string,
     limit = 20,
+    signal?: AbortSignal,
   ): Promise<BuddyMsgFtsHit[]> {
-    return this.session.groupMsgFts.searchInGroup(groupCode, keyword, limit);
+    return searchWithSignal(signal, () =>
+      this.session.groupMsgFts.searchInGroup(groupCode, keyword, limit),
+    );
   }
 
   /**
