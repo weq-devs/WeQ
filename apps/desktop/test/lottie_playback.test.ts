@@ -114,6 +114,18 @@ async function visibility(hidden: boolean) {
   await act(async () => document.dispatchEvent(new Event('visibilitychange')));
 }
 
+it('回读恢复经典表情 0 时，从旧的图片错误恢复并显示原表情', async () => {
+  await act(async () => root.render(h(FaceEmoji, { element: { faceId: NaN, subType: 1 } })));
+  const badImage = node.querySelector('img')!;
+  await act(async () => badImage.dispatchEvent(new Event('error')));
+  expect(node.querySelector('img')).toBeNull();
+
+  await act(async () => root.render(h(FaceEmoji, { element: { faceId: 0, subType: 1 } })));
+  const recovered = node.querySelector('img');
+  expect(recovered?.getAttribute('src')).toMatch(/\/0\/apng\/0\.png$/);
+  expect(recovered?.getAttribute('aria-label')).toBe('[惊讶]');
+});
+
 it('离屏、隐藏标签及隐藏文档只暂停表情，回来复用同一帧和请求', async () => {
   await act(async () => root.render(face()));
   expect(animations).toHaveLength(1);

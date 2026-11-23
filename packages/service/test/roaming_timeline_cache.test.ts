@@ -62,6 +62,21 @@ function message(
   };
 }
 
+it('旧发送缓存恢复经典表情 0，保留其他表情及来信原样', async () => {
+  const { cache } = setup();
+  const oldFace = { type: 'face', data: { subType: 1 } } as GapFetchedMessage['elements'][number];
+  const smile = { type: 'face' as const, data: { subType: 1, faceId: 14, faceText: '/微笑' } };
+  const sent = { ...message(12, 'c2c', true), msgId: '12', sourceFormat: 'protocol' as const };
+  const received = { ...sent, msgId: '13', msgSeq: '13', elements: [oldFace] };
+  await cache.store([{ ...sent, localSent: true, elements: [oldFace, smile] }, received]);
+
+  expect((await cache.sentMessages(sent.kind, sent.conv))[0]?.elements).toEqual([
+    { type: 'face', data: { subType: 1, faceId: 0 } },
+    smile,
+  ]);
+  expect((await cache.findByMsgId(received.msgId))?.elements).toEqual([oldFace]);
+});
+
 it('日历缓存读取仅投影元数据，保留去重/验证身份且不触发建表写入', async () => {
   const { cache, nt } = setup();
   await cache.store([

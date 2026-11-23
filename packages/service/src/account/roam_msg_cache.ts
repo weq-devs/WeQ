@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname } from 'node:path';
 import type { NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
-import { compareMessageOrder } from '@weq/codec';
+import { compareMessageOrder, FaceSubType } from '@weq/codec';
 import { QqDb, scheduleDatabase } from '@weq/db';
 import type { GapFetchedMessage } from './gap_history';
 import { nativeHistoryElements } from './native_history_projection';
@@ -45,6 +45,23 @@ function parseJson<T>(text: string): T {
     }
     return v;
   }) as T;
+}
+
+function parseProtocolMessage(payload: SqlRow[number]): GapFetchedMessage {
+  const message = parseJson<GapFetchedMessage>(String(payload));
+  if (message.localSent === true) {
+    // 旧 WeQ 自发快照由已验证的发送包生成，经典表情 0 曾省略 ID。
+    for (const element of message.elements) {
+      if (
+        element.type === 'face' &&
+        element.data.subType === FaceSubType.QQ_BUILTIN_OLD &&
+        element.data.faceId === undefined
+      ) {
+        element.data.faceId = 0;
+      }
+    }
+  }
+  return message;
 }
 
 /** 字符串安全转 bigint（空串 / 非数字回退 0，避免单条脏数据打挂整批写入）。 */
@@ -157,7 +174,7 @@ export class RoamMsgCacheDb {
        )`,
       null,
     );
-    return rows.map((row) => parseJson<GapFetchedMessage>(String(row[0])));
+    return rows.map((row) => parseProtocolMessage(row[0]));
   }
 
   /** 只按发送索引读取未读区间内已确认的自发序号。 */
@@ -220,7 +237,7 @@ export class RoamMsgCacheDb {
        ${kind ? 'AND kind=?' : ''} ${conv ? 'AND conv=?' : ''} ${seq !== undefined ? 'AND msg_seq=?' : ''}`,
       [...(kind ? [kind] : []), ...(conv ? [conv] : []), ...(seq !== undefined ? [seq] : [])],
     );
-    return rows.map((row) => parseJson<GapFetchedMessage>(String(row[0])));
+    return rows.map((row) => parseProtocolMessage(row[0]));
   }
 
   async matchingMessage(
@@ -358,7 +375,7 @@ export class RoamMsgCacheDb {
     const native = rows.filter((row) => Number(row[0]) === 1).map((row) => nativeRow([row[1]!]));
     const protocol = rows
       .filter((row) => Number(row[0]) === 2)
-      .map((row) => parseJson<GapFetchedMessage>(String(row[1])));
+      .map((row) => parseProtocolMessage(row[1]));
     // 特殊消息按正文命中：在来源去重前筛选，以免原生纯文本盖住同一条协议正文。
     const resolve = (messages: GapFetchedMessage[]) =>
       project ? messages.map(project).filter((row) => row !== undefined) : messages;
@@ -491,7 +508,7 @@ export class RoamMsgCacheDb {
         [kind, conv, seq, seq, id, ...keyParams],
       );
       if (!rows.length) break;
-      const page = rows.map((row) => parseJson<GapFetchedMessage>(String(row[0])));
+      const page = rows.map((row) => parseProtocolMessage(row[0]));
       for (const { protocolRaw: _raw, ...view } of page) protocol.push(view);
       seq = BigInt(page.at(-1)!.msgSeq);
       id = page.at(-1)!.msgId;
@@ -508,7 +525,7 @@ export class RoamMsgCacheDb {
       `SELECT payload FROM ${PROTOCOL_TABLE} WHERE msg_id=? LIMIT 1`,
       [msgId],
     );
-    if (protocol[0]) return parseJson<GapFetchedMessage>(String(protocol[0][0]));
+    if (protocol[0]) return parseProtocolMessage(protocol[0][0]);
     const native = await this.nt.executeSql(
       this.dbPath,
       `SELECT payload FROM ${NATIVE_TABLE} WHERE msg_id = ? AND accepted = 1 LIMIT 1`,

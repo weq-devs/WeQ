@@ -77,7 +77,11 @@ export function FaceEmoji({
   isSender = true,
 }: FaceEmojiProps) {
   const { faceId, faceText, innerId, subType } = element;
-  const label = faceText || `[表情${faceId}]`;
+  const fallbackLabel = `[表情${faceId}]`;
+  const label =
+    faceId === 0 && subType !== POKE_FACE_SUBTYPE && (!faceText || faceText === fallbackLabel)
+      ? '[惊讶]'
+      : faceText || fallbackLabel;
   const dim = toLength(size);
   const boxStyle = dim ? { width: dim, height: dim } : undefined;
 
@@ -194,12 +198,12 @@ function FaceImage({
   className?: string;
   fallbackText?: string;
 }) {
-  const [broken, setBroken] = useState(false);
+  const [brokenSrc, setBrokenSrc] = useState<string>();
 
   // 图片加载失败 = 这个 faceId 超出了我们预设的所有表情范围（本地没有对应资源）。
   // 不回退成文字 `[表情xxx]`（丑且不像表情），而是回退到一个纯线条的默认笑脸，
   // 一眼能看出是「未知表情」的兜底占位。
-  if (broken) {
+  if (brokenSrc === src) {
     if (fallbackText !== undefined) return <span>{fallbackText}</span>;
     const glyphSize = style?.width ?? '1.25em';
     return (
@@ -224,7 +228,7 @@ function FaceImage({
       aria-label={label}
       title={label}
       draggable={false}
-      onError={() => setBroken(true)}
+      onError={() => setBrokenSrc(src)}
     />
   );
 }
