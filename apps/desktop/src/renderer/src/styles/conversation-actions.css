@@ -127,17 +127,37 @@
   cursor: default;
 }
 .chat-actions .weq-conversation-message-actions {
-  width: auto;
-  gap: 5px;
-  padding-inline: 8px;
+  position: relative;
+  width: 36px;
+  flex-shrink: 0;
+  padding: 0;
 }
-.weq-conversation-message-actions small {
-  font-size: 11px;
-  color: var(--weq-accent-effective);
+.weq-conversation-progress-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  color: var(--weq-fg-primary);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
   white-space: nowrap;
 }
-.weq-conversation-message-actions {
-  position: relative;
+.weq-conversation-progress-ring::before {
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid var(--weq-accent-effective);
+  border-right-color: transparent;
+  border-radius: 50%;
+  content: '';
+  animation: weq-spin 900ms linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-conversation-progress-ring::before {
+    animation: none;
+  }
 }
 .weq-roaming-paused-indicator {
   position: absolute;

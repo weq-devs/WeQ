@@ -19,6 +19,7 @@ export function observeMobileWebViewport(element: HTMLElement): () => void {
   let layoutWidth = window.innerWidth;
   let layoutHeight = window.innerHeight;
   const clear = () => {
+    element.removeAttribute('data-weq-compact-viewport');
     element.style.removeProperty('--weq-mobile-viewport-height');
     element.style.removeProperty('--weq-mobile-viewport-top');
     element.style.removeProperty('--weq-mobile-safe-bottom');
@@ -46,6 +47,7 @@ export function observeMobileWebViewport(element: HTMLElement): () => void {
       layoutHeight = Math.max(layoutHeight, window.innerHeight);
     }
     keyboardOpen = !leavingKeyboard && !!(editing || keyboardOpen) && layoutHeight - height > 120;
+    element.toggleAttribute('data-weq-compact-viewport', keyboardOpen || height <= 600);
     css('--weq-mobile-safe-bottom', keyboardOpen ? '0px' : '');
     css('--weq-mobile-viewport-height', `${height}px`);
     css('--weq-mobile-viewport-top', `${leavingKeyboard ? 0 : (viewport?.offsetTop ?? 0)}px`);

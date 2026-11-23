@@ -206,36 +206,48 @@ html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-editor {
   }
 }
 
-@media (max-height: 600px) {
-  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .chat-pane:not(.composer-collapsed) {
-    --composer-height: clamp(
-      96px,
+/* iPadOS 键盘可只缩小可视视口，不能用布局视口的 max-height 判断。 */
+html[data-weq-mobile-client='true'][data-weq-layout='wide'] :where(
+    .app-shell-root[data-weq-compact-viewport]
+  )
+  .chat-pane:not(.composer-collapsed, .selection-mode):has(
+    > .composer:not(.has-media-attachments, .has-extensions)
+      > .composer-editor:not(.composer-row-hidden)
+  ) {
+  --composer-height: min(
+    var(--desktop-composer-height, 190px),
+    clamp(
+      var(--weq-compact-composer-min-height, 104px),
       calc(var(--weq-mobile-viewport-height, 100dvh) * 0.3),
-      140px
-    ) !important;
+      148px
+    )
+  ) !important;
+
+  &:has(> .composer.has-quote) {
+    --weq-compact-composer-min-height: 144px;
   }
 
-  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer {
-    grid-template-rows: 44px minmax(0, 1fr);
-    padding: 0 8px calc(8px + var(--weq-mobile-safe-bottom, env(safe-area-inset-bottom, 0px)));
+  & > .composer {
+    padding: 2px 8px calc(8px + var(--weq-mobile-safe-bottom, env(safe-area-inset-bottom, 0px)));
   }
 
-  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-tools {
+  & > .composer > .composer-tools {
     padding-right: 0;
   }
 
-  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-editor {
-    min-height: 0;
+  & > .composer:has(> .composer-send) > .composer-editor {
     padding: 4px 84px 4px 4px;
   }
 
-  html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer > .composer-send {
+  & > .composer > .composer-send {
     right: 8px;
     bottom: calc(8px + var(--weq-mobile-safe-bottom, env(safe-area-inset-bottom, 0px)));
     min-width: 68px;
     height: 44px;
   }
+}
 
+@media (max-height: 600px) {
   html[data-weq-layout='single']
     .chat-pane:has(.composer > :is(.emoji-panel, .composer-plus-panel)) {
     --composer-height: min(

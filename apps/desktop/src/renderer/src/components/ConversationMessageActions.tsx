@@ -7,7 +7,6 @@ import {
   ListFilter,
   ListRestart,
   ListX,
-  Loader2,
   MessageSquareText,
   MoreHorizontal,
   Pause,
@@ -97,15 +96,10 @@ export function ConversationMessageActions({
           )
           .sort((a, b) => b.createdAt - a.createdAt)[0]
       : undefined;
-  const running = job?.status === 'running' || job?.status === 'pausing';
+  const progress =
+    job?.status === 'running' ? `${Math.floor(roamingJobProgress(job) ?? 0)}%` : undefined;
   const status =
-    job?.status === 'pausing'
-      ? '暂停收尾中'
-      : job?.status === 'running'
-        ? `${roamingJobProgress(job) ?? 0}%`
-        : job?.status === 'paused'
-          ? '已暂停'
-          : undefined;
+    job?.status === 'pausing' ? '暂停收尾中' : job?.status === 'paused' ? '已暂停' : progress;
   const messages: ConversationMenuAction[] = [
     ...(onImportant
       ? [{ label: '重要消息', icon: <ListFilter size={16} />, action: onImportant }]
@@ -245,6 +239,12 @@ export function ConversationMessageActions({
     setMenu(null);
     trigger.current?.focus({ preventScroll: true });
   };
+  const taskDescription = status ? `漫游拉取任务 ${status}` : undefined;
+  const progressRing = progress ? (
+    <span className="weq-conversation-progress-ring" aria-hidden="true">
+      {progress}
+    </span>
+  ) : null;
   const taskIndicator =
     job?.status === 'paused' || job?.status === 'pausing' ? (
       <span className="weq-roaming-paused-indicator" aria-hidden="true">
@@ -257,8 +257,9 @@ export function ConversationMessageActions({
         <button
           type="button"
           className="icon-button group-header-info-action weq-conversation-message-actions"
-          title={status ? `更多 · 漫游拉取任务 ${status}` : '更多'}
+          title={taskDescription ? `更多 · ${taskDescription}` : '更多'}
           aria-label="更多会话操作"
+          aria-description={taskDescription}
           aria-haspopup="menu"
           aria-expanded={Boolean(menu)}
           onClick={(event) => open(event.currentTarget, '会话操作')}
@@ -269,7 +270,7 @@ export function ConversationMessageActions({
             }
           }}
         >
-          <MoreHorizontal size={18} />
+          {progressRing ?? <MoreHorizontal size={18} />}
           {taskIndicator}
         </button>
       ) : (
@@ -280,9 +281,10 @@ export function ConversationMessageActions({
             className="icon-button group-header-info-action weq-conversation-message-actions"
             title={
               item.reason ??
-              (item.label === '工具' && status ? `工具 · 漫游拉取任务 ${status}` : item.label)
+              (item.label === '工具' && taskDescription ? `工具 · ${taskDescription}` : item.label)
             }
             aria-label={item.label}
+            aria-description={item.label === '工具' ? taskDescription : undefined}
             disabled={item.disabled}
             aria-haspopup={item.children ? 'menu' : undefined}
             aria-expanded={item.children ? menu?.label === item.label : undefined}
@@ -300,10 +302,8 @@ export function ConversationMessageActions({
               }
             }}
           >
-            {item.label === '工具' && running ? <Loader2 size={18} /> : item.icon}
-            {item.label === '工具'
-              ? (taskIndicator ?? (running ? <small>{status}</small> : null))
-              : null}
+            {item.label === '工具' ? (progressRing ?? item.icon) : item.icon}
+            {item.label === '工具' ? taskIndicator : null}
           </button>
         ))
       )}
