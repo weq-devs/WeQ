@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { act, createElement } from 'react';
+import { act, createElement, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QqAvatar } from '../src/renderer/src/components/QqAvatar';
@@ -168,24 +168,9 @@ it('同地址已有成功记录时，失败的头像使用新节点重新加载'
   }
 });
 
-it('Remote 缩略图失败可自行补取原图，另一处原图失败也会复用后续加载成功的缩略图', async () => {
-  const scope = 'chat-avatar-fixture';
-  const own = '/_media/avatar?scope=user&uin=10001&v=big';
-  const peer = '/_media/avatar?scope=user&uin=10002&v=big';
-  const ownThumbnail = cachedAvatarUrl(own, 'small')!;
-  const peerThumbnail = cachedAvatarUrl(peer, 'small')!;
-  const loaded = () => new Response(new Blob(['avatar'], { type: 'image/png' }));
-  let loadPeerThumbnail!: (response: Response) => void;
-  const pendingThumbnail = new Promise<Response>((resolve) => {
-    loadPeerThumbnail = resolve;
-  });
-  const fetchImage = vi.fn(async (src: string) =>
-    src === ownThumbnail || src === peer
-      ? new Response(null, { status: 404 })
-      : src === peerThumbnail
-        ? pendingThumbnail
-        : loaded(),
-  );
+const loaded = () => new Response(new Blob(['avatar'], { type: 'image/png' }));
+
+function renderWebAvatars(scope: string, fetchImage: (src: string) => Promise<Response>) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('IntersectionObserver', undefined);
   vi.stubGlobal('fetch', fetchImage);
@@ -203,27 +188,58 @@ it('Remote 缩略图失败可自行补取原图，另一处原图失败也会复
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
+  return {
+    host,
+    render: (...avatars: ReactNode[]) =>
+      act(async () => {
+        root.render(createElement(WebAvatarScope.Provider, { value: scope }, ...avatars));
+      }),
+    ready: (src: string) =>
+      act(async () => {
+        await vi.waitFor(() =>
+          expect(webAvatarCache.peek(webAvatarKey(scope, src)!)?.ready).toBe(true),
+        );
+      }),
+    close: () => {
+      act(() => root.unmount());
+      host.remove();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    },
+  };
+}
+
+it('Remote 缩略图失败可自行补取原图，另一处原图失败也会复用后续加载成功的缩略图', async () => {
+  const scope = 'chat-avatar-fixture';
+  const own = '/_media/avatar?scope=user&uin=10001&v=big';
+  const peer = '/_media/avatar?scope=user&uin=10002&v=big';
+  const ownThumbnail = cachedAvatarUrl(own, 'small')!;
+  const peerThumbnail = cachedAvatarUrl(peer, 'small')!;
+  let loadPeerThumbnail!: (response: Response) => void;
+  const pendingThumbnail = new Promise<Response>((resolve) => {
+    loadPeerThumbnail = resolve;
+  });
+  const fetchImage = vi.fn(async (src: string) =>
+    src === ownThumbnail || src === peer
+      ? new Response(null, { status: 404 })
+      : src === peerThumbnail
+        ? pendingThumbnail
+        : loaded(),
+  );
+  const fixture = renderWebAvatars(scope, fetchImage);
   try {
-    await act(async () => {
-      root.render(
-        createElement(
-          WebAvatarScope.Provider,
-          { value: scope },
-          createElement(Avatar, { name: '本人', avatarUrl: own, resolution: 'small' }),
-          createElement(Avatar, { name: '对方', avatarUrl: peer, resolution: 'small' }),
-          createElement(QqAvatar, { url: peer, size: 128, className: 'peer-card' }),
-        ),
-      );
-    });
-    await act(async () => {
-      await vi.waitFor(() =>
-        expect(webAvatarCache.peek(webAvatarKey(scope, own)!)?.ready).toBe(true),
-      );
-      expect(webAvatarCache.peek(webAvatarKey(scope, peer)!)?.failed).toBe(true);
-    });
-    expect(host.querySelector('img.peer-card')).toBeNull();
+    await fixture.render(
+      createElement(Avatar, { name: '本人', avatarUrl: own, resolution: 'small' }),
+      createElement(Avatar, { name: '对方', avatarUrl: peer, resolution: 'small' }),
+      createElement(QqAvatar, { url: peer, size: 128, className: 'peer-card' }),
+    );
+    await fixture.ready(own);
+    expect(webAvatarCache.peek(webAvatarKey(scope, peer)!)?.failed).toBe(true);
+    expect(fixture.host.querySelector('img.peer-card')).toBeNull();
     await act(async () => loadPeerThumbnail(loaded()));
-    const srcs = [...host.querySelectorAll('img')].map((image) => image.getAttribute('src'));
+    const srcs = [...fixture.host.querySelectorAll('img')].map((image) =>
+      image.getAttribute('src'),
+    );
     expect(srcs).toEqual([
       webAvatarCache.peek(webAvatarKey(scope, own)!)?.src,
       webAvatarCache.peek(webAvatarKey(scope, peerThumbnail)!)?.src,
@@ -233,9 +249,67 @@ it('Remote 缩略图失败可自行补取原图，另一处原图失败也会复
       [ownThumbnail, own, peerThumbnail, peer].sort(),
     );
   } finally {
-    act(() => root.unmount());
-    host.remove();
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
+    fixture.close();
+  }
+});
+
+it('Remote 同一张已缓存头像在一个位置报错时可原地重试，不影响别处且不重复下载', async () => {
+  const url = '/_media/avatar?scope=user&uin=10003&v=big';
+  const fetchImage = vi.fn(async () => loaded());
+  const fixture = renderWebAvatars('same-avatar-fixture', fetchImage);
+  try {
+    await fixture.render(
+      createElement(QqAvatar, { url, className: 'sidebar' }),
+      createElement(Avatar, { name: '发送者', avatarUrl: url, resolution: 'small' }),
+    );
+    await fixture.ready(cachedAvatarUrl(url, 'small')!);
+    const sidebar = fixture.host.querySelector('img.sidebar');
+    const sender = () => fixture.host.querySelector('.avatar img');
+    const failed = sender()!;
+    expect(failed.getAttribute('src')).toBe(sidebar?.getAttribute('src'));
+
+    act(() => failed.dispatchEvent(new Event('error')));
+    expect(sender()).not.toBe(failed);
+    expect(sender()?.getAttribute('src')).toBe(sidebar?.getAttribute('src'));
+
+    act(() => sender()!.dispatchEvent(new Event('error')));
+    expect(sender()).toBeNull();
+    expect(fixture.host.querySelector('img.sidebar')).toBe(sidebar);
+    expect(fetchImage).toHaveBeenCalledTimes(1);
+  } finally {
+    fixture.close();
+  }
+});
+
+it('Remote 不等缩略图请求结束就显示同一人的已缓存原图，缩略图成功后换回', async () => {
+  const url = '/_media/avatar?scope=user&uin=10004&v=big';
+  const headerUrl = `/_avatar/fetch?${new URLSearchParams({ src: 'https://thirdqq.qlogo.cn/g?b=sdk&s=0&nk=10004' })}`;
+  const small = cachedAvatarUrl(url, 'small')!;
+  let finishThumbnail!: (response: Response) => void;
+  const pending = new Promise<Response>((resolve) => {
+    finishThumbnail = resolve;
+  });
+  const fetchImage = vi.fn(async (src: string) => (src === small ? pending : loaded()));
+  const fixture = renderWebAvatars('pending-avatar-fixture', fetchImage);
+  const header = createElement(QqAvatar, { url: headerUrl, size: 128, className: 'header' });
+  try {
+    await fixture.render(header);
+    await fixture.ready(headerUrl);
+    await fixture.render(
+      header,
+      createElement(Avatar, { name: '发送者', avatarUrl: url, resolution: 'small' }),
+    );
+    const original = fixture.host.querySelector('img.header')!.getAttribute('src');
+    const sender = () => fixture.host.querySelector('.avatar img')?.getAttribute('src');
+    expect(original).toMatch(/^blob:/);
+    expect(sender()).toBe(original);
+    expect(fetchImage.mock.calls.map(([src]) => src)).toEqual([headerUrl, small]);
+
+    await act(async () => finishThumbnail(loaded()));
+    await fixture.ready(small);
+    expect(sender()).toMatch(/^blob:/);
+    expect(sender()).not.toBe(original);
+  } finally {
+    fixture.close();
   }
 });

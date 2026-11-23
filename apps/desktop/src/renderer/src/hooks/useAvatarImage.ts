@@ -57,32 +57,35 @@ export function useAvatarImage(
   );
   const preferred = key ? snapshot?.src : (source ?? undefined);
   const preferredFailed = Boolean(snapshot?.failed || (preferred && failedSource === preferred));
+  const needsRecovery = preferredFailed || Boolean(key && !snapshot?.ready);
   const subscribeRecovery = useCallback(
     (listener: () => void) =>
-      recoveryKey && preferredFailed
+      recoveryKey && needsRecovery
         ? avatarRecovery.subscribe(recoveryKey, listener)
         : noSubscription(),
-    [recoveryKey, preferredFailed],
+    [recoveryKey, needsRecovery],
   );
   const recovery = useSyncExternalStore(
     subscribeRecovery,
-    () => (recoveryKey && preferredFailed ? avatarRecovery.peek(recoveryKey) : undefined),
+    () => (recoveryKey && needsRecovery ? avatarRecovery.peek(recoveryKey) : undefined),
     () => undefined,
   );
   const candidate = recovery !== rejectedRecovery ? recovery : undefined;
-  const candidateKey = candidate?.webKey;
-  const reuseKey = candidateKey !== key && candidateKey !== fallbackKey ? candidateKey : undefined;
+  // 图片节点失败不等于已解码的共享图片失效；同一个缓存键也可重新挂载一次。
+  const reuseKey = candidate?.webKey;
   const subscribeReuse = useCallback(
     (listener: () => void) =>
-      reuseKey ? webAvatarCache.subscribe(reuseKey, listener) : noSubscription(),
-    [reuseKey],
+      reuseKey && reuseKey !== key && reuseKey !== fallbackKey
+        ? webAvatarCache.subscribe(reuseKey, listener)
+        : noSubscription(),
+    [reuseKey, key, fallbackKey],
   );
   const reused = useSyncExternalStore(
     subscribeReuse,
     () => (reuseKey ? webAvatarCache.peek(reuseKey) : undefined),
     () => undefined,
   );
-  const direct = candidate && !candidateKey ? candidate.src : undefined;
+  const direct = candidate && !reuseKey ? candidate.src : undefined;
   let recoveredSrc = reused?.src ?? direct;
   if (direct && dataSaverActive()) {
     recoveredSrc = /^(weq-media:|weq-avatar:)/.test(direct)
@@ -142,7 +145,7 @@ export function useAvatarImage(
           release ??= webAvatarCache.activate(key);
           void webAvatarCache.load(key, source);
         }
-        if (reuseKey) releaseReuse ??= webAvatarCache.activate(reuseKey);
+        if (reuseKey && reuseKey !== key) releaseReuse ??= webAvatarCache.activate(reuseKey);
       } else {
         release?.();
         release = undefined;
