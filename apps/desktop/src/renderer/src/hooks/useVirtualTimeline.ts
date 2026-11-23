@@ -2,12 +2,11 @@ import {
   useCallback,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
+  useSyncExternalStore,
   type RefObject,
 } from 'react';
-import { flushSync } from 'react-dom';
 import {
   observeElementOffset,
   observeElementRect,
@@ -25,9 +24,10 @@ import {
   restoreReadingPosition,
   type ConversationReadingPosition,
 } from '../lib/conversationReadingPosition';
+import { IS_ELECTRON } from '../lib/target.shared';
+import { timelineViewportRange } from '../lib/timelinePreload';
 import '../styles/virtual-timeline.css';
 import { useMobileWebLayout } from './useMobileWebViewport';
-import { timelineViewportRange } from '../lib/timelinePreload';
 
 export const TIMELINE_VIRTUAL_THRESHOLD = 40;
 export const TIMELINE_OVERSCAN = 6;
@@ -36,6 +36,24 @@ const observeTimelineRect: typeof observeElementRect = (instance, callback) =>
     // 隐藏视口的零尺寸不回灌范围；重新显示时继续交付真实宽高。
     if (rect.width > 0 && rect.height > 0) callback(rect);
   });
+
+function createScrollRangeStore() {
+  let version = 0;
+  let listener: (() => void) | undefined;
+  return {
+    subscribe(callback: () => void) {
+      listener = callback;
+      return () => {
+        listener = undefined;
+      };
+    },
+    getSnapshot: () => version,
+    requestCommit() {
+      version++;
+      listener?.();
+    },
+  };
+}
 
 export function useVirtualTimeline({
   ids,
@@ -59,11 +77,11 @@ export function useVirtualTimeline({
   const activeRef = useRef(active);
   activeRef.current = active;
   const deliveringOffset = useRef(false);
-  const committingScroll = useRef(false);
   const touching = useRef(false);
   const touchMomentum = useRef(false);
   const mountedIndexes = useRef<ReadonlySet<number>>(new Set());
-  const [, commitScrollRange] = useReducer((version: number) => version + 1, 0);
+  const [scrollRange] = useState(createScrollRangeStore);
+  useSyncExternalStore(scrollRange.subscribe, scrollRange.getSnapshot);
   const observeTimelineOffset: typeof observeElementOffset = useCallback(
     (instance, callback) =>
       observeElementOffset(instance, (offset, scrolling) => {
@@ -145,24 +163,12 @@ export function useVirtualTimeline({
     useFlushSync: false,
     useAnimationFrameWithResizeObserver: mobileWeb,
     onChange: (instance, sync) => {
-      if (
-        !enabled ||
-        !sync ||
-        !deliveringOffset.current ||
-        committingScroll.current ||
-        !instance.range
-      )
-        return;
+      if (!enabled || !sync || !deliveringOffset.current || !instance.range) return;
       const { startIndex, endIndex } = instance.range;
       for (let index = startIndex; index <= endIndex; index++) {
         if (mountedIndexes.current.has(index)) continue;
-        // 缓冲能覆盖当前视口时，让普通更新补充下一批行。只有跨出缓冲才同步挂载。
-        committingScroll.current = true;
-        try {
-          flushSync(commitScrollRange);
-        } finally {
-          committingScroll.current = false;
-        }
+        // 跨出缓冲时以同步优先级补齐范围，但让原生滚动回调先返回。
+        scrollRange.requestCommit();
         break;
       }
     },
@@ -461,6 +467,45 @@ export function useVirtualTimeline({
   }, [scope, scrollRef]);
 
   useLayoutEffect(() => {
+    const scroll = scrollRef.current;
+    if (!IS_ELECTRON || !enabled || !active || !scroll) return;
+    let remainingPixels = 0;
+    const wheel = (event: WheelEvent) => {
+      if (
+        !event.cancelable ||
+        event.defaultPrevented ||
+        event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey ||
+        event.shiftKey ||
+        Math.abs(event.deltaY) <= Math.abs(event.deltaX)
+      )
+        return;
+      for (const element of event.composedPath()) {
+        if (element === scroll) break;
+        if (!(element instanceof HTMLElement)) continue;
+        if (element.matches('select, input[type="number"]')) return;
+        const { overflowY } = getComputedStyle(element);
+        if (
+          (overflowY === 'auto' || overflowY === 'scroll') &&
+          element.scrollHeight > element.clientHeight
+        )
+          return;
+      }
+      // 合成线程可以先于 React 滚出已挂载范围。让长聊天的纵向滚轮与消息更新同在主线程。
+      event.preventDefault();
+      // DOM 滚动会舍入亚像素，保留触控板小幅移动的余量。
+      remainingPixels += event.deltaY;
+      const pixels = Math.trunc(remainingPixels);
+      remainingPixels -= pixels;
+      if (pixels !== 0) scroll.scrollBy(0, pixels);
+    };
+    scroll.addEventListener('wheel', wheel, { passive: false });
+    return () => scroll.removeEventListener('wheel', wheel);
+  }, [active, enabled, scope, scrollRef]);
+
+  useLayoutEffect(() => {
     if (!active) {
       touching.current = false;
       touchMomentum.current = false;
@@ -497,7 +542,13 @@ export function useVirtualTimeline({
   const pendingScrollMeasurements = useRef(
     new Map<ReturnType<typeof virtualizer.options.getItemKey>, HTMLDivElement>(),
   );
+  const detachedRows = useRef(false);
   useLayoutEffect(() => {
+    if (detachedRows.current) {
+      detachedRows.current = false;
+      // refs 在 DOM 移除前逐个清空，提交完成后一次性取消离屏行的观察。
+      virtualizer.measureElement(null);
+    }
     const pending = pendingScrollMeasurements.current;
     if (!pending.size) return;
     // 先读完本次提交的高度，再让虚拟列表更新行位置和阅读锚点。
@@ -520,22 +571,19 @@ export function useVirtualTimeline({
 
   const measure = useCallback(
     (element: HTMLDivElement | null) => {
+      if (!element) {
+        detachedRows.current = true;
+        return;
+      }
       virtualizer.measureElement(element);
       const range = virtualizer.range;
-      if (!element?.isConnected || !enabled || !virtualizer.isScrolling || !range) return;
+      if (!element.isConnected || !enabled || !virtualizer.isScrolling || !range) return;
       const index = virtualizer.indexFromElement(element);
       if (index < range.startIndex || index > range.endIndex) return;
       const id = virtualizer.options.getItemKey(index);
       if (virtualizer.itemSizeCache.has(id)) return;
       // 快速滚动会跳过预挂载范围，首测留到尺寸观察时会用估计高度排出空隙。
-      if (committingScroll.current) {
-        pendingScrollMeasurements.current.set(id, element);
-        return;
-      }
-      virtualizer.resizeItem(
-        index,
-        virtualizer.options.measureElement(element, undefined, virtualizer),
-      );
+      pendingScrollMeasurements.current.set(id, element);
     },
     [enabled, virtualizer],
   );

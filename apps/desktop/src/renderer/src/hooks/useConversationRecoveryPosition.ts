@@ -115,7 +115,11 @@ export function useConversationRecoveryPosition({
     const onScroll = (event: Event) => {
       const scroll = scrollRef.current;
       if (!scroll || event.target !== scroll) return;
-      if (scroll.clientHeight && !atConversationBottom(scroll, atLatest))
+      if (
+        !visitedHistoryRef.current &&
+        scroll.clientHeight &&
+        !atConversationBottom(scroll, atLatest)
+      )
         visitedHistoryRef.current = true;
       schedule(scroll);
     };

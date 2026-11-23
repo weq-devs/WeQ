@@ -12,6 +12,18 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
+function setFixtureBounds(scroll: HTMLElement) {
+  const readHeight = vi.fn(() => 400);
+  Object.defineProperties(scroll, {
+    scrollHeight: { value: 2000 },
+    clientHeight: { get: readHeight },
+  });
+  scroll.getBoundingClientRect = () => new DOMRect(0, 0, 500, 400);
+  const message = scroll.querySelector<HTMLElement>('.message-line')!;
+  message.getBoundingClientRect = () => new DOMRect(0, 50, 400, 60);
+  return readHeight;
+}
+
 it.each([
   { bottom: true, source: undefined, verified: false, kind: 'c2c' as const, expected: undefined },
   {
@@ -50,6 +62,9 @@ it.each([
         kind,
         rows,
         enabled: true,
+        atLatest: true,
+        resumeReadingPosition: true,
+        visitedHistoryRef: useRef(false),
         scrollRef,
       });
       return h(
@@ -69,12 +84,14 @@ it.each([
     try {
       render();
       const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
-      Object.defineProperties(scroll, {
-        scrollHeight: { value: 2000 },
-        clientHeight: { value: 400 },
-      });
+      const readHeight = setFixtureBounds(scroll);
       scroll.scrollTop = bottom ? 1600 : 500;
       act(() => scroll.dispatchEvent(new Event('scroll')));
+      if (!bottom) {
+        readHeight.mockClear();
+        act(() => scroll.dispatchEvent(new Event('scroll')));
+        expect(readHeight).not.toHaveBeenCalled();
+      }
       await act(() => vi.advanceTimersByTimeAsync(200));
       act(() => root.unmount());
       root = createRoot(host);
@@ -99,6 +116,9 @@ it('崩溃前滚动即保存锚点，重建后可读取，按账号数据源隔�
       kind: 'c2c',
       rows,
       enabled: true,
+      atLatest: true,
+      resumeReadingPosition: true,
+      visitedHistoryRef: useRef(false),
       scrollRef,
     });
     return h(
@@ -118,10 +138,7 @@ it('崩溃前滚动即保存锚点，重建后可读取，按账号数据源隔�
   try {
     render('account:config');
     const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
-    Object.defineProperties(scroll, {
-      scrollHeight: { value: 2000 },
-      clientHeight: { value: 400 },
-    });
+    setFixtureBounds(scroll);
     scroll.scrollTop = 500;
     act(() => scroll.dispatchEvent(new Event('scroll')));
     await act(() => vi.advanceTimersByTimeAsync(200));
