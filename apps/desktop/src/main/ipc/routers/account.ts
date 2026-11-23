@@ -111,6 +111,7 @@ import {
   requireBootstrap,
   dbEventBus,
   matchLiveGroupKeyword,
+  type LiveMessageNoticeBatch,
   accountEventBus,
   type AccountServices,
   type RoamingCacheChange,
@@ -191,6 +192,7 @@ import { mediaSaveRouter } from './media_save';
 import { resourceCleanupRouter } from './resource_cleanup';
 import { conversationCalendarRouter } from './conversation_calendar';
 import { roamingMsgToWire } from '../roaming_message_wire';
+import { proxyNoticeIdentity } from '../../../shared/message_notifications';
 import { withMessageBubbles } from '../message_bubbles';
 import { dressupRouter } from './dressup';
 import { redpackRouter } from './redpack';
@@ -515,7 +517,14 @@ const activeCollectionDetailSyncs = new Map<string, AbortController>();
 
 /** Wire payload pushed to the renderer when nt_msg.db gains new rows. */
 export interface NewMessagesWire {
-  messages: Array<ChatMsgWire & { groupKeyword?: true }>;
+  messages: Array<
+    ChatMsgWire & {
+      groupKeyword?: true;
+      live?: true;
+      keywordChecked?: true;
+      noticeIdentity?: string;
+    }
+  >;
   observedAt?: number;
   accountUin?: string;
   configId?: string;
@@ -6425,34 +6434,64 @@ export const accountRouter = router({
     });
   }),
 
-  /**
-   * Live push of newly-inserted messages (rowid-delta). Reserved for unread /
-   * popup notifications — the open conversation is kept fresh by `onDbChanged`,
-   * not this. Fires only when new rows actually landed.
-   */
+  /** Incoming notices use a shared identity while a proxy message awaits its local row. */
   onNewMessages: procedure.subscription(() => {
     return observable<NewMessagesWire>((emit) => {
-      const handler = (change: NewMessages): void => {
-        const messages: NewMessagesWire['messages'] = [
-          ...change.c2c.map((m) =>
-            c2cMsgToWire({ ...m, elements: toObservedRenderElements(m.elements) }),
-          ),
-          ...change.group.map((m) => ({
-            ...groupMsgToWire({ ...m, elements: toObservedRenderElements(m.elements) }),
-            groupKeyword: matchLiveGroupKeyword(m) ? (true as const) : undefined,
-          })),
-        ];
+      const publish = (messages: NewMessagesWire['messages'], observedAt: number) => {
+        if (!messages.length) return;
         const context = getAppContext();
         emit.next({
           messages,
-          observedAt: change.file.at,
+          observedAt,
           accountUin: context.account?.context.uin,
           configId: context.services?.accountConfig.getRecord()?.configId,
         });
       };
+      const handler = (change: NewMessages, confirmed?: ReadonlySet<object>): void => {
+        const messages: NewMessagesWire['messages'] = [
+          ...change.c2c.map((m) => {
+            const row = c2cMsgToWire({ ...m, elements: toObservedRenderElements(m.elements) });
+            return confirmed?.has(m) ? { ...row, noticeIdentity: proxyNoticeIdentity(row) } : row;
+          }),
+          ...change.group.map((m) => {
+            const row = groupMsgToWire({ ...m, elements: toObservedRenderElements(m.elements) });
+            return {
+              ...row,
+              noticeIdentity: confirmed?.has(m) ? proxyNoticeIdentity(row) : undefined,
+              groupKeyword: matchLiveGroupKeyword(m) ? (true as const) : undefined,
+            };
+          }),
+        ];
+        publish(messages, change.file.at);
+      };
+      const live = (batch: LiveMessageNoticeBatch) => {
+        const context = getAppContext();
+        if (
+          context.account !== batch.session ||
+          !context.services?.accountConfig.getRecord()?.configId
+        )
+          return;
+        const messages: NewMessagesWire['messages'] = [];
+        for (const { row, groupKeyword } of batch.messages) {
+          const wire = roamingMsgToWire(row);
+          const noticeIdentity = proxyNoticeIdentity(wire);
+          if (!noticeIdentity) continue;
+          messages.push({
+            ...wire,
+            source: undefined,
+            live: true,
+            noticeIdentity,
+            keywordChecked: groupKeyword === undefined ? undefined : true,
+            groupKeyword: groupKeyword ? true : undefined,
+          });
+        }
+        publish(messages, batch.observedAt);
+      };
       dbEventBus.on('new', handler);
+      dbEventBus.on('live-message-notice', live);
       return () => {
         dbEventBus.off('new', handler);
+        dbEventBus.off('live-message-notice', live);
       };
     });
   }),

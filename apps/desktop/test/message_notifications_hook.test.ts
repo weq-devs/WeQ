@@ -630,3 +630,147 @@ it('去重、历史、免打扰、群助手、前台阅读与隐私状态共同�
   }
   expect(f.unsubscribe).toHaveBeenCalledOnce();
 });
+
+it.each([false, true])('普通代理提醒可先发，入库补齐时仍只通知一次（Web=%s）', async (web) => {
+  f.web = web;
+  const events = useNotificationPolicy.getState().events;
+  act(() =>
+    useNotificationPolicy.getState().setEvents({
+      ...events,
+      directMessage: { banner: false, system: true },
+      specialCare: { banner: false, system: false },
+    }),
+  );
+  const root = createRoot(document.createElement('div'));
+  const identity = 'proxy:42:7:peer';
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    await act(async () =>
+      f.receive?.(
+        batch('7', {
+          live: true,
+          msgSeq: '42',
+          noticeIdentity: identity,
+        }),
+      ),
+    );
+    const notify = web ? f.browserNotify : f.notify;
+    expect(notify).toHaveBeenCalledOnce();
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining(
+        web
+          ? { target: { kind: 'c2c', conv: 'peer', seq: '42', msgId: undefined } }
+          : { seq: '42', messageId: identity, anchorId: undefined },
+      ),
+    );
+    await act(async () =>
+      f.receive?.(
+        batch('123456', {
+          msgSeq: '42',
+          noticeIdentity: identity,
+        }),
+      ),
+    );
+    expect(notify).toHaveBeenCalledOnce();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it('代理正文到达时等待未确认的特别关心，落库后保留重点提醒', async () => {
+  const events = useNotificationPolicy.getState().events;
+  act(() =>
+    useNotificationPolicy.getState().setEvents({
+      ...events,
+      directMessage: { banner: false, system: true },
+      specialCare: { banner: false, system: true },
+    }),
+  );
+  const root = createRoot(document.createElement('div'));
+  const identity = 'proxy:43:8:peer';
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    await act(async () =>
+      f.receive?.(
+        batch('8', {
+          live: true,
+          msgSeq: '43',
+          noticeIdentity: identity,
+        }),
+      ),
+    );
+    expect(f.notify).not.toHaveBeenCalled();
+    const priority = conversations.map((item) =>
+      item.id === 'peer'
+        ? {
+            ...item,
+            highlights: [
+              { kind: 'specialCare' as const, rawKind: 1006, senderUid: 'peer', msgSeq: '43' },
+            ],
+          }
+        : item,
+    );
+    await act(async () => root.render(createElement(Probe, { conversations: priority })));
+    await act(async () =>
+      f.receive?.(
+        batch('123457', {
+          msgSeq: '43',
+          noticeIdentity: identity,
+        }),
+      ),
+    );
+    expect(f.notify).toHaveBeenCalledOnce();
+    expect(f.notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: '特别关心 · 测试联系人',
+        reasons: ['specialCare'],
+        anchorId: '123457',
+      }),
+    );
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it('群提醒词优先级不清楚时不抢发普通通知', async () => {
+  const events = useNotificationPolicy.getState().events;
+  act(() =>
+    useNotificationPolicy.getState().setEvents({
+      ...events,
+      groupMessage: { banner: false, system: true },
+      specialCare: { banner: false, system: false },
+      keyword: { banner: false, system: true },
+    }),
+  );
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    const group = { kind: 'group', conv: '10003', senderUid: 'peer', live: true };
+    await act(async () =>
+      f.receive?.(batch('50', { ...group, noticeIdentity: 'proxy:50:7:peer' })),
+    );
+    await act(async () =>
+      f.receive?.(
+        batch('51', {
+          ...group,
+          noticeIdentity: 'proxy:51:7:peer',
+          keywordChecked: true,
+          groupKeyword: true,
+        }),
+      ),
+    );
+    expect(f.notify).not.toHaveBeenCalled();
+    await act(async () =>
+      f.receive?.(
+        batch('52', {
+          ...group,
+          noticeIdentity: 'proxy:52:7:peer',
+          keywordChecked: true,
+        }),
+      ),
+    );
+    expect(f.notify).toHaveBeenCalledOnce();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

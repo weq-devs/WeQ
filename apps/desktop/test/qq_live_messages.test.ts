@@ -109,17 +109,21 @@ it('代理重放、先入库及晚入库均合并，保留同序号的其他灰�
     mergeRoamingTimeline('group', [native, other], store.forConversation('group', '70001', now)),
   ).toEqual([native, other]);
   const storedText = [{ kind: 'text', textContent: 'hello' }] as const;
-  expect(store.confirm(native, now, storedText)).toBe(true);
+  expect(store.confirm(native, now, storedText)).toEqual({ receivedLive: true, sameText: true });
   expect(store.forConversation('group', '70001', now)).toEqual([]);
   expect(store.accept([row], now)).toEqual([]);
   const dbFirst = new LiveMessages();
-  expect(dbFirst.confirm(native, now, storedText)).toBe(false);
+  expect(dbFirst.confirm(native, now, storedText)).toEqual({
+    receivedLive: false,
+    sameText: false,
+  });
   expect(dbFirst.accept([row], now)).toEqual([]);
   const changedAtWrite = new LiveMessages();
   changedAtWrite.accept([row], now);
-  expect(changedAtWrite.confirm(native, now, [{ kind: 'text', textContent: 'edited' }])).toBe(
-    false,
-  );
+  expect(changedAtWrite.confirm(native, now, [{ kind: 'text', textContent: 'edited' }])).toEqual({
+    receivedLive: true,
+    sameText: false,
+  });
   expect(changedAtWrite.forConversation('group', '70001', now)).toEqual([]);
 });
 

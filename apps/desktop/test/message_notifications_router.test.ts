@@ -110,3 +110,29 @@ it('原生桥复核共享开关、隐私和去重，关闭角标清零', async (
   expect(f.badge).toHaveBeenLastCalledWith(0);
   expect(resolve).toHaveBeenCalledTimes(5);
 });
+
+it('代理提醒和落库后的提醒共用宿主去重，两端提交也只发一次', async () => {
+  const api = createMessageNotificationsRouter(() => {});
+  const first = api.createCaller({});
+  const second = api.createCaller({});
+  f.policy = normalizeNotificationEvents(undefined);
+  const event = {
+    ...binding,
+    messageId: 'proxy:42:7:u_peer',
+    kind: 'c2c' as const,
+    conv: 'u_peer',
+    seq: '42',
+    title: '联系人',
+    body: '同一条消息',
+    private: false,
+  };
+  expect(await first.notify(event)).toBe(true);
+  expect(await second.notify({ ...event, anchorId: '987654321' })).toBe(true);
+  expect(f.notify).toHaveBeenCalledOnce();
+  expect(f.notify).toHaveBeenCalledWith(
+    expect.objectContaining({
+      target: { kind: 'c2c', conv: 'u_peer', seq: '42', msgId: undefined },
+    }),
+    expect.any(Function),
+  );
+});

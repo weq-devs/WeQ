@@ -95,6 +95,20 @@ export interface IncomingNoticeMessage {
   sendTime: string;
   source?: string;
 }
+/** Bound the key used by both the provisional notification and its stored row. */
+export function proxyNoticeIdentity(
+  row: Pick<IncomingNoticeMessage, 'msgSeq' | 'senderUid'> & { msgRandom?: string },
+): string | undefined {
+  if (
+    !/^[1-9]\d{0,19}$/.test(row.msgSeq) ||
+    !row.msgRandom ||
+    !/^[1-9]\d{0,19}$/.test(row.msgRandom) ||
+    !/^[A-Za-z0-9_-]{1,72}$/.test(row.senderUid)
+  )
+    return undefined;
+  return `proxy:${row.msgSeq}:${row.msgRandom}:${row.senderUid}`;
+}
+
 /** 普通和重点消息共用实时窗口及前台阅读判断。 */
 export function incomingNoticeEligible(
   message: IncomingNoticeMessage,

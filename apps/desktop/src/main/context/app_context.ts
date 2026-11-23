@@ -267,6 +267,12 @@ import { ContactDirectoryRuntime } from './contact_metrics';
  */
 export const dbEventBus = new EventEmitter();
 
+export interface LiveMessageNoticeBatch {
+  session: AccountSession;
+  observedAt: number;
+  messages: Array<{ row: GapFetchedMessage; groupKeyword?: boolean }>;
+}
+
 export interface RoamingCacheChange {
   session: AccountSession;
   kind: 'group' | 'c2c';
@@ -696,6 +702,7 @@ function mountDbWatch(session: AccountSession): void {
       const sync = ctx.services?.qqClientSync;
       const live = sync?.isLiveEnabled() ? sync.liveMessages : undefined;
       const now = Date.now();
+      const confirmedNotices = live ? new Set<object>() : undefined;
       const c2c = new Set((change.dataline ?? []).map((message) => message.targetUid));
       for (const row of change.c2c) {
         const confirmed = live?.confirm(
@@ -709,7 +716,8 @@ function mountDbWatch(session: AccountSession): void {
           now,
           row.elements,
         );
-        if (!confirmed) c2c.add(row.targetUid);
+        if (confirmed?.receivedLive) confirmedNotices?.add(row);
+        if (!confirmed?.sameText) c2c.add(row.targetUid);
       }
       const groups = new Set<string>();
       for (const row of change.group) {
@@ -724,9 +732,10 @@ function mountDbWatch(session: AccountSession): void {
           now,
           row.elements,
         );
-        if (!confirmed || row.setEmojiList?.length) groups.add(row.targetGroupCode);
+        if (confirmed?.receivedLive) confirmedNotices?.add(row);
+        if (!confirmed?.sameText || row.setEmojiList?.length) groups.add(row.targetGroupCode);
       }
-      dbEventBus.emit('new', change);
+      dbEventBus.emit('new', change, confirmedNotices);
       if (c2c.size || groups.size)
         dbEventBus.emit('changed', {
           at: change.file.at,
@@ -2219,6 +2228,16 @@ export function initAppContext(fileRoot?: string): AppContext {
               messages: rows,
               live: true,
             } satisfies RoamingCacheChange);
+          }
+          if (dbEventBus.listenerCount('live-message-notice')) {
+            dbEventBus.emit('live-message-notice', {
+              session,
+              observedAt: Date.now(),
+              messages: messages.map((row) => ({
+                row,
+                groupKeyword: groupKeyword?.matchObservedLiveText(row),
+              })),
+            } satisfies LiveMessageNoticeBatch);
           }
         },
         onLiveUpdates: ({ reads, groups, reactions, interactions }) => {

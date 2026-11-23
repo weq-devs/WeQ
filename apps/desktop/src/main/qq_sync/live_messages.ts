@@ -172,7 +172,10 @@ function key(row: IdentityRow) {
 }
 
 export class LiveMessages {
-  private readonly entries = new Map<string, { at: number; row?: GapFetchedMessage }>();
+  private readonly entries = new Map<
+    string,
+    { at: number; row?: GapFetchedMessage; receivedLive?: true }
+  >();
 
   private expire(now: number) {
     for (const [id, entry] of this.entries) {
@@ -193,14 +196,15 @@ export class LiveMessages {
     return accepted;
   }
 
-  confirm(row: IdentityRow, now: number, storedElements: readonly Element[]): boolean {
+  confirm(row: IdentityRow, now: number, storedElements: readonly Element[]) {
     const id = key(row);
-    if (!id) return false;
+    if (!id) return undefined;
     const entry = this.entries.get(id);
+    const receivedLive =
+      !!entry && now - entry.at <= LIVE_WINDOW_MS && Boolean(entry.row || entry.receivedLive);
     const shown = entry?.row?.elements;
-    const displayed = Boolean(
-      entry &&
-        now - entry.at <= LIVE_WINDOW_MS &&
+    const sameText = Boolean(
+      receivedLive &&
         shown &&
         shown.length === storedElements.length &&
         storedElements.every((element, index) => {
@@ -213,9 +217,9 @@ export class LiveMessages {
         }),
     );
     this.entries.delete(id);
-    this.entries.set(id, { at: now });
+    this.entries.set(id, { at: now, ...(receivedLive ? { receivedLive: true } : {}) });
     this.expire(now);
-    return displayed;
+    return { receivedLive, sameText };
   }
 
   forConversation(kind: GapFetchedMessage['kind'], conv: string, now: number) {

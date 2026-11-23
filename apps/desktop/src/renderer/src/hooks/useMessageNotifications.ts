@@ -132,11 +132,21 @@ export function useMessageNotifications(options: {
         (batch.configId && batch.configId !== scope.expectedAccountConfigId))
     )
       return;
-    for (const message of batch?.messages ?? [])
-      pending.current.set(JSON.stringify([message.kind, message.conv, message.msgId]), {
+    for (const message of batch?.messages ?? []) {
+      const key = JSON.stringify([
+        message.kind,
+        message.conv,
+        message.noticeIdentity ?? message.msgId,
+      ]);
+      const previous = pending.current.get(key);
+      if (message.live && previous && !previous.message.live) continue;
+      pending.current.set(key, {
         message,
         observedAt: (batch?.observedAt ?? Date.now()) / 1000,
       });
+    }
+    const scopes = sharedAccountRecords('notifications');
+    const activeEvents = currentNoticeEvents();
     const notices = new Map<
       string,
       {
@@ -157,6 +167,34 @@ export function useMessageNotifications(options: {
       const policy = policyRef.current.get(`${message.kind}:${message.conv}`);
       if (!policy) continue;
       pending.current.delete(key);
+      if (message.live) {
+        const scopeIncludes = (event: 'specialCare' | 'keyword') =>
+          notificationScopeIncludes(normalizeNotificationScope(scopes[event], event), policy);
+        const enabled = (event: 'specialCare' | 'keyword' | 'groupMessage' | 'directMessage') =>
+          activeEvents[event].banner || activeEvents[event].system;
+        const carePending =
+          enabled('specialCare') &&
+          scopeIncludes('specialCare') &&
+          !policy.highlights?.some(
+            (hit) => hit.msgSeq === message.msgSeq && hit.kind === 'specialCare',
+          );
+        const keywordPending =
+          message.kind === 'group' &&
+          enabled('keyword') &&
+          scopeIncludes('keyword') &&
+          (!message.keywordChecked || message.groupKeyword === true);
+        const ordinary = message.kind === 'group' ? 'groupMessage' : 'directMessage';
+        // 尚不能确认特别关心或群提醒词优先级时，保留落库后的通知机会。
+        if (
+          !isAccountStateReady() ||
+          !useNotificationPolicy.getState().ready ||
+          policy.muted ||
+          !enabled(ordinary) ||
+          carePending ||
+          keywordPending
+        )
+          continue;
+      }
       seen.current.add(key);
       const reading =
         document.visibilityState === 'visible' &&
@@ -193,7 +231,6 @@ export function useMessageNotifications(options: {
         if (highlight.kind in mapping)
           important.add(mapping[highlight.kind as keyof typeof mapping]);
       }
-      const scopes = sharedAccountRecords('notifications');
       for (const event of important) {
         if (event === 'replyMe' && message.kind !== 'group') continue;
         if (event !== 'specialCare' && !isAccountStateReady()) continue;
@@ -269,7 +306,7 @@ export function useMessageNotifications(options: {
             kind: message.kind,
             conv: message.conv,
             seq: anchor.msgSeq,
-            msgId: anchor.msgId,
+            msgId: anchor.live ? undefined : anchor.msgId,
           };
           const notice: WebNotice = {
             uin: scope.expectedAccountUin,
@@ -309,7 +346,7 @@ export function useMessageNotifications(options: {
             void client.account.messageNotifications.notify
               .mutate({
                 ...scope,
-                messageId: message.msgId,
+                messageId: message.noticeIdentity ?? message.msgId,
                 anchorId: target.msgId,
                 kind: message.kind,
                 conv: message.conv,

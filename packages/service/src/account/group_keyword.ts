@@ -210,6 +210,15 @@ export class GroupKeywordService {
     }
   }
 
+  matchObservedLiveText(row: GapFetchedMessage): boolean | undefined {
+    if (!this.handle || row.kind !== 'group') return undefined;
+    if (!this.rules[row.conv]) return false;
+    const candidate = this.liveCandidates.get(
+      proxyIdentity(row.conv, row.msgSeq, row.msgRandom ?? '', row.senderUid, row.sendTime),
+    );
+    return candidate && candidate.expires > Date.now() ? Boolean(candidate.keyword) : undefined;
+  }
+
   clearProxyMatches(): void {
     this.liveCandidates.clear();
     this.matches = new WeakMap();
