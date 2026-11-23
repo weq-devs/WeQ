@@ -135,6 +135,7 @@ import {
   invertSelectionIds,
 } from '../../lib/multiSelection';
 import { WindowedList } from '../../components/WindowedList';
+import { useToastApi } from '../../components/Toast.shared';
 import { useThemeStore } from '../../state/theme';
 import '../../styles/conversation-directory.css';
 import { cn } from './classNames';
@@ -330,6 +331,26 @@ export function ConversationList({
   const showPreview = preferenceValue('showConversationPreview');
   const account = useViewState((state) => state.openedUin);
   const listKey = `${account}:${view}:${keyword}`;
+  const directoryError = directory?.loadingError;
+  const retryDirectory = directory?.onRetry ?? onLoadMore;
+  const toast = useToastApi(null);
+  useEffect(() => {
+    if (!active || !directoryError) return;
+    const key = 'conversation-directory-read';
+    toast.push({
+      key,
+      event: 'failure',
+      tone: 'error',
+      durationKind: 'long',
+      title: '会话读取失败',
+      summary: directoryError,
+      system: false,
+      action: retryDirectory
+        ? { label: '重试', icon: 'reload', run: retryDirectory, keepOpen: true }
+        : undefined,
+    });
+    return () => toast.resolve(key);
+  }, [active, account, view, directoryError, retryDirectory, toast]);
   useImperativeHandle(
     directory?.captureListPosition,
     () => () => {
@@ -778,19 +799,6 @@ export function ConversationList({
         <QQExactLookup key={lookupOpen} kind={lookupOpen} onClose={() => setLookupOpen(null)} />
       )}
       {loading && !filtered.rows.length ? <ListSkeleton rows={9} /> : null}
-      {directory?.loadingError ? (
-        <div role="alert">
-          会话读取失败：{directory.loadingError}
-          <button
-            type="button"
-            onClick={directory.onRetry ?? onLoadMore}
-            className="weq-retry-button"
-          >
-            <RefreshCw size={14} aria-hidden />
-            重试
-          </button>
-        </div>
-      ) : null}
       {!loading && !filtered.rows.length ? (
         <EmptyState title="暂无会话" body="" icon={<MessageSquare />} />
       ) : null}
