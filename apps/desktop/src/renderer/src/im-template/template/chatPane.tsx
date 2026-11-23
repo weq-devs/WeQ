@@ -752,7 +752,7 @@ export function ChatPane(props: ChatPaneProps) {
   const content = <ChatPaneContent {...props} />;
   return (
     <ConversationRenderBoundary
-      resetKey={JSON.stringify([props.user.id, props.conversation.type, props.conversation.id])}
+      resetKey={JSON.stringify([props.user.id, props.conversation?.type, props.conversation?.id])}
       onBack={props.onBack}
     >
       {voice ? content : <VoiceWorkspace>{content}</VoiceWorkspace>}
