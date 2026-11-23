@@ -676,13 +676,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['account'],
   },
   {
-    id: 'read-sync',
-    section: 'account',
-    label: '向 QQ 服务器上报已读位置',
-    aliases: ['已读同步', '已读上报', '同步 QQ 未读'],
-    from: ['account', 'chat-messages'],
-  },
-  {
     id: 'qq-proxy-connection',
     section: 'account',
     label: 'QQ 代理连接',

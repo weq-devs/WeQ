@@ -78,14 +78,6 @@ try {
             '列表排序',
             '未读标记',
           ]);
-          assert.equal(
-            await body
-              .locator('[data-setting-id="read-sync"]')
-              .locator('..')
-              .locator('.weq-set-card-title')
-              .textContent(),
-            '未读标记',
-          );
           await body.getByRole('button', { name: '清除 WeQ 已读记录', exact: true }).click();
           await page.getByRole('button', { name: '清除', exact: true }).click();
           await body.getByRole('status').filter({ hasText: '已清除' }).waitFor();

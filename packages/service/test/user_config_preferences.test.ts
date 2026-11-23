@@ -89,78 +89,11 @@ describe('聊天阅读偏好', () => {
     restored.service.setSettings(snapshot);
     expect(restored.open().getSettings().restrictedModeBannerEnabled).toBe(false);
   });
-  describe('已读上报偏好', () => {
-    it.each([undefined, {}])('新配置与缺少字段的旧配置默认开启两种同步：%j', (settings) => {
-      const f = fixture(settings === undefined ? undefined : { settings });
-      expect(DEFAULT_APP_SETTINGS.reportReadEnabled).toBe(true);
-      expect(DEFAULT_APP_SETTINGS.manualReadReportEnabled).toBe(true);
-      expect(f.open().getSettings()).toMatchObject({
-        reportReadEnabled: true,
-        manualReadReportEnabled: true,
-      });
-    });
-    it.each(['reportReadEnabled', 'manualReadReportEnabled'] as const)(
-      '缺少另一字段时仍保留显式关闭的 %s',
-      (key) => {
-        const f = fixture({ settings: { [key]: false } });
-        expect(f.open().getSettings()).toMatchObject({
-          reportReadEnabled: true,
-          manualReadReportEnabled: true,
-          [key]: false,
-        });
-      },
-    );
-    it.each([
-      [false, false],
-      [true, true],
-      [true, false],
-      [false, true],
-    ])('旧组合 %s/%s 读取与备份往返不自动统一，显式总开关一次保存两字段', (automatic, manual) => {
-      const f = fixture({
-        settings: { reportReadEnabled: automatic, manualReadReportEnabled: manual },
-      });
-      const snapshot = snapshotWeqSettings(f.service.getSettings());
-      expect(snapshot).toMatchObject({
-        reportReadEnabled: automatic,
-        manualReadReportEnabled: manual,
-      });
-      expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
-      f.service.setSettings(snapshot);
-      expect(f.open().getSettings()).toMatchObject({
-        reportReadEnabled: automatic,
-        manualReadReportEnabled: manual,
-      });
-      f.service.setSettings({ reportReadEnabled: false, manualReadReportEnabled: false });
-      expect(f.open().getSettings()).toMatchObject({
-        reportReadEnabled: false,
-        manualReadReportEnabled: false,
-      });
-    });
-    it('默认开启，保存和重开后保留，与在线模式及其它设置独立', () => {
-      const { platform, service } = fixture();
-      expect(service.getSettings().reportReadEnabled).toBe(true);
-      expect(service.getSettings().manualReadReportEnabled).toBe(true);
-      service.setSettings({ reportReadEnabled: false });
-      expect(new UserConfigService(platform).getSettings().reportReadEnabled).toBe(false);
-      expect(new UserConfigService(platform).getSettings().manualReadReportEnabled).toBe(true);
-      service.setSettings({ manualReadReportEnabled: false });
-      expect(new UserConfigService(platform).getSettings().manualReadReportEnabled).toBe(false);
-      service.setSettings({ reportReadEnabled: true, manualReadReportEnabled: true });
-      service.setSettings({ autoAttachQq: false, realtimeEnabled: false });
-      expect(service.getSettings().reportReadEnabled).toBe(true);
-      service.setSettings({ reportReadEnabled: false });
-      const saved = new UserConfigService(platform).getSettings();
-      expect(saved.reportReadEnabled).toBe(false);
-      expect(saved.manualReadReportEnabled).toBe(true);
-      expect(saved.realtimeEnabled).toBe(false);
-      expect(saved.autoAttachQq).toBe(false);
-    });
-  });
 });
 
 describe('消息汇总红点', () => {
-  it('联系人未读数默认关闭，独立持久保存，不改变原有红点和已读上报设置', () => {
-    const { platform, service } = fixture({ settings: { reportReadEnabled: false } });
+  it('联系人未读数默认关闭，独立持久保存', () => {
+    const { platform, service } = fixture();
     expect(service.getSettings().showContactUnreadCount).toBe(
       DEFAULT_APP_SETTINGS.showContactUnreadCount,
     );
@@ -169,14 +102,13 @@ describe('消息汇总红点', () => {
     expect(new UserConfigService(platform).getSettings()).toMatchObject({
       showContactUnreadCount: true,
       showMessageUnreadBadge: true,
-      reportReadEnabled: false,
     });
     service.setSettings({ showContactUnreadCount: false });
     expect(new UserConfigService(platform).getSettings().showContactUnreadCount).toBe(false);
   });
-  it('汇总红点默认开启，旧配置兼容，关闭后重启保留且不改变未读同步或实时监听', () => {
+  it('汇总红点默认开启，关闭后重启保留，实时监听独立设置', () => {
     const { platform, service } = fixture({
-      settings: { realtimeEnabled: true, reportReadEnabled: false },
+      settings: { realtimeEnabled: true },
     });
     expect(service.getSettings().showMessageUnreadBadge).toBe(
       DEFAULT_APP_SETTINGS.showMessageUnreadBadge,
@@ -187,7 +119,6 @@ describe('消息汇总红点', () => {
     expect(reopened.getSettings()).toMatchObject({
       showMessageUnreadBadge: false,
       realtimeEnabled: true,
-      reportReadEnabled: false,
     });
     reopened.setSettings({ showMessageTime: true });
     expect(new UserConfigService(platform).getSettings().showMessageUnreadBadge).toBe(false);

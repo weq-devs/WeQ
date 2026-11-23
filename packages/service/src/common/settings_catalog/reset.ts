@@ -62,7 +62,6 @@ export const SETTINGS_RESET_CARDS = [
   ['enhancement-packs', 'enhancement-updates', '增强包自动更新'],
   ['database-management', 'realtime', '监听与读取'],
   ['account', 'attach', 'QQ 在线能力'],
-  ['account', 'read-sync', '已读同步'],
   ['account', 'qq-client-sync', 'QQ 代理连接'],
   ['accounts', 'auto-enter', '现有配置'],
   ['resource-loading', 'external-chatpic', '外部安卓图片缓存'],

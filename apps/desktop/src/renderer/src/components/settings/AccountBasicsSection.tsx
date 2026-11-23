@@ -19,7 +19,6 @@ import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import {
   ChevronDown,
-  CheckCheck,
   Copy,
   Database,
   Eye,
@@ -157,7 +156,6 @@ export function AccountBasicsSection({
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
   const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
   const setRestrictedIndicator = trpc.bootstrap.setRestrictedModeIndicatorEnabled.useMutation();
-  const setReadSyncEnabled = trpc.bootstrap.setReadSyncEnabled.useMutation();
   const [qqSyncPortDraft, setQqSyncPortDraft] = useState<string | null>(null);
   const pushToast = useToast((state) => state.push);
   const qqSyncStatus = trpc.bootstrap.getQqClientSyncStatus.useQuery(undefined, {
@@ -270,18 +268,6 @@ export function AccountBasicsSection({
   const [restrictedIndicator, setRestrictedIndicatorLocal] = useState(true);
   const [savingIndicator, setSavingIndicator] = useState(false);
   const indicatorPending = useRef(false);
-  const [reportRead, setReportRead] = useState(false);
-  const [manualReadReport, setManualReadReport] = useState(false);
-  const [savingReadSync, setSavingReadSync] = useState(false);
-  const readSyncPending = useRef(false);
-  const readSyncActive = useRef(active);
-  readSyncActive.current = active;
-  useEffect(() => {
-    readSyncActive.current = active;
-    return () => {
-      readSyncActive.current = false;
-    };
-  }, [active]);
   // 外部安卓 chatpic 兜底（存在全局设置里）。
   const [externalChatpicDir, setExternalChatpicDir] = useState('');
   const [externalChatpicEnabled, setExternalChatpicEnabled] = useState(false);
@@ -293,8 +279,6 @@ export function AccountBasicsSection({
     setRealtimeLocal(d.realtimeEnabled);
     setAutoAttach(d.autoAttachQq);
     setRestrictedIndicatorLocal(d.restrictedModeIndicatorEnabled !== false);
-    setReportRead(d.reportReadEnabled);
-    setManualReadReport(d.manualReadReportEnabled);
   }, [settings.data]);
 
   useEffect(() => {
@@ -323,44 +307,6 @@ export function AccountBasicsSection({
     } catch (e) {
       await settings.refetch();
       showError('保存失败', errMsg(e));
-    }
-  }
-
-  async function toggleReportRead(enabled: boolean): Promise<void> {
-    if (readSyncPending.current || !active || !settings.data || settings.error) return;
-    readSyncPending.current = true;
-    setSavingReadSync(true);
-    try {
-      if (
-        enabled &&
-        !(await confirm(
-          '向 QQ 服务器上报已读位置',
-          '开启后，自动阅读与手动标记已读都会向 QQ 服务器上报已读位置，可能清除其他客户端的未读提醒。标为未读不能恢复已清除的提醒。',
-          { danger: 'outline', okLabel: '开启上报' },
-        ))
-      )
-        return;
-      if (!readSyncActive.current) return;
-      await setReadSyncEnabled.mutateAsync({ enabled });
-      if (!readSyncActive.current) return;
-      setReportRead(enabled);
-      setManualReadReport(enabled);
-      await settings.refetch();
-    } catch (error) {
-      try {
-        const actual = await settings.refetch();
-        if (actual?.data && readSyncActive.current) {
-          setReportRead(actual.data.reportReadEnabled);
-          setManualReadReport(actual.data.manualReadReportEnabled);
-        }
-      } catch {
-        // 回读也失败时保留最后已知组合，不将保存失败误报为成功。
-      } finally {
-        if (readSyncActive.current) showError('保存失败', errMsg(error));
-      }
-    } finally {
-      readSyncPending.current = false;
-      setSavingReadSync(false);
     }
   }
 
@@ -693,31 +639,6 @@ export function AccountBasicsSection({
               control={<NotificationMethodSelect event="runtime" />}
             />
           </FullFunctionSetup>
-          <Card title="已读同步" icon={<CheckCheck size={15} />} resetId="read-sync">
-            <Row
-              settingId="read-sync"
-              desc="向 QQ 服务器上报在 WeQ 阅读和手动标记已读的位置，可能清除其他端的未读提醒。仅在 QQ 在线能力已启用且账号在线时生效。"
-              control={
-                <Toggle
-                  checked={reportRead || manualReadReport}
-                  disabled={
-                    settingsLoading ||
-                    !settings.data ||
-                    Boolean(settings.error) ||
-                    savingReadSync ||
-                    setReadSyncEnabled.isPending
-                  }
-                  onChange={(v) => void toggleReportRead(v)}
-                  label="向 QQ 服务器上报已读位置"
-                />
-              }
-            />
-            {reportRead !== manualReadReport ? (
-              <p className="weq-set-note">
-                {reportRead ? '仅自动阅读上报，沿用原设置' : '仅手动标记上报，沿用原设置'}
-              </p>
-            ) : null}
-          </Card>
           <Card
             settingId="qq-proxy-connection"
             title="QQ 代理连接"
@@ -743,7 +664,7 @@ export function AccountBasicsSection({
             />
             <Row
               settingId="qq-client-sync"
-              desc="QQ 通过本机代理连接后生效。已读同步沿用上方的上报设置。"
+              desc="QQ 通过本机代理连接后，同步本人消息与已成功上报的已读位置。"
               control={
                 <Toggle
                   checked={settings.data?.qqClientSyncEnabled ?? false}

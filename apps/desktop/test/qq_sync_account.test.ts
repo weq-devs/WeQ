@@ -55,7 +55,6 @@ function fixture(path?: string) {
     nt: {} as NtHelperBinding,
     proxyEnabled: () => proxyEnabled,
     enabled: () => enabled,
-    readEnabled: () => enabled,
     current: () => (online ? current : null),
   });
   services.push(service);
@@ -290,7 +289,6 @@ it('实时撤回唤醒持久队列，空闲时保留低频校准', async () => {
       nt: {} as NtHelperBinding,
       proxyEnabled: () => true,
       enabled: () => false,
-      readEnabled: () => false,
       liveEnabled: () => enabled,
       onLiveMessages: () => {},
       current: () => ({ pid: 123, key: '07'.repeat(16) }),

@@ -256,7 +256,7 @@ it.each(
   const incoming = {
     autoAttachQq: automatic,
     restrictedModeBannerEnabled: banner,
-    reportReadEnabled: !manual,
+    reportReadEnabled: false,
     manualReadReportEnabled: manual,
     defaultExportDir: '/synthetic/foreign/export',
     externalChatpic: { dir: '/synthetic/foreign/chatpic', enabled: false },
@@ -270,22 +270,25 @@ it.each(
     { parts: ['settings'], conflict: 'overwrite' },
   );
   expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
-  const { defaultExportDir: _dir, externalChatpic: _chatpic, ...flags } = incoming;
-  expect(read(join(f.root, 'config.json'))).toMatchObject({
+  const restored = read(join(f.root, 'config.json'));
+  expect(restored).toMatchObject({
     totpSecret: local.totpSecret,
     cacheDirOverride: local.cacheDirOverride,
     tencentFilesRootOverride: local.tencentFilesRootOverride,
     settings: {
-      ...flags,
+      autoAttachQq: automatic,
+      restrictedModeBannerEnabled: banner,
       defaultExportDir: local.settings.defaultExportDir,
       externalChatpic: { dir: local.settings.externalChatpic.dir },
       mcp: local.settings.mcp,
     },
   });
+  expect(restored.settings).not.toHaveProperty('reportReadEnabled');
+  expect(restored.settings).not.toHaveProperty('manualReadReportEnabled');
   expect(pendingWeqClientSettings(f.root)?.values).toEqual({ [WEQ_MENU_CAPTURE_PRIVACY_KEY]: '1' });
 });
 
-it('旧备份不含新增策略字段时，真实恢复保留本机偏好和已读混合值', () => {
+it('恢复部分备份保留本机偏好并清除退役的已读上报设置', () => {
   const f = fixture();
   const local = {
     ...f.initial,
@@ -303,16 +306,17 @@ it('旧备份不含新增策略字段时，真实恢复保留本机偏好和已�
     buildWeqBackup([file('settings/app.json', { renderTextMarkdown: false })]),
     { parts: ['settings'], conflict: 'overwrite' },
   );
-  applyPendingWeqBackupRestore(f.root, f.cache);
-  expect(read(join(f.root, 'config.json'))).toMatchObject({
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  const restored = read(join(f.root, 'config.json'));
+  expect(restored).toMatchObject({
     settings: {
       autoAttachQq: true,
       restrictedModeBannerEnabled: false,
-      reportReadEnabled: false,
-      manualReadReportEnabled: true,
       renderTextMarkdown: false,
     },
   });
+  expect(restored.settings).not.toHaveProperty('reportReadEnabled');
+  expect(restored.settings).not.toHaveProperty('manualReadReportEnabled');
 });
 
 it('完整默认快照仍重置新增与旧字段，不影响 API、原始目录或锁密钥', () => {

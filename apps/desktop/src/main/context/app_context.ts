@@ -2258,9 +2258,6 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             groupKeyword?.clearProxyMatches();
           }
         },
-        readEnabled: () =>
-          userConfig.getSetting('reportReadEnabled') ||
-          userConfig.getSetting('manualReadReportEnabled'),
         current: () => {
           const record = accountConfig.getRecord();
           return this.account === session &&
@@ -2318,8 +2315,6 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
           session,
           {
             nt: platform.native.ntHelper,
-            enabled: () => userConfig.getSetting('reportReadEnabled'),
-            manualEnabled: () => userConfig.getSetting('manualReadReportEnabled'),
             onAcknowledged: (target) => qqClientSync.read(target),
             resolvePid: () => {
               if (

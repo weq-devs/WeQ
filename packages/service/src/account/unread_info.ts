@@ -56,8 +56,6 @@ export interface ReadReportStatus {
 }
 export interface ReadReportOptions {
   nt: Pick<NtHelperBinding, 'sendPacket' | 'hasSsoSession'>;
-  enabled(): boolean;
-  manualEnabled?(): boolean;
   /** 只返回已存在的在线会话，不读内存、不提权，不为自动上报启动登录。 */
   resolvePid(): number | null;
   onAcknowledged?(target: ReadReportParams): void;
@@ -454,9 +452,7 @@ export class UnreadInfoService {
   }
 
   getReadReportStatus(): ReadReportStatus {
-    return this.reportEnabled(false) || this.reportEnabled(true)
-      ? this.lastReport
-      : { state: 'disabled' };
+    return this.lastReport;
   }
 
   async dispose(): Promise<void> {
@@ -1108,16 +1104,12 @@ export class UnreadInfoService {
     return { restored: restored.length, pending, rows: this.resultRows(changes) };
   }
 
-  private reportEnabled(manual: boolean): boolean {
-    return manual ? this.report?.manualEnabled?.() === true : this.report?.enabled() === true;
-  }
-
   private scheduleManualReports(changes: ManualReadEntry[], undo = false): void {
-    if (this.localOptions?.readOnly || !this.reportEnabled(true)) return;
+    if (this.localOptions?.readOnly || !this.report) return;
     const generation = this.generation;
     void (async () => {
       for (const row of changes) {
-        if (this.disposed || this.generation !== generation || !this.reportEnabled(true)) return;
+        if (this.disposed || this.generation !== generation) return;
         if (!undo && !this.isCurrentManualChange(row)) continue;
         if (row.devicePosition) {
           if (!undo) await this.reportDeviceRead(row.chatType, row.uid, row.devicePosition, true);
@@ -1193,10 +1185,12 @@ export class UnreadInfoService {
     }
     const generation = this.generation;
     const manual = options?.manual === true;
-    const enabledAtStart = this.reportEnabled(manual);
-    const initialPid = enabledAtStart ? this.report!.resolvePid() : null;
+    const reportOptions = this.report;
+    const initialPid = reportOptions?.resolvePid() ?? null;
     const initialOwner =
-      initialPid === null ? undefined : ssoWorkState(this.report!.nt, initialPid).owner;
+      reportOptions && initialPid !== null
+        ? ssoWorkState(reportOptions.nt, initialPid).owner
+        : undefined;
     const snapshot = (await this.getUnreadInfos([{ chatType, uid }]))[0];
     if (this.disposed || snapshot?.readError)
       return { changed: false, report: { state: 'unavailable' } };
@@ -1228,13 +1222,13 @@ export class UnreadInfoService {
       if (!this.disposed && this.generation === generation) this.lastReport = status;
       return { changed, report: status };
     };
-    if (!enabledAtStart || !this.reportEnabled(manual)) return finish({ state: 'disabled' });
+    if (!reportOptions) return finish({ state: 'disabled' });
     if (
       this.disposed ||
       this.generation !== generation ||
       initialPid === null ||
-      this.report!.resolvePid() !== initialPid ||
-      ssoWorkState(this.report!.nt, initialPid).owner !== initialOwner
+      reportOptions.resolvePid() !== initialPid ||
+      ssoWorkState(reportOptions.nt, initialPid).owner !== initialOwner
     )
       return finish({ state: 'unavailable' });
     const seq = BigInt(sequence);
@@ -1267,17 +1261,12 @@ export class UnreadInfoService {
       if (
         this.disposed ||
         this.generation !== generation ||
-        !this.reportEnabled(manual) ||
-        this.report!.resolvePid() !== initialPid ||
-        ssoWorkState(this.report!.nt, initialPid).owner !== initialOwner
+        reportOptions.resolvePid() !== initialPid ||
+        ssoWorkState(reportOptions.nt, initialPid).owner !== initialOwner
       )
         return finish({ state: 'unavailable' });
       const result = finish({ state: 'pending', sequence });
-      const report = this.reportTarget(
-        `${manual ? 'manual:' : ''}${chatType}_${uid}`,
-        target,
-        manual,
-      );
+      const report = this.reportTarget(`${manual ? 'manual:' : ''}${chatType}_${uid}`, target);
       const complete = (status: ReadReportStatus) => {
         if (status.state === 'acknowledged' && !this.disposed && this.generation === generation)
           this.report?.onAcknowledged?.(target);
@@ -1345,7 +1334,7 @@ export class UnreadInfoService {
       await this.local.flush();
     }
     if (this.localOptions?.readOnly) return { changed, report: { state: 'unavailable' } };
-    if (!this.reportEnabled(false)) return { changed, report: { state: 'disabled' } };
+    if (!this.report) return { changed, report: { state: 'disabled' } };
     if (!this.local.isDeviceReadCurrent(chatType, uid, position))
       return { changed, report: { state: 'skipped' } };
     void this.reportDeviceRead(chatType, uid, position, false);
@@ -1367,7 +1356,6 @@ export class UnreadInfoService {
     const status = await this.reportTarget(
       `dataline:${manual ? 'manual:' : ''}${chatType}_${uid}`,
       { kind: 'dataline', targetUid, sequence: 0, timestamp },
-      manual,
       current,
     );
     // 已取得上报回包样本，运行中 QQ 消费的推送尚未确认。
@@ -1382,7 +1370,8 @@ export class UnreadInfoService {
     manual = false,
   ): Promise<ReadReportStatus> {
     if (this.localOptions?.readOnly || this.disposed || !valid()) return { state: 'unavailable' };
-    if (!this.reportEnabled(manual)) return { state: 'disabled' };
+    const report = this.report;
+    if (!report) return { state: 'disabled' };
     if (
       !/^u_[A-Za-z0-9_-]+$/.test(uid) ||
       !validReadPosition(position) ||
@@ -1394,9 +1383,9 @@ export class UnreadInfoService {
     if (!Number.isSafeInteger(timestamp) || timestamp <= 0 || timestamp > 0xffffffff)
       return { state: 'skipped' };
     const generation = this.generation;
-    const pid = this.report!.resolvePid();
+    const pid = report.resolvePid();
     if (pid === null) return { state: 'unavailable' };
-    const owner = ssoWorkState(this.report!.nt, pid).owner;
+    const owner = ssoWorkState(report.nt, pid).owner;
     try {
       const rows = await this.session.c2cMsgs.calendarMessage(
         await resolveC2cPartition(this.session.uidMap, uid),
@@ -1406,14 +1395,13 @@ export class UnreadInfoService {
       const current = () =>
         valid() &&
         this.generation === generation &&
-        this.report!.resolvePid() === pid &&
-        ssoWorkState(this.report!.nt, pid).owner === owner;
+        report.resolvePid() === pid &&
+        ssoWorkState(report.nt, pid).owner === owner;
       if (!current()) return { state: 'unavailable' };
       const target = { kind: 'official', targetUid: uid, sequence: 0, timestamp } as const;
       const status = await this.reportTarget(
         `${manual ? 'manual:' : ''}103_${uid}`,
         target,
-        manual,
         current,
       );
       if (!this.disposed && current()) {
@@ -1429,12 +1417,12 @@ export class UnreadInfoService {
   private reportTarget(
     key: string,
     target: ReadReportTarget,
-    manual = false,
     valid?: () => boolean,
   ): Promise<ReadReportStatus> {
-    const options = this.report!;
+    const options = this.report;
+    if (!options) return Promise.resolve({ state: 'disabled' });
     const pid = options.resolvePid();
-    if (pid === null || this.disposed || !this.reportEnabled(manual) || valid?.() === false)
+    if (pid === null || this.disposed || valid?.() === false)
       return Promise.resolve({ state: 'unavailable' });
     const owner = ssoWorkState(options.nt, pid).owner;
     const generation = this.generation;
@@ -1469,7 +1457,6 @@ export class UnreadInfoService {
     const current = () =>
       !this.disposed &&
       this.generation === generation &&
-      this.reportEnabled(manual) &&
       entry.valid?.() !== false &&
       options.resolvePid() === pid &&
       ssoWorkState(options.nt, pid).owner === owner;

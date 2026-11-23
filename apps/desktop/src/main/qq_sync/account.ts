@@ -45,7 +45,6 @@ export interface AccountQqSyncOptions {
   nt: NtHelperBinding;
   proxyEnabled(): boolean;
   enabled(): boolean;
-  readEnabled(): boolean;
   antiRecall?: AntiRecallService;
   liveEnabled?(): boolean;
   onLiveMessages?(messages: GapFetchedMessage[]): void;
@@ -238,13 +237,7 @@ export class AccountQqSync {
     });
   }
   read(target: ClientReadTarget) {
-    if (
-      !this.options.proxyEnabled() ||
-      !this.options.enabled() ||
-      !this.options.readEnabled() ||
-      this.disposed
-    )
-      return;
+    if (!this.options.proxyEnabled() || !this.options.enabled() || this.disposed) return;
     const id = `read:${target.kind}:${target.kind === 'group' ? target.groupUin : target.targetUid}`;
     const prior = this.tasks.get(id);
     if (prior?.kind === 'read' && readReportWatermark(prior.target) >= readReportWatermark(target))
@@ -490,11 +483,6 @@ export class AccountQqSync {
       for (const task of this.tasks.values()) {
         if (!this.options.enabled()) break;
         if (!valid()) break;
-        if (task.kind === 'read' && !this.options.readEnabled()) {
-          this.tasks.delete(task.id);
-          await this.save();
-          continue;
-        }
         if (task.nextAt > Date.now()) continue;
         try {
           if (task.kind === 'message' && (await this.exists(task.message))) {
@@ -512,13 +500,7 @@ export class AccountQqSync {
             task.kind === 'message'
               ? await this.messageBody(task.message, current.pid)
               : buildClientReadNotify({ uin, uid: this.options.session.selfUid! }, task.target);
-          if (
-            !valid() ||
-            !this.options.enabled() ||
-            this.tasks.get(task.id) !== task ||
-            (task.kind === 'read' && !this.options.readEnabled())
-          )
-            continue;
+          if (!valid() || !this.options.enabled() || this.tasks.get(task.id) !== task) continue;
           const identity =
             task.kind === 'read' ? `${task.id}:${readReportWatermark(task.target)}` : task.id;
           await qqSyncRequest(this.options.root, {

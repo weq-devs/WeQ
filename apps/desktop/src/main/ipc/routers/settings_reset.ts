@@ -187,15 +187,6 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     b.setQqLiveMessagesEnabled({ enabled: defaults.qqLiveMessagesEnabled }),
   );
 
-  const readSync = (automatic: boolean, manual: boolean) =>
-    automatic === manual ? automatic : automatic ? '仅自动阅读上报' : '仅手动标记上报';
-  bind(
-    'read-sync:enabled',
-    readSync(current.reportReadEnabled, current.manualReadReportEnabled),
-    readSync(defaults.reportReadEnabled, defaults.manualReadReportEnabled),
-    () => b.setReadSyncEnabled({ enabled: defaults.reportReadEnabled }),
-  );
-
   for (const kind of TOAST_TIMED_KINDS) {
     const key = `${kind}Seconds` as const;
     bind(`${'toast'}:${key}`, current.toastDurations[key], defaults.toastDurations[key], () =>

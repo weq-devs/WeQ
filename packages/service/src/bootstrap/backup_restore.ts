@@ -763,6 +763,8 @@ function configPlan(
     };
   }
   delete settings.quitConfirmSuppressed;
+  delete settings.reportReadEnabled;
+  delete settings.manualReadReportEnabled;
   return {
     ...current,
     settings,

@@ -217,7 +217,7 @@ describe('设置归位后的实际页面', () => {
     const titles = () =>
       [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent);
     try {
-      expect(titles()).toEqual(['QQ 在线能力', '已读同步', 'QQ 代理连接', '长期授权']);
+      expect(titles()).toEqual(['QQ 在线能力', 'QQ 代理连接', '长期授权']);
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('常规');
       expect(f.body().querySelector('h3')?.textContent).toBe('在线能力与授权');
       const overview = f.body().querySelector('[data-setting-id="full-features"]')!;
@@ -254,7 +254,6 @@ describe('设置归位后的实际页面', () => {
         'full-features',
         'auto-full-mode',
         'full-feature-routes',
-        'read-sync',
         'long-term-authorization',
       ];
       const nodes = ordered.map((id) => f.body().querySelector(`[data-setting-id="${id}"]`)!);
@@ -275,7 +274,7 @@ describe('设置归位后的实际页面', () => {
       expect(titles()).toEqual(['数据库浏览', '监听与读取', '数据库检查与修复']);
       conditional.platform = 'linux';
       f.render('account');
-      expect(titles()).toEqual(['QQ 在线能力', '已读同步', 'QQ 代理连接', '长期授权']);
+      expect(titles()).toEqual(['QQ 在线能力', 'QQ 代理连接', '长期授权']);
       expect(f.body().querySelector('[data-setting-id="qq-debug-copy"]')).toBeNull();
       expect(f.body().textContent).not.toContain('SIP');
       expect(f.body().querySelector('[data-setting-id="full-features"]')).not.toBeNull();

@@ -16,8 +16,6 @@ const settings = {
   jumpToLatestAfterSend: true,
   showScrollToBottomButton: true,
   renderTextMarkdown: false,
-  reportReadEnabled: true,
-  manualReadReportEnabled: true,
   qqShowCacheMinutes: 5,
   chatImageCacheMiB: 256,
   linkPreview: { enabled: true, autoFetch: false, screenshot: false },
@@ -45,10 +43,7 @@ function save(name: string, input: Record<string, unknown>) {
   if (name === 'setLinkPreview') Object.assign(settings.linkPreview, input);
   else if (name === 'setAutoTranscribeVoice')
     settings.voiceTranscribe.autoTranscribe = input.enabled === true;
-  else if (name === 'setReadSyncEnabled') {
-    settings.reportReadEnabled = input.enabled === true;
-    settings.manualReadReportEnabled = input.enabled === true;
-  } else if (mutationFields[name])
+  else if (mutationFields[name])
     Object.assign(settings, { [mutationFields[name]!]: input.enabled });
   revision++;
   for (const listener of listeners) listener();
@@ -81,12 +76,7 @@ function proxy(path: string[] = []): unknown {
       if (
         key === 'useMutation' &&
         (mutationFields[name] ||
-          [
-            'clearLocalReadRecords',
-            'setLinkPreview',
-            'setAutoTranscribeVoice',
-            'setReadSyncEnabled',
-          ].includes(name))
+          ['clearLocalReadRecords', 'setLinkPreview', 'setAutoTranscribeVoice'].includes(name))
       )
         return () => ({
           isLoading: false,

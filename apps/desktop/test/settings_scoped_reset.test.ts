@@ -372,16 +372,10 @@ describe('分级恢复默认', () => {
       ]),
     );
   });
-  it('会话列表恢复默认不改写已移除的已读上报设置', async () => {
-    state.settings.reportReadEnabled = false;
-    state.settings.manualReadReportEnabled = false;
+  it('会话列表恢复默认不改写消息阅读设置', async () => {
     const preview = await caller().preview({ page: 'chat-messages' });
     expect(preview.items.some((item) => item.id.startsWith('unread:'))).toBe(false);
     await caller().restore({ page: 'chat-messages', source: null });
-    expect(state.calls.some(([method]) => method === 'setReportReadEnabled')).toBe(false);
-    expect(state.calls.some(([method]) => method === 'setManualReadReportEnabled')).toBe(false);
-    expect(state.settings.reportReadEnabled).toBe(false);
-    expect(state.settings.manualReadReportEnabled).toBe(false);
     expect(state.calls.some(([method]) => method === 'setReadFromFirstUnread')).toBe(false);
   });
   it('稳定卡片 ID 唯一，跨页面卡片与任意配置键拒绝', async () => {

@@ -9,8 +9,6 @@ let settings = {
   restrictedModeBannerEnabled: true,
   restrictedModeIndicatorEnabled: true,
   databaseReadConcurrency: 4,
-  reportReadEnabled: true,
-  manualReadReportEnabled: true,
 };
 export const saves: string[] = [];
 const bootstrap = new Proxy(Reflect.get(baseTrpc as object, 'bootstrap'), {

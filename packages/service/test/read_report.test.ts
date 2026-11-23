@@ -9,8 +9,6 @@ import { ssoWorkState } from '../src/account/sso_lifecycle';
 afterEach(() => vi.useRealTimers());
 
 function setup() {
-  let enabled = true;
-  let manualEnabled = false;
   let pid: number | null = 9;
   const nt = {
     hasSsoSession: vi.fn(async () => true),
@@ -47,8 +45,6 @@ function setup() {
   } as unknown as AccountSession;
   const service = new UnreadInfoService(session, {
     nt,
-    enabled: () => enabled,
-    manualEnabled: () => manualEnabled,
     resolvePid: () => pid,
     onAcknowledged: acknowledged,
   });
@@ -61,16 +57,6 @@ function setup() {
     getUnreadInfos,
     calendarMessage,
     countDeviceIncoming,
-    enableManual: () => {
-      manualEnabled = true;
-    },
-    disable: () => {
-      enabled = false;
-      service.cancelReports();
-    },
-    enable: () => {
-      enabled = true;
-    },
     offline: () => {
       pid = null;
     },
@@ -117,17 +103,12 @@ describe('已读上报服务', () => {
     expect(f.acknowledged).toHaveBeenCalledOnce();
   });
 
-  it('公众号手动上报使用独立偏好，失效的阅读观察停止发送与代理补投', async () => {
+  it('公众号手动阅读会发起上报，失效的阅读观察停止发送与代理补投', async () => {
     const f = setup();
     f.nt.sendPacket.mockResolvedValue(
       Buffer.from(encode(ReadedReport.respSchema, { c2cList: [{ uid: 'u_mail' }] })),
     );
     const position = '0:1700000000:1700000000';
-    expect(await f.service.reportOfficialRead('u_mail', position, () => true, true)).toMatchObject({
-      state: 'disabled',
-    });
-    f.enableManual();
-    f.disable();
     expect(await f.service.reportOfficialRead('u_mail', position, () => true, true)).toMatchObject({
       state: 'acknowledged',
     });
@@ -199,16 +180,9 @@ describe('已读上报服务', () => {
     expect(f.acknowledged).toHaveBeenCalledTimes(1);
   });
 
-  it('手动上报默认关闭，开启后独立于自动阅读开关且不重复写本地库', async () => {
+  it('手动上报会等待服务器确认且不重复写本地库', async () => {
     const f = setup();
     const options = { manual: true, write: false } as const;
-    expect((await f.service.markReadAndReport(2, '100', '50', options)).report.state).toBe(
-      'disabled',
-    );
-    expect(f.nt.sendPacket).not.toHaveBeenCalled();
-    expect(f.markRead).not.toHaveBeenCalled();
-    f.enableManual();
-    f.disable();
     expect((await f.service.markReadAndReport(2, '100', '50', options)).report.state).toBe(
       'acknowledged',
     );
@@ -238,7 +212,7 @@ describe('已读上报服务', () => {
     expect(f.nt.sendPacket).not.toHaveBeenCalled();
   });
 
-  it('关闭后重新开启不会复活旧请求，旧请求结束也不能清掉新请求', async () => {
+  it('取消上报后旧请求结束不会清掉新请求', async () => {
     const f = setup();
     let release: ((value: Buffer) => void) | undefined;
     f.nt.sendPacket.mockImplementationOnce(
@@ -249,8 +223,7 @@ describe('已读上报服务', () => {
     );
     await f.service.markReadAndReport(2, '100', '50');
     await vi.waitFor(() => expect(release).toBeDefined());
-    f.disable();
-    f.enable();
+    f.service.cancelReports();
     await f.service.markReadAndReport(2, '100', '60');
     release!(Buffer.alloc(0));
     await settled(f.service);
@@ -300,12 +273,7 @@ describe('已读上报服务', () => {
     });
   });
 
-  it('开关关闭、离线或缺少原消息时保持本地结果，不发包', async () => {
-    const disabled = setup();
-    disabled.disable();
-    expect((await disabled.service.markReadAndReport(2, '100', '50')).report.state).toBe(
-      'disabled',
-    );
+  it('离线或缺少原消息时保持本地结果，不发包', async () => {
     const offline = setup();
     offline.offline();
     expect((await offline.service.markReadAndReport(2, '100', '50')).report.state).toBe(
@@ -314,10 +282,9 @@ describe('已读上报服务', () => {
     const missing = setup();
     missing.listFrom.mockResolvedValueOnce([]);
     expect((await missing.service.markReadAndReport(1, 'u_x', '50')).report.state).toBe('skipped');
-    expect(disabled.nt.sendPacket).not.toHaveBeenCalled();
     expect(offline.nt.sendPacket).not.toHaveBeenCalled();
     expect(missing.nt.sendPacket).not.toHaveBeenCalled();
-    expect(disabled.markRead).toHaveBeenCalled();
+    expect(offline.markRead).toHaveBeenCalled();
   });
 
   it('不把超出本地会话水位、设备伪 UID 或无效序号上报', async () => {
@@ -344,15 +311,15 @@ describe('已读上报服务', () => {
     expect(f.service.getReadReportStatus().state).toBe('failed');
   });
 
-  it('关闭开关或注销账号后，停止退避重试；SSO 会话被替换也不再发包', async () => {
+  it('取消上报、注销账号或替换 SSO 会话后停止退避重试', async () => {
     vi.useFakeTimers();
-    for (const mode of ['disable', 'dispose', 'replace'] as const) {
+    for (const mode of ['cancel', 'dispose', 'replace'] as const) {
       const f = setup();
       f.nt.sendPacket.mockRejectedValue(new Error('暂时断网'));
       await f.service.markReadAndReport(2, '100', '50');
       await vi.advanceTimersByTimeAsync(0);
       expect(f.nt.sendPacket).toHaveBeenCalledTimes(1);
-      if (mode === 'disable') f.disable();
+      if (mode === 'cancel') f.service.cancelReports();
       else if (mode === 'dispose') f.service.dispose();
       else ssoWorkState(f.nt, 9).owner = {};
       await vi.advanceTimersByTimeAsync(1000);

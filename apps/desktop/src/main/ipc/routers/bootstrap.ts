@@ -1033,14 +1033,6 @@ export const bootstrapRouter = router({
     return true;
   }),
 
-  setReportReadEnabled: procedure
-    .input(z.object({ enabled: z.boolean() }))
-    .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ reportReadEnabled: input.enabled });
-      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
-      return true;
-    }),
-
   getQqClientSyncStatus: procedure.query(async () => {
     const ctx = getAppContext();
     const { qqSyncRoot, userConfig } = requireBootstrap();
@@ -1122,25 +1114,6 @@ export const bootstrapRouter = router({
           () => undefined,
         );
       ctx.services?.qqClientSync?.refresh();
-      return true;
-    }),
-
-  setReadSyncEnabled: procedure
-    .input(z.object({ enabled: z.boolean() }).strict())
-    .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({
-        reportReadEnabled: input.enabled,
-        manualReadReportEnabled: input.enabled,
-      });
-      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
-      return true;
-    }),
-
-  setManualReadReportEnabled: procedure
-    .input(z.object({ enabled: z.boolean() }))
-    .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ manualReadReportEnabled: input.enabled });
-      if (!input.enabled) getAppContext().services?.unreadInfo.cancelReports();
       return true;
     }),
 

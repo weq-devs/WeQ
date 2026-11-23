@@ -304,6 +304,8 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     qqShowCacheDays,
     updateCheckIntervalMinutes,
     quitConfirmSuppressed,
+    reportReadEnabled,
+    manualReadReportEnabled,
     sharedPreferences,
     composerFont,
     sendWithQqFont,
@@ -313,6 +315,9 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
   // 旧备份允许携带已退役字段，但不再将它写回正式设置。
   if (Object.hasOwn(input, 'quitConfirmSuppressed') && typeof quitConfirmSuppressed !== 'boolean')
     fail('settings.quitConfirmSuppressed');
+  if (reportReadEnabled !== undefined) shape(reportReadEnabled, true, 'settings.reportReadEnabled');
+  if (manualReadReportEnabled !== undefined)
+    shape(manualReadReportEnabled, true, 'settings.manualReadReportEnabled');
   if (
     Object.hasOwn(input, 'updateCheckIntervalMinutes') &&
     !isUpdateCheckInterval(updateCheckIntervalMinutes)

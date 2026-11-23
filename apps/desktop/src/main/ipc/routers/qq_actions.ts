@@ -1397,7 +1397,7 @@ export function createQQActionsRouter(
             resolve(input) !== services ||
             services.accountConfig.getRecord()?.qqPid !== pid
           )
-            throw new Error('账号、QQ 运行时或已读上报设置已改变');
+            throw new Error('账号或 QQ 运行时已改变');
         };
         const confirmed = await services.groupNotify.reportNoticeRead(sequence, current);
         if (confirmed === undefined) return null;
