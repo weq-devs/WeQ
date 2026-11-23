@@ -724,11 +724,28 @@ html[data-theme='dark'] .weq-qqshow-avatar {
 }
 
 .message-bubble {
+  --weq-message-bubble-gap: 5px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   max-width: 75%;
-  gap: 5px;
+  gap: var(--weq-message-bubble-gap);
+}
+
+.message-bubble > .msg-reactions {
+  margin-block-start: calc(2px - var(--weq-message-bubble-gap));
+}
+
+/* 连续发言中，回应贴近所属气泡，和下一条消息留出更大的间距。 */
+.message-line:is(
+    [data-message-group='first'],
+    [data-message-group='middle'],
+    [data-grouped-dress-bubble='first'],
+    [data-grouped-dress-bubble='middle']
+  )
+  > .message-bubble
+  > .msg-reactions:last-child {
+  margin-block-end: 4px;
 }
 
 .message-line[data-swipe-reply]:not(:has(pre)) {

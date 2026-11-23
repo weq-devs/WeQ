@@ -701,7 +701,6 @@ html[data-theme='dark'] .emoji-lb {
 .msg-reactions {
   display: inline-grid;
   gap: 4px 6px;
-  margin-top: 6px;
   justify-content: start;
 }
 
