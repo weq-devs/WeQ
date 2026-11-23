@@ -592,4 +592,28 @@ describe('QQ 写 IPC 边界', () => {
     expect(state.selfUid).toBe('u_self');
     expect(f.services.groupInfo.getMemberInfo).toHaveBeenCalledWith(123n, 'u_self');
   });
+
+  it('群会话偏好只读本地身份，编辑群名才读取在线改名权限', async () => {
+    const f = fixture();
+    vi.mocked(f.services.groupInfo.getMemberInfo).mockResolvedValue({
+      ...groupMember,
+      uid: self.uid,
+      uin: self.uin,
+    });
+    const operationContext = vi.fn(async () => ({ joined: true, memberCanRename: true }));
+    operationContext.mockRejectedValueOnce(new Error('QQ 运行时已切换'));
+    f.services.groupInfo.operationContext = operationContext;
+    const input = { ...binding, target: { kind: 'group' as const, groupId: 123 } };
+
+    await expect(f.caller.peerState(input)).resolves.toMatchObject({
+      selfUid: self.uid,
+      selfCard: groupMember.card,
+      selfTitle: groupMember.customTitle,
+    });
+    expect(operationContext).not.toHaveBeenCalled();
+
+    const edit = { ...input, target: { ...input.target, includeNamePermission: true } };
+    await expect(f.caller.peerState(edit)).rejects.toThrow('QQ 运行时已切换');
+    await expect(f.caller.peerState(edit)).resolves.toMatchObject({ memberCanRename: true });
+  });
 });

@@ -371,7 +371,11 @@ export function createQQWriteRouter(
         binding.extend({
           target: z.discriminatedUnion('kind', [
             z.object({ kind: z.literal('c2c'), uid }),
-            z.object({ kind: z.literal('group'), groupId }),
+            z.object({
+              kind: z.literal('group'),
+              groupId,
+              includeNamePermission: z.boolean().optional(),
+            }),
           ]),
         }),
       )
@@ -395,7 +399,7 @@ export function createQQWriteRouter(
             ? await services.groupInfo.getMemberInfo(BigInt(target.groupId), identity.uid)
             : null;
         const operation =
-          target.kind === 'group'
+          target.kind === 'group' && target.includeNamePermission
             ? await services.groupInfo.operationContext(target.groupId)
             : null;
         if (read(input) !== services) throw new Error('账号已切换，请重新读取会话设置');

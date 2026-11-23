@@ -150,7 +150,13 @@ function QQProfileFieldEditor({
   const peer = trpc.account.qqWrite.peerState.useQuery(
     {
       ...input,
-      target: group ? { kind: 'group', groupId: Number(target) } : { kind: 'c2c', uid: target },
+      target: group
+        ? {
+            kind: 'group',
+            groupId: Number(target),
+            includeNamePermission: field === 'groupName' ? true : undefined,
+          }
+        : { kind: 'c2c', uid: target },
     },
     options,
   );

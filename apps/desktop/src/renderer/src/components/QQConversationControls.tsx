@@ -5,7 +5,6 @@ import {
   MessageSquareText,
   Pin,
   RefreshCw,
-  UserRound,
   UserRoundCog,
   UserMinus,
   Wifi,
@@ -15,7 +14,6 @@ import { trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useQQWriteSession } from '../hooks/useQQWriteSession';
 import { useFriendSpecialCare } from '../hooks/useFriendSpecialCare';
-import { groupMemberEditing } from '../lib/groupMemberEditing';
 import { FEATURE_ICONS } from '../lib/featureIcons.shared';
 import { Card, Row } from './settings/controls';
 import { useDialog } from './Dialog.shared';
@@ -43,6 +41,7 @@ export function QQConversationControls({
   section?: 'conversation' | 'group-management';
 }) {
   const management = kind === 'group' && section === 'group-management';
+  const groupPreferences = kind === 'group' && !management;
   const autoRefresh = useQQAutoRefresh(true);
   const session = useQQWriteSession(`${kind}:${conv}`);
   const target = kind === 'c2c' ? { kind, uid: conv } : { kind, groupId: Number(conv) };
@@ -92,7 +91,7 @@ export function QQConversationControls({
   const confirm = useDialog((state) => state.confirm);
   const state = snapshot.data;
   const specialCare = useFriendSpecialCare(kind === 'c2c' && state?.friend ? conv : undefined);
-  const ownEditing = groupMemberEditing(state?.role, state?.role, true);
+  const selfUid = state?.selfUid;
   const disabled = session.busy || !session.available || !state;
   const friendDisabled = disabled || !state?.friend;
   async function refresh(includePolicy = false) {
@@ -168,6 +167,28 @@ export function QQConversationControls({
       },
     );
   }
+  async function saveGroupIdentity(field: 'selfCard' | 'selfTitle', value: string) {
+    if (!selfUid) return false;
+    const groupTarget = { groupId: Number(conv), targetUid: selfUid };
+    const label = field === 'selfCard' ? '群昵称' : '专属头衔';
+    return session.run(
+      (binding) =>
+        field === 'selfCard'
+          ? card.mutateAsync({ ...binding, ...groupTarget, card: value })
+          : title.mutateAsync({ ...binding, ...groupTarget, title: value }),
+      undefined,
+      {
+        groupCode: conv,
+        memberUid: selfUid,
+        readbackSuccessText: `${label}${value ? '已保存' : '已清空'}`,
+        readback: async () => {
+          const updated = await snapshot.refetch();
+          if (updated.error) throw updated.error;
+          return updated.data?.[field] === value;
+        },
+      },
+    );
+  }
   return (
     <div
       className="weq-qq-write-panel"
@@ -220,9 +241,31 @@ export function QQConversationControls({
           <p role="status">服务端与本机消息策略尚未同步</p>
         )}
       <QQWriteResult result={session.result} />
-      {state && (
+      {(state || groupPreferences) && (
         <div>
-          {!management && (
+          {groupPreferences && (
+            <Card title="我的群身份" icon={<UserRoundCog size={15} strokeWidth={1.9} />}>
+              <QQWriteTextRow
+                label="我在本群的昵称"
+                initial={state?.selfCard ?? null}
+                placeholder={state?.selfCard === '' ? '未设置' : '尚未读取'}
+                maxLength={256}
+                readOnly={!selfUid}
+                disabled={disabled || !selfUid}
+                onSave={(value) => saveGroupIdentity('selfCard', value)}
+              />
+              <QQWriteTextRow
+                label="我的专属头衔"
+                initial={state?.selfTitle ?? null}
+                placeholder={state?.selfTitle === '' ? '未设置' : '尚未读取'}
+                maxLength={256}
+                readOnly={state?.role !== 'owner' || !selfUid}
+                disabled={disabled || !selfUid}
+                onSave={(value) => saveGroupIdentity('selfTitle', value)}
+              />
+            </Card>
+          )}
+          {state && !management && (
             <Card
               title={kind === 'group' ? '群会话' : '好友会话'}
               icon={<MessageSquareText size={15} strokeWidth={1.9} />}
@@ -270,77 +313,15 @@ export function QQConversationControls({
               )}
             </Card>
           )}
-          {kind === 'c2c' && state.friend && state.friendUin && (
+          {kind === 'c2c' && state?.friend && state.friendUin && (
             <Card title="QQ 空间" icon={<FEATURE_ICONS.qzone size={15} aria-hidden />}>
               <QzoneFriendPermissions targetUin={state.friendUin} />
             </Card>
           )}
-          {kind === 'group' && !management && (
-            <Card title="我的群身份" icon={<UserRoundCog size={15} strokeWidth={1.9} />}>
-              <QQWriteTextRow
-                label="我在本群的昵称"
-                icon={<UserRound size={14} strokeWidth={1.8} />}
-                readOnly={!ownEditing.card}
-                initial={state.selfCard}
-                disabled={disabled || !state.selfUid}
-                onSave={(value) =>
-                  session.run(
-                    (binding) =>
-                      card.mutateAsync({
-                        ...binding,
-                        groupId: Number(conv),
-                        targetUid: state.selfUid,
-                        card: value,
-                      }),
-                    undefined,
-                    {
-                      groupCode: conv,
-                      memberUid: state.selfUid,
-                      readbackSuccessText: value ? '群昵称已保存' : '群昵称已清空',
-                      readback: async () => {
-                        const updated = await snapshot.refetch();
-                        if (updated.error) throw updated.error;
-                        return updated.data?.selfCard === value;
-                      },
-                    },
-                  )
-                }
-              />
-              <QQWriteTextRow
-                label="我的专属头衔"
-                icon={<FEATURE_ICONS.groupTitle size={14} strokeWidth={1.8} aria-hidden />}
-                initial={state.selfTitle}
-                readOnly={state.role !== 'owner'}
-                disabled={disabled || !state.selfUid}
-                onSave={(value) =>
-                  session.run(
-                    (binding) =>
-                      title.mutateAsync({
-                        ...binding,
-                        groupId: Number(conv),
-                        targetUid: state.selfUid,
-                        title: value,
-                      }),
-                    undefined,
-                    {
-                      groupCode: conv,
-                      memberUid: state.selfUid,
-                      readbackSuccessText: value ? '专属头衔已保存' : '专属头衔已清空',
-                      readback: async () => {
-                        const updated = await snapshot.refetch();
-                        if (updated.error) throw updated.error;
-                        return updated.data?.selfTitle === value;
-                      },
-                    },
-                  )
-                }
-              />
-            </Card>
-          )}
-          {kind === 'c2c' && state.friend && !snapshot.error && (
+          {kind === 'c2c' && state?.friend && !snapshot.error && (
             <DeleteFriendSettings key={conv} uid={conv} name={conversationName} />
           )}
-          {management && (
+          {management && state && (
             <GroupActions key={conv} groupId={Number(conv)} groupName={conversationName} />
           )}
         </div>
