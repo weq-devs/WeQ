@@ -63,7 +63,7 @@ import { useVoiceTranscription } from '../hooks/useVoiceTranscription';
 import { WebAvatarScope } from '../hooks/useAvatarImage';
 import { sharedAccountScope } from '../lib/remoteCacheBridge';
 import { MessageTextResult } from './MessageTextResult';
-import { MessageExpansion } from './MessageExpansion';
+import { MessageExpansion, MessageLayoutChange } from './MessageExpansion';
 import { useTabActive } from './RetainedTabs.shared';
 import { mediaRetryUrl } from '../lib/mediaRetryUrl';
 import { useTransferProgress } from '../lib/transferActivity';
@@ -958,8 +958,16 @@ export function QqFile({
     : opensFile
       ? '正在打开…'
       : '准备保存…';
+  const fileRef = useRef<HTMLDivElement>(null);
   return (
-    <div className={cn('qq-media-file', hasDownloadAction && 'qq-media-file-downloadable')}>
+    <div
+      ref={fileRef}
+      className={cn('qq-media-file', hasDownloadAction && 'qq-media-file-downloadable')}
+    >
+      <MessageLayoutChange
+        anchor={fileRef}
+        details={[['.qq-media-file-size', working, downloading, error?.action, error?.message]]}
+      />
       <button
         type="button"
         className="qq-media-file-open"
@@ -1218,11 +1226,25 @@ export function QqVoice({
   const shownTranscript =
     (result?.success ? (result.text ?? '') : null) ?? (storedTranscript || null);
   const hasResult = shownTranscript !== null || transcribeError !== null;
+  const showResult = hasResult && !transcribe.collapsed;
   const canExpand = transcribe.collapsed && hasResult;
   const transcribeLabel = canExpand ? '展开文字' : transcribeError ? '重试转文字' : '转文字';
 
   return (
     <div className="qq-voice-wrap" ref={wrapRef}>
+      <MessageLayoutChange
+        anchor={wrapRef}
+        details={[
+          ['.qq-media-play-error', playError],
+          [
+            '.qq-voice-wrap > .weq-message-expansion',
+            showResult,
+            showResult && shownTranscript,
+            showResult && transcribeError,
+            showResult && result,
+          ],
+        ]}
+      />
       <div className="qq-voice-row">
         <button
           type="button"
@@ -1290,7 +1312,7 @@ export function QqVoice({
       ) : null}
 
       <MessageExpansion>
-        {hasResult && !transcribe.collapsed ? (
+        {showResult ? (
           <MessageTextResult
             label="转文字结果"
             error={Boolean(transcribeError)}

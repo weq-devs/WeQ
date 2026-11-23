@@ -154,6 +154,7 @@ export const MessageRow = memo(function MessageRow({
   repeatAction,
   pendingAction,
   textResult,
+  textResultRevision,
   /** 灰条外层的 class（聊天区靠它对齐，转发窗口用窄一点的边距）。 */
   grayTipClassName,
 }: {
@@ -197,6 +198,7 @@ export const MessageRow = memo(function MessageRow({
   repeatAction?: ReactNode;
   pendingAction?: ReactNode;
   textResult?: ReactNode;
+  textResultRevision?: unknown;
   grayTipClassName?: string;
 }): ReactElement {
   recordMessageCounter('rowRenders');
@@ -301,6 +303,7 @@ export const MessageRow = memo(function MessageRow({
       repeatAction={repeatAction}
       pendingAction={pendingAction}
       textResult={textResult}
+      textResultRevision={textResultRevision}
     />
   );
 });

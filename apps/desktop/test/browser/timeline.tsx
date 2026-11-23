@@ -1,5 +1,8 @@
 import { createElement, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { rpcFixture } from './trpc.stub';
+import { useViewState } from '../../src/renderer/src/state/view';
 import { ChatPane } from '../../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from '../support/templateDemoData';
 import { qqMessageRenderer } from '../../src/renderer/src/components/QqMessageContent.shared';
@@ -31,6 +34,7 @@ import '../../src/renderer/src/styles/mobile-web.css';
 const demo = createTemplateDemoData();
 const params = new URLSearchParams(location.search);
 const entryCount = Number(params.get('count') ?? 3000);
+const motionDetails = params.has('motion-details');
 const delayedEntry = params.has('delayed');
 const delayMedia = params.has('delay-media');
 const gapRecovery = params.has('gap-recovery');
@@ -85,6 +89,29 @@ const image = await new Promise<string>((resolve, reject) => {
 });
 window.addEventListener('pagehide', () => URL.revokeObjectURL(image), { once: true });
 const user = { ...demo.user, avatarUrl: avatar };
+let resolveTranslation: (() => void) | undefined;
+if (motionDetails) {
+  const uin = user.identityValue!;
+  useViewState.getState().setOpenedUin(uin);
+  rpcFixture.set('account.getAccountConfig.useQuery', () => ({
+    data: { uin, configId: 'motion-fixture' },
+  }));
+  rpcFixture.set('bootstrap.getSettings.useQuery', () => ({
+    data: { voiceTranscribe: { modelId: 'fixture' } },
+  }));
+  rpcFixture.set(
+    'account.qqActions.translateEnglish.mutate',
+    () =>
+      new Promise<string>((resolve) => {
+        resolveTranslation = () =>
+          resolve('这是一段用来验证多行译文展开方向的中文结果。'.repeat(4));
+      }),
+  );
+  rpcFixture.set('account.transcribeVoice.mutate', async () => ({
+    success: true,
+    text: '语音转写同样固定消息底边。'.repeat(5),
+  }));
+}
 const conversation = {
   ...demo.conversations.find((row) => row.type === 'direct')!,
   unreadCount: 0,
@@ -111,37 +138,43 @@ const message = (seq: number): Message => ({
   senderId: seq % 3 ? 'u_peer' : user.id,
   senderUid: seq % 3 ? 'u_peer' : 'u_self',
   body: `合成消息 ${seq}：${'用于检查长时间线和动态高度。'.repeat((Math.abs(seq) % 8) + 1)}`,
+  ...(motionDetails && seq === 1070 ? { body: 'This is a message in English.' } : {}),
   createdAt: new Date(1792544400000 + seq * 1000).toISOString(),
   msgSeq: String(seq),
   decoration: cachedBubble
     ? { bubbleId: cachedBubble.itemId, fontId: 0, widgetId: 0, cachedBubble }
     : undefined,
   qqElements:
-    params.has('image-grid') && seq === 1004
-      ? Array.from({ length: 4 }, (_, index) => ({
-          type: 'pic',
-          data: {
-            fileName: `grid-${index}.png`,
-            localPreviewUrl: image,
-            imgWidth: 300,
-            imgHeight: 400,
-          },
-        }))
-      : seq % 19 === 0
-        ? [
-            {
-              type: 'pic',
-              data: {
-                fileName: `fixture-${seq}.png`,
-                ...(delayMedia && seq === 1102
-                  ? { localPreviewUrl: `${location.origin}/timeline-delayed.svg` }
-                  : { localPreviewUrl: image, imgWidth: 300, imgHeight: 180 + (seq % 5) * 80 }),
-              },
+    motionDetails && seq === 1073
+      ? [{ type: 'ptt', data: { fileName: 'fixture.silk', pttDuration: 4 } }]
+      : params.has('image-grid') && seq === 1004
+        ? Array.from({ length: 4 }, (_, index) => ({
+            type: 'pic',
+            data: {
+              fileName: `grid-${index}.png`,
+              localPreviewUrl: image,
+              imgWidth: 300,
+              imgHeight: 400,
             },
-          ]
-        : seq === 1003
-          ? touchReplyElements
-          : undefined,
+          }))
+        : seq % 19 === 0
+          ? [
+              {
+                type: 'pic',
+                data: {
+                  fileName: `fixture-${seq}.png`,
+                  ...(delayMedia && seq === 1102
+                    ? { localPreviewUrl: `${location.origin}/timeline-delayed.svg` }
+                    : { localPreviewUrl: image, imgWidth: 300, imgHeight: 180 + (seq % 5) * 80 }),
+                },
+              },
+            ]
+          : seq === 1003
+            ? touchReplyElements
+            : undefined,
+  ...(motionDetails && seq === 1075
+    ? { senderId: user.id, optimistic: 'sending', outgoingId: `row-${seq}` }
+    : {}),
 });
 const gapMessages = () => [
   message(1081),
@@ -185,7 +218,9 @@ function Fixture() {
   useMobileWebViewport(rootRef, mobileInput);
   const [conversationId, setConversationId] = useState(conversation.id);
   const [messages, setMessages] = useState(() =>
-    Array.from({ length: delayedEntry ? 0 : entryCount }, (_, i) => message(i + 1001)),
+    Array.from({ length: delayedEntry ? 0 : entryCount }, (_, i) =>
+      message(i + Number(params.get('first') ?? 1001)),
+    ),
   );
   const [resolvedGapIds, setResolvedGapIds] = useState<Set<string>>();
   const [deletedIds, setDeletedIds] = useState<Set<string>>();
@@ -217,6 +252,7 @@ function Fixture() {
   const exportRequest = useContentExportRequest();
   Object.assign(bridge, {
     virtualThreshold: TIMELINE_VIRTUAL_THRESHOLD,
+    completeTranslation: () => resolveTranslation?.(),
     sentBodies: () => sentBodies.current,
     readSequences: () => [...readSequences.current],
     showUnreadDock: () => setUnreadReady(true),
@@ -250,6 +286,10 @@ function Fixture() {
       setMessages((rows) => [...Array.from({ length: 50 }, (_, i) => message(951 + i)), ...rows]);
     },
     append: () => setMessages((rows) => [...rows, message(Number(rows.at(-1)!.msgSeq) + 1)]),
+    failSend: (id: string) =>
+      setMessages((rows) =>
+        rows.map((row) => (row.id === id ? { ...row, optimistic: 'failed' } : row)),
+      ),
     confirmTail: () =>
       setMessages((rows) => {
         const tail = rows.at(-1)!;
@@ -394,6 +434,7 @@ function Fixture() {
         : undefined,
       groupConsecutiveMessages: params.has('grouped'),
       unreadDock: unreadReady ? (unreadDock ?? null) : undefined,
+      cachedUnreadStartSeq: params.get('motion-unread') ?? undefined,
       readThroughViewport: readProgress,
       confirmedReadSeq: readProgress ? '1000' : undefined,
       onReadCurrentConversation: (_, seqs) => {
@@ -435,15 +476,19 @@ function Fixture() {
 }
 createRoot(document.getElementById('root')!).render(
   createElement(
-    ContentSelectionProvider,
-    null,
+    QueryClientProvider,
+    { client: new QueryClient() },
     createElement(
-      ShowMessageSeqContext.Provider,
-      { value: params.has('show-message-seq') },
+      ContentSelectionProvider,
+      null,
       createElement(
-        ReplyJumpContext.Provider,
-        { value: ({ index }) => revealTimelineMessage(scroll(), `row-${index}`, true) },
-        createElement(Fixture),
+        ShowMessageSeqContext.Provider,
+        { value: params.has('show-message-seq') },
+        createElement(
+          ReplyJumpContext.Provider,
+          { value: ({ index }) => revealTimelineMessage(scroll(), `row-${index}`, true) },
+          createElement(Fixture),
+        ),
       ),
     ),
   ),

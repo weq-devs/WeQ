@@ -57,6 +57,7 @@ import { useIntentSenseContext } from './context.shared';
 import type { IntentAnalysis } from './context';
 import { createLoadingIconSequence } from './loadingIconSequence';
 import { synchronizeLoadingAnimationPhase } from './loadingAnimationPhase';
+import { MessageLayoutChange } from '../MessageExpansion';
 import '../../styles/intent-sense.css';
 
 const INTENT_META: Record<string, { label: string; icon: typeof HelpCircle }> = {
@@ -429,7 +430,30 @@ export function MessageIntentSense({
     };
   }, [anchor, ownerDocument]);
 
-  if (!active) return null;
+  const showChips = Boolean(
+    active &&
+      (manualSingle ||
+        (persistentDisplay &&
+          (result ||
+            (ctx?.loadingAnimation !== false &&
+              analyzable !== false &&
+              (ctx?.automatic !== false || pending || failure))))),
+  );
+  const layout = (
+    <MessageLayoutChange
+      anchor={bubbleRef}
+      details={[
+        [
+          '.weq-intent-chips',
+          showChips,
+          showChips && displayState,
+          showChips && result?.intent,
+          showChips && result?.emotion,
+        ],
+      ]}
+    />
+  );
+  if (!active) return <>{layout}</>;
 
   const openDetails = (): void => {
     const bubble = bubbleRef.current;
@@ -467,13 +491,9 @@ export function MessageIntentSense({
 
   return (
     <>
+      {layout}
       {/* 单条手动等待始终可见，普通分析仍遵循显示偏好；正文不等待分析。 */}
-      {manualSingle ||
-      (persistentDisplay &&
-        (result ||
-          (ctx?.loadingAnimation !== false &&
-            analyzable !== false &&
-            (ctx?.automatic !== false || pending || failure)))) ? (
+      {showChips ? (
         <span
           className="weq-intent-chips"
           data-intent-state={displayState}

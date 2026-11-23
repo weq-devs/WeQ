@@ -8,6 +8,8 @@
   width: 100%;
   display: flex;
   flex-direction: column;
+  /* 短会话也给消息留出向上展开的空间，固定最后一条消息的下沿。 */
+  margin-block-start: auto;
 }
 .weq-virtual-timeline.is-windowed {
   display: block;

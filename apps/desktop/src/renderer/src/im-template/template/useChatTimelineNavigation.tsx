@@ -1033,6 +1033,7 @@ export function useChatTimelineNavigation({
     }
   }
   return {
+    pinnedToLatest: atBottomRef,
     leaveBottom: () => {
       atBottomRef.current = false;
       holdingHistoryPosition.current = true;

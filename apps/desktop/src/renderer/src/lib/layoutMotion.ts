@@ -10,13 +10,13 @@ export function visibleLayoutRows(
   keyOf: (element: HTMLElement) => string | undefined,
   bounds = root.getBoundingClientRect(),
 ) {
-  const rows = new Map<string, { element: HTMLElement; top: number }>();
+  const rows = new Map<string, { element: HTMLElement; top: number; bottom: number }>();
   for (const element of root.querySelectorAll<HTMLElement>(selector)) {
     const key = keyOf(element);
     if (key === undefined) continue;
     const rect = element.getBoundingClientRect();
     if (rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom)
-      rows.set(key, { element, top: rect.top - bounds.top });
+      rows.set(key, { element, top: rect.top - bounds.top, bottom: rect.bottom - bounds.top });
   }
   return rows;
 }
@@ -29,9 +29,11 @@ export class RowLayoutMotion {
     this.animations.clear();
   }
 
-  shift(element: HTMLElement, offset: number, limit: number) {
+  shift(element: HTMLElement, offset: number, limit: number, clipBottom = false) {
     if (Math.abs(offset) < 1 || Math.abs(offset) > limit) return;
-    this.play(element, [{ transform: `translateY(${offset}px)` }, { transform: 'none' }]);
+    const frames = [{ transform: `translateY(${offset}px)` }, { transform: 'none' }];
+    if (clipBottom && offset > 0) this.slideContent(element, frames);
+    else this.play(element, frames);
   }
 
   reveal(element: HTMLElement) {
@@ -39,14 +41,17 @@ export class RowLayoutMotion {
   }
 
   enterRow(row: HTMLElement, offset: number) {
+    this.slideContent(row, [
+      { opacity: 0.75, transform: `translateY(${offset}px)` },
+      { opacity: 1, transform: 'none' },
+    ]);
+  }
+
+  private slideContent(row: HTMLElement, frames: Keyframe[]) {
     // 移动行内内容，裁掉暂时超出行底的部分，不让位移增加实际滚动范围。
     this.play(row, [{ overflowY: 'clip' }, { overflowY: 'clip' }]);
     for (const child of row.children) {
-      if (!(child instanceof HTMLElement)) continue;
-      this.play(child, [
-        { opacity: 0.75, transform: `translateY(${offset}px)` },
-        { opacity: 1, transform: 'none' },
-      ]);
+      if (child instanceof HTMLElement) this.play(child, frames);
     }
   }
 

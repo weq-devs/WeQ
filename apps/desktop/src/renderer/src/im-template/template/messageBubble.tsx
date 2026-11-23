@@ -41,7 +41,7 @@ import { useMsgDecoration } from '../../hooks/useMsgDecoration';
 import { localDressApplies } from '../../lib/dressSkin';
 import { MsgDecorationEnabledContext } from '../../state/messageAppearance';
 import { MessageProvenance } from '../../components/MessageProvenance';
-import { MessageExpansion } from '../../components/MessageExpansion';
+import { MessageExpansion, MessageLayoutChange } from '../../components/MessageExpansion';
 import { OutgoingMessageName } from './outgoingMessageName';
 import '../../styles/message-deletion.css';
 import { useToastApi } from '../../components/Toast.shared';
@@ -235,6 +235,7 @@ function MessageBubbleBody({
   repeatAction,
   pendingAction,
   textResult,
+  textResultRevision,
   avatarBadge,
 }: {
   message: Message;
@@ -304,6 +305,7 @@ function MessageBubbleBody({
   repeatAction?: import('react').ReactNode;
   pendingAction?: import('react').ReactNode;
   textResult?: import('react').ReactNode;
+  textResultRevision?: unknown;
   /** 本地克隆等展示标识，不改变发送者或 QQ 消息能力。 */
   avatarBadge?: import('react').ReactNode;
 }) {
@@ -788,6 +790,21 @@ function MessageBubbleBody({
       data-fontfx={fontFxAttr}
       data-widget={lineWidget?.animated ? lineWidget.itemId : undefined}
     >
+      <MessageLayoutChange
+        anchor={lineRef}
+        details={[
+          ['.message-bubble > .weq-message-expansion .qq-message-text-result', textResultRevision],
+          ['.msg-reactions', message.setEmojiList, reactionInteraction?.pending],
+          ['.message-bubble > .weq-message-sending', Boolean(pendingAction)],
+          ['.weq-msg-essence-badge', isEssence],
+          [
+            '.weq-msg-status-row, .weq-msg-optimistic-tag.is-queued',
+            optimisticText,
+            optimistic === 'queued',
+          ],
+          ['.message-actions', message.actions],
+        ]}
+      />
       {selectionMode ? <MessageSelectionMark selected={selected ?? false} /> : null}
       {!mine ? avatarSlot : null}
       <div

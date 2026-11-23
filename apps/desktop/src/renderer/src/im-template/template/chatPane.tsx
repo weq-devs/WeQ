@@ -1698,6 +1698,7 @@ function ChatPaneContent({
     jumpingToLatest,
     messageScrollRef,
     newMessagePill,
+    pinnedToLatest,
     isActiveConversation,
     resetReadGesture,
     requestReadAtBottom,
@@ -6384,6 +6385,7 @@ function ChatPaneContent({
           active={tabActive}
           live={atLatest}
           followLive={mediaSettings.data?.autoFollowLatestMessages !== false}
+          pinnedToLatest={pinnedToLatest}
           loading={Boolean(loading || loadingOlder || loadingNewer)}
           jumpRevision={jumpRequest?.revision}
           deleted={deletedKeys}
@@ -6481,6 +6483,10 @@ function ChatPaneContent({
                       );
                     }
                     const sender = resolveMessageSender(message, conversation, user);
+                    const translationResult =
+                      translation?.scope === translationScope && translation.id === message.id
+                        ? translation
+                        : undefined;
                     out.push(
                       <Fragment key={virtualRow.key}>
                         <MessageTimeDivider
@@ -6507,21 +6513,22 @@ function ChatPaneContent({
                           user={user}
                           sender={sender}
                           renderers={messageRenderers}
+                          textResultRevision={translationResult}
                           textResult={
-                            translation?.scope === translationScope &&
-                            translation.id === message.id ? (
+                            translationResult ? (
                               <MessageTextResult
                                 label="译文"
-                                error={translation.error}
+                                error={translationResult.error}
                                 onCollapse={() => setTranslation(null)}
                               >
                                 <span
                                   role="status"
                                   data-privacy-sensitive={
-                                    Boolean(translation.value && !translation.error) || undefined
+                                    Boolean(translationResult.value && !translationResult.error) ||
+                                    undefined
                                   }
                                 >
-                                  {translation.value ?? '正在翻译…'}
+                                  {translationResult.value ?? '正在翻译…'}
                                 </span>
                               </MessageTextResult>
                             ) : undefined

@@ -235,10 +235,17 @@ export function useVirtualTimeline({
       if (frame.current !== undefined) cancelAnimationFrame(frame.current);
       frame.current = undefined;
     };
-    const interrupt = () => {
-      lastInputAt = performance.now();
+    const stopScroll = () => {
       scrollRevision.current++;
       cancel();
+    };
+    const interrupt = () => {
+      lastInputAt = performance.now();
+      stopScroll();
+    };
+    const pointerDown = (event: PointerEvent) => {
+      if (event.target === scroll) interrupt();
+      else stopScroll();
     };
     const keys = (event: KeyboardEvent) => {
       if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key))
@@ -260,7 +267,7 @@ export function useVirtualTimeline({
     scroll.addEventListener('touchmove', touchMove, touchOptions);
     scroll.addEventListener('touchend', touchEnd, touchOptions);
     scroll.addEventListener('touchcancel', touchEnd, touchOptions);
-    scroll.addEventListener('pointerdown', interrupt, { passive: true });
+    scroll.addEventListener('pointerdown', pointerDown, { passive: true });
     scroll.addEventListener('keydown', keys);
     const position = (
       id: string,
@@ -386,8 +393,7 @@ export function useVirtualTimeline({
         }
         resizedAnchorIndex.current = anchor ? virtualizer.indexFromElement(anchor) : -1;
         try {
-          for (const [index, height] of sizes)
-            if (height > 0) virtualizer.resizeItem(index, height);
+          virtualizer.resizeItems(sizes.filter(([, height]) => height > 0));
         } finally {
           resizedAnchorIndex.current = -1;
         }
@@ -461,7 +467,7 @@ export function useVirtualTimeline({
       scroll.removeEventListener('touchmove', touchMove, touchOptions);
       scroll.removeEventListener('touchend', touchEnd, touchOptions);
       scroll.removeEventListener('touchcancel', touchEnd, touchOptions);
-      scroll.removeEventListener('pointerdown', interrupt);
+      scroll.removeEventListener('pointerdown', pointerDown);
       scroll.removeEventListener('keydown', keys);
     };
   }, [scope, scrollRef]);

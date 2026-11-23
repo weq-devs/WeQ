@@ -112,6 +112,7 @@ try {
 }
 
 async function checkLayoutMotion(page) {
+  page.setDefaultTimeout(10_000);
   const base = `http://127.0.0.1:${server.httpServer.address().port}/test/browser`;
   await page.addInitScript(() => {
     const animate = Element.prototype.animate;
@@ -123,7 +124,7 @@ async function checkLayoutMotion(page) {
         this.closest('[data-weq-layout-row]')?.dataset.weqLayoutRow;
       if (key) {
         const frames = animation.effect.getKeyframes();
-        if (window.holdRowMotion === key) {
+        if (window.holdRowMotion === key && frames[0].transform) {
           window.holdRowMotion = undefined;
           animation.pause();
           animation.currentTime = 50;
@@ -170,6 +171,7 @@ async function checkLayoutMotion(page) {
       ids,
     );
   const near = (a, b) => assert.ok(Math.abs(a - b) <= 1, `阅读锚点发生变化：${a} -> ${b}`);
+  const sameEdge = (a, b) => assert.ok(Math.abs(a - b) <= 2, `消息下沿锚点发生变化：${a} -> ${b}`);
 
   for (const reducedMotion of ['no-preference', 'reduce']) {
     const reduced = reducedMotion === 'reduce';
@@ -234,14 +236,13 @@ async function checkLayoutMotion(page) {
       const scroll = document.querySelector('.message-scroll').getBoundingClientRect();
       return row && row.top > scroll.top && row.bottom < scroll.bottom;
     });
-    const anchor = await page.evaluate(() => window.timelineTest.capture());
-    const anchorTop = (await message(anchor.anchorId).boundingBox()).y;
+    const belowRecall = (await message('row-1071').boundingBox()).y;
     await clear();
     await page.evaluate(() => window.timelineTest.append());
     await page.evaluate(() => window.timelineTest.recall('row-1070'));
     await message('row-1070').locator('.weq-msg-recall-tag').waitFor();
     assert.equal(await sample('row-1182', '.message-line'), null, '阅读历史不播放实时消息入场');
-    near(anchorTop, (await message(anchor.anchorId).boundingBox()).y);
+    sameEdge(belowRecall, (await message('row-1071').boundingBox()).y);
     assert.equal(
       (await logs()).some(
         ([key, target]) => key === 'row-1070' && target.includes('weq-msg-recall-tag'),
@@ -257,6 +258,16 @@ async function checkLayoutMotion(page) {
       ),
       !reduced,
     );
+    await viewport.evaluate(async (element) => {
+      await Promise.all(
+        element
+          .getAnimations({ subtree: true })
+          .filter((animation) => Number.isFinite(animation.effect?.getComputedTiming().endTime))
+          .map((animation) => animation.finished.catch(() => {})),
+      );
+    });
+    const anchor = await page.evaluate(() => window.timelineTest.capture());
+    const anchorTop = (await message(anchor.anchorId).boundingBox()).y;
     await clear();
     await page.evaluate(() => window.timelineTest.hideDeleted('row-1070'));
     await message('row-1070').waitFor({ state: 'detached' });
@@ -274,6 +285,7 @@ async function checkLayoutMotion(page) {
     );
     near(anchorTop, (await message(anchor.anchorId).boundingBox()).y);
     await clear();
+    const belowTip = (await message('row-1073').boundingBox()).y;
     await page.evaluate(() => window.timelineTest.recallTip('row-1072'));
     await page.locator('.weq-system-message-row[data-message-id="row-1072"]').waitFor();
     assert.equal(
@@ -282,7 +294,7 @@ async function checkLayoutMotion(page) {
       ),
       !reduced,
     );
-    near(anchorTop, (await message(anchor.anchorId).boundingBox()).y);
+    sameEdge(belowTip, (await message('row-1073').boundingBox()).y);
     const top = await viewport.evaluate((node) => node.scrollTop);
     await viewport.evaluate((node) => {
       node.scrollTop += 45;
@@ -290,6 +302,175 @@ async function checkLayoutMotion(page) {
     await page.waitForFunction(
       (top) => document.querySelector('.message-scroll').scrollTop > top,
       top,
+    );
+
+    await page.goto(`${base}/timeline.html?count=180&entry&motion-details&motion-unread=1181`);
+    await message('row-1180').waitFor();
+    await bottom();
+    await page.evaluate(() => window.timelineTest.append());
+    const incoming = message('row-1181');
+    await incoming.waitFor();
+    await page.getByText('以下为未读消息').waitFor();
+    const incomingMotion = await sample('row-1181', '.message-line');
+    if (reduced) assert.equal(incomingMotion, null);
+    else {
+      assert.match(incomingMotion?.frames[0].transform, /translateY\([1-9]/);
+      assert.ok(new Set(incomingMotion.values).size > 1, '对方来信有未读分隔也应有中间帧');
+    }
+
+    const centerMessage = async (id) => {
+      await page.evaluate((id) => window.timelineTest.jump(id), id);
+      await page.waitForFunction((id) => {
+        const row = document.querySelector(`[data-message-id="${id}"]`)?.getBoundingClientRect();
+        const scroll = document.querySelector('.message-scroll')?.getBoundingClientRect();
+        return (
+          row && scroll && Math.abs(row.top + row.height / 2 - scroll.top - scroll.height / 2) < 20
+        );
+      }, id);
+    };
+    await centerMessage('row-1070');
+    const topOf = async (id) => (await message(id).boundingBox()).y;
+    const showResultMenu = async (result) => {
+      await result.evaluate(async (element) => {
+        // 等锚点补偿的原生 scroll 已派发，再触发菜单的键盘入口。
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        element.focus({ preventScroll: true });
+        element.dispatchEvent(
+          new KeyboardEvent('keydown', { bubbles: true, key: 'F10', shiftKey: true }),
+        );
+      });
+      const collapse = page.getByRole('menuitem', { name: '收起', exact: true });
+      await collapse.waitFor();
+      return () => collapse.evaluate((button) => button.click());
+    };
+    const detailChange = async (id, below, above, direction, trigger, check) => {
+      await clear();
+      const before = await page.evaluate(
+        async ({ id, below, above }) => {
+          // 定向跳转的最后一轮原生滚动校准完成后再采集初始帧。
+          await new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve)),
+          );
+          const top = (id) =>
+            document.querySelector(`[data-message-id="${id}"]`).getBoundingClientRect().top;
+          window.holdRowMotion = id;
+          return { row: top(id), above: top(above), below: top(below) };
+        },
+        { id, below, above },
+      );
+      await trigger();
+      await check();
+      const frames = await page.evaluate(
+        ({ id, below, above }) => {
+          const find = (key) =>
+            window.rowMotion.find(
+              (entry) =>
+                entry.key === key &&
+                entry.frames[0].transform &&
+                (entry.target.classList.contains('weq-virtual-timeline-row') ||
+                  entry.target.classList.contains('message-line')),
+            )?.animation;
+          const top = (id) =>
+            document.querySelector(`[data-message-id="${id}"]`).getBoundingClientRect().top;
+          const animations = [find(id), find(above)].filter(Boolean);
+          if (animations.length === 0) return null;
+          for (const animation of animations) animation.pause();
+          const frames = [0, 60, 160].map((time) => {
+            for (const animation of animations) animation.currentTime = time;
+            return { row: top(id), above: top(above), below: top(below) };
+          });
+          for (const animation of animations) animation.finish();
+          return frames;
+        },
+        { id, below, above },
+      );
+      if (reduced) assert.equal(frames, null);
+      else {
+        assert.ok(frames, `${id} 的附加内容缺少缓动`);
+        assert.ok(
+          Math.abs(frames[0].row - before.row) <= 2,
+          `${id} 首帧偏移：${JSON.stringify({ before, frames })}`,
+        );
+        sameEdge(frames[0].above, before.above);
+        for (const frame of frames) sameEdge(frame.below, before.below);
+        for (const key of ['row', 'above']) {
+          assert.ok(direction * (frames[1][key] - frames[0][key]) > 0);
+          assert.ok(direction * (frames[2][key] - frames[1][key]) > 0);
+        }
+      }
+      sameEdge(await topOf(below), before.below);
+      assert.ok(direction * ((await topOf(id)) - before.row) > 0);
+    };
+
+    const translation = page.getByRole('group', { name: '译文' });
+    await message('row-1070').locator('.message-bubble').click({ button: 'right' });
+    await detailChange(
+      'row-1070',
+      'row-1071',
+      'row-1069',
+      -1,
+      () => page.getByRole('menuitem', { name: '翻译成中文' }).click(),
+      () => translation.getByText('正在翻译…').waitFor(),
+    );
+    await detailChange(
+      'row-1070',
+      'row-1071',
+      'row-1069',
+      -1,
+      () => page.evaluate(() => window.timelineTest.completeTranslation()),
+      () => translation.getByText(/多行译文/).waitFor(),
+    );
+    const collapseTranslation = await showResultMenu(translation);
+    await detailChange('row-1070', 'row-1071', 'row-1069', 1, collapseTranslation, () =>
+      translation.waitFor({ state: 'detached' }),
+    );
+    const transcript = page.getByRole('group', { name: '转文字结果' });
+    await centerMessage('row-1073');
+    await detailChange(
+      'row-1073',
+      'row-1074',
+      'row-1072',
+      -1,
+      () =>
+        message('row-1073')
+          .getByRole('button', { name: '转文字' })
+          .evaluate((button) => button.click()),
+      () => transcript.waitFor(),
+    );
+    const collapseTranscript = await showResultMenu(transcript);
+    await detailChange('row-1073', 'row-1074', 'row-1072', 1, collapseTranscript, () =>
+      transcript.waitFor({ state: 'detached' }),
+    );
+    await detailChange(
+      'row-1073',
+      'row-1074',
+      'row-1072',
+      -1,
+      () =>
+        message('row-1073')
+          .getByRole('button', { name: '展开文字' })
+          .evaluate((button) => button.click()),
+      () => transcript.waitFor(),
+    );
+    await centerMessage('row-1075');
+    await detailChange(
+      'row-1075',
+      'row-1076',
+      'row-1074',
+      -1,
+      () => page.evaluate(() => window.timelineTest.failSend('row-1075')),
+      () => message('row-1075').getByRole('button', { name: '重试发送' }).waitFor(),
+    );
+
+    await page.goto(`${base}/timeline.html?count=4&first=1073&entry&motion-details`);
+    await message('row-1076').waitFor();
+    await detailChange(
+      'row-1075',
+      'row-1076',
+      'row-1074',
+      -1,
+      () => page.evaluate(() => window.timelineTest.failSend('row-1075')),
+      () => message('row-1075').getByRole('button', { name: '重试发送' }).waitFor(),
     );
 
     await page.goto(`${base}/conversation-list-states.html`);
@@ -378,7 +559,7 @@ async function checkLayoutMotion(page) {
   await page.getByText('空会话的第一条消息', { exact: true }).waitFor();
   const first = await sample('row-1001', '.message-line');
   assert.match(first?.frames[0].transform, /translateY\([1-9]/);
-  console.log('实时入场、撤回与删除阅读锚点、会话增删移位及减少动态效果通过');
+  console.log('实时收发、撤回与删除、译文与转写、发送失败、会话移位及减少动态效果通过');
 }
 
 async function checkGapRecovery(page) {
