@@ -20,9 +20,12 @@ const { DEVELOPMENT_RESTART_EXIT_CODE } = await tsImport(
 );
 
 const run = promisify(execFile);
+const eventTimeout = 10_000;
+// Windows runner 的首次构建和宿主启动有独立预算，后续热更新仍使用事件超时。
+const firstStartTimeout = process.platform === 'win32' ? 30_000 : eventTimeout;
 
 test('真实 electron-vite：菜单和开发更新都在原 Vite 会话中重启 Electron', {
-  timeout: 30_000,
+  timeout: firstStartTimeout + 20_000,
 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'weq-watch-'));
   let child;
@@ -147,14 +150,17 @@ test('真实 electron-vite：菜单和开发更新都在原 Vite 会话中重启
   child.stderr.on('data', (data) => {
     output += data;
   });
-  const until = async (check) => {
-    const deadline = Date.now() + 10_000;
-    while (Date.now() < deadline) {
+  const until = async (check, timeout = eventTimeout, event = '监听事件') => {
+    const deadline = performance.now() + timeout;
+    while (performance.now() < deadline) {
       if (await check()) return;
-      if (child.exitCode !== null) throw new Error(output);
+      if (child.exitCode !== null || child.signalCode !== null)
+        throw new Error(
+          `等待${event}时开发进程退出（${child.exitCode ?? child.signalCode}）：${output}`,
+        );
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
-    throw new Error(`等待监听事件超时：${output}`);
+    throw new Error(`等待${event}超时（${timeout}ms）：${output || '开发进程尚无输出'}`);
   };
   const starts = async () => {
     try {
@@ -167,7 +173,7 @@ test('真实 electron-vite：菜单和开发更新都在原 Vite 会话中重启
       throw error;
     }
   };
-  await until(async () => (await starts()).length === 1);
+  await until(async () => (await starts()).length === 1, firstStartTimeout, '首次构建和宿主启动');
   await assert.rejects(readFile(staleChunk), { code: 'ENOENT' });
   const first = (await starts())[0];
   assert.equal(first.restarting, undefined);
