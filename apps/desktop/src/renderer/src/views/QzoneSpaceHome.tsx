@@ -32,7 +32,7 @@ import { QzoneSharePost } from './QzoneMore';
 import type { QzoneShareIndex } from './QzoneMore.shared';
 import { QzoneAutoPage } from './QzonePagination';
 import { QzoneMediaGrid, State } from './qzoneShared';
-import { QzonePageContext } from './qzoneShared.shared';
+import { QzonePageContext, type QzoneHomeDestination } from './qzoneShared.shared';
 import { qzoneNickname } from '../lib/qzonePeople';
 
 function FeedContent({ feed, share }: { feed: PublicFeedView; share?: QzoneShare }) {
@@ -340,6 +340,7 @@ export function QzoneSpaceHome({
   shareIndex,
   nickname,
   onOwnerNickname,
+  onOpenPane,
   deletedPosts,
   onDeleted,
 }: {
@@ -351,6 +352,7 @@ export function QzoneSpaceHome({
   shareIndex: QzoneShareIndex;
   nickname: string;
   onOwnerNickname: (uin: string, nickname: string) => void;
+  onOpenPane: (pane: QzoneHomeDestination) => void;
   deletedPosts: ReadonlySet<string>;
   onDeleted: (tid: string) => void;
 }) {
@@ -428,6 +430,7 @@ export function QzoneSpaceHome({
           hostUin={hostUin}
           blogCount={blogIndex.total}
           onOwnerNickname={onOwnerNickname}
+          onOpenPane={onOpenPane}
         />
       ) : null}
       {!rows.length ? (

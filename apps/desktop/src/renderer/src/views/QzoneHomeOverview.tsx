@@ -11,7 +11,7 @@ import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { useQzoneRequests } from '../hooks/useQzoneRequests';
 import { client, trpc } from '../trpc/client';
 import { LoadingStatus } from './qzoneShared';
-import { QzonePageContext } from './qzoneShared.shared';
+import { QzonePageContext, type QzoneHomeDestination } from './qzoneShared.shared';
 
 const personalLabels = {
   nickname: '昵称',
@@ -57,12 +57,14 @@ export function QzoneHomeOverview({
   hostUin,
   blogCount,
   onOwnerNickname,
+  onOpenPane,
 }: {
   binding: QQWriteBinding;
   available: boolean;
   hostUin: string;
   blogCount?: number;
   onOwnerNickname: (uin: string, nickname: string) => void;
+  onOpenPane: (pane: QzoneHomeDestination) => void;
 }) {
   const { active, refresh } = useContext(QzonePageContext);
   const enabled = active && available;
@@ -106,15 +108,15 @@ export function QzoneHomeOverview({
   useEffect(() => {
     if (ownerNick) onOwnerNickname(hostUin, ownerNick);
   }, [hostUin, ownerNick, onOwnerNickname]);
-  const counts = [
+  const counts: [label: string, value: number | null | undefined, pane?: QzoneHomeDestination][] = [
     ['累计访问', data?.totalCount],
     ['今日访问', data?.todayCount],
-    ['说说', data?.postCount],
-    ['日志', blogCount],
-    ['相册', data?.albumCount],
-    ['照片', data?.photoCount],
-    ['留言', data?.messageCount],
-  ] as const;
+    ['说说', data?.postCount, 'posts'],
+    ['日志', blogCount, 'blogs'],
+    ['相册', data?.albumCount, 'albums'],
+    ['照片', data?.photoCount, 'albums'],
+    ['留言', data?.messageCount, 'guestbook'],
+  ];
   const name = profileData?.name.trim();
   const description = profileData?.description.trim();
   const greeting = data?.greeting;
@@ -126,21 +128,11 @@ export function QzoneHomeOverview({
           <h2 data-privacy-sensitive={Boolean(name) || undefined} title={name}>
             <QzoneInlineText content={name || 'QQ 空间'} />
           </h2>
-          <div className="weq-qzn-home-note">
-            {description ? (
-              <details className="weq-qzn-home-greeting" data-privacy-sensitive>
-                <summary>
-                  空间简介
-                  <span>
-                    <QzoneInlineText content={description} />
-                  </span>
-                </summary>
-                <p>
-                  <QzoneInlineText content={description} />
-                </p>
-              </details>
-            ) : null}
-          </div>
+          {description ? (
+            <p className="weq-qzn-home-description" data-privacy-sensitive>
+              <QzoneInlineText content={description} />
+            </p>
+          ) : null}
         </div>
         <div className="weq-qzn-home-tools">
           <button
@@ -167,13 +159,34 @@ export function QzoneHomeOverview({
           ) : null}
         </div>
       </div>
-      <dl className="weq-qzn-home-stats" aria-label="空间统计" aria-busy={!data && isFetching}>
-        {counts.map(([label, value]) => (
-          <OverviewRow key={label} label={label}>
-            <NumericText>{value == null ? '—' : value.toLocaleString('zh-CN')}</NumericText>
-          </OverviewRow>
-        ))}
-      </dl>
+      <ul className="weq-qzn-home-stats" aria-label="空间统计" aria-busy={!data && isFetching}>
+        {counts.map(([label, value, pane]) => {
+          const content = (
+            <>
+              <span className="weq-qzn-home-stat-label">{label}</span>
+              <span className="weq-qzn-home-stat-value" data-privacy-sensitive>
+                <NumericText>{value == null ? '—' : value.toLocaleString('zh-CN')}</NumericText>
+              </span>
+            </>
+          );
+          return (
+            <li key={label}>
+              {pane ? (
+                <button
+                  type="button"
+                  className="weq-qzn-home-stat"
+                  title={label === '照片' ? '在相册中查看照片' : undefined}
+                  onClick={() => onOpenPane(pane)}
+                >
+                  {content}
+                </button>
+              ) : (
+                <div className="weq-qzn-home-stat">{content}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
       <div className="weq-qzn-home-note">
         {greeting ? (
           <details className="weq-qzn-home-greeting">

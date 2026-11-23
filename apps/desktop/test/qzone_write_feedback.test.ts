@@ -31,6 +31,9 @@ const state = vi.hoisted(() => ({
   })),
   detail: vi.fn(),
   homeMetadata: vi.fn(),
+  spaceProfile: vi.fn(() => ({})),
+  albumPage: vi.fn(),
+  guestbook: vi.fn(),
   blogs: vi.fn(),
   blog: vi.fn(),
   blogComments: vi.fn(),
@@ -121,7 +124,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       getAccountConfig: { useQuery: () => ({ data: { uin: '10001', configId: state.configId } }) },
       qqActions: {
         qzoneHome: { useInfiniteQuery: () => ({ data: { pages: state.homePages } }) },
-        qzoneSpaceProfile: { useQuery: () => ({}) },
+        qzoneSpaceProfile: { useQuery: state.spaceProfile },
       },
     },
   },
@@ -129,6 +132,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     bootstrap: { getSettings: { query: state.settings } },
     account: {
       getAccountConfig: { query: state.getConfig },
+      getGroupAlbumAccessState: { query: async () => ({ qqOnline: true, attachEnabled: true }) },
       pickedFileDiscard: { mutate: state.discardImage },
       qqActions: {
         qzone: { mutate: state.write },
@@ -144,6 +148,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
           query: state.posts,
         },
         homeMetadata: { query: state.homeMetadata },
+        albumPage: { query: state.albumPage },
+        guestbook: { query: state.guestbook },
         people: { query: async () => ({}) },
         summary: { query: state.summary },
         likes: { query: state.likes },
@@ -244,6 +250,9 @@ beforeEach(() => {
   state.videos.mockReset().mockResolvedValue({ items: [], next: null });
   state.homePages = [];
   state.homeMetadata.mockReset().mockResolvedValue({ postCount: 1, photoCount: 0 });
+  state.spaceProfile.mockReset().mockReturnValue({});
+  state.albumPage.mockReset().mockResolvedValue({ albums: [], nextOffset: null, total: 0 });
+  state.guestbook.mockReset().mockResolvedValue({ items: [], next: null });
   state.offscreenTid = '';
   state.archiveState
     .mockReset()
@@ -1240,8 +1249,9 @@ it('主页先显示已读统计并在后台刷新，首次读取时保留统计�
   const refresh = Promise.withResolvers<{ postCount: number; greeting?: string }>();
   state.homeMetadata.mockReturnValueOnce(first.promise).mockReturnValueOnce(refresh.promise);
   const view = await mount(false, '主页', { timelineOnly: true });
-  const stats = () => view.host.querySelector<HTMLDListElement>('[aria-label="空间统计"]')!;
-  const values = () => [...stats().querySelectorAll('dd')].map((node) => node.textContent);
+  const stats = () => view.host.querySelector('[aria-label="空间统计"]')!;
+  const values = () =>
+    [...stats().querySelectorAll('[data-privacy-sensitive]')].map((node) => node.textContent);
   expect(stats().getAttribute('aria-busy')).toBe('true');
   const placeholders = values();
   expect(placeholders[0]).toBe('—');
@@ -1258,6 +1268,39 @@ it('主页先显示已读统计并在后台刷新，首次读取时保留统计�
   expect(stats().getAttribute('aria-busy')).toBe('false');
   await act(async () => refresh.resolve({ postCount: 726 }));
   await act(async () => vi.waitFor(() => expect(values()).toContain('726')));
+});
+
+it('主页内容统计可直接打开对应栏目，照片复用相册入口', async () => {
+  state.spaceProfile.mockReturnValue({
+    data: {
+      name: '合成空间',
+      description: '守望着天空与大海，和你的回忆。\n这一行较长，窄屏也应该完整显示。',
+      personal: {},
+    },
+  });
+  const view = await mount(false, '主页', { timelineOnly: true });
+  capture(view.host, 'home-stat-navigation', '.weq-qzn-home-overview');
+  for (const [label, destination] of [
+    ['说说', '说说'],
+    ['日志', '日志'],
+    ['照片', '相册'],
+    ['相册', '相册'],
+    ['留言', '留言板'],
+  ] as const) {
+    const stat = [
+      ...view.host.querySelectorAll<HTMLButtonElement>('[aria-label="空间统计"] button'),
+    ].find((button) => button.textContent?.startsWith(label));
+    expect(stat).toBeDefined();
+    await act(async () => stat!.click());
+    const current = view.host.querySelector('[aria-label="空间内容"] [aria-current="page"]');
+    expect(current?.textContent).toBe(destination);
+    expect(document.activeElement).toBe(current);
+    if (destination === '相册')
+      await act(async () => vi.waitFor(() => expect(state.albumPage).toHaveBeenCalled()));
+    if (destination === '留言板')
+      await act(async () => vi.waitFor(() => expect(state.guestbook).toHaveBeenCalled()));
+    await view.openPane('主页');
+  }
 });
 
 it('主页按可见性补全并复用说说，保留原位互动，并与说说页共用分享入口', async () => {

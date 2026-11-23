@@ -168,10 +168,16 @@
   gap: 6px 12px;
 }
 .weq-qzn-home-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
   flex: 1 1 13rem;
   min-width: 0;
 }
 .weq-qzn-home-title h2 {
+  min-width: 0;
+  max-width: 100%;
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -179,6 +185,16 @@
   font-size: 19px;
   line-height: 1.4;
   font-weight: 650;
+}
+.weq-qzn-home-description {
+  flex: 1 1 8rem;
+  min-width: 0;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 .weq-qzn-home-tools {
   display: flex;
@@ -195,20 +211,35 @@
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 4.25rem), 1fr));
   gap: 6px 12px;
   margin: 0;
+  padding: 0;
+  list-style: none;
   font-size: 12px;
   line-height: 1.5;
 }
-.weq-qzn-home-stats dd {
+.weq-qzn-home-stats .weq-qzn-home-stat {
+  display: grid;
+  justify-items: start;
+  justify-content: stretch;
+  gap: 0;
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  text-align: start;
+}
+.weq-qzn-home-stat-value {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.weq-qzn-home-stats dt,
+.weq-qzn-home-stat-label,
 .weq-qzn-personal-profile dt,
 .weq-qzn-home-greeting > summary {
   color: var(--muted-foreground);
 }
-.weq-qzn-home-stats dd,
+button.weq-qzn-home-stat .weq-qzn-home-stat-label {
+  color: var(--primary);
+}
 .weq-qzn-personal-profile dd {
   margin: 0;
 }

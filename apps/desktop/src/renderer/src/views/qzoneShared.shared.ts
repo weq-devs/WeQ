@@ -16,6 +16,7 @@ export const moreSpacePanes = {
   videos: '视频',
 };
 export type QzoneMorePane = keyof typeof moreSpacePanes;
+export type QzoneHomeDestination = 'posts' | 'blogs' | 'albums' | 'guestbook';
 
 /** 当前页是否可见 + 刷新代数（供子组件决定是否继续读）。 */
 export const QzonePageContext = createContext({ active: true, refresh: 0 });

@@ -101,6 +101,7 @@ import {
   QzoneReadPauseContext,
   moreSpacePanes,
   useNearViewport,
+  type QzoneHomeDestination,
   type QzoneMorePane,
 } from './qzoneShared.shared';
 import '../styles/qzone.css';
@@ -1069,6 +1070,17 @@ function SpaceContent({
     () => document.querySelector<HTMLElement>('.weq-qzn-owner-space:not([hidden])'),
   );
   const [visitedAlbums, setVisitedAlbums] = useState(false);
+  const navigationRef = useRef<HTMLElement>(null);
+  const openPane = useCallback((next: Pane) => {
+    if (next === 'albums') setVisitedAlbums(true);
+    setPane(next);
+  }, []);
+  const openHomeDestination = (next: QzoneHomeDestination) => {
+    openPane(next);
+    navigationRef.current
+      ?.querySelector<HTMLButtonElement>(`[data-pane="${next}"]`)
+      ?.focus({ preventScroll: true });
+  };
   const readsEnabled = useContext(QzoneReadsEnabled);
   const indexActivity = useQQReadActivity(
     active && readsEnabled && (pane === 'home' || pane === 'blogs' || pane === 'shares'),
@@ -1133,9 +1145,8 @@ function SpaceContent({
     )
       return;
     handledAlbum.current = albumRequest.revision;
-    setVisitedAlbums(true);
-    setPane('albums');
-  }, [albumRequest, hostUin]);
+    openPane('albums');
+  }, [albumRequest, hostUin, openPane]);
   const previousRefresh = useRef(refreshKey);
   useEffect(() => {
     if (previousRefresh.current === refreshKey) return;
@@ -1148,7 +1159,7 @@ function SpaceContent({
   }, [refreshKey, pane]);
   const content = (
     <div className="weq-qzn-owner-space" hidden={!active}>
-      <nav className="weq-qzn-owner-navigation" aria-label="空间内容">
+      <nav className="weq-qzn-owner-navigation" aria-label="空间内容" ref={navigationRef}>
         <button
           type="button"
           aria-current={pane === 'home' ? 'page' : undefined}
@@ -1158,6 +1169,7 @@ function SpaceContent({
         </button>
         <button
           type="button"
+          data-pane="posts"
           aria-current={pane === 'posts' ? 'page' : undefined}
           onClick={() => {
             if (pane === 'posts')
@@ -1169,6 +1181,7 @@ function SpaceContent({
         </button>
         <button
           type="button"
+          data-pane="blogs"
           aria-current={pane === 'blogs' ? 'page' : undefined}
           onClick={() => setPane('blogs')}
         >
@@ -1176,11 +1189,9 @@ function SpaceContent({
         </button>
         <button
           type="button"
+          data-pane="albums"
           aria-current={pane === 'albums' ? 'page' : undefined}
-          onClick={() => {
-            setVisitedAlbums(true);
-            setPane('albums');
-          }}
+          onClick={() => openPane('albums')}
         >
           相册
         </button>
@@ -1188,6 +1199,7 @@ function SpaceContent({
           <button
             key={key}
             type="button"
+            data-pane={key}
             aria-current={pane === key ? 'page' : undefined}
             onClick={() => setPane(key)}
           >
@@ -1211,6 +1223,7 @@ function SpaceContent({
           shareIndex={shareIndex}
           nickname={nickname}
           onOwnerNickname={onOwnerNickname}
+          onOpenPane={openHomeDestination}
           deletedPosts={deletedPosts}
           onDeleted={onDeleted}
         />
