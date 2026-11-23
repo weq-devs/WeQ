@@ -2,6 +2,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, readdir, unlink } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
+import { setTimeout as pause } from 'node:timers/promises';
 import { writeFileAtomic } from '@weq/service';
 import { z } from 'zod';
 
@@ -14,6 +15,13 @@ const endpointSchema = z.object({
 });
 
 export type ServiceEndpoint = z.infer<typeof endpointSchema>;
+
+export const desktopServiceGeneration = z.number().int().positive().nullable();
+
+export function currentDesktopServiceGeneration(): number | null {
+  if (process.env.WEQ_DEV_RESTART_MANAGED !== '1') return null;
+  return desktopServiceGeneration.safeParse(Number(process.env.WEQ_DEV_STARTED_AT)).data ?? null;
+}
 
 export function newServiceToken(): string {
   return randomBytes(32).toString('hex');
@@ -152,4 +160,48 @@ export class DesktopServiceRegistry {
     );
     return endpoints.filter((endpoint) => endpoint !== null);
   }
+}
+
+export async function connectDesktopService(
+  registry: Pick<DesktopServiceRegistry, 'endpoint'>,
+  launch: () => Promise<void>,
+  generation: number | null,
+): Promise<ServiceEndpoint> {
+  let retiring: string | undefined;
+  let launchAt = 0;
+  const stop = AbortSignal.timeout(10_000);
+  const deadline = () => AbortSignal.any([stop, AbortSignal.timeout(1000)]);
+  for (let attempt = 0; !stop.aborted; attempt++) {
+    const endpoint = await registry.endpoint('service');
+    if (endpoint) {
+      const peer = await callControl<unknown>(
+        endpoint,
+        'service.generation',
+        undefined,
+        deadline(),
+      ).then(
+        (value) => desktopServiceGeneration.safeParse(value).data,
+        () => undefined,
+      );
+      if (peer !== undefined) {
+        if (generation === null || peer === null || peer >= generation) return endpoint;
+        if (retiring !== endpoint.token) {
+          await callControl(endpoint, 'service.retire', generation, deadline());
+          retiring = endpoint.token;
+        }
+        await pause(150);
+        continue;
+      }
+      if (await callControl(endpoint, 'ping', undefined, deadline()).catch(() => false)) {
+        throw new Error('旧版 WeQ 桌面服务仍在运行；请完整退出 WeQ 后重新打开。');
+      }
+    }
+    // 旧服务可能先注销端点，再释放 Electron 单实例锁。
+    if (attempt >= launchAt) {
+      await launch();
+      launchAt = retiring ? attempt + 15 : Infinity;
+    }
+    await pause(150);
+  }
+  throw new Error('WeQ 桌面服务未就绪。');
 }

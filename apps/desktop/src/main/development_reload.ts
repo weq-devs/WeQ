@@ -138,9 +138,9 @@ export function successfulDevelopmentReload(
           }
           const incremental = loaded;
           const apply = () => {
-            if (target === 'main' && incremental && process.env.WEQ_DEV_CONSOLE === '1') {
-              process.env.WEQ_DEV_RESTART = '1';
+            if (target === 'main' && incremental) {
               process.env.WEQ_DEV_STARTED_AT = String(Date.now());
+              if (process.env.WEQ_DEV_CONSOLE === '1') process.env.WEQ_DEV_RESTART = '1';
             }
             return handler.call(this);
           };

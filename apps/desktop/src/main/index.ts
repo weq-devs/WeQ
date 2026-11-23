@@ -1212,7 +1212,9 @@ void app.whenReady().then(async () => {
         .catch((error: unknown) => logger.warn('桌面账号服务初始化失败', { error: String(error) }));
     }
     if (!isIndependentInstance)
-      void desktopWebStatus().catch(() => logger.warn('桌面服务自动启动失败，可在设置中重试。'));
+      void desktopWebStatus().catch((error: unknown) =>
+        logger.warn('桌面服务自动启动失败', { error: String(error) }),
+      );
   }
   const logDirectory = getLogDir();
   if (logDirectory) {

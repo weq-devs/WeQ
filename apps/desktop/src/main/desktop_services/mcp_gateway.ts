@@ -21,6 +21,25 @@ const SESSION_TTL = 12 * 60 * 60_000;
 const MAX_SESSIONS = 128;
 const MAX_TICKETS = 256;
 const TICKET_TTL = 5 * 60_000;
+const LEGACY_READS = new Set([
+  'get_self_profile',
+  'list_groups',
+  'list_buddies',
+  'list_conversations',
+  'get_messages',
+  'get_message_details',
+  'get_forward_messages',
+  'get_db_columns',
+  'list_db_tables',
+  'list_databases',
+  'list_group_members',
+]);
+const legacyRead = z.object({
+  jsonrpc: z.literal('2.0'),
+  id: z.union([z.number(), z.string()]),
+  method: z.literal('tools/call'),
+  params: z.object({ name: z.string(), arguments: z.unknown().optional() }),
+});
 
 export function mcpCredentialId(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -204,17 +223,8 @@ export class DesktopMcpGateway {
     if (!this.accountIds(session.credential)?.includes(target.account.configId))
       throw new Error('此账号授权已撤销。');
     const selection = session.selection.signal;
-    const response = await fetch(`http://127.0.0.1:${target.mcp.port}/tool`, {
-      method: 'POST',
-      headers: { ...workerHeaders(target), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, args }),
-      signal: AbortSignal.any([signal, selection]),
-      redirect: 'error',
-    });
-    const body = (await response.json()) as { value?: unknown; error?: string };
+    const value = await this.callWorker(target, name, args, AbortSignal.any([signal, selection]));
     selection.throwIfAborted();
-    if (!response.ok) throw new Error(body.error ?? '账号窗口不可用，请重新选择账号。');
-    const value = body.value;
     if (
       value &&
       typeof value === 'object' &&
@@ -240,6 +250,55 @@ export class DesktopMcpGateway {
       }
     }
     return value;
+  }
+
+  private async callWorker(
+    target: RoutedAccount,
+    name: string,
+    args: unknown,
+    signal: AbortSignal,
+  ) {
+    const response = await fetch(`http://127.0.0.1:${target.mcp.port}/tool`, {
+      method: 'POST',
+      headers: { ...workerHeaders(target), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, args }),
+      signal,
+      redirect: 'error',
+    });
+    const body = (await response.json()) as { value?: unknown; error?: string };
+    if (!response.ok) throw new Error(body.error ?? '账号窗口不可用，请重新选择账号。');
+    return body.value;
+  }
+
+  private async legacyRead(credential: string, body: unknown, res: ServerResponse) {
+    const call = legacyRead.safeParse(body);
+    if (!call.success) return sdkError(res, 400, '需要初始化 MCP 会话。');
+    const { id, params } = call.data;
+    const tool =
+      LEGACY_READS.has(params.name) && externalMcpTools().find(({ name }) => name === params.name);
+    if (!tool) return sdkError(res, 400, '此工具需要初始化 MCP 会话。');
+    const grant = this.accountIds(credential);
+    const configId = grant?.length === 1 ? grant[0]! : undefined;
+    const stillGranted = () => {
+      const current = this.accountIds(credential);
+      return current?.length === 1 && current[0] === configId;
+    };
+    const finish = (data: unknown, isError = false) => {
+      if (!res.destroyed) sendJson(res, 200, { jsonrpc: '2.0', id, result: result(data, isError) });
+    };
+    if (!configId) return finish('只读直连需要令牌仅授权一个账号。', true);
+    const abort = new AbortController();
+    res.once('close', () => abort.abort());
+    try {
+      const args = tool.input.parse(params.arguments ?? {});
+      const target = await this.accounts.find(configId);
+      if (!target || !stillGranted()) throw new Error('授权账号未在 WeQ 窗口中打开。');
+      const value = await this.callWorker(target, params.name, args, abort.signal);
+      if (!stillGranted()) throw new Error('此账号授权已变化。');
+      finish(value);
+    } catch (error) {
+      finish(error instanceof Error ? error.message : String(error), true);
+    }
   }
 
   private download(credential: string, req: IncomingMessage, res: ServerResponse) {
@@ -297,7 +356,7 @@ export class DesktopMcpGateway {
     }
     if (req.method !== 'POST') return sdkError(res, 400, '需要初始化 MCP 会话。');
     const body = await readControlJson(req);
-    if (!isInitializeRequest(body)) return sdkError(res, 400, '需要初始化 MCP 会话。');
+    if (!isInitializeRequest(body)) return this.legacyRead(credential, body, res);
     this.prune();
     if (this.sessions.size >= MAX_SESSIONS) return sdkError(res, 503, 'MCP 会话容量已满。');
     const server = new McpServer({ name: 'weq', version: '0.1.0' });

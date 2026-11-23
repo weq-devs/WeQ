@@ -1,13 +1,20 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { setTimeout as pause } from 'node:timers/promises';
 import { z } from 'zod';
 import type { UserConfigService } from '@weq/service';
 import { getLogger } from '@weq/service';
 import { onSettingsChanged } from '@weq/service/settings-changes';
 import { DesktopWebRuntime, desktopWebRuntime } from '../web/runtime';
 import { DesktopAccountRoutes } from './accounts';
-import { callControl, DesktopServiceRegistry, openControl, type ServiceEndpoint } from './control';
+import {
+  callControl,
+  connectDesktopService,
+  currentDesktopServiceGeneration,
+  DesktopServiceRegistry,
+  desktopServiceGeneration,
+  openControl,
+  type ServiceEndpoint,
+} from './control';
 import { DesktopWebEntry } from './web_entry';
 import { RemoteRuntime } from '../remote/runtime';
 import { RemoteWebGateway } from '../remote/web_gateway';
@@ -28,6 +35,7 @@ export async function runDesktopServices(options: {
   quit: () => void;
 }): Promise<() => void> {
   const { config, publicDir, developmentUrl } = options;
+  const generation = currentDesktopServiceGeneration();
   const registry = new DesktopServiceRegistry(options.dataRoot);
   const accounts = new DesktopAccountRoutes(options.dataRoot, registry);
   const mcpGrants = new McpGrants(options.dataRoot);
@@ -135,6 +143,14 @@ export async function runDesktopServices(options: {
   });
   const controller = await openControl((method, input) => {
     if (method === 'ping') return true;
+    if (method === 'service.generation') return generation;
+    if (method === 'service.retire') {
+      const next = desktopServiceGeneration.parse(input);
+      if (generation === null || next === null || next <= generation)
+        throw new Error('只有更新的开发进程可以接管桌面服务。');
+      setImmediate(options.quit);
+      return true;
+    }
     if (method === 'web.status') return web.status();
     if (method === 'web.token') return web.accessToken();
     if (method === 'remote.status') return remote.status();
@@ -247,28 +263,10 @@ export function connectDesktopServices(
   launch: () => Promise<void>,
 ): void {
   let starting: Promise<ServiceEndpoint> | undefined;
-  async function connect() {
-    const live = async () => {
-      const current = await registry.endpoint('service');
-      if (!current) return null;
-      return await callControl<boolean>(current, 'ping', undefined, AbortSignal.timeout(1000)).then(
-        (ok) => (ok ? current : null),
-        () => null,
-      );
-    };
-    const current = await live();
-    if (current) return current;
-    await launch();
-    for (let attempt = 0; attempt < 60; attempt++) {
-      const endpoint = await live();
-      if (endpoint) return endpoint;
-      await pause(150);
-    }
-    throw new Error('WeQ 桌面服务未就绪。');
-  }
+  const generation = currentDesktopServiceGeneration();
   desktopServices = {
     getEndpoint: () =>
-      (starting ??= connect().finally(() => {
+      (starting ??= connectDesktopService(registry, launch, generation).finally(() => {
         starting = undefined;
       })),
   };

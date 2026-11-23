@@ -11,7 +11,9 @@ import { createWebHost, lookupDownload } from '../src/main/web/host';
 import { withWebAccountRoute } from '../src/main/web/account_route';
 import { DesktopMcpGateway, mcpCredentialId } from '../src/main/desktop_services/mcp_gateway';
 import {
+  connectDesktopService,
   listenPrivate,
+  openControl,
   PRIVATE_TOKEN_HEADER,
   sendJson,
   stopPrivate,
@@ -40,7 +42,7 @@ async function fixture() {
   });
   const port = await listenPrivate(tcp);
   const endpoint = { port, token: 'a'.repeat(64) };
-  const open = vi.fn(async (configId: string) => {
+  const find = vi.fn(async (configId: string) => {
     const account = accounts.find((item) => item.configId === configId);
     if (!account) throw new Error('账号不存在');
     return {
@@ -51,9 +53,63 @@ async function fixture() {
       control: endpoint,
     };
   });
-  const routes = { list: () => accounts, open } as unknown as DesktopAccountRoutes;
-  return { routes, open, close: () => stopPrivate(tcp) };
+  const open = vi.fn(find);
+  const routes = { list: () => accounts, open, find } as unknown as DesktopAccountRoutes;
+  return { routes, open, find, close: () => stopPrivate(tcp) };
 }
+
+it('开发重载交接旧桌面服务，旧窗口不会取代新进程', async () => {
+  let running = 1;
+  let current: Awaited<ReturnType<typeof openControl>> | undefined;
+  const retire = vi.fn((next: unknown) => {
+    expect(next).toBe(2);
+    setImmediate(() => {
+      current?.close();
+      current = undefined;
+    });
+    return true;
+  });
+  const serve = () =>
+    openControl((method, input) => {
+      if (method === 'service.generation') return running;
+      if (method === 'service.retire') return retire(input);
+      return true;
+    });
+  current = await serve();
+  const old = current.endpoint;
+  const registry = { endpoint: async () => current?.endpoint ?? null };
+  const launch = vi.fn(async () => {
+    running = 2;
+    current = await serve();
+  });
+  try {
+    expect(await connectDesktopService(registry, launch, 1)).toEqual(old);
+    expect(launch).not.toHaveBeenCalled();
+    const updated = await connectDesktopService(registry, launch, 2);
+    expect(updated).not.toEqual(old);
+    expect(await connectDesktopService(registry, launch, 1)).toEqual(updated);
+    expect(retire).toHaveBeenCalledTimes(1);
+    expect(launch).toHaveBeenCalledTimes(1);
+  } finally {
+    current?.close();
+  }
+});
+
+it('只返回 ping 的旧桌面服务不算就绪，也不会重复启动争抢实例锁', async () => {
+  const legacy = await openControl((method) => {
+    if (method === 'ping') return true;
+    throw new Error('未知 WeQ 服务命令。');
+  });
+  const launch = vi.fn(async () => {});
+  try {
+    await expect(
+      connectDesktopService({ endpoint: async () => legacy.endpoint }, launch, 1),
+    ).rejects.toThrow();
+    expect(launch).not.toHaveBeenCalled();
+  } finally {
+    legacy.close();
+  }
+});
 
 it('同一 Web 登录中的两个标签页可以分别读 A、B，退出 A 只释放 A', async () => {
   const worker = await fixture();
@@ -131,6 +187,41 @@ it('MCP 会话独立切号，旧下载票据随原会话切号失效', async () 
     expect((await call(b, 'get_self_profile')).uin).toBe('202');
   } finally {
     await Promise.all([a.close(), b.close()]);
+    await gateway.stop();
+    worker.close();
+  }
+});
+
+it('已有只读客户端只能直连令牌唯一授权的在用账号，不会开窗或切号', async () => {
+  const worker = await fixture();
+  const token = 'c'.repeat(64);
+  let grant = ['101'];
+  const gateway = new DesktopMcpGateway(worker.routes, (id) =>
+    id === mcpCredentialId(token) ? grant : undefined,
+  );
+  await gateway.configure({ port: 0, token });
+  const call = (name: string, credential = token) =>
+    fetch(`http://127.0.0.1:${gateway.boundPort}/mcp`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${credential}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name } }),
+    });
+  try {
+    expect((await call('get_self_profile', 'd'.repeat(64))).status).toBe(401);
+    expect((await call('switch_account')).status).toBe(400);
+    const response = await (await call('get_self_profile')).json();
+    expect(response.id).toBe(1);
+    expect(JSON.parse(response.result.content[0].text).uin).toBe('101');
+    for (const ids of [[], ['101', '202']]) {
+      grant = ids;
+      expect((await (await call('get_self_profile')).json()).result.isError).toBe(true);
+    }
+    grant = ['202'];
+    worker.find.mockRejectedValueOnce(new Error('窗口未打开'));
+    expect((await (await call('get_self_profile')).json()).result.isError).toBe(true);
+    expect(worker.find.mock.calls).toEqual([['101'], ['202']]);
+    expect(worker.open).not.toHaveBeenCalled();
+  } finally {
     await gateway.stop();
     worker.close();
   }
