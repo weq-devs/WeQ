@@ -4,6 +4,8 @@
 
 .weq-message-selectable.selection-mode {
   --weq-message-selection-lane: 28px;
+  --weq-message-selection-mark-size: 20px;
+  min-block-size: var(--weq-message-selection-mark-size);
   padding-inline-start: var(--weq-message-selection-lane);
   cursor: pointer;
   user-select: none;
@@ -17,12 +19,12 @@
   isolation: isolate;
 }
 
-/* Paint from the row bounds without changing the virtual timeline's measurements. */
+/* 描边只向两侧扩展，避免覆盖组内紧邻的消息。 */
 .weq-message-selectable.is-selected::before {
   content: '';
   position: absolute;
   z-index: -1;
-  inset: -4px -6px;
+  inset: 0 -6px;
   pointer-events: none;
   border: 1px dashed color-mix(in srgb, var(--weq-accent-effective) 55%, transparent);
   border-radius: 8px;
@@ -40,8 +42,9 @@ html[data-theme='dark'] .weq-message-selectable.is-selected::before {
   translate: 0 -50%;
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  box-sizing: border-box;
+  inline-size: var(--weq-message-selection-mark-size);
+  block-size: var(--weq-message-selection-mark-size);
   border: 1.5px solid var(--weq-accent-ink, var(--weq-fg-primary));
   border-radius: 50%;
   pointer-events: none;
