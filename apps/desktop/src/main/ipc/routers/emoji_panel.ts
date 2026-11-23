@@ -107,10 +107,13 @@ export const emojiPanelRouter = router({
     if (requireServices() !== services) throw new Error('账号已切换，请重新读取表情包');
     const added = getAppContext().bootstrap?.userConfig.read().composerMarketPacks ?? [];
     const packs = new Map(
-      added.map(({ packId, name, summary }) => [packId, { packId, name, summary }]),
+      added.map(({ packId, name, summary }) => [
+        packId,
+        { packId, name, summary, addTime: 0, sizeInfoJson: '' },
+      ]),
     );
-    for (const { packId, name, summary } of local) {
-      if (!packs.has(packId)) packs.set(packId, { packId, name, summary });
+    for (const pack of local) {
+      if (!packs.has(pack.packId)) packs.set(pack.packId, pack);
     }
     return [...packs.values()];
   }),
