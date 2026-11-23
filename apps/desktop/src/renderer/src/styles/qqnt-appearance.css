@@ -6,6 +6,7 @@
   --weq-qqnt-input: #ededed;
   --weq-qqnt-guest: #ffffff;
   --weq-qqnt-selection: #e1e1e1;
+  --weq-qqnt-pinned-selected-lightness: 0.91;
   --weq-qqnt-primary: #171717;
   --weq-qqnt-secondary: #666666;
   --weq-qqnt-muted: #737373;
@@ -42,6 +43,7 @@ html[data-theme='dark'] [data-component-preview='qqnt'] {
   --weq-qqnt-input: #303030;
   --weq-qqnt-guest: #333333;
   --weq-qqnt-selection: #3d3d3d;
+  --weq-qqnt-pinned-selected-lightness: 0.36;
   --weq-qqnt-primary: #eeeeee;
   --weq-qqnt-secondary: #b3b3b3;
   --weq-qqnt-muted: #a3a3a3;

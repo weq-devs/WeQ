@@ -23,6 +23,16 @@ html[data-theme] :is(.conversation-row, .contact-row).active:not(.is-multiselect
   color: var(--weq-skin-selection-fg, var(--weq-fg-primary));
   box-shadow: var(--weq-list-row-selected-shadow);
 }
+@supports (color: oklch(from black l min(calc(c * 0.12), 0.02) h)) {
+  html[data-theme][data-component-style='qqnt']
+    .conversation-row.pinned.active:not(.is-multiselected) {
+    /* 对齐 QQ NT 常规选中态的明度，轻微带入置顶使用的主题色。 */
+    background-color: oklch(
+      from var(--weq-accent-effective) var(--weq-qqnt-pinned-selected-lightness)
+        min(calc(c * 0.12), 0.02) h
+    );
+  }
+}
 html[data-theme] .conversation-row.pinned:not(.active, .is-multiselected) {
   background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
 }
