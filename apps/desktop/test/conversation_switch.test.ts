@@ -1357,6 +1357,83 @@ it.each([false, true])('首批消息立即显示未读分界线，进入会话�
   }
 });
 
+it.each([false, true])('当前会话收到新消息时不新增分界线：续读模式=%s', async (resume) => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.readFromFirstUnread = resume;
+  f.unreadMode = true;
+  vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+  const message = (seq: string): TestMessage => ({
+    msgId: seq,
+    msgSeq: seq,
+    sendTime: '1794200000',
+    senderUid: 'u_peer',
+    senderUin: '20001',
+    elements: [{ type: 'text', data: { textContent: `消息 ${seq}` } }],
+  });
+  const snapshot = (latestSeq: string, unreadCount: number, readSeq = '100') => [
+    { uid: '10001', chatType: 2, readSeq, latestSeq, unreadCount },
+  ];
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const divider = () => host.querySelector('[aria-label="以下为未读消息"]');
+  const select = (id: string) =>
+    act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === id)!
+        .click(),
+    );
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    f.unreadReply = async () => snapshot('100', 0);
+    await select('10001');
+    await act(async () => f.reads.at(-1)!.show({ complete: true, rows: [message('100')] }));
+    expect(divider()).toBeNull();
+
+    await act(async () => vi.advanceTimersByTimeAsync(200));
+    f.unreadReply = async () => snapshot('101', 1);
+    f.refreshRows = [message('101'), message('100')];
+    await act(async () => {
+      f.dbChanged!({ at: Date.now(), targets: [{ kind: 'group', conv: '10001' }] });
+      f.unreadChanged!([{ chatType: 2, uid: '10001' }]);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(host.querySelector('[data-message-id="101"]')).not.toBeNull();
+    expect(divider()).toBeNull();
+
+    await select('10002');
+    f.unreadReply = async () => snapshot('101', 1);
+    await select('10001');
+    await act(async () => f.reads.at(-1)!.show({ complete: true, rows: f.refreshRows! }));
+    expect(divider()?.nextElementSibling?.getAttribute('data-message-id')).toBe('101');
+
+    if (resume) {
+      f.unreadReply = async () => snapshot('102', 1, '101');
+      f.refreshRows = [message('102'), ...f.refreshRows!];
+      await act(async () => {
+        f.dbChanged!({ at: Date.now(), targets: [{ kind: 'group', conv: '10001' }] });
+        f.unreadChanged!([{ chatType: 2, uid: '10001' }]);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(host.querySelector('[data-message-id="102"]')).not.toBeNull();
+      expect(divider()).toBeNull();
+    }
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
+
 it('续读模式在消息滑出上沿或触底时提交已读，并保留跳过的序号', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

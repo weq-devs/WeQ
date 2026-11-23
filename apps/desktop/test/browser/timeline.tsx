@@ -38,6 +38,7 @@ const motionDetails = params.has('motion-details');
 const delayedEntry = params.has('delayed');
 const delayMedia = params.has('delay-media');
 const gapRecovery = params.has('gap-recovery');
+const motionUnreadSeq = params.get('motion-unread');
 const unreadFrom = Number(params.get('unread-from'));
 const unreadDock =
   unreadFrom > 1000
@@ -434,7 +435,11 @@ function Fixture() {
         : undefined,
       groupConsecutiveMessages: params.has('grouped'),
       unreadDock: unreadReady ? (unreadDock ?? null) : undefined,
-      cachedUnreadStartSeq: params.get('motion-unread') ?? undefined,
+      unreadDividerRange: motionUnreadSeq
+        ? { firstSeq: motionUnreadSeq, lastSeq: motionUnreadSeq }
+        : unreadReady && unreadDock?.firstUnreadSeq
+          ? { firstSeq: unreadDock.firstUnreadSeq, lastSeq: String(1000 + entryCount) }
+          : undefined,
       readThroughViewport: readProgress,
       confirmedReadSeq: readProgress ? '1000' : undefined,
       onReadCurrentConversation: (_, seqs) => {

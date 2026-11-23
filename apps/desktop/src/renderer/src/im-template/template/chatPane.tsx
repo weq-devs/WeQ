@@ -727,8 +727,8 @@ export type ChatPaneProps = {
    * 未读 → 标记已读」之后交下来，本组件据此在右上角逐个引导跳转。
    */
   unreadDock?: UnreadDock | null;
-  /** 会话列表已经读取的小表未读起点，用于进会话后查询尚未返回的首屏。 */
-  cachedUnreadStartSeq?: string;
+  /** 进入会话时已有的未读序号范围。 */
+  unreadDividerRange?: { firstSeq: string; lastSeq: string };
   seenUnreadHighlights?: Set<string>;
   /**
    * 最近一次跳转落空的目标 seq（被撤回 / 删除 / 未同步）。非 null 时，若它恰好
@@ -841,7 +841,7 @@ function ChatPaneContent({
   onAddToComposition,
   onForwardMessages,
   unreadDock,
-  cachedUnreadStartSeq,
+  unreadDividerRange,
   seenUnreadHighlights,
   missingJumpSeq,
   resolvedGapIds,
@@ -1569,13 +1569,19 @@ function ChatPaneContent({
     resolvedGapIds,
   ]);
   const unreadCount = conversation?.unreadCount;
-  const unreadStartSeq = readThroughViewport
-    ? unreadTimelineStart(unreadDock, unreadCount, confirmedReadSeq)
-    : (unreadTimelineStart(unreadDock) ?? cachedUnreadStartSeq);
-  const unreadBoundaryId = useMemo(
-    () => (unreadStartSeq ? unreadTimelineBoundary(visibleMessages, unreadStartSeq) : undefined),
-    [visibleMessages, unreadStartSeq],
-  );
+  const { firstSeq, lastSeq } = unreadDividerRange ?? {};
+  const viewportUnreadStart = readThroughViewport
+    ? unreadTimelineStart(undefined, unreadCount, confirmedReadSeq)
+    : undefined;
+  const hideReadDivider = readThroughViewport && unreadCount === 0;
+  const unreadBoundaryId = useMemo(() => {
+    if (!firstSeq || !lastSeq || hideReadDivider) return undefined;
+    const startSeq =
+      viewportUnreadStart && BigInt(viewportUnreadStart) > BigInt(firstSeq)
+        ? viewportUnreadStart
+        : firstSeq;
+    return unreadTimelineBoundary(visibleMessages, startSeq, lastSeq);
+  }, [visibleMessages, firstSeq, lastSeq, viewportUnreadStart, hideReadDivider]);
   const groupPositions = useMemo(() => {
     if (!groupConsecutiveMessages) return undefined;
     return messageGroups(visibleMessages, {

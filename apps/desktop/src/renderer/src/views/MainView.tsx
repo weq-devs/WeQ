@@ -3779,7 +3779,7 @@ function MainWorkspace(): ReactElement {
   type UnreadTarget = Parameters<typeof client.account.getUnreadInfos.query>[0]['targets'][number];
   type UnreadRows = Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>;
   type UnreadBinding = NonNullable<typeof messageBindingRef.current>;
-  type UnreadReadPosition = Pick<UnreadRows[number], 'readSeq' | 'unreadCount'>;
+  type UnreadReadPosition = Pick<UnreadRows[number], 'readSeq' | 'unreadCount' | 'latestSeq'>;
   const [unreadReadPositions, setUnreadReadPositions] = useState<{
     scope: string;
     positions: ReadonlyMap<string, UnreadReadPosition>;
@@ -3790,13 +3790,18 @@ function MainWorkspace(): ReactElement {
       setUnreadReadPositions((current) => {
         const previous = current?.scope === scope ? current.positions : undefined;
         let positions: Map<string, UnreadReadPosition> | undefined;
-        for (const { uid, chatType, readError, readSeq, unreadCount } of rows) {
+        for (const { uid, chatType, readError, readSeq, unreadCount, latestSeq } of rows) {
           if (readError || (chatType !== 1 && chatType !== 2)) continue;
           const key = `${chatType}:${uid}`;
           const before = previous?.get(key);
-          if (before?.readSeq === readSeq && before?.unreadCount === unreadCount) continue;
+          if (
+            before?.readSeq === readSeq &&
+            before?.unreadCount === unreadCount &&
+            before?.latestSeq === latestSeq
+          )
+            continue;
           positions ??= new Map(previous);
-          positions.set(key, { readSeq, unreadCount });
+          positions.set(key, { readSeq, unreadCount, latestSeq });
         }
         return positions ? { scope, positions } : current;
       });
@@ -5314,8 +5319,11 @@ function MainWorkspace(): ReactElement {
     Boolean(selectedConversation) && messagesLoading && loaded.length === 0;
 
   // ── 未读跳转坞 ──────────────────────────────────────────────────────────
-  // undefined 表示等待进会话时的快照，null 表示没有可用跳转点。
-  const [unreadDock, setUnreadDock] = useState<UnreadDock | null>();
+  const [unreadEntry, setUnreadEntry] = useState<{
+    key: string;
+    cached?: UnreadReadPosition;
+    snapshot?: { dock: UnreadDock | null; position?: UnreadReadPosition };
+  }>();
   const seenUnreadHighlights = useMemo(() => new Set<string>(), [messageScope]);
   // 最近一次跳转落空的目标 seq（被撤回 / 删除 / 未同步）。非 null 时聊天区会在
   // 最近邻消息旁渲染一条「点击拉取」的缺口条 —— 因为这种单条缺失 seq 差恰好为 1，
@@ -5380,11 +5388,6 @@ function MainWorkspace(): ReactElement {
     (!mobileLayout || !mobileConversationList);
   const readPolicy = useRef({ readSettingsReady, readThroughViewport, readViewportActive });
   readPolicy.current = { readSettingsReady, readThroughViewport, readViewportActive };
-  useEffect(() => {
-    unreadDockRequestRef.current = null;
-    unreadSnapshotPendingRef.current = null;
-    setUnreadDock(undefined);
-  }, [messageScope]);
   const applyUnreadRows = useCallback(
     (rows: UnreadRows, binding: UnreadBinding) => {
       useToast.getState().dismissReadMessages(binding, rows);
@@ -5692,19 +5695,25 @@ function MainWorkspace(): ReactElement {
     unreadSelectionId !== null && unreadReadPositions?.scope === messageScope
       ? unreadReadPositions.positions.get(`${unreadSelectionChatType}:${unreadSelectionId}`)
       : undefined;
-  const cachedUnreadStartSeq = unreadTimelineStart(
-    undefined,
-    cachedReadPosition?.unreadCount,
-    cachedReadPosition?.readSeq ?? undefined,
+  const unreadEntryKey = JSON.stringify([messageScope, unreadSelectionChatType, unreadSelectionId]);
+  const currentUnreadEntry = unreadEntry?.key === unreadEntryKey ? unreadEntry : undefined;
+  // 首屏使用打开时的列表快照，实时刷新只更新读进度和计数。
+  if (!currentUnreadEntry) setUnreadEntry({ key: unreadEntryKey, cached: cachedReadPosition });
+  // undefined 表示等待进会话时的快照，null 表示没有可用跳转点。
+  const unreadDock = currentUnreadEntry?.snapshot?.dock;
+  const entryPosition = currentUnreadEntry?.snapshot?.position ?? currentUnreadEntry?.cached;
+  const entryFirstUnreadSeq = unreadTimelineStart(
+    unreadDock,
+    entryPosition?.unreadCount,
+    entryPosition?.readSeq ?? undefined,
   );
+  const entryLastUnreadSeq = entryPosition?.latestSeq;
 
-  // 换会话立刻收起上一个会话的跳转坞（首屏还没落地时不该继续挂着旧坞）。
   useEffect(() => {
     unreadDockRequestRef.current = null;
     unreadSnapshotPendingRef.current = null;
-    setUnreadDock(undefined);
     setMissingJumpSeq(null);
-  }, [unreadSelectionId, unreadSelectionChatType]);
+  }, [messageScope, unreadSelectionId, unreadSelectionChatType]);
 
   useMessageReadSelection(messageWindow, { selectedUid, isDirect, isGroup });
 
@@ -5753,6 +5762,11 @@ function MainWorkspace(): ReactElement {
         unreadDockRequestRef.current === request
       );
     };
+    const finishSnapshot = (dock: UnreadDock | null, position?: UnreadReadPosition) => {
+      setUnreadEntry((current) =>
+        current?.key === unreadEntryKey ? { ...current, snapshot: { dock, position } } : current,
+      );
+    };
 
     unreadSnapshotPendingRef.current = request;
     (async () => {
@@ -5776,7 +5790,7 @@ function MainWorkspace(): ReactElement {
       }
       if (!stillCurrent()) return;
       if (!info || info.readError) {
-        setUnreadDock(null);
+        finishSnapshot(null);
         return;
       }
       if (device) {
@@ -5785,7 +5799,7 @@ function MainWorkspace(): ReactElement {
         if (position && loaded.some((row) => row.msgId === id && String(row.sendTime) === time)) {
           await markVisibleConversationRead(conv, { snapshot: info, devicePosition: position });
         }
-        if (stillCurrent()) setUnreadDock(null);
+        if (stillCurrent()) finishSnapshot(null);
         return;
       }
 
@@ -5810,7 +5824,7 @@ function MainWorkspace(): ReactElement {
 
       if (!readPolicy.current.readThroughViewport)
         request.autoRead = { snapshot: info, revision: startedAt };
-      setUnreadDock(dock);
+      finishSnapshot(dock, { readSeq, unreadCount: unread, latestSeq: info.latestSeq });
     })();
     return undefined;
   }, [
@@ -5828,6 +5842,7 @@ function MainWorkspace(): ReactElement {
     applyUnreadReadPositions,
     readEntryUnreadInfo,
     unreadSelectionChatType,
+    unreadEntryKey,
   ]);
 
   useEffect(() => {
@@ -10657,7 +10672,11 @@ function MainWorkspace(): ReactElement {
                                 ? (cachedReadPosition?.readSeq ?? undefined)
                                 : undefined
                             }
-                            cachedUnreadStartSeq={cachedUnreadStartSeq}
+                            unreadDividerRange={
+                              entryFirstUnreadSeq && entryLastUnreadSeq
+                                ? { firstSeq: entryFirstUnreadSeq, lastSeq: entryLastUnreadSeq }
+                                : undefined
+                            }
                             onReadCurrentConversation={
                               readThroughViewport && !readViewportActive
                                 ? undefined
@@ -10798,16 +10817,7 @@ function MainWorkspace(): ReactElement {
                             onRestoreMessage={(msgId) =>
                               handleRestoreMessage(msgId, selectedConversation)
                             }
-                            unreadDock={
-                              unreadSelectionId === null
-                                ? null
-                                : unreadDockRequestRef.current?.convId === unreadSelectionId &&
-                                    unreadDockRequestRef.current.scope === messageScope &&
-                                    unreadDockRequestRef.current.chatType ===
-                                      unreadSelectionChatType
-                                  ? unreadDock
-                                  : undefined
-                            }
+                            unreadDock={unreadSelectionId === null ? null : unreadDock}
                             seenUnreadHighlights={seenUnreadHighlights}
                             missingJumpSeq={missingJumpSeq}
                             resolvedGapIds={resolvedGaps}

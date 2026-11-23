@@ -127,7 +127,7 @@ export function ChatMainContent({
   onOpenTool,
   onSelectTool,
   unreadDock,
-  cachedUnreadStartSeq,
+  unreadDividerRange,
   seenUnreadHighlights,
   missingJumpSeq,
   resolvedGapIds,
@@ -217,7 +217,7 @@ export function ChatMainContent({
   | 'onAddToComposition'
   | 'onForwardMessages'
   | 'unreadDock'
-  | 'cachedUnreadStartSeq'
+  | 'unreadDividerRange'
   | 'seenUnreadHighlights'
   | 'missingJumpSeq'
   | 'resolvedGapIds'
@@ -423,7 +423,7 @@ export function ChatMainContent({
       hiddenDeletedIds={hiddenDeletedIds}
       onRestoreMessage={onRestoreMessage}
       unreadDock={unreadDock}
-      cachedUnreadStartSeq={cachedUnreadStartSeq}
+      unreadDividerRange={unreadDividerRange}
       seenUnreadHighlights={seenUnreadHighlights}
       missingJumpSeq={missingJumpSeq}
       resolvedGapIds={resolvedGapIds}

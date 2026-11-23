@@ -25,9 +25,19 @@ export function unreadTimelineStart(
 }
 
 /** 缺号时只在已加载范围跨过起点的情况下，标记区间内最早的真实消息。 */
-export function unreadTimelineBoundary(messages: readonly Message[], firstSeq: string) {
+export function unreadTimelineBoundary(
+  messages: readonly Message[],
+  firstSeq: string,
+  lastSeq?: string,
+) {
   if (!/^[1-9]\d{0,19}$/.test(firstSeq)) return undefined;
   const first = BigInt(firstSeq);
+  let last: bigint | undefined;
+  if (lastSeq !== undefined) {
+    if (!/^[1-9]\d{0,19}$/.test(lastSeq)) return undefined;
+    last = BigInt(lastSeq);
+    if (first > last) return undefined;
+  }
   let earlier = false;
   let next: { id: string; seq: bigint } | undefined;
   for (const message of messages) {
@@ -42,7 +52,8 @@ export function unreadTimelineBoundary(messages: readonly Message[], firstSeq: s
     const seq = BigInt(message.msgSeq);
     if (seq === first) return message.id;
     if (seq < first) earlier = true;
-    else if (!next || seq < next.seq) next = { id: message.id, seq };
+    else if ((last === undefined || seq <= last) && (!next || seq < next.seq))
+      next = { id: message.id, seq };
   }
   return earlier ? next?.id : undefined;
 }
