@@ -106,16 +106,12 @@ export function MailPage({
   api,
   selfEmail,
   active = true,
-  onUnreadChange,
-  onOpenRequested,
   searchTarget,
   onOpenSettings,
 }: {
   api: MailApi;
   selfEmail: string;
   active?: boolean;
-  onUnreadChange?: (unread: number) => void;
-  onOpenRequested?: () => void;
   searchTarget?: MailOpenTarget | null;
   onOpenSettings?: () => void;
 }) {
@@ -236,8 +232,6 @@ export function MailPage({
     id: string;
     revision: number;
   } | null>(null);
-  const openRequested = useRef(onOpenRequested);
-  openRequested.current = onOpenRequested;
   composeVisible.current = showCompose;
   const ready = status.state === 'ready';
   const multi = useMultiSelection({
@@ -331,15 +325,9 @@ export function MailPage({
   }, [api]);
 
   const handleMailEvent = useStableCallback((event: MailEvent) => {
-    if (event.type === 'open') {
-      openRequested.current?.();
-      if (event.notice) {
-        chooseFolder(event.notice.folderId);
-        setSelectedId(event.notice.id);
-      }
-    }
     if (event.type === 'status' && event.status) setStatus(event.status);
-    if (event.type !== 'status') setRevision((current) => current + 1);
+    if (event.type === 'new-mail' || event.type === 'changed')
+      setRevision((current) => current + 1);
   });
   useEffect(() => {
     let alive = true;
@@ -365,10 +353,6 @@ export function MailPage({
       download.current?.abort();
     };
   }, [api, connect, handleMailEvent]);
-  useEffect(() => {
-    onUnreadChange?.(status.unread);
-  }, [onUnreadChange, status.unread]);
-
   useEffect(() => {
     if (!ready) loadedList.current = null;
     if (!ready || !activity.enabled) return;

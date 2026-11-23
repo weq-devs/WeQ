@@ -18,14 +18,11 @@ const MailContent = lazy(() =>
   import('../views/MailView').then((module) => ({ default: module.MailWorkspace })),
 );
 export function MailWorkspace(props: ComponentProps<typeof MailContent>) {
-  const requested = Boolean(
-    props.active || props.preferences?.showUnread || props.preferences?.notifications,
-  );
-  const [visited, setVisited] = useState(requested);
+  const [visited, setVisited] = useState(props.active);
   useEffect(() => {
-    if (requested) setVisited(true);
-  }, [requested]);
-  return requested || visited ? (
+    if (props.active) setVisited(true);
+  }, [props.active]);
+  return props.active || visited ? (
     <Suspense fallback={props.active ? <PanelLoading /> : null}>
       <MailContent {...props} />
     </Suspense>

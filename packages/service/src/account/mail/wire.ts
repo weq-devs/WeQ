@@ -116,6 +116,17 @@ export function mailFolders(value: unknown): MailFolder[] {
 }
 
 /** 只统计实际收信文件夹，星标、标签及功能入口不能重复计入角标。 */
+export function isMailUnreadFolder(id: number): boolean {
+  return id > 0 && ![2, 3, 4, 5, 6].includes(id) && (id < 1000 || id >= 2000) && id < 4000;
+}
+
+export function parseMailUnread(value: unknown): number | null {
+  if ((typeof value !== 'number' && typeof value !== 'string') || String(value).trim() === '')
+    return null;
+  const unread = Number(value);
+  return Number.isSafeInteger(unread) && unread >= 0 ? unread : null;
+}
+
 export function mailUnreadCount(value: unknown): number | null {
   const groups = object(value);
   const source = Array.isArray(value)
@@ -125,16 +136,10 @@ export function mailUnreadCount(value: unknown): number | null {
   for (const raw of source) {
     const entry = object(raw);
     const id = count(entry.id ?? entry.dirid);
-    if (!id || [2, 3, 4, 5, 6].includes(id) || (id >= 1000 && id < 2000) || id >= 4000) continue;
-    const unread = entry.unread ?? entry.unread_num;
-    if (
-      (typeof unread !== 'number' && typeof unread !== 'string') ||
-      String(unread).trim() === '' ||
-      !Number.isSafeInteger(Number(unread)) ||
-      Number(unread) < 0
-    )
-      return null;
-    unreadById.set(id, Number(unread));
+    if (!isMailUnreadFolder(id)) continue;
+    const unread = parseMailUnread(entry.unread ?? entry.unread_num);
+    if (unread === null) return null;
+    unreadById.set(id, unread);
   }
   // 缺失收件箱说明响应不完整，不能把缺字段误判成全部已读。
   if (!unreadById.has(1)) return null;

@@ -20,27 +20,21 @@ vi.mock('../src/renderer/src/components/mergeForward/CompositionWorkspace', asyn
 });
 afterEach(() => vi.unstubAllGlobals());
 
-it('未使用邮箱不加载正文，后台提醒仍可启动，离开后保留已有现场', async () => {
+it('首次进入邮箱才加载页面，离开后保留已有现场', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   const root = createRoot(host);
   const props: ComponentProps<typeof MailWorkspace> = {
     active: false,
     selfUin: '10001',
-    onUnreadChange: vi.fn(),
   };
   try {
     await act(async () => root.render(h(MailWorkspace, props)));
     expect(fixture.mailLoaded).not.toHaveBeenCalled();
-    await act(async () =>
-      root.render(
-        h(MailWorkspace, { ...props, preferences: { showUnread: false, notifications: true } }),
-      ),
-    );
+    await act(async () => root.render(h(MailWorkspace, { ...props, active: true })));
     expect(fixture.mailLoaded).toHaveBeenCalledOnce();
     const draft = host.querySelector('input')!;
     draft.value = '保留编辑内容';
-    await act(async () => root.render(h(MailWorkspace, { ...props, active: true })));
     await act(async () => root.render(h(MailWorkspace, props)));
     expect(host.querySelector('input')).toBe(draft);
     expect(draft.value).toBe('保留编辑内容');

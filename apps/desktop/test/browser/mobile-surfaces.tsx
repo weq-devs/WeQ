@@ -98,7 +98,7 @@ function Fixture() {
               )}
               {surface === 'lookup' && <QQExactLookup kind="user" onClose={noop} />}
               {surface === 'collections' && <CollectionDialog open embedded onClose={noop} />}
-              {surface === 'mail' && <MailWorkspace active selfUin="10001" onUnreadChange={noop} />}
+              {surface === 'mail' && <MailWorkspace active selfUin="10001" />}
               {surface === 'channel' && (
                 <ChannelView onOpenDirect={() => setSurface('channel-direct')} />
               )}

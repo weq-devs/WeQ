@@ -116,13 +116,18 @@ it('更多保留其余次级入口，选中后关闭列表并调用原有操作'
 });
 
 it('更多底栏从列表角标汇总，按邮箱数字、红点、任务进度排序', async () => {
-  const render = (mailBadgeCount: number, announcementUnread: number) =>
+  const render = (mailBadgeCount: number, announcementUnread: number, mailBadgePending = false) =>
     act(async () =>
       root.render(
         createElement(
           AnnouncementUnread.Provider,
           { value: announcementUnread },
-          createElement(MobileWebNavigation, { ...props, view: 'more', mailBadgeCount }),
+          createElement(MobileWebNavigation, {
+            ...props,
+            view: 'more',
+            mailBadgeCount,
+            mailBadgePending,
+          }),
         ),
       ),
     );
@@ -141,6 +146,9 @@ it('更多底栏从列表角标汇总，按邮箱数字、红点、任务进度�
     expect(more.querySelector('[aria-label^="官方公告"] .weq-reminder-dot')).not.toBeNull();
     expect(moreTab.querySelector('.weq-reminder-count')?.textContent).toBe('3');
 
+    await render(0, 0, true);
+    expect(more.querySelector('[aria-label$="有新邮件"] .weq-reminder-dot')).not.toBeNull();
+    expect(moreTab.getAttribute('aria-label')).toContain('有新邮件');
     await render(0, 0);
     expect(moreTab.querySelector('.weq-reminder-dot')).not.toBeNull();
     await act(async () => useUpdateStore.setState({ packsAvailable: false }));

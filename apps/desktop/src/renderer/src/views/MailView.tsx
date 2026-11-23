@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { MailPage } from './mail/MailPage';
 import { createMailApi } from './mail/api';
 import { X } from 'lucide-react';
@@ -11,28 +11,17 @@ import type { MailOpenTarget } from '../lib/mailNavigation';
 export const MailWorkspace = memo(function MailWorkspace({
   active,
   selfUin,
-  onUnreadChange,
-  preferences,
-  onOpenRequested,
   searchTarget,
 }: {
   active: boolean;
   selfUin: string;
-  onUnreadChange: (count: number) => void;
-  preferences?: { showUnread: boolean; notifications: boolean };
-  onOpenRequested?: () => void;
   searchTarget?: MailOpenTarget | null;
 }) {
-  const [visited, setVisited] = useState(active);
   const parentActive = useTabActive();
   const foreground = active && parentActive;
-  const enabled = Boolean(preferences?.showUnread || preferences?.notifications);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const api = useMemo(() => createMailApi(selfUin), [selfUin]);
-  useEffect(() => {
-    if (active) setVisited(true);
-  }, [active]);
-  return active || visited || enabled ? (
+  return (
     <PageSnapshotScope name="mail">
       <div hidden={!foreground} className="weq-mail-retained">
         <MailPage
@@ -40,8 +29,6 @@ export const MailWorkspace = memo(function MailWorkspace({
           api={api}
           selfEmail={`${selfUin}@qq.com`}
           active={foreground}
-          onUnreadChange={onUnreadChange}
-          onOpenRequested={onOpenRequested}
           searchTarget={searchTarget}
           onOpenSettings={() => setSettingsOpen(true)}
         />
@@ -70,5 +57,5 @@ export const MailWorkspace = memo(function MailWorkspace({
         ) : null}
       </div>
     </PageSnapshotScope>
-  ) : null;
+  );
 });

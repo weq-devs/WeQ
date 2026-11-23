@@ -47,6 +47,7 @@ export function MobileWebNavigation({
   onMessageBadgeClick,
   contactBadgeCount,
   mailBadgeCount = 0,
+  mailBadgePending = false,
   onViewChange,
   onOpenSettings,
   onOpenDressUp,
@@ -64,6 +65,7 @@ export function MobileWebNavigation({
   onMessageBadgeClick?: () => void;
   contactBadgeCount: number;
   mailBadgeCount?: number;
+  mailBadgePending?: boolean;
   onViewChange: (view: MainView) => void;
   onOpenSettings: () => void;
   onOpenDressUp: () => void;
@@ -119,7 +121,9 @@ export function MobileWebNavigation({
     });
   const moreBadges: Partial<Record<string, NavigationBadge>> = {
     ...entryBadges,
-    mail: navigationBadge('unread', mailBadgeCount, `${mailBadgeCount} 封未读邮件`),
+    mail:
+      navigationBadge('unread', mailBadgeCount, `${mailBadgeCount} 封未读邮件`) ??
+      navigationBadge('notice', Number(mailBadgePending), '有新邮件'),
   };
   const moreEntries = navigationEntries('mobile-more', developmentDressTools).map((entry) => ({
     ...entry,

@@ -122,6 +122,7 @@ import { useOnlineNoticeInbox } from '../components/qq-actions/RequestActions.sh
 import { CONTACT_NOTICE_LIMIT } from '../../../shared/contact_notices';
 import { useEventContextValue } from '../hooks/useEventContextValue';
 import { useStableCallback } from '../hooks/useStableCallback';
+import { useMailNavigation } from '../hooks/useMailNavigation';
 import { useMobilePageSettled } from '../hooks/useMobilePageSettled';
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { useMobileBack } from '../hooks/useMobileNavigation';
@@ -711,7 +712,6 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     useViewState.setState({ startupPage: null });
   }, []);
-  const [mailUnread, setMailUnread] = useState(0);
   const utils = trpc.useUtils();
   const queryClient = useQueryClient();
   const [contactsPageOpen, setContactsPageOpen] = useState(false);
@@ -1141,10 +1141,6 @@ function MainWorkspace(): ReactElement {
   const user = useMemo(
     () => currentUser(openedUin, selfProfile.data),
     [openedUin, selfProfile.data],
-  );
-  const mailPreferences = trpc.mail.preferences.useQuery(
-    { selfUin: openedUin ?? '' },
-    { enabled: Boolean(openedUin) && onlineReady, staleTime: 0, refetchOnMount: 'always' },
   );
   const specialCareUnavailable = specialCareBlocker(sendAccess.data);
   const specialCare = trpc.account.specialCare.useQuery(
@@ -9872,6 +9868,11 @@ function MainWorkspace(): ReactElement {
     },
   );
   useEffect(() => onNotificationNavigation(openNotificationTarget), [openNotificationTarget]);
+  const mailBadge = useMailNavigation(
+    openedUin,
+    !IS_WEB || firstPageStreamReady,
+    openNotificationTarget,
+  );
   const openMailCard = useStableCallback((mailId: string) => {
     if (!useAppLock.getState().locked) openNotificationTarget({ kind: 'mail', mailId });
   });
@@ -10071,7 +10072,8 @@ function MainWorkspace(): ReactElement {
             contactBadgeCount={unreadMarkers.requests ? friendNoticeCount + groupNoticeCount : 0}
             onMessageBadgeClick={reselectMessages}
             messageBadgeActionLabel={canLocateUnreadInView ? '定位未读会话' : '返回常规视图'}
-            mailBadgeCount={mailPreferences.data?.showUnread === false ? 0 : mailUnread}
+            mailBadgeCount={mailBadge.count}
+            mailBadgePending={mailBadge.pending}
             showTools={false}
             railFooterContent={() => <WorkspaceMenuButton />}
             friendNoticeCount={unreadMarkers.requests ? friendNoticeCount : 0}
@@ -10360,11 +10362,6 @@ function MainWorkspace(): ReactElement {
                   key={`mail:${user.identityValue}`}
                   active={shell.view === 'mail'}
                   selfUin={user.identityValue}
-                  onUnreadChange={setMailUnread}
-                  preferences={
-                    mailPreferences.isFetchedAfterMount ? mailPreferences.data : undefined
-                  }
-                  onOpenRequested={openMailView}
                   searchTarget={mailOpenTarget}
                 />
                 {shell.view === 'qzone' ? (

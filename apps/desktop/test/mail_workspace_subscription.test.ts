@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MailEvent, MailStatus } from '@weq/service/mail';
 import { MailWorkspace } from '../src/renderer/src/views/MailView';
+import { useMailNavigation } from '../src/renderer/src/hooks/useMailNavigation';
 import {
   notificationContent,
   notificationSource,
@@ -16,6 +17,15 @@ const rpc = vi.hoisted(() => ({
   folders: vi.fn(),
   read: vi.fn(),
 }));
+const navigation = vi.hoisted(() => ({ preferences: vi.fn(), subscribe: vi.fn() }));
+vi.mock('../src/renderer/src/trpc/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/renderer/src/trpc/client')>();
+  return {
+    ...actual,
+    client: { mail: { events: { subscribe: navigation.subscribe } } },
+    trpc: { settings: { mail: { get: { useQuery: navigation.preferences } } } },
+  };
+});
 vi.mock('../src/renderer/src/views/mail/api', () => ({ createMailApi: () => rpc }));
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => ({ binding: null, serverLocation: null }),
@@ -74,15 +84,11 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function fixture(
-  preferences: { showUnread: boolean; notifications: boolean } | undefined,
-  changingSource = false,
-) {
+function fixture(changingSource = false) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const onUnreadChange = vi.fn();
-  const render = async (active: boolean, nextPreferences = preferences) => {
+  const render = async (active: boolean) => {
     await act(async () =>
       root.render(
         notificationContent(
@@ -93,12 +99,7 @@ function fixture(
                 null,
               )
             : null,
-          h(MailWorkspace, {
-            selfUin: '12345678',
-            active,
-            preferences: nextPreferences,
-            onUnreadChange,
-          }),
+          h(MailWorkspace, { selfUin: '12345678', active }),
         ),
       ),
     );
@@ -107,7 +108,7 @@ function fixture(
     act(() => root.unmount());
     host.remove();
   });
-  return { render, onUnreadChange, host };
+  return { render, host };
 }
 
 async function openLoadedMail() {
@@ -133,7 +134,7 @@ async function openLoadedMail() {
     unread: 0,
     hasMore: false,
   });
-  const f = fixture({ showUnread: false, notifications: false });
+  const f = fixture();
   await f.render(true);
   await act(async () => f.host.querySelector<HTMLButtonElement>('.weq-mail-row-main')?.click());
   expect(f.host.querySelector('[data-mail-body]')).not.toBeNull();
@@ -187,7 +188,7 @@ describe('已加载邮件恢复窗口', () => {
       unread: 0,
       hasMore: false,
     });
-    const f = fixture(undefined);
+    const f = fixture();
     await f.render(true);
     await act(async () => f.host.querySelector<HTMLButtonElement>('.weq-mail-row-main')?.click());
     await visibility('hidden');
@@ -223,7 +224,7 @@ describe('已加载邮件恢复窗口', () => {
       unread: 0,
       hasMore: false,
     });
-    const f = fixture(undefined);
+    const f = fixture();
     await f.render(true);
     await act(async () => f.host.querySelector<HTMLButtonElement>('.weq-mail-row-main')?.click());
     await act(async () =>
@@ -246,9 +247,9 @@ describe('已加载邮件恢复窗口', () => {
   });
 });
 
-describe('邮箱后台状态订阅', () => {
+describe('邮箱状态订阅', () => {
   it('通知来源与页面回调反复更新时不重建连接、状态读取或订阅', async () => {
-    const f = fixture({ showUnread: true, notifications: false }, true);
+    const f = fixture(true);
     await f.render(true);
     for (let revision = 0; revision < 20; revision++) {
       await f.render(revision % 2 === 0);
@@ -259,55 +260,57 @@ describe('邮箱后台状态订阅', () => {
     expect(rpc.subscribe).toHaveBeenCalledOnce();
     expect(rpc.status).toHaveBeenCalledOnce();
     expect(rpc.dispose).not.toHaveBeenCalled();
-    expect(f.onUnreadChange).toHaveBeenLastCalledWith(19);
   });
 
-  it.each([undefined, { showUnread: false, notifications: false }])(
-    '未取得偏好或两个开关都关闭时，不提前订阅邮箱：%j',
-    async (preferences) => {
-      const f = fixture(preferences);
-      await f.render(false);
-      expect(rpc.subscribe).not.toHaveBeenCalled();
-      expect(rpc.status).not.toHaveBeenCalled();
-      expect(f.onUnreadChange).not.toHaveBeenCalled();
-    },
-  );
-
-  it('启动偏好延后返回时，仅开红点也会自动建立订阅，后续偏好更新不重复订阅', async () => {
-    const f = fixture(undefined);
-    await f.render(false);
+  it('导航在邮箱页面外接收未读状态和系统通知点击，切号和关闭开关后隐藏旧角标', async () => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    cleanups.push(() => act(() => root.unmount()));
+    const open = vi.fn();
+    const renderBadge = vi.fn();
+    const unsubscribe = vi.fn();
+    navigation.preferences.mockReturnValue({ isFetchedAfterMount: false });
+    let receive: (event: MailEvent) => void = () => {};
+    navigation.subscribe.mockImplementation((_account, { onData }) => {
+      receive = onData;
+      return { unsubscribe };
+    });
+    const Harness = ({ uin }: { uin: string }) => {
+      renderBadge(useMailNavigation(uin, true, open));
+      return null;
+    };
+    const render = (uin: string) => act(async () => root.render(h(Harness, { uin })));
+    await render('12345678');
+    await act(async () =>
+      receive({
+        type: 'status',
+        status: { ...status, unread: 0, unreadPending: true, showUnread: true },
+      }),
+    );
+    expect(renderBadge).toHaveBeenLastCalledWith({ count: 0, pending: true });
+    await act(async () => receive({ type: 'status', status: { ...status, showUnread: true } }));
+    expect(renderBadge).toHaveBeenLastCalledWith({ count: 2, pending: false });
+    await act(async () =>
+      receive({
+        type: 'open',
+        notice: { id: 'mail-fixture', folderId: 1, subject: '', sender: '' },
+      }),
+    );
+    expect(open).toHaveBeenCalledWith({ kind: 'mail', mailId: 'mail-fixture', folderId: 1 });
+    navigation.preferences.mockReturnValue({
+      isFetchedAfterMount: true,
+      data: { showUnread: false },
+    });
+    await render('12345678');
+    expect(renderBadge).toHaveBeenLastCalledWith({ count: 0, pending: false });
+    expect(navigation.subscribe).toHaveBeenCalledOnce();
+    navigation.preferences.mockReturnValue({
+      isFetchedAfterMount: true,
+      data: { showUnread: true },
+    });
+    await render('23456789');
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(renderBadge).toHaveBeenLastCalledWith({ count: 0, pending: false });
     expect(rpc.subscribe).not.toHaveBeenCalled();
-    await f.render(false, { showUnread: true, notifications: false });
-    expect(rpc.subscribe).toHaveBeenCalledOnce();
-    await f.render(false, { showUnread: true, notifications: true });
-    expect(rpc.subscribe).toHaveBeenCalledOnce();
-    await act(async () => listener?.({ type: 'status', status: { ...status, unread: 0 } }));
-    expect(f.onUnreadChange).toHaveBeenLastCalledWith(0);
-  });
-
-  it.each([
-    { showUnread: true, notifications: false },
-    { showUnread: false, notifications: true },
-    { showUnread: true, notifications: true },
-  ])('任一开关开启时，无需进入邮箱即可接收未读变化，不读取邮件列表：%j', async (preferences) => {
-    const f = fixture(preferences);
-    await f.render(false);
-    expect(rpc.subscribe).toHaveBeenCalledOnce();
-    expect(f.onUnreadChange).toHaveBeenLastCalledWith(2);
-    await act(async () => listener?.({ type: 'status', status: { ...status, unread: 3 } }));
-    expect(f.onUnreadChange).toHaveBeenLastCalledWith(3);
-    expect(rpc.list).not.toHaveBeenCalled();
-    expect(rpc.folders).not.toHaveBeenCalled();
-  });
-
-  it('两个开关关闭仍允许手动进入邮箱，离开后保留已有状态订阅', async () => {
-    const f = fixture({ showUnread: false, notifications: false });
-    await f.render(false);
-    expect(rpc.subscribe).not.toHaveBeenCalled();
-    await f.render(true);
-    expect(rpc.subscribe).toHaveBeenCalledOnce();
-    await f.render(false);
-    await act(async () => listener?.({ type: 'status', status: { ...status, unread: 4 } }));
-    expect(f.onUnreadChange).toHaveBeenLastCalledWith(4);
   });
 });

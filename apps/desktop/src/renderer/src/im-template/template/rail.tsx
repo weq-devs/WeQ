@@ -31,6 +31,7 @@ export function AppRail({
   messageBadgeActionLabel = '定位未读会话',
   contactBadgeCount = 0,
   mailBadgeCount = 0,
+  mailBadgePending = false,
   showTools = true,
   footerContent,
   hideAvatar = false,
@@ -55,6 +56,7 @@ export function AppRail({
   messageBadgeActionLabel?: string;
   contactBadgeCount?: number;
   mailBadgeCount?: number;
+  mailBadgePending?: boolean;
   showTools?: boolean;
   footerContent?: ReactNode | ((settingsButton: ReactNode) => ReactNode);
   hideAvatar?: boolean;
@@ -241,6 +243,14 @@ export function AppRail({
                       role="status"
                       aria-label={`${mailBadgeCount} 封未读邮件`}
                       title={`${mailBadgeCount} 封未读邮件`}
+                    />
+                  )}
+                  {id === 'mail' && mailBadgeCount === 0 && mailBadgePending && (
+                    <ReminderDot
+                      overlay
+                      className="rail-badge rail-badge-dot"
+                      role="status"
+                      aria-label="有新邮件"
                     />
                   )}
                 </button>

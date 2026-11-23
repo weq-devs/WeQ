@@ -35,6 +35,7 @@ export function ChatShell({
   messageBadgeActionLabel,
   contactBadgeCount,
   mailBadgeCount,
+  mailBadgePending,
   showTools = true,
   railFooterContent,
   friendNoticeCount,
@@ -80,6 +81,7 @@ export function ChatShell({
   messageBadgeActionLabel?: string;
   contactBadgeCount: number;
   mailBadgeCount?: number;
+  mailBadgePending?: boolean;
   showTools?: boolean;
   railFooterContent?: ReactNode | ((settingsButton: ReactNode) => ReactNode);
   friendNoticeCount: number;
@@ -199,6 +201,7 @@ export function ChatShell({
           onMessageBadgeClick={onMessageBadgeClick}
           contactBadgeCount={contactBadgeCount}
           mailBadgeCount={mailBadgeCount}
+          mailBadgePending={mailBadgePending}
           onViewChange={onViewChange}
           onOpenSettings={onOpenSettings}
           onOpenDressUp={onOpenDressUp}
@@ -226,6 +229,7 @@ export function ChatShell({
           messageBadgeActionLabel={messageBadgeActionLabel}
           contactBadgeCount={contactBadgeCount}
           mailBadgeCount={mailBadgeCount}
+          mailBadgePending={mailBadgePending}
           showTools={showTools}
           footerContent={railFooterContent}
           hideAvatar={true}

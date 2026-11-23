@@ -78,6 +78,8 @@ it('收藏与后部页面入口按实际页面高亮，返回消息后清除旧�
         expect(host.querySelector('.rail-tab-contacts .rail-badge-dot')).toBeNull();
       }
     }
+    act(() => root.render(h(AppRail, { ...props, view: 'messages', mailBadgePending: true })));
+    expect(host.querySelector('[aria-label="有新邮件"]')?.textContent).toBe('');
     act(() =>
       root.render(
         h(AppRail, {

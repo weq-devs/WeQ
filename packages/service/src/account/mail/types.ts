@@ -88,6 +88,8 @@ export type MailConnectionState = 'disconnected' | 'connecting' | 'ready' | 'err
 export interface MailStatus {
   state: MailConnectionState;
   unread: number;
+  unreadPending?: boolean;
+  showUnread?: boolean;
   notifications: boolean;
   lastSync: number | null;
   error: string | null;

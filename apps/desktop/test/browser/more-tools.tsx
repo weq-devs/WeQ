@@ -133,7 +133,7 @@ function Fixture() {
         mainContent={
           <WorkspaceContent>
             <p data-secondary-page={view}>合成业务页</p>
-            {view === 'mail' && <MailWorkspace active selfUin="10001" onUnreadChange={noop} />}
+            {view === 'mail' && <MailWorkspace active selfUin="10001" />}
             {(view === 'channel' || view === 'guild-direct') && (
               <ChannelView selfUser={user} initialDirectOpen={view === 'guild-direct'} />
             )}

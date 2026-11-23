@@ -10,6 +10,7 @@ import { MailFailure, MAIL_VERIFICATION_REQUIRED } from '../src/account/mail/typ
 class UnreadTransport implements MailTransport {
   readonly jar = new CookieJar();
   unread = 2;
+  panelUnread: number | undefined = 2;
   panelFails = false;
   foldersFail = false;
   notices: { mailid: string }[] = [];
@@ -42,7 +43,11 @@ class UnreadTransport implements MailTransport {
               features_list: [{ dirid: 1002, unread_num: 1, total_num: 0 }],
             },
           }
-        : { unread: 2, next_sync_time_interval_sec: 3600, newmaillist: this.notices };
+        : {
+            unread: this.panelUnread,
+            next_sync_time_interval_sec: 3600,
+            newmaillist: this.notices,
+          };
     return { status: 200, body: JSON.stringify({ head: { ret: failed ? -90002 : 0 }, body }) };
   }
   dispose(): void {}
@@ -60,6 +65,97 @@ const native = {
 };
 
 describe('跨客户端邮箱未读同步', () => {
+  it('推送在横幅发出前设置红点，查询失败保留红点，后续同步确认已读后清除', async () => {
+    vi.useFakeTimers();
+    const transport = new UnreadTransport();
+    transport.unread = 0;
+    const auth = new MailAuth(native, '12345678', () => 42, transport);
+    const socket = Object.assign(new EventEmitter(), { send() {}, close() {}, terminate() {} });
+    const onRead = vi.fn();
+    const noticeSnapshot = vi.fn();
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => auth,
+      socketFactory: () => socket,
+      onNotice: () => {
+        noticeSnapshot(service.status());
+        return true;
+      },
+      onRead,
+    });
+    try {
+      service.startBackground({ showUnread: true, notifications: true });
+      await vi.advanceTimersByTimeAsync(0);
+      transport.panelFails = transport.foldersFail = true;
+      socket.emit(
+        'message',
+        JSON.stringify({
+          cmd: 1,
+          content: Buffer.from(JSON.stringify({ cid: '148', z: 1, e: 'fixture' })).toString(
+            'base64',
+          ),
+        }),
+      );
+      expect(noticeSnapshot.mock.calls).toEqual([
+        [expect.objectContaining({ unread: 0, unreadPending: true })],
+      ]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(service.status()).toMatchObject({ unread: 0, unreadPending: true });
+      transport.panelFails = transport.foldersFail = false;
+      transport.mailItems.set('fixture', { emailid: 'fixture', unread: 1 });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(service.status()).toMatchObject({ unread: 0, unreadPending: true });
+      transport.mailItems.set('fixture', { emailid: 'fixture', unread: 0 });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(service.status()).toMatchObject({ unread: 0, unreadPending: false });
+      expect(onRead).toHaveBeenCalledWith(['fixture']);
+    } finally {
+      service.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it('轮询新邮件遇到文件夹计数为零时显示红点，取得有效总数后缺失字段不清零', async () => {
+    vi.useFakeTimers();
+    const transport = new UnreadTransport();
+    transport.unread = transport.panelUnread = 0;
+    const auth = new MailAuth(native, '12345678', () => 42, transport);
+    const socket = Object.assign(new EventEmitter(), { send() {}, close() {}, terminate() {} });
+    const noticeSnapshot = vi.fn();
+    const service = new QQMailService(native, '12345678', () => 42, {
+      authFactory: () => auth,
+      socketFactory: () => socket,
+      onNotice: () => {
+        noticeSnapshot(service.status());
+        return true;
+      },
+    });
+    try {
+      service.startBackground({ showUnread: true, notifications: true });
+      await vi.advanceTimersByTimeAsync(0);
+      transport.notices = [{ mailid: 'fixture' }];
+      transport.panelUnread = 1;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(noticeSnapshot.mock.calls).toEqual([
+        [expect.objectContaining({ unread: 0, unreadPending: true })],
+      ]);
+      expect(service.status()).toMatchObject({ unread: 0, unreadPending: true });
+      transport.unread = 1;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(service.status()).toMatchObject({ unread: 1, unreadPending: false });
+      transport.foldersFail = true;
+      transport.panelUnread = undefined;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(service.status()).toMatchObject({ unread: 1, unreadPending: false });
+      transport.foldersFail = false;
+      transport.unread = 0;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(service.status()).toMatchObject({ unread: 0, unreadPending: false });
+    } finally {
+      service.dispose();
+      vi.useRealTimers();
+    }
+  });
+
   it('邮箱总未读不变时也只收起明确已读的那一封横幅', async () => {
     vi.useFakeTimers();
     const transport = new UnreadTransport();
