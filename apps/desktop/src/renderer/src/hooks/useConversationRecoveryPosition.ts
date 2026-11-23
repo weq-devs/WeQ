@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
 import { z } from 'zod';
 import { usePageSnapshotKey } from '../components/PageSnapshots.shared';
-import { atConversationBottom, captureReadingPosition } from '../lib/conversationReadingPosition';
+import {
+  atConversationReadingEnd,
+  captureReadingPosition,
+} from '../lib/conversationReadingPosition';
 import { pageSnapshots } from '../lib/pageSnapshots';
 import { timelineRowKey } from '../../../shared/roaming_timeline';
 
@@ -76,7 +79,7 @@ export function useConversationRecoveryPosition({
       const position = captureReadingPosition(scroll);
       const anchor = rows.find((row) => timelineRowKey(row) === position.anchorId);
       if (requireOwnedAnchor && !anchor) return;
-      if (atConversationBottom(scroll, atLatest)) {
+      if (atConversationReadingEnd(scroll, atLatest)) {
         if (resumeReadingPosition || visitedHistoryRef.current) value = null;
         return;
       }
@@ -118,7 +121,7 @@ export function useConversationRecoveryPosition({
       if (
         !visitedHistoryRef.current &&
         scroll.clientHeight &&
-        !atConversationBottom(scroll, atLatest)
+        !atConversationReadingEnd(scroll, atLatest)
       )
         visitedHistoryRef.current = true;
       schedule(scroll);

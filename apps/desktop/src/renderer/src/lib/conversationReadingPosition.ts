@@ -1,4 +1,5 @@
 import {
+  messageElement,
   timelineViewport,
   TIMELINE_MESSAGE_SELECTOR,
   type ReadingRestoreOptions,
@@ -14,9 +15,20 @@ export interface ConversationReadingPosition {
   bottomInset?: number;
 }
 
-/** 只有会话的最新一页才有可清除阅读位置的真正底部。 */
 export function atConversationBottom(scroll: HTMLElement, atLatest: boolean): boolean {
   return atLatest && scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop <= 4;
+}
+
+/** 最新消息下沿可见时，容器底部剩余的留白无需保存为阅读位置。 */
+export function atConversationReadingEnd(scroll: HTMLElement, atLatest: boolean): boolean {
+  if (!atLatest) return false;
+  const latestId = scroll.dataset.latestMessageId;
+  if (!latestId) return atConversationBottom(scroll, atLatest);
+  const message = messageElement(scroll, latestId);
+  if (!message) return false;
+  const viewport = scroll.getBoundingClientRect();
+  const rect = message.getBoundingClientRect();
+  return rect.height > 0 && rect.bottom > viewport.top && rect.bottom <= viewport.bottom;
 }
 
 // 临时布局补偿不能越过新的滚动意图；切会话保存的位置不附带此守卫。

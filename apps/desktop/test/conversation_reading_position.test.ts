@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  atConversationReadingEnd,
   captureReadingPosition,
   restoreReadingPosition,
 } from '../src/renderer/src/lib/conversationReadingPosition';
@@ -24,6 +25,22 @@ function fixture(count: number) {
 }
 
 describe('阅读锚点', () => {
+  it('以最新一页实际挂载的消息下沿判断是否还有内容可读', () => {
+    const { scroll } = fixture(20);
+    Object.defineProperty(scroll, 'scrollHeight', { value: 1040 });
+    scroll.dataset.latestMessageId = 'row-19';
+    scroll.scrollTop = 600;
+    expect(atConversationReadingEnd(scroll, true)).toBe(true);
+    expect(atConversationReadingEnd(scroll, false)).toBe(false);
+
+    scroll.scrollTop = 599;
+    expect(atConversationReadingEnd(scroll, true)).toBe(false);
+
+    scroll.scrollTop = 600;
+    scroll.lastElementChild!.remove();
+    expect(atConversationReadingEnd(scroll, true)).toBe(false);
+  });
+
   it('临时补偿不覆盖发送后跳到底部、主动定位或用户滚动，持久阅读位置仍可恢复', () => {
     const { scroll } = fixture(20);
     let revision = 0;

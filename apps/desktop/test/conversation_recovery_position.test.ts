@@ -165,3 +165,54 @@ it('崩溃前滚动即保存锚点，重建后可读取，按账号数据源隔�
     act(() => root.unmount());
   }
 });
+
+it('从历史读到最新消息下沿后，底部留白不保留续读快照', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  const rows = [{ msgId: 'message-42', msgSeq: '42' }];
+  let state: ReturnType<typeof useConversationRecoveryPosition>;
+  function Probe() {
+    const scrollRef = useRef<HTMLDivElement>(null);
+    state = useConversationRecoveryPosition({
+      conv: 'synthetic',
+      kind: 'c2c',
+      rows,
+      enabled: true,
+      atLatest: true,
+      resumeReadingPosition: false,
+      visitedHistoryRef: useRef(false),
+      scrollRef,
+    });
+    return h(
+      'div',
+      { ref: scrollRef, 'data-latest-message-id': 'message-42' },
+      h('div', { className: 'message-line', 'data-message-id': 'message-42' }),
+    );
+  }
+  const host = document.createElement('div');
+  document.body.append(host);
+  let root = createRoot(host);
+  const render = () => act(() => root.render(h(PageSnapshots, { scope: 'a:c' }, h(Probe))));
+  try {
+    render();
+    const scroll = host.firstElementChild as HTMLElement;
+    setFixtureBounds(scroll);
+    const message = scroll.firstElementChild as HTMLElement;
+    message.getBoundingClientRect = () => new DOMRect(0, 1920 - scroll.scrollTop, 400, 60);
+    scroll.scrollTop = 1550;
+    act(() => scroll.dispatchEvent(new Event('scroll')));
+    await act(() => vi.advanceTimersByTimeAsync(200));
+    expect(localStorage.length).toBe(1);
+
+    scroll.scrollTop = 1580;
+    act(() => scroll.dispatchEvent(new Event('scroll')));
+    await act(() => vi.advanceTimersByTimeAsync(200));
+    act(() => root.unmount());
+    root = createRoot(host);
+    render();
+    expect(state!.read('synthetic', 'c2c')).toBeUndefined();
+  } finally {
+    act(() => root.unmount());
+  }
+});

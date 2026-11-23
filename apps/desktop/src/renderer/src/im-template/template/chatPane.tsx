@@ -6621,6 +6621,7 @@ function ChatPaneContent({
                 marquee.dragging && 'is-marquee-selecting',
               )}
               ref={captureTimeline}
+              data-latest-message-id={visibleMessages.at(-1)?.id}
               tabIndex={0}
               aria-label="聊天消息，方向键浏览消息，回车打开消息操作"
               onKeyDown={handleTimelineKeyDown}

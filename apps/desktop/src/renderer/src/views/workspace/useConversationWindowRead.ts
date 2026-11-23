@@ -28,6 +28,7 @@ import { readRecentMessageCache, rememberRecentMessageCache } from '../../lib/re
 import { mergeRefreshedWindow } from '../../lib/conversationRefresh';
 import {
   atConversationBottom,
+  atConversationReadingEnd,
   captureReadingPosition,
   restoreReadingPosition,
   restoreReadingPositionAfterPrepend,
@@ -137,8 +138,10 @@ export function useConversationWindowSelection(
         old.kind === 'group' ? 'group' : 'c2c',
         old.id,
       );
-      const bottom = scroll && atConversationBottom(scroll, anchoredToLatest);
-      let position = scroll?.clientHeight && !bottom ? captureReadingPosition(scroll) : undefined;
+      const atReadingEnd =
+        scroll?.clientHeight && atConversationReadingEnd(scroll, anchoredToLatest);
+      let position =
+        scroll?.clientHeight && !atReadingEnd ? captureReadingPosition(scroll) : undefined;
       const anchorIndex = loaded.findIndex((row) => timelineRowKey(row) === position?.anchorId);
       if (position && anchorIndex >= 0) {
         const anchor = loaded[anchorIndex]!;
@@ -149,7 +152,7 @@ export function useConversationWindowSelection(
           position.anchorSeq = anchor.msgSeq;
       } else {
         position = undefined;
-        if (bottom && (resumeReadingPosition || visitedHistoryRef.current))
+        if (atReadingEnd && (resumeReadingPosition || visitedHistoryRef.current))
           conversationWindows.setPosition(windowKey, undefined);
       }
       conversationWindows.put(
