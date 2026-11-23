@@ -18,17 +18,20 @@ import {
 } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { mkdir, open, rename, unlink } from 'node:fs/promises';
+import { mkdir, open, rename, unlink, writeFile } from 'node:fs/promises';
 
 /** 异步版本保持同样的 fsync + 同目录原子发布契约，不阻塞主进程事件循环。 */
-export async function writeFileAtomic(path: string, data: string | Uint8Array): Promise<void> {
+export async function writeFileAtomic(
+  path: string,
+  data: string | Uint8Array | Iterable<string>,
+): Promise<void> {
   const parent = dirname(path);
   await mkdir(parent, { recursive: true });
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   let file: Awaited<ReturnType<typeof open>> | undefined;
   try {
     file = await open(tmp, 'wx', 0o600);
-    await file.writeFile(data);
+    await writeFile(file, data);
     await file.sync();
     await file.close();
     file = undefined;

@@ -59,6 +59,7 @@ export interface CalendarSource {
 }
 export const CALENDAR_CACHE_BYTES = 8 * 1024 * 1024;
 export const CALENDAR_BATCH_SIZE = 256;
+let calendarNameOrder: Intl.Collator | undefined;
 export const CALENDAR_SOURCE_ORDER: readonly CalendarKind[] = [
   'c2c',
   'group',
@@ -154,6 +155,7 @@ interface Work {
   successfulBatches: number;
   error?: string;
   rows: Map<string, CalendarRow>;
+  rowCount: number;
   progress?: CalendarScanProgress;
   refresh?: Work;
 }
@@ -245,11 +247,11 @@ export class ConversationCalendarJob {
       Boolean(task.refresh) || !task.counted || (task.day === this.selectedDay && !task.detailed)
     );
   }
-  private nextWork(readyOnly = false): Work | undefined {
+  private nextWork(readyOnly = false, today = calendarToday()): Work | undefined {
     if (this.suspended) return;
     const pending = this.work.filter(
       (task) =>
-        this.available(task) &&
+        this.available(task, today) &&
         this.needsWork(task) &&
         !this.pausedDays.has(task.day) &&
         (!this.monthPaused || task.day === this.dayFocus) &&
@@ -276,9 +278,7 @@ export class ConversationCalendarJob {
   control(scope: 'month' | 'day', action: CalendarControlAction, day?: string): void {
     if (
       scope === 'day' &&
-      (!day ||
-        !calendarMonthDays(this.month).some((item) => item.day === day) ||
-        day > calendarToday())
+      (!day || !this.days.some((item) => item.day === day) || day > calendarToday())
     )
       throw new Error('请选择不晚于今天的本月日期');
     if (action !== 'pause') this.suspended = false;
@@ -323,6 +323,7 @@ export class ConversationCalendarJob {
           count: 0,
           cursor: undefined,
           rows: new Map(),
+          rowCount: 0,
           progress: undefined,
           failures: 0,
           successfulBatches: 0,
@@ -385,7 +386,7 @@ export class ConversationCalendarJob {
       raw.work.length > this.work.length
     )
       return false;
-    const days = new Set(calendarMonthDays(this.month).map((item) => item.day));
+    const days = new Set(this.days.map((item) => item.day));
     const scanValue = raw.scan;
     const scan = record(scanValue)
       ? this.work.find((task) => task.day === scanValue.day && task.source.kind === scanValue.kind)
@@ -446,6 +447,7 @@ export class ConversationCalendarJob {
     if (this.bytes + bytes > CALENDAR_CACHE_BYTES || (this.reserve && !this.reserve(bytes)))
       return false;
     for (const [base, loaded] of saved) Object.assign(base, loaded);
+    this.sortedRows.clear();
     const restoredOrder = new Set(saved.map(([base]) => base));
     this.work.splice(
       0,
@@ -570,6 +572,7 @@ export class ConversationCalendarJob {
       )
         continue;
       Object.assign(task, loaded.work);
+      this.sortedRows.delete(task.day);
       this.bytes += loaded.bytes;
       reused++;
     }
@@ -614,6 +617,7 @@ export class ConversationCalendarJob {
     )
       return undefined;
     const rows = new Map<string, CalendarRow>();
+    let rowCount = 0;
     for (const row of value.rows) {
       if (
         !record(row) ||
@@ -652,14 +656,10 @@ export class ConversationCalendarJob {
           sessionId: anchor.sessionId as string | null | undefined,
         },
       });
+      rowCount += row.count;
       bytes += 512 + target.name.length * 2;
     }
-    if (
-      value.detailed &&
-      (!value.counted ||
-        [...rows.values()].reduce((sum, row) => sum + row.count, 0) !== value.count)
-    )
-      return undefined;
+    if (value.detailed && (!value.counted || rowCount !== value.count)) return undefined;
     const result: Work = {
       ...base,
       counted: value.counted,
@@ -671,6 +671,7 @@ export class ConversationCalendarJob {
       failures: value.failures,
       error: value.error as string | undefined,
       rows,
+      rowCount,
       progress: undefined,
       refresh: undefined,
       source: value.fallback ? { ...base.source, count: undefined } : base.source,
@@ -705,6 +706,7 @@ export class ConversationCalendarJob {
   setKinds(kinds: CalendarKind[]): void {
     if (kinds.length === this.enabled.size && kinds.every((kind) => this.enabled.has(kind))) return;
     this.enabled = new Set(kinds);
+    this.sortedRows.clear();
     this.log('info', 'task', '统计内容已更新');
   }
   get inBackground(): boolean {
@@ -749,8 +751,10 @@ export class ConversationCalendarJob {
   }
   private readonly targets: Map<string, CalendarTarget>;
   private readonly work: Work[];
-  private available(task: Work): boolean {
-    return this.enabled.has(task.source.kind) && task.day <= calendarToday();
+  private readonly days: ReturnType<typeof calendarMonthDays>;
+  private readonly sortedRows = new Map<string, CalendarRow[]>();
+  private available(task: Work, today = calendarToday()): boolean {
+    return this.enabled.has(task.source.kind) && task.day <= today;
   }
   private selectedDay: string | undefined;
   private running: Promise<void> | undefined;
@@ -816,7 +820,8 @@ export class ConversationCalendarJob {
       sources.reduce((sum, source) => sum + (source.cacheCapacityBytes ?? 0), 0);
     if (this.bytes > CALENDAR_CACHE_BYTES || (reserve && !reserve(this.bytes)))
       throw new Error('日历会话范围超过缓存上限');
-    const days = calendarMonthDays(month).reverse();
+    this.days = calendarMonthDays(month);
+    const days = [...this.days].reverse();
     this.work = days.flatMap((day) =>
       [...sources]
         .sort(
@@ -833,6 +838,7 @@ export class ConversationCalendarJob {
           failures: 0,
           successfulBatches: 0,
           rows: new Map(),
+          rowCount: 0,
         })),
     );
     this.log(
@@ -924,7 +930,8 @@ export class ConversationCalendarJob {
       this.readState = undefined;
       clearTimeout(this.leaseTimer);
       if (!this.controller.signal.aborted) {
-        const available = this.work.filter((task) => this.available(task));
+        const today = calendarToday();
+        const available = this.work.filter((task) => this.available(task, today));
         const done = available.filter((task) => task.counted && !task.error).length;
         const failed = available.filter((task) => task.error).length;
         const paused =
@@ -946,6 +953,7 @@ export class ConversationCalendarJob {
       this.bytes -= 512 + row.target.name.length * 2;
     }
     task.rows.clear();
+    task.rowCount = 0;
   }
   private wait(milliseconds: number): Promise<void> {
     const signal = this.controller.signal;
@@ -1028,14 +1036,16 @@ export class ConversationCalendarJob {
           (this.reserve && !this.reserve(addedBytes))
         )
           throw new Error('日历缓存已达上限，请缩小会话范围后重试');
+        if (applicable.length || page.done) this.sortedRows.delete(task.day);
         for (const message of applicable) {
-          if (message.time < task.start || message.time >= task.end) continue;
           const key = calendarTargetKey({ kind: task.source.kind, conv: message.conv });
           const target = this.targets.get(key);
           if (!target) continue;
+          const count = message.count ?? 1;
+          task.rowCount += count;
           const previous = task.rows.get(key);
           if (previous) {
-            previous.count += message.count ?? 1;
+            previous.count += count;
             if (
               message.time < previous.anchor.time ||
               (message.time === previous.anchor.time &&
@@ -1044,7 +1054,7 @@ export class ConversationCalendarJob {
               previous.anchor = message.anchor;
           } else {
             this.bytes += 512 + target.name.length * 2;
-            task.rows.set(key, { target, count: message.count ?? 1, anchor: message.anchor });
+            task.rows.set(key, { target, count, anchor: message.anchor });
             let order = this.order.get(task.day);
             if (!order) {
               order = new Map();
@@ -1060,8 +1070,7 @@ export class ConversationCalendarJob {
           task.limit = Math.min(CALENDAR_BATCH_SIZE, task.limit * 2);
           task.successfulBatches = 0;
         }
-        if (!task.counted || page.done)
-          task.count = [...task.rows.values()].reduce((sum, row) => sum + row.count, 0);
+        if (!task.counted || page.done) task.count = task.rowCount;
         if (page.done) {
           task.counted = true;
           task.detailed = true;
@@ -1116,23 +1125,56 @@ export class ConversationCalendarJob {
     }
     this.cancel();
   }
+  private orderedRows(day: string, work: Work[], complete: boolean): CalendarRow[] {
+    const cached = this.sortedRows.get(day);
+    if (cached) return cached;
+    const rows = work.flatMap((item) => [...item.rows.values()]);
+    if (complete) {
+      calendarNameOrder ??= new Intl.Collator('zh-CN');
+      const compareName = calendarNameOrder.compare;
+      rows.sort(
+        (a, b) =>
+          b.count - a.count ||
+          compareName(a.target.name, b.target.name) ||
+          calendarTargetKey(a.target).localeCompare(calendarTargetKey(b.target)),
+      );
+    } else {
+      const positions = this.order.get(day);
+      if (positions?.size)
+        rows.sort(
+          (a, b) =>
+            (positions.get(calendarTargetKey(a.target)) ?? 0) -
+            (positions.get(calendarTargetKey(b.target)) ?? 0),
+        );
+    }
+    // 排序索引只持有已计入日历缓存预算的行引用，且仅在需要明细的日期生成。
+    this.sortedRows.set(day, rows);
+    return rows;
+  }
   snapshot(day?: string, offset = 0, includeLogs = false, limit = 50) {
-    const enabledWork = this.work.filter((item) => this.available(item));
+    const today = calendarToday();
+    const enabledWork = this.work.filter((item) => this.available(item, today));
+    const workByDay = new Map<string, Work[]>();
+    for (const item of enabledWork) {
+      const work = workByDay.get(item.day);
+      if (work) work.push(item);
+      else workByDay.set(item.day, [item]);
+    }
     const emptyReason = !this.enabled.size
       ? '未选择统计内容'
       : !enabledWork.length
         ? '当前范围没有可统计的来源'
         : undefined;
-    const days = calendarMonthDays(this.month).map(({ day: value }) => {
-      const work = enabledWork.filter((item) => item.day === value);
+    const days = this.days.map(({ day: value }) => {
+      const work = workByDay.get(value) ?? [];
+      const unavailable = value > today;
       return {
         day: value,
-        unavailable: value > calendarToday(),
+        unavailable,
         paused: this.pausedDays.has(value),
         count: work.reduce((sum, item) => sum + item.count, 0),
-        complete:
-          value > calendarToday() || (work.length > 0 && work.every((item) => item.counted)),
-        emptyReason: value > calendarToday() ? undefined : emptyReason,
+        complete: unavailable || (work.length > 0 && work.every((item) => item.counted)),
+        emptyReason: unavailable ? undefined : emptyReason,
         errors: [
           ...new Set(
             work.flatMap((item) =>
@@ -1142,23 +1184,24 @@ export class ConversationCalendarJob {
         ],
       };
     });
-    const work = enabledWork.filter((item) => item.day === day);
+    const work = day ? (workByDay.get(day) ?? []) : [];
+    const nextWork = this.nextWork(false, today);
     const pausedDay =
       enabledWork.find(
         (item) =>
           this.needsWork(item) && this.pausedDays.has(item.day) && item.day === this.dayFocus,
       ) ?? enabledWork.find((item) => this.needsWork(item) && this.pausedDays.has(item.day));
     const scanDay =
-      this.activeWork && this.available(this.activeWork)
+      this.activeWork && this.available(this.activeWork, today)
         ? this.activeWork.day
         : this.monthPaused && this.dayFocus
           ? this.dayFocus
-          : !this.nextWork() && pausedDay
+          : !nextWork && pausedDay
             ? pausedDay.day
-            : this.lastScan && this.available(this.lastScan)
+            : this.lastScan && this.available(this.lastScan, today)
               ? this.lastScan.day
               : undefined;
-    const scanWork = enabledWork.filter((item) => item.day === scanDay);
+    const scanWork = scanDay ? (workByDay.get(scanDay) ?? []) : [];
     if (day && !days.some((value) => value.day === day)) throw new Error('日历日期无效');
     const complete = day
       ? work.length > 0 && work.every((item) => item.detailed)
@@ -1166,7 +1209,7 @@ export class ConversationCalendarJob {
     // 仅同步任务进度时仍报告真实总数，但不生成或排序会话明细。
     const totalRows = work.reduce((sum, item) => sum + item.rows.size, 0);
     const rows =
-      limit > 0 && offset < totalRows ? work.flatMap((item) => [...item.rows.values()]) : [];
+      day && limit > 0 && offset < totalRows ? this.orderedRows(day, work, complete) : [];
     const state = (scope?: string): CalendarControlState => {
       if (!enabledWork.some((item) => !scope || item.day === scope)) return 'empty';
       const pending = enabledWork.filter(
@@ -1181,19 +1224,6 @@ export class ConversationCalendarJob {
         ? 'failed'
         : 'running';
     };
-    if (complete)
-      rows.sort(
-        (a, b) =>
-          b.count - a.count ||
-          a.target.name.localeCompare(b.target.name, 'zh-CN') ||
-          calendarTargetKey(a.target).localeCompare(calendarTargetKey(b.target)),
-      );
-    else
-      rows.sort(
-        (a, b) =>
-          (this.order.get(day ?? '')?.get(calendarTargetKey(a.target)) ?? 0) -
-          (this.order.get(day ?? '')?.get(calendarTargetKey(b.target)) ?? 0),
-      );
     return {
       emptyReason,
       controls: {
@@ -1204,7 +1234,7 @@ export class ConversationCalendarJob {
         },
       },
       hasPending: enabledWork.some((item) => this.needsWork(item)),
-      canRun: !this.controller.signal.aborted && Boolean(this.nextWork()),
+      canRun: !this.controller.signal.aborted && Boolean(nextWork),
       refreshing: enabledWork.some((item) => Boolean(item.refresh)),
       persistenceError: this.persistenceError,
       enabledKinds: [...this.enabled],
@@ -1218,7 +1248,8 @@ export class ConversationCalendarJob {
             count: scanWork.reduce((sum, item) => sum + item.count, 0),
           }
         : undefined,
-      readState: this.activeWork && this.available(this.activeWork) ? this.readState : undefined,
+      readState:
+        this.activeWork && this.available(this.activeWork, today) ? this.readState : undefined,
       days,
       progress: {
         completedSources: enabledWork.filter((item) => item.counted && !item.error).length,
@@ -1228,7 +1259,7 @@ export class ConversationCalendarJob {
       logs: includeLogs ? [...this.logs] : undefined,
       activeScan:
         this.activeWork &&
-        this.available(this.activeWork) &&
+        this.available(this.activeWork, today) &&
         this.current() &&
         !this.activeWork.error
           ? {

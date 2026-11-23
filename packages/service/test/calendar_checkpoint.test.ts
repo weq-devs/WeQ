@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -319,6 +319,36 @@ it('无效检查点整份拒绝，不部分提交错误计数或超范围游标'
   const other = job.checkpoint();
   other.month = '2026-10';
   expect(job.restore(other)).toBe(false);
+  job.cancel();
+});
+
+it('分块保存嵌套重试进度，超字节上限时保留旧检查点并允许重试', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-calendar-checkpoint-'));
+  roots.push(root);
+  const job = make({ kind: 'c2c', page: async () => ({ rows: [], done: true }) });
+  const state = job.checkpoint();
+  state.coverage = [[calendarTargetKey(target), '可见']];
+  const work = state.work.find((value) => value.day === day)!;
+  const fixture = {
+    key: calendarTargetKey(target),
+    count: 1,
+    anchor: { id: '引用「\\」', seq: '1', time },
+  };
+  work.refresh = { ...work, rows: [fixture] };
+  const store = new CalendarCheckpointStore(root, 'fragmented', () => state);
+  await store.flush();
+  expect(await store.load()).toEqual(JSON.parse(JSON.stringify(state)));
+  const previous = await readFile(store.path, 'utf8');
+
+  const tooLarge = { ...fixture, anchor: { ...fixture.anchor, id: '界'.repeat(900) } };
+  work.refresh.rows = Array.from({ length: 6500 }, () => tooLarge);
+  await expect(store.flush()).rejects.toThrow('统计结果超过保存上限');
+  expect(await readFile(store.path, 'utf8')).toBe(previous);
+  expect(await readdir(join(root, 'conversation-calendar'))).toHaveLength(1);
+
+  work.refresh.rows = [{ ...fixture, count: 2 }];
+  await store.flush();
+  expect(await store.load()).toEqual(JSON.parse(JSON.stringify(state)));
   job.cancel();
 });
 

@@ -62,6 +62,55 @@ it('汇总页按真实条数累计，重试清除来源缓存，源缓存容量�
   restored.cancel();
 });
 
+it('分页随统计更新从发现顺序切换到总数顺序，关闭来源后不复用旧分页', async () => {
+  const second = { ...target, conv: 'u_second' };
+  const group: CalendarTarget = { ...target, kind: 'group', conv: 'g_third' };
+  const job = new ConversationCalendarJob(
+    '2026-11',
+    [target, second, group],
+    [
+      {
+        kind: 'c2c',
+        count: async () => 0,
+        page: async (_start, _end, cursor) =>
+          cursor
+            ? { rows: [{ ...message('3', start, second.conv), count: 4 }], done: true }
+            : {
+                rows: [message('1'), message('2', start + 1, second.conv)],
+                cursor: 1,
+                done: false,
+              },
+      },
+      {
+        kind: 'group',
+        count: async () => 0,
+        page: async () => ({
+          rows: [{ ...message('4', start, group.conv), count: 3 }],
+          done: true,
+        }),
+      },
+    ],
+  );
+  const page = (offset: number) => job.snapshot(day, offset, false, 1);
+  job.keepAlive(day);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(page(0).rows[0]?.target).toEqual(target);
+  expect(page(1).rows[0]).toMatchObject({ target: second, count: 1, anchor: { id: '2' } });
+
+  await finish(job);
+  expect(page(0)).toMatchObject({
+    complete: true,
+    totalRows: 3,
+    rows: [{ target: second, count: 5, anchor: { id: '3' } }],
+  });
+  expect(page(1).rows[0]?.target).toEqual(group);
+  job.setKinds(['c2c']);
+  expect(page(1)).toMatchObject({ totalRows: 2, rows: [{ target }] });
+  job.setKinds(['c2c', 'group']);
+  expect(page(1)).toMatchObject({ totalRows: 3, rows: [{ target: group }] });
+  job.cancel();
+});
+
 it('选中日期的所有来源完成后才开始统计下一天', async () => {
   const calls: string[] = [];
   const job = new ConversationCalendarJob(
