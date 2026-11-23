@@ -12,6 +12,7 @@ import {
   recentMessageWindowTag,
 } from './recentMessageCache';
 import superjson from 'superjson';
+import { isProfileCacheQuery } from './profileQuery';
 import {
   boundedBridgeReply,
   remoteCacheBridge,
@@ -31,6 +32,7 @@ export type { BusinessCacheStore, BusinessSnapshot } from './webBusinessCacheSto
 
 const MAX_ROWS = 10_000;
 const MAX_QUERIES = 160;
+export const PROFILE_SCOPE_PREFIX = 'profiles:';
 const writerId = Math.random().toString(36).slice(2);
 let commitSequence = 0;
 function nativeScope(scope: string) {
@@ -213,21 +215,54 @@ export const businessCacheStore: BusinessCacheStore = {
   },
 };
 
-function persisted(key: QueryKey, scope: string): boolean {
-  const path = key[0];
+function profileQueryFilter(scope: string): (key: QueryKey) => boolean {
+  const account = sharedAccountScope(scope);
+  if (!account) return () => false;
+  try {
+    const binding: unknown = JSON.parse(account);
+    if (
+      Array.isArray(binding) &&
+      binding.length === 2 &&
+      typeof binding[0] === 'string' &&
+      typeof binding[1] === 'string'
+    ) {
+      const expected = { expectedAccountUin: binding[0], expectedAccountConfigId: binding[1] };
+      return (key) => isProfileCacheQuery(key, expected);
+    }
+  } catch {
+    /* Legacy scopes may be opaque. */
+  }
+  return () => false;
+}
+
+function persistedQueries(scope: string) {
+  const profileOnly = scope.startsWith(PROFILE_SCOPE_PREFIX);
+  const profile = profileQueryFilter(
+    profileOnly ? scope.slice(PROFILE_SCOPE_PREFIX.length) : scope,
+  );
   if (isMessageScope(scope)) {
     const directory = scope.slice(MESSAGE_SCOPE_PREFIX.length);
-    return (
-      path === recentMessageCacheTag && key[1] === (sharedAccountScope(directory) ?? directory)
-    );
+    const account = sharedAccountScope(directory) ?? directory;
+    return {
+      profile,
+      matches: (key: QueryKey) => key[0] === recentMessageCacheTag && key[1] === account,
+    };
   }
-  return (
-    key[0] === resolvedProfilesKey[0] ||
-    (Array.isArray(path) &&
-      path[0] === 'account' &&
-      ((path.length === 2 && procedures.has(path[1])) ||
-        additionalPaths.has(path.slice(1).join('.'))))
-  );
+  if (profileOnly) return { profile, matches: profile };
+  return {
+    profile,
+    matches: (key: QueryKey) => {
+      const path = key[0];
+      return (
+        path === resolvedProfilesKey[0] ||
+        (Array.isArray(path) &&
+          path[0] === 'account' &&
+          ((path.length === 2 && procedures.has(path[1])) ||
+            additionalPaths.has(path.slice(1).join('.')))) ||
+        profile(key)
+      );
+    },
+  };
 }
 
 export async function restoreBusinessCache(
@@ -239,18 +274,29 @@ export async function restoreBusinessCache(
   const restore = async (scope: string) => {
     const value = await store.get(scope);
     if (!current() || value?.scope !== scope || !Array.isArray(value.state?.queries)) return;
-    // 仅恢复明确允许的目录项，不恢复 mutation、错误或账号配置。
-    const queries = value.state.queries.filter(
-      (query) =>
-        Array.isArray(query.queryKey) &&
-        persisted(query.queryKey, scope) &&
-        query.state?.status === 'success' &&
-        Number.isFinite(query.state.dataUpdatedAt),
-    );
+    const { matches, profile } = persistedQueries(scope);
+    // 恢复成功数据，名片打开时再校准磁盘里的旧值。
+    const queries = value.state.queries
+      .filter(
+        (query) =>
+          Array.isArray(query.queryKey) &&
+          matches(query.queryKey) &&
+          query.state?.status === 'success' &&
+          Number.isFinite(query.state.dataUpdatedAt),
+      )
+      .map((query) =>
+        profile(query.queryKey)
+          ? { ...query, state: { ...query.state, isInvalidated: true } }
+          : query,
+      );
     hydrate(client, { mutations: [], queries });
   };
   // 任一存储损坏时，另一份快照仍可以恢复。
-  await Promise.allSettled([restore(scope), restore(MESSAGE_SCOPE_PREFIX + scope)]);
+  await Promise.allSettled(
+    scope.startsWith(PROFILE_SCOPE_PREFIX)
+      ? [restore(scope)]
+      : [restore(scope), restore(MESSAGE_SCOPE_PREFIX + scope)],
+  );
 }
 
 function boundedData(data: unknown): unknown {
@@ -295,6 +341,7 @@ export function watchBusinessCache(
   store = businessCacheStore,
 ): () => Promise<void> {
   const stopDirectory = watchSnapshot(client, scope, store);
+  if (scope.startsWith(PROFILE_SCOPE_PREFIX)) return stopDirectory;
   const stopMessages = watchSnapshot(client, MESSAGE_SCOPE_PREFIX + scope, store);
   return async () => {
     await Promise.all([stopDirectory(), stopMessages()]);
@@ -303,18 +350,21 @@ export function watchBusinessCache(
 
 /** 正文和目录分开写盘，聊天更新不会重复拷贝整份联系人目录。 */
 function watchSnapshot(client: QueryClient, scope: string, store: BusinessCacheStore) {
+  const { matches, profile } = persistedQueries(scope);
   const retained = new Map<string, { source: SavedQuery; saved?: SavedQuery }>(
     dehydrate(client, {
-      shouldDehydrateQuery: (query) =>
-        persisted(query.queryKey, scope) && query.state.data !== undefined,
+      shouldDehydrateQuery: (query) => matches(query.queryKey) && query.state.data !== undefined,
     }).queries.map((query) => [query.queryHash, { source: query }]),
   );
   const trim = () => {
     while (retained.size > MAX_QUERIES) {
-      // 先淘汰浏览记录，不让大量包详情或搜索挤掉联系人及表情主目录。
+      // 先淘汰浏览记录，保留主目录和设置。
       const victim = [...retained.values()].find(({ source: query }) => {
         const path = query.queryKey[0];
-        return Array.isArray(path) && browsedPaths.has(path.slice(1).join('.'));
+        return (
+          (profile(query.queryKey) && path !== 'contact-card-settings') ||
+          (Array.isArray(path) && browsedPaths.has(path.slice(1).join('.')))
+        );
       });
       retained.delete(victim?.source.queryHash ?? retained.keys().next().value!);
     }
@@ -370,7 +420,7 @@ function watchSnapshot(client: QueryClient, scope: string, store: BusinessCacheS
     if (
       event.type !== 'updated' ||
       event.action.type !== 'success' ||
-      !persisted(event.query.queryKey, scope)
+      !matches(event.query.queryKey)
     )
       return;
     const { queryHash, queryKey, state } = event.query;

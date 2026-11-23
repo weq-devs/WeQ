@@ -97,7 +97,9 @@ import {
   recentContactHeadOptions,
   useRecentContactQueries,
 } from '../hooks/useRecentContactQueries';
-import { resolvedProfilesKey } from '../lib/webBusinessCache';
+import { PROFILE_SCOPE_PREFIX, resolvedProfilesKey } from '../lib/webBusinessCache';
+import { contactCardSettingsKey } from '../lib/profileQuery';
+import { normalizeContactCard } from '@weq/service/contact-card';
 import { usePrivacyStore } from '../state/privacy';
 import { saveRemoteWorkspace } from '../lib/remoteWebStartup';
 import { remoteWorkspaceCheckPending } from '../lib/remoteWorkspaceCheck';
@@ -689,10 +691,10 @@ export function MainView(): ReactElement {
       </TransferActivityProvider>
     </PageSnapshots>
   );
-  return IS_WEB && scope ? (
+  return scope ? (
     <WebBusinessCache
       key={scope}
-      scope={JSON.stringify([location.origin, scope])}
+      scope={(IS_WEB ? '' : PROFILE_SCOPE_PREFIX) + JSON.stringify([location.origin, scope])}
       fallback={<WorkspaceStartupLoading />}
     >
       {workspace}
@@ -1067,6 +1069,18 @@ function MainWorkspace(): ReactElement {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
+  const profileAccount = pinSession.binding?.expectedAccountUin;
+  const profileSource = pinSession.binding?.expectedAccountConfigId;
+  useEffect(() => {
+    if (!profileAccount || !profileSource || !displaySettings.data) return;
+    queryClient.setQueryData(
+      contactCardSettingsKey({
+        expectedAccountUin: profileAccount,
+        expectedAccountConfigId: profileSource,
+      }),
+      normalizeContactCard(displaySettings.data.contactCard),
+    );
+  }, [displaySettings.data, profileAccount, profileSource, queryClient]);
 
   // 与互动标识等在线能力使用同一套前置条件：QQ 账号在线，且没有开启
   // 「完全离线模式」（自动读取 QQ 内存 总闸开启）。状态未读到前按不可发送处理。

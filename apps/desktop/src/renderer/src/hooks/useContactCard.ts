@@ -1,21 +1,28 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { normalizeContactCard } from '@weq/service/contact-card';
+import { normalizeContactCard, type ContactCardSettings } from '@weq/service/contact-card';
 import { client, trpc } from '../trpc/client';
-import { useQQWriteSession } from './useQQWriteSession';
+import { useQQWriteSession, type QQWriteBinding } from './useQQWriteSession';
 import type { Contact, GroupMember, User } from '../im-template/template/types';
 import { useTabActive } from '../components/RetainedTabs.shared';
 import { resolveAvatar } from '../lib/avatarResolver';
 
-import { PROFILE_QUERY_OPTIONS } from '../lib/profileQuery';
+import { contactCardSettingsKey, PROFILE_QUERY_OPTIONS } from '../lib/profileQuery';
 export { PROFILE_QUERY_OPTIONS } from '../lib/profileQuery';
 export type ProfilePerson = User &
   Partial<Contact> &
   Omit<Partial<GroupMember>, keyof User | keyof Contact> & {
     leftGroup?: boolean;
   };
-export function useContactCardSettings() {
+export function useContactCardSettings(binding: QQWriteBinding | null = null) {
   const query = trpc.bootstrap.getSettings.useQuery(undefined, PROFILE_QUERY_OPTIONS);
-  return { ...normalizeContactCard(query.data?.contactCard), ready: Boolean(query.data) };
+  const cached = useQuery<ContactCardSettings>({
+    queryKey: contactCardSettingsKey(binding),
+    enabled: false,
+  });
+  return {
+    ...normalizeContactCard(query.data ? query.data.contactCard : cached.data),
+    ready: Boolean(query.data || cached.data),
+  };
 }
 export function useContactQqShow(uin: string, enabled = true) {
   const session = useQQWriteSession(`contact-show:${uin}`, true);

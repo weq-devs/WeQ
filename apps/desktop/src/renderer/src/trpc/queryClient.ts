@@ -1,7 +1,8 @@
 import { QueryClient } from '@tanstack/react-query';
+import { configureProfileQueries } from '../lib/profileQuery';
 
 export function createQueryClient(isWeb: boolean): QueryClient {
-  return new QueryClient({
+  const client = new QueryClient({
     defaultOptions: {
       // 桌面请求走本机 IPC；系统断网不能暂停本地读取、保存和重试。
       queries: {
@@ -16,4 +17,6 @@ export function createQueryClient(isWeb: boolean): QueryClient {
       mutations: { networkMode: isWeb ? 'online' : 'always' },
     },
   });
+  configureProfileQueries(client);
+  return client;
 }

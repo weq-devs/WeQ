@@ -59,10 +59,10 @@ function ContactProfilePage({
   onPreviewChat,
   previewContent,
 }: Parameters<typeof ContactProfileSurface>[0]) {
-  const { profile, scope } = useContactProfile(contact);
+  const { profile, scope, session } = useContactProfile(contact);
   const relationship = usePersonRelationship(profile);
   const title = relationship === 'self' ? '我的资料' : '联系人资料';
-  const settings = useContactCardSettings();
+  const settings = useContactCardSettings(session.binding);
   const closing = useDraftClose(onClose, null);
   const preview = useContext(GroupSpeechPreviewContext);
   const page = useRef<HTMLElement>(null);

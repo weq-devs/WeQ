@@ -45,8 +45,8 @@ export function MemberProfileCard({
   onAnalyze?: (target: AnalysisTarget) => void;
   localClone?: boolean;
 }) {
-  const settings = useContactCardSettings();
-  const { profile, scope } = useContactProfile({ ...member, clone: localClone });
+  const { profile, scope, session } = useContactProfile({ ...member, clone: localClone });
+  const settings = useContactCardSettings(session.binding);
   const identityKey = JSON.stringify([
     ...scope,
     member.uid || member.id || member.identityValue,

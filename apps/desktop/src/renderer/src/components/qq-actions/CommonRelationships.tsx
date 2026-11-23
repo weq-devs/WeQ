@@ -1,4 +1,5 @@
 import { activateProfile } from '../../lib/profileClick';
+import { replaceEqualDeep } from '@tanstack/react-query';
 import { EmptyState } from '../EmptyState';
 import { useContext, useId, useRef, useState } from 'react';
 import { X, RefreshCw, UsersRound } from 'lucide-react';
@@ -35,6 +36,17 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
       retry: false,
       staleTime: 60000,
       refetchOnWindowFocus: false,
+      structuralSharing: (previous, current) =>
+        replaceEqualDeep(
+          previous,
+          previous
+            ? {
+                ...current,
+                friendCount: current.friendError ? previous.friendCount : current.friendCount,
+                groups: current.groupError ? previous.groups : current.groups,
+              }
+            : current,
+        ),
     },
   );
   const selected = query.data?.groups?.find((group) => group.groupCode === selectedCode);

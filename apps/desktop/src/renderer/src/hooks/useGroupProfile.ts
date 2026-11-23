@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { replaceEqualDeep, useQuery } from '@tanstack/react-query';
 import { useRef } from 'react';
 import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
@@ -81,7 +81,7 @@ export function useGroupProfile(
   const enabled =
     active && Boolean(binding) && !conversation.generated && /^[1-9]\d{0,9}$/.test(conversation.id);
   const detail = useQuery({
-    queryKey: ['group-profile', key, conversation.id],
+    queryKey: ['group-profile', binding, conversation.id],
     queryFn: () => client.account.getGroupDetail.query({ ...binding!, groupCode: conversation.id }),
     enabled,
     ...PROFILE_QUERY_OPTIONS,
@@ -109,7 +109,7 @@ export function useGroupProfile(
   const forceExtended = useRef(false);
   const extendedRefresh = useQQAutoRefresh(enabled);
   const extended = useQuery({
-    queryKey: ['group-profile-joined-at', key, conversation.id],
+    queryKey: ['group-profile-joined-at', binding, conversation.id],
     queryFn: () => {
       const force = forceExtended.current;
       forceExtended.current = false;
@@ -123,6 +123,18 @@ export function useGroupProfile(
     ...PROFILE_QUERY_OPTIONS,
     ...extendedRefresh,
     staleTime: 5 * 60_000,
+    structuralSharing: (previous, current) =>
+      replaceEqualDeep(
+        previous,
+        current.error && previous
+          ? {
+              ...current,
+              profile: current.profile ?? previous.profile,
+              updatedAt: current.updatedAt ?? previous.updatedAt,
+              joinedAt: current.joinedAt ?? previous.joinedAt,
+            }
+          : current,
+      ),
   });
   const joinedAt =
     enabled && extended.data?.groupId === Number(conversation.id) ? extended.data.joinedAt : null;
@@ -138,7 +150,7 @@ export function useGroupProfile(
   );
   const knownName = local?.groupName?.trim() || conversation.group.name?.trim();
   const cloudName = useQuery({
-    queryKey: ['group-profile-name', key, conversation.id],
+    queryKey: ['group-profile-name', binding, conversation.id],
     queryFn: () =>
       client.account.getCardDisplayNames.query({
         kind: 'group',

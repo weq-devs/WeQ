@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { restoreBusinessCache, watchBusinessCache } from '../lib/webBusinessCache';
 import { WebAvatarScope } from '../hooks/useAvatarImage';
+import { IS_WEB } from '../lib/target.shared';
 
 /** 在业务 hooks 挂载前恢复，账号切换沿用已有的 purgeAccountQueries。 */
 export function WebBusinessCache({
@@ -38,5 +39,6 @@ export function WebBusinessCache({
       void stop?.();
     };
   }, [client, scope]);
-  return ready ? <WebAvatarScope value={scope}>{children}</WebAvatarScope> : fallback;
+  if (!ready) return fallback;
+  return IS_WEB ? <WebAvatarScope value={scope}>{children}</WebAvatarScope> : children;
 }

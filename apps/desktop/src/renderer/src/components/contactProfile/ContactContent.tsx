@@ -513,17 +513,16 @@ function MarksRow({ person, onOpen }: { person: ProfilePerson; onOpen: () => voi
     },
     { ...PROFILE_QUERY_OPTIONS, enabled: session.available },
   );
-  const marks =
-    query.data && !query.error
-      ? query.data.categories
-          .flatMap((category) => category.marks)
-          .filter((mark) => mark.isLightup || mark.isWearing)
-          .map((mark) => ({ id: mark.id, text: mark.name, icon: mark.iconUrl }))
-      : (person.extInfo?.interactMarks ?? []).map((mark) => ({
-          id: mark.markId,
-          text: mark.type || `互动标识 ${mark.markId ?? ''}`,
-          icon: mark.iconUrl,
-        }));
+  const marks = query.data
+    ? query.data.categories
+        .flatMap((category) => category.marks)
+        .filter((mark) => mark.isLightup || mark.isWearing)
+        .map((mark) => ({ id: mark.id, text: mark.name, icon: mark.iconUrl }))
+    : (person.extInfo?.interactMarks ?? []).map((mark) => ({
+        id: mark.markId,
+        text: mark.type || `互动标识 ${mark.markId ?? ''}`,
+        icon: mark.iconUrl,
+      }));
   if (!marks.length) return null;
   return (
     <ContactRow label="互动标识">

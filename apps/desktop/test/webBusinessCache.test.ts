@@ -5,6 +5,7 @@ import {
   businessCacheStore,
   restoreBusinessCache,
   configureBusinessCache,
+  PROFILE_SCOPE_PREFIX,
   watchBusinessCache,
   type BusinessCacheStore,
   type BusinessSnapshot,
@@ -15,6 +16,8 @@ import {
   readRecentMessageCache,
 } from '../src/renderer/src/lib/recentMessageCache';
 import { conversationWindowKey } from '../src/renderer/src/lib/conversationWindowCache';
+import { contactCardSettingsKey } from '../src/renderer/src/lib/profileQuery';
+import { createQueryClient } from '../src/renderer/src/trpc/queryClient';
 
 vi.mock('../src/renderer/src/lib/target.shared', () => ({ IS_WEB: true }));
 
@@ -34,6 +37,72 @@ function memoryStore(): BusinessCacheStore {
 }
 
 describe('Web 业务持久缓存', () => {
+  it.each([true, false])('冷启动恢复个人和群名片并按需刷新（Web=%s）', async (web) => {
+    const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+    const other = { ...binding, expectedAccountConfigId: 'source-b' };
+    const prefix = web ? '' : PROFILE_SCOPE_PREFIX;
+    const scope = prefix + JSON.stringify([location.origin, JSON.stringify(['10001', 'source-a'])]);
+    const otherScope =
+      prefix + JSON.stringify([location.origin, JSON.stringify(['10001', 'source-b'])]);
+    const storage = memoryStore();
+    const first = createQueryClient(web);
+    const stop = watchBusinessCache(first, scope, storage);
+    const contact = ['contact-profile', '10001', 'source-a', 'u_peer'];
+    const group = ['group-profile', binding, '12345'];
+    const online = nestedKey('profileExtras.region', { ...binding, uin: '10002' });
+    const settings = contactCardSettingsKey(binding);
+    const foreign = ['group-profile', other, '12345'];
+    const groupManagement = nestedKey('qqActions.groupJoinManagement', {
+      ...binding,
+      groupId: 12345,
+    });
+    first.setQueryData(contact, { nick: '上次昵称' });
+    first.setQueryData(group, { groupName: '上次群名' });
+    first.setQueryData(online, { regionText: '上次所在地' });
+    first.setQueryData(settings, { visible: { region: true } });
+    first.setQueryData(foreign, { groupName: '另一个来源的群名' });
+    first.setQueryData(groupManagement, { question: '管理员设置' });
+    first.setQueryData(key('listProfiles'), ['目录资料']);
+    await stop();
+
+    const next = createQueryClient(web);
+    await restoreBusinessCache(next, otherScope, storage);
+    expect(next.getQueryData(group)).toBeUndefined();
+    await restoreBusinessCache(next, scope, storage);
+    expect(next.getQueryData(foreign)).toBeUndefined();
+    expect(next.getQueryData(groupManagement)).toBeUndefined();
+    expect(next.getQueryData(settings)).toEqual({ visible: { region: true } });
+    expect(next.getQueryData(key('listProfiles'))).toEqual(web ? ['目录资料'] : undefined);
+
+    for (const [queryKey, oldData] of [
+      [contact, { nick: '上次昵称' }],
+      [group, { groupName: '上次群名' }],
+      [online, { regionText: '上次所在地' }],
+    ] as const) {
+      let finish!: (value: object) => void;
+      const request = vi.fn(
+        () =>
+          new Promise<object>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const observer = new QueryObserver(next, { queryKey, queryFn: request });
+      expect(request).not.toHaveBeenCalled();
+      const unsubscribe = observer.subscribe(() => {});
+      expect(observer.getCurrentResult()).toMatchObject({ data: oldData, isFetching: true });
+      expect(request).toHaveBeenCalledOnce();
+      finish({ fresh: true });
+      await next.getQueryCache().find(queryKey)!.promise;
+      expect(observer.getCurrentResult().data).toEqual({ fresh: true });
+      unsubscribe();
+      const reopen = observer.subscribe(() => {});
+      expect(request).toHaveBeenCalledOnce();
+      reopen();
+    }
+    first.clear();
+    next.clear();
+  });
+
   it('新网页来源可从 iOS 共享快照恢复，不接受其他数据源的快照', async () => {
     const account = JSON.stringify(['qq', 'snapshot-a']);
     const other = JSON.stringify(['qq', 'snapshot-b']);
