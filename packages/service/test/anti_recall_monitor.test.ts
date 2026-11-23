@@ -106,9 +106,13 @@ it('连续落库只触发一次补查，停止监听会取消冷却期内的补�
   const { service } = fixture(undefined, true);
   const firstScan = deferred<[]>();
   const scan = vi
-    .spyOn(service.archive!, 'pendingNativeIds')
-    .mockReturnValueOnce(firstScan.promise)
-    .mockResolvedValue([]);
+    .spyOn(service.archive!, 'pendingNativeIdPages')
+    .mockImplementationOnce(async function* () {
+      yield await firstScan.promise;
+    })
+    .mockImplementation(async function* () {
+      yield [];
+    });
   service.startMonitor();
   expect(scan).toHaveBeenCalledOnce();
   await poll();
@@ -124,6 +128,27 @@ it('连续落库只触发一次补查，停止监听会取消冷却期内的补�
   service.stopMonitor();
   await vi.advanceTimersByTimeAsync(5000);
   expect(scan).toHaveBeenCalledTimes(2);
+});
+
+it('防撤回补查到预算后缩小同一批目标，每个待查 ID 仍处理一次', async () => {
+  const { service, nt } = fixture(undefined, true);
+  const wanted = Array.from({ length: 128 }, (_, index) => String(index + 1));
+  vi.spyOn(service.archive!, 'pendingNativeIdPages').mockImplementation(async function* () {
+    yield wanted.map((id) => ({ kind: 'group', conv: '123456', id }));
+  });
+  const attempted: number[] = [];
+  const accepted: string[] = [];
+  nt.executeSqlBudgeted = vi.fn(async (_path, _sql, params) => {
+    const ids = JSON.parse(String(params?.[0])) as string[];
+    attempted.push(ids.length);
+    if (ids.length > 32) throw new Error('database_query_execution_timeout');
+    accepted.push(...ids);
+    return [];
+  });
+  service.startMonitor();
+  await vi.waitFor(() => expect(accepted).toEqual(wanted));
+  expect(attempted).toEqual([128, 64, 32, 32, 32, 32]);
+  await service.dispose();
 });
 
 it('统一渠道开启但名单为空不通知；选择后以渠道为准而非旧总开关', async () => {

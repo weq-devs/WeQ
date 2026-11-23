@@ -13,6 +13,10 @@ import type { UnreadSequenceRange } from './unread_info';
 
 type Native = Pick<NtHelperBinding, 'executeSql' | 'executeSqlWrite' | 'closeDb'>;
 type StoredRecall = RecallTarget & { at: number; localId?: string };
+const NATIVE_PAGE_ROWS = 128;
+const WRITE_ROWS = 64;
+const PENDING_KIND = "CASE WHEN json_valid(payload) THEN json_extract(payload,'$.kind') END";
+const PENDING_CONV = "CASE WHEN json_valid(payload) THEN json_extract(payload,'$.conv') END";
 
 function stringify(value: unknown): string {
   return JSON.stringify(value, (_key, item) =>
@@ -36,6 +40,7 @@ function markRetained(message: GapFetchedMessage): GapFetchedMessage {
 export class RecallArchive {
   private ready?: Promise<void>;
   private writes: Promise<unknown> = Promise.resolve();
+  private recoveredPending = false;
   constructor(
     private readonly nt: Native,
     readonly path: string,
@@ -89,7 +94,27 @@ export class RecallArchive {
       );
       await this.nt.executeSqlWrite(
         this.path,
+        'CREATE INDEX IF NOT EXISTS recall_snapshot_unrecalled_scan ON recall_snapshot(recalled) WHERE recalled=0',
+        null,
+      );
+      await this.nt.executeSqlWrite(
+        this.path,
+        'CREATE INDEX IF NOT EXISTS recall_snapshot_unrecalled_age ON recall_snapshot(observed) WHERE recalled=0',
+        null,
+      );
+      await this.nt.executeSqlWrite(
+        this.path,
         'CREATE TABLE IF NOT EXISTS recall_pending (identity TEXT PRIMARY KEY, at INTEGER, payload TEXT)',
+        null,
+      );
+      await this.nt.executeSqlWrite(
+        this.path,
+        'CREATE INDEX IF NOT EXISTS recall_pending_age ON recall_pending(at)',
+        null,
+      );
+      await this.nt.executeSqlWrite(
+        this.path,
+        `CREATE INDEX IF NOT EXISTS recall_pending_scope ON recall_pending(${PENDING_KIND},${PENDING_CONV},at)`,
         null,
       );
     })().catch((error) => {
@@ -117,15 +142,16 @@ export class RecallArchive {
           m.elements.length &&
           !m.elements.some((element) => element.type.startsWith('grayTip')),
       );
-      for (const message of saved) {
+      for (let i = 0; i < saved.length; i += WRITE_ROWS) {
+        const batch = saved.slice(i, i + WRITE_ROWS);
         await this.nt.executeSqlWrite(
           this.path,
           `INSERT INTO recall_snapshot(identity,kind,conv,msg_id,seq,sender,client_seq,observed,payload)
-           VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(identity) DO UPDATE SET
+           VALUES ${batch.map(() => '(?,?,?,?,?,?,?,?,?)').join(',')} ON CONFLICT(identity) DO UPDATE SET
            msg_id=excluded.msg_id,seq=excluded.seq,client_seq=excluded.client_seq,payload=excluded.payload
            WHERE recall_snapshot.recalled=0
              AND (json_extract(excluded.payload,'$.sourceFormat') IS NULL OR json_extract(recall_snapshot.payload,'$.sourceFormat') IS NOT NULL)`,
-          [
+          batch.flatMap((message) => [
             `${message.kind}:${message.conv}:${message.msgSeq}:${message.senderUid}:${message.msgRandom || message.msgId}`,
             message.kind,
             message.conv,
@@ -135,45 +161,81 @@ export class RecallArchive {
             message.clientSeq ?? '',
             Date.now(),
             stringify(message),
-          ],
+          ]),
         );
       }
-      for (const recall of recalls.filter((r) => this.protects(r.kind, r.conv))) {
-        const identity = stringify([
-          recall.kind,
-          recall.conv,
-          recall.localId ?? recall.messageUid,
-          recall.sequence,
-          recall.clientSequence,
-          recall.timestamp,
-          recall.senderUid,
-        ]);
+      const protectedRecalls = recalls.filter((recall) => this.protects(recall.kind, recall.conv));
+      for (let i = 0; i < protectedRecalls.length; i += WRITE_ROWS) {
+        const batch = protectedRecalls.slice(i, i + WRITE_ROWS);
         await this.nt.executeSqlWrite(
           this.path,
-          'INSERT OR IGNORE INTO recall_pending(identity,at,payload) VALUES(?,?,?)',
-          [identity, recall.at, stringify(recall)],
+          `INSERT OR IGNORE INTO recall_pending(identity,at,payload) VALUES ${batch.map(() => '(?,?,?)').join(',')}`,
+          batch.flatMap((recall) => [
+            stringify([
+              recall.kind,
+              recall.conv,
+              recall.localId ?? recall.messageUid,
+              recall.sequence,
+              recall.clientSequence,
+              recall.timestamp,
+              recall.senderUid,
+            ]),
+            recall.at,
+            stringify(recall),
+          ]),
         );
       }
-      if (saved.length || recalls.length) await this.applyPending();
+      if (saved.length || protectedRecalls.length) {
+        const scopes = new Set(
+          [...saved, ...protectedRecalls].map(({ kind, conv }) => JSON.stringify([kind, conv])),
+        );
+        try {
+          // 启动后先补一次写入和匹配之间中断的工作，此后只处理本批变化涉及的会话。
+          await this.applyPending(this.recoveredPending ? [...scopes] : undefined);
+          this.recoveredPending = true;
+        } catch (error) {
+          this.recoveredPending = false;
+          throw error;
+        }
+      }
       await this.nt.executeSqlWrite(
         this.path,
-        `DELETE FROM recall_snapshot WHERE recalled=0 AND
-         (observed<? OR rowid IN (SELECT rowid FROM recall_snapshot WHERE recalled=0 ORDER BY observed DESC LIMIT -1 OFFSET 10000))`,
+        `DELETE FROM recall_snapshot WHERE rowid IN (
+          SELECT rowid FROM recall_snapshot INDEXED BY recall_snapshot_unrecalled_age
+            WHERE recalled=0 AND observed<?
+          UNION ALL SELECT rowid FROM (
+            SELECT rowid FROM recall_snapshot INDEXED BY recall_snapshot_unrecalled_age WHERE recalled=0
+              ORDER BY observed DESC, rowid DESC LIMIT -1 OFFSET 10000
+          )
+        )`,
         [Date.now() - 7 * 86400000],
       );
       await this.nt.executeSqlWrite(
         this.path,
-        'DELETE FROM recall_pending WHERE at<? OR rowid IN (SELECT rowid FROM recall_pending ORDER BY at DESC LIMIT -1 OFFSET 1000)',
+        `DELETE FROM recall_pending WHERE rowid IN (
+          SELECT rowid FROM recall_pending INDEXED BY recall_pending_age WHERE at<?
+          UNION ALL SELECT rowid FROM (
+            SELECT rowid FROM recall_pending INDEXED BY recall_pending_age
+              ORDER BY at DESC, rowid DESC LIMIT -1 OFFSET 1000
+          )
+        )`,
         [Math.floor(Date.now() / 1000) - 7 * 86400],
       );
     });
   }
 
-  private async applyPending() {
+  private async applyPending(scopes?: string[]) {
     const pending = await this.nt.executeSql(
       this.path,
-      'SELECT identity,payload FROM recall_pending ORDER BY at',
-      null,
+      scopes
+        ? `WITH affected AS (SELECT value FROM json_each(?))
+           SELECT identity,payload FROM affected
+           CROSS JOIN recall_pending INDEXED BY recall_pending_scope
+           WHERE (${PENDING_KIND})=json_extract(affected.value,'$[0]')
+             AND (${PENDING_CONV})=json_extract(affected.value,'$[1]')
+           ORDER BY at`
+        : 'SELECT identity,payload FROM recall_pending ORDER BY at',
+      scopes ? [JSON.stringify(scopes)] : null,
     );
     for (const [identity, payload] of pending) {
       const recall = parse<StoredRecall>(payload);
@@ -369,20 +431,37 @@ export class RecallArchive {
     return rows.length === 1 ? markRetained(parse<GapFetchedMessage>(rows[0]![0])) : null;
   }
 
-  async pendingNativeIds(): Promise<{ kind: 'c2c' | 'group'; id: string; conv: string }[]> {
-    if (!existsSync(this.path)) return [];
+  async *pendingNativeIdPages(
+    signal?: AbortSignal,
+  ): AsyncGenerator<Array<{ kind: 'c2c' | 'group'; id: string; conv: string }>> {
+    if (!existsSync(this.path)) return;
     await this.writes.catch(() => undefined);
+    if (signal?.aborted) return;
     await this.prepare();
-    const rows = await this.nt.executeSql(
-      this.path,
-      'SELECT kind,msg_id,conv FROM recall_snapshot WHERE recalled=0',
-      null,
-    );
-    return rows.map((row) => ({
-      kind: String(row[0]) as 'c2c' | 'group',
-      id: String(row[1]),
-      conv: String(row[2]),
-    }));
+    const upper = (
+      await this.nt.executeSql(
+        this.path,
+        'SELECT MAX(rowid) FROM recall_snapshot INDEXED BY recall_snapshot_unrecalled_scan WHERE recalled=0',
+        null,
+      )
+    )[0]?.[0];
+    if (upper == null) return;
+    let after: SqlValue | undefined;
+    while (!signal?.aborted) {
+      const rows = await this.nt.executeSql(
+        this.path,
+        `SELECT rowid,kind,msg_id,conv FROM recall_snapshot INDEXED BY recall_snapshot_unrecalled_scan
+          WHERE recalled=0 AND rowid<=?${after === undefined ? '' : ' AND rowid>?'}
+          ORDER BY rowid LIMIT ?`,
+        after === undefined ? [upper, NATIVE_PAGE_ROWS] : [upper, after, NATIVE_PAGE_ROWS],
+      );
+      if (!rows.length || signal?.aborted) return;
+      yield rows.flatMap(([, kind, id, conv]) =>
+        kind === 'c2c' || kind === 'group' ? [{ kind, id: String(id), conv: String(conv) }] : [],
+      );
+      if (rows.length < NATIVE_PAGE_ROWS) return;
+      after = rows.at(-1)?.[0];
+    }
   }
 
   async query(

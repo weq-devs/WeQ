@@ -9,6 +9,7 @@ import {
   AntiRecallDb,
   withDatabaseSignal,
   withDatabasePriority,
+  withDatabaseReadBudget,
   assertDatabaseWritable,
   type AntiRecallTarget,
   type AntiRecallTriggerInfo,
@@ -516,46 +517,71 @@ export class AntiRecallService {
   }
 
   private async scanSnapshots(archive: RecallArchive, signal: AbortSignal): Promise<void> {
-    const ids = await archive.pendingNativeIds();
     const db = new QqDb(this.platform.native.ntHelper, {
       dbPath: this.session.msgDbPath,
       key: this.session.context.dbKey,
       algo: algoFor(this.session.context, this.session.msgDbPath),
     });
-    for (const kind of ['c2c', 'group', 'dataline'] as const) {
+    for await (const ids of archive.pendingNativeIdPages(signal)) {
       if (signal.aborted || !this.config.enabled) return;
-      const selected = ids
-        .filter((row) =>
+      const selected = { c2c: [] as string[], group: [] as string[], dataline: [] as string[] };
+      for (const row of ids) {
+        const kind = row.kind === 'c2c' && isDatalineUid(row.conv) ? 'dataline' : row.kind;
+        selected[kind].push(row.id);
+      }
+      for (const kind of ['c2c', 'group', 'dataline'] as const) {
+        const candidates = await this.recalledSnapshotIds(db, kind, selected[kind], signal);
+        if (signal.aborted || !this.config.enabled) return;
+        if (!candidates.length) continue;
+        const source =
           kind === 'group'
-            ? row.kind === 'group'
-            : row.kind === 'c2c' && isDatalineUid(row.conv) === (kind === 'dataline'),
-        )
-        .map((row) => row.id);
-      if (!selected.length) continue;
-      const table =
-        kind === 'group'
-          ? 'group_msg_table'
-          : kind === 'dataline'
-            ? 'dataline_msg_table'
-            : 'c2c_msg_table';
-      const candidates = await db.query(
-        `SELECT "40001" FROM ${table}
-          WHERE "40001" IN (SELECT CAST(value AS INTEGER) FROM json_each(?))
-          AND instr("40800",X'd0fc1508')>0`,
-        [JSON.stringify(selected)],
-      );
-      if (signal.aborted || !this.config.enabled) return;
-      if (!candidates.length) continue;
-      const source =
-        kind === 'group'
-          ? this.session.groupMsgs
-          : kind === 'dataline'
-            ? this.session.datalineMsgs
-            : this.session.c2cMsgs;
-      const rows = await source.listByMsgIds(candidates.map((row) => BigInt(String(row[0]))));
-      if (signal.aborted || !this.config.enabled) return;
-      await archive.observeNative(rows);
+            ? this.session.groupMsgs
+            : kind === 'dataline'
+              ? this.session.datalineMsgs
+              : this.session.c2cMsgs;
+        const rows = await source.listByMsgIds(candidates);
+        if (signal.aborted || !this.config.enabled) return;
+        await archive.observeNative(rows);
+      }
+      await new Promise<void>((done) => setImmediate(done));
     }
+  }
+
+  private async recalledSnapshotIds(
+    db: QqDb,
+    kind: 'c2c' | 'group' | 'dataline',
+    ids: string[],
+    signal: AbortSignal,
+  ): Promise<bigint[]> {
+    const matches: bigint[] = [];
+    let size = ids.length;
+    for (let offset = 0; offset < ids.length && !signal.aborted && this.config.enabled; ) {
+      const chunk = ids.slice(offset, offset + size);
+      const read = () =>
+        db.query(
+          `SELECT "40001" FROM ${kind}_msg_table
+           WHERE "40001" IN (SELECT CAST(value AS INTEGER) FROM json_each(?))
+             AND instr("40800",X'd0fc1508')>0`,
+          [JSON.stringify(chunk)],
+        );
+      try {
+        const rows =
+          db.supportsReadBudget && chunk.length > 1
+            ? await withDatabaseReadBudget(15, read)
+            : await read();
+        for (const [id] of rows) matches.push(BigInt(String(id)));
+        offset += chunk.length;
+      } catch (error) {
+        if (
+          chunk.length <= 1 ||
+          !(error instanceof Error) ||
+          !/database_query_(execution|wait)_timeout/.test(error.message)
+        )
+          throw error;
+        size = Math.max(1, Math.floor(chunk.length / 2));
+      }
+    }
+    return matches;
   }
 
   async dispose() {

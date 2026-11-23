@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { closeAllFixtureDbs, createSqliteStub } from '@weq/testkit';
+import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 import { RecallArchive } from '../src/account/recall_archive';
 import { GapHistoryService, type GapFetchedMessage } from '../src/account/gap_history';
 import { mergeRoamingTimeline } from '../src/common/roaming_timeline';
@@ -16,6 +16,75 @@ afterEach(() => {
   vi.restoreAllMocks();
   closeAllFixtureDbs();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+it('巡查逐批读取固定上界内的待确认快照，已撤回正文和半途新增交给各自的路径', async () => {
+  const { archive } = setup();
+  await archive.observe([]);
+  const sql = fixtureDb(archive.path);
+  const insert = sql.prepare(
+    "INSERT INTO recall_snapshot(identity,kind,conv,msg_id,observed,recalled,payload) VALUES (?,'c2c','u_peer',?,?,?,'{}')",
+  );
+  const now = Date.now();
+  for (let i = 1; i <= 270; i++) insert.run(String(i), String(i), now, i === 129 ? 1 : 0);
+  const pages = archive.pendingNativeIdPages();
+  const first = await pages.next();
+  expect(first.value).toHaveLength(128);
+  insert.run('late', '999', now, 0);
+  const remaining = [];
+  for await (const page of pages) {
+    expect(page.length).toBeLessThanOrEqual(128);
+    remaining.push(...page.map(({ id }) => id));
+  }
+  expect(remaining).toEqual(Array.from({ length: 141 }, (_, index) => String(index + 130)));
+});
+
+it('留存容量与过期修剪保留已撤回正文，同刻新增优先保留', async () => {
+  const { archive } = setup();
+  await archive.observe([]);
+  const sql = fixtureDb(archive.path);
+  const insert = sql.prepare(
+    "INSERT INTO recall_snapshot(identity,kind,conv,msg_id,observed,recalled,payload) VALUES (?,'c2c','u_peer',?,?,?,'{}')",
+  );
+  const now = Date.now();
+  sql.exec('BEGIN');
+  for (let i = 1; i <= 10001; i++) insert.run(String(i), String(i), now, 0);
+  insert.run('expired', 'expired', now - 8 * 86400_000, 0);
+  insert.run('retained', 'retained', now - 8 * 86400_000, 1);
+  sql.exec('COMMIT');
+  await archive.observe([]);
+  expect(
+    sql.prepare('SELECT COUNT(*) AS count FROM recall_snapshot WHERE recalled=0').get(),
+  ).toEqual({
+    count: 10000,
+  });
+  expect(
+    sql
+      .prepare("SELECT identity FROM recall_snapshot WHERE identity IN ('1','expired','retained')")
+      .all(),
+  ).toEqual([{ identity: 'retained' }]);
+});
+
+it('新增原文只匹配相关会话，重开后仍能恢复已经写入但未匹配的旧记录', async () => {
+  const f = setup();
+  const archive = new RecallArchive(f.nt, f.path, () => true, f.notify);
+  const other = { ...f.recall, conv: 'u_other' };
+  await archive.observe([], [f.recall, other]);
+  const reads = vi.spyOn(f.nt, 'executeSql');
+  await archive.observe([f.original]);
+  expect(
+    reads.mock.calls.filter(([, statement]) => statement.includes('SELECT payload,recalled')),
+  ).toHaveLength(1);
+  expect(f.notify.mock.calls.map(([message]) => message.conv)).toEqual(['u_peer']);
+
+  // 模拟旧进程在写入原文之后、尚未匹配待确认撤回时退出。
+  const original = { ...f.original, conv: 'u_other', msgId: '9002' };
+  fixtureDb(f.path)
+    .prepare("INSERT INTO recall_snapshot VALUES (?,'c2c','u_other','9002',42,'u_peer','8',?,0,?)")
+    .run('c2c:u_other:42:u_peer:77', Date.now(), JSON.stringify(original));
+  const reopened = new RecallArchive(f.nt, f.path, () => true, f.notify);
+  await reopened.observe([f.original]);
+  expect(f.notify.mock.calls.map(([message]) => message.conv)).toEqual(['u_peer', 'u_other']);
 });
 
 it('数据库读取原文后识别灰条，无代理时也能保存撤回正文', async () => {
