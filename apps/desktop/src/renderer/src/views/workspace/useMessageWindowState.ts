@@ -20,7 +20,10 @@ import type { MessageReadWindow } from '../../../../shared/message_read';
 import { timelineRowKey } from '../../../../shared/roaming_timeline';
 import { mergeRefreshedWindow } from '../../lib/conversationRefresh';
 import { readCachedMessageWindow } from '../../lib/cachedMessageRead';
-import { rememberRecentMessageCache } from '../../lib/recentMessageCache';
+import {
+  rememberRecentMessageCache,
+  saveRemoteRecentMessageWindow,
+} from '../../lib/recentMessageCache';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   captureReadingPosition,
@@ -191,9 +194,14 @@ export function useMessageWindowState({
         void client.account.cancelMessageRead.mutate({ ...binding, readWindow }).catch(() => {});
       },
       store: (target, rows, prefetch, revision) => {
-        if (prefetch) recordMessageCounter('prefetchReady');
-        conversationWindows.put(conversationWindowKey(messageScope, target.kind, target.conv), {
-          rows: [...rows].reverse(),
+        const key = conversationWindowKey(messageScope, target.kind, target.conv);
+        const ascending = [...rows].reverse();
+        if (prefetch) {
+          recordMessageCounter('prefetchReady');
+          saveRemoteRecentMessageWindow(key, ascending, rows.length >= target.limit);
+        }
+        conversationWindows.put(key, {
+          rows: ascending,
           anchored: true,
           hasOlder: rows.length >= target.limit,
           hasNewer: false,

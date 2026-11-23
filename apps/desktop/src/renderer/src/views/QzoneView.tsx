@@ -214,7 +214,9 @@ function QzonePage({
 }) {
   const scroll = useRef<HTMLDivElement>(null);
   const readsEnabled = useContext(QzoneReadsEnabled);
-  const activity = useQQReadActivity(active && (!pauseReadsDuringNavigation || readsEnabled));
+  const activity = useQQReadActivity(active && (!pauseReadsDuringNavigation || readsEnabled), {
+    remoteCache: true,
+  });
   const position = useRef(0);
   const previousActive = useRef(false);
   const previousScrollKey = useRef<string | undefined>(undefined);
@@ -435,7 +437,7 @@ export function QzoneView({
   namePriority?: QzoneNamePriority;
 }): ReactElement {
   const readsEnabled = useContext(QzoneReadsEnabled);
-  const activity = useQQReadActivity(active && readsEnabled);
+  const activity = useQQReadActivity(active && readsEnabled, { remoteCache: true });
   const { names, request } = useQzoneNicknames(selfUin, activity.enabled);
   const initialSpace = spaceRequest?.accountUin === selfUin ? spaceRequest : null;
   const initialSection = initialSpace ? requestedOwnerTab(initialSpace) : null;
@@ -1091,6 +1093,7 @@ function SpaceContent({
   const readsEnabled = useContext(QzoneReadsEnabled);
   const indexActivity = useQQReadActivity(
     active && readsEnabled && (pane === 'home' || pane === 'blogs' || pane === 'shares'),
+    { remoteCache: true },
   );
   const blogIndex = useQzoneBlogIndex({
     selfUin,

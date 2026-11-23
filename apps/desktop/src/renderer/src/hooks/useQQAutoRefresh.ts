@@ -1,17 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTabActive } from '../components/RetainedTabs.shared';
 import { useRenderDocument } from '../lib/renderDocument';
+import { useRemoteClient } from '../lib/remoteClient';
+import { useWebConnection } from '../state/webConnection';
 
 /** 手写异步页与查询缓存共用可读状态，不用定时器维持前台刷新。 */
 export function useQQReadActivity(
   available: boolean,
-  { onlineOnly = true }: { onlineOnly?: boolean } = {},
+  { onlineOnly = true, remoteCache = false }: { onlineOnly?: boolean; remoteCache?: boolean } = {},
 ) {
   const document = useRenderDocument();
   const owner = document.defaultView ?? window;
   const tabActive = useTabActive();
+  const remote = useRemoteClient();
+  const readsLocalCache = remoteCache && remote;
+  const requiresNetwork = onlineOnly && !readsLocalCache;
+  const recovery = useWebConnection((current) => (readsLocalCache ? current.recovery : 0));
   const [state, setState] = useState(() => ({
-    active: document.visibilityState !== 'hidden' && (!onlineOnly || owner.navigator.onLine),
+    active: document.visibilityState !== 'hidden' && (!requiresNetwork || owner.navigator.onLine),
     revision: 0,
   }));
   const lastResume = useRef(Date.now());
@@ -19,7 +25,7 @@ export function useQQReadActivity(
     if (!available || !tabActive) return;
     const update = (event?: Event) => {
       const active =
-        document.visibilityState !== 'hidden' && (!onlineOnly || owner.navigator.onLine);
+        document.visibilityState !== 'hidden' && (!requiresNetwork || owner.navigator.onLine);
       const now = Date.now();
       const focusRefresh = active && event?.type === 'focus' && now - lastResume.current > 250;
       if (active) lastResume.current = now;
@@ -44,15 +50,15 @@ export function useQQReadActivity(
       owner.removeEventListener('offline', update);
       owner.removeEventListener('focus', update);
     };
-  }, [available, tabActive, onlineOnly, document, owner]);
+  }, [available, tabActive, requiresNetwork, document, owner]);
   return {
     enabled:
       available &&
       tabActive &&
       state.active &&
       document.visibilityState !== 'hidden' &&
-      (!onlineOnly || owner.navigator.onLine),
-    revision: state.revision,
+      (!requiresNetwork || owner.navigator.onLine),
+    revision: state.revision + recovery,
   };
 }
 

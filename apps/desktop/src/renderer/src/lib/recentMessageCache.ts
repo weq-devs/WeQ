@@ -4,6 +4,11 @@ import type { MessageWire } from '../views/workspace/types';
 import { conversationWindowKey, type ConversationWindow } from './conversationWindowCache';
 import { IS_WEB } from './target.shared';
 import { isRemoteClient } from './remoteClient';
+import {
+  currentRemoteDataCacheStatus,
+  getRemoteCacheRecord,
+  putRemoteCacheRecord,
+} from './remoteDataCache';
 
 export const recentMessageCacheTag = 'weq-recent-message-windows-v1';
 export const recentMessageIndexTag = 'index';
@@ -101,6 +106,10 @@ export function readRecentMessageCache(
       : undefined;
   if (!validEntry(entry) || (!isRemoteClient() && entry.savedAt + TTL < Date.now()))
     return undefined;
+  return toWindow(entry);
+}
+
+function toWindow(entry: Entry): ConversationWindow<MessageWire> | undefined {
   const rows = entry.rows.filter(validMessageRow);
   if (!rows.length) return undefined;
   return {
@@ -115,7 +124,30 @@ export function readRecentMessageCache(
   };
 }
 
-/** Only verified, actually opened windows are persisted, with no prefetched or optimistic rows. */
+const remoteWindowKey = (key: string) => JSON.stringify(['message-window', key]);
+
+export async function readRemoteRecentMessageWindow(key: string) {
+  const entry = await getRemoteCacheRecord<Entry>(remoteWindowKey(key));
+  return validEntry(entry) ? toWindow(entry) : undefined;
+}
+
+export function saveRemoteRecentMessageWindow(
+  key: string,
+  rows: MessageWire[],
+  hasOlder: boolean,
+): boolean {
+  const status = currentRemoteDataCacheStatus();
+  if (!status) return false;
+  if (rows.length)
+    void putRemoteCacheRecord(
+      remoteWindowKey(key),
+      { key, rows, savedAt: Date.now(), bytes: 0, hasOlder } satisfies Entry,
+      status,
+    );
+  return true;
+}
+
+/** 普通浏览器及旧手机壳沿用原有的近期尾窗预算。 */
 export function rememberRecentMessageCache(
   client: QueryClient,
   scope: string,
@@ -126,6 +158,7 @@ export function rememberRecentMessageCache(
 ) {
   if (!IS_WEB || !scope) return;
   const key = conversationWindowKey(scope, kind, conv);
+  if (saveRemoteRecentMessageWindow(key, rows, hasOlder)) return;
   const index = client.getQueryData<string[]>(indexKey(scope));
   const legacy = client.getQueryData<Entry[]>(queryKey(scope));
   const existing = Array.isArray(index)

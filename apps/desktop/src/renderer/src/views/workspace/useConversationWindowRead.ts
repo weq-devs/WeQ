@@ -24,7 +24,12 @@ import {
 import { loadConversationEntry } from '../../lib/conversationEntry';
 import { readCachedMessageWindow } from '../../lib/cachedMessageRead';
 import { useQueryClient } from '@tanstack/react-query';
-import { readRecentMessageCache, rememberRecentMessageCache } from '../../lib/recentMessageCache';
+import {
+  readRecentMessageCache,
+  readRemoteRecentMessageWindow,
+  rememberRecentMessageCache,
+} from '../../lib/recentMessageCache';
+import { remoteDataCacheOffline } from '../../lib/remoteDataCache';
 import { mergeRefreshedWindow } from '../../lib/conversationRefresh';
 import {
   atConversationBottom,
@@ -482,6 +487,11 @@ export function useConversationWindowEntry(
     }
     void (async () => {
       try {
+        const restored =
+          !cached && IS_WEB && !resumable
+            ? await readRemoteRecentMessageWindow(readKey)
+            : undefined;
+        if (!valid()) return;
         const readSeq = resumable?.anchorSeq;
         const restoreAnchor = Boolean(resumable?.anchorId && resumable.offset !== undefined);
         let pendingReadingPosition: ConversationReadingPosition | undefined;
@@ -489,8 +499,8 @@ export function useConversationWindowEntry(
         const entryStarted = performance.now();
         let firstRows = false;
         await loadConversationEntry<MessageWire>({
-          cached,
-          dirty: dirty || Boolean(verifyUnknown),
+          cached: cached ?? restored,
+          dirty: Boolean(restored) || dirty || Boolean(verifyUnknown),
           readSeq,
           restoreAnchor,
           readFromFirstUnread: Boolean(resumable),
@@ -555,6 +565,7 @@ export function useConversationWindowEntry(
               )
             ).map(toMessageWire),
           validateCachedLatest: async (window) => {
+            if (restored && remoteDataCacheOffline()) return window.rows;
             const first = window.rows[0];
             if (
               !IS_WEB ||
@@ -676,6 +687,22 @@ export function useConversationWindowEntry(
         });
       } catch (err) {
         if (!valid()) return;
+        if (IS_WEB && remoteDataCacheOffline() && resumable && !loadedRef.current.length) {
+          // 旧锚点未缓存时，仍能从本机尾窗开始阅读已取得的历史。
+          const latest = await readRemoteRecentMessageWindow(readKey);
+          if (!valid()) return;
+          if (latest) {
+            loadedRef.current = latest.rows;
+            verifiedWindowRowsRef.current = latest.rows;
+            windowRef.current = { minSeq: latest.rows[0]?.msgSeq ?? null, anchored: true };
+            setLoaded(latest.rows);
+            setHasOlder(latest.hasOlder);
+            setHasNewer(false);
+            setAnchoredToLatest(true);
+            finishEntry();
+            return;
+          }
+        }
         console.error('[msgs] entry load failed', err);
         setReadFailure({ key: readKey, stage: 'entry' });
         setMessagesLoading(false);

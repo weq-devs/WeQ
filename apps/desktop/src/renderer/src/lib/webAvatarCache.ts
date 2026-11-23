@@ -1,4 +1,11 @@
 import {
+  putRemoteCachedMedia,
+  readRemoteCachedMedia,
+  remoteCachedResource,
+  remoteDataCacheAccount,
+  remoteDataCacheStatus,
+} from './remoteDataCache';
+import {
   publicDressImage,
   remoteAvatarSource,
   remoteDressImageSource,
@@ -107,6 +114,15 @@ function bridgeAvatarKey(key: string): string | undefined {
 
 export const avatarStore: AvatarStore = {
   async get(key) {
+    const status = await remoteDataCacheStatus();
+    const [originScope, path] = JSON.parse(key) as [string, string];
+    const account = sharedAccountScope(originScope);
+    if (status && account) {
+      if (account !== remoteDataCacheAccount()) return undefined;
+      const cached = await readRemoteCachedMedia(path);
+      if (cached) return { key, blob: cached.blob, etag: null, updatedAt: cached.storedAt };
+      if (status.cleared) return undefined;
+    }
     const bridge = remoteCacheBridge();
     const scope = bridge && bridgeAvatarKey(key);
     if (!bridge || !scope) return localAvatarStore.get(key);
@@ -146,6 +162,15 @@ export const avatarStore: AvatarStore = {
     }
   },
   async put(value) {
+    const status = await remoteDataCacheStatus();
+    const [originScope, path] = JSON.parse(value.key) as [string, string];
+    const account = sharedAccountScope(originScope);
+    if (status && account) {
+      const url = new URL(path, location.origin);
+      url.searchParams.set('weqCacheScope', account);
+      await putRemoteCachedMedia(url.pathname + url.search, value.blob, status);
+      return;
+    }
     const local = localAvatarStore.put(value);
     const bridge = remoteCacheBridge();
     const scope = bridge && bridgeAvatarKey(value.key);
@@ -184,7 +209,7 @@ export function webAvatarKey(scope: string, source: string): string | null {
   const dress = url.searchParams.has('_weq_dress_direct') && publicDressImage(url);
   if (dress) return JSON.stringify([scope, `/_media/dress?${new URLSearchParams({ src: dress })}`]);
   if (!['/_media/avatar', '/_avatar/fetch'].includes(url.pathname)) return null;
-  for (const key of ['cid', '_weq_avatar_refresh', '_weq_avatar_remote'])
+  for (const key of ['cid', '_weq_avatar_refresh', '_weq_avatar_remote', 'weqCacheScope'])
     url.searchParams.delete(key);
   url.searchParams.sort();
   return JSON.stringify([scope, url.pathname + url.search]);
@@ -464,7 +489,7 @@ export function createWebAvatarCache({
           }
           if (!current()) return;
           const response = await abortable(
-            fetchImage(source, {
+            fetchImage(remoteCachedResource(source), {
               cache: 'no-store',
               signal: controller.signal,
               headers: !force && entry?.value?.etag ? { 'If-None-Match': entry.value.etag } : {},
@@ -493,7 +518,7 @@ export function createWebAvatarCache({
             entry.request = source;
             entry.retryAt = 0;
           } else await install(value);
-          if (current()) void store.put(value).catch(() => {});
+          if (current() && !(await remoteDataCacheStatus())) void store.put(value).catch(() => {});
         } catch {
           if (jobs.get(key) !== job || (!current() && !timedOut)) return;
           if (entry?.value) entry.retryAt = now() + WEB_AVATAR_LIMITS.retryMs;
@@ -522,3 +547,13 @@ export function createWebAvatarCache({
 }
 
 export const webAvatarCache = createWebAvatarCache();
+
+export async function clearLegacyAvatarCache() {
+  const db = await openDatabase();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('images', 'readwrite');
+    tx.objectStore('images').clear();
+    tx.oncomplete = () => resolve();
+    tx.onabort = tx.onerror = () => reject(new Error('旧头像缓存清理失败'));
+  });
+}

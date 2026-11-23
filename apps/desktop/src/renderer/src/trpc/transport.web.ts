@@ -24,6 +24,7 @@ import { fetchRpcWithDeadline } from './httpDeadline';
 import { prepareRpcBatchResponse } from './httpBatchStream';
 import { remoteWorkspaceCheckPending } from '../lib/remoteWorkspaceCheck';
 import { isRemoteClient } from '../lib/remoteClient';
+import { remoteCacheLink } from './remoteCacheLink';
 
 function sessionExpired() {
   if (isRemoteClient()) window.weqRemoteShell?.connectionFailed?.();
@@ -180,6 +181,7 @@ export function createLinks(): TRPCLink<AppRouter>[] {
     }),
   });
   return [
+    remoteCacheLink,
     splitLink({
       condition: (op) => op.type === 'subscription',
       true: wsLink({ client: wsClient }),

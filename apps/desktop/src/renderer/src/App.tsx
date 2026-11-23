@@ -27,6 +27,7 @@ import { DialogHost } from './components/Dialog';
 import { ClientDocumentPreview } from './components/ClientDocumentPreview';
 import { AccountSwitchRequestHost } from './components/AccountSwitchRequestHost';
 import { RemoteRequests } from './components/RemoteRequests';
+import { RemoteDataCacheDialog } from './components/RemoteDataCacheDialog';
 import { HoverTooltip } from './components/HoverTooltip';
 import { ToastHost } from './components/Toast';
 import { AnnouncementCenter } from './components/AnnouncementCenter';
@@ -287,6 +288,7 @@ export default function App(): ReactElement {
             {/* 「加入交流群」引导 —— 与上面是接力关系：欢迎框确认后才轮到它，
                 自身决定是否显示（见 JoinGroupDialog 的判据）。 */}
             {view === 'main' ? <JoinGroupDialog /> : null}
+            <RemoteDataCacheDialog />
             <DialogHost />
             <ClientDocumentPreview />
             <RemoteStartupReporter />

@@ -1,4 +1,5 @@
 type CacheAction =
+  | { action: 'clear' }
   | { action: 'get' | 'getRecords'; newerThan?: number }
   | { action: 'put'; payload: string; savedAt: number }
   | {
@@ -63,4 +64,10 @@ export async function boundedBridgeReply(read: Promise<unknown>): Promise<unknow
   } finally {
     window.clearTimeout(timer);
   }
+}
+
+export function clearLegacyNativeCache() {
+  const bridge = remoteCacheBridge();
+  if (!bridge) return Promise.resolve();
+  return bridge.postMessage({ action: 'clear', scope: '', kind: 'business' }).then(() => undefined);
 }

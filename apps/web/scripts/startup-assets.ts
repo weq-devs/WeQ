@@ -51,14 +51,32 @@ export function developmentStartupAssets(): Plugin {
         if (!resources.length) return;
         const meta = `<meta name="weq-development-startup-resources" content='${JSON.stringify({ version: 1, resources })}'>`;
         const required = staticAssets(bundle, entry.fileName);
-        // 缓存主页数据后，断连重进空间仍需要独立的页面分包及其静态依赖。
+        // 离线浏览已缓存内容所需的按需页面和静态依赖。
+        const offlinePages = [
+          'MainView',
+          'ChatHome',
+          'QzoneView',
+          'QzonePublicView',
+          'MailView',
+          'QqMarkdownContent',
+          'OfficialConversationPane',
+          'MediaPreview',
+          'CollectionDialog',
+          'QzoneAlbumDialog',
+          'GroupAlbumDialog',
+          'GroupAlbumFeedDialog',
+          'GroupFileDialog',
+          'GroupEssenceDialog',
+          'ConversationIdentityCard',
+          'GroupProfileSurface',
+          'ChatRecordsModal',
+          'SearchResultsPanel',
+        ];
         for (const chunk of Object.values(bundle)) {
           if (
             chunk.type === 'chunk' &&
             Object.keys(chunk.modules).some((id) =>
-              /\/(?:views\/(?:MainView|ChatHome|QzoneView)|components\/(?:QqMarkdownContent|OfficialConversationPane))\.tsx$/.test(
-                id,
-              ),
+              offlinePages.some((page) => id.endsWith(`/${page}.tsx`)),
             )
           )
             staticAssets(bundle, chunk.fileName, required);

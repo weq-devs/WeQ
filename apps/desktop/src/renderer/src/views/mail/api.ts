@@ -12,6 +12,13 @@ import type {
 import { client } from '../../trpc/client';
 import { IS_WEB } from '../../lib/target.shared';
 import { pickAccountFile } from '../../lib/accountFilePicker';
+import {
+  getRemoteCacheRecord,
+  putRemoteCacheRecord,
+  remoteDataCacheAccount,
+  remoteDataCacheOffline,
+  remoteDataCacheStatus,
+} from '../../lib/remoteDataCache';
 import type { ExportSavePolicy } from '@weq/service';
 
 export type MailSubmission =
@@ -23,7 +30,7 @@ export interface MailApi {
   disconnect(): Promise<void>;
   folders(signal?: AbortSignal): Promise<MailFolder[]>;
   list(input: MailListInput, signal?: AbortSignal): Promise<MailPage>;
-  read(id: string, signal?: AbortSignal): Promise<MailDetail>;
+  read(id: string, signal?: AbortSignal): Promise<MailDetail & { fromRemoteCache?: true }>;
   previewUnread(): Promise<{ ids: string[]; configId: string }>;
   markAllRead(ids: string[], expectedAccountConfigId: string): Promise<void>;
   action(ids: string[], action: MailAction): Promise<void>;
@@ -85,8 +92,38 @@ export function createMailApi(selfUin: string): MailApi {
           }),
         signal,
       ),
-    read: (id, signal) =>
-      request((requestId) => client.mail.read.mutate({ selfUin, requestId, id }), signal),
+    async read(id, signal) {
+      const account = remoteDataCacheAccount();
+      const status = account ? await remoteDataCacheStatus() : undefined;
+      const key = JSON.stringify(['mail-detail', account, selfUin, id]);
+      const local = async () => {
+        const value = await getRemoteCacheRecord<MailDetail>(key);
+        signal?.throwIfAborted();
+        return value && remoteDataCacheAccount() === account
+          ? { ...value, fromRemoteCache: true as const }
+          : undefined;
+      };
+      if (status && remoteDataCacheOffline()) {
+        const value = await local();
+        if (value) return value;
+        if (navigator.onLine === false) throw new Error('这封邮件尚未缓存，请连接电脑后打开。');
+      }
+      try {
+        const value = await request(
+          (requestId) => client.mail.read.mutate({ selfUin, requestId, id }),
+          signal,
+        );
+        if (status && !signal?.aborted && remoteDataCacheAccount() === account)
+          void putRemoteCacheRecord(key, value, status);
+        return value;
+      } catch (error) {
+        if (status && remoteDataCacheOffline() && !signal?.aborted) {
+          const value = await local();
+          if (value) return value;
+        }
+        throw error;
+      }
+    },
     previewUnread: () =>
       request((requestId) => client.mail.previewUnread.query({ selfUin, requestId })),
     markAllRead: (ids, expectedAccountConfigId) =>

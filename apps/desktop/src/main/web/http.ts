@@ -28,6 +28,7 @@ import { serveStatic } from './static';
 import { handleMediaRequest } from '../media_protocol';
 import { handleAvatarRequest } from '../avatar_protocol';
 import { handleResourceRequest } from '../resource_protocol';
+import { getAppContext } from '../context/app_context';
 import { fileResponse } from '../file_response';
 import { uploadPickedFileChunk } from './picked_file_upload';
 import { PICKED_FILE_UPLOAD_PREFIX } from '../../shared/browser_file_upload';
@@ -150,7 +151,24 @@ export async function handleRequest(
     try {
       const protoReq = toProtocolRequest(req, route.scheme, route.prefix, controller.signal);
       if (!protoReq) return send(res, 400, 'bad request');
+      const scope = new URL(protoReq.url).searchParams.get('weqCacheScope');
+      const activeScope = () => {
+        if (route.prefix === '/_asset') return 'assets';
+        const { account, services } = getAppContext();
+        return JSON.stringify([
+          String(account?.context.uin),
+          services?.accountConfig.getRecord()?.configId,
+        ]);
+      };
+      if (scope && activeScope() !== scope) return send(res, 409, 'account source changed');
       const out = await route.handle(protoReq);
+      if (scope && activeScope() !== scope) {
+        await out.body?.cancel();
+        return send(res, 409, 'account source changed');
+      }
+      if (scope && (out.status === 200 || out.status === 206))
+        // Node 响应头不接受任意 Unicode。网关用同一编码核对来源。
+        out.headers.set('X-WeQ-Cache-Scope', encodeURIComponent(scope));
       if (res.destroyed) {
         await out.body?.cancel();
         return;

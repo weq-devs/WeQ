@@ -30,6 +30,12 @@ import { thumbnailPolicyRequest } from '../lib/resourceUrl';
 import { MediaLoadingRing } from './TransferRing';
 import { requestRemoteImage } from '../lib/remoteImage';
 import { createChatImageUrl } from '../lib/chatImageCache';
+import {
+  putRemoteCachedMedia,
+  readRemoteCachedMedia,
+  remoteCachedResource,
+  remoteDataCacheStatus,
+} from '../lib/remoteDataCache';
 import { fetchChatThumbnail } from '../lib/chatThumbnail';
 import { MessageImageContext } from '../lib/messageImageContext';
 
@@ -67,7 +73,9 @@ export function ShimmerImage({
   const avatarSrc = useAvatarUrl(rest.src, false);
   const source = avatarSrc ?? rest.src;
   const request = source ? thumbnailPolicyRequest(source) : { src: source, policyKey: '' };
-  const src = request.src ? resourceForRenderDocument(request.src, ownerDocument) : request.src;
+  const src = request.src
+    ? resourceForRenderDocument(remoteCachedResource(request.src), ownerDocument)
+    : request.src;
   const cache = useContext(ChatImageCacheContext);
   const cacheKey = JSON.stringify([src, rest.srcSet]);
   const retained = useSyncExternalStore(
@@ -135,7 +143,14 @@ export function ShimmerImage({
     const controller = new AbortController();
     const { signal } = controller;
     void (async () => {
-      const direct = directUrl ? await requestRemoteImage(directUrl, signal) : null;
+      const source = request.src;
+      const status = directUrl && source ? await remoteDataCacheStatus() : undefined;
+      const local = status && source ? await readRemoteCachedMedia(source, signal) : undefined;
+      if (signal.aborted) return;
+      const direct =
+        local?.blob ?? (directUrl ? await requestRemoteImage(directUrl, signal) : null);
+      if (!local && direct && source && status && !signal.aborted)
+        void putRemoteCachedMedia(source, direct, status);
       if (signal.aborted) return;
       if (direct || !proxyUrl) {
         setFetched({ key: requestKey, blob: direct });
@@ -156,7 +171,17 @@ export function ShimmerImage({
       }
     })();
     return () => controller.abort();
-  }, [active, directUrl, proxyUrl, managed, requestKey, cachedSource, enabled, result]);
+  }, [
+    active,
+    directUrl,
+    proxyUrl,
+    managed,
+    requestKey,
+    request.src,
+    cachedSource,
+    enabled,
+    result,
+  ]);
   const observeLoading = mediaLoading && rest.loading === 'lazy';
   const showRing =
     mediaLoading &&

@@ -15,6 +15,12 @@ import superjson from 'superjson';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { isProfileCacheQuery } from './profileQuery';
 import {
+  currentRemoteDataCacheStatus,
+  getRemoteCacheQueries,
+  putRemoteCacheQueries,
+  remoteDataCacheStatus,
+} from './remoteDataCache';
+import {
   boundedBridgeReply,
   remoteCacheBridge,
   remoteCacheSupportsRecords,
@@ -157,7 +163,7 @@ async function putNativeRecords(
   if (delta?.base && result === 'needsFull') await write();
 }
 
-export const businessCacheStore: BusinessCacheStore = {
+const legacyBusinessCacheStore: BusinessCacheStore = {
   async get(scope) {
     const local = localBusinessCache.get(scope);
     const bridge = remoteCacheBridge();
@@ -217,6 +223,57 @@ export const businessCacheStore: BusinessCacheStore = {
           )
           .catch(() => undefined),
     ]);
+  },
+};
+
+export const businessCacheStore: BusinessCacheStore = {
+  async get(scope) {
+    const status = await remoteDataCacheStatus();
+    if (!status) return legacyBusinessCacheStore.get(scope);
+    const queries = await getRemoteCacheQueries<SavedQuery>(scope);
+    const migration = `weq.remote-cache.migrated:${scope}`;
+    const migrated = () => {
+      try {
+        localStorage.setItem(migration, '1');
+      } catch {}
+      void localBusinessCache.remove(scope).catch(() => {});
+    };
+    let wasMigrated = false;
+    try {
+      wasMigrated = localStorage.getItem(migration) === '1';
+    } catch {}
+    if (queries?.length || status.cleared || wasMigrated) {
+      if (!status.cleared && queries?.length) migrated();
+      return queries?.length
+        ? {
+            scope,
+            savedAt: Math.max(...queries.map((query) => query.state.dataUpdatedAt)),
+            state: { queries, mutations: [] },
+          }
+        : undefined;
+    }
+    const legacy = await legacyBusinessCacheStore.get(scope);
+    if (!legacy) {
+      migrated();
+      return undefined;
+    }
+    void putRemoteCacheQueries(
+      scope,
+      legacy.state.queries,
+      (query) => query.queryHash,
+      status,
+    ).then((saved) => {
+      if (saved) migrated();
+    });
+    return legacy;
+  },
+  async put(snapshot, delta) {
+    const status = await remoteDataCacheStatus();
+    if (!status) return legacyBusinessCacheStore.put(snapshot, delta);
+    const queries = delta?.base
+      ? snapshot.state.queries.filter((query) => delta.changed.has(query.queryHash))
+      : snapshot.state.queries;
+    await putRemoteCacheQueries(snapshot.scope, queries, (query) => query.queryHash, status);
   },
 };
 
@@ -322,11 +379,12 @@ export async function restoreBusinessCache(
 }
 
 function boundedData(data: unknown, pageLimit = Number.POSITIVE_INFINITY): unknown {
-  if (Array.isArray(data)) return data.length > MAX_ROWS ? data.slice(0, MAX_ROWS) : data;
+  const maxRows = currentRemoteDataCacheStatus() ? Number.POSITIVE_INFINITY : MAX_ROWS;
+  if (Array.isArray(data)) return data.length > maxRows ? data.slice(0, maxRows) : data;
   if (data && typeof data === 'object' && 'pages' in data && Array.isArray(data.pages)) {
     let rows = 0;
     const pages = data.pages.filter((page: { items?: unknown[] }, index) => {
-      if (index >= pageLimit || rows >= MAX_ROWS) return false;
+      if (index >= pageLimit || rows >= maxRows) return false;
       rows += page.items?.length ?? 0;
       return true;
     });
@@ -380,6 +438,7 @@ function watchSnapshot(client: QueryClient, scope: string, store: BusinessCacheS
     }).queries.map((query) => [query.queryHash, { source: query }]),
   );
   const trim = () => {
+    if (currentRemoteDataCacheStatus()) return;
     while (retained.size > MAX_QUERIES) {
       // 先淘汰浏览记录，保留主目录和设置。
       const victim = [...retained.values()].find(({ source: query }) => {

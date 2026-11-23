@@ -120,7 +120,7 @@ export function MailPage({
   const notificationToast = useToastApi();
   const save = useExportSavePolicy();
   const requestExport = useRequestContentExport();
-  const activity = useQQReadActivity(active);
+  const activity = useQQReadActivity(active, { remoteCache: true });
   const [status, setStatus] = useState(initialStatus);
   useClientPreferences((state) => state.tick);
   const savedWidth = preferenceValue('mailListWidth');
@@ -443,12 +443,13 @@ export function MailPage({
         if (controller.signal.aborted || sequence !== readSequence.current) return;
         loadedRead.current = { api, id: selectedId, revision: searchReadRevision };
         setDetail(value);
-        setPage((current) => ({
-          ...current,
-          items: current.items.map((item) =>
-            item.id === selectedId ? { ...item, unread: false } : item,
-          ),
-        }));
+        if (!value.fromRemoteCache)
+          setPage((current) => ({
+            ...current,
+            items: current.items.map((item) =>
+              item.id === selectedId ? { ...item, unread: false } : item,
+            ),
+          }));
       })
       .catch((error) => {
         if (!controller.signal.aborted && sequence === readSequence.current)

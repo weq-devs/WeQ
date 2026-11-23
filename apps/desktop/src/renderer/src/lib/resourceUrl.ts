@@ -10,6 +10,7 @@
 import { useThemeStore } from '../state/theme';
 import { dataSaverActive, useDataSaver } from './dataSaver';
 import { networkClientId } from './networkClientId';
+import { remoteCachedResource } from './remoteDataCache';
 
 const IS_WEB = import.meta.env.VITE_WEQ_TARGET === 'web';
 
@@ -25,7 +26,7 @@ export function resourceUrl(...segments: string[]): string {
     .filter(Boolean)
     .map(encodeURIComponent)
     .join('/');
-  return `${SCHEME_PREFIX}${path}`;
+  return remoteCachedResource(`${SCHEME_PREFIX}${path}`);
 }
 
 /** Shorthand for assets under `resources/emoji/…`. */
@@ -65,7 +66,7 @@ export function mediaUrl(kind: string, params: Record<string, string | number>):
   }
   if (IS_WEB) q.set('cid', networkClientId);
   for (const [k, v] of Object.entries(params)) q.set(k, String(v));
-  return `${MEDIA_PREFIX}${kind}?${q.toString()}`;
+  return remoteCachedResource(`${MEDIA_PREFIX}${kind}?${q.toString()}`);
 }
 
 /** 仅用户打开的预览升级为主动请求，不把列表候选源也标成主动下载。 */
@@ -150,7 +151,9 @@ export function redPackSkinUrl(
 
 /** `weq-avatar://fetch?src=…` — the disk-cached bridge for a remote image. */
 export function avatarFetchUrl(src: string): string {
-  return `${AVATAR_PREFIX}fetch?src=${encodeURIComponent(src)}${dataSaverActive() ? `&ds=1&auto=${useDataSaver.getState().behavior.dataSaverAvatars ? '1' : '0'}` : ''}`;
+  return remoteCachedResource(
+    `${AVATAR_PREFIX}fetch?src=${encodeURIComponent(src)}${dataSaverActive() ? `&ds=1&auto=${useDataSaver.getState().behavior.dataSaverAvatars ? '1' : '0'}` : ''}`,
+  );
 }
 
 /**

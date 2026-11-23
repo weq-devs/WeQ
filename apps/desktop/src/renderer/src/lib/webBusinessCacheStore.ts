@@ -75,8 +75,8 @@ function openDatabase(): Promise<IDBDatabase> {
 // IDB 复合键先比较 scope，再比较 hash，数组键排在字符串键之后。
 const queryKeys = (scope: string) => IDBKeyRange.bound([scope], [scope, []]);
 
-export const localBusinessCache: BusinessCacheStore = {
-  async get(scope) {
+export const localBusinessCache = {
+  async get(scope: string): Promise<BusinessSnapshot | undefined> {
     const db = await openDatabase();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(['snapshots', 'queries']);
@@ -109,7 +109,17 @@ export const localBusinessCache: BusinessCacheStore = {
       };
     });
   },
-  async put(snapshot, delta) {
+  async remove(scope: string) {
+    const db = await openDatabase();
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(['snapshots', 'queries'], 'readwrite');
+      tx.objectStore('snapshots').delete(scope);
+      tx.objectStore('queries').delete(queryKeys(scope));
+      tx.oncomplete = () => resolve();
+      tx.onabort = tx.onerror = () => reject(new Error('旧缓存迁移清理失败'));
+    });
+  },
+  async put(snapshot: BusinessSnapshot, delta?: BusinessCacheDelta) {
     const db = await openDatabase();
     const { scope, savedAt, state } = snapshot;
     await new Promise<void>((resolve, reject) => {
@@ -163,3 +173,14 @@ export const localBusinessCache: BusinessCacheStore = {
     });
   },
 };
+
+export async function clearLegacyBusinessCache() {
+  const db = await openDatabase();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(['snapshots', 'queries'], 'readwrite');
+    tx.objectStore('snapshots').clear();
+    tx.objectStore('queries').clear();
+    tx.oncomplete = () => resolve();
+    tx.onabort = tx.onerror = () => reject(new Error('旧业务缓存清理失败'));
+  });
+}
