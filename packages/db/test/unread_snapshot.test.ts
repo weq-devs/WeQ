@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { ElementType, GrayTipSubType, ProtoMsg } from '@weq/codec';
 import { RecentContactBody } from '@weq/codec/proto/msg/40051';
 import { UnreadInfo } from '@weq/codec/proto/msg/48902';
-import { UnreadInfoDb } from '@weq/db';
+import { databasePerformance, UnreadInfoDb } from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 import type { SqlValue } from '@weq/native';
 
@@ -111,6 +111,78 @@ it('撤回补查超预算后缩小会话批次，单个大区间按序号读完�
     const details = plan.map((row) => row.detail).join('\n');
     expect(details).toContain('USING COVERING INDEX weq_recall_by_conversation_seq');
     expect(details).not.toContain('TEMP B-TREE');
+  } finally {
+    db.close();
+  }
+});
+
+it('撤回索引摘要只为重叠区间补查，摘要超限或超时保留完整读取', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-recall-extents-'));
+  roots.push(root);
+  const path = join(root, 'msg.db');
+  const sql = fixtureDb(path);
+  sql.exec(`CREATE TABLE msg_unread_info_table("48901" TEXT PRIMARY KEY,"48902" BLOB);
+    CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40020" TEXT,
+      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40027" INTEGER,"40050" INTEGER);
+    CREATE TABLE weq_recall_log(msgid INTEGER PRIMARY KEY, table_kind TEXT, conv TEXT, orig_seq INTEGER);
+    CREATE INDEX weq_recall_by_conversation_seq ON weq_recall_log(table_kind,conv,orig_seq);
+    WITH RECURSIVE groups(uid) AS (VALUES(70001) UNION ALL SELECT uid+1 FROM groups WHERE uid<70300)
+      INSERT INTO recent_contact_v3_table("40021","40003","40010") SELECT CAST(uid AS TEXT),200,2 FROM groups;
+    INSERT INTO weq_recall_log(table_kind,conv,orig_seq) VALUES
+      ('group','70001',100),('group','70002',201),('group','70003',101),('group','70003',101),
+      ('group','70007',200),('c2c','70004',123),('group','70006',NULL);`);
+  const readState = new ProtoMsg(UnreadInfo).encode({ info: { msgSeq: 100 } });
+  sql
+    .prepare(`INSERT INTO msg_unread_info_table
+    SELECT '2_' || "40021", ? FROM recent_contact_v3_table`)
+    .run(readState);
+  const nt = createSqliteStub();
+  let timeout = false;
+  const budgeted = vi.fn(async (dbPath: string, text: string, params: SqlValue[] | null) => {
+    if (timeout && text.includes('MIN(orig_seq)'))
+      throw new Error('database_query_execution_timeout');
+    return nt.executeSql(dbPath, text, params);
+  });
+  nt.executeSqlBudgeted = budgeted;
+  const db = new UnreadInfoDb(nt, { dbPath: path });
+  const groupsChecked = () =>
+    budgeted.mock.calls
+      .filter(([, text]) => text.includes('CROSS JOIN weq_recall_log'))
+      .map(([, , params]) => (params?.length ?? 0) / 5);
+  const checkResults = async () => {
+    const rows = await db.getAllUnreadInfos();
+    expect(rows).toHaveLength(300);
+    expect(
+      rows.flatMap(({ uid, recalledSeqs }) => recalledSeqs?.map((seq) => [uid, seq]) ?? []),
+    ).toEqual([
+      ['70003', '101'],
+      ['70007', '200'],
+    ]);
+  };
+  try {
+    await checkResults();
+    // 空区间也可安全继续校验，含 NULL 的旧记录保守留给补查。
+    expect(groupsChecked()).toEqual([3]);
+    const [, statement] = budgeted.mock.calls.find(([, text]) => text.includes('MIN(orig_seq)'))!;
+    const plan = sql.prepare(`EXPLAIN QUERY PLAN ${statement}`).all();
+    expect(plan.map((row) => row.detail).join('\n')).toContain('USING COVERING INDEX');
+
+    timeout = true;
+    budgeted.mockClear();
+    await checkResults();
+    expect(groupsChecked()).toEqual([128, 128, 44]);
+
+    timeout = false;
+    sql.exec(`WITH RECURSIVE more(uid) AS (VALUES(80001) UNION ALL SELECT uid+1 FROM more WHERE uid<80513)
+      INSERT INTO weq_recall_log(table_kind,conv,orig_seq) SELECT 'group',CAST(uid AS TEXT),111 FROM more;`);
+    budgeted.mockClear();
+    await checkResults();
+    expect(groupsChecked()).toEqual([128, 128, 44]);
+    expect(databasePerformance(path).phases).toMatchObject({
+      unreadSmallTables: { count: 3 },
+      unreadSnapshotProjection: { count: 3 },
+      unreadRecallLookup: { count: 3 },
+    });
   } finally {
     db.close();
   }

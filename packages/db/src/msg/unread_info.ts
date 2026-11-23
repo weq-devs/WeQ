@@ -34,6 +34,8 @@ import { RECALL_UNREAD_INDEX } from './anti_recall';
 import {
   databaseReadBudget,
   databaseRequestSignal,
+  measureMessageWork,
+  recordMessageWork,
   withDatabaseReadBudget,
 } from '../query_schedule';
 
@@ -133,6 +135,7 @@ const MAX_CACHED_UNREAD_FIELDS = 16_384;
 const MAX_CACHED_UNREAD_BYTES = 8 * 1024 * 1024;
 const PROTECTED_RECALL_TARGET_BATCH = 128;
 const PROTECTED_RECALL_RESULT_LIMIT = 256;
+const PROTECTED_RECALL_EXTENTS_LIMIT = 512;
 
 const GRAY_TIP = MsgType.GRAY_TIP;
 const RECENT_CHAT_TYPE = `CAST(r."40010" AS INTEGER)`;
@@ -297,14 +300,17 @@ export class UnreadInfoDb {
 
   /** 账号共享快照由两张小表驱动，包含没有最近会话行的未读记录。 */
   async getAllUnreadInfos(): Promise<UnreadInfoSnapshot[]> {
-    const rows = await this.qq.query(
-      `SELECT ${RECENT_UNREAD_TYPE}, r."40021", (${RECENT_UNREAD_TYPE}) || '_' || r."40021", NULL, ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}
+    const rows = await measureMessageWork(this.qq.dbPath, 'unreadSmallTables', () =>
+      this.qq.query(
+        `SELECT ${RECENT_UNREAD_TYPE}, r."40021", (${RECENT_UNREAD_TYPE}) || '_' || r."40021", NULL, ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}
        FROM recent_contact_v3_table r
        WHERE ${RECENT_CHAT_TYPE} IN (1,2,8,134,${TEMP_DIRECT_TYPES})
        UNION ALL
        SELECT NULL,NULL,u."48901",u."48902",NULL,NULL,NULL,NULL,NULL,NULL,NULL FROM msg_unread_info_table u`,
+      ),
     );
     // 同一 SQL 快照分别返回小表行，再线性合并；避免缺行检测逐个重扫最近会话表。
+    const mergeStarted = performance.now();
     const merged = new Map<string, SqlRow>();
     const nativeDeviceRows = new Set<string>();
     for (const row of rows) {
@@ -323,9 +329,9 @@ export class UnreadInfoDb {
       if (recent && row[0] == null) recent[3] = row[3] ?? null;
       else if (!recent || preferRecentUnreadRow(row, recent)) merged.set(peer, [...row]);
     }
-    return (await this.decodeAndResolveSnapshots([...merged.values()], true)).filter((row) =>
-      [1, 2, 8, 134].includes(row.chatType),
-    );
+    const input = [...merged.values()];
+    const snapshots = await this.decodeAndResolveSnapshots(input, performance.now() - mergeStarted);
+    return snapshots.filter((row) => [1, 2, 8, 134].includes(row.chatType));
   }
 
   private readFields(decoded: ReturnType<ProtoMsg<typeof UnreadInfo>['decode']>): UnreadFields {
@@ -386,11 +392,13 @@ export class UnreadInfoDb {
 
   private async decodeAndResolveSnapshots(
     rows: SqlRow[],
-    reuseUnreadFields = false,
+    sharedMergeMs?: number,
   ): Promise<UnreadInfoSnapshot[]> {
     const targets = new Map<number, GrayTipUnreadTarget[]>();
     const snapshots: UnreadInfoSnapshot[] = [];
     const signal = databaseRequestSignal();
+    const shared = sharedMergeMs !== undefined;
+    let projectionMs = sharedMergeMs ?? 0;
     let sliceStarted = performance.now();
     for (let index = 0; index < rows.length; index++) {
       const row = rows[index]!;
@@ -406,34 +414,46 @@ export class UnreadInfoDb {
       try {
         const snapshot: UnreadInfoSnapshot = {
           ...identity,
-          ...(reuseUnreadFields
-            ? this.snapshotUnreadFields(peer, row[3])
-            : this.decodeUnreadFields(row[3])),
+          ...(shared ? this.snapshotUnreadFields(peer, row[3]) : this.decodeUnreadFields(row[3])),
         };
         this.collectGrayTipTarget(row, snapshot, targets);
         snapshots.push(snapshot);
       } catch {
         snapshots.push({ ...identity, readError: true });
       }
-      if (
-        reuseUnreadFields &&
-        (index + 1) % 256 === 0 &&
-        index + 1 < rows.length &&
-        performance.now() - sliceStarted >= 8
-      ) {
-        await yieldToEventLoop(undefined, { signal });
-        sliceStarted = performance.now();
+      if (shared && (index + 1) % 256 === 0 && index + 1 < rows.length) {
+        const elapsed = performance.now() - sliceStarted;
+        if (elapsed >= 8) {
+          projectionMs += elapsed;
+          await yieldToEventLoop(undefined, { signal });
+          sliceStarted = performance.now();
+        }
       }
     }
-    await Promise.all(
-      snapshots.flatMap((snapshot) =>
-        snapshot.chatType === 8 || snapshot.chatType === 134
-          ? [this.resolveDeviceLatest(snapshot)]
-          : [],
-      ),
-    );
-    for (const [chatType, batch] of targets) await this.resolveGrayTipTargets(chatType, batch);
-    if (rows.some((row) => Number(row[10]) === 1)) await this.resolveProtectedRecalls(snapshots);
+    if (shared)
+      recordMessageWork(
+        this.qq.dbPath,
+        'unreadSnapshotProjection',
+        projectionMs + performance.now() - sliceStarted,
+      );
+    const supplement = async () => {
+      await Promise.all(
+        snapshots.flatMap((snapshot) =>
+          snapshot.chatType === 8 || snapshot.chatType === 134
+            ? [this.resolveDeviceLatest(snapshot)]
+            : [],
+        ),
+      );
+      for (const [chatType, batch] of targets) await this.resolveGrayTipTargets(chatType, batch);
+    };
+    if (shared)
+      await measureMessageWork(this.qq.dbPath, 'unreadDeviceAndGrayTipLookup', supplement);
+    else await supplement();
+    if (rows.some((row) => Number(row[10]) === 1)) {
+      const recall = () => this.resolveProtectedRecalls(snapshots);
+      if (shared) await measureMessageWork(this.qq.dbPath, 'unreadRecallLookup', recall);
+      else await recall();
+    }
     return snapshots;
   }
 
@@ -483,7 +503,7 @@ export class UnreadInfoDb {
   }
 
   private async resolveProtectedRecalls(snapshots: UnreadInfoSnapshot[]): Promise<void> {
-    const targets = snapshots.flatMap<ProtectedRecallTarget>((snapshot) => {
+    const candidates = snapshots.flatMap<ProtectedRecallTarget>((snapshot) => {
       const { chatType, uid, msgSeq, localReadSeq, latestSeq, readError } = snapshot;
       if (readError || (chatType !== 1 && chatType !== 2) || latestSeq === null) return [];
       const serverRead = BigInt(msgSeq ?? 0);
@@ -493,10 +513,51 @@ export class UnreadInfoDb {
       if (after <= 0n || through === null || through <= after) return [];
       return [{ snapshot, kind: chatType === 1 ? 'c2c' : 'group', uid, after, through }];
     });
+    const targets =
+      candidates.length > 2 * PROTECTED_RECALL_TARGET_BATCH &&
+      this.qq.supportsReadBudget &&
+      !databaseReadBudget()
+        ? await this.filterProtectedRecallTargets(candidates)
+        : candidates;
     for (let offset = 0; offset < targets.length; offset += PROTECTED_RECALL_TARGET_BATCH) {
       await this.resolveProtectedRecallBatch(
         targets.slice(offset, offset + PROTECTED_RECALL_TARGET_BATCH),
       );
+    }
+  }
+
+  /** 记录稀疏时，用完整的索引摘要排除不相交的会话，再查具体序号。 */
+  private async filterProtectedRecallTargets(
+    targets: ProtectedRecallTarget[],
+  ): Promise<ProtectedRecallTarget[]> {
+    try {
+      const rows = await withDatabaseReadBudget(15, () =>
+        this.qq.query(
+          `SELECT table_kind, conv, MIN(orig_seq), MAX(orig_seq)
+           FROM weq_recall_log INDEXED BY ${RECALL_UNREAD_INDEX}
+           WHERE table_kind IN ('c2c', 'group')
+           GROUP BY table_kind, conv LIMIT ${PROTECTED_RECALL_EXTENTS_LIMIT + 1}`,
+        ),
+      );
+      if (rows.length > PROTECTED_RECALL_EXTENTS_LIMIT) return targets;
+      const bounds = new Map(
+        rows.map(([kind, uid, lo, hi]) => [
+          `${kind}:${uid}`,
+          { first: positiveInt(lo), last: positiveInt(hi) },
+        ]),
+      );
+      return targets.filter(({ kind, uid, after, through }) => {
+        const range = bounds.get(`${kind}:${uid}`);
+        return (
+          range !== undefined &&
+          (range.first === null ||
+            range.last === null ||
+            (range.first <= through && range.last > after))
+        );
+      });
+    } catch {
+      databaseRequestSignal()?.throwIfAborted();
+      return targets;
     }
   }
 

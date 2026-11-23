@@ -588,21 +588,23 @@ export class UnreadInfoService {
           this.invalidate();
           return;
         }
-        const present = new Set(rows.map((row) => row.peer));
-        // 两张小表均无行也是有效快照；目录中缺行的目标不能让每次读取都重查全库。
-        for (const [peer, target] of this.targets)
-          if (!present.has(peer)) rows.push({ ...target, peer, latestSeq: null });
-        await this.applySnapshots(
-          rows.filter(
-            (row) =>
-              !row.readError &&
-              (this.sequenceRefreshes.has(row.peer) ||
-                this.isDeviceSnapshot(row) ||
-                JSON.stringify(this.snapshots.get(row.peer)) !== JSON.stringify(row)),
-          ),
-          () => revision === this.manualRevision,
-          priority,
-        );
+        await measureMessageWork(this.session.msgDbPath, 'unreadSnapshotApply', async () => {
+          const present = new Set(rows.map((row) => row.peer));
+          // 两张小表均无行也是有效快照；目录中缺行的目标不能让每次读取都重查全库。
+          for (const [peer, target] of this.targets)
+            if (!present.has(peer)) rows.push({ ...target, peer, latestSeq: null });
+          await this.applySnapshots(
+            rows.filter(
+              (row) =>
+                !row.readError &&
+                (this.sequenceRefreshes.has(row.peer) ||
+                  this.isDeviceSnapshot(row) ||
+                  JSON.stringify(this.snapshots.get(row.peer)) !== JSON.stringify(row)),
+            ),
+            () => revision === this.manualRevision,
+            priority,
+          );
+        });
         if (revision !== this.manualRevision) {
           this.invalidate();
           return;
