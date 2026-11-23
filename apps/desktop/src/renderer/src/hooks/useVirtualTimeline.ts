@@ -1,8 +1,8 @@
 import {
+  startTransition,
   useCallback,
   useLayoutEffect,
   useMemo,
-  useReducer,
   useRef,
   useState,
   type RefObject,
@@ -63,7 +63,8 @@ export function useVirtualTimeline({
   const touching = useRef(false);
   const touchMomentum = useRef(false);
   const mountedIndexes = useRef<ReadonlySet<number>>(new Set());
-  const [, commitScrollRange] = useReducer((version: number) => version + 1, 0);
+  const [immediateRange, commitScrollRange] = useState<{ scope: string } | null>(null);
+  const coveringViewport = immediateRange?.scope === scope;
   const observeTimelineOffset: typeof observeElementOffset = useCallback(
     (instance, callback) =>
       observeElementOffset(instance, (offset, scrolling) => {
@@ -108,14 +109,22 @@ export function useVirtualTimeline({
   const rangeExtractor = useCallback(
     (range: Range) => {
       const instance = instanceRef.current;
+      const buffered = timelineViewportRange(
+        range,
+        instance?.scrollRect?.height ?? 0,
+        (position) => instance?.itemSizeCache.get(key(position)),
+        instance?.scrollDirection ?? null,
+        (position) => instance?.measurementsCache[position]?.size ?? estimateSize(position),
+      );
+      // 跨出缓冲时先提交视口和最邻近的行。保留仍在正常缓冲内的已挂载行。
       const rendered = new Set(
-        timelineViewportRange(
-          range,
-          instance?.scrollRect?.height ?? 0,
-          (position) => instance?.itemSizeCache.get(key(position)),
-          instance?.scrollDirection ?? null,
-          (position) => instance?.measurementsCache[position]?.size ?? estimateSize(position),
-        ),
+        !coveringViewport
+          ? buffered
+          : buffered.filter(
+              (index) =>
+                (index >= range.startIndex - 2 && index <= range.endIndex + 2) ||
+                mountedIndexes.current.has(index),
+            ),
       );
       const anchorId = thresholdAnchor.current?.anchorId;
       const anchorIndex = anchorId ? index.get(anchorId) : undefined;
@@ -131,7 +140,7 @@ export function useVirtualTimeline({
       }
       return [...rendered].sort((a, b) => a - b);
     },
-    [key, index, scrollRef, estimateSize],
+    [key, index, scrollRef, estimateSize, coveringViewport],
   );
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: ids.length,
@@ -159,7 +168,7 @@ export function useVirtualTimeline({
         // 缓冲能覆盖当前视口时，让普通更新补充下一批行。只有跨出缓冲才同步挂载。
         committingScroll.current = true;
         try {
-          flushSync(commitScrollRange);
+          flushSync(() => commitScrollRange({ scope }));
         } finally {
           committingScroll.current = false;
         }
@@ -199,6 +208,17 @@ export function useVirtualTimeline({
   useLayoutEffect(() => {
     mountedIndexes.current = new Set(virtualItems?.map(({ index }) => index));
   }, [virtualItems]);
+  useLayoutEffect(() => {
+    if (immediateRange === null) return;
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        startTransition(() =>
+          commitScrollRange((current) => (current === immediateRange ? null : current)),
+        );
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [immediateRange]);
   const resizedAnchorIndex = useRef(-1);
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
     if (!enabled) return false;
