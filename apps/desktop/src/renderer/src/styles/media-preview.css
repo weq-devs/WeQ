@@ -16,6 +16,12 @@
   bottom: 4px;
 }
 
+/* 独立媒体贴齐行框底边，组内间距由消息列表提供。 */
+.message-line:is([data-message-group], [data-grouped-dress-bubble]) .sticker-only
+  :is(.qq-media-image-preview-wrap, .weq-video-preview-wrap, .qq-mface-wrap, .weq-emoji-bounce) {
+  vertical-align: bottom;
+}
+
 .qq-image-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
