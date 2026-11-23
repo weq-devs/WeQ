@@ -12,5 +12,5 @@
     "test": "node test/run.mjs",
     "typecheck": "tsc --noEmit"
   },
-  "version": "2.7.5"
+  "version": "2.8.0"
 }
