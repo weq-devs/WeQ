@@ -156,7 +156,7 @@ export function EmojiPanel({
   const systemGroups = faces.filter((g) => !g.unicode);
   const unicodeGroups = faces.filter((g) => g.unicode);
   const recent = catalog.data?.recent ?? [];
-  const favorites = favoriteQuery.data ?? [];
+  const favorites = favoriteQuery.data;
   const catalogUnavailable = !catalog.data && (catalog.isError || catalog.isPaused);
   const large = tab === 'super';
   const canBounce = onSendBounce && !textOnly;

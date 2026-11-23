@@ -1,5 +1,5 @@
 import { EmptyState } from '../EmptyState';
-import { useId, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   ArrowUpToLine,
   Download,
@@ -15,6 +15,8 @@ import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { favEmojiItem, type EmojiItem } from '../../im-template/template/emojiPacks';
 import { cn } from '../../im-template/template/classNames';
+import { useRenderDocument } from '../../lib/renderDocument';
+import { mediaUrl } from '../../lib/resourceUrl';
 import { ConversationActionsMenu } from '../ConversationActionsMenu';
 import { Modal } from '../Dialog';
 import { useMediaSave } from '../MediaSaveControls.shared';
@@ -30,6 +32,7 @@ export interface PickerFavorite {
   oriFile: string | null;
   original?: { scope: string; bucket: string; file: string } | null;
   thumbFile: string | null;
+  previewRevision?: string;
 }
 
 function FavoritePickerTabBody({
@@ -39,7 +42,7 @@ function FavoritePickerTabBody({
   onSelect,
   onChanged,
 }: {
-  favorites: PickerFavorite[];
+  favorites?: PickerFavorite[];
   loading: boolean;
   localReadStatus?: 'waiting' | 'failed';
   onSelect: (item: EmojiItem) => void;
@@ -47,7 +50,9 @@ function FavoritePickerTabBody({
 }) {
   const action = useQQAction('favorite-picker');
   const inputId = useId();
-  const [broken, setBroken] = useState<Set<string>>(new Set());
+  const gridRef = useRef<HTMLDivElement>(null);
+  const Observer = useRenderDocument().defaultView?.IntersectionObserver;
+  const [visible, setVisible] = useState<ReadonlySet<string>>(() => new Set());
   const utils = trpc.useUtils();
   const save = useMediaSave();
   const online = trpc.account.qqActions.favorites.useQuery(
@@ -64,10 +69,39 @@ function FavoritePickerTabBody({
   } | null>(null);
   const [edit, setEdit] = useState<{ emojiId: string; value: string } | null>(null);
   // 在线列表决定成员、备注与顺序，图片仍复用本地缓存；离线保留原来的选取能力。
-  const rows =
-    online.data && action.available
-      ? online.data.flatMap((row) => (row.local ? [{ ...row.local, ...row }] : []))
-      : favorites.map((row) => ({ ...row, emojiId: undefined, desc: '', position: undefined }));
+  const rows = useMemo(() => {
+    if (!online.data || !action.available)
+      return (favorites ?? []).map((row) => ({
+        ...row,
+        emojiId: undefined,
+        desc: '',
+        position: undefined,
+      }));
+    const local = favorites && new Map(favorites.map((row) => [row.hash.toLowerCase(), row]));
+    return online.data.flatMap(({ local: cached, ...info }) => {
+      const current = local && cached ? (local.get(cached.hash.toLowerCase()) ?? cached) : cached;
+      return current ? [{ ...current, ...info }] : [];
+    });
+  }, [online.data, action.available, favorites]);
+  useEffect(() => {
+    const grid = gridRef.current;
+    if (!grid || !Observer) return;
+    const intersecting = new Set<string>();
+    // 以面板滚动区分批，不使用浏览器较大的屏外预取范围。
+    const observer = new Observer(
+      (entries) => {
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).dataset.favoriteId!;
+          if (entry.isIntersecting) intersecting.add(id);
+          else intersecting.delete(id);
+        }
+        setVisible(new Set(intersecting));
+      },
+      { root: grid.parentElement },
+    );
+    for (const cell of grid.children) observer.observe(cell);
+    return () => observer.disconnect();
+  }, [Observer, rows]);
   const refresh = async () => {
     await utils.account.qqActions.favorites.invalidate();
     await onChanged();
@@ -103,26 +137,38 @@ function FavoritePickerTabBody({
       ) : !rows.length ? (
         <EmptyState compact icon={<Heart />} title="还没有可用的收藏表情" />
       ) : null}
-      <div className={cn('emoji-grid emoji-big-grid')}>
+      <div ref={gridRef} className={cn('emoji-grid emoji-big-grid')}>
         {rows.map((row) => {
           const file = row.thumbFile ?? row.oriFile;
           if (!file) return null;
           const name = row.desc || row.hash;
-          const preview = favEmojiItem(
-            row.scope,
-            row.bucket,
-            row.thumbFile ? 'thumb' : 'ori',
-            file,
-            name,
-          );
-          const item = row.original
-            ? favEmojiItem(row.original.scope, row.original.bucket, 'ori', row.original.file, name)
-            : preview;
+          const variant = row.thumbFile ? 'thumb' : 'ori';
+          const item = () =>
+            row.original
+              ? favEmojiItem(
+                  row.original.scope,
+                  row.original.bucket,
+                  'ori',
+                  row.original.file,
+                  name,
+                )
+              : favEmojiItem(row.scope, row.bucket, variant, file, name);
+          // 版本只用于网格预览，草稿与保存仍引用未经修改的原图地址。
+          const src =
+            !Observer || visible.has(row.id)
+              ? mediaUrl('cemoji', {
+                  scope: row.scope,
+                  bucket: row.bucket,
+                  v: variant,
+                  file,
+                  ...(row.previewRevision ? { previewRevision: row.previewRevision } : {}),
+                })
+              : null;
           const openMenu = (x: number, y: number) =>
             setMenu({
               x,
               y,
-              item,
+              item: item(),
               emojiId: row.emojiId,
               desc: row.desc,
               position: row.position,
@@ -132,10 +178,12 @@ function FavoritePickerTabBody({
               key={row.id}
               type="button"
               title={name}
+              aria-label={name}
+              data-favorite-id={row.id}
               className={cn('emoji-cell is-sticker')}
               aria-haspopup="menu"
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => onSelect(item)}
+              onClick={() => onSelect(item())}
               onContextMenu={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -148,16 +196,12 @@ function FavoritePickerTabBody({
                 openMenu(rect.left, rect.bottom);
               }}
             >
-              {broken.has(row.id) ? (
-                <span className={cn('emoji-cell-fallback')}>
-                  <Smile size={22} strokeWidth={1.4} />
-                </span>
-              ) : (
-                <img
-                  src={preview.src ?? undefined}
-                  alt={name}
-                  draggable={false}
-                  onError={() => setBroken((previous) => new Set([...previous, row.id]))}
+              {src && (
+                <FavoritePreview
+                  key={src}
+                  src={src}
+                  versioned={Boolean(row.previewRevision)}
+                  lazy={!Observer}
                 />
               )}
             </button>
@@ -319,6 +363,84 @@ function FavoritePickerTabBody({
       )}
       {save.prompt}
     </>
+  );
+}
+
+const PREVIEW_CACHE_BYTES = 16 * 1024 * 1024;
+const PREVIEW_CACHE_ENTRIES = 256;
+const previewCache = new Map<string, Blob>();
+let previewCacheBytes = 0;
+
+/** 仅保留带文件版本的完整预览；WebKit 重新挂载时不一定会命中 HTTP 缓存。 */
+function rememberPreview(src: string, blob: Blob) {
+  if (!blob.size || blob.size > PREVIEW_CACHE_BYTES) return;
+  previewCacheBytes -= previewCache.get(src)?.size ?? 0;
+  previewCache.delete(src);
+  previewCache.set(src, blob);
+  previewCacheBytes += blob.size;
+  for (const [oldest, bytes] of previewCache) {
+    if (previewCache.size <= PREVIEW_CACHE_ENTRIES && previewCacheBytes <= PREVIEW_CACHE_BYTES)
+      break;
+    previewCache.delete(oldest);
+    previewCacheBytes -= bytes.size;
+  }
+}
+
+function FavoritePreview({
+  src,
+  versioned,
+  lazy,
+}: {
+  src: string;
+  versioned: boolean;
+  lazy: boolean;
+}) {
+  const [broken, setBroken] = useState(false);
+  const [objectUrl, setObjectUrl] = useState<string>();
+  const cancellable = !lazy && src.startsWith('/_media/');
+  useEffect(() => {
+    if (!cancellable) return;
+    const request = new AbortController();
+    let url: string | undefined;
+    const show = (blob: Blob) => {
+      if (request.signal.aborted) return;
+      if (versioned) rememberPreview(src, blob);
+      url = URL.createObjectURL(blob);
+      setObjectUrl(url);
+    };
+    const cached = versioned ? previewCache.get(src) : undefined;
+    if (cached) show(cached);
+    // WebKit 移除屏外 <img> 时不一定中止下载，用可取消的读取给新视口腾出连接。
+    else {
+      void fetch(src, { signal: request.signal, priority: 'high' })
+        .then((response) => {
+          if (!response.ok) throw new Error(`Favorite preview: ${response.status}`);
+          return response.blob();
+        })
+        .then(show)
+        .catch(() => {
+          if (!request.signal.aborted) setBroken(true);
+        });
+    }
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+      else request.abort();
+    };
+  }, [cancellable, src, versioned]);
+  return broken ? (
+    <span className={cn('emoji-cell-fallback')} aria-hidden>
+      <Smile size={22} strokeWidth={1.4} />
+    </span>
+  ) : (
+    <img
+      src={cancellable ? objectUrl : src}
+      alt=""
+      draggable={false}
+      decoding="async"
+      loading={lazy ? 'lazy' : undefined}
+      fetchPriority={lazy ? undefined : 'high'}
+      onError={() => setBroken(true)}
+    />
   );
 }
 

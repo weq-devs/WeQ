@@ -372,6 +372,7 @@ export {
   type PanelRelatedGif,
 } from './account/emoji';
 export type { EmojiOnlineDeps } from './account/emoji';
+export { favoriteEmojiFileRevision } from './account/favorite_emoji_cache';
 export {
   createFavoriteEmojiBundle,
   readFavoriteEmojiBundle,

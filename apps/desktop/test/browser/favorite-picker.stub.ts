@@ -8,6 +8,7 @@ const local = (id: string) => ({
   bucket: '',
   oriFile: `${id.repeat(32)}.png`,
   thumbFile: `${id.repeat(32)}-thumb.png`,
+  previewRevision: id,
   original: { scope: 'personal', bucket: '', file: `${id.repeat(32)}.png` },
 });
 let rows = ['a', 'b', 'c'].map((id, index) => ({
@@ -23,7 +24,22 @@ const notify = () => {
   for (const listener of listeners) listener();
 };
 const calls: Array<{ path: string; input: unknown }> = [];
-Object.assign(window, { favoritePickerCalls: calls });
+Object.assign(window, {
+  favoritePickerCalls: calls,
+  favoritePickerAddFixtures(count: number) {
+    for (let index = 0; index < count; index++) {
+      const id = (index + 16).toString(16).padStart(2, '0');
+      rows.push({
+        emojiId: `remote-${id}`,
+        position: rows.length + 1,
+        desc: `第 ${index + 1} 张`,
+        local: local(id),
+      });
+    }
+    rows = [...rows];
+    notify();
+  },
+});
 const data = (path: string): unknown => {
   if (path === 'account.getAccountConfig') return { uin: '10001', configId: 'source-a' };
   if (path === 'account.getGroupAlbumAccessState')

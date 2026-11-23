@@ -60,6 +60,7 @@ import {
   managedMediaDownload as downloadUrlToFile,
   resolveChatpicFile,
   developmentDressToolsEnabled,
+  favoriteEmojiFileRevision,
   chatpicRelPaths,
   type AvatarLocalFile,
   type MediaElement,
@@ -1149,19 +1150,31 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
           const bucket = q.get('bucket') ?? '';
           const file = q.get('file') ?? '';
           const variant = q.get('v') === 'ori' ? 'ori' : 'thumb';
+          const revision = q.get('previewRevision');
+          const serve = (path: string) => {
+            if (!revision || request.headers.get('x-weq-web') !== '1') return fileResponse(path);
+            return streamFile(path, request, {
+              sniffImageType: true,
+              privateCache: {
+                maxAge: 86_400,
+                revision: (stat) =>
+                  favoriteEmojiFileRevision(path, stat) === revision ? revision : null,
+              },
+            });
+          };
           if (scope === 'favorite') {
             const path =
               bucket === '' && variant === 'ori'
                 ? services.emoji.resolveCachedFavorite(file)
                 : null;
-            return path ? fileResponse(path) : notFound('favorite emoji not found');
+            return path ? serve(path) : notFound('favorite emoji not found');
           }
           if (scope !== 'recv' && scope !== 'personal') {
             return notFound('cemoji needs scope=recv|personal');
           }
           if (!file) return notFound('cemoji needs file');
           const path = await services.customEmoji.resolveFile(scope, bucket, variant, file);
-          return path ? fileResponse(path) : notFound('cemoji not found');
+          return path ? serve(path) : notFound('cemoji not found');
         }
         case 'relemoji': {
           // Related-emoji cache (nt_data/Emoji/emoji-related/emoji/<md5>/<gif>).

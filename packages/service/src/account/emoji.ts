@@ -11,7 +11,7 @@ import type { Platform } from '@weq/platform';
 import type { NtHelperBinding } from '@weq/native';
 import { scopedNetworkAllowed } from '../common/network_scope';
 import { developmentDressToolsEnabled } from '../common/development_dress';
-import { FavoriteEmojiCache } from './favorite_emoji_cache';
+import { FavoriteEmojiCache, favoriteEmojiFileRevision } from './favorite_emoji_cache';
 import {
   classicPanelFaces,
   compareClassicPanelFaces,
@@ -182,6 +182,8 @@ export interface PanelFavItem {
   original: { scope: 'personal' | 'recv' | 'favorite'; bucket: string; file: string } | null;
   /** 缩略图磁盘文件名（可能为空）。 */
   thumbFile: string | null;
+  /** 实际用于预览的文件版本（缩略图优先）。 */
+  previewRevision?: string;
   /** 在线 CDN 兜底（可空）。 */
   remoteUrl: string;
 }
@@ -538,11 +540,12 @@ export class EmojiService {
             return {
               id: row.id,
               hash: row.hash,
-              scope: chosen.scope,
-              bucket: chosen.bucket,
-              oriFile: ori?.file ?? null,
-              original: ori,
-              thumbFile: thumb?.file ?? null,
+              scope: chosen.info.scope,
+              bucket: chosen.info.bucket,
+              oriFile: ori?.info.file ?? null,
+              original: ori?.info ?? null,
+              thumbFile: thumb?.info.file ?? null,
+              previewRevision: favoriteEmojiFileRevision(chosen.path, chosen.stat),
               remoteUrl: row.remoteUrl,
             };
           })
@@ -555,6 +558,8 @@ export class EmojiService {
 
   private cachedFavoriteItem(file: string): PanelFavItem {
     const hash = file.slice(0, 32);
+    const path = this.favoriteCache.resolve(file);
+    const stat = path ? favoriteFileStat(path) : undefined;
     return {
       id: `favorite:${hash}`,
       hash,
@@ -563,6 +568,7 @@ export class EmojiService {
       oriFile: file,
       original: { scope: 'favorite', bucket: '', file },
       thumbFile: null,
+      ...(path && stat ? { previewRevision: favoriteEmojiFileRevision(path, stat) } : {}),
       remoteUrl: '',
     };
   }
@@ -615,15 +621,17 @@ export class EmojiService {
   private usableFavVariant(
     info: { scope: 'personal' | 'recv'; bucket: string; file: string } | null,
     variant: 'ori' | 'thumb',
-  ): { scope: 'personal' | 'recv'; bucket: string; file: string } | null {
+  ) {
     if (!info) return null;
-    return this.customEmojiLocalPath(info.scope, info.bucket, variant, info.file) ? info : null;
+    const path = this.customEmojiLocalPath(info.scope, info.bucket, variant, info.file);
+    if (!path) return null;
+    const stat = favoriteFileStat(path);
+    return stat ? { info, path, stat } : null;
   }
 
   /**
    * 收藏（自定义表情）文件的磁盘绝对路径 —— 与 `weq-media://cemoji` 的解析规则
-   * 一致（personal 平铺 / recv 按月分桶）。文件不在就返回 null，这样「面板能显示」
-   * 就等于「协议取得到、发得出去」。
+   * 一致（personal 平铺 / recv 按月分桶）。文件是否存在由调用方一并读取元数据确认。
    */
   private customEmojiLocalPath(
     scope: 'personal' | 'recv',
@@ -637,11 +645,11 @@ export class EmojiService {
     if (scope === 'recv') {
       if (!/^\d{4}-\d{2}$/.test(bucket)) return null;
       const root = this.platform.emojiRecvDir(uin);
-      return root ? existingFile(join(root, bucket, dir, file)) : null;
+      return root ? join(root, bucket, dir, file) : null;
     }
     if (scope === 'personal') {
       const root = this.platform.personalEmojiDir(uin);
-      return root ? existingFile(join(root, dir, file)) : null;
+      return root ? join(root, dir, file) : null;
     }
     return null;
   }
@@ -1368,6 +1376,15 @@ function basename(p: string): string {
 /** 文件在磁盘上就返回其路径，否则 null（用于过滤「无本地资源」的收藏 / GIF）。 */
 function existingFile(path: string): string | null {
   return existsSync(path) ? path : null;
+}
+
+function favoriteFileStat(path: string) {
+  try {
+    const stat = statSync(path, { throwIfNoEntry: false });
+    return stat?.isFile() ? stat : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // ── 商城表情包（在线拉取 + QQTEA 解密）helpers ─────────────────────────────────

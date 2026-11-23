@@ -10,7 +10,7 @@
  * and `<video>` seeking issues range requests).
  */
 
-import { createReadStream } from 'node:fs';
+import { createReadStream, type Stats } from 'node:fs';
 import { open, stat } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
 import { Readable } from 'node:stream';
@@ -145,17 +145,33 @@ function parseRange(header: string | null, size: number): { start: number; end: 
 export async function fileResponse(
   path: string,
   request?: Request,
-  opts: { revalidate?: boolean; sniffImageType?: boolean; sniffMediaType?: boolean } = {},
+  opts: {
+    revalidate?: boolean;
+    sniffImageType?: boolean;
+    sniffMediaType?: boolean;
+    privateCache?: { maxAge: number; revision: (stat: Stats) => string | null };
+  } = {},
 ): Promise<Response> {
   let size: number;
   let mtimeMs: number;
+  let revision: string | null = null;
+  const { privateCache } = opts;
+  const missing = (reason: string) =>
+    new Response(reason, {
+      status: 404,
+      headers: privateCache ? { 'Cache-Control': 'no-store' } : undefined,
+    });
   try {
     const st = await stat(path);
-    if (!st.isFile()) return new Response('not a file', { status: 404 });
+    if (!st.isFile()) return missing('not a file');
     size = st.size;
     mtimeMs = st.mtimeMs;
+    if (privateCache) {
+      revision = privateCache.revision(st);
+      if (!revision) return missing('stale preview');
+    }
   } catch {
-    return new Response('not found', { status: 404 });
+    return missing('not found');
   }
 
   const type = await fileContentType(path, opts);
@@ -164,13 +180,15 @@ export async function fileResponse(
   // `Last-Modified` has one-second granularity, so compare at that resolution —
   // otherwise a sub-second mtime always reads as "newer" and we never 304.
   const lastModified = new Date(Math.floor(mtimeMs / 1000) * 1000);
-  const revalidateHeaders = opts.revalidate
-    ? {
-        'Last-Modified': lastModified.toUTCString(),
-        'Cache-Control': 'no-cache',
-        ETag: `W/"${size.toString(16)}-${mtimeMs.toString(16)}"`,
-      }
-    : undefined;
+  const revalidateHeaders =
+    opts.revalidate || privateCache
+      ? {
+          'Last-Modified': lastModified.toUTCString(),
+          'Cache-Control': privateCache ? `private, max-age=${privateCache.maxAge}` : 'no-cache',
+          ETag: `W/"${revision ?? `${size.toString(16)}-${mtimeMs.toString(16)}`}"`,
+          ...(privateCache ? { Vary: 'Cookie, Authorization' } : {}),
+        }
+      : undefined;
 
   if (revalidateHeaders && !range) {
     const tag = request?.headers.get('if-none-match') ?? null;

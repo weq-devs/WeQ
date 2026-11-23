@@ -56,6 +56,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 describe('收藏表情面板', () => {
   it('面板加载缩略图，点击插入原图地址且不自动发送', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    // Happy DOM 没有真实可见区域；视口加载由浏览器夹具覆盖。
+    vi.stubGlobal('IntersectionObserver', undefined);
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);

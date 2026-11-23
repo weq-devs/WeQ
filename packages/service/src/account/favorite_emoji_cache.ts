@@ -1,11 +1,20 @@
 import { createHash } from 'node:crypto';
 import { readdir, unlink } from 'node:fs/promises';
-import { statSync } from 'node:fs';
-import { join } from 'node:path';
+import { statSync, type Stats } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { detectImageFormat } from '@weqbot/protocol';
 import { writeFileAtomic } from '../common/atomic_write';
 
 const FILE = /^[0-9a-f]{32}\.(?:jpg|png|webp|bmp|gif)$/;
+
+/** 浏览器预览版本区分实际文件及就地覆盖，不向客户端暴露磁盘路径。 */
+export function favoriteEmojiFileRevision(path: string, stat: Stats): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify([resolve(path), stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs]),
+    )
+    .digest('base64url');
+}
 
 /** 仅保存已成功提交的收藏原图；目录由宿主按账号数据源隔离。 */
 export class FavoriteEmojiCache {
