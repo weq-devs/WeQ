@@ -31,7 +31,7 @@ import {
   getFeatureDefinition,
 } from './feature_tools';
 import { runAssistantTool } from './openai_tools';
-import { attachInfoAtEnd } from '../account_resource_exports';
+import { nextAlbumMediaCursor } from '../account_resource_exports';
 import { hasAccountSwitchSubscriber, pushAccountSwitchRequest } from '../account_switch_bus';
 import {
   classifyChatType,
@@ -5063,10 +5063,7 @@ export const AI_TOOLS: AiTool[] = [
       const { account, check } = accountReadScope(true);
       const page = await account.groupAlbumMedia.getMediaList(groupId, albumId, cursor);
       check();
-      const nextCursor =
-        page.nextAttachInfo && !attachInfoAtEnd(page, page.nextAttachInfo)
-          ? page.nextAttachInfo
-          : null;
+      const nextCursor = nextAlbumMediaCursor(page);
       if (nextCursor && nextCursor === cursor)
         throw new Error('群相册返回了重复游标，无法继续翻页');
       return {

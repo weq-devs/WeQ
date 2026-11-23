@@ -121,6 +121,32 @@ it('媒体分页每页前后复核，不在换源后继续翻页', async () => {
   ).rejects.toThrow('数据源已切换');
   expect(rpc.media).toHaveBeenCalledTimes(1);
 });
+it('群相册媒体读取按续页标记取齐，末页即使有游标也停止', async () => {
+  const photo = (lloc: string) => ({
+    batchId: '1',
+    image: { lloc, photoUrls: [], defaultUrl: { url: `https://example.test/${lloc}` } },
+    video: null,
+  });
+  const cursor = '{"Loc":{"batch_id":"1","lloc":"first"}}';
+  rpc.media
+    .mockResolvedValueOnce({
+      mediaList: [photo('first')],
+      nextAttachInfo: cursor,
+    })
+    .mockResolvedValueOnce({
+      mediaList: [photo('second')],
+      nextAttachInfo: '{"Loc":{"batch_id":"1","lloc":"second"}}',
+      nextHasMore: false,
+    });
+  const media = await accountRouter
+    .createCaller({})
+    .listGroupAlbumMedia({ ...binding, groupCode: target.groupCode, albumId: target.albumId });
+  expect(media.map((item) => item.image?.lloc)).toEqual(['first', 'second']);
+  expect(rpc.media.mock.calls).toEqual([
+    [target.groupCode, target.albumId, ''],
+    [target.groupCode, target.albumId, cursor],
+  ]);
+});
 it('QQ 不在线时明确报错，不把读取失败当成空动态', async () => {
   rpc.online = false;
   await expect(

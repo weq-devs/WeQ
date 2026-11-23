@@ -63,6 +63,7 @@ export interface AlbumMediaPage {
   albumName: string;
   mediaList: AlbumMedia[];
   nextAttachInfo: string;
+  nextHasMore?: boolean;
   capabilities: QQAlbumCapabilities | null;
 }
 
@@ -198,6 +199,7 @@ export class GroupAlbumMediaService {
       albumName: str(albumInfo.name),
       mediaList: (Array.isArray(data.mediaList) ? data.mediaList : []).map(mapMedia),
       nextAttachInfo: str(data.nextAttachInfo),
+      ...(typeof data.nextHasMore === 'boolean' ? { nextHasMore: data.nextHasMore } : {}),
       capabilities:
         data.right && typeof data.right === 'object'
           ? albumCapabilities(

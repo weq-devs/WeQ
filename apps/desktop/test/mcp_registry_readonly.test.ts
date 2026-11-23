@@ -109,24 +109,31 @@ it('lists the real registry without exposing SQL writes, messaging, wallet, cred
     ).toBe(true);
     expect(fake.groupPage).toHaveBeenCalledTimes(3);
     fake.qqOnline = true;
+    const cursor = '{"Loc":{"batch_id":"1"}}';
     fake.mediaPage
-      .mockResolvedValueOnce({ albumId: 'a', mediaList: [], nextAttachInfo: 'next' })
+      .mockResolvedValueOnce({
+        albumId: 'a',
+        mediaList: [{ batchId: '1', image: null, video: null }],
+        nextAttachInfo: cursor,
+        nextHasMore: true,
+      })
       .mockResolvedValueOnce({
         albumId: 'a',
         mediaList: [{ batchId: '2', image: null, video: null }],
         nextAttachInfo: '{"Loc":{"batch_id":"2"}}',
+        nextHasMore: false,
       });
     expect(
       await featureCall('get_group_album_photos', { groupId: '12345', albumId: 'a' }),
-    ).toMatchObject({ nextCursor: 'next' });
+    ).toMatchObject({ nextCursor: cursor, hasMore: true });
     expect(
       await featureCall('get_group_album_photos', {
         groupId: '12345',
         albumId: 'a',
-        cursor: 'next',
+        cursor,
       }),
-    ).toMatchObject({ nextCursor: null });
-    expect(fake.mediaPage).toHaveBeenLastCalledWith('12345', 'a', 'next');
+    ).toMatchObject({ nextCursor: null, hasMore: false });
+    expect(fake.mediaPage).toHaveBeenLastCalledWith('12345', 'a', cursor);
     const needle = { source: 'groupFile', keyword: '合成' };
     const result = { source: 'groupFile', status: 'unavailable', items: [], nextOffset: null };
     fake.search.mockResolvedValueOnce(result);

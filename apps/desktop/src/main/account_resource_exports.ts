@@ -302,33 +302,10 @@ function albumMediaKey(media: AlbumMediaWire): string {
   return groupAlbumMediaKey(media);
 }
 
-/**
- * 群相册末页的 nextAttachInfo 依然是非空游标（指向本页最后一条的
- * batch_id/lloc），拿它翻页服务端会原样重发本页。解析游标确认已到结尾。
- */
-interface AlbumNextAttachInfo {
-  Loc?: { batch_id?: number | string; lloc?: string };
-  Lloc?: string;
-}
-
-export function attachInfoAtEnd(page: AlbumMediaPage, nextAttachInfo: string): boolean {
-  const last = page.mediaList[page.mediaList.length - 1];
-  if (!last) return false;
-  let info: AlbumNextAttachInfo | null = null;
-  try {
-    info = JSON.parse(nextAttachInfo) as AlbumNextAttachInfo | null;
-  } catch {
-    return false;
-  }
-  const loc = info?.Loc;
-  if (loc?.batch_id != null && last.batchId && String(loc.batch_id) === last.batchId) {
-    return true;
-  }
-  const lastLloc = last.image?.lloc || last.video?.cover?.lloc || '';
-  if (lastLloc && (loc?.lloc === lastLloc || info?.Lloc === lastLloc)) {
-    return true;
-  }
-  return false;
+/** 群相册每一页的游标都可能指向当前页最后一项，末页也可能带游标。 */
+export function nextAlbumMediaCursor(page: AlbumMediaPage): string | null {
+  const hasMore = page.nextHasMore ?? page.mediaList.length > 0;
+  return hasMore ? page.nextAttachInfo || null : null;
 }
 
 function isAlbumPlaceholderUrl(url: string): boolean {
@@ -366,8 +343,8 @@ export async function collectAlbumMedia(
       seenKeys.add(key);
       out.push(wire);
     }
-    const next = page.nextAttachInfo || '';
-    if (!next || seenAttachInfo.has(next) || attachInfoAtEnd(page, next)) break;
+    const next = nextAlbumMediaCursor(page);
+    if (!next || seenAttachInfo.has(next)) break;
     seenAttachInfo.add(next);
     attachInfo = next;
   }
