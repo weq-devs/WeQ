@@ -1,4 +1,3 @@
-import { observeCompactToolbar, ToolbarLabel } from '../CompactToolbar';
 import { useContext, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3, Eye, MessageSquareText } from 'lucide-react';
@@ -187,13 +186,9 @@ export function ContactActions({
     });
   return (
     <>
-      <div
-        ref={observeCompactToolbar}
-        className="weq-profile-actions weq-contact-actions weq-profile-card-actions"
-      >
+      <div className="weq-profile-actions weq-contact-actions weq-profile-card-actions">
         {primary ? (
           <button
-            title={person.clone || exists || !resolved ? '打开会话' : '发起会话'}
             type="button"
             className="weq-contact-secondary"
             onClick={() =>
@@ -204,9 +199,7 @@ export function ContactActions({
             }
           >
             <FEATURE_ICONS.messages size={14} aria-hidden />
-            <ToolbarLabel>
-              {person.clone || exists || !resolved ? '打开会话' : '发起会话'}
-            </ToolbarLabel>
+            {person.clone || exists || !resolved ? '打开会话' : '发起会话'}
           </button>
         ) : null}
         {secondary.map((item) => (
