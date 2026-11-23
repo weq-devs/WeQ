@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { MessageBubble } from '../../src/renderer/src/im-template/template/messageBubble';
 import {
@@ -9,10 +10,13 @@ import { createTemplateDemoData } from '../support/templateDemoData';
 import '../../src/renderer/src/styles/index.css';
 
 const demo = createTemplateDemoData();
-const conversation = demo.conversations.find((row) => row.type === 'direct')!;
+const conversation = demo.conversations.find((row) => row.type === 'group')!;
+const sender = { ...demo.user, customTitle: '群头衔', avatarUrl: null };
 function Scene() {
   const [stage, setStage] = useState<'host' | 'qq' | 'failed' | 'acked' | 'confirmed'>('host');
-  Object.assign(window, { echoQA: { setStage } });
+  Object.assign(window, {
+    echoQA: { setStage: (next: typeof stage) => flushSync(() => setStage(next)) },
+  });
   return (
     <main
       className="im-template"
@@ -52,9 +56,13 @@ function Scene() {
                 decoration: { bubbleId: 21001, fontId: 32002, widgetId: 10001 },
               }}
               conversation={conversation}
-              sender={demo.user}
+              sender={sender}
               mine
-              senderName="我"
+              senderName="群昵称"
+              senderAvatarUrl={sender.avatarUrl}
+              senderSeed={sender.identityValue}
+              showSenderName
+              active={false}
               onContextMenu={() => {}}
               onLongPress={() => {}}
             />

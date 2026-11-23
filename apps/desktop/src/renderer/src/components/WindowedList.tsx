@@ -68,7 +68,7 @@ class WindowedListMotion<T> extends Component<ListMotionProps<T>> {
     const rows = visibleLayoutRows(list, motionRowSelector, motionRowKey);
     for (const [key, { element, top }] of rows) {
       const old = snapshot.rows.get(key);
-      if (old && old.top - top > rowHeight * 4) this.motion.reveal(element);
+      if (old && Math.abs(old.top - top) > rowHeight * 4) this.motion.reveal(element);
       else if (old) this.motion.shift(element, old.top - top, rowHeight * 4);
       else if (!previous.items.some((item) => itemKey(item) === key)) this.motion.reveal(element);
     }

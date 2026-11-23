@@ -45,6 +45,67 @@ try {
   await page.waitForFunction(() => window.toastMotion);
   const output = process.env.WEQ_TOAST_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
+  await page.setViewportSize({ width: 390, height: 900 });
+  for (const reducedMotion of ['no-preference', 'reduce']) {
+    await page.emulateMedia({ reducedMotion });
+    await page.evaluate(() => window.toastMotion.reset());
+    await page.locator('.weq-toast.show').nth(2).waitFor();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('.weq-toast-slot')].every(
+        (slot) => slot.getAnimations({ subtree: true }).length === 0,
+      ),
+    );
+    const positions = await page.evaluate(async () => {
+      const existing = document.querySelector('[data-toast-key="motion-0"]');
+      const positions = [existing.getBoundingClientRect().top];
+      window.toastMotion.store.getState().push({
+        key: 'motion-arrival',
+        title: '新通知',
+        ttl: 0,
+      });
+      const start = performance.now();
+      while (performance.now() - start < 550) {
+        await new Promise(requestAnimationFrame);
+        positions.push(existing.getBoundingClientRect().top);
+      }
+      return positions;
+    });
+    const before = positions[0];
+    const after = positions.at(-1);
+    assert.ok(before - after > 20, '新横幅应在已有横幅下方占位');
+    const between = positions.filter((y) => y < before - 1 && y > after + 1);
+    if (reducedMotion === 'reduce') assert.equal(between.length, 0);
+    else assert.ok(between.length >= 3, '新横幅展开时已有横幅应连续上移');
+  }
+  await page.setViewportSize({ width: 390, height: 330 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.evaluate(() => {
+    window.toastMotion.reset();
+    for (let index = 0; index < 5; index++)
+      window.toastMotion.store.getState().push({ title: `后续通知 ${index}`, ttl: 0 });
+  });
+  await page.locator('.weq-toast.show').nth(7).waitFor();
+  await page.waitForFunction(() => {
+    const host = document.querySelector('.weq-toast-host');
+    return (
+      host.scrollHeight > host.clientHeight &&
+      host.scrollHeight - host.clientHeight - host.scrollTop <= 2 &&
+      host.getAnimations({ subtree: true }).length === 0
+    );
+  });
+  await page.locator('.weq-toast-host').evaluate((host) => {
+    host.scrollTop = 0;
+  });
+  await page.evaluate(async () => {
+    await new Promise(requestAnimationFrame);
+    window.toastMotion.store.getState().push({ title: '阅读旧通知时收到的新通知', ttl: 0 });
+  });
+  await page.locator('.weq-toast.show').nth(8).waitFor();
+  await page.waitForFunction(
+    () => document.querySelector('.weq-toast-host').getAnimations({ subtree: true }).length === 0,
+  );
+  assert.equal(await page.locator('.weq-toast-host').evaluate((host) => host.scrollTop), 0);
+
   const results = [];
   for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 900 });
@@ -116,7 +177,12 @@ try {
             const removed = samples.findIndex(({ count }) => count < 3);
             assert.ok(
               Math.abs(samples[removed].y - samples[removed - 1].y) < 3,
-              '实际移除 DOM 时不应再次跳动',
+              `实际移除 DOM 时不应再次跳动 ${JSON.stringify({
+                scenario,
+                width,
+                theme,
+                samples: samples.slice(removed - 2, removed + 1),
+              })}`,
             );
           } else {
             assert.equal(between.length, 0, '减少动态效果时不播放空间移动动画');

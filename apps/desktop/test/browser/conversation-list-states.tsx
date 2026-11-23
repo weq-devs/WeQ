@@ -71,6 +71,24 @@ Object.assign(window, {
       ),
     removeFirst: () => render(conversations.filter(({ id }) => id !== '10001')),
     reset: () => render(),
+    distantOrder: (pinned: boolean) =>
+      render([
+        {
+          ...conversations[0]!,
+          updatedAt: '2029-12-31T00:00:00Z',
+          preference: { pinned, muted: false, blocked: false },
+        },
+        ...Array.from({ length: 6 }, (_, index) => {
+          const row = conversations[1]!;
+          const id = String(20001 + index);
+          return {
+            ...row,
+            id,
+            group: { ...row.group, id },
+            updatedAt: `2030-01-0${6 - index}T00:00:00Z`,
+          };
+        }),
+      ]),
   },
 });
 render();

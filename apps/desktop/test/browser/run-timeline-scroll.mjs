@@ -321,6 +321,23 @@ async function checkLayoutMotion(page) {
       (await logs()).some(([key]) => key === '10001'),
       !reduced,
     );
+    await page.evaluate(() => window.conversationStatesQa.distantOrder(true));
+    const otherIds = ['20001', '20002', '20003', '20004', '20005', '20006'];
+    await order(['10001', ...otherIds]);
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('[data-weq-layout-row]')].every(
+        (row) => row.getAnimations().length === 0,
+      ),
+    );
+    await clear();
+    await page.evaluate(() => window.conversationStatesQa.distantOrder(false));
+    await order([...otherIds, '10001']);
+    const distantMove = await sample('10001', '[data-weq-layout-row]');
+    if (reduced) assert.equal(distantMove, null);
+    else {
+      assert.equal(distantMove?.frames[0].opacity, '0.75', '长距离下移也要过渡到新位置');
+      assert.ok(distantMove.values.some((value) => Number(value) > 0.75 && Number(value) < 1));
+    }
   }
   console.log('实时入场、撤回与删除阅读锚点、会话增删移位及减少动态效果通过');
 }

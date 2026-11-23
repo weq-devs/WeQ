@@ -12,10 +12,17 @@ html .weq-toast-host {
   scrollbar-width: thin;
 }
 
+.weq-toast-stack {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 100%;
+}
+
 .weq-toast-slot {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: 1fr;
+  grid-template-rows: minmax(0, 1fr);
   justify-items: end;
   flex-shrink: 0;
   width: 100%;
@@ -26,12 +33,12 @@ html .weq-toast-host {
 }
 
 .weq-toast-slot:first-child,
-.weq-toast-slot.is-leaving {
+.weq-toast-slot:is(.is-entering, .is-leaving) {
   padding-top: 0;
 }
 
-.weq-toast-slot.is-leaving {
-  grid-template-rows: 0fr;
+.weq-toast-slot:is(.is-entering, .is-leaving) {
+  grid-template-rows: minmax(0, 0fr);
 }
 
 .weq-toast-host .weq-toast {

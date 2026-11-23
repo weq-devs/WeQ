@@ -247,7 +247,7 @@ function ToastRow({ toast, hidePreview }: { toast: Toast; hidePreview: boolean }
   const ExtraActionIcon = ACTION_ICONS[extraAction?.icon ?? sourceActionIcon(extraAction?.source)];
 
   return (
-    <div className={`weq-toast-slot${leaving ? ' is-leaving' : ''}`}>
+    <div className={`weq-toast-slot${leaving ? ' is-leaving' : shown ? '' : ' is-entering'}`}>
       <div
         hidden={!visible}
         data-toast-key={toast.key}
@@ -403,14 +403,30 @@ export function ToastHost(): ReactElement | null {
   const locked = useAppLock((s) => s.locked);
   const privacy = useClientPreferences(() => preferenceValue('privacyMode') === true);
   const host = useRef<HTMLDivElement>(null);
+  const stack = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
-  const latestId = toasts.at(-1)?.id;
-  const count = toasts.length;
+  const lastScrollTop = useRef(0);
+  const hasToasts = toasts.length > 0;
   useLayoutEffect(() => {
-    if (count === 0) follow.current = true;
-    else if (follow.current && host.current) host.current.scrollTop = host.current.scrollHeight;
-  }, [count, latestId]);
-  if (toasts.length === 0) return null;
+    const scroll = host.current;
+    const content = stack.current;
+    if (!scroll || !content) {
+      follow.current = true;
+      lastScrollTop.current = 0;
+      return;
+    }
+    // 占位逐帧展开时，已经在末尾的视口继续跟随最新横幅。
+    const scrollToLatest = () => {
+      if (!follow.current) return;
+      scroll.scrollTop = scroll.scrollHeight;
+      lastScrollTop.current = scroll.scrollTop;
+    };
+    scrollToLatest();
+    const resize = new ResizeObserver(scrollToLatest);
+    resize.observe(content);
+    return () => resize.disconnect();
+  }, [hasToasts]);
+  if (!hasToasts) return null;
   return (
     <div
       ref={host}
@@ -422,12 +438,17 @@ export function ToastHost(): ReactElement | null {
           return;
         }
         const element = event.currentTarget;
+        // 程序跟随产生的 scroll 事件可能晚于下一帧尺寸变化。
+        if (element.scrollTop === lastScrollTop.current) return;
+        lastScrollTop.current = element.scrollTop;
         follow.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 8;
       }}
     >
-      {toasts.map((t) => (
-        <ToastRow key={t.id} toast={t} hidePreview={locked || privacy} />
-      ))}
+      <div className="weq-toast-stack" ref={stack}>
+        {toasts.map((t) => (
+          <ToastRow key={t.id} toast={t} hidePreview={locked || privacy} />
+        ))}
+      </div>
     </div>
   );
 }

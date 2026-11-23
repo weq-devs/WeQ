@@ -110,8 +110,28 @@ try {
               const content = page.locator('.message-content').first();
               const node = await content.elementHandle();
               const before = await content.boundingBox();
+              const name = page.locator('.message-name').first();
+              assert.equal(await name.textContent(), '群头衔群昵称');
               const seq = page.getByText('seq 12', { exact: true });
-              await page.evaluate(() => window.echoQA.setStage('acked'));
+              const nameMotion = await name.evaluate((element) => {
+                const before = element.getBoundingClientRect().x;
+                window.echoQA.setStage('acked');
+                const animation = element.getAnimations()[0];
+                if (!animation) return null;
+                animation.pause();
+                animation.currentTime = 0;
+                const start = element.getBoundingClientRect().x;
+                animation.currentTime = Number(animation.effect.getTiming().duration) / 2;
+                const middle = element.getBoundingClientRect().x;
+                animation.finish();
+                return { before, start, middle, end: element.getBoundingClientRect().x };
+              });
+              assert.ok(nameMotion, '群头衔和昵称应随序号一起过渡');
+              assert.ok(
+                Math.abs(nameMotion.start - nameMotion.before) < 1,
+                JSON.stringify(nameMotion),
+              );
+              assert.ok(nameMotion.start > nameMotion.middle && nameMotion.middle > nameMotion.end);
               await seq.waitFor();
               await page.waitForFunction(() =>
                 document
@@ -136,6 +156,8 @@ try {
               await page.evaluate(() => window.echoQA.setStage('confirmed'));
               await page.getByText('11:00:02', { exact: true }).first().waitFor();
               assert.equal(await seq.evaluate((element) => element.getAnimations().length), 0);
+              assert.equal(await name.evaluate((element) => element.getAnimations().length), 0);
+              assert.ok(Math.abs((await name.boundingBox()).x - nameMotion.end) < 1);
               assert.equal(
                 await page
                   .getByText('11:00:02', { exact: true })

@@ -41,6 +41,7 @@ import { useMsgDecoration } from '../../hooks/useMsgDecoration';
 import { localDressApplies } from '../../lib/dressSkin';
 import { MsgDecorationEnabledContext } from '../../state/messageAppearance';
 import { MessageProvenance } from '../../components/MessageProvenance';
+import { OutgoingMessageName } from './outgoingMessageName';
 import '../../styles/message-deletion.css';
 import { useToastApi } from '../../components/Toast.shared';
 import {
@@ -700,6 +701,41 @@ function MessageBubbleBody({
   ) : (
     avatar
   );
+  const outgoingMetadata = Boolean(message.optimistic || message.outgoingId);
+  const senderHeading =
+    !groupContinuation &&
+    (senderNameVisible || (conversation.type === 'group' && Boolean(groupDisplay & 6))) ? (
+      <>
+        {conversation.type === 'group' ? (
+          <GroupMessageBadge
+            member={sender}
+            showLevel={Boolean(groupDisplay & 2)}
+            showTitle={Boolean(groupDisplay & 4)}
+          />
+        ) : null}
+        {senderNameVisible && onAvatarClick && conversation.generated ? (
+          <button
+            type="button"
+            className="weq-message-name-profile"
+            title="查看资料"
+            aria-label={`查看 ${senderName} 的名片`}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleAvatarClick(event);
+            }}
+          >
+            <span data-privacy-sensitive>{senderName}</span>
+          </button>
+        ) : senderNameVisible ? (
+          <span data-privacy-sensitive>{senderName}</span>
+        ) : null}
+        {senderKind === 'bot' ? (
+          <small className="bot-badge" aria-label="机器人" title="机器人">
+            <Bot size={12} strokeWidth={2.4} />
+          </small>
+        ) : null}
+      </>
+    ) : null;
   const renderContext = { message, conversation, sender, mine };
   const renderer = (renderers ?? defaultMessageRenderers).find((item) => item.match(renderContext));
   const content = renderer?.render(renderContext) ?? renderDefaultMessageContent(message);
@@ -769,42 +805,16 @@ function MessageBubbleBody({
           </span>
         ) : (
           <div className="weq-message-heading">
-            {senderNameVisible || (conversation.type === 'group' && Boolean(groupDisplay & 6)) ? (
-              <span className={cn('message-name')}>
-                {conversation.type === 'group' ? (
-                  <GroupMessageBadge
-                    member={sender}
-                    showLevel={Boolean(groupDisplay & 2)}
-                    showTitle={Boolean(groupDisplay & 4)}
-                  />
-                ) : null}
-                {senderNameVisible && onAvatarClick && conversation.generated ? (
-                  <button
-                    type="button"
-                    className="weq-message-name-profile"
-                    title="查看资料"
-                    aria-label={`查看 ${senderName} 的名片`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleAvatarClick(event);
-                    }}
-                  >
-                    <span data-privacy-sensitive>{senderName}</span>
-                  </button>
-                ) : senderNameVisible ? (
-                  <span data-privacy-sensitive>{senderName}</span>
-                ) : null}
-                {senderKind === 'bot' ? (
-                  <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
-                    <Bot size={12} strokeWidth={2.4} />
-                  </small>
-                ) : null}
-              </span>
-            ) : null}
+            {senderHeading &&
+              (mine && conversation.type === 'group' && outgoingMetadata ? (
+                <OutgoingMessageName sequence={message.msgSeq}>{senderHeading}</OutgoingMessageName>
+              ) : (
+                <span className="message-name">{senderHeading}</span>
+              ))}
             <MessageProvenance
               message={message}
               precision={conversation.generated || message.optimistic ? 'millisecond' : 'second'}
-              animate={Boolean(message.optimistic || message.outgoingId)}
+              animate={outgoingMetadata}
             />
           </div>
         )}
