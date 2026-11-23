@@ -257,7 +257,7 @@ describe('增强设置与非活动页面资源', () => {
       f.dispose();
     }
   });
-  it.each([false, true])('检查中不锁已知更新或补齐操作（缺项：%s）', async (partial) => {
+  it.each([false, true])('已知更新或补齐与手动检查可分别操作（缺项：%s）', async (partial) => {
     fixture.ready = true;
     fixture.partial = partial;
     fixture.updateAvailable = true;
@@ -265,6 +265,10 @@ describe('增强设置与非活动页面资源', () => {
     fixture.checkLoading = true;
     const f = mount(h(EnhancementPacksSection));
     try {
+      const check = f.host.querySelector<HTMLButtonElement>('[aria-label="检查本地文字识别更新"]')!;
+      expect(check.disabled).toBe(false);
+      await act(async () => check.click());
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
       const button = f.host.querySelector<HTMLButtonElement>(
         `[aria-label="${partial ? '补齐' : '更新'}本地文字识别"]`,
       )!;

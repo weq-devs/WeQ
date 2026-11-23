@@ -190,7 +190,13 @@ export function EnhancementPacksSection() {
             const missing = pack.missingComponents?.length
               ? `缺少或损坏：${pack.missingComponents.join('、')}`
               : undefined;
-            const updating = pack.updateAvailable && !pack.needsRepair && !pack.blocker;
+            const prepareLabel = pack.needsRepair
+              ? '补齐'
+              : !pack.downloaded
+                ? '下载'
+                : pack.updateAvailable
+                  ? '更新'
+                  : null;
             return (
               <li
                 className="weq-enhancement-item"
@@ -219,12 +225,12 @@ export function EnhancementPacksSection() {
                   role="group"
                   aria-label={`${pack.name}操作`}
                 >
-                  {!pack.downloaded ? (
+                  {prepareLabel ? (
                     <button
                       type="button"
                       className="weq-set-btn weq-set-btn-soft"
-                      title={`${pack.needsRepair ? '补齐' : '下载'}${pack.name} · ${enhancementBytes(pack.downloadBytes)}${missing ? `\n${missing}` : ''}`}
-                      aria-label={`${pack.needsRepair ? '补齐' : '下载'}${pack.name}`}
+                      title={`${prepareLabel}${pack.name} · ${enhancementBytes(pack.downloadBytes)}${missing ? `\n${missing}` : ''}`}
+                      aria-label={`${prepareLabel}${pack.name}`}
                       disabled={pack.busy || !!pack.blocker || prepare.isLoading}
                       onClick={() => void act(() => preparePack(pack.id))}
                     >
@@ -234,20 +240,12 @@ export function EnhancementPacksSection() {
                   <button
                     type="button"
                     className="weq-set-btn weq-set-btn-soft"
-                    title={
-                      updating
-                        ? `更新${pack.name} · ${enhancementBytes(pack.downloadBytes)}`
-                        : `检查${pack.name}更新`
-                    }
-                    aria-label={updating ? `更新${pack.name}` : `检查${pack.name}更新`}
-                    disabled={pack.busy || (updating && prepare.isLoading)}
-                    onClick={() =>
-                      void act(() =>
-                        updating ? preparePack(pack.id) : check.mutateAsync({ ids: [pack.id] }),
-                      )
-                    }
+                    title={`检查${pack.name}更新`}
+                    aria-label={`检查${pack.name}更新`}
+                    disabled={pack.busy}
+                    onClick={() => void act(() => check.mutateAsync({ ids: [pack.id] }))}
                   >
-                    {updating ? <Download size={14} /> : <RefreshCw size={14} />}
+                    <RefreshCw size={14} />
                   </button>
                   {pack.downloaded || pack.installed || pack.sizeOnDisk > 0 ? (
                     <button
