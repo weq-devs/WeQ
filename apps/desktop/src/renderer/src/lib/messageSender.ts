@@ -2,6 +2,7 @@ import type { Conversation, GroupMember, User } from '../im-template/template/ty
 import { avatarFromUin } from './avatarResolver';
 import { isMineMessage } from './messageDirection';
 import { displayGroupMemberName } from '../im-template/template/user';
+import { isMemberUin } from './groupMemberRefresh';
 
 type SenderMessage = { senderUid: string; senderUin: string; elements: readonly unknown[] };
 export interface SenderProfile {
@@ -9,6 +10,15 @@ export interface SenderProfile {
   nick?: string | null;
 }
 export type MemberUinLookup = (uin: string) => GroupMember | undefined;
+
+/** 导入历史的发送者可能只有 QQ 号。 */
+export function senderUinsWithoutUid(
+  messages: readonly Pick<SenderMessage, 'senderUid' | 'senderUin'>[],
+) {
+  return messages.flatMap(({ senderUid, senderUin }) =>
+    !senderUid && isMemberUin(senderUin) ? [senderUin] : [],
+  );
+}
 
 /** 仅供同一批只读成员快照使用；首次需要 QQ 号回退时才建索引，重复号码沿用首项。 */
 export function createMemberUinLookup(members: ReadonlyMap<string, GroupMember>): MemberUinLookup {

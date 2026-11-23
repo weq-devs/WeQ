@@ -218,6 +218,7 @@ import {
   mergeMessageMembers,
   localProfileUser,
   createMemberUinLookup,
+  senderUinsWithoutUid,
 } from '../lib/messageSender';
 import { isLocalOutgoingMessage } from '../lib/messageSelection';
 import { messageBatchBlockReason } from '../lib/messageBatchAction';
@@ -2666,8 +2667,9 @@ function MainWorkspace(): ReactElement {
   // profile cache because a group card is a (group × uid) thing, not a profile.
   const groupMemberLookup = useMemo(() => {
     const binding = messageScope ? messageBindingRef.current : null;
-    return createGroupMemberLookup<GroupMemberWire>((input) =>
-      client.account.getGroupMembersByUids.query({ ...binding, ...input }),
+    return createGroupMemberLookup<GroupMemberWire>(
+      (input) => client.account.getGroupMembersByUids.query({ ...binding, ...input }),
+      (input) => client.account.getGroupMembersByUins.query({ ...binding, ...input }),
     );
   }, [messageScope, messageBindingRef]);
   const {
@@ -3152,17 +3154,9 @@ function MainWorkspace(): ReactElement {
         previewDisplayNames.get(message.senderUid) || previewDisplayNames.get(message.senderUin);
       if (!binding || (!message.senderUid && !/^[1-9]\d*$/.test(message.senderUin)))
         return profileName || '';
-      const members = await (message.senderUid
-        ? groupMemberLookup.load({
-            groupCode: message.conv,
-            uids: [message.senderUid],
-          })
-        : client.account.getGroupMembersByUins.query({
-            ...binding,
-            groupCode: message.conv,
-            uins: [message.senderUin],
-          })
-      ).catch(() => []);
+      const members = await groupMemberLookup
+        .load({ groupCode: message.conv, identities: [message.senderUid || message.senderUin] })
+        .catch(() => []);
       const member = members[0];
       return displayGroupMemberName(
         member?.card,
@@ -4185,6 +4179,10 @@ function MainWorkspace(): ReactElement {
     () => mergeMessageMembers<GroupMemberWire>([], groupMembers.data?.pages.flat() ?? []),
     [groupMembers.data],
   );
+  const selectedMemberIdentities = useMemo(
+    () => new Set(selectedGroupMemberWires.flatMap((member) => [member.uid, member.uin])),
+    [selectedGroupMemberWires],
+  );
   const selectedGroupMembersLoading =
     groupMembers.isInitialLoading || groupMembers.isFetchingNextPage;
   const selectedGroupMembersError = groupMembers.isError
@@ -4500,12 +4498,11 @@ function MainWorkspace(): ReactElement {
   // Resolve message senders / gray-tip targets that fall outside the loaded
   // member page. Messages render immediately with the uin fallback; the real
   // card/nick is batched in by useGroupMemberResolver without blocking. Dedup
-  // (known page + already-attempted) lives in the resolver, so this effect just
-  // hands it every referenced uid.
+  // (known page + already-attempted) lives in the resolver. Older records can
+  // identify their sender by QQ number only.
   useEffect(() => {
     if (!selectedUid || !isGroup) return;
     const groupCode = selectedUid;
-    const known = new Set(selectedGroupMemberWires.map((m) => m.uid));
     const referencedUids = [
       user.uid ?? '',
       ...loaded.map((m) => m.senderUid),
@@ -4513,13 +4510,18 @@ function MainWorkspace(): ReactElement {
       // (poke/invite XML, mute info) — resolve those too, not just senders.
       ...loaded.flatMap((m) => extractGrayTipUids(m.elements)),
     ];
-    resolveMembers(groupCode, referencedUids, known, () => selectionRef.current?.id === groupCode);
+    resolveMembers(
+      groupCode,
+      [...referencedUids, ...senderUinsWithoutUid(loaded)],
+      selectedMemberIdentities,
+      () => selectionRef.current?.id === groupCode,
+    );
     resolveProfiles(referencedUids);
   }, [
     loaded,
     selectedUid,
     isGroup,
-    selectedGroupMemberWires,
+    selectedMemberIdentities,
     resolveMembers,
     resolveProfiles,
     user.uid,
@@ -4543,7 +4545,7 @@ function MainWorkspace(): ReactElement {
       // 当前群的成员分页是权威的「已知」集合；别的群没有分页，交给 resolver 的
       // attempted 去重（重复调用不会重复请求）。
       const known: ReadonlySet<string> =
-        groupCode === selectedUid ? new Set(selectedGroupMemberWires.map((m) => m.uid)) : new Set();
+        groupCode === selectedUid ? selectedMemberIdentities : new Set();
       const uids = rows.flatMap((m) => [
         m.senderUid,
         // 撤回者是管理员时不是消息发送者，但卡片头要显示他的名字。
@@ -4552,7 +4554,7 @@ function MainWorkspace(): ReactElement {
       ]);
       resolveMembers(
         groupCode,
-        uids,
+        [...uids, ...senderUinsWithoutUid(rows)],
         known,
         // 回填进的是 `missingMembers[groupCode]`，按群隔离；面板中途关掉也照样收下，
         // 下次再打开就是现成的（丢弃反而会因 attempted 已记录而永不重试）。
@@ -4567,7 +4569,7 @@ function MainWorkspace(): ReactElement {
     recalledConv,
     recalledWires,
     selectedUid,
-    selectedGroupMemberWires,
+    selectedMemberIdentities,
     deletedGroupRevision,
     recalledGroupRevision,
     resolveMembers,
@@ -9286,8 +9288,8 @@ function MainWorkspace(): ReactElement {
     const group = privatePreview.conversation;
     const account = privatePreview.account;
     const known = new Set(
-      [...group.members, ...(selectedUid === group.id ? currentGroupMembers : [])].map(
-        (member) => member.id,
+      [...group.members, ...(selectedUid === group.id ? currentGroupMembers : [])].flatMap(
+        (member) => [member.id, member.uin ?? ''],
       ),
     );
     const uids = privatePreview.rows.flatMap((row) => [
@@ -9297,7 +9299,7 @@ function MainWorkspace(): ReactElement {
     resolveProfiles(uids);
     resolvePreviewMembers(
       group.id,
-      uids,
+      [...uids, ...senderUinsWithoutUid(privatePreview.rows)],
       known,
       () => useViewState.getState().openedUin === account,
     );

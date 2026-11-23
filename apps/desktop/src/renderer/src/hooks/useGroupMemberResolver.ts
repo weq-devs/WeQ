@@ -1,7 +1,7 @@
 /**
  * 统一的群成员（群名片）内存缓存 / 解析器。
  *
- * 群里发言人 / 灰条提示引用的 uid 可能落在「已加载的成员分页」之外。这个 hook
+ * 群里发言人 / 灰条提示引用的 UID 或 QQ 号可能落在「已加载的成员分页」之外。这个 hook
  * 负责按需批量补全这些离屏成员的群名片，结果按 groupCode → uid 两级缓存，确保 A
  * 群的名片绝不会泄漏到 B 群。
  *
@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { client } from '../trpc/client';
 import { reconcileResolvedRows } from '../lib/resolvedRows';
-import type { GroupMemberLookup } from '../lib/groupMemberRefresh';
+import { isMemberUin, type GroupMemberLookup } from '../lib/groupMemberRefresh';
 
 /** getGroupMembersByUids 的单次 uid 上限（与 IPC 层一致）。 */
 const CHUNK = 200;
@@ -22,7 +22,7 @@ export const GROUP_MEMBER_PREVIEW_REFRESH_MS = 60_000;
 
 interface MemberJob {
   groupCode: string;
-  uids: string[];
+  identities: string[];
   captured: Map<string, number>;
   isCurrent: () => boolean;
   attempted: Set<string>;
@@ -34,13 +34,13 @@ export interface GroupMemberResolver<T> {
   /** groupCode → (uid → 离屏补全的成员)。 */
   missingMembers: Record<string, Record<string, T>>;
   /**
-   * 补全某群里这批 uid 的成员卡片。已在 known（已加载分页）/ 已尝试过的 uid 会被
-   * 跳过，其余批量 getGroupMembersByUids 后回填。`isCurrent` 在回填前再确认目标群
+   * 补全某群中这批身份的成员卡片。跳过已知或已尝试过的 UID 或 QQ 号。
+   * `isCurrent` 在回填前再确认目标群
    * 仍是当前会话，切走则丢弃结果。重复调用不会对同一 uid 重复请求。
    */
   resolveMembers: (
     groupCode: string,
-    uids: Iterable<string>,
+    identities: Iterable<string>,
     known: ReadonlySet<string>,
     isCurrent: () => boolean,
   ) => void;
@@ -49,7 +49,7 @@ export interface GroupMemberResolver<T> {
   invalidate: (groupCode?: string) => void;
 }
 
-export function useGroupMemberResolver<T extends { uid: string }>(
+export function useGroupMemberResolver<T extends { uid: string; uin?: string }>(
   minRefreshIntervalMs = 0,
   lookup?: GroupMemberLookup<T>,
 ): GroupMemberResolver<T> {
@@ -93,6 +93,10 @@ export function useGroupMemberResolver<T extends { uid: string }>(
     for (const member of members) {
       const key = `${groupCode}:${member.uid}`;
       versions.current.set(key, (versions.current.get(key) ?? 0) + 1);
+      if (member.uin && isMemberUin(member.uin)) {
+        const numberKey = `${groupCode}:${member.uin}`;
+        versions.current.set(numberKey, (versions.current.get(numberKey) ?? 0) + 1);
+      }
     }
     setMissingMembers((previous) => {
       const current = previous[groupCode] ?? {};
@@ -106,7 +110,7 @@ export function useGroupMemberResolver<T extends { uid: string }>(
     cancelTimer();
     jobs.current = jobs.current.filter((job) => {
       if (job.isCurrent()) return true;
-      for (const uid of job.uids) job.attempted.delete(uid);
+      for (const identity of job.identities) job.attempted.delete(identity);
       return false;
     });
     const now = Date.now();
@@ -117,8 +121,8 @@ export function useGroupMemberResolver<T extends { uid: string }>(
         job.dueAt =
           minRefreshIntervalMs > 0
             ? Math.min(
-                ...job.uids.map((uid) => {
-                  const at = lastRead.current.get(`${job.groupCode}:${uid}`);
+                ...job.identities.map((identity) => {
+                  const at = lastRead.current.get(`${job.groupCode}:${identity}`);
                   return at === undefined ? 0 : at + minRefreshIntervalMs;
                 }),
               )
@@ -137,26 +141,27 @@ export function useGroupMemberResolver<T extends { uid: string }>(
     const job = jobs.current.splice(index, 1)[0]!;
     const ready: string[] = [];
     const delayed: string[] = [];
-    for (const uid of job.uids) {
+    for (const identity of job.identities) {
       const at =
-        minRefreshIntervalMs > 0 ? lastRead.current.get(`${job.groupCode}:${uid}`) : undefined;
-      (at === undefined || at + minRefreshIntervalMs <= now ? ready : delayed).push(uid);
+        minRefreshIntervalMs > 0 ? lastRead.current.get(`${job.groupCode}:${identity}`) : undefined;
+      (at === undefined || at + minRefreshIntervalMs <= now ? ready : delayed).push(identity);
     }
-    if (delayed.length) jobs.current.push({ ...job, uids: delayed, dueAt: undefined });
-    job.uids = ready;
+    if (delayed.length) jobs.current.push({ ...job, identities: delayed, dueAt: undefined });
+    const byUin = isMemberUin(ready[0]!);
     running.current = true;
     void (async () => {
       try {
-        const input = {
-          groupCode: job.groupCode,
-          uids: job.uids,
-        };
         const members = await (lookup
-          ? lookup(input)
-          : client.account.getGroupMembersByUids.query(input));
+          ? lookup({ groupCode: job.groupCode, identities: ready })
+          : byUin
+            ? client.account.getGroupMembersByUins.query({ groupCode: job.groupCode, uins: ready })
+            : client.account.getGroupMembersByUids.query({
+                groupCode: job.groupCode,
+                uids: ready,
+              }));
         if (!mounted.current || attemptedRef.current[job.groupCode] !== job.attempted) return;
         if (!job.isCurrent()) {
-          for (const uid of job.uids) job.attempted.delete(uid);
+          for (const identity of ready) job.attempted.delete(identity);
           return;
         }
         if (minRefreshIntervalMs > 0) {
@@ -167,8 +172,8 @@ export function useGroupMemberResolver<T extends { uid: string }>(
             if (at + minRefreshIntervalMs > readAt) break;
             reads.delete(key);
           }
-          for (const uid of job.uids) {
-            const key = `${job.groupCode}:${uid}`;
+          for (const identity of ready) {
+            const key = `${job.groupCode}:${identity}`;
             reads.delete(key);
             reads.set(key, readAt);
           }
@@ -180,17 +185,22 @@ export function useGroupMemberResolver<T extends { uid: string }>(
             const groupCache = reconcileResolvedRows(
               current,
               members as unknown as T[],
-              (member) =>
-                job.captured.get(member.uid) ===
-                (versions.current.get(`${job.groupCode}:${member.uid}`) ?? 0),
+              (member) => {
+                const identity = byUin ? member.uin : member.uid;
+                return (
+                  identity !== undefined &&
+                  job.captured.get(identity) ===
+                    (versions.current.get(`${job.groupCode}:${identity}`) ?? 0)
+                );
+              },
             );
             return groupCache === current ? prev : { ...prev, [job.groupCode]: groupCache };
           });
         }
       } catch (err) {
         if (!mounted.current || attemptedRef.current[job.groupCode] !== job.attempted) return;
-        console.error('[group-members] getGroupMembersByUids failed', err);
-        for (const uid of job.uids) job.attempted.delete(uid);
+        console.error('[group-members] group member lookup failed', err);
+        for (const identity of ready) job.attempted.delete(identity);
       } finally {
         running.current = false;
         drainRef.current();
@@ -202,7 +212,7 @@ export function useGroupMemberResolver<T extends { uid: string }>(
   const resolveMembers = useCallback(
     (
       groupCode: string,
-      uids: Iterable<string>,
+      identities: Iterable<string>,
       known: ReadonlySet<string>,
       isCurrent: () => boolean,
     ): void => {
@@ -212,23 +222,26 @@ export function useGroupMemberResolver<T extends { uid: string }>(
         attempted = new Set();
         attemptedRef.current[groupCode] = attempted;
       }
-      const missing: string[] = [];
+      const missingUids: string[] = [];
+      const missingUins: string[] = [];
       const captured = new Map<string, number>();
-      for (const uid of uids) {
-        if (!uid || known.has(uid) || attempted.has(uid)) continue;
-        attempted.add(uid);
-        missing.push(uid);
-        captured.set(uid, versions.current.get(`${groupCode}:${uid}`) ?? 0);
+      for (const identity of identities) {
+        if (!identity || known.has(identity) || attempted.has(identity)) continue;
+        attempted.add(identity);
+        (isMemberUin(identity) ? missingUins : missingUids).push(identity);
+        captured.set(identity, versions.current.get(`${groupCode}:${identity}`) ?? 0);
       }
-      if (missing.length === 0) return;
-      for (let i = 0; i < missing.length; i += CHUNK)
-        jobs.current.push({
-          groupCode,
-          uids: missing.slice(i, i + CHUNK),
-          captured,
-          isCurrent,
-          attempted,
-        });
+      if (!captured.size) return;
+      for (const missing of [missingUids, missingUins]) {
+        for (let i = 0; i < missing.length; i += CHUNK)
+          jobs.current.push({
+            groupCode,
+            identities: missing.slice(i, i + CHUNK),
+            captured,
+            isCurrent,
+            attempted,
+          });
+      }
       drainRef.current();
     },
     [],

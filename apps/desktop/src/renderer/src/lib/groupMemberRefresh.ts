@@ -95,36 +95,65 @@ export function groupInfoQueries(
   };
 }
 
-export type GroupMemberLookup<T> = (input: { groupCode: string; uids: string[] }) => Promise<T[]>;
+export type GroupMemberLookup<T> = (input: {
+  groupCode: string;
+  identities: string[];
+}) => Promise<T[]>;
+
+export function isMemberUin(identity: string): boolean {
+  return /^[1-9]\d*$/.test(identity);
+}
 
 /** 同一账号的聊天与列表只共享在途读取；完成即释放，失效后不复用旧查询。 */
-export function createGroupMemberLookup<T extends { uid: string }>(read: GroupMemberLookup<T>) {
+export function createGroupMemberLookup<T extends { uid: string; uin?: string }>(
+  readUids: (input: { groupCode: string; uids: string[] }) => Promise<T[]>,
+  readUins?: (input: { groupCode: string; uins: string[] }) => Promise<T[]>,
+) {
   const pending = new Map<string, Map<string, Promise<T | undefined>>>();
-  const load: GroupMemberLookup<T> = async ({ groupCode, uids }) => {
-    if (!uids.length) return [];
+  const load: GroupMemberLookup<T> = async ({ groupCode, identities }) => {
+    if (!identities.length) return [];
     let group = pending.get(groupCode);
     if (!group) {
       group = new Map();
       pending.set(groupCode, group);
     }
     const current = group;
-    const unique = [...new Set(uids)];
-    const missing = unique.filter((uid) => !current.has(uid));
+    const unique = [...new Set(identities)];
+    const missing = unique.filter((identity) => !current.has(identity));
     if (missing.length) {
-      const batch = Promise.resolve()
-        .then(() => read({ groupCode, uids: missing }))
-        .then((rows) => new Map(rows.map((row) => [row.uid, row])));
-      for (const uid of missing) {
-        const result = batch.then((rows) => rows.get(uid));
-        current.set(uid, result);
-        const release = () => {
-          if (current.get(uid) === result) current.delete(uid);
-          if (!current.size && pending.get(groupCode) === current) pending.delete(groupCode);
-        };
-        void result.then(release, release);
+      const uids: string[] = [];
+      const uins: string[] = [];
+      for (const identity of missing)
+        (readUins && isMemberUin(identity) ? uins : uids).push(identity);
+      const register = (ids: string[], read: () => Promise<T[]>, key: (row: T) => string) => {
+        if (!ids.length) return;
+        const batch = Promise.resolve()
+          .then(read)
+          .then((rows) => new Map(rows.map((row) => [key(row), row])));
+        for (const identity of ids) {
+          const result = batch.then((rows) => rows.get(identity));
+          current.set(identity, result);
+          const release = () => {
+            if (current.get(identity) === result) current.delete(identity);
+            if (!current.size && pending.get(groupCode) === current) pending.delete(groupCode);
+          };
+          void result.then(release, release);
+        }
+      };
+      register(
+        uids,
+        () => readUids({ groupCode, uids }),
+        (row) => row.uid,
+      );
+      if (readUins) {
+        register(
+          uins,
+          () => readUins({ groupCode, uins }),
+          (row) => row.uin ?? '',
+        );
       }
     }
-    const rows = await Promise.all(unique.map((uid) => current.get(uid)!));
+    const rows = await Promise.all(unique.map((identity) => current.get(identity)!));
     return rows.filter((row) => row !== undefined);
   };
   return {

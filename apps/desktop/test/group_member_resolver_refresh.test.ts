@@ -52,6 +52,50 @@ it('当前聊天与列表解析器实际共用同一在途读取，各自正常�
   expect(preview.missingMembers['123'].u_peer).toBe(chat.missingMembers['123'].u_peer);
 });
 
+it('仅带 QQ 号的历史发言人单独分批回填，迟到成员不覆盖群资料写回', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  type Wire = Member & { uin: string };
+  const uid = vi.fn(async () => [{ uid: 'u_other', uin: '30001', card: '在群成员' }]);
+  let finish!: (rows: Wire[]) => void;
+  const number = vi.fn(
+    () =>
+      new Promise<Wire[]>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const lookup = createGroupMemberLookup(uid, number);
+  const root = createRoot(document.createElement('div'));
+  let resolver!: GroupMemberResolver<Wire>;
+  function Probe() {
+    resolver = useGroupMemberResolver<Wire>(0, lookup.load);
+    return null;
+  }
+  act(() => root.render(h(Probe)));
+  cleanups.push(() => act(() => root.unmount()));
+  await act(async () => {
+    resolver.resolveMembers(
+      '123',
+      ['30002', 'u_other', '30002', '30003'],
+      new Set(['30003']),
+      () => true,
+    );
+  });
+  expect(uid).toHaveBeenCalledWith({ groupCode: '123', uids: ['u_other'] });
+  expect(number).toHaveBeenCalledOnce();
+  expect(number).toHaveBeenCalledWith({ groupCode: '123', uins: ['30002'] });
+  expect(resolver.missingMembers['123'].u_other.card).toBe('在群成员');
+  const writeback = { uid: 'u_left', uin: '30002', card: '新名片' };
+  act(() => resolver.updateMembers('123', [writeback]));
+  await act(async () => finish([{ ...writeback, card: '迟到的旧名片' }]));
+  expect(resolver.missingMembers['123'].u_left).toBe(writeback);
+
+  resolver.invalidate('123');
+  await act(async () => resolver.resolveMembers('123', ['30004'], new Set(), () => true));
+  const historical = { uid: 'u_historical', uin: '30004', card: '历史名片' };
+  await act(async () => finish([historical]));
+  expect(resolver.missingMembers['123'].u_historical).toBe(historical);
+});
+
 it('成批登记冷却任务不反复读取前面任务的 UID 时间，冷却后仍全部查询', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.useFakeTimers();

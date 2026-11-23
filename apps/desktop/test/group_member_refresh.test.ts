@@ -211,9 +211,9 @@ it('聊天与列表重叠补全时共享在途成员，不跨群合并，也不�
       new Promise<Member[]>((resolve) => finishes.push(resolve)),
   );
   const lookup = createGroupMemberLookup(read);
-  const chat = lookup.load({ groupCode: '123', uids: ['u_a', 'u_b', 'u_a'] });
-  const preview = lookup.load({ groupCode: '123', uids: ['u_b', 'u_c'] });
-  const other = lookup.load({ groupCode: '456', uids: ['u_b'] });
+  const chat = lookup.load({ groupCode: '123', identities: ['u_a', 'u_b', 'u_a'] });
+  const preview = lookup.load({ groupCode: '123', identities: ['u_b', 'u_c'] });
+  const other = lookup.load({ groupCode: '456', identities: ['u_b'] });
   await Promise.resolve();
   expect(read.mock.calls.map(([input]) => input)).toEqual([
     { groupCode: '123', uids: ['u_a', 'u_b'] },
@@ -238,7 +238,7 @@ it('资料失效后的新查询不复用旧在途结果，旧请求结束也不�
   const finishes: Array<(members: Member[]) => void> = [];
   const read = vi.fn(() => new Promise<Member[]>((resolve) => finishes.push(resolve)));
   const lookup = createGroupMemberLookup(read);
-  const input = { groupCode: '123', uids: ['u_a'] };
+  const input = { groupCode: '123', identities: ['u_a'] };
   const old = lookup.load(input);
   await Promise.resolve();
   lookup.invalidate();
@@ -265,8 +265,8 @@ it('失败后的在途记录会释放，独立账号实例不共享查询，空�
     .mockResolvedValue([]);
   const lookup = createGroupMemberLookup(read);
   const otherAccount = createGroupMemberLookup(read);
-  const input = { groupCode: '123', uids: ['u_a'] };
-  expect(await lookup.load({ ...input, uids: [] })).toEqual([]);
+  const input = { groupCode: '123', identities: ['u_a'] };
+  expect(await lookup.load({ ...input, identities: [] })).toEqual([]);
   expect(read).not.toHaveBeenCalled();
   const first = lookup.load(input);
   const shared = lookup.load(input);

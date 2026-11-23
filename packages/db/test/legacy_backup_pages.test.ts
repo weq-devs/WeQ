@@ -46,6 +46,23 @@ it('旧群成员无头衔和等级列时，列表、搜索、单人查询仍读�
   expect(await db.listLeftMembersInGroup(777n)).toEqual([]);
 });
 
+it('退群行可以按 UID 和 QQ 号回读，但不进入当前成员分页', async () => {
+  const { sql, nt, opts } = fixture();
+  sql.exec(`CREATE TABLE group_member3 (
+    "60001" INTEGER, "1000" TEXT, "1002" INTEGER, "64003" TEXT, "20002" TEXT,
+    "64007" INTEGER, "64008" INTEGER, "64009" INTEGER, "64010" INTEGER, "64016" INTEGER);
+    CREATE TABLE group_detail_info_ver1 ("60001" INTEGER, "60002" TEXT);
+    INSERT INTO group_member3 VALUES (777,'u_member',12345,'旧名片','旧昵称',10,20,0,0,1),
+      (778,'u_member',12345,'另一个群的名片','旧昵称',10,20,0,0,0)`);
+  const db = new GroupMemberDb(nt, opts);
+  expect(await db.listMembersInGroup(777n)).toEqual([]);
+  const left = await db.listLeftMembersInGroup(777n);
+  expect(left).toHaveLength(1);
+  expect(left[0]).toMatchObject({ uid: 'u_member', uin: 12345n, card: '旧名片', memberFlag: 1 });
+  expect(await db.getMembersByUids(777n, ['u_member'])).toEqual(left);
+  expect(await db.getMembersByUins(777n, [12345n])).toEqual(left);
+});
+
 it('旧备份没有可选功能表时返回空结果，不阻断群资料和会话列表', async () => {
   const { sql, nt, opts } = fixture();
   sql.exec('CREATE TABLE unrelated (id INTEGER)');
