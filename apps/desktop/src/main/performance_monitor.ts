@@ -4,6 +4,7 @@ import { createNodeCollector } from '@weq/service/performance-node';
 import type { MonitorCollector, MonitorProcess } from '@weq/service/performance';
 import { MONITOR_REQUEST, MONITOR_RESPONSE } from '../shared/performance_monitor';
 import { normalizeRendererExitReason } from './renderer_recovery';
+import { performanceRendererLabels, performanceUtilityLabel } from './performance_process_labels';
 import {
   diagnosticNumber,
   normalizeDevelopmentSample,
@@ -76,6 +77,10 @@ export function createDesktopCollector(
     async collect(detailed) {
       const start = performance.now();
       const local = await node.collect(detailed);
+      const contents = webContents.getAllWebContents();
+      const mainContentsId = mainId();
+      const main = contents.find((content) => content.id === mainContentsId);
+      const rendererLabels = performanceRendererLabels(contents, main);
       const metrics = app.getAppMetrics();
       const processes: MonitorProcess[] = [];
       const now = performance.now();
@@ -100,8 +105,10 @@ export function createDesktopCollector(
             metric.pid === process.pid
               ? '主进程'
               : metric.type === 'Tab'
-                ? '渲染进程'
-                : metric.type,
+                ? (rendererLabels.get(metric.pid) ?? '渲染进程')
+                : metric.type === 'Utility'
+                  ? performanceUtilityLabel(metric)
+                  : metric.type,
           pid: metric.pid,
           createdAt: metric.creationTime,
           metrics: {
@@ -124,8 +131,7 @@ export function createDesktopCollector(
       }
       for (const key of previous.keys()) if (!seen.has(key)) previous.delete(key);
       let syncMs = performance.now() - start;
-      const main = webContents.getAllWebContents().find((content) => content.id === mainId());
-      const proc = main && processes.find((item) => item.pid === main.getOSProcessId());
+      const proc = processes.find((item) => item.label === '主窗口');
       let waitMs = local.waitMs,
         detailSyncMs = local.detailSyncMs ?? 0;
       const unavailable: string[] = [];
@@ -147,7 +153,6 @@ export function createDesktopCollector(
         );
         if (response) {
           const sample = normalizeRendererSample(response);
-          proc.label = '主窗口';
           proc.metrics.heapBytes = sample.jsHeapUsedBytes;
           proc.metrics.externalBytes = sample.externalBytes;
           proc.details = {

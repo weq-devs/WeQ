@@ -24,6 +24,7 @@
  * `apps/desktop/src/main/host.ts` 注入），不能出现在共享 router 的静态依赖里。
  */
 
+import { labelPerformanceWindow } from './performance_process_labels';
 import { BrowserWindow, nativeImage, type NativeImage } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { loadIsolatedHtml } from './html_load';
@@ -111,6 +112,7 @@ async function openWindow(html: string): Promise<BrowserWindow> {
       backgroundThrottling: false,
     },
   });
+  labelPerformanceWindow(win, '报告截图');
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   try {
     const loaded = loadIsolatedHtml(win, html, { offline: true }).catch(() => {});

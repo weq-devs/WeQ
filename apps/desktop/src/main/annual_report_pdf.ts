@@ -9,6 +9,7 @@
  * （见 `apps/web/scripts/check-electron-free.ts`）。
  */
 
+import { labelPerformanceWindow } from './performance_process_labels';
 import { BrowserWindow } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { loadIsolatedHtml } from './html_load';
@@ -27,6 +28,7 @@ export async function renderPdfFromHtml(html: string): Promise<Buffer> {
       javascript: true,
     },
   });
+  labelPerformanceWindow(win, '年度报告 PDF');
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   try {
     const loaded = loadIsolatedHtml(win, html, { offline: true });

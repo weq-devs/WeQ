@@ -18,6 +18,7 @@
  * sandboxed/context-isolated — the privileged tRPC bridge never reaches it.
  */
 
+import { labelPerformanceWindow } from './performance_process_labels';
 import { BrowserWindow, ipcMain, nativeTheme, session } from 'electron';
 import { accountConfigId, fetchWebTokens, getLogger, logErrorContext } from '@weq/service';
 import { getAppContext } from './context/app_context';
@@ -152,6 +153,7 @@ async function openQzoneWindow(): Promise<void> {
       // privileged bridge out of its reach.
     },
   });
+  labelPerformanceWindow(win, 'QQ 空间');
   installWindowControls(win);
   qzoneWindows.set(partition, win);
   win.on('closed', () => {

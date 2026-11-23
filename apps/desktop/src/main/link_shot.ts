@@ -15,6 +15,7 @@
  * 主文档复用服务层已取得的 HTML；所有联网子资源也由服务层校验并固定 IP 传输。
  */
 
+import { labelPerformanceWindow } from './performance_process_labels';
 import { BrowserWindow, session } from 'electron';
 import type { LinkScreenshotRequest } from '@weq/service';
 
@@ -86,6 +87,7 @@ export async function screenshotPage(input: LinkScreenshotRequest): Promise<Buff
       images: true,
     },
   });
+  labelPerformanceWindow(win, '链接截图');
   win.webContents.setAudioMuted(true);
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());

@@ -1,3 +1,4 @@
+import { labelPerformanceWindow } from './performance_process_labels';
 import { networkFetch } from '@weq/network';
 /**
  * 打开导出 bot 的 WebUI 控制台窗口（本机 http 页面）。
@@ -46,6 +47,7 @@ export async function openBotWebUiWindow(
       // 无 preload：控制台是 bot 自己的页面，应用的特权 bridge 不能进它的视野。
     },
   });
+  labelPerformanceWindow(win, '克隆体控制台');
   installWindowControls(win);
   // 控制台里的外链一律走系统浏览器，不在本窗口内导航/开子窗。
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

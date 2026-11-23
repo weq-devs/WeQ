@@ -1,6 +1,7 @@
 import { controlCompositionWindow } from './composition_window';
 import { flushConversationCalendarResults } from './ipc/routers/conversation_calendar';
 import { applicationToolPopupOptions, createToolWindowRegistry } from './tool_window';
+import { labelPerformanceWindow } from './performance_process_labels';
 import { installCallDisplayMediaHandler } from './call_display_media';
 import {
   appImageRelaunchCommand,
@@ -816,7 +817,9 @@ function createWindow(
     return { action: 'deny' };
   });
   win.webContents.on('did-create-window', (child, details) => {
-    if (!applicationToolPopupOptions(details.url, details.frameName)) return;
+    const options = applicationToolPopupOptions(details.url, details.frameName);
+    if (!options) return;
+    labelPerformanceWindow(child, options.title ?? '应用工具窗口');
     const composition = details.frameName === 'weq-compose';
     if (!composition) installWindowControls(child, details.options.frame === false);
     const owner = win.webContents.id;

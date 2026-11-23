@@ -16,6 +16,7 @@
  * 故 AI 生成的脚本触达不到应用的 tRPC bridge。镜像 channel.ts 的远程内容窗口范式。
  */
 
+import { labelPerformanceWindow } from './performance_process_labels';
 import { BrowserWindow } from 'electron';
 import { readFile } from 'node:fs/promises';
 import { resolveResource } from './resource';
@@ -76,6 +77,7 @@ export async function openReportWindow(htmlPath: string): Promise<void> {
       // 无 preload：渲染的是 AI 生成内容，应用的特权 bridge 不能进它的视野。
     },
   });
+  labelPerformanceWindow(win, '报告预览');
   installWindowControls(win);
   // 报告里的链接一律走系统浏览器，不在本窗口内导航/开子窗。
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { app, ipcMain, ipcRenderer, webContents, webFrame } from 'electron';
 import { createDesktopCollector } from '../src/main/performance_monitor';
+import { labelPerformanceWindow } from '../src/main/performance_process_labels';
 import { installPerformanceSampling } from '../src/preload/performance_monitor';
 import { MONITOR_REQUEST, MONITOR_RESPONSE } from '../src/shared/performance_monitor';
 import type { MonitorCollector } from '@weq/service/performance';
@@ -131,7 +132,9 @@ describe('旧诊断退役后的正式采样契约', () => {
     const pending = f.collector.collect(false);
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(3000);
-    expect((await pending).unavailable).toContain('renderer');
+    const sample = await pending;
+    expect(sample.unavailable).toContain('renderer');
+    expect(sample.processes[0]).toMatchObject({ label: '主窗口', metrics: { heapBytes: null } });
     ipcMain.emit(
       MONITOR_RESPONSE,
       { sender: f.contents, senderFrame: f.contents.mainFrame },
@@ -148,6 +151,27 @@ describe('旧诊断退役后的正式采样契约', () => {
     expect(ipcMain.listenerCount(MONITOR_RESPONSE)).toBe(0);
     expect(app.listenerCount('render-process-gone')).toBe(0);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('区分辅助窗口和 Chromium 服务，进程共用时仍只保留一笔内存记录', async () => {
+    const f = mainFixture();
+    const shared = { ...f.contents, id: 2, pid: 101 } as unknown as Electron.WebContents;
+    const latest = { ...f.contents, id: 3, pid: 101 } as unknown as Electron.WebContents;
+    labelPerformanceWindow({ webContents: shared } as Electron.BrowserWindow, 'QQ 空间');
+    labelPerformanceWindow({ webContents: latest } as Electron.BrowserWindow, '报告预览');
+    vi.mocked(webContents.getAllWebContents).mockReturnValue([shared, latest]);
+    const [main] = app.getAppMetrics();
+    vi.mocked(app.getAppMetrics).mockReturnValue([
+      { ...main!, pid: 101 },
+      { ...main!, pid: 102, type: 'Utility', serviceName: 'network.mojom.NetworkService' },
+      { ...main!, pid: 103, type: 'Utility', name: 'https://private.example/account' },
+    ]);
+    const sample = await f.collector.collect(false);
+    expect(sample.processes.map(({ pid, label }) => ({ pid, label }))).toEqual([
+      { pid: 101, label: 'QQ 空间 / 报告预览' },
+      { pid: 102, label: 'Utility · NetworkService' },
+      { pid: 103, label: 'Utility' },
+    ]);
   });
 
   it('preload 完整采样异步等待期间不叠加，原生 KB 和缓存失败仍保留其他指标', async () => {

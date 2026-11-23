@@ -20,6 +20,7 @@
  * 位置选择先于捕获；卡片数据固定为点击时的快照，结果由公共任务缓存与保存。
  */
 
+import { labelPerformanceWindow } from './performance_process_labels';
 import { BrowserWindow, ipcMain, nativeImage } from 'electron';
 import fs from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -118,6 +119,7 @@ function createExportWindow(): BrowserWindow {
       backgroundThrottling: false,
     },
   });
+  labelPerformanceWindow(win, '统计导出');
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   return win;
 }

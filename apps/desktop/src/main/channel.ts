@@ -21,6 +21,7 @@
  * 频道相关的导出/分析 work (see `channel:get-cookies`).
  */
 
+import { labelPerformanceWindow } from './performance_process_labels';
 import { BrowserWindow, ipcMain, nativeTheme, session } from 'electron';
 import { accountConfigId, fetchWebTokens, getLogger, logErrorContext } from '@weq/service';
 import { getAppContext } from './context/app_context';
@@ -124,6 +125,7 @@ async function openChannelWindow(): Promise<void> {
       // privileged bridge out of its reach.
     },
   });
+  labelPerformanceWindow(win, 'QQ 频道');
   installWindowControls(win);
   channelWindows.set(partition, win);
   win.on('closed', () => {
