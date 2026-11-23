@@ -4,6 +4,7 @@ import { encode, MSG_PUSH_ENVELOPE } from '@weqbot/protocol';
 import { buildClientReadNotify } from '@weqbot/protocol/qq-sync';
 import {
   FRIEND_RECALL,
+  GENERAL_GRAY_TIP,
   GROUP_ADMIN,
   GROUP_REACT,
 } from '../../../vendor/weqbot/packages/protocol/src/push/schemas';
@@ -180,6 +181,7 @@ it('表情与撤回推送提供定位，不把包内计数当作完整数据库�
   );
   expect(event.updates.reactions).toEqual([{ groupCode: '70001', sequence: 100 }]);
   expect(event.updates.recalled).toBe(true);
+  expect(event.updates.interactions).toEqual([{ kind: 'c2c', conv: 'u_peer' }]);
 });
 
 it('多端只读一次打开群的表情状态，关闭后取消在途投递', async () => {
@@ -219,4 +221,21 @@ it('多端只读一次打开群的表情状态，关闭后取消在途投递', a
   } finally {
     vi.useRealTimers();
   }
+});
+
+it('戳一戳只调度戳到当前账号的会话', () => {
+  const poke = (toUid: string) => ({
+    contentHead: { msgType: 528, subType: 290 },
+    body: {
+      msgContent: encode(GENERAL_GRAY_TIP, {
+        busiType: 12n,
+        msgTemplParam: [
+          { name: 'uin_str1', value: 'u_peer' },
+          { name: 'uin_str2', value: toUid },
+        ],
+      }),
+    },
+  });
+  const result = decodeLivePush(body(poke(self), poke('u_other'), poke(self)), self, account, now);
+  expect(result.updates.interactions).toEqual([{ kind: 'c2c', conv: 'u_peer' }]);
 });

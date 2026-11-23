@@ -12,6 +12,12 @@ import {
 } from '../../shared/conversation_interaction';
 
 type Kind = ConversationInteraction['kind'];
+type InteractionConversation = Pick<ConversationInteraction, 'kind' | 'conv'>;
+type ScanTargets = Map<Kind, Set<string>>;
+type InteractionBaseline = {
+  latest: Map<string, bigint>;
+  idsByConversation: Map<string, Set<string>>;
+};
 type Watermarks = Pick<UnreadInfoService, 'getUnreadInfos' | 'onCountsChanged'>;
 const kinds: Kind[] = ['c2c', 'group'];
 const pokeVerb = /拍了拍|戳了戳/;
@@ -116,11 +122,16 @@ export class ConversationInteractionBadges {
   private readonly reads = new AbortController();
   private readonly self: ReadonlySet<string>;
   private readonly stopSettings: () => void;
-  private readonly baselines = new Map<Kind, { latest: Map<string, bigint>; ids: Set<string> }>();
+  private readonly baselines = new Map<Kind, InteractionBaseline>();
   private stopWatermarks?: () => void;
   private eligible = new Set<string>();
   private scanInFlight?: Promise<void>;
   private timer?: ReturnType<typeof setTimeout>;
+  private scheduledAt?: number;
+  private reconcileAt?: number;
+  private targetAt?: number;
+  private proxyTargets: ScanTargets = new Map();
+  private proxyRevision = 0;
   private watching = false;
   private generation = 0;
   private projection = 0;
@@ -204,7 +215,7 @@ export class ConversationInteractionBadges {
     this.events.emit('change', this.pendingEvents());
   }
 
-  requestScan(): void {
+  requestScan(defer = false): void {
     if (this.reads.signal.aborted) return;
     const watching = this.enabled();
     if (this.watching !== watching) {
@@ -213,6 +224,10 @@ export class ConversationInteractionBadges {
       this.baselines.clear();
       clearTimeout(this.timer);
       this.timer = undefined;
+      this.scheduledAt = undefined;
+      this.reconcileAt = undefined;
+      this.targetAt = undefined;
+      this.proxyTargets.clear();
       if (!watching) {
         this.stopWatermarks?.();
         this.stopWatermarks = undefined;
@@ -220,34 +235,80 @@ export class ConversationInteractionBadges {
         this.publish();
       }
     }
-    if (!watching || this.timer) return;
+    if (!watching) return;
     this.stopWatermarks ??= this.watermarks()?.onCountsChanged((targets) => {
       const changed = new Set(targets.map(({ chatType, uid }) => `${chatType}_${uid}`));
       if (this.store.data.candidates.some(({ kind, conv }) => changed.has(convKey(kind, conv))))
         void this.project(this.generation).catch(() => {});
     });
-    // 合并 QQ 文件变化；仅水位变化时直接重算已有候选。
+    const delay = this.baselines.size || this.scanInFlight ? (defer ? 3000 : 400) : 0;
+    this.reconcileAt = Math.min(this.reconcileAt ?? Infinity, Date.now() + delay);
+    this.scheduleScan();
+  }
+
+  observeProxyConversations(targets: readonly InteractionConversation[]): void {
+    if (this.reads.signal.aborted || !this.enabled() || !targets.length) return;
+    if (!this.watching) this.requestScan();
+    for (const { kind, conv } of targets) {
+      let conversations = this.proxyTargets.get(kind);
+      if (!conversations) {
+        conversations = new Set();
+        this.proxyTargets.set(kind, conversations);
+      }
+      if (conversations.size < 128) conversations.add(conv);
+    }
+    this.targetAt ??= Date.now() + 250;
+    // 代理知道目标，其他同时发生的库变化仍有固定期限校准。
+    this.reconcileAt ??= Date.now() + 3000;
+    this.scheduleScan();
+  }
+
+  clearProxyConversations(): void {
+    this.proxyRevision++;
+    this.proxyTargets.clear();
+    this.targetAt = undefined;
+    if (this.reconcileAt !== undefined || this.scanInFlight) this.requestScan();
+    else this.scheduleScan();
+  }
+
+  private scheduleScan(): void {
+    if (!this.watching || this.reads.signal.aborted || this.scanInFlight) return;
+    const at = Math.min(this.reconcileAt ?? Infinity, this.targetAt ?? Infinity);
+    if (this.scheduledAt === at) return;
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    this.scheduledAt = Number.isFinite(at) ? at : undefined;
+    if (!Number.isFinite(at)) return;
     this.timer = setTimeout(
       () => {
         this.timer = undefined;
-        if (this.scanInFlight) return this.requestScan();
-        this.scanInFlight = this.scan()
+        this.scheduledAt = undefined;
+        let targets: ScanTargets | undefined;
+        if (this.reconcileAt !== undefined && this.reconcileAt <= Date.now()) {
+          this.reconcileAt = undefined;
+        } else {
+          this.targetAt = undefined;
+          targets = this.proxyTargets;
+          this.proxyTargets = new Map();
+        }
+        this.scanInFlight = this.scan(targets)
           .catch(() => {})
           .finally(() => {
             this.scanInFlight = undefined;
+            this.scheduleScan();
           });
       },
-      this.baselines.size || this.scanInFlight ? 400 : 0,
-    );
-    this.timer.unref?.();
+      Math.max(0, at - Date.now()),
+    ).unref();
   }
 
-  private async scan(): Promise<void> {
+  private async scan(targets?: ScanTargets): Promise<void> {
     if (!this.enabled()) return;
     const generation = this.generation;
+    const proxyRevision = this.proxyRevision;
     const observedAt = Math.floor(Date.now() / 1000);
     const scans = await Promise.allSettled(
-      kinds.map((kind) =>
+      (targets ? [...targets.keys()] : kinds).map((kind) =>
         withDatabasePriority(
           'background',
           async () => ({
@@ -256,6 +317,7 @@ export class ConversationInteractionBadges {
             window: await this.session.recentContacts.recentInteractionWindow(
               kind,
               observedAt - (kind === 'c2c' ? 7200 : 600),
+              targets ? [...(targets.get(kind) ?? [])] : undefined,
             ),
           }),
           this.reads.signal,
@@ -265,11 +327,17 @@ export class ConversationInteractionBadges {
     const newEvents: BadgeCandidate[] = [];
     const previousRecalls = new Set(this.store.data.pending.map(conversationInteractionId));
     for (const result of scans) {
-      if (this.reads.signal.aborted || !this.enabled() || this.generation !== generation) return;
+      if (
+        this.reads.signal.aborted ||
+        !this.enabled() ||
+        this.generation !== generation ||
+        (targets && this.proxyRevision !== proxyRevision)
+      )
+        return;
       if (result.status !== 'fulfilled') continue;
       const { kind, window } = result.value;
       const old = this.baselines.get(kind);
-      const ids = new Set<string>();
+      const idsByConversation = new Map<string, Set<string>>();
       for (const { seq, conv, msgId, sentAt, senderUid, elements } of window.tips) {
         const action =
           incomingConversationInteraction(elements, this.self) ??
@@ -285,11 +353,16 @@ export class ConversationInteractionBadges {
         if (!action || !conv || !msgId || msgId === '0') continue;
         const event = { kind, conv, msgId, action };
         const id = conversationInteractionId(event);
+        let ids = idsByConversation.get(conv);
+        if (!ids) {
+          ids = new Set();
+          idsByConversation.set(conv, ids);
+        }
         ids.add(id);
         const previousSeq = old?.latest.get(conv);
         const existingMessage =
           previousSeq !== undefined && seq <= previousSeq && seq > previousSeq - 64n;
-        if (old ? old.ids.has(id) : !previousRecalls.has(id)) continue;
+        if (old ? old.idsByConversation.get(conv)?.has(id) : !previousRecalls.has(id)) continue;
         if (action === 'recall') {
           if (
             seq > 0n &&
@@ -309,7 +382,14 @@ export class ConversationInteractionBadges {
           });
         }
       }
-      this.baselines.set(kind, { latest: window.latest, ids });
+      if (targets && old) {
+        for (const [conv, latest] of window.latest) {
+          old.latest.set(conv, latest);
+          old.idsByConversation.set(conv, idsByConversation.get(conv) ?? new Set());
+        }
+      } else {
+        this.baselines.set(kind, { latest: window.latest, idsByConversation });
+      }
     }
     // 先保存检测结果；未读数据暂不可用时，下次仍能重新判断这些消息。
     const state = this.store.data;

@@ -11,16 +11,28 @@ export interface LivePushUpdates {
   groups: Array<{ groupCode: string; directory: boolean }>;
   reactions: Array<{ groupCode: string; sequence: number }>;
   recalled: boolean;
+  interactions: Array<{ kind: 'group' | 'c2c'; conv: string }>;
 }
 
 export function decodeLivePush(body: Uint8Array, selfUid: string, selfUin: string, now: number) {
   const { messages } = decodePushEnvelope(body);
   const rows: GapFetchedMessage[] = [];
-  const updates: LivePushUpdates = { reads: [], groups: [], reactions: [], recalled: false };
+  const updates: LivePushUpdates = {
+    reads: [],
+    groups: [],
+    reactions: [],
+    recalled: false,
+    interactions: [],
+  };
   if (!selfUid) return { rows, updates };
   let haveReads = false;
   let routedReads = true;
   const groups = new Map<string, boolean>();
+  const interactions = new Map<string, LivePushUpdates['interactions'][number]>();
+  const markInteraction = (kind: 'group' | 'c2c', conv: string) => {
+    if (!(kind === 'group' ? /^[1-9]\d{0,15}$/ : /^u_[A-Za-z0-9_-]+$/).test(conv)) return;
+    interactions.set(`${kind}:${conv}`, { kind, conv });
+  };
   for (const raw of messages) {
     const { contentHead: head, responseHead: peers } = raw;
     const group = peers?.grp?.groupUin;
@@ -39,8 +51,9 @@ export function decodeLivePush(body: Uint8Array, selfUid: string, selfUin: strin
       continue;
     }
     if (
-      (head?.msgType === 528 && (head.subType === 138 || head.subType === 139)) ||
-      (head?.msgType === 732 && (head.subType === 16 || head.subType === 17))
+      (head?.msgType === 528 &&
+        (head.subType === 138 || head.subType === 139 || head.subType === 290)) ||
+      (head?.msgType === 732 && (head.subType === 16 || head.subType === 17 || head.subType === 20))
     ) {
       const event = pushRegistry.decode(raw);
       if (
@@ -54,8 +67,17 @@ export function decodeLivePush(body: Uint8Array, selfUid: string, selfUin: strin
         // QQ 的数据库状态包含总数和自己是否已回应。推送仅提供精确的重读目标。
         updates.reactions.push({ groupCode: String(event.groupUin), sequence: event.sequence });
       }
-      if (event?.kind === 'group-recall' || event?.kind === 'friend-recall')
+      if (event?.kind === 'group-recall') {
         updates.recalled = true;
+        markInteraction('group', String(event.groupUin));
+      } else if (event?.kind === 'friend-recall') {
+        updates.recalled = true;
+        if (event.toUid === selfUid) markInteraction('c2c', event.fromUid);
+        else if (event.fromUid === selfUid) markInteraction('c2c', event.toUid);
+      } else if (event?.kind === 'poke' && event.toUid === selfUid && event.fromUid !== selfUid) {
+        if (event.groupUin) markInteraction('group', String(event.groupUin));
+        else markInteraction('c2c', event.fromUid);
+      }
       continue;
     }
     if (
@@ -113,6 +135,7 @@ export function decodeLivePush(body: Uint8Array, selfUid: string, selfUin: strin
     );
     rows.push({ ...row, sourceFormat: 'protocol', msgRandom: String(head.msgId) });
   }
+  updates.interactions = [...interactions.values()];
   updates.groups = [...groups].map(([groupCode, directory]) => ({ groupCode, directory }));
   if (haveReads && routedReads) {
     try {

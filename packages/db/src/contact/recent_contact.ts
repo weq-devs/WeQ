@@ -303,14 +303,18 @@ export class RecentContactDb {
   async recentInteractionWindow(
     kind: 'c2c' | 'group',
     since: number,
+    conversations?: readonly string[],
   ): Promise<RecentInteractionWindow> {
+    const targets = conversations ? [...new Set(conversations.filter(Boolean))] : [];
+    if (conversations && !targets.length) return { latest: new Map(), tips: [] };
+    const scope = conversations ? `"40021" IN (${targets.map(() => '?').join(',')})` : '"40050">=?';
     const table = kind === 'group' ? 'group_msg_table' : 'c2c_msg_table';
     const partition = kind === 'group' ? 'CAST("40021" AS INTEGER)' : '"40027"';
     const types = kind === 'group' ? ChatType.KCHATTYPEGROUP : DIRECT_INTERACTION_TYPES;
     const rows = await this.qq.query(
       `WITH targets(conv, partition, seq) AS MATERIALIZED (
          SELECT "40021", ${partition}, MAX("40003") FROM recent_contact_v3_table
-         WHERE "40010" IN (${types}) AND "40050">=? AND ${partition}>0
+         WHERE "40010" IN (${types}) AND ${scope} AND ${partition}>0
          GROUP BY "40021", ${partition} ORDER BY MAX("40050") DESC LIMIT 128
        )
        SELECT t.conv, m."40003", m."40001", m."40050", m."40800", m."40020"
@@ -325,7 +329,7 @@ export class RecentContactDb {
        CROSS JOIN ${table} m ON m."40027"=t.partition AND m."40003" IS s.seq
        WHERE m."40050">=?
        UNION ALL SELECT conv, seq, NULL, NULL, NULL, NULL FROM targets`,
-      [BigInt(since), BigInt(since)],
+      [...(conversations ? targets : [BigInt(since)]), BigInt(since)],
     );
     // 撤回者为 47703，戳一戳详细动作 48212=1061。字节仅预筛，仍解码确认类型和身份。
     const latest = new Map<string, bigint>();

@@ -657,8 +657,9 @@ function mountDbWatch(session: AccountSession): void {
   const messageWatch = createNtMsgDbHook(session, {
     onDbChanged: (file) => {
       if (getAppContext().account !== session) return;
-      getAppContext().services?.unreadInfo.invalidateMessageFile(file);
-      getAppContext().services?.interactionBadges.requestScan();
+      const services = getAppContext().services;
+      services?.unreadInfo.invalidateMessageFile(file);
+      services?.interactionBadges.requestScan(services.qqClientSync?.hasRecentLiveMessages());
       notification.request(file);
     },
     onNewMessages: async (change: NewMessages) => {
@@ -2188,9 +2189,10 @@ export function initAppContext(fileRoot?: string): AppContext {
             } satisfies RoamingCacheChange);
           }
         },
-        onLiveUpdates: ({ reads, groups, reactions }) => {
+        onLiveUpdates: ({ reads, groups, reactions, interactions }) => {
           if (this.account !== session) return;
           this.services?.unreadInfo.observeProxyReads(reads);
+          this.services?.interactionBadges.observeProxyConversations(interactions);
           for (const { groupCode, sequence } of reactions)
             proxyReactions.observe(groupCode, sequence);
           const at = Date.now();
@@ -2199,7 +2201,10 @@ export function initAppContext(fileRoot?: string): AppContext {
         },
         onLiveClosed: () => {
           proxyReactions.clearPending();
-          if (this.account === session) this.services?.unreadInfo.clearProxyReads();
+          if (this.account === session) {
+            this.services?.unreadInfo.clearProxyReads();
+            this.services?.interactionBadges.clearProxyConversations();
+          }
         },
         readEnabled: () =>
           userConfig.getSetting('reportReadEnabled') ||

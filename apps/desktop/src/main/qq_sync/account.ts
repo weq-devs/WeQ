@@ -133,7 +133,13 @@ export class AccountQqSync {
       const { rows: messages, updates } = decodeLivePush(body, selfUid, uin, now);
       const decoded = messages.filter((row) => this.options.allowLiveMessage?.(row) !== false);
       const rows = this.liveMessages.accept(decoded, now);
-      if (rows.length || updates.reads.length || updates.reactions.length || updates.recalled)
+      if (
+        rows.length ||
+        updates.reads.length ||
+        updates.reactions.length ||
+        updates.recalled ||
+        updates.interactions.length
+      )
         this.liveReceivedAt = now;
       if (updates.groups.length) this.liveGroupChangedAt = now;
       if (updates.recalled && this.recallActive && !this.recallWake) {
@@ -152,6 +158,7 @@ export class AccountQqSync {
         updates.reads.length ||
         updates.groups.length ||
         updates.reactions.length ||
+        updates.interactions.length ||
         updates.recalled
       )
         this.options.onLiveUpdates?.(updates);

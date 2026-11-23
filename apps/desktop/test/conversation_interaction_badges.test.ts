@@ -60,6 +60,12 @@ it('按真实水位和消息身份确认互动，后续有序号的消息释放�
     selfUid: 'u_self',
     recentContacts,
   } as AccountSession;
+  const scoped = await recentContacts.recentInteractionWindow('c2c', now + 1, ['u_peer']);
+  expect([...scoped.latest]).toEqual([['u_peer', 102n]]);
+  expect(await recentContacts.recentInteractionWindow('c2c', now + 1, ['u_missing'])).toEqual({
+    latest: new Map(),
+    tips: [],
+  });
   const readWindow = vi.spyOn(recentContacts, 'recentInteractionWindow');
   const listeners = new Set<(targets: UnreadInfoTarget[]) => void>();
   const target = { chatType: 1, uid: 'u_peer' };
@@ -222,6 +228,107 @@ it('已确认的撤回能够直接校准互动红点，无需重扫最近消息'
     expect(recentInteractionWindow).not.toHaveBeenCalled();
   } finally {
     badges.dispose();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it('定向互动读库只查目标会话，混合写入按原来的数据库规则补齐', async () => {
+  vi.useFakeTimers();
+  const dir = mkdtempSync(join(tmpdir(), 'weq-scoped-interaction-'));
+  const sentAt = Math.floor(Date.now() / 1000);
+  let rows: Awaited<ReturnType<RecentContactDb['recentInteractionWindow']>>['tips'] = [];
+  const recentInteractionWindow = vi.fn<RecentContactDb['recentInteractionWindow']>(
+    async (kind, _since, conversations) => ({
+      latest: new Map(
+        kind === 'c2c'
+          ? [
+              ['u_peer', 11n],
+              ['u_other', 11n],
+            ]
+          : [],
+      ),
+      tips:
+        kind === 'group'
+          ? []
+          : rows.filter((tip) => !conversations || conversations.includes(tip.conv)),
+    }),
+  );
+  const session = {
+    context: { uin: '10001' },
+    selfUid: 'u_self',
+    recentContacts: { recentInteractionWindow, recentInteractionAnchors: async () => new Map() },
+  } as unknown as AccountSession;
+  const badges = new ConversationInteractionBadges(
+    session,
+    join(dir, 'badges.json'),
+    () => true,
+    () => ({
+      getUnreadInfos: async (targets) =>
+        targets.map((target) => ({
+          ...target,
+          peer: `${target.chatType}_${target.uid}`,
+          latestSeq: '11',
+          readSeq: '10',
+        })),
+      onCountsChanged: () => () => {},
+    }),
+  );
+  try {
+    badges.subscribe(() => {});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(recentInteractionWindow).toHaveBeenCalledTimes(2);
+    recentInteractionWindow.mockClear();
+    rows = [
+      {
+        conv: 'u_peer',
+        msgId: '51',
+        seq: 11n,
+        sentAt,
+        senderUid: 'u_peer',
+        elements: [
+          {
+            kind: 'grayTipPoke',
+            detailedId: 1061,
+            grayTipXmlContent: '<qq uid="u_peer"/><nor txt="拍了拍"/><qq uid="u_self"/>',
+          },
+        ],
+      },
+      {
+        conv: 'u_other',
+        msgId: '52',
+        seq: 11n,
+        sentAt,
+        senderUid: 'u_other',
+        elements: [{ kind: 'grayTipRevoke', recallRevokeUid: 'u_other' }],
+      },
+    ] as typeof rows;
+    badges.observeProxyConversations([{ kind: 'c2c', conv: 'u_peer' }]);
+    badges.requestScan(true);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(recentInteractionWindow.mock.calls.map(([kind, , targets]) => [kind, targets])).toEqual([
+      ['c2c', ['u_peer']],
+    ]);
+    expect(badges.badgeEvents.map((e) => e.msgId)).toEqual(['51']);
+    await vi.advanceTimersByTimeAsync(2750);
+    expect(recentInteractionWindow.mock.calls.map(([kind, , targets]) => [kind, targets])).toEqual([
+      ['c2c', ['u_peer']],
+      ['c2c', undefined],
+      ['group', undefined],
+    ]);
+    expect(badges.badgeEvents.map((e) => e.msgId).sort()).toEqual(['51', '52']);
+    recentInteractionWindow.mockClear();
+    badges.observeProxyConversations([{ kind: 'c2c', conv: 'u_peer' }]);
+    badges.clearProxyConversations();
+    await vi.advanceTimersByTimeAsync(250);
+    expect(recentInteractionWindow).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(150);
+    expect(recentInteractionWindow.mock.calls.map(([kind, , targets]) => [kind, targets])).toEqual([
+      ['c2c', undefined],
+      ['group', undefined],
+    ]);
+  } finally {
+    badges.dispose();
+    vi.useRealTimers();
     rmSync(dir, { recursive: true, force: true });
   }
 });
