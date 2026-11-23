@@ -18,6 +18,7 @@
  * 一条「最近使用」里）。旧的 `[名字]` 写法仍按纯文本保留，不再解析成表情。
  */
 
+import { bundledSystemFaceText } from '@weq/service/system-face-text';
 import { emojiUrl, mediaUrl } from '../../lib/resourceUrl';
 
 export type EmojiKind = 'system' | 'unicode' | 'market' | 'fav' | 'related';
@@ -77,7 +78,7 @@ export function systemFaceItem(faceId: string | number, desc: string, large = fa
   return {
     kind: 'system',
     id,
-    name: desc || `[表情${id}]`,
+    name: desc || bundledSystemFaceText(id) || `[表情${id}]`,
     token: large ? `[[chat:face:${id}:big]]` : `[[chat:face:${id}]]`,
     src: emojiUrl(id, 'apng', `${id}.png`),
     glyph: '',

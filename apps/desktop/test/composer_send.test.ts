@@ -93,6 +93,25 @@ it('独立大号表情使用当前目录中的贴纸字段和外显文字', () =
   });
 });
 
+it('旧格式的新版小表情草稿从目录恢复外显文字后发出', () => {
+  const input = {
+    body: '正文[[chat:face:324]]',
+    locals: [],
+    superStickers: new Map(),
+  };
+  expect(buildComposerSendPlan(input)).toMatchObject({
+    kind: 'elements',
+    elements: [
+      { kind: 'text', textContent: '正文' },
+      { kind: 'face', faceId: 324, smallFace: true, faceText: '/吃糖' },
+    ],
+  });
+  expect(buildOptimisticRender(input).elements[1]).toEqual({
+    type: 'face',
+    data: { faceId: 324, faceText: '/吃糖', subType: 2 },
+  });
+});
+
 it.each([
   ['<div><br></div><div><br></div>', '\n'],
   ['<div><br></div><div><br></div><div><br></div>', '\n\n'],

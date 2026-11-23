@@ -57,6 +57,7 @@ import {
   type PttWaveformSource,
   type SendDress,
   type SendElement,
+  type SendFaceElement,
   type SendForwardParams as ProtocolSendForwardParams,
   type SendMediaUploadReport,
   type MediaSendContext,
@@ -64,6 +65,7 @@ import {
   type SendScene,
 } from '@weqbot/protocol';
 import { getLogger } from '../common/logger';
+import { bundledSystemFaceText, suppliedSystemFaceText } from '../common/system_face_text';
 import { toGapMessage, type GapFetchedMessage } from './gap_history';
 import type { MediaDownloadService } from './media_download';
 
@@ -514,6 +516,14 @@ function elementsNeedUpload(elements: readonly SendElement[]): boolean {
   return elements.some((e) => isSendUploadElement(e));
 }
 
+function needsFaceText(element: SendElement): element is SendFaceElement {
+  return (
+    element.kind === 'face' &&
+    Boolean(element.smallFace || element.superSticker) &&
+    !suppliedSystemFaceText(element.faceId, element.superSticker?.text ?? element.faceText)
+  );
+}
+
 export class MessageSendService {
   private fontWireCache?: { fontId: number; raw: number | undefined; checkedAt: number };
   private fontWirePending?: { fontId: number; promise: Promise<number | undefined> };
@@ -552,6 +562,7 @@ export class MessageSendService {
      */
     private readonly activeDressFontId?: () => number | undefined,
     private readonly sendWithDressFont: () => boolean = () => false,
+    private readonly listSystemFaces?: () => Promise<readonly { id: number; desc: string }[]>,
   ) {}
 
   private async checkGroupTarget(target: ResolvedSendTarget, uploadFile = false): Promise<void> {
@@ -782,6 +793,24 @@ export class MessageSendService {
         return key ? { ...element, encryptKey: key } : element;
       }),
     );
+  }
+
+  private async fillSystemFaceText(elements: SendElement[]): Promise<SendElement[]> {
+    const catalog = await this.listSystemFaces?.().catch(() => []);
+    const descriptions = new Map<number, string>(catalog?.map(({ id, desc }) => [id, desc]));
+    return elements.map((element) => {
+      if (!needsFaceText(element)) return element;
+      const { faceId, superSticker } = element;
+      const faceText =
+        suppliedSystemFaceText(faceId, element.faceText) ||
+        suppliedSystemFaceText(faceId, descriptions.get(faceId)) ||
+        bundledSystemFaceText(faceId);
+      return {
+        ...element,
+        faceText,
+        ...(superSticker ? { superSticker: { ...superSticker, text: faceText } } : {}),
+      };
+    });
   }
 
   /** 自己账号的 uin（highway 帧头与路由都用它）。 */
@@ -1171,7 +1200,11 @@ export class MessageSendService {
     const content: SendElement[] = params.elements.every((element) => element.kind === 'reply')
       ? [...params.elements, { kind: 'text', textContent: ' ' }]
       : params.elements;
-    const elements = device ? content : await this.fillMarketFaceKeys(content);
+    let elements = device ? content : await this.fillMarketFaceKeys(content);
+    if (!device && elements.some(needsFaceText)) {
+      elements = await this.fillSystemFaceText(elements);
+      if (this.resolvePid() !== pid) throw new Error('账号或 QQ 运行时已改变，请重新发送');
+    }
 
     const useFont =
       !device &&

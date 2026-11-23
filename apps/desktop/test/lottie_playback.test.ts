@@ -114,16 +114,23 @@ async function visibility(hidden: boolean) {
   await act(async () => document.dispatchEvent(new Event('visibilitychange')));
 }
 
-it('回读恢复经典表情 0 时，从旧的图片错误恢复并显示原表情', async () => {
+it.each([
+  [0, '[惊讶]'],
+  [14, '[微笑]'],
+  [54, '[闪电]'],
+  [324, '[吃糖]'],
+])('回读恢复表情 %i 时重新加载图片，并用目录补齐名称', async (faceId, label) => {
   await act(async () => root.render(h(FaceEmoji, { element: { faceId: NaN, subType: 1 } })));
   const badImage = node.querySelector('img')!;
   await act(async () => badImage.dispatchEvent(new Event('error')));
   expect(node.querySelector('img')).toBeNull();
 
-  await act(async () => root.render(h(FaceEmoji, { element: { faceId: 0, subType: 1 } })));
+  await act(async () =>
+    root.render(h(FaceEmoji, { element: { faceId, faceText: `[表情${faceId}]`, subType: 1 } })),
+  );
   const recovered = node.querySelector('img');
-  expect(recovered?.getAttribute('src')).toMatch(/\/0\/apng\/0\.png$/);
-  expect(recovered?.getAttribute('aria-label')).toBe('[惊讶]');
+  expect(recovered?.getAttribute('src')).toContain(`/${faceId}/apng/${faceId}.png`);
+  expect(recovered?.getAttribute('aria-label')).toBe(label);
 });
 
 it('离屏、隐藏标签及隐藏文档只暂停表情，回来复用同一帧和请求', async () => {

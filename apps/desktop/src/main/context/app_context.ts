@@ -2655,6 +2655,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           // 只用「个性装扮」里的显式选择；普通模式下装扮页不开放，选中款也不会生效。
           () => (developmentDressToolsEnabled() ? dressInstall.read().activeFont : undefined),
           () => userConfig.getSettings().sendWithDressFont,
+          () => emojiService.listSystemFaces(),
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, resolveOnlinePid),
         groupModeration: new GroupModerationService(
@@ -3580,6 +3581,7 @@ export function initAppContext(fileRoot?: string): AppContext {
           // 只用「个性装扮」里的显式选择；普通模式下装扮页不开放，选中款也不会生效。
           () => (developmentDressToolsEnabled() ? dressInstall.read().activeFont : undefined),
           () => userConfig.getSettings().sendWithDressFont,
+          () => emojiService.listSystemFaces(),
         ),
         interaction: new InteractionService(platform.native.ntHelper, session, livePid),
         groupModeration: new GroupModerationService(

@@ -1374,6 +1374,49 @@ describe('MessageSendService.sendText（离线集成）', () => {
     expect(body.ctrl).toBeUndefined();
   });
 
+  it('拥有当前账号目录或随包名称的表情在发送快照中保留名称', async () => {
+    const native = fakeNative();
+    const saved: unknown[] = [];
+    const svc = new MessageSendService(
+      native as never,
+      fakeSession(),
+      () => 1,
+      undefined,
+      async (row) => {
+        saved.push(row);
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      async () => [{ id: 1234, desc: '/当前目录表情' }],
+    );
+    await svc.sendElements({
+      peerType: 'group',
+      targetId: '12345',
+      elements: [
+        { kind: 'face', faceId: 1234, smallFace: true, faceText: '[表情1234]' },
+        { kind: 'face', faceId: 324, smallFace: true },
+        { kind: 'face', faceId: 324, smallFace: true, faceText: '/自带名称' },
+        { kind: 'face', faceId: 1235, smallFace: true, faceText: '[表情1235]' },
+      ],
+    });
+    expect(saved).toMatchObject([
+      {
+        localSent: true,
+        elements: [
+          { type: 'face', data: { faceId: 1234, subType: 2, faceText: '/当前目录表情' } },
+          { type: 'face', data: { faceId: 324, subType: 2, faceText: '/吃糖' } },
+          { type: 'face', data: { faceId: 324, subType: 2, faceText: '/自带名称' } },
+          { type: 'face', data: { faceId: 1235, subType: 2, faceText: undefined } },
+        ],
+      },
+    ]);
+  });
+
   it('私聊文本：目录里没有 uid 的陌生人也发得出去（不带 uid 字段）', async () => {
     const native = fakeNative();
     const svc = new MessageSendService(native as never, fakeSession(), () => 1);

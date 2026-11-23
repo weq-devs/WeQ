@@ -1,5 +1,7 @@
+import { FaceSubType } from '@weq/codec';
 import { eventTimeFormatter } from '@weq/time';
 import { arkClipboardText, cardClipboardText } from './cardClipboard';
+import { bundledSystemFaceText, suppliedSystemFaceText } from './system_face_text';
 import { UNICODE_FACE_MAP } from './unicodeFaceMap';
 
 export interface PlainElement {
@@ -64,11 +66,21 @@ export function plainElementText(
     case 'text':
     case 'at':
       return text(data.textContent) || text(data.content);
-    case 'face':
+    case 'face': {
+      const faceId = String(data.faceId ?? '');
+      const bundledName =
+        Number(data.subType) === FaceSubType.INTERACTIVE
+          ? undefined
+          : bundledSystemFaceText(faceId);
       return (
         UNICODE_FACE_MAP[Number(data.faceId)] ||
-        bracket(text(data.faceText) || `表情${data.faceId ?? ''}`)
+        bracket(
+          suppliedSystemFaceText(faceId, text(data.faceText)) ||
+            bundledName?.replace(/^\//, '') ||
+            `表情${faceId}`,
+        )
       );
+    }
     case 'mface':
       return media('表情包', text(data.faceName || data.faceText).replace(/^\[|\]$/g, ''));
     case 'pic':

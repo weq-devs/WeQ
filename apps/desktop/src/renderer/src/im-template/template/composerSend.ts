@@ -582,7 +582,7 @@ export function buildOptimisticRender(input: {
               faceId,
               faceText: item.name,
               // 小黄脸内联（subType 1/2）；超级表情不带 subType，按大贴纸渲染。
-              ...(item.large ? {} : { subType: 1 }),
+              ...(item.large ? {} : { subType: faceId >= 260 ? 2 : 1 }),
             },
           });
           bodyParts.push(item.name || `[表情${item.id}]`);
@@ -679,7 +679,7 @@ function renderElementOf(
         data: {
           faceId: element.faceId,
           faceText: element.faceText,
-          ...(element.superSticker ? {} : { subType: 1 }),
+          ...(element.superSticker ? {} : { subType: element.smallFace ? 2 : 1 }),
           ...(typeof resultId === 'string' && resultId !== '' ? { innerId: resultId } : {}),
         },
         text: String(element.faceText ?? '[表情]'),

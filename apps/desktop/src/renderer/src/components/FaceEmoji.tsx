@@ -23,6 +23,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Smile } from 'lucide-react';
 import type { FaceElement } from '@weq/codec';
+import { bundledSystemFaceText, suppliedSystemFaceText } from '@weq/service/system-face-text';
 import { emojiUrl, resourceUrl } from '@renderer/lib/resourceUrl';
 import {
   POKE_FACE_MAX_ID,
@@ -78,10 +79,10 @@ export function FaceEmoji({
 }: FaceEmojiProps) {
   const { faceId, faceText, innerId, subType } = element;
   const fallbackLabel = `[表情${faceId}]`;
+  const defaultName = subType === POKE_FACE_SUBTYPE ? undefined : bundledSystemFaceText(faceId);
   const label =
-    faceId === 0 && subType !== POKE_FACE_SUBTYPE && (!faceText || faceText === fallbackLabel)
-      ? '[惊讶]'
-      : faceText || fallbackLabel;
+    suppliedSystemFaceText(faceId, faceText) ||
+    (defaultName ? `[${defaultName.replace(/^\//, '')}]` : fallbackLabel);
   const dim = toLength(size);
   const boxStyle = dim ? { width: dim, height: dim } : undefined;
 
