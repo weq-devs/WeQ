@@ -60,6 +60,9 @@ export function OverlayScrollbar({
   const draggingRef = useRef(false);
   const frameRef = useRef<number | null>(null);
   const dragCleanup = useRef<(() => void) | null>(null);
+  const trackRef = useRef<Pick<OverlayScrollbarState, 'top' | 'left' | 'height'> | undefined>(
+    undefined,
+  );
 
   const updateScrollbar = useCallback(() => {
     frameRef.current = null;
@@ -70,41 +73,50 @@ export function OverlayScrollbar({
       return;
     }
 
-    const rect = target.getBoundingClientRect();
-    const maxScrollTop = target.scrollHeight - target.clientHeight;
-    const canScroll = maxScrollTop > 1 && rect.height > 0 && rect.width > 0;
-    if (!canScroll) {
+    const scrollHeight = target.scrollHeight;
+    const viewportHeight = target.clientHeight;
+    const maxScrollTop = scrollHeight - viewportHeight;
+    if (maxScrollTop <= 1 || !viewportHeight) {
       setState((current) => ({ ...current, visible: false, canScroll: false }));
       return;
     }
 
-    const parent = scrollbarRef.current?.offsetParent as HTMLElement | null;
-    const parentRect = parent?.getBoundingClientRect();
-    const scaleX = parent?.offsetWidth
-      ? (parentRect?.width ?? parent.offsetWidth) / parent.offsetWidth || 1
-      : 1;
-    const scaleY = parent?.offsetHeight
-      ? (parentRect?.height ?? parent.offsetHeight) / parent.offsetHeight || 1
-      : 1;
-    const height = rect.height / scaleY;
-    const trackHeight = Math.max(0, height - OVERLAY_SCROLLBAR_INSET * 2);
-    const proportionalHeight = (target.clientHeight / target.scrollHeight) * trackHeight;
+    let track = trackRef.current;
+    if (!track) {
+      const rect = target.getBoundingClientRect();
+      if (!rect.height || !rect.width) {
+        setState((current) => ({ ...current, visible: false, canScroll: false }));
+        return;
+      }
+      const parent = scrollbarRef.current?.offsetParent as HTMLElement | null;
+      const parentRect = parent?.getBoundingClientRect();
+      const scaleX =
+        parent?.offsetWidth && parentRect ? parentRect.width / parent.offsetWidth || 1 : 1;
+      const scaleY =
+        parent?.offsetHeight && parentRect ? parentRect.height / parent.offsetHeight || 1 : 1;
+      track = {
+        top: (rect.top - (parentRect?.top ?? 0)) / scaleY - (parent?.clientTop ?? 0),
+        left:
+          (rect.right - (parentRect?.left ?? 0)) / scaleX -
+          (parent?.clientLeft ?? 0) -
+          OVERLAY_SCROLLBAR_WIDTH -
+          2,
+        height: rect.height / scaleY,
+      };
+      if (parent && target.classList.contains('message-scroll')) trackRef.current = track;
+    }
+    const trackHeight = Math.max(0, track.height - OVERLAY_SCROLLBAR_INSET * 2);
+    const proportionalHeight = (viewportHeight / scrollHeight) * trackHeight;
     const thumbHeight = clamp(proportionalHeight, OVERLAY_SCROLLBAR_MIN_THUMB, trackHeight);
     const maxThumbTop = Math.max(0, trackHeight - thumbHeight);
     const thumbTop = OVERLAY_SCROLLBAR_INSET + (target.scrollTop / maxScrollTop) * maxThumbTop;
 
     setState({
-      top: (rect.top - (parentRect?.top ?? 0)) / scaleY - (parent?.clientTop ?? 0),
-      left:
-        (rect.right - (parentRect?.left ?? 0)) / scaleX -
-        (parent?.clientLeft ?? 0) -
-        OVERLAY_SCROLLBAR_WIDTH -
-        2,
-      height,
+      ...track,
       thumbTop,
       thumbHeight,
       visible: hoverRef.current || draggingRef.current,
-      canScroll,
+      canScroll: true,
     });
   }, []);
   useLayoutEffect(() => {
@@ -115,6 +127,11 @@ export function OverlayScrollbar({
     if (frameRef.current !== null) return;
     frameRef.current = window.requestAnimationFrame(updateScrollbar);
   }, [updateScrollbar]);
+
+  const scheduleTrackUpdate = useCallback(() => {
+    trackRef.current = undefined;
+    scheduleUpdate();
+  }, [scheduleUpdate]);
 
   useEffect(() => {
     if (!tabActive) return undefined;
@@ -136,7 +153,7 @@ export function OverlayScrollbar({
 
     function showScrollbar(): void {
       hoverRef.current = true;
-      scheduleUpdate();
+      scheduleTrackUpdate();
     }
 
     function hideScrollbar(): void {
@@ -147,10 +164,12 @@ export function OverlayScrollbar({
     target.addEventListener('scroll', scheduleUpdate, { passive: true });
     target.addEventListener('mouseenter', showScrollbar);
     target.addEventListener('mouseleave', hideScrollbar);
-    window.addEventListener('resize', scheduleUpdate);
+    window.addEventListener('resize', scheduleTrackUpdate);
 
-    const resizeObserver = new ResizeObserver(scheduleUpdate);
+    const resizeObserver = new ResizeObserver(scheduleTrackUpdate);
     resizeObserver.observe(target);
+    if (target.parentElement && target.classList.contains('message-scroll'))
+      resizeObserver.observe(target.parentElement);
     const content = target.firstElementChild;
     const windowed = content?.matches('.weq-virtual-timeline.is-windowed');
     if (content && !windowed) resizeObserver.observe(content);
@@ -163,14 +182,14 @@ export function OverlayScrollbar({
     if (content && windowed)
       mutationObserver.observe(content, { attributes: true, attributeFilter: ['style'] });
 
-    scheduleUpdate();
+    scheduleTrackUpdate();
 
     return () => {
       dragCleanup.current?.();
       target.removeEventListener('scroll', scheduleUpdate);
       target.removeEventListener('mouseenter', showScrollbar);
       target.removeEventListener('mouseleave', hideScrollbar);
-      window.removeEventListener('resize', scheduleUpdate);
+      window.removeEventListener('resize', scheduleTrackUpdate);
       resizeObserver.disconnect();
       mutationObserver.disconnect();
       if (frameRef.current !== null) {
@@ -178,7 +197,7 @@ export function OverlayScrollbar({
         frameRef.current = null;
       }
     };
-  }, [tabActive, refreshKey, scheduleUpdate, targetSelector, scrollRef]);
+  }, [tabActive, refreshKey, scheduleTrackUpdate, scheduleUpdate, targetSelector, scrollRef]);
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
     dragCleanup.current?.();

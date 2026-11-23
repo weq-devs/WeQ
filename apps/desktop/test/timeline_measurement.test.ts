@@ -4,45 +4,31 @@ import { Virtualizer } from '@tanstack/react-virtual';
 import { expect, it, vi } from 'vitest';
 import { useVirtualTimeline } from '../src/renderer/src/hooks/useVirtualTimeline';
 
-it('桌面长聊天同步推进纵向滚轮，保留子像素累积和内层滚动', () => {
+it('桌面长聊天保留 Chromium 的原生纵向滚轮', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   const messages = Array.from({ length: 60 }, (_, index) => String(index));
-  function Fixture({ long }: { long: boolean }) {
+  function Fixture() {
     const scrollRef = useRef<HTMLDivElement>(null);
-    const ids = long ? messages : messages.slice(0, 3);
-    useVirtualTimeline({ ids, orderedIds: ids, scope: 'wheel', scrollRef, estimateSize: () => 96 });
-    return createElement(
-      'div',
-      { ref: scrollRef },
-      createElement('div', { style: { overflowY: 'auto' } }),
-    );
+    useVirtualTimeline({
+      ids: messages,
+      orderedIds: messages,
+      scope: 'wheel',
+      scrollRef,
+      estimateSize: () => 96,
+    });
+    return createElement('div', { ref: scrollRef });
   }
-  const wheel = (target: EventTarget, options: WheelEventInit) => {
-    const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, ...options });
-    // happy-dom 的 WheelEvent 继承 UIEvent，未实现 MouseEvent 的修饰键字段。
-    Object.defineProperty(event, 'ctrlKey', { value: options.ctrlKey ?? false });
-    act(() => target.dispatchEvent(event));
-    return event.defaultPrevented;
-  };
   try {
-    act(() => root.render(createElement(Fixture, { long: true })));
+    act(() => root.render(createElement(Fixture)));
     const scroll = host.firstElementChild as HTMLDivElement;
-    const child = scroll.firstElementChild as HTMLDivElement;
-    Object.defineProperties(child, { scrollHeight: { value: 100 }, clientHeight: { value: 50 } });
     const scrollBy = vi.spyOn(scroll, 'scrollBy');
-    expect(wheel(scroll, { deltaY: -0.5 })).toBe(true);
+    const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: -1600 });
+    act(() => scroll.dispatchEvent(event));
+    expect(event.defaultPrevented).toBe(false);
     expect(scrollBy).not.toHaveBeenCalled();
-    expect(wheel(scroll, { deltaY: -0.5 })).toBe(true);
-    expect(scrollBy).toHaveBeenLastCalledWith(0, -1);
-    expect(wheel(child, { deltaY: 40 })).toBe(false);
-    expect(wheel(scroll, { deltaY: 40, ctrlKey: true })).toBe(false);
-    expect(wheel(scroll, { deltaX: 40, deltaY: 3 })).toBe(false);
-    act(() => root.render(createElement(Fixture, { long: false })));
-    expect(wheel(scroll, { deltaY: 40 })).toBe(false);
-    expect(scrollBy).toHaveBeenCalledOnce();
   } finally {
     act(() => root.unmount());
     host.remove();

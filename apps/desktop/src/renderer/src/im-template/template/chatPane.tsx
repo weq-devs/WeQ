@@ -6389,9 +6389,10 @@ function ChatPaneContent({
           deleted={deletedKeys}
           isHidden={isTimelineMessageHidden}
           unreadBoundary={showUnreadDivider ? unreadBoundaryId : undefined}
+          ownSenderId={user.id}
           observeMessageVisibility={observeMessageVisibility}
         >
-          {(timeline, captureTimelineContent, rowSpacing) => (
+          {(timeline, captureTimelineContent, rowSpacing, preview) => (
             <div
               className={cn(
                 'message-scroll',
@@ -6647,6 +6648,7 @@ function ChatPaneContent({
                       aria-label="聊天消息"
                       data-total-items={visibleMessages.length}
                     >
+                      {preview}
                       {out}
                     </div>
                   );

@@ -26,3 +26,31 @@
 .weq-virtual-timeline.is-windowed > .weq-virtual-timeline-row {
   position: absolute;
 }
+
+.weq-timeline-scroll-preview {
+  position: absolute;
+  inset-inline: 0;
+  overflow: clip;
+  pointer-events: none;
+  user-select: none;
+  /* Chromium 会提前记录这个有界滤镜层中的正文，避免只预挂载却来不及绘制。 */
+  filter: blur(0.01px);
+}
+
+.weq-timeline-scroll-preview-row {
+  position: absolute;
+  inset-inline-start: 40px;
+  box-sizing: border-box;
+  max-width: 72%;
+  padding: 4px 10px;
+  overflow: hidden;
+  border-radius: 8px;
+  background-color: color-mix(in srgb, currentColor 8%, transparent);
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-timeline-scroll-preview-row[data-self] {
+  inset-inline: auto 40px;
+}

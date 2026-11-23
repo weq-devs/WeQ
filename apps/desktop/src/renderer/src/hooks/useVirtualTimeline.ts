@@ -176,7 +176,7 @@ export function useVirtualTimeline({
     // 保留子像素高度；逐行取整会在短列表切入虚拟布局时积累数像素误差。
     measureElement: (element, entry, instance) => {
       const observed = entry?.borderBoxSize?.[0]?.blockSize;
-      // RO 已交付正高度时不重新触发布局；首次挂载仍同步测量，不延后一帧。
+      // RO 已交付正高度时不重新触发布局。
       if (observed !== undefined && observed > 0) return observed;
       const rects = element.getClientRects();
       if (!rects.length) {
@@ -467,45 +467,6 @@ export function useVirtualTimeline({
   }, [scope, scrollRef]);
 
   useLayoutEffect(() => {
-    const scroll = scrollRef.current;
-    if (!IS_ELECTRON || !enabled || !active || !scroll) return;
-    let remainingPixels = 0;
-    const wheel = (event: WheelEvent) => {
-      if (
-        !event.cancelable ||
-        event.defaultPrevented ||
-        event.deltaMode !== WheelEvent.DOM_DELTA_PIXEL ||
-        event.ctrlKey ||
-        event.metaKey ||
-        event.altKey ||
-        event.shiftKey ||
-        Math.abs(event.deltaY) <= Math.abs(event.deltaX)
-      )
-        return;
-      for (const element of event.composedPath()) {
-        if (element === scroll) break;
-        if (!(element instanceof HTMLElement)) continue;
-        if (element.matches('select, input[type="number"]')) return;
-        const { overflowY } = getComputedStyle(element);
-        if (
-          (overflowY === 'auto' || overflowY === 'scroll') &&
-          element.scrollHeight > element.clientHeight
-        )
-          return;
-      }
-      // 合成线程可以先于 React 滚出已挂载范围。让长聊天的纵向滚轮与消息更新同在主线程。
-      event.preventDefault();
-      // DOM 滚动会舍入亚像素，保留触控板小幅移动的余量。
-      remainingPixels += event.deltaY;
-      const pixels = Math.trunc(remainingPixels);
-      remainingPixels -= pixels;
-      if (pixels !== 0) scroll.scrollBy(0, pixels);
-    };
-    scroll.addEventListener('wheel', wheel, { passive: false });
-    return () => scroll.removeEventListener('wheel', wheel);
-  }, [active, enabled, scope, scrollRef]);
-
-  useLayoutEffect(() => {
     if (!active) {
       touching.current = false;
       touchMomentum.current = false;
@@ -579,13 +540,19 @@ export function useVirtualTimeline({
       const range = virtualizer.range;
       if (!element.isConnected || !enabled || !virtualizer.isScrolling || !range) return;
       const index = virtualizer.indexFromElement(element);
-      if (index < range.startIndex || index > range.endIndex) return;
+      // 运行在桌面宽窗时，RO 会在绘制前交付其余行；移动布局仍使用原有主动测量。
+      if (
+        index < range.startIndex ||
+        index > range.endIndex ||
+        (IS_ELECTRON && !mobileWeb && index !== range.startIndex)
+      )
+        return;
       const id = virtualizer.options.getItemKey(index);
       if (virtualizer.itemSizeCache.has(id)) return;
-      // 快速滚动会跳过预挂载范围，首测留到尺寸观察时会用估计高度排出空隙。
+      // 当前首行决定阅读锚点，继续集中读高并批量修正位置。
       pendingScrollMeasurements.current.set(id, element);
     },
-    [enabled, virtualizer],
+    [enabled, mobileWeb, virtualizer],
   );
 
   return {

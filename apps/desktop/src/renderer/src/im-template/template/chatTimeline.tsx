@@ -9,6 +9,8 @@ import {
 } from 'react';
 import { useVirtualTimeline } from '../../hooks/useVirtualTimeline';
 import { estimateTimelineRowHeight } from '../../lib/timelinePreload';
+import { IS_ELECTRON } from '../../lib/target.shared';
+import { deletionIdentity } from '../../lib/messageDeletion';
 import type { Message } from './types';
 import type { MessageGroupPosition } from './chatTimelineModel';
 import { timelineViewport, TIMELINE_MESSAGE_SELECTOR } from '../../lib/timelineViewport';
@@ -36,11 +38,13 @@ type ChatTimelineProps = {
   deleted: ReadonlySet<string>;
   isHidden: (id: string) => boolean;
   unreadBoundary?: string;
+  ownSenderId: string;
   observeMessageVisibility: () => TimelineVisibility | undefined;
   children: (
     timeline: Pick<ReturnType<typeof useVirtualTimeline>, 'enabled' | 'items' | 'measure'>,
     captureContent: (element: HTMLDivElement | null) => void,
     rowSpacing: (index: number) => number,
+    preview: ReactNode,
   ) => ReactNode;
 };
 
@@ -334,6 +338,75 @@ export function ChatTimeline(props: ChatTimelineProps) {
   return <ChatTimelineTransition {...props} />;
 }
 
+const PREVIEW_VIEWPORTS = 32;
+const PREVIEW_ROWS_PER_SIDE = 256;
+
+function renderScrollPreview(
+  timeline: ReturnType<typeof useVirtualTimeline>,
+  messages: readonly Message[],
+  deleted: ReadonlySet<string>,
+  ownSenderId: string,
+) {
+  const { virtualizer, items, margin } = timeline;
+  const range = virtualizer.range;
+  const height = virtualizer.scrollRect?.height;
+  const first = items[0];
+  if (!range || !height || !first || !('size' in first)) return null;
+  const geometry = virtualizer.measurementsCache;
+  const origin = geometry[first.index];
+  if (!origin) return null;
+  const shift = first.start - origin.start - margin;
+  const distance = height * PREVIEW_VIEWPORTS;
+  const start = Math.max(
+    range.startIndex - PREVIEW_ROWS_PER_SIDE,
+    virtualizer.getVirtualItemForOffset(geometry[range.startIndex]!.start - distance)?.index ?? 0,
+  );
+  const end = Math.min(
+    range.endIndex + PREVIEW_ROWS_PER_SIDE,
+    virtualizer.getVirtualItemForOffset(geometry[range.endIndex]!.end + distance)?.index ??
+      messages.length - 1,
+  );
+  const firstPreview = geometry[start];
+  const lastPreview = geometry[end];
+  if (!firstPreview || !lastPreview) return null;
+  const mounted = new Set(items.map(({ index }) => index));
+  const previews: ReactNode[] = [];
+  for (let index = start; index <= end; index++) {
+    if (mounted.has(index)) continue;
+    const row = geometry[index];
+    const message = messages[index];
+    if (!row || !message) continue;
+    const text =
+      message.deletedKind || deleted.has(deletionIdentity(message.id))
+        ? '已删除消息'
+        : message.recall
+          ? '已撤回消息'
+          : message.body.slice(0, 200).trim() || '媒体消息';
+    previews.push(
+      <div
+        key={row.key}
+        className="weq-timeline-scroll-preview-row"
+        data-self={message.senderId === ownSenderId || undefined}
+        data-privacy-sensitive
+        style={{ top: row.start - firstPreview.start, maxHeight: Math.min(32, row.size) }}
+      >
+        {text}
+      </div>,
+    );
+  }
+  if (!previews.length) return null;
+  return (
+    <div
+      className="weq-timeline-scroll-preview"
+      aria-hidden="true"
+      inert
+      style={{ top: firstPreview.start + shift, height: lastPreview.end - firstPreview.start }}
+    >
+      {previews}
+    </div>
+  );
+}
+
 function ChatTimelineContent({
   messages,
   groupPositions,
@@ -342,6 +415,8 @@ function ChatTimelineContent({
   contentRef,
   scope,
   active,
+  deleted,
+  ownSenderId,
   observeMessageVisibility,
   children,
 }: ChatTimelineProps) {
@@ -355,9 +430,13 @@ function ChatTimelineContent({
     },
     [groupPositions, messages.length],
   );
-  const estimateSize = useCallback(
-    (index: number) => estimateTimelineRowHeight(messages[index]) + rowSpacing(index),
+  const estimatedHeights = useMemo(
+    () => messages.map((message, index) => estimateTimelineRowHeight(message) + rowSpacing(index)),
     [messages, rowSpacing],
+  );
+  const estimateSize = useCallback(
+    (index: number) => estimatedHeights[index] ?? 96,
+    [estimatedHeights],
   );
   const timeline = useVirtualTimeline({
     ids,
@@ -397,5 +476,10 @@ function ChatTimelineContent({
       cancelled = true;
     };
   }, [observeMessageVisibility, renderedItems]);
-  return children(timeline, captureContent, rowSpacing);
+  // 提前画出远端缓冲的正文；完整消息行一旦挂载就接管同一位置。
+  const preview =
+    IS_ELECTRON && active && timeline.enabled
+      ? renderScrollPreview(timeline, messages, deleted, ownSenderId)
+      : null;
+  return children(timeline, captureContent, rowSpacing, preview);
 }
