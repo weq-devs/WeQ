@@ -478,10 +478,14 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
   align-items: center;
   align-self: stretch;
   flex: 1;
-  min-width: 0;
+  min-width: min-content;
   gap: 18px;
   user-select: none;
   -webkit-app-region: drag;
+}
+.weq-account-head .weq-shell-actions {
+  flex-shrink: 1;
+  min-width: 0;
 }
 .weq-account-brand {
   display: flex;
@@ -960,9 +964,6 @@ html[data-theme='dark'] .weq-account-workspace .weq-account-diagnostics .weq-sta
   background: transparent;
 }
 @media (max-width: 680px) {
-  .weq-account-head {
-    gap: 12px;
-  }
   .weq-account-head h1 {
     font-size: 18px;
   }
@@ -997,6 +998,16 @@ html[data-theme='dark'] .weq-account-workspace .weq-account-diagnostics .weq-sta
   }
   .weq-account-workspace .weq-login-panel {
     flex: 1;
+  }
+}
+
+@media (max-width: 400px) {
+  .weq-account-head {
+    gap: 8px;
+    padding-inline: 8px;
+  }
+  .weq-account-heading {
+    gap: 10px;
   }
 }
 

@@ -48,6 +48,7 @@
 
 .weq-announcement-entry.is-startup {
   position: relative;
+  min-width: 0;
   min-height: 32px;
   padding: 4px 8px;
   border: 0;
