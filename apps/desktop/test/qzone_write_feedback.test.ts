@@ -30,6 +30,7 @@ const state = vi.hoisted(() => ({
     mediaTypes: [],
   })),
   detail: vi.fn(),
+  mediaTypes: vi.fn(),
   homeMetadata: vi.fn(),
   spaceProfile: vi.fn(() => ({})),
   albumPage: vi.fn(),
@@ -159,6 +160,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         interactions: { query: state.interactions },
         nativeDetail: { query: state.nativeDetail },
         detail: { query: state.detail },
+        mediaTypes: { query: state.mediaTypes },
         blogs: { query: state.blogs },
         blog: { query: state.blog },
         blogComments: { query: state.blogComments },
@@ -240,6 +242,7 @@ beforeEach(() => {
   state.removePost.mockReset().mockResolvedValue({ state: 'confirmed' });
   state.nativeDetail.mockClear();
   state.detail.mockReset();
+  state.mediaTypes.mockReset().mockResolvedValue([]);
   state.blogs.mockReset().mockResolvedValue({ items: [], total: 0, nextOffset: null });
   state.blog.mockReset().mockResolvedValue({ html: '<p>共享日志全文</p>' });
   state.blogComments.mockReset().mockResolvedValue({
@@ -1536,6 +1539,8 @@ const activeMediaPreview = () =>
 it('主页按当前照片的精确键打开相册预览，关闭返回同一张', async () => {
   const tid = '112700000100000001000000';
   const photos = ['https://a.qpic.cn/first.jpg', 'https://a.qpic.cn/second.jpg'];
+  const secondFull = 'https://b.qpic.cn/original-second.jpg';
+  const detail = deferred<unknown>();
   state.homePages = [
     {
       feeds: [
@@ -1545,23 +1550,18 @@ it('主页按当前照片的精确键打开相册预览，关闭返回同一张'
           cell_media: {
             album_id: 'photo-album',
             media_items: photos.map((url, index) => ({
-              image: { default_url: { url }, lloc: `photo-key-${index}` },
+              image: {
+                default_url: { url },
+                ...(index === 1 ? { photo_url: [{ url: { url: secondFull, width: 1200 } }] } : {}),
+                lloc: `photo-key-${index}`,
+              },
             })),
           },
         },
       ],
     },
   ];
-  state.detail.mockResolvedValue({
-    post: {
-      tid,
-      content: '有相册定位的说说',
-      time: 1600000000,
-      images: photos,
-      videos: [],
-      commentNum: 0,
-    },
-  });
+  state.detail.mockReturnValue(detail.promise);
   state.albumDetail.mockResolvedValue({
     picKey: 'photo-key-1',
     imageUrl: 'https://a.qpic.cn/exact.jpg',
@@ -1573,6 +1573,16 @@ it('主页按当前照片的精确键打开相册预览，关闭返回同一张'
     activeMediaPreview().querySelector<HTMLButtonElement>('[aria-label="下一项媒体"]')!.click(),
   );
   const source = activeMediaPreview();
+  const post = {
+    tid,
+    content: '有相册定位的说说',
+    time: 1600000000,
+    images: [photos[0], secondFull],
+    videos: [],
+    commentNum: 0,
+  };
+  await act(async () => detail.resolve({ post }));
+  await act(async () => vi.waitFor(() => expect(view.host.textContent).toContain(post.content)));
   expect(source.querySelector('.weq-preview-count')?.textContent).toContain('2 / 2');
   expect(state.albumDetail).not.toHaveBeenCalled();
   await act(async () =>
@@ -1600,6 +1610,111 @@ it('主页按当前照片的精确键打开相册预览，关闭返回同一张'
   expect(
     view.host.querySelector('[aria-label="空间内容"] [aria-current="page"]')?.textContent,
   ).toBe('主页');
+
+  state.posts.mockResolvedValue({ list: [post], total: 1 });
+  await view.openPane('说说');
+  await act(async () =>
+    vi.waitFor(() =>
+      expect(view.host.querySelectorAll('.weq-qzn-pictures button')).toHaveLength(2),
+    ),
+  );
+  await act(async () =>
+    view.host.querySelectorAll<HTMLButtonElement>('.weq-qzn-pictures button')[1]!.click(),
+  );
+  await act(async () =>
+    [...activeMediaPreview().querySelectorAll('button')]
+      .find((button) => button.textContent?.includes('在相册中查看'))!
+      .click(),
+  );
+  expect(state.albumDetail).toHaveBeenLastCalledWith(
+    expect.objectContaining({ hostUin: '10001', topicId: 'photo-album', picKey: 'photo-key-1' }),
+  );
+});
+
+it('实况和普通视频都按媒体编号定位相册，切换到静态照片仍可打开', async () => {
+  const tid = '112700000100000001000000';
+  const time = 1600000000;
+  const videos = ['live', 'video'].map((videoId) => ({
+    videoId,
+    coverUrl: `https://a.qpic.cn/${videoId}.jpg`,
+    videoUrl: `https://a.qpic.cn/${videoId}.mp4`,
+    duration: 1234,
+  }));
+  state.homePages = [
+    {
+      feeds: [
+        {
+          cell_common: { app_id: 311, time, union_id: { feed_id: tid } },
+          cell_user_info: { user: { uin: '10001' } },
+          cell_media: {
+            album_id: 'motion-album',
+            media_items: videos.map((video) => ({
+              video: {
+                id: video.videoId,
+                url: video.videoUrl,
+                cover: { default_url: { url: video.coverUrl } },
+              },
+              image: { lloc: `key-${video.videoId}` },
+            })),
+          },
+        },
+      ],
+    },
+  ];
+  state.mediaTypes.mockResolvedValue(
+    videos.map(({ videoId }) => ({ videoId, isLivePhoto: videoId === 'live' })),
+  );
+  state.detail.mockResolvedValue({ post: { tid, time, content: '', images: [], videos } });
+  state.albumDetail.mockImplementation(async ({ picKey }) => ({
+    picKey,
+    videoUrl: 'https://a.qpic.cn/from-album.mp4',
+  }));
+  state.videos.mockResolvedValue({
+    items: videos.map((video) => ({
+      ...video,
+      id: video.videoId,
+      title: video.videoId,
+      description: '',
+      uploadedAt: null,
+      sourcePostId: video.videoId === 'live' ? tid : null,
+    })),
+    next: null,
+  });
+  const view = await mount(false, '主页', { timelineOnly: true });
+  const click = (button: HTMLButtonElement) => act(async () => button.click());
+  const closePreview = () =>
+    click(activeMediaPreview().querySelector<HTMLButtonElement>('[aria-label="关闭预览"]')!);
+  const openInAlbum = () =>
+    click(
+      [...activeMediaPreview().querySelectorAll('button')].find(
+        (button) => button.textContent?.trim() === '在相册中查看',
+      )!,
+    );
+  const liveTile = () =>
+    view.host.querySelector<HTMLButtonElement>('[aria-label="查看空间实况照片 1"]')!;
+  await act(async () => vi.waitFor(() => expect(liveTile()).not.toBeNull()));
+  await click(liveTile());
+  await click(
+    [...activeMediaPreview().querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === '实况',
+    )!,
+  );
+  await openInAlbum();
+  expect(state.albumDetail).toHaveBeenLastCalledWith(
+    expect.objectContaining({ topicId: 'motion-album', picKey: 'key-live' }),
+  );
+  await closePreview();
+  expect(activeMediaPreview().querySelector('video')).toBeNull();
+  await closePreview();
+
+  await view.openPane('视频');
+  const tiles = () => view.host.querySelectorAll<HTMLButtonElement>('.weq-qzal-album-open');
+  await act(async () => vi.waitFor(() => expect(tiles()).toHaveLength(2)));
+  await click(tiles()[1]!);
+  await openInAlbum();
+  expect(state.albumDetail).toHaveBeenLastCalledWith(
+    expect.objectContaining({ topicId: 'motion-album', picKey: 'key-video' }),
+  );
 });
 
 it('主页的相册对话框用后续页的标题，并从原预览直接跳转到相册', async () => {

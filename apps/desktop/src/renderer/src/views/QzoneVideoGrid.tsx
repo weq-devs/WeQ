@@ -13,12 +13,13 @@ import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { qzoneMediaSource } from '../lib/qzone';
 import { QzoneMediaNavigationContext } from '../lib/qzoneNavigation';
-import { isOrdinaryQzonePost } from '../lib/qzonePublic';
+import { isOrdinaryQzonePost, type QzoneHomeAlbumMedia } from '../lib/qzonePublic';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { IS_WEB } from '../lib/target.shared';
 import { notifyTaskCreated } from '../lib/taskNotifications';
 import { useTransferProgress } from '../lib/transferActivity';
 import { client } from '../trpc/client';
+import { QzoneAlbumPreviewAction } from './qzoneShared';
 import { QzonePageContext } from './qzoneShared.shared';
 
 type Video = {
@@ -30,6 +31,26 @@ type Video = {
   coverUrl: string;
   sourcePostId?: string | null;
 };
+
+function findVideoAlbum(
+  postAlbums: ReadonlyMap<string, QzoneHomeAlbumMedia> | undefined,
+  hostUin: string,
+  videoId: string,
+  tid: string | null,
+) {
+  const source = tid ? postAlbums?.get(tid.toLowerCase()) : undefined;
+  const sourceKey = source?.videos.get(videoId);
+  if (source?.hostUin === hostUin && sourceKey !== undefined)
+    return { album: source, picKey: sourceKey };
+  let match: { album: QzoneHomeAlbumMedia; picKey: string | null } | undefined;
+  for (const album of postAlbums?.values() ?? []) {
+    const picKey = album.videos.get(videoId);
+    if (album.hostUin !== hostUin || picKey === undefined) continue;
+    if (match && match.album.topicId !== album.topicId) return undefined;
+    match = { album, picKey: match && match.picKey !== picKey ? null : picKey };
+  }
+  return match;
+}
 
 export function QzoneVideoGrid({
   videos,
@@ -207,18 +228,34 @@ export function QzoneVideoGrid({
           initialKey={previewKey}
           active={navigation?.previewVisible ?? true}
           onClose={() => setPreviewKey(null)}
-          renderActions={(item) => {
-            const tid = tiles.find((tile) => tile.id === item.key)?.sourcePostId;
-            if (!navigation || !tid || !isOrdinaryQzonePost(hostUin, tid)) return null;
+          renderToolbarActions={(item) => {
+            if (!navigation) return null;
+            const source = tiles.find((tile) => tile.id === item.key)?.sourcePostId;
+            const tid = source && isOrdinaryQzonePost(hostUin, source) ? source : null;
+            const match = findVideoAlbum(navigation.postAlbums, hostUin, item.key, tid);
+            if (!tid && !match) return null;
             return (
-              <button
-                type="button"
-                className="weq-lightbox-action"
-                onClick={() => navigation.open({ kind: 'post', hostUin, tid })}
-              >
-                <FileText size={16} aria-hidden />
-                查看原说说
-              </button>
+              <>
+                {match ? (
+                  <QzoneAlbumPreviewAction
+                    album={match.album}
+                    picKey={match.picKey}
+                    item={item}
+                    kind="video"
+                    closePreview={() => setPreviewKey(null)}
+                  />
+                ) : null}
+                {tid ? (
+                  <button
+                    type="button"
+                    className="weq-lightbox-action"
+                    onClick={() => navigation.open({ kind: 'post', hostUin, tid })}
+                  >
+                    <FileText size={16} aria-hidden />
+                    查看原说说
+                  </button>
+                ) : null}
+              </>
             );
           }}
         />

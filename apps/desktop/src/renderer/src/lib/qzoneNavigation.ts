@@ -2,6 +2,7 @@ import { createContext } from 'react';
 import type { QzoneFeatureSection } from '@weq/service/feature-catalog';
 import type { MfTarget } from '../components/mergeForward/model';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
+import type { QzoneHomeAlbumMedia } from './qzonePublic';
 
 export interface QzoneSpaceRequest {
   accountUin: string;
@@ -149,5 +150,6 @@ export type QzoneMediaDestination =
 
 export const QzoneMediaNavigationContext = createContext<{
   previewVisible: boolean;
+  postAlbums?: ReadonlyMap<string, QzoneHomeAlbumMedia>;
   open: (target: QzoneMediaDestination, closePreview?: () => void) => void;
 } | null>(null);

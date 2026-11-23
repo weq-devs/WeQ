@@ -41,6 +41,7 @@ export interface MediaPreviewOptions {
   label?: string;
   active?: boolean;
   onClose: () => void;
+  renderToolbarActions?: (item: PreviewMedia) => ReactNode;
   renderActions?: (item: PreviewMedia) => ReactNode;
   livePhotoToggle?: boolean;
   loadPage?: (direction: 'older' | 'newer') => Promise<PreviewPage>;

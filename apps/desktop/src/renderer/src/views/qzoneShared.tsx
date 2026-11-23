@@ -80,6 +80,51 @@ export interface QzoneMediaVideo {
   mediaIndex?: number;
 }
 
+export function QzoneAlbumPreviewAction({
+  album,
+  picKey,
+  item,
+  kind,
+  closePreview,
+}: {
+  album: QzoneHomeAlbumMedia;
+  picKey: string | null;
+  item: PreviewMedia;
+  kind: PreviewMedia['kind'];
+  closePreview: () => void;
+}) {
+  const navigation = useContext(QzoneMediaNavigationContext);
+  if (!navigation) return null;
+  return (
+    <button
+      type="button"
+      className="weq-lightbox-action"
+      onClick={() =>
+        navigation.open(
+          {
+            kind: 'album',
+            hostUin: album.hostUin,
+            topicId: album.topicId,
+            media: picKey
+              ? {
+                  picKey,
+                  kind,
+                  src: item.kind === kind ? item.src : '',
+                  poster: item.poster,
+                  isLivePhoto: item.isLivePhoto,
+                }
+              : undefined,
+          },
+          closePreview,
+        )
+      }
+    >
+      <Images size={16} aria-hidden />
+      {picKey ? '在相册中查看' : '打开相册'}
+    </button>
+  );
+}
+
 export function QzoneVideo({
   video,
   index,
@@ -240,11 +285,13 @@ export function QzoneMediaGrid({
   videos = [],
   target,
   album,
+  allowPostAlbum = true,
 }: {
   images: string[];
   videos?: QzoneMediaVideo[];
   target?: { selfUin: string; hostUin: string; tid: string; time: number };
   album?: QzoneHomeAlbumMedia;
+  allowPostAlbum?: boolean;
 }): ReactElement | null {
   const grid = useRef<HTMLDivElement>(null);
   const near = useNearViewport(
@@ -262,6 +309,8 @@ export function QzoneMediaGrid({
   const selfUin = target?.selfUin ?? '';
   const hostUin = target?.hostUin ?? '';
   const tid = target?.tid ?? '';
+  const postAlbum = allowPostAlbum ? navigation?.postAlbums?.get(tid.toLowerCase()) : undefined;
+  const albumMedia = album ?? (postAlbum?.hostUin === hostUin ? postAlbum : undefined);
   const time = target?.time ?? 0;
   const ids = JSON.stringify(
     videos
@@ -327,10 +376,16 @@ export function QzoneMediaGrid({
   });
   const covers = new Set(uniqueVideos.map((video) => qzoneMediaSource(video.coverUrl)));
   const urls = new Map<string, string>();
+  const albumPhotoPrefix = album ? `album-photo:${album.topicId}:` : '';
+  const imageKey = (url: string) => {
+    const identity = qzonePictureKey(url);
+    const picKey = album?.photos.get(identity);
+    return picKey ? `${albumPhotoPrefix}${picKey}` : `image:${identity}`;
+  };
   for (const source of images) {
     const url = qzoneMediaSource(source);
     if (url && !covers.has(url)) {
-      const key = qzonePictureKey(url);
+      const key = imageKey(url);
       if (!urls.has(key)) urls.set(key, url);
     }
   }
@@ -352,12 +407,16 @@ export function QzoneMediaGrid({
   }
   const items: PreviewMedia[] = media.map((entry) => {
     if (entry.kind === 'image')
-      return { key: entry.url, kind: 'image', src: albumMediaUrl(entry.url) };
+      return {
+        key: imageKey(entry.url),
+        kind: 'image',
+        src: albumMediaUrl(entry.url),
+      };
     const video = entry.video;
     const src = qzoneMediaSource(video.videoUrl);
     const poster = qzoneMediaSource(video.coverUrl);
     return {
-      key: video.videoId || video.videoUrl,
+      key: `video:${video.videoId || video.videoUrl || video.coverUrl}`,
       kind: src ? 'video' : 'image',
       src: src ? albumMediaUrl(src) : poster ? albumMediaUrl(poster) : '',
       poster: poster ? albumMediaUrl(poster) : undefined,
@@ -370,14 +429,14 @@ export function QzoneMediaGrid({
         {media.map((entry, index) =>
           entry.kind === 'image' ? (
             <Picture
-              key={qzonePictureKey(entry.url)}
+              key={items[index]!.key}
               url={entry.url}
               index={index}
               onOpen={() => setPreview(index)}
             />
           ) : (
             <QzoneVideo
-              key={entry.video.videoId || entry.video.videoUrl || entry.video.coverUrl}
+              key={items[index]!.key}
               video={entry.video}
               index={index}
               typePending={Boolean(target && time > 0 && types?.key !== typeKey)}
@@ -396,42 +455,30 @@ export function QzoneMediaGrid({
           onClose={() => {
             setPreview(null);
           }}
-          renderActions={(item) => {
-            if (!album || !navigation) return null;
-            const entry = media[items.findIndex(({ key }) => key === item.key)];
-            if (!entry) return null;
-            const picKey =
-              entry.kind === 'image'
-                ? album.photos.get(qzonePictureKey(entry.url))
-                : album.videos.get(entry.video.videoId);
+          renderToolbarActions={(item) => {
+            if (!albumMedia || !navigation) return null;
+            const index = items.findIndex(({ key }) => key === item.key);
+            const entry = media[index];
+            const kind = item.key.startsWith('video:') ? 'video' : 'image';
+            let picKey: string | null | undefined;
+            if (albumPhotoPrefix && item.key.startsWith(albumPhotoPrefix)) {
+              picKey = item.key.slice(albumPhotoPrefix.length);
+            } else if (item.key.startsWith('image:')) {
+              picKey = albumMedia.photos.get(item.key.slice('image:'.length));
+            } else if (kind === 'video') {
+              picKey = albumMedia.videos.get(item.key.slice('video:'.length));
+              if (picKey === undefined && entry?.kind === 'video')
+                picKey = albumMedia.videoSources.get(qzoneMediaSource(entry.video.videoUrl) ?? '');
+            }
             if (picKey === undefined) return null;
             return (
-              <button
-                type="button"
-                className="weq-lightbox-action"
-                onClick={() =>
-                  navigation.open(
-                    {
-                      kind: 'album',
-                      hostUin: album.hostUin,
-                      topicId: album.topicId,
-                      media: picKey
-                        ? {
-                            picKey,
-                            kind: entry.kind,
-                            src: entry.kind === 'video' && item.kind !== 'video' ? '' : item.src,
-                            poster: item.poster,
-                            isLivePhoto: item.isLivePhoto,
-                          }
-                        : undefined,
-                    },
-                    () => setPreview(null),
-                  )
-                }
-              >
-                <Images size={16} aria-hidden />
-                {picKey ? '在相册中查看' : '打开相册'}
-              </button>
+              <QzoneAlbumPreviewAction
+                album={albumMedia}
+                picKey={picKey}
+                item={items[index] ?? item}
+                kind={kind}
+                closePreview={() => setPreview(null)}
+              />
             );
           }}
         />

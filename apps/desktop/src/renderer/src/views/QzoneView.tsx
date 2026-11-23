@@ -138,7 +138,6 @@ import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { completeQzonePostText, qzoneImageCompletionScope } from '../lib/qzoneCompletion';
 import {
   mergeQzoneHomePost,
-  qzoneHomeAlbumMedia,
   qzoneHomePostPreview,
   type QzoneHomeAlbumMedia,
 } from '../lib/qzonePublic';
@@ -1106,16 +1105,23 @@ function SpaceContent({
     active && mediaLink?.source === pane && mediaLink.configId === shareIndex.configId
       ? mediaLink.target
       : null;
+  const [postAlbums, setPostAlbums] = useState<{
+    configId: string;
+    byPost: ReadonlyMap<string, QzoneHomeAlbumMedia>;
+  }>();
+  const currentPostAlbums =
+    postAlbums && postAlbums.configId === shareIndex.configId ? postAlbums.byPost : undefined;
   useEffect(() => {
     if (mediaLink && !destination) setMediaLink(null);
   }, [mediaLink, destination]);
   const mediaNavigation = useMemo(
     () => ({
       previewVisible: active && !destination,
+      postAlbums: currentPostAlbums,
       open: (target: QzoneMediaDestination, closePreview?: () => void) =>
         setMediaLink({ target, source: pane, configId: shareIndex.configId, closePreview }),
     }),
-    [active, destination, pane, shareIndex.configId],
+    [active, currentPostAlbums, destination, pane, shareIndex.configId],
   );
   const closeMediaLink = useCallback(() => setMediaLink(null), []);
   const mediaPostTitle = useId();
@@ -1227,6 +1233,7 @@ function SpaceContent({
           onOwnerNickname={onOwnerNickname}
           onOpenPane={openHomeDestination}
           deletedPosts={deletedPosts}
+          onPostAlbums={setPostAlbums}
           onDeleted={onDeleted}
         />
       </QzonePage>
@@ -1718,6 +1725,7 @@ function useQzonePostDetail(
 function HomePost({
   feed,
   tid,
+  album,
   selfUin,
   configId,
   available,
@@ -1740,7 +1748,6 @@ function HomePost({
     wasVisible.current = visible;
   }, [visible, queryClient, queryKey]);
   const preview = useMemo(() => qzoneHomePostPreview(feed, tid), [feed, tid]);
-  const album = useMemo(() => qzoneHomeAlbumMedia(feed), [feed]);
   const post = useMemo(
     () => (detail ? mergeQzoneHomePost(preview, detail) : preview),
     [preview, detail],
@@ -2025,6 +2032,7 @@ function Post({
         videos={videos}
         target={{ selfUin, hostUin, tid: post.tid, time: post.time }}
         album={post.repost ? undefined : album}
+        allowPostAlbum={!post.repost}
       />
       <QzoneFeedLinks links={links} ownerUin={hostUin} ownerNickname={nickname} />
       {post.repost ? (

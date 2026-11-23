@@ -140,6 +140,14 @@ html[data-theme='dark'] .weq-lightbox-layer.weq-unified-preview {
   margin: 0 auto;
   border-radius: 6px;
 }
+.weq-unified-preview .weq-lightbox-actions[data-extra-actions] {
+  justify-content: safe center;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+.weq-unified-preview .weq-lightbox-actions[data-extra-actions] > * {
+  flex-shrink: 0;
+}
 .weq-preview-business {
   margin-top: 8px;
 }

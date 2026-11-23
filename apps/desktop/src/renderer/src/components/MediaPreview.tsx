@@ -210,6 +210,7 @@ export function MediaPreview(options: MediaPreviewOptions) {
         canNewer={
           !pending && (currentIndex < items.length - 1 || (!options.prefetchAdjacent && newer))
         }
+        toolbarActions={options.renderToolbarActions?.(item)}
         business={
           <>
             {pending ? <p role="status">正在加载更多媒体…</p> : null}
@@ -269,6 +270,7 @@ function MediaPreviewItemBody({
   onMove,
   canOlder,
   canNewer,
+  toolbarActions,
   business,
 }: {
   item: PreviewMedia;
@@ -282,6 +284,7 @@ function MediaPreviewItemBody({
   onMove?: (direction: 'older' | 'newer') => void;
   canOlder: boolean;
   canNewer: boolean;
+  toolbarActions?: ReactNode;
   business: ReactNode;
 }) {
   const notificationToast = useToastApi();
@@ -518,7 +521,11 @@ function MediaPreviewItemBody({
       }}
       footer={
         <>
-          <div className="weq-lightbox-actions">
+          <div
+            className="weq-lightbox-actions"
+            data-extra-actions={toolbarActions ? '' : undefined}
+          >
+            {toolbarActions}
             <MediaZoomControls zoom={zoom} disabled={!ready} />
             {livePhotoPoster ? (
               <button

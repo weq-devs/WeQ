@@ -11,6 +11,7 @@ import {
   qzoneHomeAlbumMedia,
   qzoneHomeBlogId,
   qzoneHomeShareId,
+  type QzoneHomeAlbumMedia,
   type PublicCommentView,
   type PublicFeedView,
 } from '../lib/qzonePublic';
@@ -89,6 +90,7 @@ type OpenSpace = (uin: string, nickname?: string) => void;
 export type QzoneHomePostProps = {
   feed: PublicFeedView;
   tid: string;
+  album?: QzoneHomeAlbumMedia;
   selfUin: string;
   configId: string;
   available: boolean;
@@ -241,7 +243,13 @@ function HomeFeedCard({
 }
 
 type HomeRow =
-  | { kind: 'feed'; time: number; feed: PublicFeedView; tid: string | null }
+  | {
+      kind: 'feed';
+      time: number;
+      feed: PublicFeedView;
+      tid: string | null;
+      album?: QzoneHomeAlbumMedia;
+    }
   | { kind: 'blog'; time: number; blog: QzoneBlog; feed?: PublicFeedView }
   | { kind: 'share'; time: number; share: QzoneShare; feed?: PublicFeedView };
 
@@ -257,6 +265,7 @@ function homeRows(
   deletedPosts: ReadonlySet<string>,
 ) {
   const rows = new Map<string, HomeRow>();
+  const postAlbums = new Map<string, QzoneHomeAlbumMedia>();
   const byBlogId = new Map(blogs.map((blog) => [blog.id, blog]));
   const byShareId = new Map(shares.map((share) => [share.id, share]));
   let feedFloor = Number.POSITIVE_INFINITY;
@@ -308,7 +317,11 @@ function homeRows(
         : feed.key.startsWith('#')
           ? `${pageIndex}:${feed.key}`
           : feed.key;
-      if (!rows.has(key)) rows.set(key, { kind: 'feed', feed, tid, time: feed.time });
+      if (!rows.has(key)) {
+        const album = tid ? qzoneHomeAlbumMedia(feed) : undefined;
+        if (tid && album?.hostUin === hostUin) postAlbums.set(tid, album);
+        rows.set(key, { kind: 'feed', feed, tid, time: feed.time, album });
+      }
     }
   }
   for (const blog of blogs) {
@@ -325,6 +338,7 @@ function homeRows(
   }
   return {
     rows: [...rows].sort((a, b) => b[1].time - a[1].time),
+    postAlbums,
     feedFloor,
     blogFloor,
     shareFloor,
@@ -342,6 +356,7 @@ export function QzoneSpaceHome({
   onOwnerNickname,
   onOpenPane,
   deletedPosts,
+  onPostAlbums,
   onDeleted,
 }: {
   selfUin: string;
@@ -354,6 +369,10 @@ export function QzoneSpaceHome({
   onOwnerNickname: (uin: string, nickname: string) => void;
   onOpenPane: (pane: QzoneHomeDestination) => void;
   deletedPosts: ReadonlySet<string>;
+  onPostAlbums: (albums: {
+    configId: string;
+    byPost: ReadonlyMap<string, QzoneHomeAlbumMedia>;
+  }) => void;
   onDeleted: (tid: string) => void;
 }) {
   const { active } = useContext(QzonePageContext);
@@ -373,10 +392,15 @@ export function QzoneSpaceHome({
       retry: false,
     },
   );
-  const { rows, feedFloor, blogFloor, shareFloor } = useMemo(
+  const { rows, postAlbums, feedFloor, blogFloor, shareFloor } = useMemo(
     () =>
       homeRows(query.data?.pages ?? [], blogIndex.items, shareIndex.items, hostUin, deletedPosts),
     [query.data?.pages, blogIndex.items, shareIndex.items, hostUin, deletedPosts],
+  );
+  const configId = binding?.expectedAccountConfigId ?? '';
+  useEffect(
+    () => onPostAlbums({ configId, byPost: postAlbums }),
+    [configId, onPostAlbums, postAlbums],
   );
   const ownerNick = rows.find(
     ([, { feed }]) => feed?.author.uin === hostUin && qzoneNickname(hostUin, feed.author.nick),
@@ -520,7 +544,7 @@ export function QzoneSpaceHome({
               />
             );
           }
-          const { feed, tid } = row;
+          const { feed, tid, album } = row;
           return tid && binding ? (
             <PostCard
               key={key}
@@ -529,6 +553,7 @@ export function QzoneSpaceHome({
               available={available}
               feed={feed}
               tid={tid}
+              album={album}
               onSpace={onSpace}
               onDeleted={(deletedTid) => {
                 if (selection.selectedIds.has(deletedTid))

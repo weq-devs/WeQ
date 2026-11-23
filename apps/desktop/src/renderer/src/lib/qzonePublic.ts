@@ -172,6 +172,16 @@ function pickImageUrl(image: PublicJson): string {
   return best;
 }
 
+function videoSource(video: PublicJson): string {
+  return (
+    publicMediaSource(video.url) ||
+    asArray(video.video_url)
+      .map((candidate) => publicMediaSource(asObject(asObject(candidate)?.url)?.url))
+      .find((value): value is string => Boolean(value)) ||
+    ''
+  );
+}
+
 function mediaFromItems(items: unknown, prefix: string): PublicMedia[] {
   const media: PublicMedia[] = [];
   const seen = new Set<string>();
@@ -181,12 +191,7 @@ function mediaFromItems(items: unknown, prefix: string): PublicMedia[] {
     const video = asObject(item.video);
     if (video) {
       // `url` 是首选直链；`video_url[]` 是分档列表（spec 5/6 等），取第一档可用的。
-      const src =
-        publicMediaSource(video.url) ||
-        asArray(video.video_url)
-          .map((candidate) => publicMediaSource(asObject(asObject(candidate)?.url)?.url))
-          .find((value): value is string => Boolean(value)) ||
-        '';
+      const src = videoSource(video);
       const cover = asObject(video.cover);
       const poster = cover ? pickImageUrl(cover) : '';
       const videoId = asString(video.id);
@@ -532,7 +537,18 @@ export type QzoneHomeAlbumMedia = {
   topicId: string;
   photos: ReadonlyMap<string, string | null>;
   videos: ReadonlyMap<string, string | null>;
+  videoSources: ReadonlyMap<string, string | null>;
 };
+
+function rememberAlbumKey(
+  entries: Map<string, string | null>,
+  identity: string,
+  key: string | null,
+) {
+  if (!identity) return;
+  // 冲突时仍能打开所属相册，避免擅自选中某一项。
+  entries.set(identity, entries.has(identity) && entries.get(identity) !== key ? null : key);
+}
 
 /** Use only the outer media cell; comments, inline content and quoted posts can have other albums. */
 export function qzoneHomeAlbumMedia(view: PublicFeedView): QzoneHomeAlbumMedia | undefined {
@@ -546,26 +562,34 @@ export function qzoneHomeAlbumMedia(view: PublicFeedView): QzoneHomeAlbumMedia |
     return undefined;
   const cell = asObject(view.feed.cell_media);
   const topicId = asString(cell?.album_id);
-  if (!/^[\w-]{1,256}$/.test(topicId)) return undefined;
+  if (topicId === '0' || !/^[\w-]{1,256}$/.test(topicId)) return undefined;
   const photos = new Map<string, string | null>();
   const videos = new Map<string, string | null>();
+  const videoSources = new Map<string, string | null>();
   for (const raw of asArray(cell?.media_items)) {
     const item = asObject(raw);
     const video = asObject(item?.video);
-    const image = video ? asObject(video.cover) : asObject(item?.image);
-    const src = image ? pickImageUrl(image) : '';
-    const identity = video ? asString(video.id) : src ? qzonePictureKey(src) : '';
-    if (!identity) continue;
+    const image = asObject(item?.image);
+    const cover = asObject(video?.cover);
     const key =
-      [image?.lloc, image?.sloc].find(
+      [cover?.lloc, cover?.sloc, image?.lloc, image?.sloc].find(
         (value): value is string => typeof value === 'string' && /^[\w.*+/=-]{1,4096}$/.test(value),
       ) ?? null;
-    const entries = video ? videos : photos;
-    // Conflicting precise keys may still open the album, but never select either photo.
-    entries.set(identity, entries.has(identity) && entries.get(identity) !== key ? null : key);
+    if (video) {
+      rememberAlbumKey(videos, asString(video.id), key);
+      rememberAlbumKey(videoSources, videoSource(video), key);
+    } else if (image) {
+      for (const rawUrl of [
+        asObject(image.default_url)?.url,
+        ...asArray(image.photo_url).map((variant) => asObject(asObject(variant)?.url)?.url),
+      ]) {
+        const url = publicMediaSource(rawUrl);
+        if (url) rememberAlbumKey(photos, qzonePictureKey(url), key);
+      }
+    }
   }
-  return photos.size || videos.size
-    ? { hostUin: view.author.uin, topicId, photos, videos }
+  return photos.size || videos.size || videoSources.size
+    ? { hostUin: view.author.uin, topicId, photos, videos, videoSources }
     : undefined;
 }
 
