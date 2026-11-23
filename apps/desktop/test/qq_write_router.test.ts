@@ -129,6 +129,7 @@ function fixture() {
       getProfile: vi.fn(async () => null),
       getBuddy: vi.fn(async () => null),
       getSelfProfile: vi.fn(async () => self),
+      invalidateSelfProfile: vi.fn(),
       profilesByUids: vi.fn(async (uids: string[]) => (uids.includes(self.uid) ? [self] : [])),
     },
     groupInfo: {

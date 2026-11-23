@@ -57,7 +57,7 @@ export interface QQWriteServices {
   >;
   profile: Pick<
     AccountServices['profile'],
-    'getProfile' | 'getBuddy' | 'getSelfProfile' | 'profilesByUids'
+    'getProfile' | 'getBuddy' | 'getSelfProfile' | 'invalidateSelfProfile' | 'profilesByUids'
   >;
   groupInfo: Pick<
     AccountServices['groupInfo'],
@@ -186,7 +186,12 @@ export function createQQWriteRouter(
             .refine((value) => Object.keys(value).length === 1),
         }),
       )
-      .mutation(({ input }) => resolve(input).accountWrite.editSelfProfile(input.patch)),
+      .mutation(async ({ input }) => {
+        const services = resolve(input);
+        const result = await services.accountWrite.editSelfProfile(input.patch);
+        services.profile.invalidateSelfProfile();
+        return result;
+      }),
     exactProfile: procedure
       .input(
         binding.extend({
@@ -484,7 +489,12 @@ export function createQQWriteRouter(
             .strict(),
         }),
       )
-      .mutation(({ input }) => resolve(input).accountWrite.selfProfile(input.patch)),
+      .mutation(async ({ input }) => {
+        const services = resolve(input);
+        const result = await services.accountWrite.selfProfile(input.patch);
+        services.profile.invalidateSelfProfile();
+        return result;
+      }),
     onlineStatus: procedure
       .input(onlineStatusInput)
       .mutation(({ input }) => resolve(input).accountWrite.onlineStatus(input)),
@@ -494,9 +504,12 @@ export function createQQWriteRouter(
       if (read(input) !== services) throw new Error('账号已切换，请重新读取在线状态');
       return matched;
     }),
-    selfAvatar: procedure
-      .input(binding.extend({ source }))
-      .mutation(({ input }) => resolve(input).accountWrite.selfAvatar(input.source)),
+    selfAvatar: procedure.input(binding.extend({ source })).mutation(async ({ input }) => {
+      const services = resolve(input);
+      const result = await services.accountWrite.selfAvatar(input.source);
+      services.profile.invalidateSelfProfile();
+      return result;
+    }),
     groupAvatar: procedure
       .input(binding.extend({ groupId, source }))
       .mutation(({ input }) =>

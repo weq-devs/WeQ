@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSqliteStub, closeAllFixtureDbs } from '@weq/testkit';
+import { createSqliteStub, closeAllFixtureDbs, fixtureDb } from '@weq/testkit';
 import type { Platform } from '@weq/platform';
 import type { AccountSession } from '@weq/account';
 import { GapHistoryService, type GapFetchedMessage } from '../src/account/gap_history';
@@ -75,6 +75,34 @@ it('旧发送缓存恢复经典表情 0，保留其他表情及来信原样', as
     smile,
   ]);
   expect((await cache.findByMsgId(received.msgId))?.elements).toEqual([oldFace]);
+});
+
+it('消息详情仅取撤回缓存，一次索引读取保持协议优先与原生采纳状态', async () => {
+  const { cache, path, nt } = setup();
+  const recall = { revokeUid: 'u_peer', sameSender: true, recallTs: 1700000010 };
+  const protocol = { ...message(1), sourceFormat: 'protocol' as const };
+  const native = { ...message(2), sourceFormat: 'native' as const, nativeRaw: { elements: [] } };
+  const legacy = message(3);
+  await cache.store([legacy, protocol, { ...native, recall }]);
+  await cache.storeNative([{ ...native, msgId: protocol.msgId, recall }], true);
+  await cache.storeNative([{ ...native, msgId: 'unaccepted', recall }], false);
+
+  const read = vi.spyOn(nt, 'executeSql');
+  const options = { recalledOnly: true };
+  expect(await cache.findByMsgId(protocol.msgId, options)).toBeNull();
+  expect(await cache.findByMsgId('unaccepted', options)).toBeNull();
+  expect(await cache.findByMsgId(legacy.msgId, options)).toBeNull();
+  expect(await cache.findByMsgId(native.msgId, options)).toMatchObject({ recall });
+  expect(read).toHaveBeenCalledTimes(4);
+
+  const [, statement, params] = read.mock.calls[0]!;
+  const plan = fixtureDb(path)
+    .prepare(`EXPLAIN QUERY PLAN ${statement}`)
+    .all(...(params ?? []));
+  const details = plan.map((row) => row.detail).join('\n');
+  expect(details).toContain('SEARCH protocol_gap_msg USING INDEX protocol_gap_id');
+  expect(details).toContain('SEARCH native_gap_msg USING INDEX native_gap_accepted_id');
+  expect(await cache.findByMsgId(legacy.msgId)).toMatchObject({ msgId: legacy.msgId });
 });
 
 it('日历缓存读取仅投影元数据，保留去重/验证身份且不触发建表写入', async () => {

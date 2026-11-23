@@ -587,7 +587,10 @@ function mountDbWatch(session: AccountSession): void {
     {
       kind: 'friend' as const,
       dbPath: session.profileInfo.dbPath,
-      read: () => session.buddyReqs.listRequests(CONTACT_NOTICE_LIMIT),
+      read: () => {
+        getAppContext().services?.profile.invalidateSelfProfile();
+        return session.buddyReqs.listRequests(CONTACT_NOTICE_LIMIT);
+      },
     },
     {
       kind: 'group' as const,

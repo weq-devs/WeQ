@@ -25,7 +25,11 @@ export interface ProfileOnlineDeps {
   resolvePid: () => number;
 }
 
+const SELF_PROFILE_CACHE_MS = 1_000;
+
 export class ProfileService {
+  private cachedSelfProfile?: { result: Promise<UserProfile | null>; expiresAt: number };
+
   constructor(
     private readonly session: AccountSession,
     private readonly online?: ProfileOnlineDeps,
@@ -171,6 +175,27 @@ export class ProfileService {
     return this.getProfileByUin(uin);
   }
 
+  /** 高频工具共享账号内的短时结果。普通资料页仍可直接读最新快照。 */
+  getCachedSelfProfile(): Promise<UserProfile | null> {
+    const cached = this.cachedSelfProfile;
+    if (cached && performance.now() < cached.expiresAt) return cached.result;
+
+    const entry = { result: this.getSelfProfile(), expiresAt: Number.POSITIVE_INFINITY };
+    this.cachedSelfProfile = entry;
+    const discard = () => {
+      if (this.cachedSelfProfile === entry) this.invalidateSelfProfile();
+    };
+    void entry.result.then((profile) => {
+      if (profile) entry.expiresAt = performance.now() + SELF_PROFILE_CACHE_MS;
+      else discard();
+    }, discard);
+    return entry.result;
+  }
+
+  invalidateSelfProfile(): void {
+    this.cachedSelfProfile = undefined;
+  }
+
   /**
    * List all cached profiles with pagination.
    */
@@ -227,6 +252,7 @@ export class ProfileService {
       ...params,
       selfUin: this.session.context.uin,
     });
+    this.invalidateSelfProfile();
   }
 
   /** 改长昵称 / 个性签名（OIDB 0x112A_2，单独的 profile{tag,value} 形状）。 */
@@ -236,12 +262,14 @@ export class ProfileService {
       selfUin: this.session.context.uin,
       longNick,
     });
+    this.invalidateSelfProfile();
   }
 
   /** 设置个人头像（highway cmdId 90）。`source` 是本地路径或图片字节。 */
   async setAvatar(source: SetSelfAvatarParams['source']): Promise<void> {
     const { nt, resolvePid } = this.requireOnline();
     await setSelfAvatar(nt, resolvePid(), { uin: this.session.context.uin, source });
+    this.invalidateSelfProfile();
   }
 
   /** 同意 / 拒绝一条好友申请（OIDB 0xB5D_44）。 */

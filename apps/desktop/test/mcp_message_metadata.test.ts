@@ -15,12 +15,23 @@ const recentContacts = vi.hoisted(() =>
     ...row,
   })),
 );
+const profileRead = vi.hoisted(() => vi.fn(async () => null));
+const cacheRead = vi.hoisted(() => vi.fn(async () => null));
+const profileCache = vi.hoisted(() => ({
+  switched: false,
+  read: vi.fn(async () => ({ uin: 1n, uid: 'u_self', nick: '合成账号', avatarUrl: '' })),
+}));
 
-vi.mock('../src/main/context/app_context', () => ({
-  getAppContext: () => ({
+vi.mock('../src/main/context/app_context', () => {
+  const context = {
+    account: { context: { uin: '1' } },
     services: {
-      gapHistory: { findByMsgId: async () => null },
-      profile: { getSelfProfile: async () => ({ uin: 1n }), nicksByUids: async () => ({}) },
+      gapHistory: { findByMsgId: cacheRead },
+      profile: {
+        getSelfProfile: profileRead,
+        getCachedSelfProfile: profileCache.read,
+        nicksByUids: async () => ({}),
+      },
       recentContacts: { getRecentContact: async () => recentContacts },
       msgs: {
         getGroupMessageById: async () => ({
@@ -43,8 +54,11 @@ vi.mock('../src/main/context/app_context', () => ({
         ],
       },
     },
-  }),
-}));
+  };
+  return {
+    getAppContext: () => (profileCache.switched ? { ...context, services: {} } : context),
+  };
+});
 
 import { AI_TOOLS } from '../src/main/mcp/tools';
 
@@ -66,10 +80,12 @@ it('returns exact source time and sender identity with message IDs without SQL',
     msgId: '9007199254740993',
     sendTime: '1792461600',
     senderUid: 'fixture_sender',
+    mine: true,
   });
   const compact = (await tool.run({ ...args, includeIds: false })) as { messages: object[] };
   expect(compact.messages[0]).not.toHaveProperty('sendTime');
   expect(compact.messages[0]).not.toHaveProperty('senderUid');
+  expect(profileRead).not.toHaveBeenCalled();
 });
 
 it('returns the same raw time in read-only message details', async () => {
@@ -89,5 +105,22 @@ it('returns the same raw time in read-only message details', async () => {
     msgId: '9007199254740993',
     sendTime: '1792461600',
     senderUid: 'fixture_sender',
+    mine: true,
   });
+  expect(profileRead).not.toHaveBeenCalled();
+  expect(cacheRead).toHaveBeenCalledWith('9007199254740993', { recalledOnly: true });
+});
+
+it('本人资料返回原字段，切换账号后拒绝旧读取结果', async () => {
+  const tool = AI_TOOLS.find((item) => item.name === 'get_self_profile')!;
+  expect(await tool.run({})).toMatchObject({ uin: '1', uid: 'u_self', nick: '合成账号' });
+  profileCache.read.mockImplementationOnce(async () => {
+    profileCache.switched = true;
+    return { uin: 1n, uid: 'u_self', nick: '旧账号', avatarUrl: '' };
+  });
+  try {
+    await expect(tool.run({})).rejects.toThrow('账号或数据源已切换');
+  } finally {
+    profileCache.switched = false;
+  }
 });

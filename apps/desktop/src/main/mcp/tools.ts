@@ -354,6 +354,11 @@ function safeBigint(text: string): bigint | null {
   }
 }
 
+function currentMessageSelfUin(): bigint {
+  const uin = safeBigint(toolContext().account?.context.uin ?? '') ?? 0n;
+  return uin > 0n ? uin : -1n;
+}
+
 /**
  * 排行/统计类工具的「范围说明」信封字段。给 LLM 一个恒定可读的窗口描述 + coverage 提醒，
  * 让低质模型每轮都看到「算的是哪段、数据可能不全」，而不是靠 system prompt 一句话约束。
@@ -1110,7 +1115,7 @@ export const AI_TOOLS: AiTool[] = [
     }),
     run: async ({ kind, conv, limit, before, includeIds }) => {
       const svc = services();
-      const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
+      const selfUin = currentMessageSelfUin();
       const beforeSeq = before.trim() ? safeBigint(before) : null;
       // 探测法：多取一条判断是否还有更早的消息，既得到诚实的 hasMore、又不返回会翻出空页的游标。
       const probe = limit + 1;
@@ -1255,7 +1260,10 @@ export const AI_TOOLS: AiTool[] = [
     description: '获取当前登录账号自己的资料（昵称、uin 等）。',
     input: z.object({}),
     run: async () => {
-      const profile = await services().profile.getSelfProfile();
+      const account = services();
+      const profile = await account.profile.getCachedSelfProfile();
+      if (toolContext().services !== account)
+        throw new Error('账号或数据源已切换，请重新查询资料。');
       return profile ? userProfileToWire(profile) : null;
     },
   }),
@@ -2361,6 +2369,7 @@ export const AI_TOOLS: AiTool[] = [
     }),
     run: async ({ kind, conv, date, limit, includeIds }) => {
       const svc = services();
+      const selfUin = currentMessageSelfUin();
       const { startSec, endSec, label } = dayWindow(date);
       const READ = kind === 'group' ? 1000 : 600;
       const rows =
@@ -2374,7 +2383,6 @@ export const AI_TOOLS: AiTool[] = [
         : Number.MAX_SAFE_INTEGER;
       const mayMissEarlier = rows.length >= READ && oldestSec >= endSec;
 
-      const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
       const otherUids = [
         ...new Set(day.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid)),
       ];
@@ -2810,13 +2818,14 @@ export const AI_TOOLS: AiTool[] = [
     }),
     run: async ({ kind, conv, msgId, includePayload, includeMedia }) => {
       const svc = services();
+      const selfUin = currentMessageSelfUin();
       const id = safeBigint(msgId);
       if (id === null) throw new Error(`msgId 无效：${msgId}（应为数字字符串）`);
       const local =
         kind === 'group'
           ? await svc.msgs.getGroupMessageById(conv, id)
           : await svc.msgs.getC2cMessageById(conv, id);
-      const cached = await svc.gapHistory.findByMsgId(msgId);
+      const cached = await svc.gapHistory.findByMsgId(msgId, { recalledOnly: true });
       const row =
         cached?.recall && cached.kind === kind && cached.conv === conv
           ? {
@@ -2838,8 +2847,6 @@ export const AI_TOOLS: AiTool[] = [
         };
       }
 
-      const self = await svc.profile.getSelfProfile();
-      const selfUin = self?.uin ?? -1n;
       const mine = row.senderUin === selfUin;
       const otherUids = mine ? [] : [row.senderUid];
       const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};

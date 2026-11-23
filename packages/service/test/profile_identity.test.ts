@@ -35,6 +35,37 @@ function fixture(local: Record<string, unknown> | null = null) {
   };
 }
 
+it('本人资料工具只短时复用成功结果，作废后旧在途读取不能覆盖新结果', async () => {
+  const first = { uin: 10001n, nick: '旧昵称' };
+  const second = { uin: 10001n, nick: '新昵称' };
+  const getProfileByUin = vi.fn(async () => second).mockResolvedValueOnce(first);
+  const session = {
+    context: { uin: '10001' },
+    profileInfo: { getProfileByUin },
+  } as unknown as AccountSession;
+  let now = 0;
+  const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+  const service = new ProfileService(session);
+  try {
+    const old = service.getCachedSelfProfile();
+    expect(service.getCachedSelfProfile()).toBe(old);
+    service.invalidateSelfProfile();
+    const latest = service.getCachedSelfProfile();
+    expect(await old).toEqual(first);
+    expect(await latest).toEqual(second);
+    expect(service.getCachedSelfProfile()).toBe(latest);
+    expect(getProfileByUin).toHaveBeenCalledTimes(2);
+
+    now += 1_000;
+    getProfileByUin.mockRejectedValueOnce(new Error('资料库暂不可读'));
+    await expect(service.getCachedSelfProfile()).rejects.toThrow('暂不可读');
+    expect(await service.getCachedSelfProfile()).toEqual(second);
+    expect(getProfileByUin).toHaveBeenCalledTimes(4);
+  } finally {
+    clock.mockRestore();
+  }
+});
+
 it('本地查无资料时按 UID 在线读取昵称、QQ 号及头像，不依赖仍在群内', async () => {
   const { service, sendOidbPacket } = fixture();
   expect(await service.getIdentity('u_peer', { online: true })).toMatchObject({

@@ -174,7 +174,7 @@ export class RoamMsgCacheDb {
        )`,
       null,
     );
-    return rows.map((row) => parseProtocolMessage(row[0]));
+    return rows.map((row) => parseProtocolMessage(row[0]!));
   }
 
   /** 只按发送索引读取未读区间内已确认的自发序号。 */
@@ -237,7 +237,7 @@ export class RoamMsgCacheDb {
        ${kind ? 'AND kind=?' : ''} ${conv ? 'AND conv=?' : ''} ${seq !== undefined ? 'AND msg_seq=?' : ''}`,
       [...(kind ? [kind] : []), ...(conv ? [conv] : []), ...(seq !== undefined ? [seq] : [])],
     );
-    return rows.map((row) => parseProtocolMessage(row[0]));
+    return rows.map((row) => parseProtocolMessage(row[0]!));
   }
 
   async matchingMessage(
@@ -375,7 +375,7 @@ export class RoamMsgCacheDb {
     const native = rows.filter((row) => Number(row[0]) === 1).map((row) => nativeRow([row[1]!]));
     const protocol = rows
       .filter((row) => Number(row[0]) === 2)
-      .map((row) => parseProtocolMessage(row[1]));
+      .map((row) => parseProtocolMessage(row[1]!));
     // 特殊消息按正文命中：在来源去重前筛选，以免原生纯文本盖住同一条协议正文。
     const resolve = (messages: GapFetchedMessage[]) =>
       project ? messages.map(project).filter((row) => row !== undefined) : messages;
@@ -508,7 +508,7 @@ export class RoamMsgCacheDb {
         [kind, conv, seq, seq, id, ...keyParams],
       );
       if (!rows.length) break;
-      const page = rows.map((row) => parseProtocolMessage(row[0]));
+      const page = rows.map((row) => parseProtocolMessage(row[0]!));
       for (const { protocolRaw: _raw, ...view } of page) protocol.push(view);
       seq = BigInt(page.at(-1)!.msgSeq);
       id = page.at(-1)!.msgId;
@@ -517,21 +517,29 @@ export class RoamMsgCacheDb {
   }
 
   /** 按 msgId 找一条已缓存的缺失消息（媒体补全 / 文件下载回查用）。 */
-  async findByMsgId(msgId: string): Promise<GapFetchedMessage | null> {
+  async findByMsgId(
+    msgId: string,
+    { recalledOnly = false }: { recalledOnly?: boolean } = {},
+  ): Promise<GapFetchedMessage | null> {
     if (!msgId) return null;
     await this.ensureSchema();
-    const protocol = await this.nt.executeSql(
+    // 保持协议条目优先；仅查撤回时，先定来源再检查标记，普通缓存正文不跨 N-API。
+    const [cached] = await this.nt.executeSql(
       this.dbPath,
-      `SELECT payload FROM ${PROTOCOL_TABLE} WHERE msg_id=? LIMIT 1`,
-      [msgId],
+      `WITH preferred AS MATERIALIZED (
+         SELECT 1 AS protocol, payload FROM (
+           SELECT payload FROM ${PROTOCOL_TABLE} WHERE msg_id=? ORDER BY rowid LIMIT 1
+         ) UNION ALL
+         SELECT 0, payload FROM (
+           SELECT payload FROM ${NATIVE_TABLE} WHERE msg_id=? AND accepted=1 ORDER BY rowid LIMIT 1
+         ) LIMIT 1
+       ) SELECT protocol, payload FROM preferred
+       ${recalledOnly ? "WHERE json_type(payload,'$.recall')='object'" : ''}`,
+      [msgId, msgId],
     );
-    if (protocol[0]) return parseProtocolMessage(protocol[0][0]);
-    const native = await this.nt.executeSql(
-      this.dbPath,
-      `SELECT payload FROM ${NATIVE_TABLE} WHERE msg_id = ? AND accepted = 1 LIMIT 1`,
-      [msgId],
-    );
-    if (native[0]) return nativeRow(native[0]);
+    if (cached)
+      return Number(cached[0]) ? parseProtocolMessage(cached[1]!) : nativeRow([cached[1]!]);
+    if (recalledOnly) return null; // 旧格式 gap_msg 无撤回元数据。
     const rows = await this.nt.executeSql(
       this.dbPath,
       `SELECT kind, conv, msg_id, msg_seq, sender_uid, sender_uin, send_time, elements, decoration, nt_seq_verified
@@ -795,6 +803,16 @@ export class RoamMsgCacheDb {
       this.dbPath,
       `CREATE INDEX IF NOT EXISTS protocol_sent_preview ON ${PROTOCOL_TABLE}(kind,conv,msg_seq)
        WHERE ${CONFIRMED_SENT}`,
+      null,
+    );
+    await this.nt.executeSqlWrite(
+      this.dbPath,
+      `CREATE INDEX IF NOT EXISTS protocol_gap_id ON ${PROTOCOL_TABLE}(msg_id)`,
+      null,
+    );
+    await this.nt.executeSqlWrite(
+      this.dbPath,
+      `CREATE INDEX IF NOT EXISTS native_gap_accepted_id ON ${NATIVE_TABLE}(msg_id) WHERE accepted=1`,
       null,
     );
     const columns = await this.nt.executeSql(

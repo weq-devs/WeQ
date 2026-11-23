@@ -425,11 +425,14 @@ export class GapHistoryService {
   }
 
   /** 按 msgId 找一条已缓存的缺失消息（媒体补全 / 文件下载回查用）。 */
-  async findByMsgId(msgId: string): Promise<GapFetchedMessage | null> {
+  async findByMsgId(
+    msgId: string,
+    options?: { recalledOnly?: boolean },
+  ): Promise<GapFetchedMessage | null> {
     if (!msgId) return null;
     try {
       const archived = await this.recallArchive?.find(msgId);
-      return archived ?? (await this.cache.findByMsgId(msgId));
+      return archived ?? (await this.cache.findByMsgId(msgId, options));
     } catch (e) {
       console.error('[GapHistory] failed to find cached message by msgId:', e);
       return null;

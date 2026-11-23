@@ -540,10 +540,12 @@ export class UnreadInfoDb {
     const previous = this.protectedRecallCache;
     try {
       // 写入只追加撤回记录，msgid 不是插入序号。同水位撤回也会改变记录数。
-      const [[schema, total]] = await this.qq.query(
+      const [revision] = await this.qq.query(
         `SELECT schema_version, (SELECT COUNT(*) FROM weq_recall_log)
          FROM pragma_schema_version`,
       );
+      if (!revision) throw new Error('撤回记录版本查询未返回结果');
+      const [schema, total] = revision;
       const version = Number(schema);
       const size = BigInt(String(total));
       if (previous?.schema === version && previous.total === size) return previous;
