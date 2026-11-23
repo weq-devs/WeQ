@@ -188,6 +188,8 @@ function Fixture() {
     Array.from({ length: delayedEntry ? 0 : entryCount }, (_, i) => message(i + 1001)),
   );
   const [resolvedGapIds, setResolvedGapIds] = useState<Set<string>>();
+  const [deletedIds, setDeletedIds] = useState<Set<string>>();
+  const [hiddenDeletedIds, setHiddenDeletedIds] = useState<Set<string>>();
   const pendingPrepend = useRef<ReturnType<typeof captureReadingPosition>>(undefined);
   useLayoutEffect(() => {
     const pending = pendingPrepend.current;
@@ -248,6 +250,44 @@ function Fixture() {
       setMessages((rows) => [...Array.from({ length: 50 }, (_, i) => message(951 + i)), ...rows]);
     },
     append: () => setMessages((rows) => [...rows, message(Number(rows.at(-1)!.msgSeq) + 1)]),
+    confirmTail: () =>
+      setMessages((rows) => {
+        const tail = rows.at(-1)!;
+        return [...rows.slice(0, -1), { ...tail, id: `${tail.id}-confirmed`, outgoingId: tail.id }];
+      }),
+    recall: (id: string) =>
+      setMessages((rows) =>
+        rows.map((row) =>
+          row.id === id
+            ? {
+                ...row,
+                recall: { revokeUid: 'u_peer', sameSender: true, recallTs: 1792545400 },
+              }
+            : row,
+        ),
+      ),
+    delete: (id: string) => setDeletedIds(new Set([id])),
+    hideDeleted: (id: string) => setHiddenDeletedIds(new Set([id])),
+    restoreDeleted: () => {
+      setDeletedIds(undefined);
+      setHiddenDeletedIds(undefined);
+    },
+    recallTip: (id: string) =>
+      setMessages((rows) =>
+        rows.map((row) =>
+          row.id === id
+            ? {
+                ...row,
+                qqElements: [
+                  {
+                    type: 'grayTipRevoke',
+                    data: { recallSenderUid: 'u_peer', recallRevokeUid: 'u_peer' },
+                  },
+                ],
+              }
+            : row,
+        ),
+      ),
     makeGap: () => {
       setResolvedGapIds(undefined);
       setMessages((rows) =>
@@ -342,6 +382,8 @@ function Fixture() {
       user,
       conversation: { ...conversation, id: conversationId },
       messages,
+      deletedIds,
+      hiddenDeletedIds,
       resolvedGapIds,
       onOpenGapMessages: gapRecovery
         ? () =>

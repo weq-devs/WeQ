@@ -19,6 +19,7 @@ const grouped = process.env.WEQ_SCROLL_GROUPED === '1';
 const imageGrid = process.env.WEQ_SCROLL_IMAGE_GRID === '1';
 const touchReply = process.env.WEQ_SCROLL_TOUCH_REPLY === '1';
 const gapRecovery = process.env.WEQ_SCROLL_GAP_RECOVERY === '1';
+const layoutMotion = process.env.WEQ_SCROLL_LAYOUT_MOTION === '1';
 const fixtureFlags = [
   cachedBubbles && '&cached-bubbles=1',
   (grouped || touchReply) && '&grouped=1',
@@ -31,11 +32,16 @@ const server = await createServer({
   configFile: false,
   root,
   define:
-    touchReply || gapRecovery
+    touchReply || gapRecovery || layoutMotion
       ? { 'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web') }
       : undefined,
   cacheDir,
-  optimizeDeps: { entries: ['test/browser/timeline.html'] },
+  optimizeDeps: {
+    entries: [
+      'test/browser/timeline.html',
+      ...(layoutMotion ? ['test/browser/conversation-list-states.html'] : []),
+    ],
+  },
   plugins: [
     ...(baseline
       ? [
@@ -96,11 +102,227 @@ try {
       : route.abort(),
   );
   if (gapRecovery) await checkGapRecovery(page);
+  else if (layoutMotion) await checkLayoutMotion(page);
   else await checkScroll(page);
 } finally {
   await browser?.close();
   await server.close();
   await rm(cacheDir, { recursive: true, force: true });
+}
+
+async function checkLayoutMotion(page) {
+  const base = `http://127.0.0.1:${server.httpServer.address().port}/test/browser`;
+  await page.addInitScript(() => {
+    const animate = Element.prototype.animate;
+    window.rowMotion = [];
+    Element.prototype.animate = function (...args) {
+      const animation = animate.apply(this, args);
+      const key =
+        this.closest('[data-weq-motion-key]')?.dataset.weqMotionKey ??
+        this.closest('[data-weq-layout-row]')?.dataset.weqLayoutRow;
+      if (key) {
+        const frames = animation.effect.getKeyframes();
+        if (window.holdRowMotion === key) {
+          window.holdRowMotion = undefined;
+          animation.pause();
+          animation.currentTime = 50;
+        }
+        const property = frames[0].transform ? 'transform' : 'opacity';
+        const values = animation.ready.then(
+          async () => {
+            const samples = [];
+            for (let frame = 0; frame < 5; frame++) {
+              await new Promise(requestAnimationFrame);
+              samples.push(getComputedStyle(this)[property]);
+            }
+            return samples;
+          },
+          () => [],
+        );
+        window.rowMotion.push({ key, target: this, animation, frames, values });
+      }
+      return animation;
+    };
+  });
+  const sample = (key, selector) =>
+    page.evaluate(
+      async ({ key, selector }) => {
+        const run = [...window.rowMotion]
+          .reverse()
+          .find((entry) => entry.key === key && entry.target.matches(selector));
+        return run ? { frames: run.frames, values: await run.values } : null;
+      },
+      { key, selector },
+    );
+  const clear = () =>
+    page.evaluate(() => {
+      window.rowMotion.length = 0;
+    });
+  const logs = () =>
+    page.evaluate(() => window.rowMotion.map(({ key, target }) => [key, target.className]));
+  const order = (ids) =>
+    page.waitForFunction(
+      (ids) =>
+        [...document.querySelectorAll('[data-weq-layout-row]')]
+          .map((row) => row.dataset.weqLayoutRow)
+          .join(',') === ids.join(','),
+      ids,
+    );
+  const near = (a, b) => assert.ok(Math.abs(a - b) <= 1, `阅读锚点发生变化：${a} -> ${b}`);
+
+  for (const reducedMotion of ['no-preference', 'reduce']) {
+    const reduced = reducedMotion === 'reduce';
+    await page.emulateMedia({ reducedMotion });
+    await page.goto(`${base}/timeline.html?count=180&entry`);
+    const message = (id) => page.locator(`.message-line[data-message-id="${id}"]`);
+    const viewport = page.locator('.message-scroll');
+    const bottom = () =>
+      page.waitForFunction(() => {
+        const scroll = document.querySelector('.message-scroll');
+        return scroll && scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop <= 2;
+      });
+    await message('row-1180').waitFor();
+    await bottom();
+    assert.deepEqual(await logs(), [], '初次加载不播入场');
+    await page.evaluate(() => window.timelineTest.append());
+    await message('row-1181').waitFor();
+    const arrival = await sample('row-1181', '.message-line');
+    if (reduced) assert.equal(arrival, null);
+    else {
+      assert.equal(arrival?.frames[0].opacity, '0.75');
+      assert.ok(arrival.values?.some((value) => Number(value) > 0.75 && Number(value) < 1));
+    }
+    await bottom();
+    await clear();
+    await page.evaluate(() => window.timelineTest.confirmTail());
+    await message('row-1181-confirmed').waitFor();
+    assert.equal(await sample('row-1181', '.message-line'), null, '发送回执不重复播放入场');
+    await page.evaluate(() => window.timelineTest.jump('row-1070'));
+    await message('row-1070').waitFor();
+    await page.waitForFunction(() => {
+      const row = document.querySelector('[data-message-id="row-1070"]')?.getBoundingClientRect();
+      const scroll = document.querySelector('.message-scroll').getBoundingClientRect();
+      return row && row.top > scroll.top && row.bottom < scroll.bottom;
+    });
+    const anchor = await page.evaluate(() => window.timelineTest.capture());
+    const anchorTop = (await message(anchor.anchorId).boundingBox()).y;
+    await clear();
+    await page.evaluate(() => window.timelineTest.append());
+    await page.evaluate(() => window.timelineTest.recall('row-1070'));
+    await message('row-1070').locator('.weq-msg-recall-tag').waitFor();
+    assert.equal(await sample('row-1182', '.message-line'), null, '阅读历史不播放实时消息入场');
+    near(anchorTop, (await message(anchor.anchorId).boundingBox()).y);
+    assert.equal(
+      (await logs()).some(
+        ([key, target]) => key === 'row-1070' && target.includes('weq-msg-recall-tag'),
+      ),
+      !reduced,
+    );
+    await clear();
+    await page.evaluate(() => window.timelineTest.delete('row-1070'));
+    await message('row-1070').locator('.weq-msg-deleted-veil').waitFor();
+    assert.equal(
+      (await logs()).some(
+        ([key, target]) => key === 'row-1070' && target.includes('weq-msg-deleted-veil'),
+      ),
+      !reduced,
+    );
+    await clear();
+    await page.evaluate(() => window.timelineTest.hideDeleted('row-1070'));
+    await message('row-1070').waitFor({ state: 'detached' });
+    near(anchorTop, (await message(anchor.anchorId).boundingBox()).y);
+    assert.equal(
+      (await logs()).some(([key]) => key === 'row-1071'),
+      !reduced,
+    );
+    await clear();
+    await page.evaluate(() => window.timelineTest.restoreDeleted());
+    await message('row-1070').waitFor();
+    assert.equal(
+      (await logs()).some(([key]) => key === 'row-1070'),
+      !reduced,
+    );
+    near(anchorTop, (await message(anchor.anchorId).boundingBox()).y);
+    await clear();
+    await page.evaluate(() => window.timelineTest.recallTip('row-1072'));
+    await page.locator('.weq-system-message-row[data-message-id="row-1072"]').waitFor();
+    assert.equal(
+      (await logs()).some(
+        ([key, target]) => key === 'row-1072' && target.includes('weq-system-message-row'),
+      ),
+      !reduced,
+    );
+    near(anchorTop, (await message(anchor.anchorId).boundingBox()).y);
+    const top = await viewport.evaluate((node) => node.scrollTop);
+    await viewport.evaluate((node) => {
+      node.scrollTop += 45;
+    });
+    await page.waitForFunction(
+      (top) => document.querySelector('.message-scroll').scrollTop > top,
+      top,
+    );
+
+    await page.goto(`${base}/conversation-list-states.html`);
+    await order(['10001', '10003', '10002']);
+    assert.deepEqual(await logs(), [], '列表首次出现不播入场');
+    await page.evaluate(() => window.conversationStatesQa.promote());
+    await order(['10002', '10001', '10003']);
+    const move = await sample('10002', '[data-weq-layout-row]');
+    if (reduced) assert.equal(move, null);
+    else {
+      assert.match(move?.frames[0].transform, /translateY/);
+      assert.ok(new Set(move.values).size > 1, '会话移动缺少中间帧');
+    }
+    await page.evaluate(() => window.conversationStatesQa.reset());
+    await order(['10001', '10003', '10002']);
+    if (!reduced) {
+      await page.waitForFunction(
+        () =>
+          getComputedStyle(document.querySelector('[data-weq-layout-row="10002"]')).transform ===
+          'none',
+      );
+      await clear();
+      await page.evaluate(() => {
+        window.holdRowMotion = '10002';
+        window.conversationStatesQa.promote();
+      });
+      await order(['10002', '10001', '10003']);
+      const interruptedAt = await page.evaluate(() => {
+        const run = window.rowMotion.find(({ key }) => key === '10002');
+        const top = run.target.getBoundingClientRect().top;
+        window.conversationStatesQa.reset();
+        return top;
+      });
+      await order(['10001', '10003', '10002']);
+      const resumedAt = await page.evaluate(() => {
+        const last = window.rowMotion.filter(({ key }) => key === '10002').at(-1);
+        if (window.rowMotion.find(({ key }) => key === '10002').animation.playState !== 'idle')
+          throw new Error('重新排序后旧动效仍在运行');
+        if (!last.frames[0].transform) throw new Error('重新排序后缺少接续位移');
+        return (
+          last.target.parentElement.getBoundingClientRect().top +
+          last.target.offsetTop +
+          Number.parseFloat(last.frames[0].transform.slice('translateY('.length))
+        );
+      });
+      near(interruptedAt, resumedAt);
+    }
+    await clear();
+    await page.evaluate(() => window.conversationStatesQa.removeFirst());
+    await order(['10003', '10002']);
+    assert.equal(
+      (await logs()).some(([key]) => key === '10003'),
+      !reduced,
+    );
+    await clear();
+    await page.evaluate(() => window.conversationStatesQa.reset());
+    await order(['10001', '10003', '10002']);
+    assert.equal(
+      (await logs()).some(([key]) => key === '10001'),
+      !reduced,
+    );
+  }
+  console.log('实时入场、撤回与删除阅读锚点、会话增删移位及减少动态效果通过');
 }
 
 async function checkGapRecovery(page) {

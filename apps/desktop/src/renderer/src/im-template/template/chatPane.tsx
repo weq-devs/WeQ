@@ -1427,13 +1427,13 @@ function ChatPaneContent({
     () => new Set([...(hiddenDeletedIds ?? [])].map(deletionIdentity)),
     [hiddenDeletedIds],
   );
+  const isTimelineMessageHidden = useCallback(
+    (id: string) => hiddenMessageIds.has(id) || hiddenDeletedKeys.has(deletionIdentity(id)),
+    [hiddenMessageIds, hiddenDeletedKeys],
+  );
   const visibleMessages = useMemo(
-    () =>
-      messages.filter(
-        (message) =>
-          !hiddenMessageIds.has(message.id) && !hiddenDeletedKeys.has(deletionIdentity(message.id)),
-      ),
-    [messages, hiddenMessageIds, hiddenDeletedKeys],
+    () => messages.filter((message) => !isTimelineMessageHidden(message.id)),
+    [messages, isTimelineMessageHidden],
   );
   const mediaGalleryMessages = useMemo(
     () =>
@@ -6333,6 +6333,13 @@ function ChatPaneContent({
           contentRef={timelineContentRef}
           scope={`${user.id}:${conversation.id}`}
           active={tabActive}
+          live={atLatest}
+          followLive={mediaSettings.data?.autoFollowLatestMessages !== false}
+          loading={Boolean(loading || loadingOlder || loadingNewer)}
+          jumpRevision={jumpRequest?.revision}
+          deleted={deletedKeys}
+          isHidden={isTimelineMessageHidden}
+          unreadBoundary={showUnreadDivider ? unreadBoundaryId : undefined}
           observeMessageVisibility={observeMessageVisibility}
         >
           {(timeline, captureTimelineContent, rowSpacing) => (
@@ -6383,6 +6390,16 @@ function ChatPaneContent({
                     const index = virtualRow.index;
                     const message = visibleMessages[index];
                     if (!message) return;
+                    const deleted = deletedKeys.has(deletionIdentity(message.id));
+                    const layoutState = message.qqElements?.some(
+                      ({ type }) => type === 'grayTipRevoke',
+                    )
+                      ? 'recall-tip'
+                      : message.deletedKind || deleted
+                        ? 'deleted'
+                        : message.recall
+                          ? 'recalled'
+                          : undefined;
                     const blockStart = out.length;
                     const previous = visibleMessages[index - 1];
                     const gap = timelineGaps.get(message.id);
@@ -6461,7 +6478,7 @@ function ChatPaneContent({
                           }
                           showSenderName={showSenderNames}
                           active={contextMenu?.message.id === message.id}
-                          deleted={deletedKeys.has(deletionIdentity(message.id))}
+                          deleted={deleted}
                           deletedKind={message.deletedKind}
                           recallRevokerName={message.recallRevokerName}
                           onRestore={rowRestore}
@@ -6563,6 +6580,8 @@ function ChatPaneContent({
                           aria-setsize={visibleMessages.length}
                           key={virtualRow.key}
                           data-index={index}
+                          data-weq-motion-key={virtualRow.key}
+                          data-weq-motion-state={layoutState}
                           style={{ paddingBlockEnd: rowSpacing(index) }}
                           ref={timeline.measure}
                         >

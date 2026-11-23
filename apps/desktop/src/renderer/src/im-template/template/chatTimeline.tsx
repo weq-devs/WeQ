@@ -13,6 +13,7 @@ import type { Message } from './types';
 import type { MessageGroupPosition } from './chatTimelineModel';
 import { timelineViewport, TIMELINE_MESSAGE_SELECTOR } from '../../lib/timelineViewport';
 import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
+import { allowsLayoutMotion, RowLayoutMotion, visibleLayoutRows } from '../../lib/layoutMotion';
 
 export type TimelineVisibility = {
   syncRows: () => void;
@@ -28,6 +29,13 @@ type ChatTimelineProps = {
   contentRef: RefObject<HTMLDivElement | null>;
   scope: string;
   active: boolean;
+  live: boolean;
+  followLive: boolean;
+  loading: boolean;
+  jumpRevision?: number;
+  deleted: ReadonlySet<string>;
+  isHidden: (id: string) => boolean;
+  unreadBoundary?: string;
   observeMessageVisibility: () => TimelineVisibility | undefined;
   children: (
     timeline: Pick<ReturnType<typeof useVirtualTimeline>, 'enabled' | 'items' | 'measure'>,
@@ -36,119 +44,242 @@ type ChatTimelineProps = {
   ) => ReactNode;
 };
 
-function visibleTimelineRows(scroll: HTMLElement, bounds: DOMRect) {
-  const rows = new Map<string, { element: HTMLElement; top: number }>();
-  for (const element of scroll.querySelectorAll<HTMLElement>(TIMELINE_MESSAGE_SELECTOR)) {
-    const rect = element.getBoundingClientRect();
-    if (rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom)
-      rows.set(element.dataset.messageId!, { element, top: rect.top - bounds.top });
-  }
-  return rows;
-}
+const messageKey = (message: Message) => message.outgoingId ?? message.id;
+const timelineRow = (element: HTMLElement) =>
+  element.closest<HTMLDivElement>('.weq-virtual-timeline-row');
+const timelineKey = (element: HTMLElement) => timelineRow(element)?.dataset.weqMotionKey;
 
-// 抓取 React 改动 DOM 前的真实气泡位置；虚拟行的顶部还包括缺口条，不一定等于正文位置。
-class ChatTimelineGapTransition extends Component<ChatTimelineProps> {
-  private animations = new Set<Animation>();
+// 抓取正文而不是虚拟行顶；同一行内部的缺口和未读分隔也会推移正文。
+class ChatTimelineTransition extends Component<ChatTimelineProps> {
+  private readonly motion = new RowLayoutMotion();
 
   override getSnapshotBeforeUpdate(previous: ChatTimelineProps) {
-    const { active, scope, gaps, scrollRef } = this.props;
+    const {
+      active,
+      scope,
+      gaps,
+      scrollRef,
+      messages,
+      loading,
+      live,
+      followLive,
+      jumpRevision,
+      deleted,
+      isHidden,
+      unreadBoundary,
+    } = this.props;
     const scroll = scrollRef.current;
     if (!active || !previous.active || scope !== previous.scope || !scroll?.clientHeight)
       return null;
-    if (gaps === previous.gaps || (!gaps.size && !previous.gaps.size)) return null;
+    const edits =
+      !loading &&
+      !previous.loading &&
+      jumpRevision === previous.jumpRevision &&
+      (messages !== previous.messages ||
+        deleted !== previous.deleted ||
+        isHidden !== previous.isHidden ||
+        unreadBoundary !== previous.unreadBoundary);
     const changed = new Set<string>();
     const changedGapIds = new Set<string>();
-    for (const [id, gap] of previous.gaps) {
-      if (gaps.get(id)?.id === gap.id) continue;
-      changed.add(id);
-      changedGapIds.add(gap.id);
+    if (gaps !== previous.gaps) {
+      for (const [id, gap] of previous.gaps) {
+        if (gaps.get(id)?.id === gap.id) continue;
+        changed.add(id);
+        changedGapIds.add(gap.id);
+      }
+      for (const [id, gap] of gaps) if (previous.gaps.get(id)?.id !== gap.id) changed.add(id);
     }
-    for (const [id, gap] of gaps) if (previous.gaps.get(id)?.id !== gap.id) changed.add(id);
-    if (!changed.size) return null;
+    if (!changed.size && !edits) return null;
     const bounds = scroll.getBoundingClientRect();
-    const rows = visibleTimelineRows(scroll, bounds);
-    const removedVisibleGap = [
-      ...scroll.querySelectorAll<HTMLElement>('.weq-gap-band-button'),
-    ].some((button) => {
-      const id = button.closest<HTMLElement>('[data-message-id]')?.dataset.messageId;
-      if (!id || !changedGapIds.has(id)) return false;
-      const rect = button.getBoundingClientRect();
-      return rect.bottom > bounds.top && rect.top < bounds.bottom;
-    });
+    const rows = visibleLayoutRows(scroll, TIMELINE_MESSAGE_SELECTOR, timelineKey, bounds);
+    const states = new Map(
+      [...rows].map(([key, { element }]) => [key, timelineRow(element)?.dataset.weqMotionState]),
+    );
+    const removed =
+      edits &&
+      [...rows.values()].some(
+        ({ element }) =>
+          isHidden(element.dataset.messageId!) && !previous.isHidden(element.dataset.messageId!),
+      );
+    const removedVisibleGap =
+      changedGapIds.size > 0 &&
+      visibleLayoutRows(
+        scroll,
+        '.weq-gap-band-button',
+        (button) => {
+          const id = button.closest<HTMLElement>('[data-message-id]')?.dataset.messageId;
+          return id && changedGapIds.has(id) ? id : undefined;
+        },
+        bounds,
+      ).size > 0;
+    const atEnd = scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop <= 2;
+    const viewport = timelineViewport(scroll);
+    let tail: readonly Message[] = [];
+    if (
+      edits &&
+      live &&
+      previous.live &&
+      followLive &&
+      atEnd &&
+      !viewport?.isUserScrolling?.() &&
+      allowsLayoutMotion(scroll) &&
+      messages !== previous.messages
+    ) {
+      const last = previous.messages.at(-1);
+      const index = last
+        ? messages.findLastIndex((message) => messageKey(message) === messageKey(last))
+        : -1;
+      const appended = messages.length - index - 1;
+      // 不把大批同步、整窗切换或解除隐藏当作新的实时气泡。
+      if ((!last || index >= 0) && appended > 0 && appended <= 3)
+        tail = messages.slice(index + 1).filter(({ id }) => !previous.isHidden(id));
+    }
     return {
       rows,
+      states,
+      edits,
+      removed,
       changed,
       removedVisibleGap,
-      revision: timelineViewport(scroll)?.scrollRevision?.(),
-      atEnd: scroll.scrollHeight - scroll.clientHeight - scroll.scrollTop <= 2,
+      tail,
+      revision: viewport?.scrollRevision?.(),
+      atEnd,
     };
   }
 
   override componentDidUpdate(
     previous: ChatTimelineProps,
     _state: unknown,
-    snapshot: ReturnType<ChatTimelineGapTransition['getSnapshotBeforeUpdate']>,
+    snapshot: ReturnType<ChatTimelineTransition['getSnapshotBeforeUpdate']>,
   ) {
-    if (!this.props.active || previous.scope !== this.props.scope) this.stopAnimations();
-    const scroll = this.props.scrollRef.current;
+    const { active, scope, loading, live, jumpRevision, scrollRef, unreadBoundary } = this.props;
+    const scroll = scrollRef.current;
+    if (
+      !active ||
+      scope !== previous.scope ||
+      jumpRevision !== previous.jumpRevision ||
+      loading ||
+      (scroll && !allowsLayoutMotion(scroll))
+    )
+      this.motion.stop();
     if (!snapshot || !scroll) return;
-    this.stopAnimations();
     const viewport = timelineViewport(scroll);
-    const anchor = [...snapshot.rows].find(([, row]) => scroll.contains(row.element));
+    const mounted = new Map<string, HTMLElement>();
     const affectedRows = new Set<HTMLDivElement>();
-    const mounted = scroll.querySelectorAll<HTMLElement>(TIMELINE_MESSAGE_SELECTOR);
-    for (const element of mounted) {
-      if (!snapshot.changed.has(element.dataset.messageId!)) continue;
-      const wrapper = element.closest<HTMLDivElement>('.weq-virtual-timeline-row');
-      if (wrapper) affectedRows.add(wrapper);
+    const reveal = new Map<string, HTMLElement>();
+    let edited = snapshot.removed;
+    for (const element of scroll.querySelectorAll<HTMLElement>(TIMELINE_MESSAGE_SELECTOR)) {
+      const wrapper = timelineRow(element);
+      const key = wrapper?.dataset.weqMotionKey;
+      if (!wrapper || key === undefined) continue;
+      mounted.set(key, element);
+      const id = element.dataset.messageId!;
+      if (snapshot.changed.has(id)) affectedRows.add(wrapper);
+      if (!snapshot.edits) continue;
+      const state = wrapper.dataset.weqMotionState;
+      const old = snapshot.rows.get(key);
+      if (
+        (old && snapshot.states.get(key) !== state) ||
+        (!old &&
+          (previous.isHidden(id) ||
+            (state === 'recall-tip' &&
+              live &&
+              previous.live &&
+              !previous.messages.some((message) => messageKey(message) === key))))
+      ) {
+        edited = true;
+        affectedRows.add(wrapper);
+        const hint =
+          state === 'deleted'
+            ? element.querySelector<HTMLElement>('.weq-msg-deleted-veil')
+            : state === 'recalled'
+              ? element.querySelector<HTMLElement>('.weq-msg-recall-tag')
+              : null;
+        if (hint || state === 'recall-tip' || !old || snapshot.states.get(key) === 'deleted')
+          reveal.set(key, hint ?? element);
+      }
+      if (
+        unreadBoundary !== previous.unreadBoundary &&
+        (id === unreadBoundary || id === previous.unreadBoundary)
+      ) {
+        edited = true;
+        affectedRows.add(wrapper);
+        const divider = wrapper.querySelector<HTMLElement>('.weq-unread-divider');
+        if (divider && !reveal.has(key)) reveal.set(key, divider);
+      }
     }
-    // 同一帧更新复用行的高度与位置，不把提示条高度留到下一轮 ResizeObserver。
-    viewport?.measureRows?.(
-      affectedRows,
-      !snapshot.atEnd && anchor && snapshot.changed.has(anchor[0])
-        ? anchor[1].element.closest<HTMLDivElement>('.weq-virtual-timeline-row')
-        : null,
-    );
+    const reflow = snapshot.changed.size > 0 || edited;
+    if (reflow) {
+      this.motion.stop();
+      const anchor = [...snapshot.rows].find(([key]) => mounted.has(key));
+      const anchorElement = anchor && mounted.get(anchor[0]);
+      // 同帧交付新行高，别等下一轮 ResizeObserver 才补偿阅读位置。
+      if (edited) {
+        for (const key of snapshot.rows.keys()) {
+          const element = mounted.get(key);
+          const wrapper = element && timelineRow(element);
+          if (wrapper) affectedRows.add(wrapper);
+        }
+      }
+      const anchorRow = anchorElement && timelineRow(anchorElement);
+      viewport?.measureRows?.(
+        affectedRows,
+        !snapshot.atEnd && anchorElement && snapshot.changed.has(anchorElement.dataset.messageId!)
+          ? anchorRow
+          : null,
+      );
+      if (snapshot.revision !== viewport?.scrollRevision?.()) return;
+      if (anchor && anchorElement && !snapshot.atEnd && !viewport?.isUserScrolling?.()) {
+        restoreReadingPosition(scroll, {
+          anchorId: anchorElement.dataset.messageId,
+          offset: anchor[1].top,
+          scrollTop: scroll.scrollTop,
+        });
+      }
+    }
     if (snapshot.revision !== viewport?.scrollRevision?.()) return;
-    const bounds = scroll.getBoundingClientRect();
-    if (anchor && !snapshot.atEnd && !viewport?.isUserScrolling?.()) {
-      const [anchorId, { top: offset }] = anchor;
-      restoreReadingPosition(scroll, { anchorId, offset, scrollTop: scroll.scrollTop });
-    }
-    if (scroll.ownerDocument.defaultView?.matchMedia('(prefers-reduced-motion: reduce)').matches)
+    if (
+      loading ||
+      jumpRevision !== previous.jumpRevision ||
+      !allowsLayoutMotion(scroll) ||
+      viewport?.isUserScrolling?.()
+    )
       return;
-    const oldIds = snapshot.removedVisibleGap
-      ? new Set(previous.messages.map(({ id }) => id))
-      : null;
-    const visible = visibleTimelineRows(scroll, bounds);
-    const fillsGap = oldIds && [...visible.keys()].some((id) => !oldIds.has(id));
-    for (const [id, { element, top }] of visible) {
-      const old = snapshot.rows.get(id);
-      const shift = old ? old.top - top : 0;
-      // 填入大段历史时不让旧消息滑过新内容；小幅重排只平移正文外层，不改变行高。
-      const frames =
-        old && Math.abs(shift) >= 1 && Math.abs(shift) <= 72 && !fillsGap
-          ? [{ transform: `translateY(${shift}px)` }, { transform: 'none' }]
-          : oldIds && !oldIds.has(id)
-            ? [{ opacity: 0.75 }, { opacity: 1 }]
-            : null;
-      if (!frames || !element.animate) continue;
-      const animation = element.animate(frames, {
-        duration: 160,
-        easing: 'cubic-bezier(0.16, 1, 0.3, 1)',
-      });
-      this.animations.add(animation);
-      animation.onfinish = () => this.animations.delete(animation);
+    const oldIds = snapshot.removedVisibleGap ? new Set(previous.messages.map(messageKey)) : null;
+    const tailKeys = new Set(snapshot.tail.map(messageKey));
+    if (reflow) {
+      const visible = visibleLayoutRows(scroll, TIMELINE_MESSAGE_SELECTOR, timelineKey);
+      const fillsGap = oldIds && [...visible.keys()].some((key) => !oldIds.has(key));
+      const shiftLimit = snapshot.removed
+        ? Math.max(72, Math.min(144, scroll.clientHeight / 4))
+        : 72;
+      let fadedAfterRemoval = 0;
+      for (const [key, { element, top }] of visible) {
+        const old = snapshot.rows.get(key);
+        const hint = reveal.get(key);
+        // 补回大段历史时不让旧消息滑过新内容，也不反复量动画中的行高。
+        if (old && !fillsGap && hint !== element) {
+          const shift = old.top - top;
+          this.motion.shift(element, shift, shiftLimit);
+          if (snapshot.removed && !hint && shift > shiftLimit && fadedAfterRemoval < 2) {
+            this.motion.reveal(element);
+            fadedAfterRemoval++;
+          }
+        }
+        if (hint) this.motion.reveal(hint);
+        else if (oldIds && !oldIds.has(key)) this.motion.reveal(element);
+        if (hint || (oldIds && !oldIds.has(key))) tailKeys.delete(key);
+      }
+    }
+    // 父层在本次布局末尾跟随下沿；此时新行可能还在视口下面的缓冲内。
+    for (const key of tailKeys) {
+      const element = mounted.get(key);
+      if (element && !snapshot.rows.has(key)) this.motion.reveal(element);
     }
   }
 
   override componentWillUnmount() {
-    this.stopAnimations();
-  }
-
-  private stopAnimations() {
-    for (const animation of this.animations) animation.cancel();
-    this.animations.clear();
+    this.motion.stop();
   }
 
   override render() {
@@ -157,7 +288,7 @@ class ChatTimelineGapTransition extends Component<ChatTimelineProps> {
 }
 
 export function ChatTimeline(props: ChatTimelineProps) {
-  return <ChatTimelineGapTransition {...props} />;
+  return <ChatTimelineTransition {...props} />;
 }
 
 function ChatTimelineContent({
@@ -172,7 +303,7 @@ function ChatTimelineContent({
   children,
 }: ChatTimelineProps) {
   const ids = useMemo(() => messages.map(({ id }) => id), [messages]);
-  const keys = useMemo(() => messages.map(({ id, outgoingId }) => outgoingId ?? id), [messages]);
+  const keys = useMemo(() => messages.map(messageKey), [messages]);
   const rowSpacing = useCallback(
     (index: number) => {
       if (index === messages.length - 1) return 0;

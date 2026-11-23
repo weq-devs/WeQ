@@ -801,6 +801,7 @@ export function ConversationList({
           rowHeight={rowHeight}
           height={listHeight}
           resetKey={listKey}
+          layoutMotion={{ paused: Boolean(loading || loadingMore) }}
           restoreScrollTop={scrollPositions.current.get(listKey) ?? 0}
           onScrollTopChange={(top) => scrollPositions.current.set(listKey, top)}
           itemKey={(item) => item.id}

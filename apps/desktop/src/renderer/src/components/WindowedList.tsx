@@ -1,6 +1,87 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Component,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { flushSync } from 'react-dom';
+import { allowsLayoutMotion, RowLayoutMotion, visibleLayoutRows } from '../lib/layoutMotion';
 import { visibleListRange } from './WindowedList.shared';
+
+const motionRowSelector = '[data-weq-layout-row]';
+const motionRowKey = (row: HTMLElement) => row.dataset.weqLayoutRow;
+
+type ListMotionProps<T> = {
+  root: RefObject<HTMLDivElement | null>;
+  items: readonly T[];
+  itemKey: (item: T) => string;
+  scope: string | undefined;
+  rowHeight: number;
+  locate: string;
+  paused: boolean;
+  children: ReactNode;
+};
+
+class WindowedListMotion<T> extends Component<ListMotionProps<T>> {
+  private readonly motion = new RowLayoutMotion();
+
+  stop = () => this.motion.stop();
+
+  private reset(previous: ListMotionProps<T>) {
+    const { scope, rowHeight, locate, paused } = this.props;
+    return (
+      paused ||
+      previous.paused ||
+      scope !== previous.scope ||
+      rowHeight !== previous.rowHeight ||
+      locate !== previous.locate
+    );
+  }
+
+  override getSnapshotBeforeUpdate(previous: ListMotionProps<T>) {
+    const { root, items, itemKey } = this.props;
+    const list = root.current;
+    if (this.reset(previous) || !list?.clientHeight || !allowsLayoutMotion(list)) return null;
+    if (items === previous.items || !previous.items.length) return null;
+    if (
+      items.length === previous.items.length &&
+      items.every((item, index) => itemKey(item) === itemKey(previous.items[index]!))
+    )
+      return null;
+    return { top: list.scrollTop, rows: visibleLayoutRows(list, motionRowSelector, motionRowKey) };
+  }
+
+  override componentDidUpdate(
+    previous: ListMotionProps<T>,
+    _state: unknown,
+    snapshot: ReturnType<WindowedListMotion<T>['getSnapshotBeforeUpdate']>,
+  ) {
+    const { root, itemKey, rowHeight } = this.props;
+    const list = root.current;
+    if (this.reset(previous) || (list && !allowsLayoutMotion(list))) this.stop();
+    if (!snapshot || !list) return;
+    this.stop();
+    if (Math.abs(list.scrollTop - snapshot.top) > 1) return;
+    const rows = visibleLayoutRows(list, motionRowSelector, motionRowKey);
+    for (const [key, { element, top }] of rows) {
+      const old = snapshot.rows.get(key);
+      if (old && old.top - top > rowHeight * 4) this.motion.reveal(element);
+      else if (old) this.motion.shift(element, old.top - top, rowHeight * 4);
+      else if (!previous.items.some((item) => itemKey(item) === key)) this.motion.reveal(element);
+    }
+  }
+
+  override componentWillUnmount() {
+    this.stop();
+  }
+
+  override render() {
+    return this.props.children;
+  }
+}
 
 /** 固定行高的会话选择器共用，DOM 数量只随可视区域增长。 */
 export function WindowedList<T>({
@@ -20,6 +101,7 @@ export function WindowedList<T>({
   bufferScreens = 0,
   restoreScrollTop = 0,
   onScrollTopChange,
+  layoutMotion,
 }: {
   items: readonly T[];
   rowHeight: number;
@@ -38,11 +120,14 @@ export function WindowedList<T>({
   bufferScreens?: number;
   restoreScrollTop?: number;
   onScrollTopChange?: (top: number) => void;
+  /** 只为业务增删、移位启用；加载、定位及更换查询范围保持即时。 */
+  layoutMotion?: { paused: boolean };
 }) {
   const [top, setTop] = useState(0);
   const root = useRef<HTMLDivElement>(null);
   const applied = useRef<string | null>(null);
   const restoredKey = useRef<string | undefined>(undefined);
+  const motion = useRef<WindowedListMotion<T>>(null);
   useLayoutEffect(() => {
     // 滚动记录是下次切回列表的恢复值，不在当前手势中反复写回原生滚动位置。
     const changed = restoredKey.current !== resetKey;
@@ -135,7 +220,7 @@ export function WindowedList<T>({
     const viewport = root.current;
     if (viewport) publishRef.current(Math.max(0, viewport.scrollTop), viewport.clientHeight);
   }, [items, rowHeight, onVisibleItems, scrollToKey, scrollRevision, resetKey]);
-  return (
+  const content = (
     <div
       ref={root}
       data-weq-windowed-list=""
@@ -143,6 +228,7 @@ export function WindowedList<T>({
       aria-label={label}
       style={{ height: Math.min(height, items.length * rowHeight), overflowY: 'auto' }}
       onScroll={(event) => {
+        motion.current?.stop();
         const element = event.currentTarget;
         // Safari 顶部回弹的负值不属于内容坐标；保留原生回弹，只归一化窗口和记录。
         const offset = Math.max(0, element.scrollTop);
@@ -164,21 +250,39 @@ export function WindowedList<T>({
       }}
     >
       <div style={{ height: items.length * rowHeight, position: 'relative' }}>
-        {items.slice(range.start, range.end).map((item, offset) => (
-          <div
-            key={itemKey(item)}
-            style={{
-              position: 'absolute',
-              top: (range.start + offset) * rowHeight,
-              height: rowHeight,
-              left: 0,
-              right: 0,
-            }}
-          >
-            {renderItem(item)}
-          </div>
-        ))}
+        {items.slice(range.start, range.end).map((item, offset) => {
+          const key = itemKey(item);
+          return (
+            <div
+              key={key}
+              data-weq-layout-row={layoutMotion ? key : undefined}
+              style={{
+                position: 'absolute',
+                top: (range.start + offset) * rowHeight,
+                height: rowHeight,
+                left: 0,
+                right: 0,
+              }}
+            >
+              {renderItem(item)}
+            </div>
+          );
+        })}
       </div>
     </div>
+  );
+  return (
+    <WindowedListMotion
+      ref={motion}
+      root={root}
+      items={items}
+      itemKey={itemKey}
+      scope={resetKey}
+      rowHeight={rowHeight}
+      locate={`${scrollToKey}:${scrollRevision ?? 0}`}
+      paused={!layoutMotion || layoutMotion.paused}
+    >
+      {content}
+    </WindowedListMotion>
   );
 }

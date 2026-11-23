@@ -114,6 +114,7 @@ git checkout -b feat/your-feature
 - 危险等级由实际操作提供，确认框使用 `danger`，QQ 操作和菜单传递同一等级。文案、提示 `tone`、清空搜索或选择、取消、关闭、返回和普通重试均不触发危险样式。
 - 深色差异用 `html[data-theme="dark"]` 覆盖。`dark:` 桥接用于 streamdown。检查硬编码白色遮罩、描边和半透明栏是否适配。聊天浮层与卡片沿用聊天画布的背景处理。
 - 功能样式放在 `apps/desktop/src/renderer/src/styles/<功能>.css`，由组件导入。Web 独立页如 `apps/web/src/server/login_page.ts` 用 `prefers-color-scheme` 和页面变量适配浅深色。视觉验证按改动选代表状态，动效变化检查减少动态效果设置。
+- 新增会改变布局的交互时，检查内容是否出现、移除、换位或改尺寸，并明确采用共用过渡或保持即时的原因。固定行高列表可显式启用 `WindowedList` 的布局过渡；聊天的实时入场和行内变化由 `ChatTimeline` 处理，先保持阅读位置。首屏、查询换页、虚拟行重新挂载不播入场；减少动态效果时仍保留最终布局和位置补偿。
 
 ## 文档维护
 

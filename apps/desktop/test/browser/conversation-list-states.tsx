@@ -9,7 +9,6 @@ import '../../src/renderer/src/im-template/styles.css';
 import '../../src/renderer/src/styles/mobile-web.css';
 
 ensureThemeInitialized();
-Object.assign(window, { conversationStatesQa: { store: useThemeStore } });
 const seed = createTemplateDemoData().conversations.find((row) => row.type === 'group')!;
 const conversations = ['10001', '10002', '10003'].map((id, index) => ({
   ...seed,
@@ -21,34 +20,57 @@ const conversations = ['10001', '10002', '10003'].map((id, index) => ({
   preference: { pinned: index !== 1, muted: false, blocked: false },
 }));
 
-createRoot(document.getElementById('root')!).render(
-  <ContentSelectionProvider>
-    <style>{`
+const root = createRoot(document.getElementById('root')!);
+function render(rows = conversations) {
+  root.render(
+    <ContentSelectionProvider>
+      <style>{`
       html,body,#root{height:100%;margin:0}
       .states-fixture{height:100%;background:var(--weq-bg-surface)}
       .states-fixture .app-shell{display:block;width:340px;min-width:0;height:100%}
       .states-fixture .weq-conversation-directory{height:100%}
       @media(max-width:600px){.states-fixture .app-shell{width:100%}}
     `}</style>
-    <div className="states-fixture app-shell-root weq-web-shell">
-      <div className="app-shell">
-        <ConversationList
+      <div className="states-fixture app-shell-root weq-web-shell">
+        <div className="app-shell">
+          <ConversationList
+            conversations={rows}
+            activeConversationId="10001"
+            preferences={{}}
+            drafts={{}}
+            onSelect={() => {}}
+          />
+        </div>
+        <MergedSessionPanel
+          kind="groupAssistant"
           conversations={conversations}
-          activeConversationId="10001"
-          preferences={{}}
-          drafts={{}}
-          onSelect={() => {}}
+          groupAssistantIds={new Set(conversations.map((row) => row.id))}
+          anchorX={360}
+          anchorY={250}
+          onBack={() => {}}
+          onSelectConversation={() => {}}
         />
       </div>
-      <MergedSessionPanel
-        kind="groupAssistant"
-        conversations={conversations}
-        groupAssistantIds={new Set(conversations.map((row) => row.id))}
-        anchorX={360}
-        anchorY={250}
-        onBack={() => {}}
-        onSelectConversation={() => {}}
-      />
-    </div>
-  </ContentSelectionProvider>,
-);
+    </ContentSelectionProvider>,
+  );
+}
+Object.assign(window, {
+  conversationStatesQa: {
+    store: useThemeStore,
+    promote: () =>
+      render(
+        conversations.map((row) =>
+          row.id === '10002'
+            ? {
+                ...row,
+                updatedAt: '2030-01-04T00:00:00Z',
+                preference: { ...row.preference, pinned: true },
+              }
+            : row,
+        ),
+      ),
+    removeFirst: () => render(conversations.filter(({ id }) => id !== '10001')),
+    reset: () => render(),
+  },
+});
+render();
