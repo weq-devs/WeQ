@@ -61,6 +61,11 @@ const UnreadExt = {
   highlight: ProtoField(50060, () => NotifyHighlight, { optional: true, repeat: true }),
 };
 
+// 减计数项是重复字段，共用同一描述才能复用缓存的 Protobuf 解析器。
+const UnreadDecrease = {
+  msgSeq: ProtoField(40003, ScalarType.UINT32, { optional: true }),
+};
+
 const UnreadInfoInner = {
   /** 聊天类型 */
   chatType: ProtoField(40010, ScalarType.UINT32, { optional: true }),
@@ -71,11 +76,7 @@ const UnreadInfoInner = {
   /** QQ 本机阅读位置，与服务端阅读位置共同作为下限。 */
   localReadSeq: ProtoField(41032, ScalarType.UINT32, { optional: true }),
   /** QQ 已维护的减计数项；包含自己发言等不应增加未读的序号。 */
-  decreases: ProtoField(
-    41024,
-    () => ({ msgSeq: ProtoField(40003, ScalarType.UINT32, { optional: true }) }),
-    { optional: true, repeat: true },
-  ),
+  decreases: ProtoField(41024, () => UnreadDecrease, { optional: true, repeat: true }),
   markUnread: ProtoField(41027, ScalarType.UINT32, { optional: true }),
   /** 设备／特殊会话的独立计数，不作为普通私聊、群聊计数。 */
   unreadCount: ProtoField(41022, ScalarType.UINT32, { optional: true }),
