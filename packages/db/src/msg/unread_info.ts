@@ -6,7 +6,7 @@
  *   48902  unreadBuf (BLOB — protobuf with field 41002: msgSeq)
  */
 
-import type { DatabaseAlgorithms, NtHelperBinding, SqlRow } from '@weq/native';
+import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import { QqDb } from '../qq_db';
 import {
@@ -31,7 +31,11 @@ import { RecentContactBody } from '@weq/codec/proto/msg/40051';
 import { MsgType } from '@weq/codec/proto/msg/40900';
 import { UnreadInfo } from '@weq/codec/proto/msg/48902';
 import { RECALL_UNREAD_INDEX } from './anti_recall';
-import { databaseRequestSignal } from '../query_schedule';
+import {
+  databaseReadBudget,
+  databaseRequestSignal,
+  withDatabaseReadBudget,
+} from '../query_schedule';
 
 export interface UnreadInfoDbOptions {
   dbPath: string;
@@ -127,6 +131,8 @@ export interface UnreadInfoSnapshot extends UnreadInfoResult {
 type UnreadFields = Omit<UnreadInfoResult, 'peer' | 'chatType' | 'uid'>;
 const MAX_CACHED_UNREAD_FIELDS = 16_384;
 const MAX_CACHED_UNREAD_BYTES = 8 * 1024 * 1024;
+const PROTECTED_RECALL_TARGET_BATCH = 128;
+const PROTECTED_RECALL_RESULT_LIMIT = 256;
 
 const GRAY_TIP = MsgType.GRAY_TIP;
 const RECENT_CHAT_TYPE = `CAST(r."40010" AS INTEGER)`;
@@ -157,6 +163,14 @@ interface GrayTipUnreadTarget {
   seq: bigint;
   msgId: bigint | null;
   recall: boolean;
+}
+
+interface ProtectedRecallTarget {
+  snapshot: UnreadInfoSnapshot;
+  kind: 'c2c' | 'group';
+  uid: string;
+  after: bigint;
+  through: bigint;
 }
 
 function unreadGrayTip(blob: Uint8Array): 'recall' | 'poke' | undefined {
@@ -469,7 +483,7 @@ export class UnreadInfoDb {
   }
 
   private async resolveProtectedRecalls(snapshots: UnreadInfoSnapshot[]): Promise<void> {
-    const targets = snapshots.flatMap((snapshot) => {
+    const targets = snapshots.flatMap<ProtectedRecallTarget>((snapshot) => {
       const { chatType, uid, msgSeq, localReadSeq, latestSeq, readError } = snapshot;
       if (readError || (chatType !== 1 && chatType !== 2) || latestSeq === null) return [];
       const serverRead = BigInt(msgSeq ?? 0);
@@ -479,31 +493,117 @@ export class UnreadInfoDb {
       if (after <= 0n || through === null || through <= after) return [];
       return [{ snapshot, kind: chatType === 1 ? 'c2c' : 'group', uid, after, through }];
     });
-    for (let offset = 0; offset < targets.length; offset += 128) {
-      databaseRequestSignal()?.throwIfAborted();
-      const batch = targets.slice(offset, offset + 128);
-      const rows = await this.qq
-        .query(
-          `WITH targets(idx, kind, conv, lo, hi) AS (VALUES ${batch.map(() => '(?,?,?,?,?)').join(',')})
+    for (let offset = 0; offset < targets.length; offset += PROTECTED_RECALL_TARGET_BATCH) {
+      await this.resolveProtectedRecallBatch(
+        targets.slice(offset, offset + PROTECTED_RECALL_TARGET_BATCH),
+      );
+    }
+  }
+
+  private async resolveProtectedRecallBatch(
+    batch: ProtectedRecallTarget[],
+    subdivided = false,
+  ): Promise<void> {
+    const signal = databaseRequestSignal();
+    signal?.throwIfAborted();
+    if (subdivided && batch.length === 1) {
+      await this.resolveProtectedRecallTarget(batch[0]!);
+      return;
+    }
+    const read = () =>
+      this.qq.query(
+        `WITH targets(idx, kind, conv, lo, hi) AS (VALUES ${batch.map(() => '(?,?,?,?,?)').join(',')})
          SELECT t.idx, r.orig_seq FROM targets t
          CROSS JOIN weq_recall_log r INDEXED BY ${RECALL_UNREAD_INDEX}
          WHERE r.table_kind=t.kind AND r.conv=t.conv AND r.orig_seq>t.lo AND r.orig_seq<=t.hi
-         GROUP BY t.idx, r.orig_seq`,
-          batch.flatMap(({ kind, uid, after, through }, idx) => [
-            BigInt(idx),
-            kind,
-            uid,
-            after,
-            through,
-          ]),
-        )
-        .catch(() => []); // 辅助表重建或查询失败时仍交付 QQ 小表。
+         GROUP BY t.idx, r.orig_seq LIMIT ${PROTECTED_RECALL_RESULT_LIMIT + 1}`,
+        batch.flatMap(({ kind, uid, after, through }, idx) => [
+          BigInt(idx),
+          kind,
+          uid,
+          after,
+          through,
+        ]),
+      );
+    let rows: SqlRow[] | undefined;
+    try {
+      rows =
+        this.qq.supportsReadBudget && !databaseReadBudget()
+          ? await withDatabaseReadBudget(15, read)
+          : await read();
+    } catch (error) {
+      signal?.throwIfAborted();
+      // 辅助表重建或读取失败时仍交付 QQ 小表。
+      if (!(error instanceof Error) || !error.message.includes('database_query_execution_timeout'))
+        return;
+    }
+    if (rows && rows.length <= PROTECTED_RECALL_RESULT_LIMIT) {
       for (const [idx, seq] of rows) {
         const snapshot = batch[Number(idx)]?.snapshot;
         if (!snapshot) continue;
         snapshot.recalledSeqs ??= [];
         snapshot.recalledSeqs.push(String(seq));
       }
+      return;
+    }
+    if (batch.length > 1) {
+      const middle = Math.floor(batch.length / 2);
+      await this.resolveProtectedRecallBatch(batch.slice(0, middle), true);
+      await this.resolveProtectedRecallBatch(batch.slice(middle), true);
+      return;
+    }
+    await this.resolveProtectedRecallTarget(batch[0]!);
+  }
+
+  private async resolveProtectedRecallTarget({
+    snapshot,
+    kind,
+    uid,
+    after,
+    through,
+  }: ProtectedRecallTarget) {
+    try {
+      const sequences = await this.pageProtectedRecallSeqs(kind, uid, after, through);
+      if (sequences.length) snapshot.recalledSeqs = sequences;
+    } catch {
+      databaseRequestSignal()?.throwIfAborted();
+    }
+  }
+
+  /** 单个会话超出预算或结果较大时，用索引顺序逐页读完，再交付减项。 */
+  private async pageProtectedRecallSeqs(
+    kind: ProtectedRecallTarget['kind'],
+    uid: string,
+    after: bigint,
+    through: bigint,
+  ): Promise<string[]> {
+    const sequences = new Set<string>();
+    const statement = `SELECT orig_seq FROM weq_recall_log INDEXED BY ${RECALL_UNREAD_INDEX}
+         WHERE table_kind=? AND conv=? AND orig_seq>? AND orig_seq<=? ORDER BY orig_seq LIMIT ?`;
+    let cursor: SqlValue = after;
+    let size = 64;
+    for (;;) {
+      const params = [kind, uid, cursor, through];
+      let page: { rows: SqlRow[]; limit: number };
+      try {
+        page = await this.qq.queryPage(statement, params, size);
+      } catch (error) {
+        databaseRequestSignal()?.throwIfAborted();
+        if (
+          !(error instanceof Error) ||
+          !error.message.includes('database_query_execution_timeout')
+        )
+          throw error;
+        // 单条索引读取在原生预算内仍无法完成时，保留这条结果的读取机会。
+        page = { rows: await this.qq.query(statement, [...params, 1n]), limit: 1 };
+      }
+      for (const [seq] of page.rows) sequences.add(String(seq));
+      if (page.rows.length < page.limit) return [...sequences];
+      const [seq] = page.rows.at(-1)!;
+      if (seq == null) throw new Error('撤回索引分页缺少游标');
+      // 当前序号已经加入结果，下一页可以直接跨过这个序号的其他记录。
+      cursor = seq;
+      size = page.limit;
     }
   }
 

@@ -7,6 +7,7 @@ import { RecentContactBody } from '@weq/codec/proto/msg/40051';
 import { UnreadInfo } from '@weq/codec/proto/msg/48902';
 import { UnreadInfoDb } from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
+import type { SqlValue } from '@weq/native';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -45,6 +46,71 @@ it('防撤回保留的正文按会话及未读区间从撤回索引查出', asyn
     expect(plan.map((row) => row.detail).join('\n')).toContain(
       'SEARCH r USING COVERING INDEX weq_recall_by_conversation_seq',
     );
+  } finally {
+    db.close();
+  }
+});
+
+it('撤回补查超预算后缩小会话批次，单个大区间按序号读完且跨页去重', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-paged-protected-recalls-'));
+  roots.push(root);
+  const path = join(root, 'msg.db');
+  const sql = fixtureDb(path);
+  sql.exec(`CREATE TABLE msg_unread_info_table("48901" TEXT PRIMARY KEY,"48902" BLOB);
+    CREATE TABLE recent_contact_v3_table("40021" TEXT,"40003" INTEGER,"40010" INTEGER,"40020" TEXT,
+      "40011" INTEGER,"40051" BLOB,"40001" INTEGER,"40027" INTEGER,"40050" INTEGER);
+    INSERT INTO recent_contact_v3_table("40021","40003","40010") VALUES ('70001',400,2),('70002',400,2);
+    CREATE TABLE weq_recall_log(msgid INTEGER PRIMARY KEY, table_kind TEXT, conv TEXT, orig_seq INTEGER);
+    CREATE INDEX weq_recall_by_conversation_seq ON weq_recall_log(table_kind,conv,orig_seq);
+    WITH RECURSIVE seq(value) AS (VALUES(100) UNION ALL SELECT value+1 FROM seq WHERE value<401)
+      INSERT INTO weq_recall_log(table_kind,conv,orig_seq) SELECT 'group','70001',value FROM seq;
+    WITH RECURSIVE dup(value) AS (VALUES(1) UNION ALL SELECT value+1 FROM dup WHERE value<80)
+      INSERT INTO weq_recall_log(table_kind,conv,orig_seq) SELECT 'group','70001',106 FROM dup;
+    INSERT INTO weq_recall_log(table_kind,conv,orig_seq)
+      VALUES ('group','70002',159),('c2c','70002',160),('group','70003',161);`);
+  const unread = sql.prepare('INSERT INTO msg_unread_info_table VALUES (?,?)');
+  const data = new ProtoMsg(UnreadInfo).encode({ info: { msgSeq: 100 } });
+  unread.run('2_70001', data);
+  unread.run('2_70002', data);
+  const nt = createSqliteStub();
+  let simulateTimeout = true;
+  const budgeted = vi.fn(
+    async (dbPath: string, text: string, params: SqlValue[] | null, _budget: number) => {
+      if (
+        (simulateTimeout && text.includes('CROSS JOIN weq_recall_log') && params!.length > 5) ||
+        (text.includes('SELECT orig_seq FROM weq_recall_log') && params!.at(-1) === 64n)
+      )
+        throw new Error('database_query_execution_timeout');
+      return nt.executeSql(dbPath, text, params);
+    },
+  );
+  nt.executeSqlBudgeted = budgeted;
+  const db = new UnreadInfoDb(nt, { dbPath: path });
+  try {
+    for (const timeout of [true, false]) {
+      simulateTimeout = timeout;
+      budgeted.mockClear();
+      const all = await db.getAllUnreadInfos();
+      expect(all.find(({ uid }) => uid === '70001')?.recalledSeqs).toEqual(
+        Array.from({ length: 300 }, (_, index) => String(101 + index)),
+      );
+      expect(all.find(({ uid }) => uid === '70002')?.recalledSeqs).toEqual(['159']);
+      const joined = budgeted.mock.calls.filter(([, text]) =>
+        text.includes('CROSS JOIN weq_recall_log'),
+      );
+      expect(joined.map(([, , params, budget]) => [params?.length, budget])).toEqual([[10, 15]]);
+    }
+    const pages = budgeted.mock.calls.filter(([, text]) =>
+      text.includes('SELECT orig_seq FROM weq_recall_log'),
+    );
+    expect(pages.length).toBeGreaterThan(2);
+    expect(pages[0]?.[2]?.at(-1)).toBe(64n);
+    const [, statement, params] = pages[1]!;
+    expect(params?.at(-1)).toBe(32n);
+    const plan = sql.prepare(`EXPLAIN QUERY PLAN ${statement}`).all(...(params ?? []));
+    const details = plan.map((row) => row.detail).join('\n');
+    expect(details).toContain('USING COVERING INDEX weq_recall_by_conversation_seq');
+    expect(details).not.toContain('TEMP B-TREE');
   } finally {
     db.close();
   }
