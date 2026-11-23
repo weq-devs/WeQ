@@ -29,7 +29,7 @@ const logging = developmentViteLogging('web');
 const chunkBudget = webChunkBudget();
 const startupChunks = remoteStartupChunks();
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   ...logging.config,
   clearScreen: false,
   root: RENDERER,
@@ -60,6 +60,8 @@ export default defineConfig({
     outDir: resolve(process.env.WEQ_WEB_DIST ?? resolve(import.meta.dirname, 'dist'), 'public'),
     emptyOutDir: true,
     rollupOptions: {
+      // 打包开发仍使用 HMR。提前编译动态模块，离线首屏无需调用 Vite 的按需编译接口。
+      experimental: command === 'serve' ? { devMode: { lazy: false } } : undefined,
       input: { index: resolve(RENDERER, 'index.html') },
       output: {
         // 聊天模板与业务状态存在交叉引用，分包后仍按源码顺序初始化。
@@ -89,4 +91,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));
