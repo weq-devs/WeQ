@@ -22,6 +22,7 @@ import { CompositionButton } from './CompositionButton';
  */
 
 import {
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -82,6 +83,7 @@ import { SenderPicker, type MfPerson } from './SenderPicker';
 import { MsgDressEditor } from './MsgDressEditor';
 import { moveCompositionNode } from './workspaceModel';
 import { NodeTimeInput } from './NodeTimeInput';
+import { ShowMessageSeqContext } from '../MessageProvenance.shared';
 import '../../styles/merge-forward-editor.css';
 import '../../styles/composition-sort.css';
 import {
@@ -89,6 +91,7 @@ import {
   blankSeg,
   createNode,
   draftTitle,
+  forwardSequence,
   isNestedContent,
   segHasContent,
   segLabel,
@@ -445,6 +448,9 @@ export function MergeForwardComposer({
                 onChangeTime={(time) =>
                   commit(nodes.map((item) => (item.id === node.id ? { ...item, time } : item)))
                 }
+                onChangeSeq={(msgSeq) =>
+                  commit(nodes.map((item) => (item.id === node.id ? { ...item, msgSeq } : item)))
+                }
                 dragHandle={
                   <CompositionButton
                     type="button"
@@ -576,6 +582,7 @@ function InsertButton({ onClick }: { onClick: () => void }): ReactElement {
 function PreviewRow({
   node,
   onChangeTime,
+  onChangeSeq,
   onOpen,
   onEditDress,
   onAvatar,
@@ -584,6 +591,7 @@ function PreviewRow({
 }: {
   node: MfNode;
   onChangeTime: (time: number) => void;
+  onChangeSeq: (seq: number | undefined) => void;
   onOpen: () => void;
   onEditDress: () => void;
   onAvatar: () => void;
@@ -632,6 +640,7 @@ function PreviewRow({
           {dragHandle}
           <span className="weq-forward-row-name weq-mf-row-name">{name}</span>
           <NodeTimeInput time={node.time} onChange={onChangeTime} />
+          <NodeSeqInput seq={node.msgSeq} onChange={onChangeSeq} />
           <CompositionButton type="button" className="weq-mf-row-edit" onClick={onOpen}>
             <Pencil size={12} /> 编辑
           </CompositionButton>
@@ -649,6 +658,35 @@ function PreviewRow({
         </div>
       </div>
     </div>
+  );
+}
+
+function NodeSeqInput({
+  seq,
+  onChange,
+}: {
+  seq?: number;
+  onChange: (seq: number | undefined) => void;
+}): ReactElement | null {
+  if (!useContext(ShowMessageSeqContext)) return null;
+  return (
+    <label className="weq-mf-field weq-mf-seq">
+      <span>seq</span>
+      <input
+        className="weq-mf-input"
+        inputMode="numeric"
+        aria-label="消息序号（seq）"
+        title="填写正整数，可留空"
+        value={seq ?? ''}
+        onChange={(event) => {
+          const value = event.target.value.trim();
+          const next = forwardSequence(value);
+          if (value && next === undefined) return;
+          if (next !== seq) onChange(next);
+        }}
+        onContextMenu={(event) => event.stopPropagation()}
+      />
+    </label>
   );
 }
 
@@ -1381,6 +1419,10 @@ function RecordMessages({
                     time={msg.time}
                     onChange={(time) => patch(msg.id, { ...msg, time })}
                   />
+                  <NodeSeqInput
+                    seq={msg.msgSeq}
+                    onChange={(msgSeq) => patch(msg.id, { ...msg, msgSeq })}
+                  />
                   <CompositionButton
                     type="button"
                     className="weq-mf-row-edit"
@@ -1715,9 +1757,11 @@ function ReplyEditor({
             inputMode="numeric"
             placeholder="如 12345"
             value={seg.origMsgSeq || ''}
-            onChange={(e) =>
-              onChange({ ...seg, origMsgSeq: Number(e.target.value.replace(/\D/g, '')) || 0 })
-            }
+            onChange={(e) => {
+              const origMsgSeq = Number(e.target.value.replace(/\D/g, '')) || 0;
+              if (origMsgSeq !== seg.origMsgSeq)
+                onChange({ ...seg, origMsgSeq, origMsgIndex: undefined });
+            }}
           />
         </label>
         <label className="weq-mf-field">
@@ -1739,16 +1783,17 @@ function ReplyEditor({
           value={seg.senderName ?? ''}
           onChange={(e) => onChange({ ...seg, senderName: e.target.value || undefined })}
         />
-        <input
-          className="weq-mf-input"
-          placeholder="引用摘要（预览用，可留空）"
+      </div>
+      <label className="weq-mf-field weq-mf-reply-body">
+        <span>引用正文</span>
+        <textarea
+          className="weq-mf-textarea"
+          rows={2}
+          placeholder="可留空"
           value={seg.summary ?? ''}
           onChange={(e) => onChange({ ...seg, summary: e.target.value || undefined })}
         />
-      </div>
-      <p className="weq-mf-note">
-        引用只带序号指针，发出去后由客户端自己去找原消息；序号填错对方就点不开。
-      </p>
+      </label>
     </div>
   );
 }

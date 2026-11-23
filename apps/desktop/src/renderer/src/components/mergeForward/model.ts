@@ -71,7 +71,7 @@ export interface MfReplySeg {
   origMsgTime?: number;
   /** 引用条上显示的发送人。 */
   senderName?: string;
-  /** 引用条上显示的摘要文本。 */
+  /** 预览和发送共用的引用正文。 */
   summary?: string;
 }
 
@@ -387,7 +387,7 @@ export function createNode(
   return { id: mfId('node'), sender, segs, time, ...forwardSequences(source) };
 }
 
-function forwardSequence(value: unknown): number | undefined {
+export function forwardSequence(value: unknown): number | undefined {
   const seq = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
   if (typeof seq === 'number' && Number.isInteger(seq) && seq > 0 && seq <= 0xffff_ffff) return seq;
 }

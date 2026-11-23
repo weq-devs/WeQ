@@ -1074,6 +1074,10 @@ function CompositionWorkspaceBody({
                             sender: { uid: '', uin: segment.userUin, name: segment.nickname },
                             time: segment.time,
                             segs: segment.segs,
+                            ...(segment.msgSeq !== undefined ? { msgSeq: segment.msgSeq } : {}),
+                            ...(segment.clientSeq !== undefined
+                              ? { clientSeq: segment.clientSeq }
+                              : {}),
                             ...(segment.decoration ? { decoration: segment.decoration } : {}),
                             ...(segment.sourceCompositionId
                               ? { sourceCompositionId: segment.sourceCompositionId }

@@ -43,12 +43,16 @@ const sender = z.object({
   name: z.string(),
 });
 
+const sequence = z.number().int().positive().max(0xffff_ffff).optional();
+
 const node = z.object({
   id: z.string().min(1),
   sender,
   /** 内容**分段**，形状由渲染层决定，这里只保证是对象数组。 */
   segs: z.array(z.unknown()),
   time: z.number(),
+  msgSeq: sequence,
+  clientSeq: sequence,
   decoration,
   sourceMsgId: z.string().optional(),
   sourceCompositionId: z.string().optional(),

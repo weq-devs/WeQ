@@ -37,6 +37,8 @@ export interface MergeForwardNode {
   segs: unknown[];
   /** 该条消息的展示时间（unix 秒）。 */
   time: number;
+  msgSeq?: number;
+  clientSeq?: number;
   /**
    * 逐条消息装扮（列 40801）。0 表示未设置 —— 求和时忽略。
    *
@@ -95,6 +97,11 @@ function asOptionalNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+function asSequence(value: unknown): number | undefined {
+  const seq = asOptionalNumber(value);
+  if (seq !== undefined && Number.isInteger(seq) && seq > 0 && seq <= 0xffff_ffff) return seq;
+}
+
 function normalizeDecoration(raw: unknown): MergeForwardNode['decoration'] | undefined {
   if (!isObject(raw)) return undefined;
   const bubbleId = asNumber(raw.bubbleId);
@@ -131,11 +138,15 @@ function normalizeNode(raw: unknown, index: number): MergeForwardNode | null {
       ? raw.elements
       : [];
   const segs = source.map(normalizeSeg);
+  const msgSeq = asSequence(raw.msgSeq);
+  const clientSeq = asSequence(raw.clientSeq);
   return {
     id: asString(raw.id) || `node-${index}`,
     sender: normalizeSender(raw.sender),
     segs,
     time: asNumber(raw.time),
+    ...(msgSeq !== undefined ? { msgSeq } : {}),
+    ...(clientSeq !== undefined ? { clientSeq } : {}),
     ...(normalizeDecoration(raw.decoration)
       ? { decoration: normalizeDecoration(raw.decoration) }
       : {}),

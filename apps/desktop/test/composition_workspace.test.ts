@@ -41,6 +41,8 @@ import {
 } from '../src/renderer/src/hooks/useCompositionWindow';
 import { compositionPopupOptions } from '../src/main/composition_window';
 import { NodeTimeInput } from '../src/renderer/src/components/mergeForward/NodeTimeInput';
+import { MergeForwardComposer } from '../src/renderer/src/components/mergeForward/MergeForwardComposer';
+import { ShowMessageSeqContext } from '../src/renderer/src/components/MessageProvenance.shared';
 import {
   nodeTimeValue,
   parseNodeTime,
@@ -268,6 +270,95 @@ function button(host: ParentNode, name: string) {
 }
 
 describe('合成工作窗口', () => {
+  it('按消息元数据设置显示序号编辑，留空后省略 seq 并保留引用正文', () => {
+    const body = '第一行\n第二行';
+    const source: MfDraft = {
+      ...initial,
+      nodes: [
+        {
+          ...initial.nodes[0]!,
+          msgSeq: 37,
+          segs: [{ t: 'reply', id: 'reply', origMsgSeq: 36, summary: body }],
+        },
+      ],
+    };
+    const changed = vi.fn<(draft: MfDraft) => void>();
+    function Editor({ showSeq }: { showSeq: boolean }) {
+      const [draft, setDraft] = useState(source);
+      return createElement(
+        ShowMessageSeqContext.Provider,
+        { value: showSeq },
+        createElement(MergeForwardComposer, {
+          draft,
+          self,
+          senderMode: 'global',
+          onChange: (next) => {
+            setDraft(next);
+            changed(next);
+          },
+        }),
+      );
+    }
+    const f = mount(createElement(Editor, { showSeq: false }));
+    try {
+      const input = () =>
+        f.host.querySelector<HTMLInputElement>('input[aria-label="消息序号（seq）"]');
+      expect(input()).toBeNull();
+      act(() => f.root.render(createElement(Editor, { showSeq: true })));
+      expect(input()?.value).toBe('37');
+
+      const enter = (value: string) => {
+        const field = input()!;
+        act(() => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+            field,
+            value,
+          );
+          field.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+      };
+      enter('4294967296');
+      expect(changed).not.toHaveBeenCalled();
+      enter('38');
+      expect(draftToSendNodes(changed.mock.lastCall![0])[0]).toMatchObject({ msgSeq: 38 });
+      act(() => f.root.render(createElement(Editor, { showSeq: false })));
+      expect(input()).toBeNull();
+      expect(draftToSendNodes(changed.mock.lastCall![0])[0]).toMatchObject({ msgSeq: 38 });
+
+      act(() => f.root.render(createElement(Editor, { showSeq: true })));
+      enter('');
+      const click = (text: string) =>
+        act(() =>
+          [...f.host.querySelectorAll<HTMLButtonElement>('button')]
+            .find((button) => button.textContent?.trim() === text)!
+            .click(),
+        );
+      click('编辑');
+      const quote = f.host.querySelector('textarea')!;
+      expect(quote.value).toBe(body);
+      const editedBody = `${body}\n第三行`;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(
+          quote,
+          editedBody,
+        );
+        quote.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      click('保存');
+      const sent = draftToSendNodes(changed.mock.lastCall![0])[0]!;
+      expect(sent).not.toHaveProperty('msgSeq');
+      expect(sent.elements).toEqual([
+        {
+          kind: 'reply',
+          origMsgSeq: 36,
+          origElements: [{ kind: 'text', textContent: editedBody }],
+        },
+      ]);
+    } finally {
+      f.close();
+    }
+  });
+
   it.each(['history', 'material'] as const)(
     '删除 %s 先确认，取消保留，Enter 确认才删除',
     async (kind) => {
@@ -685,7 +776,13 @@ describe('合成工作窗口', () => {
   it('逐条发送中的嵌套记录仍走合并转发，不退成聊天记录占位文字', async () => {
     const decorated = {
       ...initial,
-      nodes: [{ ...initial.nodes[0]!, decoration: { bubbleId: 123, fontId: 0, widgetId: 0 } }],
+      nodes: [
+        {
+          ...initial.nodes[0]!,
+          msgSeq: 37,
+          decoration: { bubbleId: 123, fontId: 0, widgetId: 0 },
+        },
+      ],
     };
     const nested = insertCompositionEntry(
       { ...initial, id: 'target', nodes: [] },
@@ -725,11 +822,13 @@ describe('合成工作窗口', () => {
       expect(forward).toHaveBeenCalledOnce();
       expect(forward.mock.calls[0]![0].nodes[0]).toMatchObject({
         sender: { name: self.name },
+        msgSeq: 37,
         segs: [{ t: 'text', text: '合成正文' }],
         decoration: { bubbleId: 123 },
       });
-      expect(draftToSendNodes(nested)[0]?.innerForward?.[0]?.dress).toMatchObject({
-        bubbleId: 123,
+      expect(draftToSendNodes(nested)[0]?.innerForward?.[0]).toMatchObject({
+        msgSeq: 37,
+        dress: { bubbleId: 123 },
       });
     } finally {
       f.close();

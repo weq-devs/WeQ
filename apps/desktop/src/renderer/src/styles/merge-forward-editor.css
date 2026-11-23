@@ -1007,6 +1007,10 @@ html[data-theme='dark'] .weq-mf-preview {
   outline: none;
 }
 
+.weq-mf-seq input:focus-visible {
+  outline: 1px solid var(--weq-accent-effective);
+}
+
 .weq-mf-file-chip {
   display: inline-flex;
   align-items: center;
@@ -1245,6 +1249,11 @@ html[data-theme='dark'] .weq-mf-preview {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.weq-mf-reply-body {
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .weq-mf-nested-bar-count {

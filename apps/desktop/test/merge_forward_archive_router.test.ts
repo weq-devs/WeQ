@@ -56,6 +56,31 @@ function caller() {
 }
 
 describe('合成归档路由账号边界', () => {
+  it('草稿与素材读回保留消息序号，重新保存时可清空', async () => {
+    const api = caller();
+    const node = draft.nodes[0]!;
+    const withSeq = { ...draft, nodes: [{ ...node, msgSeq: 42, clientSeq: 512 }] };
+    const saved = await api.workspaceSave({ ...binding, draft: withSeq });
+    expect((await api.workspaceDrafts(binding)).current[0]?.nodes[0]).toMatchObject({
+      msgSeq: 42,
+      clientSeq: 512,
+    });
+    await api.archiveAppend({ ...binding, kind: 'material', draft: withSeq });
+    expect((await api.archiveList({ ...binding, kind: 'material' }))[0]?.nodes[0]).toMatchObject({
+      msgSeq: 42,
+      clientSeq: 512,
+    });
+
+    await api.workspaceSave({
+      ...binding,
+      draft: { ...draft, nodes: [{ ...node, clientSeq: 512 }] },
+      expectedVersion: saved.current.version,
+    });
+    const cleared = (await api.workspaceDrafts(binding)).current[0]?.nodes[0];
+    expect(cleared).not.toHaveProperty('msgSeq');
+    expect(cleared).toMatchObject({ clientSeq: 512 });
+  });
+
   it('旧历史直接续编保持身份，删除记录同时清理旧入口而不重新出现', async () => {
     const api = caller();
     const old = await api.archiveAppend({ ...binding, kind: 'history', draft });
