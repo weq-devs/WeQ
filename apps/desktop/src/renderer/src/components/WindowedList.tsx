@@ -18,6 +18,7 @@ type ListMotionProps<T> = {
   root: RefObject<HTMLDivElement | null>;
   items: readonly T[];
   itemKey: (item: T) => string;
+  range: ReturnType<typeof visibleListRange>;
   scope: string | undefined;
   rowHeight: number;
   locate: string;
@@ -42,15 +43,18 @@ class WindowedListMotion<T> extends Component<ListMotionProps<T>> {
   }
 
   override getSnapshotBeforeUpdate(previous: ListMotionProps<T>) {
-    const { root, items, itemKey } = this.props;
+    const { root, items, itemKey, range } = this.props;
     const list = root.current;
-    if (this.reset(previous) || !list?.clientHeight || !allowsLayoutMotion(list)) return null;
-    if (items === previous.items || !previous.items.length) return null;
-    if (
-      items.length === previous.items.length &&
-      items.every((item, index) => itemKey(item) === itemKey(previous.items[index]!))
-    )
-      return null;
+    if (this.reset(previous) || items === previous.items || !previous.items.length) return null;
+    if (range.start === previous.range.start && range.end === previous.range.end) {
+      // 固定行高，窗口以外的增删和移位无需读取 DOM 位置。
+      let index = range.start;
+      for (; index < range.end; index++) {
+        if (itemKey(items[index]!) !== previous.itemKey(previous.items[index]!)) break;
+      }
+      if (index === range.end) return null;
+    }
+    if (!list?.clientHeight || !allowsLayoutMotion(list)) return null;
     return { top: list.scrollTop, rows: visibleLayoutRows(list, motionRowSelector, motionRowKey) };
   }
 
@@ -59,18 +63,27 @@ class WindowedListMotion<T> extends Component<ListMotionProps<T>> {
     _state: unknown,
     snapshot: ReturnType<WindowedListMotion<T>['getSnapshotBeforeUpdate']>,
   ) {
-    const { root, itemKey, rowHeight } = this.props;
+    const { root, rowHeight } = this.props;
     const list = root.current;
     if (this.reset(previous) || (list && !allowsLayoutMotion(list))) this.stop();
     if (!snapshot || !list) return;
     this.stop();
     if (Math.abs(list.scrollTop - snapshot.top) > 1) return;
     const rows = visibleLayoutRows(list, motionRowSelector, motionRowKey);
+    const entering = new Map<string, HTMLElement>();
     for (const [key, { element, top }] of rows) {
       const old = snapshot.rows.get(key);
       if (old && Math.abs(old.top - top) > rowHeight * 4) this.motion.reveal(element);
       else if (old) this.motion.shift(element, old.top - top, rowHeight * 4);
-      else if (!previous.items.some((item) => itemKey(item) === key)) this.motion.reveal(element);
+      else entering.set(key, element);
+    }
+    // 移入视口的已有会话不播入场；合并核对所有候选，只遍历一次旧目录。
+    if (entering.size) {
+      for (const item of previous.items) {
+        entering.delete(previous.itemKey(item));
+        if (!entering.size) break;
+      }
+      for (const element of entering.values()) this.motion.reveal(element);
     }
   }
 
@@ -280,6 +293,7 @@ export function WindowedList<T>({
       root={root}
       items={items}
       itemKey={itemKey}
+      range={range}
       scope={resetKey}
       rowHeight={rowHeight}
       locate={`${scrollToKey}:${scrollRevision ?? 0}`}
