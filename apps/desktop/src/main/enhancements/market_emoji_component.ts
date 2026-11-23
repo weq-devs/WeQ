@@ -68,18 +68,27 @@ export function createMarketEmojiComponent(
       const current = installed();
       const ready = !!current;
       const updateAvailable = !!target && current?.version !== target.sha256;
+      const installedNames = new Set(
+        active
+          ? current
+            ? [`${active}.csv${current.compressed ? '.gz' : ''}`]
+            : [`${active}.csv`, `${active}.csv.gz`]
+          : [],
+      );
+      let sizeOnDisk = 0;
+      let activeBytes = 0;
+      for (const name of enabled ? files() : []) {
+        const bytes = lstatSync(join(directory, name), { throwIfNoEntry: false })?.size ?? 0;
+        sizeOnDisk += bytes;
+        if (installedNames.has(name)) activeBytes += bytes;
+      }
       return {
         ready,
         installed: !!active,
         identity: current?.version ?? 'missing',
         downloadBytes: updateAvailable ? (target?.sizeBytes ?? 0) : 0,
-        sizeOnDisk: enabled
-          ? files().reduce(
-              (sum, name) =>
-                sum + (lstatSync(join(directory, name), { throwIfNoEntry: false })?.size ?? 0),
-              0,
-            )
-          : 0,
+        sizeOnDisk,
+        activeBytes,
         updateAvailable,
       };
     },

@@ -384,6 +384,29 @@ export class EnhancementEngineStore {
     const current = this.discover(kind);
     const artifact = this.artifact(kind);
     const development = !current && this.developmentDirectory(kind);
+    let activeBytes = development ? (artifact?.installedBytes ?? 0) : 0;
+    const seen = new Set<string>();
+    const identity = current
+      ? current.receipt.artifact.id +
+        ':' +
+        current.receipt.artifact.files
+          .map((file) => {
+            try {
+              const info = statSync(join(current.directory, file.path));
+              const key = `${info.dev}:${info.ino}`;
+              if (info.isFile() && !seen.has(key)) {
+                seen.add(key);
+                activeBytes += info.size;
+              }
+              return `${info.size}:${info.mtimeMs}`;
+            } catch {
+              return 'missing';
+            }
+          })
+          .join('|')
+      : development
+        ? `development-${enhancementEngineCompatibility(kind)}`
+        : '';
     return {
       supported: this.supported(kind),
       ready: !!current || !!development,
@@ -393,22 +416,8 @@ export class EnhancementEngineStore {
           ? artifact.downloadBytes
           : 0,
       installedBytes: this.storedBytes(kind) || (development ? (artifact?.installedBytes ?? 0) : 0),
-      identity: current
-        ? current.receipt.artifact.id +
-          ':' +
-          current.receipt.artifact.files
-            .map((file) => {
-              try {
-                const info = statSync(join(current.directory, file.path));
-                return `${info.size}:${info.mtimeMs}`;
-              } catch {
-                return 'missing';
-              }
-            })
-            .join('|')
-        : development
-          ? `development-${enhancementEngineCompatibility(kind)}`
-          : '',
+      activeBytes,
+      identity,
       available: !!artifact || !!current || !!development,
       managed: !!current,
     };

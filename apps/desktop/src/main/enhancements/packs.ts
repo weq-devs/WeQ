@@ -14,6 +14,8 @@ export interface EnhancementComponentState {
   ready: boolean;
   installed?: boolean;
   sizeOnDisk: number;
+  /** 活动资源大小，不含候选文件和续传分段；不暂存的组件可沿用 sizeOnDisk。 */
+  activeBytes?: number;
   downloadBytes: number;
   identity: string;
   updateAvailable?: boolean;
@@ -89,6 +91,7 @@ export class EnhancementPacks {
   }
   private readonly operations = new Map<EnhancementPackId, PackOperation>();
   private readonly pending = new Map<EnhancementPackId, Promise<void>>();
+  private readonly activatingSizes = new Map<string, number>();
   private readonly componentTasks = new Map<string, Promise<void>>();
   private readonly deleting = new Set<string>();
   private readonly removed = new Set<EnhancementPackId>();
@@ -192,6 +195,14 @@ export class EnhancementPacks {
               !component.id.startsWith('engine:') &&
               (states[index]!.installed || states[index]!.ready),
           ));
+      const displayedBytes = states.map((state, index) =>
+        installed
+          ? (this.activatingSizes.get(components[index]!.id) ??
+            state.activeBytes ??
+            state.sizeOnDisk)
+          : state.sizeOnDisk,
+      );
+      const shared = components.map((component) => this.shared(pack.id, component.id));
       return {
         id: pack.id,
         name: pack.name,
@@ -216,15 +227,13 @@ export class EnhancementPacks {
             (!!version && !!selected && version !== selected.release.contentVersion)),
         blocker: selected?.blocker ?? states.find((state) => state.blocker)?.blocker ?? null,
         downloadBytes: states.reduce((sum, state) => sum + state.downloadBytes, 0),
-        sizeOnDisk: states.reduce((sum, state) => sum + state.sizeOnDisk, 0),
-        sharedBytes: states.reduce(
-          (sum, state, index) =>
-            sum + (this.shared(pack.id, components[index]!.id) ? state.sizeOnDisk : 0),
+        sizeOnDisk: displayedBytes.reduce((sum, bytes) => sum + bytes, 0),
+        sharedBytes: displayedBytes.reduce(
+          (sum, bytes, index) => sum + (shared[index] ? bytes : 0),
           0,
         ),
         deleteBytes: states.reduce(
-          (sum, state, index) =>
-            sum + (this.shared(pack.id, components[index]!.id) ? 0 : state.sizeOnDisk),
+          (sum, state, index) => sum + (shared[index] ? 0 : state.sizeOnDisk),
           0,
         ),
         operation: operation ?? null,
@@ -298,6 +307,7 @@ export class EnhancementPacks {
           });
         })
         .finally(() => {
+          for (const component of pack.components) this.activatingSizes.delete(component);
           this.pending.delete(id);
           this.gates.delete(id);
           const latest = this.releases.get(id);
@@ -474,6 +484,11 @@ export class EnhancementPacks {
       note: '正在切换资源',
     });
     try {
+      // 组件逐个切换，共享资源也等整包提交或回滚后才显示新大小。
+      for (const id of pack.components) {
+        const state = this.components.get(id)!.state();
+        this.activatingSizes.set(id, state.activeBytes ?? state.sizeOnDisk);
+      }
       for (const id of pack.components) {
         const revert = await this.components.get(id)?.activate?.();
         if (revert) undo.push(revert);

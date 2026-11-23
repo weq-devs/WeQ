@@ -64,9 +64,9 @@ function fileBytes(paths: string[]): number {
     }
   }, 0);
 }
-const dressFiles = (directory: string) =>
+const dressFiles = (directory: string, suffixes = ['', '.incoming', '.incoming.part']) =>
   DRESS_INDEX_KINDS.flatMap((kind) =>
-    ['', '.incoming', '.incoming.part'].map((suffix) => join(directory, `${kind}.dat${suffix}`)),
+    suffixes.map((suffix) => join(directory, `${kind}.dat${suffix}`)),
   );
 
 export function createEnhancementResources(
@@ -102,6 +102,7 @@ export function createEnhancementResources(
           ready: state.ready,
           identity: state.identity,
           sizeOnDisk: state.installedBytes,
+          activeBytes: state.activeBytes,
           downloadBytes: state.downloadBytes,
           updateAvailable: state.updateAvailable,
           blocker: !state.supported ? '当前平台没有此能力的兼容预编译引擎' : undefined,
@@ -154,6 +155,7 @@ export function createEnhancementResources(
         ready,
         installed: !!dress && existsSync(join(dress.directory, 'installed-manifest.json')),
         sizeOnDisk,
+        activeBytes: dress ? fileBytes(dressFiles(dress.directory, [''])) : 0,
         downloadBytes: states.reduce(
           (sum, state) => sum + (state.status === 'ready' ? 0 : state.totalBytes),
           0,

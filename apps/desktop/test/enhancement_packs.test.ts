@@ -257,6 +257,65 @@ it('候选加载失败保留旧安装，活动切换失败回滚已切换组件'
   expect(f.state.get('text-model')!.identity).toBe(original);
 });
 
+it('已安装包在下载、暂停和切换时保留旧大小，失败后仍保留，成功后才更新', async () => {
+  const f = await fixture();
+  f.packs.start(['text', 'intent']);
+  await f.packs.wait();
+  const engine = f.state.get('engine:onnx')!;
+  const readSizes = async () => (await f.packs.list()).slice(0, 2);
+  engine.activeBytes = 20;
+  engine.downloadBytes = 30;
+  const downloading = Promise.withResolvers<void>();
+  const downloaded = Promise.withResolvers<void>();
+  f.components.get('engine:onnx')!.ensure = async (report) => {
+    engine.sizeOnDisk = 50;
+    report({ received: 12, total: 30 });
+    downloading.resolve();
+    await downloaded.promise;
+  };
+  f.validate.mockRejectedValueOnce(new Error('candidate failed'));
+  f.packs.start(['text']);
+  await downloading.promise;
+  try {
+    f.packs.pause('text');
+    const [text, intent] = await readSizes();
+    expect(text).toMatchObject({
+      sizeOnDisk: 120,
+      sharedBytes: 20,
+      operation: { phase: 'downloading', received: 12, total: 30, paused: true },
+    });
+    expect(intent).toMatchObject({ sizeOnDisk: 220, sharedBytes: 20 });
+  } finally {
+    f.packs.resume('text');
+    downloaded.resolve();
+    await f.packs.wait();
+  }
+  expect((await readSizes())[0]).toMatchObject({
+    sizeOnDisk: 120,
+    operation: { phase: 'failed' },
+  });
+
+  const switching = Promise.withResolvers<void>();
+  const switched = Promise.withResolvers<void>();
+  f.components.get('engine:onnx')!.activate = async () => {
+    engine.activeBytes = 30;
+    switching.resolve();
+    await switched.promise;
+    return () => {};
+  };
+  f.packs.start(['text']);
+  await switching.promise;
+  try {
+    const [text, intent] = await readSizes();
+    expect(text).toMatchObject({ sizeOnDisk: 120, operation: { phase: 'installing' } });
+    expect(intent).toMatchObject({ sizeOnDisk: 220 });
+  } finally {
+    switched.resolve();
+    await f.packs.wait();
+  }
+  expect((await readSizes()).map((pack) => pack.sizeOnDisk)).toEqual([130, 230]);
+});
+
 it('组件暂停、续传与切换阶段保持固定预算和单调进度，旧回调不覆盖后续阶段', async () => {
   const f = await fixture();
   const observed: Array<{ received: number; total: number; paused?: boolean; phase: string }> = [];

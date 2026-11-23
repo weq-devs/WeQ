@@ -67,6 +67,27 @@ export function createModelComponent<T extends ModelEntry>(
       0,
     );
   };
+  const fileSizes = () => {
+    const seen = new Set<string>();
+    let sizeOnDisk = 0;
+    let activeBytes = 0;
+    for (const source of new Set([store, candidate]))
+      for (const path of Object.values(source.resolveModelPaths(id)))
+        for (const suffix of ['', '.part']) {
+          try {
+            const info = statSync(`${path}${suffix}`);
+            const key = `${info.dev}:${info.ino}`;
+            if (info.isFile() && !seen.has(key)) {
+              seen.add(key);
+              sizeOnDisk += info.size;
+              if (source === store && !suffix) activeBytes += info.size;
+            }
+          } catch {
+            /* 缺失文件不占空间。 */
+          }
+        }
+    return { sizeOnDisk, activeBytes };
+  };
   const component: EnhancementComponent = {
     id: `model:${id}`,
     name: (store.getModel(id) as ModelEntry & { name?: string }).name ?? id,
@@ -92,25 +113,7 @@ export function createModelComponent<T extends ModelEntry>(
           }
         }),
       ]),
-      sizeOnDisk: (() => {
-        const seen = new Set<string>();
-        let bytes = 0;
-        for (const source of new Set([store, candidate]))
-          for (const path of Object.values(source.resolveModelPaths(id)))
-            for (const suffix of ['', '.part']) {
-              try {
-                const info = statSync(`${path}${suffix}`);
-                const key = `${info.dev}:${info.ino}`;
-                if (info.isFile() && !seen.has(key)) {
-                  seen.add(key);
-                  bytes += info.size;
-                }
-              } catch {
-                /* 缺失文件不占空间。 */
-              }
-            }
-        return bytes;
-      })(),
+      ...fileSizes(),
       downloadBytes: missing(),
       updateAvailable: !same(store.getModel(id)!, target),
     }),

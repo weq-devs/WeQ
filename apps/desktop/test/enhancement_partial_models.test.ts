@@ -112,6 +112,9 @@ it('新增文件候选下载失败时旧完整能力仍可用，成功校验前�
     sha256: 'a'.repeat(64),
   });
   f.item.component.select!(modelReleaseComponent(next));
+  await mkdir(f.item.directory(), { recursive: true });
+  await writeFile(`${f.item.paths().extra!}.part`, 'part');
+  expect((await f.packs.list())[0]).toMatchObject({ sizeOnDisk: 10, deleteBytes: 14 });
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => new Response(null, { status: 503 })),
@@ -122,6 +125,7 @@ it('新增文件候选下载失败时旧完整能力仍可用，成功校验前�
   expect(await f.store.verifyModel('sensevoice')).toBe(true);
   expect((await f.packs.list())[0]).toMatchObject({
     downloaded: true,
+    sizeOnDisk: 10,
     operation: { phase: 'failed' },
   });
 });
