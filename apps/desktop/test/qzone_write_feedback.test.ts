@@ -33,6 +33,7 @@ const state = vi.hoisted(() => ({
   homeMetadata: vi.fn(),
   spaceProfile: vi.fn(() => ({})),
   albumPage: vi.fn(),
+  albumMedia: vi.fn(),
   guestbook: vi.fn(),
   blogs: vi.fn(),
   blog: vi.fn(),
@@ -133,6 +134,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       getAccountConfig: { query: state.getConfig },
       getGroupAlbumAccessState: { query: async () => ({ qqOnline: true, attachEnabled: true }) },
+      qzoneAlbumMedia: { query: state.albumMedia },
       pickedFileDiscard: { mutate: state.discardImage },
       qqActions: {
         qzone: { mutate: state.write },
@@ -252,6 +254,7 @@ beforeEach(() => {
   state.homeMetadata.mockReset().mockResolvedValue({ postCount: 1, photoCount: 0 });
   state.spaceProfile.mockReset().mockReturnValue({});
   state.albumPage.mockReset().mockResolvedValue({ albums: [], nextOffset: null, total: 0 });
+  state.albumMedia.mockReset().mockResolvedValue({ photos: [], totalInAlbum: 0 });
   state.guestbook.mockReset().mockResolvedValue({ items: [], next: null });
   state.offscreenTid = '';
   state.archiveState
@@ -1597,6 +1600,91 @@ it('主页按当前照片的精确键打开相册预览，关闭返回同一张'
   expect(
     view.host.querySelector('[aria-label="空间内容"] [aria-current="page"]')?.textContent,
   ).toBe('主页');
+});
+
+it('主页的相册对话框用后续页的标题，并从原预览直接跳转到相册', async () => {
+  const tid = '112700000100000001000000';
+  const image = 'https://a.qpic.cn/photo.jpg';
+  const topicId = 'photo-album';
+  const name = '旅行照片';
+  state.homePages = [
+    {
+      feeds: [
+        {
+          cell_common: { app_id: 311, time: 1600000000, union_id: { feed_id: tid } },
+          cell_user_info: { user: { uin: '10001' } },
+          cell_media: {
+            album_id: topicId,
+            media_items: [{ image: { default_url: { url: image } } }],
+          },
+        },
+      ],
+    },
+  ];
+  state.detail.mockResolvedValue({
+    post: { tid, content: '相册照片', time: 1600000000, images: [image], videos: [] },
+  });
+  state.albumPage.mockImplementation(async ({ offset }) => ({
+    albums: [offset === 0 ? { id: 'other-album', name: '其他相册' } : { id: topicId, name }],
+    nextOffset: offset === 0 ? 1 : null,
+    total: 2,
+    warning: null,
+  }));
+  state.albumMedia.mockResolvedValue({
+    photos: [{ id: '123', name: '海边', url: image, uploadTime: 1600000000 }],
+    totalInAlbum: 1,
+  });
+
+  const view = await mount(false, '主页', { timelineOnly: true });
+  const currentPane = () =>
+    view.host.querySelector('[aria-label="空间内容"] [aria-current="page"]')?.textContent;
+  const albumDialog = () =>
+    document.querySelector<HTMLElement>('[role="dialog"]:has(.weq-qzone-album-head)')!;
+  await act(async () =>
+    view.host.querySelector<HTMLButtonElement>('.weq-qzn-pictures button')!.click(),
+  );
+  const source = activeMediaPreview();
+  const openAlbum = [...source.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === '打开相册',
+  )!;
+  await act(async () => openAlbum.click());
+  await act(async () =>
+    vi.waitFor(() => {
+      const dialog = albumDialog();
+      expect(document.getElementById(dialog.getAttribute('aria-labelledby')!)?.textContent).toBe(
+        name,
+      );
+      expect(dialog.textContent).toContain('海边');
+    }),
+  );
+  expect(albumDialog().querySelector('[data-weq-multi-group], [aria-pressed]')).toBeNull();
+  await act(async () =>
+    albumDialog().querySelector<HTMLButtonElement>('button[title="关闭"]')!.click(),
+  );
+  expect(activeMediaPreview()).toBe(source);
+  expect(currentPane()).toBe('主页');
+
+  await act(async () => openAlbum.click());
+  await act(async () => vi.waitFor(() => expect(albumDialog().textContent).toContain(name)));
+  await act(async () =>
+    [...albumDialog().querySelectorAll('button')]
+      .find((button) => button.textContent?.trim() === '跳转到相册')!
+      .click(),
+  );
+  expect(albumDialog()).toBeNull();
+  expect(activeMediaPreview()).toBeNull();
+  expect(currentPane()).toBe('相册');
+  await act(async () =>
+    vi.waitFor(() => {
+      const album = view.host.querySelector('.weq-qzone-album-embedded')!;
+      expect(album.textContent).toContain(name);
+      expect(album.textContent).toContain('海边');
+      expect(album.querySelector('button[aria-label="选择"]')).not.toBeNull();
+    }),
+  );
+  expect(state.albumMedia).toHaveBeenLastCalledWith(
+    expect.objectContaining({ hostUin: '10001', topicId }),
+  );
 });
 
 it('视频预览只链接同一作者的说说，关闭原文后返回正在浏览的视频', async () => {

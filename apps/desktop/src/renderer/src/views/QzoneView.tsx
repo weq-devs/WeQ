@@ -1049,6 +1049,7 @@ function SpaceContent({
   onOwnerNickname: (uin: string, nickname: string) => void;
 }) {
   const openProfile = useContext(QzoneProfileContext);
+  const openAlbum = useContext(QzoneAlbumNavigationContext);
   const handledAlbum = useRef<string | null>(null);
   type Pane = 'home' | 'posts' | 'blogs' | 'albums' | QzoneMorePane;
   const [pane, setPane] = useState<Pane>(publication ? 'posts' : 'home');
@@ -1099,6 +1100,7 @@ function SpaceContent({
     target: QzoneMediaDestination;
     source: Pane;
     configId: string;
+    closePreview?: () => void;
   } | null>(null);
   const destination =
     active && mediaLink?.source === pane && mediaLink.configId === shareIndex.configId
@@ -1110,8 +1112,8 @@ function SpaceContent({
   const mediaNavigation = useMemo(
     () => ({
       previewVisible: active && !destination,
-      open: (target: QzoneMediaDestination) =>
-        setMediaLink({ target, source: pane, configId: shareIndex.configId }),
+      open: (target: QzoneMediaDestination, closePreview?: () => void) =>
+        setMediaLink({ target, source: pane, configId: shareIndex.configId, closePreview }),
     }),
     [active, destination, pane, shareIndex.configId],
   );
@@ -1283,6 +1285,16 @@ function SpaceContent({
               selfUin={selfUin}
               target={destination}
               onClose={closeMediaLink}
+              onJumpToAlbum={(name) => {
+                mediaLink?.closePreview?.();
+                closeMediaLink();
+                openAlbum?.(
+                  destination.hostUin,
+                  destination.topicId,
+                  name,
+                  destination.hostUin === hostUin ? nickname : undefined,
+                );
+              }}
             />
           ) : (
             <Modal

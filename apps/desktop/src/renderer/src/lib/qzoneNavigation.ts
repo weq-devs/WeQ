@@ -149,5 +149,5 @@ export type QzoneMediaDestination =
 
 export const QzoneMediaNavigationContext = createContext<{
   previewVisible: boolean;
-  open: (target: QzoneMediaDestination) => void;
+  open: (target: QzoneMediaDestination, closePreview?: () => void) => void;
 } | null>(null);

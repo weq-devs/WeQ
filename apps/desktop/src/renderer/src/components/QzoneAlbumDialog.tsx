@@ -21,6 +21,7 @@ import { NumericText } from './NumericText';
 
 import {
   useCallback,
+  useId,
   useMemo,
   useEffect,
   useRef,
@@ -140,10 +141,12 @@ export function QzoneAlbumDestination({
   selfUin,
   target,
   onClose,
+  onJumpToAlbum,
 }: {
   selfUin: string;
   target: Extract<QzoneMediaDestination, { kind: 'album' }>;
   onClose: () => void;
+  onJumpToAlbum: (name: string) => void;
 }) {
   const { hostUin, topicId, media } = target;
   const { run, cancel } = useQzoneRequests();
@@ -183,6 +186,7 @@ export function QzoneAlbumDestination({
       hostUin={hostUin}
       presentation="panel"
       albumTarget={{ hostUin, topicId, name: '', revision: topicId }}
+      onJumpToAlbum={onJumpToAlbum}
     />
   ) : (
     <MediaPreview
@@ -217,6 +221,7 @@ export function QzoneAlbumDialog({
   refreshKey: requestedRefreshKey = 0,
   albumTarget,
   presentation = 'page',
+  onJumpToAlbum,
 }: {
   open: boolean;
   onClose: () => void;
@@ -228,7 +233,9 @@ export function QzoneAlbumDialog({
   refreshKey?: number;
   albumTarget?: QzoneAlbumRequest;
   presentation?: 'page' | 'panel';
+  onJumpToAlbum?: (name: string) => void;
 }): ReactElement | null {
+  const titleId = useId();
   const activity = useQQReadActivity(open && requestedActive);
   const active = activity.enabled;
   const refreshKey = requestedRefreshKey + activity.revision;
@@ -244,7 +251,7 @@ export function QzoneAlbumDialog({
   const albumPages = useRef(new Set<number>());
   const albumLoaded = useRef(false);
   const [albumRetry, setAlbumRetry] = useState(0);
-  const albumPageLock = useRef(false);
+  const albumPageLock = useRef<AbortController | null>(null);
   const albumSentinel = useRef<HTMLDivElement>(null);
   const { run: runAlbums, cancel: cancelAlbums } = useQzoneRequests();
   /** 选中的相册：null = 相册列表页。 */
@@ -374,8 +381,12 @@ export function QzoneAlbumDialog({
       cancelAlbums();
       setAlbumsLoading(false);
     }
-    return () => cancelAlbums();
-  }, [active, cancelAlbums]);
+    return () => {
+      albumPageLock.current?.abort();
+      albumPageLock.current = null;
+      cancelAlbums();
+    };
+  }, [active, selfUin, hostUin, cancelAlbums]);
 
   const loadAlbumPage = useCallback(async () => {
     if (albumNext === null || albumPageLock.current || albumsLoading || !active) return;
@@ -384,15 +395,19 @@ export function QzoneAlbumDialog({
       setAlbumNext(null);
       return;
     }
-    const run = runRef.current;
-    albumPageLock.current = true;
+    const controller = new AbortController();
+    const { signal } = controller;
+    albumPageLock.current = controller;
     setAlbumsLoading(true);
     setAlbumsError(null);
     try {
-      const page = await runAlbums((requestId) =>
-        client.account.qzone.albumPage.query({ selfUin, hostUin, requestId, offset: albumNext }),
+      const page = await runAlbums(
+        (requestId) =>
+          client.account.qzone.albumPage.query({ selfUin, hostUin, requestId, offset: albumNext }),
+        false,
+        signal,
       );
-      if (run !== runRef.current) return;
+      if (signal.aborted) return;
       const previous = albums ?? [];
       const ids = new Set(previous.map((album) => album.id));
       const fresh = page.albums.filter((album) => !ids.has(album.id));
@@ -421,11 +436,12 @@ export function QzoneAlbumDialog({
       );
       albumPages.current.add(albumNext);
     } catch (error) {
-      if (run === runRef.current)
-        setAlbumsError(error instanceof Error ? error.message : String(error));
+      if (!signal.aborted) setAlbumsError(error instanceof Error ? error.message : String(error));
     } finally {
-      albumPageLock.current = false;
-      if (run === runRef.current) setAlbumsLoading(false);
+      if (!signal.aborted) {
+        albumPageLock.current = null;
+        setAlbumsLoading(false);
+      }
     }
   }, [albumNext, albumsLoading, active, selfUin, hostUin, albums, albumTotal, runAlbums]);
 
@@ -492,6 +508,16 @@ export function QzoneAlbumDialog({
     openAlbum,
   ]);
 
+  // 定位相册可先显示媒体，标题按相册 ID 在后续目录页中补全。
+  const listedAlbum =
+    selected && !selected.name ? albums?.find((album) => album.id === selected.id) : undefined;
+  const albumName = selected?.name || listedAlbum?.name || '';
+  const needsAlbumName =
+    selected && albumTarget?.topicId === selected.id && !albumName && !listedAlbum;
+  useEffect(() => {
+    if (needsAlbumName && !albumsError && !refreshing) void loadAlbumPage();
+  }, [needsAlbumName, albumsError, refreshing, loadAlbumPage]);
+
   // Re-entering at the latest edge refreshes in place, without resetting selection or media.
   useEffect(() => {
     if (!albumLoaded.current) {
@@ -503,6 +529,7 @@ export function QzoneAlbumDialog({
       !active ||
       refreshKey === lastRefresh.current ||
       !access?.qqOnline ||
+      albumPageLock.current ||
       albumsLoading ||
       mediaLoading ||
       mediaLoadingMore
@@ -613,7 +640,7 @@ export function QzoneAlbumDialog({
   }, []);
   const surface = useRef<HTMLDivElement>(null);
   useMobileBack(
-    open && requestedActive && Boolean(selected),
+    open && requestedActive && Boolean(selected) && !onJumpToAlbum,
     backToList,
     50,
     () => surface.current,
@@ -624,6 +651,7 @@ export function QzoneAlbumDialog({
   const offline = access ? !access.qqOnline : false;
   const offlineMode = access ? !access.attachEnabled : false;
   const hasMore = selected ? media.length < mediaTotal : false;
+  const title = selected ? albumName || '相册' : '空间相册';
 
   const body = (
     <div
@@ -636,9 +664,7 @@ export function QzoneAlbumDialog({
             <span className="weq-qzone-album-title-icon" aria-hidden="true">
               <Images size={16} strokeWidth={2} />
             </span>
-            <strong id="weq-qzone-album-title">
-              {selected ? selected.name || '相册' : '空间相册'}
-            </strong>
+            <strong id={titleId}>{title}</strong>
           </span>
           <span className="weq-qzn-page-count" style={{ flexShrink: 0 }}>
             （已获取{' '}
@@ -703,16 +729,17 @@ export function QzoneAlbumDialog({
             error={mediaError}
             hasMore={hasMore}
             fetchedPages={mediaPages.current.size}
-            albumName={selected.name}
+            albumName={albumName}
             hostUin={hostUin}
             selfUin={selfUin}
             topicId={selected.id}
             onBack={() => {
               if (!mobileBack()) backToList();
             }}
+            onJumpToAlbum={onJumpToAlbum ? () => onJumpToAlbum(albumName) : undefined}
             onLoadMore={() => loadMore()}
           />
-        ) : !albums ? (
+        ) : onJumpToAlbum || !albums ? (
           <AlbumListSkeleton />
         ) : albums.length === 0 ? (
           <div className="weq-qzone-album-empty">
@@ -768,7 +795,7 @@ export function QzoneAlbumDialog({
       title="空间相册"
       onClose={onClose}
       width={1080}
-      labelledBy="weq-qzone-album-title"
+      labelledBy={titleId}
     >
       {body}
     </Modal>
@@ -883,6 +910,7 @@ export function MediaView({
   selfUin,
   topicId,
   onBack,
+  onJumpToAlbum,
   onLoadMore,
 }: {
   active?: boolean;
@@ -899,6 +927,7 @@ export function MediaView({
   selfUin: string;
   topicId: string;
   onBack: () => void;
+  onJumpToAlbum?: () => void;
   onLoadMore: () => Promise<boolean>;
 }): ReactElement {
   const photoReferences = useMemo(
@@ -918,7 +947,11 @@ export function MediaView({
     [photos, hostUin, topicId, albumName],
   );
   const photoOwner = { kind: 'qzone-albums' as const, container: hostUin };
-  const sharedSelection = useContentMultiSelect(photoOwner, active, photoReferences);
+  const sharedSelection = useContentMultiSelect(
+    photoOwner,
+    active && !onJumpToAlbum,
+    photoReferences,
+  );
   const localToReference = useMemo(
     () =>
       new Map(
@@ -964,7 +997,7 @@ export function MediaView({
     ids: [...localToReference.keys()],
     selected,
     onChange: setSelected,
-    enabled: sharedSelection.selectionMode,
+    enabled: !onJumpToAlbum && sharedSelection.selectionMode,
     normalClick: 'passthrough',
     onStart: () => sharedSelection.setSelectionMode(true),
     onExit: () => sharedSelection.setSelectionMode(false),
@@ -976,8 +1009,8 @@ export function MediaView({
    * 是 lloc/sloc），同一相册所有行共享同一个 id，拿它做选择键会「点一个=全选」。
    * 这里与 React key 一致，使用媒体定位信息，刷新插入新照片后也不会错选。 */
   const toggleSelect = (key: string) => photoMulti.toggle(key);
-  const handlers = photoMulti.itemProps;
-  const rootProps = photoMulti.rootProps;
+  const handlers = onJumpToAlbum ? undefined : photoMulti.itemProps;
+  const rootProps = onJumpToAlbum ? undefined : photoMulti.rootProps;
   /** 正在取 mp4 播放地址的视频行键（同上，不能裸用 photo.id）。 */
   const [videoResolving, setVideoResolving] = useState<string | null>(null);
   const [preview, setPreview] = useState<number | null>(null);
@@ -1091,7 +1124,7 @@ export function MediaView({
   function openMedia(photo: QzoneAlbumPhotoWire, _row: string): void {
     setPreview(photos.indexOf(photo));
   }
-  const toolbar = (
+  const toolbar = onJumpToAlbum ? null : (
     <ContentReferenceToolbar
       owner={photoOwner}
       selection={sharedSelection}
@@ -1113,7 +1146,11 @@ export function MediaView({
         />
       ) : null}
       <div className="weq-qzal-toolbar">
-        {embedded ? (
+        {onJumpToAlbum ? (
+          <button type="button" className="weq-qzal-back" onClick={onJumpToAlbum}>
+            跳转到相册
+          </button>
+        ) : embedded ? (
           <button type="button" title="返回相册列表" aria-label="返回相册列表" onClick={onBack}>
             <ArrowLeft size={17} aria-hidden />
           </button>
@@ -1123,10 +1160,11 @@ export function MediaView({
           </button>
         )}
         <span className="weq-qzal-count">
-          {albumName || (embedded ? '未命名相册' : '')} · <NumericText>{countText}</NumericText>
+          {onJumpToAlbum ? null : `${albumName || (embedded ? '未命名相册' : '')} · `}
+          <NumericText>{countText}</NumericText>
           {total > photos.length ? <NumericText>{` · 共 ${total} 项`}</NumericText> : ''}
         </span>
-        <QzoneBatchProgress owner={hostUin} />
+        {onJumpToAlbum ? null : <QzoneBatchProgress owner={hostUin} />}
         {embedded && (photos.length > 0 || sharedSelection.selectionMode) ? toolbar : null}
       </div>
       {embedded ? null : toolbar}
@@ -1150,24 +1188,26 @@ export function MediaView({
             {photos.map((photo, index) => {
               const row = rowKey(index);
               const proxied = albumMediaUrl(photo.thumbUrl || photo.url);
-              const checked = selected.has(row);
+              const checked = !onJumpToAlbum && selected.has(row);
               const detail = details[row];
               return (
                 <div
                   key={row}
                   className={`weq-qzal-media-card${photo.isVideo ? ' is-video' : ''}${checked ? ' is-checked' : ''}`}
-                  {...handlers(row)}
+                  {...handlers?.(row)}
                 >
-                  <button
-                    type="button"
-                    className={`weq-qzal-media-check${checked ? ' is-on' : ''}`}
-                    onClick={() => toggleSelect(row)}
-                    title={checked ? '取消选择' : '选择'}
-                    aria-pressed={checked}
-                    aria-label={checked ? '取消选择' : '选择'}
-                  >
-                    {checked ? <Check size={12} strokeWidth={2.6} /> : null}
-                  </button>
+                  {onJumpToAlbum ? null : (
+                    <button
+                      type="button"
+                      className={`weq-qzal-media-check${checked ? ' is-on' : ''}`}
+                      onClick={() => toggleSelect(row)}
+                      title={checked ? '取消选择' : '选择'}
+                      aria-pressed={checked}
+                      aria-label={checked ? '取消选择' : '选择'}
+                    >
+                      {checked ? <Check size={12} strokeWidth={2.6} /> : null}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="weq-qzal-media-body"

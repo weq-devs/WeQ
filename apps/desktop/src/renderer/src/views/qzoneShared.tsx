@@ -410,20 +410,23 @@ export function QzoneMediaGrid({
                 type="button"
                 className="weq-lightbox-action"
                 onClick={() =>
-                  navigation.open({
-                    kind: 'album',
-                    hostUin: album.hostUin,
-                    topicId: album.topicId,
-                    media: picKey
-                      ? {
-                          picKey,
-                          kind: entry.kind,
-                          src: entry.kind === 'video' && item.kind !== 'video' ? '' : item.src,
-                          poster: item.poster,
-                          isLivePhoto: item.isLivePhoto,
-                        }
-                      : undefined,
-                  })
+                  navigation.open(
+                    {
+                      kind: 'album',
+                      hostUin: album.hostUin,
+                      topicId: album.topicId,
+                      media: picKey
+                        ? {
+                            picKey,
+                            kind: entry.kind,
+                            src: entry.kind === 'video' && item.kind !== 'video' ? '' : item.src,
+                            poster: item.poster,
+                            isLivePhoto: item.isLivePhoto,
+                          }
+                        : undefined,
+                    },
+                    () => setPreview(null),
+                  )
                 }
               >
                 <Images size={16} aria-hidden />
