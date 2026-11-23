@@ -301,6 +301,7 @@ import { useDressSkin } from '../hooks/useDressSkin';
 import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { RailAccountFooter } from '../components/RailAccountFooter';
 import { WorkspaceMenuButton, WorkspaceSettingsButton } from '../components/WorkspaceMenuButton';
+import { WorkspaceTools } from '../components/WorkspaceTools';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 import type { SectionId as SettingsDialogSectionId } from '../components/SettingsDialog';
 import { remoteUnsupportedTools } from '../components/settings/DataMaintenanceSection.shared';
@@ -343,7 +344,6 @@ import {
   SequentialForwardDialog,
   MsgElementEditor,
   SearchResultsPanel,
-  WorkspaceTools,
   ChatHome,
   CallWindow,
   GroupCallInvite,

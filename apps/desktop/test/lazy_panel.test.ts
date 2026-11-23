@@ -1,7 +1,7 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { lazyPanel } from '../src/renderer/src/lib/lazyPanel';
+import { lazyPanel, lazyRetainedPanel } from '../src/renderer/src/lib/lazyPanel';
 
 afterEach(() => vi.unstubAllGlobals());
 it('模块等待首帧显示转圈，完成后移除占位且不重复请求', async () => {
@@ -56,4 +56,54 @@ it('失败的导航预热可以重试，不缓存一次失败作为已加载', a
   await expect(Panel.preload()).rejects.toThrow('offline');
   await Panel.preload();
   expect(load).toHaveBeenCalledTimes(2);
+});
+
+it('未加载的保留页切走即撤下占位，返回共用请求，加载后的现场继续保留', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const Content = ({ active }: { active?: boolean }) => h('input', { hidden: !active });
+  const pending = Promise.withResolvers<{ default: typeof Content }>();
+  const load = vi.fn(() => pending.promise);
+  const Panel = lazyRetainedPanel(load);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const render = (active: boolean) => act(async () => root.render(h(Panel, { active })));
+  try {
+    await render(false);
+    expect(load).not.toHaveBeenCalled();
+    await render(true);
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
+    expect(host.querySelector('[data-weq-startup-pending]')).toBeNull();
+    await render(false);
+    expect(host.textContent).toBe('');
+    await render(true);
+    await act(async () => pending.resolve({ default: Content }));
+    const field = host.querySelector('input')!;
+    field.value = '保留草稿';
+    await render(false);
+    expect(field.hidden).toBe(true);
+    await render(true);
+    expect(host.querySelector('input')).toBe(field);
+    expect(field.value).toBe('保留草稿');
+    expect(load).toHaveBeenCalledOnce();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it('切离仍在加载的保留页后，迟到的加载失败不影响当前页', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const pending = Promise.withResolvers<{ default: (_: { active?: boolean }) => null }>();
+  const Panel = lazyRetainedPanel(() => pending.promise);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const render = (active: boolean) =>
+    act(async () => root.render(h('main', null, h('p', null, '当前页'), h(Panel, { active }))));
+  try {
+    await render(true);
+    await render(false);
+    await act(async () => pending.reject(new Error('offline')));
+    expect(host.textContent).toBe('当前页');
+  } finally {
+    await act(async () => root.unmount());
+  }
 });

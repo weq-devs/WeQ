@@ -30,3 +30,24 @@ export function lazyPanel<Props extends object>(
     },
   );
 }
+
+/** 已加载的页面保留现场；离开仍在加载的页面时，不再让它的等待或失败影响当前页。 */
+export function lazyRetainedPanel<Props extends { active?: boolean }>(
+  load: () => Promise<{ default: ComponentType<Props> }>,
+) {
+  let loaded = false;
+  const Panel = lazyPanel<Props>(
+    async () => {
+      const result = await load();
+      loaded = true;
+      return result;
+    },
+    ({ active }) => (active !== false ? <PanelLoading startup={false} /> : null),
+  );
+  return Object.assign(
+    function RetainedPanel(props: Props) {
+      return loaded || props.active !== false ? <Panel {...props} /> : null;
+    },
+    { preload: Panel.preload },
+  );
+}

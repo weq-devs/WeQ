@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type ComponentProps } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { Images, X } from 'lucide-react';
 import { lazyPanel } from '../lib/lazyPanel';
 import { Modal } from './Dialog';
 import { LoadingIndicator, PanelLoading } from './LoadingIndicator';
@@ -57,9 +57,41 @@ export function CompositionWorkspace(props: ComponentProps<typeof CompositionCon
   );
 }
 
-export const QzoneAlbumDialog = lazyPanel<
-  ComponentProps<typeof import('./QzoneAlbumDialog').QzoneAlbumDialog>
->(() => import('./QzoneAlbumDialog').then((m) => ({ default: m.QzoneAlbumDialog })));
+type QzoneAlbumDialogProps = ComponentProps<typeof import('./QzoneAlbumDialog').QzoneAlbumDialog>;
+const QzoneAlbumContent = lazyPanel<QzoneAlbumDialogProps>(
+  () => import('./QzoneAlbumDialog').then((m) => ({ default: m.QzoneAlbumDialog })),
+  ({ onClose, embedded, active, presentation = 'page' }) =>
+    active === false ? null : embedded ? (
+      <PanelLoading startup={false} />
+    ) : (
+      <Modal
+        presentation={presentation}
+        title="空间相册"
+        onClose={onClose}
+        width={1080}
+        labelledBy="weq-qzone-album-title"
+      >
+        <div className="weq-qzone-album">
+          <header className="weq-qzone-album-head">
+            <span className="weq-qzone-album-title">
+              <span className="weq-qzone-album-title-icon" aria-hidden="true">
+                <Images size={16} />
+              </span>
+              <strong id="weq-qzone-album-title">空间相册</strong>
+            </span>
+            <button type="button" className="weq-compose-x" onClick={onClose} aria-label="关闭">
+              <X size={17} />
+            </button>
+          </header>
+          <PanelLoading startup={false} />
+        </div>
+      </Modal>
+    ),
+);
+
+export function QzoneAlbumDialog(props: QzoneAlbumDialogProps) {
+  return props.open ? <QzoneAlbumContent {...props} /> : null;
+}
 export const GroupAlbumDialog = lazyPanel<
   ComponentProps<typeof import('./GroupAlbumDialog').GroupAlbumDialog>
 >(() => import('./GroupAlbumDialog').then((m) => ({ default: m.GroupAlbumDialog })));
@@ -281,9 +313,6 @@ export const MsgElementEditor = lazyPanel<
 export const SearchResultsPanel = lazyPanel<
   ComponentProps<typeof import('./search/SearchResultsPanel').SearchResultsPanel>
 >(() => import('./search/SearchResultsPanel').then((m) => ({ default: m.SearchResultsPanel })));
-export const WorkspaceTools = lazyPanel<
-  ComponentProps<typeof import('./WorkspaceTools').WorkspaceTools>
->(() => import('./WorkspaceTools').then((m) => ({ default: m.WorkspaceTools })));
 export const ChatHome = lazyPanel<ComponentProps<typeof import('../views/ChatHome').ChatHome>>(() =>
   import('../views/ChatHome').then((m) => ({ default: m.ChatHome })),
 );

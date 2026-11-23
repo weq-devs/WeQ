@@ -1,5 +1,8 @@
-import { lazyPanel } from '../lib/lazyPanel';
-import type { ComponentProps } from 'react';
+import { createElement, type ComponentProps } from 'react';
+import { lazyPanel, lazyRetainedPanel } from '../lib/lazyPanel';
+import { PanelLoading } from './LoadingIndicator';
+
+const toolLoading = () => createElement<{ startup?: boolean }>(PanelLoading, { startup: false });
 
 export const SettingsDialog = lazyPanel<
   ComponentProps<typeof import('./SettingsDialog').SettingsDialog>
@@ -15,7 +18,7 @@ export const CollectionDialog = lazyPanel<
 export const QzoneWorkspace = lazyPanel<
   ComponentProps<typeof import('../views/QzoneView').QzoneWorkspace>
 >(() => import('../views/QzoneView').then((m) => ({ default: m.QzoneWorkspace })));
-export const ChannelView = lazyPanel<
+export const ChannelView = lazyRetainedPanel<
   ComponentProps<typeof import('../views/ChannelView').ChannelView>
 >(() => import('../views/ChannelView').then((m) => ({ default: m.ChannelView })));
 export const DressUpDialog = lazyPanel<
@@ -26,25 +29,35 @@ export const GroupBugDialog = lazyPanel<
 >(() => import('./GroupBugDialog').then((m) => ({ default: m.GroupBugDialog })));
 export const ExportTool = lazyPanel<
   ComponentProps<typeof import('../views/ExportView').ExportTool>
->(() => import('../views/ExportView').then((m) => ({ default: m.ExportTool })));
+>(() => import('../views/ExportView').then((m) => ({ default: m.ExportTool })), toolLoading);
 export const ExportViewer = lazyPanel<
   ComponentProps<typeof import('../views/ExportViewer').ExportViewer>
->(() => import('../views/ExportViewer').then((m) => ({ default: m.ExportViewer })));
+>(() => import('../views/ExportViewer').then((m) => ({ default: m.ExportViewer })), toolLoading);
 export const AnalysisTool = lazyPanel<
   ComponentProps<typeof import('../views/analysis/AnalysisTool').AnalysisTool>
->(() => import('../views/analysis/AnalysisTool').then((m) => ({ default: m.AnalysisTool })));
+>(
+  () => import('../views/analysis/AnalysisTool').then((m) => ({ default: m.AnalysisTool })),
+  toolLoading,
+);
 export const AnalysisReportsTool = lazyPanel<
   ComponentProps<typeof import('../views/analysis/AnalysisReportsTool').AnalysisReportsTool>
->(() =>
-  import('../views/analysis/AnalysisReportsTool').then((m) => ({ default: m.AnalysisReportsTool })),
+>(
+  () =>
+    import('../views/analysis/AnalysisReportsTool').then((m) => ({
+      default: m.AnalysisReportsTool,
+    })),
+  toolLoading,
 );
 export const RoamingBackfillPanel = lazyPanel<
   ComponentProps<typeof import('./RoamingBackfillPanel').RoamingBackfillPanel>
->(() => import('./RoamingBackfillPanel').then((m) => ({ default: m.RoamingBackfillPanel })));
+>(
+  () => import('./RoamingBackfillPanel').then((m) => ({ default: m.RoamingBackfillPanel })),
+  toolLoading,
+);
 export const AgentLabView = lazyPanel<
   ComponentProps<typeof import('../views/AgentLabView').AgentLabView>
 >(() => import('../views/AgentLabView').then((m) => ({ default: m.AgentLabView })));
-export const AssistantConversationPane = lazyPanel<
+export const AssistantConversationPane = lazyRetainedPanel<
   ComponentProps<
     typeof import('../views/agentlab/AssistantConversationPane').AssistantConversationPane
   >

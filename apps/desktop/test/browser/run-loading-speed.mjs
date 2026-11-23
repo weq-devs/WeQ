@@ -9,8 +9,12 @@ import { serveStatic } from '../../src/main/web/static.ts';
 
 const root = resolve(process.env.WEQ_WEB_PUBLIC ?? '.artifacts/remote-load-speed/public');
 const output = resolve('.artifacts/remote-load-speed/screenshots');
-await mkdir(output, { recursive: true });
-const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const pendingPanels = process.argv.includes('--pending-panels');
+if (!pendingPanels) await mkdir(output, { recursive: true });
+const engines = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const settings = pendingPanels
+  ? { ...DEFAULT_APP_SETTINGS, startupPage: 'home' }
+  : DEFAULT_APP_SETTINGS;
 let reads = [];
 const config = { configId: 'synthetic', uin: '10001', static: true, rkeys: [] };
 function value(path) {
@@ -29,15 +33,19 @@ function value(path) {
       snapshot: {
         native: null,
         current: { uin: '10001' },
-        settings: DEFAULT_APP_SETTINGS,
+        settings,
         config,
         home: null,
       },
     };
-  if (path === 'bootstrap.getSettings') return DEFAULT_APP_SETTINGS;
+  if (path === 'bootstrap.getSettings') return settings;
   if (path === 'bootstrap.currentAccount') return { uin: '10001' };
   if (path === 'account.getAccountConfig') return config;
   if (path === 'account.listRecentContacts') return { items: [], nextCursor: null };
+  if (path === 'bootstrap.nativeStatus') return null;
+  if (path === 'account.getGroupAlbumAccessState') return { qqOnline: false, attachEnabled: true };
+  if (path === 'clientState.snapshot')
+    return { serverId: 'fixture', epoch: 'fixture', revision: 1, records: {}, values: {} };
   if (path === 'bootstrap.getNativeBuildInfo' || path.startsWith('bootstrap.consume')) return null;
   if (
     path === 'bootstrap.getWelcomeAcknowledged' ||
@@ -85,16 +93,19 @@ sockets.on('connection', (socket) =>
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 let browser;
 try {
-  browser = await chromium.launch({
+  browser = await engines[pendingPanels ? 'webkit' : 'chromium'].launch({
     headless: true,
     ...(process.env.WEQ_BROWSER_EXECUTABLE
       ? { executablePath: process.env.WEQ_BROWSER_EXECUTABLE }
       : {}),
   });
-  for (const [width, theme] of [
-    [390, 'light'],
-    [1280, 'dark'],
-  ]) {
+  if (pendingPanels) await checkPendingPanels(browser);
+  for (const [width, theme] of pendingPanels
+    ? []
+    : [
+        [390, 'light'],
+        [1280, 'dark'],
+      ]) {
     reads = [];
     const context = await browser.newContext({
       userAgent: 'WeQRemote',
@@ -139,4 +150,87 @@ try {
   sockets.close();
   server.closeAllConnections();
   await new Promise((resolve) => server.close(resolve));
+}
+
+async function checkPendingPanels(browser) {
+  const page = await browser.newPage({
+    userAgent: 'Mozilla/5.0 (iPhone) WeQRemote',
+    viewport: { width: 402, height: 874 },
+    colorScheme: 'dark',
+    hasTouch: true,
+  });
+  page.setDefaultTimeout(7500);
+  const errors = [];
+  const requested = new Set();
+  const gates = {
+    WorkspaceTools: Promise.withResolvers(),
+    ExportView: Promise.withResolvers(),
+    QzoneAlbumDialog: Promise.withResolvers(),
+  };
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.route('**/*', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname !== '127.0.0.1') return route.abort();
+    const panel = url.pathname.match(
+      /\/(WorkspaceTools|ExportView|QzoneAlbumDialog)-[^/]+\.js$/,
+    )?.[1];
+    if (panel) {
+      requested.add(panel);
+      await gates[panel].promise;
+    }
+    await route.continue();
+  });
+  try {
+    await page.goto(`http://127.0.0.1:${server.address().port}/`, {
+      waitUntil: 'domcontentloaded',
+    });
+    await page.locator('.weq-chathome').waitFor();
+    await page.waitForFunction(() => window.weqRemoteStartup?.state === 'ready');
+    const pending = page.locator('.weq-panel-loading');
+    assert.equal(await pending.count(), 0, '未打开工具时主页没有占位');
+    assert.equal(requested.size, 0, '首屏不请求相册和任务列表模块');
+
+    const checkContained = async (panel) => {
+      const feedback = panel.getByRole('status').filter({ hasText: '正在加载' });
+      await feedback.waitFor();
+      const [box, parent] = await Promise.all([feedback.boundingBox(), panel.boundingBox()]);
+      assert.ok(
+        box && parent && box.y >= parent.y && box.y + box.height <= parent.y + parent.height,
+      );
+      assert.equal(await pending.count(), 1);
+      assert.equal(await page.evaluate(() => window.weqRemoteStartup.state), 'ready');
+    };
+    await page
+      .getByRole('navigation', { name: '主导航' })
+      .getByRole('button', { name: /^更多/ })
+      .click();
+    await page.locator('.weq-mobile-more:visible').getByRole('button', { name: /^任务/ }).click();
+    await checkContained(page.getByRole('region', { name: '任务', exact: true }));
+    assert.ok(requested.has('ExportView'));
+    assert.equal(await page.evaluate(() => window.weqMobileNavigation.back()), true);
+    await pending.waitFor({ state: 'detached' });
+    gates.ExportView.resolve();
+
+    const header = page.locator('.weq-mobile-header');
+    await header.locator('.weq-titlebar-search button').first().click();
+    await header.getByRole('searchbox').fill('我的空间相册');
+    await page
+      .locator('.weq-titlebar-search-results')
+      .getByText('我的空间相册', { exact: true })
+      .click();
+    const album = page.getByRole('region', { name: '空间相册', exact: true });
+    await checkContained(album);
+    assert.ok(requested.has('QzoneAlbumDialog'));
+    await album.getByRole('button', { name: '关闭', exact: true }).click();
+    await pending.waitFor({ state: 'detached' });
+    const received = page.waitForResponse(/\/QzoneAlbumDialog-[^/]+\.js$/);
+    gates.QzoneAlbumDialog.resolve();
+    await (await received).finished();
+    assert.equal(await album.count(), 0, '关闭后模块返回不会重新打开相册');
+    assert.deepEqual(errors, []);
+    console.log('PASS: 手机首屏无占位；任务与相册在自身面板内等待，加载期间可返回或关闭。');
+  } finally {
+    for (const gate of Object.values(gates)) gate.resolve();
+    await page.close();
+  }
 }
