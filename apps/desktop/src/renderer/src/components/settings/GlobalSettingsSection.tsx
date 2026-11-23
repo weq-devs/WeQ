@@ -45,6 +45,7 @@ import { NotificationEventSettings } from './NotificationEventSettings';
 import type { SettingsSearchTarget } from './searchTarget';
 import { WebNotificationsSection } from './WebNotificationsSection';
 import { IS_WEB } from '../../lib/target.shared';
+import { useRemoteImagePreference } from '../../lib/remoteWebStartup';
 import { groupStorage, mergeStorageEntries } from '../../lib/storage-groups';
 import '../../styles/storage-management.css';
 import { DataSaverSettings } from './DataSaverSettings';
@@ -91,6 +92,7 @@ export function GlobalSettingsSection({
     staleTime: 0,
     refetchOnMount: 'always',
   });
+  const preferRemoteCdn = useRemoteImagePreference(settings.data?.preferRemoteCdn);
   const accounts = trpc.bootstrap.listAccountConfigs.useQuery(undefined, {
     enabled: active && section === 'accounts',
     refetchOnWindowFocus: false,
@@ -534,7 +536,7 @@ export function GlobalSettingsSection({
             desc="手机没有缓存时，优先从 QQ 加载头像、聊天缩略图和支持的个性装扮，失败再由电脑加载。需要新版 Remote。"
             control={
               <Toggle
-                checked={settings.data?.preferRemoteCdn ?? false}
+                checked={preferRemoteCdn}
                 disabled={settings.isLoading || setPreferCdnMut.isLoading}
                 onChange={(next) => void onSetPreferCdn(next, true)}
                 label="Remote 缺少资源时优先直取"

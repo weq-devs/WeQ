@@ -1,3 +1,4 @@
+import { createContext, useContext } from 'react';
 import { getQueryKey } from '@trpc/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import type { inferRouterOutputs } from '@trpc/server';
@@ -22,7 +23,15 @@ export type RemoteStartupSnapshot = NonNullable<
 
 type CachedWorkspace = Pick<Config, 'uin' | 'configId' | 'static' | 'mobile'> & {
   page: 'home' | 'messages' | null;
+  preferRemoteCdn: boolean;
 };
+
+export const CachedRemoteImagePreference = createContext(false);
+
+export function useRemoteImagePreference(online: boolean | undefined): boolean {
+  const cached = useContext(CachedRemoteImagePreference);
+  return online ?? cached;
+}
 
 declare global {
   interface Window {
@@ -70,6 +79,7 @@ export function readRemoteWorkspace(): CachedWorkspace | undefined {
         static: value.static,
         mobile: value.mobile,
         page: value.page === 'messages' || value.page === 'home' ? value.page : null,
+        preferRemoteCdn: value.preferRemoteCdn === true,
       };
   } catch {}
 }
@@ -93,6 +103,7 @@ export function saveRemoteWorkspace(
       static: staticMode,
       mobile,
       page: page === 'messages' || page === 'home' ? page : null,
+      preferRemoteCdn: settings.preferRemoteCdn,
     };
     localStorage.setItem(startupKey, JSON.stringify(value));
   } catch {}
@@ -107,14 +118,17 @@ export function clearRemoteWorkspace() {
 
 export function openRemoteWorkspace(cache: QueryClient, cached: CachedWorkspace) {
   setRemoteWorkspaceCheckPending(true);
-  const { page, ...identity } = cached;
+  const { page, uin, configId, static: staticMode, mobile } = cached;
   let updating = false;
   try {
     updating = sessionStorage.getItem(updatingKey) === '1';
     sessionStorage.removeItem(updatingKey);
   } catch {}
   const config: Config = {
-    ...identity,
+    uin,
+    configId,
+    static: staticMode,
+    mobile,
     qzoneStagedImageUpload: undefined,
     dbKey: '',
     a1: null,

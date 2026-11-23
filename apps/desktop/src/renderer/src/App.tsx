@@ -64,6 +64,7 @@ import {
   setPreferRemoteImage,
 } from './lib/remoteImage';
 import { useRemoteClient } from './lib/remoteClient';
+import { useRemoteImagePreference } from './lib/remoteWebStartup';
 import { useDataSaver } from './lib/dataSaver';
 import { ChatQqShowEnabledContext, resetChatQqShowCache } from './lib/chatQqShow';
 import { WarmupSplash } from './components/WarmupSplash';
@@ -200,12 +201,11 @@ function CdnProvider({
     staleTime: 60_000,
   });
   const remote = useRemoteClient();
+  const preferRemoteCdn = useRemoteImagePreference(settings.data?.preferRemoteCdn);
   const limited = useDataSaver((state) => state.enabled);
   const desktopCdn = !remote && Boolean(settings.data?.preferCdn);
-  const remoteCdn =
-    remote && !limited && Boolean(settings.data?.preferRemoteCdn) && remoteImageAvailable();
-  const remoteDress =
-    remote && Boolean(settings.data?.preferRemoteCdn) && remoteDressImageAvailable();
+  const remoteCdn = remote && !limited && preferRemoteCdn && remoteImageAvailable();
+  const remoteDress = remote && preferRemoteCdn && remoteDressImageAvailable();
   // 同步镜像（而不是放 effect）：子树在本次 render 里就会读它，effect 要等提交后才跑，
   // 那一帧的头像会先按旧值拼一遍 URL。赋值幂等，StrictMode 重复渲染也无副作用。
   setPreferCdnFlag(desktopCdn);

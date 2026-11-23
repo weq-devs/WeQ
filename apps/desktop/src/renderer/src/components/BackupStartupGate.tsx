@@ -23,6 +23,7 @@ import '../styles/backup.css';
 import { IS_WEB } from '../lib/target.shared';
 import { WebStartupCache, hydrateWebStartupCache } from '../lib/webStartupCache';
 import {
+  CachedRemoteImagePreference,
   clearRemoteWorkspace,
   openRemoteWorkspace,
   notifyRemoteReload,
@@ -220,8 +221,14 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
       publishRemoteStartup({ state: 'action-required' });
     else if (error) publishRemoteStartup({ state: 'error', message: error });
   }, [busy, cachedReady, error, state]);
-  if (cachedReady) return children;
-  if (!busy && state?.ok && !error) return children;
+  if (cachedReady || (!busy && state?.ok && !error))
+    return (
+      <CachedRemoteImagePreference.Provider
+        value={cachedReady && cached.current?.preferRemoteCdn === true}
+      >
+        {children}
+      </CachedRemoteImagePreference.Provider>
+    );
   if (busy)
     return (
       <main className="weq-home-shell weq-initial-startup" data-weq-startup-pending>
