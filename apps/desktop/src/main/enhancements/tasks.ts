@@ -45,6 +45,7 @@ export function restoreEnhancementTasks(packs: EnhancementPacks, directory: stri
   );
   stores.set(packs, store);
   for (const id of ENHANCEMENT_PACK_IDS) {
+    if (!packs.isEnabled(id)) continue;
     const saved = store.data[id];
     if (!saved) continue;
     const status = saved.status === 'running' ? 'paused' : saved.status;

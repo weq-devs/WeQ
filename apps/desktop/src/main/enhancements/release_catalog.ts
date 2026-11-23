@@ -32,6 +32,10 @@ export function releaseContentVersion(components: EnhancementReleaseComponent[])
         component.id,
         component.files.map((file) => [file.key, file.name, file.sizeBytes, file.sha256]),
       ];
+    if (component.type === 'market-emoji') {
+      const { name, sizeBytes, sha256 } = component.asset;
+      return ['market-emoji', name, sizeBytes, sha256];
+    }
     return [
       'dress',
       component.manifest.nativeCommit,

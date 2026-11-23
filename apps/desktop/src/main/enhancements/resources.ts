@@ -14,6 +14,7 @@ import {
   getHost,
   type DressIndexManifest,
   parseDressIndexManifest,
+  developmentDressToolsEnabled,
 } from '@weq/service';
 import type { IntentSenseLocalEngineControl } from '../context/app_context';
 import { resolveResourceRoot } from '../resource';
@@ -29,6 +30,7 @@ import {
 } from './engine_environment';
 import { EnhancementPacks, type EnhancementComponent } from './packs';
 import { createModelComponent } from './model_component';
+import { createMarketEmojiComponent } from './market_emoji_component';
 import { releaseContentVersion } from './release_catalog';
 import { EnhancementUpdateController } from './updates';
 import { configureReleaseFeeds } from '../update/release_feed';
@@ -84,6 +86,12 @@ export function createEnhancementResources(
   const engines = new EnhancementEngineStore(root, null, { developmentDirectory });
   setEnhancementEngineStore(engines);
   const components = new Map<string, EnhancementComponent>();
+  const marketEmojiEnabled = developmentDressToolsEnabled();
+  const marketEmoji = createMarketEmojiComponent(
+    join(root, 'enhancements/market-emoji'),
+    marketEmojiEnabled,
+  );
+  components.set(marketEmoji.component.id, marketEmoji.component);
   for (const kind of ['onnx', 'sherpa'] as const) {
     components.set(`engine:${kind}`, {
       id: `engine:${kind}`,
@@ -268,6 +276,14 @@ export function createEnhancementResources(
           )
             throw new Error('装扮索引无法被当前原生模块读取，请先更新 WeQ');
         },
+      },
+      {
+        id: 'market-emoji',
+        name: '商城表情目录',
+        description: '下载后可离线搜索商城表情包。',
+        enabled: marketEmojiEnabled,
+        components: [marketEmoji.component.id],
+        validate: marketEmoji.validate,
       },
     ],
     components,
@@ -588,7 +604,9 @@ export function createEnhancementResources(
         await withValidation(() => getIntentEngine()?.validateModel?.('QWeQ-NineBird-v1'));
     };
   }
-  for (const definition of packs.definitions.filter((pack) => pack.id !== 'dress')) {
+  for (const definition of packs.definitions.filter((pack) =>
+    pack.components.some((id) => id.startsWith('engine:')),
+  )) {
     definition.lockActivation = async () => {
       const kinds = definition.components
         .filter((id) => id.startsWith('engine:'))
@@ -663,6 +681,8 @@ export function createEnhancementResources(
         )
           engines.restoreInstalled(snapshot.kind, snapshot.id);
         if (snapshot.type === 'dress' && dress) dress.restoreManifest(snapshot.manifest);
+        if (snapshot.type === 'market-emoji' && (receipt as { removed?: unknown }).removed !== true)
+          marketEmoji.restore(snapshot.version);
       }
     }
   } catch (error) {

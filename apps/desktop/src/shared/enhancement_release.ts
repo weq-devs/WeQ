@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   ENHANCEMENT_PACK_IDS,
   ENHANCEMENT_RUNTIME,
+  MARKET_EMOJI_ASSET,
   parseEnhancementEngineManifest,
   safeEnhancementPath,
   type EnhancementEngineArtifact,
@@ -59,6 +60,19 @@ const engine = z.object({
   type: z.literal('engine'),
   artifact: z.custom<EnhancementEngineArtifact>(),
 });
+const marketEmoji = z.object({
+  type: z.literal('market-emoji'),
+  asset: z.object({
+    name: z.literal(MARKET_EMOJI_ASSET),
+    url,
+    sizeBytes: z
+      .number()
+      .int()
+      .positive()
+      .max(16 * 1024 ** 2),
+    sha256: hash,
+  }),
+});
 const pack = z.object({
   id: z.enum(ENHANCEMENT_PACK_IDS),
   contentVersion: hash,
@@ -66,18 +80,19 @@ const pack = z.object({
   runtime: z.string().min(1),
   unavailable: z.string().max(300).optional(),
   components: z
-    .array(z.union([model, engine, dress]))
+    .array(z.union([model, engine, dress, marketEmoji]))
     .min(1)
     .max(8),
 });
 const catalog = z.object({
   schemaVersion: z.literal(1),
   target: z.string().regex(/^(darwin|linux|win32)-(arm64|x64)$/),
-  packs: z.array(pack).max(4),
+  packs: z.array(pack).max(ENHANCEMENT_PACK_IDS.length),
 });
 export type EnhancementRelease = z.infer<typeof pack>;
 export type EnhancementReleaseComponent = EnhancementRelease['components'][number];
 export type EnhancementCatalog = z.infer<typeof catalog>;
+export type MarketEmojiAsset = z.infer<typeof marketEmoji>['asset'];
 export interface EnhancementUpdateNotice {
   id: EnhancementPackId;
   name: string;
@@ -88,7 +103,21 @@ export const PACK_RUNTIMES = {
   voice: 'sensevoice-v1',
   intent: 'laya-v1',
   dress: 'ntdr-v1',
+  'market-emoji': 'market-csv-v1',
 } as const;
+
+export function enhancementComponentId(component: EnhancementReleaseComponent): string {
+  switch (component.type) {
+    case 'model':
+      return `model:${component.id}`;
+    case 'engine':
+      return `engine:${component.artifact?.kind}`;
+    case 'dress':
+      return 'dress:index';
+    case 'market-emoji':
+      return 'market-emoji:catalog';
+  }
+}
 
 /** 先读取稳定头部，旧客户端也能说明新版为什么需要先升级 WeQ。 */
 export function parseEnhancementCatalogForHost(
@@ -102,7 +131,7 @@ export function parseEnhancementCatalogForHost(
       target: z.string(),
       packs: z
         .array(pack.omit({ components: true }).extend({ components: z.array(z.unknown()) }))
-        .max(4),
+        .max(ENHANCEMENT_PACK_IDS.length),
     })
     .parse(input);
   if (headers.target !== target) throw new Error('增强包清单平台与当前宿主不匹配');
@@ -143,12 +172,7 @@ export function parseEnhancementCatalog(input: unknown): EnhancementCatalog {
     seen.add(entry.id);
     const ids = new Set<string>();
     for (const component of entry.components) {
-      const id =
-        component.type === 'model'
-          ? `model:${component.id}`
-          : component.type === 'engine'
-            ? `engine:${component.artifact?.kind}`
-            : 'dress:index';
+      const id = enhancementComponentId(component);
       if (ids.has(id)) throw new Error('增强包组件重复');
       ids.add(id);
       if (component.type === 'engine')
@@ -205,6 +229,7 @@ export function parseEnhancementCatalog(input: unknown): EnhancementCatalog {
       voice: ['engine:sherpa', 'model:sensevoice'],
       intent: ['engine:onnx', 'model:laya-multilingual'],
       dress: ['dress:index'],
+      'market-emoji': ['market-emoji:catalog'],
     }[entry.id];
     if (ids.size !== required.length || required.some((id) => !ids.has(id)))
       throw new Error('增强包组件与能力不匹配');

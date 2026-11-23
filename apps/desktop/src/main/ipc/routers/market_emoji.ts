@@ -160,7 +160,7 @@ export const marketEmojiRouter = router({
     }),
 
   /**
-   * 商城表情目录离线搜索（读打包的 resources/emoji/market.csv 内存索引）。
+   * 商城表情目录离线搜索（读已下载的商城表情目录增强包）。
    * 关键词匹配名称 + 介绍；feeTypes 按来源标签过滤；数值游标分页。不经账号会话、
    * 不联网 —— 供「导出中心 · 商城表情下载」挑包。
    */

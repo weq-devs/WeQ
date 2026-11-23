@@ -71,7 +71,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       marketEmoji: {
         startDownload: { mutate: saveState.download },
         searchCatalog: {
-          query: vi.fn().mockResolvedValue({ entries: [], total: 0, nextCursor: null }),
+          query: vi.fn().mockResolvedValue({
+            entries: [],
+            total: 0,
+            nextCursor: null,
+            catalogVersion: 'catalog-fixture',
+          }),
         },
       },
     },
@@ -245,6 +250,7 @@ it('目录使用预览卡片，接近视口才加载图片，返回保留目录�
     ],
     total: 2,
     nextCursor: null,
+    catalogVersion: 'catalog-fixture',
   });
   const host = document.createElement('div');
   document.body.append(host);

@@ -49,9 +49,15 @@ interface CatalogPage {
   entries: CatalogEntry[];
   total: number;
   nextCursor: string | null;
+  catalogVersion: string | null;
 }
 
-const EMPTY_CATALOG: CatalogPage = { entries: [], total: 0, nextCursor: null };
+const EMPTY_CATALOG: CatalogPage = {
+  entries: [],
+  total: 0,
+  nextCursor: null,
+  catalogVersion: null,
+};
 const feeSchema = z.set(z.enum(['free', 'paid', 'svip', 'vip', 'unknown']));
 
 const FEE_META: Record<MarketPackFeeType, { label: string; tone: string }> = {
@@ -352,6 +358,8 @@ function DevelopmentMarketEmojiBrowser({
   const { entries, total, nextCursor } = catalog;
   const done = nextCursor === null;
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
   // 响应到达后同步更新游标，防止观察器在 React 提交前再次请求同一页。
   const catalogRef = useRef(catalog);
   const request = useRef(0);
@@ -443,11 +451,7 @@ function DevelopmentMarketEmojiBrowser({
     const cached = embedded ? catalogCache.read<CatalogPage>(catalogKey) : undefined;
     catalogRef.current = cached ?? EMPTY_CATALOG;
     setResult({ key: catalogKey, page: catalogRef.current });
-    loadingRef.current = false;
-    if (cached) {
-      setLoading(false);
-      return cancel;
-    }
+    setSearchError(null);
     loadingRef.current = true;
     setLoading(true);
     (async () => {
@@ -460,11 +464,13 @@ function DevelopmentMarketEmojiBrowser({
           cursor: null,
         });
         if (request.current !== revision) return;
+        if (cached && cached.catalogVersion === page.catalogVersion) return;
         catalogRef.current = page;
         setResult({ key: catalogKey, page });
         if (embedded) catalogCache.write(catalogKey, page);
-      } catch {
-        // 请求失败时保留空目录。
+      } catch (error) {
+        if (request.current === revision)
+          setSearchError(error instanceof Error ? error.message : '读取商城表情目录失败');
       } finally {
         if (request.current === revision) {
           loadingRef.current = false;
@@ -473,7 +479,7 @@ function DevelopmentMarketEmojiBrowser({
       }
     })();
     return cancel;
-  }, [query, feeSel, latest, embedded, catalogCache, catalogKey]);
+  }, [query, feeSel, latest, embedded, catalogCache, catalogKey, refresh]);
 
   const loadMore = useCallback(async (): Promise<void> => {
     const current = catalogRef.current;
@@ -490,6 +496,10 @@ function DevelopmentMarketEmojiBrowser({
         cursor: current.nextCursor,
       });
       if (request.current !== revision) return;
+      if (current.catalogVersion !== page.catalogVersion) {
+        setRefresh((value) => value + 1);
+        return;
+      }
       const merged = { ...page, entries: [...current.entries, ...page.entries] };
       catalogRef.current = merged;
       setResult({ key: catalogKey, page: merged });
@@ -719,6 +729,15 @@ function DevelopmentMarketEmojiBrowser({
                 <Loader2 size={16} className="weq-emb-spin" />
                 搜索中…
               </div>
+            ) : entries.length === 0 && searchError ? (
+              <EmptyState compact icon={<SearchX />} title={searchError} />
+            ) : catalog.catalogVersion === null ? (
+              <EmptyState
+                compact
+                icon={<Store />}
+                title="请先下载商城表情目录"
+                body="在「设置 → 增强功能 → 增强包」安装后即可搜索。"
+              />
             ) : entries.length === 0 ? (
               <EmptyState compact icon={<SearchX />} title="没有匹配的表情包" />
             ) : (

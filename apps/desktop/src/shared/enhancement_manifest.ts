@@ -26,8 +26,10 @@ export const LEGACY_ENHANCEMENT_RUNTIME = {
   onnx: { runtime: 'onnx-v1', compatibility: 'r1-1.30.0-1.30.0-0.1.2-0.2.0' },
   sherpa: { runtime: 'sherpa-v1', compatibility: 'r1-1.13.3' },
 } as const;
-export const ENHANCEMENT_PACK_IDS = ['text', 'voice', 'intent', 'dress'] as const;
+export const ENHANCEMENT_PACK_IDS = ['text', 'voice', 'intent', 'dress', 'market-emoji'] as const;
 export type EnhancementPackId = (typeof ENHANCEMENT_PACK_IDS)[number];
+export const MARKET_EMOJI_MANIFEST = 'enhancement-market-emoji.json';
+export const MARKET_EMOJI_ASSET = 'market.csv';
 
 export interface EnhancementEngineFile {
   path: string;

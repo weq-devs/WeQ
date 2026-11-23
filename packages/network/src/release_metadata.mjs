@@ -1,6 +1,7 @@
 import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'node:crypto';
 
 export const FEED_TAG = 'weq-update-feed';
+export const MARKET_EMOJI_FEED_TAG = 'weq-market-emoji-feed';
 export const FEED_ASSET = 'update-index.json';
 export const RELEASE_SUMMARY_MAX_CHARS = 300;
 const DOMAIN = Buffer.from('WeQ release metadata v1\0');
@@ -28,7 +29,7 @@ export function validateReleaseIndex(value, repository) {
     if (
       !release ||
       !assetName(release.tag) ||
-      release.tag === FEED_TAG ||
+      [FEED_TAG, MARKET_EMOJI_FEED_TAG].includes(release.tag) ||
       typeof release.prerelease !== 'boolean' ||
       channels.has(release.prerelease) ||
       !Number.isFinite(Date.parse(release.publishedAt)) ||

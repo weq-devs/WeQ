@@ -729,6 +729,15 @@ function EmojiCatalogLightbox({
             )
           ) : catalog.isLoading ? (
             <div className={cn('emoji-state')}>搜索中…</div>
+          ) : catalog.error ? (
+            <EmptyState compact icon={<SearchX />} title={catalog.error.message} />
+          ) : catalog.data?.catalogVersion === null ? (
+            <EmptyState
+              compact
+              icon={<Store />}
+              title="请先下载商城表情目录"
+              body="在「设置 → 增强功能 → 增强包」安装后即可搜索。"
+            />
           ) : (catalog.data?.entries ?? []).length === 0 ? (
             <EmptyState compact icon={<SearchX />} title="没有找到匹配的表情包" />
           ) : (

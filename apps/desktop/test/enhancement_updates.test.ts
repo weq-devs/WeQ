@@ -7,6 +7,8 @@ import type { Platform } from '@weq/platform';
 import { UserConfigService, VOICE_MODELS } from '@weq/service';
 import { afterEach, expect, it, vi } from 'vitest';
 import { EnhancementUpdateController } from '../src/main/enhancements/updates';
+import { createMarketEmojiComponent } from '../src/main/enhancements/market_emoji_component';
+import { searchCatalog, setMarketCatalogReader } from '../src/main/market_catalog';
 import { EnhancementPacks, type EnhancementComponentState } from '../src/main/enhancements/packs';
 import {
   createRelease,
@@ -34,6 +36,80 @@ import { enhancementEngineCompatibility } from '../src/shared/enhancement_manife
 const roots: string[] = [];
 const controllers: EnhancementUpdateController[] = [];
 const sha = (text: string) => createHash('sha256').update(text).digest('hex');
+it('独立安装和更新商城目录，失败保留旧版，关闭装扮时隐藏', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-market-emoji-'));
+  roots.push(root);
+  const installedPath = join(root, 'market-emoji');
+  const receiptPath = join(root, 'ready.json');
+  const csv = (name: string) => `id,name,mark,feetype\n248001,${name},"包含,逗号",1\n`;
+  let response = csv('第一版');
+  const fetcher: typeof fetch = async () => new Response(response);
+  const create = (enabled: boolean) => {
+    const catalog = createMarketEmojiComponent(installedPath, enabled, fetcher);
+    const packs = new EnhancementPacks(
+      [
+        {
+          id: 'market-emoji',
+          name: '商城表情目录',
+          description: '',
+          enabled,
+          components: [catalog.component.id],
+          validate: catalog.validate,
+        },
+      ],
+      new Map([[catalog.component.id, catalog.component]]),
+      root,
+    );
+    return { catalog, packs };
+  };
+  const install = async (packs: EnhancementPacks, content: string) => {
+    packs.selectRelease(
+      createRelease('market-emoji', [
+        {
+          type: 'market-emoji',
+          asset: {
+            name: 'market.csv',
+            url: 'https://example.invalid/market.csv',
+            sizeBytes: Buffer.byteLength(content),
+            sha256: sha(content),
+          },
+        },
+      ]),
+      null,
+    );
+    packs.start(['market-emoji']);
+    await packs.wait();
+  };
+  try {
+    const { packs } = create(true);
+    expect(searchCatalog({}).catalogVersion).toBeNull();
+    await install(packs, response);
+    expect(searchCatalog({ keyword: '包含,逗号' }).entries[0]?.name).toBe('第一版');
+
+    response = '有相符的哈希，但不是目录';
+    await install(packs, response);
+    expect((await packs.list())[0]?.operation?.phase).toBe('failed');
+    expect(searchCatalog({}).entries[0]?.name).toBe('第一版');
+
+    response = csv('第二版');
+    await install(packs, response);
+    expect(searchCatalog({}).entries[0]?.name).toBe('第二版');
+    const receipt = JSON.parse(await readFile(receiptPath, 'utf8'))['market-emoji'];
+    const hidden = create(false);
+    hidden.catalog.restore(receipt.components[0].version);
+    expect(await hidden.packs.list()).toEqual([]);
+    expect(searchCatalog({}).catalogVersion).toBeNull();
+    expect(() => hidden.packs.start(['market-emoji'])).toThrow('增强包不可用');
+
+    const reopened = create(true);
+    reopened.catalog.restore(receipt.components[0].version);
+    expect(searchCatalog({}).entries[0]?.name).toBe('第二版');
+    await reopened.packs.remove('market-emoji');
+    expect(searchCatalog({}).catalogVersion).toBeNull();
+  } finally {
+    setMarketCatalogReader(() => null);
+  }
+});
 const nativeCommit = 'a'.repeat(40);
 // 本文件覆盖旧发布契约；新签名索引端点明确不存在，不消耗旧接口的失败注入。
 const legacyFetch =

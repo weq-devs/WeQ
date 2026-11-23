@@ -23,11 +23,11 @@ const feeds = new Map<string, ReleaseFeed>();
 export function configureReleaseFeeds(directory: string) {
   root = directory;
 }
-export function getReleaseFeed(repository: string) {
-  const key = `${root ?? ''}:${repository}`;
+export function getReleaseFeed(repository: string, feedTag = FEED_TAG) {
+  const key = `${root ?? ''}:${repository}:${feedTag}`;
   let feed = feeds.get(key);
   if (!feed) {
-    feed = new ReleaseFeed(repository, root);
+    feed = new ReleaseFeed(repository, root, releaseKeys, feedTag);
     feeds.set(key, feed);
   }
   return feed;
@@ -43,11 +43,16 @@ export class ReleaseFeed {
     private readonly repository: string,
     private readonly directory?: string,
     private readonly keys = releaseKeys,
+    private readonly feedTag = FEED_TAG,
   ) {}
   private get path() {
     return (
       this.directory &&
-      join(this.directory, 'updates', `${this.repository.replace('/', '-')}-signed.json`)
+      join(
+        this.directory,
+        'updates',
+        `${this.repository.replace('/', '-')}${this.feedTag === FEED_TAG ? '' : `-${this.feedTag}`}-signed.json`,
+      )
     );
   }
   private adopt(index: ReleaseIndex) {
@@ -122,7 +127,7 @@ export class ReleaseFeed {
     const deadline = Date.now() + 20000;
     const sources = orderSources(
       downloadSources(
-        `https://github.com/${this.repository}/releases/download/${FEED_TAG}/${FEED_ASSET}`,
+        `https://github.com/${this.repository}/releases/download/${this.feedTag}/${FEED_ASSET}`,
       ),
     );
     for (let at = 0; at < sources.length && Date.now() < deadline; at += 3) {

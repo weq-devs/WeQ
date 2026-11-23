@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import {
   FEED_TAG,
   FEED_ASSET,
+  MARKET_EMOJI_FEED_TAG,
   RELEASE_SUMMARY_MAX_CHARS,
   signReleaseIndex,
   verifyReleaseIndex,
@@ -17,10 +18,12 @@ import { extractSection } from './extract-changelog.mjs';
 const require = createRequire(new URL('../packages/network/package.json', import.meta.url));
 const semver = require('semver');
 const metadataAsset = (name) =>
-  /^(?:enhancement-(?:packs-|engines-).+\.json|enhancement-pack\.json|index-manifest\.json|(?:latest|beta|alpha|rc).*\.yml)$/.test(
+  /^(?:enhancement-(?:packs-|engines-).+\.json|enhancement-(?:pack|market-emoji)\.json|index-manifest\.json|(?:latest|beta|alpha|rc).*\.yml)$/.test(
     name,
   );
 const hash = (text) => createHash('sha256').update(text).digest('hex');
+const isFeedTag = (tag) => tag === FEED_TAG || tag === MARKET_EMOJI_FEED_TAG;
+const isMarketEmojiTag = (tag) => tag.startsWith('market-emoji-');
 
 function releaseSummary(changelog, tag) {
   const firstBullet = /^[-*][ \t]+(.+)$/m.exec(extractSection(changelog, tag))?.[1];
@@ -35,7 +38,7 @@ function releaseSummary(changelog, tag) {
 }
 
 export async function describeRelease(repository, release, readAsset) {
-  if (release.draft !== false || !release.published_at || release.tag_name === FEED_TAG)
+  if (release.draft !== false || !release.published_at || isFeedTag(release.tag_name))
     throw new Error('只能为已确认公开的正式资源生成索引');
   const version = repository.endsWith('/WeQ') ? semver.valid(release.tag_name) : null;
   if (repository.endsWith('/WeQ') && !version) throw new Error('应用发布标签不是有效版本');
@@ -105,7 +108,9 @@ export async function publishReleaseFeed({
     publicKeys,
   );
   const releases = await api('GET', '/releases?per_page=100');
-  const feed = releases.find((item) => item.tag_name === FEED_TAG);
+  const marketEmoji = repository.endsWith('/dress-resources') && isMarketEmojiTag(tag);
+  const feedTag = marketEmoji ? MARKET_EMOJI_FEED_TAG : FEED_TAG;
+  const feed = releases.find((item) => item.tag_name === feedTag);
   let previous;
   const oldAsset = feed?.assets.find((item) => item.name === FEED_ASSET);
   if (oldAsset)
@@ -119,7 +124,9 @@ export async function publishReleaseFeed({
           (item) =>
             !item.draft &&
             item.published_at &&
-            item.tag_name !== FEED_TAG &&
+            !isFeedTag(item.tag_name) &&
+            (!repository.endsWith('/dress-resources') ||
+              isMarketEmojiTag(item.tag_name) === marketEmoji) &&
             (!repository.endsWith('/WeQ') || semver.valid(item.tag_name)),
         )
         .sort((a, b) =>
@@ -145,9 +152,9 @@ export async function publishReleaseFeed({
   const release =
     feed ??
     (await api('POST', '/releases', {
-      tag_name: FEED_TAG,
+      tag_name: feedTag,
       target_commitish: current.target_commitish,
-      name: 'WeQ update feed',
+      name: marketEmoji ? 'WeQ market emoji update feed' : 'WeQ update feed',
       draft: true,
       prerelease: true,
       make_latest: 'false',
@@ -211,12 +218,20 @@ async function main() {
       ],
       { encoding: 'utf8', maxBuffer: 8 * 1024 ** 2 },
     );
-  const upload = async (_release, signed) => {
+  const upload = async (release, signed) => {
     const directory = await mkdtemp(join(tmpdir(), 'weq-release-feed-'));
     try {
       const path = join(directory, FEED_ASSET);
       await writeFile(path, JSON.stringify(signed));
-      execFileSync('gh', ['release', 'upload', FEED_TAG, path, '--repo', repository, '--clobber']);
+      execFileSync('gh', [
+        'release',
+        'upload',
+        release.tag_name,
+        path,
+        '--repo',
+        repository,
+        '--clobber',
+      ]);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

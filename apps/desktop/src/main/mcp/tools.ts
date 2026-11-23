@@ -5336,7 +5336,7 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'search_market_emoji',
     description:
-      '搜索【商城表情包目录】（本地离线索引 25000+ 套：resources/emoji/market.csv）。' +
+      '搜索【商城表情包目录】（需安装商城表情目录增强包）。' +
       'keyword 对名称/介绍做子串匹配；feeTypes 过滤来源（free/paid/vip/svip）。返回 packId、名称、介绍、来源标签。' +
       '拿到 packId 后接 get_market_pack_detail 看单套表情清单、get_market_pack_key 破解图片密钥。',
     input: z.object({
@@ -5356,6 +5356,8 @@ export const AI_TOOLS: AiTool[] = [
         limit,
         ...(cursor ? { cursor } : {}),
       });
+      if (!page.catalogVersion)
+        throw new Error('请先在「设置 → 增强功能 → 增强包」下载商城表情目录');
       return {
         total: page.total,
         count: page.entries.length,

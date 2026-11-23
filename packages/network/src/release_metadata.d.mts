@@ -1,4 +1,5 @@
 export const FEED_TAG: string;
+export const MARKET_EMOJI_FEED_TAG: string;
 export const FEED_ASSET: string;
 export const RELEASE_SUMMARY_MAX_CHARS: number;
 export interface ReleaseAsset {

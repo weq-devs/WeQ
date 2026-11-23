@@ -42,6 +42,8 @@ test('资源复制保留索引清单、排名及界面素材，不携带大索�
     'dress/fetch-state.json',
     'dress/ranking-font.json',
     'dress/screen/1/config.json',
+    'emoji/market.csv',
+    'emoji/emoji_config.json',
     'brand/logo.png',
     'daemon/old-binary',
   ];
@@ -64,6 +66,7 @@ test('资源复制保留索引清单、排名及界面素材，不携带大索�
     'screen',
   ]);
   assert.equal(await readFile(join(output, 'dress/screen/1/config.json'), 'utf8'), 'fixture');
+  assert.deepEqual(await readdir(join(output, 'emoji')), ['emoji_config.json']);
   await writeFile(join(output, 'dress/bubble.dat'), 'unexpected');
   assert.throws(() => verifyPackagedDressResources(output), /不应包含/);
 });

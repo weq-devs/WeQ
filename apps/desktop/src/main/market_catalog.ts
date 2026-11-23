@@ -2,7 +2,7 @@
  * 商城表情目录（离线内存索引）。
  *
  * 用户爬取的 25000+ 套商城表情元数据存在 `resources/emoji/market.csv`
- * （表头 `id,name,mark,feetype`）。首次访问时把整张表解析进模块级数组并缓存，
+ * （表头 `id,name,mark,feetype`）。首次访问时解析宿主已安装的目录版本，
  * 之后所有搜索/筛选/分页都在内存里跑 —— 纯离线，不碰网络也不经账号会话。
  *
  * 用于「导出中心 · 商城表情下载」：用户搜关键词挑表情包，勾选后交给
@@ -13,9 +13,7 @@
  * RFC4180 解析器，不能 `split(',')`。
  */
 
-import { readFileSync } from 'node:fs';
 import { marketFeeTypeLabel, type MarketPackFeeType } from '@weq/service';
-import { resolveResource } from './resource';
 
 /** 目录里的一套表情包（投影给前端的字段）。 */
 export interface MarketCatalogEntry {
@@ -36,6 +34,7 @@ export interface MarketCatalogPage {
   total: number;
   /** 下一页游标（数值下标的字符串），耗尽为 null。 */
   nextCursor: string | null;
+  catalogVersion: string | null;
 }
 
 const DEFAULT_LIMIT = 60;
@@ -48,8 +47,16 @@ const MAX_LIMIT = 200;
  */
 const LATEST_LIMIT = 200;
 
-/** 模块级缓存：解析一次，常驻。null = 尚未加载。 */
-let catalog: MarketCatalogEntry[] | null = null;
+interface MarketCatalog {
+  version: string;
+  entries: MarketCatalogEntry[];
+}
+
+let readCatalog: () => MarketCatalog | null = () => null;
+
+export function setMarketCatalogReader(read: () => MarketCatalog | null): void {
+  readCatalog = read;
+}
 
 /**
  * 解析一段 RFC4180 CSV 文本为字段矩阵。处理：字段内逗号、`"` 包裹、`""` 转义引号、
@@ -115,41 +122,29 @@ function parseCsv(text: string): string[][] {
     field += c;
     i += 1;
   }
+  if (inQuotes) throw new Error('商城表情目录的引号字段未闭合');
   // 收尾：最后一行没有换行结尾时补上（忽略纯空尾行）。
   if (field.length > 0 || row.length > 0) endRow();
   return rows;
 }
 
-/** 懒加载 + 解析 CSV，缓存到模块级 `catalog`。找不到文件/解析失败返回空表。 */
-function loadCatalog(): MarketCatalogEntry[] {
-  if (catalog) return catalog;
-  const path = resolveResource('emoji', 'market.csv');
-  if (!path) {
-    catalog = [];
-    return catalog;
+export function parseMarketCatalog(text: string): MarketCatalogEntry[] {
+  const [header, ...rows] = parseCsv(text);
+  if (header?.join(',') !== 'id,name,mark,feetype') throw new Error('商城表情目录表头无效');
+  const entries: MarketCatalogEntry[] = [];
+  for (const cols of rows) {
+    if (cols.length === 1 && !cols[0]?.trim()) continue;
+    const id = (cols[0] ?? '').trim();
+    if (cols.length !== 4 || !/^\d+$/.test(id)) throw new Error('商城表情目录条目无效');
+    entries.push({
+      id,
+      name: cols[1]!.trim(),
+      mark: cols[2]!,
+      feeType: marketFeeTypeLabel(Number(cols[3]!.trim()) || 0),
+    });
   }
-  try {
-    const text = readFileSync(path, 'utf-8');
-    const rows = parseCsv(text);
-    const out: MarketCatalogEntry[] = [];
-    // 首行是表头 `id,name,mark,feetype`，跳过。
-    for (let r = 1; r < rows.length; r++) {
-      const cols = rows[r]!;
-      const id = (cols[0] ?? '').trim();
-      if (!/^\d+$/.test(id)) continue; // 跳过空行 / 脏行
-      const feeTypeRaw = Number((cols[3] ?? '').trim()) || 0;
-      out.push({
-        id,
-        name: (cols[1] ?? '').trim(),
-        mark: cols[2] ?? '',
-        feeType: marketFeeTypeLabel(feeTypeRaw),
-      });
-    }
-    catalog = out;
-  } catch {
-    catalog = [];
-  }
-  return catalog;
+  if (!entries.length) throw new Error('商城表情目录为空');
+  return entries;
 }
 
 /**
@@ -167,7 +162,8 @@ export function searchCatalog(opts: {
   limit?: number;
   cursor?: string | null;
 }): MarketCatalogPage {
-  const all = loadCatalog();
+  const catalog = readCatalog();
+  const all = catalog?.entries ?? [];
   const kw = (opts.keyword ?? '').trim().toLowerCase();
   // 最新上架是「时间序」视图，不与来源筛选混用（否则语义含糊）。
   const feeSet =
@@ -195,6 +191,7 @@ export function searchCatalog(opts: {
     entries: slice,
     total,
     nextCursor: nextIndex < total ? String(nextIndex) : null,
+    catalogVersion: catalog?.version ?? null,
   };
 }
 

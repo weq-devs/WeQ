@@ -1,4 +1,5 @@
 import { networkFetch } from '@weq/network';
+import { MARKET_EMOJI_FEED_TAG } from '@weq/network/release-metadata';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import semver from 'semver';
@@ -18,6 +19,7 @@ import { getReleaseFeed } from '../update/release_feed';
 import { fetchSourceJson } from '@weq/network';
 import {
   ENHANCEMENT_PACK_IDS,
+  MARKET_EMOJI_MANIFEST,
   parseEnhancementEngineManifest,
   type EnhancementPackId,
 } from '../../shared/enhancement_manifest';
@@ -44,7 +46,14 @@ const releaseList = z.array(
     draft: z.boolean(),
     prerelease: z.boolean(),
     published_at: z.string().nullable(),
-    assets: z.array(z.object({ name: z.string() })),
+    assets: z.array(
+      z.object({
+        name: z.string(),
+        size: z.number().optional(),
+        sha256: z.string().optional(),
+        digest: z.string().nullable().optional(),
+      }),
+    ),
   }),
 );
 const CHECK_PAUSED = new Error('enhancement check paused');
@@ -241,17 +250,18 @@ export class EnhancementUpdateController {
   }
 
   check(ids: readonly EnhancementPackId[], automatic = false): Promise<void> {
+    const requested = [...new Set(ids)].filter((id) => this.packs.isEnabled(id));
+    if (!requested.length) return Promise.resolve();
     if (this.pending) {
       if (!automatic) {
         this.forceCheck = true;
         this.continueCheck?.();
       }
-      const missing = ids.filter((id) => !this.pendingIds.has(id));
+      const missing = requested.filter((id) => !this.pendingIds.has(id));
       return missing.length
         ? this.pending.catch(() => {}).then(() => this.check(missing, automatic))
         : this.pending;
     }
-    const requested = [...new Set(ids)];
     this.pendingIds = new Set(requested);
     this.pending = this.performCheck(requested, automatic).finally(() => {
       this.pending = undefined;
@@ -303,18 +313,21 @@ export class EnhancementUpdateController {
       for (const packId of ids)
         this.states.set(packId, { ...this.state(packId), phase: 'checking', error: undefined });
       const results = await Promise.allSettled([
-        ids.some((id) => id !== 'dress')
+        ids.some((id) => id !== 'dress' && id !== 'market-emoji')
           ? this.fetchCatalog('weq-devs/WeQ', `enhancement-packs-${this.target}.json`)
           : Promise.resolve(null),
         ids.includes('dress')
           ? this.fetchCatalog('weq-devs/dress-resources', 'enhancement-pack.json')
+          : Promise.resolve(null),
+        ids.includes('market-emoji')
+          ? this.fetchCatalog('weq-devs/dress-resources', MARKET_EMOJI_MANIFEST)
           : Promise.resolve(null),
       ]);
       // 清单已取回，网络策略不再参与结果保存和通知。
       stopWatching();
       const errors: string[] = [];
       for (const packId of ids) {
-        const result = results[packId === 'dress' ? 1 : 0]!;
+        const result = results[packId === 'dress' ? 1 : packId === 'market-emoji' ? 2 : 0]!;
         const entry =
           result.status === 'fulfilled'
             ? result.value?.packs.find((entry) => entry.id === packId)
@@ -425,7 +438,8 @@ export class EnhancementUpdateController {
       );
   }
   private async fetchCatalog(repository: string, asset: string): Promise<EnhancementCatalog> {
-    const feed = getReleaseFeed(repository);
+    const isMarketEmoji = asset === MARKET_EMOJI_MANIFEST;
+    const feed = getReleaseFeed(repository, isMarketEmoji ? MARKET_EMOJI_FEED_TAG : undefined);
     let signedIndex: Awaited<ReturnType<typeof feed.read>>;
     for (;;) {
       await this.gate?.wait(this.abort.signal);
@@ -457,7 +471,11 @@ export class EnhancementUpdateController {
     );
     const includePrerelease = this.config.getSettings().updateCheckPrerelease;
     const isDress = repository.endsWith('/dress-resources');
-    const legacyAsset = isDress ? 'index-manifest.json' : `enhancement-engines-${this.target}.json`;
+    const legacyAsset = isMarketEmoji
+      ? undefined
+      : isDress
+        ? 'index-manifest.json'
+        : `enhancement-engines-${this.target}.json`;
     const releases = data.filter(
       (release) =>
         !release.draft &&
@@ -473,10 +491,11 @@ export class EnhancementUpdateController {
     const latest = releases[0];
     if (!latest) throw new Error('此来源尚未发布增强包更新清单');
     const unified = latest.assets.some((item) => item.name === asset);
+    const descriptor = unified ? asset : legacyAsset!;
     const baseUrl = `https://github.com/${repository}/releases/download/${encodeURIComponent(latest.tag_name)}`;
-    const url = `${baseUrl}/${unified ? asset : legacyAsset}`;
+    const url = `${baseUrl}/${descriptor}`;
     const signed = signedIndex?.releases.find((release) => release.tag === latest.tag_name)
-      ?.catalogs[unified ? asset : legacyAsset];
+      ?.catalogs[descriptor];
     const parse = (input: unknown) => {
       let value = input;
       if (!unified) {
@@ -506,11 +525,31 @@ export class EnhancementUpdateController {
           value = createEnhancementCatalog(manifest, this.options.legacyModels ?? []);
         }
       }
-      return parseEnhancementCatalogForHost(
+      const catalog = parseEnhancementCatalogForHost(
         isDress ? { ...(value as object), target: this.target } : value,
         this.options.currentVersion(),
         this.target,
       );
+      if (isMarketEmoji) {
+        const entry = catalog.packs[0];
+        if (catalog.packs.length !== 1 || entry?.id !== 'market-emoji')
+          throw new Error('商城表情目录发布描述不匹配');
+        if (!entry.unavailable) {
+          const component = entry.components[0];
+          if (component?.type !== 'market-emoji') throw new Error('商城表情目录资源描述不匹配');
+          const file = component.asset;
+          const published = latest.assets.find((item) => item.name === file.name);
+          const digest = published?.sha256 ?? published?.digest?.replace(/^sha256:/, '');
+          if (
+            !published ||
+            file.url !== `${baseUrl}/${file.name}` ||
+            (published.size !== undefined && published.size !== file.sizeBytes) ||
+            (digest !== undefined && digest !== file.sha256)
+          )
+            throw new Error('商城表情目录清单与已发布资产不匹配');
+        }
+      }
+      return catalog;
     };
     if (signed) return parse(JSON.parse(signed));
     for (;;) {

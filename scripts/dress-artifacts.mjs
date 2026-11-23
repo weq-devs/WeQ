@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 
 export function validateDressManifest(manifest, nativePin) {
@@ -49,6 +49,7 @@ export function checkDressManifest(root) {
 export function includeSharedResource(source, resourcesRoot) {
   const path = relative(resourcesRoot, source).split(sep);
   if (path[0] === 'daemon') return false;
+  if (path.length === 2 && path[0] === 'emoji' && path[1] === 'market.csv') return false;
   return !(
     path[0] === 'dress' &&
     path.length === 2 &&
@@ -59,6 +60,8 @@ export function includeSharedResource(source, resourcesRoot) {
 }
 
 export function verifyPackagedDressResources(resourcesRoot) {
+  if (existsSync(join(resourcesRoot, 'emoji/market.csv')))
+    throw new Error('安装包不应包含商城表情目录');
   const directory = join(resourcesRoot, 'dress');
   validateDressManifest(JSON.parse(readFileSync(join(directory, 'index-manifest.json'), 'utf8')));
   if (

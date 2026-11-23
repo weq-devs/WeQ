@@ -2,7 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, createHash } from 'node:crypto';
 import { describeRelease, mergeReleaseIndex, publishReleaseFeed } from './publish-release-feed.mjs';
-import { verifyReleaseIndex } from '../packages/network/src/release_metadata.mjs';
+import {
+  MARKET_EMOJI_FEED_TAG,
+  verifyReleaseIndex,
+} from '../packages/network/src/release_metadata.mjs';
 
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const catalog = JSON.stringify({ schemaVersion: 1 });
@@ -48,6 +51,40 @@ test('旧任务不能覆盖更新的渠道版本', async () => {
     mergeReleaseIndex('weq-devs/WeQ', { releases: [newer] }, [older]).releases[0].version,
     '2.8.0',
   );
+});
+test('表情目录和装扮索引使用独立签名索引', async () => {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const releaseTag = 'market-emoji-0123456789ab';
+  const market = {
+    ...release(),
+    tag_name: releaseTag,
+    assets: [{ ...release().assets[0], name: 'enhancement-market-emoji.json' }],
+  };
+  const dress = { ...release(), tag_name: 'dress-1', published_at: '2026-11-17T00:00:00Z' };
+  const writes = [];
+  const repository = 'weq-devs/dress-resources';
+  const publicKeys = [publicKey.export({ type: 'spki', format: 'pem' }).toString()];
+  await publishReleaseFeed({
+    repository,
+    tag: releaseTag,
+    privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    publicKeys,
+    api: async (method, _path, body) => {
+      if (method === 'GET') return [dress, market];
+      writes.push(body);
+      return { id: 2, draft: true };
+    },
+    readAsset: async () => catalog,
+    upload: async (_release, signed) => {
+      const { releases } = verifyReleaseIndex(signed, repository, publicKeys);
+      assert.deepEqual(
+        releases.map((item) => item.tag),
+        [releaseTag],
+      );
+      assert.equal(releases[0].catalogs['enhancement-market-emoji.json'], catalog);
+    },
+  });
+  assert.equal(writes[0].tag_name, MARKET_EMOJI_FEED_TAG);
 });
 test('先核对签名者，再创建及公开索引；错误密钥不产生远端写入', async () => {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');

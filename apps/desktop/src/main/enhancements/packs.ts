@@ -2,9 +2,10 @@ import { readFile } from 'node:fs/promises';
 import { writeFileAtomic } from '@weq/service';
 import { join } from 'node:path';
 import { ENHANCEMENT_PACK_IDS, type EnhancementPackId } from '../../shared/enhancement_manifest';
-import type {
-  EnhancementRelease,
-  EnhancementReleaseComponent,
+import {
+  enhancementComponentId,
+  type EnhancementRelease,
+  type EnhancementReleaseComponent,
 } from '../../shared/enhancement_release';
 import { TransferGate } from '@weq/service/data-saver';
 import { networkScope } from '@weq/service/network-scope';
@@ -52,6 +53,7 @@ export interface EnhancementPackDefinition {
   id: EnhancementPackId;
   name: string;
   description: string;
+  enabled?: boolean;
   components: string[];
   validate(): Promise<void>;
   validateShared?(): Promise<void>;
@@ -136,6 +138,7 @@ export class EnhancementPacks {
     blocker: string | null,
     requiresWeqUpdate = !!blocker,
   ): void {
+    if (!this.isEnabled(release.id)) return;
     this.releases.set(release.id, { release, blocker, requiresWeqUpdate });
     if (this.pending.has(release.id)) return;
     if (blocker) return;
@@ -144,12 +147,7 @@ export class EnhancementPacks {
   private selectComponents(release: EnhancementRelease, queued = false) {
     const definition = this.definitions.find((pack) => pack.id === release.id)!;
     for (const component of release.components) {
-      const id =
-        component.type === 'model'
-          ? `model:${component.id}`
-          : component.type === 'engine'
-            ? `engine:${component.artifact.kind}`
-            : 'dress:index';
+      const id = enhancementComponentId(component);
       if (!definition.components.includes(id)) throw new Error('增强包组件不匹配');
       if (
         queued ||
@@ -165,10 +163,15 @@ export class EnhancementPacks {
     );
   }
 
+  isEnabled(id: EnhancementPackId): boolean {
+    return this.definitions.some((pack) => pack.id === id && pack.enabled !== false);
+  }
+
   async list() {
     await this.loaded;
     await Promise.all([...this.components.values()].map((component) => component.inspect?.()));
-    return this.definitions.map((pack) => {
+    const enabled = this.definitions.filter((pack) => pack.enabled !== false);
+    return enabled.map((pack) => {
       const components = pack.components.map((id) => this.components.get(id)!);
       const states = components.map((component) => component.state());
       const operation = this.operations.get(pack.id);
@@ -246,7 +249,9 @@ export class EnhancementPacks {
 
   plan(ids: readonly EnhancementPackId[]) {
     const components = new Set(
-      this.definitions.filter((pack) => ids.includes(pack.id)).flatMap((pack) => pack.components),
+      this.definitions
+        .filter((pack) => pack.enabled !== false && ids.includes(pack.id))
+        .flatMap((pack) => pack.components),
     );
     let downloadBytes = 0;
     let sizeOnDisk = 0;
@@ -262,7 +267,7 @@ export class EnhancementPacks {
     for (const id of new Set(ids)) {
       if (this.pending.has(id)) continue;
       const pack = this.definitions.find((pack) => pack.id === id);
-      if (!pack) throw new Error('未知增强包');
+      if (!pack || pack.enabled === false) throw new Error('增强包不可用');
       if (pack.components.some((component) => this.deleting.has(component)))
         throw new Error('增强包正在删除，请稍后重试');
       const blocker =
@@ -533,7 +538,7 @@ export class EnhancementPacks {
 
   async remove(id: EnhancementPackId): Promise<void> {
     const pack = this.definitions.find((pack) => pack.id === id);
-    if (!pack) throw new Error('未知增强包');
+    if (!pack || pack.enabled === false) throw new Error('增强包不可用');
     const removable = pack.components.filter((component) => !this.shared(id, component));
     if (
       this.pending.has(id) ||

@@ -14,6 +14,7 @@ import {
   Pause,
   Play,
   Settings2,
+  Sticker,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
@@ -26,7 +27,13 @@ import { TimeLabel } from '../TimeLabel';
 import '../../styles/enhancement-packs.css';
 import { enhancementBytes } from './EnhancementPacksSection.shared';
 
-const ICONS = { text: ScanText, voice: AudioLines, intent: BrainCircuit, dress: Palette };
+const ICONS = {
+  text: ScanText,
+  voice: AudioLines,
+  intent: BrainCircuit,
+  dress: Palette,
+  'market-emoji': Sticker,
+};
 
 export function EnhancementPacksSection() {
   const active = useTabActive();
@@ -65,6 +72,7 @@ export function EnhancementPacksSection() {
       utils.bootstrap.localModelResources.invalidate(),
       utils.bootstrap.getLocalEngine.invalidate(),
       utils.bootstrap.getSettings.invalidate(),
+      utils.account.marketEmoji.searchCatalog.invalidate(),
       utils.account.intentSense.getStatus.invalidate(),
     ]);
   }
