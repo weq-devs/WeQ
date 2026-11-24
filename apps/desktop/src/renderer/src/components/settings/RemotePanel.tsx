@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Card, Row, Toggle } from './controls';
 import { Modal } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
 import { useModalBackground } from '../../lib/modalBackground';
 import '../../styles/remote.css';
 import {
@@ -120,6 +121,20 @@ export function RemotePanel({
   const generateButton = useRef<HTMLButtonElement>(null);
   const restorePairFocus = useRef(false);
   useModalBackground(keyForm, active && keyPrompt);
+  async function confirmDeviceRemoval(
+    { id, name }: RemoteStatus['devices'][number],
+    ownerDocument: Document,
+  ) {
+    const confirmed = await useDialog
+      .getState()
+      .confirm(
+        '删除已配对设备？',
+        `删除「${name}」会撤销这部手机的访问权限并断开连接。再次连接需要重新配对。`,
+        { danger: 'outline', okLabel: '删除设备', ownerDocument },
+      );
+    if (confirmed) onRevoke(id);
+  }
+
   useLayoutEffect(() => {
     if (!keyPrompt && restorePairFocus.current) {
       restorePairFocus.current = false;
@@ -567,10 +582,12 @@ export function RemotePanel({
                   data-danger="outline"
                   type="button"
                   className="weq-set-iconbtn"
-                  title="撤销设备授权"
-                  aria-label={`撤销 ${device.name}`}
+                  title="删除设备"
+                  aria-label={`删除 ${device.name}`}
                   disabled={busy}
-                  onClick={() => onRevoke(device.id)}
+                  onClick={(event) =>
+                    void confirmDeviceRemoval(device, event.currentTarget.ownerDocument)
+                  }
                 >
                   <Trash2 size={16} />
                 </button>
