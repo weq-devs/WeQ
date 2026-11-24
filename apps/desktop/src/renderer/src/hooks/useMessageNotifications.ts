@@ -306,7 +306,7 @@ export function useMessageNotifications(options: {
             kind: message.kind,
             conv: message.conv,
             seq: anchor.msgSeq,
-            msgId: anchor.live ? undefined : anchor.msgId,
+            msgId: anchor.live ? anchor.noticeIdentity : anchor.msgId,
           };
           const notice: WebNotice = {
             uin: scope.expectedAccountUin,

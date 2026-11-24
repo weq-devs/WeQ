@@ -835,7 +835,7 @@ function mapPtt(el: PttElement): RenderPttElement {
       pttDuration: el.pttDuration,
       voiceChanged: el.voiceChanged,
       isAiVoice: el.isAiVoice,
-      waveform: Array.from(el.waveform),
+      waveform: Array.from(el.waveform ?? []),
       pttTranscript: el.pttTranscript,
       md5Bytes: toHex(el.md5Bytes),
       md5: el.md5,

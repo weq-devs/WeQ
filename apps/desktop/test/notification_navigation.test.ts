@@ -5,6 +5,7 @@ import { ToastHost } from '../src/renderer/src/components/Toast';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import * as preferences from '../src/renderer/src/lib/clientPreferences';
 import { NotificationSourceProvider } from '../src/renderer/src/lib/notificationNavigation';
+import { findTimelineMessageById } from '../src/renderer/src/views/workspace/messageProjection';
 import {
   notificationSource,
   onNotificationNavigation,
@@ -46,6 +47,36 @@ it.each([
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+it('代理通知在落库前后命中同一消息，不跳到同序号的其他行', () => {
+  const live = {
+    msgId: '7',
+    msgSeq: '42',
+    msgRandom: '7',
+    senderUid: 'u_peer',
+    senderUin: '10002',
+    sendTime: '1',
+    elements: [],
+    source: 'roaming',
+    sourceFormat: 'protocol',
+  } as const;
+  const wrong = { ...live, elements: [], msgId: '100', msgRandom: '8' };
+  const native = {
+    ...live,
+    elements: [],
+    msgId: '101',
+    source: undefined,
+    sourceFormat: undefined,
+  };
+  const target = 'proxy:42:7:u_peer';
+  expect(findTimelineMessageById([wrong, { ...live, elements: [] }], target, '42')).toMatchObject({
+    msgId: '7',
+  });
+  expect(findTimelineMessageById([wrong, native], target, '42')).toBe(native);
+  expect(
+    findTimelineMessageById([wrong, { ...native, senderUid: 'u_other' }], target, '42'),
+  ).toBeUndefined();
 });
 
 it('来源随操作闭包保留，定位后只收起被打开的横幅', async () => {

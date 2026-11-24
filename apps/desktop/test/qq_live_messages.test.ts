@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { expect, it, vi } from 'vitest';
-import { encode, MSG_PUSH_ENVELOPE } from '@weqbot/protocol';
+import { ELEM, encode, MSG_PUSH_ENVELOPE, PIC_COMMON_PB, PTT_COMMON_PB } from '@weqbot/protocol';
 import { buildClientReadNotify } from '@weqbot/protocol/qq-sync';
 import {
   FRIEND_RECALL,
@@ -45,6 +45,82 @@ it('只接收当前账号的实时普通文本，私聊采用 NT 会话序号', 
     ['c2c', 'u_peer', '110', '7'],
   ]);
   expect(rows[0]?.elements).toMatchObject([{ type: 'text', data: { textContent: 'hello' } }]);
+});
+
+it('提前投影普通引用、单图及可定位语音，缺字段、特殊媒体和未知混排留给落库', () => {
+  const reply = {
+    replyElement: {
+      origMsgSeq: [90],
+      origSenderUin: 10001,
+      origMsgTime: now / 1000 - 4,
+      origElementsRaw: [encode(ELEM, { text: { str: 'original' } })],
+    },
+  };
+  const picture = {
+    commonElem: {
+      serviceType: 48,
+      businessType: 20,
+      pbElem: encode(PIC_COMMON_PB, {
+        file: {
+          body: {
+            info: { fileName: 'picture.png', imgWidth: 320, imgHeight: 240 },
+            fileToken: 'image-token',
+          },
+        },
+      }),
+    },
+  };
+  const voice = {
+    commonElem: {
+      serviceType: 48,
+      businessType: 12,
+      pbElem: encode(PTT_COMMON_PB, {
+        file: {
+          body: {
+            info: { fileName: 'record.amr', pttDuration: 5 },
+            fileToken: 'voice-token',
+          },
+        },
+      }),
+    },
+  };
+  const withElems = (raw: typeof rawGroup | typeof rawPrivate, ...elems: unknown[]) => ({
+    ...raw,
+    body: { richText: { elems } },
+  });
+  const rows = decodeLivePush(
+    body(
+      withElems(rawGroup, reply, picture),
+      withElems(rawPrivate, voice),
+      withElems(rawGroup, { replyElement: { origMsgSeq: [90] } }, picture),
+      withElems(rawGroup, picture, picture),
+      withElems(rawGroup, picture, { face: { index: 1 } }),
+      withElems(rawGroup, { commonElem: { ...picture.commonElem, pbElem: Uint8Array.of(10, 9) } }),
+      rawGroup,
+    ),
+    self,
+    account,
+    now,
+  ).rows;
+  expect(rows.map((row) => row.elements)).toMatchObject([
+    [
+      {
+        type: 'reply',
+        data: {
+          origMsgSeq: 90,
+          origElements: [{ type: 'text', data: { textContent: 'original' } }],
+        },
+      },
+      { type: 'pic', data: { fileToken: 'image-token', imgWidth: 320 } },
+    ],
+    [
+      {
+        type: 'ptt',
+        data: { fileToken: 'voice-token', pttDuration: 5, waveform: [], livePending: true },
+      },
+    ],
+    [{ type: 'text' }],
+  ]);
 });
 
 it('普通已读推送只更新收到的账号并保留最高水位', () => {

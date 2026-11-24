@@ -12,6 +12,7 @@ import type { Conversation, GroupMember, Message, User } from '../../im-template
 import type { SetEmojiItem } from '@weq/codec';
 import { flashTransferTitle } from '../../components/QqFlashTransfer.shared';
 import { showsRoamingSource } from '../../components/MessageProvenance.shared';
+import { proxyNoticeIdentity } from '../../../../shared/message_notifications';
 import type {
   MessageWire,
   ChatMsgWire,
@@ -494,6 +495,9 @@ export function findTimelineMessageById(
   id: string,
   seq?: string,
 ): MessageWire | undefined {
+  if (id.startsWith('proxy:')) {
+    return messages.find((row) => (!seq || row.msgSeq === seq) && proxyNoticeIdentity(row) === id);
+  }
   return (
     messages.find((row) => timelineRowKey(row) === id) ??
     messages.find((row) => row.msgId === id && (!seq || row.msgSeq === seq))

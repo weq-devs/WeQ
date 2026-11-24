@@ -7,6 +7,62 @@ const LIVE_WINDOW_MS = 30_000;
 const LIMIT = 512;
 const pushRegistry = createMsgPushRegistry();
 
+function isLiveWireElement(element: Record<string, unknown>): boolean {
+  return Object.keys(element).every((key) => {
+    if (key === 'text' || key === 'bubble' || key === 'generalFlags' || key === 'replyElement')
+      return true;
+    if (key !== 'commonElem') return false;
+    const media = element[key] as {
+      serviceType?: number;
+      businessType?: number;
+      pbElem?: Uint8Array;
+    };
+    return (
+      media.serviceType === 48 &&
+      (media.businessType === 20 || media.businessType === 12 || media.businessType === 22) &&
+      Boolean(media.pbElem?.length)
+    );
+  });
+}
+
+function hasRenderableLiveElements(elements: readonly Record<string, unknown>[]): boolean {
+  let replies = 0;
+  let images = 0;
+  return (
+    elements.length > 0 &&
+    elements.every((element) => {
+      switch (element.kind) {
+        case 'text':
+          return true;
+        case 'reply':
+          return (
+            ++replies === 1 &&
+            Number(element.origMsgSeq) > 0 &&
+            (Number(element.origSenderUin) > 0 || Boolean(element.origSenderUid))
+          );
+        case 'pic':
+          return (
+            ++images === 1 &&
+            Boolean(element.fileToken || element.originalUrl) &&
+            !String(element.fileToken ?? '').startsWith('/') &&
+            element.subType !== 1 &&
+            Number(element.imgWidth) > 0 &&
+            Number(element.imgHeight) > 0
+          );
+        case 'ptt':
+          return (
+            elements.length === 1 &&
+            Boolean(element.fileName && element.fileToken) &&
+            Number(element.pttDuration) > 0
+          );
+        default:
+          return false;
+      }
+    }) &&
+    replies < elements.length
+  );
+}
+
 export interface LivePushUpdates {
   reads: Array<{ chatType: 1 | 2; uid: string; sequence: string }>;
   groups: Array<{ groupCode: string; directory: boolean }>;
@@ -119,22 +175,26 @@ export function decodeLivePush(body: Uint8Array, selfUid: string, selfUin: strin
       raw.body?.msgContent?.length ||
       raw.body?.richText?.notOnlineFile ||
       !raw.body?.richText?.elems?.length ||
-      raw.body.richText.elems.some((element) =>
-        Object.keys(element).some(
-          (key) => key !== 'text' && key !== 'bubble' && key !== 'generalFlags',
-        ),
-      )
+      !raw.body.richText.elems.every(isLiveWireElement)
     )
       continue;
-    const event = decodeMessageBodies([raw])[0];
-    if (!event?.message.elements.length || event.message.elements.some((e) => e.kind !== 'text'))
-      continue;
-    const row = toGapMessage(
-      group ? 'group' : 'c2c',
-      group ? String(group) : peers.fromUid,
-      event.message,
-    );
-    rows.push({ ...row, sourceFormat: 'protocol', msgRandom: String(head.msgId) });
+    try {
+      const event = decodeMessageBodies([raw])[0];
+      if (!event || !hasRenderableLiveElements(event.message.elements)) continue;
+      const row = toGapMessage(
+        group ? 'group' : 'c2c',
+        group ? String(group) : peers.fromUid,
+        event.message,
+      );
+      const elements = row.elements.map((element) =>
+        element.type === 'ptt'
+          ? { ...element, data: { ...element.data, livePending: true } }
+          : element,
+      );
+      rows.push({ ...row, elements, sourceFormat: 'protocol', msgRandom: String(head.msgId) });
+    } catch {
+      // 不完整的富媒体仍由 QQ 落库处理，不影响同包里其他消息。
+    }
   }
   updates.interactions = [...interactions.values()];
   updates.groups = [...groups].map(([groupCode, directory]) => ({ groupCode, directory }));

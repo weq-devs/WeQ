@@ -1290,6 +1290,12 @@ function MainWorkspace(): ReactElement {
   } | null>(null);
 
   const liveTimelineKeys = useRef(new Map<string, string>());
+  const pendingProxyJump = useRef<{
+    scope: string;
+    selection: NonNullable<typeof selectionRef.current>;
+    id: string;
+    expires: number;
+  } | null>(null);
   const latestMessageWindowRef = useRef(anchoredToLatest);
   latestMessageWindowRef.current = anchoredToLatest;
   const recentContactsForPush = useRef(recentContactsByUid);
@@ -6272,6 +6278,7 @@ function MainWorkspace(): ReactElement {
     ): Promise<boolean> =>
       runMessageLocate(
         async (isCurrent) => {
+          pendingProxyJump.current = null;
           const pushToast = sourceToastPush(
             notificationSource({ kind: 'conversation', conversationKind: kind, conv }),
           );
@@ -6288,6 +6295,16 @@ function MainWorkspace(): ReactElement {
             return false;
           const current = () =>
             isCurrent() && scope === messageScopeRef.current && selectionRef.current === selection;
+          const proxyTarget = messageId?.startsWith('proxy:') ? messageId : undefined;
+          const revealLoadedProxyTarget = () => {
+            if (!proxyTarget || entryLoadingRef.current) return false;
+            const exact = findTimelineMessageById(loadedRef.current, proxyTarget, targetSeq);
+            if (!exact || !scrollToMsgId(timelineRowKey(exact))) return false;
+            selection.explicitWindow = true;
+            setMissingJumpSeq(null);
+            return true;
+          };
+          if (revealLoadedProxyTarget()) return true;
           const query = {
             ...binding,
             readWindow: selection.readWindow,
@@ -6348,6 +6365,17 @@ function MainWorkspace(): ReactElement {
             if (targetSeq) return findUnreadMessage(merged, targetSeq, importantMessage);
           };
           let target = findTarget();
+          if (!target && proxyTarget) {
+            if (revealLoadedProxyTarget()) return true;
+            // 等现有消息订阅交付，不把同序号的其他消息当目标，也不补发请求。
+            pendingProxyJump.current = {
+              scope,
+              selection,
+              id: proxyTarget,
+              expires: Date.now() + 30_000,
+            };
+            return false;
+          }
 
           const autoContext = () =>
             preferenceValue('autoFetchMissingMessages') ||
@@ -6480,6 +6508,7 @@ function MainWorkspace(): ReactElement {
       if (!sel) {
         return false;
       }
+      pendingProxyJump.current = null;
       closeForwardWindows();
       cancelMessageLocate();
       setMissingJumpSeq(null);
@@ -6661,6 +6690,7 @@ function MainWorkspace(): ReactElement {
       setSearchDismissed(true);
       if (!conv) return;
       pendingSearchJumpRef.current = null;
+      pendingProxyJump.current = null;
       cancelMessageLocate();
       closeForwardWindows();
       if (!searchTarget?.retainChatRecords) setChatRecordsTarget(null);
@@ -7207,6 +7237,25 @@ function MainWorkspace(): ReactElement {
     pendingSearchJumpRef.current = null;
     void centerWindowOnSeq(jump.conv, jump.kind, jump.seq, jump.record, jump.messageId);
   }, [messagesTabActive, selectedUid, isGroup, pendingSearchJumpRef, centerWindowOnSeq]);
+
+  useEffect(() => {
+    const jump = pendingProxyJump.current;
+    if (!jump) return;
+    if (
+      jump.scope !== messageScope ||
+      jump.selection !== selectionRef.current ||
+      !messagesTabActive ||
+      jump.expires < Date.now()
+    ) {
+      pendingProxyJump.current = null;
+      return;
+    }
+    const exact = findTimelineMessageById(loaded, jump.id);
+    if (!exact || !scrollToMsgId(timelineRowKey(exact))) return;
+    pendingProxyJump.current = null;
+    jump.selection.explicitWindow = true;
+    setMissingJumpSeq(null);
+  }, [loaded, messageScope, messagesTabActive, scrollToMsgId, selectionRef, setMissingJumpSeq]);
 
   useSearchDismissal(searchQuery, searchFocused, setSearchDismissed, setSearchFocused);
 

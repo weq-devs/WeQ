@@ -1093,6 +1093,8 @@ export function QqVoice({
 }) {
   const name = str(data, 'fileName');
   const token = str(data, 'fileToken');
+  const mediaKey = useContext(MediaItemKeyContext);
+  const livePending = data.livePending === true;
   // 合并转发编辑器里刚选的语音带 `localPath`（SILK 或音频文件）：主进程用
   // `localfilevoice` 把 SILK 解码成 WAV 再流回来（浏览器放不了 SILK）。乐观渲染的
   // 录音带 `localPreviewUrl`（blob: 的 webm/opus），浏览器能直接播，无需 SILK 解码。
@@ -1112,6 +1114,11 @@ export function QqVoice({
           ...(fwd ? { fwdMsgId: fwd.fwdMsgId, fwdKind: fwd.fwdKind } : {}),
           ...(fwd?.fwdResId ? { fwdResId: fwd.fwdResId } : {}),
         }));
+  // 同一条实时语音落库时只换查询地址，不打断已开始的播放。
+  const playbackKey =
+    mediaKey && token && !fwd && !localPath && !localPreviewUrl
+      ? JSON.stringify([mediaKey, conv, sendTimeMs, name, token])
+      : voiceSource;
   // Duration comes from the element (wire tag 45906), NOT the waveform: AI 声聊
   // clips carry a fixed 30-byte synthetic strip, so waveform.length/10 is wrong
   // for them. Fall back to the waveform only when duration is absent (0).
@@ -1148,9 +1155,9 @@ export function QqVoice({
         ? { forward: { carrierId: mediaMsgId, kind: fwd.fwdKind, conv, resId: fwd.fwdResId } }
         : {}),
     },
-    active && visible && !storedTranscript && !localPreviewUrl && !localPath,
+    active && visible && !livePending && !storedTranscript && !localPreviewUrl && !localPath,
   );
-  const canTranscribe = transcribe.available && !localPreviewUrl && !localPath;
+  const canTranscribe = transcribe.available && !livePending && !localPreviewUrl && !localPath;
   const result = storedTranscript && transcribe.result?.automatic ? undefined : transcribe.result;
   const transcribeError =
     (storedTranscript ? null : transcribe.error) ??
@@ -1178,7 +1185,7 @@ export function QqVoice({
       }
       audioRef.current = null;
     };
-  }, [voiceSource]);
+  }, [playbackKey]);
 
   const toggle = (): void => {
     let audio = audioRef.current;

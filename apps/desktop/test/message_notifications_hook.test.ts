@@ -659,8 +659,8 @@ it.each([false, true])('普通代理提醒可先发，入库补齐时仍只通�
     expect(notify).toHaveBeenCalledWith(
       expect.objectContaining(
         web
-          ? { target: { kind: 'c2c', conv: 'peer', seq: '42', msgId: undefined } }
-          : { seq: '42', messageId: identity, anchorId: undefined },
+          ? { target: { kind: 'c2c', conv: 'peer', seq: '42', msgId: identity } }
+          : { seq: '42', messageId: identity, anchorId: identity },
       ),
     );
     await act(async () =>
