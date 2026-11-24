@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { StorageUsageItem } from '@weq/service';
-import { groupStorage, mergeStorageEntries } from '../src/renderer/src/lib/storage-groups';
+import { mergeStorageEntries } from '../src/renderer/src/lib/storage-entries';
 import { resolveSettingsTarget } from '../src/renderer/src/components/settings/navigation';
 
 const base: StorageUsageItem = {
@@ -12,30 +12,36 @@ const base: StorageUsageItem = {
   incomplete: false,
   reason: '保留',
 };
-it('同类数据保留原始明细和不完整标记，统计总量不变', () => {
-  const items = [
-    { ...base, id: 'search', category: 'persistent' as const, bytes: 10 },
-    { ...base, id: 'roam', category: 'persistent' as const, bytes: 20, incomplete: true },
-    { ...base, id: 'media', category: 'media' as const, bytes: 30 },
+it('同一用途合计占用并保留每个来源和不完整状态', () => {
+  const sources = [
+    { ...base, id: 'one', path: '/first/history', label: '联系人信息缓存', bytes: 10 },
+    {
+      ...base,
+      id: 'two',
+      path: '/second/history',
+      label: '联系人信息缓存',
+      bytes: 20,
+      incomplete: true,
+    },
   ];
-  const groups = groupStorage(items);
-  expect(groups.find((group) => group.key === 'persistent')).toMatchObject({
-    bytes: 30,
-    incomplete: true,
-    items: [items[1], items[0]],
+  const entries = mergeStorageEntries(sources);
+  expect(entries).toHaveLength(1);
+  expect(entries[0]).toMatchObject({
+    item: { bytes: 30, incomplete: true },
+    members: sources,
   });
-  expect(groups.reduce((sum, group) => sum + group.bytes, 0)).toBe(60);
 });
-it('系统杂项不单列但占用仍累计，未知项不提升清理权限', () => {
-  const groups = groupStorage([
-    { ...base, path: '/synthetic/.DS_Store', bytes: 5 },
-    { ...base, path: 'C:\\WeQ\\desktop.ini', bytes: 6 },
-    { ...base, path: '/synthetic/unknown.bin', bytes: 7 },
+it('系统杂项隐藏，未知项目保留来源供定位', () => {
+  const items = mergeStorageEntries([
+    { ...base, id: 'ds', path: '/synthetic/.DS_Store', bytes: 5 },
+    { ...base, id: 'ini', path: String.raw`C:\WeQ\desktop.ini`, bytes: 6 },
+    { ...base, id: 'unknown', path: '/synthetic/unknown.bin', category: 'unknown', bytes: 7 },
   ]);
-  expect(groups).toHaveLength(1);
-  expect(groups[0]?.bytes).toBe(18);
-  expect(groups[0]?.items.map((item) => item.path)).toEqual(['/synthetic/unknown.bin']);
-  expect(groups[0]?.items[0]?.clearable).toBe(false);
+  expect(items).toHaveLength(1);
+  expect(items[0]).toMatchObject({
+    item: { label: '用途待确认的文件', bytes: 7, clearable: false },
+    members: [{ path: '/synthetic/unknown.bin' }],
+  });
 });
 it('同类缓存跨目录合并，桌面缓存合并为一项，空项目不显示', () => {
   const cache = { ...base, clearable: true, category: 'cache' as const, action: 'cache' as const };
@@ -56,8 +62,8 @@ it('同类缓存跨目录合并，桌面缓存合并为一项，空项目不显�
     item: { bytes: 70 },
     members: [items[2], items[3]],
   });
-  expect(groupStorage([{ ...base, path: '/empty', bytes: 0 }])).toEqual([]);
-  expect(groupStorage([{ ...base, path: '/.DS_Store', bytes: 1 }])).toEqual([]);
+  expect(mergeStorageEntries([{ ...base, path: '/empty', bytes: 0 }])).toEqual([]);
+  expect(mergeStorageEntries([{ ...base, path: '/.DS_Store', bytes: 1 }])).toEqual([]);
 });
 it('数据库备份与不同损失说明的持久数据不合并，统计失败不能当作空项隐藏', () => {
   const entries = mergeStorageEntries([
@@ -69,22 +75,20 @@ it('数据库备份与不同损失说明的持久数据不合并，统计失败�
   ]);
   expect(entries).toHaveLength(5);
 });
-it('兼容 Windows 路径，零字节异常项和普通点文件仍可见', () => {
-  const groups = groupStorage([
-    { ...base, path: 'C:\\WeQ\\config.json', bytes: 10 },
-    { ...base, path: '/synthetic/empty', bytes: 0 },
-    { ...base, path: '/synthetic/unreadable', bytes: 0, incomplete: true },
-    { ...base, path: '/synthetic/.custom', bytes: 1 },
+it('零字节异常项和普通点文件仍可见', () => {
+  const entries = mergeStorageEntries([
+    { ...base, id: 'empty', path: '/synthetic/empty', bytes: 0 },
+    { ...base, id: 'unreadable', path: '/synthetic/unreadable', bytes: 0, incomplete: true },
+    { ...base, id: 'custom', path: '/synthetic/.custom', bytes: 1 },
   ]);
-  expect(groups[0]?.items.map((item) => item.path)).toEqual([
-    'C:\\WeQ\\config.json',
-    '/synthetic/.custom',
+  expect(entries[0]?.members.map((item) => item.path)).toEqual([
     '/synthetic/unreadable',
+    '/synthetic/.custom',
   ]);
-  expect(groups[0]?.incomplete).toBe(true);
+  expect(entries[0]?.item.incomplete).toBe(true);
 });
-it('数据库备份固定置顶，未知项固定置底，其余分类和条目按占用排序，同量备份按日期倒序', () => {
-  const groups = groupStorage([
+it('最大项目优先展示，同量数据库备份按日期倒序', () => {
+  const entries = mergeStorageEntries([
     { ...base, id: 'unknown', category: 'unknown', bytes: 9999 },
     { ...base, id: 'media', category: 'media', bytes: 200 },
     { ...base, id: 'dress', category: 'dress', bytes: 300 },
@@ -113,8 +117,7 @@ it('数据库备份固定置顶，未知项固定置底，其余分类和条目�
       },
     },
   ]);
-  expect(groups.map((group) => group.key)).toEqual(['db-backups', 'dress', 'media', 'unknown']);
-  expect(groups[0]?.items.map((item) => item.id)).toEqual(['new', 'old']);
+  expect(entries.map(({ item }) => item.id)).toEqual(['unknown', 'dress', 'media', 'new', 'old']);
 });
 it('配置旧入口定位重置按钮，桌面缓存和空间清理定位存储页', () => {
   for (const item of ['账号与应用配置', '全局配置']) {

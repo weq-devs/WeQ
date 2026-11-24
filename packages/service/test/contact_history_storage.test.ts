@@ -11,7 +11,7 @@ it('联系人历史单列统计且不进入普通缓存清理', async () => {
     const path = join(config.cacheDir('contacts/fixture/99999'), 'history.sqlite');
     await writeFile(path, 'synthetic history');
     const item = (await config.listStorageUsage()).find((value) => value.id === 'contacts');
-    expect(item).toMatchObject({ label: '联系人与群资料历史', clearable: false, bytes: 17 });
+    expect(item).toMatchObject({ clearable: true, requiresExit: true, bytes: 17 });
     expect((await config.clearCache(['contacts'])).cleared).not.toContain('contacts');
     expect(await readFile(path, 'utf8')).toBe('synthetic history');
   } finally {

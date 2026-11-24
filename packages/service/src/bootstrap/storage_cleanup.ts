@@ -31,6 +31,18 @@ function contains(parent: string, child: string): boolean {
   return path === '' || (!isAbsolute(path) && path !== '..' && !path.startsWith(`..${sep}`));
 }
 
+async function removeScopedStorage(path: string, excluded: readonly string[]): Promise<void> {
+  if (excluded.includes(path)) return;
+  if (!excluded.some((child) => contains(path, child))) {
+    await rm(path, { recursive: true, force: true });
+    return;
+  }
+  const info = await lstat(path);
+  if (!info.isDirectory() || info.isSymbolicLink())
+    throw new Error('含保留项目的目录已变化，请刷新后重试');
+  for (const name of await readdir(path)) await removeScopedStorage(join(path, name), excluded);
+}
+
 /** 仅清理具体装扮素材；离线索引与未知链接留给增强包或其原消费者。 */
 export async function clearDressSharedFiles(path: string, recreate = true): Promise<void> {
   for (const entry of await readdir(path, { withFileTypes: true })) {
@@ -94,6 +106,8 @@ export async function executeStorageCleanup(
   };
   for (const item of plan.targets) {
     let beforeBytes: number | undefined;
+    const excluded = item.cleanupKind === 'scoped-data' ? (item.excludedPaths ?? []) : [];
+    const measure = () => measureStorage(item.path, new Set(excluded));
     try {
       const path = resolve(item.path);
       if (
@@ -101,8 +115,10 @@ export async function executeStorageCleanup(
         item.incomplete ||
         !isAbsolute(item.path) ||
         path === dirname(path) ||
-        [...plan.protectedPaths, dirname(plan.reportPath)].some((protectedPath) =>
-          contains(path, resolve(protectedPath)),
+        [...plan.protectedPaths, dirname(plan.reportPath)].some(
+          (protectedPath) =>
+            contains(path, resolve(protectedPath)) &&
+            !excluded.some((child) => contains(child, resolve(protectedPath))),
         )
       ) {
         throw new Error('目标包含受保护的应用或维护资源，未清除');
@@ -121,13 +137,24 @@ export async function executeStorageCleanup(
       await rejectLinkedAncestors(path);
       // 用同一规范路径检查保护范围，避免短路径别名绕过受保护文件的判断。
       const canonicalTarget = await realpath(path);
+      const canonicalExclusions = await Promise.all(excluded.map(canonicalPathOrMissing));
       for (const protectedPath of [...plan.protectedPaths, dirname(plan.reportPath)]) {
-        if (contains(canonicalTarget, await canonicalPathOrMissing(resolve(protectedPath))))
+        const protectedTarget = await canonicalPathOrMissing(resolve(protectedPath));
+        if (
+          contains(canonicalTarget, protectedTarget) &&
+          !canonicalExclusions.some((child) => contains(child, protectedTarget))
+        )
           throw new Error('目标包含受保护的应用或维护资源，未清除');
+      }
+      if (plan.busyPaths && item.exitOnly) {
+        throw Object.assign(new Error('此项需退出 WeQ 后清除'), { code: 'EBUSY' });
       }
       for (const busyPath of plan.busyPaths ?? []) {
         const busy = await canonicalPathOrMissing(resolve(busyPath));
-        if (contains(canonicalTarget, busy) || contains(busy, canonicalTarget)) {
+        if (
+          (contains(canonicalTarget, busy) || contains(busy, canonicalTarget)) &&
+          !canonicalExclusions.some((child) => contains(child, busy))
+        ) {
           throw Object.assign(new Error('当前运行实例正在使用此项，未删除；可重启后继续清除'), {
             code: 'EBUSY',
           });
@@ -137,7 +164,7 @@ export async function executeStorageCleanup(
       const measureData = (collectFiles = false) =>
         listStorageDataFiles(path, [], collectFiles, item.cleanupKind === 'dress-data');
       const data = dataOnly ? await measureData(true) : undefined;
-      const before = data ?? (await measureStorage(path));
+      const before = data ?? (await measure());
       if (before.incomplete) throw new Error('读取不完整，未清除');
       beforeBytes = before.bytes;
       if (item.cleanupKind === 'db-backup' && item.backup?.recordId && item.backup.historyPath) {
@@ -167,10 +194,12 @@ export async function executeStorageCleanup(
         for (const file of previews.files) await rm(file, { force: true });
       } else if (item.cleanupKind === 'dress-shared') {
         await clearDressSharedFiles(path, !!plan.busyPaths);
+      } else if (item.cleanupKind === 'scoped-data') {
+        await removeScopedStorage(path, excluded);
       } else {
         await rm(path, { recursive: true, force: true });
       }
-      const after = dataOnly ? await measureData() : await measureStorage(path);
+      const after = dataOnly ? await measureData() : await measure();
       result.freedBytes += Math.max(0, before.bytes - after.bytes);
       result.cleared.push(item.label);
     } catch (error) {
@@ -178,7 +207,7 @@ export async function executeStorageCleanup(
         const remaining =
           item.cleanupKind === 'business-data' || item.cleanupKind === 'dress-data'
             ? await listStorageDataFiles(item.path, [], false, item.cleanupKind === 'dress-data')
-            : await measureStorage(item.path);
+            : await measure();
         if (!remaining.incomplete) result.freedBytes += Math.max(0, beforeBytes - remaining.bytes);
       }
       result.failed.push({

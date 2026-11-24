@@ -145,6 +145,7 @@ import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
 import { enhancementProcedures } from './enhancements';
 import { startEnhancementDownloads } from '../../enhancements/tasks';
+import { ENHANCEMENT_PACK_IDS } from '../../../shared/enhancement_manifest';
 import { assertRuntimeFilesIdle, runtimeFileBusyPaths } from '../../context/runtime_files';
 import { runtimeMaintenance } from '../../runtime_maintenance';
 import { resolveSignerWrapper } from '../../context/signer_target';
@@ -326,7 +327,9 @@ function storageRoots(): StorageRoot[] {
   const host = getHost();
   return [
     ...(host.storageRoots?.() ?? []),
-    ...(host.exportRoot ? [{ path: host.exportRoot, label: 'Web 导出文件' }] : []),
+    ...(host.exportRoot
+      ? [{ path: host.exportRoot, label: 'Web 导出文件', category: 'work-products' as const }]
+      : []),
   ];
 }
 
@@ -2946,6 +2949,11 @@ export const bootstrapRouter = router({
           }
           if (input.afterExit) {
             assertRuntimeFilesIdle();
+            if (targets.some((item) => item.exitOnly && item.category === 'app-resources')) {
+              const { packs } = requireBootstrap().enhancements;
+              if (ENHANCEMENT_PACK_IDS.some((id) => packs.isPreparing(id) || packs.isRemoving(id)))
+                throw new Error('增强包正在下载或删除，请等待完成后再清理');
+            }
             if (targets.some((item) => storageRestartCandidates.get(item.id) !== item.path))
               throw new Error('请先执行直接清理，只能重试其中被占用的剩余项目');
             await host.clearStorageAfterExit(targets);

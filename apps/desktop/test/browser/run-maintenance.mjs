@@ -20,6 +20,7 @@ const server = await createServer({
       },
       { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
       { find: '@resources', replacement: resolve(root, '../../resources') },
+      { find: '@transport', replacement: resolve(root, 'test/support/transport.stub.ts') },
     ],
   },
   server: {
@@ -84,15 +85,12 @@ try {
         throw new Error(`恢复弹窗横向溢出：${width}/${theme}`);
       if (output) await page.screenshot({ path: `${output}/defaults-${theme}-${width}.png` });
       await dialog.getByRole('button', { name: '取消', exact: true }).click();
-      for (const category of await storage.locator('details.weq-storage-category').all()) {
-        if (!(await category.evaluate((element) => element.open)))
-          await category.locator('summary').click();
-      }
-      await storage.getByLabel('头像缓存', { exact: true }).check();
-      await storage.getByLabel('克隆数据', { exact: true }).check();
+      await storage.getByRole('checkbox', { name: '头像缓存', exact: true }).check();
+      await storage.getByRole('checkbox', { name: '克隆数据', exact: true }).click();
+      await dialog.getByRole('button', { name: '勾选', exact: true }).click();
       await storage.getByRole('button', { name: '开始清理', exact: true }).click();
       await dialog.getByRole('button', { name: '清除', exact: true }).click();
-      await dialog.getByText('剩余项目被占用', { exact: true }).waitFor();
+      await dialog.getByText('剩余项目需退出 WeQ 后清理', { exact: true }).waitFor();
       if (output) await page.screenshot({ path: `${output}/occupied-${theme}-${width}.png` });
       await dialog.getByRole('button', { name: '暂不重启', exact: true }).click();
       const calls = await page.evaluate(() => window.maintenanceQa.calls);

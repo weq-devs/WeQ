@@ -7,6 +7,7 @@ import {
   rmSync,
   symlinkSync,
   realpathSync,
+  lstatSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -198,6 +199,110 @@ it('配置独立管理，桌面缓存归空间清理，小型运行状态不开�
     clearable: false,
   });
   expect(() => selectStorageCleanupTargets(items, ['flash'])).toThrow();
+});
+
+it('数据库验证分项独立清理，保留未选副本、链接和嵌套宿主根', async () => {
+  const f = fixture();
+  const run = join(f.root, 'DatabaseValidation', '20261117-180455');
+  const backup = f.write(join(run, 'backup', 'sample.db'), 'backup');
+  const working = f.write(join(run, 'working', 'sample.db'), 'working');
+  const embedded = f.write(join(run, 'working', 'embedded', 'file'), 'host');
+  const candidate = f.write(join(run, 'candidates', 'sample.db'), 'candidate');
+  const notes = f.write(join(run, 'notes.txt'), 'notes');
+  f.write(join(f.root, 'DatabaseValidation', 'unknown.txt'), 'unknown');
+  const link = join(run, 'reports');
+  symlinkSync(join(run, 'backup'), link, process.platform === 'win32' ? 'junction' : 'dir');
+  const linkBytes = lstatSync(link).size;
+  const items = await f.service.listStorageUsage([
+    { path: join(run, 'working', 'embedded'), label: '宿主资源', category: 'app-resources' },
+  ]);
+  const parts = items.filter((item) => item.category === 'database-validation');
+  expect(parts.map(({ path, bytes }) => [path, bytes])).toEqual(
+    expect.arrayContaining([
+      [dirname(backup), 6],
+      [join(run, 'working'), 7],
+      [join(run, 'candidates'), 9],
+      [run, 5],
+      [dirname(run), 7],
+      [link, linkBytes],
+    ]),
+  );
+  expect(parts.reduce((sum, item) => sum + item.bytes, 0)).toBe(34 + linkBytes);
+  expect(new Set(items.map((item) => item.id)).size).toBe(items.length);
+  expect(
+    items.find((item) => item.path === join(run, 'working', 'embedded', 'file')),
+  ).toMatchObject({
+    category: 'app-resources',
+    bytes: 4,
+  });
+  expect(() => selectStorageCleanupTargets(items, [`storage:${link}`])).toThrow();
+  const targets = selectStorageCleanupTargets(items, [
+    `storage:${run}`,
+    `storage:${dirname(working)}`,
+  ]);
+  const result = await executeStorageCleanup({
+    targets,
+    protectedPaths: [embedded],
+    reportPath: f.reportPath,
+    busyPaths: [],
+  });
+  expect(result.failed).toEqual([]);
+  expect(result.freedBytes).toBe(12);
+  expect([working, notes].some(existsSync)).toBe(false);
+  expect([backup, embedded, candidate, link].every(existsSync)).toBe(true);
+});
+
+it('已知功能按所在数据根归类，保留原清理资格与未知文件', async () => {
+  const f = fixture();
+  const profile = join('instances', 'a'.repeat(24));
+  const expected = [
+    ['enhancements/engines', 'component', 'app-resources', true],
+    ['enhancements/market-emoji', 'sticker', 'app-resources', true],
+    [join(profile, 'data'), 'legacy', 'desktop-data', true],
+    [join(profile, 'electron'), 'state', 'desktop-data', true],
+    [join(profile, 'electron', 'Cache'), 'page', 'desktop-data', true],
+    [join(profile, 'data', 'cache', 'contacts'), 'history', 'desktop-data', true],
+    ['cache/contacts', 'history', 'account-data', true],
+    ['cache/conversation-calendar', 'checkpoint', 'account-data', true],
+    ['cache/gift', 'image', 'media', true],
+    ['performance-monitor', 'history.sqlite', 'diagnostics', true],
+    ['logs', 'main.log', 'diagnostics', true],
+    ['updates', 'feed.json', 'updates', false],
+    ['cache/updates', 'unknown.json', 'unknown', false],
+    ['unrecognized', 'personal.txt', 'unknown', false],
+  ] as const;
+  for (const [dir, file] of expected) f.write(join(f.root, dir, file), 'data');
+  f.service.setCacheDirOverride(join(f.root, 'custom'));
+  f.write(join(f.root, 'custom', 'contacts', 'history'), 'data');
+  const items = await f.service.listStorageUsage();
+  for (const [dir, , category, clearable] of expected) {
+    expect(items.find((item) => item.path === join(f.root, dir))).toMatchObject({
+      category,
+      bytes: 4,
+      clearable,
+    });
+  }
+  expect(items.find((item) => item.id === 'contacts')).toMatchObject({
+    category: 'account-data',
+    bytes: 4,
+    clearable: true,
+  });
+  expect(
+    items.find((item) => item.path === join(f.root, profile, 'electron', 'Cache'))?.label,
+  ).toBe('独立窗口缓存');
+  expect(
+    items.find((item) => item.path === join(f.root, profile, 'data', 'cache', 'contacts'))?.label,
+  ).toBe('旧版联系人信息缓存');
+  const engine = join(f.root, 'enhancements', 'engines');
+  const targets = selectStorageCleanupTargets(items, [`storage:${engine}`]);
+  const plan = { targets, protectedPaths: [], reportPath: f.reportPath };
+  const direct = await executeStorageCleanup({ ...plan, busyPaths: [] });
+  expect(direct.failed[0]?.retryAfterRestart).toBe(true);
+  expect(existsSync(engine)).toBe(true);
+  const exited = await executeStorageCleanup(plan);
+  expect(exited.failed).toEqual([]);
+  expect(existsSync(engine)).toBe(false);
+  expect(existsSync(join(f.root, 'enhancements', 'market-emoji'))).toBe(true);
 });
 
 it('程序修补备份识别清单而不是只看目录名，符号链接不跟随', async () => {

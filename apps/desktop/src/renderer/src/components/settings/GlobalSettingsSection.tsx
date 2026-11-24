@@ -15,7 +15,7 @@ import { NumericText } from '../NumericText';
  * everything fresh for 5 min and never refetches on mount).
  */
 
-import { useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { useContext, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import {
   Cloud,
   ChevronRight,
@@ -46,7 +46,7 @@ import type { SettingsSearchTarget } from './searchTarget';
 import { WebNotificationsSection } from './WebNotificationsSection';
 import { IS_WEB } from '../../lib/target.shared';
 import { useRemoteImagePreference } from '../../lib/remoteWebStartup';
-import { groupStorage, mergeStorageEntries } from '../../lib/storage-groups';
+import { mergeStorageEntries } from '../../lib/storage-entries';
 import '../../styles/storage-management.css';
 import { DataSaverSettings } from './DataSaverSettings';
 import { QqShowSettings } from './QqShowSettings';
@@ -130,6 +130,9 @@ export function GlobalSettingsSection({
   const [restartIds, setRestartIds] = useState<string[]>([]);
   const cleanupBusy = cleaning || clearStorageData.isLoading;
   const [pickedCats, setPickedCats] = useState<Set<string>>(new Set());
+  const [storageDetails, setStorageDetails] = useState<string | null>(null);
+  const [confirmingSelection, setConfirmingSelection] = useState(false);
+  const selectionInFlight = useRef(false);
   const cacheItems = (cacheUsage.data ?? []).filter(
     (item) =>
       item.management !== 'backup' &&
@@ -139,19 +142,16 @@ export function GlobalSettingsSection({
   const clearableItems = cacheItems.filter(
     (item) => item.clearable && (item.bytes > 0 || item.incomplete),
   );
-  const storageGroups = groupStorage(cacheItems).map((group) => ({
-    ...group,
-    entries: mergeStorageEntries(group.items),
-  }));
-  const storageEntries = storageGroups.flatMap((group) => group.entries);
+  const storageEntries = mergeStorageEntries(cacheItems);
   const safeCacheItems = clearableItems.filter(
     (item) => item.action === 'cache' || (!item.action && !item.requiresExit),
   );
   const totalCacheBytes = cacheItems.reduce((sum, it) => sum + it.bytes, 0);
   const clearableBytes = safeCacheItems.reduce((sum, it) => sum + it.bytes, 0);
-  const backupBytes = cacheItems
-    .filter((item) => item.category === 'db-backups')
-    .reduce((sum, item) => sum + item.bytes, 0);
+  const availableCleanupBytes = clearableItems.reduce((sum, item) => sum + item.bytes, 0);
+  const selectedUnavailable = storageEntries.filter(
+    ({ item }) => pickedCats.has(item.id) && !item.clearable,
+  ).length;
   const selectedIds = new Set(
     storageEntries
       .filter(({ item }) => item.clearable && pickedCats.has(item.id))
@@ -171,11 +171,39 @@ export function GlobalSettingsSection({
     if (typeof enabled === 'boolean') setPreferCdn(enabled);
   }, [settings.data?.preferCdn]);
 
+  async function changeStorageSelection(next: Set<string>) {
+    if (selectionInFlight.current) return;
+    const impacts = storageEntries.flatMap(({ item }) => {
+      if (!next.has(item.id) || pickedCats.has(item.id)) return [];
+      const impact = item.clearable
+        ? (item.confirmation ?? (item.requiresExit ? item.reason : undefined))
+        : `此项当前无法在这里清理。${item.reason}`;
+      return impact ? [`${item.label}：${impact}`] : [];
+    });
+    if (!impacts.length) {
+      setPickedCats(next);
+      return;
+    }
+    selectionInFlight.current = true;
+    setConfirmingSelection(true);
+    try {
+      const ok = await confirm('勾选项的清理影响', `${impacts.join('\n\n')}\n\n确认勾选？`, {
+        okLabel: '勾选',
+        cancelLabel: '取消',
+        tone: 'warning',
+      });
+      if (ok) setPickedCats(next);
+    } finally {
+      selectionInFlight.current = false;
+      setConfirmingSelection(false);
+    }
+  }
+  const selectionDisabled = cleanupBusy || confirmingSelection || cacheUsage.isFetching;
   const cacheMulti = useMultiSelection({
-    ids: storageEntries.filter(({ item }) => item.clearable).map(({ item }) => item.id),
+    ids: storageEntries.map(({ item }) => item.id),
     selected: pickedCats,
-    onChange: setPickedCats,
-    disabled: cleanupBusy || cacheUsage.isFetching,
+    onChange: (next) => void changeStorageSelection(next),
+    disabled: selectionDisabled,
   });
 
   const storageItem = (item: StorageUsageItem, members: StorageUsageItem[]) => (
@@ -185,59 +213,72 @@ export function GlobalSettingsSection({
       data-cache-id={item.id}
     >
       <div className="weq-storage-item-head">
-        {item.clearable ? (
-          <CheckPill
-            checked={pickedCats.has(item.id)}
-            disabled={cleanupBusy || cacheUsage.isFetching}
-            onChange={() => cacheMulti.toggle(item.id)}
-          >
-            <HardDrive size={14} strokeWidth={1.8} aria-hidden />
-            <span>{item.label}</span>
-          </CheckPill>
-        ) : (
-          <span className="weq-storage-item-label">
-            <HardDrive size={14} strokeWidth={1.8} aria-hidden />
-            <span>{item.label}</span>
+        <CheckPill
+          checked={pickedCats.has(item.id)}
+          disabled={selectionDisabled}
+          onChange={() => cacheMulti.toggle(item.id)}
+        >
+          <HardDrive size={14} strokeWidth={1.8} aria-hidden />
+          <span>{item.label}</span>
+        </CheckPill>
+        <span className="weq-storage-size">
+          <span>
+            {item.incomplete ? '至少 ' : ''}
+            <NumericText>{formatBytes(item.bytes)}</NumericText>
           </span>
-        )}
-        <span className="weq-set-cache-size">
-          {item.incomplete ? '至少 ' : ''}
-          <NumericText>{formatBytes(item.bytes)}</NumericText>
+          {!item.clearable ? (
+            <small>仅统计</small>
+          ) : item.exitOnly ? (
+            <small>退出后清理</small>
+          ) : null}
         </span>
+        <button
+          type="button"
+          className="weq-set-iconbtn weq-storage-details-toggle"
+          aria-label={`查看${item.label}的详情`}
+          aria-expanded={storageDetails === item.id}
+          title="查看详情"
+          onClick={() => setStorageDetails(storageDetails === item.id ? null : item.id)}
+        >
+          <ChevronRight size={14} aria-hidden />
+        </button>
       </div>
-      <div className="weq-storage-detail">
-        {item.backup && <small>{backupDescription(item)}</small>}
-        {item.category === 'program-backups' && <small>{item.reason}</small>}
-        <small>{item.confirmation ?? item.reason}</small>
-        <small className="weq-storage-path">
-          {[...new Set(members.map((member) => member.path))].join('\n')}
-        </small>
-        {!item.clearable && (
-          <div className="weq-set-btn-group weq-storage-item-actions">
-            {item.management === 'repair' && navigate && (
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-                onClick={() => navigate('database-repair')}
-              >
-                数据库修复
-              </button>
-            )}
+      {storageDetails === item.id && (
+        <div className="weq-storage-detail">
+          {item.backup && <small>{backupDescription(item)}</small>}
+          {item.category === 'program-backups' && <small>{item.reason}</small>}
+          <small>{item.clearable ? (item.confirmation ?? item.reason) : item.reason}</small>
+          {item.category === 'database-validation' && (
+            <small>副本可能共用磁盘空间，实际腾出的空间以系统显示为准。</small>
+          )}
+          {item.management === 'repair' && navigate && (
             <button
               type="button"
               className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-              onClick={() =>
-                void client.bootstrap.revealStorageItem
-                  .mutate({ id: item.id })
-                  .catch((error: unknown) => showError('定位失败', errMsg(error)))
-              }
+              onClick={() => navigate('database-repair')}
             >
-              <FolderOpen size={14} aria-hidden />
-              定位
+              数据库修复
             </button>
-          </div>
-        )}
-      </div>
+          )}
+          {members.map((member) => (
+            <div className="weq-storage-source" key={member.id}>
+              <small className="weq-storage-path">{member.path}</small>
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                onClick={() =>
+                  void client.bootstrap.revealStorageItem
+                    .mutate({ id: member.id })
+                    .catch((error: unknown) => showError('定位失败', errMsg(error)))
+                }
+              >
+                <FolderOpen size={14} aria-hidden />
+                定位
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 
@@ -280,6 +321,9 @@ export function GlobalSettingsSection({
         new Set([
           ...failedIds,
           ...storageEntries
+            .filter(({ item }) => !item.clearable && pickedCats.has(item.id))
+            .map(({ item }) => item.id),
+          ...storageEntries
             .filter(({ members }) => members.some((item) => failedIds.has(item.id)))
             .map(({ item }) => item.id),
         ]),
@@ -287,7 +331,7 @@ export function GlobalSettingsSection({
       pushToast({
         tone: res.failed.length > 0 ? 'warning' : 'success',
         title: res.failed.length > 0 ? '部分项目未能清除' : '清理已完成',
-        message: `已清除 ${res.cleared.length} 项，释放约 ${formatBytes(res.freedBytes)}${res.failed.length ? `；${res.failed.map((item) => `${item.label}：${item.error}`).join('；')}` : ''}`,
+        message: `已清除 ${res.cleared.length} 项，共 ${formatBytes(res.freedBytes)}${res.failed.length ? `；${res.failed.map((item) => `${item.label}：${item.error}`).join('；')}` : ''}`,
       });
       if (res.restartIds.length) await retryOccupiedStorage(res.restartIds);
     } catch (e) {
@@ -300,8 +344,8 @@ export function GlobalSettingsSection({
   async function retryOccupiedStorage(ids: string[]): Promise<void> {
     const labels = ids.map((id) => cacheItems.find((item) => item.id === id)?.label ?? id);
     const ok = await confirm(
-      '剩余项目被占用',
-      `可直接清除的项目已经处理。仅「${labels.join('、')}」仍被占用，是否退出 WeQ 后继续清除这些项目？完成后会自动重新打开 WeQ。取消将保留剩余项目，不影响已完成的清理。若由 QQ 等其他程序占用，请先关闭对应程序。`,
+      '剩余项目需退出 WeQ 后清理',
+      `可直接清除的项目已经处理。「${labels.join('、')}」需要退出后清理。完成后 WeQ 会自动打开。若由 QQ 等其他程序占用，请先关闭对应程序。`,
       { danger: 'solid', okLabel: '重启并继续清除', cancelLabel: '暂不重启', tone: 'warning' },
     );
     if (!ok) return;
@@ -583,10 +627,10 @@ export function GlobalSettingsSection({
           <div className="weq-set-actions weq-storage-toolbar">
             <span className="weq-set-cache-total">
               本页占用 <strong className="weq-number">{formatBytes(totalCacheBytes)}</strong>
-              {' · '}普通缓存可清理{' '}
+              {' · '}可清理{' '}
+              <strong className="weq-number">{formatBytes(availableCleanupBytes)}</strong>
+              {' · '}可重新生成的缓存{' '}
               <strong className="weq-number">{formatBytes(clearableBytes)}</strong>
-              {' · '}历史数据库备份占用{' '}
-              <strong className="weq-number">{formatBytes(backupBytes)}</strong>
               {cacheItems.some((item) => item.incomplete) ? '（统计不完整）' : ''}
             </span>
             <div className="weq-set-btn-group weq-storage-toolbar-buttons">
@@ -629,42 +673,23 @@ export function GlobalSettingsSection({
               <div className="weq-set-empty" role="alert">
                 读取存储占用失败：{errMsg(cacheUsage.error)}
               </div>
-            ) : storageGroups.length === 0 ? (
+            ) : storageEntries.length === 0 ? (
               <div className="weq-set-empty">暂无存储数据</div>
             ) : (
-              <div className="weq-storage-group">
-                {storageGroups.map((group) => (
-                  <details
-                    className="weq-storage-category"
-                    key={group.key}
-                    open={group.key === 'db-backups' ? true : undefined}
-                  >
-                    <summary>
-                      <ChevronRight size={14} className="weq-storage-chevron" aria-hidden />
-                      <span className="weq-storage-detail">{group.label}</span>
-                      <span className="weq-set-cache-size">
-                        {group.incomplete ? '至少 ' : ''}
-                        <NumericText>{formatBytes(group.bytes)}</NumericText>
-                      </span>
-                    </summary>
-                    <div className="weq-storage-entries">
-                      {group.entries.map(({ item, members }) => storageItem(item, members))}
-                      {group.items.length === 0 && (
-                        <div className="weq-set-empty">系统辅助文件</div>
-                      )}
-                    </div>
-                  </details>
-                ))}
-              </div>
+              storageEntries.map(({ item, members }) => storageItem(item, members))
             )}
           </div>
           <div className="weq-set-actions">
+            {pickedCats.size > 0 && (
+              <span className="weq-set-cache-total" role="status">
+                已选可清理 {formatBytes(cleanupBytes)}
+                {selectedUnavailable > 0 ? ` · ${selectedUnavailable} 项当前无法清理` : ''}
+              </span>
+            )}
             <button
               type="button"
               className="weq-set-btn weq-set-btn-danger"
-              disabled={
-                cleanupBusy || cacheUsage.isFetching || cacheUsage.isError || cleanupBytes === 0
-              }
+              disabled={selectionDisabled || cacheUsage.isError || cleanupBytes === 0}
               onClick={() => void onClearWeqCache()}
               data-danger={cleanupDanger}
             >
