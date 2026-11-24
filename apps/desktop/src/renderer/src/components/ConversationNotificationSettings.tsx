@@ -61,7 +61,7 @@ export function ConversationNotificationSettings({
     kind === 'group' ? SCOPED_NOTIFICATION_EVENTS : kind === 'c2c' ? privateEvents : [];
   const rows = scopedEvents.map((event) => ({
     event,
-    scope: normalizeNotificationScope(records[event], event),
+    scope: normalizeNotificationScope(records[event]),
     override: conversationNotificationOverride(records, event, key),
   }));
   const needPeerState =

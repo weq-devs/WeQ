@@ -458,7 +458,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
           key.startsWith(notificationOverridePrefix(event)),
         );
         const summarize = (value: unknown) => {
-          const scope = normalizeNotificationScope(value, event);
+          const scope = normalizeNotificationScope(value);
           return { mode: scope.mode, count: scope.targets.length };
         };
         bind(

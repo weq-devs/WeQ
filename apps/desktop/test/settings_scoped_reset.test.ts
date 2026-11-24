@@ -294,7 +294,7 @@ describe('分级恢复默认', () => {
   it('通知页清除当前账号的事件提醒范围，保留会话免打扰', async () => {
     state.account = true;
     state.notifications = {
-      specialCare: { mode: 'all', targets: [] },
+      specialCare: { mode: 'nonMuted', targets: [] },
       mentionMe: { mode: 'selected', targets: ['group:synthetic'] },
       'override:redPacket:group:synthetic': false,
       'mute:assistant:synthetic': true,
@@ -302,6 +302,12 @@ describe('分级恢复默认', () => {
     const input = { page: 'global', card: 'notification-scopes' } as const;
     const preview = await caller().preview(input);
     expect(JSON.stringify(preview)).not.toContain('group:synthetic');
+    expect(preview.items).toContainEqual(
+      expect.objectContaining({
+        id: 'notification-scopes:specialCare',
+        defaultValue: { mode: 'all', count: 0, overrides: 0 },
+      }),
+    );
     await caller().restore({ ...input, source: preview.source });
     expect(state.notifications).toEqual({ 'mute:assistant:synthetic': true });
   });

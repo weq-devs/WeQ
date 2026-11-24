@@ -199,7 +199,10 @@ it('单会话覆盖独立保存，重开后优先于范围；清除后重新跟�
   const other = { key: 'group:20002', muted: false, groupAssistant: false };
   const ownKey = notificationOverrideKey('specialCare', own.key);
   const otherKey = notificationOverrideKey('specialCare', other.key);
-  store.records('notifications', { [ownKey]: true });
+  store.records('notifications', {
+    specialCare: { mode: 'nonMuted', targets: [] },
+    [ownKey]: true,
+  });
   store.records('notifications', { [otherKey]: false });
   const records = () => new ClientStateStore(store.path).snapshot().records.notifications ?? {};
   expect(conversationNotificationIncluded(records(), 'specialCare', own)).toBe(true);
@@ -213,9 +216,11 @@ it('单会话覆盖独立保存，重开后优先于范围；清除后重新跟�
   expect(() => store.records('notifications', { [ownKey]: 'true' })).toThrow(
     '无效的单会话提醒设置',
   );
-  store.records('notifications', { [ownKey]: null, specialCare: null });
+  store.records('notifications', { [ownKey]: null });
   expect(records()).not.toHaveProperty(ownKey);
   expect(conversationNotificationIncluded(records(), 'specialCare', own)).toBe(false);
+  store.records('notifications', { specialCare: null });
+  expect(conversationNotificationIncluded(records(), 'specialCare', own)).toBe(true);
   expect(records()[otherKey]).toBe(false);
 });
 it('首次旧账号迁移前保存无关设置，不固化通知默认值遮蔽随后迁入的旧选择', () => {

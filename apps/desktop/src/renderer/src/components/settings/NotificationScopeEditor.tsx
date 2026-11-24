@@ -41,7 +41,7 @@ export function NotificationScopeEditor({ event }: { event: ScopedNotificationEv
   useEffect(() => {
     if (!active || locked || sourceKey !== JSON.stringify(source.current)) setOpen(false);
   }, [active, locked, sourceKey]);
-  const saved = normalizeNotificationScope(sharedAccountRecords('notifications')[event], event);
+  const saved = normalizeNotificationScope(sharedAccountRecords('notifications')[event]);
   const groupOnly = event === 'replyMe' || event === 'keyword';
   const savedTargets = groupOnly
     ? saved.targets.filter((target) => target.startsWith('group:'))

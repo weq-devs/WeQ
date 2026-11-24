@@ -23,7 +23,7 @@ export async function groupKeywordNotificationIncluded(
   const conversation = { key: `group:${groupCode}`, muted: false, groupAssistant: false };
   const override = conversationNotificationOverride(records, 'keyword', conversation.key);
   if (override !== undefined) return override;
-  const scope = normalizeNotificationScope(records.keyword, 'keyword');
+  const scope = normalizeNotificationScope(records.keyword);
   if (notificationScopeUsesConversationState(scope)) {
     const [recent, [group]] = await Promise.all([
       directory.recentContacts.getByTargetUids([groupCode]),

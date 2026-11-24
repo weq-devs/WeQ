@@ -449,7 +449,7 @@ it('私聊引用和 QQ 回复标记都只走普通私聊通知', async () => {
     await act(async () => root.unmount());
   }
 });
-it('特别关心默认跳过免打扰，指定会话后可单独提醒', async () => {
+it('特别关心默认提醒免打扰会话，仍遵循显式设置的范围', async () => {
   const events = useNotificationPolicy.getState().events;
   act(() =>
     useNotificationPolicy.getState().setEvents({
@@ -465,7 +465,7 @@ it('特别关心默认跳过免打扰，指定会话后可单独提醒', async (
           conversations: [
             {
               ...conversations[0]!,
-              highlights: ['92', '93'].map((msgSeq) => ({
+              highlights: ['92', '93', '94'].map((msgSeq) => ({
                 kind: 'specialCare' as const,
                 rawKind: 1006,
                 senderUid: 'peer',
@@ -478,15 +478,20 @@ it('特别关心默认跳过免打扰，指定会话后可单独提醒', async (
       ),
     );
     await act(async () => f.receive?.(batch('92')));
-    expect(f.notify).not.toHaveBeenCalled();
-    expect(useToast.getState().toasts).toHaveLength(0);
-    f.scopes.specialCare = { mode: 'selected', targets: ['c2c:peer'] };
-    await act(async () => f.receive?.(batch('93')));
     expect(f.notify).toHaveBeenCalledOnce();
-    expect(f.notify).toHaveBeenCalledWith(
+    expect(f.notify).toHaveBeenLastCalledWith(
       expect.objectContaining({ conv: 'peer', reasons: ['specialCare'] }),
     );
     expect(useToast.getState().toasts.at(-1)).toMatchObject({ event: 'specialCare' });
+    f.scopes.specialCare = { mode: 'nonMuted', targets: [] };
+    await act(async () => f.receive?.(batch('93')));
+    expect(f.notify).toHaveBeenCalledOnce();
+    f.scopes.specialCare = { mode: 'selected', targets: ['c2c:peer'] };
+    await act(async () => f.receive?.(batch('94')));
+    expect(f.notify).toHaveBeenCalledTimes(2);
+    expect(f.notify).toHaveBeenLastCalledWith(
+      expect.objectContaining({ conv: 'peer', reasons: ['specialCare'] }),
+    );
   } finally {
     await act(async () => root.unmount());
   }

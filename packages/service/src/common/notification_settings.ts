@@ -196,11 +196,8 @@ export interface NotificationScope {
 export function isNotificationScopeMode(value: unknown): value is NotificationScopeMode {
   return NOTIFICATION_SCOPE_OPTIONS.some((option) => option.value === value);
 }
-export function normalizeNotificationScope(
-  raw: unknown,
-  event?: ScopedNotificationEvent,
-): NotificationScope {
-  if (raw == null) return { mode: event === 'specialCare' ? 'nonMuted' : 'all', targets: [] };
+export function normalizeNotificationScope(raw: unknown): NotificationScope {
+  if (raw == null) return { mode: 'all', targets: [] };
   if (!raw || typeof raw !== 'object') return { mode: 'selected', targets: [] };
   const mode: unknown = Reflect.get(raw, 'mode');
   const targets: unknown = Reflect.get(raw, 'targets');
@@ -279,6 +276,6 @@ export function conversationNotificationIncluded(
 ): boolean {
   return (
     conversationNotificationOverride(records, event, conversation.key) ??
-    notificationScopeIncludes(normalizeNotificationScope(records[event], event), conversation)
+    notificationScopeIncludes(normalizeNotificationScope(records[event]), conversation)
   );
 }
