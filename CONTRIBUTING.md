@@ -93,7 +93,9 @@ git checkout -b feat/your-feature
 
 [`CHANGELOG.md`](./CHANGELOG.md) 记录正式版本和待发布的 `Unreleased`。正式版发布工作流要求对应版本章节，GitHub Release 将开头的小标题放在下载表上方。QQ 群发版通知和应用内版本公告仅用于正式版，正文沿用章节原顺序。
 
-测试版使用 `vX.Y.Z-beta.N` 这样的标签，GitHub Release 取该标签里的 `Unreleased` 正文，并附自动生成的变更列表。待发布条目继续留在 `Unreleased`，等正式发版时一并整理。
+测试版使用 `vX.Y.Z-beta.N` 这样的标签，GitHub Release 取该标签里的 `Unreleased` 正文，并附自动生成的变更列表。整个发布周期的条目继续累积在 `Unreleased`，正式发版时统一整理成一个正式版本章节。
+
+`2.8.0` 的测试版和正式版都以 `v2.7.5` 为 GitHub 自动变更列表的比较基线。
 
 **日常开发**
 

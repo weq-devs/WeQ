@@ -1017,10 +1017,15 @@ jobs:
           VERSION="${TAG#v}"
           ASSET_BASE="https://github.com/${REPO}/releases/download/${TAG}"
 
-          # 让 GitHub 从上一个 tag 到本 tag 自动生成变更列表（commit/PR）。
-          # 只取其中的正文（.body），拼到我们自己的中文说明后面。
+          # 2.8.0 的测试版和正式版共用上一正式版基线。
+          NOTES_ARGS=(-f "tag_name=${TAG}")
+          case "$TAG" in
+            v2.8.0|v2.8.0[-+]*) NOTES_ARGS+=(-f "previous_tag_name=v2.7.5") ;;
+          esac
+
+          # 将 GitHub 生成的 PR 列表和比较链接附在中文说明后面。
           CHANGES=$(gh api "repos/${REPO}/releases/generate-notes" \
-            -f tag_name="${TAG}" \
+            "${NOTES_ARGS[@]}" \
             --jq '.body')
 
           # 内置 native 组件的构建 / 过期时间（来自 native/pinned.json）。日期缺失时
