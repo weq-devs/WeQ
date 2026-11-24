@@ -67,15 +67,13 @@ export function readRuntimeSource(root) {
   };
 }
 
-export const NODE_MIN_MAJOR = 24;
-
 export function runtimeManifest(source, version) {
   return {
     name: 'weq-web',
     version,
     private: true,
     type: 'module',
-    engines: { node: `>=${NODE_MIN_MAJOR}` },
+    engines: source.manifest.engines,
     packageManager: source.packageManager,
     dependencies: source.manifest.dependencies,
   };

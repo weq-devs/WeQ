@@ -42,6 +42,7 @@ for (const entry of [
   'intentSenseWorker.mjs',
   'start.sh',
   'start.bat',
+  'check-node.cjs',
   'public',
   'native',
   'resources',

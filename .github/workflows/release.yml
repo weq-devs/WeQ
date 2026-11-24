@@ -841,7 +841,7 @@ jobs:
   # ============================ Web（浏览器版）============================
   # 每个平台/架构单独产一个 tar.gz：native/、守护进程二进制和 resvg binding
   # 都是平台绑定的，所以不再做「一包通吃」的通用包，改到各自 runner 上构建，
-  # 各自只带当前平台的产物。不内置 Node（要求机器上有 Node ≥24）。
+  # 各自只带当前平台的产物，不内置 Node；构建始终使用 Node 24。
   #
   # 保留 windows 之后的构建顺序；这里只上传到 prepare 建好的草稿。
   web:
@@ -1035,7 +1035,7 @@ jobs:
 
           - **macOS**：安装包用固定自签证书签名，未公证。打开 DMG，把 WeQ 拖入「应用程序」。若首次提示无法验证开发者，确认来源后按 [macOS 安装与首次打开](https://github.com/weq-devs/WeqDocs/blob/${DOCS_COMMIT}/guide/macos-install.md) 中的步骤选择「仍要打开」。
           - **Linux**：AppImage 执行 \`chmod +x 文件名.AppImage\` 后打开；若遇到 FUSE 错误，改用桌面压缩包。Arch Linux 可用 \`paru -S weq-bin\` 或 \`yay -S weq-bin\` 安装桌面版。
-          - **独立 Web**：需 Node.js ≥ 24，无需 \`npm install\`。解压后，Windows 双击 \`start.bat\`，macOS / Linux 运行 \`./start.sh\`。在浏览器打开终端打印的地址并输入令牌。[部署说明](https://github.com/${REPO}/blob/${TAG}/apps/web/README.md)
+          - **独立 Web**：推荐 Node.js 24 LTS，也支持 22.23.5 及以上的 22.x，无需 \`npm install\`。解压后，Windows 双击 \`start.bat\`，macOS / Linux 运行 \`./start.sh\`。在浏览器打开终端打印的地址并输入令牌。[部署说明](https://github.com/${REPO}/blob/${TAG}/apps/web/README.md)
 
           ## 更新内容
           ${SECTION}

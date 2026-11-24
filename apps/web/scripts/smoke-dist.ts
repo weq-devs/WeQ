@@ -1,6 +1,5 @@
 /**
- * Smoke-test the packaged server: boot `dist/server.mjs` exactly as a user
- * would and walk the auth flow end to end.
+ * Smoke-test the packaged server under the current Node runtime.
  *
  * This covers what unit tests can't — that the esbuild bundle actually starts
  * under plain Node (CJS interop, native module resolution, `native/` layout),
@@ -14,10 +13,11 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { delimiter, dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { Worker } from 'node:worker_threads';
 import { currentTarget, RESVG_BINDINGS } from './platform.mjs';
-import { validateRuntimeMetadata, readRuntimeSource } from './runtime-deps.mjs';
+import { probeRuntime, validateRuntimeMetadata, readRuntimeSource } from './runtime-deps.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = resolve(process.env.WEQ_WEB_DIST ?? resolve(here, '../dist'));
@@ -35,11 +35,13 @@ for (const entry of [
   'attachWorker.mjs',
   'imageWorker.mjs',
   'coverWorker.mjs',
+  'analysisReportsWorker.mjs',
   'backupProbeWorker.mjs',
   'transcribeWorker.mjs',
   'intentSenseWorker.mjs',
   'start.sh',
   'start.bat',
+  'check-node.cjs',
   'public/index.html',
   'native',
   'resources',
@@ -88,6 +90,22 @@ check(
 const resvgBinding = RESVG_BINDINGS[target];
 check(existsSync(join(dist, 'node_modules', resvgBinding)), `${resvgBinding} shipped`);
 
+const versionCheck = join(dist, 'check-node.cjs');
+check(spawnSync(process.execPath, [versionCheck]).status === 0, 'launcher admits current Node');
+const tooOld = spawnSync(
+  process.execPath,
+  [
+    '-e',
+    "Object.defineProperty(process.versions, 'node', { value: '22.23.4' }); require(process.argv[1]);",
+    versionCheck,
+  ],
+  { encoding: 'utf8' },
+);
+check(
+  tooOld.status === 1 && tooOld.stderr.includes('当前 Node.js 为 v22.23.4'),
+  'launcher rejects old Node 22',
+);
+
 const portProbe = createServer();
 await new Promise<void>((done) => portProbe.listen(0, '127.0.0.1', done));
 const address = portProbe.address();
@@ -112,19 +130,33 @@ writeFileSync(
 `,
 );
 
-const server = spawn(process.execPath, ['--import', isolateConfig, join(dist, 'server.mjs')], {
-  cwd: dist,
-  env: {
-    ...process.env,
-    WEQ_TOKEN: TOKEN,
-    WEQ_HOST: '127.0.0.1',
-    WEQ_PORT: String(PORT),
-    // Keep the run's droppings out of dist/, which is about to be tarballed.
-    WEQ_DATA_DIR: join(smokeScratch, 'weq-data'),
-    WEQ_EXPORT_DIR: join(smokeScratch, 'weq-exports'),
+const useShellLauncher = process.platform !== 'win32';
+const serverEnv = {
+  ...process.env,
+  WEQ_TOKEN: TOKEN,
+  WEQ_HOST: '127.0.0.1',
+  WEQ_PORT: String(PORT),
+  // Keep the run's droppings out of dist/, which is about to be tarballed.
+  WEQ_DATA_DIR: join(smokeScratch, 'weq-data'),
+  WEQ_EXPORT_DIR: join(smokeScratch, 'weq-exports'),
+};
+if (useShellLauncher) {
+  Object.assign(serverEnv, {
+    PATH: `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ''}`,
+    NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${pathToFileURL(isolateConfig).href}`]
+      .filter(Boolean)
+      .join(' '),
+  });
+}
+const server = spawn(
+  useShellLauncher ? join(dist, 'start.sh') : process.execPath,
+  useShellLauncher ? [] : ['--import', isolateConfig, join(dist, 'server.mjs')],
+  {
+    cwd: dist,
+    env: serverEnv,
+    stdio: ['ignore', 'pipe', 'pipe'],
   },
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
+);
 
 let stderr = '';
 let base = '';
@@ -154,6 +186,30 @@ async function waitForServer(): Promise<boolean> {
     }
   }
   return false;
+}
+
+async function checkSqliteWorker() {
+  const worker = new Worker(join(dist, 'analysisReportsWorker.mjs'), {
+    workerData: { path: join(smokeScratch, 'reports.sqlite') },
+    execArgv: [],
+  });
+  let id = 0;
+  async function call(method: string, input: object = {}) {
+    const reply = once(worker, 'message', { signal: AbortSignal.timeout(8000) });
+    worker.postMessage({ id: ++id, method, input });
+    const [result] = await reply;
+    if (result.error) throw new Error(result.error);
+    return result.value;
+  }
+  try {
+    const request = { id: 'web-smoke-report' };
+    await call('put', { request, status: 'completed', results: { total: 17 } });
+    const saved = await call('get', request);
+    check(saved?.results?.total === 17, 'packaged SQLite worker writes and reads a report');
+    await call('close');
+  } finally {
+    await worker.terminate();
+  }
 }
 
 try {
@@ -196,8 +252,8 @@ try {
     await fetch(`${base}/trpc/bootstrap.getVersionInfo`, { headers: { cookie } })
   ).json();
   check(
-    typeof version?.result?.data?.json?.node === 'string',
-    'post-auth tRPC procedure returns data',
+    version?.result?.data?.json?.node === process.versions.node,
+    `post-auth tRPC confirms server runs Node ${process.versions.node}`,
   );
 
   const intent = await (
@@ -216,6 +272,16 @@ try {
     asset.status === 200 && (asset.headers.get('content-type') ?? '').startsWith('image/'),
     'weq-asset:// handler serves over /_asset/',
   );
+
+  await probeRuntime(dist, target);
+  const native = spawnSync(
+    process.execPath,
+    ['-e', 'require(process.argv[1]);', join(dist, 'native', platform!, arch!, 'nt_helper.node')],
+    { cwd: smokeScratch, encoding: 'utf8' },
+  );
+  if (native.status !== 0) throw new Error(native.stderr || 'nt_helper failed to load');
+  check(true, 'packaged native and WASM modules load');
+  await checkSqliteWorker();
 
   console.log(failed === 0 ? '\nALL PASS' : `\n${failed} FAILED`);
 } catch (error) {

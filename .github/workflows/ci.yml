@@ -284,5 +284,14 @@ jobs:
 
       # 启动打包好的 server.mjs 走一遍完整流程 —— 覆盖 esbuild 的 CJS 互操作
       # 和原生模块解析，这些只有真跑起来才会暴露。
-      - name: Smoke-test packaged server
+      - name: Smoke-test packaged server on Node 24
         run: pnpm --filter @weq/web test:dist
+
+      - name: Setup Node 22 for the packaged server
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22.23.5
+          package-manager-cache: false
+
+      - name: Smoke-test the same package on Node 22
+        run: node --import tsx apps/web/scripts/smoke-dist.ts

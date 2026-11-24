@@ -16,7 +16,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { currentTarget, LABELS, nativeRel } from './platform.mjs';
-import { NODE_MIN_MAJOR, readRuntimeSource, runtimeManifest } from './runtime-deps.mjs';
+import { readRuntimeSource, runtimeManifest } from './runtime-deps.mjs';
 import {
   checkDressManifest,
   includeSharedResource,
@@ -36,6 +36,11 @@ const RESOURCES_SRC = join(repoRoot, 'resources');
 // running server can report its own version without reading package.json.
 const { version } = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf8'));
 const runtimeSource = readRuntimeSource(repoRoot);
+const range = /^\^(\d+)\.(\d+)\.(\d+) \|\| >=(\d+)$/.exec(runtimeSource.manifest.engines.node);
+if (!range) throw new Error('Web Node 版本要求必须指定兼容版本和推荐主版本');
+const [, compatMajor, compatMinor, compatPatch, recommendedMajor] = range;
+const compatMin = `${compatMajor}.${compatMinor}.${compatPatch}`;
+const nodeRequirement = `Node.js ${recommendedMajor} 或更高，或 ${compatMin} 及以上的 ${compatMajor}.x`;
 
 /**
  * Native 绑定及 worker 按路径载入的 WASM 依赖不能内联；随服务端 manifest 安装。
@@ -69,7 +74,7 @@ const ENTRIES = {
 const shared = {
   bundle: true,
   platform: 'node',
-  target: `node${NODE_MIN_MAJOR}`,
+  target: `node${compatMajor}`,
   format: 'esm',
   external: [...Object.keys(NATIVE_DEPS), 'sherpa-onnx-node', '@receptron/laya', '*.node'],
   banner: {
@@ -130,6 +135,18 @@ writeFileSync(
   join(dist, 'package.json'),
   `${JSON.stringify(runtimeManifest(runtimeSource, version), null, 2)}\n`,
 );
+// Both launchers use the same check before accessing node_modules.
+writeFileSync(
+  join(dist, 'check-node.cjs'),
+  `const [major, minor, patch] = process.versions.node.split('.').map(Number);
+const compatible = major === ${compatMajor} &&
+  (minor > ${compatMinor} || (minor === ${compatMinor} && patch >= ${compatPatch}));
+if (major < ${recommendedMajor} && !compatible) {
+  console.error('当前 Node.js 为 v' + process.versions.node + '，需要 ${nodeRequirement}。');
+  process.exitCode = 1;
+}
+`,
+);
 
 writeLaunchers();
 
@@ -138,7 +155,7 @@ writeFileSync(
   [
     'WeQ Web — 浏览器版',
     '',
-    `需要 Node.js ${NODE_MIN_MAJOR} 或更高版本（不内置）。`,
+    `需要 ${nodeRequirement}（不内置，推荐 ${recommendedMajor} LTS）。`,
     '',
     '启动：',
     '  Windows：双击 start.bat',
@@ -190,17 +207,15 @@ function writeLaunchers() {
       'if errorlevel 1 (',
       '  echo.',
       '  echo   没有找到 Node.js。',
-      `  echo   请先安装 Node.js ${NODE_MIN_MAJOR} 或更高版本： https://nodejs.org/`,
+      `  echo   请先安装 Node.js ${recommendedMajor} LTS： https://nodejs.org/`,
       '  echo.',
       '  pause',
       '  exit /b 1',
       ')',
       '',
-      'rem 取 Node.js 主版本号。',
-      `for /f "tokens=1 delims=." %%v in ('node -p "process.versions.node"') do set NODE_MAJOR=%%v`,
-      `if %NODE_MAJOR% LSS ${NODE_MIN_MAJOR} (`,
+      'node check-node.cjs',
+      'if errorlevel 1 (',
       '  echo.',
-      `  echo   Node.js 版本过低（当前 v%NODE_MAJOR%），需要 ${NODE_MIN_MAJOR} 或更高。`,
       '  echo   请到 https://nodejs.org/ 升级。',
       '  echo.',
       '  pause',
@@ -228,18 +243,15 @@ function writeLaunchers() {
       'if ! command -v node >/dev/null 2>&1; then',
       '  echo',
       '  echo "  没有找到 Node.js。"',
-      `  echo "  请先安装 Node.js ${NODE_MIN_MAJOR} 或更高版本："`,
-      `  echo "    Debian/Ubuntu:  curl -fsSL https://deb.nodesource.com/setup_${NODE_MIN_MAJOR}.x | sudo -E bash - && sudo apt install -y nodejs"`,
+      `  echo "  请先安装 Node.js ${recommendedMajor} LTS："`,
+      `  echo "    Debian/Ubuntu:  curl -fsSL https://deb.nodesource.com/setup_${recommendedMajor}.x | sudo -E bash - && sudo apt install -y nodejs"`,
       '  echo "    其它发行版:      https://nodejs.org/"',
       '  echo',
       '  exit 1',
       'fi',
       '',
-      '# 取 Node.js 主版本号。',
-      'NODE_MAJOR=$(node -p "process.versions.node.split(\'.\')[0]")',
-      `if [ "$NODE_MAJOR" -lt ${NODE_MIN_MAJOR} ]; then`,
+      'if ! node check-node.cjs; then',
       '  echo',
-      `  echo "  Node.js 版本过低（当前 v$NODE_MAJOR），需要 ${NODE_MIN_MAJOR} 或更高。"`,
       '  echo "  升级方式见 https://nodejs.org/"',
       '  echo',
       '  exit 1',
