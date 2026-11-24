@@ -1869,9 +1869,11 @@ function ChatPaneContent({
       : undefined;
   const jumpStops = (
     chatJumpLayout === 'separate'
-      ? [importantStop, unreadStop, readingStop]
+      ? [unreadStop, importantStop, readingStop]
       : [dockStop, readingStop]
   ).filter((stop): stop is ChatJumpStop => !!stop);
+  const importantListStop =
+    chatJumpLayout === 'separate' ? (importantStop ?? unreadStop) : dockStop;
   function dismissReadingJump() {
     if (onDismissReadingJump) onDismissReadingJump();
     else if (onJumpToReadingPosition) setReadingJump({ run: onJumpToReadingPosition, done: true });
@@ -7039,10 +7041,11 @@ function ChatPaneContent({
           className="weq-chat-jump-stack"
           key={`unread-dock:${conversation.type}:${conversation.id}`}
         >
-          {jumpStops.map((stop, index) => {
+          {jumpStops.map((stop) => {
             const reading = stop.kind === 'reading';
             const importantKind =
               stop.kind !== 'reading' && stop.kind !== 'unread' ? stop.kind : undefined;
+            const anchorsImportantList = stop === importantListStop;
             const dismissLabel = dismissJumpLabel(stop);
             const dismiss = () => dismissJumpStop(stop);
             return (
@@ -7072,7 +7075,7 @@ function ChatPaneContent({
                   onOpenImportant={!reading && canOpenImportant ? openImportantMessages : undefined}
                   onSwipeDismiss={compactHeader ? dismiss : undefined}
                 />
-                {!reading && !compactHeader && canOpenImportant && index === 0 ? (
+                {anchorsImportantList && !compactHeader && canOpenImportant ? (
                   <button
                     type="button"
                     title="展开重要消息列表"

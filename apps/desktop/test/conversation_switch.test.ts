@@ -1467,8 +1467,10 @@ it.each([false, true])('切回会话保留未完成的跳转，按类别仅显�
         .click(),
     );
   const load = () => act(async () => f.reads.at(-1)!.show({ complete: true, rows }));
-  const target = () => host.querySelector('.weq-important-dock button')?.getAttribute('title');
-  const firstUnread = () => host.querySelector('button[title="跳到首条未读"]');
+  const targets = () =>
+    Array.from(host.querySelectorAll('.weq-important-dock > button:first-child'), (button) =>
+      button.getAttribute('title'),
+    );
   try {
     await act(async () =>
       root.render(
@@ -1479,8 +1481,7 @@ it.each([false, true])('切回会话保留未完成的跳转，按类别仅显�
     f.unreadReply = async () => [original];
     await select('10001');
     await load();
-    expect(target()).toBe('下一条：有人@我');
-    expect(firstUnread()).not.toBeNull();
+    expect(targets()).toEqual(['跳到首条未读', '下一条：有人@我']);
     expect(f.markedRead).toContainEqual(
       expect.objectContaining({ uid: '10001', latestSeq: '105' }),
     );
@@ -1489,8 +1490,9 @@ it.each([false, true])('切回会话保留未完成的跳转，按类别仅显�
     f.unreadReply = async () => [read];
     await select('10001');
     await load();
-    expect(target()).toBe('下一条：有人@我');
-    expect(Boolean(firstUnread())).toBe(!entryOnly);
+    expect(targets()).toEqual(
+      entryOnly ? ['下一条：有人@我'] : ['跳到首条未读', '下一条：有人@我'],
+    );
     const marked = f.markedRead.length;
     await act(async () =>
       host
@@ -1499,25 +1501,25 @@ it.each([false, true])('切回会话保留未完成的跳转，按类别仅显�
         )!
         .click(),
     );
-    expect(Boolean(firstUnread())).toBe(!entryOnly);
+    expect(targets()).toEqual(entryOnly ? [] : ['跳到首条未读']);
     if (!entryOnly)
       await act(async () =>
         host.querySelector<HTMLButtonElement>('button[aria-label="收起跳转提示"]')!.click(),
       );
-    expect(target()).toBeUndefined();
+    expect(targets()).toEqual([]);
     expect(f.markedRead).toHaveLength(marked);
 
     await select('10002');
     f.unreadReply = async () => [original];
     await select('10001');
     await load();
-    expect(target()).toBeUndefined();
+    expect(targets()).toEqual([]);
 
     await select('10002');
     f.unreadReply = async () => [{ ...original, latestSeq: '106', unreadCount: 6 }];
     await select('10001');
     await load();
-    expect(target()).toBe('跳到首条未读');
+    expect(targets()).toEqual(['跳到首条未读']);
   } finally {
     act(() => root.unmount());
     acceptPreferences({ revision: 2, epoch, values: {}, records: {} });
