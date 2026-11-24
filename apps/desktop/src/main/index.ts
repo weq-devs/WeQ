@@ -109,6 +109,7 @@ import {
   installPerformanceMonitor,
   type PerformanceMonitor,
 } from '@weq/service/performance';
+import { applyRestoredHostPreferences } from './context/backup_host_preferences';
 import { getBackupContext, initBackupContext } from './context/backup_context';
 import { createDesktopCollector } from './performance_monitor';
 import { performanceDatabaseDetails } from './performance_database';
@@ -129,6 +130,7 @@ import { backgroundServicesRunning } from './background_services';
 import { registerElevationIpc } from './elevation_ipc';
 import { registerLongTermAuthorizationIpc } from './authorization/ipc';
 import {
+  weqBackupRestoreStatus,
   flushFileLogger,
   getLogDir,
   getLogger,
@@ -1230,10 +1232,18 @@ void app.whenReady().then(async () => {
       ),
     );
     const files = getBackupContext();
-    if (files.ok)
+    if (files.ok) {
       void finishPerformanceRecordingReset(files.config).catch((error: unknown) =>
         logger.warn('恢复性能记录档位未完成', { error: String(error) }),
       );
+      const pending = files.result?.hostPending
+        ? files.result
+        : weqBackupRestoreStatus(files.root).result;
+      if (pending?.hostPending && !isIndependentInstance)
+        void applyRestoredHostPreferences(files.root, pending, true).catch((error: unknown) =>
+          logger.warn('应用备份中的本机设置失败', { error: String(error) }),
+        );
+    }
   }
   // 链接卡片抓不到 og:image 时的兜底封面。截图要跑一个真浏览器，服务层不认识
   // Electron，所以实现在这里注入（app_context 保持 Electron-free，web 端共用它）。

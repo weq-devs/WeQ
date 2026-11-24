@@ -71,7 +71,9 @@ function fixture() {
       }),
     ),
     inventory: vi.fn(async () => ({
-      accounts: [],
+      accounts: [{ configId: '10001', uin: '10001', displayName: '测试账号' }],
+      activeConfigId: '10001',
+      canActivateServices: true,
       cloneScopes: [],
       restore: { pending: null, result: null },
       canPickFile: true,
@@ -190,7 +192,7 @@ it('没有可导入的项目时释放备份，不关闭账号执行恢复', asyn
   expect(f.api.stage).not.toHaveBeenCalled();
 });
 
-it('导出时由服务读取所有备份范围，Web 直接开始下载', async () => {
+it('导出先展示选项，按默认选择提交后 Web 直接下载', async () => {
   const f = fixture();
   const download = vi
     .spyOn(window.HTMLAnchorElement.prototype, 'click')
@@ -205,10 +207,26 @@ it('导出时由服务读取所有备份范围，Web 直接开始下载', async 
     }));
     const ui = await mount({ ...f.api, export: exportBackup });
     await ui.click('导出备份');
+    expect(exportBackup).not.toHaveBeenCalled();
+    const modal = document.querySelector('[role="dialog"]')!;
+    expect(modal.querySelector('[aria-label="账号与会话偏好"]')?.getAttribute('aria-checked')).toBe(
+      'true',
+    );
+    expect(
+      modal.querySelector('[aria-label="API 模型与语音服务"]')?.getAttribute('aria-checked'),
+    ).toBe('false');
+    await ui.click('保存备份');
     expect(exportBackup).toHaveBeenCalledWith({
-      parts: ['settings', 'accounts', 'api', 'clones'],
-      includeClient: true,
-      client: expect.any(Object),
+      selection: {
+        sections: ['appearance', 'preferences', 'account'],
+        accountConfigIds: ['10001'],
+        databaseConfigIds: [],
+        draftConfigIds: [],
+        cloneConfigIds: [],
+        includeApiKeys: false,
+        includeServiceTokens: false,
+      },
+      client: {},
     });
     expect(download).toHaveBeenCalledOnce();
     expect((download.mock.instances[0] as unknown as HTMLAnchorElement).getAttribute('href')).toBe(

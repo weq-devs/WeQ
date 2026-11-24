@@ -1,5 +1,13 @@
+import { selectiveSettingFields, validateSelectiveAccount } from './backup_selective';
+import { isWeqBackupLayoutKey } from '../common/backup_client';
+import { validateBackupHost } from './backup_host';
+import { backupAgentDataKind } from './backup_clones';
 import { parseWeqBackupJson, type WeqBackupBundle } from './backup_bundle';
-import { draftImageReferenceName, mapDraftImagePaths } from '../common/draft_media';
+import {
+  DRAFT_MEDIA_DIR,
+  draftImageReferenceName,
+  mapDraftImagePaths,
+} from '../common/draft_media';
 import {
   validateWeqAppSettings,
   validateWeqApiSettings,
@@ -452,32 +460,68 @@ function cloneData(value: unknown, path: string): void {
 /** 在展示导入预览与暂存前检查业务形状，不能用 ZIP 校验成功代替业务可加载。 */
 export function validateWeqBackupData(bundle: WeqBackupBundle): void {
   const paths = new Set(bundle.files.map((file) => file.path));
+  const sections = bundle.manifest.sections;
+  const checkSettings = sections && selectiveSettingFields(sections);
+  const check = (section: NonNullable<typeof sections>[number], path: string) => {
+    if (sections && !sections.includes(section))
+      throw new Error(`备份内容与所选范围不一致：${path}`);
+  };
   for (const file of bundle.files) {
+    const agentSection = backupAgentDataKind(file.path);
+    if (agentSection) check(agentSection, file.path);
+    if (file.path.startsWith('settings/background/')) check('appearance', file.path);
+    if (file.path.split('/')[2] === DRAFT_MEDIA_DIR) check('drafts', file.path);
     if (!file.path.endsWith('.json')) continue;
     const value = parseWeqBackupJson(file.data);
-    if (file.path === 'settings/app.json') validateWeqAppSettings(value);
-    else if (file.path === 'settings/client.json') validateWeqClientSettings(value);
-    else if (file.path === 'settings/shared.json') validateClientState(value);
-    else if (file.path === 'settings/export-presets.json') {
+    if (file.path === 'settings/app.json') {
+      validateWeqAppSettings(value);
+      checkSettings?.(value, 'app');
+    } else if (file.path === 'settings/client.json') {
+      validateWeqClientSettings(value);
+      check('layout', file.path);
+      if (sections && Object.keys(value).some((key) => !isWeqBackupLayoutKey(key)))
+        invalid(file.path);
+    } else if (file.path === 'settings/host.json') {
+      validateBackupHost(value);
+      for (const section of ['paths', 'services', 'device'] as const)
+        if (value[section]) check(section, file.path);
+    } else if (file.path === 'settings/shared.json') {
+      if (sections) invalid(file.path);
+      validateClientState(value);
+    } else if (file.path === 'settings/export-presets.json') {
+      check('preferences', file.path);
       const input = row(value, file.path);
       const normalized = normalizeExportPresets(value);
       if (Object.keys(input).some((key) => !Object.hasOwn(normalized, key))) invalid(file.path);
-    } else if (file.path === 'api/settings.json') validateWeqApiSettings(value);
-    else if (file.path.startsWith('accounts/')) {
-      if (file.path.split('/').length === 2)
-        validateWeqAccountSettings(value, file.path.split('/')[1]!.slice(0, -5));
-      else if (
+    } else if (file.path === 'api/settings.json') {
+      validateWeqApiSettings(value);
+      checkSettings?.(value, 'api');
+    } else if (file.path.startsWith('accounts/')) {
+      if (file.path.split('/').length === 2) {
+        const scope = file.path.split('/')[1]!.slice(0, -5);
+        if (sections) {
+          const account = validateSelectiveAccount(value, scope);
+          if (account.dbKey !== undefined) check('database', file.path);
+          if (account.typing || account.groupKeyword || account.qqClientSync)
+            check('account', file.path);
+        } else validateWeqAccountSettings(value, scope);
+      } else if (
         WEQ_ACCOUNT_SETTING_FILES.includes(file.path.split('/')[2] as WeqAccountSettingFile)
       ) {
         const [part, scope, name] = file.path.split('/');
         validateWeqAccountPreference(name as WeqAccountSettingFile, value);
         if (name === 'client-state.json') {
-          mapDraftImagePaths(row(value, file.path).drafts, (path) => {
+          const state = row(value, file.path);
+          if (sections) {
+            if (Object.keys(row(state.drafts, file.path)).length) check('drafts', file.path);
+            if (Object.keys(row(state.records, file.path)).length) check('account', file.path);
+          }
+          mapDraftImagePaths(state.drafts, (path) => {
             if (draftImageReferenceName(path) && !paths.has(`${part}/${scope}/${path}`))
               throw new Error('备份缺少草稿引用的图片文件');
             return undefined;
           });
-        }
+        } else check('account', file.path);
       }
     } else if (file.path.startsWith('clones/')) cloneData(value, file.path);
   }

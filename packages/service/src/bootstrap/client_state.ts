@@ -120,7 +120,7 @@ export class ClientStateStore {
     writeFileAtomicSync(path, JSON.stringify(value));
     return value;
   }
-  private read(): State {
+  private read(cleanRetiredDrafts = true): State {
     if (!existsSync(this.path))
       return { epoch: 'empty', revision: 0, values: {}, records: {}, drafts: {} };
     const data: unknown = JSON.parse(readFileSync(this.path, 'utf8'));
@@ -139,14 +139,17 @@ export class ClientStateStore {
     if (retiredKeys.length) {
       for (const key of retiredKeys) {
         const draft = data.drafts[key];
-        this.removeDraftFile(
-          this.draftPath(key, data.versionedDrafts ? draft?.version : undefined),
-        );
+        if (cleanRetiredDrafts)
+          this.removeDraftFile(
+            this.draftPath(key, data.versionedDrafts ? draft?.version : undefined),
+          );
         delete data.drafts[key];
         if (data.draftBytes) delete data.draftBytes[key];
       }
-      data.revision++;
-      writeFileAtomicSync(this.path, JSON.stringify(data));
+      if (cleanRetiredDrafts) {
+        data.revision++;
+        writeFileAtomicSync(this.path, JSON.stringify(data));
+      }
     }
     return data;
   }
@@ -187,8 +190,16 @@ export class ClientStateStore {
     });
   }
 
-  exportState() {
-    const state = this.read();
+  exportState(includeDrafts = true) {
+    const state = this.read(false);
+    if (!includeDrafts)
+      return {
+        epoch: state.epoch,
+        revision: state.revision,
+        values: state.values,
+        records: state.records,
+        drafts: {},
+      } as State;
     if (!state.externalDrafts) return state;
     return {
       ...state,

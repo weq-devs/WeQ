@@ -4,6 +4,7 @@ import { basename } from 'node:path';
 import {
   getHost,
   WEQ_BACKUP_PARTS,
+  WEQ_BACKUP_SECTIONS,
   WEQ_BACKUP_LIMITS,
   readWeqBackupFile,
   writeWeqBackupExclusive,
@@ -24,6 +25,7 @@ import { getAppContext, retryBackupRecovery } from '../../context/app_context';
 import { procedure } from '../trpc';
 import { observable } from '@trpc/server/observable';
 import { runtimeMaintenance } from '../../runtime_maintenance';
+import { readBackupHostPreferences } from '../../context/backup_host_preferences';
 import { applyBackupLive } from '../../context/runtime_files';
 import {
   desktopServiceCommand,
@@ -46,7 +48,19 @@ const choice = selection.extend({
   scopeMap: z.record(z.string()).optional(),
   keepLocalPaths: z.boolean().optional(),
   clientId: z.string().uuid().optional(),
+  activateServices: z.boolean().optional(),
 });
+const selective = z.object({
+  sections: z.array(z.enum(WEQ_BACKUP_SECTIONS)).min(1).max(WEQ_BACKUP_SECTIONS.length),
+  accountConfigIds: z.array(z.string()),
+  databaseConfigIds: z.array(z.string()),
+  draftConfigIds: z.array(z.string()),
+  cloneConfigIds: z.array(z.string()),
+  includeApiKeys: z.boolean(),
+  includeServiceTokens: z.boolean(),
+});
+const client = z.record(z.string()).default({});
+
 function ready() {
   const ctx = getBackupContext();
   if (!ctx.ok) throw new Error(ctx.error);
@@ -82,11 +96,13 @@ export const backupProcedures = {
         toastDurations: ctx.ok ? ctx.config.getSettings().toastDurations : undefined,
       };
     }),
-  backupInventory: procedure.query(() => {
+  backupInventory: procedure.query(({ ctx }) => {
     const { backups } = ready();
     const host = getHost();
     return {
       ...backups.inventory(),
+      activeConfigId: getAppContext().services?.accountConfig.getConfigId() ?? null,
+      canActivateServices: !ctx.authorize,
       canPickFile: host.canReveal,
       canRestart: Boolean(host.restartApplication),
       maxArchiveBytes: WEQ_BACKUP_LIMITS.maxArchiveBytes,
@@ -94,8 +110,8 @@ export const backupProcedures = {
     };
   }),
   backupExport: procedure
-    .input(selection.extend({ client: z.record(z.string()).default({}) }))
-    .mutation(async ({ input }) => {
+    .input(z.union([z.object({ selection: selective, client }), selection.extend({ client })]))
+    .mutation(async ({ input, ctx: request }) => {
       const ctx = ready(),
         host = getHost();
       const timestamp = eventTimeFormatter.format(new Date()).replace(/[^0-9]/g, '');
@@ -105,7 +121,14 @@ export const backupProcedures = {
         extension: 'zip',
       });
       if (!target) return null;
-      const snapshot = ctx.backups.snapshot(input, input.client);
+      const snapshot =
+        'selection' in input
+          ? ctx.backups.snapshotSelected(
+              input.selection,
+              input.client,
+              await readBackupHostPreferences(input.selection.sections, !request.authorize),
+            )
+          : ctx.backups.snapshot(input, input.client);
       await writeWeqBackupExclusive(target.path, snapshot.archive);
       const download = host.registerDownload?.(target.path, basename(target.path), 'file');
       return {
@@ -144,10 +167,22 @@ export const backupProcedures = {
     .mutation(({ input }) => ready().backups.finishUpload(input.id)),
   backupPrepare: procedure
     .input(choice.extend({ sourceId: z.string() }))
-    .mutation(({ input: { sourceId, ...choice } }) => ready().backups.prepare(sourceId, choice)),
+    .mutation(({ input: { sourceId, ...choice }, ctx }) =>
+      ready().backups.prepare(sourceId, {
+        ...choice,
+        ...(ctx.authorize ? { activateServices: false } : {}),
+      }),
+    ),
   backupStage: procedure
     .input(z.object({ previewId: z.string() }))
-    .mutation(({ input }) => applyBackupLive(() => ready().backups.stage(input.previewId))),
+    .mutation(({ input, ctx }) =>
+      applyBackupLive(
+        () => ready().backups.stage(input.previewId),
+        undefined,
+        true,
+        !ctx.authorize,
+      ),
+    ),
   backupDefaults: procedure
     .input(
       z
@@ -284,7 +319,9 @@ export const backupProcedures = {
     }
     return { ...boot.backups.defaultsInfo(), connections };
   }),
-  backupApply: procedure.mutation(() => applyBackupLive()),
+  backupApply: procedure.mutation(({ ctx }) =>
+    applyBackupLive(undefined, undefined, true, !ctx.authorize),
+  ),
   backupDiscardPreview: procedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
     const ctx = getBackupContext();
     if (ctx.ok) ctx.backups.dispose(input.id);

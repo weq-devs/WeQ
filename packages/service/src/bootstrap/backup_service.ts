@@ -18,10 +18,18 @@ import {
   type WeqBackupFile,
   type WeqBackupPart,
 } from './backup_bundle';
-import { snapshotWeqClones } from './backup_clones';
+import { backupAgentDataKind, snapshotWeqClones } from './backup_clones';
 import { snapshotWeqAccountPreferences } from './backup_accounts';
 import { validateWeqBackupData } from './backup_data';
-import { validateWeqClientSettings } from '../common/backup_client';
+import { isWeqBackupLayoutKey, validateWeqClientSettings } from '../common/backup_client';
+import type { WeqBackupHost } from './backup_host';
+import type { WeqSelectiveBackup } from '../common/backup_sections';
+import {
+  snapshotBackupPaths,
+  snapshotSelectiveAccount,
+  snapshotSelectiveSettings,
+  validateSelectiveSelection,
+} from './backup_selective';
 import { preferenceDefaults } from '../common/client_preferences';
 import { weqDefaultsPaths, type WeqDefaultsChoice } from './backup_defaults';
 import {
@@ -69,10 +77,11 @@ export class WeqBackupService {
         (account) => typeof account.configId === 'string' && isWeqBackupConfigId(account.configId),
       );
     return {
-      accounts: accounts.map(({ configId, uin, displayName, dataDir }) => ({
+      accounts: accounts.map(({ configId, uin, displayName, dataDir, static: isStatic }) => ({
         configId,
         uin,
         displayName: displayName ?? uin,
+        ...(isStatic ? { static: true } : {}),
         ...(typeof dataDir === 'string' ? { dataDir } : {}),
       })),
       cloneScopes: this.cloneScopes(),
@@ -151,6 +160,120 @@ export class WeqBackupService {
         warnings.push('所选数据域没有可备份的克隆或助手数据。');
     }
     const archive = buildWeqBackup(files);
+    const bundle = readWeqBackup(archive);
+    validateWeqBackupData(bundle);
+    const summary = summarizeWeqBackup(bundle);
+    return {
+      archive,
+      summary: { ...summary, warnings: [...new Set([...summary.warnings, ...warnings])] },
+    };
+  }
+
+  snapshotSelected(selection: WeqSelectiveBackup, client: unknown, host: WeqBackupHost = {}) {
+    validateSelectiveSelection(selection);
+    const { sections } = selection;
+    const accounts = this.config.listAccountConfigs();
+    const available = new Set(accounts.map((account) => account.configId));
+    const cloneData = sections.includes('assistant') || sections.includes('clones');
+    const knownClones = cloneData ? new Set(this.cloneScopes()) : new Set<string>();
+    const accountIds = new Set([
+      ...(sections.includes('account') ? selection.accountConfigIds : []),
+      ...(sections.includes('database') ? selection.databaseConfigIds : []),
+      ...(sections.includes('drafts') ? selection.draftConfigIds : []),
+    ]);
+    if (
+      [...accountIds].some((id) => !available.has(id)) ||
+      (cloneData && selection.cloneConfigIds.some((id) => !knownClones.has(id)))
+    )
+      throw new Error('所选数据来源已变化，请重新打开导出选项');
+
+    const files: WeqBackupFile[] = [];
+    const warnings: string[] = [];
+    const add = (path: string, value: unknown) =>
+      files.push({ path, data: Buffer.from(JSON.stringify(value)) });
+    const { app, api, background } = snapshotSelectiveSettings(
+      this.config.getSettings(),
+      selection,
+    );
+    if (background) {
+      const source = join(this.config.sharedAppearanceDir(), background);
+      if (!isWeqBackgroundName(background)) throw new Error('共享背景文件名无效');
+      if (existsSync(source)) {
+        const data = readWeqBackupFile(source);
+        validateWeqBackground(data, extname(background));
+        files.push({ path: `settings/background/${background}`, data });
+      } else warnings.push('共享自定义背景缺失，保留选择与文件引用。');
+    }
+    if (Object.keys(app).length) add('settings/app.json', app);
+    if (Object.keys(api).length) add('api/settings.json', api);
+    if (sections.includes('preferences'))
+      add('settings/export-presets.json', this.config.getExportPresets());
+    if (sections.includes('layout')) {
+      validateWeqClientSettings(client);
+      const layout = Object.fromEntries(
+        Object.entries(client).filter(([key]) => isWeqBackupLayoutKey(key)),
+      );
+      if (Object.keys(layout).length) add('settings/client.json', layout);
+    }
+    const hostSettings = {
+      ...host,
+      ...(sections.includes('paths') ? { paths: snapshotBackupPaths(this.config.read()) } : {}),
+    };
+    if (Object.keys(hostSettings).length) add('settings/host.json', hostSettings);
+    for (const account of accounts.filter((account) => accountIds.has(account.configId))) {
+      const id = account.configId;
+      const preferences = sections.includes('account') && selection.accountConfigIds.includes(id);
+      const drafts = sections.includes('drafts') && selection.draftConfigIds.includes(id);
+      const entry = snapshotSelectiveAccount(account, selection);
+      if (preferences) {
+        const typing = this.config
+          .getSettings()
+          .typingStatus.hidden.filter((item) => item.accountConfigId === id);
+        add(`accounts/${id}.json`, { ...entry, typing });
+      } else if (Object.hasOwn(entry, 'dbKey')) add(`accounts/${id}.json`, entry);
+      const selected = snapshotWeqAccountPreferences(
+        this.root,
+        this.config.cacheBaseDir(),
+        id,
+        WEQ_BACKUP_LIMITS.maxTotalBytes -
+          files.reduce((total, file) => total + file.data.length, 0),
+        { preferences, drafts },
+      );
+      files.push(...selected.files);
+      warnings.push(...selected.warnings);
+    }
+    if (cloneData) {
+      const selected = snapshotWeqClones(
+        join(this.config.cacheBaseDir(), 'agentlab'),
+        selection.cloneConfigIds,
+        {
+          assistant: sections.includes('assistant'),
+          clones: sections.includes('clones'),
+        },
+      );
+      files.push(...selected.files);
+      warnings.push(...selected.warnings);
+      if (!selected.files.length) warnings.push('所选账号没有对应的助手或克隆数据。');
+    }
+    const actual = sections.filter((section) => {
+      if (section === 'layout') return files.some(({ path }) => path === 'settings/client.json');
+      if (section === 'drafts')
+        return files.some(
+          ({ path, data }) =>
+            path.endsWith('/client-state.json') &&
+            Object.keys((JSON.parse(data.toString('utf8')) as { drafts: object }).drafts).length >
+              0,
+        );
+      if (section === 'assistant' || section === 'clones')
+        return files.some(({ path }) => backupAgentDataKind(path) === section);
+      return true;
+    });
+    for (const section of sections)
+      if (!actual.includes(section) && section !== 'assistant' && section !== 'clones')
+        warnings.push(
+          section === 'layout' ? '当前设备没有可备份的布局调整。' : '所选账号没有已保存的草稿。',
+        );
+    const archive = buildWeqBackup(files, undefined, actual);
     const bundle = readWeqBackup(archive);
     validateWeqBackupData(bundle);
     const summary = summarizeWeqBackup(bundle);

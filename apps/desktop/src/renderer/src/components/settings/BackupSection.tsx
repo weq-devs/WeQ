@@ -3,7 +3,17 @@ import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArchiveRestore, Download, RefreshCw, RotateCcw, Upload, X } from 'lucide-react';
 import type { WeqBackupPart, WeqBackupSummary, WeqDefaultsChoice } from '@weq/service';
-import { snapshotWeqClientSettings } from '@weq/service/backup-client';
+import { snapshotWeqClientLayout, type WeqSelectiveBackup } from '@weq/service/backup-client';
+import { usePrivacyStore } from '../../state/privacy';
+import { FormSelect } from '../FormSelect';
+import {
+  BACKUP_SECTION_LABELS,
+  BackupDisclosure,
+  BackupExportOptions,
+  canExportBackup,
+  createBackupSelection,
+  selectedBackupSecrets,
+} from './BackupExportOptions';
 import { backupClientId } from '../../lib/backupClientRestore';
 import { useToast } from '../Toast.shared';
 import { Card, SectionHeader } from './controls';
@@ -16,7 +26,6 @@ import { useRenderDocument } from '../../lib/renderDocument';
 import '../../styles/backup.css';
 import { backupApi } from './BackupSection.shared';
 
-const PARTS: WeqBackupPart[] = ['settings', 'accounts', 'api', 'clones'];
 const LABELS: Record<WeqBackupPart, string> = {
   settings: '通用设置',
   accounts: '账号配置与偏好',
@@ -27,6 +36,24 @@ type BackupApi = typeof backupApi;
 type Inventory = Awaited<ReturnType<BackupApi['inventory']>>;
 type Source = NonNullable<Awaited<ReturnType<BackupApi['pick']>>>;
 type Preview = Awaited<ReturnType<BackupApi['prepare']>>;
+
+function summaryLabels(summary: WeqBackupSummary) {
+  return (
+    summary.sections?.map((section) => BACKUP_SECTION_LABELS[section]) ??
+    summary.parts.map(({ part }) => LABELS[part])
+  );
+}
+function importScopes(summary: WeqBackupSummary, inventory: Inventory) {
+  if (!summary.sections) return [];
+  return [...new Set([...summary.accountConfigIds, ...summary.cloneConfigIds])]
+    .filter((id) => !inventory.accounts.some(({ configId }) => configId === id))
+    .map((id) => ({
+      id,
+      targets: inventory.accounts.filter(({ uin }) => uin === id.split('_')[0]),
+    }))
+    .filter(({ targets }) => targets.length);
+}
+
 function Summary({ value }: { value: WeqBackupSummary }) {
   return (
     <>
@@ -39,14 +66,20 @@ function Summary({ value }: { value: WeqBackupSummary }) {
           }
           （北京时间）
         </span>
-        {value.parts.map((part) => (
-          <span key={part.part}>
-            {LABELS[part.part]} ·{' '}
-            <span className="weq-number weq-number-inherit">{part.files}</span> 个文件 ·{' '}
-            <span className="weq-number weq-number-inherit">{(part.bytes / 1024).toFixed(1)}</span>{' '}
-            KiB
-          </span>
-        ))}
+        {value.sections ? (
+          <span>{summaryLabels(value).join('、')}</span>
+        ) : (
+          value.parts.map((part) => (
+            <span key={part.part}>
+              {LABELS[part.part]} ·{' '}
+              <span className="weq-number weq-number-inherit">{part.files}</span> 个文件 ·{' '}
+              <span className="weq-number weq-number-inherit">
+                {(part.bytes / 1024).toFixed(1)}
+              </span>{' '}
+              KiB
+            </span>
+          ))
+        )}
       </div>
       {value.warnings.length ? (
         <ul className="weq-backup-list">
@@ -65,13 +98,17 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   activity.current = active;
   const document = useRenderDocument();
   const readSequence = useRef(0);
+  const privacy = usePrivacyStore((state) => state.effective);
+  const [exportSelection, setExportSelection] = useState<WeqSelectiveBackup | null>(null);
+  const [scopeMap, setScopeMap] = useState<Record<string, string>>({});
+  const [activateServices, setActivateServices] = useState(false);
   const [inventory, setInventory] = useState<Inventory | null>(null);
   const [preview, setPreview] = useState<(Preview & { name: string }) | null>(null);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<'import' | 'defaults' | 'apply' | 'claim' | 'skip' | null>(
-    null,
-  );
+  const [confirm, setConfirm] = useState<
+    'export' | 'import' | 'defaults' | 'apply' | 'claim' | 'skip' | null
+  >(null);
   const [defaultsInfo, setDefaultsInfo] = useState<DefaultsInfo | null>(null);
   const [defaultsChoice, setDefaultsChoice] = useState<WeqDefaultsChoice>({});
   const [busy, setBusy] = useState<string | null>('正在读取');
@@ -162,11 +199,16 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         ...(parts.includes('settings') ? { clientId: backupClientId(localStorage) } : {}),
       });
       if (!alive.current || seq !== generation.current) return;
-      if (!review.planned.length) {
+      if (
+        !review.planned.length &&
+        (!inventory || !importScopes(review.summary, inventory).length)
+      ) {
         toast({ tone: 'info', title: '备份没有可导入的内容', detail: '本机已有数据已保留。' });
         return;
       }
       setPreview({ ...review, name: source.name });
+      setScopeMap({});
+      setActivateServices(false);
       setConfirm('import');
       source = null; // 确认弹窗接管来源的生命周期。
     } finally {
@@ -206,13 +248,13 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
     }
   }
 
-  async function exportBackup() {
+  async function exportBackup(selection: WeqSelectiveBackup) {
+    await settlePreferenceWrites();
     const out = await api.export({
-      parts: PARTS,
-      includeClient: true,
-      client: snapshotWeqClientSettings(localStorage),
+      selection,
+      client: selection.sections.includes('layout') ? snapshotWeqClientLayout(localStorage) : {},
     });
-    if (!out || !alive.current) return;
+    if (!out || !alive.current) return false;
     if (out.downloadUrl) {
       const link = document.createElement('a');
       link.href = out.downloadUrl;
@@ -228,12 +270,37 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
       title: 'WeQ 备份已导出',
       detail: out.summary.warnings.join('；') || undefined,
     });
+    return true;
   }
 
+  async function refreshImport(nextMap: Record<string, string>, activate: boolean) {
+    if (!preview || !sourceId.current) throw new Error('备份预览已失效，请重新选择文件');
+    const parts = preview.summary.parts.map(({ part }) => part);
+    const review = await api.prepare(sourceId.current, {
+      parts,
+      conflict: 'skip',
+      includeClient: true,
+      keepLocalPaths: true,
+      scopeMap: nextMap,
+      activateServices: activate,
+      ...(parts.includes('settings') ? { clientId: backupClientId(localStorage) } : {}),
+    });
+    if (alive.current) setPreview({ ...review, name: preview.name });
+    return review;
+  }
+
+  const exportSecrets =
+    confirm === 'export' && exportSelection ? selectedBackupSecrets(exportSelection) : [];
   const pending = inventory?.restore.pending;
   const result = inventory?.restore.result;
   const confirmation = confirm
     ? {
+        export: {
+          title: '选择备份内容',
+          message: '',
+          action: '保存备份',
+          progress: '正在导出…',
+        },
         import: {
           title: '导入这份备份？',
           message: '确认后会关闭当前账号并刷新界面，请先保存正在编辑的内容。',
@@ -270,6 +337,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   function openConfirmation(value: NonNullable<typeof confirm>) {
     setError(null);
     setConfirm(value);
+    if (value === 'export' && inventory) setExportSelection(createBackupSelection(inventory));
     if (value === 'defaults') {
       defaultsFailed.current = false;
       setDefaultsInfo(null);
@@ -398,15 +466,13 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
             className="weq-set-btn weq-set-btn-primary"
             data-setting-id="backup-export"
             disabled={Boolean(busy) || !inventory}
-            onClick={() => void act('正在导出', exportBackup)}
+            onClick={() => openConfirmation('export')}
           >
             <Download size={14} aria-hidden />
             导出备份
           </button>
         </div>
-        <p className="weq-set-note">
-          备份包含 WeQ 配置、账号资料和克隆数据。ZIP 未加密，可能含密钥，请妥善保管。
-        </p>
+        <p className="weq-set-note">选择要保存的设置和数据，生成一份可在 WeQ 导入的 ZIP。</p>
         {exportMessage ? (
           <p className="weq-set-note" role="status">
             {exportMessage}{' '}
@@ -479,8 +545,8 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           dismissOnOutside={false}
           onClose={busy ? undefined : closeConfirmation}
           labelledBy="weq-backup-confirm-title"
-          width={confirm === 'defaults' ? 520 : 400}
-          className={`weq-message-modal${confirm === 'defaults' ? ' weq-defaults-modal' : ''}`}
+          width={confirm === 'defaults' || confirm === 'export' || confirm === 'import' ? 520 : 400}
+          className="weq-message-modal weq-defaults-modal"
         >
           <div className="weq-dialog" aria-busy={Boolean(busy)}>
             <div className="weq-dialog-head">
@@ -489,16 +555,76 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               </h3>
             </div>
             <div className="weq-dialog-body">
+              {confirm === 'export' && inventory && exportSelection ? (
+                <BackupExportOptions
+                  inventory={inventory}
+                  selection={exportSelection}
+                  onChange={setExportSelection}
+                  disabled={Boolean(busy)}
+                />
+              ) : null}
               {confirm === 'import' && preview ? (
                 <>
                   <p>
                     <strong>{preview.name}</strong>
                   </p>
-                  <p>{preview.summary.parts.map(({ part }) => LABELS[part]).join('、')}</p>
+                  <p>{summaryLabels(preview.summary).join('、')}</p>
+                  {inventory
+                    ? importScopes(preview.summary, inventory).map(({ id, targets }, index) => (
+                        <label className="weq-set-row weq-defaults-row" key={id}>
+                          <span className="weq-set-row-main">
+                            备份来源 {privacy ? index + 1 : id}
+                          </span>
+                          <FormSelect
+                            value={scopeMap[id] ?? ''}
+                            aria-label={`恢复备份来源 ${index + 1} 到`}
+                            disabled={Boolean(busy)}
+                            onChange={(event) => {
+                              const next = { ...scopeMap };
+                              if (event.target.value) next[id] = event.target.value;
+                              else delete next[id];
+                              void act('正在检查恢复范围', async () => {
+                                await refreshImport(next, activateServices);
+                                setScopeMap(next);
+                              });
+                            }}
+                          >
+                            <option value="">沿用备份中的来源</option>
+                            {targets.map((account, targetIndex) => (
+                              <option key={account.configId} value={account.configId}>
+                                {privacy ? `来源 ${targetIndex + 1}` : account.displayName}
+                                {account.static ? ' · 静态备份' : ' · QQ 账号'}
+                                {account.dataDir && !privacy ? ` · ${account.dataDir}` : ''}
+                              </option>
+                            ))}
+                          </FormSelect>
+                        </label>
+                      ))
+                    : null}
+                  {preview.summary.sections?.includes('services') &&
+                  inventory?.canActivateServices ? (
+                    <>
+                      <label className="weq-backup-account-choice">
+                        <input
+                          type="checkbox"
+                          checked={activateServices}
+                          disabled={Boolean(busy)}
+                          onChange={(event) => setActivateServices(event.target.checked)}
+                        />
+                        恢复服务启用状态
+                      </label>
+                      {preview.services?.length ? (
+                        <p>备份中已启用 {preview.services.join('、')}。</p>
+                      ) : null}
+                      {activateServices ? <p>恢复服务状态可能影响正在使用的连接。</p> : null}
+                    </>
+                  ) : null}
                   <p>
-                    {preview.summary.parts.some(({ part }) => part === 'settings')
-                      ? '备份中的通用设置会应用，本机目录会保留。'
-                      : '本机目录会保留。'}
+                    {preview.summary.sections
+                      ? '将应用备份中所选的内容。'
+                      : preview.summary.parts.some(({ part }) => part === 'settings')
+                        ? '备份中的通用设置会应用，本机目录会保留。'
+                        : '本机目录会保留。'}
                     {preview.skipped.length
                       ? `将跳过 ${preview.skipped.length} 项已有数据。`
                       : null}
@@ -513,10 +639,10 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                   disabled={Boolean(busy)}
                 />
               ) : null}
-              <p>{confirmation.message}</p>
+              {confirmation.message ? <p>{confirmation.message}</p> : null}
               {confirm === 'import' && preview?.warnings.length ? (
                 <details>
-                  <summary tabIndex={0}>查看导入提示</summary>
+                  <BackupDisclosure>查看导入提示</BackupDisclosure>
                   <ul className="weq-backup-list">
                     {preview.warnings.map((warning) => (
                       <li key={warning}>{warning}</li>
@@ -539,6 +665,11 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                 </button>
               ) : null}
             </div>
+            {exportSecrets.length ? (
+              <p className="weq-backup-secret" role="status">
+                未加密的 ZIP 将包含 {exportSecrets.join('、')}。
+              </p>
+            ) : null}
             <div className="weq-dialog-foot">
               <button
                 type="button"
@@ -562,20 +693,36 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                 disabled={
                   Boolean(busy) ||
                   (confirm === 'defaults' && !defaultsInfo) ||
+                  (confirm === 'export' &&
+                    (!exportSelection || !canExportBackup(exportSelection))) ||
                   (confirm === 'import' &&
-                    (!preview || Boolean(pending) || Boolean(result?.clientPending)))
+                    (!preview ||
+                      (!preview.planned.length && !activateServices) ||
+                      Boolean(pending) ||
+                      Boolean(result?.clientPending)))
                 }
                 onClick={() =>
                   void act(confirmation.progress, async () => {
+                    if (confirm === 'export' && exportSelection) {
+                      if (await exportBackup(exportSelection)) setConfirm(null);
+                      return;
+                    }
                     if (confirm === 'import' && preview) {
-                      await api.stage(preview.id).catch(async (error: unknown) => {
+                      const checked = activateServices
+                        ? await refreshImport(scopeMap, true)
+                        : preview;
+                      const restored = await api.stage(checked.id).catch(async (error: unknown) => {
                         await refresh().catch(() => {});
                         throw error;
                       });
                       sourceId.current = null;
                       setPreview(null);
                       setConfirm(null);
-                      toast({ tone: 'success', title: '备份已导入' });
+                      toast({
+                        tone: restored.warnings.length ? 'warning' : 'success',
+                        title: '备份已导入',
+                        detail: restored.warnings.join('；') || undefined,
+                      });
                     } else if (confirm === 'defaults') {
                       await settlePreferenceWrites();
                       const restored = await api

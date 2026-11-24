@@ -199,6 +199,7 @@ export function snapshotWeqAccountPreferences(
   cache: string,
   scope: string,
   maxDraftMediaBytes: number = WEQ_BACKUP_LIMITS.maxTotalBytes,
+  selection?: { preferences: boolean; drafts: boolean },
 ): { files: WeqBackupFile[]; warnings: string[] } {
   const files: WeqBackupFile[] = [],
     warnings: string[] = [];
@@ -208,10 +209,16 @@ export function snapshotWeqAccountPreferences(
   let missingDraftImages = false;
   for (const name of WEQ_ACCOUNT_SETTING_FILES) {
     if (name === 'dress.json') continue;
+    if (
+      selection &&
+      ((name !== 'client-state.json' && (!selection.preferences || name === 'tolerance.json')) ||
+        (name === 'client-state.json' && !selection.preferences && !selection.drafts))
+    )
+      continue;
     const path = weqAccountSettingPath(root, cache, scope, name);
     const value = existsSync(path)
       ? name === 'client-state.json'
-        ? new ClientStateStore(path).exportState()
+        ? new ClientStateStore(path).exportState(selection?.drafts !== false)
         : parseWeqBackupJson(readWeqBackupFile(path))
       : name === 'client-state.json'
         ? { revision: 0, values: {}, records: {}, drafts: {} }
@@ -225,6 +232,26 @@ export function snapshotWeqAccountPreferences(
           delete input[key];
     if (name === 'client-state.json' && input.records && typeof input.records === 'object')
       delete (input.records as Record<string, unknown>).order;
+    if (selection && name === 'client-state.json') {
+      const records = record(input.records, name);
+      input.values = {};
+      input.records = selection.preferences
+        ? Object.fromEntries(
+            Object.entries(records).filter(([key]) => key === 'pins' || key === 'notifications'),
+          )
+        : {};
+      if (!selection.drafts) input.drafts = {};
+      delete input.externalDrafts;
+      delete input.versionedDrafts;
+      delete input.draftBytes;
+      delete input.epoch;
+      if (
+        !Object.keys(input.records as object).length &&
+        !Object.keys(input.drafts as object).length
+      )
+        continue;
+    }
+    if (selection && !Object.keys(input).length) continue;
     validateWeqAccountPreference(name, input);
     if (name === 'client-state.json') {
       mapDraftImagePaths(input.drafts, (path) => {

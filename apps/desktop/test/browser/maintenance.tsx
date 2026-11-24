@@ -22,6 +22,8 @@ const api: typeof backupApi = {
   ...backupApi,
   inventory: async () => ({
     accounts: [],
+    activeConfigId: null,
+    canActivateServices: true,
     cloneScopes: [],
     restore: { pending: null, result: null },
     canPickFile: true,

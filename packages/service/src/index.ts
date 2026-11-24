@@ -1357,8 +1357,10 @@ export { SharedPrompt } from './common/shared_prompt';
 export { bootstrapWeqBackupFiles } from './bootstrap/backup_startup';
 export { withSharedConfigLock } from './bootstrap/shared_config_lock';
 export type { WeqFileStartup } from './bootstrap/backup_startup';
+export { WEQ_BACKUP_SECTIONS, type WeqSelectiveBackup } from './common/backup_sections';
+export type { WeqBackupHost } from './bootstrap/backup_host';
 export { WeqBackupService } from './bootstrap/backup_service';
-export { recordWeqRestoreWarnings } from './bootstrap/backup_restore';
+export { finishWeqBackupHostRestore, recordWeqRestoreWarnings } from './bootstrap/backup_restore';
 export { WEQ_DEFAULTS_PATHS, WEQ_DEFAULTS_CONNECTIONS } from './bootstrap/backup_defaults';
 export type {
   WeqDefaultsChoice,

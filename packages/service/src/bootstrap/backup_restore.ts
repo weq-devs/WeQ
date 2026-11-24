@@ -13,7 +13,7 @@ import {
   fsyncSync,
   closeSync,
 } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import { accountOrderDefaults } from '../common/client_preferences';
 import { SCOPED_NOTIFICATION_EVENTS } from '../common/notification_settings';
@@ -45,6 +45,9 @@ import {
   snapshotWeqSettings,
   validateWeqAccountSettings,
 } from './backup_settings';
+import { ClientStateStore, validateClientState } from './client_state';
+import { backupPick, validateSelectiveAccount } from './backup_selective';
+import { readBackupHost, validateBackupHost, type WeqBackupHost } from './backup_host';
 import { weqAccountSettingPath } from './backup_accounts';
 import {
   dressConversationBackgroundFiles,
@@ -78,6 +81,7 @@ export interface WeqRestoreChoice {
   clientId?: string;
   includeClient?: boolean;
   defaults?: WeqDefaultsChoice;
+  activateServices?: boolean;
 }
 export interface WeqRestoreResult {
   id: string;
@@ -87,6 +91,7 @@ export interface WeqRestoreResult {
   skipped: string[];
   warnings: string[];
   clientPending: boolean;
+  hostPending?: { options: WeqBackupHost; activateServices: boolean };
   error?: string;
   needsRecovery?: boolean;
 }
@@ -105,6 +110,7 @@ interface Operation {
     | 'shared'
     | 'account'
     | 'clones'
+    | 'clone-file'
     | 'account-setting'
     | 'shared-background';
   scope?: string;
@@ -216,6 +222,8 @@ function validateChoice(value: unknown): asserts value is WeqRestoreChoice {
       throw new Error('无效的恢复数据域');
   if (value.keepLocalPaths !== undefined && typeof value.keepLocalPaths !== 'boolean')
     throw new Error('无效的机器路径选择');
+  if (value.activateServices !== undefined && typeof value.activateServices !== 'boolean')
+    throw new Error('无效的服务启用选择');
   if (value.includeClient !== undefined && typeof value.includeClient !== 'boolean')
     throw new Error('无效的界面偏好选择');
   if (
@@ -252,6 +260,11 @@ function validateResult(value: unknown): asserts value is WeqRestoreResult {
     [...value.applied, ...value.skipped, ...value.warnings].some((item) => typeof item !== 'string')
   )
     throw new Error('恢复回执无效');
+  if (value.hostPending !== undefined) {
+    if (!record(value.hostPending) || typeof value.hostPending.activateServices !== 'boolean')
+      throw new Error('待应用本机设置无效');
+    validateBackupHost(value.hostPending.options);
+  }
 }
 function validateSummary(value: unknown): void {
   if (
@@ -339,6 +352,7 @@ function readJournal(root: string): Journal | null {
         'shared',
         'account',
         'clones',
+        'clone-file',
         'account-setting',
         'shared-background',
       ].includes(String(item.kind)) ||
@@ -354,7 +368,7 @@ function readJournal(root: string): Journal | null {
     )
       throw new Error('恢复事务原始配置校验无效');
     if (
-      item.kind === 'account' || item.kind === 'clones' || item.kind === 'account-setting'
+      ['account', 'clones', 'clone-file', 'account-setting'].includes(String(item.kind))
         ? typeof item.scope !== 'string' || !isWeqBackupConfigId(item.scope)
         : item.scope !== undefined
     )
@@ -371,6 +385,14 @@ function readJournal(root: string): Journal | null {
         item.file !== undefined
       )
         throw new Error('恢复偏好目标无效');
+    } else if (item.kind === 'clone-file') {
+      if (
+        item.setting !== undefined ||
+        typeof item.file !== 'string' ||
+        item.file === 'assistant.json' ||
+        weqBackupPart(`clones/${item.scope}/${item.file}`) !== 'clones'
+      )
+        throw new Error('恢复助手或克隆文件目标无效');
     } else if (item.kind === 'shared-background') {
       if (
         item.setting !== undefined ||
@@ -399,7 +421,17 @@ function target(root: string, cacheRoot: string, op: Operation): string {
     return op.setting === 'background'
       ? join(root, 'config', 'accounts', op.scope!, op.file!)
       : weqAccountSettingPath(root, cacheRoot, op.scope!, op.setting as WeqAccountSettingFile);
-  return join(cacheRoot, 'agentlab', op.scope!);
+  const cloneDir = join(cacheRoot, 'agentlab', op.scope!);
+  if (op.kind !== 'clone-file') return cloneDir;
+  let directory = cacheRoot;
+  const components = ['agentlab', op.scope!, ...op.file!.split('/')];
+  const file = components.pop()!;
+  for (const component of components) {
+    directory = join(directory, component);
+    if (present(directory) && !lstatSync(directory).isDirectory())
+      throw new Error('恢复助手或克隆数据的目录不是普通目录');
+  }
+  return join(directory, file);
 }
 function draftImageTarget(root: string, scope: string, name: string): string {
   let directory = root;
@@ -416,7 +448,7 @@ function operationLabel(op: Pick<Operation, 'kind' | 'scope' | 'setting' | 'file
 function work(root: string, cacheRoot: string, id: string, op: Operation): string {
   return join(
     dirname(target(root, cacheRoot, op)),
-    `.weq-restore-${id}-${operationLabel(op).replaceAll(':', '-')}`,
+    `.weq-restore-${id}-${operationLabel(op).replaceAll(':', '-').replaceAll('/', '-')}`,
   );
 }
 function actual(path: string, directory: boolean): boolean {
@@ -529,6 +561,45 @@ function mappingRecords(root: string, bundle: WeqBackupBundle, choice: WeqRestor
   }
   return records;
 }
+function readLocalAccount(path: string, scope: string) {
+  const data = readWeqBackupFile(path);
+  const account = parseWeqBackupJson(data);
+  validateWeqAccountSettings(account, scope);
+  return { account, hash: digest(data) };
+}
+
+function selectiveServiceNames(bundle: WeqBackupBundle): string[] {
+  if (!bundle.manifest.sections?.includes('services')) return [];
+  const host = readBackupHost(bundle)?.services;
+  const app = bundle.files.find(({ path }) => path === 'settings/app.json');
+  const services = app ? (parseWeqBackupJson(app.data) as Record<string, unknown>) : {};
+  const api = bundle.files.find(({ path }) => path === 'api/settings.json');
+  const external = api ? (parseWeqBackupJson(api.data) as Record<string, unknown>) : {};
+  return [
+    host?.webEnabled || services.webServiceAutoStart ? 'Web' : '',
+    host?.remoteEnabled ? 'Remote' : '',
+    host?.tailscaleEnabled ? 'Tailscale' : '',
+    host?.qqProxyEnabled ? 'QQ 代理' : '',
+    record(services.weqAssistant) && services.weqAssistant.enabled ? 'QQ 公众号推送' : '',
+    record(external.mcp) && external.mcp.enabled ? 'MCP' : '',
+    record(external.oneBotByUin) &&
+    Object.values(external.oneBotByUin).some(
+      (row) =>
+        record(row) &&
+        (row.enabled ||
+          (record(row.networks) &&
+            Object.values(row.networks).some(
+              (items) => Array.isArray(items) && items.some((item) => record(item) && item.enabled),
+            ))),
+    )
+      ? 'OneBot'
+      : '',
+    record(external.ssePush) && external.ssePush.enabledServerId ? 'SSE 推送' : '',
+    record(external.externalRkey) && external.externalRkey.enabledServerId ? '外部 rKey' : '',
+    record(external.sharedAssistant) && external.sharedAssistant.mcpServers ? '助手外部 MCP' : '',
+  ].filter(Boolean);
+}
+
 function mappedAccount(source: AccountConfig, local: AccountConfig): AccountConfig {
   const merged: Record<string, unknown> = { ...local, ...source };
   for (const key of [
@@ -570,11 +641,54 @@ function mappedAccount(source: AccountConfig, local: AccountConfig): AccountConf
     merged[key] = local[key];
   return merged as unknown as AccountConfig;
 }
+function usableDirectory(value: unknown) {
+  if (value === null || value === '') return true;
+  if (typeof value !== 'string' || !isAbsolute(value)) return false;
+  try {
+    return lstatSync(value).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function restoreHostPaths(
+  host: WeqBackupHost | undefined,
+  bundle: WeqBackupBundle,
+  root: string,
+  cacheRoot: string,
+  warnings: string[],
+) {
+  if (!host?.paths) return host;
+  const paths = { ...host.paths };
+  for (const [key, value] of Object.entries(paths)) {
+    if (usableDirectory(value)) continue;
+    delete paths[key as keyof typeof paths];
+    warnings.push('有自定义目录在本机不可用，保留当前设置。');
+  }
+  if (
+    paths.cacheDirOverride !== undefined &&
+    resolve(paths.cacheDirOverride || join(root, 'cache')) !== cacheRoot &&
+    bundle.files.some(
+      ({ path }) =>
+        path.startsWith('clones/') ||
+        (path.startsWith('accounts/') &&
+          ['anti-recall.json', 'intent.json'].includes(path.split('/')[2] ?? '')),
+    )
+  ) {
+    delete paths.cacheDirOverride;
+    warnings.push('账号规则与助手或克隆数据已定位到当前缓存根，请另行恢复缓存目录。');
+  }
+  return { ...host, paths };
+}
+
 function configPlan(
   current: Record<string, unknown>,
   files: readonly WeqBackupFile[],
   choice: WeqRestoreChoice,
   skipped: string[],
+  selective: boolean,
+  host: WeqBackupHost | undefined,
+  warnings: string[],
 ): Record<string, unknown> | null {
   if (choice.defaults)
     return weqDefaultsConfig(current as UserConfig, choice.defaults) as Record<string, unknown>;
@@ -582,13 +696,43 @@ function configPlan(
   const api = files.find((file) => file.path === 'api/settings.json');
   const presets = files.find((file) => file.path === 'settings/export-presets.json');
   const shared = files.find((file) => file.path === 'settings/shared.json');
-  if (!app && !api && !presets && !shared) return null;
+  if (!app && !api && !presets && !shared && !host?.paths) return null;
   let settings = record(current.settings) ? structuredClone(current.settings) : {};
   if (app) {
     const imported = parseWeqBackupJson(app.data) as Record<string, unknown>;
+    if (selective) {
+      const directories = [
+        [imported, 'defaultExportDir'],
+        [imported.externalChatpic, 'dir'],
+        [imported.callRecording, 'dir'],
+      ] as const;
+      for (const [parent, key] of directories)
+        if (record(parent) && Object.hasOwn(parent, key) && !usableDirectory(parent[key])) {
+          delete parent[key];
+          warnings.push('有自定义目录在本机不可用，保留当前设置。');
+        }
+      if (!choice.activateServices) {
+        delete imported.webServiceAutoStart;
+        if (record(imported.weqAssistant)) {
+          delete imported.weqAssistant.enabled;
+          if (record(settings.weqAssistant) && settings.weqAssistant.enabled === true) {
+            delete imported.weqAssistant.port;
+            skipped.push('QQ 公众号推送正在运行，保留端口');
+          }
+        }
+      }
+      if (
+        record(imported.appLock) &&
+        imported.appLock.enabled === true &&
+        (imported.appLock.method !== 'totp' || typeof current.totpSecret !== 'string')
+      ) {
+        delete imported.appLock;
+        skipped.push('应用锁需在目标设备确认解锁方式');
+      }
+    }
     settings = merge(
       // 旧备份缺字段时保留本机值；恢复默认提交完整默认快照，仍会显式覆盖。
-      merge(snapshotWeqSettings(DEFAULT_APP_SETTINGS), settings),
+      selective ? settings : merge(snapshotWeqSettings(DEFAULT_APP_SETTINGS), settings),
       imported,
     );
     if (record(imported.sharedPreferences)) {
@@ -609,7 +753,7 @@ function configPlan(
         ),
       };
     }
-    if (choice.keepLocalPaths !== false) {
+    if (!selective && choice.keepLocalPaths !== false) {
       const local = record(current.settings) ? current.settings : {};
       settings.defaultExportDir =
         typeof local.defaultExportDir === 'string' ? local.defaultExportDir : null;
@@ -628,10 +772,86 @@ function configPlan(
   if (api) {
     const value = parseWeqBackupJson(api.data) as Record<string, unknown>;
     const base = structuredClone(settings);
+    if (selective) {
+      if (
+        record(value.sharedAssistant) &&
+        !choice.activateServices &&
+        value.sharedAssistant.mcpServers
+      ) {
+        delete value.sharedAssistant.mcpServers;
+        skipped.push('助手外部 MCP 需经确认启用');
+      }
+      if (
+        record(value.sharedAssistant) &&
+        value.sharedAssistant.permissionMode === 'unrestricted'
+      ) {
+        delete value.sharedAssistant.permissionMode;
+        warnings.push('助手任意权限需在目标设备的助手设置中确认。');
+      }
+      if (record(value.mcp)) {
+        const local = record(base.mcp) ? base.mcp : {};
+        if (!value.mcp.token) delete value.mcp.token;
+        if (!choice.activateServices && local.enabled === true) {
+          delete value.mcp.port;
+          delete value.mcp.token;
+          skipped.push('MCP 正在运行，保留端口和令牌');
+        }
+        if (!choice.activateServices || local.enabled === true) delete value.mcp.enabled;
+        if (value.mcp.enabled === true && !value.mcp.token && !local.token) {
+          delete value.mcp.enabled;
+          skipped.push('MCP 缺少令牌，请配置后启用');
+        }
+      }
+      if (record(value.oneBotByUin)) {
+        const existing = record(base.oneBotByUin) ? base.oneBotByUin : {};
+        for (const [uin, incoming] of Object.entries(value.oneBotByUin)) {
+          if (!record(incoming) || !record(incoming.networks)) continue;
+          const local = record(existing[uin]) ? existing[uin] : {};
+          const localNetworks = record(local.networks) ? local.networks : {};
+          const known = Object.values(localNetworks)
+            .flat()
+            .filter(record)
+            .some((entry) => entry.enabled);
+          incoming.networks = Object.fromEntries(
+            Object.entries(incoming.networks).map(([kind, rows]) => {
+              const previous = Array.isArray(localNetworks[kind])
+                ? localNetworks[kind].filter(record)
+                : [];
+              const names = new Set(previous.map((entry) => entry.name));
+              const extra = Array.isArray(rows)
+                ? rows.filter(record).filter((entry) => !names.has(entry.name))
+                : [];
+              return [
+                kind,
+                [
+                  ...previous,
+                  ...extra.map((entry) => {
+                    const missingToken = kind.endsWith('Servers') && entry.accessToken === '';
+                    if (choice.activateServices && entry.enabled && missingToken)
+                      warnings.push('部分 OneBot 服务端缺少令牌，已保留为停用。');
+                    return {
+                      ...entry,
+                      enabled: !missingToken && choice.activateServices ? entry.enabled : false,
+                    };
+                  }),
+                ],
+              ];
+            }),
+          );
+          if (known && !choice.activateServices)
+            for (const key of ['qzone', 'qzoneDomain']) delete incoming[key];
+        }
+      }
+      for (const key of ['externalRkey', 'ssePush']) {
+        const local = record(base[key]) ? base[key] : {};
+        if (record(value[key]) && (!choice.activateServices || local.enabledServerId))
+          value[key].enabledServerId = local.enabledServerId ?? null;
+      }
+    }
     settings = merge(settings, value);
     if (record(value.sharedAssistant)) {
       const groups = record(settings.sharedPreferences) ? settings.sharedPreferences : {};
-      if (choice.conflict !== 'skip' || groups.assistant === undefined)
+      if (selective || choice.conflict !== 'skip' || groups.assistant === undefined)
         settings.sharedPreferences = {
           ...groups,
           assistant: mergeAssistantConfig(record(groups.assistant) ? groups.assistant : {}, {
@@ -725,11 +945,17 @@ function configPlan(
           ),
         };
       }
-    if (value.mcp !== undefined && base.mcp !== undefined && choice.conflict === 'skip') {
+    if (
+      !selective &&
+      value.mcp !== undefined &&
+      base.mcp !== undefined &&
+      choice.conflict === 'skip'
+    ) {
       settings.mcp = base.mcp;
       skipped.push('api:mcp');
     }
     if (
+      !selective &&
       value.oneBotByUin !== undefined &&
       base.oneBotByUin !== undefined &&
       choice.conflict === 'skip'
@@ -762,16 +988,20 @@ function configPlan(
       ...(record(values.contactOrder) ? { order: values.contactOrder } : {}),
     };
   }
-  delete settings.quitConfirmSuppressed;
-  delete settings.reportReadEnabled;
-  delete settings.manualReadReportEnabled;
+  if (!selective) {
+    delete settings.quitConfirmSuppressed;
+    delete settings.reportReadEnabled;
+    delete settings.manualReadReportEnabled;
+  }
   return {
     ...current,
     settings,
     settingsRevision: Math.max(Date.now(), Number(current.settingsRevision ?? 0) + 1),
-    globalClientPreferencesMigrated: true,
-    desktopPreferencesSeeded: true,
+    ...(!selective
+      ? { globalClientPreferencesMigrated: true, desktopPreferencesSeeded: true }
+      : {}),
     ...(presets ? { exportPresets: parseWeqBackupJson(presets.data) } : {}),
+    ...host?.paths,
   };
 }
 
@@ -791,6 +1021,8 @@ function prepare(
     warnings: summarizeWeqBackup(bundle).warnings.slice(0, 200),
     clientPending: false,
   };
+  const selective = bundle.manifest.sections !== undefined;
+  const host = restoreHostPaths(readBackupHost(bundle), bundle, root, cacheRoot, result.warnings);
   const needsGlobal = bundle.files.some((file) => file.path !== 'settings/client.json');
   const hasConfig = needsGlobal && present(join(root, 'config.json'));
   const original = hasConfig ? readWeqBackupFile(join(root, 'config.json')) : Buffer.from('{}');
@@ -817,14 +1049,30 @@ function prepare(
       if (hasConfig) op.originalHash = digest(original);
     }
     const label = operationLabel(op);
-    if (kind === 'clones' && op.hadOriginal && pending.choice.conflict === 'skip') {
+    if (
+      (kind === 'clones' || kind === 'clone-file') &&
+      op.hadOriginal &&
+      pending.choice.conflict === 'skip'
+    ) {
       result.skipped.push(label);
       return;
     }
     result.applied.push(label);
     plans.push({ operation: op, files });
   };
-  let config = configPlan(currentConfig, bundle.files, pending.choice, result.skipped);
+  let config = configPlan(
+    currentConfig,
+    bundle.files,
+    pending.choice,
+    result.skipped,
+    selective,
+    host,
+    result.warnings,
+  );
+  const typingByScope = new Map<
+    string,
+    NonNullable<ReturnType<typeof validateSelectiveAccount>['typing']>
+  >();
   const accountFiles = bundle.files.filter((file) => file.path.startsWith('accounts/'));
   const draftImages = new Map(
     accountFiles
@@ -857,6 +1105,7 @@ function prepare(
             values: parseWeqBackupJson(client.data),
             ...(pending.choice.clientId ? { clientId: pending.choice.clientId } : {}),
             ...(pending.choice.defaults ? { defaults: true } : {}),
+            ...(selective ? { merge: true } : {}),
           }),
         ),
       },
@@ -941,10 +1190,57 @@ function prepare(
         });
       }
   }
+  const accountTargets = new Map<string, ReturnType<typeof readLocalAccount> | undefined>();
+  const restorable = new Set<string>();
+  if (selective) {
+    for (const source of new Set(accountFiles.map((file) => weqAccountBackupScope(file.path)))) {
+      const scope = mappedScope(pending.choice, source);
+      const path = join(root, 'config', 'accounts', `${scope}.json`);
+      const local =
+        mappings.get(source) ?? (actual(path, false) ? readLocalAccount(path, scope) : undefined);
+      accountTargets.set(scope, local);
+      const entry = accountFiles.find(({ path }) => path === `accounts/${source}.json`);
+      const incoming = entry
+        ? validateSelectiveAccount(parseWeqBackupJson(entry.data), source)
+        : undefined;
+      if (local || incoming?.dbKey !== undefined) restorable.add(scope);
+      else {
+        result.skipped.push(`account:${scope}`);
+        result.warnings.push(`${scope} 尚未关联 QQ 数据来源，请先在目标设备打开对应来源。`);
+      }
+    }
+  }
   for (const file of accountFiles) {
     const sourceScope = weqAccountBackupScope(file.path),
       scope = mappedScope(pending.choice, sourceScope),
       parts = file.path.split('/');
+    if (selective && !restorable.has(scope)) continue;
+    if (selective && parts.length === 2) {
+      const local = accountTargets.get(scope);
+      const { typing, ...patch } = validateSelectiveAccount(
+        parseWeqBackupJson(file.data),
+        sourceScope,
+      );
+      if (typing)
+        typingByScope.set(
+          scope,
+          typing.map((item) => ({ ...item, accountConfigId: scope })),
+        );
+      const preferences = backupPick(patch, ['groupKeyword', 'qqClientSync']);
+      if (!local)
+        for (const key of ['dataDir', 'backupAccountDir', 'nativeMediaDir'] as const)
+          if (patch[key] !== undefined && !usableDirectory(patch[key])) delete patch[key];
+      const value = local ? { ...local.account, ...preferences } : { lastLoginAt: 0, ...patch };
+      if (!local || Object.keys(preferences).length)
+        add(
+          'account',
+          [{ path: '', data: Buffer.from(JSON.stringify(value)) }],
+          scope,
+          local ? { originalHash: local.hash } : {},
+        );
+      if (local && patch.dbKey !== undefined) result.skipped.push(`database:${scope}`);
+      continue;
+    }
     if (parts.length === 2) {
       let value = snapshotWeqAccount(parseWeqBackupJson(file.data) as unknown as AccountConfig);
       const local = mappings.get(sourceScope);
@@ -993,6 +1289,19 @@ function prepare(
       if (setting === 'client-state.json') {
         const state = parseWeqBackupJson(data) as Record<string, unknown>;
         if (record(state.records)) delete state.records.order;
+        if (selective && pending.choice.conflict === 'skip') {
+          const path = weqAccountSettingPath(root, cacheRoot, scope, 'client-state.json');
+          if (actual(path, false)) {
+            const previous = parseWeqBackupJson(readWeqBackupFile(path));
+            validateClientState(previous);
+            if (record(state.drafts))
+              for (const key of Object.keys(state.drafts))
+                if (Object.hasOwn(previous.drafts, key)) {
+                  delete state.drafts[key];
+                  result.skipped.push(`draft:${scope}:${key}`);
+                }
+          }
+        }
         const plannedImages = new Set<string>();
         mapDraftImagePaths(state.drafts, (path) => {
           const name = draftImageReferenceName(path);
@@ -1019,8 +1328,48 @@ function prepare(
         });
         data = Buffer.from(JSON.stringify(state));
       }
+      const path = weqAccountSettingPath(root, cacheRoot, scope, setting);
+      let originalHash: string | undefined;
+      if (selective && actual(path, false)) {
+        const original = readWeqBackupFile(path);
+        originalHash = digest(original);
+        const previous = parseWeqBackupJson(original);
+        const incoming = parseWeqBackupJson(data) as Record<string, unknown>;
+        if (setting === 'client-state.json') {
+          validateClientState(previous);
+          const incomingDrafts = incoming.drafts as Record<string, unknown>;
+          const newDrafts = Object.fromEntries(
+            Object.entries(incomingDrafts).filter(
+              ([key]) =>
+                pending.choice.conflict === 'overwrite' || !Object.hasOwn(previous.drafts, key),
+            ),
+          );
+          const base =
+            Object.keys(newDrafts).length && previous.externalDrafts
+              ? new ClientStateStore(path).exportState()
+              : previous;
+          data = Buffer.from(
+            JSON.stringify({
+              ...base,
+              epoch: randomUUID(),
+              revision: Math.max(base.revision, Number(incoming.revision)) + 1,
+              records: merge(base.records, incoming.records as Record<string, unknown>),
+              drafts: { ...base.drafts, ...newDrafts },
+            }),
+          );
+        } else {
+          data = Buffer.from(
+            JSON.stringify(
+              setting === 'dress-conversations.json'
+                ? { ...(previous as object), ...incoming }
+                : merge(previous, incoming),
+            ),
+          );
+        }
+      }
       add('account-setting', [{ path: '', data }], scope, {
         setting,
+        ...(originalHash ? { originalHash } : {}),
       });
     }
   }
@@ -1031,21 +1380,43 @@ function prepare(
   )) {
     const prefix = `clones/${scope}/`,
       destination = mappedScope(pending.choice, scope);
-    add(
-      'clones',
-      bundle.files
-        .filter((file) => file.path.startsWith(prefix) && file.path !== `${prefix}assistant.json`)
-        .map((file) => ({
-          path: file.path.slice(prefix.length),
-          data: relocateWeqCloneAssets(
-            { ...file, path: file.path.replace(prefix, `clones/${destination}/`) },
-            join(cacheRoot, 'agentlab'),
-          ).data,
-        })),
-      destination,
-    );
+    const cloneFiles = bundle.files
+      .filter((file) => file.path.startsWith(prefix) && file.path !== `${prefix}assistant.json`)
+      .map((file) => ({
+        path: file.path.slice(prefix.length),
+        data: relocateWeqCloneAssets(
+          { ...file, path: file.path.replace(prefix, `clones/${destination}/`) },
+          join(cacheRoot, 'agentlab'),
+        ).data,
+      }));
+    if (selective)
+      for (const file of cloneFiles)
+        add('clone-file', [{ ...file, path: '' }], destination, { file: file.path });
+    else add('clones', cloneFiles, destination);
   }
-  if (pending.choice.conflict === 'skip') {
+  if (typingByScope.size) {
+    const previous = config ?? currentConfig;
+    const settings = record(previous.settings) ? previous.settings : {};
+    const typing = record(settings.typingStatus) ? settings.typingStatus : {};
+    const hidden = Array.isArray(typing.hidden) ? typing.hidden : [];
+    config = {
+      ...previous,
+      settingsRevision: Math.max(Date.now(), Number(currentConfig.settingsRevision ?? 0) + 1),
+      settings: {
+        ...settings,
+        typingStatus: {
+          ...typing,
+          hidden: [
+            ...hidden.filter(
+              (item) => !record(item) || !typingByScope.has(String(item.accountConfigId)),
+            ),
+            ...[...typingByScope.values()].flat(),
+          ],
+        },
+      },
+    };
+  }
+  if (!selective && pending.choice.conflict === 'skip') {
     const blocked = new Set(
       plans
         .filter(
@@ -1073,6 +1444,7 @@ function prepare(
   }
   const autoEnter = existingConfig.autoEnter;
   if (
+    !selective &&
     record(autoEnter) &&
     plans.some(
       (plan) =>
@@ -1140,7 +1512,13 @@ function prepare(
       (file) => file.path.startsWith('clones/') && file.path.endsWith('.json'),
     )) {
       if (
-        result.skipped.includes(`clones:${mappedScope(pending.choice, file.path.split('/')[1]!)}`)
+        result.skipped.includes(
+          `clones:${mappedScope(pending.choice, file.path.split('/')[1]!)}`,
+        ) ||
+        (selective &&
+          result.skipped.includes(
+            `clone-file:${mappedScope(pending.choice, file.path.split('/')[1]!)}:${file.path.split('/').slice(2).join('/')}`,
+          ))
       )
         continue;
       const value = parseWeqBackupJson(file.data);
@@ -1170,6 +1548,13 @@ function prepare(
       ? [...warnings.slice(0, 200), `另有 ${warnings.length - 200} 条警告未展开。`]
       : warnings;
   if (config) add('config', [{ path: '', data: Buffer.from(JSON.stringify(config)) }]);
+  if (host?.device || host?.services) {
+    result.applied.push('host');
+    result.hostPending = {
+      options: { device: host.device, services: host.services },
+      activateServices: !!pending.choice.activateServices,
+    };
+  }
   return { plans, result };
 }
 
@@ -1198,6 +1583,7 @@ export function previewWeqBackupRestore(
     planned: prepared.result.applied,
     skipped: prepared.result.skipped,
     warnings: prepared.result.warnings,
+    ...(bundle.manifest.sections ? { services: selectiveServiceNames(bundle) } : {}),
   };
 }
 
@@ -1230,7 +1616,7 @@ export function stageWeqBackupRestore(
   const bundle = { manifest: source.manifest, files };
   validateWeqBackupData(bundle);
   mappingRecords(root, bundle, choice);
-  const selected = buildWeqBackup(files, source.manifest.createdAt);
+  const selected = buildWeqBackup(files, source.manifest.createdAt, source.manifest.sections);
   const id = randomUUID();
   const pending: Pending = {
     id,
@@ -1517,6 +1903,21 @@ export function recordWeqRestoreWarnings(appRoot: string, result: WeqRestoreResu
   save(resultPath(root), { ...stored, warnings: result.warnings });
 }
 
+export function finishWeqBackupHostRestore(appRoot: string, result: WeqRestoreResult): void {
+  const root = resolve(appRoot);
+  const stored = readResult(root);
+  if (stored?.id !== result.id || stored.status !== 'applied') throw new Error('恢复回执已变化');
+  const journal = readJournal(root);
+  if (journal?.id === result.id && journal.phase === 'committed') {
+    delete journal.result.hostPending;
+    journal.result.warnings = result.warnings;
+    save(journalPath(root), journal);
+  }
+  delete stored.hostPending;
+  save(resultPath(root), { ...stored, warnings: result.warnings });
+  delete result.hostPending;
+}
+
 export function hasPendingWeqBackupRestore(appRoot: string): boolean {
   const root = resolve(appRoot);
   return present(pendingPath(root)) || present(journalPath(root));
@@ -1542,7 +1943,13 @@ export function pendingWeqClientSettings(
   appRoot: string,
   clientId?: string,
   allowOtherClient = false,
-): { id: string; values: Record<string, string>; clientId?: string; defaults?: boolean } | null {
+): {
+  id: string;
+  values: Record<string, string>;
+  clientId?: string;
+  defaults?: boolean;
+  merge?: boolean;
+} | null {
   const root = resolve(appRoot);
   if (!present(clientPath(root))) return null;
   const value = json(clientPath(root), WEQ_BACKUP_LIMITS.maxEntryBytes);
@@ -1554,7 +1961,10 @@ export function pendingWeqClientSettings(
   )
     throw new Error('待恢复界面偏好无效');
   validateWeqClientSettings(value.values);
-  if (value.defaults !== undefined && typeof value.defaults !== 'boolean')
+  if (
+    (value.defaults !== undefined && typeof value.defaults !== 'boolean') ||
+    (value.merge !== undefined && typeof value.merge !== 'boolean')
+  )
     throw new Error('待恢复默认偏好无效');
   if (
     value.clientId !== undefined &&
@@ -1577,6 +1987,7 @@ export function pendingWeqClientSettings(
     values: Record<string, string>;
     clientId?: string;
     defaults?: boolean;
+    merge?: boolean;
   };
 }
 

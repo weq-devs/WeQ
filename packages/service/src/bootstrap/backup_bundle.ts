@@ -11,7 +11,10 @@ import {
   WEQ_CLONE_STORES as CLONE_STORES,
 } from './backup_refs';
 
+import { WEQ_BACKUP_SECTIONS, type WeqBackupSection } from '../common/backup_sections';
+
 export const WEQ_BACKUP_VERSION = 1;
+export const WEQ_SELECTIVE_BACKUP_VERSION = 2;
 export const WEQ_BACKUP_LIMITS = {
   maxEntries: 8192,
   maxEntryBytes: 64 * 1024 * 1024,
@@ -28,7 +31,8 @@ export interface WeqBackupFile {
 }
 export interface WeqBackupManifest {
   format: 'weq-backup';
-  version: typeof WEQ_BACKUP_VERSION;
+  version: typeof WEQ_BACKUP_VERSION | typeof WEQ_SELECTIVE_BACKUP_VERSION;
+  sections?: WeqBackupSection[];
   createdAt: string;
   files: Array<{ path: string; bytes: number; sha256: string }>;
 }
@@ -38,6 +42,7 @@ export interface WeqBackupBundle {
 }
 export interface WeqBackupSummary {
   createdAt: string;
+  sections?: WeqBackupSection[];
   parts: Array<{ part: WeqBackupPart; files: number; bytes: number }>;
   accountConfigIds: string[];
   cloneConfigIds: string[];
@@ -49,6 +54,7 @@ const SETTINGS_FILES = new Set([
   'settings/client.json',
   'settings/shared.json',
   'settings/export-presets.json',
+  'settings/host.json',
 ]);
 const CONFIG_ID = /^\d{1,20}(?:_[0-9a-f]{8})?$/;
 const SAFE_ID = /^[A-Za-z0-9_-]{1,100}$/;
@@ -228,9 +234,10 @@ export function validateWeqDraftImage(name: string, data: Buffer): void {
     throw new Error('备份草稿图片格式、体积或内容校验不符');
 }
 
-function validateFile(file: WeqBackupFile): void {
+function validateFile(file: WeqBackupFile, selective: boolean): void {
   const part = weqBackupPart(file.path);
   if (file.data.length > WEQ_BACKUP_LIMITS.maxEntryBytes) throw new Error('备份单文件超过 64 MiB');
+  if (!selective && file.path === 'settings/host.json') throw new Error('备份版本与内容不匹配');
   if (!file.path.endsWith('.json')) {
     const parts = file.path.split('/');
     if (part === 'accounts' && parts[2] === DRAFT_MEDIA_DIR) {
@@ -268,10 +275,11 @@ function validateFile(file: WeqBackupFile): void {
       typeof value.uin !== 'string' ||
       !/^\d{1,20}$/.test(value.uin) ||
       (id !== value.uin && !id.startsWith(`${value.uin}_`)) ||
-      typeof value.dbKey !== 'string' ||
-      !record(value.algos) ||
-      typeof value.lastLoginAt !== 'number' ||
-      !Number.isFinite(value.lastLoginAt) ||
+      (!selective &&
+        (typeof value.dbKey !== 'string' ||
+          !record(value.algos) ||
+          typeof value.lastLoginAt !== 'number' ||
+          !Number.isFinite(value.lastLoginAt))) ||
       (value.dataDir !== undefined && typeof value.dataDir !== 'string')
     )
       throw new Error('备份账号配置与其标识不一致或字段无效');
@@ -298,6 +306,7 @@ function digest(data: Buffer): string {
 export function buildWeqBackup(
   files: readonly WeqBackupFile[],
   createdAt = new Date().toISOString(),
+  sections?: WeqBackupSection[],
 ): Buffer {
   if (!files.length) throw new Error('没有选择可备份的数据');
   if (files.length + 1 > WEQ_BACKUP_LIMITS.maxEntries) throw new Error('备份文件数量超过限制');
@@ -306,7 +315,7 @@ export function buildWeqBackup(
   const names = new Set<string>();
   const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path, 'en'));
   for (const file of sorted) {
-    validateFile(file);
+    validateFile(file, sections !== undefined);
     const name = file.path.normalize('NFC').toLowerCase();
     if (names.has(name)) throw new Error('备份文件路径重复或大小写冲突');
     names.add(name);
@@ -316,7 +325,8 @@ export function buildWeqBackup(
   }
   const manifest: WeqBackupManifest = {
     format: 'weq-backup',
-    version: WEQ_BACKUP_VERSION,
+    version: sections === undefined ? WEQ_BACKUP_VERSION : WEQ_SELECTIVE_BACKUP_VERSION,
+    ...(sections ? { sections } : {}),
     createdAt,
     files: sorted.map((file) => ({
       path: file.path,
@@ -342,7 +352,17 @@ export function readWeqBackup(data: Buffer): WeqBackupBundle {
   if (!metadata) throw new Error('不是 WeQ 备份包：缺少清单');
   const raw = parseWeqBackupJson(metadata.data);
   if (!record(raw) || raw.format !== 'weq-backup') throw new Error('不是 WeQ 备份包');
-  if (raw.version !== WEQ_BACKUP_VERSION) throw new Error('不支持此 WeQ 备份版本');
+  if (raw.version !== WEQ_BACKUP_VERSION && raw.version !== WEQ_SELECTIVE_BACKUP_VERSION)
+    throw new Error('不支持此 WeQ 备份版本');
+  const sections = raw.version === WEQ_SELECTIVE_BACKUP_VERSION ? raw.sections : undefined;
+  if (
+    raw.version === WEQ_SELECTIVE_BACKUP_VERSION &&
+    (!Array.isArray(sections) ||
+      !sections.length ||
+      new Set(sections).size !== sections.length ||
+      sections.some((section) => !WEQ_BACKUP_SECTIONS.includes(section)))
+  )
+    throw new Error('备份内容选项无效');
   if (
     typeof raw.createdAt !== 'string' ||
     !Number.isFinite(Date.parse(raw.createdAt)) ||
@@ -383,14 +403,15 @@ export function readWeqBackup(data: Buffer): WeqBackupBundle {
     )
       throw new Error('备份文件缺失、体积不符或内容校验失败');
     const file = { path: entry.name, data: entry.data };
-    validateFile(file);
+    validateFile(file, sections !== undefined);
     files.push(file);
     manifestFiles.push({ path: item.path, bytes: item.bytes, sha256: item.sha256 });
   }
   return {
     manifest: {
       format: 'weq-backup',
-      version: WEQ_BACKUP_VERSION,
+      version: raw.version,
+      ...(Array.isArray(sections) ? { sections } : {}),
       createdAt: raw.createdAt,
       files: manifestFiles,
     },
@@ -432,6 +453,7 @@ export function summarizeWeqBackup(bundle: WeqBackupBundle): WeqBackupSummary {
   }
   return {
     createdAt: bundle.manifest.createdAt,
+    ...(bundle.manifest.sections ? { sections: bundle.manifest.sections } : {}),
     parts: WEQ_BACKUP_PARTS.flatMap((part) => parts.get(part) ?? []),
     accountConfigIds: [...accounts].sort(),
     cloneConfigIds: [...clones].sort(),

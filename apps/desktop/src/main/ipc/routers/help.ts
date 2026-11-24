@@ -135,7 +135,11 @@ export function nativeDebugLogStatus(): { enabled: boolean; available: boolean }
   }
 }
 
-function setNativeDebugLog(enabled: boolean): { ok: boolean; enabled: boolean; error?: string } {
+export function setNativeDebugLog(enabled: boolean): {
+  ok: boolean;
+  enabled: boolean;
+  error?: string;
+} {
   const nt = getAppContext().platform?.native.ntHelper;
   if (!nt) return { ok: false, enabled: false, error: '原生组件未就绪' };
   try {

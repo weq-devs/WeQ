@@ -167,3 +167,50 @@ html[data-theme='dark'] .weq-backup-review {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
+
+.weq-backup-options {
+  padding: 0;
+  margin: 0;
+  min-inline-size: 0;
+  border: 0;
+}
+.weq-backup-option {
+  padding-block: 9px;
+  border-block-end: 1px solid var(--weq-border);
+}
+.weq-backup-option:last-child {
+  border-block-end: 0;
+}
+.weq-backup-option .weq-set-row {
+  padding: 0;
+}
+.weq-backup-option summary {
+  cursor: pointer;
+  padding-block: 5px;
+  font-size: 13px;
+}
+.weq-backup-choice-details {
+  margin-inline-start: 16px;
+  padding-block: 4px;
+}
+.weq-backup-account-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-block: 6px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.weq-backup-account-choice input {
+  flex: 0 0 auto;
+  accent-color: var(--weq-accent-effective);
+}
+.weq-backup-account-choice small {
+  display: block;
+}
+.weq-backup-secret {
+  margin: 0;
+  padding: 8px 20px 0;
+  font-size: 13px;
+  color: var(--weq-fg-primary);
+}

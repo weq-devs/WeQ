@@ -16,6 +16,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
+import { applyRestoredHostPreferences } from '@weq/desktop/main/context/backup_host_preferences';
 import { weqAppDataRoot } from '@weq/platform';
 import { AccountInstances } from '@weq/desktop/main/account_instances';
 import { setAccountInstanceScope } from '@weq/desktop/main/account_instance_scope';
@@ -24,6 +25,7 @@ import { DEFAULT_SERVICE_PORTS } from '@weq/service/service-ports';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  weqBackupRestoreStatus,
   setHost,
   initLogger,
   configureDevelopmentLogging,
@@ -148,10 +150,18 @@ async function main(): Promise<void> {
     createNodeCollector(performanceDatabaseDetails),
   );
   const files = getBackupContext();
-  if (files.ok)
+  if (files.ok) {
     void finishPerformanceRecordingReset(files.config).catch((error: unknown) => {
       console.warn('[web] 恢复性能记录档位未完成:', error);
     });
+    const pending = files.result?.hostPending
+      ? files.result
+      : weqBackupRestoreStatus(files.root).result;
+    if (pending?.hostPending)
+      void applyRestoredHostPreferences(files.root, pending, false).catch((error: unknown) => {
+        console.warn('[web] 应用备份中的本机设置失败:', error);
+      });
+  }
 
   const assistant = getAppContext().bootstrap?.userConfig.getSettings().weqAssistant;
   if (assistant?.enabled)
