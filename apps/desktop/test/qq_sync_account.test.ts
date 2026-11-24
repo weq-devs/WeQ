@@ -41,12 +41,13 @@ function fixture(path?: string) {
   let readState = { msgSeq: 0, localReadSeq: '0', markUnread: false };
   let current = { pid: 123, key: '07'.repeat(16) };
   const row = { msgRandom: 123n, sendTime: 1700000000n, senderUid: 'u_self' };
+  const reads = vi.fn(async () => (present ? [row] : []));
   const session = {
     context: { uin: '10001' },
     selfUid: 'u_self',
     uidMap: { sortNoByUid: () => 1n },
     unreadInfo: { getUnreadInfo: async () => readState },
-    c2cMsgs: { listBySeqsInPartition: async () => (present ? [row] : []) },
+    c2cMsgs: { listBySeqsInPartition: reads },
   } as unknown as AccountSession;
   const service = new AccountQqSync({
     root,
@@ -69,6 +70,7 @@ function fixture(path?: string) {
   return {
     service,
     root,
+    reads,
     setReadState: (value: typeof readState) => {
       readState = value;
     },
@@ -190,6 +192,44 @@ it('回执与服务器时间相差一秒时按消息身份补投，并确认不�
   await vi.waitFor(() => expect(state.service.status().pending).toBe(0));
   expect(state.service.status().completed).toBe(1);
   expect(f.request.mock.calls.filter((call) => call[1].op === 'push')).toHaveLength(1);
+});
+it('已有落库观察确认本人补投时，不等固定延时再读一次库', async () => {
+  const state = fixture();
+  f.request.mockImplementation(async (_root, request) => {
+    if (request.op === 'push') {
+      state.service.observeStoredMessage('c2c', sent.conv, BigInt(sent.msgSeq), 123n, 'u_other');
+      state.service.observeStoredMessage('c2c', sent.conv, BigInt(sent.msgSeq), 124n, 'u_self');
+      expect(state.service.status().pending).toBe(1);
+      state.service.observeStoredMessage('c2c', sent.conv, BigInt(sent.msgSeq), 123n, 'u_self');
+    }
+    return { delivered: true };
+  });
+  state.service.sent({ ...sent, elements: [] });
+  await vi.waitFor(() => expect(state.saved().tasks).toHaveLength(1));
+  await new Promise((resolve) => setTimeout(resolve, 750));
+  state.setOnline();
+  await vi.waitFor(() => expect(state.service.status().completed).toBe(1));
+  expect(state.reads).toHaveBeenCalledOnce();
+});
+
+it('旧连接迟到的已读补投回执不清掉当前仍待确认的任务', async () => {
+  const state = fixture();
+  let finish!: (value: { delivered: boolean }) => void;
+  f.request.mockImplementation(async (_root, request) => {
+    if (request.op === 'push')
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    return { delivered: true };
+  });
+  state.service.read({ kind: 'group', groupUin: 55555, sequence: 20 });
+  await vi.waitFor(() => expect(state.saved().tasks).toHaveLength(1));
+  state.setOnline();
+  await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+  state.changeSession();
+  finish({ delivered: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(state.service.status()).toMatchObject({ pending: 1, completed: 0 });
 });
 it.each([
   { fromUid: 'u_other', msgId: 123 },

@@ -70,6 +70,7 @@ export class AccountQqSync {
   private recallWake?: ReturnType<typeof setTimeout>;
   private flight?: Promise<void>;
   private recallActive = false;
+  private awaitingStored?: { id: string; resolve(observed: boolean): void };
   readonly liveMessages = new LiveMessages();
   private readonly liveStats = {
     receivedFrames: 0,
@@ -90,6 +91,7 @@ export class AccountQqSync {
   }
 
   liveRows(kind: GapFetchedMessage['kind'], conv: string) {
+    if (!this.isLiveEnabled()) return [];
     return this.liveMessages
       .forConversation(kind, conv, Date.now())
       .filter((row) => this.options.allowLiveMessage?.(row) !== false);
@@ -235,6 +237,17 @@ export class AccountQqSync {
       attempts: 0,
       nextAt: Date.now() + 700,
     });
+  }
+  observeStoredMessage(
+    kind: SentIdentity['kind'],
+    conv: string,
+    sequence: bigint,
+    random: bigint | undefined,
+    senderUid: string,
+  ) {
+    const pending = this.awaitingStored;
+    if (!pending || senderUid !== this.options.session.selfUid || !random) return;
+    if (pending.id === `message:${kind}:${conv}:${sequence}:${random}`) pending.resolve(true);
   }
   read(target: ClientReadTarget) {
     if (!this.options.proxyEnabled() || !this.options.enabled() || this.disposed) return;
@@ -486,12 +499,14 @@ export class AccountQqSync {
         if (task.nextAt > Date.now()) continue;
         try {
           if (task.kind === 'message' && (await this.exists(task.message))) {
+            if (!valid() || !this.options.enabled()) break;
             this.tasks.delete(task.id);
             this.completed++;
             await this.save();
             continue;
           }
           if (task.kind === 'read' && !(await this.currentRead(task.target))) {
+            if (!valid() || !this.options.enabled()) break;
             if (this.tasks.get(task.id) === task) this.tasks.delete(task.id);
             await this.save();
             continue;
@@ -503,6 +518,12 @@ export class AccountQqSync {
           if (!valid() || !this.options.enabled() || this.tasks.get(task.id) !== task) continue;
           const identity =
             task.kind === 'read' ? `${task.id}:${readReportWatermark(task.target)}` : task.id;
+          const stored =
+            task.kind === 'message'
+              ? new Promise<boolean>((resolve) => {
+                  this.awaitingStored = { id: task.id, resolve };
+                })
+              : undefined;
           await qqSyncRequest(this.options.root, {
             op: 'push',
             uin,
@@ -510,10 +531,14 @@ export class AccountQqSync {
             identity,
             body: body.toString('base64'),
           });
-          if (task.kind === 'message') {
-            await new Promise((resolve) => setTimeout(resolve, 600));
-            if (!valid()) break;
-            if (!(await this.exists(task.message))) throw new Error('等待 QQ 接纳消息');
+          if (!valid() || !this.options.enabled()) break;
+          if (task.kind === 'message' && stored) {
+            const timer = setTimeout(() => this.awaitingStored?.resolve(false), 600);
+            const observed = await stored.finally(() => clearTimeout(timer));
+            if (!valid() || !this.options.enabled()) break;
+            if (!observed && !(await this.exists(task.message)))
+              throw new Error('等待 QQ 接纳消息');
+            if (!valid() || !this.options.enabled()) break;
           }
           if (this.tasks.get(task.id) === task) {
             this.tasks.delete(task.id);
@@ -521,10 +546,14 @@ export class AccountQqSync {
           }
           this.lastError = '';
         } catch (error) {
+          if (!valid() || !this.options.enabled()) break;
+          if (this.tasks.get(task.id) !== task) continue;
           task.attempts++;
           task.nextAt = Date.now() + Math.min(60000, 1000 * 2 ** Math.min(task.attempts, 6));
           task.error = (error as Error).message;
           this.lastError = task.error;
+        } finally {
+          this.awaitingStored = undefined;
         }
         await this.save();
       }

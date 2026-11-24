@@ -708,6 +708,7 @@ function mountDbWatch(session: AccountSession): void {
       const confirmedNotices = live ? new Set<object>() : undefined;
       const c2c = new Set((change.dataline ?? []).map((message) => message.targetUid));
       for (const row of change.c2c) {
+        sync?.observeStoredMessage('c2c', row.targetUid, row.msgSeq, row.msgRandom, row.senderUid);
         const confirmed = live?.confirm(
           {
             kind: 'c2c',
@@ -724,6 +725,13 @@ function mountDbWatch(session: AccountSession): void {
       }
       const groups = new Set<string>();
       for (const row of change.group) {
+        sync?.observeStoredMessage(
+          'group',
+          row.targetGroupCode,
+          row.msgSeq,
+          row.msgRandom,
+          row.senderUid,
+        );
         const confirmed = live?.confirm(
           {
             kind: 'group',
