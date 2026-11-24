@@ -1,5 +1,6 @@
 .weq-chat-jump-select.weq-set-input {
-  inline-size: 8em;
+  /* 为最长的六字选项、箭头和内边距预留宽度，切换选项时不跳动。 */
+  inline-size: calc(6em + 44px);
   max-inline-size: 100%;
 }
 
