@@ -266,6 +266,9 @@
 .weq-remote-device-details[open] summary > svg {
   transform: rotate(90deg);
 }
+.weq-remote-account-access > .weq-set-row {
+  padding-block: 3px;
+}
 .weq-remote-account-label {
   display: flex;
   align-items: baseline;

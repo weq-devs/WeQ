@@ -470,13 +470,10 @@ export function RemotePanel({
                     </span>
                   </div>
                   {device.scope === 'web:access' && onAccountAccess && (
-                    <details className="weq-remote-device-details">
+                    <details className="weq-remote-device-details weq-remote-account-access">
                       <summary>
                         <ChevronRight size={14} />
                         访问权限
-                        <span className="weq-remote-muted">
-                          {device.accountConfigIds?.length ?? 0} 个账号
-                        </span>
                       </summary>
                       {accountError && (
                         <p className="weq-remote-muted" role="alert">
