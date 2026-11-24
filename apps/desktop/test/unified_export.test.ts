@@ -1205,6 +1205,47 @@ describe('统一导出实际界面', () => {
       f.close();
     }
   });
+  it('会话选择器按全拼和首字母找会话，全选只包含筛选后的候选', async () => {
+    const original = fixture.conversations;
+    fixture.realPicker = true;
+    fixture.conversations = [
+      ...original,
+      {
+        ...original[0]!,
+        targetUid: 'u_chinese',
+        targetUin: '10002',
+        targetDisplayName: '重庆同学',
+      },
+      { ...original[0]!, targetUid: 'u_literal', targetUin: '10003', targetDisplayName: 'cq' },
+    ];
+    const f = mount();
+    try {
+      await act(async () => {
+        await vi.dynamicImportSettled();
+      });
+      const input = f.host.querySelector<HTMLInputElement>('[placeholder="搜索会话名称或号码"]')!;
+      const search = (value: string) =>
+        act(() => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+            input,
+            value,
+          );
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+      const names = () =>
+        [...f.host.querySelectorAll('.weq-exp-row')].map((row) => row.textContent);
+      search('chongqing');
+      expect(names()).toEqual([expect.stringContaining('重庆同学')]);
+      search('cq');
+      expect(names()).toEqual([expect.stringContaining('cq'), expect.stringContaining('重庆同学')]);
+      act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="全选"]')!.click());
+      expect(f.host.textContent).toContain('已选 2 个会话');
+    } finally {
+      f.close();
+      fixture.realPicker = false;
+      fixture.conversations = original;
+    }
+  });
   it('真实虚拟列表全选 1500 个会话后 DOM 有界，不展示消息范围按钮', async () => {
     const original = fixture.conversations;
     fixture.realPicker = true;

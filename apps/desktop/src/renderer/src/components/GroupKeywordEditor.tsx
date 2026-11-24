@@ -21,6 +21,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { client } from '../trpc/client';
 import { accountBinding } from '../lib/clientPreferences';
+import { filterByName } from '../lib/nameSearch';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { useSettingsSaveBanner } from '../hooks/useSettingsSaveBanner';
 import { Avatar } from '../im-template/template/primitives';
@@ -31,6 +32,7 @@ import { previewMemberView } from '../hooks/useGroupProfile';
 export interface KeywordMember {
   uid: string;
   displayName: string;
+  aliases?: readonly (string | null | undefined)[];
   avatarUrl: string | null;
   uin?: string;
   role: 'owner' | 'admin' | 'member';
@@ -95,6 +97,7 @@ export function GroupKeywordEditor({
       rows.set(row.uid, {
         uid: row.uid,
         displayName: member.displayName,
+        aliases: [...(rows.get(row.uid)?.aliases ?? []), row.card, row.nick],
         avatarUrl: member.avatarUrl ?? null,
         uin: row.uin,
         role: member.role,
@@ -282,10 +285,23 @@ export function GroupKeywordEditor({
     if (!q || editingIndex === null) return [];
     const selected = new Set(entries[editingIndex]?.memberUids ?? []);
     if (memberQuery.trim() !== needle) return [];
-    return scopedMembers
-      .filter((m) => !selected.has(m.uid))
-      .filter((m) => `${m.displayName} ${m.uin ?? ''}`.toLowerCase().includes(q));
-  }, [memberQuery, needle, scopedMembers, entries, editingIndex]);
+    const available = scopedMembers.filter((member) => !selected.has(member.uid));
+    const matches = filterByName(
+      available,
+      q,
+      (member) => [member.displayName, ...(member.aliases ?? [])],
+      (member, query) => Boolean(member.uin?.includes(query)),
+    );
+    // 分页结果已经用完整群名片和昵称匹配，保留服务端确认的候选。
+    const serverIds = new Set(
+      candidates.data?.pages.flatMap((page) => page.members.map((member) => member.uid)),
+    );
+    const localIds = new Set(matches.map((member) => member.uid));
+    return [
+      ...matches,
+      ...available.filter((member) => serverIds.has(member.uid) && !localIds.has(member.uid)),
+    ];
+  }, [memberQuery, needle, scopedMembers, entries, editingIndex, candidates.data]);
   const memberIds = editingIndex === null ? [] : (entries[editingIndex]?.memberUids ?? []);
   const memberMulti = useMultiSelection({
     ids: [...new Set([...memberIds, ...searchResults.map((member) => member.uid)])],

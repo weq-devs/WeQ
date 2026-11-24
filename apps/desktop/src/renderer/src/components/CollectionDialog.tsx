@@ -1,4 +1,5 @@
 import { accountGatewayPath } from '../lib/accountGateway';
+import { filterByName } from '../lib/nameSearch';
 import { ToolbarLabel } from './CompactToolbar';
 import { observeCompactToolbar } from './CompactToolbar.shared';
 import { NumericText } from './NumericText';
@@ -979,9 +980,23 @@ export function CollectionDialog({
 
   // Search-filtered set (kind ignored) — drives the per-kind chip counts.
   const bySearch = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((it) => searchCorpus(it).includes(q));
+    return filterByName(
+      items,
+      query,
+      (it) => [
+        it.authorName,
+        it.groupName,
+        it.link?.title,
+        it.link?.publisher,
+        it.richMedia?.title,
+        it.richMedia?.subTitle,
+        it.video?.title,
+        it.video?.fileName,
+        it.file?.name,
+        it.location?.name,
+      ],
+      (it, needle) => searchCorpus(it).includes(needle),
+    );
   }, [items, query]);
 
   const counts = useMemo(() => {

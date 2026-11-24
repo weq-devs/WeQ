@@ -18,7 +18,6 @@ createRoot(document.getElementById('root')!).render(
       <ConversationOverviewCalendar
         targets={[{ kind: 'c2c', conv: 'fixture', name: '测试会话', avatar: null, ancestors: [] }]}
         scope={scope}
-        query=""
         ready
         binding={{ expectedAccountUin: 'fixture', expectedAccountConfigId: 'live' }}
         onClose={() => {

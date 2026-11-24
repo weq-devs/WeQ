@@ -32,7 +32,24 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     account: {
       qqActions: { favorites: { useQuery: () => ({ data: undefined }) } },
       emojiPanel: {
-        catalog: { useQuery: () => ({ data: { faces: [], recent: [] } }) },
+        catalog: {
+          useQuery: () => ({
+            data: {
+              faces: [
+                {
+                  key: 'standard',
+                  label: '经典表情',
+                  unicode: false,
+                  items: [
+                    { id: '14', desc: '[微笑]', unicode: false, sticker: false },
+                    { id: '1', desc: '[撇嘴]', unicode: false, sticker: false },
+                  ],
+                },
+              ],
+              recent: [],
+            },
+          }),
+        },
         favorites: {
           useQuery: () => ({
             data: [
@@ -74,6 +91,20 @@ describe('收藏表情面板', () => {
     try {
       renderPanel();
       expect(selectedTab()).toBe('表情');
+      const search = host.querySelector<HTMLInputElement>('[aria-label="搜索表情"]')!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+          search,
+          'wx',
+        );
+        search.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      const matches = host.querySelectorAll<HTMLButtonElement>('.emoji-cell');
+      expect([...matches].map((button) => button.title)).toEqual(['[微笑]']);
+      act(() => matches[0]!.click());
+      expect(onSelect).toHaveBeenLastCalledWith(
+        expect.objectContaining({ token: '[[chat:face:14]]' }),
+      );
       act(() => host.querySelector<HTMLButtonElement>('[aria-label="收藏"]')!.click());
       expect(host.querySelector('[aria-label="导入收藏表情包"]')).not.toBeNull();
       expect(host.querySelector('[aria-label="导出收藏表情包"]')).not.toBeNull();

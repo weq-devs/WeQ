@@ -170,7 +170,9 @@ export function rankContentSearchHits(
 ): ContentSearchHit[] {
   return [...hits].sort(
     (a, b) =>
-      searchNameRank(keyword, b.title) - searchNameRank(keyword, a.title) ||
+      Number(a.matchRank !== undefined) - Number(b.matchRank !== undefined) ||
+      (b.matchRank ?? searchNameRank(keyword, b.title)) -
+        (a.matchRank ?? searchNameRank(keyword, a.title)) ||
       b.time - a.time ||
       b.observedAt - a.observedAt ||
       a.id.localeCompare(b.id),
@@ -213,9 +215,12 @@ export function rankFileSearchHits<T extends FileSearchHit | ContentSearchHit>(
   const time = (hit: T) => (hit.category === 'file' ? Number(hit.sendTime) : hit.time);
   const observed = (hit: T) => (hit.category === 'file' ? 0 : hit.observedAt);
   const key = (hit: T) => (hit.category === 'file' ? `${hit.source}:${hit.msgId}` : hit.id);
+  const pinyinRank = (hit: T) => (hit.category === 'file' ? undefined : hit.matchRank);
   return [...hits].sort(
     (a, b) =>
-      searchNameRank(keyword, name(b)) - searchNameRank(keyword, name(a)) ||
+      Number(pinyinRank(a) !== undefined) - Number(pinyinRank(b) !== undefined) ||
+      (pinyinRank(b) ?? searchNameRank(keyword, name(b))) -
+        (pinyinRank(a) ?? searchNameRank(keyword, name(a))) ||
       time(b) - time(a) ||
       observed(b) - observed(a) ||
       key(a).localeCompare(key(b)),

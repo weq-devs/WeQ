@@ -1,4 +1,5 @@
 .emoji-panel {
+  --emoji-tabs-height: 46px;
   position: absolute;
   bottom: calc(100% - 1px);
   left: 12px;
@@ -11,12 +12,16 @@
   );
   min-height: 260px;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) 46px;
+  grid-template-rows: auto minmax(0, 1fr) var(--emoji-tabs-height);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
   border-radius: 12px;
   background: var(--popover, #ffffff);
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+}
+
+.emoji-panel-searchable {
+  grid-template-rows: auto auto minmax(0, 1fr) var(--emoji-tabs-height);
 }
 
 .emoji-panel-header {

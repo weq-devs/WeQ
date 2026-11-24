@@ -1,4 +1,5 @@
 import type { GroupFileListing, GroupFileWire, GroupFolderWire } from './groupFile';
+import { filterByName } from './nameSearch';
 import { groupPermission, qqResourceOwnedBy } from '@weq/service/qq-permissions';
 
 export const GROUP_FILE_DRAG_TYPE = 'application/x-weq-group-files';
@@ -49,23 +50,24 @@ export function groupFileEntries(
       file,
     })),
   ];
-  const needle = query.trim().toLocaleLowerCase();
   const time = (row: GroupFileEntryRow) =>
     row.kind === 'file'
       ? row.file.modifiedTime || row.file.uploadedTime
       : row.folder.modifiedTime || row.folder.createTime;
-  return [...new Map(rows.map((row) => [row.key, row])).values()]
-    .filter((row) => !needle || row.name.toLocaleLowerCase().includes(needle))
-    .sort((a, b) => {
-      if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
-      const value =
-        sort === 'time'
-          ? time(a) - time(b)
-          : sort === 'size' && a.kind === 'file' && b.kind === 'file'
-            ? a.file.fileSize - b.file.fileSize
-            : a.name.localeCompare(b.name, 'zh-CN', { numeric: true });
-      return (order === 'desc' ? -value : value) || a.key.localeCompare(b.key);
-    });
+  const sorted = [...new Map(rows.map((row) => [row.key, row])).values()].sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
+    const value =
+      sort === 'time'
+        ? time(a) - time(b)
+        : sort === 'size' && a.kind === 'file' && b.kind === 'file'
+          ? a.file.fileSize - b.file.fileSize
+          : a.name.localeCompare(b.name, 'zh-CN', { numeric: true });
+    return (order === 'desc' ? -value : value) || a.key.localeCompare(b.key);
+  });
+  if (!query.trim()) return sorted;
+  const result = filterByName(sorted, query, (row) => [row.name]);
+  // 文件夹和文件各自按匹配等级排序，先显示文件夹。
+  return result.sort((a, b) => Number(a.kind === 'file') - Number(b.kind === 'file'));
 }
 export function canManageGroupFile(
   row: GroupFileEntryRow,

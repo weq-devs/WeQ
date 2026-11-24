@@ -5,7 +5,7 @@ import { CompositionButton } from './CompositionButton';
  * 合并转发第二步：选择要转发到的会话（多选）。
  *
  * 会话来自主界面已经加载的列表，保留会话顺序，不按好友／群聊拆分。
- * 支持按名字 / QQ 号过滤。
+ * 支持按名字、拼音和号码过滤。
  */
 
 import { useId, useMemo, useState, type ReactElement } from 'react';
@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
+import { filterByName } from '../../lib/nameSearch';
 import { WindowedList } from '../WindowedList';
 import { cn } from '../../im-template/template/classNames';
 import type { ForwardedConversationTarget, MfTarget } from './model';
@@ -46,10 +47,11 @@ export function MergeForwardTargets({
 
   const visible = useMemo(
     () =>
-      targets.filter(
-        (target) =>
-          Boolean(target.groupAssistant) === insideAssistant &&
-          (!needle || target.name.toLowerCase().includes(needle) || target.conv.includes(needle)),
+      filterByName(
+        targets.filter((target) => Boolean(target.groupAssistant) === insideAssistant),
+        needle,
+        (target) => [target.name, ...(target.aliases ?? [])],
+        (target, query) => target.conv.includes(query),
       ),
     [targets, needle, insideAssistant],
   );

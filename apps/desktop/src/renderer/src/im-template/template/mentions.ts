@@ -1,5 +1,6 @@
 ﻿// @ts-nocheck
 import type { Conversation, GroupMember, User } from './types';
+import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { displayUserName } from './user';
 import { mentionName } from '../../lib/mentionIdentity';
 
@@ -43,11 +44,12 @@ export function filterMentionMembers(
     return candidates;
   }
 
+  const pinyin = createPinyinMatcher(normalizedQuery);
   return candidates
     .map((member, index) => ({
       member,
       index,
-      rank: mentionMatchRank(member, normalizedQuery),
+      rank: mentionMatchRank(member, normalizedQuery, pinyin),
     }))
     .filter((item) => item.rank < Number.POSITIVE_INFINITY)
     .sort((first, second) => first.rank - second.rank || first.index - second.index)
@@ -74,13 +76,23 @@ export function messageMentionsUser(body: string | null | undefined, user?: User
 
 function mentionSearchText(member: GroupMember) {
   return normalizeMentionQuery(
-    [displayUserName(member), member.username, member.identityValue, member.identityLabel].join(
-      ' ',
-    ),
+    [
+      displayUserName(member),
+      member.username,
+      member.identityValue,
+      member.identityLabel,
+      member.card,
+      member.nick,
+      member.remark,
+    ].join(' '),
   );
 }
 
-function mentionMatchRank(member: GroupMember, query: string) {
+function mentionMatchRank(
+  member: GroupMember,
+  query: string,
+  pinyin: ReturnType<typeof createPinyinMatcher>,
+) {
   const preferredFields = [displayUserName(member), member.username, member.identityValue].map(
     normalizeMentionQuery,
   );
@@ -89,7 +101,16 @@ function mentionMatchRank(member: GroupMember, query: string) {
     return 0;
   }
 
-  return mentionSearchText(member).includes(query) ? 1 : Number.POSITIVE_INFINITY;
+  if (mentionSearchText(member).includes(query)) return 1;
+  if (member.id === 'all') return Number.POSITIVE_INFINITY;
+  const rank = pinyin?.rankWithPreferredName(
+    displayUserName(member),
+    member.username,
+    member.card,
+    member.nick,
+    member.remark,
+  );
+  return rank ? 4 - rank : Number.POSITIVE_INFINITY;
 }
 
 function normalizeMentionQuery(value: string) {

@@ -78,7 +78,7 @@ import { localFileUrl } from '../../lib/resourceUrl';
 import { trpc } from '../../trpc/client';
 import { pickAccountFile } from '../../lib/accountFilePicker';
 import { cn } from '../../im-template/template/classNames';
-import { dedupePersons, personKey } from './SenderPicker.shared';
+import { dedupePersons, personKey, searchPeople } from './SenderPicker.shared';
 import { SenderPicker, type MfPerson } from './SenderPicker';
 import { MsgDressEditor } from './MsgDressEditor';
 import { moveCompositionNode } from './workspaceModel';
@@ -1902,11 +1902,7 @@ function AtPicker({
     [senderMode, members, self],
   );
   const rows: MfPerson[] = useMemo(() => {
-    if (senderMode === 'conversation') {
-      if (!needle) return localPeople;
-      const term = needle.toLowerCase();
-      return localPeople.filter((p) => p.name.toLowerCase().includes(term) || p.uin.includes(term));
-    }
+    if (senderMode === 'conversation') return searchPeople(localPeople, needle);
     const friends = dedupePersons(
       (quick.data?.friends ?? []).map((f) => ({
         uid: f.uid,

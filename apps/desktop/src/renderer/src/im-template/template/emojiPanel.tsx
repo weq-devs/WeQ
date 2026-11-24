@@ -13,7 +13,16 @@
  */
 
 import { EmptyState } from '../../components/EmptyState';
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { flushSync } from 'react-dom';
 import { FavoriteBundleControls } from '../../components/qq-actions/FavoriteBundleControls';
 import { observeCompactToolbar } from '../../components/CompactToolbar.shared';
@@ -27,6 +36,7 @@ import {
   MessageSquareQuote,
   Plus,
   RefreshCw,
+  Search,
   Smile,
   Store,
   Type,
@@ -42,6 +52,7 @@ import { DressSearchForm } from '../../components/DressSearchForm';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import { mediaUrl } from '../../lib/resourceUrl';
+import { filterByName } from '../../lib/nameSearch';
 import '../../styles/composer-emoji-catalog.css';
 import { cn } from './classNames';
 import { BounceEmojiPanel, type BounceEmojiDraft } from './bounceEmojiPanel';
@@ -132,6 +143,7 @@ export function EmojiPanel({
   const bounceReturnScroll = useRef(0);
   const [marketPackId, setMarketPackId] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [faceQuery, setFaceQuery] = useState('');
 
   const tabs = TABS.filter(({ id }) => {
     if (id === 'poke') return Boolean(onSendPoke);
@@ -146,7 +158,10 @@ export function EmojiPanel({
     : 'face';
 
   function selectTab(id: TabId) {
-    if (id !== tab) bounceReturnScroll.current = 0;
+    if (id !== tab) {
+      bounceReturnScroll.current = 0;
+      setFaceQuery('');
+    }
     lastSelectedTab = id;
     setSelectedTab(id);
     setBounceFace(null);
@@ -177,7 +192,18 @@ export function EmojiPanel({
         .filter((g) => g.items.length)
     : systemGroups;
   const displayRecent = recent.filter((item) => !item.unicode && (!large || item.sticker));
+  const searchingFaces = Boolean(faceQuery.trim());
+  const faceMatches = useMemo(() => {
+    if (!searchingFaces || !usesCatalog) return [];
+    const items = (catalog.data?.faces ?? []).flatMap((group) =>
+      group.unicode === (tab === 'unicode') ? group.items : [],
+    );
+    return filterByName(large ? items.filter((item) => item.sticker) : items, faceQuery, (item) => [
+      item.desc,
+    ]);
+  }, [catalog.data, faceQuery, large, searchingFaces, tab, usesCatalog]);
   const bouncing = Boolean(bounceFace && onSendBounce);
+  const showFaceSearch = usesCatalog && !bouncing;
   const selectFace = large ? (onSelectSuper ?? onSelect) : onSelect;
   const openBounce =
     !large && canBounce
@@ -197,7 +223,11 @@ export function EmojiPanel({
     }));
 
   return (
-    <div className={cn('emoji-panel')} ref={panelRef} aria-label="表情面板">
+    <div
+      className={cn('emoji-panel', showFaceSearch && 'emoji-panel-searchable')}
+      ref={panelRef}
+      aria-label="表情面板"
+    >
       <header ref={observeCompactToolbar} className="emoji-panel-header">
         <h3>
           {bouncing
@@ -228,6 +258,22 @@ export function EmojiPanel({
           </div>
         ) : null}
       </header>
+      {showFaceSearch ? (
+        <label className="weq-face-search">
+          <Search size={14} aria-hidden />
+          <input
+            type="search"
+            className="weq-face-search-input"
+            aria-label="搜索表情"
+            placeholder="搜索表情"
+            value={faceQuery}
+            onChange={(event) => {
+              if (bodyRef.current) bodyRef.current.scrollTop = 0;
+              setFaceQuery(event.target.value);
+            }}
+          />
+        </label>
+      ) : null}
       <div className="emoji-panel-body" ref={bodyRef}>
         {bounceFace && onSendBounce ? (
           <BounceEmojiPanel
@@ -250,6 +296,26 @@ export function EmojiPanel({
             <ActionIcon label="重试加载表情" onClick={() => void catalog.refetch()}>
               <RefreshCw size={15} aria-hidden />
             </ActionIcon>
+          </div>
+        ) : searchingFaces && usesCatalog ? (
+          <div className="emoji-section">
+            {tab === 'unicode' ? (
+              <CharacterGrid
+                loading={catalog.isFetching}
+                items={faceMatches}
+                onSelect={onSelect}
+                emptyText="没有匹配的表情"
+              />
+            ) : (
+              <FaceGrid
+                layout={large ? 'super' : 'default'}
+                loading={catalog.isFetching}
+                items={faceCells(faceMatches)}
+                emptyText="没有匹配的表情"
+                onSelect={selectFace}
+                onBounce={openBounce}
+              />
+            )}
           </div>
         ) : tab === 'face' || tab === 'super' ? (
           <div className={cn('emoji-section')}>
@@ -479,13 +545,15 @@ function CharacterGrid({
   items,
   onSelect,
   loading,
+  emptyText = '没有字符表情',
 }: {
   items: Array<{ id: string; desc: string; glyph: string }>;
   onSelect: (item: EmojiItem) => void;
   loading?: boolean;
+  emptyText?: string;
 }) {
   if (loading && items.length === 0) return <div className={cn('emoji-state')}>加载中…</div>;
-  if (items.length === 0) return <div className={cn('emoji-state')}>没有字符表情</div>;
+  if (items.length === 0) return <div className={cn('emoji-state')}>{emptyText}</div>;
   return (
     <div className={cn('emoji-grid emoji-char-grid')}>
       {items.map((it) => (

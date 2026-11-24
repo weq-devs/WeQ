@@ -491,7 +491,10 @@ import {
   type CalendarNavigate,
   type CalendarTaskOpening,
 } from '../lib/calendarNavigation';
-import { conversationListSearchText } from '../lib/conversationListSearchText';
+import {
+  conversationListSearchText,
+  createConversationListMatcher,
+} from '../lib/conversationListSearchText';
 import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { calendarCloneRevision, calendarAssistantRevision } from '../lib/calendarSourceRevision';
 import { QzoneCardNavigationContext, QzoneShareForwardContext } from '../lib/qzoneNavigation';
@@ -1567,6 +1570,7 @@ function MainWorkspace(): ReactElement {
     selection: { id: string; restore: () => void } | null;
   } | null>(null);
   const captureConversationListPosition = useRef<(() => () => void) | null>(null);
+  const readConversationListQuery = useRef<(() => string) | null>(null);
   const searchReturnView =
     searchViewOrigin?.scope === messageScope && searchViewOrigin.view !== conversationView
       ? searchViewOrigin.view
@@ -3410,6 +3414,7 @@ function MainWorkspace(): ReactElement {
                 kind: 'group' as const,
                 conv: c.group.identityValue,
                 name: c.group.name,
+                aliases: c.group.remark ? [c.group.remark] : undefined,
                 avatarUrl: c.group.avatarUrl,
                 groupAssistant: groupAssistantIds.has(c.id),
               }
@@ -3419,6 +3424,7 @@ function MainWorkspace(): ReactElement {
                 // 发送目标优先用 QQ 号（发送侧按 uin 查 uid 更稳），没拿到才退回 uid。
                 conv: c.otherUser.identityValue || c.otherUser.id,
                 name: c.otherUser.displayName,
+                aliases: [c.otherUser.username],
                 avatarUrl: c.otherUser.avatarUrl,
               },
         ),
@@ -3430,11 +3436,23 @@ function MainWorkspace(): ReactElement {
   /** 会话成员（发送人候选；群 → 全部成员，私聊 → 对方）。 */
   const mergeForwardMembersOf = useCallback((c: Conversation): MfPerson[] => {
     if (c.type === 'group') {
-      return c.members.map((m) => ({ uid: m.id, uin: m.identityValue, name: m.displayName }));
+      return c.members.map((m) => ({
+        uid: m.id,
+        uin: m.identityValue,
+        name: m.displayName,
+        aliases: [m.username, m.card, m.nick, m.remark].filter((name): name is string =>
+          Boolean(name),
+        ),
+      }));
     }
     if (c.type === 'direct') {
       return [
-        { uid: c.otherUser.id, uin: c.otherUser.identityValue, name: c.otherUser.displayName },
+        {
+          uid: c.otherUser.id,
+          uin: c.otherUser.identityValue,
+          name: c.otherUser.displayName,
+          aliases: [c.otherUser.username],
+        },
       ];
     }
     return [];
@@ -9618,9 +9636,10 @@ function MainWorkspace(): ReactElement {
   calendarOpenRef.current = overviewCalendar !== null;
   const overviewCalendarTargets = useMemo(() => {
     if (!overviewCalendar || overviewCalendar.task) return [];
+    const matches = createConversationListMatcher(overviewCalendar.query);
     const targets: OverviewCalendarTarget[] = [];
     for (const row of currentViewRows) {
-      if (row.type !== 'merged') targets.push(calendarTargetForConversation(row));
+      if (row.type !== 'merged' && matches(row)) targets.push(calendarTargetForConversation(row));
     }
     return targets;
   }, [overviewCalendar, currentViewRows]);
@@ -10222,8 +10241,7 @@ function MainWorkspace(): ReactElement {
         revision: (previous?.revision ?? 0) + 1,
       }));
     } else if (target.kind === 'conversation-calendar') {
-      // 全局功能搜索词是入口名；会话日历仍采用当前会话视图。
-      setOverviewCalendar({ query: '' });
+      setOverviewCalendar({ query: readConversationListQuery.current?.() ?? '' });
     } else if (target.kind === 'conversation-view') {
       setSurfaceNavigation((value) => value + 1);
       setMobileConversationList(true);
@@ -11687,6 +11705,7 @@ function MainWorkspace(): ReactElement {
               members={(convSettings.groupConversation?.members ?? []).map((m) => ({
                 uid: m.id,
                 displayName: m.displayName,
+                aliases: [m.card, m.nick, m.remark],
                 avatarUrl: m.avatarUrl ?? null,
                 uin: m.uin,
                 role: m.role,
@@ -11986,7 +12005,6 @@ function MainWorkspace(): ReactElement {
                   : `${dbRevisionRef.current}:${calendarDataRevision}:${calendarCloneRevision(directoryPersonas.data ?? [], directoryGroups.data ?? [])}:${calendarAssistantRevision(directoryAssistant.data ?? [])}`
               }
               scope={conversationView}
-              query={overviewCalendar.query}
               ready={Boolean(calendarTask) || currentViewCalendarReady}
               directoryError={
                 !calendarTask && currentViewError
@@ -12400,6 +12418,7 @@ function MainWorkspace(): ReactElement {
                             returnToRegular,
                             searchReturnView,
                             captureListPosition: captureConversationListPosition,
+                            readListQuery: readConversationListQuery,
                             onViewChange: switchConversationView,
                             onReturnToRegular: () => switchConversationView('regular'),
                             onReturnToSearchView: returnToSearchView,

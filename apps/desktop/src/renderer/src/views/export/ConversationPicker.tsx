@@ -21,6 +21,7 @@ import {
 import { Avatar } from './widgets';
 import { PickerListSkeleton } from './ExportSkeleton';
 import type { PickItem } from './types';
+import { filterByName } from '../../lib/nameSearch';
 import { WindowedList } from '../../components/WindowedList';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import '../../styles/export.css';
@@ -53,13 +54,16 @@ export function ConversationPicker({
 }): ReactElement {
   const [query, setQuery] = useState(initialQuery);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter(
-      (it) => it.name.toLowerCase().includes(q) || it.id.includes(q) || it.uin?.includes(q),
-    );
-  }, [items, query]);
+  const filtered = useMemo(
+    () =>
+      filterByName(
+        items,
+        query,
+        (item) => [item.name],
+        (item, needle) => item.id.includes(needle) || Boolean(item.uin?.includes(needle)),
+      ),
+    [items, query],
+  );
 
   const allFilteredSelected = filtered.length > 0 && filtered.every((it) => selected.has(it.id));
   const ids = useMemo(() => filtered.map((item) => item.id), [filtered]);

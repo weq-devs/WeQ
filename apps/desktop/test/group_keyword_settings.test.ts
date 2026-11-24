@@ -7,7 +7,7 @@ import { GroupKeywordEditor } from '../src/renderer/src/components/GroupKeywordE
 const state = vi.hoisted(() => ({
   save: vi.fn(async (_input: unknown) => {}),
   search: vi.fn(async (_input: unknown) => ({
-    members: [{ uid: 'u_target', uin: '10002', card: '目标群成员', nick: '', adminFlag: 0 }],
+    members: [{ uid: 'u_target', uin: '10002', card: '目标群成员', nick: '重庆', adminFlag: 0 }],
     total: 1,
   })),
 }));
@@ -87,31 +87,34 @@ function type(input: HTMLInputElement, value: string) {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
-it('未展开成员范围时不加载全群，搜索只读取目标群及其数据源', async () => {
-  const { host } = await mount();
-  expect(state.search).not.toHaveBeenCalled();
-  await act(async () =>
-    host.querySelector<HTMLButtonElement>('.group-keyword-item-scope')!.click(),
-  );
-  await act(async () =>
-    type(host.querySelector<HTMLInputElement>('.group-keyword-search input')!, '目标'),
-  );
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 300));
-  });
-  expect(state.search).toHaveBeenCalledWith(
-    expect.objectContaining({
-      groupCode: '22222',
-      keyword: '目标',
-      expectedAccountConfigId: 'target-source',
-      offset: 0,
-    }),
-  );
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  });
-  expect(host.textContent).toContain('目标群成员');
-});
+it.each(['目标', 'chongqing', 'cq'])(
+  '只搜索绑定群，并显示按昵称命中的成员：%s',
+  async (keyword) => {
+    const { host } = await mount();
+    expect(state.search).not.toHaveBeenCalled();
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('.group-keyword-item-scope')!.click(),
+    );
+    await act(async () =>
+      type(host.querySelector<HTMLInputElement>('.group-keyword-search input')!, keyword),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+    expect(state.search).toHaveBeenCalledWith(
+      expect.objectContaining({
+        groupCode: '22222',
+        keyword,
+        expectedAccountConfigId: 'target-source',
+        offset: 0,
+      }),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(host.textContent).toContain('目标群成员');
+  },
+);
 it('保存失败保留草稿，显示失败并能重试同一内容', async () => {
   vi.useFakeTimers();
   state.save.mockRejectedValueOnce(new Error('合成写入失败'));

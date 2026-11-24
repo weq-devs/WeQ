@@ -1,4 +1,5 @@
 import { ToolbarLabel } from './CompactToolbar';
+import { filterByName } from '../lib/nameSearch';
 import { observeCompactToolbar } from './CompactToolbar.shared';
 import { NumericText } from './NumericText';
 import {
@@ -400,14 +401,17 @@ function AlbumListView({
   onMore: () => void;
 }): ReactElement {
   const filtered = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase();
-    const result = albums.filter((album) =>
-      `${album.title} ${album.desc} ${album.createNickname}`.toLocaleLowerCase().includes(query),
-    );
+    const result = [...albums];
     if (sort === 'name')
       result.sort((a, b) => a.title.localeCompare(b.title, 'zh-CN', { numeric: true }));
     else if (sort === 'count') result.sort((a, b) => b.photoCount - a.photoCount);
-    return result;
+    return filterByName(
+      result,
+      search,
+      (album) => [album.title, album.createNickname],
+      (album, query) =>
+        `${album.title} ${album.desc} ${album.createNickname}`.toLocaleLowerCase().includes(query),
+    );
   }, [albums, search, sort]);
   const owner = { kind: 'group-albums' as const, container: groupCode };
   const references = useMemo(
@@ -585,11 +589,11 @@ function AlbumMediaView({
   const [preview, setPreview] = useState<{ key: string; items: AlbumMediaWire[] } | null>(null);
   useEffect(() => setVisibleCount(120), [search, kind]);
   const filtered = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase();
-    return items.filter(
-      (item) =>
-        (kind === 'all' || kind === item.kind) &&
-        `${item.fileName} ${item.uploader}`.toLocaleLowerCase().includes(query),
+    return filterByName(
+      kind === 'all' ? items : items.filter((item) => item.kind === kind),
+      search,
+      (item) => [item.fileName, item.uploader],
+      (item, query) => `${item.fileName} ${item.uploader}`.toLocaleLowerCase().includes(query),
     );
   }, [items, search, kind]);
   const owner = { kind: 'group-albums' as const, container: groupCode };

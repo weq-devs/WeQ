@@ -66,6 +66,7 @@ export const ConversationDirectoryContext = createContext<{
   returnToRegular?: boolean;
   searchReturnView?: ConversationView;
   captureListPosition?: RefObject<(() => () => void) | null>;
+  readListQuery?: RefObject<(() => string) | null>;
   onViewChange?: (view: ConversationView, fromAggregate?: boolean) => void;
   onReturnToRegular?: () => void;
   onReturnToSearchView?: () => void;

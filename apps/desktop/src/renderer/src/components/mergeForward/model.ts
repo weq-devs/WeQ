@@ -346,6 +346,7 @@ export interface MfTarget {
   /** c2c → 对方 uid；group → 群号。 */
   conv: string;
   name: string;
+  aliases?: readonly string[];
   avatarUrl: string | null;
   /** 在转发目标选择器中归入独立的群助手入口。 */
   groupAssistant?: boolean;

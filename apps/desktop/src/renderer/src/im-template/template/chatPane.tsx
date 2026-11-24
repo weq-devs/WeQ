@@ -5237,9 +5237,18 @@ function ChatPaneContent({
         .then((found) => {
           if (request !== mentionRequest.current || mentionConversation.current !== context.id)
             return;
-          const merged = [
-            ...new Map([...members, ...found].map((member) => [member.id, member])).values(),
-          ];
+          const merged = filterMentionMembers(
+            {
+              ...context,
+              members: [
+                ...new Map(
+                  [...context.members, ...found].map((member) => [member.id, member]),
+                ).values(),
+              ],
+            },
+            trigger.query,
+            user.id,
+          );
           setMentionMenu((current) =>
             current?.query === trigger.query
               ? { ...current, members: merged, activeIndex: 0 }

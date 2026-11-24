@@ -17,7 +17,7 @@ import { ChevronLeft, Search, UserPlus, SearchX } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { QqAvatar } from '../QqAvatar';
 import { WindowedList } from '../WindowedList';
-import { type MfPerson, dedupePersons, personKey } from './SenderPicker.shared';
+import { type MfPerson, dedupePersons, personKey, searchPeople } from './SenderPicker.shared';
 
 export function SenderPicker({
   mode,
@@ -45,11 +45,7 @@ export function SenderPicker({
     () => (mode === 'conversation' ? dedupePersons([self, ...(members ?? [])]) : []),
     [mode, members, self],
   );
-  const localFiltered = useMemo(() => {
-    if (!needle) return localPeople;
-    const term = needle.toLowerCase();
-    return localPeople.filter((p) => p.name.toLowerCase().includes(term) || p.uin.includes(term));
-  }, [localPeople, needle]);
+  const localFiltered = useMemo(() => searchPeople(localPeople, needle), [localPeople, needle]);
 
   // 全局模式：防抖后走统一搜索（好友在前、群友在后）。
   const [debounced, setDebounced] = useState('');

@@ -13,6 +13,7 @@
  * 图片与自定义表情统一遵循克隆训练的图片处理偏好。
  */
 
+import { filterByName } from '../../lib/nameSearch';
 import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
@@ -111,9 +112,12 @@ export function NewCloneModal({
   });
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return buddies;
-    return buddies.filter((b) => b.label.toLowerCase().includes(q) || b.uin.includes(q));
+    return filterByName(
+      buddies,
+      query,
+      (buddy) => [buddy.label],
+      (buddy, needle) => buddy.uin.includes(needle),
+    );
   }, [buddies, query]);
   const selectedUids = useMemo(() => new Set(targets.map((target) => target.uid)), [targets]);
 

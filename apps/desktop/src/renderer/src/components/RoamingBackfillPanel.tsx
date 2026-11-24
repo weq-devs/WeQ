@@ -1,3 +1,4 @@
+import { filterByName } from '../lib/nameSearch';
 import { NumericText } from './NumericText';
 import { TimeLabel } from './TimeLabel';
 import { eventTimeFormatter } from '@weq/time';
@@ -201,8 +202,11 @@ export function RoamingBackfillPanel({
   const jobs = (state.data?.jobs ?? []).filter((job) => !taskId || job.id === taskId);
   const visible = useMemo(
     () =>
-      targets.filter((target) =>
-        `${target.name} ${target.conv}`.toLowerCase().includes(query.toLowerCase()),
+      filterByName(
+        targets,
+        query,
+        (target) => [target.name],
+        (target, needle) => `${target.name} ${target.conv}`.toLowerCase().includes(needle),
       ),
     [targets, query],
   );
