@@ -5,6 +5,7 @@ import { usePreviewOcr } from './usePreviewOcr.shared';
 /** OCR 只挂载到图片与工具栏插槽，不重挂载媒体外壳或播放器。 */
 export function PreviewOcr({
   src,
+  originalSrc,
   context,
   frame,
   actions,
@@ -12,13 +13,14 @@ export function PreviewOcr({
   ready,
 }: {
   src: string;
+  originalSrc?: string;
   context: PreviewOcrContext;
   frame: HTMLElement;
   actions: HTMLElement;
   size: { width: number; height: number };
   ready: boolean;
 }) {
-  const ocr = usePreviewOcr(src, context);
+  const ocr = usePreviewOcr(src, context, originalSrc);
   return (
     <>
       {createPortal(

@@ -11,13 +11,14 @@ export function OcrPrefilterSetting() {
     refetchOnMount: 'always',
   });
   const mutation = trpc.bootstrap.setOcrPrefilterEnabled.useMutation();
+  const autoOriginal = trpc.bootstrap.setOcrAutoDownloadOriginal.useMutation();
   const utils = trpc.useUtils();
   const [error, setError] = useState<string | null>(null);
 
-  async function save(enabled: boolean) {
+  async function save(write: () => Promise<unknown>) {
     setError(null);
     try {
-      await mutation.mutateAsync({ enabled });
+      await write();
       await utils.bootstrap.getSettings.invalidate();
     } catch (error) {
       setError(error instanceof Error ? error.message : String(error));
@@ -34,7 +35,19 @@ export function OcrPrefilterSetting() {
             label="OCR 前先筛图"
             checked={settings.data?.ocr.prefilterEnabled ?? true}
             disabled={!settings.data || mutation.isLoading}
-            onChange={(enabled) => void save(enabled)}
+            onChange={(enabled) => void save(() => mutation.mutateAsync({ enabled }))}
+          />
+        }
+      />
+      <Row
+        settingId="ocr-auto-download-original"
+        desc="识别时补取未缓存的聊天原图；关闭时仍可用已有图片或 QQ 在线识别。"
+        control={
+          <Toggle
+            label="OCR 时自动获取原图"
+            checked={settings.data?.ocr.autoDownloadOriginal ?? false}
+            disabled={!settings.data || autoOriginal.isLoading}
+            onChange={(enabled) => void save(() => autoOriginal.mutateAsync({ enabled }))}
           />
         }
       />

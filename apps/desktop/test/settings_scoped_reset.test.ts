@@ -372,7 +372,7 @@ describe('分级恢复默认', () => {
     }
     expect(state.calls).toEqual([]);
   });
-  it('斜杠表情、全部会话范围和 OCR 筛图均从统一字段目录恢复', async () => {
+  it('斜杠表情、全部会话范围和 OCR 偏好均从统一字段目录恢复', async () => {
     state.settings.sharedPreferences.client = {
       slashEmojiEnabled: false,
       slashEmojiAutoReplace: true,
@@ -380,6 +380,7 @@ describe('分级恢复默认', () => {
       allConversationsIncludeDeleted: true,
     };
     state.settings.ocr.prefilterEnabled = false;
+    state.settings.ocr.autoDownloadOriginal = true;
     for (const page of ['chat-interaction', 'chat-messages', 'recognition'] as const)
       await caller().restore({ page, source: null });
     for (const key of [
@@ -393,6 +394,7 @@ describe('分级恢复默认', () => {
       'setOcrPrefilterEnabled',
       { enabled: DEFAULT_APP_SETTINGS.ocr.prefilterEnabled },
     ]);
+    expect(state.calls).toContainEqual(['setOcrAutoDownloadOriginal', { enabled: false }]);
   });
   it('窗口外观和关闭行为随各自页面恢复，不再互相影响', async () => {
     state.settings.windowsStyleControls = true;

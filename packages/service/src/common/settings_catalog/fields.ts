@@ -380,6 +380,13 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   field('voice-online', 'concurrency', 'voice-online-concurrency', '转录并发', 'runtime'),
   field('ocr-online', 'concurrency', 'ocr-online-concurrency', '识别并发', 'runtime'),
   field('ocr-online', 'prefilter', 'ocr-prefilter-enabled', 'OCR 前先筛图', 'runtime'),
+  field(
+    'ocr-online',
+    'autoDownloadOriginal',
+    'ocr-auto-download-original',
+    'OCR 时自动获取原图',
+    'runtime',
+  ),
   field('auto-enter', 'account', 'auto-enter-account', '默认进入账号', 'runtime'),
   field('data-saver', 'temporary', 'data-saver', '临时省流量设置', 'runtime'),
   field('data-saver', 'preferences', 'data-saver', '省流量模式与行为', 'runtime'),

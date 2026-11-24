@@ -634,12 +634,11 @@ export async function resolveChatImageFile(
   }
   const cached = services.mediaDownload.cachedFile(q.get('token') ?? '');
   if (cached) return { path: cached, variant: 'downloaded' as const };
-  if (originalOnly && q.get('localOnly') === '1')
-    return { path: null, variant: 'unknown' as const };
+  if (q.get('localOnly') === '1') return { path: null, variant: 'unknown' as const };
   const restricted = await hostDataSaver(q.get('ds') === '1');
   check();
   const behavior = transferBehavior();
-  if (originalOnly && q.get('autoOriginal') === '1' && restricted)
+  if (q.get('autoOriginal') === '1' && restricted)
     return { path: null, variant: 'unknown' as const, deferred: true };
   if (
     q.get('intent') !== 'interactive' &&
@@ -670,10 +669,14 @@ export async function resolveChatImageFile(
       : { path: null, variant: 'unknown' as const, deferred: true };
   }
   const token = q.get('token') ?? '';
-  const opts = { originalUrl: q.get('orig') ?? '', signal };
   const transfer = originalOnly
     ? transferIdInput.safeParse(q.get('transferId') ?? undefined)
     : null;
+  const opts = {
+    originalUrl: q.get('orig') ?? '',
+    signal,
+    reportActivity: Boolean(transfer?.success && transfer.data && q.get('autoOriginal') !== '1'),
+  };
   const downloaded =
     transfer?.success && transfer.data
       ? await observeDownload(services, transfer.data, (update) =>
@@ -684,6 +687,25 @@ export async function resolveChatImageFile(
       : await services.mediaDownload.download(token, opts);
   check();
   return { path: downloaded, variant: 'downloaded' as const };
+}
+
+/** OCR 只补取原图；缩略图由调用方保留作回退。 */
+export function resolveOcrChatImageFile(
+  source: URLSearchParams,
+  autoDownloadOriginal: boolean,
+  check?: () => void,
+  signal?: AbortSignal,
+) {
+  const q = new URLSearchParams(source);
+  q.set('v', 'original');
+  q.delete('preview');
+  q.delete('transferId');
+  q.delete('intent');
+  q.delete('localOnly');
+  q.delete('autoOriginal');
+  if (networkScope.getStore()?.restricted) q.set('ds', '1');
+  q.set(autoDownloadOriginal ? 'autoOriginal' : 'localOnly', '1');
+  return resolveChatImageFile(q, check, signal);
 }
 
 export async function handleMediaRequest(

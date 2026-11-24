@@ -801,6 +801,7 @@ function MediaPreviewItemBody({
         <PreviewOcr
           key={`${eventKey}:${originalSource ?? ''}`}
           src={src}
+          originalSrc={original?.src}
           context={item.ocr}
           frame={imageFrame}
           actions={ocrActions}

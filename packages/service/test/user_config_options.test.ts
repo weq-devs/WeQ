@@ -117,6 +117,16 @@ describe('导出识别并发设置', () => {
     f.service.setSettings(JSON.parse(JSON.stringify({ ocr: { onlineConcurrency: value } })));
     expect(f.open().getSettings().ocr.onlineConcurrency).toBe(7);
   });
+
+  it('旧配置不自动补取 OCR 原图；显式开启后可读回并随设置备份', () => {
+    const f = configFixture({ settings: { ocr: { prefilterEnabled: false } } });
+    expect(f.service.getSettings().ocr.autoDownloadOriginal).toBe(false);
+    f.service.setSettings({ ocr: { autoDownloadOriginal: true } });
+    f.service.setSettings({ ocr: { onlineConcurrency: 8 } });
+    const backup = snapshotWeqSettings(f.open().getSettings());
+    expect(backup.ocr).toMatchObject({ autoDownloadOriginal: true, prefilterEnabled: false });
+    expect(() => validateWeqAppSettings(backup)).not.toThrow();
+  });
 });
 
 describe('通知偏好', () => {

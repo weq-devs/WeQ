@@ -492,6 +492,8 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
       ? undefined
       : record(input.voiceTranscribe, 'settings.voiceTranscribe');
   const ocr = input.ocr === undefined ? undefined : record(input.ocr, 'settings.ocr');
+  if (ocr?.autoDownloadOriginal !== undefined && typeof ocr.autoDownloadOriginal !== 'boolean')
+    fail('settings.ocr.autoDownloadOriginal');
   for (const [key, config] of [
     ['ocr', ocr],
     ['voiceTranscribe', voice],

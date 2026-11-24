@@ -2378,6 +2378,12 @@ export const bootstrapRouter = router({
       requireBootstrap().userConfig.setSettings({ ocr: { prefilterEnabled: input.enabled } }),
     ),
 
+  setOcrAutoDownloadOriginal: procedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ input }) =>
+      requireBootstrap().userConfig.setSettings({ ocr: { autoDownloadOriginal: input.enabled } }),
+    ),
+
   /** The model registry, each entry enriched with on-disk / in-flight state. */
   voiceModels: procedure.query(() => {
     return requireBootstrap().voiceTranscribe.listModels();

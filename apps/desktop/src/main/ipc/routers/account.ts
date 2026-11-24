@@ -1040,11 +1040,30 @@ export interface ChatOcrLightboxResult {
  * （见 `main/ocr/local.ts`）；结果整成与在线版同构的 blocks，前端不用区分来源。
  */
 async function recognizeOcrLocally(
-  input: { src?: string; refresh?: boolean },
+  input: { src?: string; originalSrc?: string; fileToken: string; refresh?: boolean },
   model: LocalOcrModel,
+  services: ReturnType<typeof requireServices>,
 ): Promise<ChatOcrLightboxResult & { source: 'local'; modelId: string }> {
-  if (!input.src) throw new Error('本地识别需要图片地址，这张图取不到本体。');
-  const result = await runLocalOcr(input.src, model, undefined, input.refresh);
+  const { bootstrap } = getAppContext();
+  let src = input.src;
+  if (input.originalSrc && bootstrap?.userConfig.getSettings().ocr.autoDownloadOriginal) {
+    const { toProtocolAssetUrl } = await import('../../protocol_asset_url');
+    const raw = toProtocolAssetUrl(input.originalSrc);
+    const url = raw ? URL.parse(raw) : null;
+    if (
+      url?.protocol === 'weq-media:' &&
+      url.hostname === 'pic' &&
+      url.searchParams.get('token') === input.fileToken
+    ) {
+      const { resolveOcrChatImageFile } = await import('../../media_protocol');
+      const original = await resolveOcrChatImageFile(url.searchParams, true, () => {
+        if (getAppContext().services !== services) throw new Error('账号或数据源已切换');
+      });
+      src = original.path ?? src;
+    }
+  }
+  if (!src) throw new Error('本地识别需要图片地址，这张图取不到本体。');
+  const result = await runLocalOcr(src, model, undefined, input.refresh);
   return {
     status: 'succ',
     srcLang: 'local',
@@ -6615,6 +6634,7 @@ export const accountRouter = router({
         fileSize: z.number().int().nonnegative().optional(),
         /** 灯箱正在显示的图片地址（本地模型那条腿取图用）。 */
         src: z.string().optional(),
+        originalSrc: z.string().optional(),
         refresh: z.boolean().optional(),
       }),
     )
@@ -6669,7 +6689,7 @@ export const accountRouter = router({
             error instanceof Error && error.message ? error.message : '文字识别失败，请稍后重试。';
           if (!local) throw new Error(message);
           try {
-            const localResult = await recognizeOcrLocally(input, local);
+            const localResult = await recognizeOcrLocally(input, local, services);
             await cacheOcrText(input.md5, `local:${localResult.modelId}`, {
               text: localResult.blocks.map((b) => b.text).join('\n'),
               blocks: localResult.blocks,
@@ -6692,7 +6712,7 @@ export const accountRouter = router({
 
       // 在线不可用（QQ 离线 / 未开自动读取 / 物料不全）→ 本地模型兜底。
       try {
-        const localResult = await recognizeOcrLocally(input, local!);
+        const localResult = await recognizeOcrLocally(input, local!, services);
         await cacheOcrText(input.md5, `local:${localResult.modelId}`, {
           text: localResult.blocks.map((b) => b.text).join('\n'),
           blocks: localResult.blocks,

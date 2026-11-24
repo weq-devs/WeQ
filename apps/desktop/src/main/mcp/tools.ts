@@ -3104,6 +3104,8 @@ export const AI_TOOLS: AiTool[] = [
       return {
         prefilterEnabled:
           toolContext().bootstrap?.userConfig.getSettings().ocr.prefilterEnabled !== false,
+        autoDownloadOriginal:
+          toolContext().bootstrap?.userConfig.getSettings().ocr.autoDownloadOriginal === true,
         online: {
           available: blocker === null,
           ...(blocker ? { reason: blocker } : {}),
@@ -3135,7 +3137,7 @@ export const AI_TOOLS: AiTool[] = [
       '\n【怎么选】engine 默认 auto = 在线可用就先走在线，在线失败或不可用再回退本地；也可以指定 online / local 只走那一条（不可用时直接报错，不会偷偷换腿）。先调 get_ocr_status 看两条腿的可用性。' +
       '\n【结果怎么看】`source`（`online` / `local`）+ `engine`（中文说明用的哪条腿）+ `offline`（`true` 即本地离线模型）三者标出实际通道；`notes` 说明中途有没有回退、以及为什么没用在线；`text` 是识别出的整段文字，`lineCount` 是段数，`boxes`（可选）带每段的像素坐标框。' +
       '\n【怎么定图】给 kind + conv + msgId（msgId 来自 get_messages 的 includeIds 输出）定位聊天里的图片，同一条消息多张图时用 imageIndex 指定第几张（0 起）；也可以直接给 path —— 本机图片文件（绝对路径或 ~/ 开头）。注意 path 那种图**只能走本地模型**：在线那条腿要的是聊天图片的 fileToken，本机文件里没有。' +
-      '\n【取图】复用 QQ 本机缓存、外部 chatpic 与完整下载服务的既有回退，含已配置的外部 rkey；QQ 离线不等于无法取图。识别缓存优先，真实取图失败及仍可用的识别通道分别记录。' +
+      '\n【取图】优先复用识别结果和已有图片。启用「OCR 时自动获取原图」后，缺失原图时用既有下载链路补取（含已配置的外部 rkey）；关闭时不自动下载原图，仍可使用缩略图或 QQ 在线识别。' +
       '\n只读：不写数据库、不上传文件（在线那条腿只是把图片的 CDN 地址报给腾讯自己的识别服务）。',
     input: z.object({
       kind: z.enum(['c2c', 'group']).optional().describe('会话类型（数据线设备 uid 也按 c2c）'),
@@ -3344,20 +3346,27 @@ export const AI_TOOLS: AiTool[] = [
         legs.push('local');
       }
 
+      const ocrSettings = toolContext().bootstrap?.userConfig.getSettings().ocr;
       if (
-        !localPath &&
+        localVariant !== 'original' &&
         downloadQuery &&
         (legs.includes('online') || (legs.includes('local') && local))
       ) {
         try {
-          const image = await resolveChatImageFile(downloadQuery);
-          localPath = image.path;
-          localVariant = image.variant;
-          notes.push(
-            localPath
-              ? '已通过现有取图链路取回图片。'
-              : '完整取图链路未能取回图片，将继续尝试可用的 OCR 通道。',
+          const image = await resolveOcrChatImageFile(
+            downloadQuery,
+            ocrSettings?.autoDownloadOriginal === true,
           );
+          if (image.path) {
+            localPath = image.path;
+            localVariant = image.variant;
+          } else if (!localPath) {
+            notes.push(
+              ocrSettings?.autoDownloadOriginal
+                ? '未能取得原图，将继续尝试可用的 OCR 通道。'
+                : '本机没有可用图片，OCR 自动获取原图已关闭。',
+            );
+          }
         } catch (error) {
           notes.push(`取图未成功：${error instanceof Error ? error.message : String(error)}`);
         }
@@ -3365,9 +3374,7 @@ export const AI_TOOLS: AiTool[] = [
 
       // ── 3) 依次尝试，第一个成功的就是本次用的腿 ─────────────────────────
       const prefilter = await prefilterAutomaticOcr({
-        enabled:
-          !refresh &&
-          toolContext().bootstrap?.userConfig.getSettings().ocr.prefilterEnabled !== false,
+        enabled: !refresh && ocrSettings?.prefilterEnabled !== false,
         path: localPath,
         cache,
         cacheKey,
@@ -5837,4 +5844,4 @@ export const AI_TOOLS: AiTool[] = [
   }),
 ];
 import { accountImagePort } from '../ai_images';
-import { resolveChatImageFile } from '../media_protocol';
+import { resolveOcrChatImageFile } from '../media_protocol';

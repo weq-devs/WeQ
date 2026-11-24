@@ -18,6 +18,9 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       setOcrPrefilterEnabled: {
         useMutation: () => ({ mutateAsync: mocks.save, isLoading: false }),
       },
+      setOcrAutoDownloadOriginal: {
+        useMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }),
+      },
     },
   },
 }));

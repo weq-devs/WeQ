@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import sharp from 'sharp';
 import { afterEach, expect, it, vi } from 'vitest';
-import { handleMediaRequest } from '../src/main/media_protocol';
+import { handleMediaRequest, resolveOcrChatImageFile } from '../src/main/media_protocol';
 import { setupImageWorker } from './support/image-worker';
 import { updateTransferPolicy } from '@weq/service/transfer-policy';
 import { UNKNOWN_NETWORK } from '@weq/service/data-saver';
@@ -85,6 +85,35 @@ it('预览自动获取原图仍受宿主的省流量状态约束', async () => {
   expect(state.download).not.toHaveBeenCalled();
   await handleMediaRequest(new Request(url));
   expect(state.download).toHaveBeenCalledOnce();
+});
+it('OCR 仅在开启补取且省流量未生效时自动请求原图', async () => {
+  state.thumb = '/existing/thumbnail.png';
+  const query = new URLSearchParams('token=token&v=thumb&preview=1&intent=interactive');
+  expect((await resolveOcrChatImageFile(query, false)).path).toBeNull();
+  updateTransferPolicy('always', UNKNOWN_NETWORK);
+  expect(await resolveOcrChatImageFile(query, true)).toMatchObject({ deferred: true });
+  expect(state.download).not.toHaveBeenCalled();
+  updateTransferPolicy('never', UNKNOWN_NETWORK);
+  state.download.mockResolvedValueOnce('/fetched/original.png');
+  expect((await resolveOcrChatImageFile(query, true)).path).toBe('/fetched/original.png');
+  expect(state.download).toHaveBeenCalledOnce();
+});
+it('灯箱自动取原图只保留原位进度，手动取原图仍允许创建传输任务', async () => {
+  const url = `weq-media://pic?token=token&v=original&intent=interactive&transferId=${crypto.randomUUID()}`;
+  await handleMediaRequest(new Request(`${url}&autoOriginal=1`));
+  await handleMediaRequest(new Request(url));
+  expect(state.download).toHaveBeenNthCalledWith(
+    1,
+    'token',
+    expect.objectContaining({ reportActivity: false }),
+    expect.any(Function),
+  );
+  expect(state.download).toHaveBeenNthCalledWith(
+    2,
+    'token',
+    expect.objectContaining({ reportActivity: true }),
+    expect.any(Function),
+  );
 });
 it('宿主已有原图时自动响应真实小图，原图点击才传原始内容', async () => {
   const root = await mkdtemp(join(tmpdir(), 'weq-data-saver-media-'));

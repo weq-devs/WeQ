@@ -20,7 +20,10 @@ const state = vi.hoisted(() => ({
   market: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => ({ getAppContext: () => state.context }));
-vi.mock('../src/main/media_protocol', () => ({ resolveChatImageFile: state.retrieve }));
+vi.mock('../src/main/media_protocol', () => ({
+  resolveChatImageFile: state.retrieve,
+  resolveOcrChatImageFile: state.retrieve,
+}));
 vi.mock('../src/main/image_processor', () => ({ imageMetadata: state.metadata }));
 vi.mock('../src/main/ocr/local', () => ({
   resolveLocalOcrModel: () => ({ modelId: state.model, paths: {} }),
@@ -142,6 +145,7 @@ it('意图感知的商城表情遵循文字占位设置，不下载或识别图�
 });
 
 it('QQ 离线仍通过既有完整取图入口取回像素，不要求用户补图', async () => {
+  settings.ocr.autoDownloadOriginal = true;
   const result = await createAccountImagePort(account).prepare({
     feature: 'assistant',
     text: '问题',
@@ -152,9 +156,11 @@ it('QQ 离线仍通过既有完整取图入口取回像素，不要求用户补�
   const query = state.retrieve.mock.calls[0]![0] as URLSearchParams;
   expect(query.get('token')).toBe('token');
   expect(query.get('md5')).toBe('a'.repeat(32));
+  expect(state.retrieve.mock.calls[0]?.[1]).toBe(true);
   expect(state.local).toHaveBeenCalledOnce();
 });
 it('识别缓存优先，不重复取图；更换本地模型不混用旧文字结果', async () => {
+  settings.ocr.autoDownloadOriginal = true;
   const port = createAccountImagePort(account);
   await port.prepare({ feature: 'assistant', text: '', images: [chatImage] });
   await port.prepare({ feature: 'assistant', text: '', images: [chatImage] });
@@ -165,6 +171,27 @@ it('识别缓存优先，不重复取图；更换本地模型不混用旧文字�
     (await port.prepare({ feature: 'assistant', text: '', images: [chatImage] })).text,
   ).toContain('local-b');
   expect(state.local).toHaveBeenCalledTimes(2);
+});
+it.each([false, true])('OCR 补取原图开关为 %s 时保留已有缩略图回退', async (enabled) => {
+  settings.ocr.autoDownloadOriginal = enabled;
+  settings.aiImages.suggestions = 'ocr';
+  const thumb = join(state.root, 'thumbnail.png');
+  writeFileSync(thumb, png);
+  state.find.mockResolvedValue({ source: null, thumb });
+  state.retrieve.mockResolvedValue({ path: null, variant: 'unknown' });
+  const result = await createAccountImagePort(account).prepare({
+    feature: 'suggestions',
+    text: '',
+    images: [chatImage],
+  });
+  expect(result.text).toContain('local-a');
+  expect(state.retrieve).toHaveBeenCalledWith(
+    expect.any(URLSearchParams),
+    enabled,
+    expect.any(Function),
+    undefined,
+  );
+  expect(state.local).toHaveBeenCalledWith(thumb, expect.anything(), undefined, undefined);
 });
 it('上传素材使用可迁移引用，保存和读取都限定在当前账号资产内', async () => {
   const path = join(state.root, 'selected.png');

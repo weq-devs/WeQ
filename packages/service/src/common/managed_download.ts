@@ -19,6 +19,11 @@ import {
 import { networkScope, transferBehavior } from './network_scope';
 
 const PAUSED = new Error('transfer paused');
+export class TransferDeferredError extends Error {
+  constructor() {
+    super('省流量模式已暂缓自动加载');
+  }
+}
 interface ResumeRecord {
   url: string;
   validator: string;
@@ -77,6 +82,8 @@ export class ManagedDownload {
       total?: number;
       state?: (state: DownloadState) => void;
       name?: string;
+      /** 没有任务入口的缓存填充不等待手动继续。 */
+      deferOnPolicyPause?: boolean;
       signal?: AbortSignal;
       maxBytes?: number;
       timeoutMs?: number;
@@ -163,6 +170,10 @@ export class ManagedDownload {
         } satisfies TransferActivity);
       }
     }
+  }
+  private waitForFileTransfer(signal?: AbortSignal): Promise<void> {
+    if (this.options.deferOnPolicyPause && this.gate.paused) throw new TransferDeferredError();
+    return this.gate.wait(signal);
   }
   response(response: Response): Response {
     if (!response.ok || !response.body) return response;
@@ -273,7 +284,7 @@ export class ManagedDownload {
       for (;;) {
         this.options.signal?.throwIfAborted();
         this.update();
-        await this.gate.wait(this.options.signal);
+        await this.waitForFileTransfer(this.options.signal);
         this.request = new AbortController();
         const request = this.request;
         const signal = this.options.signal
@@ -544,7 +555,7 @@ export class ManagedDownload {
           this.request = undefined;
         }
         if (delay) {
-          await this.gate.wait(this.options.signal);
+          await this.waitForFileTransfer(this.options.signal);
           const controller = new AbortController();
           const waitSignal = this.options.signal
             ? AbortSignal.any([controller.signal, this.options.signal])

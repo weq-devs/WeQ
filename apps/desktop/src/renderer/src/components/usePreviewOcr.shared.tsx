@@ -9,7 +9,11 @@ import { useToastApi } from './Toast.shared';
 import type { PreviewOcrContext } from './mediaPreviewTypes';
 
 /** 每次展示独立持有 OCR 结果，失效请求不能回写到下一张图片。 */
-export function usePreviewOcr(src: string, context: PreviewOcrContext | null | undefined) {
+export function usePreviewOcr(
+  src: string,
+  context: PreviewOcrContext | null | undefined,
+  originalSrc?: string,
+) {
   const notificationToast = useToastApi();
   const [result, setResult] = useState<{
     blocks: OcrBlock[];
@@ -75,7 +79,12 @@ export function usePreviewOcr(src: string, context: PreviewOcrContext | null | u
     const request = ++generation.current;
     setBusy(true);
     try {
-      const value = await mutation.mutateAsync({ ...context, src, refresh: result !== null });
+      const value = await mutation.mutateAsync({
+        ...context,
+        src,
+        originalSrc,
+        refresh: result !== null,
+      });
       if (request !== generation.current) return;
       setResult({
         blocks: value.blocks,

@@ -547,6 +547,12 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   bind('ocr-online:prefilter', current.ocr.prefilterEnabled, defaults.ocr.prefilterEnabled, () =>
     b.setOcrPrefilterEnabled({ enabled: defaults.ocr.prefilterEnabled }),
   );
+  bind(
+    'ocr-online:autoDownloadOriginal',
+    current.ocr.autoDownloadOriginal,
+    defaults.ocr.autoDownloadOriginal,
+    () => b.setOcrAutoDownloadOriginal({ enabled: defaults.ocr.autoDownloadOriginal }),
+  );
   return out;
 }
 

@@ -10,7 +10,7 @@ import {
 } from '@weq/agentlab';
 import { ocrCacheFor, ocrCacheKey, localOcrBlocker } from '@weq/service';
 import { getAppContext } from './context/app_context';
-import { resolveChatImageFile } from './media_protocol';
+import { resolveChatImageFile, resolveOcrChatImageFile } from './media_protocol';
 import { prefilterAutomaticOcr } from './ocr/prefilter';
 import { resolveLocalOcrModel, runLocalOcr } from './ocr/local';
 import { imageMetadata } from './image_processor';
@@ -102,7 +102,11 @@ function processor(): AiImageProcessor {
   };
   const descriptionRoot = boot.userConfig.cacheDir('ai-image-descriptions');
   const cache = ocrCacheFor(boot.userConfig.cacheDir('ocr'));
-  const locate = async (image: AiImageRef, signal?: AbortSignal, metadataOnly = false) => {
+  const locate = async (
+    image: AiImageRef,
+    signal?: AbortSignal,
+    policy: 'display' | 'metadata' | 'ocr-cache' | 'ocr-original' = 'display',
+  ) => {
     check(signal);
     if (image.path) {
       const root = resolve(assetRoot()) + sep;
@@ -161,20 +165,19 @@ function processor(): AiImageProcessor {
       Number(d.subType) === 1 ? 'emoji' : 'pic',
     );
     check(signal);
-    if (local.source || local.thumb)
-      return {
-        path: (local.source ?? local.thumb)!,
-        online,
-        key: ocrCacheKey(online.md5) ?? ocrCacheKey(String(d.fileName ?? '')),
-        variant: local.source ? ('original' as const) : ('thumb' as const),
-      };
-    if (metadataOnly)
-      return {
-        path: null,
-        online,
-        key: ocrCacheKey(online.md5) ?? ocrCacheKey(String(d.fileName ?? '')),
-        variant: 'unknown' as const,
-      };
+    const key = ocrCacheKey(online.md5) ?? ocrCacheKey(String(d.fileName ?? ''));
+    const fallback = {
+      path: local.source ?? local.thumb,
+      online,
+      key,
+      variant: local.source
+        ? ('original' as const)
+        : local.thumb
+          ? ('thumb' as const)
+          : ('unknown' as const),
+    };
+    if (local.source || policy === 'metadata' || (policy === 'display' && local.thumb))
+      return fallback;
     const query = new URLSearchParams({
       name: String(d.fileName ?? ''),
       t: String(sendTime),
@@ -183,13 +186,21 @@ function processor(): AiImageProcessor {
       orig: String(d.originalUrl ?? ''),
       recv: Number(d.subType) === 1 ? '1' : '0',
     });
-    const resolved = await resolveChatImageFile(query, () => check(signal), signal);
-    if (!resolved.path) throw new Error('现有取图链路未能取回图片');
+    const resolved =
+      policy === 'display'
+        ? await resolveChatImageFile(query, () => check(signal), signal)
+        : await resolveOcrChatImageFile(
+            query,
+            policy === 'ocr-original',
+            () => check(signal),
+            signal,
+          );
     check(signal);
+    if (!resolved.path) return fallback;
     return {
       ...resolved,
       online,
-      key: ocrCacheKey(online.md5) ?? ocrCacheKey(String(d.fileName ?? '')),
+      key,
     };
   };
   const port = new AiImageProcessor({
@@ -242,8 +253,9 @@ function processor(): AiImageProcessor {
       };
     },
     ocr: async (image, signal, refresh) => {
-      let file = await locate(image, signal, true);
+      let file = await locate(image, signal, 'metadata');
       const snapshot = taskImages.getStore();
+      const { ocr } = snapshot?.settings ?? boot.userConfig.getSettings();
       const localModel = snapshot ? snapshot.localModel : resolveLocalOcrModel();
       const hit = file.key && !refresh ? await cache.getText(file.key) : null;
       if (
@@ -256,7 +268,8 @@ function processor(): AiImageProcessor {
           text: hit.text,
           notes: [`复用${hit.source === 'oidb' ? 'QQ 在线' : '本地'} OCR 缓存。`],
         };
-      if (!file.path) file = await locate(image, signal);
+      if (!file.path || file.variant === 'thumb')
+        file = await locate(image, signal, ocr.autoDownloadOriginal ? 'ocr-original' : 'ocr-cache');
       const filterKey =
         file.variant === 'thumb' && file.path
           ? createHash('sha256')
@@ -264,9 +277,7 @@ function processor(): AiImageProcessor {
               .digest('hex')
           : file.key;
       const filter = await prefilterAutomaticOcr({
-        enabled:
-          !refresh &&
-          (taskImages.getStore()?.settings ?? boot.userConfig.getSettings()).ocr.prefilterEnabled,
+        enabled: !refresh && ocr.prefilterEnabled,
         path: file.path,
         cache,
         cacheKey: filterKey,
@@ -298,7 +309,10 @@ function processor(): AiImageProcessor {
       const model = localModel;
       if (!model)
         throw new Error([...notes, localOcrBlocker() ?? '没有可用的本地识别模型'].join('；'));
-      if (!file.path) throw new Error('本地图片不可用');
+      if (!file.path)
+        throw new Error(
+          ocr.autoDownloadOriginal ? '未能取回图片' : '本地没有图片，OCR 自动获取原图已关闭',
+        );
       const result = await runLocalOcr(file.path, model, signal, refresh);
       check(signal);
       const text = result.blocks.map((b) => b.text).join('\n');

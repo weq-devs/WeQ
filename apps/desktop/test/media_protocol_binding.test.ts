@@ -102,6 +102,7 @@ it('添加表情的原图请求不上传普通缩略图，但保留接收表情�
   expect((await handleMediaRequest(new Request(url))).status).toBe(404);
   expect(download).toHaveBeenCalledWith('token', {
     originalUrl: '',
+    reportActivity: false,
     signal: expect.any(AbortSignal),
   });
   const response = await handleMediaRequest(new Request(`${url}&recv=1`));

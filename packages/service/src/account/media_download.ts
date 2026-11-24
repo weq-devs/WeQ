@@ -26,7 +26,7 @@ import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs } from './user_config';
 import { getLogger, logErrorContext } from '../common/logger';
 import { scopedNetworkAllowed } from '../common/network_scope';
-import { ManagedDownload } from '../common/managed_download';
+import { ManagedDownload, TransferDeferredError } from '../common/managed_download';
 
 const MEDIA_HOST = 'https://multimedia.nt.qq.com.cn';
 const DOWNLOAD_BASE = `${MEDIA_HOST}/download`;
@@ -60,6 +60,8 @@ export interface DownloadOptions {
    * (no rkey) and prefer it over the rkey attempts.
    */
   originalUrl?: string;
+  /** 仅用户明确请求查看原图时，可在任务列表继续被策略暂停的传输。 */
+  reportActivity?: boolean;
   /** 取消这个调用方，最后一个调用方离开时才停止共享下载。 */
   signal?: AbortSignal;
 }
@@ -241,7 +243,12 @@ export class MediaDownloadService {
       path,
       opts.signal,
       (signal, progress) =>
-        writeMedia(path, signal, () => this.runDownload(fileToken, path, opts, progress, signal)),
+        writeMedia(path, signal, () =>
+          this.runDownload(fileToken, path, opts, progress, signal),
+        ).catch((error: unknown) => {
+          if (error instanceof TransferDeferredError) return null;
+          throw error;
+        }),
       onProgress,
     );
   }
@@ -348,11 +355,27 @@ export class MediaDownloadService {
     };
     let source = 'unavailable';
     let externalCandidateCount = 0;
-    const local = await tryEach(urls, this.allowOnline, note, cachePath, onProgress, signal);
+    const fetchCandidate = (url: string, stage: string) =>
+      tryFetch(
+        url,
+        this.allowOnline,
+        note(stage),
+        cachePath,
+        onProgress,
+        signal,
+        opts.reportActivity,
+      );
+    let bytes: number | null = null;
+    for (const candidate of urls) {
+      if (!this.allowOnline()) return null;
+      bytes = await fetchCandidate(candidate.url, candidate.source);
+      if (bytes) {
+        source = candidate.source;
+        break;
+      }
+    }
     signal.throwIfAborted();
     if (!urls.length) note('local-rkey')('no-candidates');
-    let bytes = local?.bytes ?? null;
-    if (local) source = local.source;
     if (!bytes && this.externalRkey && this.allowOnline()) {
       let externalRkeys: DownloadRkey[] = [];
       try {
@@ -371,14 +394,7 @@ export class MediaDownloadService {
       if (!externalCandidateCount) note('external')('no-candidates');
       for (const rkey of externalRkeys) {
         if (!this.allowOnline()) return null;
-        bytes = await tryFetch(
-          composeMediaDownloadUrl(fileToken, rkey),
-          this.allowOnline,
-          note('external'),
-          cachePath,
-          onProgress,
-          signal,
-        );
+        bytes = await fetchCandidate(composeMediaDownloadUrl(fileToken, rkey), 'external');
         if (bytes) break;
       }
     }
@@ -435,24 +451,6 @@ export function composeMediaDownloadUrl(fileToken: string, rkey: DownloadRkey): 
   return `${DOWNLOAD_BASE}?appid=${appid}&fileid=${encodeURIComponent(fileToken)}&spec=0${rkey.rkey}`;
 }
 
-/** 按原来的来源优先级尝试，下载器负责重试、写盘和原子发布。 */
-async function tryEach(
-  urls: Array<{ url: string; source: string }>,
-  allowed: () => boolean,
-  note: (stage: string) => (reason: string) => void,
-  cachePath: string,
-  onProgress: MediaProgress,
-  signal: AbortSignal,
-): Promise<{ bytes: number; source: string } | null> {
-  for (const { url, source } of urls) {
-    signal.throwIfAborted();
-    if (!allowed()) return null;
-    const bytes = await tryFetch(url, allowed, note(source), cachePath, onProgress, signal);
-    if (bytes) return { bytes, source };
-  }
-  return null;
-}
-
 async function tryFetch(
   url: string,
   allowed: () => boolean,
@@ -460,6 +458,7 @@ async function tryFetch(
   cachePath: string,
   onProgress: MediaProgress,
   signal: AbortSignal,
+  reportActivity = false,
 ): Promise<number | null> {
   const check = () => {
     signal.throwIfAborted();
@@ -470,7 +469,8 @@ async function tryFetch(
     check();
     await mkdir(dirname(cachePath), { recursive: true });
     await new ManagedDownload({
-      name: '下载聊天媒体',
+      name: reportActivity ? '下载聊天媒体' : undefined,
+      deferOnPolicyPause: !reportActivity,
       signal,
       maxAttempts: 4,
       retryBaseMs: 300,
@@ -505,8 +505,9 @@ async function tryFetch(
       onProgress(received, total);
     });
     return bytes;
-  } catch {
+  } catch (error) {
     signal.throwIfAborted();
+    if (error instanceof TransferDeferredError) throw error;
     return null;
   }
 }

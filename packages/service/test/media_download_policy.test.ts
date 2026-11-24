@@ -5,14 +5,46 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { MediaDownloadService, flushMediaDownloadLogs } from '../src/account/media_download';
 import type { AccountConfigService } from '../src/account/user_config';
 import { getLogger } from '../src/common/logger';
+import { transferActivity } from '../src/common/managed_download';
+import { updateTransferPolicy } from '../src/common/transfer_policy';
+import { networkCost } from '../src/common/data_saver';
 
 const roots: string[] = [];
 afterEach(async () => {
   flushMediaDownloadLogs();
+  updateTransferPolicy('auto', networkCost(false, false, 'fixture'));
   vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+});
+it('大型聊天媒体缓存不创建任务，省流量暂缓也不等待用户继续', async () => {
+  const f = await fixture();
+  f.allow(true);
+  const activity = vi.fn();
+  transferActivity.on('state', activity);
+  try {
+    const bytes = 10 * 1024 * 1024;
+    const image = () =>
+      new Response(new Uint8Array(bytes), { headers: { 'Content-Length': String(bytes) } });
+    f.fetch.mockImplementation(async () => image());
+    expect(await f.service.download('large-image')).toBeTruthy();
+    updateTransferPolicy('always', networkCost(false, false, 'fixture'), {
+      dataSaverPrefetch: true,
+      dataSaverAutoResume: false,
+    });
+    expect(await f.service.download('deferred-image')).toBeNull();
+    expect(f.fetch).toHaveBeenCalledTimes(2);
+    expect(f.external.resolveRkeys).not.toHaveBeenCalled();
+    expect(activity).not.toHaveBeenCalled();
+    updateTransferPolicy('never', networkCost(false, false, 'fixture'));
+    expect(await f.service.download('manual-image', { reportActivity: true })).toBeTruthy();
+    expect(activity).toHaveBeenLastCalledWith(
+      expect.objectContaining({ name: '下载聊天媒体', done: true }),
+    );
+  } finally {
+    transferActivity.off('state', activity);
+  }
 });
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), 'weq-media-policy-'));

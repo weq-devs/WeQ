@@ -435,6 +435,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['ocr', 'recognition'],
   },
   {
+    id: 'ocr-auto-download-original',
+    section: 'recognition',
+    label: 'OCR 时自动获取原图',
+    aliases: ['识别原图', 'OCR 下载原图'],
+    from: ['ocr', 'recognition'],
+  },
+  {
     id: 'llm-providers',
     section: 'agentlab',
     label: '已保存的服务商',

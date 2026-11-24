@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   /** 平台能力：本机有没有可用的本地识别引擎（null = 有）。 */
   localOcrBlocker: null as string | null,
   prefilterEnabled: true,
+  autoDownloadOriginal: false,
   filterModel: null as { modelId: string } | null,
   runFilter: vi.fn(),
   retrieveImage: vi.fn(),
@@ -57,7 +58,10 @@ vi.mock('../src/main/context/app_context', () => ({
       userConfig: {
         getSettings: () => ({
           autoAttachQq: mocks.autoAttachQq,
-          ocr: { prefilterEnabled: mocks.prefilterEnabled },
+          ocr: {
+            prefilterEnabled: mocks.prefilterEnabled,
+            autoDownloadOriginal: mocks.autoDownloadOriginal,
+          },
         }),
         cacheDir: (category: string) => join(mocks.cacheRoot, category),
       },
@@ -71,7 +75,7 @@ vi.mock('../src/main/ocr/local', () => ({
   resolveLocalOcrFilterModel: () => mocks.filterModel,
   runLocalOcrFilterFile: mocks.runFilter,
 }));
-vi.mock('../src/main/media_protocol', () => ({ resolveChatImageFile: mocks.retrieveImage }));
+vi.mock('../src/main/media_protocol', () => ({ resolveOcrChatImageFile: mocks.retrieveImage }));
 
 import { AI_TOOLS } from '../src/main/mcp/tools';
 import { OcrResultCache } from '@weq/service';
@@ -114,6 +118,7 @@ beforeEach(() => {
   mocks.localModel = null;
   mocks.localOcrBlocker = null;
   mocks.prefilterEnabled = true;
+  mocks.autoDownloadOriginal = false;
   mocks.filterModel = null;
   mocks.runFilter.mockResolvedValue({ ok: true, hasText: false, modelId: 'filter' });
   mocks.retrieveImage.mockResolvedValue({ path: null, variant: 'unknown' });
@@ -153,6 +158,7 @@ afterEach(() => {
 
 describe('ocr_image_text', () => {
   it('QQ 离线且本机无缓存时仍调用完整取图链路，再使用本地 OCR', async () => {
+    mocks.autoDownloadOriginal = true;
     mocks.record = { ...readyRecord, qqOnline: false };
     mocks.localModel = { modelId: 'ppocr-v5-mobile', paths: {} };
     mocks.findFile.mockResolvedValue({ source: null, thumb: null });
@@ -162,7 +168,7 @@ describe('ocr_image_text', () => {
     });
     const result = await ocr({ kind: 'group', conv: '123', msgId: '1' });
     expect(result).toMatchObject({ ok: true, source: 'local', text: '本地结果' });
-    expect(mocks.retrieveImage).toHaveBeenCalledOnce();
+    expect(mocks.retrieveImage).toHaveBeenCalledWith(expect.any(URLSearchParams), true);
     expect(mocks.runLocalOcr).toHaveBeenCalledWith('/synthetic/downloaded.png', mocks.localModel);
     expect(mocks.recognize).not.toHaveBeenCalled();
   });
