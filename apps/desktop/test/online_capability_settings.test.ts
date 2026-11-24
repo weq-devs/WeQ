@@ -179,9 +179,13 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   const indicator = () =>
     f.host.querySelector<HTMLButtonElement>('button[aria-label="QQ 代理未连接"]');
   const card = f.host.querySelector<HTMLElement>('[data-setting-id="qq-proxy-connection"]')!;
+  const syncCard = f.host
+    .querySelector('[data-setting-id="qq-client-sync"]')!
+    .closest('.weq-set-card')!;
+  const indicatorRow = f.host.querySelector('[data-setting-id="qq-proxy-indicator"]')!;
   const status = () => card.querySelector('.weq-set-card-head [role="status"]')?.textContent;
   expect(status()).toBe('等待 QQ 连接');
-  expect(card.textContent).toContain('待同步 7 项');
+  expect(syncCard.textContent).toContain('待同步 7 项');
   act(() => indicator()?.click());
   const panel = document.querySelector<HTMLElement>('.weq-restricted-panel')!;
   mock.proxyStatus = { ...waitingProxy(), connecting: true };
@@ -192,7 +196,7 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   expect(progress?.getAttribute('aria-busy')).toBe('true');
   expect(panel.querySelector('h2')?.textContent).toBe('正在确认 QQ 代理连接');
   expect(status()).toBe('正在确认连接');
-  expect(card.textContent).toContain('待同步 7 项');
+  expect(syncCard.textContent).toContain('待同步 7 项');
   mock.proxyStatus = waitingProxy();
   f.render();
   const action = (surface: HTMLElement, label: string) =>
@@ -239,13 +243,13 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   f.render();
   expect(indicator()).not.toBeNull();
   await act(async () => {
-    card.querySelector<HTMLButtonElement>('[role="switch"][aria-label^="QQ 代理未连接"]')!.click();
+    indicatorRow.querySelector<HTMLButtonElement>('[role="switch"]')!.click();
   });
   f.render();
   expect(mock.saveProxyIndicator).toHaveBeenCalledWith({ enabled: false });
   expect(indicator()).toBeNull();
   expect(status()).toBe('等待 QQ 连接');
-  expect(card.textContent).toContain('待同步 7 项');
+  expect(syncCard.textContent).toContain('待同步 7 项');
   expect(mock.settings.restrictedModeIndicatorEnabled).toBe(true);
   expect(mock.settings.qqClientSyncEnabled).toBe(true);
 
@@ -259,7 +263,7 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   expect(mock.saveProxyEnabled).toHaveBeenCalledWith({ enabled: false });
   expect(master.getAttribute('aria-checked')).toBe('false');
   expect(status()).toBe('已关闭');
-  expect(card.textContent).toContain('待同步 7 项');
+  expect(syncCard.textContent).toContain('待同步 7 项');
   expect(indicator()).toBeNull();
   expect(mock.settings.qqClientSyncEnabled).toBe(true);
 });
@@ -283,7 +287,7 @@ it.each([
   const f = mount();
   expect(f.badge().textContent).toBe(label);
   expect(f.badge().parentElement?.querySelector('.weq-set-card-title')?.textContent).toBe(
-    'QQ 在线能力',
+    '在线能力',
   );
 });
 it('等待授权与启用中优先显示，待授权时可打开状态详情', () => {
