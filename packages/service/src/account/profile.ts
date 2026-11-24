@@ -160,6 +160,10 @@ export class ProfileService {
     return this.session.profileInfo.nicksByUins(uins);
   }
 
+  async memberNamesByUids(uids: readonly string[]) {
+    return this.session.profileInfo.memberNamesByUids(uids);
+  }
+
   /**
    * Batch-resolve full profiles by uid (cached profiles only).
    */

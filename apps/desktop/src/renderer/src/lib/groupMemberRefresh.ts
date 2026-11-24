@@ -45,7 +45,11 @@ export function groupInfoQueries(
 ) {
   const cardScope = `${binding.expectedAccountUin}:${binding.expectedAccountConfigId}`;
   const groupOf = ([path, options, id]: readonly unknown[]): string | undefined => {
-    if (path === 'chat-group-members' || path === 'group-card-member-list') {
+    if (
+      path === 'chat-group-members' ||
+      path === 'group-card-member-list' ||
+      path === 'group-member-roster'
+    ) {
       const owner = path === 'chat-group-members' ? scope : cardScope;
       return options === owner && typeof id === 'string' && id ? id : undefined;
     }

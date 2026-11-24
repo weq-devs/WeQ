@@ -85,6 +85,14 @@ async function reply(path: string, input: Record<string, unknown>) {
       error: null,
     };
   }
+  if (path === 'account.contactMetrics.groupFriendSources')
+    return {
+      friendUids: ['u_member2'],
+      rosterComplete: true,
+      addedUids: [],
+      pendingUids: [],
+      unknown: 0,
+    };
   if (path === 'account.contactMetrics.snapshot') {
     if (mode() === 'nometric') return { rows: {} };
     if (mode() === 'empty') return { rows: {} };
@@ -122,6 +130,26 @@ async function reply(path: string, input: Record<string, unknown>) {
       updatedAt: 1794380000000,
       error: null,
     };
+  if (path === 'account.groupMemberRoster') {
+    if (mode() === 'error') throw new Error('读取群成员失败');
+    const members = input.keyword ? [row(3)] : Array.from({ length: 10 }, (_, i) => row(i + 1));
+    if (mode() === 'long' && !input.keyword) {
+      members[1]!.card = '这是一个用于检查窄侧栏截断位置的很长的群内昵称';
+      members[1]!.customTitle = '管理员头衔完整显示';
+    }
+    return {
+      total: members.length,
+      ownerUid: 'u_member1',
+      members: input.offset
+        ? []
+        : members.map((member) => ({
+            member,
+            displayName: member.card,
+            sortDetail:
+              input.sort === 'memberLevel' ? { text: `群等级：Lv${member.memberLevel}` } : null,
+          })),
+    };
+  }
   if (path === 'account.listGroupMembers') {
     if (mode() === 'error') throw new Error('读取群成员失败');
     return input.offset ? [] : Array.from({ length: 10 }, (_, i) => row(i + 1));

@@ -21,6 +21,7 @@ const accountReads = new Set([
   'searchHistory',
   'searchMore',
   'searchGroupMembers',
+  'groupMemberRoster',
   'searchConversationRecords',
   'searchReadonlyConversation',
   'getForwardMessages',

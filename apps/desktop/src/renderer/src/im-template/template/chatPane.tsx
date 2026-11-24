@@ -161,6 +161,7 @@ import '../../styles/composer-image-preview.css';
 import '../../styles/composer-grouped-actions.css';
 import { ChatBackdrop } from '../../components/ChatBackdrop';
 import { useChatBackdrop } from '../../hooks/useDressSkin';
+import type { GroupMemberWire } from '../../../../main/ipc/serde';
 import type { GroupMemberSearchView } from '../../hooks/useGroupMemberSearch';
 import type {
   ChangeEvent as ReactChangeEvent,
@@ -301,6 +302,7 @@ import {
   type ComposerButtonAction,
 } from './composerActions';
 import { GroupInfoPanel, type GroupInfoDetail, type GroupSidebarFeature } from './groupInfoPanel';
+import { GroupRosterPanel } from '../../components/groupProfile/GroupRosterPanel';
 import { EmojiPanel } from './emojiPanel';
 import { ComposerFontPanel } from './composerFontPanel';
 import { useComposerFont } from './composerFontPanel.shared';
@@ -583,12 +585,9 @@ export type ChatPaneProps = {
   onAddGroupMember?: () => void;
   groupMembersLoading?: boolean;
   groupMembersError?: string | null;
-  /** 群资料面板的群内成员搜索（服务端搜全群）—— 关键字、命中成员与分页状态。 */
   groupMemberSearch?: GroupMemberSearchView | null;
-  /** 群内成员搜索关键字变化（受控输入）。 */
   onGroupMemberSearchChange?: (keyword: string) => void;
-  /** 追加下一页搜索命中。 */
-  onLoadMoreGroupMemberSearch?: () => void;
+  mapGroupRosterMember?: (row: GroupMemberWire) => GroupMember;
   /** 群详情（群资料）拉取中，群资料区显示 skeleton。 */
   profileLoading?: boolean;
   /** 当前账号是否有可用于发消息的、在线且允许注入的 QQ 实例。 */
@@ -817,7 +816,7 @@ function ChatPaneContent({
   groupMembersError,
   groupMemberSearch,
   onGroupMemberSearchChange,
-  onLoadMoreGroupMemberSearch,
+  mapGroupRosterMember,
   profileLoading,
   sendAvailable = true,
   onSend,
@@ -1358,12 +1357,9 @@ function ChatPaneContent({
   // only backs the clear-conversation action.
   const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<string>>(new Set());
   const [mentionMenu, setMentionMenu] = useState<MentionMenuState | null>(null);
-  const [rosterPanelGroup, setRosterPanelGroup] = useState<string | null>(null);
-  const onRosterPanelVisibility = useCallback((group: string, visible: boolean) => {
-    setRosterPanelGroup((previous) => (visible ? group : previous === group ? null : previous));
-  }, []);
   const rosterGroup = conversation?.type === 'group' && !restrictedSource ? conversation.id : '';
-  const rosterNeeded = tabActive && Boolean(mentionMenu || rosterPanelGroup === rosterGroup);
+  const rosterNeeded = tabActive && Boolean(mentionMenu);
+  const MemberPanel = mapGroupRosterMember ? GroupRosterPanel : GroupInfoPanel;
   useEffect(() => {
     if (!rosterGroup || !rosterNeeded || !onGroupMemberDemand) return;
     onGroupMemberDemand(rosterGroup, true);
@@ -7117,7 +7113,8 @@ function ChatPaneContent({
             />
           ) : null}
           {groupInfoPresent && !messageHistoryActive ? (
-            <GroupInfoPanel
+            <MemberPanel
+              mapMember={mapGroupRosterMember}
               hidden={sidecarOpen}
               closing={!groupInfoVisible}
               conversation={conversation}
@@ -7144,13 +7141,11 @@ function ChatPaneContent({
               getMemberChatShortcut={getAvatarShortcut}
               onMemberContextMenu={!selectionMode ? openAvatarMenu : undefined}
               onLoadMoreMembers={onLoadMoreGroupMembers}
-              onMemberVisibilityChange={onGroupMemberDemand ? onRosterPanelVisibility : undefined}
               onAddMember={onAddGroupMember}
               loadingMoreMembers={groupMembersLoading}
               loadingError={groupMembersError}
               memberSearch={groupMemberSearch}
               onMemberSearchChange={onGroupMemberSearchChange}
-              onLoadMoreSearch={onLoadMoreGroupMemberSearch}
               profileLoading={profileLoading}
               onOpenLeftMembers={
                 onOpenGroupLeftMembers ? () => onOpenGroupLeftMembers(conversation) : undefined

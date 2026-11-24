@@ -184,6 +184,14 @@ export class ContactMetricsService extends EventEmitter {
     await this.loaded;
     return structuredClone(this.rows[key] ?? {});
   }
+  async rowsFor(keys: readonly string[]): Promise<ContactMetricRows> {
+    await this.loaded;
+    const rows: ContactMetricRows = {};
+    for (const key of keys) {
+      if (Object.hasOwn(this.rows, key)) rows[key] = structuredClone(this.rows[key]!);
+    }
+    return rows;
+  }
   async keysForMetric(metric: ContactMetric) {
     await this.loaded;
     return Object.keys(this.rows).filter((key) => this.rows[key]?.[metric]);

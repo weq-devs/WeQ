@@ -24,6 +24,18 @@
   color: var(--weq-fg-primary);
 }
 
+.weq-group-card-roster > .group-info-panel {
+  min-height: 124px;
+  max-height: min(440px, calc(100dvh - 54px));
+  padding: 0;
+  border: 0;
+}
+
+.weq-group-card-roster .group-info-member-list {
+  overflow: auto;
+  padding-bottom: 0;
+}
+
 .weq-group-member-list-header {
   display: flex;
   align-items: center;

@@ -302,7 +302,6 @@ import {
   useGroupMemberResolver,
 } from '../hooks/useGroupMemberResolver';
 import { createGroupMemberResults } from '../lib/groupMemberResults';
-import { useGroupMemberSearch } from '../hooks/useGroupMemberSearch';
 import {
   activeGroupMembers,
   createGroupMemberLookup,
@@ -4610,6 +4609,9 @@ function MainWorkspace(): ReactElement {
         );
         updateCachedMembers(target.groupCode, rows);
         updatePreviewMembers(target.groupCode, rows);
+        void queryClient.invalidateQueries({
+          queryKey: ['group-member-roster', source, target.groupCode],
+        });
         if (needsRefetch) void queryClient.invalidateQueries(filters, { cancelRefetch: false });
       }),
     [queryClient, refreshProfileCache, updateCachedMembers, updatePreviewMembers],
@@ -4748,25 +4750,6 @@ function MainWorkspace(): ReactElement {
     mapGroupMemberWire,
     currentGroupMembers,
   ]);
-
-  /**
-   * 群资料面板的群内成员搜索。以前面板只在已加载的成员分页里做客户端过滤，
-   * 结果是「搜不到后面几页的人」，而且过滤后列表短于容器、没有滚动条，连
-   * 加载更多都触发不了。现在关键字交给 `account.searchGroupMembers` 在
-   * `group_member3` 上按群搜全群，命中项仍复用同一份 wire → GroupMember 映射
-   * （群主 / 等级 / bot 角标与成员分页一致）。
-   */
-  const [memberSearchKeyword, setMemberSearchKeyword] = useState('');
-  const groupMemberSearch = useGroupMemberSearch<GroupMemberWire>(
-    isGroup ? selectedUid : undefined,
-    memberSearchKeyword,
-    mapGroupMemberWire,
-    groupInfoRevision,
-  );
-  const memberSearch = useMemo(
-    () => (isGroup && selectedUid ? groupMemberSearch.view : null),
-    [isGroup, selectedUid, groupMemberSearch.view],
-  );
 
   // Resolve message senders / gray-tip targets that fall outside the loaded
   // member page. Messages render immediately with the uin fallback; the real
@@ -6302,10 +6285,6 @@ function MainWorkspace(): ReactElement {
     shell.activeConversationId,
     shell.setActiveConversationId,
   ]);
-
-  useEffect(() => {
-    setMemberSearchKeyword('');
-  }, [selectedUid, isDirect, isGroup, messageScope]);
 
   useEffect(() => {
     const selection = selectionRef.current;
@@ -11352,9 +11331,7 @@ function MainWorkspace(): ReactElement {
                             onGroupMemberDemand={onGroupMemberDemand}
                             groupMembersLoading={selectedGroupMembersLoading}
                             groupMembersError={selectedGroupMembersError}
-                            groupMemberSearch={memberSearch}
-                            onGroupMemberSearchChange={setMemberSearchKeyword}
-                            onLoadMoreGroupMemberSearch={groupMemberSearch.loadMore}
+                            mapGroupRosterMember={mapGroupMemberWire}
                             profileLoading={groupDetail.isLoading}
                             sendAvailable={sendAvailable}
                             onSend={sendComposerMessage}

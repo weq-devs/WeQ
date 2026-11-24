@@ -69,6 +69,14 @@
   outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
   outline-offset: -2px;
 }
+.weq-directory-sort-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px;
+}
+
 .weq-directory-filter-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

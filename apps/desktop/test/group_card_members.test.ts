@@ -10,6 +10,7 @@ import { displayGroupMemberName } from '../src/renderer/src/im-template/template
 const mock = vi.hoisted(() => ({
   scope: 'source-a',
   list: vi.fn(),
+  ordered: vi.fn(),
   search: vi.fn(),
   profiles: vi.fn(),
 }));
@@ -17,6 +18,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     account: {
       listGroupMembers: { query: mock.list },
+      groupMemberRoster: { query: mock.ordered },
       searchGroupMembers: { query: mock.search },
       getProfilesByUids: { query: mock.profiles },
     },
@@ -25,6 +27,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 }));
 vi.mock('../src/renderer/src/hooks/useGroupProfile', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/renderer/src/hooks/useGroupProfile')>()),
+  useGroupEntranceQuestion: () => null,
   useGroupReadScope: () => ({
     active: true,
     binding: { expectedAccountUin: '10001', expectedAccountConfigId: mock.scope },
@@ -34,12 +37,15 @@ vi.mock('../src/renderer/src/hooks/useGroupProfile', async (importOriginal) => (
 vi.mock('../src/renderer/src/components/Dialog', () => ({
   Modal: ({ children }) => h('div', null, children),
 }));
-vi.mock('../src/renderer/src/im-template/template/primitives', () => ({ Avatar: () => h('span') }));
+vi.mock('../src/renderer/src/im-template/template/primitives', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/im-template/template/primitives')>()),
+  Avatar: () => h('span'),
+}));
 
 const group = {
   id: '12345',
   type: 'group',
-  group: { name: '测试群' },
+  group: { name: '测试群', identityValue: '12345', memberCount: 1 },
   members: [],
 } as unknown as GroupConversation;
 const wire = (n: number) => ({
@@ -64,8 +70,26 @@ afterEach(() => {
 });
 function fixture(kind: 'members' | 'friends' = 'members', complete = true, conversation = group) {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        this.callback(
+          [{ target, contentRect: { width: 260, height: 440 } } as ResizeObserverEntry],
+          this,
+        );
+      }
+      unobserve() {}
+      disconnect() {}
+    },
+  );
   mock.scope = 'source-a';
   mock.list.mockReset().mockResolvedValue([wire(1)]);
+  mock.ordered.mockReset().mockImplementation(async () => ({
+    total: 1,
+    members: [{ member: wire(1), displayName: '成员1', sortDetail: null }],
+  }));
   mock.search.mockReset().mockResolvedValue({ members: [], total: 0 });
   mock.profiles.mockReset().mockResolvedValue([]);
   const query = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -123,15 +147,19 @@ async function until(predicate: () => boolean) {
 it('成员名单按当前账号分页读取，点击头像与名称整体打开个人名片而不关闭名单', async () => {
   const { host, render, open, close } = fixture();
   render();
-  await until(() => host.querySelectorAll('li').length === 1);
-  expect(mock.list).toHaveBeenCalledWith({
+  await until(() => host.querySelectorAll('.group-info-member-row').length === 1);
+  expect(mock.ordered).toHaveBeenCalledWith({
     expectedAccountUin: '10001',
     expectedAccountConfigId: 'source-a',
     groupCode: '12345',
+    keyword: '',
+    sort: 'displayName',
+    descending: false,
+    prioritizeAdmins: true,
     limit: 100,
     offset: 0,
   });
-  act(() => (host.querySelector('li button') as HTMLButtonElement).click());
+  act(() => (host.querySelector('.group-info-member-row') as HTMLElement).click());
   expect(open.mock.calls[0][0].id).toBe('u_1');
   expect(close).not.toHaveBeenCalled();
 });
@@ -160,23 +188,26 @@ it('好友目录未齐时不把成员列表当成好友列表，也不显示假�
 });
 it('读取失败提供重试，成功后恢复名单', async () => {
   const { host, render } = fixture();
-  mock.list.mockRejectedValueOnce(new Error('数据库暂不可用'));
+  mock.ordered.mockRejectedValueOnce(new Error('数据库暂不可用'));
   render();
-  await until(() => Boolean(host.querySelector('[role="alert"]')));
-  act(() => (host.querySelector('[role="alert"] button') as HTMLButtonElement).click());
-  await until(() => host.querySelectorAll('li').length === 1);
-  expect(host.querySelector('[role="alert"]')).toBeNull();
+  await until(() => Boolean(host.querySelector('.group-info-member-error')));
+  act(() => (host.querySelector('.group-info-member-error button') as HTMLButtonElement).click());
+  await until(() => host.querySelectorAll('.group-info-member-row').length === 1);
+  expect(host.querySelector('.group-info-member-error')).toBeNull();
 });
 it('同号切换数据源后不显示上一数据源名单', async () => {
   const { host, render } = fixture();
   render();
-  await until(() => host.querySelectorAll('li').length === 1);
+  await until(() => host.querySelectorAll('.group-info-member-row').length === 1);
   mock.scope = 'source-b';
-  mock.list.mockResolvedValue([wire(2)]);
+  mock.ordered.mockResolvedValue({
+    total: 1,
+    members: [{ member: wire(2), displayName: '成员2', sortDetail: null }],
+  });
   render();
-  expect(host.querySelector('li')).toBeNull();
-  await until(() => host.querySelector('strong')?.textContent === '昵称2');
-  expect(mock.list.mock.calls.at(-1)?.[0].expectedAccountConfigId).toBe('source-b');
+  expect(host.querySelector('.group-info-member-row')).toBeNull();
+  await until(() => host.querySelector('.member-display-name')?.textContent === '成员2');
+  expect(mock.ordered.mock.calls.at(-1)?.[0].expectedAccountConfigId).toBe('source-b');
 });
 it('本地合成群只读自身完整成员，不请求真实 QQ 成员接口', () => {
   const conversation = {
@@ -198,7 +229,7 @@ it('本地合成群只读自身完整成员，不请求真实 QQ 成员接口', 
   expect(mock.profiles).not.toHaveBeenCalled();
 });
 
-it.each(['members', 'friends'] as const)(
+it.each(['friends'] as const)(
   '%s 名单优先备注、其次昵称，空白值跳过且永不回退群昵称',
   async (kind) => {
     const { host, render, open } = fixture(kind);
@@ -230,15 +261,6 @@ it.each(['members', 'friends'] as const)(
   },
 );
 
-it('昵称与备注均缺失时显示 QQ 号，不泄漏群昵称', async () => {
-  const { host, render } = fixture();
-  mock.list.mockResolvedValue([{ ...wire(1), nick: '' }]);
-  render();
-  await until(() => host.querySelectorAll('li').length === 1);
-  expect(host.querySelector('strong')?.textContent).toBe('20001');
-  expect(host.textContent).not.toContain('成员1');
-});
-
 it('会话侧栏的名称函数仍优先群昵称，再依次回退备注、昵称和标识', () => {
   expect(displayGroupMemberName('群昵称', '备注', '昵称', '20001')).toBe('群昵称');
   expect(displayGroupMemberName(' ', '备注', '昵称', '20001')).toBe('备注');
@@ -247,11 +269,12 @@ it('会话侧栏的名称函数仍优先群昵称，再依次回退备注、昵�
 });
 
 it('批量资料读取失败时可重试，不退回群昵称', async () => {
-  const { host, render } = fixture();
+  const { host, render } = fixture('friends');
+  mock.list.mockResolvedValue([wire(101)]);
   mock.profiles.mockRejectedValueOnce(new Error('资料读取失败'));
   render();
   await until(() => Boolean(host.querySelector('[role="alert"]')));
   expect(host.querySelector('li')).toBeNull();
   act(() => (host.querySelector('[role="alert"] button') as HTMLButtonElement).click());
-  await until(() => host.querySelector('strong')?.textContent === '昵称1');
+  await until(() => host.querySelector('strong')?.textContent === '昵称101');
 });

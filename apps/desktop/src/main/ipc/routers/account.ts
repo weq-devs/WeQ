@@ -118,6 +118,18 @@ import {
   type RoamingCacheChange,
 } from '../../context/app_context';
 import { assertFullModeSource, fullModeAllowed } from '../../context/full_mode';
+import {
+  listOrderedGroupMembers,
+  startGroupMemberOrderTask,
+} from '../../context/group_member_order';
+import {
+  GROUP_MEMBER_ONLINE_SORTS,
+  GROUP_MEMBER_PRIORITIZE_ADMINS_DEFAULT,
+  GROUP_MEMBER_SORTS,
+  groupMemberDefaultDescending,
+  type GroupMemberSort,
+} from '../../../shared/group_member_order';
+
 import { onlineTranscriber } from '../../online_transcribe';
 import {
   databasePerformance,
@@ -5057,6 +5069,66 @@ export const accountRouter = router({
       )
         throw new Error('账号或数据源已切换，请重新读取群成员');
       return { ...result, members: result.members.map(groupMemberToWire) };
+    }),
+
+  groupMemberRoster: procedure
+    .input(
+      exportAccountBindingInput.required().extend({
+        groupCode: z.string().regex(/^[1-9]\d{0,14}$/),
+        keyword: z.string().trim().max(512).default(''),
+        sort: z
+          .custom<GroupMemberSort>(
+            (value) => typeof value === 'string' && Object.hasOwn(GROUP_MEMBER_SORTS, value),
+          )
+          .default('displayName'),
+        descending: z.boolean().optional(),
+        prioritizeAdmins: z.boolean().default(GROUP_MEMBER_PRIORITIZE_ADMINS_DEFAULT),
+        limit: z.number().int().min(1).max(200).default(100),
+        offset: z.number().int().min(0).default(0),
+      }),
+    )
+    .query(({ input }) =>
+      scopedGroupRead(input, async (services) => {
+        const page = await listOrderedGroupMembers(services, {
+          ...input,
+          descending: input.descending ?? groupMemberDefaultDescending(input.sort),
+        });
+        if (
+          page.members.length &&
+          !input.offset &&
+          !input.keyword &&
+          Number(input.groupCode) <= 0xffffffff
+        )
+          void services.groupInfo.syncMemberRoles(Number(input.groupCode)).catch(() => undefined);
+        return page;
+      }),
+    ),
+
+  fillGroupMemberSort: procedure
+    .input(
+      exportAccountBindingInput.required().extend({
+        groupCode: z.string().regex(/^[1-9]\d{0,9}$/),
+        sort: z.enum(GROUP_MEMBER_ONLINE_SORTS),
+      }),
+    )
+    .mutation(({ input }) => {
+      const current = () =>
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const services = current();
+      const checkAccount = () => {
+        if (current() !== services) throw new Error('账号或数据源已切换');
+        const access = albumAccessState(requireServices());
+        if (!access.qqOnline || !access.attachEnabled)
+          throw new Error('请先连接 QQ 再补取成员资料');
+      };
+      checkAccount();
+      return startGroupMemberOrderTask(
+        services,
+        { uin: input.expectedAccountUin, configId: input.expectedAccountConfigId },
+        input.groupCode,
+        input.sort,
+        checkAccount,
+      );
     }),
 
   /** List members of a group. */

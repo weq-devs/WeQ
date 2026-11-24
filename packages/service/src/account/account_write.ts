@@ -167,23 +167,29 @@ export class AccountWriteService {
     };
   }
 
-  async commonRelationships(target: string, priority = 0) {
+  async commonRelationships(
+    target: string,
+    priority = 0,
+    field?: 'commonFriends' | 'commonGroups',
+  ) {
     const pid = this.resolvePid();
+    const loadFriends = () => getCommonFriendCount(this.nt, pid, this.identity.uin, target);
     const loadGroups = async () => {
       const version = (await this.identity.clientVersion?.()) ?? '';
       this.assertCurrentPid(pid);
       return getCommonGroups(this.nt, pid, this.identity.uin, target, version);
     };
-    const [friends, groups] = await Promise.allSettled([
+    const loadFriendsCached = () =>
       this.contactMetrics
         ? this.contactMetrics.query(
             `friend:${target}`,
             ['commonFriends'],
-            () => getCommonFriendCount(this.nt, pid, this.identity.uin, target),
+            loadFriends,
             (value) => ({ commonFriends: value }),
             priority,
           )
-        : getCommonFriendCount(this.nt, pid, this.identity.uin, target),
+        : loadFriends();
+    const loadGroupsCached = () =>
       this.contactMetrics
         ? this.contactMetrics.query(
             `friend:${target}`,
@@ -192,7 +198,10 @@ export class AccountWriteService {
             (value) => ({ commonGroups: value }),
             priority,
           )
-        : loadGroups(),
+        : loadGroups();
+    const [friends, groups] = await Promise.allSettled([
+      field === 'commonGroups' ? null : loadFriendsCached(),
+      field === 'commonFriends' ? null : loadGroupsCached(),
     ]);
     this.assertCurrentPid(pid);
     return {
