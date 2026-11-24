@@ -45,6 +45,20 @@
   font-size: 15px;
 }
 
+.weq-help-faq .weq-help-md h3:not(h2 + h3) {
+  margin-block-start: 20px;
+  padding-block-start: 12px;
+  border-block-start: 1px solid var(--weq-border-subtle);
+}
+
+.weq-help-faq .weq-help-md h3 ~ :is(p, ul, ol) {
+  margin-inline-start: 12px;
+}
+
+.weq-help-faq .weq-help-md hr {
+  border-top-color: var(--weq-border-strong);
+}
+
 .weq-help-md h4 {
   font-size: 14px;
 }
