@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage } from 'node:http';
 import { type RemotePairing, claimSchema, tokenHash } from './pairing';
 import type { RemoteWebGateway } from './web_gateway';
 import { observeRemoteRequest } from './device';
+import { normalizeHex } from '../../shared/theme_colors';
 
 function bearer(req: IncomingMessage): string {
   const value = req.headers.authorization ?? '';
@@ -12,6 +13,7 @@ export function createRemoteServer(
   pairing: RemotePairing,
   web?: Pick<RemoteWebGateway, 'handle' | 'attach' | 'close'> &
     Partial<Pick<RemoteWebGateway, 'stableWebRelease'>>,
+  readThemeAccent?: () => string | undefined,
 ) {
   let windowStart = Date.now();
   // 未授权请求与已授权设备分别计数，避免单个来源耗尽所有设备的限额。
@@ -81,12 +83,21 @@ export function createRemoteServer(
       if (!authorized) return send(401, { error: '设备未授权。' });
       if (req.method === 'GET' && path === '/v1/status') {
         const webRelease = await web?.stableWebRelease?.();
+        // 空字符串表示桌面使用默认主题色；字段缺失则表示宿主不提供同步。
+        let themeAccent: string | undefined;
+        try {
+          const value = readThemeAccent?.();
+          themeAccent = value === '' ? '' : (normalizeHex(value) ?? undefined);
+        } catch {
+          /* 主题设置不可读不影响连接校验。 */
+        }
         return send(200, {
           product: 'WeQ Remote',
           protocol: 1,
           scope: 'status:read',
           online: true,
           webRelease,
+          themeAccent,
         });
       }
       return send(404, { error: '接口不存在。' });

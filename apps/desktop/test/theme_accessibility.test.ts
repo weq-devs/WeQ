@@ -131,6 +131,26 @@ describe('主题可读色', () => {
     expect(document.documentElement.style.getPropertyValue('--weq-accent-ink')).not.toBe(light);
     expect(useThemeStore.getState().accent).toBe('#075c30');
   });
+  it('Remote 本机色仅覆盖绘制，恢复同步后沿用电脑色', () => {
+    const shell = window as Window & { weqRemoteThemeAccent?: string };
+    const store = useThemeStore.getState();
+    store.setAccent('#075c30');
+    try {
+      shell.weqRemoteThemeAccent = '#8b5cf6';
+      store.syncResolved();
+      expect(document.documentElement.style.getPropertyValue('--weq-accent-custom')).toBe(
+        '#8b5cf6',
+      );
+      expect(localStorage.getItem('weq.theme-accent')).toBe('#075c30');
+      shell.weqRemoteThemeAccent = '';
+      store.syncResolved();
+      expect(document.documentElement.style.getPropertyValue('--weq-accent-custom')).toBe(
+        '#075c30',
+      );
+    } finally {
+      delete shell.weqRemoteThemeAccent;
+    }
+  });
   it.each(['#ffffff', '#000000', '#fff3a1', '#075c30', '#0099ff'])(
     '%s 有独立的实心文字和强调文字 token',
     (accent) => {

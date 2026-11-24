@@ -9,12 +9,14 @@ describe('远程原型的最小 HTTP 面', () => {
   let pairing: RemotePairing;
   let server: ReturnType<typeof createRemoteServer>;
   let base: string;
+  let readThemeAccent: (() => string) | undefined;
   const token = 'c'.repeat(64);
   const headers = { Authorization: `Bearer ${token}` };
 
   beforeEach(async () => {
     pairing = new RemotePairing();
-    server = createRemoteServer(pairing);
+    readThemeAccent = undefined;
+    server = createRemoteServer(pairing, undefined, () => readThemeAccent?.());
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     const address = server.address();
     if (!address || typeof address === 'string') throw new Error('没有监听端口');
@@ -84,6 +86,31 @@ describe('远程原型的最小 HTTP 面', () => {
         })
       ).status,
     ).toBe(413);
+  });
+
+  it('已授权手机读取最新共享主题色，缺省与不可用保持区别', async () => {
+    let accent = '#aBc123';
+    readThemeAccent = () => accent;
+    const claim = pairing.claim({
+      invitation: pairing.invite().secret,
+      name: '手机',
+      tokenHash: tokenHash(token),
+    });
+    expect(await (await fetch(`${base}/v1/status`, { headers })).json()).not.toHaveProperty(
+      'themeAccent',
+    );
+    pairing.decide(claim.id, true);
+    const status = async () =>
+      fetch(`${base}/v1/status`, { headers }).then((response) => response.json());
+    expect(await status()).toHaveProperty('themeAccent', '#abc123');
+    accent = '';
+    expect(await status()).toHaveProperty('themeAccent', '');
+    accent = 'invalid';
+    expect(await status()).not.toHaveProperty('themeAccent');
+    readThemeAccent = () => {
+      throw new Error('配置不可读');
+    };
+    expect(await status()).toMatchObject({ online: true });
   });
 
   it('旧配对正文保持不变，设备资料随请求头补齐；无效请求头不影响已有授权', async () => {

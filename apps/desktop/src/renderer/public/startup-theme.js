@@ -12,6 +12,12 @@
   } catch {
     // 缓存不可读时跟随系统；不阻断首屏。
   }
+  try {
+    const localAccent = window.weqRemoteThemeAccent ?? window.weqRemoteLinks?.themeAccent?.();
+    if (typeof localAccent === 'string' && /^#[\da-f]{6}$/i.test(localAccent)) accent = localAccent;
+  } catch {
+    // 旧手机壳仍使用共享设置。
+  }
   const dark =
     preference === 'dark' ||
     (preference !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);

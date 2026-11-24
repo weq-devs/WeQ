@@ -34,6 +34,18 @@ const storageKeys = {
   density: 'weq.theme-density',
 } as const;
 
+function nativeThemeAccent(): string | undefined {
+  const shell = window as Window & {
+    weqRemoteThemeAccent?: string;
+    weqRemoteLinks?: { themeAccent?: () => string };
+  };
+  try {
+    return shell.weqRemoteThemeAccent ?? shell.weqRemoteLinks?.themeAccent?.();
+  } catch {
+    return undefined;
+  }
+}
+
 type ThemeState = {
   preference: ThemePreference;
   resolved: ThemeResolved;
@@ -44,6 +56,7 @@ type ThemeState = {
   density: ThemeDensity;
   specialNumberFont: boolean;
   initialized: boolean;
+  nativeAccentSettings: boolean;
   setPreference: (preference: ThemePreference) => void;
   setAccent: (accent: string) => void;
   setBackground: (background: ThemeBackground) => void;
@@ -156,7 +169,8 @@ function applyTheme({
   density: ThemeDensity;
 }) {
   const resolved = resolvePreference(preference);
-  const colors = accentColors(accent, resolved);
+  const appliedAccent = normalizeHex(nativeThemeAccent()) ?? accent;
+  const colors = accentColors(appliedAccent, resolved);
   const root = document.documentElement;
   root.dataset.themePreference = preference;
   root.dataset.theme = resolved;
@@ -165,7 +179,7 @@ function applyTheme({
   root.dataset.density = density;
   root.classList.toggle('dark', resolved === 'dark');
   root.style.colorScheme = resolved;
-  root.style.setProperty('--weq-accent-custom', accent || '');
+  root.style.setProperty('--weq-accent-custom', appliedAccent);
   root.style.setProperty('--weq-accent-on', colors.onAccent);
   root.style.setProperty('--weq-accent-ink', colors.ink);
   root.style.setProperty('--weq-accent-hover', colors.hover);
@@ -267,6 +281,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   ...DEFAULT_THEME_SETTINGS,
   resolved: 'light',
   initialized: false,
+  nativeAccentSettings: false,
   setPreference: (preference) => {
     const { resolved } = get();
     const revision = ++preferenceRevision;
@@ -353,6 +368,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       density,
       specialNumberFont,
       initialized: true,
+      nativeAccentSettings: nativeThemeAccent() !== undefined,
     });
   },
 }));
@@ -376,6 +392,7 @@ export function ensureThemeInitialized() {
   const store = useThemeStore.getState();
   store.hydrate();
   window.addEventListener(PREFERENCES_CHANGED, () => useThemeStore.getState().hydrate());
+  window.addEventListener('weq-remote-theme-accent', () => useThemeStore.getState().syncResolved());
 
   if (systemCleanup) {
     systemCleanup();

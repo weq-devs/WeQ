@@ -4,12 +4,13 @@ import { runInNewContext } from 'node:vm';
 import { expect, it, vi } from 'vitest';
 
 const script = readFileSync('src/renderer/public/startup-theme.js', 'utf8');
-function render(values: Record<string, string>, systemDark: boolean) {
+function render(values: Record<string, string>, systemDark: boolean, window = {}) {
   const root = {
     dataset: {} as Record<string, string>,
     style: { colorScheme: '', setProperty: vi.fn() },
   };
   runInNewContext(script, {
+    window,
     document: { documentElement: root },
     localStorage: { getItem: (key: string) => values[key] ?? null },
     matchMedia: () => ({ matches: systemDark }),
@@ -23,6 +24,22 @@ it.each(['light', 'dark'])('最早首屏读取显式 %s 偏好，不跟相反的
   );
   expect(root.dataset.theme).toBe(theme);
   expect(root.style.setProperty).toHaveBeenCalledWith('--weq-accent-custom', '#198754');
+});
+it('Remote 首屏在关闭同步时用手机预设，开启时继续用共享色', () => {
+  const cache = { 'weq.theme-accent': '#198754' };
+  for (const window of [
+    { weqRemoteThemeAccent: '#8b5cf6' },
+    { weqRemoteLinks: { themeAccent: () => '#8b5cf6' } },
+  ]) {
+    expect(render(cache, false, window).style.setProperty).toHaveBeenCalledWith(
+      '--weq-accent-custom',
+      '#8b5cf6',
+    );
+  }
+  expect(render(cache, false, { weqRemoteThemeAccent: '' }).style.setProperty).toHaveBeenCalledWith(
+    '--weq-accent-custom',
+    '#198754',
+  );
 });
 it('共享快照优先于旧本地值，显式空主题色不回灌旧值', () => {
   const root = render(

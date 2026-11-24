@@ -844,6 +844,7 @@ function AppearanceSection({
   const active = useTabActive();
   const preference = useThemeStore((state) => state.preference);
   const accent = useThemeStore((state) => state.accent);
+  const nativeAccentSettings = useThemeStore((state) => state.nativeAccentSettings);
   const background = useThemeStore((state) => state.background);
   const setPreference = useThemeStore((state) => state.setPreference);
   const setAccent = useThemeStore((state) => state.setAccent);
@@ -984,11 +985,25 @@ function AppearanceSection({
 
           <Card
             title="主题色"
-            desc="色相决定颜色，明度决定深浅；界面主色、描边与按钮都会跟随"
+            desc={
+              nativeAccentSettings
+                ? undefined
+                : '色相决定颜色，明度决定深浅；界面主色、描边与按钮都会跟随'
+            }
             icon={<Palette size={15} strokeWidth={1.8} />}
-            resetId="theme-accent"
+            resetId={nativeAccentSettings ? undefined : 'theme-accent'}
           >
-            <ColorPicker value={accent} onChange={setAccent} />
+            {nativeAccentSettings ? (
+              <button
+                type="button"
+                className="weq-set-btn"
+                onClick={() => window.weqRemoteShell?.openMenu()}
+              >
+                Remote 主题色设置
+              </button>
+            ) : (
+              <ColorPicker value={accent} onChange={setAccent} />
+            )}
           </Card>
 
           <Card

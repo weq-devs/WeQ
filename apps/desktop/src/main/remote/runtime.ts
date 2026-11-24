@@ -34,6 +34,7 @@ export class RemoteRuntime {
     helper: string;
     stateDir: string;
     web?: () => RemoteWebGateway;
+    readThemeAccent?: () => string;
     lanPort?: number;
   } | null = null;
   private server: Server | null = null;
@@ -53,6 +54,7 @@ export class RemoteRuntime {
     helper: string;
     stateDir: string;
     web?: () => RemoteWebGateway;
+    readThemeAccent?: () => string;
     onRequest?: () => void;
     lanPort?: number;
   }): void {
@@ -248,7 +250,11 @@ export class RemoteRuntime {
       await this.closing;
       if (generation !== this.revision) return;
       this.web = this.config.web?.() ?? null;
-      const server = createRemoteServer(this.pairing, this.web ?? undefined);
+      const server = createRemoteServer(
+        this.pairing,
+        this.web ?? undefined,
+        this.config.readThemeAccent,
+      );
       this.server = server;
       this.state = { state: 'starting' };
       await new Promise<void>((resolve, reject) => {

@@ -76,6 +76,7 @@ export async function runDesktopServices(options: {
     helper: options.remoteHelper,
     stateDir: options.remoteDirectory,
     web: () => new RemoteWebGateway(remote.pairing, createWebEntry),
+    readThemeAccent: () => config.getSharedPreference('client').accent ?? '',
     onRequest: () => {
       void accounts
         .windows()
