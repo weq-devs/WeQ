@@ -261,6 +261,49 @@ export async function prepareBot(
   );
 }
 
+// @electron/get 读取 npm 配置时会把它转成 ELECTRON_* 环境变量；这里手动补齐，
+// 因为 Electron 44 不再带 postinstall，`pnpm dev` 直接调用 install.js 时不会经过
+// npm/pnpm 的脚本环境，.npmrc 里的镜像配置会被静默忽略并退回 GitHub。
+const ELECTRON_NPMRC_ENV = new Map([
+  ['electron_mirror', 'ELECTRON_MIRROR'],
+  ['electron_custom_dir', 'ELECTRON_CUSTOM_DIR'],
+  ['electron_custom_filename', 'ELECTRON_CUSTOM_FILENAME'],
+  ['electron_custom_version', 'ELECTRON_CUSTOM_VERSION'],
+  ['electron_nightly_mirror', 'ELECTRON_NIGHTLY_MIRROR'],
+  ['electron_nightly_custom_dir', 'ELECTRON_NIGHTLY_CUSTOM_DIR'],
+  ['electron_nightly_custom_filename', 'ELECTRON_NIGHTLY_CUSTOM_FILENAME'],
+  ['electron_nightly_custom_version', 'ELECTRON_NIGHTLY_CUSTOM_VERSION'],
+]);
+const ELECTRON_ENV_NAMES = new Set(ELECTRON_NPMRC_ENV.values());
+
+async function electronDownloadEnv(root, env) {
+  let text;
+  try {
+    text = await readFile(join(root, '.npmrc'), 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return {};
+    throw error;
+  }
+  const inherited = {};
+  for (const line of text.split(/\r?\n/)) {
+    const match = /^\s*([^#;\s][^=]*?)\s*=\s*(.*?)\s*$/.exec(line);
+    if (!match) continue;
+    const name = ELECTRON_ENV_NAMES.has(match[1].toUpperCase())
+      ? match[1].toUpperCase()
+      : ELECTRON_NPMRC_ENV.get(match[1].toLowerCase());
+    if (!name || env[name] !== undefined) continue;
+    let value = match[2];
+    if (
+      value.length >= 2 &&
+      ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'")))
+    )
+      value = value.slice(1, -1);
+    if (value) inherited[name] = value;
+  }
+  return inherited;
+}
+
 export async function prepareElectron(
   root,
   { env = process.env, run = runCommand, log = startupLog } = {},
@@ -273,7 +316,7 @@ export async function prepareElectron(
   // Electron 自己的安装器处理平台路径、版本、缓存和镜像，不复制其判定规则。
   await run(process.execPath, [join(directory, 'install.js')], {
     cwd: root,
-    env,
+    env: { ...env, ...(await electronDownloadEnv(root, env)) },
     log,
     scope: 'electron',
   });
