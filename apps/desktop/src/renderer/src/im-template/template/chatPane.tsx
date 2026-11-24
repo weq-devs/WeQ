@@ -7059,7 +7059,7 @@ function ChatPaneContent({
                         ? 'important'
                         : 'unread'
                 }
-                ref={!reading && index === 0 ? importantDockRef : undefined}
+                ref={anchorsImportantList ? importantDockRef : undefined}
                 className={cn(
                   'unread-dock-button weq-chat-jump',
                   !reading && 'weq-important-dock',
