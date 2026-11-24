@@ -222,7 +222,7 @@ it('反馈使用公共页标题/四个模块，保留编辑预览、hexdump 和�
     expect(host.querySelectorAll('.weq-help-bug-actions button')).toHaveLength(3);
     expect(host.querySelector('[aria-label="选择当前账号的数据库"]')).not.toBeNull();
     const textarea = host.querySelector<HTMLTextAreaElement>('[aria-label="反馈正文 Markdown"]')!;
-    expect(textarea.value).toContain('关于 WeQ');
+    expect(textarea.value).toContain('设置 → 关于 → 版本与更新');
     expect(textarea.value).not.toContain('帮助与关于');
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(

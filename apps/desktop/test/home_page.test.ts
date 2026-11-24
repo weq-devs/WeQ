@@ -172,8 +172,7 @@ describe('主页显示与偏好', () => {
     }
   });
   it('主页独立成页，搜索可定位屏蔽词', () => {
-    expect(SETTINGS_GROUPS[0]!.sections[0]).toBe('startup');
-    expect(SETTINGS_GROUPS[0]!.sections).toContain('home');
+    expect(SETTINGS_GROUPS.find(({ id }) => id === 'app')?.sections).toContain('home');
     expect(searchAppEntries('一言屏蔽词')[0]?.target).toMatchObject({
       section: 'home',
       settingId: 'home-blocked-words',

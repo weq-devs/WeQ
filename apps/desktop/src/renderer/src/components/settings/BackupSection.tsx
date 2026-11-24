@@ -6,14 +6,7 @@ import type { WeqBackupPart, WeqBackupSummary, WeqDefaultsChoice } from '@weq/se
 import { snapshotWeqClientLayout, type WeqSelectiveBackup } from '@weq/service/backup-client';
 import { usePrivacyStore } from '../../state/privacy';
 import { FormSelect } from '../FormSelect';
-import {
-  BACKUP_SECTION_LABELS,
-  BackupDisclosure,
-  BackupExportOptions,
-  canExportBackup,
-  createBackupSelection,
-  selectedBackupSecrets,
-} from './BackupExportOptions';
+import { BackupDisclosure, BackupExportOptions } from './BackupExportOptions';
 import { backupClientId } from '../../lib/backupClientRestore';
 import { useToast } from '../Toast.shared';
 import { Card, SectionHeader } from './controls';
@@ -24,7 +17,13 @@ import { DefaultsOptions, type DefaultsInfo } from './DefaultsOptions';
 import { DEFAULTS_DESCRIPTION } from './DefaultsOptions.shared';
 import { useRenderDocument } from '../../lib/renderDocument';
 import '../../styles/backup.css';
-import { backupApi } from './BackupSection.shared';
+import {
+  backupApi,
+  BACKUP_SECTION_LABELS,
+  canExportBackup,
+  createBackupSelection,
+  selectedBackupSecrets,
+} from './BackupSection.shared';
 
 const LABELS: Record<WeqBackupPart, string> = {
   settings: '通用设置',
