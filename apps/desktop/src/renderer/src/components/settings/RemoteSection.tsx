@@ -7,6 +7,7 @@ import { useToast } from '../Toast.shared';
 import { Check, Copy, ExternalLink, Globe } from 'lucide-react';
 import { IS_WEB } from '../../lib/target.shared';
 import { copyTextToClipboard } from '../../im-template/template/clipboard';
+import { useRemotePairingReview } from '../RemoteRequests.shared';
 
 export function RemoteSection() {
   return (
@@ -179,7 +180,6 @@ function RemoteConnectionSection() {
   const login = trpc.remote.openLogin.useMutation();
   const tailscale = trpc.remote.setTailscaleEnabled.useMutation();
   const changeNetwork = trpc.remote.changeNetwork.useMutation();
-  const decide = trpc.remote.decide.useMutation();
   const revoke = trpc.remote.revoke.useMutation();
   const accounts = trpc.remote.accounts.useQuery(undefined, { enabled: active });
   const grant = trpc.remote.setAccountConfigIds.useMutation();
@@ -189,7 +189,6 @@ function RemoteConnectionSection() {
     tailscale.isLoading ||
     changeNetwork.isLoading ||
     login.isLoading ||
-    decide.isLoading ||
     revoke.isLoading ||
     grant.isLoading ||
     acting ||
@@ -237,7 +236,7 @@ function RemoteConnectionSection() {
           if (fresh.data?.invitationExpiresAt === result.expiresAt) setQr(result);
         })
       }
-      onDecide={(id, approve) => void act(() => decide.mutateAsync({ id, approve }))}
+      onReview={(id) => useRemotePairingReview.setState({ id })}
       onRevoke={(id) => void act(() => revoke.mutateAsync({ id }))}
       onCopy={() => void secret.copy(async () => qr?.pairingURL ?? '')}
       accounts={accounts.data}

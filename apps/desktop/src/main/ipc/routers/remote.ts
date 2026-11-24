@@ -4,7 +4,11 @@ import { getHost } from '@weq/service';
 import { remoteRuntime } from '../../remote/runtime';
 import { getAppContext } from '../../context/app_context';
 import { procedure, router } from '../trpc';
-import { remoteInviteInput, remoteConnectionMode } from '../../../shared/remote_bootstrap';
+import {
+  remoteInviteInput,
+  remoteConnectionMode,
+  remotePairingDecisionInput,
+} from '../../../shared/remote_bootstrap';
 import {
   desktopServiceCommand,
   desktopWebStatus,
@@ -19,6 +23,12 @@ const local = procedure.use(({ ctx, next }) => {
     throw new TRPCError({ code: 'FORBIDDEN', message: '仅允许桌面端管理远程连接。' });
   return next();
 });
+
+function savedRemoteAccounts() {
+  return desktopServiceCommand<
+    { configId: string; uin: string; displayName: string; static: boolean }[]
+  >('remote.accounts', undefined, () => []);
+}
 
 export const remoteRouter = router({
   webStatus: local.query(() => desktopWebStatus()),
@@ -77,10 +87,10 @@ export const remoteRouter = router({
       desktopServiceCommand('remote.invite', input, () => remoteRuntime.invite(input)),
     ),
   decide: local
-    .input(z.object({ id: z.string().uuid(), approve: z.boolean() }))
+    .input(remotePairingDecisionInput)
     .mutation(({ input }) =>
       desktopServiceCommand('remote.decide', input, () =>
-        remoteRuntime.pairing.decide(input.id, input.approve),
+        remoteRuntime.pairing.decide(input.id, input.approve, input.configIds),
       ),
     ),
   revoke: local
@@ -90,11 +100,12 @@ export const remoteRouter = router({
         remoteRuntime.pairing.revoke(input.id),
       ),
     ),
-  accounts: local.query(() =>
-    desktopServiceCommand<
-      { configId: string; uin: string; displayName: string; static: boolean }[]
-    >('remote.accounts', undefined, () => []),
-  ),
+  accounts: local.query(() => savedRemoteAccounts()),
+  pairingAccounts: local.query(async () => {
+    const accounts = await savedRemoteAccounts();
+    const currentConfigId = getAppContext().services?.accountConfig.getConfigId() ?? null;
+    return { accounts, currentConfigId };
+  }),
   setAccountConfigIds: local
     .input(z.object({ id: z.string().uuid(), configIds: z.array(z.string()).max(256) }))
     .mutation(({ input }) =>

@@ -372,7 +372,7 @@ it('Remote 在线入口先选账号，再加载一份带首屏资源的网页', 
     scope: 'web:access',
     tokenHash: tokenHash(token),
   });
-  pairing.decide(claim.id, true, '101');
+  pairing.decide(claim.id, true, ['101', '202']);
   const gateway = new RemoteWebGateway(
     pairing,
     (auth) =>
@@ -413,10 +413,11 @@ it('Remote 在线入口先选账号，再加载一份带首屏资源的网页', 
       return get(path, 'follow');
     };
     const first = await resume();
-    expect(new URL(first.url).pathname).toMatch(/^\/_weq\/account\/101\//);
-    expect(await first.text()).toBe(shell);
+    expect(new URL(first.url).pathname).toBe('/_weq/accounts');
+    const accounts = await first.text();
+    expect(accounts).toContain('name="configId" value="101"');
+    expect(accounts).toContain('name="configId" value="202"');
 
-    pairing.setAccountConfigIds(claim.id, ['101', '202']);
     const workspace = (configId: string) =>
       JSON.stringify({ configId, uin: configId, static: false, mobile: false });
     const returning = await resume({
@@ -433,6 +434,9 @@ it('Remote 在线入口先选账号，再加载一份带首屏资源的网页', 
     await malformed.text();
 
     pairing.setAccountConfigIds(claim.id, ['101']);
+    const single = await resume();
+    expect(new URL(single.url).pathname).toMatch(/^\/_weq\/account\/101\//);
+    expect(await single.text()).toBe(shell);
     const revoked = await resume({ [LAST_REMOTE_ACCOUNT_KEY]: '202' });
     expect(new URL(revoked.url).pathname).toBe('/_weq/accounts');
     expect(await revoked.text()).not.toContain('/assets/entry.js');

@@ -146,14 +146,16 @@ export class RemotePairing {
     return { id, code, expiresAt: claim.expiresAt };
   }
 
-  decide(id: string, approve: boolean, defaultAccountConfigId?: string | null): void {
+  decide(id: string, approve: boolean, accountConfigIds?: readonly string[]): void {
     this.prune();
     const claim = this.claims.get(id);
     if (!claim || claim.approvedAt !== null) throw new Error('配对请求已失效。');
     if (approve) {
+      if (claim.scope === 'web:access' && accountConfigIds) {
+        if (!accountConfigIds.length) throw new Error('请至少选择一个要授权的账号。');
+        claim.accountConfigIds = [...new Set(accountConfigIds)];
+      }
       claim.approvedAt = this.now();
-      if (claim.scope === 'web:access' && defaultAccountConfigId)
-        claim.accountConfigIds = [defaultAccountConfigId];
       try {
         this.persist();
       } catch (error) {

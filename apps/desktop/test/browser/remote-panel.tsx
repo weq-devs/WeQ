@@ -59,7 +59,7 @@ createRoot(document.getElementById('root')!).render(
         onToggle={noop}
         onLogin={noop}
         onInvite={noop}
-        onDecide={noop}
+        onReview={noop}
         onRevoke={noop}
       />
     </main>

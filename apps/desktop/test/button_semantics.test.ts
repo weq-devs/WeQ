@@ -51,7 +51,7 @@ it.each([
   ['components/settings/SsePushSection.tsx', '<Save size={13}'],
   ['components/settings/TypingStatusSettingsCard.tsx', 'onSave()'],
   ['components/settings/BackupSection.tsx', '导出备份'],
-  ['components/settings/RemotePanel.tsx', 'onDecide(request.id, true)'],
+  ['components/settings/RemotePanel.tsx', 'onReview(request.id)'],
   ['components/tasks/ScheduleSettings.tsx', '保存设置'],
   ['components/qq-actions/GroupJoinSettings.tsx', '保存加群方式'],
   ['views/agentlab/NewGroupModal.tsx', 'type="submit"'],

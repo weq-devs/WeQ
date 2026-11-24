@@ -8,7 +8,7 @@ function claim(pairing: RemotePairing, name = '测试手机') {
 }
 
 describe('远程配对的会话授权', () => {
-  it('新手机默认获得开启 Remote 的账号，修改授权立即关闭旧网页会话', () => {
+  it('新手机一次获得配对时选择的多个账号，修改授权立即关闭旧网页会话', () => {
     const pairing = new RemotePairing();
     const request = pairing.claim({
       invitation: pairing.invite().secret,
@@ -17,8 +17,10 @@ describe('远程配对的会话授权', () => {
       scope: 'web:access',
     });
     expect(pairing.accountConfigIds(token)).toEqual([]);
-    pairing.decide(request.id, true, '101');
-    expect(pairing.accountConfigIds(token)).toEqual(['101']);
+    expect(() => pairing.decide(request.id, true, [])).toThrow('请至少选择一个要授权的账号');
+    expect(pairing.poll(request.id, token)?.approved).toBe(false);
+    pairing.decide(request.id, true, ['101', '202', '101']);
+    expect(pairing.accountConfigIds(token)).toEqual(['101', '202']);
     let revoked = false;
     pairing.watchWeb(token, () => {
       revoked = true;

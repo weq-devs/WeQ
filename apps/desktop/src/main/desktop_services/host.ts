@@ -19,7 +19,11 @@ import { DesktopWebEntry } from './web_entry';
 import type { WebAuth } from '../web/application';
 import { RemoteRuntime } from '../remote/runtime';
 import { RemoteWebGateway } from '../remote/web_gateway';
-import { remoteConnectionMode, remoteInviteInput } from '../../shared/remote_bootstrap';
+import {
+  remoteConnectionMode,
+  remoteInviteInput,
+  remotePairingDecisionInput,
+} from '../../shared/remote_bootstrap';
 import { migrateRemoteDevices } from './remote_migration';
 import { DesktopMcpGateway, mcpCredentialId } from './mcp_gateway';
 import { McpGrants } from './mcp_grants';
@@ -94,6 +98,10 @@ export async function runDesktopServices(options: {
         .catch(() => undefined);
     },
   });
+  function checkRemoteAccountConfigIds(configIds: readonly string[]): void {
+    const saved = new Set(accounts.list().map((account) => account.configId));
+    if (configIds.some((configId) => !saved.has(configId))) throw new Error('账号数据源已经变化。');
+  }
   async function remoteCommand(method: string, input: unknown): Promise<unknown> {
     switch (method) {
       case 'remote.enabled': {
@@ -120,12 +128,15 @@ export async function runDesktopServices(options: {
       case 'remote.invite':
         return remote.invite(remoteInviteInput.parse(input));
       case 'remote.decide': {
-        const { id, approve } = z
-          .object({ id: z.string().uuid(), approve: z.boolean() })
-          .parse(input);
+        const { id, approve, configIds } = remotePairingDecisionInput.parse(input);
+        if (!approve) return remote.pairing.decide(id, false);
+        if (configIds !== undefined) {
+          checkRemoteAccountConfigIds(configIds);
+          return remote.pairing.decide(id, true, configIds);
+        }
         const configId = remote.defaultAccountConfigId();
         const exists = configId && accounts.list().some((account) => account.configId === configId);
-        return remote.pairing.decide(id, approve, exists ? configId : null);
+        return remote.pairing.decide(id, true, exists ? [configId] : undefined);
       }
       case 'remote.revoke':
         return remote.pairing.revoke(z.string().uuid().parse(input));
@@ -136,9 +147,7 @@ export async function runDesktopServices(options: {
             configIds: z.array(z.string()).max(256),
           })
           .parse(input);
-        const saved = new Set(accounts.list().map((account) => account.configId));
-        if (configIds.some((configId) => !saved.has(configId)))
-          throw new Error('账号数据源已经变化。');
+        checkRemoteAccountConfigIds(configIds);
         return remote.pairing.setAccountConfigIds(id, configIds);
       }
       case 'remote.restore':

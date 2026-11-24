@@ -43,7 +43,7 @@ describe('电脑端远程连接面板', () => {
           onToggle: noop,
           onLogin: noop,
           onInvite: noop,
-          onDecide: noop,
+          onReview: noop,
           onRevoke: noop,
           ...extra,
         }),
@@ -65,23 +65,23 @@ describe('电脑端远程连接面板', () => {
     ).toBe(true);
   });
 
-  it('待批准请求显示校验码，确认与撤销使用设备 ID', async () => {
-    const onDecide = vi.fn();
+  it('待批准请求显示校验码，查看请求与撤销使用设备 ID', async () => {
+    const onReview = vi.fn();
     const onRevoke = vi.fn();
     await render(
       {
         ...base,
         pending: [{ id: 'claim', name: '测试手机', code: '123456', expiresAt: Date.now() + 10000 }],
       },
-      { onDecide },
+      { onReview },
     );
     expect(container.textContent).toContain('123456');
     await act(async () =>
       [...container.querySelectorAll('button')]
-        .find((b) => b.textContent?.includes('允许配对'))
+        .find((b) => b.textContent?.includes('查看请求'))
         ?.click(),
     );
-    expect(onDecide).toHaveBeenCalledWith('claim', true);
+    expect(onReview).toHaveBeenCalledWith('claim');
     await render(
       { ...base, devices: [{ id: 'device', name: '测试手机', approvedAt: 1, lastSeenAt: null }] },
       { onRevoke },

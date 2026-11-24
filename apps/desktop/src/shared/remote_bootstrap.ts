@@ -3,6 +3,12 @@ import { z } from 'zod/v3';
 export const remoteConnectionMode = z.enum(['lan', 'existing', 'tailscale']);
 export type RemoteConnectionMode = z.infer<typeof remoteConnectionMode>;
 
+export const remotePairingDecisionInput = z.object({
+  id: z.string().uuid(),
+  approve: z.boolean(),
+  configIds: z.array(z.string()).max(256).optional(),
+});
+
 export function remoteDirectAddresses(
   addresses: readonly string[],
   mode: 'lan' | 'existing',

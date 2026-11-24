@@ -4,7 +4,6 @@ import { TimeLabel } from '../TimeLabel';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTabActive } from '../RetainedTabs.shared';
 import {
-  Check,
   ChevronRight,
   Copy,
   ExternalLink,
@@ -15,7 +14,6 @@ import {
   Square,
   Smartphone,
   Trash2,
-  X,
 } from 'lucide-react';
 import { Card, Row, Toggle } from './controls';
 import { Modal } from '../Dialog';
@@ -89,7 +87,7 @@ export function RemotePanel({
   onTailscale,
   onChangeNetwork,
   onInvite,
-  onDecide,
+  onReview,
   onRevoke,
   onCopy,
   accounts,
@@ -105,7 +103,7 @@ export function RemotePanel({
   onTailscale?: (enabled: boolean) => void;
   onChangeNetwork?: () => void;
   onInvite: (bootstrap?: { authKey: string } | { endpoint: string }) => void;
-  onDecide: (id: string, approve: boolean) => void;
+  onReview: (id: string) => void;
   onRevoke: (id: string) => void;
   onCopy?: () => void;
   accounts?: { configId: string; displayName: string; uin: string; static: boolean }[];
@@ -398,30 +396,18 @@ export function RemotePanel({
                 <strong>{request.name}</strong>
                 <span>
                   {request.scope === 'web:access'
-                    ? '核对校验码 · 允许访问完整 WeQ Web（含聊天记录与操作）'
+                    ? '核对校验码并选择要授权的账号'
                     : '核对手机上的校验码 · 仅在线状态'}
                 </span>
                 <code className="weq-remote-code">{request.code}</code>
               </div>
               <button
-                data-danger="outline"
-                type="button"
-                className="weq-set-iconbtn"
-                title="拒绝配对"
-                aria-label={`拒绝 ${request.name}`}
-                disabled={busy}
-                onClick={() => onDecide(request.id, false)}
-              >
-                <X size={17} />
-              </button>
-              <button
                 type="button"
                 className="weq-set-btn weq-set-btn-primary"
                 disabled={busy}
-                onClick={() => onDecide(request.id, true)}
+                onClick={() => onReview(request.id)}
               >
-                <Check size={15} />
-                允许配对
+                查看请求
               </button>
             </div>
           ))}
