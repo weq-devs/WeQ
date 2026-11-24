@@ -66,7 +66,7 @@ try {
   assert.ok((await range.textContent()).includes('2010 年（推断）'));
   assert.ok(!(await range.textContent()).includes('月日未记录'));
   const hover = await range.locator('[title*="推断生日"]').getAttribute('title');
-  assert.ok(hover.includes('1 月 20 日至2 月 18 日'));
+  assert.ok(hover.includes('1 月 20 日至 2 月 18 日'));
   await chooseDirectorySortDirection(directory, '年末的在前');
   assert.deepEqual(await names(), ['后一天', '缓存水瓶座', '准确生日', '前一天', '跨年摩羯座']);
   await chooseFormOption(directory.getByLabel('分组依据'), 'birthYear');
@@ -92,17 +92,17 @@ try {
         (theme) => document.documentElement.dataset.theme === theme,
         theme,
       );
-      const detail = page.locator('[data-kind="profile"] details.weq-birth-details');
-      if (!(await detail.evaluate((element) => element.open)))
-        await detail.locator('summary').tap();
-      assert.equal(await detail.locator('summary').textContent(), '2010 年（推断） · 水瓶座');
-      assert.ok((await detail.locator('p').textContent()).includes('推断生日：2010 年'));
+      const profile = page.locator('[data-kind="profile"]');
+      const range = profile.getByText('2010 年 1 月 20 日至 2 月 18 日', { exact: true });
+      await range.waitFor();
+      await profile.getByText('按星座推算', { exact: true }).waitFor();
+      await profile.getByText('水瓶座', { exact: true }).waitFor();
       assert.equal(
         await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
         false,
       );
       assert.equal(
-        await detail.evaluate((element) => element.scrollWidth > element.clientWidth),
+        await range.evaluate((element) => element.scrollWidth > element.clientWidth),
         false,
       );
       if (output)
@@ -111,24 +111,23 @@ try {
   await page.goto(`${url}?member=1`);
   const member = page.locator('.weq-member-pop');
   await member.waitFor();
-  const summary = member.getByLabel('生日详情');
-  await summary.waitFor();
-  await summary.tap();
-  assert.ok((await member.textContent()).includes('2010 年（推断）'));
-  assert.ok(!(await member.textContent()).includes('月日未记录'));
-  assert.ok(!(await member.textContent()).includes('候选生日'));
-  assert.ok(
-    (await member.locator('.weq-birth-details p').textContent()).includes('1 月 20 日至2 月 18 日'),
-  );
+  await member.getByText('1 月 20 日至 2 月 18 日', { exact: true }).waitFor();
+  await member.getByText('按星座推算', { exact: true }).waitFor();
   assert.equal(
     await member.evaluate((element) => element.scrollWidth > element.clientWidth),
     false,
   );
   if (output) await page.screenshot({ path: resolve(output, 'member-320-dark.png') });
+  await page.goto(`${url}?member=cap`);
+  const disclosure = member.getByText('查看可能日期', { exact: true });
+  const possibleDate = member.getByText('12 月 22 日至 12 月 31 日', { exact: true });
+  await disclosure.waitFor();
+  assert.equal(await possibleDate.isVisible(), false);
+  await disclosure.press('Enter');
+  await possibleDate.waitFor();
+  await member.getByText('1 月 1 日至 1 月 19 日', { exact: true }).waitFor();
   assert.deepEqual(errors, []);
-  console.log(
-    '生日入口双向排序、星座和推断年份分组、资料与群友名片、触屏详情、六组响应式主题验证通过',
-  );
+  console.log('生日双向排序、星座和推断年份分组、资料与群友名片直接展示验证通过');
 } finally {
   await browser?.close();
   await server.close();

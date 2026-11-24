@@ -42,8 +42,13 @@ const contacts: Contact[] = [
   ...row,
 }));
 const selected = contacts[1]!;
+const memberMode = new URLSearchParams(location.search).get('member');
+const member =
+  memberMode === 'cap'
+    ? { ...contacts.find((contact) => contact.id === 'cap')!, age: undefined, birthYear: 2010 }
+    : { ...selected, age: undefined };
 const profiles = Object.fromEntries(
-  contacts.map((contact) => [
+  (memberMode ? [...contacts, member] : contacts).map((contact) => [
     contact.id,
     {
       ...contact,
@@ -53,7 +58,6 @@ const profiles = Object.fromEntries(
   ]),
 );
 Object.assign(window, { contactBirthQa: { profiles, store: useThemeStore } });
-const member = new URLSearchParams(location.search).has('member');
 const cache = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
 createRoot(document.getElementById('root')!).render(
@@ -82,8 +86,8 @@ createRoot(document.getElementById('root')!).render(
             <h2>联系人资料</h2>
             <ContactProfileDialog contact={selected} embedded onClose={() => {}} />
           </section>
-          {member ? (
-            <MemberProfileCard member={selected} anchor={{ x: 10, y: 10 }} onClose={() => {}} />
+          {memberMode ? (
+            <MemberProfileCard member={member} anchor={{ x: 10, y: 10 }} onClose={() => {}} />
           ) : null}
         </main>
       </RelationshipDirectoryContext.Provider>

@@ -166,8 +166,15 @@ function inferRanges(
 
 export type ContactBirth = ReturnType<typeof contactBirth>;
 
-function monthDayText(value: number) {
-  return formatPartialDate({ month: Math.floor(value / 100), day: value % 100 });
+function monthDayText(value: number, year: number | null = null) {
+  return formatPartialDate({ year, month: Math.floor(value / 100), day: value % 100 });
+}
+
+export function birthRangeEndpoints({ year, start, end }: BirthRange, includeYear = true) {
+  return {
+    from: monthDayText(start, includeYear ? year : null),
+    to: start === end ? null : monthDayText(end),
+  };
 }
 
 export function birthRangeText(birth: ContactBirth) {
@@ -175,12 +182,8 @@ export function birthRangeText(birth: ContactBirth) {
   if (!birth.ranges.length) return null;
   return `推断生日：${birth.ranges
     .map((range) => {
-      const start = formatPartialDate({
-        year: range.year,
-        month: Math.floor(range.start / 100),
-        day: range.start % 100,
-      });
-      return `${start}${range.start === range.end ? '' : `至 ${monthDayText(range.end)}`}`;
+      const { from, to } = birthRangeEndpoints(range);
+      return to === null ? from : `${from}至 ${to}`;
     })
     .join('；')}`;
 }
