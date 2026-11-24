@@ -44,6 +44,8 @@ export function accountGatewayPath(path: string): string {
   return accountPrefix + path;
 }
 
+export const WEB_TRPC_PATH = accountGatewayPath('/trpc');
+
 export function accountGatewayUnscopedPath(path: string): string {
   return accountPrefix && path.startsWith(`${accountPrefix}/`)
     ? path.slice(accountPrefix.length)

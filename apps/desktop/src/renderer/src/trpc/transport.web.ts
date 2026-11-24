@@ -19,7 +19,7 @@ import { observable } from '@trpc/server/observable';
 import type { AppRouter } from '../../../shared/router';
 import { useWebConnection } from '../state/webConnection';
 import { networkClientId } from '../lib/networkClientId';
-import { HTTP_BATCH_MAX_URL_LENGTH } from '../lib/unreadRequests';
+import { HTTP_BATCH_MAX_URL_LENGTH } from '../lib/queryInputBatches';
 import { fetchRpcWithDeadline } from './httpDeadline';
 import { prepareRpcBatchResponse } from './httpBatchStream';
 import { remoteWorkspaceCheckPending } from '../lib/remoteWorkspaceCheck';
@@ -29,6 +29,7 @@ import {
   accountGatewayPath,
   accountGatewayUnscopedPath,
   resumeRemoteAccount,
+  WEB_TRPC_PATH,
 } from '../lib/accountGateway';
 
 function sessionExpired() {
@@ -135,7 +136,7 @@ const directoryName = (operation: { path: string; input: unknown }): string => {
 export function createLinks(): TRPCLink<AppRouter>[] {
   const httpOptions = {
     headers: () => ({ 'x-weq-client-id': networkClientId }),
-    url: accountGatewayPath('/trpc'),
+    url: WEB_TRPC_PATH,
     async fetch(input: RequestInfo | URL, init?: RequestInit) {
       checkCachedWorkspace(input);
       const res = await fetchRpcWithDeadline(input, init);

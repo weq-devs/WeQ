@@ -4,6 +4,7 @@ import { createTRPCUntypedClient } from '@trpc/client';
 import { createServer } from 'node:http';
 import { initTRPC, TRPCError } from '@trpc/server';
 import { observable } from '@trpc/server/observable';
+import { HTTP_BATCH_MAX_URL_LENGTH } from '../src/renderer/src/lib/queryInputBatches';
 import { useWebConnection } from '../src/renderer/src/state/webConnection';
 import { createTrpcHandler } from '../src/main/web/trpc_adapter';
 
@@ -56,7 +57,7 @@ it('真实 HTTP 查询同批返回，快结果先交付，慢项保留自己的�
   const client = createTRPCUntypedClient({ links: createLinks() });
   let delivered: unknown;
   const slow = client.query('slow').catch((error: unknown) => error);
-  const fast = client.query('fast').then(
+  const fast = client.query('fast', 'a'.repeat(HTTP_BATCH_MAX_URL_LENGTH - 150)).then(
     (value) => {
       delivered = value;
     },
@@ -67,6 +68,7 @@ it('真实 HTTP 查询同批返回，快结果先交付，慢项保留自己的�
   try {
     await vi.waitFor(() => expect(delivered).toBe('快结果'));
     expect(requests).toHaveLength(1);
+    expect(requests[0]!.length).toBeGreaterThan(2048);
     release();
     expect(await slow).toMatchObject({ data: { code: 'NOT_FOUND' } });
   } finally {
@@ -97,9 +99,10 @@ it('逐字节拆分的中英文、表情和正文 BOM 在两个并发批次里�
   });
   const { createLinks } = await import('../src/renderer/src/trpc/transport.web');
   const client = createTRPCUntypedClient({ links: createLinks() });
+  const payloadLength = Math.floor(HTTP_BATCH_MAX_URL_LENGTH / 2);
   const results = await Promise.all([
-    client.query('synthetic', 'a'.repeat(1200)),
-    client.query('synthetic', 'b'.repeat(1200)),
+    client.query('synthetic', 'a'.repeat(payloadLength)),
+    client.query('synthetic', 'b'.repeat(payloadLength)),
   ]);
   expect(results).toEqual(expected);
   expect(called).toBe(2);
@@ -265,13 +268,12 @@ it('传输层通过实际连接回调报告恢复，并限制 HTTP 批次 URL �
 
   fetcher.mockClear();
   const paths = ['account.listBuddies', 'synthetic'];
-  expect(await Promise.all(paths.map((path) => client.query(path, 'x'.repeat(1200))))).toEqual(
-    paths,
-  );
+  const payload = 'x'.repeat(Math.floor(HTTP_BATCH_MAX_URL_LENGTH / 2));
+  expect(await Promise.all(paths.map((path) => client.query(path, payload)))).toEqual(paths);
   expect(fetcher.mock.calls).toHaveLength(2);
   for (const [url] of fetcher.mock.calls) {
     expect(new URL(String(url), location.origin).searchParams.get('batch')).toBe('1');
-    expect(String(url).length).toBeLessThanOrEqual(2048);
+    expect(String(url).length).toBeLessThanOrEqual(HTTP_BATCH_MAX_URL_LENGTH);
   }
   await expect(
     new Promise((resolve, reject) =>

@@ -1,6 +1,6 @@
 import { createTRPCProxyClient } from '@trpc/client';
 import superjson from 'superjson';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { AppRouter } from '../src/shared/router';
 import {
   HTTP_BATCH_MAX_URL_LENGTH,
@@ -14,6 +14,7 @@ vi.mock('@trpc/client', async (original) => ({
   ...(await original<typeof import('@trpc/client')>()),
   createWSClient: vi.fn(() => ({ close: vi.fn(), request: vi.fn() })),
 }));
+beforeEach(() => vi.resetModules());
 afterEach(() => vi.unstubAllGlobals());
 
 const input = (count: number): UnreadRequest => ({
@@ -25,12 +26,16 @@ const input = (count: number): UnreadRequest => ({
   })),
 });
 
-it('当前真实 tRPC 拒绝原 256 会话输入，Web 分批后全部返回且实际 URL 不超限', async () => {
+it('账号网关的真实 tRPC 计入路由前缀，分批后完整返回未读数', async () => {
+  const configId = '00000000-0000-4000-8000-000000000001';
+  const accountPath = `/_weq/account/${configId}/00000000-0000-4000-8000-000000000002`;
+  vi.stubGlobal('location', new URL(`http://127.0.0.1${accountPath}/`));
   const requests: UnreadRequest[] = [];
   vi.stubGlobal(
     'fetch',
     vi.fn(async (value: RequestInfo | URL) => {
-      const url = new URL(String(value), 'http://localhost');
+      const url = new URL(String(value), location.origin);
+      expect(url.pathname).toBe(`${accountPath}/trpc/account.getUnreadInfos`);
       expect(url.pathname.length + url.search.length).toBeLessThanOrEqual(
         HTTP_BATCH_MAX_URL_LENGTH,
       );
@@ -53,19 +58,18 @@ it('当前真实 tRPC 拒绝原 256 会话输入，Web 分批后全部返回且�
     }),
   );
   const { createLinks } = await import('../src/renderer/src/trpc/transport.web');
+  const { unreadRequestBatches } = await import('../src/renderer/src/lib/unreadRequests');
   const client = createTRPCProxyClient<AppRouter>({ transformer: superjson, links: createLinks() });
-  const original = input(UNREAD_BATCH_SIZE);
+  const original = { ...input(UNREAD_BATCH_SIZE), expectedAccountConfigId: configId };
   await expect(client.account.getUnreadInfos.query(original)).rejects.toThrow(
     'Input is too big for a single dispatch',
   );
   expect(requests).toHaveLength(0);
+  const batches = unreadRequestBatches(original, true);
   const rows = (
-    await Promise.all(
-      unreadRequestBatches(original, true).map((batch) =>
-        client.account.getUnreadInfos.query(batch),
-      ),
-    )
+    await Promise.all(batches.map((batch) => client.account.getUnreadInfos.query(batch)))
   ).flat();
+  expect(requests[0]?.targets.length).toBeGreaterThanOrEqual(50);
   expect(rows.map(({ chatType, uid }) => ({ chatType, uid }))).toEqual(original.targets);
   expect(requests.flatMap((request) => request.targets)).toEqual(original.targets);
   expect(rows.every((row) => row.unreadCount === 7)).toBe(true);
