@@ -40,25 +40,22 @@ it('群文件提醒只匹配同序号的原消息，不匹配后来插入的灰�
     qqElements: [{ type: 'file' }],
   };
   const sameSenderTip = { ...file, qqElements: [{ type: 'grayTipXml' }] };
-  const otherSender = { ...file, senderUid: 'u_other' };
   const stop = buildUnreadDock({
     readSeq: '100',
     unread: 130,
     highlights: [{ ...file, kind: 'newFile', rawKind: 2001 }],
   })?.stops[0];
   expect(
-    [sameSenderTip, otherSender, file].find((row) =>
-      matchesUnreadMessage(row, stop!.seq, stop!.identity),
-    ),
+    [sameSenderTip, file].find((row) => matchesUnreadMessage(row, stop!.seq, stop!.identity)),
   ).toBe(file);
 });
 
-it('群文件提醒缺少发送者且时间晚一秒时，仍能定位同序号的文件', () => {
+it('群文件按会话内序号定位，提醒时间和发送者不参与匹配', () => {
   const stop = buildUnreadDock({
     readSeq: '100',
     unread: 2,
     highlights: [
-      { kind: 'newFile', rawKind: 2001, msgSeq: '102', senderUid: '', sendTime: '1001' },
+      { kind: 'newFile', rawKind: 2001, msgSeq: '102', senderUid: 'u_notice', sendTime: '1200' },
     ],
   })?.stops[0];
   const file = {
@@ -68,7 +65,7 @@ it('群文件提醒缺少发送者且时间晚一秒时，仍能定位同序号�
     elements: [{ type: 'file' }],
   };
   expect(matchesUnreadMessage(file, stop!.seq, stop!.identity)).toBe(true);
-  expect(matchesUnreadMessage({ ...file, sendTime: '999' }, stop!.seq, stop!.identity)).toBe(false);
   expect(matchesUnreadMessage({ ...file, msgSeq: '101' }, stop!.seq, stop!.identity)).toBe(false);
-  expect(matchesUnreadMessage(file, stop!.seq, { sendTime: '1001' })).toBe(false);
+  expect(matchesUnreadMessage(file, stop!.seq, { sendTime: '1200' })).toBe(false);
+  expect(matchesUnreadMessage(file, stop!.seq, { senderUid: 'u_notice' })).toBe(false);
 });

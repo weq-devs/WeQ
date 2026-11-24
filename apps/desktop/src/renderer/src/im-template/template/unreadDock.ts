@@ -134,7 +134,7 @@ export function buildUnreadDock(input: {
       highlight.sendTime && /^[1-9]\d*$/.test(highlight.sendTime) ? highlight.sendTime : undefined;
     const identity =
       highlight.kind === 'newFile'
-        ? { senderUid, sendTime, kind: 'newFile' as const }
+        ? { kind: 'newFile' as const }
         : senderUid || sendTime
           ? { senderUid, sendTime }
           : undefined;

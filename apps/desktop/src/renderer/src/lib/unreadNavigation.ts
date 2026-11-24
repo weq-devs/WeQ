@@ -53,20 +53,17 @@ export function matchesUnreadMessage(
   seq: string,
   identity?: UnreadMessageIdentity,
 ): boolean {
-  if (message.msgSeq !== seq || (identity?.senderUid && message.senderUid !== identity.senderUid))
-    return false;
-  const sameTime = !identity?.sendTime || message.sendTime === identity.sendTime;
-  if (identity?.kind !== 'newFile') return sameTime;
-
-  const elements = message.qqElements ?? message.elements;
-  const hasFile = elements?.some(
-    (element) => (element as { type?: string } | null)?.type === 'file',
-  );
-  // QQ 群文件提醒的时间可能比聊天里的原消息晚一秒。
-  return Boolean(
-    hasFile &&
-      (sameTime ||
-        (message.sendTime && Math.abs(Number(message.sendTime) - Number(identity.sendTime)) <= 1)),
+  if (message.msgSeq !== seq) return false;
+  if (identity?.kind === 'newFile') {
+    // 群文件由会话内序号定位，同序号的灰条不属于文件消息。
+    const elements = message.qqElements ?? message.elements;
+    return (
+      elements?.some((element) => (element as { type?: string } | null)?.type === 'file') ?? false
+    );
+  }
+  return (
+    (!identity?.senderUid || message.senderUid === identity.senderUid) &&
+    (!identity?.sendTime || message.sendTime === identity.sendTime)
   );
 }
 
