@@ -254,7 +254,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       id,
       section: 'notification-badges',
       label,
-      from: ['notification-badges', 'global', 'mail', 'chat-messages', 'agentlab', 'version'],
+      from:
+        id === 'software-update-badge'
+          ? ['notification-badges', 'global', 'mail', 'chat-messages', 'agentlab']
+          : ['notification-badges', 'global', 'mail', 'chat-messages', 'agentlab', 'version'],
     }),
   ),
   {

@@ -117,7 +117,7 @@ describe('设置来源工具不替换设置页面', () => {
       const mark = f.host.querySelector('.weq-settings-nav .weq-settings-update-mark')!;
       expect(mark).not.toBeNull();
       expect(mark.parentElement?.className).toBe('weq-settings-nav-label');
-      expect(mark.parentElement?.textContent).toBe('增强功能');
+      expect(mark.parentElement?.textContent).toBe('增强包');
       expect(mark.closest('button')?.children).toHaveLength(3);
       expect(
         mark.closest('button')?.lastElementChild?.classList.contains('weq-mobile-settings-chevron'),

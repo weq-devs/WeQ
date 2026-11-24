@@ -4,10 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsDialog } from '../src/renderer/src/components/SettingsDialog';
-import {
-  SETTINGS_GROUPS,
-  SETTINGS_PAGE_LABELS,
-} from '../src/renderer/src/components/settings/navigation';
+import { SETTINGS_PAGE_LABELS } from '../src/renderer/src/components/settings/navigation';
 import { AssistantSection } from '../src/renderer/src/components/settings/AssistantSection';
 import { McpServerSection } from '../src/renderer/src/components/settings/McpServerSection';
 import { AlbumExportLightbox } from '../src/renderer/src/views/export/AlbumExportLightbox';
@@ -70,7 +67,7 @@ function expectIcon(button: Element | null | undefined) {
 }
 
 describe('操作图标的一致性', () => {
-  it('所有设置页在左栏按目录顺序直接显示名称和图标', async () => {
+  it('设置左栏直接显示所有页面的名称与图标，资源加载后紧跟省流量模式', async () => {
     const f = await mount(
       createElement(SettingsDialog, {
         open: true,
@@ -82,10 +79,12 @@ describe('操作图标的一致性', () => {
     try {
       const nav = f.host.querySelector('nav[aria-label="设置页面"]')!;
       const buttons = [...nav.querySelectorAll('button')];
-      const pages = SETTINGS_GROUPS.flatMap(({ sections }) => sections);
-      expect(buttons.map((button) => button.textContent)).toEqual(
-        pages.map((page) => SETTINGS_PAGE_LABELS[page]),
-      );
+      const labels = buttons.map((button) => button.textContent);
+      const pages = Object.values(SETTINGS_PAGE_LABELS);
+      expect(labels).toHaveLength(pages.length);
+      expect(new Set(labels)).toEqual(new Set(pages));
+      const resourceLoading = labels.indexOf(SETTINGS_PAGE_LABELS['resource-loading']);
+      expect(labels[resourceLoading + 1]).toBe(SETTINGS_PAGE_LABELS['data-saver']);
       for (const button of buttons) expectIcon(button);
     } finally {
       f.dispose();

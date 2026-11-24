@@ -134,9 +134,17 @@ describe('功能目录与真实设置控件同步', () => {
     visit(source);
     expect(labels.length).toBeGreaterThan(0);
     for (const label of labels) {
+      // 录音页只放跳转入口，实际开关和搜索结果都归 QQ 高级工具。
+      const isCallTrace =
+        file === 'CallRecordingSection' && ['通话抓包', '记录 UDP 流量'].includes(label);
       expect(
         searchAppEntries(label).some(
-          (entry) => entry.target.kind === 'setting' && entry.target.section === section,
+          (entry) =>
+            entry.target.kind === 'setting' &&
+            (isCallTrace
+              ? entry.target.section === 'diagnostics' &&
+                entry.target.settingId === 'call-udp-trace'
+              : entry.target.section === section),
         ),
         `${file}: ${label}`,
       ).toBe(true);

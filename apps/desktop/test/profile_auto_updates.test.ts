@@ -114,7 +114,7 @@ async function focus() {
 it('空间权限名单进入、重新进入与恢复前台自动读取，不显示常驻刷新', async () => {
   const f = await fixture(h(QzoneFriendPermissions));
   expect(rpc.permissions).toHaveBeenCalledTimes(2);
-  expect(f.host.textContent).toContain('合成好友');
+  expect(f.host.textContent).toContain('1 人');
   expect(f.host.querySelector('[aria-label^="刷新"]')).toBeNull();
   await focus();
   expect(rpc.permissions).toHaveBeenCalledTimes(4);

@@ -8,8 +8,6 @@ import { applyDataSaverStatus, useDataSaver } from '../src/renderer/src/lib/data
 import { acceptPreferences, useClientPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { OPEN_SETTINGS_COMMAND } from '../src/renderer/src/lib/callSettingsBridge';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 const fixture = vi.hoisted(() => ({
   session: null as DataSaverSession | null,
@@ -241,17 +239,10 @@ it('无任务禁用任务期限，分钟数校验及失败保留输入，Escape 
   );
   expect(document.querySelector('.weq-data-saver-panel')).toBeNull();
 });
-it('两组三选一改用分段选择，加载来源位于省流量前', async () => {
+it('两组三选一使用分段选择', async () => {
   await act(async () => root.render(createElement(DataSaverSettings)));
   expect(host.querySelectorAll('[role="radiogroup"]')).toHaveLength(2);
   expect(host.querySelector('select')).toBeNull();
-  const source = readFileSync(
-    join(process.cwd(), 'src/renderer/src/components/settings/GlobalSettingsSection.tsx'),
-    'utf8',
-  );
-  expect(source.indexOf('<Card title="加载来源"')).toBeLessThan(
-    source.indexOf("{section === 'network' && <DataSaverSettings />}"),
-  );
 });
 it('暂停大文件关闭时隐藏阈值，重新开启保留数值，其余省流量配置仍可用', async () => {
   const preferences = (enabled: boolean) =>
