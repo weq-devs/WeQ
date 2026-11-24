@@ -266,6 +266,23 @@
 .weq-remote-device-details[open] summary > svg {
   transform: rotate(90deg);
 }
+.weq-remote-account-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  white-space: nowrap;
+}
+.weq-remote-account-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.weq-remote-account-number {
+  flex: none;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  font-weight: 400;
+}
 .weq-remote-device-details dl {
   display: grid;
   gap: 5px;

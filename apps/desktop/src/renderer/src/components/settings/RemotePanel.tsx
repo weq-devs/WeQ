@@ -489,8 +489,20 @@ export function RemotePanel({
                         return (
                           <Row
                             key={account.configId}
-                            label={account.displayName}
-                            desc={`${account.uin}${account.static ? ' · 静态备份' : ''}`}
+                            label={
+                              <span className="weq-remote-account-label">
+                                <span
+                                  className="weq-remote-account-name"
+                                  title={account.displayName}
+                                >
+                                  {account.displayName}
+                                </span>
+                                <span className="weq-remote-account-number">
+                                  <NumericText>{account.uin}</NumericText>
+                                  {account.static ? ' · 静态备份' : null}
+                                </span>
+                              </span>
+                            }
                             control={
                               <Toggle
                                 label={`允许${device.name}访问${account.displayName}`}
