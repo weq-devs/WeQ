@@ -12,23 +12,9 @@ import {
 } from '../src/renderer/src/components/search/appSearchCatalog';
 
 describe('basic_settings_navigation', () => {
-  describe('基础功能内的通话与录音入口', () => {
-    it('基础功能位于常规之后，通话与录音排在聊天设置之后，深链身份与全局作用域不变', () => {
-      const group = settingsGroupFor('call-recording');
-      expect(SETTINGS_GROUPS[1]?.label).toBe('基础功能');
-      expect(group.label).toBe('基础功能');
-      expect(group.sections.slice(0, 5)).toEqual([
-        'chat-messages',
-        'message-display',
-        'message-content',
-        'chat-interaction',
-        'anti-recall',
-      ]);
-      expect(group.sections.indexOf('call-recording')).toBe(
-        group.sections.indexOf('contact-card') + 1,
-      );
-      expect(settingsGroupFor('message-display').id).toBe(group.id);
-      expect(group.sections.slice(-2)).toEqual(['qzone', 'mail']);
+  describe('聊天分组内的通话与录音入口', () => {
+    it('通话与录音归聊天，深链身份与全局作用域保持原有行为', () => {
+      expect(settingsGroupFor('call-recording').id).toBe('chat');
       expect(settingsSectionFor('call-recording')).toBe('call-recording');
       expect(settingsScopeFor('call-recording')).toBeNull();
     });
@@ -37,7 +23,7 @@ describe('basic_settings_navigation', () => {
         const result = searchAppEntries(name)[0]!;
         expect(result.title).toBe('通话与录音');
         expect(result.target).toEqual({ kind: 'setting', section: 'call-recording' });
-        expect(result.path).toBe('设置 / 基础功能 / 通话与录音');
+        expect(result.path).toBe('设置 / 聊天 / 通话与录音');
       }
       for (const name of ['消息显示', '内容显示']) {
         expect(searchAppEntries(name)[0]?.target).toEqual({
@@ -231,12 +217,12 @@ describe('feature_search', () => {
     it('应用锁与备份的旧名称均定位新路径，具体隐私项仍可直接定位', () => {
       for (const keyword of ['应用锁', '隐私模式', '无操作自动上锁']) {
         const result = searchAppEntries(keyword)[0]!;
-        expect(result.path).toBe('设置 / 常规 / 隐私');
+        expect(result.path).toBe('设置 / 应用 / 隐私');
         expect(result.target).toMatchObject({ kind: 'setting', section: 'privacy' });
       }
       for (const keyword of ['备份与恢复', '设置备份', '导入备份']) {
         const result = searchAppEntries(keyword)[0]!;
-        expect(result.path).toBe('设置 / 关于 WeQ / 配置备份与恢复');
+        expect(result.path).toBe('设置 / 应用 / 配置备份与恢复');
         expect(result.target).toMatchObject({ kind: 'setting', section: 'backup' });
       }
       expect(searchAppEntries('恢复默认设置')[0]?.target).toMatchObject({

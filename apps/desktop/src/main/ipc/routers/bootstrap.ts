@@ -2340,7 +2340,7 @@ export const bootstrapRouter = router({
           const modelId = boot.userConfig.getLocalModelId('voice');
           const model = getVoiceModel(modelId);
           if (!model || !boot.voiceTranscribe.getModelStatus(modelId)?.downloaded)
-            return { success: false, error: '请先在「设置 → 增强功能 → 增强包」准备本地语音转写' };
+            return { success: false, error: '请先在「设置 → 能力 → 增强包」准备本地语音转写' };
           const { model: modelPath, tokens } = boot.voiceTranscribe.resolveModelPaths(modelId);
           if (!modelPath || !tokens) return { success: false, error: '本地语音模型文件缺失' };
           const { transcribeWav } = await import('../../transcribe/engine');

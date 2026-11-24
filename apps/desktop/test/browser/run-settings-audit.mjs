@@ -257,11 +257,11 @@ try {
     await shot(`390-${theme}-categories`);
     const mobile = [];
     for (const [group, section, id] of [
-      ['常规', '外观与布局', 'appearance'],
-      ['基础功能', 'QQ 邮箱', 'mail'],
-      ['基础功能', '联系人名片', 'contact-card'],
-      ['基础功能', '消息显示', 'message-content'],
-      ['关于 WeQ', '配置备份与恢复', 'backup'],
+      ['应用', '外观与布局', 'appearance'],
+      ['更多', 'QQ 邮箱', 'mail'],
+      ['更多', '联系人名片', 'contact-card'],
+      ['聊天', '消息显示', 'message-content'],
+      ['应用', '配置备份与恢复', 'backup'],
     ]) {
       await page.goto(`${base()}?section=${id}`);
       await setTheme(theme);

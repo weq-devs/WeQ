@@ -1,21 +1,16 @@
 // @vitest-environment node
 import { expect, it } from 'vitest';
 import {
-  SETTINGS_GROUPS,
   SETTINGS_PAGE_LABELS,
   resolveSettingsTarget,
   settingsGroupFor,
 } from '../src/renderer/src/components/settings/navigation';
 import { resetCards } from '../src/shared/settings_reset';
 
-it('QQ 在线能力归常规，数据分类不再保留独立监听页面', () => {
+it('QQ 在线能力归能力，数据库监听和读取归 QQ 数据库管理', () => {
   expect(SETTINGS_PAGE_LABELS.account).toBe('QQ 在线能力');
-  expect(settingsGroupFor('account').id).toBe('general');
-  expect(SETTINGS_GROUPS.find((group) => group.id === 'general')?.sections.slice(0, 2)).toEqual([
-    'startup',
-    'account',
-  ]);
-  expect(SETTINGS_GROUPS.find((group) => group.id === 'data')?.sections).not.toContain('account');
+  expect(settingsGroupFor('account').id).toBe('capabilities');
+  expect(settingsGroupFor('database-management').sections).not.toContain('account');
 });
 
 it.each([

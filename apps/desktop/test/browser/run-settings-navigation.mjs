@@ -138,12 +138,40 @@ try {
         0,
       );
       assert.equal(await page.locator('.weq-settings-dialog > .weq-settings-close').count(), 0);
+      if (width <= 760) await page.getByRole('button', { name: '返回设置', exact: true }).click();
+      assert.deepEqual(await nav.getByRole('heading', { level: 3 }).allTextContents(), [
+        '能力',
+        '聊天',
+        '更多',
+        'AI',
+        'QQ',
+        '网络',
+        '服务',
+        '应用',
+        '关于',
+      ]);
+      for (const [group, labels] of [
+        ['能力', ['QQ 代理连接']],
+        ['聊天', ['通话与录音', '识别与转写']],
+        ['更多', ['联系人名片']],
+        ['关于', ['版本与更新', '常见问题', '反馈']],
+      ]) {
+        const list = nav.getByRole('list', { name: group, exact: true });
+        for (const name of labels) {
+          assert.equal(await list.getByRole('button', { name, exact: true }).count(), 1);
+        }
+      }
+      if (width <= 760) await openSetting(page, 'OneBot');
       if (width > 760) {
         const navBounds = await nav.boundingBox();
         const bodyBounds = await page.locator('.weq-settings-body').boundingBox();
         assert(navBounds && bodyBounds && navBounds.x + navBounds.width <= bodyBounds.x);
         assert.equal(navBounds.y, bodyBounds.y);
-        assert(await nav.locator('ul').evaluate((el) => el.scrollHeight > el.clientHeight));
+        assert(
+          await nav
+            .locator('.weq-settings-nav-groups')
+            .evaluate((el) => el.scrollHeight > el.clientHeight),
+        );
         const leftTitle = await nav
           .getByRole('heading', { name: '设置', exact: true })
           .boundingBox();
@@ -162,7 +190,7 @@ try {
             const entry = document.querySelector('.weq-settings-nav [aria-current="page"]');
             if (!entry) return false;
             const row = entry.getBoundingClientRect();
-            const list = entry.closest('ul').getBoundingClientRect();
+            const list = entry.closest('.weq-settings-nav-groups').getBoundingClientRect();
             return row.top >= list.top - 1 && row.bottom <= list.bottom + 1;
           },
           null,

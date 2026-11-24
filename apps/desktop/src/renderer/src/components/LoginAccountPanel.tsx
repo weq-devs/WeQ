@@ -1,7 +1,7 @@
 import { NumericText } from './NumericText';
 import { eventTimeFormatter } from '@weq/time';
 /**
- * 凭据与数据 → QQ 登录管理。
+ * QQ → QQ 登录管理。
  *
  * 一页把「这台机器上 QQ 认得哪些号」讲清楚，并提供三个动作：
  *

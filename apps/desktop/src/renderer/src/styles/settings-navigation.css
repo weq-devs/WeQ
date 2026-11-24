@@ -13,10 +13,27 @@
   flex-shrink: 0;
 }
 
-.weq-settings-dialog .weq-settings-nav ul {
+.weq-settings-nav-groups {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior-y: contain;
+}
+
+.weq-settings-nav-group + .weq-settings-nav-group {
+  margin-top: 12px;
+}
+
+.weq-settings-nav-group-title {
+  margin: 0;
+  padding: 4px 10px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+:where(html[data-weq-layout='single']) .weq-mobile-settings .weq-settings-nav-group-title {
+  padding: 8px 20px 4px;
 }
 
 .weq-settings-body .weq-set-head-title {

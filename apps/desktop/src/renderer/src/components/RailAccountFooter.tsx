@@ -134,14 +134,14 @@ export function RailAccountFooter({
   function lockBlockReason(): string | null {
     if (IS_WEB) return '请在电脑端锁定 WeQ。';
     if (!appLock) return '应用锁设置尚未就绪。';
-    if (!appLock.enabled) return '应用锁已关闭，请在 设置 → 常规 → 隐私 中开启。';
+    if (!appLock.enabled) return '应用锁已关闭，请在 设置 → 应用 → 隐私 中开启。';
     if (lockMethod === 'system') {
       return systemAuthQuery.data?.available === false
         ? (systemAuthQuery.data?.error ?? '当前设备系统认证不可用。')
         : null;
     }
     return totpQuery.data?.configured === false
-      ? '验证器未绑定，请先在 设置 → 常规 → 隐私 中完成绑定。'
+      ? '验证器未绑定，请先在 设置 → 应用 → 隐私 中完成绑定。'
       : null;
   }
 
@@ -153,7 +153,7 @@ export function RailAccountFooter({
       const cfg = fresh.data?.appLock;
       if (fresh.error || !cfg) throw new Error('应用锁设置尚未就绪。');
       if (!cfg.enabled) {
-        showError('无法上锁', '应用锁已关闭，请在 设置 → 常规 → 隐私 中开启。');
+        showError('无法上锁', '应用锁已关闭，请在 设置 → 应用 → 隐私 中开启。');
         return;
       }
       const method = cfg?.method ?? 'totp';
@@ -168,7 +168,7 @@ export function RailAccountFooter({
         const bridge = shellBridge();
         const status = bridge ? await bridge.totp.getStatus() : null;
         if (!status?.configured) {
-          showError('无法上锁', '验证器未绑定，请先在 设置 → 常规 → 隐私 中完成绑定。');
+          showError('无法上锁', '验证器未绑定，请先在 设置 → 应用 → 隐私 中完成绑定。');
           return;
         }
       }

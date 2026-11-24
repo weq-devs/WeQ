@@ -5451,8 +5451,7 @@ export const AI_TOOLS: AiTool[] = [
         limit,
         ...(cursor ? { cursor } : {}),
       });
-      if (!page.catalogVersion)
-        throw new Error('请先在「设置 → 增强功能 → 增强包」下载商城表情目录');
+      if (!page.catalogVersion) throw new Error('请先在「设置 → 能力 → 增强包」下载商城表情目录');
       return {
         total: page.total,
         count: page.entries.length,

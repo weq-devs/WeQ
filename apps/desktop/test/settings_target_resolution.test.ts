@@ -28,31 +28,21 @@ describe('设置重构的规范目标与旧入口分流', () => {
     },
   );
 
-  it('六组页面各归其位，凭据与数据合并且不重复保留旧页面', () => {
+  it('九组按指定顺序展示，各设置页只出现一次', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
-      '常规',
-      '基础功能',
-      '增强功能',
-      '凭据与数据',
-      'WeQ 服务',
-      '关于 WeQ',
+      '能力',
+      '聊天',
+      '更多',
+      'AI',
+      'QQ',
+      '网络',
+      '服务',
+      '应用',
+      '关于',
     ]);
     const sections = SETTINGS_GROUPS.flatMap((group) => group.sections);
     expect(sections).toHaveLength(Object.keys(SETTINGS_PAGE_LABELS).length);
     expect(new Set(sections)).toEqual(new Set(Object.keys(SETTINGS_PAGE_LABELS)));
-    expect(SETTINGS_GROUPS[0]?.sections).toContain('home');
-    expect(SETTINGS_GROUPS[0]?.sections[0]).toBe('startup');
-    expect(SETTINGS_GROUPS[1]?.sections).toEqual([
-      'chat-messages',
-      'message-display',
-      'message-content',
-      'chat-interaction',
-      'anti-recall',
-      'contact-card',
-      'call-recording',
-      'qzone',
-      'mail',
-    ]);
   });
 
   it.each<{
