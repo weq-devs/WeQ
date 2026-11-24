@@ -142,12 +142,7 @@ const SETTINGS_PAGE_RENDERERS: Record<
   'chat-messages': () => <AppearanceSection page="chat-messages" />,
   'message-display': () => <AppearanceSection page="message-display" />,
   'message-content': () => <AppearanceSection page="message-content" />,
-  'chat-interaction': () => (
-    <>
-      <AppearanceSection page="chat-interaction" />
-      <TypingStatusSettingsCard />
-    </>
-  ),
+  'chat-interaction': () => <AppearanceSection page="chat-interaction" />,
   'anti-recall': () => (
     <div className="weq-set">
       <SectionHeader title={SETTINGS_PAGE_LABELS['anti-recall']} page="anti-recall" />
@@ -1012,6 +1007,7 @@ function AppearanceSection({
               <SlashEmojiSettings />
             </Card>
           )}
+          {page === 'chat-interaction' && <TypingStatusSettingsCard />}
           {page === 'chat-interaction' && (
             <Card resetId="quote-replies" icon={<MessagesSquare size={15} />}>
               <Row
