@@ -4,7 +4,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Storage } from 'happy-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsDialog } from '../src/renderer/src/components/SettingsDialog';
-import { SETTINGS_GROUPS } from '../src/renderer/src/components/settings/navigation';
+import {
+  SETTINGS_GROUPS,
+  SETTINGS_PAGE_LABELS,
+} from '../src/renderer/src/components/settings/navigation';
 import { AssistantSection } from '../src/renderer/src/components/settings/AssistantSection';
 import { McpServerSection } from '../src/renderer/src/components/settings/McpServerSection';
 import { AlbumExportLightbox } from '../src/renderer/src/views/export/AlbumExportLightbox';
@@ -67,7 +70,7 @@ function expectIcon(button: Element | null | undefined) {
 }
 
 describe('操作图标的一致性', () => {
-  it('七组设置二级导航都复用页面图标，同时保留按钮文字', async () => {
+  it('所有设置页在左栏按目录顺序直接显示名称和图标', async () => {
     const f = await mount(
       createElement(SettingsDialog, {
         open: true,
@@ -77,18 +80,13 @@ describe('操作图标的一致性', () => {
       }),
     );
     try {
-      for (const group of SETTINGS_GROUPS) {
-        const nav = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')].find(
-          (button) => button.textContent === group.label,
-        );
-        await act(async () => nav?.click());
-        const buttons = [...f.host.querySelectorAll('.weq-settings-subnav-item')];
-        expect(buttons.length).toBe(group.sections.length);
-        for (const button of buttons) {
-          expectIcon(button);
-          expect(button.textContent?.trim()).not.toBe('');
-        }
-      }
+      const nav = f.host.querySelector('nav[aria-label="设置页面"]')!;
+      const buttons = [...nav.querySelectorAll('button')];
+      const pages = SETTINGS_GROUPS.flatMap(({ sections }) => sections);
+      expect(buttons.map((button) => button.textContent)).toEqual(
+        pages.map((page) => SETTINGS_PAGE_LABELS[page]),
+      );
+      for (const button of buttons) expectIcon(button);
     } finally {
       f.dispose();
     }

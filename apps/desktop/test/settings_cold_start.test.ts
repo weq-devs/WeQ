@@ -8,6 +8,12 @@ import { ContentSelectionProvider } from '../src/renderer/src/state/contentSelec
 import { useViewState } from '../src/renderer/src/state/view';
 import { SettingsDialog } from '../src/renderer/src/components/lazyWorkspaces';
 
+function pressSettingsEscape(host: HTMLElement) {
+  const page = host.querySelector<HTMLElement>('.weq-workspace-page')!;
+  page.focus();
+  page.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+}
+
 const fixture = vi.hoisted(() => ({ configId: '' }));
 vi.mock('../src/renderer/src/trpc/client', () => {
   const refetch = vi.fn(async () => ({ data: undefined }));
@@ -121,7 +127,7 @@ it('冷启动打开设置和切换数据源后重新打开，均只保留一个�
       expect(initial?.isConnected).toBe(false);
     }
     await act(async () => {});
-    act(() => host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
+    act(() => pressSettingsEscape(host));
     expect(host.querySelector('.weq-settings-dialog')).toBeNull();
     expect(host.querySelector('.weq-workspace-page')).toBeNull();
     await act(async () =>

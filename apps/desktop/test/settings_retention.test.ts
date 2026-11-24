@@ -13,6 +13,12 @@ import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import type { SettingsNavigation } from '../src/renderer/src/hooks/useSettingsNavigation';
 
+function pressSettingsEscape(host: HTMLElement) {
+  const page = host.querySelector<HTMLElement>('.weq-workspace-page')!;
+  page.focus();
+  page.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+}
+
 const fixture = vi.hoisted(() => ({
   queries: new Map<string, { path: string; active: boolean; enabled: boolean }>(),
   subscriptions: new Map<string, { path: string; active: boolean; enabled: boolean }>(),
@@ -188,14 +194,14 @@ describe('设置二级页现场与活动生命周期', () => {
       const navigate = vi.fn();
       f.navigate(navigate);
       expect(navigate).toHaveBeenCalledOnce();
-      const faq = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')].find(
+      const faq = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')].find(
         (button) => button.textContent === '常见问题',
       )!;
       act(() => faq.click());
       expect(document.body.textContent).not.toContain('当前设置尚未保存');
       expect(f.body().querySelector('.weq-help-bug')).toBeNull();
       act(() =>
-        [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
+        [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]
           .find((button) => button.textContent === '反馈')!
           .click(),
       );
@@ -245,9 +251,9 @@ describe('设置二级页现场与活动生命周期', () => {
     }
   });
   it.each(['未编辑', '取消导入', '保存配置'] as const)(
-    'rKey %s 后重建凭据管理，离页与关闭不误报未保存',
+    'rKey %s 后重建资源加载，离页与关闭不误报未保存',
     async (operation) => {
-      const f = mount('credentials');
+      const f = mount('resource-loading');
       try {
         if (operation !== '未编辑') {
           act(() =>
@@ -281,11 +287,11 @@ describe('设置二级页现场与活动生命周期', () => {
         f.navigate(navigate);
         expect(navigate).toHaveBeenCalledOnce();
         f.render('media');
-        expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+        expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
           '资源加载',
         );
         expect(document.body.textContent).not.toContain('当前设置尚未保存');
-        act(() => f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
+        act(() => pressSettingsEscape(f.host));
         expect(f.onClose).toHaveBeenCalledOnce();
         expect(useDialog.getState().current).toBeNull();
       } finally {
@@ -294,7 +300,7 @@ describe('设置二级页现场与活动生命周期', () => {
     },
   );
   it('rKey 真正未保存的配置继续拦截离页并在重建后保留', () => {
-    const f = mount('credentials');
+    const f = mount('resource-loading');
     try {
       act(() =>
         f
@@ -328,7 +334,7 @@ describe('设置二级页现场与活动生命周期', () => {
     const f = mount('mcp');
     try {
       inputValue(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!, '4567');
-      const tab = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')].find(
+      const tab = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')].find(
         (button) => button.textContent === 'OneBot',
       )!;
       act(() => tab.click());
@@ -342,7 +348,7 @@ describe('设置二级页现场与活动生命周期', () => {
       chooseNavigation('暂时离开');
       expect(f.body().querySelector('[aria-label="MCP 端口"]')).toBeNull();
       act(() =>
-        [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
+        [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]
           .find((button) => button.textContent === 'MCP 服务器')!
           .click(),
       );
@@ -384,10 +390,10 @@ describe('设置二级页现场与活动生命周期', () => {
     try {
       f.render('appearance');
       f.render('mcp');
-      act(() => f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
+      act(() => pressSettingsEscape(f.host));
       expect(f.onClose).toHaveBeenCalledOnce();
       f.render(undefined, undefined, 1);
-      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
         '启动与退出',
       );
       f.render('mcp', undefined, 2);
@@ -403,7 +409,7 @@ describe('设置二级页现场与活动生命周期', () => {
       act(() => {
         f.body().scrollTop = 143;
         f.body().dispatchEvent(new Event('scroll', { bubbles: true }));
-        f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click();
+        pressSettingsEscape(f.host);
       });
       expect(f.onClose).toHaveBeenCalledOnce();
       f.render('global', undefined, 1);
@@ -471,7 +477,7 @@ describe('设置二级页现场与活动生命周期', () => {
       inputValue(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!, '4567');
       f.render('appearance');
       chooseNavigation('暂时离开');
-      act(() => f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
+      act(() => pressSettingsEscape(f.host));
       expect(f.onClose).not.toHaveBeenCalled();
       expect(useDialog.getState().current?.title).toBe('放弃未保存的修改？');
       await act(async () => {
@@ -482,14 +488,14 @@ describe('设置二级页现场与活动生命周期', () => {
       expect(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!.value).toBe(
         '4567',
       );
-      act(() => f.host.querySelector<HTMLButtonElement>('.weq-settings-close')!.click());
+      act(() => pressSettingsEscape(f.host));
       await act(async () => {
         useDialog.getState().current?.confirm?.resolve(true);
         useDialog.getState().close();
       });
       expect(f.onClose).toHaveBeenCalledOnce();
       f.render(undefined, undefined, 1);
-      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
         '启动与退出',
       );
       f.render('mcp');
@@ -582,13 +588,13 @@ describe('设置二级页现场与活动生命周期', () => {
         body.dispatchEvent(new Event('scroll', { bubbles: true }));
       });
       act(() =>
-        [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
+        [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]
           .find((button) => button.textContent === '外观与布局')!
           .click(),
       );
-      const back = [
-        ...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item'),
-      ].find((button) => button.textContent === '通知与提醒')!;
+      const back = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')].find(
+        (button) => button.textContent === '通知与提醒',
+      )!;
       act(() => {
         back.focus();
         back.click();

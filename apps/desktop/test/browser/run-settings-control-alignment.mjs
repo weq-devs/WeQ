@@ -64,81 +64,72 @@ try {
           },
           { theme, skin },
         );
-        const groups = await page.locator('.weq-settings-nav-label').allTextContents();
-        for (const group of groups) {
-          // 窄屏分类页隐藏后，用真实导航按钮恢复目录，避免点击隐藏的节点。
-          const back = page.getByRole('button', { name: '返回设置分类', exact: true });
+        const sections = await page.locator('.weq-settings-nav-label').allTextContents();
+        for (const section of sections) {
+          const back = page.getByRole('button', { name: '返回设置', exact: true });
           if (await back.isVisible()) await back.click();
           await page
             .locator('.weq-settings-nav')
-            .getByRole('button', { name: group.trim(), exact: true })
+            .getByRole('button', { name: section.trim(), exact: true })
             .click();
-          const sections = await page.locator('.weq-settings-subnav-label').allTextContents();
-          for (const section of sections) {
-            await page
-              .locator('.weq-settings-subnav')
-              .getByRole('button', { name: section.trim(), exact: true })
-              .click();
-            await page.evaluate(async () => {
-              await document.fonts.ready;
-              await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
-            });
-            const result = await page.evaluate(() => {
-              const body = document.querySelector('.weq-settings-body');
-              const controls =
-                'button:not([role="switch"], [role="checkbox"], [role="radio"]),input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"]),select,.weq-segmented';
-              const problems = [];
-              let checkedGroups = 0;
-              for (const group of body.querySelectorAll('*')) {
-                const css = getComputedStyle(group);
-                if (!['flex', 'inline-flex', 'grid', 'inline-grid'].includes(css.display)) continue;
-                // 复合输入框中的尾部工具位属于输入框内部，并非两个并列外框。
-                if (
-                  group.matches(
-                    '.weq-set-keyfield,.weq-set-tokenfield,.weq-onebot-token-input,.weq-provider-model-row',
-                  )
+          await page.evaluate(async () => {
+            await document.fonts.ready;
+            await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+          });
+          const result = await page.evaluate(() => {
+            const body = document.querySelector('.weq-settings-body');
+            const controls =
+              'button:not([role="switch"], [role="checkbox"], [role="radio"]),input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="hidden"]),select,.weq-segmented';
+            const problems = [];
+            let checkedGroups = 0;
+            for (const group of body.querySelectorAll('*')) {
+              const css = getComputedStyle(group);
+              if (!['flex', 'inline-flex', 'grid', 'inline-grid'].includes(css.display)) continue;
+              // 复合输入框中的尾部工具位属于输入框内部，并非两个并列外框。
+              if (
+                group.matches(
+                  '.weq-set-keyfield,.weq-set-tokenfield,.weq-onebot-token-input,.weq-provider-model-row',
                 )
-                  continue;
-                const children = [...group.children].filter(
-                  (el) => el.matches(controls) && el.getBoundingClientRect().width > 0,
-                );
-                if (children.length < 2) continue;
-                checkedGroups++;
-                const boxes = children.map((el) => {
-                  const b = el.getBoundingClientRect();
-                  return {
-                    name: el.getAttribute('aria-label') || el.textContent.trim().slice(0, 20),
-                    x: b.left,
-                    y: b.top,
-                    w: b.width,
-                    h: b.height,
-                  };
-                });
-                const column =
-                  css.display.includes('flex') && css.flexDirection.startsWith('column');
-                for (let i = 0; i < boxes.length; i++)
-                  for (const b of boxes.slice(i + 1)) {
-                    const a = boxes[i];
-                    const overlaps = Math.min(a.y + a.h, b.y + b.h) > Math.max(a.y, b.y) + 1;
-                    if (
-                      column
-                        ? Math.abs(a.w - b.w) > 0.5 || Math.abs(a.x - b.x) > 0.5
-                        : overlaps && (Math.abs(a.h - b.h) > 0.5 || Math.abs(a.y - b.y) > 0.5)
-                    )
-                      problems.push({ group: group.className, a, b });
-                  }
-              }
-              return { checkedGroups, problems, overflow: body.scrollWidth > body.clientWidth };
-            });
-            report.push({
-              width,
-              theme,
-              skin,
-              group: group.trim(),
-              section: section.trim(),
-              ...result,
-            });
-          }
+              )
+                continue;
+              const children = [...group.children].filter(
+                (el) => el.matches(controls) && el.getBoundingClientRect().width > 0,
+              );
+              if (children.length < 2) continue;
+              checkedGroups++;
+              const boxes = children.map((el) => {
+                const b = el.getBoundingClientRect();
+                return {
+                  name: el.getAttribute('aria-label') || el.textContent.trim().slice(0, 20),
+                  x: b.left,
+                  y: b.top,
+                  w: b.width,
+                  h: b.height,
+                };
+              });
+              const column = css.display.includes('flex') && css.flexDirection.startsWith('column');
+              for (let i = 0; i < boxes.length; i++)
+                for (const b of boxes.slice(i + 1)) {
+                  const a = boxes[i];
+                  const overlaps = Math.min(a.y + a.h, b.y + b.h) > Math.max(a.y, b.y) + 1;
+                  if (
+                    column
+                      ? Math.abs(a.w - b.w) > 0.5 || Math.abs(a.x - b.x) > 0.5
+                      : overlaps && (Math.abs(a.h - b.h) > 0.5 || Math.abs(a.y - b.y) > 0.5)
+                  )
+                    problems.push({ group: group.className, a, b });
+                }
+            }
+            return { checkedGroups, problems, overflow: body.scrollWidth > body.clientWidth };
+          });
+          report.push({
+            width,
+            theme,
+            skin,
+            group: group.trim(),
+            section: section.trim(),
+            ...result,
+          });
         }
       }
     }

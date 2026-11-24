@@ -186,7 +186,7 @@ function entries(host: Element) {
 }
 
 describe('设置的数据与维护', () => {
-  it('帮助可从设置分类打开，且不叠加独立弹窗', () => {
+  it('版本与更新可从设置左栏直接打开，且不叠加独立弹窗', () => {
     const f = mount(
       createElement(SettingsDialog, {
         open: true,
@@ -197,12 +197,12 @@ describe('设置的数据与维护', () => {
       }),
     );
     try {
-      const help = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')].find(
-        (button) => button.textContent === '关于 WeQ',
-      );
-      expect(help).toBeDefined();
-      act(() => help!.click());
-      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
+      const version = [
+        ...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item'),
+      ].find((button) => button.textContent === '版本与更新');
+      expect(version).toBeDefined();
+      act(() => version!.click());
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
         '版本与更新',
       );
       expect(f.host.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
@@ -321,7 +321,7 @@ describe('设置的数据与维护', () => {
       expect(buttons.map((button) => button.textContent)).toEqual(['打开密钥扫描', '查看设备密钥']);
       const card = buttons[0]!.closest('.weq-set-card');
       expect(card).not.toBeNull();
-      expect(card?.querySelector('.weq-set-card-title')?.textContent).toBe('密钥工具');
+      expect(card?.querySelector('.weq-set-card-title')?.textContent).toBe('数据库密钥');
       expect(buttons[1]!.closest('.weq-set-card')).toBe(card);
       expect(card?.querySelector('.weq-set-card')).toBeNull();
       for (const label of card!.querySelectorAll<HTMLElement>('.weq-set-row-label')) {
@@ -518,7 +518,7 @@ describe('设置的数据与维护', () => {
         ].find((button) => button.getAttribute('aria-label') === '关闭')!;
         act(() => back.click());
         expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-          '凭据与数据',
+          'QQ 数据库管理',
         );
         expect(document.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
         expect(document.querySelectorAll('[role="dialog"], [aria-modal="true"]')).toHaveLength(0);

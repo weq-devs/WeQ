@@ -568,15 +568,14 @@ html:where([data-weq-layout='single']) .weq-web-shell .weq-mobile-settings {
   font-size: 17px;
 }
 
-:where(html[data-weq-layout='single']) .weq-web-shell .weq-mobile-settings > .weq-settings-close,
 :where(html[data-weq-layout='single']) .weq-web-shell .weq-mobile-settings .weq-settings-nav-title,
 :where(html[data-weq-layout='single'])
   .weq-web-shell
-  .weq-mobile-settings:not([data-mobile-category])
-  .weq-settings-content,
+  .weq-mobile-settings:not([data-mobile-detail])
+  .weq-settings-pages,
 :where(html[data-weq-layout='single'])
   .weq-web-shell
-  .weq-mobile-settings[data-mobile-category]
+  .weq-mobile-settings[data-mobile-detail]
   .weq-settings-nav {
   display: none;
 }
@@ -585,8 +584,7 @@ html:where([data-weq-layout='single'])[data-theme]
   .weq-web-shell
   .weq-mobile-settings
   .weq-settings-nav {
-  min-height: 0;
-  overflow: auto;
+  flex: 1;
   padding: 0;
   border: 0;
 }
@@ -596,10 +594,7 @@ html:where([data-weq-layout='single'])[data-theme]
   .weq-mobile-settings
   .weq-settings-nav
   ul {
-  display: grid;
   gap: 0;
-  padding: 0;
-  overflow: visible;
 }
 
 html:where([data-weq-layout='single'])[data-theme]
@@ -633,53 +628,9 @@ html:where([data-weq-layout='single'])[data-theme]
   color: var(--weq-fg-muted);
 }
 
-:where(html[data-weq-layout='single']) .weq-web-shell .weq-mobile-settings .weq-settings-content {
+:where(html[data-weq-layout='single']) .weq-web-shell .weq-mobile-settings .weq-settings-pages {
   min-height: 0;
   flex: 1;
-}
-
-/* 单列布局下二级导航单行横滑：不再折成 3 行占掉半屏，右侧渐隐提示还能滑。 */
-
-html:where([data-weq-layout='single'])[data-theme] .weq-web-shell
-  .weq-mobile-settings
-  .weq-settings-subnav {
-  min-height: 48px;
-  padding: 4px 8px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  overscroll-behavior-x: contain;
-  mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    #000 10px,
-    #000 calc(100% - 24px),
-    transparent 100%
-  );
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    #000 10px,
-    #000 calc(100% - 24px),
-    transparent 100%
-  );
-}
-
-html:where([data-weq-layout='single'])[data-theme]
-  .weq-web-shell
-  .weq-mobile-settings
-  .weq-settings-subnav::-webkit-scrollbar {
-  display: none;
-}
-
-:where(html[data-weq-layout='single'])
-  .weq-web-shell
-  .weq-mobile-settings
-  .weq-settings-subnav-item {
-  min-height: 40px;
-  flex-shrink: 0;
-  white-space: nowrap;
 }
 
 html:where([data-weq-layout='single'])[data-theme]

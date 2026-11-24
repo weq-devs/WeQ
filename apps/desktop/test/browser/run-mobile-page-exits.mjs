@@ -152,11 +152,16 @@ try {
             .getByRole('button', { name: '关闭数据库浏览', exact: true })
             .waitFor({ state: 'hidden' });
           assert.equal(await page.locator('.weq-settings-dialog').count(), 1);
-          const settingsClose = page.locator('.weq-settings-close');
-          if (await settingsClose.isVisible()) await settingsClose.click();
-          else {
-            await page.getByRole('button', { name: '返回设置分类', exact: true }).click();
+          const backToSettings = page.getByRole('button', { name: '返回设置', exact: true });
+          if (await backToSettings.isVisible()) {
+            await backToSettings.click();
             await page.getByRole('button', { name: '返回', exact: true }).click();
+          } else {
+            await page
+              .locator('.weq-workspace-page')
+              .filter({ has: page.locator('.weq-settings-dialog') })
+              .focus();
+            await page.keyboard.press('Escape');
           }
           await page.locator('.weq-settings-dialog').waitFor({ state: 'hidden' });
           cases++;

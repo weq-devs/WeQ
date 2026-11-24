@@ -62,27 +62,24 @@ try {
         if (tool) await page.locator('[data-source-tool]').click();
         await page.getByRole('button', { name: '我的资料', exact: true }).click();
         await page.getByRole('region', { name: '我的资料', exact: true }).waitFor();
-        for (const close of ['button', 'escape']) {
-          await page.getByRole('button', { name: '打开设置', exact: true }).click();
-          const settings = page.locator('.weq-settings-dialog');
-          await settings.waitFor();
-          assert.equal(await page.locator('#workspace-base-page').isVisible(), false);
-          const hit = await settings.evaluate((node) => {
-            const rect = node.getBoundingClientRect();
-            return node.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + 30));
-          });
-          assert.equal(hit, true, `${width}/${theme}: 设置真实绘制在前景`);
-          const category = page.locator('.weq-settings-nav-item').first();
-          await category.click();
-          await page.screenshot({
-            path: output ? resolve(output, `${width}-${theme}-${tool}-${close}.png`) : undefined,
-            animations: 'disabled',
-          });
-          if (close === 'button') await page.locator('.weq-settings-close').click();
-          else await page.keyboard.press('Escape');
-          await settings.waitFor({ state: 'detached' });
-          await page.getByRole('region', { name: '我的资料', exact: true }).waitFor();
-        }
+        await page.getByRole('button', { name: '打开设置', exact: true }).click();
+        const settings = page.locator('.weq-settings-dialog');
+        await settings.waitFor();
+        assert.equal(await page.locator('#workspace-base-page').isVisible(), false);
+        const hit = await settings.evaluate((node) => {
+          const rect = node.getBoundingClientRect();
+          return node.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + 30));
+        });
+        assert.equal(hit, true, `${width}/${theme}: 设置真实绘制在前景`);
+        const entry = page.locator('.weq-settings-nav-item').first();
+        await entry.click();
+        await page.screenshot({
+          path: output ? resolve(output, `${width}-${theme}-${tool}.png`) : undefined,
+          animations: 'disabled',
+        });
+        await page.keyboard.press('Escape');
+        await settings.waitFor({ state: 'detached' });
+        await page.getByRole('region', { name: '我的资料', exact: true }).waitFor();
         await page.getByRole('button', { name: '关闭资料', exact: true }).click();
         if (tool) {
           await page.locator('[data-source-tool]').waitFor();

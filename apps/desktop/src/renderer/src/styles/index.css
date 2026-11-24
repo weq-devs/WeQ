@@ -4800,8 +4800,9 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 
 .weq-settings-nav-title {
   margin: 0 8px 14px;
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
+  line-height: var(--weq-settings-heading-height, 30px);
 }
 
 .weq-settings-nav ul {

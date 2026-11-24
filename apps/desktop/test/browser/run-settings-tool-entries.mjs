@@ -59,9 +59,9 @@ try {
         store.setAccent(theme === 'light' ? '#b5243e' : '#81c995');
         store.setBackground(theme === 'light' ? 'paper' : 'grid');
       }, theme);
-      const openCategory = async (label) => {
-        if (width <= 760)
-          await page.getByRole('button', { name: '返回设置分类', exact: true }).click();
+      const openSetting = async (label) => {
+        const back = page.getByRole('button', { name: '返回设置', exact: true });
+        if (await back.isVisible()) await back.click();
         await page
           .locator('.weq-settings-nav')
           .getByRole('button', { name: label, exact: true })
@@ -100,9 +100,8 @@ try {
         );
         assert.equal(await page.locator('.weq-maintenance-entry').count(), 0);
       };
-      await openCategory('凭据与数据');
       if (!rkeyOnly) {
-        await page.getByRole('button', { name: 'QQ 高级工具', exact: true }).click();
+        await openSetting('QQ 高级工具');
         assert.deepEqual(
           await page.locator('.weq-settings-body .weq-set-card-title').allTextContents(),
           ['QQNT 抓包', '通话抓包', '签名器（wrapper.node）', 'Protobuf / JCE 逆向'],
@@ -111,7 +110,7 @@ try {
         if (output)
           await page.screenshot({ path: resolve(output, `capture-${width}-${theme}.png`) });
         if (advancedOnly) {
-          await page.getByRole('button', { name: 'QQ 登录管理', exact: true }).click();
+          await openSetting('QQ 登录管理');
           const loginRecords = page.locator('[data-setting-id="qq-accounts"]');
           await loginRecords.scrollIntoViewIfNeeded();
           await loginRecords.getByText('合成登录账号', { exact: true }).waitFor();
@@ -126,12 +125,13 @@ try {
           continue;
         }
       }
-      await page.getByRole('button', { name: '凭据管理', exact: true }).click();
+      await openSetting('凭据管理');
       if (!rkeyOnly) {
-        await checkButton('key-scan', '打开密钥扫描', '密钥工具', 'key-scan');
-        await checkButton('other-device-key', '查看设备密钥', '密钥工具', 'other-device-key');
+        await checkButton('key-scan', '打开密钥扫描', '数据库密钥', 'key-scan');
+        await checkButton('other-device-key', '查看设备密钥', '数据库密钥', 'other-device-key');
         if (output) await page.screenshot({ path: resolve(output, `keys-${width}-${theme}.png`) });
       }
+      await openSetting('资源加载');
       const rkey = page.locator('.weq-rkey-settings');
       const rkeyCard = rkey.locator('.weq-set-card');
       assert.equal(await rkey.locator('.weq-set-head').count(), 0);
@@ -186,29 +186,30 @@ try {
       await page.getByRole('button', { name: '放弃修改', exact: true }).click();
       await rkeyEditor.waitFor({ state: 'detached' });
       assert.equal(await rkeyCard.locator('form').count(), 0);
-      await page.getByRole('button', { name: '资源加载', exact: true }).click();
+      await openSetting('凭据管理');
       assert.equal(await page.locator('.weq-message-modal').count(), 0);
       assert.equal(await rkey.count(), 0);
-      await page.getByRole('button', { name: '凭据管理', exact: true }).click();
+      await openSetting('资源加载');
       assert.equal(await rkeyCard.locator('form').count(), 0);
-      await page.getByRole('button', { name: '资源加载', exact: true }).click();
       assert.equal(await page.locator('.weq-message-modal').count(), 0);
-      assert.equal(await rkey.count(), 0);
       if (!rkeyOnly) {
-        await page.getByRole('button', { name: 'QQ 数据库管理', exact: true }).click();
-        await checkButton('database-repair', '打开修复工具', '容错与修复', 'db-repair');
+        await openSetting('QQ 数据库管理');
+        await checkButton('database-repair', '打开修复工具', '数据库检查与修复', 'db-repair');
         if (output)
           await page.screenshot({ path: resolve(output, `repair-${width}-${theme}.png`) });
       }
-      await openCategory('WeQ 服务');
-      await page.getByRole('button', { name: 'OneBot', exact: true }).click();
-      await page.getByRole('button', { name: 'WebSocket', exact: true }).click();
-      const serverEditor = page.getByRole('dialog', { name: '新建 WebSocket 服务器', exact: true });
-      await serverEditor.getByLabel('OneBot 服务器名称', { exact: true }).fill('嵌套编辑草稿');
+      await openSetting('OneBot');
+      await page
+        .locator('.weq-set-card')
+        .filter({ has: page.getByText('正向 WebSocket', { exact: true }) })
+        .getByRole('button', { name: '新建', exact: true })
+        .click();
+      const serverEditor = page.getByRole('dialog', { name: '新建正向 WebSocket', exact: true });
+      await serverEditor.getByLabel('网络名称', { exact: true }).fill('嵌套编辑草稿');
       await page.keyboard.press('Escape');
       await page.getByRole('button', { name: '继续编辑', exact: true }).click();
       assert.equal(
-        await serverEditor.getByLabel('OneBot 服务器名称', { exact: true }).inputValue(),
+        await serverEditor.getByLabel('网络名称', { exact: true }).inputValue(),
         '嵌套编辑草稿',
       );
       await page.keyboard.press('Escape');

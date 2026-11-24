@@ -73,6 +73,47 @@ describe('主内容页的会话列表可见性', () => {
       vi.unstubAllGlobals();
     }
   });
+  it('设置加载期间收起消息列表，退出后恢复原列表', () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const render = (settingsOpen: boolean) =>
+      act(() =>
+        root.render(
+          h(
+            WorkspacePages,
+            { navigationKey: 'chat' },
+            h(ChatShell, {
+              view: 'messages',
+              settingsOpen,
+              sidebarWidth: 362,
+              sidebarContent: h('input', { 'data-list-filter': true }),
+              mainContent: h(WorkspaceContent, null, '原聊天'),
+            }),
+          ),
+        ),
+      );
+    try {
+      render(false);
+      const sidebar = host.querySelector<HTMLElement>('.sidebar')!;
+      const filter = host.querySelector<HTMLInputElement>('[data-list-filter]')!;
+      filter.value = '原会话筛选';
+      render(true);
+      expect(sidebar.hidden).toBe(true);
+      expect(
+        host.querySelector<HTMLElement>('.app-shell')?.style.getPropertyValue('--sidebar-width'),
+      ).toBe('0px');
+      expect(host.querySelector('.sidebar-resize')).toBeNull();
+      render(false);
+      expect(sidebar.hidden).toBe(false);
+      expect(host.querySelector('[data-list-filter]')).toBe(filter);
+      expect(filter.value).toBe('原会话筛选');
+    } finally {
+      act(() => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
+
   it.each(['设置', '个性装扮'])('%s 收起列表与拖拽条，关闭后恢复列表现场与宽度', (title) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');

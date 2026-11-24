@@ -6,14 +6,8 @@ import { APP_NAVIGATION, navigationEntries } from '../src/renderer/src/lib/appNa
 import { APP_SEARCH_ENTRIES } from '../src/renderer/src/components/search/appSearchCatalog';
 import { AppSearchResults } from '../src/renderer/src/components/search/AppSearchResults';
 import { appSearchIcon } from '../src/renderer/src/components/search/appSearchCatalog';
-import {
-  SETTINGS_GROUPS,
-  SETTINGS_PAGE_LABELS,
-} from '../src/renderer/src/components/settings/navigation';
-import {
-  SETTINGS_GROUP_ICONS,
-  SETTINGS_PAGE_ICONS,
-} from '../src/renderer/src/components/settings/pageIcons.shared';
+import { SETTINGS_PAGE_LABELS } from '../src/renderer/src/components/settings/navigation';
+import { SETTINGS_PAGE_ICONS } from '../src/renderer/src/components/settings/pageIcons.shared';
 import {
   DRESS_KIND_ICONS,
   EXPORT_MODE_ICONS,
@@ -65,16 +59,12 @@ describe('功能图标语义', () => {
     }
   });
 
-  it('设置页面、分类和搜索入口的图标覆盖完整，不同页面不撞图标', () => {
+  it('设置页面和搜索入口的图标覆盖完整，不同页面不撞图标', () => {
     expect(Object.keys(SETTINGS_PAGE_ICONS).sort()).toEqual(
       Object.keys(SETTINGS_PAGE_LABELS).sort(),
     );
-    expect(Object.keys(SETTINGS_GROUP_ICONS).sort()).toEqual(
-      SETTINGS_GROUPS.map(({ id }) => id).sort(),
-    );
     for (const icons of [
       SETTINGS_PAGE_ICONS,
-      SETTINGS_GROUP_ICONS,
       EXPORT_MODE_ICONS,
       DRESS_KIND_ICONS,
       MAINTENANCE_TOOL_ICONS,

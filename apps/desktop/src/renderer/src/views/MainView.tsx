@@ -10696,6 +10696,7 @@ function MainWorkspace(): ReactElement {
             contactTab={shell.contactTab}
             activeNotice={shell.contactNotice}
             sidebarWidth={fullBleedView ? 0 : shell.sidebarWidth}
+            settingsOpen={settingsOpen}
             mainOpen={
               (!mobileLayout || !mobileConversationList) &&
               (shell.mainOpen ||

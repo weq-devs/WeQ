@@ -153,22 +153,8 @@ function mount() {
                 ].includes(label)
               ? '会话列表'
               : '会话浏览';
-      if (page === '未读角标')
-        act(() =>
-          [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]
-            .find((button) => button.textContent === '常规')!
-            .click(),
-        );
-      else if (
-        !host.querySelector('.weq-settings-subnav-item')?.parentElement?.textContent?.includes(page)
-      )
-        act(() =>
-          [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]
-            .find((button) => button.textContent === '基础功能')!
-            .click(),
-        );
       act(() =>
-        [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
+        [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]
           .find((button) => button.textContent === page)!
           .click(),
       );

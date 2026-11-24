@@ -1,6 +1,14 @@
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' };
 const region = [{ code: '1', name: '合成地区名称', children: [] }];
 const data: Record<string, unknown> = {
+  'bootstrap.getOneBotStatus': {
+    uin: '10001',
+    accountOpen: true,
+    enabled: false,
+    config: null,
+    listeners: [],
+    daemonCheck: null,
+  },
   'account.getAccountConfig': { uin: '10001', configId: 'fixture' },
   'wonderfulTools.loginAccountsOverview': {
     accounts: [

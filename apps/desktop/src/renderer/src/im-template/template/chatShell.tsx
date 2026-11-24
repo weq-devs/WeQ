@@ -29,6 +29,7 @@ export function ChatShell({
   activeNotice,
   contactOverviewActive = false,
   sidebarWidth,
+  settingsOpen = false,
   mainOpen,
   messageBadgeCount,
   onMessageBadgeClick,
@@ -75,6 +76,7 @@ export function ChatShell({
   activeNotice: ContactNoticeView | null;
   contactOverviewActive?: boolean;
   sidebarWidth: number;
+  settingsOpen?: boolean;
   mainOpen: boolean;
   messageBadgeCount: number;
   onMessageBadgeClick?: () => void;
@@ -122,7 +124,7 @@ export function ChatShell({
   useMobileWebViewport(root, sharedShell);
   const mainPageOpen = useWorkspaceMainPageOpen();
   const sidecarOpen = useWorkspaceSidecarOpen();
-  const sidebarHidden = mainPageOpen || (view === 'messages' && sidecarOpen);
+  const sidebarHidden = settingsOpen || mainPageOpen || (view === 'messages' && sidecarOpen);
   const shellStyle = {
     '--sidebar-width': `${sidebarHidden ? 0 : sidebarWidth}px`,
   } as CSSProperties;

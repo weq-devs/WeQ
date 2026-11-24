@@ -18,7 +18,6 @@ import {
   HardDrive,
   House,
   HelpCircle,
-  Info,
   KeyRound,
   MessageSquareReply,
   MessagesSquare,
@@ -37,11 +36,8 @@ import {
   ScanSearch,
   ScanText,
   Send,
-  Server,
-  Settings2,
   ShieldEllipsis,
   ShieldCheck,
-  Sparkles,
   TextCursorInput,
   UsersRound,
 } from 'lucide-react';
@@ -96,12 +92,3 @@ export const SETTINGS_PAGE_ICONS = {
   credentials: KeyRound,
   'qq-accounts': MAINTENANCE_TOOL_ICONS['login-accounts'],
 } satisfies Record<SettingsPageId, FeatureIcon>;
-
-export const SETTINGS_GROUP_ICONS: Record<string, FeatureIcon> = {
-  general: Settings2,
-  basic: MessagesSquare,
-  models: Sparkles,
-  data: Database,
-  services: Server,
-  help: Info,
-};

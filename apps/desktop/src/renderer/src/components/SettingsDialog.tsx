@@ -1,7 +1,7 @@
 /**
  * 设置整页。
  *
- * 左侧一级分类，右侧二级页；旧页面与条目入口统一解析到规范位置。
+ * 左侧直接选择页面；旧页面与条目入口统一解析到规范位置。
  */
 
 import { ReminderDot } from './ReminderBadge';
@@ -125,8 +125,9 @@ import {
 import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSaveQueue';
 import { ContactCardSettings } from './settings/ContactCardSettings';
 import { useRemoteClient } from '../lib/remoteClient';
+import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { remoteSettingAvailable } from '../../../shared/remote_capabilities';
-import { SettingsGroupIcon, SettingsPageIcon } from './settings/pageIcons';
+import { SettingsPageIcon } from './settings/pageIcons';
 
 /** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
 interface SettingsSection {
@@ -423,6 +424,10 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
 ];
 
+const SETTINGS_NAVIGATION = SETTINGS_GROUPS.flatMap(({ sections }) =>
+  sections.map((id) => SETTINGS_SECTIONS.find((section) => section.id === id)!),
+);
+
 /** Quick-pick accent presets. First entry is the WeQ default blue. */
 const ACCENT_PRESETS = [
   DEFAULT_ACCENT,
@@ -482,26 +487,19 @@ function SettingsContent({
   const [activeId, setActiveId] = usePageState<SettingsPageId>(
     'settings:active',
     () => target.section,
-    z.custom<SettingsPageId>(
-      (value) =>
-        typeof value === 'string' &&
-        SETTINGS_GROUPS.some((group) => group.sections.some((section) => section === value)),
+    z.custom<SettingsPageId>((value) =>
+      SETTINGS_NAVIGATION.some((section) => section.id === value),
     ),
   );
   const packUpdate = useEnhancementUpdateBadge();
   const locked = useAppLock((state) => state.locked);
-  const navRef = useRef<HTMLElement | null>(null);
-  const [mobileCategoryOpen, setMobileCategoryOpen] = useState(
-    Boolean(initialSection || searchTarget),
-  );
-  const subnavRef = useRef<HTMLElement | null>(null);
-  const sections = SETTINGS_SECTIONS.filter((entry) => !remote || remoteSettingAvailable(entry.id));
-  const groups = SETTINGS_GROUPS.map((group) => ({
-    ...group,
-    sections: group.sections.filter((id) => sections.some((section) => section.id === id)),
-  })).filter((group) => group.sections.length > 0);
-  const group = groups.find((entry) => entry.sections.includes(activeId)) ?? groups[0]!;
-  const groupSections = group.sections.map((id) => sections.find((section) => section.id === id)!);
+  const singleColumn = useMobileWebLayout();
+  const [nav, setNav] = useState<HTMLElement | null>(null);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(Boolean(initialSection || searchTarget));
+  const sections = remote
+    ? SETTINGS_NAVIGATION.filter(({ id }) => remoteSettingAvailable(id))
+    : SETTINGS_NAVIGATION;
+  const active = sections.find(({ id }) => id === activeId) ?? sections[0]!;
   const snapshots = usePageSnapshotReset('workspace:main:设置');
   const activeKey = usePageSnapshotKey('settings:active');
   useEffect(() => {
@@ -549,7 +547,14 @@ function SettingsContent({
   const switchSection = useCallback(
     (section: SettingsPageId) => {
       if (remote && !remoteSettingAvailable(section)) section = 'startup';
-      if (section !== activeId) requestNavigation(() => setActiveId(section));
+      if (section === activeId) {
+        setMobileDetailOpen(true);
+        return;
+      }
+      requestNavigation(() => {
+        setActiveId(section);
+        setMobileDetailOpen(true);
+      });
     },
     [activeId, requestNavigation, setActiveId, remote],
   );
@@ -563,10 +568,10 @@ function SettingsContent({
     };
   }, [open, navigationGuard, requestNavigation]);
   useMobileBack(
-    open && !closing && mobileCategoryOpen,
-    () => requestNavigation(() => setMobileCategoryOpen(false)),
+    Boolean(nav) && open && !closing && singleColumn && mobileDetailOpen,
+    () => requestNavigation(() => setMobileDetailOpen(false)),
     30,
-    () => navRef.current?.parentElement ?? null,
+    () => nav?.parentElement ?? null,
   );
   useEffect(() => {
     if (!closing) return;
@@ -583,7 +588,7 @@ function SettingsContent({
       return;
     }
     setActiveId('startup');
-    setMobileCategoryOpen(false);
+    setMobileDetailOpen(false);
     onClose();
     setClosing(false);
   }, [closing, snapshots, setActiveId, onClose, notificationToast]);
@@ -595,24 +600,21 @@ function SettingsContent({
   }, [guard.drafts, snapshotDraft]);
 
   useEffect(() => {
-    if (open && (initialSection || searchTarget)) switchSectionRef.current(target.section);
-    if (open) setMobileCategoryOpen(Boolean(initialSection || searchTarget));
+    if (!open) return;
+    if (initialSection || searchTarget) switchSectionRef.current(target.section);
+    else setMobileDetailOpen(false);
   }, [open, initialSection, searchTarget, target]);
 
   useEffect(() => {
-    if (open) {
-      navRef.current
+    if (open && (!singleColumn || !mobileDetailOpen)) {
+      nav
         ?.querySelector<HTMLElement>('.weq-settings-nav-item.is-active')
         ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-      subnavRef.current
-        ?.querySelector<HTMLElement>('.weq-settings-subnav-item.is-active')
-        ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     }
-  }, [open, activeId]);
+  }, [nav, open, active.id, mobileDetailOpen, singleColumn]);
 
   if (!open || closing) return null;
 
-  const active = sections.find((s) => s.id === activeId) ?? sections[0] ?? SETTINGS_SECTIONS[0]!;
   const requestClose = () => {
     if (hasPendingSettingsSaves())
       void flushSettingsSaves().then(() => {
@@ -632,161 +634,119 @@ function SettingsContent({
       >
         <section
           className="weq-settings-dialog weq-mobile-settings"
-          data-mobile-category={mobileCategoryOpen || undefined}
+          data-mobile-detail={mobileDetailOpen || undefined}
           role="region"
-          aria-labelledby="weq-settings-title"
+          aria-label="设置"
           onMouseDown={(e) => e.stopPropagation()}
         >
           <header className="weq-mobile-settings-header">
             <button
               type="button"
-              aria-label={mobileCategoryOpen ? '返回设置分类' : '返回'}
-              title={mobileCategoryOpen ? '返回设置分类' : '返回'}
+              aria-label={mobileDetailOpen ? '返回设置' : '返回'}
+              title={mobileDetailOpen ? '返回设置' : '返回'}
               onClick={() =>
-                // 标题写着「返回设置分类」时只回到一级分类，不经过返回栈退出设置。
-                mobileCategoryOpen
-                  ? requestNavigation(() => setMobileCategoryOpen(false))
+                mobileDetailOpen
+                  ? requestNavigation(() => setMobileDetailOpen(false))
                   : mobileBack() || requestNavigation(onClose)
               }
             >
               <ArrowLeft size={22} />
             </button>
-            <strong>{mobileCategoryOpen ? group.label : '设置'}</strong>
+            <strong>设置</strong>
           </header>
-          <button
-            className="weq-settings-close"
-            type="button"
-            title="关闭"
-            aria-label="关闭"
-            onClick={requestClose}
-          >
-            <X size={18} />
-          </button>
-          <nav ref={navRef} className="weq-settings-nav" aria-label="设置分类">
-            <h2 id="weq-settings-title" className="weq-settings-nav-title">
-              设置
-            </h2>
+          <nav ref={setNav} className="weq-settings-nav" aria-label="设置页面">
+            <h2 className="weq-settings-nav-title">设置</h2>
             <ul>
-              {groups.map((s) => (
-                <li key={s.id}>
+              {sections.map((section) => (
+                <li key={section.id}>
                   <button
                     type="button"
-                    className={`weq-settings-nav-item${s.id === group.id ? ' is-active' : ''}`}
-                    aria-current={s.id === group.id ? 'page' : undefined}
-                    onClick={() => {
-                      if (s.sections[0] === activeId) {
-                        setMobileCategoryOpen(true);
-                        return;
-                      }
-                      requestNavigation(() => {
-                        setActiveId(s.sections[0]!);
-                        setMobileCategoryOpen(true);
-                      });
-                    }}
+                    className={`weq-settings-nav-item${section.id === active.id ? ' is-active' : ''}`}
+                    aria-current={section.id === active.id ? 'page' : undefined}
+                    onClick={() => switchSection(section.id)}
                   >
-                    <span className="weq-settings-nav-icon">
-                      <SettingsGroupIcon group={s.id} />
+                    <span className="weq-settings-nav-icon" aria-hidden="true">
+                      <SettingsPageIcon page={section.id} />
                     </span>
                     <span className="weq-settings-nav-label">
-                      {s.label}
-                      {packUpdate && s.sections.includes('enhancement-packs') ? (
+                      {section.label}
+                      {packUpdate && section.id === 'enhancement-packs' ? (
                         <ReminderDot
                           className="weq-settings-update-mark"
                           aria-label="有增强包更新"
                         />
                       ) : null}
                     </span>
-                    <ChevronRight className="weq-mobile-settings-chevron" size={18} />
+                    <ChevronRight className="weq-mobile-settings-chevron" size={18} aria-hidden />
                   </button>
                 </li>
               ))}
             </ul>
           </nav>
-          <div className="weq-settings-content">
-            <nav ref={subnavRef} className="weq-settings-subnav" aria-label={`${group.label}分类`}>
-              {groupSections.map((section) => (
-                <button
-                  key={section.id}
-                  type="button"
-                  className={`weq-settings-subnav-item${section.id === activeId ? ' is-active' : ''}`}
-                  aria-current={section.id === activeId ? 'page' : undefined}
-                  onClick={() => switchSection(section.id)}
-                >
-                  <span className="weq-settings-subnav-icon" aria-hidden="true">
-                    <SettingsPageIcon page={section.id} />
-                  </span>
-                  <span className="weq-settings-subnav-label">{section.label}</span>
-                  {packUpdate && section.id === 'enhancement-packs' ? (
-                    <ReminderDot className="weq-settings-update-mark" aria-label="有增强包更新" />
-                  ) : null}
-                </button>
-              ))}
-            </nav>
-            <div className="weq-settings-pages">
-              <TabActivity active={!locked}>
-                <PageSnapshotsFallback scope="bootstrap-settings">
-                  <RetainedTabs snapshotKey="settings" activeKey={active.id}>
-                    <RetainedSettingsPage
-                      pageId={active.id}
-                      target={linkedTarget ? resolveSettingsTarget(linkedTarget) : target}
-                      revision={linkedTarget?.revision ?? searchTarget?.revision}
-                      recordId={linkedTarget?.recordId ?? searchTarget?.recordId}
-                    >
-                      <SettingsNotificationSource section={active.id}>
-                        <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
-                          <SettingsNavigateContext.Provider
-                            value={(section, settingId) => {
-                              const next = resolveSettingsTarget({
-                                section: section as SectionId,
-                                settingId,
-                              });
-                              requestNavigation(() => {
-                                setLinkedTarget({ ...next, revision: Date.now() });
-                                setActiveId(next.section);
-                                setMobileCategoryOpen(true);
-                              });
-                            }}
-                          >
-                            {active.id === 'anti-recall' ? (
-                              <>
-                                {active.render(onOpenMaintenance)}
-                                <SettingsScopeContext.Provider value={null}>
-                                  <AntiRecallDialog
-                                    embedded
-                                    onClose={() => {}}
-                                    onOpenRecalls={onOpenRecalls}
-                                    recallDetails={recallDetails}
-                                    onCloseRecalls={onCloseRecalls}
-                                    isCurrentSource={isCurrentSource}
-                                  />
-                                </SettingsScopeContext.Provider>
-                              </>
-                            ) : active.id === 'global' ? (
-                              <GlobalSettingsSection
-                                notificationTarget={linkedTarget ?? searchTarget}
-                                recallNotifications={
-                                  <AntiRecallDialog
-                                    embedded
-                                    section="notifications"
-                                    onClose={() => {}}
-                                    onOpenRecalls={onOpenRecalls}
-                                    isCurrentSource={isCurrentSource}
-                                    notificationConversation={searchTarget?.conversation}
-                                    notificationRevision={searchTarget?.revision}
-                                  />
-                                }
-                              />
-                            ) : (
-                              active.render(onOpenMaintenance)
-                            )}
-                          </SettingsNavigateContext.Provider>
-                        </SettingsScopeContext.Provider>
-                      </SettingsNotificationSource>
-                    </RetainedSettingsPage>
-                  </RetainedTabs>
-                </PageSnapshotsFallback>
-              </TabActivity>
-            </div>
+          <div className="weq-settings-pages">
+            <TabActivity active={!locked}>
+              <PageSnapshotsFallback scope="bootstrap-settings">
+                <RetainedTabs snapshotKey="settings" activeKey={active.id}>
+                  <RetainedSettingsPage
+                    pageId={active.id}
+                    target={linkedTarget ? resolveSettingsTarget(linkedTarget) : target}
+                    revision={linkedTarget?.revision ?? searchTarget?.revision}
+                    recordId={linkedTarget?.recordId ?? searchTarget?.recordId}
+                  >
+                    <SettingsNotificationSource section={active.id}>
+                      <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
+                        <SettingsNavigateContext.Provider
+                          value={(section, settingId) => {
+                            const next = resolveSettingsTarget({
+                              section: section as SectionId,
+                              settingId,
+                            });
+                            requestNavigation(() => {
+                              setLinkedTarget({ ...next, revision: Date.now() });
+                              setActiveId(next.section);
+                              setMobileDetailOpen(true);
+                            });
+                          }}
+                        >
+                          {active.id === 'anti-recall' ? (
+                            <>
+                              {active.render(onOpenMaintenance)}
+                              <SettingsScopeContext.Provider value={null}>
+                                <AntiRecallDialog
+                                  embedded
+                                  onClose={() => {}}
+                                  onOpenRecalls={onOpenRecalls}
+                                  recallDetails={recallDetails}
+                                  onCloseRecalls={onCloseRecalls}
+                                  isCurrentSource={isCurrentSource}
+                                />
+                              </SettingsScopeContext.Provider>
+                            </>
+                          ) : active.id === 'global' ? (
+                            <GlobalSettingsSection
+                              notificationTarget={linkedTarget ?? searchTarget}
+                              recallNotifications={
+                                <AntiRecallDialog
+                                  embedded
+                                  section="notifications"
+                                  onClose={() => {}}
+                                  onOpenRecalls={onOpenRecalls}
+                                  isCurrentSource={isCurrentSource}
+                                  notificationConversation={searchTarget?.conversation}
+                                  notificationRevision={searchTarget?.revision}
+                                />
+                              }
+                            />
+                          ) : (
+                            active.render(onOpenMaintenance)
+                          )}
+                        </SettingsNavigateContext.Provider>
+                      </SettingsScopeContext.Provider>
+                    </SettingsNotificationSource>
+                  </RetainedSettingsPage>
+                </RetainedTabs>
+              </PageSnapshotsFallback>
+            </TabActivity>
           </div>
         </section>
       </WorkspacePage>
@@ -833,7 +793,7 @@ function SettingsContent({
                 className="weq-action-primary"
                 onClick={() => {
                   setPendingNavigation(null);
-                  const body = navRef.current?.parentElement?.querySelector('.weq-settings-body');
+                  const body = nav?.parentElement?.querySelector('.weq-settings-body');
                   const save = [
                     ...(body?.querySelectorAll<HTMLButtonElement>('button') ?? []),
                   ].find((button) => !button.disabled && button.textContent?.includes('保存'));

@@ -164,7 +164,8 @@ try {
         const banner = page.getByRole('switch', { name: '新邮件：应用内横幅通知', exact: true });
         assert.equal(await banner.getAttribute('aria-checked'), 'true');
         await banner.click();
-        await page.getByRole('button', { name: '基础功能', exact: true }).click();
+        const back = page.getByRole('button', { name: '返回设置', exact: true });
+        if (await back.isVisible()) await back.click();
         await page.getByRole('button', { name: 'QQ 邮箱', exact: true }).click();
         assert.equal(await method.inputValue(), 'system');
         cases++;
