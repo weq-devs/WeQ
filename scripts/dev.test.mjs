@@ -260,6 +260,7 @@ test('Electron 安装补齐 .npmrc 镜像配置，显式环境变量优先', asy
   });
   await writeFile(join(electron, 'index.js'), 'module.exports = process.execPath;');
   await writeFile(join(electron, 'install.js'), '');
+  const installScript = await realpath(join(electron, 'install.js'));
   await writeFile(
     join(root, '.npmrc'),
     [
@@ -274,7 +275,7 @@ test('Electron 安装补齐 .npmrc 镜像配置，显式环境变量优先', asy
     env: { ...process.env, ELECTRON_MIRROR: 'https://env.example/electron/' },
     log: silent,
     run: async (command, args, options) => {
-      if (args[0] === join(electron, 'install.js')) {
+      if (args[0] === installScript) {
         installEnv = options.env;
         return '';
       }
@@ -283,6 +284,7 @@ test('Electron 安装补齐 .npmrc 镜像配置，显式环境变量优先', asy
     },
   });
   assert.equal(executable, process.execPath);
+  assert.ok(installEnv, '应调用 Electron 安装脚本');
   assert.equal(installEnv.ELECTRON_MIRROR, 'https://env.example/electron/');
   assert.equal(installEnv.ELECTRON_CUSTOM_DIR, '{{ version }}');
   assert.equal(installEnv.ELECTRON_CUSTOM_FILENAME, 'custom.zip');
