@@ -1247,6 +1247,7 @@ export class UnreadInfoService {
         const candidates = rows.filter(
           (row) =>
             row.msgSeq === seq &&
+            row.msgType !== undefined &&
             row.msgType > BigInt(MsgType.NULL) &&
             row.msgType !== BigInt(MsgType.GRAY_TIP),
         );
