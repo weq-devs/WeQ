@@ -60,6 +60,19 @@ export function remoteDataCacheStatus() {
 export const currentRemoteDataCacheStatus = () => latestStatus;
 
 export const refreshRemoteDataCacheStatus = () => requestStatus('GET');
+export async function syncRemoteDataCacheLimit() {
+  if (!(await remoteDataCacheStatus()) || clearing) return;
+  const status = await refreshRemoteDataCacheStatus();
+  if (status && !clearing && status.generation === latestStatus?.generation) {
+    latestStatus = status;
+    initialStatus = Promise.resolve(status);
+  }
+}
+
+export function stopRemoteDataCacheWrites() {
+  clearing = true;
+}
+
 export async function setRemoteDataCacheLimit(limit: number) {
   const status = await requestStatus('PUT', limit);
   if (!status) throw new Error('本机缓存上限保存失败');
@@ -69,7 +82,7 @@ export async function setRemoteDataCacheLimit(limit: number) {
 }
 
 export async function clearRemoteDataCache() {
-  clearing = true;
+  stopRemoteDataCacheWrites();
   try {
     const status = await requestStatus('DELETE');
     if (!status) throw new Error('本机缓存清理失败');

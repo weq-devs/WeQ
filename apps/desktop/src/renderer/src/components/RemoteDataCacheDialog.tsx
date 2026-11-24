@@ -6,6 +6,8 @@ import {
   clearRemoteDataCache,
   refreshRemoteDataCacheStatus,
   setRemoteDataCacheLimit,
+  stopRemoteDataCacheWrites,
+  syncRemoteDataCacheLimit,
   type RemoteDataCacheStatus,
 } from '../lib/remoteDataCache';
 import { clearLegacyNativeCache } from '../lib/remoteCacheBridge';
@@ -16,7 +18,18 @@ import { useRemoteClient } from '../lib/remoteClient';
 declare global {
   interface Window {
     weqOpenLocalCache?: () => void;
+    weqLocalCacheChanged?: (cleared: boolean) => void;
   }
+}
+
+async function clearLegacyCachesAndReload() {
+  stopRemoteDataCacheWrites();
+  await Promise.allSettled([
+    clearLegacyBusinessCache(),
+    clearLegacyAvatarCache(),
+    clearLegacyNativeCache(),
+  ]);
+  location.reload();
 }
 
 export function RemoteDataCacheDialog() {
@@ -25,8 +38,13 @@ export function RemoteDataCacheDialog() {
   useEffect(() => {
     if (!remote) return;
     window.weqOpenLocalCache = () => setOpen(true);
+    window.weqLocalCacheChanged = (cleared) => {
+      if (cleared) void clearLegacyCachesAndReload();
+      else void syncRemoteDataCacheLimit().catch(() => undefined);
+    };
     return () => {
       delete window.weqOpenLocalCache;
+      delete window.weqLocalCacheChanged;
     };
   }, [remote]);
   return open ? <CacheDialog onClose={() => setOpen(false)} /> : null;
@@ -87,12 +105,7 @@ function CacheDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     try {
       await clearRemoteDataCache();
-      await Promise.allSettled([
-        clearLegacyBusinessCache(),
-        clearLegacyAvatarCache(),
-        clearLegacyNativeCache(),
-      ]);
-      location.reload();
+      await clearLegacyCachesAndReload();
     } catch {
       setNotice('清除失败，请重试。');
       setBusy(false);
