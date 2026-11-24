@@ -158,19 +158,28 @@ export function albumMediaDeleteAllowed(
   return owned || capabilities?.deleteAlbum === true;
 }
 
-/** null 表示本地规则允许；未知的本人服务端窗口不改成臆测的固定上限。 */
-export function recallPermission(c: QQRecallPermissionInput): string | null {
+export function recallPermission(c: QQRecallPermissionInput & { plainText?: boolean }): {
+  reason: string | null;
+  warning?: string;
+} {
   if (!c.mine && (c.kind !== 'group' || !groupPermission('recall', c)))
-    return c.kind === 'group' && c.targetRole == null
-      ? '发送者身份尚未确认'
-      : '当前账号不能撤回这位成员的消息';
+    return {
+      reason:
+        c.kind === 'group' && c.targetRole == null
+          ? '发送者身份尚未确认'
+          : '当前账号不能撤回这位成员的消息',
+    };
   if (
     c.kind === 'group' &&
     (c.role === 'owner' || c.role === 'admin' || (!c.mine && c.temporaryRecall))
   )
-    return null;
+    return { reason: null };
   const hours = c.kind === 'c2c' && c.file === true;
-  if (c.ageMs !== undefined && c.ageMs > (hours ? 7_200_000 : 120_000))
-    return hours ? '超过 2 小时的私聊文件无法撤回' : '超过 2 分钟的消息无法撤回';
-  return null;
+  if (c.ageMs !== undefined && c.ageMs > (hours ? 7_200_000 : 120_000)) {
+    if (hours) return { reason: '超过 2 小时的私聊文件无法撤回' };
+    if (c.mine && c.plainText)
+      return { reason: null, warning: '按本机时间已超过通常的 2 分钟，是否向 QQ 尝试撤回？' };
+    return { reason: '超过 2 分钟的消息无法撤回' };
+  }
+  return { reason: null };
 }

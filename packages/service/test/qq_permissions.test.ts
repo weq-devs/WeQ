@@ -62,21 +62,24 @@ describe('QQ 资源归属', () => {
 describe('消息撤回时间与身份', () => {
   it('私聊文件两小时，不影响私聊文本和群文件', () => {
     const base = { mine: true, ageMs: 180_000 };
-    expect(recallPermission({ ...base, kind: 'c2c', file: true })).toBeNull();
-    expect(recallPermission({ ...base, kind: 'c2c', file: false })).toContain('2 分钟');
-    expect(recallPermission({ ...base, kind: 'group', file: true, role: 'member' })).toContain(
-      '2 分钟',
-    );
-    expect(recallPermission({ ...base, kind: 'c2c', file: true, ageMs: 7_200_001 })).toContain(
-      '2 小时',
-    );
+    expect(recallPermission({ ...base, kind: 'c2c', file: true }).reason).toBeNull();
+    expect(recallPermission({ ...base, kind: 'c2c', plainText: true })).toMatchObject({
+      reason: null,
+      warning: expect.stringContaining('2 分钟'),
+    });
+    expect(
+      recallPermission({ ...base, kind: 'group', file: true, role: 'member' }).reason,
+    ).toContain('2 分钟');
+    expect(
+      recallPermission({ ...base, kind: 'c2c', file: true, ageMs: 7_200_001 }).reason,
+    ).toContain('2 小时');
   });
   it('管理者不绕过目标身份检查，但本人不走代管权限', () => {
     expect(
-      recallPermission({ kind: 'group', mine: false, role: 'admin', targetRole: 'admin' }),
+      recallPermission({ kind: 'group', mine: false, role: 'admin', targetRole: 'admin' }).reason,
     ).not.toBeNull();
     expect(
-      recallPermission({ kind: 'group', mine: true, role: 'admin', ageMs: 180_000 }),
+      recallPermission({ kind: 'group', mine: true, role: 'admin', ageMs: 180_000 }).reason,
     ).toBeNull();
     expect(
       recallPermission({
@@ -85,7 +88,7 @@ describe('消息撤回时间与身份', () => {
         role: 'owner',
         targetRole: 'admin',
         ageMs: 180_000,
-      }),
+      }).reason,
     ).toBeNull();
   });
 });

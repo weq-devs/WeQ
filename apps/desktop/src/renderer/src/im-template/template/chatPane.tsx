@@ -3374,10 +3374,14 @@ function ChatPaneContent({
   /**
    * 右键消息「撤回」的可用性。
    *   - 私聊 / 群聊：自己的消息都显示；群聊里群主 / 管理员对**任何**消息都显示（越级）。
-   *   - 2 分钟规则：普通成员只能撤自己 2 分钟内的；群主 / 管理员无视该规则。
-   * 返回 `show=false` 表示这项根本不出现；`reason` 非空表示出现但置灰。
+   *   - 本人普通文本超出通常时限时，由用户确认后交给 QQ 裁决。
+   * 返回 `show=false` 表示不出现；`reason` 非空表示置灰，`warning` 提交前确认。
    */
-  function recallAvailability(message: Message): { show: boolean; reason: string | null } {
+  function recallAvailability(message: Message): {
+    show: boolean;
+    reason: string | null;
+    warning?: string;
+  } {
     if (!conversation || grayTipOf(message)) {
       return { show: false, reason: null };
     }
@@ -3438,7 +3442,7 @@ function ChatPaneContent({
     const sentAt = Date.parse(message.createdAt);
     return {
       show: true,
-      reason: recallPermission({
+      ...recallPermission({
         kind: conversation.type === 'group' ? 'group' : 'c2c',
         mine,
         role,
@@ -3446,6 +3450,9 @@ function ChatPaneContent({
         temporaryRecall: groupOperations.data?.temporaryRecall,
         targetRole,
         file: message.qqElements?.some((element) => element.type === 'file') === true,
+        plainText:
+          Boolean(message.qqElements?.length) &&
+          message.qqElements?.every((element) => element.type === 'text'),
         ageMs: Number.isFinite(sentAt) ? Date.now() - sentAt : undefined,
       }),
     };
@@ -3457,6 +3464,7 @@ function ChatPaneContent({
     options?: {
       binding: { expectedAccountUin: string; expectedAccountConfigId: string };
       quiet?: boolean;
+      confirmedTimeWarning?: boolean;
     },
   ): Promise<boolean> {
     setContextMenu(null);
@@ -3467,6 +3475,18 @@ function ChatPaneContent({
     message = current;
     const availability = recallAvailability(message);
     if (!availability.show || availability.reason) return Promise.resolve(false);
+    if (availability.warning && !options?.confirmedTimeWarning) {
+      if (options || !recallBinding) return Promise.resolve(false);
+      const binding = recallBinding;
+      return useDialog
+        .getState()
+        .confirm('尝试撤回消息', availability.warning, { danger: 'outline' })
+        .then((confirmed) =>
+          confirmed && recallScopeRef.current === recallScope
+            ? latestRecallMessageFor.current(message, { binding, confirmedTimeWarning: true })
+            : false,
+        );
+    }
     if (
       !conversation ||
       (conversation.type !== 'group' && conversation.type !== 'direct') ||
