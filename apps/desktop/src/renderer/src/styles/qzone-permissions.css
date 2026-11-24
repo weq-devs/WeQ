@@ -9,6 +9,9 @@
   color: var(--weq-fg-muted);
   font-size: 12px;
 }
+.weq-qzone-permissions-count {
+  margin-inline-end: 8px;
+}
 .weq-qzone-permissions p {
   margin: 0;
   overflow-wrap: anywhere;
