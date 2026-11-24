@@ -27,6 +27,7 @@ import {
   type ReactNode,
 } from 'react';
 import { ToolSurface, type ToolPresentation } from '../../components/ToolSurface';
+import { Card } from '../../components/settings/controls';
 import {
   X,
   Loader2,
@@ -418,37 +419,16 @@ export function ResourceCleanupDialog({
     setCustomSel((prev) => ({ ...prev, [id]: variant }));
   };
 
-  const content = (onClose: () => void) => (
-    <div
-      className="weq-ra-dialog weq-clean-dialog weq-anim-pop"
-      role={embedded ? 'region' : 'dialog'}
-      aria-label="清理本地资源"
-      {...multi.rootProps}
-      onMouseDown={(e) => e.stopPropagation()}
-    >
-      <header className="weq-ra-head">
-        <div className="weq-ra-head-title">
-          <Trash2 size={18} />
-          <div>
-            <strong>{embedded ? 'QQ 资源清理' : '清理释放本地资源'}</strong>
-            {!embedded ? (
-              <small>删除 QQ 本地缓存以释放磁盘空间，可再生资源会自动重新下载</small>
-            ) : null}
-          </div>
-        </div>
-        <div className="weq-ra-head-actions">
-          {loading ? <Loader2 size={14} className="weq-spin" /> : null}
-          <span className="weq-clean-total">
-            共 <span className="weq-number weq-number-inherit">{fmtBytes(totalBytes)}</span>
-          </span>
-          {!embedded ? (
-            <button type="button" className="weq-ra-close" onClick={onClose} aria-label="关闭">
-              <X size={18} />
-            </button>
-          ) : null}
-        </div>
-      </header>
-
+  const total = (
+    <>
+      {loading ? <Loader2 size={14} className="weq-spin" /> : null}
+      <span className="weq-clean-total">
+        共 <span className="weq-number weq-number-inherit">{fmtBytes(totalBytes)}</span>
+      </span>
+    </>
+  );
+  const body = (
+    <>
       {error || snapshot?.error ? (
         <div className="weq-ra-error" role="alert">
           <AlertTriangle size={14} /> {error ?? snapshot?.error}
@@ -549,6 +529,40 @@ export function ResourceCleanupDialog({
           />
         ) : null}
       </div>
+    </>
+  );
+  const content = (onClose: () => void) => (
+    <div
+      className={embedded ? undefined : 'weq-ra-dialog weq-clean-dialog weq-anim-pop'}
+      role={embedded ? 'region' : 'dialog'}
+      aria-label="清理本地资源"
+      {...multi.rootProps}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      {embedded ? (
+        <Card title="资源清理" icon={<Trash2 size={15} strokeWidth={1.8} />} action={total}>
+          {body}
+        </Card>
+      ) : (
+        <>
+          <header className="weq-ra-head">
+            <div className="weq-ra-head-title">
+              <Trash2 size={18} />
+              <div>
+                <strong>清理释放本地资源</strong>
+                <small>删除 QQ 本地缓存以释放磁盘空间，可再生资源会自动重新下载</small>
+              </div>
+            </div>
+            <div className="weq-ra-head-actions">
+              {total}
+              <button type="button" className="weq-ra-close" onClick={onClose} aria-label="关闭">
+                <X size={18} />
+              </button>
+            </div>
+          </header>
+          {body}
+        </>
+      )}
     </div>
   );
   return embedded ? (

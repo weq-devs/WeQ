@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Layers,
   Server,
   UsersRound,
@@ -18,7 +19,7 @@ import type { AppRouter } from '../../../../shared/router';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { SegmentedControl } from '../../components/SegmentedControl';
-import { QueryError } from '../../components/settings/controls';
+import { Card, QueryError } from '../../components/settings/controls';
 import '../../styles/api-usage.css';
 
 export type UsageStats = inferRouterOutputs<AppRouter>['account']['getAgentLabTokenStats'];
@@ -246,29 +247,13 @@ function UsagePagination({
   );
 }
 
-function UsageTable({
-  title,
-  icon,
-  children,
-}: {
-  title: string;
-  icon?: ReactNode;
-  children: ReactNode;
-}): ReactElement {
+function UsageTable({ title, children }: { title: string; children: ReactNode }): ReactElement {
   const [page, setPage] = useState(0);
   const rows = Array.isArray(children) ? children : [children];
   const lastPage = Math.max(0, Math.ceil(rows.length / PAGE_SIZE) - 1);
   const currentPage = Math.min(page, lastPage);
   return (
-    <section className="weq-usage-section">
-      <h4 className="weq-set-card-title">
-        {icon ? (
-          <span className="weq-set-card-icon" aria-hidden>
-            {icon}
-          </span>
-        ) : null}
-        {title}
-      </h4>
+    <>
       <div className="weq-usage-accounting-table" tabIndex={0} role="region" aria-label={title}>
         <table>
           <UsageTableHead label={title === '克隆体明细' ? '克隆体' : '服务商 / 模型'} />
@@ -276,7 +261,7 @@ function UsageTable({
         </table>
       </div>
       <UsagePagination title={title} count={rows.length} page={currentPage} onChange={setPage} />
-    </section>
+    </>
   );
 }
 function UsageCategory({ row }: { row: UsageStats['byCategory'][number] }): ReactElement {
@@ -338,13 +323,7 @@ function UsageCategory({ row }: { row: UsageStats['byCategory'][number] }): Reac
 
 function FeatureUsage({ rows }: { rows: UsageStats['byCategory'] }): ReactElement {
   return (
-    <section className="weq-usage-section">
-      <h4 className="weq-set-card-title">
-        <span className="weq-set-card-icon" aria-hidden>
-          <Layers size={15} strokeWidth={1.8} />
-        </span>
-        功能用量
-      </h4>
+    <Card title="功能用量" icon={<Layers size={15} strokeWidth={1.8} />}>
       <div className="weq-usage-accounting-table" tabIndex={0} role="region" aria-label="功能用量">
         <table>
           <UsageTableHead label="功能 / 用途" />
@@ -353,7 +332,7 @@ function FeatureUsage({ rows }: { rows: UsageStats['byCategory'] }): ReactElemen
           ))}
         </table>
       </div>
-    </section>
+    </Card>
   );
 }
 function UsageCells({
@@ -420,7 +399,7 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
     d.totalCalls - d.failedCalls - d.cancelledCalls - d.pendingCalls - d.interruptedCalls;
   return (
     <>
-      <div className="weq-usage-records">
+      <Card title="用量概览" icon={<Activity size={15} strokeWidth={1.8} />}>
         <div className="weq-usage-scope">
           <p>
             {start === null ? (
@@ -456,75 +435,72 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
           ))}
           <p>总量仅汇总保留记录；本地推理不计入。未知用量不按零估算，token 不换算费用。</p>
         </details>
-      </div>
-      {d.totalCalls === 0 ? (
-        <div className="weq-usage-placeholder">
-          <Activity size={28} aria-hidden="true" />
-          <h4>所选时段暂无 API 请求</h4>
-        </div>
-      ) : (
-        <>
-          <dl className="weq-usage-summary">
-            <div>
-              <dt>已知 token</dt>
-              <dd title={numberFormat.format(d.totalTokens)}>
-                <NumericText>{d.knownCalls > 0 ? fmt(d.totalTokens) : '未知'}</NumericText>
-              </dd>
-            </div>
-            <div>
-              <dt>请求次数</dt>
-              <dd>
-                {
-                  <span className="weq-number weq-number-inherit">
-                    {numberFormat.format(d.totalCalls)}
-                  </span>
-                }
-              </dd>
-            </div>
-            <div>
-              <dt>用量已返回</dt>
-              <dd>
-                <span className="weq-number weq-number-inherit">{d.knownCalls}</span> /{' '}
-                <span className="weq-number weq-number-inherit">{d.totalCalls}</span>
-              </dd>
-            </div>
-            <div>
-              <dt>用量未知</dt>
-              <dd>
-                {
-                  <span className="weq-number weq-number-inherit">
-                    {numberFormat.format(d.unknownCalls)}
-                  </span>
-                }
-              </dd>
-            </div>
-          </dl>
-          <dl className="weq-usage-status" aria-label="请求状态">
-            {(
-              [
-                ['成功', success],
-                ['失败', d.failedCalls],
-                ['取消', d.cancelledCalls],
-                ['进行中', d.pendingCalls],
-                ['中断', d.interruptedCalls],
-              ] as const
-            ).map(([label, count]) => (
-              <div key={label}>
-                <dt>{label}</dt>
-                <dd>
-                  <span className="weq-number weq-number-inherit">{count}</span>
+        {d.totalCalls === 0 ? (
+          <p className="weq-set-note">所选时段暂无 API 请求</p>
+        ) : (
+          <>
+            <dl className="weq-usage-summary">
+              <div>
+                <dt>已知 token</dt>
+                <dd title={numberFormat.format(d.totalTokens)}>
+                  <NumericText>{d.knownCalls > 0 ? fmt(d.totalTokens) : '未知'}</NumericText>
                 </dd>
               </div>
-            ))}
-          </dl>
-          <section className="weq-usage-section">
-            <div className="weq-usage-section-heading">
-              <h4 className="weq-set-card-title">
-                <span className="weq-set-card-icon" aria-hidden>
-                  <ChartLine size={15} strokeWidth={1.8} />
-                </span>
-                {d.period === 'retained' ? '近 30 天趋势' : '用量趋势'}
-              </h4>
+              <div>
+                <dt>请求次数</dt>
+                <dd>
+                  {
+                    <span className="weq-number weq-number-inherit">
+                      {numberFormat.format(d.totalCalls)}
+                    </span>
+                  }
+                </dd>
+              </div>
+              <div>
+                <dt>用量已返回</dt>
+                <dd>
+                  <span className="weq-number weq-number-inherit">{d.knownCalls}</span> /{' '}
+                  <span className="weq-number weq-number-inherit">{d.totalCalls}</span>
+                </dd>
+              </div>
+              <div>
+                <dt>用量未知</dt>
+                <dd>
+                  {
+                    <span className="weq-number weq-number-inherit">
+                      {numberFormat.format(d.unknownCalls)}
+                    </span>
+                  }
+                </dd>
+              </div>
+            </dl>
+            <dl className="weq-usage-status" aria-label="请求状态">
+              {(
+                [
+                  ['成功', success],
+                  ['失败', d.failedCalls],
+                  ['取消', d.cancelledCalls],
+                  ['进行中', d.pendingCalls],
+                  ['中断', d.interruptedCalls],
+                ] as const
+              ).map(([label, count]) => (
+                <div key={label}>
+                  <dt>{label}</dt>
+                  <dd>
+                    <span className="weq-number weq-number-inherit">{count}</span>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </>
+        )}
+      </Card>
+      {d.totalCalls > 0 ? (
+        <>
+          <Card
+            title={d.period === 'retained' ? '近 30 天趋势' : '用量趋势'}
+            icon={<ChartLine size={15} strokeWidth={1.8} />}
+            action={
               <SegmentedControl
                 label="趋势指标"
                 value={metric}
@@ -534,36 +510,31 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
                 ]}
                 onChange={setMetric}
               />
-            </div>
-            <HourLine data={points} metric={metric} daily={d.period !== '24h'} />
-          </section>
-          <FeatureUsage key={`features-${d.period}`} rows={d.byCategory} />
-          <UsageTable
-            key={`models-${d.period}`}
-            title="服务商与模型"
-            icon={<Server size={15} strokeWidth={1.8} />}
+            }
           >
-            {d.byModel.map((row) => (
-              <tr key={row.key}>
-                <th scope="row">
-                  <span>{row.providerName || (row.providerId ? '未命名配置' : '未知服务商')}</span>
-                  <small title={row.providerId ?? '旧记录或未标识请求'}>
-                    {row.providerKind === 'tts' ? 'TTS' : 'API'}
-                    {row.providerId ? ` · ${row.providerId.slice(-8)}` : ' · 未记录归属'}
-                  </small>
-                  <span className="weq-usage-model-name">{row.model}</span>
-                </th>
-                <UsageCells row={row} />
-              </tr>
-            ))}
-          </UsageTable>
-          <section className="weq-usage-section">
-            <h4 className="weq-set-card-title">
-              <span className="weq-set-card-icon" aria-hidden>
-                <ArrowLeftRight size={15} strokeWidth={1.8} />
-              </span>
-              已知输入 / 输出 token
-            </h4>
+            <HourLine data={points} metric={metric} daily={d.period !== '24h'} />
+          </Card>
+          <FeatureUsage key={`features-${d.period}`} rows={d.byCategory} />
+          <Card title="服务商与模型" icon={<Server size={15} strokeWidth={1.8} />}>
+            <UsageTable key={`models-${d.period}`} title="服务商与模型">
+              {d.byModel.map((row) => (
+                <tr key={row.key}>
+                  <th scope="row">
+                    <span>
+                      {row.providerName || (row.providerId ? '未命名配置' : '未知服务商')}
+                    </span>
+                    <small title={row.providerId ?? '旧记录或未标识请求'}>
+                      {row.providerKind === 'tts' ? 'TTS' : 'API'}
+                      {row.providerId ? ` · ${row.providerId.slice(-8)}` : ' · 未记录归属'}
+                    </small>
+                    <span className="weq-usage-model-name">{row.model}</span>
+                  </th>
+                  <UsageCells row={row} />
+                </tr>
+              ))}
+            </UsageTable>
+          </Card>
+          <Card title="已知输入 / 输出 token" icon={<ArrowLeftRight size={15} strokeWidth={1.8} />}>
             <dl className="weq-usage-io">
               <div>
                 <dt>输入</dt>
@@ -591,25 +562,27 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
                 </small>
               </div>
             </dl>
-          </section>
+          </Card>
           {clones.length > 0 ? (
-            <details
-              className="weq-usage-personas"
-              onToggle={(event) => setPersonasOpen(event.currentTarget.open)}
-            >
-              <summary>
-                <span className="weq-set-card-title">
-                  <span className="weq-set-card-icon" aria-hidden>
-                    <UsersRound size={15} strokeWidth={1.8} />
+            <Card>
+              <details
+                className="weq-usage-personas"
+                onToggle={(event) => setPersonasOpen(event.currentTarget.open)}
+              >
+                <summary>
+                  <span className="weq-set-card-title">
+                    <span className="weq-set-card-icon" aria-hidden>
+                      <UsersRound size={15} strokeWidth={1.8} />
+                    </span>
+                    克隆体明细
                   </span>
-                  克隆体明细
-                </span>
-              </summary>
-              {personasOpen ? <PersonaUsage rows={clones} /> : null}
-            </details>
+                </summary>
+                {personasOpen ? <PersonaUsage rows={clones} /> : null}
+              </details>
+            </Card>
           ) : null}
         </>
-      )}
+      ) : null}
     </>
   );
 }
@@ -627,24 +600,30 @@ export function UsagePanel(): ReactElement {
   );
   return (
     <div className="weq-usage weq-api-usage" aria-busy={stats.isFetching}>
-      <div className="weq-usage-toolbar">
-        <SegmentedControl label="统计范围" value={period} options={PERIODS} onChange={setPeriod} />
-      </div>
-      {stats.isError ? (
-        <QueryError
-          message={`用量读取失败：${stats.error.message}。${stats.data ? '当前显示上次读取的记录。' : ''}`}
-          retryLabel="重试读取用量"
-          retrying={!autoRefresh.enabled || stats.isFetching}
-          onRetry={() => void stats.refetch()}
-        />
-      ) : null}
-      {stats.data ? (
-        <UsageReport data={stats.data} />
-      ) : stats.isLoading ? (
-        <p className="weq-set-note" role="status">
-          加载用量统计中…
-        </p>
-      ) : null}
+      <Card title="统计范围" icon={<Clock size={15} strokeWidth={1.8} />}>
+        <div>
+          <SegmentedControl
+            label="统计范围"
+            value={period}
+            options={PERIODS}
+            onChange={setPeriod}
+          />
+        </div>
+        {stats.isError ? (
+          <QueryError
+            message={`用量读取失败：${stats.error.message}。${stats.data ? '当前显示上次读取的记录。' : ''}`}
+            retryLabel="重试读取用量"
+            retrying={!autoRefresh.enabled || stats.isFetching}
+            onRetry={() => void stats.refetch()}
+          />
+        ) : null}
+        {!stats.data && stats.isLoading ? (
+          <p className="weq-set-note" role="status">
+            加载用量统计中…
+          </p>
+        ) : null}
+      </Card>
+      {stats.data ? <UsageReport data={stats.data} /> : null}
     </div>
   );
 }

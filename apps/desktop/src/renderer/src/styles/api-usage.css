@@ -119,16 +119,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.weq-usage-toolbar,
-.weq-usage-section-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  min-width: 0;
-}
-
 .weq-usage-refresh:hover:not(:disabled) {
   background: color-mix(in srgb, var(--weq-accent-effective) 9%, var(--weq-bg-surface));
 }
@@ -180,11 +170,6 @@
   margin: 0;
 }
 
-.weq-usage-records {
-  display: grid;
-  gap: 8px;
-}
-
 .weq-usage-retention summary,
 .weq-usage-personas summary {
   width: fit-content;
@@ -194,8 +179,12 @@
 }
 
 .weq-usage-retention[open] summary,
-.weq-usage-personas[open] summary {
+.weq-usage-personas[open] > summary {
   margin-bottom: 10px;
+}
+
+.weq-usage-personas > .weq-usage-pagination {
+  margin-top: 10px;
 }
 
 .weq-usage-summary {
@@ -251,36 +240,6 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin: 0;
-}
-
-.weq-usage-placeholder {
-  display: grid;
-  justify-items: center;
-  gap: 12px;
-  padding: 36px 0;
-  color: var(--weq-fg-secondary);
-  text-align: center;
-}
-
-.weq-usage-placeholder h4 {
-  margin: 0;
-  font-size: 14px;
-}
-
-.weq-api-usage .weq-usage-section {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  gap: 12px;
-  padding-top: 16px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
-.weq-api-usage h4 {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--weq-fg-primary);
 }
 
 .weq-usage-accounting-table {
