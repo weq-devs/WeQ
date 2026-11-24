@@ -261,7 +261,7 @@ html[data-theme] body .weq-set-chk {
 }
 
 html[data-theme] body .weq-set-chk.is-on {
-  background: var(--weq-list-selected-background);
+  background: var(--weq-control-selected-background);
   color: var(--weq-fg-primary);
   border-color: var(--weq-accent-ink);
 }

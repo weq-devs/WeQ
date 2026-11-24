@@ -120,11 +120,12 @@ html[data-theme='light'],
   --weq-list-alert-ink: #a61d2b;
   --weq-list-info-ink: #205bb5;
   --weq-list-attention-ink: #805500;
-  --weq-list-selected-background: color-mix(
+  --weq-control-selected-background: color-mix(
     in srgb,
     var(--weq-accent-effective) 14%,
     var(--weq-bg-surface)
   );
+  --weq-list-selected-background: var(--weq-control-selected-background);
   --weq-fg-secondary: oklch(0.45 0.02 248);
   --weq-fg-muted: oklch(0.58 0.015 248);
   /* 普通分区、列表与菜单统一用 1px 实线及此颜色；仅临时确认区保留虚线。 */
@@ -151,11 +152,12 @@ html[data-theme='light'],
 html[data-theme='dark'],
 .dark,
 :where(html[data-theme='dark']) [data-component-preview] {
-  --weq-list-selected-background: color-mix(
+  --weq-control-selected-background: color-mix(
     in srgb,
     var(--weq-accent-effective) 18%,
     var(--weq-bg-surface)
   );
+  --weq-list-selected-background: var(--weq-control-selected-background);
   --weq-list-alert-ink: #ffa39e;
   --weq-list-info-ink: #94c5ff;
   --weq-list-attention-ink: #f4d273;
@@ -6634,7 +6636,7 @@ html[data-theme='dark'] .weq-set-account-item {
   background: rgba(255, 255, 255, 0.02);
 }
 
-html[data-theme='dark'] .weq-set-chk:hover:not(:disabled),
+html[data-theme='dark'] .weq-set-chk:hover:not(.is-on, :disabled),
 html[data-theme='dark'] .weq-set-account-item:hover {
   background: rgba(255, 255, 255, 0.05);
 }

@@ -19,7 +19,7 @@ html[data-theme] .weq-service-settings .weq-set-agent-item {
 }
 
 html[data-theme] .weq-service-settings .weq-set-agent-item.is-on {
-  background: var(--weq-list-selected-background);
+  background: var(--weq-control-selected-background);
   border-color: var(--weq-accent-ink);
 }
 
