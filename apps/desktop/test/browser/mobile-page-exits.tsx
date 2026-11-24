@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { DatabaseBrowserWindowHost } from '../../src/renderer/src/components/DatabaseBrowserWindow';
@@ -9,33 +9,44 @@ import { CaptureWindowHost } from '../../src/renderer/src/components/CaptureWind
 import { DbRepairWindowHost } from '../../src/renderer/src/components/DbRepairWindow';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { useDialog } from '../../src/renderer/src/components/Dialog.shared';
+import {
+  AnnouncementCenter,
+  AnnouncementEntry,
+} from '../../src/renderer/src/components/AnnouncementCenter';
+import { MobileNavigationRuntime } from '../../src/renderer/src/components/MobileNavigationRuntime';
 import { WorkspaceContent, WorkspacePages } from '../../src/renderer/src/components/WorkspacePages';
+import { BootstrapShell } from '../../src/renderer/src/views/BootstrapView';
 import { useDatabaseBrowserWindow } from '../../src/renderer/src/state/databaseBrowserWindow';
 import { useLogPerformanceWindow } from '../../src/renderer/src/state/logPerformanceWindow';
 import { useCaptureWindow } from '../../src/renderer/src/state/captureWindow';
 import { useDbRepairWindow } from '../../src/renderer/src/state/dbRepairWindow';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import { useViewState } from '../../src/renderer/src/state/view';
-import {
-  useMobileBack,
-  attachMobileHistory,
-  mobileBack,
-} from '../../src/renderer/src/hooks/useMobileNavigation';
-import { subscribeResponsiveLayout } from '../../src/renderer/src/lib/responsiveLayout';
+import { useMobileBack, mobileBack } from '../../src/renderer/src/hooks/useMobileNavigation';
+import { seedMobileSurfaceData } from './mobile-surfaces.stub';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
 
 ensureThemeInitialized();
-subscribeResponsiveLayout(() => {});
 useViewState.setState({ openedUin: '10001' });
 const noop = () => {};
+const announcement = {
+  id: 'fixture-announcement',
+  title: '合成公告标题',
+  level: 'normal',
+  publishedAt: '2026-11-18T16:00:00Z',
+  unread: false,
+};
+seedMobileSurfaceData({
+  'announcements.list': { status: 'ready', entries: [announcement], unread: 0, reminder: null },
+  'announcements.detail': { ...announcement, body: '合成公告正文', releasePageUrl: null },
+});
 
 function Fixture() {
   const [settings, setSettings] = useState(false);
   const [analysis, setAnalysis] = useState(false);
   const [categoryReturns, setCategoryReturns] = useState(0);
-  const base = useRef<HTMLDivElement>(null);
-  useEffect(() => attachMobileHistory(), []);
+  const base = useRef<HTMLElement>(null);
   useMobileBack(
     !settings,
     () => setCategoryReturns((value) => value + 1),
@@ -67,8 +78,10 @@ function Fixture() {
         }
       </style>
       <main className="weq-web-shell fixture-base" ref={base}>
+        <MobileNavigationRuntime root={base} />
         <WorkspacePages navigationKey="fixture">
           <WorkspaceContent>
+            <AnnouncementEntry placement="mobile" />
             <label>
               原列表筛选
               <input aria-label="原列表筛选" defaultValue="保留筛选" />
@@ -109,6 +122,14 @@ function Fixture() {
 }
 createRoot(document.getElementById('root')!).render(
   <QueryClientProvider client={new QueryClient()}>
-    <Fixture />
+    <AnnouncementCenter active canOpenUpdateSettings={false}>
+      {new URLSearchParams(location.search).has('startup') ? (
+        <BootstrapShell ready showWindowActions={false}>
+          <AnnouncementEntry placement="startup" />
+        </BootstrapShell>
+      ) : (
+        <Fixture />
+      )}
+    </AnnouncementCenter>
   </QueryClientProvider>,
 );

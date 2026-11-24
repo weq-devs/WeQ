@@ -12,6 +12,7 @@ import { containingSurface, topSurface } from '../lib/surfaceEscape';
 import { setMobileNavigationBusy } from '../lib/mobilePageLoading';
 import { createMobileRootTransition, mobileRootTab } from '../lib/mobileRootTransition';
 import { createMobileBackPreview } from '../lib/mobileBackPreview';
+import { WORKSPACE_FALLBACK_SURFACE } from '../lib/mobileBackSurface';
 import '../styles/mobile-navigation.css';
 import { observeRemoteWindowLayout } from '../lib/remoteWindowLayout';
 import '../styles/remote-window-layout.css';
@@ -21,6 +22,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
   useEffect(() => {
     const element = root.current;
     if (!element) return;
+    const topMobileSurface = () => topSurface(document, true, WORKSPACE_FALLBACK_SURFACE);
     const reduced = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let detach: (() => void) | undefined;
     let frame = 0;
@@ -155,7 +157,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       const { direction, source } = (event as CustomEvent<MobileNavigationChange>).detail;
       // 浮层或已卸载页面的退栈不应让背后的会话重播进入动画。
       const canAnimate = () =>
-        !topSurface(document) && !(source && (!source.isConnected || containingSurface(source)));
+        !topMobileSurface() && !(source && (!source.isConnected || containingSurface(source)));
       if (!canAnimate()) return;
       setMobileNavigationBusy(true);
       frame = requestAnimationFrame(() => {
@@ -178,7 +180,7 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
         !isSingleColumnLayout() ||
         skipRootClick ||
         element.hasAttribute('data-mobile-detail') ||
-        topSurface(document)
+        topMobileSurface()
       )
         return;
       const button =
@@ -205,8 +207,8 @@ export function MobileNavigationRuntime({ root }: { root: RefObject<HTMLElement 
       if (!isSingleColumnLayout() || event.touches.length !== 1 || completing) return;
       const touch = event.touches[0]!;
       const entry = mobileBackEntry();
-      const backTarget = mobileBackTarget();
-      const surface = topSurface(document);
+      const backTarget = entry?.target?.();
+      const surface = topMobileSurface();
       const origin = event.target instanceof Element ? event.target : null;
       // Portal 和主页面共用手势入口，但只能操作当前最上层，不能穿过不可关闭的弹窗。
       if (surface) {

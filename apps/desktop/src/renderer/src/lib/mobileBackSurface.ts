@@ -1,8 +1,8 @@
 import type { MobileBackEntry } from './mobileNavigation';
 import { compareSurfaceLayers } from './surfaceOrder';
 
-const SURFACES =
-  '.weq-workspace-page-fallback, .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window, .weq-lightbox-layer, .weq-redbag-detail-layer, .weq-redbag-qr-layer';
+export const WORKSPACE_FALLBACK_SURFACE = '.weq-workspace-page-fallback';
+const SURFACES = `${WORKSPACE_FALLBACK_SURFACE}, .weq-dialog-layer, .weq-overlay-layer, .weq-window-layer, .weq-forward-window, .weq-lightbox-layer, .weq-redbag-detail-layer, .weq-redbag-qr-layer`;
 
 /** 先按实际承载层返回；同一页面内再按分类、详情等业务优先级逐层退出。 */
 export function compareMobileBackEntries(left: MobileBackEntry, right: MobileBackEntry): number {

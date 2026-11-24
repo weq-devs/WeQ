@@ -162,7 +162,12 @@ function proxy(path = ''): unknown {
           return results.get(path);
         };
       if (key === 'useMutation')
-        return () => ({ mutate: noop, mutateAsync: async () => undefined, isLoading: false });
+        return () => ({
+          mutate: noop,
+          mutateAsync: async () => undefined,
+          reset: noop,
+          isLoading: false,
+        });
       if (key === 'useSubscription') return noop;
       if (key === 'subscribe') return () => ({ unsubscribe: noop });
       if (key === 'then') return undefined;

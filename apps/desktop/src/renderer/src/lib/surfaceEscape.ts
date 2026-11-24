@@ -25,10 +25,12 @@ export function surfaceRoot(element: HTMLElement, includeEscapeSurfaces = true):
 export function topSurface(
   document: Document,
   includeEscapeSurfaces = true,
+  additionalSelector?: string,
 ): HTMLElement | undefined {
+  const surfaces = includeEscapeSurfaces ? `${ESCAPE_SURFACE}, ${SURFACES}` : SURFACES;
   let top: HTMLElement | undefined;
   for (const item of document.querySelectorAll<HTMLElement>(
-    includeEscapeSurfaces ? `${ESCAPE_SURFACE}, ${SURFACES}` : SURFACES,
+    additionalSelector ? `${surfaces}, ${additionalSelector}` : surfaces,
   )) {
     const root = surfaceRoot(item, includeEscapeSurfaces);
     let visible = true;

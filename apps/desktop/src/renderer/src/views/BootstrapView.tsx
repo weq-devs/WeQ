@@ -30,6 +30,8 @@ import { BootstrapWindowActions } from '../components/BootstrapWindowActions';
 import { lazyPanel } from '../lib/lazyPanel';
 import { WarmupSplash } from '../components/WarmupSplash';
 import { NativeExpiredDialog } from '../components/NativeExpiredDialog';
+import { MobileNavigationRuntime } from '../components/MobileNavigationRuntime';
+import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { runDesktopStartupWarmup, type WarmupProgress } from '../lib/accountWarmup';
 import { setWindowLayout } from '../lib/windowLayout';
 import { IS_MAC, IS_WEB } from '../lib/target.shared';
@@ -422,11 +424,15 @@ export function BootstrapShell({
   showWindowActions?: boolean;
   ready?: boolean;
 }): ReactElement {
+  const root = useRef<HTMLElement>(null);
+  const singleColumn = useMobileWebLayout();
   return (
     <main
+      ref={root}
       className="weq-home-shell h-screen overflow-hidden font-sans text-foreground"
       data-weq-startup-surface={ready || undefined}
     >
+      {ready && (IS_WEB || singleColumn) && <MobileNavigationRuntime root={root} />}
       {showWindowActions && (
         <header className="weq-startup-titlebar">
           <div className="weq-startup-drag" />

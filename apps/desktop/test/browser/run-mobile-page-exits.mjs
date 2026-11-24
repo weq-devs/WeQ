@@ -63,11 +63,16 @@ try {
       await page.route('**/*', (route) =>
         new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
       );
-      for (const [width, height] of [
-        [320, 740],
-        [390, 844],
-        [844, 390],
-      ]) {
+      await checkSwipeExits(page, url);
+      cases += 5;
+      const viewports = process.argv.includes('--swipe')
+        ? []
+        : [
+            [320, 740],
+            [390, 844],
+            [844, 390],
+          ];
+      for (const [width, height] of viewports) {
         await page.setViewportSize({ width, height });
         await page.goto(url);
         await page.waitForFunction(() => window.mobilePageExitsQa);
@@ -166,4 +171,72 @@ try {
   console.log(JSON.stringify({ cases, failures, engines }, null, 2));
 } finally {
   await server.close();
+}
+
+async function checkSwipeExits(page, url) {
+  const swipe = async () => {
+    await page.waitForFunction(() => !document.querySelector('[data-mobile-animating]'));
+    assert.ok(
+      await page.evaluate(() => {
+        const x = 4;
+        const y = 280;
+        const target = document.elementFromPoint(x, y);
+        if (!target) return false;
+        const dispatch = (name, clientX, end = false) => {
+          const touch = { identifier: 1, target, clientX, clientY: y };
+          const event = new Event(name, { bubbles: true, cancelable: true });
+          Object.defineProperties(event, {
+            touches: { value: end ? [] : [touch] },
+            changedTouches: { value: [touch] },
+          });
+          target.dispatchEvent(event);
+          return event.defaultPrevented;
+        };
+        dispatch('touchstart', x);
+        const handled = dispatch('touchmove', 164);
+        dispatch('touchend', 164, true);
+        return handled;
+      }),
+      `左缘滑动应由当前页处理：${page.url()}`,
+    );
+  };
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const path of [url, `${url}?startup`]) {
+    await page.goto(path);
+    const entry = page.getByRole('button', { name: '官方公告', exact: true });
+    await entry.click();
+    const listEntry = page.getByRole('button', { name: /合成公告标题/ });
+    await listEntry.click();
+    const article = page.getByText('合成公告正文', { exact: true });
+    await article.waitFor();
+    await swipe();
+    await listEntry.waitFor();
+    await swipe();
+    await listEntry.waitFor({ state: 'detached' });
+    await entry.waitFor();
+  }
+
+  await page.goto(url);
+  await page.waitForFunction(() => window.mobilePageExitsQa);
+  for (const [kind, label] of [
+    ['database', '关闭数据库浏览'],
+    ['logs', '关闭监视窗口'],
+    ['performance', '关闭监视窗口'],
+  ]) {
+    await page.evaluate((kind) => window.mobilePageExitsQa.open(kind), kind);
+    const close = page.getByRole('button', { name: label, exact: true });
+    await close.waitFor();
+    if (kind === 'database') {
+      await page.evaluate(() => window.mobilePageExitsQa.confirm());
+      const cancel = page.getByRole('button', { name: '取消', exact: true });
+      await cancel.waitFor();
+      await swipe();
+      await cancel.waitFor({ state: 'detached' });
+      assert.ok(await close.isVisible());
+    }
+    await swipe();
+    await close.waitFor({ state: 'detached' });
+    assert.equal(await page.evaluate(() => window.mobilePageExitsQa.categoryReturns), 0);
+  }
 }
