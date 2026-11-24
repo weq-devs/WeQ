@@ -8,7 +8,6 @@ import type { AccountSession } from '@weq/account';
 import * as atomic from '../src/common/atomic_write';
 import {
   GapHistoryService,
-  assertRoamingPageIdentity,
   type GapFetchedMessage,
   type GapFetchResult,
 } from '../src/account/gap_history';
@@ -829,54 +828,5 @@ describe('existing export integration with the shared queue', () => {
     });
     expect(result.windowErrors).toBe(1);
     expect(result.requests).toBe(1);
-  });
-});
-
-describe('strict roaming response identity', () => {
-  const decoded = (patch: Record<string, unknown> = {}) =>
-    ({
-      head: { sequence: 3, ntMsgSeq: 3, timestamp: 1700000000 },
-      sender: { uid: 'u_peer', uin: 20000 },
-      session: { uid: 'u_self', uin: 10000 },
-      ...patch,
-    }) as Parameters<typeof assertRoamingPageIdentity>[3];
-  it('accepts incoming and outgoing private messages for the exact peer and own account', () => {
-    expect(() =>
-      assertRoamingPageIdentity('c2c', 'u_peer', '10000', decoded(), 2, 4),
-    ).not.toThrow();
-    expect(() =>
-      assertRoamingPageIdentity(
-        'c2c',
-        'u_peer',
-        '10000',
-        decoded({
-          sender: { uid: 'u_self', uin: 10000 },
-          session: { uid: 'u_peer', uin: 20000 },
-        }),
-        2,
-        4,
-      ),
-    ).not.toThrow();
-  });
-  it('rejects another own account, unrelated peer, legacy seq and out-of-window records', () => {
-    expect(() => assertRoamingPageIdentity('c2c', 'u_peer', '99999', decoded(), 2, 4)).toThrow();
-    expect(() => assertRoamingPageIdentity('c2c', 'u_other', '10000', decoded(), 2, 4)).toThrow();
-    expect(() =>
-      assertRoamingPageIdentity(
-        'c2c',
-        'u_peer',
-        '10000',
-        decoded({ head: { sequence: 3, timestamp: 1 } }),
-        2,
-        4,
-      ),
-    ).toThrow();
-    expect(() => assertRoamingPageIdentity('c2c', 'u_peer', '10000', decoded(), 4, 5)).toThrow();
-  });
-  it('requires an exact group session instead of trusting the requested conv label', () => {
-    expect(() =>
-      assertRoamingPageIdentity('group', '10000', '20000', decoded(), 2, 4),
-    ).not.toThrow();
-    expect(() => assertRoamingPageIdentity('group', '99999', '20000', decoded(), 2, 4)).toThrow();
   });
 });

@@ -30,6 +30,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 const group: RoamingTarget = { kind: 'group', conv: '12345', name: 'Synthetic protocol group' };
+const privatePeer: RoamingTarget = { kind: 'c2c', conv: 'u_peer', name: 'Synthetic private peer' };
 function fixture(
   target = group,
   duplicateAt?: number,
@@ -180,6 +181,24 @@ function withIncompleteSlot(f: ReturnType<typeof fixture>, sequence = 250, wrong
         body: { richText: { elems: [{ text: { str: 'Synthetic incomplete observation' } }] } },
       };
     return Buffer.from(encode(GetGroupHistory.respSchema, response));
+  });
+}
+
+function patchPrivateRow(
+  f: ReturnType<typeof fixture>,
+  patch: {
+    responseHead?: { fromUid?: string; fromUin?: number; toUid?: string; toUin?: number };
+    contentHead?: { ntMsgSeq: number | undefined };
+  },
+) {
+  f.sendPacket.mockImplementationOnce(async (_pid, _command, body) => {
+    const response = decode(GetC2cHistory.respSchema, f.response(body)) as {
+      messages: { responseHead: object; contentHead: object }[];
+    };
+    const row = response.messages[0]!;
+    Object.assign(row.responseHead, patch.responseHead);
+    Object.assign(row.contentHead, patch.contentHead);
+    return Buffer.from(encode(GetC2cHistory.respSchema, response));
   });
 }
 
@@ -467,8 +486,7 @@ describe('shared SSO physical windows', () => {
     expect(observed).toHaveLength(0);
   });
   it('uses verified NT numbering for private physical windows', async () => {
-    const target: RoamingTarget = { kind: 'c2c', conv: 'u_peer', name: 'Synthetic private peer' };
-    const f = fixture(target);
+    const f = fixture(privatePeer);
     const first = await f.fetch(1, 60),
       second = await f.fetch(31, 60);
     if (!first.ok || !second.ok) throw Error('Expected verified windows');
@@ -480,6 +498,47 @@ describe('shared SSO physical windows', () => {
       ),
     ).toBe(true);
   });
+  it('accepts private history in both directions for the active account and peer', async () => {
+    const f = fixture(privatePeer);
+    patchPrivateRow(f, {
+      responseHead: { fromUid: 'u_self', fromUin: 10000, toUid: privatePeer.conv, toUin: 10001 },
+    });
+    expect(await f.fetch(1, 2)).toMatchObject({
+      ok: true,
+      messages: [
+        { msgSeq: '1', senderUid: 'u_self' },
+        { msgSeq: '2', senderUid: privatePeer.conv },
+      ],
+      unresolvedRecords: 0,
+    });
+  });
+  it.each([{ toUin: 99999 }, { fromUid: 'u_other' }])(
+    'rejects private history for another account or peer (%j)',
+    async (responseHead) => {
+      const f = fixture(privatePeer);
+      patchPrivateRow(f, { responseHead });
+      expect(await f.fetch(1, 2)).toMatchObject({
+        ok: false,
+        message: expect.stringContaining('账号或会话不一致'),
+      });
+      expect(await f.history.cachedForExport('c2c', privatePeer.conv)).toHaveLength(0);
+    },
+  );
+  it.each([undefined, 3])(
+    'keeps valid private history but does not cache a row with an unverified NT sequence (%s)',
+    async (ntMsgSeq) => {
+      const f = fixture(privatePeer);
+      patchPrivateRow(f, { contentHead: { ntMsgSeq } });
+      expect(await f.fetch(1, 2)).toMatchObject({
+        ok: true,
+        messages: [{ msgSeq: '2' }],
+        unresolvedRecords: 1,
+      });
+      expect(await f.history.cachedForExport('c2c', privatePeer.conv)).toMatchObject([
+        { msgSeq: '2' },
+      ]);
+    },
+  );
   it('persists the physical request reservation before sending any bytes', async () => {
     const f = fixture();
     f.listSeqWindow.mockResolvedValue({ seqs: [61n, 0n], below: null, above: null });
