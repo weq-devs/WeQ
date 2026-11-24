@@ -191,12 +191,9 @@ html[data-theme]
     flex-wrap: wrap;
     gap: 8px 12px;
   }
-  html[data-theme] .weq-set-row-main:where(:not(:has(+ .weq-set-row-ctrl > .weq-segmented))) {
-    flex: 1 1 180px;
-  }
   html[data-theme] .weq-set-row-ctrl {
     flex: 0 1 auto;
-    margin-left: auto;
+    margin-inline-start: auto;
   }
   html[data-theme] .weq-set-btn-group {
     display: flex;

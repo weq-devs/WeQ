@@ -19,11 +19,6 @@
   row-gap: 8px;
 }
 
-/* 给标签留出基本宽度。容不下整组按钮时，控件换到标签下方。 */
-.weq-set-row > .weq-set-row-main:where(:has(+ .weq-set-row-ctrl > .weq-segmented)) {
-  flex: 1 1 min(100%, 8rem);
-}
-
 .weq-set-row-ctrl:has(.weq-segmented) {
   margin-inline-start: auto;
   min-width: 0;

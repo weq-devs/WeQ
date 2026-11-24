@@ -155,18 +155,6 @@
   max-height: 100%;
 }
 @media (max-width: 500px) {
-  .weq-log-performance-settings .weq-set-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-  .weq-log-performance-settings .weq-set-row-ctrl {
-    max-width: 100%;
-  }
-  html[data-theme] .weq-log-performance-settings .weq-set-row-main {
-    flex: none;
-    width: 100%;
-  }
   .weq-monitor-head {
     padding: 0 8px;
     gap: 12px;

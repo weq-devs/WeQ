@@ -9,6 +9,18 @@ html[data-theme]
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* 按标题与控件的实际宽度换行；说明只在分到的空间内折行。 */
+:where(.weq-set-row) > .weq-set-row-main:where(:has(+ .weq-set-row-ctrl)) {
+  flex: 1 1 auto;
+}
+
+:where(.weq-set-row)
+  > .weq-set-row-main:where(:has(+ .weq-set-row-ctrl))
+  > .weq-set-row-label:not(:empty)
+  ~ .weq-set-row-desc {
+  contain: inline-size;
+}
+
 .weq-set-card-title-line {
   display: flex;
   flex-wrap: wrap;
