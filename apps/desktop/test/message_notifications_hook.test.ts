@@ -153,7 +153,7 @@ const batch = (id = '1', patch = {}) =>
       },
     ],
   }) as unknown as NewMessagesWire;
-it.each([false, true])('群通知保留群名并显示最后一条消息的发送者（Web=%s）', async (web) => {
+it.each([false, true])('合并群通知的预览与点击目标来自同一条消息（Web=%s）', async (web) => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   f.web = web;
   setMessageNotifications(true);
@@ -161,24 +161,34 @@ it.each([false, true])('群通知保留群名并显示最后一条消息的发�
   const root = createRoot(document.createElement('div'));
   try {
     await act(async () => root.render(createElement(Probe, { resolveGroupSenderName })));
-    const first = batch('20', { kind: 'group', conv: '10003', senderUid: 'first' });
-    const last = batch('21', { kind: 'group', conv: '10003', senderUid: 'last' });
+    const first = batch('20', {
+      kind: 'group',
+      conv: '10003',
+      senderUid: 'first',
+      elements: [{ type: 'text', data: { textContent: '第一条正文' } }],
+    });
+    const last = batch('21', {
+      kind: 'group',
+      conv: '10003',
+      senderUid: 'last',
+      elements: [{ type: 'text', data: { textContent: '最后一条正文' } }],
+    });
     await act(async () =>
-      f.receive?.({ ...first, messages: [...first.messages, ...last.messages] }),
+      f.receive?.({ ...first, messages: [...last.messages, ...first.messages] }),
     );
     expect(resolveGroupSenderName).toHaveBeenCalledOnce();
-    expect(resolveGroupSenderName).toHaveBeenCalledWith(last.messages[0]);
+    expect(resolveGroupSenderName).toHaveBeenCalledWith(first.messages[0]);
     expect(web ? f.browserNotify : f.notify).toHaveBeenLastCalledWith(
       expect.objectContaining({
         title: '测试群 · 2 条新消息',
-        body: '本地群名片：消息正文',
+        body: '本地群名片：第一条正文',
       }),
     );
     expect(web ? f.browserNotify : f.notify).toHaveBeenLastCalledWith(
       expect.objectContaining(
         web
           ? { target: { seq: '20', msgId: '20', kind: 'group', conv: '10003' } }
-          : { seq: '20', anchorId: '20', messageId: '21' },
+          : { seq: '20', anchorId: '20', messageId: '20' },
       ),
     );
     await act(async () => f.receive?.(batch('22')));

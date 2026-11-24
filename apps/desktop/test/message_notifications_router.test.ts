@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from 'vitest';
 import { createMessageNotificationsRouter } from '../src/main/ipc/routers/message_notifications';
+import type { WebNotice } from '../src/main/web/notices';
 import {
   normalizeNotificationEvents,
   type NotificationEvents,
@@ -8,7 +9,7 @@ import {
 const f = vi.hoisted(() => ({
   values: { applicationBadge: true, messageNotifications: false, privacyMode: false },
   badge: vi.fn(() => true),
-  notify: vi.fn(() => true),
+  notify: vi.fn((_notice: WebNotice, _onClick: () => void) => true),
   policy: undefined as NotificationEvents | undefined,
 }));
 vi.mock('../src/main/context/app_context', () => ({
@@ -119,6 +120,7 @@ it('代理提醒和落库后的提醒共用宿主去重，两端提交也只发�
   const event = {
     ...binding,
     messageId: 'proxy:42:7:u_peer',
+    anchorId: 'proxy:42:7:u_peer',
     kind: 'c2c' as const,
     conv: 'u_peer',
     seq: '42',
@@ -129,10 +131,13 @@ it('代理提醒和落库后的提醒共用宿主去重，两端提交也只发�
   expect(await first.notify(event)).toBe(true);
   expect(await second.notify({ ...event, anchorId: '987654321' })).toBe(true);
   expect(f.notify).toHaveBeenCalledOnce();
-  expect(f.notify).toHaveBeenCalledWith(
-    expect.objectContaining({
-      target: { kind: 'c2c', conv: 'u_peer', seq: '42', msgId: undefined },
-    }),
-    expect.any(Function),
-  );
+  const [shownNotice, click] = f.notify.mock.calls[0]!;
+  click();
+  expect(shownNotice.target).toEqual({
+    kind: 'c2c',
+    conv: 'u_peer',
+    seq: '42',
+    msgId: event.anchorId,
+  });
+  expect(await first.consume(binding)).toEqual(shownNotice);
 });
