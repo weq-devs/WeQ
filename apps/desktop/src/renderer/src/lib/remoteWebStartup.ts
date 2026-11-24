@@ -47,7 +47,7 @@ export function notifyRemoteReload(id: string) {
   useToast.getState().push({
     key: releaseNoticeKey,
     title: 'WeQ 界面更新已就绪',
-    summary: '可在连接菜单中重新加载。',
+    summary: '打开连接菜单即可更新界面。',
     tone: 'info',
     durationKind: 'long',
     system: false,
