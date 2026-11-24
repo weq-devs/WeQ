@@ -47,6 +47,31 @@
   white-space: nowrap;
 }
 
+.weq-storage-settings .weq-set-cache-list {
+  gap: 16px;
+}
+
+.weq-storage-group-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-storage-group-heading h4 {
+  margin: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.weq-storage-group-heading > span {
+  white-space: nowrap;
+}
+
 .weq-storage-item {
   display: grid;
   gap: 4px;

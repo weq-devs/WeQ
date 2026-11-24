@@ -15,7 +15,15 @@ import { NumericText } from '../NumericText';
  * everything fresh for 5 min and never refetches on mount).
  */
 
-import { useContext, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import {
   Cloud,
   ChevronRight,
@@ -45,7 +53,7 @@ import type { SettingsSearchTarget } from './searchTarget';
 import { WebNotificationsSection } from './WebNotificationsSection';
 import { IS_WEB } from '../../lib/target.shared';
 import { useRemoteImagePreference } from '../../lib/remoteWebStartup';
-import { mergeStorageEntries } from '../../lib/storage-entries';
+import { groupStorageEntries, mergeStorageEntries } from '../../lib/storage-entries';
 import '../../styles/storage-management.css';
 import { QqShowSettings } from './QqShowSettings';
 import { SharedDisplayToggle } from './SharedDisplayToggle';
@@ -129,6 +137,7 @@ export function GlobalSettingsSection({
   const cleanupBusy = cleaning || clearStorageData.isLoading;
   const [pickedCats, setPickedCats] = useState<Set<string>>(new Set());
   const [storageDetails, setStorageDetails] = useState<string | null>(null);
+  const storageHeadingId = useId();
   const [confirmingSelection, setConfirmingSelection] = useState(false);
   const selectionInFlight = useRef(false);
   const cacheItems = (cacheUsage.data ?? []).filter(
@@ -140,7 +149,8 @@ export function GlobalSettingsSection({
   const clearableItems = cacheItems.filter(
     (item) => item.clearable && (item.bytes > 0 || item.incomplete),
   );
-  const storageEntries = mergeStorageEntries(cacheItems);
+  const storageGroups = groupStorageEntries(cacheItems);
+  const storageEntries = storageGroups.flatMap((group) => group.entries);
   const safeCacheItems = clearableItems.filter(
     (item) => item.action === 'cache' || (!item.action && !item.requiresExit),
   );
@@ -669,10 +679,21 @@ export function GlobalSettingsSection({
               <div className="weq-set-empty" role="alert">
                 读取存储占用失败：{errMsg(cacheUsage.error)}
               </div>
-            ) : storageEntries.length === 0 ? (
+            ) : storageGroups.length === 0 ? (
               <div className="weq-set-empty">暂无存储数据</div>
             ) : (
-              storageEntries.map(({ item, members }) => storageItem(item, members))
+              storageGroups.map(({ id, label, bytes, incomplete, entries }) => (
+                <section key={id} aria-labelledby={`${storageHeadingId}-${id}`}>
+                  <div className="weq-storage-group-heading">
+                    <h4 id={`${storageHeadingId}-${id}`}>{label}</h4>
+                    <span>
+                      {incomplete ? '至少 ' : ''}
+                      <NumericText>{formatBytes(bytes)}</NumericText>
+                    </span>
+                  </div>
+                  {entries.map(({ item, members }) => storageItem(item, members))}
+                </section>
+              ))
             )}
           </div>
           <div className="weq-set-actions">

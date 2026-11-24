@@ -265,8 +265,11 @@ it('已知功能按所在数据根归类，保留原清理资格与未知文件'
     ['cache/contacts', 'history', 'account-data', true],
     ['cache/conversation-calendar', 'checkpoint', 'account-data', true],
     ['cache/gift', 'image', 'media', true],
+    ['cache/favorite-emoji', 'sticker', 'dress', true],
+    ['cache/feedback-2026-11-24-123456', 'report.md', 'diagnostics', false],
     ['performance-monitor', 'history.sqlite', 'diagnostics', true],
     ['logs', 'main.log', 'diagnostics', true],
+    ['recordings', 'call.wav', 'media', false],
     ['updates', 'feed.json', 'updates', false],
     ['cache/updates', 'unknown.json', 'unknown', false],
     ['unrecognized', 'personal.txt', 'unknown', false],
@@ -274,7 +277,15 @@ it('已知功能按所在数据根归类，保留原清理资格与未知文件'
   for (const [dir, file] of expected) f.write(join(f.root, dir, file), 'data');
   f.service.setCacheDirOverride(join(f.root, 'custom'));
   f.write(join(f.root, 'custom', 'contacts', 'history'), 'data');
-  const items = await f.service.listStorageUsage();
+  f.write(join(f.root, 'custom', 'media', 'still-local.jpg'), 'data');
+  const embedded = join(f.root, 'custom', 'media', 'embedded');
+  f.write(join(embedded, 'file'), 'host');
+  const feedback = join(f.root, 'custom', 'db-damage-feedback-8123456-20261124-123456');
+  f.write(join(feedback, 'report.md'), 'data');
+  f.write(join(f.root, 'custom', 'feedback-not-a-generated-name', 'file'), 'data');
+  const items = await f.service.listStorageUsage([
+    { path: embedded, label: '宿主资源', category: 'app-resources' },
+  ]);
   for (const [dir, , category, clearable] of expected) {
     expect(items.find((item) => item.path === join(f.root, dir))).toMatchObject({
       category,
@@ -286,6 +297,21 @@ it('已知功能按所在数据根归类，保留原清理资格与未知文件'
     category: 'account-data',
     bytes: 4,
     clearable: true,
+  });
+  expect(items.find((item) => item.id === 'media')).toMatchObject({
+    label: '图片与视频缓存',
+    category: 'media',
+    bytes: 4,
+    clearable: false,
+  });
+  expect(items.find((item) => item.path === feedback)).toMatchObject({
+    label: '数据库故障反馈包',
+    category: 'diagnostics',
+    clearable: false,
+  });
+  expect(items.find((item) => item.id === 'feedback-not-a-generated-name')).toMatchObject({
+    category: 'unknown',
+    clearable: false,
   });
   expect(
     items.find((item) => item.path === join(f.root, profile, 'electron', 'Cache'))?.label,

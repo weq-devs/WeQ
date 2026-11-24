@@ -1,6 +1,6 @@
 import { lstat, readdir, realpath } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { CACHE_LABELS, storageDetail, storageParts } from './storage_details';
+import { CACHE_DETAILS, storageDetail, storageParts } from './storage_details';
 export { RUNTIME_CACHE_NAMES } from './storage_details';
 
 export interface StorageRoot {
@@ -353,7 +353,7 @@ export async function listStorageUsage(
       continue;
     }
     const names = new Set(entries.map((entry) => entry.name));
-    if (root.cache && root.active) for (const name of Object.keys(CACHE_LABELS)) names.add(name);
+    if (root.cache && root.active) for (const name of Object.keys(CACHE_DETAILS)) names.add(name);
     const excluded = roots
       .filter((other) => other !== root && contains(root.path, other.path))
       .map((other) => other.path);
@@ -426,7 +426,7 @@ export async function listStorageUsage(
       const safeCache =
         name !== 'contacts' &&
         root.cache &&
-        Object.hasOwn(CACHE_LABELS, name) &&
+        Object.hasOwn(CACHE_DETAILS, name) &&
         nested.length === 0 &&
         !entry?.isSymbolicLink() &&
         (!entry || entry.isDirectory()) &&
@@ -449,7 +449,6 @@ export async function listStorageUsage(
       const label =
         detail?.label ??
         (name === 'contacts' ? '联系人与群资料历史' : undefined) ??
-        (root.cache && Object.hasOwn(CACHE_LABELS, name) ? CACHE_LABELS[name] : undefined) ??
         (Object.hasOwn(DATA_LABELS, name) ? DATA_LABELS[name] : undefined) ??
         name;
       items.push({

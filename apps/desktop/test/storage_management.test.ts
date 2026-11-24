@@ -25,6 +25,7 @@ const fixture = vi.hoisted(() => ({
       bytes: 1024,
       clearable: true,
       reason: '按需下载',
+      category: 'media',
       incomplete: false,
     },
     {
@@ -34,7 +35,7 @@ const fixture = vi.hoisted(() => ({
       bytes: 2048,
       clearable: false,
       reason: '持久数据',
-      category: 'persistent',
+      category: 'search-analysis',
       incomplete: false,
     },
   ] as StorageUsageItem[],
@@ -174,7 +175,7 @@ describe('WeQ 存储管理页面', () => {
       fixture.items.splice(length);
     }
   });
-  it('按单项占用排序，备份详情可查看，其他页面管理的数据不计入清理', async () => {
+  it('按已知用途显示占用小计，备份详情可查看，其他页面管理的数据不计入清理', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const length = fixture.items.length;
@@ -215,8 +216,15 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
-      expect(host.querySelector('.weq-storage-item')?.getAttribute('data-cache-id')).toBe('ocr');
+      const groups = [...host.querySelectorAll('section[aria-labelledby]')];
+      expect(groups.map((group) => group.querySelector('h4')?.textContent)).toEqual([
+        '搜索与内容识别',
+        '数据库备份与维护',
+        '媒体、头像与预览',
+      ]);
+      expect(groups[0]?.textContent).toContain('搜索与内容识别2 KB');
       const backup = host.querySelector<HTMLElement>('[data-cache-id="database-backup"]')!;
+      expect(groups[1]?.contains(backup)).toBe(true);
       expect(backup.textContent).toContain('数据库备份');
       act(() => backup.querySelector<HTMLButtonElement>('.weq-storage-details-toggle')!.click());
       expect(host.textContent).toContain('已关联修复记录');

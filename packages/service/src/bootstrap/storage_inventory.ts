@@ -7,16 +7,6 @@ import { measureStorage, RUNTIME_CACHE_NAMES, type StorageUsageItem } from './st
 
 const REPAIR_NAMES = new Set(['db_repair', 'db-repair', 'dbfix', 'dbfix2']);
 const CONFIG_NAMES = new Set(['config', 'config.json']);
-const MEDIA_NAMES = new Set(['avatar', 'media', 'voice', 'linkpreview', 'collection']);
-const DRESS_NAMES = new Set([
-  'dress',
-  'dress_shared',
-  'qqshow',
-  'redpack',
-  'marketface',
-  'marketpack',
-  'sysemoji',
-]);
 const SYSTEM_NAMES = new Set(['.ds_store', 'thumbs.db', 'desktop.ini']);
 type BackupLink = { historyPath: string; recordId: string };
 
@@ -263,9 +253,7 @@ function classify(item: StorageUsageItem): StorageUsageItem {
   if (item.clearable && !item.requiresExit)
     return {
       ...base,
-      category:
-        item.category ??
-        (MEDIA_NAMES.has(name) ? 'media' : DRESS_NAMES.has(name) ? 'dress' : 'cache'),
+      category: item.category ?? 'cache',
       action: 'cache',
     };
   if (item.clearable || ['models', 'ocr', 'agentlab', 'export', 'logs'].includes(name))

@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { StorageUsageItem } from '@weq/service';
-import { mergeStorageEntries } from '../src/renderer/src/lib/storage-entries';
+import { groupStorageEntries, mergeStorageEntries } from '../src/renderer/src/lib/storage-entries';
 import { resolveSettingsTarget } from '../src/renderer/src/components/settings/navigation';
 
 const base: StorageUsageItem = {
@@ -87,11 +87,13 @@ it('零字节异常项和普通点文件仍可见', () => {
   ]);
   expect(entries[0]?.item.incomplete).toBe(true);
 });
-it('最大项目优先展示，同量数据库备份按日期倒序', () => {
-  const entries = mergeStorageEntries([
+it('按组小计排序，其他数据置底，同量数据库备份按日期倒序', () => {
+  const groups = groupStorageEntries([
     { ...base, id: 'unknown', category: 'unknown', bytes: 9999 },
     { ...base, id: 'media', category: 'media', bytes: 200 },
     { ...base, id: 'dress', category: 'dress', bytes: 300 },
+    { ...base, id: 'repair', category: 'repair-history', bytes: 350, incomplete: true },
+    { ...base, id: 'empty', category: 'updates', bytes: 0 },
     {
       ...base,
       id: 'old',
@@ -117,7 +119,14 @@ it('最大项目优先展示，同量数据库备份按日期倒序', () => {
       },
     },
   ]);
-  expect(entries.map(({ item }) => item.id)).toEqual(['unknown', 'dress', 'media', 'new', 'old']);
+  expect(groups.map(({ id, bytes }) => [id, bytes])).toEqual([
+    ['database', 352],
+    ['appearance', 300],
+    ['media', 200],
+    ['other', 9999],
+  ]);
+  expect(groups[0]?.incomplete).toBe(true);
+  expect(groups[0]?.entries.map(({ item }) => item.id)).toEqual(['repair', 'new', 'old']);
 });
 it('配置旧入口定位重置按钮，桌面缓存和空间清理定位存储页', () => {
   for (const item of ['账号与应用配置', '全局配置']) {

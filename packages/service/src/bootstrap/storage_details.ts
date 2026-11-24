@@ -21,20 +21,20 @@ type Layout = {
   remainderConfirmation?: string;
 };
 
-export const CACHE_LABELS: Readonly<Record<string, string>> = {
-  avatar: '头像缓存',
-  media: '图片与视频缓存',
-  marketface: '商城表情缓存',
-  marketpack: '商城表情包缓存',
-  voice: '语音缓存',
-  linkpreview: '链接预览缓存',
-  sysemoji: '系统表情缓存',
-  'favorite-emoji': '收藏表情原图缓存',
-  collection: '收藏媒体缓存',
-  gift: '群礼物图片缓存',
-  qqshow: 'QQ 秀资源缓存',
-  redpack: '红包封面缓存',
-  dress_shared: '共享装扮资源缓存',
+export const CACHE_DETAILS: Readonly<Record<string, Detail>> = {
+  avatar: { label: '头像缓存', category: 'media' },
+  media: { label: '图片与视频缓存', category: 'media' },
+  marketface: { label: '商城表情缓存', category: 'dress' },
+  marketpack: { label: '商城表情包缓存', category: 'dress' },
+  voice: { label: '语音缓存', category: 'media' },
+  linkpreview: { label: '链接预览缓存', category: 'media' },
+  sysemoji: { label: '系统表情缓存', category: 'dress' },
+  'favorite-emoji': { label: '收藏表情原图缓存', category: 'dress' },
+  collection: { label: '收藏媒体缓存', category: 'media' },
+  gift: { label: '群礼物图片缓存', category: 'media' },
+  qqshow: { label: 'QQ 秀资源缓存', category: 'dress' },
+  redpack: { label: '红包封面缓存', category: 'dress' },
+  dress_shared: { label: '共享装扮资源缓存', category: 'dress' },
 };
 
 /** 桌面可以重新生成的文件，和登录状态、界面设置分开。 */
@@ -150,13 +150,15 @@ const APP_DETAILS: Readonly<Record<string, Detail>> = {
                     flash: '旧版闪传下载文件',
                   },
                   lookupLabel: (name) => {
-                    const label = Object.hasOwn(CACHE_LABELS, name)
-                      ? CACHE_LABELS[name]
-                      : storageDetail(name, true)?.label;
+                    const label = Object.hasOwn(CACHE_DETAILS, name)
+                      ? CACHE_DETAILS[name]?.label
+                      : Object.hasOwn(BUSINESS_DETAILS, name)
+                        ? BUSINESS_DETAILS[name]?.label
+                        : undefined;
                     return label && `旧版${label}`;
                   },
                   lookupConfirmation: (name) =>
-                    Object.hasOwn(CACHE_LABELS, name)
+                    Object.hasOwn(CACHE_DETAILS, name)
                       ? '清除旧版缓存，需要时可重新下载或生成。'
                       : '将删除旧版保存的数据，相关历史或任务记录可能无法恢复。',
                   remainder: '旧版其他缓存和数据',
@@ -178,6 +180,7 @@ const APP_DETAILS: Readonly<Record<string, Detail>> = {
   'desktop-services': { label: '桌面后台服务数据', category: 'desktop-data' },
   'desktop-storage.sqlite': { label: '桌面存储锁', category: 'desktop-data' },
   'desktop-storage-maintenance.sqlite': { label: '桌面存储维护锁', category: 'desktop-data' },
+  'dialog-locations.json': { label: '文件选择器的上次位置', category: 'desktop-data' },
   'settings-writes.sqlite': { label: '共享设置写入锁', category: 'desktop-data' },
   'qq-client-sync': { label: 'QQ 同步与代理状态', category: 'desktop-data' },
   'signer-cache.json': { label: 'QQ 签名器发现记录', category: 'desktop-data' },
@@ -190,7 +193,9 @@ const APP_DETAILS: Readonly<Record<string, Detail>> = {
     exitOnly: true,
   },
   'protocol-research': { label: '协议调试数据', category: 'diagnostics' },
+  'udp-captures': { label: '通话网络诊断记录', category: 'diagnostics' },
   'storage-maintenance': { label: '空间清理记录', category: 'diagnostics' },
+  recordings: { label: '通话录音', category: 'media' },
   models: {
     label: '离线识别与分析模型',
     category: 'app-resources',
@@ -248,11 +253,19 @@ const BUSINESS_DETAILS: Readonly<Record<string, Detail>> = {
   db_tolerance: { label: '数据库容错记录', category: 'diagnostics' },
   'managed-qq': { label: '托管 QQ 的聊天、媒体和登录数据', category: 'managed-qq' },
   dress: { label: '旧装扮和自定义背景', category: 'dress' },
-  gift: { label: '群礼物图片缓存', category: 'media' },
 };
 
 export function storageDetail(name: string, cache: boolean): Detail | undefined {
-  if (!cache && Object.hasOwn(APP_DETAILS, name)) return APP_DETAILS[name];
+  if (cache) {
+    if (Object.hasOwn(CACHE_DETAILS, name)) return CACHE_DETAILS[name];
+    if (/^feedback-\d{4}-\d{2}-\d{2}-\d{6}$/.test(name))
+      return { label: '问题反馈资料包', category: 'diagnostics' };
+    if (/^db-damage-feedback-\d+-\d{8}-\d{6}$/.test(name))
+      return { label: '数据库故障反馈包', category: 'diagnostics' };
+  } else {
+    if (Object.hasOwn(APP_DETAILS, name)) return APP_DETAILS[name];
+    if (name === 'gift') return CACHE_DETAILS.gift;
+  }
   return Object.hasOwn(BUSINESS_DETAILS, name) ? BUSINESS_DETAILS[name] : undefined;
 }
 
