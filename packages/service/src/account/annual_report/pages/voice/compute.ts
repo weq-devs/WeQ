@@ -1,3 +1,4 @@
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import type { Element } from '@weq/codec';
 import type { PageAvailability, ReportPageDefinition } from '../../types';
 import { isAllTimeYear, reportYearUnixRange } from '../../time';
@@ -46,73 +47,82 @@ export const voicePage: ReportPageDefinition<VoicePageData> = {
           : '这一年你没有发出过消息',
     };
   },
-  compute: async ({ year, q }) => {
+  compute: async ({ year, q, signal }) => {
     const { startSec, endSec } = reportYearUnixRange(year);
-    const rows = await q.speech.sentRows(startSec, endSec);
 
     const wordCounts = new Map<string, number>();
     const faceCounts = new Map<number, number>();
     /** faceId → 消息里出现过的干净 faceText（用于名字兜底）。 */
     const faceTextById = new Map<number, string>();
+    let sentTotal = 0;
     let faceTotal = 0;
     let textMessages = 0;
     let picTotal = 0;
     const picByKey = new Map<string, PicAccumulator>();
 
-    for (const row of rows) {
-      const sendTime = Number(row.sendTime);
-      let hasText = false;
-      for (const element of row.elements) {
-        if (element.kind === 'text') {
-          hasText = true;
-          for (const word of segmentWords(textContentOf(element))) {
-            wordCounts.set(word, (wordCounts.get(word) ?? 0) + 1);
-          }
-        } else if (element.kind === 'face') {
-          const faceId = element.faceId;
-          if (!Number.isFinite(faceId) || faceId <= 0) continue;
-          faceTotal++;
-          faceCounts.set(faceId, (faceCounts.get(faceId) ?? 0) + 1);
-          const name = cleanFaceName(element.faceText);
-          if (name && !faceTextById.has(faceId)) faceTextById.set(faceId, name);
-        } else if (isCustomPic(element)) {
-          picTotal++;
-          const key = picKeyOf(element);
-          if (!key) continue;
-          let acc = picByKey.get(key);
-          if (!acc) {
-            acc = {
-              key,
-              fileName: '',
-              md5: '',
-              fileToken: '',
-              originalUrl: '',
-              sendTimeMs: 0,
-              subType: element.subType ?? 0,
-              imgType: element.imgType ?? 0,
-              width: element.imgWidth ?? 0,
-              height: element.imgHeight ?? 0,
-              count: 0,
-            };
-            picByKey.set(key, acc);
-          }
-          acc.count++;
-          // 种子选「最新一条」：媒体文件多半还在本地，寻址命中率最高。
-          const tMs = sendTime > 0 ? sendTime * 1000 : acc.sendTimeMs;
-          if (tMs >= acc.sendTimeMs) {
-            acc.sendTimeMs = tMs;
-            if (element.fileName) acc.fileName = element.fileName;
-            if (element.md5) acc.md5 = element.md5;
-            if (element.fileToken) acc.fileToken = element.fileToken;
-            if (element.originalUrl) acc.originalUrl = element.originalUrl;
-            if (element.imgWidth) acc.width = element.imgWidth;
-            if (element.imgHeight) acc.height = element.imgHeight;
-            acc.subType = element.subType ?? acc.subType;
-            acc.imgType = element.imgType ?? acc.imgType;
+    let processed = 0;
+    let deadline = performance.now() + 8;
+    for await (const rows of q.speech.sentBatches(startSec, endSec)) {
+      sentTotal += rows.length;
+      for (const row of rows) {
+        if ((++processed & 63) === 0 && performance.now() >= deadline) {
+          await yieldToEventLoop(undefined, { signal });
+          deadline = performance.now() + 8;
+        }
+        const sendTime = Number(row.sendTime);
+        let hasText = false;
+        for (const element of row.elements) {
+          if (element.kind === 'text') {
+            hasText = true;
+            for (const word of segmentWords(textContentOf(element))) {
+              wordCounts.set(word, (wordCounts.get(word) ?? 0) + 1);
+            }
+          } else if (element.kind === 'face') {
+            const faceId = element.faceId;
+            if (!Number.isFinite(faceId) || faceId <= 0) continue;
+            faceTotal++;
+            faceCounts.set(faceId, (faceCounts.get(faceId) ?? 0) + 1);
+            const name = cleanFaceName(element.faceText);
+            if (name && !faceTextById.has(faceId)) faceTextById.set(faceId, name);
+          } else if (isCustomPic(element)) {
+            picTotal++;
+            const key = picKeyOf(element);
+            if (!key) continue;
+            let acc = picByKey.get(key);
+            if (!acc) {
+              acc = {
+                key,
+                fileName: '',
+                md5: '',
+                fileToken: '',
+                originalUrl: '',
+                sendTimeMs: 0,
+                subType: element.subType ?? 0,
+                imgType: element.imgType ?? 0,
+                width: element.imgWidth ?? 0,
+                height: element.imgHeight ?? 0,
+                count: 0,
+              };
+              picByKey.set(key, acc);
+            }
+            acc.count++;
+            // 种子选「最新一条」：媒体文件多半还在本地，寻址命中率最高。
+            const tMs = sendTime > 0 ? sendTime * 1000 : acc.sendTimeMs;
+            if (tMs >= acc.sendTimeMs) {
+              acc.sendTimeMs = tMs;
+              if (element.fileName) acc.fileName = element.fileName;
+              if (element.md5) acc.md5 = element.md5;
+              if (element.fileToken) acc.fileToken = element.fileToken;
+              if (element.originalUrl) acc.originalUrl = element.originalUrl;
+              if (element.imgWidth) acc.width = element.imgWidth;
+              if (element.imgHeight) acc.height = element.imgHeight;
+              acc.subType = element.subType ?? acc.subType;
+              acc.imgType = element.imgType ?? acc.imgType;
+            }
           }
         }
+        if (hasText) textMessages++;
       }
-      if (hasText) textMessages++;
     }
 
     const words = [...wordCounts.entries()]
@@ -155,7 +165,7 @@ export const voicePage: ReportPageDefinition<VoicePageData> = {
 
     return {
       year,
-      sentTotal: rows.length,
+      sentTotal,
       textMessages,
       word,
       cloud,

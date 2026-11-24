@@ -1,5 +1,6 @@
 import * as timeFormat from '@weq/time';
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -15,9 +16,12 @@ import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { Odometer } from '../Odometer';
 import { usePrefersReducedMotion } from '../Odometer.shared';
 import { albumMediaUrl } from '../../../lib/resourceUrl';
+import { useNearViewport } from '../../../hooks/useNearViewport';
+
+const formatter = new Intl.NumberFormat('zh-CN');
 
 function fmt(n: number): string {
-  return new Intl.NumberFormat('zh-CN').format(n);
+  return formatter.format(n);
 }
 
 const _MONTHS = [
@@ -180,7 +184,13 @@ function GemCover({
   }
   return (
     <div className="weq-qz-gem-cover">
-      <img src={albumMediaUrl(src)} alt="" loading="lazy" onError={() => setBroken(true)} />
+      <img
+        src={albumMediaUrl(src)}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        onError={() => setBroken(true)}
+      />
       {post.hasVideo ? (
         <span className="weq-qz-video-badge" aria-label="视频">
           <Play size={9} fill="currentcolor" aria-hidden />
@@ -217,7 +227,7 @@ function postKindLabel(post: ReportQzonePost): string {
  *
  * 自动放映用 rAF 推进而不是 CSS 动画：悬停 / 拖动时随时暂停，拖动增量与放映增量
  * 落在同一个偏移量上，松手后从当前帧继续，不会跳回动画起点。轨道画两遍同样的
- * 帧实现无缝循环；偏移量始终锁在中间一份副本附近，左右都能拖而不露底。
+ * 帧实现无缝循环；偏移量限制在第一份副本长度内，左右拖动都能连续浏览。
  *
  * 焦点帧（正在经过画廊中央的那一格）会轻轻浮起，顶上的小注同步念出它的日期与
  * 体裁 —— 画廊不再是纯装饰，而是这页最后一段可以「翻着看」的回忆。
@@ -234,20 +244,25 @@ function QzoneReel({
   const reduce = usePrefersReducedMotion();
   const maskRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
-  /** 相对「中间那份副本起点」的偏移（px）。正数表示轨道向左放映。 */
+  const { near: inView } = useNearViewport(maskRef, {
+    enabled: active && !reduce,
+    rootMargin: '0px',
+  });
+  /** 第一份副本内的放映偏移（px）。 */
   const rawRef = useRef(0);
   const geometryRef = useRef<{ perCopy: number; step: number; viewWidth: number } | null>(null);
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
     startRaw: number;
+    scale: number;
     moved: boolean;
   } | null>(null);
-  const [playing, setPlaying] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [hovering, setHovering] = useState(false);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [focusIndex, setFocusIndex] = useState(0);
+  const focusRef = useRef(0);
 
   const reel = useMemo(() => [...items, ...items], [items]);
   const count = items.length;
@@ -270,35 +285,34 @@ function QzoneReel({
       geometryRef.current = geometry;
     }
 
-    // 只让偏移在中间那份副本附近游走：到边界就折回，轨道两端的画面本是一样。
-    const edge = geometry.perCopy * 0.48;
-    let raw = rawRef.current;
-    if (raw > edge) raw -= geometry.perCopy;
-    else if (raw < -edge) raw += geometry.perCopy;
-    rawRef.current = raw;
-
-    const translate = geometry.perCopy + raw;
+    const { perCopy, viewWidth, step } = geometry;
+    const translate = ((rawRef.current % perCopy) + perCopy) % perCopy;
+    rawRef.current = translate;
     track.style.transform = `translate3d(${-translate}px, 0, 0)`;
 
-    // 画廊中央对应的帧。夹在 [0, total) 内，跨过副本边界时焦点自然交给下一份。
-    const centerX = translate + geometry.viewWidth / 2;
-    const rawIndex = Math.round(centerX / geometry.step - 0.5);
-    const next = Math.max(0, Math.min(total - 1, rawIndex));
-    setFocusIndex((prev) => (prev === next ? prev : next));
+    const next = Math.min(total - 1, Math.floor((translate + viewWidth / 2) / step));
+    if (next !== focusRef.current) {
+      focusRef.current = next;
+      setFocusIndex(next);
+    }
   }, [count, total]);
 
-  // 页激活 / 系统减少动态变化时：回到中间副本并停下或开始放映。
+  // 只在这一页可见时测量和放映。悬停或拖动后从原位置继续。
   useEffect(() => {
+    const mask = maskRef.current;
+    if (!active || !mask) return;
     geometryRef.current = null;
-    rawRef.current = 0;
-    setFocusIndex(0);
-    if (active && count > 0) applyTransform();
-    setPlaying(active && !reduce && count > 0);
-  }, [active, reduce, count, applyTransform]);
+    applyTransform();
+    const observer = new ResizeObserver(() => {
+      geometryRef.current = null;
+      applyTransform();
+    });
+    observer.observe(mask);
+    return () => observer.disconnect();
+  }, [active, applyTransform]);
 
-  // 放映循环：悬停 / 拖动时暂停，离开或松手后接着当前帧继续。
   useEffect(() => {
-    if (!playing || hovering || dragging) return undefined;
+    if (!inView || !count || hovering || dragging) return;
     let raf = 0;
     let last = performance.now();
     const frame = (now: number): void => {
@@ -310,26 +324,18 @@ function QzoneReel({
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [playing, hovering, dragging, applyTransform]);
+  }, [inView, count, hovering, dragging, applyTransform]);
 
-  // 画幅变化（窗口 / 导出尺寸）后重新测量帧宽，偏移不漂。
-  useEffect(() => {
-    const mask = maskRef.current;
-    if (!mask) return undefined;
-    const observer = new ResizeObserver(() => {
-      geometryRef.current = null;
-      applyTransform();
-    });
-    observer.observe(mask);
-    return () => observer.disconnect();
-  }, [applyTransform]);
+  const onHover = useCallback((index: number | null) => setHoverIndex(index), []);
 
   function onPointerDown(event: React.PointerEvent<HTMLElement>): void {
-    if (event.button !== 0) return;
+    const mask = maskRef.current;
+    if (event.button !== 0 || !mask?.clientWidth) return;
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
       startRaw: rawRef.current,
+      scale: mask.getBoundingClientRect().width / mask.clientWidth || 1,
       moved: false,
     };
   }
@@ -346,7 +352,7 @@ function QzoneReel({
     }
     // 已确认为画廊内横向拖动：不再让舞台把这串事件误判成上下翻页手势。
     event.stopPropagation();
-    rawRef.current = drag.startRaw - dx;
+    rawRef.current = drag.startRaw - dx / drag.scale;
     applyTransform();
   }
 
@@ -368,6 +374,7 @@ function QzoneReel({
     <section
       className="weq-qz-reel weq-report-line"
       style={{ '--i': 6 } as CSSProperties}
+      data-playing={inView && !hovering && !dragging ? 'yes' : 'no'}
       data-hovering={hovering ? 'yes' : 'no'}
       data-dragging={dragging ? 'yes' : 'no'}
       onPointerEnter={(event) => {
@@ -403,8 +410,8 @@ function QzoneReel({
                   showYear={allTime}
                   focused={focusIndex === cardIndex}
                   hovered={hoverIndex === cardIndex}
-                  onHoverEnter={() => setHoverIndex(cardIndex)}
-                  onHoverLeave={() => setHoverIndex((prev) => (prev === cardIndex ? null : prev))}
+                  index={cardIndex}
+                  onHover={onHover}
                 />
               );
             }),
@@ -416,20 +423,20 @@ function QzoneReel({
 }
 
 /** 胶片上的一帧：有图看图，没图时文字与引号本身就是画面。 */
-function ReelCard({
+const ReelCard = memo(function ReelCard({
   post,
   showYear,
   focused,
   hovered,
-  onHoverEnter,
-  onHoverLeave,
+  index,
+  onHover,
 }: {
   post: ReportQzonePost;
   showYear: boolean;
   focused: boolean;
   hovered: boolean;
-  onHoverEnter: () => void;
-  onHoverLeave: () => void;
+  index: number;
+  onHover: (index: number | null) => void;
 }): ReactElement {
   const [broken, setBroken] = useState(false);
   const src = coverOf(post);
@@ -441,12 +448,18 @@ function ReelCard({
       className={`weq-qz-frame${hasCover ? ' has-cover' : ' is-text'}`}
       data-focus={focused ? 'yes' : 'no'}
       data-hover={hovered ? 'yes' : 'no'}
-      onPointerEnter={onHoverEnter}
-      onPointerLeave={onHoverLeave}
+      onPointerEnter={() => onHover(index)}
+      onPointerLeave={() => onHover(null)}
     >
       {hasCover ? (
         <>
-          <img src={albumMediaUrl(src)} alt="" loading="lazy" onError={() => setBroken(true)} />
+          <img
+            src={albumMediaUrl(src)}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setBroken(true)}
+          />
           {post.hasVideo ? (
             <span className="weq-qz-video-badge" aria-label="视频">
               <Play size={9} fill="currentcolor" aria-hidden />
@@ -480,4 +493,4 @@ function ReelCard({
       <p className="weq-qz-frame-text">{quoteOf(post)}</p>
     </figure>
   );
-}
+});

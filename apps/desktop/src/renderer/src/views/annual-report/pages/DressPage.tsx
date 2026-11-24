@@ -26,7 +26,7 @@ import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { Odometer } from '../Odometer';
 import { usePrefersReducedMotion } from '../Odometer.shared';
 import { useReportView } from '../reportContext';
-import { useDressAssets, type DressAssets } from '../useDressAssets';
+import { DRESS_CASE_ITEMS, useDressAssets, type DressAssets } from '../useDressAssets';
 import { useSelfFace, type SelfFace } from '../useSelfFace';
 import { reportFontFamily } from '../reportFont';
 import { DressBubble } from '../DressBubble';
@@ -78,9 +78,6 @@ export function DressPage({ page, data, active }: ReportPageProps<DressPageData>
     </PageFrame>
   );
 }
-
-/** 每类最多陈列五款，其余款式计入类别总数，展品在演示画幅内排成一行。 */
-const CASE_MAX = 5;
 
 /** 三类单品各自的展柜文案与量词。 */
 const KIND_META: Record<
@@ -244,7 +241,7 @@ function ShowcaseShelf({
   assets: DressAssets;
 }): ReactElement {
   const meta = KIND_META[kind];
-  const items = kindData.items.slice(0, CASE_MAX);
+  const items = kindData.items.slice(0, DRESS_CASE_ITEMS);
 
   if (items.length === 0) {
     return (

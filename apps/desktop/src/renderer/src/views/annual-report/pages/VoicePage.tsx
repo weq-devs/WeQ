@@ -164,6 +164,7 @@ function FavePic({ pic }: { pic: VoicePicFavorite }): ReactElement {
           src={src}
           alt="我最常发的自定义表情"
           draggable={false}
+          decoding="async"
           onError={() => setBroken(true)}
         />
       )}
@@ -180,27 +181,24 @@ function FavePic({ pic }: { pic: VoicePicFavorite }): ReactElement {
  * 它只是「说过很多次的话」这层氛围底噪，主角永远是那句大词。
  */
 function WordCloud({ words, active }: { words: VoiceWord[]; active: boolean }): ReactElement {
-  const entries = useMemo(
-    () =>
-      words.slice(0, CLOUD_LIMIT).map((entry, index) => {
-        const seed = hashWord(entry.word) + index * 17;
-        const rand = mulberry32(seed);
-        const max = Math.max(1, ...words.slice(0, CLOUD_LIMIT).map((w) => w.count));
-        const rank = 1 - entry.count / max;
-        const size = 16 + (1 - rank) * 20 + (entry.word.length <= 2 ? 5 : 0);
-        return {
-          word: entry.word,
-          left: rand() * 88 + 6,
-          top: rand() * 82 + 9,
-          rotate: Math.round(rand() * 44 - 22),
-          size: Math.min(48, size),
-          duration: 7 + rand() * 8,
-          delay: rand() * 6,
-          opacity: 0.07 + rank * 0.11,
-        };
-      }),
-    [words],
-  );
+  const entries = useMemo(() => {
+    const visibleWords = words.slice(0, CLOUD_LIMIT);
+    const max = Math.max(1, ...visibleWords.map((word) => word.count));
+    return visibleWords.map((entry, index) => {
+      const seed = hashWord(entry.word) + index * 17;
+      const rand = mulberry32(seed);
+      const rank = 1 - entry.count / max;
+      const size = 16 + (1 - rank) * 20 + (entry.word.length <= 2 ? 5 : 0);
+      return {
+        word: entry.word,
+        left: rand() * 88 + 6,
+        top: rand() * 82 + 9,
+        rotate: Math.round(rand() * 44 - 22),
+        size: Math.min(48, size),
+        opacity: 0.07 + rank * 0.11,
+      };
+    });
+  }, [words]);
 
   return (
     <div className="weq-vc-cloud" data-enter={active ? 'in' : 'out'} aria-hidden>
@@ -215,8 +213,6 @@ function WordCloud({ words, active }: { words: VoiceWord[]; active: boolean }): 
               '--wc-top': `${entry.top}%`,
               '--wc-rot': `${entry.rotate}deg`,
               '--wc-size': `${Math.round(entry.size)}px`,
-              '--wc-dur': `${entry.duration}s`,
-              '--wc-delay': `${entry.delay}s`,
               '--wc-alpha': entry.opacity,
             } as CSSProperties
           }

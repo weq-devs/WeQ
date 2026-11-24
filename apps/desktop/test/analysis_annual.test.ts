@@ -276,7 +276,7 @@ it('配置后的年度报告直接读取第一页，原年份、账号身份与�
       1,
     );
     const next = host.querySelector<HTMLButtonElement>('[aria-label="下一页"]')!;
-    act(() => next.click());
+    await act(async () => next.click());
     expect(host.querySelector('[data-report-page="end"]')?.getAttribute('data-active')).toBe(
       'true',
     );
@@ -310,5 +310,57 @@ it('年度报告仅在取得页面结果后更新完成页数', async () => {
     first.resolve({ status: 'ok', data: {} });
     second.resolve({ status: 'ok', data: {} });
     act(() => root.unmount());
+  }
+});
+
+it('跳页优先读取当前卡片，空间请求和本地请求同时失效时保留同一张卡片', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const local = Promise.withResolvers<{ status: 'unavailable' }>();
+  const qzone = Promise.withResolvers<{ status: 'unavailable' }>();
+  const original = fixture.manifest.pages;
+  fixture.manifest.pages = [
+    { id: 'overview', title: '总览' },
+    { id: 'qzone', title: '空间' },
+    { id: 'voice', title: '我的话' },
+    { id: 'end', title: '结尾' },
+  ];
+  fixture.query.mockImplementation(({ pageId }) =>
+    pageId === 'overview'
+      ? local.promise
+      : pageId === 'qzone'
+        ? qzone.promise
+        : Promise.resolve({ status: 'ok', data: {} }),
+  );
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const jump = async (label: string) =>
+    act(async () => host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click());
+  try {
+    await act(async () => root.render(createElement(AnnualReportView, { configuredYear: 2025 })));
+    await jump('第 2 页：空间');
+    await jump('第 4 页：结尾');
+    expect(fixture.query.mock.calls.map(([input]) => input.pageId)).toEqual(['overview', 'qzone']);
+    await act(async () => {
+      local.resolve({ status: 'unavailable' });
+      qzone.resolve({ status: 'unavailable' });
+    });
+    expect(fixture.query.mock.calls.map(([input]) => input.pageId)).toEqual([
+      'overview',
+      'qzone',
+      'end',
+    ]);
+    expect(host.querySelector('[data-report-page="end"]')?.getAttribute('data-active')).toBe(
+      'true',
+    );
+    expect(host.querySelector('[aria-label="第 2 页：结尾"]')?.getAttribute('aria-current')).toBe(
+      'true',
+    );
+  } finally {
+    fixture.manifest.pages = original;
+    local.resolve({ status: 'unavailable' });
+    qzone.resolve({ status: 'unavailable' });
+    act(() => root.unmount());
+    host.remove();
   }
 });

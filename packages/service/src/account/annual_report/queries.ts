@@ -64,7 +64,6 @@ export function createReportQueries(
   const dayTallyCache = new Map<string, Promise<C2cPeerDayTally[]>>();
   const initiationCache = new Map<string, Promise<C2cInitiationTally[]>>();
   const weekdayHourlyCache = new Map<string, Promise<SentWeekdayHourlyGrid>>();
-  const speechCache = new Map<string, Promise<import('@weq/db').SentSpeechRow[]>>();
   const groupCountCache = new Map<
     string,
     Promise<
@@ -77,7 +76,6 @@ export function createReportQueries(
       }>
     >
   >();
-  const groupSpeechCache = new Map<string, Promise<import('@weq/db').SentSpeechRow[]>>();
   const interactionCache = new Map<string, Promise<import('@weq/db').GroupInteractionTally>>();
   const qzonePostsCache = new Map<string, Promise<ReportQzonePost[]>>();
   let memberSweepCache: Promise<
@@ -216,29 +214,13 @@ export function createReportQueries(
       },
     },
     speech: {
-      /**
-       * 我发出的消息正文（解码后）。一次窗口的扫描结果跨调用记忆化，避免同一个
-       * 时间窗被 availability / compute 或多次重试重复扫两遍 —— 这是唯一一个要
-       * 逐条解 40800 的查询面，能省一次就省一次。
-       */
-      async sentRows(startTime: number, endTime: number) {
-        const key = `${startTime}:${endTime}`;
-        let running = speechCache.get(key);
-        if (!running) {
-          running = Promise.all([
-            session.c2cMsgs.sentSpeechRows({ startTime, endTime }),
-            session.groupMsgs.sentSpeechRows({
-              startTime,
-              endTime,
-              ...(selfUid ? { senderUid: selfUid } : selfUin > 0n ? { selfUin } : {}),
-            }),
-          ]).then(([c2c, group]) => [...c2c, ...group]);
-          speechCache.set(key, running);
-          void running.catch(() => {
-            speechCache.delete(key);
-          });
-        }
-        return running;
+      async *sentBatches(startTime: number, endTime: number) {
+        yield* session.c2cMsgs.sentSpeechBatches({ startTime, endTime });
+        yield* session.groupMsgs.sentSpeechBatches({
+          startTime,
+          endTime,
+          ...(selfUid ? { senderUid: selfUid } : selfUin > 0n ? { selfUin } : {}),
+        });
       },
     },
     group: {
@@ -290,22 +272,13 @@ export function createReportQueries(
         return running;
       },
       /**
-       * 冠军群的全体正文（解码后）。同群同窗口只扫一次，返回共享只读数组。
+       * 冠军群的正文按批次解码。
        */
       async weeklyCounts(groupCodes: string[], startTime: number, endTime: number) {
         return session.groupMsgs.countWeeklyByGroups(groupCodes, { startTime, endTime });
       },
-      async speechRows(groupCode: string, startTime: number, endTime: number) {
-        const key = `${groupCode}:${startTime}:${endTime}`;
-        let running = groupSpeechCache.get(key);
-        if (!running) {
-          running = session.groupMsgs.bodyRowsInGroup(groupCode, { startTime, endTime });
-          groupSpeechCache.set(key, running);
-          void running.catch(() => {
-            groupSpeechCache.delete(key);
-          });
-        }
-        return running;
+      speechBatches(groupCode: string, startTime: number, endTime: number) {
+        return session.groupMsgs.speechBatchesInGroup(groupCode, { startTime, endTime });
       },
       /**
        * 我在一个群里的成员身份 + 等级名。只给冠军群查一次；本地成员行 / 群元

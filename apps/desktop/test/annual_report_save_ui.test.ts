@@ -179,6 +179,7 @@ it('报告只保留保存按钮，取消位置选择不创建任务', async () =
   await exportClick(view.host, 'HTML');
   expect(state.prepare.mock.calls[0]![0]).toBeUndefined();
   expect(state.html).not.toHaveBeenCalled();
+  expect(state.preload).not.toHaveBeenCalled();
   expect(state.toast).not.toHaveBeenCalled();
 });
 it('准备位置期间切换来源，不提交旧报告，也不把晚到结果提示给新来源', async () => {
@@ -192,22 +193,21 @@ it('准备位置期间切换来源，不提交旧报告，也不把晚到结果�
   await view.render();
   expect(view.host.querySelector<HTMLButtonElement>('.weq-end-take-btn')!.disabled).toBe(true);
 });
-it('年份变化后不复用上一个年份的 HTML 缓存', async () => {
+it('观看结尾页不读导出图片，换年份后丢弃正在准备的旧导出', async () => {
   const view = await mount();
+  expect(state.preload).not.toHaveBeenCalled();
+  const oldExport = Promise.withResolvers<void>();
+  state.preload.mockReturnValueOnce(oldExport.promise);
+  await exportClick(view.host, 'HTML');
+  expect(state.preload).toHaveBeenCalledOnce();
   state.year = 2024;
-  let release!: () => void;
-  state.preload.mockImplementationOnce(
-    () =>
-      new Promise<void>((resolve) => {
-        release = resolve;
-      }),
-  );
   await view.render();
+  await act(async () => oldExport.resolve());
+  expect(state.html).not.toHaveBeenCalled();
   await exportClick(view.host, 'HTML');
   expect(state.html).toHaveBeenCalledWith(
     expect.objectContaining({ year: 2024, html: '<html>report-2024</html>' }),
   );
-  await act(async () => release());
 });
 it('Web 导出标明服务器保存，单按钮跟随全局偏好', async () => {
   state.web = true;

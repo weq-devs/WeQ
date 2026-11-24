@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import type { CSSProperties, ReactElement } from 'react';
 import { usePrefersReducedMotion } from './Odometer.shared';
 
 /**
@@ -12,7 +12,8 @@ import { usePrefersReducedMotion } from './Odometer.shared';
 
 /** 落定前多转几圈，纯粹为了手感。 */
 const LOOPS = 2;
-const REEL = Array.from({ length: (LOOPS + 1) * 10 }, (_, i) => i % 10);
+const REEL = Array.from({ length: (LOOPS + 1) * 10 }, (_, i) => i % 10).join('\n');
+const formatNumber = new Intl.NumberFormat('en-US');
 /** 每个数字的高度系数（与 CSS 中 .weq-od-reel > span 的 height 保持一致） */
 const DIGIT_HEIGHT = 1.2;
 
@@ -31,24 +32,10 @@ export function Odometer({
   stagger?: number;
   className?: string;
 }): ReactElement {
-  const text = useMemo(
-    () => new Intl.NumberFormat('en-US').format(Math.max(0, Math.round(value))),
-    [value],
-  );
+  const text = formatNumber.format(Math.max(0, Math.round(value)));
   const reduce = usePrefersReducedMotion();
-  const [rolled, setRolled] = useState(false);
-
-  useEffect(() => {
-    if (!active) {
-      setRolled(false);
-      return undefined;
-    }
-    const raf = requestAnimationFrame(() => setRolled(true));
-    return () => cancelAnimationFrame(raf);
-  }, [active]);
-
   const cls = className ? `weq-od ${className}` : 'weq-od';
-  if (reduce) {
+  if (!active || reduce) {
     return <span className={cls}>{text}</span>;
   }
 
@@ -64,22 +51,21 @@ export function Odometer({
             </span>
           );
         }
-        const target = rolled ? LOOPS * 10 + Number(char) : 0;
+        const target = LOOPS * 10 + Number(char);
         return (
           // biome-ignore lint/suspicious/noArrayIndexKey: 数位按位置渲染,位置即稳定键
           <span className="weq-od-digit" key={position} aria-hidden>
             <span
               className="weq-od-reel"
-              style={{
-                transform: `translateY(-${target * DIGIT_HEIGHT}em)`,
-                transitionDuration: `${durationMs}ms`,
-                transitionDelay: `${position * stagger}ms`,
-              }}
+              style={
+                {
+                  '--rp-reel-end': `-${target * DIGIT_HEIGHT}em`,
+                  animationDuration: `${durationMs}ms`,
+                  animationDelay: `${position * stagger}ms`,
+                } as CSSProperties
+              }
             >
-              {REEL.map((digit, index) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: 固定长度的 0-9 数字轮
-                <span key={index}>{digit}</span>
-              ))}
+              {REEL}
             </span>
           </span>
         );

@@ -72,7 +72,8 @@ export function HomePage({ page, data, active }: ReportPageProps<HomePageData>):
     }))
     .slice(0, 8);
 
-  const [wheel, setWheel] = useState(0);
+  const { registerPageGuard, homeCardIndex } = useReportView();
+  const [wheel, setWheel] = useState(() => homeCardIndex.current);
   const cardCount = cards.length;
   const activeIndex = Math.min(wheel, Math.max(0, cardCount - 1));
   const indexRef = useRef(activeIndex);
@@ -84,19 +85,17 @@ export function HomePage({ page, data, active }: ReportPageProps<HomePageData>):
     horizontal: boolean;
   } | null>(null);
   const suppressClickRef = useRef(false);
-  const { registerPageGuard } = useReportView();
 
-  // 换年份 / 换数据时回到第一张；冠军兜底卡可能导致卡片数变化，也要夹住索引。
   useEffect(() => {
-    setWheel(0);
-  }, [data.year]);
+    if (active) homeCardIndex.current = activeIndex;
+  }, [active, activeIndex, homeCardIndex]);
 
   useEffect(() => {
     setWheel((current) => Math.min(current, Math.max(0, cardCount - 1)));
   }, [cardCount]);
 
   // 键盘 / 竖向滑动经过报告舞台的 guard：一次手势转一格，转到边界才放行翻页。
-  // 只有当前页能注册 —— 所有页都常驻在 deck 里，非当前页注册会抢走别的页的翻页。
+  // 只有当前页能注册，退场页的守卫需要立即释放。
   useEffect(() => {
     if (!active || cardCount <= 1) return undefined;
     return registerPageGuard((direction) => {

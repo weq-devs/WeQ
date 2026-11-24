@@ -16,8 +16,9 @@ export function reportGestureTarget(target: EventTarget | null): target is HTMLE
 export function reportCanTurn(target: Element, host: HTMLElement, direction: 1 | -1): boolean {
   for (let node: Element | null = target; node && node !== host; node = node.parentElement) {
     if (!(node instanceof HTMLElement)) continue;
+    if (node.scrollHeight <= node.clientHeight + 1) continue;
     const overflow = node.ownerDocument.defaultView?.getComputedStyle(node).overflowY;
-    if (!/auto|scroll/.test(overflow ?? '') || node.scrollHeight <= node.clientHeight + 1) continue;
+    if (overflow !== 'auto' && overflow !== 'scroll') continue;
     if (
       direction === 1
         ? node.scrollTop + node.clientHeight < node.scrollHeight - 1

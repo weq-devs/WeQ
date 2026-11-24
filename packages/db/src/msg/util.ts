@@ -6,13 +6,16 @@
  * the codec wiring.
  */
 
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
+import { databaseRequestSignal } from '../query_schedule';
 import { ProtoMsg, decodeElement, decodeMsgDressColumn } from '@weq/codec';
 import type { Element, SetEmojiItem, MsgDecoration } from '@weq/codec';
 import { sanitizeBytes } from '@weq/codec/raw';
 import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { MsgEmoji } from '@weq/codec/proto/msg/40062';
 import type { SqlRow, SqlValue } from '@weq/native';
-import type { DressTally, SentWeekdayHourlyGrid } from './types';
+import type { DressTally, SentSpeechRow, SentWeekdayHourlyGrid } from './types';
+import type { QqDb } from '../qq_db';
 
 const bodyCodec = new ProtoMsg(MsgBody);
 const emojiCodec = new ProtoMsg(MsgEmoji);
@@ -27,6 +30,63 @@ export function decodeBody(blob: SqlValue | undefined): Element[] {
   } catch (e) {
     console.error('[msg] failed to decode 40800 body:', e);
     return [{ kind: 'text', textContent: '[解析消息失败: 格式错误]' }];
+  }
+}
+
+/**
+ * 年度报告按 rowid 分批读 BLOB；固定上界，避免实时写入拖长一轮统计。
+ * 筛选在 SQLite 内完成，主进程每次只持有一页二进制。
+ */
+export async function* reportRowBatches(
+  db: QqDb,
+  table: string,
+  columns: string,
+  where: string[],
+  params: SqlValue[],
+  byGroupSequence = false,
+): AsyncGenerator<SqlRow[]> {
+  const end = (await db.query(`SELECT MAX(rowid) FROM ${table}`))[0]?.[0];
+  if (end == null) return;
+  const limit = 512;
+  const filter = where.join(' AND ');
+  // 单群复用 QQ 的 (群号, 序号) 索引。单独读取空序号，保留导入历史里的消息。
+  const partitions = byGroupSequence ? (['missing', 'present'] as const) : (['all'] as const);
+  for (const partition of partitions) {
+    const order = partition === 'present' ? '"40003",rowid' : 'rowid';
+    const seqFilter =
+      partition === 'all' ? '' : ` AND "40003" IS ${partition === 'present' ? 'NOT ' : ''}NULL`;
+    let cursor: SqlValue[] = [];
+    for (;;) {
+      const after = cursor.length ? ` AND (${order}) > (${cursor.map(() => '?').join(',')})` : '';
+      const rows = await db.query(
+        `SELECT ${columns},${order} FROM ${table}
+          WHERE ${filter} AND rowid <= ?${seqFilter}${after}
+          ORDER BY ${order} LIMIT ?`,
+        [...params, end, ...cursor, limit],
+      );
+      if (!rows.length) break;
+      cursor = rows.at(-1)!.slice(partition === 'present' ? -2 : -1);
+      yield rows;
+      if (rows.length < limit) break;
+    }
+  }
+}
+
+export async function* reportSpeechBatches(
+  rowsByBatch: AsyncIterable<SqlRow[]>,
+): AsyncGenerator<SentSpeechRow[]> {
+  const signal = databaseRequestSignal();
+  for await (const rows of rowsByBatch) {
+    const decoded: SentSpeechRow[] = [];
+    let deadline = performance.now() + 8;
+    for (const row of rows) {
+      if ((decoded.length & 63) === 0 && performance.now() >= deadline) {
+        await yieldToEventLoop(undefined, { signal });
+        deadline = performance.now() + 8;
+      }
+      decoded.push({ sendTime: toBigint(row[0]), elements: decodeBody(row[1]) });
+    }
+    yield decoded;
   }
 }
 
@@ -130,51 +190,63 @@ function sampleTextOf(elements: Element[]): string {
  *
  * 坏行（解不出 / 全零）静默跳过 —— 装扮统计不该因为一条畸形消息整页失败。
  */
-export function tallyDressBlobs(rows: SqlRow[], into: DressTally): DressTally {
+export async function tallyDressBlobs(
+  batches: AsyncIterable<SqlRow[]>,
+  into: DressTally,
+): Promise<DressTally> {
   const decoded = new Map<string, MsgDecoration | null>();
-  for (const row of rows) {
-    const blob = row[0];
-    if (!(blob instanceof Uint8Array) || blob.byteLength === 0) continue;
-    const key = Buffer.from(blob.buffer, blob.byteOffset, blob.byteLength).toString('latin1');
-    let dress = decoded.get(key);
-    if (dress === undefined) {
-      dress = decodeMsgDressColumn(blob);
-      decoded.set(key, dress);
-    }
-    if (!dress) continue;
-    if (dress.bubbleId > 0) into.bubble[dress.bubbleId] = (into.bubble[dress.bubbleId] ?? 0) + 1;
-    if (dress.fontId > 0) into.font[dress.fontId] = (into.font[dress.fontId] ?? 0) + 1;
-    if (dress.widgetId > 0) into.widget[dress.widgetId] = (into.widget[dress.widgetId] ?? 0) + 1;
-    into.decorated += 1;
+  const signal = databaseRequestSignal();
+  let processed = 0;
+  let deadline = performance.now() + 8;
+  for await (const rows of batches) {
+    for (const row of rows) {
+      if ((++processed & 127) === 0 && performance.now() >= deadline) {
+        await yieldToEventLoop(undefined, { signal });
+        deadline = performance.now() + 8;
+      }
+      const blob = row[0];
+      if (!(blob instanceof Uint8Array) || blob.byteLength === 0) continue;
+      const key = Buffer.from(blob.buffer, blob.byteOffset, blob.byteLength).toString('latin1');
+      let dress = decoded.get(key);
+      if (dress === undefined) {
+        dress = decodeMsgDressColumn(blob);
+        decoded.set(key, dress);
+      }
+      if (!dress) continue;
+      if (dress.bubbleId > 0) into.bubble[dress.bubbleId] = (into.bubble[dress.bubbleId] ?? 0) + 1;
+      if (dress.fontId > 0) into.font[dress.fontId] = (into.font[dress.fontId] ?? 0) + 1;
+      if (dress.widgetId > 0) into.widget[dress.widgetId] = (into.widget[dress.widgetId] ?? 0) + 1;
+      into.decorated += 1;
 
-    const outfitKey = `${dress.bubbleId}:${dress.fontId}:${dress.widgetId}`;
-    let outfit = into.outfits[outfitKey];
-    if (!outfit) {
-      outfit = {
-        bubbleId: dress.bubbleId,
-        fontId: dress.fontId,
-        widgetId: dress.widgetId,
-        count: 0,
-        samples: [],
-        firstTime: 0,
-        lastTime: 0,
-      };
-      into.outfits[outfitKey] = outfit;
-    }
-    outfit.count += 1;
+      const outfitKey = `${dress.bubbleId}:${dress.fontId}:${dress.widgetId}`;
+      let outfit = into.outfits[outfitKey];
+      if (!outfit) {
+        outfit = {
+          bubbleId: dress.bubbleId,
+          fontId: dress.fontId,
+          widgetId: dress.widgetId,
+          count: 0,
+          samples: [],
+          firstTime: 0,
+          lastTime: 0,
+        };
+        into.outfits[outfitKey] = outfit;
+      }
+      outfit.count += 1;
 
-    const sendTime = Number(row[2] ?? 0);
-    if (sendTime > 0) {
-      if (outfit.firstTime === 0 || sendTime < outfit.firstTime) outfit.firstTime = sendTime;
-      if (sendTime > outfit.lastTime) outfit.lastTime = sendTime;
-    }
+      const sendTime = Number(row[2] ?? 0);
+      if (sendTime > 0) {
+        if (outfit.firstTime === 0 || sendTime < outfit.firstTime) outfit.firstTime = sendTime;
+        if (sendTime > outfit.lastTime) outfit.lastTime = sendTime;
+      }
 
-    // 样本够了就完全不碰 40800 —— 这是这次扫描能保持轻量的关键。
-    if (outfit.samples.length >= SAMPLES_PER_OUTFIT) continue;
-    const body = row[1];
-    if (!(body instanceof Uint8Array) || body.byteLength === 0) continue;
-    const text = sampleTextOf(decodeBody(body));
-    if (text && !outfit.samples.includes(text)) outfit.samples.push(text);
+      // 样本够了就完全不碰 40800 —— 这是这次扫描能保持轻量的关键。
+      if (outfit.samples.length >= SAMPLES_PER_OUTFIT) continue;
+      const body = row[1];
+      if (!(body instanceof Uint8Array) || body.byteLength === 0) continue;
+      const text = sampleTextOf(decodeBody(body));
+      if (text && !outfit.samples.includes(text)) outfit.samples.push(text);
+    }
   }
   return into;
 }

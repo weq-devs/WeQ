@@ -41,6 +41,8 @@ import {
   decodeBody,
   decodeDress,
   emptyDressTally,
+  reportRowBatches,
+  reportSpeechBatches,
   tallyDressBlobs,
   toBigint,
   toStr,
@@ -969,11 +971,11 @@ export class C2cMsgDb {
    * 对端不同即我发）。与作息页不同，这一页必须看**说了什么**，所以 40800 每一行
    * 都要解；空 body 的行直接滤掉。窗口时间用调用方给的 unix 秒半开区间。
    *
-   * 返回的是**共享只读**数组（调用方只在 compute 内聚合，不得修改）。
+   * 逐批输出正文，只保留当前批次。
    */
-  async sentSpeechRows(
+  async *sentSpeechBatches(
     opts: { startTime?: number; endTime?: number } = {},
-  ): Promise<SentSpeechRow[]> {
+  ): AsyncGenerator<SentSpeechRow[]> {
     const conditions: string[] = [
       `"40050" > 0`,
       `"40020" != "40021"`,
@@ -989,14 +991,9 @@ export class C2cMsgDb {
       conditions.push(`"40050" < ?`);
       params.push(BigInt(opts.endTime));
     }
-    const rows = await this.qq.query(
-      `SELECT "40050","40800" FROM ${this.table} WHERE ${conditions.join(' AND ')}`,
-      params,
+    yield* reportSpeechBatches(
+      reportRowBatches(this.qq, this.table, '"40050","40800"', conditions, params),
     );
-    return rows.map((row) => ({
-      sendTime: toBigint(row[0]),
-      elements: decodeBody(row[1]),
-    }));
   }
 
   /**
@@ -1105,11 +1102,10 @@ export class C2cMsgDb {
       conditions.push(`"40050" < ?`);
       params.push(BigInt(opts.endTime));
     }
-    const rows = await this.qq.query(
-      `SELECT "40801","40800","40050" FROM ${this.table} WHERE ${conditions.join(' AND ')}`,
-      params,
+    return tallyDressBlobs(
+      reportRowBatches(this.qq, this.table, '"40801","40800","40050"', conditions, params),
+      emptyDressTally(),
     );
-    return tallyDressBlobs(rows, emptyDressTally());
   }
 
   /**

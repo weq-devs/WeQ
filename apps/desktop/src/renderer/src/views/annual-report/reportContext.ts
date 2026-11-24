@@ -34,6 +34,8 @@ export type ReportViewContextValue = {
    * 页面翻走时用返回的 dispose 注销，否则后一页会被前一页的守卫挡住。
    */
   registerPageGuard: (guard: PageTurnGuard) => () => void;
+  /** 「我的主场」被回收时保留轮盘位置。 */
+  homeCardIndex: RefObject<number>;
   /**
    * 报告内的浮层 portal 宿主。
    *

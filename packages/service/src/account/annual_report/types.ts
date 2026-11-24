@@ -214,12 +214,10 @@ export type ReportQueries = {
   /**
    * 年度报告「我的话」页的原始素材：我自己发出的消息正文。
    *
-   * 与 overview/dress 的「不解码 body 的轻扫描」相反，这一页必须看每条消息说了
-   * 什么，所以两张表各做一次全量 40800 解码后合并返回。只有这一页用；返回的
-   * 数组是共享只读的，调用方不得原地修改。
+   * 扫描口径内的私聊与群聊消息，按批解码和汇总 40800 正文。
    */
   speech: {
-    sentRows(startTime: number, endTime: number): Promise<SentSpeechRow[]>;
+    sentBatches(startTime: number, endTime: number): AsyncIterable<SentSpeechRow[]>;
   };
   /**
    * 群聊专用聚合 —— 年度报告「我的主场」页的素材。排行 SQL 封装在
@@ -249,10 +247,13 @@ export type ReportQueries = {
       }>
     >;
     /**
-     * 某一个群在时间窗内的全体正文（解码后）—— 只给冠军群算词云，扫描一次。
-     * 返回的数组是共享只读的，调用方不得原地修改。
+     * 冠军群在时间窗内的全体正文，逐批交给词云聚合器。
      */
-    speechRows(groupCode: string, startTime: number, endTime: number): Promise<SentSpeechRow[]>;
+    speechBatches(
+      groupCode: string,
+      startTime: number,
+      endTime: number,
+    ): AsyncIterable<SentSpeechRow[]>;
     /**
      * 多个群在时间窗内的**每周**消息数（`week` 以窗口起始日期为 0，本地时区）。
      * 只读群号 + 发送时间，给「我的主场」的群聊卡片 sparkline 用。

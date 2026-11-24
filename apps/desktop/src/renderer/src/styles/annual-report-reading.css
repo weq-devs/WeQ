@@ -35,12 +35,11 @@
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  transform: none !important;
-  filter: none !important;
+  animation: none;
 }
 
 .weq-report-stage-host[data-layout='reading'] .weq-report-slide:not(.is-active) {
-  visibility: hidden;
+  display: none;
 }
 
 .weq-report-stage-host[data-layout='reading'] .weq-report-page {
