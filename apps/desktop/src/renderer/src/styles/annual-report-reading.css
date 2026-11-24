@@ -375,6 +375,21 @@
   white-space: nowrap;
 }
 
+.weq-report-stage-host[data-layout='reading'] .weq-dress-hero-col {
+  align-items: center;
+  text-align: center;
+}
+
+.weq-report-stage-host[data-layout='reading'] .weq-dress-say {
+  justify-content: center;
+}
+
+.weq-report-stage-host[data-layout='reading'] .weq-dress-foot {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
 .weq-report-stage-host[data-layout='reading'] .weq-dress-shelf {
   grid-template-columns: minmax(0, 1fr);
 }

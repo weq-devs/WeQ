@@ -79,7 +79,7 @@ export function DressPage({ page, data, active }: ReportPageProps<DressPageData>
   );
 }
 
-/** 展柜每类最多陈列多少款。再多只留一个「+N」暗格，不把版面堆满。 */
+/** 每类最多陈列五款，其余款式计入类别总数，展品在演示画幅内排成一行。 */
 const CASE_MAX = 5;
 
 /** 三类单品各自的展柜文案与量词。 */
@@ -245,7 +245,6 @@ function ShowcaseShelf({
 }): ReactElement {
   const meta = KIND_META[kind];
   const items = kindData.items.slice(0, CASE_MAX);
-  const more = Math.max(0, kindData.distinct - items.length);
 
   if (items.length === 0) {
     return (
@@ -284,12 +283,6 @@ function ShowcaseShelf({
             </p>
           </li>
         ))}
-        {more > 0 ? (
-          <li className="weq-dress-item is-more" aria-hidden>
-            <b>+{fmt(more)}</b>
-            <span>{meta.unit}</span>
-          </li>
-        ) : null}
       </ul>
     </div>
   );
