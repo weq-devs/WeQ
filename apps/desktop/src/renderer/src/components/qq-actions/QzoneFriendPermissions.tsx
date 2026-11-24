@@ -1,18 +1,18 @@
 import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
 import { activateProfile } from '../../lib/profileClick';
 import { EmptyState } from '../EmptyState';
-import { useContext, useState } from 'react';
+import { useContext, useLayoutEffect, useRef, useState } from 'react';
 import { trpc } from '../../trpc/client';
 import { QQWriteToggleRow } from '../QQWriteControls';
 import { ActionFeedback, ActionIcon } from './shared';
 import { useQQAction, withQQAccountScope } from './shared.shared';
-import { QueryError } from '../settings/controls';
+import { Card, QueryError, Row } from '../settings/controls';
 import { QqAvatar } from '../QqAvatar';
 import { EditorDialog } from '../EditorDialog';
 import { ProfileNavigationContext, profileTargetUser } from '../../lib/profileNavigation';
 import { useTabActive } from '../RetainedTabs.shared';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
-import { EyeOff, Plus, Search, ShieldBan, X, UsersRound } from 'lucide-react';
+import { Plus, Search, ShieldBan, X, UsersRound } from 'lucide-react';
 import '../../styles/qzone-permissions.css';
 
 function PermissionProfile({ uin, name }: { uin: string; name: string }) {
@@ -64,7 +64,16 @@ function PermissionKind({
   label: string;
   action: ReturnType<typeof useQQAction>;
 }) {
+  const [managing, setManaging] = useState(false);
   const [adding, setAdding] = useState(false);
+  const addButton = useRef<HTMLButtonElement>(null);
+  const restoreAddFocus = useRef(false);
+  useLayoutEffect(() => {
+    if (!adding && restoreAddFocus.current) {
+      restoreAddFocus.current = false;
+      addButton.current?.focus({ preventScroll: true });
+    }
+  }, [adding]);
   const lists = trpc.account.qqActions.qzoneFriendPermissionList.useQuery(
     { ...action.binding!, kind },
     useQQAutoRefresh(action.available),
@@ -111,74 +120,100 @@ function PermissionKind({
       </>
     );
   const disabled = action.disabled || !Array.isArray(lists.data) || Boolean(lists.error);
-  const PermissionIcon = kind === 'blocked' ? ShieldBan : EyeOff;
   const existing = new Set(lists.data?.map((row) => row.uin));
   const allowed = (uin: string) =>
     /^[1-9]\d{4,11}$/.test(uin) && uin !== action.binding?.expectedAccountUin && !existing.has(uin);
   const add = async (uin: string) => {
     if (disabled || !allowed(uin)) return;
     if (await toggle(uin, true)) {
+      restoreAddFocus.current = true;
       setAdding(false);
     }
   };
   return (
-    <section className="weq-qzone-permissions weq-set-card" aria-label={label}>
-      <header>
-        <h4 className="weq-set-card-title">
-          <span className="weq-set-card-icon" aria-hidden>
-            <PermissionIcon size={15} strokeWidth={1.8} />
-          </span>
-          {label}
-        </h4>
-        {!lists.error && lists.data && (
-          <span className="weq-qzone-permissions-count">
-            {<span className="weq-number weq-number-inherit">{lists.data.length}</span>} 人
-          </span>
-        )}
-        <div className="weq-qzone-permissions-tools">
-          <ActionIcon label={`添加到${label}`} disabled={disabled} onClick={() => setAdding(true)}>
-            <Plus size={16} />
-          </ActionIcon>
-        </div>
-      </header>
-      {readError}
-      {!lists.data && !lists.error && (
-        <p role="status">{action.available ? '正在读取名单…' : '当前账号暂不可用'}</p>
-      )}
-      {lists.data?.length === 0 && !lists.error && (
-        <EmptyState compact icon={<UsersRound />} title="暂无好友" />
-      )}
-      <ul className="weq-qzone-permission-users">
-        {lists.data?.map((row) => (
-          <li key={row.uin}>
-            <PermissionProfile uin={row.uin} name={row.name} />
-            <ActionIcon
-              label={`从${label}移除 ${row.name || row.uin}（${row.uin}）`}
-              disabled={disabled}
-              onClick={() => void toggle(row.uin, false)}
+    <>
+      <Row
+        settingId={`qzone-${kind}`}
+        label={label}
+        control={
+          <>
+            {!lists.error && lists.data && (
+              <span className="weq-qzone-permissions-count">
+                <span className="weq-number weq-number-inherit">{lists.data.length}</span> 人
+              </span>
+            )}
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-sm"
+              aria-haspopup="dialog"
+              aria-label={`管理名单：${label}`}
+              onClick={() => setManaging(true)}
             >
-              <X size={13} />
-            </ActionIcon>
-          </li>
-        ))}
-      </ul>
-      {adding && (
+              管理名单
+            </button>
+          </>
+        }
+      />
+      {managing && (
         <EditorDialog
-          title={`添加到${label}`}
-          onClose={() => setAdding(false)}
+          title={label}
+          onClose={() => {
+            setManaging(false);
+            setAdding(false);
+          }}
           busy={action.pending || action.busy}
         >
-          <PermissionAdder
-            label={label}
-            action={action}
-            disabled={disabled}
-            existing={existing}
-            add={add}
-          />
-          <ActionFeedback action={action} />
+          <div className="weq-qzone-permissions">
+            <div className="weq-qzone-permissions-tools">
+              <button
+                ref={addButton}
+                type="button"
+                className="weq-set-btn weq-set-btn-sm"
+                aria-expanded={adding}
+                aria-label={adding ? '取消添加' : `添加到${label}`}
+                disabled={!adding && disabled}
+                onClick={() => setAdding(!adding)}
+              >
+                {adding ? '取消添加' : '添加'}
+              </button>
+            </div>
+            {adding && (
+              <PermissionAdder
+                label={label}
+                action={action}
+                disabled={disabled}
+                existing={existing}
+                add={add}
+              />
+            )}
+            {readError}
+            {!lists.data && !lists.error && (
+              <p role="status">{action.available ? '正在读取名单…' : '当前账号暂不可用'}</p>
+            )}
+            {lists.data?.length === 0 && !lists.error && (
+              <EmptyState compact icon={<UsersRound />} title="暂无好友" />
+            )}
+            {lists.data && lists.data.length > 0 && (
+              <ul className="weq-qzone-permission-users">
+                {lists.data.map((row) => (
+                  <li key={row.uin}>
+                    <PermissionProfile uin={row.uin} name={row.name} />
+                    <ActionIcon
+                      label={`从${label}移除 ${row.name || row.uin}（${row.uin}）`}
+                      disabled={disabled}
+                      onClick={() => void toggle(row.uin, false)}
+                    >
+                      <X size={13} />
+                    </ActionIcon>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <ActionFeedback action={action} />
+          </div>
         </EditorDialog>
       )}
-    </section>
+    </>
   );
 }
 
@@ -196,6 +231,10 @@ function PermissionAdder({
   add: (uin: string) => Promise<void>;
 }) {
   const [keyword, setKeyword] = useState('');
+  const input = useRef<HTMLInputElement>(null);
+  useLayoutEffect(() => {
+    input.current?.focus({ preventScroll: true });
+  }, []);
   const needle = keyword.trim();
   const candidates = trpc.account.searchQuick.useQuery(
     { keyword: needle, limit: 20 },
@@ -218,6 +257,7 @@ function PermissionAdder({
       >
         <Search size={15} aria-hidden />
         <input
+          ref={input}
           aria-label={`搜索好友或输入 QQ 号：${label}`}
           placeholder="搜索好友或输入 QQ 号"
           value={keyword}
@@ -287,7 +327,7 @@ function PermissionAdder({
 }
 function QzoneFriendPermissionsBody({ targetUin }: { targetUin?: string }) {
   const action = useQQAction(`space-permissions:${targetUin ?? 'lists'}`, 'failure-only');
-  return (
+  const permissions = (
     <>
       <PermissionKind
         action={action}
@@ -296,8 +336,17 @@ function QzoneFriendPermissionsBody({ targetUin }: { targetUin?: string }) {
         label="不让 ta 看我的空间"
       />
       <PermissionKind action={action} targetUin={targetUin} kind="hidden" label="不看 ta 的空间" />
+    </>
+  );
+  return targetUin ? (
+    <>
+      {permissions}
       <ActionFeedback action={action} />
     </>
+  ) : (
+    <Card title="好友权限" icon={<ShieldBan size={15} strokeWidth={1.8} />}>
+      {permissions}
+    </Card>
   );
 }
 export const QzoneFriendPermissions = withQQAccountScope(QzoneFriendPermissionsBody);

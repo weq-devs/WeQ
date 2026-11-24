@@ -31,6 +31,7 @@ let browser;
 const errors = [];
 let cases = 0;
 const signaturesOnly = process.argv.includes('--signatures');
+const permissionsOnly = process.argv.includes('--permissions');
 try {
   await server.listen();
   browser = await chromium.launch({
@@ -41,8 +42,8 @@ try {
   });
   const output = process.env.WEQ_DISCLOSURE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
-  for (const width of [320, 390, 1280])
-    for (const theme of ['light', 'dark']) {
+  for (const width of permissionsOnly ? [390, 1280] : [320, 390, 1280])
+    for (const theme of permissionsOnly ? ['light'] : ['light', 'dark']) {
       const page = await browser.newPage({ viewport: { width, height: 844 } });
       page.setDefaultTimeout(5000);
       page.on('pageerror', (error) => errors.push(error.message));
@@ -126,6 +127,49 @@ try {
           );
         }
       };
+      const checkPermissions = async () => {
+        await open('permissions');
+        const label = '不让 ta 看我的空间';
+        const manage = page.getByRole('button', { name: `管理名单：${label}`, exact: true });
+        const add = page.getByRole('button', { name: `添加到${label}`, exact: true });
+        assert.equal(await add.count(), 0);
+        await manage.click();
+        const dialog = page.getByRole('dialog', { name: label, exact: true });
+        await check(dialog);
+        await add.click();
+        const search = dialog.getByLabel(`搜索好友或输入 QQ 号：${label}`, { exact: true });
+        assert(await search.evaluate((node) => node === document.activeElement));
+        await search.fill('90001');
+        await page.evaluate(() => {
+          window.disclosureQa.fail = true;
+        });
+        await dialog.getByTitle('添加 待添加好友', { exact: true }).click();
+        await page.waitForFunction(() => !document.querySelector('.weq-editor-fields')?.disabled);
+        assert.equal(await search.inputValue(), '90001');
+        await page.evaluate(() => {
+          window.disclosureQa.fail = false;
+        });
+        if (output)
+          await page.screenshot({ path: resolve(output, `permissions-${width}-${theme}.png`) });
+        await dialog.getByTitle('添加 待添加好友', { exact: true }).click();
+        await search.waitFor({ state: 'detached' });
+        assert(await dialog.getByText('待添加好友', { exact: true }).isVisible());
+        assert(await add.evaluate((node) => node === document.activeElement));
+        await page.keyboard.press('Escape');
+        await dialog.waitFor({ state: 'detached' });
+        await page.waitForFunction(() =>
+          document.activeElement?.matches('[data-setting-id="qzone-blocked"] button'),
+        );
+        const added = await page.evaluate(() => window.disclosureQa.calls.at(-1));
+        assert.equal(added.input.kind, 'blocked');
+        assert.equal(added.input.targetUin, '90001');
+        cases++;
+      };
+      if (permissionsOnly) {
+        await checkPermissions();
+        await page.close();
+        continue;
+      }
       for (const spec of [
         {
           surface: 'rkey',
@@ -275,37 +319,7 @@ try {
         await page.close();
         continue;
       }
-      await open('permissions');
-      const add = page.getByRole('button', { name: '添加到不让 ta 看我的空间', exact: true });
-      await add.click();
-      const dialog = page.getByRole('dialog', { name: '添加到不让 ta 看我的空间', exact: true });
-      await check(dialog);
-      await dialog
-        .getByLabel('搜索好友或输入 QQ 号：不让 ta 看我的空间', { exact: true })
-        .fill('90001');
-      await page.evaluate(() => {
-        window.disclosureQa.fail = true;
-      });
-      await dialog.getByTitle('添加 待添加好友', { exact: true }).click();
-      await page.waitForFunction(() => !document.querySelector('.weq-editor-fields')?.disabled);
-      assert.equal(
-        await dialog
-          .getByLabel('搜索好友或输入 QQ 号：不让 ta 看我的空间', { exact: true })
-          .inputValue(),
-        '90001',
-      );
-      await page.evaluate(() => {
-        window.disclosureQa.fail = false;
-      });
-      if (output)
-        await page.screenshot({ path: resolve(output, `permissions-${width}-${theme}.png`) });
-      await dialog.getByTitle('添加 待添加好友', { exact: true }).click();
-      await dialog.waitFor({ state: 'detached' });
-      assert(await add.evaluate((node) => node === document.activeElement));
-      const added = await page.evaluate(() => window.disclosureQa.calls.at(-1));
-      assert.equal(added.input.kind, 'blocked');
-      assert.equal(added.input.targetUin, '90001');
-      cases++;
+      await checkPermissions();
       await page.close();
     }
   assert.deepEqual(errors, []);

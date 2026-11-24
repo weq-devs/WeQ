@@ -1,21 +1,7 @@
 .weq-qzone-permissions {
-  padding: 14px 16px;
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 8px;
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-primary);
-}
-.weq-qzone-permissions > header {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 0;
-}
-.weq-qzone-permissions h4 {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
 }
 .weq-qzone-permissions-count,
 .weq-qzone-permissions p,
@@ -24,13 +10,12 @@
   font-size: 12px;
 }
 .weq-qzone-permissions p {
-  margin: 8px 0;
+  margin: 0;
   overflow-wrap: anywhere;
 }
 .weq-qzone-permissions-tools {
   display: flex;
-  margin-left: auto;
-  gap: 4px;
+  justify-content: flex-end;
 }
 .weq-qzone-permission-users,
 .weq-qzone-permission-candidates {
@@ -89,7 +74,9 @@
   min-width: 26px;
 }
 .weq-qzone-permission-add {
-  margin-top: 12px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
 }
 .weq-qzone-permission-add form {
   display: flex;
@@ -119,7 +106,6 @@
 .weq-qzone-permission-candidates {
   max-height: 240px;
   overflow-y: auto;
-  margin-top: 6px;
 }
 .weq-qzone-permission-candidates button {
   display: flex;
