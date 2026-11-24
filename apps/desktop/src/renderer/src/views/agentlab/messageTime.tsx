@@ -5,7 +5,7 @@ import { TimeLabel } from '../../components/TimeLabel';
  * 规则与主聊天 im-template/template/messageTime.tsx 完全一致：
  *  - 首条消息必显示；
  *  - 相邻两条消息间隔 ≥ 5 分钟时显示；
- *  - 与普通聊天共用北京自然日分段，正文到秒、完整提示保留毫秒。
+ *  - 与普通聊天共用北京自然日分段，正文到分钟、完整提示保留毫秒。
  * 复用主聊天的 .message-time-divider 样式（气泡区同为 grid 布局，align-self:center 居中）。
  */
 import type { ReactElement } from 'react';

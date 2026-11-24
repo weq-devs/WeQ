@@ -62,7 +62,7 @@ describe('功能时间格式与真实精度', () => {
             encoding: 'utf8',
           }),
         ),
-        ['2026-03-08 14:59:59', '昨天 23:59:59'],
+        ['2026-03-08 14:59:59', '昨天 23:59'],
       );
     }
     assert.equal(
@@ -74,10 +74,10 @@ describe('功能时间格式与真实精度', () => {
   });
   it('北京自然日、星期、跨年与未来', () => {
     const now = '2026-01-01T00:30:00+08:00';
-    assert.equal(formatChatTime('2025-12-31T23:59:06+08:00', now), '昨天 23:59:06');
-    assert.equal(formatChatTime('2026-01-02T00:00:00+08:00', now), '2026-01-02 00:00:00');
+    assert.equal(formatChatTime('2025-12-31T23:59:06+08:00', now), '昨天 23:59');
+    assert.equal(formatChatTime('2026-01-02T00:00:00+08:00', now), '2026-01-02 00:00');
     assert.equal(formatConversationTime('2026-01-02T00:00:00+08:00', now), '2026-01-02');
-    assert.equal(formatChatTime('2025-12-30T15:00:09Z', now), '星期二 23:00:09');
+    assert.equal(formatChatTime('2025-12-30T15:00:09Z', now), '星期二 23:00');
     assert.equal(formatChineseDate(sample, false), '3 月 4 日');
     assert.equal(formatRelativeTime('2026-01-01T00:32:00+08:00', now), '2 分钟后');
     assert.equal(

@@ -37,13 +37,14 @@ describe('功能接入统一格式', () => {
     expect(groupCreationDate('2026-03-04')).toBe('2026-03-04');
     expect(groupCreationDate('2026-03-04T06:05:06Z')).toBe('2026-03-04 14:05:06');
   });
-  it('普通与助手消息分隔同规则，完整提示不把秒级 ISO 当成毫秒来源', () => {
+  it('普通与助手消息分隔显示到分钟，完整提示保留来源精度', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-04T15:00:00+08:00'));
     const iso = '2026-03-04T06:05:06.000Z';
     const normal = renderToStaticMarkup(createElement(MessageTimeDivider, { value: iso }));
     const assistant = renderToStaticMarkup(createElement(ChatTimeDivider, { ts: Date.parse(iso) }));
-    expect(normal).toContain('14:05:06');
+    expect(normal).toContain('>14:05</time>');
+    expect(assistant).toContain('>14:05</time>');
     expect(normal).toContain('title="2026-03-04 14:05:06（北京时间）"');
     expect(assistant).toContain('title="2026-03-04 14:05:06.000（北京时间）"');
     expect(

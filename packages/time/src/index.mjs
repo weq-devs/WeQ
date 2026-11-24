@@ -117,11 +117,11 @@ function createTimeRuntime() {
       today = calendarParts(now);
     if (!p || !today) return '';
     const diff = today.dayIndex - p.dayIndex;
-    const clock = formatClock(value);
+    const clock = formatClock(value, 'minute');
     if (diff === 0) return clock;
     if (diff === 1) return `昨天 ${clock}`;
     if (diff > 1 && diff < 7) return `${weekdays[p.weekday]} ${clock}`;
-    return formatDateTime(value);
+    return formatDateTime(value, 'minute');
   }
 
   function formatConversationTime(value, now = Date.now(), mode = 'conversation') {
