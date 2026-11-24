@@ -3,40 +3,30 @@
  * follows the rest of weq: #0099ff accent, thin borders, small radii.
  */
 
-import { useState, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { Loader2 } from 'lucide-react';
-import { ShimmerImage } from '../../components/ShimmerImage';
+import { AvatarPicture } from '../../components/AvatarPicture';
 
 /** Spinning loader glyph at a given pixel size. */
 export function Spinner({ size = 16 }: { size?: number }): ReactElement {
   return <Loader2 size={size} className="weq-exp-spin" strokeWidth={2} aria-hidden />;
 }
 
-/** Round avatar that falls back to an initial letter on missing / broken src. */
 export function Avatar({
   url,
-  name,
+  group,
   size = 36,
 }: {
   url: string | null | undefined;
-  name: string;
+  group?: boolean;
   size?: number;
 }): ReactElement {
-  const [failed, setFailed] = useState(false);
-  const showImg = url && !failed;
   return (
-    <span className="weq-exp-avatar" style={{ width: size, height: size }}>
-      {showImg ? (
-        <ShimmerImage
-          src={url}
-          alt=""
-          referrerPolicy="no-referrer"
-          loading="lazy"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <span className="weq-exp-avatar-fb">{(name || '?').slice(0, 1)}</span>
-      )}
-    </span>
+    <AvatarPicture
+      className="weq-exp-avatar"
+      src={url}
+      group={group}
+      style={{ width: size, height: size }}
+    />
   );
 }

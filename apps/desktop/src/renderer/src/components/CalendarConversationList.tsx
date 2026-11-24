@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { LoadingIndicator } from './LoadingIndicator';
+import { AvatarPicture } from './AvatarPicture';
 import {
   CALENDAR_SOURCE_LABELS,
   calendarTargetKey,
@@ -65,13 +66,11 @@ export const CalendarConversationList = memo(function CalendarConversationList({
               disabled={busy}
               onClick={() => onLocate(target, stored.anchor)}
             >
-              {target.avatar ? (
-                <img src={target.avatar} alt="" />
-              ) : (
-                <span className="weq-overview-calendar-avatar" aria-hidden>
-                  {Array.from(target.name)[0]}
-                </span>
-              )}
+              <AvatarPicture
+                className="weq-overview-calendar-avatar"
+                src={target.avatar}
+                group={target.kind === 'group' || target.kind === 'cloneGroup'}
+              />
               <span className="weq-overview-calendar-name">
                 <strong title={target.name}>{target.name}</strong>
                 <small>{CALENDAR_SOURCE_LABELS[target.kind]}</small>

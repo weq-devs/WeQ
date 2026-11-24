@@ -111,7 +111,12 @@ export function useAvatarImage(
     setRejectedRecovery(undefined);
   }, [preferred, source, recoveryKey]);
   useLayoutEffect(() => {
-    setLoadedSource(image?.complete && image.naturalWidth > 0 ? src : undefined);
+    // A replacement may commit before React publishes its new DOM ref.
+    setLoadedSource(
+      image?.complete && image.naturalWidth > 0 && image.getAttribute('src') === src
+        ? src
+        : undefined,
+    );
   }, [image, src]);
   const observed = target ?? image;
   useEffect(() => {

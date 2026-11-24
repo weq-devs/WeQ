@@ -12,7 +12,7 @@ import { reportEraLabel } from '@weq/service/report-time';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { Odometer } from '../Odometer';
 import { avatarFromGroupCode, avatarFromUin } from '../../../lib/avatarResolver';
-import { cachedAvatarUrl } from '../../../lib/avatarCache';
+import { AvatarPicture } from '../../../components/AvatarPicture';
 
 function fmt(n: number): string {
   return new Intl.NumberFormat('zh-CN').format(n);
@@ -216,7 +216,7 @@ export function MatePage({ page, data, active }: ReportPageProps<MatePageData>):
                   data-flying={heroFlying ? 'yes' : undefined}
                   style={{ '--i': 2 } as CSSProperties}
                 >
-                  <Face name={focused.name} uin={focused.uin} fly={`face:${focusedRank}`} />
+                  <Face uin={focused.uin} fly={`face:${focusedRank}`} />
                 </div>
                 <h2
                   className={`weq-mt-name weq-mt-anim ${nameSize(focused.name)}`}
@@ -288,7 +288,7 @@ export function MatePage({ page, data, active }: ReportPageProps<MatePageData>):
                             <span className="weq-mt-more-rank" aria-hidden>
                               {String(rank + 1).padStart(2, '0')}
                             </span>
-                            <Face name={candidate.name} uin={candidate.uin} fly={`face:${rank}`} />
+                            <Face uin={candidate.uin} fly={`face:${rank}`} />
                             <span className="weq-mt-more-name" data-mate-fly={`name:${rank}`}>
                               {candidate.name}
                             </span>
@@ -362,34 +362,22 @@ function flyElement(
  * `title`（悬停可看）与 `aria-label`（读得出），信息没丢，版面不脏。
  */
 function GroupCrest({ group, rank }: { group: MateSharedGroup; rank: number }): ReactElement {
-  const url = cachedAvatarUrl(avatarFromGroupCode(group.groupCode));
   const label = `${group.groupName} · ${fmt(group.memberCount)} 人`;
   return (
     <span className={`weq-mt-crest-item is-r${rank}`} title={label} role="img" aria-label={label}>
-      {url ? (
-        <img className="weq-mt-crest-face" src={url} alt="" />
-      ) : (
-        <span className="weq-mt-crest-face is-initial">{group.groupName.slice(0, 1)}</span>
-      )}
+      <AvatarPicture
+        className="weq-mt-crest-face"
+        src={avatarFromGroupCode(group.groupCode)}
+        group
+      />
     </span>
   );
 }
 
 /**
- * 一颗头像：本机缓存 + CDN 兜底，缺失时用首字。
- *
  * `fly` 是这颗头像在「换人飞行」里的记号（`face:<名次>`）—— 同一个人在名册里和
  * 在主位上共用同一个记号，于是换人前后都能用同一个选择器量到它的旧、新位置。
  */
-function Face({ name, uin, fly }: { name: string; uin: string; fly?: string }): ReactElement {
-  const url = cachedAvatarUrl(avatarFromUin(uin));
-  const cls = 'weq-mt-face';
-  if (!url) {
-    return (
-      <span className={`${cls} is-initial`} aria-hidden data-mate-fly={fly}>
-        {name.slice(0, 1)}
-      </span>
-    );
-  }
-  return <img className={cls} src={url} alt="" aria-hidden data-mate-fly={fly} />;
+function Face({ uin, fly }: { uin: string; fly?: string }): ReactElement {
+  return <AvatarPicture className="weq-mt-face" src={avatarFromUin(uin)} data-mate-fly={fly} />;
 }

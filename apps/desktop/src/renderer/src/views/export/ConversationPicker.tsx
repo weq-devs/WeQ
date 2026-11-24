@@ -162,7 +162,7 @@ export function ConversationPicker({
                     aria-pressed={checked}
                     {...selection.itemProps(it.id)}
                   >
-                    <Avatar url={it.avatarUrl} name={it.name} size={38} />
+                    <Avatar url={it.avatarUrl} group={it.kind === 'group'} size={38} />
                     <span className="weq-exp-row-meta">
                       <strong title={it.name}>{it.name}</strong>
                       {scopeSelections?.[it.id] !== undefined ? (

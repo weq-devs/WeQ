@@ -4,7 +4,7 @@ import { reportEraLabel } from '@weq/service/report-time';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { Odometer } from '../Odometer';
 import { avatarFromUin } from '../../../lib/avatarResolver';
-import { cachedAvatarUrl } from '../../../lib/avatarCache';
+import { AvatarPicture } from '../../../components/AvatarPicture';
 
 function fmt(n: number): string {
   return new Intl.NumberFormat('zh-CN').format(n);
@@ -149,18 +149,13 @@ function nameSize(name: string): string {
 }
 
 /**
- * 榜上一张脸。头像走本机缓存 + CDN 兜底，拿不到就用名字首字顶上。
  * 尺寸交给外层 CSS 通过 `.is-champion` / `.weq-mo-month` 的上下文控制。
  */
 function Face({ person, champion = false }: { person: MonthFriendEntry; champion?: boolean }) {
-  const url = cachedAvatarUrl(avatarFromUin(person.peerUin));
-  const cls = `weq-mo-face${champion ? ' is-champion' : ''}`;
-  if (!url) {
-    return (
-      <span className={`${cls} is-initial`} aria-hidden>
-        {person.peerName.slice(0, 1)}
-      </span>
-    );
-  }
-  return <img className={cls} src={url} alt="" aria-hidden />;
+  return (
+    <AvatarPicture
+      className={`weq-mo-face${champion ? ' is-champion' : ''}`}
+      src={avatarFromUin(person.peerUin)}
+    />
+  );
 }

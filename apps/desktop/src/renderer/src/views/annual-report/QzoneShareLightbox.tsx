@@ -22,6 +22,7 @@ import { createPortal } from 'react-dom';
 import { Check, Earth, Lock, Users, X } from 'lucide-react';
 import { client } from '../../trpc/client';
 import { useToast } from '../../components/Toast.shared';
+import { AvatarPicture } from '../../components/AvatarPicture';
 import { useSelfFace } from './useSelfFace';
 import { useReportView } from './reportContext';
 import type { ExportSlide } from './exportHtml';
@@ -256,15 +257,7 @@ export function QzoneShareLightbox({
           {/* ── 文案（可改） + 权限 + 分享者预览 ─────────── */}
           <div className="weq-qzshare-compose">
             <div className="weq-qzshare-preview">
-              <span
-                className="weq-qzshare-avatar"
-                style={
-                  selfFace.avatarUrl ? { backgroundImage: `url(${selfFace.avatarUrl})` } : undefined
-                }
-                aria-hidden
-              >
-                {selfFace.avatarUrl ? null : selfFace.initial}
-              </span>
+              <AvatarPicture className="weq-qzshare-avatar" src={selfFace.avatarUrl} />
               <div className="weq-qzshare-preview-meta">
                 <span className="weq-qzshare-nick">{selfFace.nick || '我'}</span>
                 <span className="weq-qzshare-scope">

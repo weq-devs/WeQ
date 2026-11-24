@@ -1638,12 +1638,8 @@ html[data-theme='dark'] .weq-report-root {
   background: var(--rp-ghost);
 }
 
-/* 头像取不到：昵称首字顶上，尺寸跟着 --sz 缩放。 */
-.weq-dress-face-img.is-initial {
+.weq-dress-face-img[data-avatar-fallback] {
   color: var(--rp-ink-soft);
-  font-family: var(--rp-serif);
-  font-size: calc(var(--sz) * 0.42);
-  font-weight: 600;
   border: 1px solid var(--rp-hair);
 }
 
@@ -2762,12 +2758,8 @@ html[data-theme='dark'] .weq-report-root {
   outline-offset: -1px;
 }
 
-.weq-fr-face.is-initial {
+.weq-fr-face[data-avatar-fallback] {
   color: var(--rp-ink-soft);
-  font-family: var(--rp-serif);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0;
 }
 
 /* 冠军的脸：大三倍，套一圈幕色光环，并且一直在轻轻呼吸 —— 每幕唯一的
@@ -2781,10 +2773,6 @@ html[data-theme='dark'] .weq-report-root {
     0 0 0 7px color-mix(in srgb, var(--fr-tone) 11%, transparent),
     0 0 26px color-mix(in srgb, var(--fr-tone) 22%, transparent);
   animation: rp-fr-halo 3.6s ease-in-out infinite;
-}
-
-.weq-fr-face.is-champion.is-initial {
-  font-size: 24px;
 }
 
 /* ══ 第一幕：火花 —— 横向引线 ════════════════════════════════════════
@@ -3149,10 +3137,6 @@ html[data-theme='dark'] .weq-report-root {
   height: 18px;
 }
 
-.weq-fr-stack:not(.is-champion) .weq-fr-face.is-initial {
-  font-size: 9px;
-}
-
 /* ── 关键帧 ───────────────────────────────────────────────────────── */
 
 /* 冠军光环的呼吸。幅度刻意小 —— 它是「活着」的信号，不是特效。 */
@@ -3512,20 +3496,13 @@ html[data-theme='dark'] .weq-report-root {
   outline-offset: -1px;
 }
 
-.weq-op-face.is-initial {
+.weq-op-face[data-avatar-fallback] {
   color: var(--rp-open);
-  font-family: var(--rp-serif);
-  font-size: 11px;
-  font-weight: 600;
 }
 
 .weq-op-person .weq-op-face {
   width: 64px;
   height: 64px;
-}
-
-.weq-op-person .weq-op-face.is-initial {
-  font-size: 26px;
 }
 
 .weq-op-person-name {
@@ -6225,22 +6202,16 @@ html[data-theme='dark'] .weq-report-root {
 }
 
 .weq-mo-face {
-  display: inline-block;
+  display: inline-grid;
   width: 30px;
   height: 30px;
   border-radius: 50%;
   object-fit: cover;
 }
 
-.weq-mo-face.is-initial {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.weq-mo-face[data-avatar-fallback] {
   background: color-mix(in srgb, var(--rp-mo) 76%, var(--rp-ink));
   color: var(--rp-paper);
-  font-family: var(--rp-serif);
-  font-size: 13px;
-  line-height: 1;
 }
 
 .weq-mo-face.is-champion {
@@ -6253,10 +6224,6 @@ html[data-theme='dark'] .weq-report-root {
     0 0 0 8px color-mix(in srgb, var(--rp-mo) 10%, transparent),
     0 0 30px color-mix(in srgb, var(--rp-mo) 20%, transparent);
   animation: rp-mo-halo 5.4s ease-in-out infinite;
-}
-
-.weq-mo-face.is-champion.is-initial {
-  font-size: 32px;
 }
 
 @keyframes rp-mo-halo {
@@ -6686,7 +6653,7 @@ html[data-theme='dark'] .weq-report-root {
 }
 
 .weq-mt-face {
-  display: inline-block;
+  display: inline-grid;
   width: 92px;
   height: 92px;
   border-radius: 50%;
@@ -6698,15 +6665,9 @@ html[data-theme='dark'] .weq-report-root {
     0 0 34px color-mix(in srgb, var(--rp-mt) 24%, transparent);
 }
 
-.weq-mt-face.is-initial {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.weq-mt-face[data-avatar-fallback] {
   background: color-mix(in srgb, var(--rp-mt) 78%, var(--rp-ink));
   color: var(--rp-paper);
-  font-family: var(--rp-serif);
-  font-size: 38px;
-  line-height: 1;
 }
 
 .weq-mt-name {
@@ -6807,7 +6768,7 @@ html[data-theme='dark'] .weq-report-root {
 }
 
 .weq-mt-crest-face {
-  display: block;
+  display: grid;
   box-sizing: border-box;
   border-radius: 50%;
   background: color-mix(in srgb, var(--rp-paper-deep) 86%, transparent);
@@ -6825,14 +6786,9 @@ html[data-theme='dark'] .weq-report-root {
   transform: translateY(-3px);
 }
 
-.weq-mt-crest-face.is-initial {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.weq-mt-crest-face[data-avatar-fallback] {
   background: color-mix(in srgb, var(--rp-mt) 78%, var(--rp-ink));
   color: var(--rp-paper);
-  font-family: var(--rp-serif);
-  line-height: 1;
 }
 
 .weq-mt-crest-item.is-r0 .weq-mt-crest-face {
@@ -6913,10 +6869,6 @@ html[data-theme='dark'] .weq-report-root {
   box-shadow: none;
 }
 
-.weq-mt-more .weq-mt-face.is-initial {
-  font-size: 12px;
-}
-
 .weq-mt-more-name {
   min-width: 0;
   overflow: hidden;
@@ -6990,10 +6942,6 @@ html[data-theme='dark'] .weq-report-root {
   box-shadow:
     0 0 0 8px color-mix(in srgb, var(--rp-mt) 9%, transparent),
     0 0 30px color-mix(in srgb, var(--rp-mt) 24%, transparent);
-}
-
-.weq-mt-face.is-initial {
-  font-size: 29px;
 }
 
 .weq-mt-name {
@@ -7162,10 +7110,6 @@ html[data-theme='dark'] .weq-report-root {
   height: 26px;
   box-shadow: none;
   outline: 0;
-}
-
-.weq-mt-switch .weq-mt-face.is-initial {
-  font-size: 12px;
 }
 
 .weq-mt-switch .weq-mt-more-name {

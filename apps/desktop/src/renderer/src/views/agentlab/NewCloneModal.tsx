@@ -242,11 +242,7 @@ export function NewCloneModal({
                     aria-pressed={selectedUids.has(b.uid)}
                     onClick={() => toggleTarget(b)}
                   >
-                    <Avatar
-                      url={b.uin ? qqAvatarUrl(b.uin) : b.avatarUrl}
-                      name={b.label}
-                      size={38}
-                    />
+                    <Avatar url={b.uin ? qqAvatarUrl(b.uin) : b.avatarUrl} size={38} />
                     <span className="weq-exp-row-meta">
                       <strong title={b.label}>{b.label}</strong>
                       <small>

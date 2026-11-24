@@ -10,6 +10,7 @@
  */
 
 import { NumericText } from '../NumericText';
+import { AvatarPicture } from '../AvatarPicture';
 import { type CSSProperties, useMemo, useState } from 'react';
 import type { OverlapModel } from './graphModel';
 import type { OverlapPairSelection } from './OverlapPairCard';
@@ -156,11 +157,7 @@ export function OverlapMatrix({
                 onClick={() => setHover(null)}
               >
                 {showAvatars ? (
-                  group.avatarUrl ? (
-                    <img src={group.avatarUrl} alt="" referrerPolicy="no-referrer" loading="lazy" />
-                  ) : (
-                    <span>{(group.name || '?').slice(0, 1)}</span>
-                  )
+                  <AvatarPicture className="weq-ov-matrix-avatar" src={group.avatarUrl} group />
                 ) : (
                   <span className="weq-ov-matrix-head-name">{group.name.slice(0, 4)}</span>
                 )}
@@ -181,8 +178,8 @@ export function OverlapMatrix({
                 style={{ top: row * geom.cell, width: geom.labelW, height: geom.cell }}
                 title={group.name}
               >
-                {showAvatars && group.avatarUrl ? (
-                  <img src={group.avatarUrl} alt="" referrerPolicy="no-referrer" loading="lazy" />
+                {showAvatars ? (
+                  <AvatarPicture className="weq-ov-matrix-avatar" src={group.avatarUrl} group />
                 ) : null}
                 <span className="weq-ov-matrix-rowname">{group.name}</span>
               </div>

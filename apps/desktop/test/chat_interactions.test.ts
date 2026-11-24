@@ -77,7 +77,7 @@ describe('主页头像', () => {
       createElement(AvatarOrb, { avatarUrl: url, nickname: '测试用户', widgetUrl: '' }),
     );
     const doc = new DOMParser().parseFromString(html, 'text/html');
-    expect(doc.querySelector('.weq-orb-img')?.getAttribute('src')).toBe(cachedAvatarUrl(url));
+    expect(doc.querySelector('img')?.getAttribute('src')).toBe(cachedAvatarUrl(url));
   });
   it('主页重新聚焦后重读头像桥，失败可恢复，换账号后不残留旧头像', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -94,15 +94,37 @@ describe('主页头像', () => {
       await act(async () => {
         root.render(createElement(AvatarOrb, props));
       });
-      const first = host.querySelector('img')!.src;
-      await act(async () => {
-        host.querySelector('img')!.dispatchEvent(new Event('error'));
+      const visibleImage = () =>
+        [...host.querySelectorAll('img')].find((img) => !img.style.visibility);
+      const coldImage = host.querySelector('img')!;
+      expect(visibleImage()).toBeUndefined();
+      expect(host.textContent).toBe('');
+      await act(async () => coldImage.dispatchEvent(new Event('error')));
+      expect(host.querySelector('svg')).not.toBeNull();
+      expect(host.textContent).toBe('');
+
+      await act(async () => window.dispatchEvent(new Event('focus')));
+      const restored = host.querySelector('img')!;
+      expect(restored.src).not.toBe(coldImage.src);
+      Object.defineProperties(restored, {
+        complete: { value: true },
+        naturalWidth: { value: 64 },
       });
-      expect(host.querySelector('.weq-orb-fallback')).not.toBeNull();
-      await act(async () => {
-        window.dispatchEvent(new Event('focus'));
-      });
-      expect(host.querySelector('img')!.src).not.toBe(first);
+      await act(async () => restored.dispatchEvent(new Event('load')));
+      expect(visibleImage()).toBe(restored);
+
+      await act(async () => window.dispatchEvent(new Event('focus')));
+      expect(visibleImage()).toBe(restored);
+      const pending = [...host.querySelectorAll('img')].find((img) => img !== restored)!;
+      await act(async () => pending.dispatchEvent(new Event('error')));
+      expect(visibleImage()).toBe(restored);
+
+      await act(async () => window.dispatchEvent(new Event('focus')));
+      const refreshed = [...host.querySelectorAll('img')].find((img) => img !== restored)!;
+      await act(async () => refreshed.dispatchEvent(new Event('load')));
+      expect(visibleImage()).toBe(refreshed);
+      expect(restored.isConnected).toBe(false);
+
       await act(async () => {
         root.render(
           createElement(AvatarOrb, {
@@ -112,6 +134,7 @@ describe('主页头像', () => {
         );
       });
       expect(new URL(host.querySelector('img')!.src).searchParams.get('uin')).toBe('10002');
+      expect(visibleImage()).toBeUndefined();
     } finally {
       await act(async () => {
         root.unmount();

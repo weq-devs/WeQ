@@ -24,6 +24,7 @@ import { OverlayLayer } from '../OverlayLayer';
 import { EmptyState } from '../EmptyState';
 import { WindowedList } from '../WindowedList';
 import { groupAvatar, personAvatar } from './graphModel';
+import { AvatarPicture } from '../AvatarPicture';
 import './relationGraph.css';
 
 export type RankingKind = 'intimacy' | 'common' | 'memberLevel' | 'groupActivity';
@@ -288,6 +289,7 @@ function GroupActivityList() {
               key={g.groupCode}
               rank={i + 1}
               avatar={groupAvatar(g.groupCode)}
+              group
               title={g.groupName}
               subtitle={g.groupCode}
               value={String(g.activityScore)}
@@ -480,13 +482,7 @@ function GroupChooser({ groups, onPick }: { groups: any[]; onPick: (g: any) => v
             const avatar = groupAvatar(g.code);
             return (
               <button type="button" className="weq-rank-grouprow" onClick={() => onPick(g)}>
-                <span className="weq-rank-avatar">
-                  {avatar ? (
-                    <img src={avatar} alt="" referrerPolicy="no-referrer" />
-                  ) : (
-                    <span>{(g.name || '?').slice(0, 1)}</span>
-                  )}
-                </span>
+                <AvatarPicture className="weq-rank-avatar" src={avatar} group />
                 <span className="weq-rank-meta">
                   <strong title={g.name}>{g.name || g.code}</strong>
                   <small>
@@ -546,6 +542,7 @@ function memberOpener(
 function RankRow({
   rank,
   avatar,
+  group,
   title,
   subtitle,
   value,
@@ -553,6 +550,7 @@ function RankRow({
 }: {
   rank: number;
   avatar: string | null;
+  group?: boolean;
   title: string;
   subtitle?: string | null;
   value: string;
@@ -566,13 +564,7 @@ function RankRow({
       <span className={`weq-rank-num${top}`}>
         <span className="weq-number weq-number-inherit">{rank}</span>
       </span>
-      <span className="weq-rank-avatar">
-        {avatar ? (
-          <img src={avatar} alt="" referrerPolicy="no-referrer" />
-        ) : (
-          <span>{(title || '?').slice(0, 1)}</span>
-        )}
-      </span>
+      <AvatarPicture className="weq-rank-avatar" src={avatar} group={group} />
       <span className="weq-rank-meta">
         <strong title={title}>{title}</strong>
         {subtitle ? <small>{subtitle}</small> : null}

@@ -12,6 +12,8 @@ import { isAllTimeYear, reportEraLabel } from '@weq/service/report-time';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { Odometer } from '../Odometer';
 import { useReportView } from '../reportContext';
+import { AvatarPicture } from '../../../components/AvatarPicture';
+import { avatarFromGroupCode } from '../../../lib/avatarResolver';
 
 function fmt(n: number): string {
   return new Intl.NumberFormat('zh-CN').format(n);
@@ -32,11 +34,6 @@ const WHEEL_STEP = 56;
 const WHEEL_IDLE_MS = 260;
 /** 横向拖动超过这个像素才切换卡片。 */
 const DRAG_STEP = 36;
-
-/** 群头像走公开 CDN；拿不到时卡片里退回首字。 */
-function groupAvatarUrl(code: string): string {
-  return `https://p.qlogo.cn/gh/${code}/${code}/0`;
-}
 
 /**
  * 我的主场 —— 这一页现在回答的是「你把话留给了哪些群」：前 8 个群做成一条
@@ -256,10 +253,11 @@ export function HomePage({ page, data, active }: ReportPageProps<HomePageData>):
                       }}
                     >
                       <div className="weq-home-wheel-top">
-                        <span className="weq-home-wheel-avatar">
-                          <img src={groupAvatarUrl(card.groupCode)} alt="" loading="lazy" />
-                          <span aria-hidden>{card.groupName.slice(0, 1)}</span>
-                        </span>
+                        <AvatarPicture
+                          className="weq-home-wheel-avatar"
+                          src={avatarFromGroupCode(card.groupCode)}
+                          group
+                        />
                         <span className="weq-home-wheel-rank">
                           {String(index + 1).padStart(2, '0')}
                         </span>

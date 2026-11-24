@@ -467,7 +467,11 @@ export function RoamingBackfillPanel({
                             {...multi.itemProps(id)}
                           >
                             <input type="checkbox" checked={checked} readOnly />
-                            <Avatar url={avatarFor(target)} name={target.name} size={34} />
+                            <Avatar
+                              url={avatarFor(target)}
+                              group={target.kind === 'group'}
+                              size={34}
+                            />
                             <span className="weq-roaming-target-text">
                               <strong title={target.name}>{target.name}</strong>
                               <small>
@@ -525,7 +529,11 @@ export function RoamingBackfillPanel({
                   </p>
                 ) : singleTarget ? (
                   <div className="weq-roaming-fixed-target" aria-label="拉取目标">
-                    <Avatar url={avatarFor(singleTarget)} name={singleTarget.name} size={40} />
+                    <Avatar
+                      url={avatarFor(singleTarget)}
+                      group={singleTarget.kind === 'group'}
+                      size={40}
+                    />
                     <span>
                       <strong>{singleTarget.name}</strong>
                       <small>
@@ -550,7 +558,11 @@ export function RoamingBackfillPanel({
                       itemKey={targetKey}
                       renderItem={(target) => (
                         <div className="weq-roaming-fixed-target">
-                          <Avatar url={avatarFor(target)} name={target.name} size={32} />
+                          <Avatar
+                            url={avatarFor(target)}
+                            group={target.kind === 'group'}
+                            size={32}
+                          />
                           <span>
                             <strong>{target.name}</strong>
                             <small>

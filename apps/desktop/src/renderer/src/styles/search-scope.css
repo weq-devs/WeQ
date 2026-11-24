@@ -180,7 +180,7 @@
   height: 36px;
   background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
 }
-.weq-number-lookup-avatar .weq-search-avatar-fallback {
+.weq-number-lookup-avatar .weq-avatar-picture-glyph {
   color: var(--weq-fg-secondary);
 }
 .weq-number-lookup-name {

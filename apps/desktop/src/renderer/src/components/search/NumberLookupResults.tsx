@@ -83,7 +83,7 @@ export function NumberLookupResults({
                         ? c2cAvatarSrc(result.data.id)
                         : groupAvatarSrc(result.data.id)
                     }
-                    fallbackText={(result.data.name || label).slice(0, 1)}
+                    group={kind === 'group'}
                   />
                   <span className="weq-number-lookup-name">
                     {result.data.name || (kind === 'user' ? '用户资料' : '群资料')}

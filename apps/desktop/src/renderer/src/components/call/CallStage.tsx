@@ -6,7 +6,8 @@
  * （`peers[].video` 非空就画视频，否则画头像）。
  */
 
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
+import { AvatarPicture } from '../AvatarPicture';
 import { Loader2, PhoneIncoming } from 'lucide-react';
 import { dressUrl } from '../../lib/resourceUrl';
 import { CALL_WAVE_BAR_COUNT, callWaveBar, callWaveShape } from '../../lib/callWave';
@@ -111,11 +112,6 @@ export function CallStage({
   const primary = peers[0];
   const peerLevel = primary?.level ?? 0;
 
-  const initialLetter = useMemo(
-    () => (primary?.name || primary?.uin || '?').slice(0, 1).toUpperCase(),
-    [primary?.name, primary?.uin],
-  );
-
   /**
    * 四种布局（`data-layout` 让 CSS 分流）：
    *
@@ -185,11 +181,7 @@ export function CallStage({
       ) : null}
 
       <div className="weq-call-avatar">
-        {primary?.avatarUrl ? (
-          <img src={primary.avatarUrl} alt="" draggable={false} />
-        ) : (
-          <span className="weq-call-avatar-fallback">{initialLetter}</span>
-        )}
+        <AvatarPicture className="weq-call-avatar-fallback" src={primary?.avatarUrl} eager />
       </div>
 
       <div className="weq-call-name">{primary?.name || primary?.uin}</div>

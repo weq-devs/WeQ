@@ -44,6 +44,7 @@ import { useRenderDocument } from '../../lib/renderDocument';
 import { GroupProfileDialog } from '../../im-template/template/profilePanes';
 import { sharedGroupConversation } from '../ark/groupShareCard';
 import { buildGraph, buildOverlapModel, groupAvatar } from './graphModel';
+import { AvatarPicture } from '../AvatarPicture';
 import { RelationHome } from './RelationHome';
 import { OverlapChord } from './OverlapChord';
 import { OverlapMatrix } from './OverlapMatrix';
@@ -705,13 +706,7 @@ function GroupPickerModal({ groups, mode, value, onClose, onConfirm }) {
                   aria-pressed={checked}
                   {...multi.itemProps(group.code)}
                 >
-                  <span className="weq-grouppick-avatar">
-                    {avatar ? (
-                      <img src={avatar} alt="" referrerPolicy="no-referrer" />
-                    ) : (
-                      <span>{(group.name || '?').slice(0, 1)}</span>
-                    )}
-                  </span>
+                  <AvatarPicture className="weq-grouppick-avatar" src={avatar} group />
                   <span className="weq-grouppick-meta">
                     <strong title={group.name}>{group.name || group.code}</strong>
                     <small>

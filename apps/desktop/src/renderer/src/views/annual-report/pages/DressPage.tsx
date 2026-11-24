@@ -30,6 +30,7 @@ import { useDressAssets, type DressAssets } from '../useDressAssets';
 import { useSelfFace, type SelfFace } from '../useSelfFace';
 import { reportFontFamily } from '../reportFont';
 import { DressBubble } from '../DressBubble';
+import { AvatarPicture } from '../../../components/AvatarPicture';
 
 function fmt(n: number): string {
   return new Intl.NumberFormat('zh-CN').format(n);
@@ -461,23 +462,9 @@ function SelfAvatar({
   widget: { animated: boolean; frameCount?: number; url?: string } | null;
   widgetId: number;
 }): ReactElement {
-  const [broken, setBroken] = useState(false);
-
   return (
     <span className="weq-dress-face is-hero">
-      {face.avatarUrl && !broken ? (
-        <img
-          className="weq-dress-face-img"
-          src={face.avatarUrl}
-          alt=""
-          aria-hidden
-          onError={() => setBroken(true)}
-        />
-      ) : (
-        <span className="weq-dress-face-img is-initial" aria-hidden>
-          {face.initial}
-        </span>
-      )}
+      <AvatarPicture className="weq-dress-face-img" src={face.avatarUrl} />
       <Pendant widget={widget} widgetId={widgetId} selfUrl={face.pendantUrl} />
     </span>
   );

@@ -65,7 +65,6 @@ html[data-privacy]
   .weq-login-acc-uin,
   .weq-login-acc-root,
   .weq-search-avatar > img,
-  .weq-search-avatar-fallback,
   .notice-who,
   .notice-group-name,
   .weq-qr-name,
@@ -167,8 +166,7 @@ html[data-privacy]
   .weq-qr-frame > img,
   .weq-applock-bind-qr > img,
   .weq-remote-pair > img,
-  .weq-forward-avatar > img,
-  .weq-forward-avatar-fallback,
+  .weq-forward-avatar-face,
   .weq-forward-row-name,
   .weq-forward-preview-title,
   .weq-forward-preview-line,
@@ -237,9 +235,8 @@ html[data-privacy]
   .weq-filecard-thumb img,
   .weq-filerow-thumb img,
   .weq-group-mosaic-cell img,
-  .weq-ov-matrix-head > img,
   .weq-ov-matrix-head > span,
-  .weq-ov-matrix-rowhead img,
+  .weq-ov-matrix-rowhead .weq-ov-matrix-avatar,
   .weq-ov-matrix-rowhead strong
 ) {
   --weq-privacy-sensitive: 1;

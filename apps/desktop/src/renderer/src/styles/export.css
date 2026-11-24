@@ -389,9 +389,7 @@
   display: block;
 }
 
-.weq-exp-avatar-fb {
-  font-size: 14px;
-  font-weight: 600;
+.weq-exp-avatar .weq-avatar-picture-glyph {
   color: #5b87c4;
 }
 

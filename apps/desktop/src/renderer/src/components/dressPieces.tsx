@@ -6,7 +6,7 @@
  * `--weq-orb-size` 驱动，所以同一组件既能铺满首页、也能缩进一张竖屏卡片。
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent, SyntheticEvent } from 'react';
 import * as d3 from 'd3';
 import { refreshAvatarUrl } from '../lib/avatarCache';
@@ -15,6 +15,7 @@ import { useAvatarImage } from '../hooks/useAvatarImage';
 import { useTabActive } from './RetainedTabs.shared';
 import { boundTagPosition } from './dressPieces.shared';
 import { DressImage } from './DressImage';
+import { AvatarPictureFrame } from './AvatarPicture';
 
 // 挂件是直接拼 CDN 地址、不做探测的,常年会有下架/过期 404。加载失败就把 <img> 藏起来,
 // 别让浏览器画裂图占位 —— 头像本体照常显示,只是没有这个装饰角标。
@@ -38,16 +39,31 @@ export function AvatarOrb({
   const [revision, setRevision] = useState(0);
   const [freshAvatar, setFreshAvatar] = useState<{
     source: string;
-    revision: number;
+    blob: Blob;
+  } | null>(null);
+  const [freshUrl, setFreshUrl] = useState<{
+    source: string;
     url: string;
   } | null>(null);
+  const [loadedFace, setLoadedFace] = useState<{
+    identity: string;
+    src: string;
+    retryKey?: string;
+  }>();
   const avatarSource = useAvatarUrl(avatarUrl);
   const resolved = refreshAvatarUrl(avatarSource, revision);
-  const displayed =
-    freshAvatar?.source === resolved && freshAvatar.revision === revision
-      ? freshAvatar.url
-      : resolved;
+  const displayed = freshUrl && freshUrl.source === resolved ? freshUrl.url : resolved;
   const image = useAvatarImage(displayed, { identitySource: avatarSource });
+  useLayoutEffect(() => {
+    if (!freshAvatar) return;
+    const url = URL.createObjectURL(freshAvatar.blob);
+    setFreshUrl({ source: freshAvatar.source, url });
+    return () => URL.revokeObjectURL(url);
+  }, [freshAvatar]);
+  useLayoutEffect(() => {
+    if (avatarUrl && image.loaded && !image.failed && image.src)
+      setLoadedFace({ identity: avatarUrl, src: image.src, retryKey: image.retryKey });
+  }, [avatarUrl, image.loaded, image.failed, image.src, image.retryKey]);
   useEffect(() => {
     if (!refreshOnFocus || !active) return;
     const refresh = () => {
@@ -65,41 +81,28 @@ export function AvatarOrb({
     // CDN 直连模式也复核浏览器缓存；只刷新当前主页头像，不给上游 URL 加随机参数。
     if (!refreshOnFocus || !active || !revision || !resolved || !/^https?:/.test(resolved)) return;
     const controller = new AbortController();
-    let ownedUrl: string | undefined;
     void fetch(resolved, { cache: 'reload', signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) return;
         const blob = await response.blob();
         if (controller.signal.aborted || !blob.size) return;
-        ownedUrl = URL.createObjectURL(blob);
-        setFreshAvatar({ source: resolved, revision, url: ownedUrl });
+        setFreshAvatar({ source: resolved, blob });
       })
       .catch(() => {
         /* 保留已有头像，聚焦后可重试。 */
       });
-    return () => {
-      controller.abort();
-      if (ownedUrl) URL.revokeObjectURL(ownedUrl);
-    };
+    return () => controller.abort();
   }, [active, refreshOnFocus, resolved, revision]);
   return (
-    <span ref={image.observeRef} className={`weq-orb${widgetUrl ? ' has-widget' : ''}`}>
-      {resolved && !image.failed ? (
-        <img
-          key={image.retryKey ? `retry:${displayed}` : displayed}
-          ref={image.ref}
-          src={image.src}
-          alt={nickname}
-          className="weq-orb-img is-round"
-          draggable={false}
-          onLoad={image.onLoad}
-          onError={image.onError}
-        />
-      ) : (
-        <span className="weq-orb-img is-round weq-orb-fallback">
-          {(nickname || '?').slice(0, 1)}
-        </span>
-      )}
+    <span className={`weq-orb${widgetUrl ? ' has-widget' : ''}`}>
+      <AvatarPictureFrame
+        className="weq-orb-img is-round"
+        source={displayed}
+        image={image}
+        previous={loadedFace?.identity === avatarUrl ? loadedFace : undefined}
+        label={nickname ? `${nickname}的头像` : '头像'}
+        eager
+      />
       {widgetUrl && (
         <DressImage
           className="weq-orb-widget"

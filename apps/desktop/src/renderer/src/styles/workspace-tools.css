@@ -585,7 +585,7 @@ html[data-theme='dark'] .weq-tools-modal {
   border-radius: 50%;
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
-.weq-export-tool .weq-exp-avatar-fb {
+.weq-export-tool .weq-exp-avatar .weq-avatar-picture-glyph {
   color: var(--weq-fg-secondary);
 }
 .weq-export-tool .weq-exp-search {

@@ -3,6 +3,7 @@ import { NumericText } from '../NumericText';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Scan } from 'lucide-react';
 import { usePrivacyStore } from '../../state/privacy';
+import { drawPersonGlyph } from '../../lib/canvasAvatar';
 import { communityColor, graphNodeLabel } from './graphModel';
 import type { BuiltGraph, GNode } from './types';
 import { fitGraphView, type GraphView } from './graphLayout';
@@ -317,10 +318,12 @@ export function GraphCanvas({
         ctx.clip();
         ctx.drawImage(img, n.x - r, n.y - r, r * 2, r * 2);
         ctx.restore();
-      } else {
+      } else if (privacy) {
         ctx.fillStyle = '#ffffff';
         setFont(`600 ${Math.round(r)}px var(--font-sans, sans-serif)`);
-        ctx.fillText(privacy ? '•' : (n.label || '?').slice(0, 1), n.x, n.y + 1);
+        ctx.fillText('•', n.x, n.y + 1);
+      } else if (avatarVisible) {
+        drawPersonGlyph(ctx, n.x, n.y, r, '#ffffff');
       }
 
       const isFocus = n.id === focus;

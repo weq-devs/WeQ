@@ -14,6 +14,7 @@ import { profileTargetUser } from '../../lib/profileNavigation';
 import { ArrowLeftRight, X } from 'lucide-react';
 import type { RawNode, RelationGraphData } from './types';
 import { groupAvatar, personAvatar } from './graphModel';
+import { AvatarPicture } from '../AvatarPicture';
 
 export interface OverlapPairSelection {
   a: string;
@@ -73,8 +74,8 @@ export function OverlapPairCard({
 
       <div className="weq-ov-paircard-head">
         <span className="weq-ov-paircard-avatars">
-          <GroupDot code={selection.a} name={nameA} />
-          <GroupDot code={selection.b} name={nameB} />
+          <AvatarPicture className="weq-ov-paircard-group" src={groupAvatar(selection.a)} group />
+          <AvatarPicture className="weq-ov-paircard-group" src={groupAvatar(selection.b)} group />
         </span>
         <div className="weq-ov-paircard-title">
           <strong title={nameA}>{nameA}</strong>
@@ -153,18 +154,7 @@ export function OverlapPairCard({
                 );
               }}
             >
-              <span className="weq-ov-paircard-avatar">
-                {personAvatar(node.uin) ? (
-                  <img
-                    src={personAvatar(node.uin) ?? ''}
-                    alt=""
-                    referrerPolicy="no-referrer"
-                    loading="lazy"
-                  />
-                ) : (
-                  <span>{displayName(node).slice(0, 1)}</span>
-                )}
-              </span>
+              <AvatarPicture className="weq-ov-paircard-avatar" src={personAvatar(node.uin)} />
               <span className="weq-ov-paircard-name" title={displayName(node)}>
                 {displayName(node)}
               </span>
@@ -179,19 +169,6 @@ export function OverlapPairCard({
         )}
       </div>
     </div>
-  );
-}
-
-function GroupDot({ code, name }: { code: string; name: string }) {
-  const avatar = groupAvatar(code);
-  return (
-    <span className="weq-ov-paircard-group">
-      {avatar ? (
-        <img src={avatar} alt="" referrerPolicy="no-referrer" loading="lazy" />
-      ) : (
-        <span>{(name || '?').slice(0, 1)}</span>
-      )}
-    </span>
   );
 }
 

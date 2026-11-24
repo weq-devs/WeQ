@@ -7,7 +7,7 @@
  *    的 `weq-media://avatar`（QQ 自己缓存过的那份，离线也画得出来）；
  *  - 挂件：`SelfPendantContext`（bootstrap 时存下的 homeDress.widgetUrl，无网络）。
  *
- * 两者都可能缺席：头像取不到画首字兜底，挂件取不到就只画头像 —— 用户明确要求
+ * 两者都可能缺席：头像取不到用图形兜底，挂件取不到就只画头像 —— 用户明确要求
  * 「无论有没有挂件都把头像加上」。全程静默，年度报告不为资源缺失弹任何提示。
  */
 
@@ -17,12 +17,10 @@ import { avatarFromUin } from '../../lib/avatarResolver';
 import { cachedAvatarUrl } from '../../lib/avatarCache';
 
 export type SelfFace = {
-  /** 头像 url，取不到为空串（画 {@link SelfFace.initial} 兜底）。 */
+  /** 头像 url，取不到为空串。 */
   avatarUrl: string;
   /** 自己的挂件图 url，没装挂件为空串。 */
   pendantUrl: string;
-  /** 昵称首字，头像画不出来时顶上。 */
-  initial: string;
   nick: string;
 };
 
@@ -39,7 +37,6 @@ export function useSelfFace(): SelfFace {
   return {
     avatarUrl,
     pendantUrl,
-    initial: nick.slice(0, 1) || '我',
     nick,
   };
 }

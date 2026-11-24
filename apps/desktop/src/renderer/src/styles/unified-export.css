@@ -117,7 +117,7 @@ html[data-theme='dark'] .weq-export-tool .weq-exp-row.is-on {
 html[data-theme='dark'] .weq-export-tool .weq-exp-avatar {
   background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
-.weq-export-tool .weq-exp-avatar-fb {
+.weq-export-tool .weq-exp-avatar .weq-avatar-picture-glyph {
   color: var(--weq-fg-secondary);
 }
 

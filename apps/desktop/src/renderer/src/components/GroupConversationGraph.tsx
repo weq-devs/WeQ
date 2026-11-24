@@ -18,6 +18,7 @@ import { useThemeStore } from '../state/theme';
 import { usePrefersReducedMotion } from '../views/annual-report/Odometer.shared';
 import * as d3 from 'd3';
 import { cachedAvatarUrl } from '../lib/avatarCache';
+import { drawPersonGlyph } from '../lib/canvasAvatar';
 import { formatNumber } from './analyticsCharts.shared';
 
 interface WireNode {
@@ -107,33 +108,6 @@ function personAvatar(uin: string): string | null {
   return uin && uin !== '0'
     ? cachedAvatarUrl(`https://thirdqq.qlogo.cn/g?b=sdk&s=100&nk=${uin}`)
     : null;
-}
-
-/**
- * 头像缺位时的简笔人像：头 + 肩，画在节点圆内。
- *
- * 画布上没法复用 React 的默认头像（`DefaultAvatar` 是聊天消息用的卡通占位，缩到
- * 十几像素后五官糊成一团），所以这里用两笔几何图形表达「这是个人」。
- */
-function drawPersonGlyph(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  radius: number,
-  color: string,
-): void {
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(x, y, radius, 0, Math.PI * 2);
-  ctx.clip();
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(x, y - radius * 0.22, radius * 0.3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(x, y + radius * 0.62, radius * 0.62, Math.PI * 1.08, Math.PI * 1.92);
-  ctx.fill();
-  ctx.restore();
 }
 
 /**

@@ -13,6 +13,7 @@
  */
 
 import { NumericText } from '../NumericText';
+import { AvatarPicture } from '../AvatarPicture';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { OverlapGroup, OverlapModel } from './graphModel';
 import type { OverlapPairSelection } from './OverlapPairCard';
@@ -458,13 +459,7 @@ export function OverlapChord({
                   })
                 }
               >
-                <span className="weq-ov-chord-pair-avatar">
-                  {group.avatarUrl ? (
-                    <img src={group.avatarUrl} alt="" referrerPolicy="no-referrer" loading="lazy" />
-                  ) : (
-                    <span>{(group.name || '?').slice(0, 1)}</span>
-                  )}
-                </span>
+                <AvatarPicture className="weq-ov-chord-pair-avatar" src={group.avatarUrl} group />
                 <span className="weq-ov-chord-pair-name" title={group.name}>
                   {group.name}
                 </span>

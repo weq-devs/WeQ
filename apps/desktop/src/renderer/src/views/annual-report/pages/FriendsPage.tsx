@@ -4,7 +4,7 @@ import { isAllTimeYear } from '@weq/service/report-time';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { Odometer } from '../Odometer';
 import { avatarFromUin } from '../../../lib/avatarResolver';
-import { cachedAvatarUrl } from '../../../lib/avatarCache';
+import { AvatarPicture } from '../../../components/AvatarPicture';
 
 function fmt(n: number): string {
   return new Intl.NumberFormat('zh-CN').format(n);
@@ -121,7 +121,7 @@ function FuseBoard({
       {champion ? (
         <div className="weq-fr-fuse">
           <div className="weq-fr-fuse-head">
-            <Face name={champion.peerName} uin={champion.peerUin} champion />
+            <Face uin={champion.peerUin} champion />
             <div className="weq-fr-fuse-who">
               <span className="weq-fr-fuse-name">{champion.peerName}</span>
               <span className="weq-fr-fuse-msgs">{fmt(champion.messages)} 条私聊</span>
@@ -155,7 +155,7 @@ function FuseBoard({
                   <span className="weq-fr-fuse-rank" aria-hidden>
                     0{index + 2}
                   </span>
-                  <Face name={entry.peerName} uin={entry.peerUin} />
+                  <Face uin={entry.peerUin} />
                   <span className="weq-fr-fuse-rname">{entry.peerName}</span>
                   <span className="weq-fr-fuse-rtrack" aria-hidden>
                     <i style={{ width: grown ? `${ratio(entry.value, champion.value)}%` : '0%' }} />
@@ -217,7 +217,7 @@ function StackBoard({
               <span className="weq-fr-vol-unit">条</span>
             </div>
             <div className="weq-fr-vol-who">
-              <Face name={champion.peerName} uin={champion.peerUin} champion />
+              <Face uin={champion.peerUin} champion />
               <span className="weq-fr-vol-name">{champion.peerName}</span>
             </div>
           </div>
@@ -249,7 +249,7 @@ function StackBoard({
                   }
                 />
                 <span className="weq-fr-stack-foot">
-                  <Face name={entry.peerName} uin={entry.peerUin} />
+                  <Face uin={entry.peerUin} />
                   <span className="weq-fr-stack-name">{entry.peerName}</span>
                 </span>
               </li>
@@ -263,27 +263,11 @@ function StackBoard({
   );
 }
 
-/**
- * 榜上一张脸。头像走 `weq-media://avatar`（本机 QQ 缓存优先、CDN 兜底），
- * 拿不到就用名字首字顶上 —— 报告不为一张头像缺失留空洞，也不弹任何提示。
- */
-function Face({
-  name,
-  uin,
-  champion = false,
-}: {
-  name: string;
-  uin: string;
-  champion?: boolean;
-}): ReactElement {
-  const url = cachedAvatarUrl(avatarFromUin(uin));
-  const cls = `weq-fr-face${champion ? ' is-champion' : ''}`;
-  if (!url) {
-    return (
-      <span className={`${cls} is-initial`} aria-hidden>
-        {name.slice(0, 1)}
-      </span>
-    );
-  }
-  return <img className={cls} src={url} alt="" aria-hidden />;
+function Face({ uin, champion = false }: { uin: string; champion?: boolean }): ReactElement {
+  return (
+    <AvatarPicture
+      className={`weq-fr-face${champion ? ' is-champion' : ''}`}
+      src={avatarFromUin(uin)}
+    />
+  );
 }

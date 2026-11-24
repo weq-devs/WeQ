@@ -17,6 +17,7 @@ import { CompositionButton } from './CompositionButton';
 import { useMemo, useState, type ReactElement } from 'react';
 import { ArrowLeft, ClipboardCopy, Save, Share2, X } from 'lucide-react';
 import { Modal } from '../Dialog';
+import { AvatarPicture } from '../AvatarPicture';
 import { useToast } from '../Toast.shared';
 import { copyTextToClipboard } from '../../im-template/template/clipboard';
 import { isSingleColumnLayout } from '../../lib/responsiveLayout';
@@ -146,13 +147,7 @@ export function MergeForwardDialog({
               <ArrowLeft size={18} />
             </CompositionButton>
           ) : (
-            <span className="weq-mf-head-avatar">
-              {senderAvatarUrl(self.uin) ? (
-                <img src={senderAvatarUrl(self.uin) ?? ''} alt="" />
-              ) : (
-                <span>{self.name.slice(0, 1)}</span>
-              )}
-            </span>
+            <AvatarPicture className="weq-mf-head-avatar" src={senderAvatarUrl(self.uin)} />
           )}
           <div className="weq-mf-head-title">
             {step === 'edit' ? (

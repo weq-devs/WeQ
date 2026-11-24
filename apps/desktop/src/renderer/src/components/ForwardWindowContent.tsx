@@ -15,6 +15,7 @@ import {
 import { X } from 'lucide-react';
 import { client } from '../trpc/client';
 import { LoadingIndicator } from './LoadingIndicator';
+import { AvatarPicture } from './AvatarPicture';
 import { QqMessageContent } from './QqMessageContent';
 import {
   ConvContext,
@@ -518,11 +519,7 @@ const ForwardRow = memo(function ForwardRow({
         <header className="weq-forward-author">
           <ProfileAvatar className="weq-forward-avatar-link" target={profileTarget}>
             <div className="weq-forward-avatar">
-              {avatar ? (
-                <img src={avatar} alt="" loading="lazy" />
-              ) : (
-                <span className="weq-forward-avatar-fallback">{displayName.slice(0, 1)}</span>
-              )}
+              <AvatarPicture className="weq-forward-avatar-face" src={avatar} />
               {widget ? <PendantLayer widget={widget} /> : null}
             </div>
           </ProfileAvatar>

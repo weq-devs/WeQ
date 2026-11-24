@@ -1956,8 +1956,7 @@ html[data-theme='dark'] .weq-rank-value {
   cursor: default;
 }
 
-.weq-ov-matrix-head.has-avatar img,
-.weq-ov-matrix-rowhead.has-avatar img {
+.weq-ov-matrix-avatar {
   width: 22px;
   height: 22px;
   object-fit: cover;
@@ -1967,8 +1966,8 @@ html[data-theme='dark'] .weq-rank-value {
     box-shadow 120ms ease;
 }
 
-.weq-ov-matrix-head.is-hot img,
-.weq-ov-matrix-rowhead.has-avatar.is-hot img {
+.weq-ov-matrix-head.is-hot .weq-ov-matrix-avatar,
+.weq-ov-matrix-rowhead.is-hot .weq-ov-matrix-avatar {
   transform: scale(1.12);
   box-shadow: 0 0 0 2px var(--weq-accent-effective);
 }

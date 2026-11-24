@@ -1,9 +1,9 @@
 /** Renders one unified-search hit as a card (dropdown row + "more" modal row). */
 
-import { useEffect, useState, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
 import { Bookmark, UsersRound } from 'lucide-react';
 import { fileIconUrl } from '../../lib/resourceUrl';
-import { cachedAvatarUrl } from '../../lib/avatarCache';
+import { AvatarPicture } from '../AvatarPicture';
 import { resolveAvatar } from '../../lib/avatarResolver';
 import type { SearchHit } from './types';
 import { searchHitKey } from './types';
@@ -18,37 +18,14 @@ import {
   fileExtIcon,
 } from './SearchResultCard.shared';
 
-/** 头像：加载失败/无地址时退回首字。搜索下拉与「最近搜索」共用。 */
 export function SearchAvatar({
   url,
-  fallbackText,
-  className = 'weq-search-avatar',
+  group,
 }: {
   url: string | null | undefined;
-  fallbackText?: string;
-  className?: string;
+  group?: boolean;
 }): ReactElement {
-  const resolved = cachedAvatarUrl(url);
-  const [failed, setFailed] = useState(false);
-
-  // Reset the failure flag when the source changes.
-  useEffect(() => setFailed(false), [resolved]);
-
-  return (
-    <span className={className}>
-      {resolved && !failed ? (
-        <img
-          src={resolved}
-          alt=""
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        <span className="weq-search-avatar-fallback">{fallbackText ?? '?'}</span>
-      )}
-    </span>
-  );
+  return <AvatarPicture className="weq-search-avatar" src={url} group={group} />;
 }
 
 /** One card. `subtitle` renders the gray second line; `media` the left icon. */
@@ -92,10 +69,7 @@ export function SearchResultCard({
         ),
       );
       media = (
-        <SearchAvatar
-          url={resolveAvatar({ uin: hit.uin, profileAvatarUrl: hit.avatarUrl })}
-          fallbackText={(hit.remark || hit.nick || hit.uin || hit.uid).slice(0, 1)}
-        />
+        <SearchAvatar url={resolveAvatar({ uin: hit.uin, profileAvatarUrl: hit.avatarUrl })} />
       );
       title = hit.remark || hit.nick || hit.uin || hit.uid;
       subtitle = (
@@ -139,12 +113,7 @@ export function SearchResultCard({
           (alias) => alias !== hit.name && alias !== hit.remark && alias !== hit.groupCode,
         ),
       );
-      media = (
-        <SearchAvatar
-          url={hit.target ? null : groupAvatarSrc(hit.groupCode)}
-          fallbackText={hit.name.slice(0, 1)}
-        />
-      );
+      media = <SearchAvatar url={hit.target ? null : groupAvatarSrc(hit.groupCode)} group />;
       title = hit.remark || hit.name || hit.groupCode;
       subtitle = (
         <span className="weq-search-muted">
@@ -257,7 +226,7 @@ export function SearchResultCard({
       media = (
         <SearchAvatar
           url={isGroup ? groupAvatarSrc(hit.targetUid) : c2cAvatarSrc(hit.targetUin)}
-          fallbackText={hit.name.slice(0, 1)}
+          group={isGroup}
         />
       );
       title = hit.name;
@@ -266,10 +235,7 @@ export function SearchResultCard({
     }
     case 'friend': {
       media = (
-        <SearchAvatar
-          url={resolveAvatar({ uin: hit.uin, profileAvatarUrl: hit.avatarUrl })}
-          fallbackText={hit.nick.slice(0, 1)}
-        />
+        <SearchAvatar url={resolveAvatar({ uin: hit.uin, profileAvatarUrl: hit.avatarUrl })} />
       );
       title = hit.nick || hit.remark || hit.uin;
       subtitle = (
@@ -280,12 +246,7 @@ export function SearchResultCard({
       break;
     }
     case 'groupMember': {
-      media = (
-        <SearchAvatar
-          url={groupAvatarSrc(hit.groupCode)}
-          fallbackText={hit.groupName.slice(0, 1)}
-        />
-      );
+      media = <SearchAvatar url={groupAvatarSrc(hit.groupCode)} group />;
       title = hit.groupName;
       subtitle = (
         <span className="weq-search-muted">
@@ -299,7 +260,7 @@ export function SearchResultCard({
       media = (
         <SearchAvatar
           url={isGroup ? groupAvatarSrc(hit.targetUid) : c2cAvatarSrc(hit.targetUin)}
-          fallbackText={hit.name.slice(0, 1)}
+          group={isGroup}
         />
       );
       title = hit.name;

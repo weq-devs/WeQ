@@ -110,7 +110,7 @@ export interface PickItem {
   id: string;
   /** Display name. */
   name: string;
-  /** Avatar URL, or null to render an initial-letter fallback. */
+  /** Avatar URL, or null to render the default avatar. */
   avatarUrl: string | null;
   /** Secondary line (message count, member count, file size…). */
   meta?: string;

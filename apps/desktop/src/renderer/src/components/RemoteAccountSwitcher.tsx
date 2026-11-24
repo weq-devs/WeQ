@@ -5,6 +5,7 @@ import type { RemoteAccountChoice } from '../../../shared/remote_account_switch'
 import { accountGatewayConfigId, accountGatewayPath } from '../lib/accountGateway';
 import { confirmMailAccountLeave } from '../state/mailDraft';
 import { Modal } from './Dialog';
+import { AvatarPicture } from './AvatarPicture';
 import { RemoteShellMenuButton } from './RemoteShellMenus';
 import '../styles/remote-account-switch.css';
 
@@ -124,18 +125,7 @@ export function RemoteAccountSwitcher({
               disabled={busy}
               onClick={() => void select(account.configId)}
             >
-              <span className="weq-remote-account-avatar" aria-hidden>
-                {[...account.displayName.trim()][0] ?? '?'}
-                {account.avatarUrl && (
-                  <img
-                    src={account.avatarUrl}
-                    alt=""
-                    onError={(event) => {
-                      event.currentTarget.hidden = true;
-                    }}
-                  />
-                )}
-              </span>
+              <AvatarPicture className="weq-remote-account-avatar" src={account.avatarUrl} />
               <span className="weq-remote-account-name">
                 <strong>{account.displayName}</strong>
                 <small>

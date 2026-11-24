@@ -4,7 +4,7 @@ import { isAllTimeYear, reportEraLabel } from '@weq/service/report-time';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { Odometer } from '../Odometer';
 import { avatarFromUin } from '../../../lib/avatarResolver';
-import { cachedAvatarUrl } from '../../../lib/avatarCache';
+import { AvatarPicture } from '../../../components/AvatarPicture';
 
 function fmt(n: number): string {
   return new Intl.NumberFormat('zh-CN').format(n);
@@ -150,7 +150,7 @@ export function OpenersPage({
                   key={`${role.kind}:${role.entry.peerUid}`}
                   style={{ '--j': index } as CSSProperties}
                 >
-                  <Face name={role.entry.peerName} uin={role.entry.peerUin} />
+                  <AvatarPicture className="weq-op-face" src={avatarFromUin(role.entry.peerUin)} />
                   <b className="weq-op-person-name">{role.entry.peerName}</b>
                   <span className="weq-op-line-role">{roleLabel(role.kind)}</span>
                   <p className="weq-op-person-say">
@@ -179,22 +179,6 @@ function NameSay({ name, text }: { name: string; text: string }): ReactElement {
       {rest.join(name)}
     </>
   );
-}
-
-/**
- * 开场里的人。头像照旧走本机缓存 + CDN 兜底，拿不到就用首字顶上 ——
- * 一句话的排印里不能留空洞。
- */
-function Face({ name, uin }: { name: string; uin: string }): ReactElement {
-  const url = cachedAvatarUrl(avatarFromUin(uin));
-  if (!url) {
-    return (
-      <span className="weq-op-face is-initial" aria-hidden>
-        {name.slice(0, 1)}
-      </span>
-    );
-  }
-  return <img className="weq-op-face" src={url} alt="" aria-hidden />;
 }
 
 /**
