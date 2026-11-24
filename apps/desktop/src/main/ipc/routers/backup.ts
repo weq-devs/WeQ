@@ -34,12 +34,6 @@ import { remoteRuntime } from '../../remote/runtime';
 import { disableNativeDebugLog } from './help';
 import { DEFAULT_QQ_SYNC_PORT } from '../../qq_sync/ipc';
 import { qqSyncStatus, setQqSyncPort, setQqSyncProxyEnabled } from '../../qq_sync/runtime';
-import {
-  accountStorageMigrationPath,
-  accountStorageMigrationSummary,
-  legacyAccountSources,
-  readLegacyAccountBackup,
-} from '../../account_storage_migration';
 
 const selection = z.object({
   parts: z.array(z.enum(WEQ_BACKUP_PARTS)).min(1).max(4),
@@ -88,36 +82,17 @@ export const backupProcedures = {
         toastDurations: ctx.ok ? ctx.config.getSettings().toastDurations : undefined,
       };
     }),
-  backupInventory: procedure.query(({ ctx }) => {
-    const { backups, root } = ready();
+  backupInventory: procedure.query(() => {
+    const { backups } = ready();
     const host = getHost();
-    const migration =
-      !ctx.authorize && host.canReveal ? accountStorageMigrationSummary(root) : null;
     return {
       ...backups.inventory(),
-      ...(migration
-        ? { accountStorageMigration: { ...migration, sources: legacyAccountSources(root) } }
-        : {}),
       canPickFile: host.canReveal,
       canRestart: Boolean(host.restartApplication),
       maxArchiveBytes: WEQ_BACKUP_LIMITS.maxArchiveBytes,
       chunkBytes: 65536,
     };
   }),
-  backupRevealAccountStorageMigration: procedure.mutation(async ({ ctx }) => {
-    const host = getHost();
-    const { root } = ready();
-    if (ctx.authorize || !host.canReveal || !accountStorageMigrationSummary(root))
-      throw new Error('账号迁移记录不可用。');
-    await host.revealInFolder(accountStorageMigrationPath(root));
-  }),
-  backupPickLegacyAccountStorage: procedure
-    .input(z.object({ id: z.string().regex(/^[a-f\d]{24}$/) }))
-    .mutation(({ input, ctx }) => {
-      const { root, backups } = ready();
-      if (ctx.authorize || !getHost().canReveal) throw new Error('请在桌面恢复旧窗口数据。');
-      return backups.inspect(readLegacyAccountBackup(root, input.id), '旧账号窗口资料');
-    }),
   backupExport: procedure
     .input(selection.extend({ client: z.record(z.string()).default({}) }))
     .mutation(async ({ input }) => {

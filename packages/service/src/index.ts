@@ -1357,7 +1357,7 @@ export { SharedPrompt } from './common/shared_prompt';
 export { bootstrapWeqBackupFiles } from './bootstrap/backup_startup';
 export { withSharedConfigLock } from './bootstrap/shared_config_lock';
 export type { WeqFileStartup } from './bootstrap/backup_startup';
-export { WeqBackupService, legacyWeqAccountBackup } from './bootstrap/backup_service';
+export { WeqBackupService } from './bootstrap/backup_service';
 export { recordWeqRestoreWarnings } from './bootstrap/backup_restore';
 export { WEQ_DEFAULTS_PATHS, WEQ_DEFAULTS_CONNECTIONS } from './bootstrap/backup_defaults';
 export type {

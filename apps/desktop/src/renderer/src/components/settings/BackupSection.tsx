@@ -1,15 +1,7 @@
 import { NumericText } from '../NumericText';
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ArchiveRestore,
-  Download,
-  FolderOpen,
-  RefreshCw,
-  RotateCcw,
-  Upload,
-  X,
-} from 'lucide-react';
+import { ArchiveRestore, Download, RefreshCw, RotateCcw, Upload, X } from 'lucide-react';
 import type { WeqBackupPart, WeqBackupSummary, WeqDefaultsChoice } from '@weq/service';
 import { snapshotWeqClientSettings } from '@weq/service/backup-client';
 import { backupClientId } from '../../lib/backupClientRestore';
@@ -426,52 +418,6 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           </p>
         ) : null}
       </Card>
-      {inventory?.accountStorageMigration ? (
-        <Card>
-          <details>
-            <summary>
-              <span className="weq-set-card-title">
-                <span className="weq-set-card-icon" aria-hidden>
-                  <ArchiveRestore size={15} strokeWidth={1.8} />
-                </span>
-                账号窗口资料迁移
-              </span>
-            </summary>
-            <p className="weq-set-note">
-              已处理 {inventory.accountStorageMigration.imported} 份账号资料，保留{' '}
-              {inventory.accountStorageMigration.differences} 项差异及其原件位置。
-            </p>
-            <div className="weq-backup-actions">
-              <button
-                type="button"
-                className="weq-set-btn"
-                disabled={Boolean(busy)}
-                onClick={() =>
-                  void act('正在打开迁移记录', () => api.revealAccountStorageMigration())
-                }
-              >
-                <FolderOpen size={14} aria-hidden />
-                查看迁移记录
-              </button>
-              {inventory.accountStorageMigration.sources.map((legacy) => (
-                <button
-                  type="button"
-                  className="weq-set-btn"
-                  key={legacy.id}
-                  disabled={importBlocked}
-                  onClick={() =>
-                    void act('正在读取旧窗口资料', () =>
-                      prepareImport(() => api.pickLegacyAccountStorage(legacy.id)),
-                    )
-                  }
-                >
-                  <ArchiveRestore size={14} aria-hidden /> 恢复 {legacy.label}
-                </button>
-              ))}
-            </div>
-          </details>
-        </Card>
-      ) : null}
       <Card
         title="恢复全局默认设置"
         icon={<RotateCcw size={15} strokeWidth={1.8} />}

@@ -20,7 +20,6 @@ import {
 } from './backup_bundle';
 import { snapshotWeqClones } from './backup_clones';
 import { snapshotWeqAccountPreferences } from './backup_accounts';
-import type { AccountConfig } from '../account/user_config';
 import { validateWeqBackupData } from './backup_data';
 import { validateWeqClientSettings } from '../common/backup_client';
 import { preferenceDefaults } from '../common/client_preferences';
@@ -38,39 +37,6 @@ export interface WeqBackupSelection {
   accountConfigIds?: string[];
   cloneConfigIds?: string[];
   includeClient?: boolean;
-}
-
-export function legacyWeqAccountBackup(
-  root: string,
-  cache: string,
-  accounts: AccountConfig[],
-): Buffer {
-  const files: WeqBackupFile[] = [];
-  const saved = accounts.filter(({ configId }) => isWeqBackupConfigId(configId));
-  if (!saved.length) throw new Error('旧窗口没有可恢复的账号资料。');
-  for (const account of saved) {
-    files.push({
-      path: `accounts/${account.configId}.json`,
-      data: Buffer.from(JSON.stringify(snapshotWeqAccount(account))),
-    });
-    files.push(
-      ...snapshotWeqAccountPreferences(
-        root,
-        cache,
-        account.configId,
-        WEQ_BACKUP_LIMITS.maxTotalBytes -
-          files.reduce((total, file) => total + file.data.length, 0),
-      ).files,
-    );
-  }
-  const clones = snapshotWeqClones(
-    join(cache, 'agentlab'),
-    saved.map((account) => account.configId),
-  );
-  files.push(...clones.files);
-  const archive = buildWeqBackup(files);
-  validateWeqBackupData(readWeqBackup(archive));
-  return archive;
 }
 
 /** UI 只持有不透明预览 ID；内存最多保留一份输入，不将归档或凭据回传渲染层。 */

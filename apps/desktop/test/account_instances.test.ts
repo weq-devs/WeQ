@@ -23,7 +23,6 @@ import {
 import {
   accountStorageMigrationPath,
   migrateAccountStorage,
-  readLegacyAccountBackup,
 } from '../src/main/account_storage_migration';
 import { DesktopStorage } from '../src/main/desktop_storage';
 
@@ -147,9 +146,6 @@ it('迁入选择窗口独有的账号与草稿，主窗口冲突原件保留', (
   migrateAccountStorage(root);
   expect(readFileSync(accountStorageMigrationPath(root), 'utf8')).toBe(receipt);
   expect(readFileSync(retained, 'utf8')).toContain('旧窗口');
-  expect(
-    readLegacyAccountBackup(root, dirname(data).split(/[/\\]/).at(-1)!).length,
-  ).toBeGreaterThan(0);
 });
 
 it('另一个实例读取同一存储时拒绝恢复，关闭后可以恢复', async () => {
