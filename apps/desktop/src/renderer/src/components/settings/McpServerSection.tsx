@@ -18,7 +18,7 @@
  */
 
 import { NumericText } from '../NumericText';
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactElement } from 'react';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {
@@ -627,6 +627,8 @@ export function McpServerSection(): ReactElement {
 
 function McpAccountAccess({ active }: { active: boolean }) {
   const access = trpc.bootstrap.getMcpAccountGrants.useQuery(undefined, { enabled: active });
+  const headingId = useId();
+  const accounts = access.data?.accounts;
   const [busy, setBusy] = useState(false);
   const [label, setLabel] = useState('');
   const [newToken, setNewToken] = useState('');
@@ -647,19 +649,40 @@ function McpAccountAccess({ active }: { active: boolean }) {
     }
   }
   return (
-    <Card
-      title="令牌可访问的账号"
-      desc="为每个令牌勾选可访问的账号。修改后，相关客户端需重新连接。"
-    >
+    <section className="weq-set weq-set-mcp-access" aria-labelledby={headingId}>
+      <header className="weq-set-head">
+        <h4 id={headingId} className="weq-set-card-title">
+          令牌可访问的账号
+        </h4>
+        <p className="weq-set-desc">为每个令牌勾选可访问的账号。修改后，相关客户端需重新连接。</p>
+      </header>
       {access.error && (
         <p className="weq-set-note" role="alert">
           {access.error.message}
         </p>
       )}
       {access.data?.grants.map((grant) => (
-        <fieldset key={grant.id} disabled={busy}>
-          <legend>{grant.label}</legend>
-          {access.data?.accounts.map((account) => (
+        <Card
+          key={grant.id}
+          title={grant.label}
+          action={
+            !grant.primary ? (
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-sm"
+                data-danger="outline"
+                aria-label={`撤销令牌 ${grant.label}`}
+                disabled={busy}
+                onClick={() =>
+                  void act(() => client.bootstrap.revokeMcpAccountToken.mutate({ id: grant.id }))
+                }
+              >
+                撤销令牌
+              </button>
+            ) : null
+          }
+        >
+          {accounts?.map((account) => (
             <Row
               key={account.configId}
               label={account.displayName}
@@ -668,6 +691,7 @@ function McpAccountAccess({ active }: { active: boolean }) {
                 <Toggle
                   label={`允许${grant.label}访问${account.displayName}`}
                   checked={grant.configIds.includes(account.configId)}
+                  disabled={busy}
                   onChange={(enabled) =>
                     void act(() =>
                       client.bootstrap.setMcpAccountGrant.mutate({
@@ -682,52 +706,43 @@ function McpAccountAccess({ active }: { active: boolean }) {
               }
             />
           ))}
-          {!grant.primary && (
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-sm"
-              onClick={() =>
-                void act(() => client.bootstrap.revokeMcpAccountToken.mutate({ id: grant.id }))
-              }
-            >
-              撤销令牌
-            </button>
-          )}
-        </fieldset>
+        </Card>
       ))}
-      <form
-        className="weq-set-btn-group"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void act(async () => {
-            setNewToken(
-              await client.bootstrap.createMcpAccountToken.mutate({ label: label.trim() }),
-            );
-            setLabel('');
-          });
-        }}
-      >
-        <input
-          aria-label="令牌名称"
-          placeholder="令牌名称"
-          maxLength={64}
-          className="weq-set-input"
-          value={label}
-          onChange={(event) => setLabel(event.target.value)}
-        />
-        <button type="submit" className="weq-set-btn" disabled={busy || !label.trim()}>
-          创建令牌
-        </button>
-      </form>
-      {newToken && (
-        <input
-          aria-label="新令牌，请复制保存"
-          className="weq-set-input"
-          readOnly
-          value={newToken}
-          onFocus={(event) => event.target.select()}
-        />
-      )}
-    </Card>
+      <Card>
+        <form
+          className="weq-set-btn-group"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void act(async () => {
+              setNewToken(
+                await client.bootstrap.createMcpAccountToken.mutate({ label: label.trim() }),
+              );
+              setLabel('');
+            });
+          }}
+        >
+          <input
+            aria-label="令牌名称"
+            placeholder="令牌名称"
+            maxLength={64}
+            className="weq-set-input"
+            value={label}
+            onChange={(event) => setLabel(event.target.value)}
+          />
+          <button type="submit" className="weq-set-btn" disabled={busy || !label.trim()}>
+            创建令牌
+          </button>
+        </form>
+        {newToken && (
+          <input
+            aria-label="新令牌，请复制保存"
+            className="weq-set-input"
+            readOnly
+            value={newToken}
+            onFocus={(event) => event.target.select()}
+          />
+        )}
+      </Card>
+    </section>
   );
 }

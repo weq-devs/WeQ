@@ -98,6 +98,10 @@ html[data-theme] .weq-service-settings .weq-set-iconbtn:disabled {
   flex-wrap: wrap;
 }
 
+.weq-set-mcp-access .weq-set-card-heading {
+  overflow-wrap: anywhere;
+}
+
 html[data-theme='dark'] .weq-service-settings .weq-set-agent-item:not(.is-on) {
   background: var(--weq-bg-elevated);
 }
