@@ -17,7 +17,8 @@ const ACCOUNT_PATH = /^\/_weq\/account\/([a-z\d][a-z\d_-]{0,127})\/([a-f\d-]{36}
 const ACCOUNT_SELECT = '/_weq/select-account';
 const LEAVE_ACCOUNT = '/_weq/leave-account';
 const BUSINESS_PATH = /^\/(?:trpc(?:[/-]|$)|_[a-z][a-z0-9-]*(?:\/|\?|$))/;
-const STATIC_PATH = /^\/(?:assets\/|src\/|node_modules\/|@[^/]+\/|favicon\.|robots\.txt)/;
+const STATIC_PATH =
+  /^\/(?:assets\/|src\/|node_modules\/|@[^/]+\/|favicon\.|robots\.txt|startup-theme\.js$|bundledDevClient\.mjs$)/;
 const MAX_ACTIVE_ROUTES = 128;
 const selectionStartup = `window.weqRemoteStartup = { state: 'action-required' };
 window.dispatchEvent(new Event('weq-remote-startup'));`;

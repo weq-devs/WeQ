@@ -311,6 +311,64 @@ it('远程页面只打开已授权账号，选择失败和服务重启后可重�
   }
 });
 
+it('Remote 下载正式及开发网页的启动脚本时不需要先选账号', async () => {
+  const worker = await fixture();
+  const dir = mkdtempSync(join(tmpdir(), 'weq-scoped-web-startup-'));
+  const startupTheme = 'window.startupTheme = true;';
+  writeFileSync(join(dir, 'startup-theme.js'), startupTheme);
+  const scripts = new Map([
+    ['/startup-theme.js', startupTheme],
+    ['/bundledDevClient.mjs', 'export const developmentClient = true;'],
+    ['/@rolldown/experimental-runtime.mjs', 'export const runtime = true;'],
+  ]);
+  const upstream = createServer((req, res) => {
+    const body = scripts.get(req.url ?? '');
+    if (!body) return res.writeHead(404).end();
+    return res.writeHead(200, { 'Content-Type': 'text/javascript' }).end(body);
+  });
+  const developmentUrl = `http://127.0.0.1:${await listenPrivate(upstream)}`;
+  let allowed = true;
+  const publicOptions = {
+    accounts: worker.routes,
+    publicDir: dir,
+    auth: {
+      remoteClient: true,
+      login: async () => false,
+      logout: () => {},
+      isAuthed: () => allowed,
+      watchSession: () => () => {},
+    },
+  };
+  const entry = new DesktopWebEntry(publicOptions);
+  const dev = new DesktopWebEntry({ ...publicOptions, developmentUrl });
+  const server = createServer((req, res) =>
+    (req.headers['x-fixture-dev'] ? dev : entry).handle(req, res),
+  );
+  const base = `http://127.0.0.1:${await listenPrivate(server)}`;
+  try {
+    const theme = await fetch(`${base}/startup-theme.js`);
+    expect(theme.status).toBe(200);
+    expect(await theme.text()).toBe(startupTheme);
+    const headers = { 'x-fixture-dev': '1', 'user-agent': 'WeQRemote' };
+    for (const [path, content] of scripts) {
+      const response = await fetch(base + path, { headers });
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe(content);
+    }
+    allowed = false;
+    expect((await fetch(`${base}/startup-theme.js`)).status).toBe(401);
+    expect((await fetch(`${base}/bundledDevClient.mjs`, { headers })).status).toBe(401);
+    expect(worker.open).not.toHaveBeenCalled();
+  } finally {
+    entry.close();
+    dev.close();
+    stopPrivate(server);
+    stopPrivate(upstream);
+    worker.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 it('固定网页会话签发的文件下载不能交给另一个会话', () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-scoped-download-'));
   const a = '/_weq/account/101/11111111-1111-4111-8111-111111111111';
