@@ -81,6 +81,7 @@ import {
   desktopServiceCommand,
   hasDesktopServices,
 } from '../../desktop_services/host';
+import { mcpCredentialId } from '../../desktop_services/mcp_gateway';
 import { assistantResourceServer } from '../../weq_assistant/server';
 import {
   installMcpAgents as installMcpAgentConfigs,
@@ -2101,9 +2102,12 @@ export const bootstrapRouter = router({
 
   createMcpAccountToken: procedure
     .input(z.object({ label: z.string().trim().min(1).max(64) }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       if (ctx.authorize || !hasDesktopServices()) throw new Error('请在桌面管理 MCP 授权。');
-      return desktopServiceCommand<string>('mcp.create', input.label, () => '');
+      const token = await desktopServiceCommand<string>('mcp.create', input.label, () => {
+        throw new Error('MCP 服务暂不可用。');
+      });
+      return { id: mcpCredentialId(token), token };
     }),
 
   revokeMcpAccountToken: procedure

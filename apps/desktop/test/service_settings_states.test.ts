@@ -4,11 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExternalRkeySection } from '../src/renderer/src/components/settings/ExternalRkeySection';
 import { SsePushSection } from '../src/renderer/src/components/settings/SsePushSection';
 import { McpServerSection } from '../src/renderer/src/components/settings/McpServerSection';
+import { TabActivityContext } from '../src/renderer/src/components/RetainedTabs.shared';
 
 const api = vi.hoisted(() => ({
   mode: 'ready',
   retry: vi.fn(),
   mutate: vi.fn(),
+  createToken: vi.fn(),
+  mcpGrants: null as null | {
+    accounts: { configId: string; displayName: string; uin: string; static: boolean }[];
+    grants: { id: string; label: string; configIds: string[] }[];
+  },
   settings: {
     externalRkey: {
       servers: [
@@ -59,16 +65,20 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                         port: 48765,
                         token: 'synthetic',
                         url: 'http://127.0.0.1:48765',
+                        sharedService: api.mcpGrants !== null,
                       }
-                    : path.endsWith('listMcpAgentTargets')
-                      ? targets
-                      : '{}',
+                    : path.endsWith('getMcpAccountGrants')
+                      ? api.mcpGrants
+                      : path.endsWith('listMcpAgentTargets')
+                        ? targets
+                        : '{}',
             error: ['error', 'stale'].includes(api.mode) ? Error('合成服务读取失败') : null,
             isLoading: api.mode === 'loading',
             isFetching: false,
             refetch: api.retry,
           });
         if (key === 'useMutation') return () => ({ isLoading: false, mutateAsync: api.mutate });
+        if (key === 'mutate' && path.endsWith('createMcpAccountToken')) return api.createToken;
         return proxy(`${path}.${String(key)}`);
       },
     });
@@ -81,6 +91,8 @@ beforeEach(() => {
   api.mode = 'ready';
   api.retry.mockClear();
   api.mutate.mockClear();
+  api.createToken.mockReset();
+  api.mcpGrants = null;
   host = document.createElement('div');
   document.body.append(host);
   root = createRoot(host);
@@ -88,10 +100,19 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
-function render(kind: keyof typeof components) {
-  act(() => root.render(createElement(components[kind])));
+function render(kind: keyof typeof components, active = true) {
+  act(() =>
+    root.render(
+      createElement(
+        TabActivityContext.Provider,
+        { value: active },
+        createElement(components[kind]),
+      ),
+    ),
+  );
 }
 describe.each(['rkey', 'sse', 'mcp'] as const)('%s 服务设置读取状态', (kind) => {
   it('加载不冒充空服务或已停止', () => {
@@ -132,6 +153,87 @@ describe.each(['rkey', 'sse', 'mcp'] as const)('%s 服务设置读取状态', (k
       host.querySelectorAll(kind === 'mcp' ? '.weq-set-agent-item' : '.weq-set-server-item'),
     ).toHaveLength(1);
   });
+});
+
+const testAccount = { configId: 'account', displayName: '测试账号', uin: '10001', static: false };
+const sameNameGrant = { id: 'existing', label: '测试客户端', configIds: [testAccount.configId] };
+const newGrant = { ...sameNameGrant, id: 'created', configIds: [] };
+const tokenResult = { id: newGrant.id, token: 'synthetic-once-only-token' };
+
+function submitTokenName() {
+  const input = host.querySelector<HTMLInputElement>('[aria-label="令牌名称"]')!;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+    input,
+    newGrant.label,
+  );
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  return input.form!;
+}
+
+function buttonWithin(element: Element, label: string) {
+  return Array.from(element.querySelectorAll('button')).find(
+    (button) => button.textContent === label,
+  )!;
+}
+
+it('MCP 创建结果按 ID 定位，列表尚未读回时仍可复制并收起', async () => {
+  api.mcpGrants = { accounts: [testAccount], grants: [sameNameGrant] };
+  api.createToken.mockResolvedValue(tokenResult);
+  const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+  render('mcp');
+  let form!: HTMLFormElement;
+  act(() => {
+    form = submitTokenName();
+  });
+  await act(async () => {
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
+
+  const receipt = host.querySelector('[role="group"][tabindex="-1"]')!;
+  const card = receipt.closest('section')!;
+  expect(document.activeElement).toBe(receipt);
+  expect(receipt.textContent).toContain('请在下方勾选');
+  expect(card.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false');
+  expect(host.textContent).not.toContain(tokenResult.token);
+
+  await act(async () => buttonWithin(receipt, '复制令牌').click());
+  expect(writeText).toHaveBeenCalledWith(tokenResult.token);
+  expect(buttonWithin(receipt, '已复制')).toBeDefined();
+  act(() => buttonWithin(receipt, '显示令牌').click());
+  expect(receipt.textContent).toContain(tokenResult.token);
+
+  api.mcpGrants.grants = [sameNameGrant, newGrant];
+  render('mcp');
+  act(() => buttonWithin(receipt, '收起提示').click());
+  expect(host.textContent).not.toContain(tokenResult.token);
+  expect(card.querySelector('[role="switch"]')).not.toBeNull();
+});
+
+it('MCP 切出后返回时不回显上一轮在途创建的令牌', async () => {
+  api.mcpGrants = { accounts: [testAccount], grants: [] };
+  let finish!: (result: typeof tokenResult) => void;
+  api.createToken.mockImplementation(
+    () =>
+      new Promise<typeof tokenResult>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  render('mcp');
+  let form!: HTMLFormElement;
+  act(() => {
+    form = submitTokenName();
+  });
+  act(() => {
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  });
+  render('mcp', false);
+  render('mcp');
+
+  api.mcpGrants.grants = [newGrant];
+  await act(async () => finish(tokenResult));
+  expect(host.textContent).toContain(newGrant.label);
+  expect(host.textContent).not.toContain('令牌已创建');
+  expect(host.textContent).not.toContain(tokenResult.token);
 });
 it('外部 rKey 保留说明和列表，导入在独立编辑浮层内打开与关闭', () => {
   render('rkey');

@@ -18,7 +18,7 @@
  */
 
 import { NumericText } from '../NumericText';
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactElement } from 'react';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {
@@ -625,18 +625,45 @@ export function McpServerSection(): ReactElement {
   );
 }
 
+interface CreatedMcpToken {
+  id: string;
+  label: string;
+  token: string;
+}
+
 function McpAccountAccess({ active }: { active: boolean }) {
   const access = trpc.bootstrap.getMcpAccountGrants.useQuery(undefined, { enabled: active });
   const accounts = access.data?.accounts;
+  const acting = useRef(false);
   const [busy, setBusy] = useState(false);
   const [label, setLabel] = useState('');
-  const [newToken, setNewToken] = useState('');
+  const [createdTokens, setCreatedTokens] = useState<CreatedMcpToken[]>([]);
+  const pageSession = useRef<AbortController | null>(null);
   const showError = useDialog((state) => state.showError);
   useEffect(() => {
-    if (!active) setNewToken('');
+    if (!active) {
+      setCreatedTokens([]);
+      return;
+    }
+    const session = new AbortController();
+    pageSession.current = session;
+    return () => session.abort();
   }, [active]);
+
+  const createdById = new Map((active ? createdTokens : []).map((token) => [token.id, token]));
+  const grants = new Map(access.data?.grants.map((grant) => [grant.id, grant]));
+  // 创建成功即显示一次性令牌，账号授权列表刷新失败时也能复制。
+  for (const { id, label } of createdById.values()) {
+    if (!grants.has(id)) grants.set(id, { id, label, configIds: [] });
+  }
+
+  function dismissToken(id: string) {
+    setCreatedTokens((tokens) => tokens.filter((token) => token.id !== id));
+  }
+
   async function act(action: () => Promise<unknown>) {
-    if (busy) return;
+    if (acting.current) return;
+    acting.current = true;
     setBusy(true);
     try {
       await action();
@@ -644,6 +671,7 @@ function McpAccountAccess({ active }: { active: boolean }) {
     } catch (error) {
       showError('无法更新 MCP 授权', errMsg(error));
     } finally {
+      acting.current = false;
       setBusy(false);
     }
   }
@@ -653,67 +681,88 @@ function McpAccountAccess({ active }: { active: boolean }) {
         title="令牌可访问的账号"
         desc="为每个令牌勾选可访问的账号。修改后，相关客户端需重新连接。"
       >
-        {access.error && (
-          <p className="weq-set-note" role="alert">
-            {access.error.message}
-          </p>
-        )}
-        {access.data?.grants.map((grant) => (
-          <Card
-            key={grant.id}
-            title={grant.label}
-            action={
-              !grant.primary ? (
-                <button
-                  type="button"
-                  className="weq-set-btn weq-set-btn-sm"
-                  data-danger="outline"
-                  aria-label={`撤销令牌 ${grant.label}`}
-                  disabled={busy}
-                  onClick={() =>
-                    void act(() => client.bootstrap.revokeMcpAccountToken.mutate({ id: grant.id }))
-                  }
-                >
-                  撤销令牌
-                </button>
-              ) : null
-            }
-          >
-            {accounts?.map((account) => (
-              <Row
-                key={account.configId}
-                label={account.displayName}
-                desc={`${account.uin}${account.static ? ' · 静态备份' : ''}`}
-                control={
-                  <Toggle
-                    label={`允许${grant.label}访问${account.displayName}`}
-                    checked={grant.configIds.includes(account.configId)}
+        {access.error ? (
+          <QueryError
+            message={`MCP 授权读取失败：${access.error.message}`}
+            retryLabel="重新读取 MCP 授权"
+            retrying={access.isFetching}
+            onRetry={() => void access.refetch()}
+          />
+        ) : null}
+        {Array.from(grants.values(), (grant) => {
+          const created = createdById.get(grant.id);
+          return (
+            <Card
+              key={grant.id}
+              title={grant.label}
+              action={
+                !grant.primary ? (
+                  <button
+                    type="button"
+                    className="weq-set-btn weq-set-btn-sm"
+                    data-danger="outline"
+                    aria-label={`撤销令牌 ${grant.label}`}
                     disabled={busy}
-                    onChange={(enabled) =>
-                      void act(() =>
-                        client.bootstrap.setMcpAccountGrant.mutate({
-                          id: grant.id,
-                          configIds: enabled
-                            ? [...grant.configIds, account.configId]
-                            : grant.configIds.filter((configId) => configId !== account.configId),
-                        }),
-                      )
+                    onClick={() =>
+                      void act(async () => {
+                        await client.bootstrap.revokeMcpAccountToken.mutate({ id: grant.id });
+                        dismissToken(grant.id);
+                      })
                     }
-                  />
-                }
-              />
-            ))}
-          </Card>
-        ))}
+                  >
+                    撤销令牌
+                  </button>
+                ) : null
+              }
+            >
+              {created ? (
+                <McpCreatedToken
+                  created={created}
+                  needsGrant={grant.configIds.length === 0}
+                  hasAccounts={accounts === undefined ? undefined : accounts.length > 0}
+                  onDismiss={() => dismissToken(grant.id)}
+                />
+              ) : null}
+              {accounts?.map((account) => (
+                <Row
+                  key={account.configId}
+                  label={account.displayName}
+                  desc={`${account.uin}${account.static ? ' · 静态备份' : ''}`}
+                  control={
+                    <Toggle
+                      label={`允许${grant.label}访问${account.displayName}`}
+                      checked={grant.configIds.includes(account.configId)}
+                      disabled={busy}
+                      onChange={(enabled) =>
+                        void act(() =>
+                          client.bootstrap.setMcpAccountGrant.mutate({
+                            id: grant.id,
+                            configIds: enabled
+                              ? [...grant.configIds, account.configId]
+                              : grant.configIds.filter((configId) => configId !== account.configId),
+                          }),
+                        )
+                      }
+                    />
+                  }
+                />
+              ))}
+            </Card>
+          );
+        })}
         <form
           className="weq-set-btn-group"
           onSubmit={(event) => {
             event.preventDefault();
+            const name = label.trim();
+            if (!name) return;
+            const session = pageSession.current;
             void act(async () => {
-              setNewToken(
-                await client.bootstrap.createMcpAccountToken.mutate({ label: label.trim() }),
-              );
-              setLabel('');
+              const created = await client.bootstrap.createMcpAccountToken.mutate({ label: name });
+              if (session && !session.signal.aborted) {
+                setCreatedTokens((tokens) => [...tokens, { ...created, label: name }]);
+              }
+              setLabel((value) => (value.trim() === name ? '' : value));
             });
           }}
         >
@@ -729,16 +778,102 @@ function McpAccountAccess({ active }: { active: boolean }) {
             创建令牌
           </button>
         </form>
-        {newToken && (
-          <input
-            aria-label="新令牌，请复制保存"
-            className="weq-set-input"
-            readOnly
-            value={newToken}
-            onFocus={(event) => event.target.select()}
-          />
-        )}
       </Card>
+    </div>
+  );
+}
+
+function McpCreatedToken({
+  created,
+  needsGrant,
+  hasAccounts,
+  onDismiss,
+}: {
+  created: CreatedMcpToken;
+  needsGrant: boolean;
+  hasAccounts: boolean | undefined;
+  onDismiss: () => void;
+}) {
+  const panel = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const [reveal, setReveal] = useState(false);
+  const [copyState, setCopyState] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
+
+  useEffect(() => {
+    panel.current?.scrollIntoView({ block: 'nearest' });
+    panel.current?.focus({ preventScroll: true });
+  }, []);
+  useEffect(() => {
+    if (copyState !== 'copied') return;
+    const timeout = window.setTimeout(() => setCopyState('idle'), 2000);
+    return () => window.clearTimeout(timeout);
+  }, [copyState]);
+
+  async function copy() {
+    if (copyState === 'copying') return;
+    setCopyState('copying');
+    try {
+      await navigator.clipboard.writeText(created.token);
+      setCopyState('copied');
+    } catch {
+      setCopyState('error');
+    }
+  }
+
+  return (
+    <div
+      ref={panel}
+      className="weq-set-mcp-created"
+      role="group"
+      aria-labelledby={titleId}
+      tabIndex={-1}
+    >
+      <strong id={titleId} className="weq-set-card-title">
+        {`「${created.label}」令牌已创建`}
+      </strong>
+      <p className="weq-set-note">收起提示或离开此页后，将无法再查看此令牌。请先复制保存。</p>
+      <div className="weq-set-mcp-created-actions">
+        <div className="weq-set-keyfield">
+          <code className="weq-set-keyval" aria-hidden={!reveal}>
+            {reveal ? created.token : '••••••••••••••••'}
+          </code>
+        </div>
+        <div className="weq-set-btn-group">
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-sm"
+            onClick={() => setReveal(!reveal)}
+          >
+            {reveal ? '隐藏令牌' : '显示令牌'}
+          </button>
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-primary weq-set-btn-sm"
+            aria-disabled={copyState === 'copying'}
+            onClick={() => void copy()}
+          >
+            {copyState === 'copying' ? '正在复制…' : copyState === 'copied' ? '已复制' : '复制令牌'}
+          </button>
+          <button type="button" className="weq-set-btn weq-set-btn-sm" onClick={onDismiss}>
+            收起提示
+          </button>
+        </div>
+      </div>
+      <span className="sr-only" role="status">
+        {copyState === 'copied' ? '令牌已复制' : ''}
+      </span>
+      {copyState === 'error' ? (
+        <p className="weq-set-note" role="alert">
+          复制失败，请重试，或点击「显示令牌」手动复制。
+        </p>
+      ) : null}
+      {needsGrant && hasAccounts !== undefined ? (
+        <p className="weq-set-note">
+          {hasAccounts
+            ? '请在下方勾选此令牌可访问的账号。'
+            : '添加账号后，可在此为令牌设置访问权限。'}
+        </p>
+      ) : null}
     </div>
   );
 }

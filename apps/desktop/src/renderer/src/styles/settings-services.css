@@ -107,6 +107,31 @@ html[data-theme] .weq-set-mcp-access > .weq-set-card > .weq-set-card {
   overflow-wrap: anywhere;
 }
 
+.weq-set-mcp-created {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  overflow-wrap: anywhere;
+}
+
+.weq-set-mcp-created-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-set-mcp-created-actions .weq-set-keyfield {
+  flex: 1 1 180px;
+}
+
+.weq-set-mcp-created-actions .weq-set-keyval {
+  white-space: normal;
+  user-select: text;
+}
+
 html[data-theme='dark'] .weq-service-settings .weq-set-agent-item:not(.is-on) {
   background: var(--weq-bg-elevated);
 }
