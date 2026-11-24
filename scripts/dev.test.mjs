@@ -247,6 +247,47 @@ test('Electron 解析使用已清理的子进程环境，不被继承的旧运�
   assert.equal(env.ELECTRON_OVERRIDE_DIST_PATH, '/old/runtime');
 });
 
+test('Electron 安装补齐 .npmrc 镜像配置，显式环境变量优先', async (t) => {
+  const root = await fixture(t);
+  const electron = join(root, 'apps/desktop/node_modules/electron');
+  await writeJson(join(root, 'apps/desktop/package.json'), {
+    devDependencies: { electron: '99.0.0' },
+  });
+  await writeJson(join(electron, 'package.json'), {
+    name: 'electron',
+    version: '99.0.0',
+    main: 'index.js',
+  });
+  await writeFile(join(electron, 'index.js'), 'module.exports = process.execPath;');
+  await writeFile(join(electron, 'install.js'), '');
+  await writeFile(
+    join(root, '.npmrc'),
+    [
+      '# comment',
+      'electron_mirror=https://registry.npmmirror.com/-/binary/electron/',
+      'electron_custom_dir="{{ version }}"',
+      'ELECTRON_CUSTOM_FILENAME=custom.zip',
+    ].join('\n'),
+  );
+  let installEnv;
+  const executable = await prepareElectron(root, {
+    env: { ...process.env, ELECTRON_MIRROR: 'https://env.example/electron/' },
+    log: silent,
+    run: async (command, args, options) => {
+      if (args[0] === join(electron, 'install.js')) {
+        installEnv = options.env;
+        return '';
+      }
+      if (args[0] === '-p') return '99.0.0';
+      return runCommand(command, args, options);
+    },
+  });
+  assert.equal(executable, process.execPath);
+  assert.equal(installEnv.ELECTRON_MIRROR, 'https://env.example/electron/');
+  assert.equal(installEnv.ELECTRON_CUSTOM_DIR, '{{ version }}');
+  assert.equal(installEnv.ELECTRON_CUSTOM_FILENAME, 'custom.zip');
+});
+
 test('一行入口按依赖、宿主、native、网络、启动顺序执行，配置与 Electron 参数传递不经过 shell', async (t) => {
   const root = await fixture(t);
   const events = [];
