@@ -139,11 +139,7 @@ export function DataSaverSettings() {
           <BooleanRow name="dataSaverOnMetered" label="使用流量时自动启用" />
         ) : null}
       </Card>
-      <div className="weq-data-saver-behavior">
-        <h4>省流量模式下的行为</h4>
-        <p>仅在省流量模式生效时应用，已有缓存照常使用。</p>
-      </div>
-      <Card title="图片与媒体">
+      <Card title="图片与媒体" desc="省流量模式生效时按以下设置加载，已有缓存照常使用。">
         <Row
           label="聊天图片自动加载"
           control={
@@ -163,7 +159,7 @@ export function DataSaverSettings() {
           <BooleanRow key={name} name={name} label={label} />
         ))}
       </Card>
-      <Card title="下载与任务">
+      <Card title="下载与任务" desc="设置省流量期间如何暂停任务，以及限制解除后如何继续。">
         {taskOptions.map(([name, label, desc]) => (
           <BooleanRow key={name} name={name} label={label} desc={desc} />
         ))}
