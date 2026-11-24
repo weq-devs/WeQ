@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const stub = resolve(root, 'test/browser/contact-card.stub.ts');
-const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
+const { chromium, webkit } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const output = process.env.WEQ_CONTACT_CARD_QA;
 const baseline = process.env.WEQ_CONTACT_CARD_BASELINE === '1';
 const originals = [
@@ -70,6 +70,111 @@ const server = await createServer({
     fs: { allow: [resolve(root, '../..')] },
   },
 });
+if (process.argv.includes('--gestures')) {
+  try {
+    await server.listen();
+    const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/contact-card.html?gestures&minimal=1`;
+    for (const engine of [chromium, webkit]) {
+      const browser = await engine.launch();
+      try {
+        const page = await browser.newPage({
+          isMobile: true,
+          hasTouch: true,
+          viewport: { width: 390, height: 844 },
+        });
+        const errors = [];
+        page.on('pageerror', (error) => errors.push(error.message));
+        await page.route('**/*', (route) =>
+          new URL(route.request().url()).hostname === '127.0.0.1'
+            ? route.continue()
+            : route.abort(),
+        );
+        await page.goto(url);
+        const avatar = page.getByRole('button', { name: '群友头像' });
+        const card = page.getByRole('dialog', { name: '用户资料' });
+        const cardVisual = page.locator('[aria-label="用户资料"]');
+        await avatar.waitFor();
+        const actions = () =>
+          page.evaluate(() =>
+            window.contactCardQa.calls
+              .map(({ path }) => path)
+              .filter((path) => /^fixture\.(poke|chat)$/.test(path)),
+          );
+        const tapAvatar = async (count) => {
+          const { x, y, width, height } = await avatar.boundingBox();
+          for (let index = 0; index < count; index++)
+            await page.touchscreen.tap(x + width / 2 + index * 6, y + height / 2);
+        };
+        const fade = (direction) =>
+          page.waitForFunction(
+            (opening) =>
+              document.getAnimations().some(({ effect }) => {
+                const node = effect?.target;
+                if (!node?.querySelector('[aria-label="用户资料"]')) return false;
+                const frames = effect.getKeyframes();
+                const from = Number(frames[0]?.opacity);
+                const to = Number(frames.at(-1)?.opacity);
+                return opening ? from === 0 && to === 1 : node.inert && from > 0 && to === 0;
+              }),
+            direction === 'in',
+            { timeout: 5000 },
+          );
+        const waitForOpenCard = async () => {
+          await card.waitFor();
+          await card.evaluate((node) =>
+            Promise.all(node.parentElement.getAnimations().map((animation) => animation.finished)),
+          );
+        };
+
+        await Promise.all([fade('in'), tapAvatar(1)]);
+        await waitForOpenCard();
+        assert.deepEqual(await actions(), []);
+        await Promise.all([
+          fade('out'),
+          card.getByRole('button', { name: '关闭', exact: true }).click(),
+        ]);
+        assert.equal(await card.count(), 0);
+        // Warm the fixture's lazy chunks so Playwright can deliver consecutive taps in time.
+        await page.waitForLoadState('networkidle');
+        await cardVisual.first().waitFor({ state: 'detached' });
+
+        await tapAvatar(2);
+        await card.waitFor({ state: 'hidden', timeout: 5000 });
+        assert.deepEqual(await actions(), ['fixture.poke']);
+        const { x, y, width, height } = await avatar.boundingBox();
+        await page.mouse.dblclick(x + width / 2, y + height / 2);
+        await card.waitFor({ state: 'hidden' });
+        assert.deepEqual(await actions(), ['fixture.poke', 'fixture.poke']);
+        await avatar.press('Enter');
+        await waitForOpenCard();
+        assert.deepEqual(await actions(), ['fixture.poke', 'fixture.poke']);
+        await Promise.all([fade('out'), page.keyboard.press('Escape')]);
+        await cardVisual.first().waitFor({ state: 'detached' });
+        await tapAvatar(1);
+        await waitForOpenCard();
+        await Promise.all([fade('out'), page.touchscreen.tap(388, 842)]);
+        await card.waitFor({ state: 'hidden' });
+        await page.setViewportSize({ width: 844, height: 390 });
+        await tapAvatar(2);
+        await card.waitFor({ state: 'hidden' });
+        assert.deepEqual(await actions(), ['fixture.poke', 'fixture.poke', 'fixture.chat']);
+        await cardVisual.first().waitFor({ state: 'detached' });
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        await tapAvatar(1);
+        await card.waitFor();
+        await page.keyboard.press('Escape');
+        assert.equal(await cardVisual.count(), 0);
+        assert.deepEqual(errors, []);
+        console.log(`${engine.name()}: profile gestures and fades passed`);
+      } finally {
+        await browser.close();
+      }
+    }
+  } finally {
+    await server.close();
+  }
+  process.exit(0);
+}
 let browser;
 const report = [];
 async function checkPrivileges(scope) {

@@ -273,6 +273,7 @@ function GroupProfileBody({
     </DraftCloseContext.Provider>
   ) : (
     <OverlayLayer
+      profileCard
       anchor={anchor}
       presentation="popover"
       className="weq-profile-layer weq-group-profile-layer"

@@ -1,7 +1,10 @@
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
+import { dismissProfileCard } from './profileCardMotion';
+import { topSurface } from './surfaceEscape';
 
 const PROFILE_DOUBLE_CLICK_MS = 300;
-const PROFILE_DOUBLE_CLICK_RADIUS = 4;
+const MOUSE_RADIUS = 4;
+const TOUCH_RADIUS = 16;
 
 export type ProfileShortcut = {
   landscape?: () => void;
@@ -9,19 +12,52 @@ export type ProfileShortcut = {
 };
 
 const pendingClicks = new WeakMap<Document, () => void>();
+const touchReleases = new WeakMap<
+  Document,
+  Pick<PointerEvent, 'clientX' | 'clientY' | 'timeStamp'>
+>();
 
-function plainMouseClick(event: MouseEvent, view: Window) {
+export function trackProfileTouch(document: Document) {
+  const remember = (event: PointerEvent) => {
+    if (event.isTrusted && event.isPrimary && event.pointerType === 'touch')
+      touchReleases.set(document, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        timeStamp: event.timeStamp,
+      });
+    else touchReleases.delete(document);
+  };
+  document.addEventListener('pointerup', remember, { capture: true, passive: true });
+  return () => {
+    document.removeEventListener('pointerup', remember, true);
+    touchReleases.delete(document);
+    pendingClicks.get(document)?.();
+  };
+}
+
+function plainPrimaryClick(event: MouseEvent) {
   return (
     event.isTrusted &&
     event.button === 0 &&
     !event.metaKey &&
     !event.ctrlKey &&
     !event.shiftKey &&
-    !event.altKey &&
-    ('pointerType' in event && event.pointerType
-      ? event.pointerType === 'mouse'
-      : view.matchMedia('(any-hover: hover)').matches)
+    !event.altKey
   );
+}
+
+function clickPointer(event: MouseEvent, document: Document, view: Window) {
+  // WebKit can synthesize a click with pointerType="mouse" for a finger tap.
+  const touch = touchReleases.get(document);
+  if (
+    touch &&
+    event.timeStamp >= touch.timeStamp &&
+    event.timeStamp - touch.timeStamp <= PROFILE_DOUBLE_CLICK_MS &&
+    Math.hypot(event.clientX - touch.clientX, event.clientY - touch.clientY) <= MOUSE_RADIUS
+  )
+    return 'touch';
+  if ('pointerType' in event && event.pointerType) return event.pointerType;
+  return view.matchMedia('(any-hover: hover)').matches ? 'mouse' : undefined;
 }
 
 export function activateProfile(
@@ -32,11 +68,26 @@ export function activateProfile(
   const document = event.currentTarget.ownerDocument;
   pendingClicks.get(document)?.();
   const view = document.defaultView;
-  if (view && !('key' in event) && event.detail === 1 && plainMouseClick(event.nativeEvent, view)) {
-    const action = view.matchMedia('(orientation: landscape)').matches
-      ? shortcut?.landscape
-      : shortcut?.portrait;
-    if (action) captureSecondClick(view, document, event, action);
+  if (
+    shortcut &&
+    view &&
+    !('key' in event) &&
+    event.detail > 0 &&
+    plainPrimaryClick(event.nativeEvent)
+  ) {
+    const pointer = clickPointer(event.nativeEvent, document, view);
+    const landscape = view.matchMedia('(orientation: landscape)').matches;
+    const action = landscape ? shortcut.landscape : shortcut.portrait;
+    if (action && (pointer === 'touch' || (pointer === 'mouse' && event.detail === 1))) {
+      const previous = !landscape ? topSurface(document, false) : undefined;
+      captureSecondClick(view, document, event, pointer, () => {
+        if (!landscape) {
+          const current = topSurface(document, false);
+          if (current && current !== previous) dismissProfileCard(current);
+        }
+        action();
+      });
+    }
   }
   openProfile();
 }
@@ -46,16 +97,23 @@ function captureSecondClick(
   view: Window,
   document: Document,
   first: ReactMouseEvent,
+  pointer: 'mouse' | 'touch',
   action: () => void,
 ) {
   const x = first.clientX;
   const y = first.clientY;
-  const nearFirst = (event: MouseEvent) =>
-    Math.hypot(event.clientX - x, event.clientY - y) <= PROFILE_DOUBLE_CLICK_RADIUS;
+  const bounds = pointer === 'touch' ? first.currentTarget.getBoundingClientRect() : undefined;
+  const nearFirst = ({ clientX, clientY }: MouseEvent) =>
+    Math.hypot(clientX - x, clientY - y) <= (bounds ? TOUCH_RADIUS : MOUSE_RADIUS) &&
+    (!bounds ||
+      (clientX >= bounds.left &&
+        clientX <= bounds.right &&
+        clientY >= bounds.top &&
+        clientY <= bounds.bottom));
   const listeners = new AbortController();
   const capture = { capture: true, signal: listeners.signal };
   let timer = view.setTimeout(cancel, PROFILE_DOUBLE_CLICK_MS);
-  let pressedAt: number | undefined;
+  let pressed: PointerEvent | undefined;
 
   function cancel() {
     view.clearTimeout(timer);
@@ -68,15 +126,17 @@ function captureSecondClick(
     'pointerdown',
     (event) => {
       if (
-        pressedAt !== undefined ||
+        pressed ||
         event.timeStamp - first.timeStamp > PROFILE_DOUBLE_CLICK_MS ||
-        !plainMouseClick(event, view) ||
+        !event.isPrimary ||
+        event.pointerType !== pointer ||
+        !plainPrimaryClick(event) ||
         !nearFirst(event)
       ) {
         cancel();
         return;
       }
-      pressedAt = event.timeStamp;
+      pressed = event;
       view.clearTimeout(timer);
       timer = view.setTimeout(cancel, PROFILE_DOUBLE_CLICK_MS);
       // 早于浮层的外部按下处理，保留这次手势的原生 click。
@@ -89,10 +149,11 @@ function captureSecondClick(
     (event) => {
       cancel();
       if (
-        pressedAt === undefined ||
-        event.timeStamp - pressedAt > PROFILE_DOUBLE_CLICK_MS ||
+        !pressed ||
+        event.timeStamp - pressed.timeStamp > PROFILE_DOUBLE_CLICK_MS ||
         event.detail === 0 ||
-        !plainMouseClick(event, view) ||
+        !plainPrimaryClick(event) ||
+        clickPointer(event, document, view) !== pointer ||
         !nearFirst(event)
       )
         return;
@@ -105,11 +166,12 @@ function captureSecondClick(
   view.addEventListener(
     'pointermove',
     (event) => {
-      if (pressedAt !== undefined && !nearFirst(event)) cancel();
+      if (pressed && !nearFirst(event)) cancel();
     },
     capture,
   );
   view.addEventListener('pointercancel', cancel, capture);
+  view.addEventListener('contextmenu', cancel, capture);
   view.addEventListener('keydown', cancel, capture);
   view.addEventListener('wheel', cancel, capture);
   view.addEventListener('blur', cancel, { signal: listeners.signal });

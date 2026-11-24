@@ -7780,6 +7780,7 @@ html[data-theme='dark'] .weq-profile-member .avatar {
   border-radius: 50%;
   background: none;
   cursor: pointer;
+  touch-action: manipulation;
   overflow: visible;
   -webkit-app-region: no-drag;
   transition: transform 130ms ease;

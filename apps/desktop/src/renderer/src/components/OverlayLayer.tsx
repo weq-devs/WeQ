@@ -55,6 +55,7 @@ import { useRenderDocument } from '../lib/renderDocument';
 import { WindowSurface } from './WindowSurface';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { ContactFieldHistoryBoundary } from '../lib/contactFieldHistoryContext';
+import { useProfileCardMotion } from '../lib/profileCardMotion';
 import { useMobileWebViewport } from '../hooks/useMobileWebViewport';
 import { IS_WEB } from '../lib/target.shared';
 import '../styles/dialog-layout.css';
@@ -73,6 +74,8 @@ export type OverlayLayerProps = {
   dismissOnOutside?: boolean;
   /** 轻浮窗可在关闭时继续执行背后控件的同次点击，其余浮层默认消费。 */
   consumeOutsidePress?: boolean;
+  /** 快速名片与会话资料共用纯淡入淡出，普通浮层不使用。 */
+  profileCard?: boolean;
   /** 调用方自己的浮层类名（scrim 观感）。会与 `.weq-overlay-layer` 合并。 */
   className?: string;
   /**
@@ -133,6 +136,7 @@ function OpenOverlayLayer({
   anchorPlacement,
   dismissOnOutside = true,
   consumeOutsidePress = true,
+  profileCard = false,
   portalTarget,
 }: Omit<OverlayLayerProps, 'open'>): ReactElement {
   const document = useRenderDocument();
@@ -163,6 +167,7 @@ function OpenOverlayLayer({
     anchor: placement.anchor?.element,
     consume: consumeOutsidePress,
   });
+  useProfileCardMotion(ref, profileCard ? requestClose : undefined);
 
   const handleScrimMouseDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     // 先断掉冒泡：内层浮层的按下不该顺带关掉下层浮层（见文件头第 4 点）。

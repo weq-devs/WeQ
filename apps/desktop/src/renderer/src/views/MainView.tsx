@@ -515,6 +515,7 @@ import {
   type ProfileChatTarget,
   type ProfileShortcutTarget,
 } from '../lib/chatNavigation';
+import { trackProfileTouch } from '../lib/profileClick';
 import { readProfilePreviewPage, type ProfilePreviewCursor } from '../lib/profileMessagePreview';
 import { RetainedTabs } from '../components/RetainedTabs';
 import { PageSnapshots } from '../components/PageSnapshots';
@@ -681,6 +682,7 @@ function isMobileShell(): boolean {
 type ForwardedConversations = Extract<NotificationTarget, { kind: 'forwarded-conversations' }>;
 
 export function MainView(): ReactElement {
+  useLayoutEffect(() => trackProfileTouch(document), []);
   const queryClient = useQueryClient();
   const uin = useViewState((state) => state.openedUin);
   const startupPage = useViewState((state) => state.startupPage);
@@ -11657,6 +11659,7 @@ function MainWorkspace(): ReactElement {
           ) : null}
           {conversationIdentity ? (
             <ConversationIdentityCard
+              key={conversationIdentity.conversation.id}
               conversation={conversationIdentity.conversation}
               virtual={virtualRows.find((row) => row.id === conversationIdentity.conversation.id)}
               anchor={conversationIdentity.anchor}
@@ -11665,6 +11668,7 @@ function MainWorkspace(): ReactElement {
           ) : null}
           {memberCard ? (
             <MemberProfileCard
+              key={memberCard.member.id}
               member={memberCard.member}
               anchor={memberCard.anchor}
               groupCode={
@@ -12052,6 +12056,11 @@ function MainWorkspace(): ReactElement {
         pinSession.binding?.expectedAccountConfigId !== binding.expectedAccountConfigId
       )
         return;
+      setMemberCard((card) =>
+        card && (card.member.id === targetId || card.member.identityValue === targetId)
+          ? null
+          : card,
+      );
       void client.account.sendPoke
         .mutate(
           groupCode

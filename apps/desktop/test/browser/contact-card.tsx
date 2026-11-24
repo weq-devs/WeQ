@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemberProfileCard } from '../../src/renderer/src/components/MemberProfileCard';
@@ -30,6 +30,7 @@ import type {
 } from '../../src/renderer/src/im-template/template/types';
 import { fixturePrivileges, qa, useFixture } from './contact-card.stub';
 import { useDataSaver } from '../../src/renderer/src/lib/dataSaver';
+import { activateProfile, trackProfileTouch } from '../../src/renderer/src/lib/profileClick';
 import { MediaPreviewHost } from '../../src/renderer/src/components/mediaPreviewStore';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/im-template/styles.css';
@@ -110,13 +111,15 @@ if (new URLSearchParams(location.search).has('data-saver')) {
   });
 }
 const grayTip = new URLSearchParams(location.search).has('gray-tip');
+const gestures = new URLSearchParams(location.search).has('gestures');
 Object.assign(window, { contactCardQa: qa });
 function Fixture() {
   useFixture();
+  useLayoutEffect(() => (gestures ? trackProfileTouch(document) : undefined), []);
   useEffect(() => {
     useViewState.setState({ openedUin: qa.account });
   }, [qa.account]);
-  const [view, setView] = useState(grayTip ? 'closed' : 'card');
+  const [view, setView] = useState(grayTip || gestures ? 'closed' : 'card');
   const [person, setPerson] = useState(sample);
   const [tab, setTab] = useState<ContactWorkspaceTab>('profile');
   const [preview, setPreview] = useState<{
@@ -268,6 +271,25 @@ function Fixture() {
                   >
                     <main className="contact-fixture">
                       <nav className="fixture-tools">
+                        {gestures ? (
+                          <button
+                            type="button"
+                            className="message-avatar-button"
+                            style={{ marginTop: 96, width: 44, height: 44 }}
+                            aria-label="群友头像"
+                            onClick={(event) =>
+                              activateProfile(event, () => setView('card'), {
+                                landscape: () => {
+                                  setView('closed');
+                                  qa.calls.push({ path: 'fixture.chat', input: {} });
+                                },
+                                portrait: () => qa.calls.push({ path: 'fixture.poke', input: {} }),
+                              })
+                            }
+                          >
+                            林
+                          </button>
+                        ) : null}
                         {grayTip ? (
                           <ProfileNavigationContext.Provider
                             value={(user, _anchor, group) => {

@@ -32,6 +32,7 @@ export function ConversationIdentityCard({
   const identity = generated?.sessionId || generated?.ownerId || peer.identityValue;
   return (
     <OverlayLayer
+      profileCard
       presentation="popover"
       anchor={anchor}
       className="weq-member-pop-scrim"

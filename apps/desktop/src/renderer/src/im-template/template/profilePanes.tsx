@@ -35,7 +35,12 @@ function ProfileSurface({
   children,
   ...overlayProps
 }: OverlayLayerProps & { embedded: boolean; title: string }) {
-  if (!embedded) return <OverlayLayer {...overlayProps}>{children}</OverlayLayer>;
+  if (!embedded)
+    return (
+      <OverlayLayer {...overlayProps} profileCard>
+        {children}
+      </OverlayLayer>
+    );
   return (
     <div className="weq-contact-profile">
       <header className="weq-contact-profile-toolbar">
@@ -117,7 +122,7 @@ function DeviceProfile({
       <section
         className={cn(
           'weq-profile-dialog',
-          embedded ? 'weq-contact-profile-content' : 'weq-anim-pop',
+          embedded && 'weq-contact-profile-content',
           previewContent && 'is-previewing-chat',
         )}
         role={embedded ? 'region' : 'dialog'}

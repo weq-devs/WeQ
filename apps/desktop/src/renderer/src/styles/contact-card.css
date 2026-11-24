@@ -37,6 +37,10 @@ html[data-theme='dark'] .weq-contact-card {
   box-shadow: var(--weq-shadow-card);
 }
 
+.weq-nonmodal-layer > .weq-contact-card {
+  touch-action: manipulation;
+}
+
 .weq-contact-card .weq-profile-hero {
   padding-inline-end: var(--weq-profile-card-controls-inset);
 }

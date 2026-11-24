@@ -135,7 +135,12 @@ export function MemberProfileCard({
   return (
     <SelfProfileFieldsContext.Provider value={null}>
       <ReadonlyProfileDisplay>
-        <OverlayLayer presentation="popover" className="weq-member-pop-scrim" onClose={onClose}>
+        <OverlayLayer
+          profileCard
+          presentation="popover"
+          className="weq-member-pop-scrim"
+          onClose={onClose}
+        >
           <section
             ref={card}
             className={`weq-member-pop weq-contact-card${previewContent ? ' is-previewing-chat' : ''}`}
