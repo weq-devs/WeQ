@@ -3,7 +3,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import { commandOutput, pnpmCommand, runCommand } from './dev-process.mjs';
 import {
@@ -260,7 +260,6 @@ test('Electron 安装补齐 .npmrc 镜像配置，显式环境变量优先', asy
   });
   await writeFile(join(electron, 'index.js'), 'module.exports = process.execPath;');
   await writeFile(join(electron, 'install.js'), '');
-  const installScript = await realpath(join(electron, 'install.js'));
   await writeFile(
     join(root, '.npmrc'),
     [
@@ -275,7 +274,9 @@ test('Electron 安装补齐 .npmrc 镜像配置，显式环境变量优先', asy
     env: { ...process.env, ELECTRON_MIRROR: 'https://env.example/electron/' },
     log: silent,
     run: async (command, args, options) => {
-      if (args[0] === installScript) {
+      if (args.length === 1) {
+        assert.equal(command, process.execPath);
+        assert.equal(basename(args[0]), 'install.js');
         installEnv = options.env;
         return '';
       }
