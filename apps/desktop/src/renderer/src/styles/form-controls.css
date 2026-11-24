@@ -2,21 +2,15 @@
 html[data-theme] {
   --weq-field-bg: var(--weq-bg-surface);
   --weq-field-fg: var(--weq-fg-primary);
-  --weq-field-border: var(--weq-border-strong);
-  --weq-field-placeholder: var(--weq-fg-muted);
+  --weq-field-border: color-mix(in srgb, var(--weq-fg-secondary) 85%, var(--weq-field-bg));
+  --weq-field-placeholder: color-mix(in oklab, var(--weq-fg-muted) 88%, var(--weq-field-fg));
   --weq-field-readonly-bg: var(--weq-bg-elevated);
   --weq-field-disabled-bg: var(--muted);
   --weq-field-disabled-fg: var(--weq-fg-secondary);
 }
 
 html[data-theme='dark'] {
-  --weq-field-bg: var(--weq-bg-surface);
   --weq-field-readonly-bg: var(--weq-bg-app);
-  --weq-field-disabled-bg: var(--muted);
-}
-
-html[data-theme='light']:not([data-component-style='qqnt']) {
-  --weq-field-placeholder: color-mix(in oklab, var(--weq-fg-muted) 95%, var(--weq-fg-primary));
 }
 
 html[data-theme] :where(input:is([type='checkbox'], [type='radio'], [type='range']), progress) {
@@ -75,9 +69,19 @@ html[data-theme] input:is([type='checkbox'], [type='radio'], [type='range']):foc
     clip-path: inset(39% 8%);
   }
 
+  html[data-theme] input:is([type='checkbox'], [type='radio']):disabled:not([hidden]) {
+    border-color: var(--weq-border-strong);
+    background: var(--weq-field-disabled-bg);
+    cursor: not-allowed;
+  }
+
+  html[data-theme] input:is([type='checkbox'], [type='radio']):disabled:not([hidden])::before {
+    background: var(--weq-field-disabled-fg);
+  }
+
   html[data-theme] input[type='range']:not([hidden]) {
     --weq-range-direction: to right;
-    --weq-range-track: color-mix(in srgb, var(--weq-fg-primary) 16%, transparent);
+    --weq-range-track: var(--weq-field-border);
     --weq-range-background: linear-gradient(
       var(--weq-range-direction),
       var(--weq-accent-solid) 0 var(--weq-range-fill, 0%),
@@ -126,7 +130,7 @@ html[data-theme] input:is([type='checkbox'], [type='radio'], [type='range']):foc
     background: var(--weq-field-bg);
   }
 
-  html[data-theme] input:is([type='checkbox'], [type='radio'], [type='range']):disabled {
+  html[data-theme] input[type='range']:disabled {
     opacity: 0.55;
     cursor: not-allowed;
   }
@@ -163,6 +167,7 @@ details[open] > .weq-disclosure-summary > .weq-disclosure-chevron {
 html:root[data-theme][data-component-style] body
   :is(
     input,
+    select,
     .weq-select-trigger,
     textarea:where(:not(.voice-tts-input, .weq-help-bug-textarea, .weq-group-bug-textarea)),
     .weq-input,
@@ -222,6 +227,7 @@ html:root[data-theme][data-component-style] body
 
   &[readonly] {
     background: var(--weq-field-readonly-bg);
+    border-color: var(--weq-border-strong);
     cursor: default;
   }
 
@@ -295,6 +301,7 @@ html:root[data-theme][data-component-style] body
 
   &:has([readonly]):not(:has(input:not([readonly]), textarea:not([readonly]))) {
     background: var(--weq-field-readonly-bg);
+    border-color: var(--weq-border-strong);
   }
 
   &:has(:disabled):not(:has(input:enabled, textarea:enabled, .weq-select-trigger:enabled)) {

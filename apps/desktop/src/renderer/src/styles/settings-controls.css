@@ -166,6 +166,17 @@ html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
   outline-offset: 3px;
 }
 
+.weq-set-toggle:enabled:not(.is-on, .is-mixed, .is-unknown) .weq-set-toggle-track {
+  background: var(--weq-field-bg);
+  outline: 1px solid var(--weq-field-border);
+  outline-offset: -1px;
+}
+
+.weq-set-toggle:enabled:not(.is-on, .is-mixed, .is-unknown) .weq-set-toggle-knob {
+  background: var(--weq-field-border);
+  box-shadow: none;
+}
+
 .weq-set-toggle.is-mixed .weq-set-toggle-track {
   background-image: linear-gradient(to right, var(--weq-accent-effective) 50%, transparent 50%);
   outline: 1px solid var(--weq-border-strong);
@@ -190,6 +201,7 @@ html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
     outline-color: CanvasText;
   }
 
+  .weq-set-toggle:enabled:not(.is-on, .is-mixed, .is-unknown) .weq-set-toggle-knob,
   .weq-set-toggle.is-mixed .weq-set-toggle-knob {
     forced-color-adjust: none;
     background: CanvasText;
@@ -242,8 +254,8 @@ html[data-theme] .weq-settings-dialog .weq-settings-appearance-head span {
 }
 
 html[data-theme] body .weq-set-chk {
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-secondary);
+  background: var(--weq-field-bg);
+  color: var(--weq-field-fg);
   border-color: var(--weq-border-strong);
   transition-property: border-color, box-shadow;
 }
@@ -260,8 +272,8 @@ html[data-theme] body .weq-set-chk:hover:not(:disabled) {
 
 html[data-theme] body .weq-set-chk-box {
   flex-shrink: 0;
-  border-color: var(--weq-border-strong);
-  background: var(--weq-bg-elevated);
+  border-color: var(--weq-field-border);
+  background: var(--weq-field-bg);
   transition-property: border-color, box-shadow;
 }
 
@@ -276,22 +288,18 @@ html[data-theme] .weq-set-chk.is-on .weq-set-chk-box::after {
 
 html[data-theme] body .weq-set-chk:disabled {
   opacity: 1;
-  color: var(--weq-fg-secondary);
-  background: var(--muted);
+  color: var(--weq-field-disabled-fg);
+  background: var(--weq-field-disabled-bg);
   border-color: var(--weq-border-subtle);
 }
 
 html[data-theme] .weq-set-chk:disabled .weq-set-chk-box {
-  background: var(--muted);
+  background: var(--weq-field-disabled-bg);
   border-color: var(--weq-border-strong);
 }
 
 html[data-theme] .weq-set-chk:disabled .weq-set-chk-box::after {
-  border-color: var(--weq-fg-primary);
-}
-
-html[data-theme='dark'] body .weq-set-chk:not(.is-on):not(:disabled) {
-  background: var(--weq-bg-elevated);
+  border-color: var(--weq-field-disabled-fg);
 }
 
 /* 卡片标题区：标题 + 一句说明，说明与页头 desc 同字号同颜色。 */

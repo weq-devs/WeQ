@@ -406,7 +406,17 @@ html:where([data-weq-layout='single'])[data-theme='dark'] .weq-web-shell .compos
 }
 
 html:where([data-weq-layout='single'])[data-theme='dark'] .weq-web-shell .composer-editor {
-  background: var(--muted);
+  background: var(--weq-field-disabled-bg, var(--muted));
+}
+
+html:where([data-weq-layout='single'])[data-theme='dark']
+  .weq-web-shell
+  .composer-editor[contenteditable='true'] {
+  background: color-mix(
+    in srgb,
+    var(--weq-accent-ink, var(--weq-fg-primary)) 20%,
+    var(--weq-field-bg, var(--weq-bg-surface))
+  );
 }
 
 :where(html[data-weq-layout='single'])

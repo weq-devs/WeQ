@@ -839,9 +839,9 @@ button.composer-single-thumb {
 .voice-tts-input {
   width: 100%;
   padding: 5px 8px;
-  border: 1px solid var(--weq-border-subtle);
+  border: 1px solid var(--weq-field-border, var(--weq-border-strong));
   border-radius: 6px;
-  background: transparent;
+  background: var(--weq-field-bg, var(--weq-bg-surface));
   color: var(--weq-fg-primary, #111111);
   caret-color: var(--weq-accent-ink, var(--weq-accent-effective));
   font-family: inherit;
