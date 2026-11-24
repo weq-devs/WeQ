@@ -277,13 +277,17 @@ export class UnreadInfoService {
       if (!this.proxyReads.has(peer) && this.proxyReads.size >= 512) continue;
       this.proxyReads.set(peer, { target, sequence: seq, expires });
       if (row?.latestSeq && !row.readError && !row.markUnread && seq >= BigInt(row.latestSeq)) {
+        this.proxyReadTargets.delete(peer);
         changed.push(target);
       } else {
         this.proxyReadTargets.set(peer, target);
       }
     }
     this.publish(changed);
-    if (!this.proxyReadTimer && this.proxyReadTargets.size) {
+    if (!this.proxyReadTargets.size) {
+      clearTimeout(this.proxyReadTimer);
+      this.proxyReadTimer = undefined;
+    } else if (!this.proxyReadTimer) {
       this.proxyReadTimer = setTimeout(() => {
         this.proxyReadTimer = undefined;
         void this.refreshProxyReadTargets();

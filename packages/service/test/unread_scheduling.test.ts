@@ -100,6 +100,7 @@ function fixture(
   return {
     service,
     all,
+    targeted,
     signals,
     setReadState,
     markRead,
@@ -144,6 +145,24 @@ it('跨端部分已读只补读目标会话，关闭代理后清掉临时水位'
   service.observeProxyReads([{ ...target, sequence: '100' }]);
   service.clearProxyReads();
   expect((await service.getUnreadInfos([target], false, true))[0]?.readSeq).toBe('95');
+});
+
+it('完整已读推送覆盖待校准的部分水位时取消重复读库', async () => {
+  const { service, targeted } = fixture();
+  await service.getUnreadInfos([target]);
+  vi.useFakeTimers();
+  const readsBefore = targeted.mock.calls.length;
+  const publish = vi.fn();
+  service.onCountsChanged(publish);
+  service.observeProxyReads([{ ...target, sequence: '95' }]);
+  service.observeProxyReads([{ ...target, sequence: '100' }]);
+  await vi.advanceTimersByTimeAsync(300);
+  expect(targeted).toHaveBeenCalledTimes(readsBefore);
+  expect(publish.mock.calls).toEqual([[[target]]]);
+  expect((await service.getUnreadInfos([target], false, true))[0]).toMatchObject({
+    readSeq: '100',
+    unreadCount: 0,
+  });
 });
 
 it('代理未读叠加已确认快照，合并重放和随后到来的 QQ 落库', async () => {
