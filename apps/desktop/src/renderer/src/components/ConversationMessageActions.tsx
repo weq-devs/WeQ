@@ -45,7 +45,7 @@ export function ConversationMessageActions({
   onSearch,
   onMedia,
   onImportant,
-  onDismissUnreadDock,
+  dismissJumpActions,
   onGroupInfo,
   onSettings,
   settingsLabel = '会话设置',
@@ -61,7 +61,7 @@ export function ConversationMessageActions({
   onSearch?: () => void;
   onMedia?: () => void;
   onImportant?: () => void;
-  onDismissUnreadDock?: () => void;
+  dismissJumpActions?: { label: string; action: () => void }[];
   onGroupInfo?: (anchor: HTMLButtonElement) => void;
   onSettings?: (anchor: HTMLButtonElement) => void;
   settingsLabel?: string;
@@ -99,15 +99,19 @@ export function ConversationMessageActions({
     ...(onDeleted && !generated
       ? [{ label: '已删除消息', icon: <ListX size={16} />, action: () => onDeleted(conversation) }]
       : []),
-    ...(onDismissUnreadDock
-      ? [{ label: '收起跳转提示', icon: <X size={16} />, action: onDismissUnreadDock }]
-      : []),
+    ...(dismissJumpActions?.map(({ label, action }) => ({
+      label,
+      icon: <X size={16} />,
+      action,
+    })) ?? []),
     ...(onAdd && !generated
       ? [
           {
             label: '添加本地消息',
             icon: <CirclePlus size={16} />,
-            separatorBefore: Boolean(onImportant || onRecalled || onDeleted || onDismissUnreadDock),
+            separatorBefore: Boolean(
+              onImportant || onRecalled || onDeleted || dismissJumpActions?.length,
+            ),
             reason: '仅插入本地记录，不会发送给对方',
             action: () => onAdd(conversation),
           },

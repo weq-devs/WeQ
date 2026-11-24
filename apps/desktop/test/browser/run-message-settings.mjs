@@ -29,6 +29,7 @@ const server = await createServer({
 });
 let browser;
 const errors = [];
+const jumpOnly = process.argv.includes('--jump-only');
 try {
   await server.listen();
   browser = await chromium.launch({
@@ -43,7 +44,30 @@ try {
   const base = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/message-settings.html`;
   const output = process.env.WEQ_MESSAGE_SETTINGS_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
-  for (const width of [1280, 390])
+  if (jumpOnly) {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.goto(`${base}?section=message-display`);
+    const body = page.locator('.weq-settings-body');
+    const important = body.getByRole('radiogroup', { name: '重要消息', exact: true });
+    const exact = (name) => ({ name, exact: true });
+    await important.getByRole('radio', exact('仅本次进入')).click();
+    assert.equal(
+      await important.getByRole('radio', exact('仅本次进入')).getAttribute('aria-checked'),
+      'true',
+    );
+    const toggle = body.getByRole('switch', exact('合并跳转按钮'));
+    await toggle.click();
+    const combined = body.getByRole('radiogroup', exact('合并后的跳转按钮'));
+    await combined.getByRole('radio', exact('关闭')).click();
+    assert.equal(await important.count(), 0);
+    await toggle.click();
+    assert.equal(
+      await important.getByRole('radio', exact('仅本次进入')).getAttribute('aria-checked'),
+      'true',
+    );
+    assert.equal(await body.evaluate((node) => node.scrollWidth > node.clientWidth + 1), false);
+  }
+  for (const width of jumpOnly ? [] : [1280, 390])
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width, height: 1000 });
       for (const [section, title] of [
@@ -140,7 +164,9 @@ try {
     }
   assert.deepEqual(errors, []);
   console.log(
-    '消息设置浏览器回归通过：桌面/手机、深浅主题、主题色与背景、多选独立保存、子项缩进及清除操作。',
+    jumpOnly
+      ? '聊天跳转设置浏览器回归通过：合并与分开切换、各项偏好保留、竖屏无溢出。'
+      : '消息设置浏览器回归通过：桌面/手机、深浅主题、主题色与背景、多选独立保存、子项缩进及清除操作。',
   );
 } finally {
   await browser?.close();

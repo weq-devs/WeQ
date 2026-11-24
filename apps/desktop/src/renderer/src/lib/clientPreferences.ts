@@ -157,6 +157,13 @@ export function changePreference<K extends PreferenceKey>(
   return operation;
 }
 
+export function readingPositionJumpMode() {
+  return preferenceValue(
+    'readingPositionJumpMode',
+    preferenceValue('showReadingPositionButton') ? 'keep' : 'off',
+  );
+}
+
 /** 恢复前先收齐已发出的偏好写入，避免迟到的保存再次覆盖默认值。 */
 export async function settlePreferenceWrites(timeoutMs = 15_000): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;

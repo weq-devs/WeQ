@@ -8,7 +8,7 @@
 .chat-pane.with-message-history > .composer {
   grid-column: 1;
 }
-.chat-pane.with-message-history .unread-dock-button {
+.chat-pane.with-message-history .weq-chat-jump-stack {
   right: calc(var(--weq-message-history-width) + 24px);
 }
 .chat-pane.with-message-history > .weq-panel-loading {
@@ -62,9 +62,9 @@
 .weq-message-history-panel:focus {
   outline: none;
 }
-.unread-dock-button.weq-important-dock {
+.unread-dock-button.weq-chat-jump {
   padding: 0 4px;
-  max-width: calc(100% - 24px);
+  max-width: 100%;
   height: auto;
   min-height: 30px;
   gap: 0;
@@ -74,7 +74,7 @@
 html[data-theme='dark'] .unread-dock-button.weq-important-dock[data-important-kind] {
   --dock-tone: var(--weq-important-ink);
 }
-.weq-important-dock > button {
+.weq-chat-jump > button {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -88,24 +88,24 @@ html[data-theme='dark'] .unread-dock-button.weq-important-dock[data-important-ki
   font: inherit;
   cursor: pointer;
 }
-.weq-important-dock > button:first-child {
+.weq-chat-jump > button:first-child {
   flex: 1;
 }
-.weq-important-dock > .weq-dock-touch {
+.weq-chat-jump > .weq-dock-touch {
   touch-action: pan-y pinch-zoom;
   min-height: 44px;
   -webkit-touch-callout: none;
 }
-.weq-important-dock .unread-dock-label {
+.weq-chat-jump .unread-dock-label {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.weq-important-dock > button:focus-visible {
+.weq-chat-jump > button:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: -2px;
 }
-.weq-important-dock > button:disabled {
+.weq-chat-jump > button:disabled {
   cursor: progress;
 }
 .weq-message-history-panel > header {
@@ -274,7 +274,7 @@ button.weq-history-summary:hover {
 :where(html[data-weq-layout='single']) .chat-pane.with-message-history > .weq-panel-loading {
   display: none;
 }
-:where(html[data-weq-layout='single']) .chat-pane.with-message-history .unread-dock-button {
+:where(html[data-weq-layout='single']) .chat-pane.with-message-history .weq-chat-jump-stack {
   right: 12px;
 }
 html[data-theme='dark'] .weq-important-row:hover,
@@ -335,11 +335,4 @@ html[data-theme='dark'] {
   .weq-important-locating {
     animation: none;
   }
-}
-
-.unread-dock-button.reading-position-below-unread {
-  top: calc(var(--chat-header-height) + 44px);
-}
-:where(html[data-weq-layout='single']) .unread-dock-button.reading-position-below-unread {
-  top: calc(var(--chat-header-height) + 62px);
 }

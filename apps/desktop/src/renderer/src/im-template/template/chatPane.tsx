@@ -90,7 +90,6 @@ import {
   BrainCircuit,
   Bot,
   ChevronDown,
-  Bookmark,
   ChevronLeft,
   ChevronRight,
   ChevronUp,
@@ -365,8 +364,8 @@ import type {
   UnreadDock,
   User,
 } from './types';
-import { dockStopTone } from './unreadDock';
-import { UnreadDockJumpButton } from './unreadDockButton';
+import { dockStopTone, unreadDockKind, type UnreadDockKind } from './unreadDock';
+import { UnreadDockJumpButton, type ChatJumpStop } from './unreadDockButton';
 import { displayGroupName, displayUserName } from './user';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
@@ -566,6 +565,9 @@ export type ChatPaneProps = {
   onPreviewLatest?: (conversation: Conversation) => void;
   onJumpToLatest?: () => Promise<boolean>;
   onJumpToReadingPosition?: () => Promise<boolean>;
+  readingJumpAnchor?: ConversationReadingPosition;
+  onDismissReadingJump?: () => void;
+  chatJumpLayout?: 'separate' | 'combined';
   readThroughViewport?: boolean;
   confirmedReadSeq?: string;
   onReadCurrentConversation?: (conversation: Conversation, visibleSeqs?: string[]) => void;
@@ -751,7 +753,7 @@ export type ChatPaneProps = {
   unreadDividerRange?: { firstSeq: string; lastSeq: string };
   unreadDockEntryPending?: boolean;
   unreadDockViewportActive?: boolean;
-  onConsumeUnreadDock?: (seqs: string[]) => void;
+  onConsumeUnreadDock?: (seqs: string[], kind?: UnreadDockKind) => void;
   /**
    * 最近一次跳转落空的目标 seq（被撤回 / 删除 / 未同步）。非 null 时，若它恰好
    * 落在相邻两行之间的「单条缺口」上（seq 差为 1，默认缺口条不渲染），就在那里
@@ -795,6 +797,9 @@ function ChatPaneContent({
   onPreviewLatest,
   onJumpToLatest,
   onJumpToReadingPosition,
+  readingJumpAnchor,
+  onDismissReadingJump,
+  chatJumpLayout,
   readThroughViewport,
   confirmedReadSeq,
   onReadCurrentConversation,
@@ -1774,7 +1779,8 @@ function ChatPaneContent({
     dockImportantRemaining,
     locatedSeq,
     dockStop,
-    dockVisible,
+    unreadStop,
+    importantStop,
     dismissUnreadDock,
     endRef,
     handleMessageScroll,
@@ -1823,6 +1829,8 @@ function ChatPaneContent({
       !mobileGroupInfoVisible &&
       !(compactHeader && messageHistoryActive),
     onConsumeUnreadDock,
+    readingJumpAnchor: chatJumpLayout === 'combined' ? readingJumpAnchor : undefined,
+    onDismissReadingJump,
     user,
     visibleMessages,
   });
@@ -1833,6 +1841,53 @@ function ChatPaneContent({
     setImportantMessagesVisited(conversation.id);
     setImportantMessagesOpen(true);
     setMobileGroupInfoOpen(false);
+  }
+  const readingStop =
+    onJumpToReadingPosition &&
+    !loading &&
+    !(readingJump?.run === onJumpToReadingPosition && readingJump.done)
+      ? { kind: 'reading' as const }
+      : undefined;
+  const jumpStops = (
+    chatJumpLayout === 'separate'
+      ? [importantStop, unreadStop, readingStop]
+      : chatJumpLayout === 'combined'
+        ? [dockStop ?? readingStop]
+        : [dockStop, readingStop]
+  ).filter((stop): stop is ChatJumpStop => !!stop);
+  function dismissReadingJump() {
+    if (onDismissReadingJump) onDismissReadingJump();
+    else if (onJumpToReadingPosition) setReadingJump({ run: onJumpToReadingPosition, done: true });
+  }
+  function dismissJumpStop(stop: ChatJumpStop) {
+    if (chatJumpLayout === 'combined') {
+      dismissUnreadDock();
+      if (readingStop) dismissReadingJump();
+    } else if (stop.kind === 'reading') dismissReadingJump();
+    else dismissUnreadDock(chatJumpLayout === 'separate' ? unreadDockKind(stop) : undefined);
+  }
+  function dismissJumpLabel(stop: ChatJumpStop) {
+    if (chatJumpLayout !== 'separate' || jumpStops.length === 1) return '收起跳转提示';
+    return stop.kind === 'reading'
+      ? '收起上次阅读位置跳转'
+      : stop.kind === 'unread'
+        ? '收起首条未读跳转'
+        : '收起重要消息跳转';
+  }
+  async function jumpToSavedReadingPosition() {
+    const run = onJumpToReadingPosition;
+    if (!run) return;
+    const pending = { run, done: false };
+    setReadingJump(pending);
+    try {
+      const done = await run();
+      setReadingJump((current) =>
+        current === pending ? (done ? { run, done } : undefined) : current,
+      );
+      if (done) onDismissReadingJump?.();
+    } catch {
+      setReadingJump((current) => (current === pending ? undefined : current));
+    }
   }
   const captureTimeline = useStableCallback((element: HTMLDivElement | null) => {
     messageScrollRef.current = element;
@@ -6538,7 +6593,14 @@ function ChatPaneContent({
                     : undefined
                 }
                 onImportant={canOpenImportant ? openImportantMessages : undefined}
-                onDismissUnreadDock={compactHeader && dockVisible ? dismissUnreadDock : undefined}
+                dismissJumpActions={
+                  compactHeader
+                    ? jumpStops.map((stop) => ({
+                        label: dismissJumpLabel(stop),
+                        action: () => dismissJumpStop(stop),
+                      }))
+                    : undefined
+                }
                 onGroupInfo={
                   conversation.type === 'group' && !sidecarOpen
                     ? (anchor) => {
@@ -6960,77 +7022,69 @@ function ChatPaneContent({
         </div>
       ) : null}
 
-      {onJumpToReadingPosition &&
-      !loading &&
-      !(readingJump?.run === onJumpToReadingPosition && readingJump.done) ? (
-        <button
-          type="button"
-          className={cn(
-            'unread-dock-button tone-info',
-            dockVisible && 'reading-position-below-unread',
-          )}
-          disabled={readingJump?.run === onJumpToReadingPosition}
-          onClick={async () => {
-            const run = onJumpToReadingPosition;
-            const pending = { run, done: false };
-            setReadingJump(pending);
-            try {
-              const done = await run();
-              setReadingJump((current) =>
-                current === pending ? (done ? { run, done } : undefined) : current,
-              );
-            } catch {
-              setReadingJump((current) => (current === pending ? undefined : current));
-            }
-          }}
-        >
-          <Bookmark size={13} aria-hidden />
-          跳到上次阅读位置
-        </button>
-      ) : null}
-
-      {/* 未读跳转坞：重要消息与索引共用类型色，普通未读保留原有样式。 */}
-      {dockVisible && dockStop && unreadDock ? (
+      {jumpStops.length ? (
         <div
+          className="weq-chat-jump-stack"
           key={`unread-dock:${conversation.type}:${conversation.id}`}
-          ref={importantDockRef}
-          className={cn(
-            'unread-dock-button',
-            'weq-important-dock',
-            `tone-${dockStopTone(dockStop)}`,
-          )}
-          data-important-kind={dockStop.kind === 'unread' ? undefined : dockStop.kind}
         >
-          <UnreadDockJumpButton
-            stop={dockStop}
-            importantRemaining={dockImportantRemaining}
-            jumping={dockJumping}
-            onJump={() => void jumpDockStop()}
-            onOpenImportant={canOpenImportant ? openImportantMessages : undefined}
-            onSwipeDismiss={compactHeader ? dismissUnreadDock : undefined}
-          />
-          {!compactHeader && canOpenImportant ? (
-            <button
-              type="button"
-              title="展开重要消息列表"
-              aria-label="展开重要消息列表"
-              aria-expanded={importantMessagesActive}
-              aria-controls="weq-important-messages"
-              onClick={openImportantMessages}
-            >
-              <ListFilter size={14} />
-            </button>
-          ) : null}
-          {!compactHeader ? (
-            <button
-              type="button"
-              title="收起跳转提示"
-              aria-label="收起跳转提示"
-              onClick={dismissUnreadDock}
-            >
-              <X size={14} aria-hidden />
-            </button>
-          ) : null}
+          {jumpStops.map((stop, index) => {
+            const reading = stop.kind === 'reading';
+            const importantKind =
+              stop.kind !== 'reading' && stop.kind !== 'unread' ? stop.kind : undefined;
+            const dismissLabel = dismissJumpLabel(stop);
+            const dismiss = () => dismissJumpStop(stop);
+            return (
+              <div
+                key={
+                  chatJumpLayout === 'combined'
+                    ? 'combined'
+                    : reading
+                      ? 'reading'
+                      : importantKind
+                        ? 'important'
+                        : 'unread'
+                }
+                ref={index === 0 ? importantDockRef : undefined}
+                className={cn(
+                  'unread-dock-button weq-chat-jump',
+                  !reading && 'weq-important-dock',
+                  `tone-${reading ? 'info' : dockStopTone(stop)}`,
+                )}
+                data-important-kind={importantKind}
+              >
+                <UnreadDockJumpButton
+                  stop={stop}
+                  importantRemaining={dockImportantRemaining}
+                  jumping={reading ? readingJump?.run === onJumpToReadingPosition : dockJumping}
+                  onJump={() => void (reading ? jumpToSavedReadingPosition() : jumpDockStop(stop))}
+                  onOpenImportant={canOpenImportant ? openImportantMessages : undefined}
+                  onSwipeDismiss={compactHeader ? dismiss : undefined}
+                />
+                {!compactHeader && canOpenImportant && index === 0 ? (
+                  <button
+                    type="button"
+                    title="展开重要消息列表"
+                    aria-label="展开重要消息列表"
+                    aria-expanded={importantMessagesActive}
+                    aria-controls="weq-important-messages"
+                    onClick={openImportantMessages}
+                  >
+                    <ListFilter size={14} />
+                  </button>
+                ) : null}
+                {!compactHeader ? (
+                  <button
+                    type="button"
+                    title={dismissLabel}
+                    aria-label={dismissLabel}
+                    onClick={dismiss}
+                  >
+                    <X size={14} aria-hidden />
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       ) : null}
 

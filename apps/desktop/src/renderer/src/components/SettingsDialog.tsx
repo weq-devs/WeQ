@@ -72,6 +72,7 @@ import {
   ChatMessagePrewarmSettings,
 } from './settings/ChatImageCacheSettings';
 import { MissingMessageSettings } from './settings/MissingMessageSettings';
+import { ChatJumpSettings } from './settings/ChatJumpSettings';
 import { SlashEmojiSettings } from './settings/SlashEmojiSettings';
 import { QqShowSettings } from './settings/QqShowSettings';
 import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
@@ -1098,7 +1099,7 @@ function AppearanceSection({
                   ({ key }) =>
                     key !== 'preserveUnreadUntilRead' || settings.data?.readFromFirstUnread,
                 )
-                .flatMap(({ key, settingId, label, fallback, mutation }) => [
+                .map(({ key, settingId, label, fallback, mutation }) => (
                   <Row
                     key={key}
                     settingId={settingId}
@@ -1108,9 +1109,9 @@ function AppearanceSection({
                       <span
                         data-setting-fallback={
                           key === 'readFromFirstUnread'
-                            ? settings.data?.readFromFirstUnread
-                              ? 'show-reading-position-button'
-                              : 'preserve-unread-until-read'
+                            ? !settings.data?.readFromFirstUnread
+                              ? 'preserve-unread-until-read'
+                              : undefined
                             : undefined
                         }
                       >
@@ -1131,21 +1132,11 @@ function AppearanceSection({
                         />
                       </span>
                     }
-                  />,
-                  key === 'readFromFirstUnread' && !settings.data?.readFromFirstUnread ? (
-                    <Row
-                      key="show-reading-position-button"
-                      settingId="show-reading-position-button"
-                      indent
-                      control={
-                        <SharedDisplayToggle
-                          name="showReadingPositionButton"
-                          label="显示跳转到上次阅读位置按钮"
-                        />
-                      }
-                    />
-                  ) : null,
-                ])}
+                  />
+                ))}
+              <ChatJumpSettings
+                automaticReadingPosition={Boolean(settings.data?.readFromFirstUnread)}
+              />
               {category === 'display' ? (
                 <>
                   <Row

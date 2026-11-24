@@ -140,6 +140,7 @@ import {
   type ConversationReadingPosition,
 } from '../lib/conversationReadingPosition';
 import { recordMessagePhase } from '../lib/messagePerformance';
+import { useReadingJumpPrompt } from './workspace/useReadingJumpPrompt';
 import { specialCareBlocker } from '../lib/specialCareAccess';
 import {
   loadGroupAssistantPins,
@@ -162,6 +163,7 @@ import {
   useAccountRecords,
   useClientPreferences,
   preferenceValue,
+  readingPositionJumpMode,
   accountBinding as sharedAccountBinding,
 } from '../lib/clientPreferences';
 import { useWebConnection } from '../state/webConnection';
@@ -570,8 +572,10 @@ import { useChatShellController } from '../im-template/template/shellController'
 import { toIpcElements } from '../im-template/template/draftElements';
 import {
   type UnreadDockProgress,
+  type UnreadDockKind,
   buildUnreadDock,
   consumeUnreadDock,
+  displayedUnreadDock,
   mergeUnreadDock,
 } from '../im-template/template/unreadDock';
 import { unreadTimelineStart } from '../im-template/template/chatTimelineModel';
@@ -5894,7 +5898,17 @@ function MainWorkspace(): ReactElement {
     () => void undoConversationReadState(),
     readUndo?.action,
   );
+  const mergeChatJumpButtons = preferenceValue('mergeChatJumpButtons');
+  const combinedJumpMode = preferenceValue('combinedChatJumpMode');
+  const firstJumpMode = mergeChatJumpButtons
+    ? combinedJumpMode
+    : preferenceValue('firstUnreadJumpMode');
+  const importantJumpMode = mergeChatJumpButtons
+    ? combinedJumpMode
+    : preferenceValue('importantJumpMode');
+  const readingJumpMode = mergeChatJumpButtons ? combinedJumpMode : readingPositionJumpMode();
   const unreadSelectionId =
+    (!mobileLayout || !mobileConversationList) &&
     selectedConversation &&
     (selectedConversation.type === 'direct' || selectedConversation.type === 'group')
       ? selectedConversation.id
@@ -5910,22 +5924,53 @@ function MainWorkspace(): ReactElement {
   const unreadEntryKey = JSON.stringify([messageScope, unreadSelectionChatType, unreadSelectionId]);
   const currentUnreadEntry = unreadEntry?.key === unreadEntryKey ? unreadEntry : undefined;
   // 首屏使用打开时的列表快照，实时刷新只更新读进度和计数。
-  if (!currentUnreadEntry) setUnreadEntry({ key: unreadEntryKey, cached: cachedReadPosition });
+  if (!currentUnreadEntry) {
+    setUnreadEntry({ key: unreadEntryKey, cached: cachedReadPosition });
+    const departing = unreadEntry?.key;
+    if (departing && (firstJumpMode === 'entry' || importantJumpMode === 'entry')) {
+      setUnreadDocks((current) => {
+        if (current?.scope !== messageScope) return current;
+        const progress = current.byConversation.get(departing);
+        if (!progress?.dock) return current;
+        const next = consumeUnreadDock(
+          progress,
+          undefined,
+          firstJumpMode !== 'entry'
+            ? 'important'
+            : importantJumpMode !== 'entry'
+              ? 'unread'
+              : undefined,
+        );
+        if (progress === next) return current;
+        return { ...current, byConversation: new Map(current.byConversation).set(departing, next) };
+      });
+    }
+  }
   // undefined 表示等待进会话时的快照，null 表示没有可用跳转点。
   const unreadDockProgress =
     unreadDocks?.scope === messageScope
       ? unreadDocks.byConversation.get(unreadEntryKey)
       : undefined;
-  const unreadDock = unreadDockProgress
+  const queuedUnreadDock = unreadDockProgress
     ? unreadDockProgress.dock
     : currentUnreadEntry?.snapshot?.dock;
+  const unreadDock = useMemo(
+    () =>
+      displayedUnreadDock(
+        queuedUnreadDock,
+        firstJumpMode !== 'off',
+        importantJumpMode !== 'off',
+        !mergeChatJumpButtons,
+      ),
+    [queuedUnreadDock, firstJumpMode, importantJumpMode, mergeChatJumpButtons],
+  );
   const onConsumeUnreadDock = useCallback(
-    (seqs: string[]) => {
+    (seqs: string[], kind?: UnreadDockKind) => {
       setUnreadDocks((current) => {
         if (current?.scope !== messageScope) return current;
         const progress = current.byConversation.get(unreadEntryKey);
         if (!progress) return current;
-        const next = consumeUnreadDock(progress, seqs);
+        const next = consumeUnreadDock(progress, seqs, kind);
         if (next === progress) return current;
         const byConversation = new Map(current.byConversation).set(unreadEntryKey, next);
         return { ...current, byConversation };
@@ -5953,7 +5998,7 @@ function MainWorkspace(): ReactElement {
     const conv = selectedConversation;
     if (!messagesTabActive) return undefined;
     if (!readSettingsReady) return undefined;
-    if (!conv || (conv.type !== 'direct' && conv.type !== 'group')) {
+    if (unreadSelectionId === null || !conv || (conv.type !== 'direct' && conv.type !== 'group')) {
       return undefined;
     }
     const chatType = unreadSelectionChatType;
@@ -6095,6 +6140,7 @@ function MainWorkspace(): ReactElement {
     applyUnreadReadPositions,
     readEntryUnreadInfo,
     unreadSelectionChatType,
+    unreadSelectionId,
     unreadEntryKey,
   ]);
 
@@ -7263,15 +7309,26 @@ function MainWorkspace(): ReactElement {
     selectionRef,
     visitedHistoryRef,
   ]);
-  const showReadingPositionButton =
+  const readingPositionTarget =
+    unreadSelectionId !== null &&
     readSettingsReady &&
     !displaySettings.data?.readFromFirstUnread &&
-    preferenceValue('showReadingPositionButton') &&
-    Boolean(
-      readingPosition &&
-        (readingPosition.anchorSeq ||
-          loaded.some((row) => timelineRowKey(row) === readingPosition.anchorId)),
-    );
+    readingPosition &&
+    (readingPosition.anchorSeq ||
+      loaded.some((row) => timelineRowKey(row) === readingPosition.anchorId))
+      ? JSON.stringify([
+          readingPosition.anchorId,
+          readingPosition.anchorSeq,
+          Math.round(readingPosition.offset ?? 0),
+          readingPosition.alignToEnd,
+          Math.round(readingPosition.bottomInset ?? 0),
+        ])
+      : undefined;
+  const readingPrompt = useReadingJumpPrompt(messageScope, {
+    conversation: unreadEntryKey,
+    target: readingPositionTarget,
+    mode: readingJumpMode,
+  });
   // 目标已是选中的会话，但从联系人等页面返回时不会重新触发会话首屏读取。
   useEffect(() => {
     const jump = pendingSearchJumpRef.current;
@@ -11170,8 +11227,11 @@ function MainWorkspace(): ReactElement {
                               }
                             }}
                             onJumpToReadingPosition={
-                              showReadingPositionButton ? jumpToReadingPosition : undefined
+                              readingPrompt.show ? jumpToReadingPosition : undefined
                             }
+                            readingJumpAnchor={readingPrompt.show ? readingPosition : undefined}
+                            onDismissReadingJump={readingPrompt.dismiss}
+                            chatJumpLayout={mergeChatJumpButtons ? 'combined' : 'separate'}
                             readThroughViewport={readThroughViewport}
                             confirmedReadSeq={
                               readThroughViewport

@@ -73,6 +73,9 @@ export function normalizedSharedPreferences(
   return {
     client: {
       ...clientDefaults,
+      ...(raw.client?.showReadingPositionButton === false
+        ? { readingPositionJumpMode: 'off' }
+        : {}),
       ...Object.fromEntries(
         Object.entries(raw.client ?? {}).filter(([key]) => Object.hasOwn(clientDefaults, key)),
       ),

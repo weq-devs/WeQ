@@ -201,7 +201,7 @@ html[data-weq-mobile-client='true'][data-weq-layout='wide'] .composer-editor {
 
   html[data-weq-mobile-client='true'][data-weq-layout='wide']
     .chat-pane.with-group-info:not(.with-message-history)
-    .unread-dock-button {
+    .weq-chat-jump-stack {
     right: 12px;
   }
 }

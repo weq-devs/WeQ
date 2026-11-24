@@ -62,9 +62,8 @@ async function run() {
         : route.abort(),
   );
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto(
-    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/important-messages.html${dockOnly ? '?reading-position' : ''}`,
-  );
+  const fixture = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/important-messages.html`;
+  await page.goto(`${fixture}${dockOnly ? '?reading-position' : ''}`);
   const open = async () => {
     const more = page.getByRole('button', { name: '更多会话操作' });
     if (await more.isVisible()) {
@@ -88,8 +87,13 @@ async function run() {
     await page.evaluate(() => window.changeImportantGroup('888'));
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true });
-    const touchDock = async ({ dx = 0, hold = false, cancel = false } = {}) => {
-      const { x, y, height } = await dock.locator('button').first().boundingBox();
+    const touchDock = async ({
+      dx = 0,
+      hold = false,
+      cancel = false,
+      button = dock.locator('button').first(),
+    } = {}) => {
+      const { x, y, height } = await button.boundingBox();
       const point = { x: x + 12, y: y + height / 2 };
       const send = (type, touchPoints) =>
         cdp.send('Input.dispatchTouchEvent', { type, touchPoints });
@@ -123,6 +127,43 @@ async function run() {
     await page.getByRole('menuitem', { name: '消息', exact: true }).click();
     await page.getByRole('menuitem', { name: '收起跳转提示', exact: true }).click();
     await dock.waitFor({ state: 'hidden' });
+
+    await page.goto(`${fixture}?jump-layout=separate`);
+    const first = page.getByRole('button', { name: '跳到首条未读', exact: true });
+    const important = page.getByTitle('下一条：有人@我', { exact: true });
+    const all = page.locator('.weq-chat-jump');
+    await reading.waitFor();
+    assert.equal(await all.count(), 3);
+    for (const button of [reading, important, first]) {
+      const before = await all.count();
+      await touchDock({ dx: 66, button });
+      await button.waitFor({ state: 'hidden' });
+      assert.equal(await all.count(), before - 1);
+    }
+
+    await page.setViewportSize({ width: 1180, height: 800 });
+    await page.goto(`${fixture}?jump-layout=separate`);
+    for (const label of ['收起首条未读跳转', '收起重要消息跳转', '收起跳转提示']) {
+      const before = await all.count();
+      await page.getByRole('button', { name: label, exact: true }).click();
+      assert.equal(await all.count(), before - 1);
+    }
+
+    for (const sameTarget of [false, true]) {
+      await page.goto(`${fixture}?jump-layout=combined${sameTarget ? '&same-target' : ''}`);
+      for (const button of [
+        important,
+        page.getByTitle('下一条：有人回复我', { exact: true }),
+        first,
+      ]) {
+        await button.waitFor();
+        assert.equal(await all.count(), 1);
+        await button.click();
+      }
+      if (!sameTarget) await reading.click();
+      await all.waitFor({ state: 'hidden' });
+      assert.equal(await page.locator('output').getAttribute('data-locate-count'), '3');
+    }
     assert.deepEqual(report.errors, []);
     console.log(
       'Validated separate jump buttons, close, touch hold, cancelled/short drag, dismiss swipe and menu fallback.',

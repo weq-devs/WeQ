@@ -826,18 +826,15 @@
 }
 
 /* 移动端把跳转坞放在顶栏正下方、贴右边缘。 */
-:where(html[data-weq-layout='single']) .unread-dock-button {
+:where(html[data-weq-layout='single']) .chat-pane .weq-chat-jump-stack {
   top: calc(var(--chat-header-height) + 10px);
 }
-
-:where(html[data-weq-layout='single']) .unread-dock-button,
-:where(html[data-weq-layout='single'])
-  .chat-pane.with-group-info:not(.group-info-collapsed)
-  .unread-dock-button {
+:where(html[data-weq-layout='single']) .chat-pane .weq-chat-jump-stack,
+:where(html[data-weq-layout='single']) .chat-pane.with-group-info .weq-chat-jump-stack {
   right: 12px;
-  height: 30px;
-  gap: 6px;
-  padding: 0 13px;
+}
+
+:where(html[data-weq-layout='single']) .unread-dock-button {
   font-size: 13px;
 }
 

@@ -1,7 +1,9 @@
-import { ChevronsUp, Sparkles } from 'lucide-react';
+import { Bookmark, ChevronsUp, Sparkles } from 'lucide-react';
 import { type PointerEvent, useRef } from 'react';
 import type { UnreadDockStop } from './types';
 import { dockStopLabel, highlightLabel } from './unreadDock';
+
+export type ChatJumpStop = UnreadDockStop | { kind: 'reading' };
 
 const DRAG_SLOP = 10;
 const DISMISS_DISTANCE = 60;
@@ -15,7 +17,7 @@ export function UnreadDockJumpButton({
   onOpenImportant,
   onSwipeDismiss,
 }: {
-  stop: UnreadDockStop;
+  stop: ChatJumpStop;
   importantRemaining: number;
   jumping: boolean;
   onJump: () => void;
@@ -30,8 +32,8 @@ export function UnreadDockJumpButton({
     direction?: 'right' | 'other';
   }>(undefined);
   const suppressClick = useRef(false);
-  const firstUnread = stop.kind === 'unread';
-  const label = dockStopLabel(stop);
+  const important = stop.kind !== 'unread' && stop.kind !== 'reading';
+  const label = stop.kind === 'reading' ? '跳到上次阅读位置' : dockStopLabel(stop);
 
   function finish(event: PointerEvent<HTMLButtonElement>, cancelled: boolean) {
     const start = press.current;
@@ -58,7 +60,7 @@ export function UnreadDockJumpButton({
     <button
       type="button"
       className={onSwipeDismiss ? 'weq-dock-touch' : undefined}
-      title={firstUnread ? label : `下一条：${label}`}
+      title={important ? `下一条：${label}` : label}
       disabled={jumping}
       onPointerDown={(event) => {
         if (!event.isPrimary) return;
@@ -100,15 +102,17 @@ export function UnreadDockJumpButton({
         if (!suppressed) onJump();
       }}
     >
-      {firstUnread ? (
+      {stop.kind === 'reading' ? (
+        <Bookmark size={13} aria-hidden />
+      ) : stop.kind === 'unread' ? (
         <ChevronsUp size={13} strokeWidth={2.4} aria-hidden />
       ) : (
         <Sparkles size={13} strokeWidth={2.4} aria-hidden />
       )}
       <span className="unread-dock-label">
-        {stop.kind === 'unread' ? label : highlightLabel(stop.kind)}
+        {stop.kind === 'unread' || stop.kind === 'reading' ? label : highlightLabel(stop.kind)}
       </span>
-      {!firstUnread ? (
+      {important ? (
         <span className="unread-dock-count" aria-label={`剩余 ${importantRemaining} 条重要消息`}>
           {importantRemaining}
         </span>

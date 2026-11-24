@@ -9,6 +9,7 @@ import type { Conversation, Message, UnreadDockStop } from './types';
 import type { ChatPaneProps } from './chatPane';
 import type { TimelineVisibility } from './chatTimeline';
 import { countAppendedMessages, unreadTimelineBoundary } from './chatTimelineModel';
+import { unreadDockKind, type UnreadDockKind } from './unreadDock';
 
 type ViewportReadRow = { seq: string; bottom: number };
 type ObservedTimelineRow = { id: string; report: boolean; seq?: string; readable: boolean };
@@ -38,6 +39,8 @@ export function useChatTimelineNavigation({
   unreadDockEntryPending,
   unreadDockViewportActive = true,
   onConsumeUnreadDock,
+  readingJumpAnchor,
+  onDismissReadingJump,
   user,
   visibleMessages,
 }: {
@@ -65,6 +68,8 @@ export function useChatTimelineNavigation({
   unreadDockEntryPending?: boolean;
   unreadDockViewportActive?: boolean;
   onConsumeUnreadDock?: ChatPaneProps['onConsumeUnreadDock'];
+  readingJumpAnchor?: ChatPaneProps['readingJumpAnchor'];
+  onDismissReadingJump?: ChatPaneProps['onDismissReadingJump'];
   user: ChatPaneProps['user'];
   visibleMessages: Message[];
 }) {
@@ -89,19 +94,24 @@ export function useChatTimelineNavigation({
   // 独立聊天预览和测试夹具可能没有上层队列。
   const [visited, setVisited] = useState<{ scope: typeof navigationKey; seqs: Set<string> }>();
   const visitedStops = visited?.scope === navigationKey ? visited.seqs : undefined;
-  const visitStops = useCallback((scope: typeof navigationKey, seqs: string[]) => {
-    if (navigationScope.current !== scope || !seqs.length) return;
-    if (scope.onConsumeUnreadDock) {
-      scope.onConsumeUnreadDock(seqs);
-      return;
-    }
-    setVisited((current) => {
-      const previous = current?.scope === scope ? current.seqs : undefined;
-      return seqs.every((seq) => previous?.has(seq))
-        ? current
-        : { scope, seqs: new Set([...(previous ?? []), ...seqs]) };
-    });
-  }, []);
+  const matchReadingJump = useRef<((seqs: string[]) => void) | undefined>(undefined);
+  const visitStops = useCallback(
+    (scope: typeof navigationKey, seqs: string[], kind?: UnreadDockKind, located = true) => {
+      if (navigationScope.current !== scope || !seqs.length) return;
+      if (located) matchReadingJump.current?.(seqs);
+      if (scope.onConsumeUnreadDock) {
+        scope.onConsumeUnreadDock(seqs, kind);
+        return;
+      }
+      setVisited((current) => {
+        const previous = current?.scope === scope ? current.seqs : undefined;
+        return seqs.every((seq) => previous?.has(seq))
+          ? current
+          : { scope, seqs: new Set([...(previous ?? []), ...seqs]) };
+      });
+    },
+    [],
+  );
   const isVisited = useCallback(
     (stop: UnreadDockStop) => visitedStops?.has(stop.seq),
     [visitedStops],
@@ -168,12 +178,15 @@ export function useChatTimelineNavigation({
       const found = await parentJumpToSeq(dismissMissingStop ? { ...target, onMissing } : target);
       if (navigationScope.current !== started || locateTask.current !== task) return false;
       if (found === false) {
-        if (missing && dismissMissingStop) visitStops(started, [dismissMissingStop.seq]);
+        if (missing && dismissMissingStop)
+          visitStops(started, [dismissMissingStop.seq], 'important', false);
         return false;
       }
       const seq = target.seq == null ? null : String(target.seq);
       setLocatedSeq(seq);
-      const stop = dock?.stops.find((stop) => stop.seq === seq);
+      const stop = dock?.stops.find(
+        (stop) => stop.seq === seq && (target.mode !== 'firstUnread' || stop.kind === 'unread'),
+      );
       const exact =
         stop?.identity && target.msgId
           ? findUnreadMessage(messagesForDock.current, stop.seq, stop.identity)
@@ -616,6 +629,10 @@ export function useChatTimelineNavigation({
   const nextDockIndex = unreadDock?.stops.findIndex((stop) => !isVisited(stop)) ?? -1;
   const dockIndex = nextDockIndex < 0 ? (unreadDock?.stops.length ?? 0) : nextDockIndex;
   const dockStop = unreadDock?.stops[dockIndex] ?? null;
+  const unreadStop = unreadDock?.stops.find((stop) => stop.kind === 'unread' && !isVisited(stop));
+  const importantStop = unreadDock?.stops.find(
+    (stop) => stop.kind !== 'unread' && !isVisited(stop),
+  );
   const dockRemaining = unreadDock?.stops.filter((stop) => !isVisited(stop)).length ?? 0;
   const dockImportantRemaining =
     unreadDock?.stops.filter((stop) => stop.kind !== 'unread' && !isVisited(stop)).length ?? 0;
@@ -623,8 +640,10 @@ export function useChatTimelineNavigation({
   const dockTargets = useMemo(() => {
     const pending = unreadDock?.stops.filter((stop) => !isVisited(stop));
     if (!pending?.length) return undefined;
-    const pendingBySeq = new Map(pending.map((stop) => [stop.seq, stop]));
-    const idsBySeq = new Map<string, string>();
+    const pendingBySeq = new Map(
+      pending.filter(({ kind }) => kind !== 'unread').map((stop) => [stop.seq, stop]),
+    );
+    const idsBySeq: [string, string][] = [];
     const candidates = new Map<string, (typeof messages)[number][]>();
     for (const message of messages) {
       const stop = message.msgSeq ? pendingBySeq.get(message.msgSeq) : undefined;
@@ -635,12 +654,12 @@ export function useChatTimelineNavigation({
     }
     for (const [seq, rows] of candidates) {
       const row = findUnreadMessage(rows, seq, pendingBySeq.get(seq)?.identity);
-      if (row) idsBySeq.set(seq, row.id);
+      if (row) idsBySeq.push([seq, row.id]);
     }
     const unreadSeq = pending.find((stop) => stop.kind === 'unread')?.seq;
     if (unreadSeq) {
       const id = unreadTimelineBoundary(visibleMessages, unreadSeq);
-      if (id) idsBySeq.set(unreadSeq, id);
+      if (id) idsBySeq.push([unreadSeq, id]);
     }
     const seqsById = new Map<string, string[]>();
     for (const [seq, id] of idsBySeq) {
@@ -650,6 +669,23 @@ export function useChatTimelineNavigation({
     }
     return seqsById;
   }, [messages, visibleMessages, unreadDock, isVisited]);
+  matchReadingJump.current =
+    readingJumpAnchor && onDismissReadingJump
+      ? (seqs) => {
+          const { anchorId, anchorSeq } = readingJumpAnchor;
+          if (anchorId && dockTargets?.get(anchorId)?.some((seq) => seqs.includes(seq))) {
+            onDismissReadingJump();
+            return;
+          }
+          if (
+            anchorSeq &&
+            seqs.includes(anchorSeq) &&
+            (!anchorId ||
+              ![...(dockTargets?.values() ?? [])].some((targets) => targets.includes(anchorSeq)))
+          )
+            onDismissReadingJump();
+        }
+      : undefined;
   const interactionConversationId = conversation?.id;
   const interactionConversationType = conversation?.type;
   const interactionTargets = useMemo(() => {
@@ -1028,20 +1064,26 @@ export function useChatTimelineNavigation({
     visibleMessages,
     visitStops,
   ]);
-  const dockVisible = Boolean(dockStop);
-  const dismissUnreadDock = () =>
-    visitStops(navigationKey, unreadDock?.stops.map(({ seq }) => seq) ?? []);
+  const dismissUnreadDock = (kind?: UnreadDockKind) =>
+    visitStops(
+      navigationKey,
+      unreadDock?.stops
+        .filter((stop) => !kind || unreadDockKind(stop) === kind)
+        .map(({ seq }) => seq) ?? [],
+      kind,
+      false,
+    );
 
-  async function jumpDockStop(): Promise<boolean> {
-    if (!dockStop || !unreadDock || dockTask.current) return false;
+  async function jumpDockStop(stop = dockStop): Promise<boolean> {
+    if (!stop || !unreadDock || dockTask.current) return false;
     const task = {};
     dockTask.current = task;
     setDockJumping(true);
     try {
       const found =
-        dockStop.kind === 'unread'
-          ? await jumpToSeq({ seq: dockStop.seq, mode: 'firstUnread' })
-          : await jumpToSeq({ seq: dockStop.seq, importantMessage: dockStop.identity }, dockStop);
+        stop.kind === 'unread'
+          ? await jumpToSeq({ seq: stop.seq, mode: 'firstUnread' })
+          : await jumpToSeq({ seq: stop.seq, importantMessage: stop.identity }, stop);
       return found && dockTask.current === task;
     } catch (err) {
       console.error('[unread-dock] jump failed', err);
@@ -1066,7 +1108,8 @@ export function useChatTimelineNavigation({
     locatedSeq,
     dockJumping,
     dockStop,
-    dockVisible,
+    unreadStop,
+    importantStop,
     dismissUnreadDock,
     endRef,
     handleMessageScroll,

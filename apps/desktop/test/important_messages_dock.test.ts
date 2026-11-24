@@ -7,7 +7,36 @@ import {
   mergeUnreadDock,
 } from '../src/renderer/src/im-template/template/unreadDock';
 import type { ReplyJumpTarget } from '../src/renderer/src/state/messageContext';
+import { useReadingJumpPrompt } from '../src/renderer/src/views/workspace/useReadingJumpPrompt';
 import { createTemplateDemoData } from './support/templateDemoData';
+
+it('上次阅读位置仅本次显示，切回可提示新位置且手动收起不跨账号', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const root = createRoot(document.createElement('div'));
+  let state!: ReturnType<typeof useReadingJumpPrompt>;
+  function Harness({ scope, conv, target }: { scope: string; conv: string; target?: string }) {
+    state = useReadingJumpPrompt(scope, { conversation: conv, target, mode: 'entry' });
+    return null;
+  }
+  const open = (conv: string, target?: string, scope = 'first') =>
+    act(async () => root.render(h(Harness, { scope, conv, target })));
+  try {
+    await open('A', '101');
+    expect(state.show).toBe(true);
+    await open('B');
+    await open('A', '101');
+    expect(state.show).toBe(false);
+    await open('A', '102');
+    expect(state.show).toBe(true);
+    act(() => state.dismiss());
+    expect(state.show).toBe(false);
+    await open('A', '102', 'second');
+    expect(state.show).toBe(true);
+  } finally {
+    act(() => root.unmount());
+    vi.unstubAllGlobals();
+  }
+});
 
 it('定位进行中不消耗跳转点，失败可重试，旧会话任务结束不推进新队列', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

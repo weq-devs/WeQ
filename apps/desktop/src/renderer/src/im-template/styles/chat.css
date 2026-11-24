@@ -475,11 +475,21 @@
  *   · gold  —— 红包，金
  * 全部走主题变量，深浅模式自动适配。
  */
-.unread-dock-button {
+.weq-chat-jump-stack {
   position: absolute;
   z-index: 11;
   top: calc(var(--chat-header-height) + 12px);
   right: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: calc(100% - 24px);
+  pointer-events: none;
+}
+
+.unread-dock-button {
+  pointer-events: auto;
   display: inline-flex;
   height: 26px;
   align-items: center;
@@ -543,7 +553,7 @@
   opacity: 0.85;
 }
 
-.chat-pane.with-group-info .unread-dock-button {
+.chat-pane.with-group-info .weq-chat-jump-stack {
   right: calc(var(--weq-group-sidebar-space, 0px) + 24px);
 }
 

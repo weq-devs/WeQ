@@ -26,6 +26,7 @@ export const SETTINGS_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   'interface-density': ['舒适', '紧凑'],
   'read-first-unread': ['续读', '第一条未读', '从第一条新消息开始阅读'],
   'show-reading-position-button': ['手动续读'],
+  'merge-chat-jump-buttons': ['聊天跳转按钮', '合并显示'],
   'jump-latest-after-send': ['发送后跳转'],
   'chat-image-cache': ['图片缓存', '表情缓存'],
   'message-unread-badge': ['未读红点'],

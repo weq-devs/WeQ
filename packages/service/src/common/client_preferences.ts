@@ -16,6 +16,14 @@ export {
   isDirectoryPreference,
 } from './contact_directory_preferences';
 export const MAX_SHARED_DRAFT_IMAGE_BYTES = 32 * 1024 * 1024;
+export const CHAT_JUMP_MODES = ['off', 'entry', 'keep'] as const;
+export type ChatJumpMode = (typeof CHAT_JUMP_MODES)[number];
+export const CHAT_JUMP_MODE_KEYS = [
+  'firstUnreadJumpMode',
+  'importantJumpMode',
+  'readingPositionJumpMode',
+  'combinedChatJumpMode',
+] as const;
 
 export const preferenceDefaults = {
   ...dataSaverBehaviorDefaults,
@@ -62,6 +70,11 @@ export const preferenceDefaults = {
   groupConsecutiveMessages: false,
   showUnreadDivider: true,
   showReadingPositionButton: true,
+  mergeChatJumpButtons: false,
+  firstUnreadJumpMode: 'keep' as ChatJumpMode,
+  importantJumpMode: 'keep' as ChatJumpMode,
+  readingPositionJumpMode: 'keep' as ChatJumpMode,
+  combinedChatJumpMode: 'keep' as ChatJumpMode,
   swipeToQuote: true,
   showGroupMemberName: true,
   showGroupMemberLevel: true,
@@ -203,6 +216,8 @@ export function validatePreferencePatch(value: unknown): asserts value is Prefer
             entry.sources.every((part) => SEARCH_SOURCES.includes(part)))) &&
         typeof entry.appEnabled === 'boolean' &&
         typeof entry.numberLookupEnabled === 'boolean';
+    else if (CHAT_JUMP_MODE_KEYS.some((mode) => mode === key))
+      valid = CHAT_JUMP_MODES.some((mode) => mode === entry);
     else if (Object.hasOwn(preferenceDefaults, key) || retiredUnreadPreferences.has(key))
       valid = typeof entry === 'boolean';
     if (!valid) throw new Error(`无效的共享偏好：${key}`);

@@ -88,6 +88,25 @@ function toBig(value: string | number | undefined | null): bigint {
 }
 
 export type UnreadDockProgress = { dock: UnreadDock | null; through: bigint };
+export type UnreadDockKind = 'unread' | 'important';
+
+export function unreadDockKind(stop: UnreadDockStop): UnreadDockKind {
+  return stop.kind === 'unread' ? 'unread' : 'important';
+}
+
+export function displayedUnreadDock(
+  dock: UnreadDock | null | undefined,
+  unread: boolean,
+  important: boolean,
+  separate: boolean,
+) {
+  if (!dock) return dock;
+  const first = dock.firstUnreadSeq ?? dock.stops.find((stop) => stop.kind === 'unread')?.seq;
+  const stops = important ? dock.stops.filter((stop) => stop.kind !== 'unread') : [];
+  if (unread && first && (separate || !stops.some(({ seq }) => seq === first)))
+    stops.push({ kind: 'unread', seq: first });
+  return stops.length ? { stops, firstUnreadSeq: unread ? first : undefined } : null;
+}
 
 /** 已纳入提醒的批次不因小表重读而重新出现；新一批保留尚未完成的旧目标。 */
 export function mergeUnreadDock(
@@ -117,14 +136,23 @@ export function mergeUnreadDock(
   return { dock: stops.length ? { stops, firstUnreadSeq: first } : null, through };
 }
 
-export function consumeUnreadDock(progress: UnreadDockProgress, seqs: readonly string[]) {
+export function consumeUnreadDock(
+  progress: UnreadDockProgress,
+  seqs?: readonly string[],
+  kind?: UnreadDockKind,
+) {
   const dock = progress.dock;
   if (!dock) return progress;
-  const done = new Set(seqs);
-  const stops = dock.stops.filter(({ seq }) => !done.has(seq));
-  if (stops.length === dock.stops.length) return progress;
-  const firstUnreadSeq =
-    dock.firstUnreadSeq && !done.has(dock.firstUnreadSeq) ? dock.firstUnreadSeq : undefined;
+  const done = seqs && new Set(seqs);
+  const first = dock.firstUnreadSeq ?? dock.stops.find((stop) => stop.kind === 'unread')?.seq;
+  const hasDone = (seq: string, category: UnreadDockKind) =>
+    (!kind || kind === category) && (!done || done.has(seq));
+  const firstUnreadSeq = first && !hasDone(first, 'unread') ? first : undefined;
+  const important = dock.stops.filter((stop) => stop.kind !== 'unread');
+  const stops = important.filter(({ seq }) => !hasDone(seq, 'important'));
+  if (first === firstUnreadSeq && stops.length === important.length) return progress;
+  if (firstUnreadSeq && !stops.some(({ seq }) => seq === firstUnreadSeq))
+    stops.push({ kind: 'unread', seq: firstUnreadSeq });
   return { ...progress, dock: stops.length ? { stops, firstUnreadSeq } : null };
 }
 

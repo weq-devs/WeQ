@@ -1370,13 +1370,20 @@ it.each([false, true])('首批消息立即显示未读分界线，进入会话�
   }
 });
 
-it('切回会话保留未完成的跳转，收起后不恢复旧队列且新一批仍提示', async () => {
+it.each([false, true])('切回会话保留未完成的跳转，按类别仅显示一次=%s', async (entryOnly) => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
   vi.spyOn(document, 'hasFocus').mockReturnValue(false);
   useViewState.getState().setOpenedUin('90001');
   f.unreadMode = true;
+  const epoch = `fixture-jump-${entryOnly}`;
+  acceptPreferences({
+    revision: 1,
+    epoch,
+    values: { firstUnreadJumpMode: entryOnly ? 'entry' : 'keep' },
+    records: {},
+  });
   const important = { kind: 'atMe', rawKind: 1, msgSeq: '104', senderUid: 'u_peer' };
   const original = {
     uid: '10001',
@@ -1409,6 +1416,7 @@ it('切回会话保留未完成的跳转，收起后不恢复旧队列且新一�
     );
   const load = () => act(async () => f.reads.at(-1)!.show({ complete: true, rows }));
   const target = () => host.querySelector('.weq-important-dock button')?.getAttribute('title');
+  const firstUnread = () => host.querySelector('button[title="跳到首条未读"]');
   try {
     await act(async () =>
       root.render(
@@ -1420,6 +1428,7 @@ it('切回会话保留未完成的跳转，收起后不恢复旧队列且新一�
     await select('10001');
     await load();
     expect(target()).toBe('下一条：有人@我');
+    expect(firstUnread()).not.toBeNull();
     expect(f.markedRead).toContainEqual(
       expect.objectContaining({ uid: '10001', latestSeq: '105' }),
     );
@@ -1429,10 +1438,20 @@ it('切回会话保留未完成的跳转，收起后不恢复旧队列且新一�
     await select('10001');
     await load();
     expect(target()).toBe('下一条：有人@我');
+    expect(Boolean(firstUnread())).toBe(!entryOnly);
     const marked = f.markedRead.length;
     await act(async () =>
-      host.querySelector<HTMLButtonElement>('button[aria-label="收起跳转提示"]')!.click(),
+      host
+        .querySelector<HTMLButtonElement>(
+          `button[aria-label="${entryOnly ? '收起跳转提示' : '收起重要消息跳转'}"]`,
+        )!
+        .click(),
     );
+    expect(Boolean(firstUnread())).toBe(!entryOnly);
+    if (!entryOnly)
+      await act(async () =>
+        host.querySelector<HTMLButtonElement>('button[aria-label="收起跳转提示"]')!.click(),
+      );
     expect(target()).toBeUndefined();
     expect(f.markedRead).toHaveLength(marked);
 
@@ -1449,6 +1468,7 @@ it('切回会话保留未完成的跳转，收起后不恢复旧队列且新一�
     expect(target()).toBe('跳到首条未读');
   } finally {
     act(() => root.unmount());
+    acceptPreferences({ revision: 2, epoch, values: {}, records: {} });
     client.clear();
     host.remove();
   }

@@ -47,6 +47,25 @@ function server() {
   return response;
 }
 describe('独立客户端的偏好同步', () => {
+  it('迁移旧手动续读开关，合并时不覆盖分开配置', async () => {
+    server();
+    const remote = await page(new Storage(), 'web');
+    await remote.initializePreferences();
+    await remote.changePreference('showReadingPositionButton', false);
+    expect(remote.readingPositionJumpMode()).toBe('off');
+    await remote.changePreference('importantJumpMode', 'entry');
+    await remote.changePreference('mergeChatJumpButtons', true);
+    await remote.changePreference('combinedChatJumpMode', 'off');
+    const desktop = await page(new Storage(), 'desktop');
+    await desktop.initializePreferences();
+    expect(desktop.preferenceValue('mergeChatJumpButtons')).toBe(true);
+    expect(desktop.preferenceValue('combinedChatJumpMode')).toBe('off');
+    await desktop.changePreference('mergeChatJumpButtons', false);
+    expect(desktop.preferenceValue('importantJumpMode')).toBe('entry');
+    expect(desktop.readingPositionJumpMode()).toBe('off');
+    await desktop.changePreference('readingPositionJumpMode', 'keep');
+    expect(desktop.readingPositionJumpMode()).toBe('keep');
+  });
   it('恢复等待在途偏好写入，失败与超时均不提前放行', async () => {
     const response = server();
     const module = await page(new Storage(), 'web');

@@ -33,7 +33,9 @@ const dock = {
     { kind: 'unread' as const, seq: '1000' },
   ],
 };
-const readingPosition = new URLSearchParams(location.search).has('reading-position');
+const params = new URLSearchParams(location.search);
+const readingPosition = params.has('reading-position');
+const jumpLayout = params.get('jump-layout');
 const firstUnreadDock = { stops: [{ kind: 'unread' as const, seq: '1000' }] };
 const jumpToReadingPosition = async () => true;
 function App() {
@@ -41,6 +43,7 @@ function App() {
   const [count, setCount] = useState(0);
   const [group, setGroup] = useState('777');
   const [preview, setPreview] = useState(false);
+  const [readingDismissed, setReadingDismissed] = useState(false);
   Object.assign(window, { changeImportantGroup: setGroup });
   const conversation = {
     ...original,
@@ -89,7 +92,20 @@ function App() {
               onBack={() => {}}
               onSend={async () => {}}
               unreadDock={readingPosition ? firstUnreadDock : dock}
-              onJumpToReadingPosition={readingPosition ? jumpToReadingPosition : undefined}
+              onJumpToReadingPosition={
+                (readingPosition || jumpLayout) && !readingDismissed
+                  ? jumpToReadingPosition
+                  : undefined
+              }
+              chatJumpLayout={
+                jumpLayout === 'separate' || jumpLayout === 'combined' ? jumpLayout : undefined
+              }
+              readingJumpAnchor={
+                jumpLayout && !readingDismissed
+                  ? { scrollTop: 0, anchorSeq: params.has('same-target') ? '1000' : '999' }
+                  : undefined
+              }
+              onDismissReadingJump={jumpLayout ? () => setReadingDismissed(true) : undefined}
               unreadDockViewportActive={false}
               headerActions={
                 <button
