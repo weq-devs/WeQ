@@ -55,6 +55,7 @@ interface MessageBannerTarget {
   chatType: 1 | 2;
   uid: string;
   seq: string;
+  replySeqs?: readonly string[];
 }
 
 export interface Toast {
@@ -147,7 +148,13 @@ interface ToastStore {
   resolve(key: string): void;
   dismissReadMessages(
     binding: MessageBannerBinding,
-    rows: readonly { chatType: number; uid: string; readSeq?: string; readError?: boolean }[],
+    rows: readonly {
+      chatType: number;
+      uid: string;
+      readSeq?: string;
+      readError?: boolean;
+      viewedReplySeqs?: readonly string[];
+    }[],
   ): void;
   /** 退场动画结束后真正移除 */
   remove(id: number): void;
@@ -366,15 +373,27 @@ const toastStore = create<ToastStore>((set, get) => ({
     );
     if (!banners.length) return;
     const readPositions = new Map<string, bigint>();
-    for (const { chatType, uid, readSeq, readError } of rows) {
+    const viewedReplies = new Map<string, Set<string>>();
+    for (const { chatType, uid, readSeq, readError, viewedReplySeqs } of rows) {
       if (!readError && readSeq && /^\d+$/.test(readSeq))
         readPositions.set(`${chatType}:${uid}`, BigInt(readSeq));
+      if (chatType === 2 && viewedReplySeqs?.length)
+        viewedReplies.set(uid, new Set(viewedReplySeqs));
     }
     const ids: number[] = [];
     for (const { id, messageReadTarget: target } of banners) {
       if (!target || !/^[1-9]\d*$/.test(target.seq)) continue;
       const readThrough = readPositions.get(`${target.chatType}:${target.uid}`);
-      if (readThrough !== undefined && readThrough >= BigInt(target.seq)) ids.push(id);
+      const viewed = target.chatType === 2 ? viewedReplies.get(target.uid) : undefined;
+      if (
+        (readThrough !== undefined && readThrough >= BigInt(target.seq)) ||
+        (viewed &&
+          target.replySeqs?.length &&
+          target.replySeqs.every(
+            (seq) => viewed.has(seq) || (readThrough !== undefined && readThrough >= BigInt(seq)),
+          ))
+      )
+        ids.push(id);
     }
     if (ids.length) set({ leaving: [...state.leaving, ...ids] });
   },

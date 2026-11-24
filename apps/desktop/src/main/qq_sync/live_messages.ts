@@ -191,7 +191,14 @@ export function decodeLivePush(body: Uint8Array, selfUid: string, selfUin: strin
           ? { ...element, data: { ...element.data, livePending: true } }
           : element,
       );
-      rows.push({ ...row, elements, sourceFormat: 'protocol', msgRandom: String(head.msgId) });
+      rows.push({
+        ...row,
+        elements,
+        sourceFormat: 'protocol',
+        // 群聊实时推送已校验普通正文的会话序号；历史漫游不沿用这个确认。
+        ntSeqVerified: group ? true : row.ntSeqVerified,
+        msgRandom: String(head.msgId),
+      });
     } catch {
       // 不完整的富媒体仍由 QQ 落库处理，不影响同包里其他消息。
     }

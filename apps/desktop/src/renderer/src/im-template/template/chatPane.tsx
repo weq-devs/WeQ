@@ -569,7 +569,12 @@ export type ChatPaneProps = {
   chatJumpLayout?: 'separate' | 'combined';
   readThroughViewport?: boolean;
   confirmedReadSeq?: string;
-  onReadCurrentConversation?: (conversation: Conversation, visibleSeqs?: string[]) => void;
+  onReadCurrentConversation?: (
+    conversation: Conversation,
+    visibleSeqs?: string[],
+    throughSeq?: string,
+  ) => void;
+  onSeeReplies?: (group: string, sequences: string[]) => Promise<boolean>;
   pendingInteractions?: readonly ConversationInteraction[];
   onSeeInteractions?: (ids: string[], bannerOnly?: boolean) => void;
   preference: ConversationPreference | undefined;
@@ -801,6 +806,7 @@ function ChatPaneContent({
   readThroughViewport,
   confirmedReadSeq,
   onReadCurrentConversation,
+  onSeeReplies,
   pendingInteractions,
   onSeeInteractions,
   preference,
@@ -1816,6 +1822,7 @@ function ChatPaneContent({
     readThroughViewport,
     confirmedReadSeq,
     onReadCurrentConversation,
+    onSeeReplies,
     pendingInteractions,
     onSeeInteractions,
     parentJumpToSeq,

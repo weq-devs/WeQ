@@ -330,7 +330,10 @@ export function useMessageNotifications(options: {
                 binding: scope,
                 chatType: message.kind === 'group' ? 2 : 1,
                 uid: message.conv,
-                seq: eligible.at(-1)!.message.msgSeq,
+                seq: event === 'replyMe' ? message.msgSeq : eligible.at(-1)!.message.msgSeq,
+                ...(event === 'replyMe'
+                  ? { replySeqs: matching.map(({ message }) => message.msgSeq) }
+                  : {}),
               },
               action: {
                 label: '定位消息',

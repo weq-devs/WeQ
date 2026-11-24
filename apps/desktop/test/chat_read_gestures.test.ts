@@ -31,6 +31,98 @@ afterEach(() => {
 });
 
 describe('新消息按钮已读行为', () => {
+  it.each([false, true])('前台自动跟随与单条回复查看独立提交：续读=%s', async (resume) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('localStorage', new Storage());
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    vi.spyOn(performance, 'now').mockImplementation(() => Date.now());
+    vi.stubGlobal('matchMedia', (query: string) =>
+      Object.assign(new EventTarget(), { matches: query.includes('reduced-motion') }),
+    );
+    const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    const demo = createTemplateDemoData();
+    const conversation = demo.conversations.find((item) => item.type === 'group')!;
+    const read = vi.fn();
+    const seen = vi.fn(async () => true);
+    const first = {
+      ...demo.messages[0]!,
+      id: 'old',
+      msgId: 'old',
+      msgSeq: '100',
+      conversationId: conversation.id,
+      senderId: 'peer',
+      qqElements: [],
+    };
+    const reply = {
+      ...first,
+      id: 'reply',
+      msgId: 'reply',
+      msgSeq: '102',
+      source: 'roaming' as const,
+      ntSeqVerified: true,
+      qqElements: [{ type: 'reply', data: { origSenderUin: demo.user.identityValue } }],
+    };
+    let replyTop = resume ? 500 : 100;
+    const rect = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.classList.contains('message-scroll')) return new DOMRect(0, 0, 400, 400);
+      if (this.dataset.messageId === 'reply') return new DOMRect(0, replyTop, 400, 60);
+      return rect.call(this);
+    });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = (messages: (typeof first | typeof reply)[]) =>
+      act(async () =>
+        root.render(
+          createElement(ChatPane, {
+            user: demo.user,
+            conversation,
+            draft: '',
+            loading: false,
+            atLatest: !resume,
+            readThroughViewport: resume,
+            confirmedReadSeq: '100',
+            onReadCurrentConversation: read,
+            onSeeReplies: seen,
+            messages,
+          }),
+        ),
+      );
+    try {
+      await render([first]);
+      const scroll = host.querySelector<HTMLElement>('.message-scroll')!;
+      Object.defineProperties(scroll, {
+        scrollHeight: { configurable: true, value: 1200 },
+        clientHeight: { configurable: true, value: 400 },
+      });
+      await render([first, reply]);
+      await act(async () => vi.advanceTimersByTimeAsync(32));
+      if (!resume) {
+        expect(read.mock.calls).toEqual([[conversation, undefined, '102']]);
+      } else {
+        expect(read).not.toHaveBeenCalled();
+        expect(seen).not.toHaveBeenCalled();
+        replyTop = 100;
+        act(() => scroll.dispatchEvent(new Event('scroll', { bubbles: true })));
+      }
+      expect(seen).not.toHaveBeenCalled();
+      await act(async () => vi.advanceTimersByTimeAsync(220));
+      expect(seen.mock.calls).toEqual([[conversation.id, ['102']]]);
+      if (resume) expect(read).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      if (visibility) Object.defineProperty(document, 'visibilityState', visibility);
+      else Reflect.deleteProperty(document, 'visibilityState');
+      vi.useRealTimers();
+    }
+  });
+
   it('历史跳转期间按真实已读水位标注起点，回到底部显示服务端剩余未读数', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());

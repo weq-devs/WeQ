@@ -263,6 +263,54 @@ it('合并横幅只在同账号、同数据源和同会话确认最后一条已�
   }
 });
 
+it('群回复横幅不等待同批普通消息，逐条确认须覆盖横幅内全部回复', async () => {
+  act(() =>
+    useNotificationPolicy.getState().setEvents({
+      ...useNotificationPolicy.getState().events,
+      groupMessage: { banner: true, system: false },
+      replyMe: { banner: true, system: false },
+    }),
+  );
+  const root = createRoot(document.createElement('div'));
+  const store = useToast.getState();
+  const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' };
+  const group = { kind: 'group', conv: '10003' } as const;
+  const reply = (seq: string) =>
+    batch(seq, { ...group, elements: [{ type: 'reply', data: { origSenderUid: 'self' } }] });
+  try {
+    await act(async () => root.render(createElement(Probe)));
+    const first = reply('160');
+    const last = reply('162');
+    const ordinary = batch('163', group);
+    await act(async () =>
+      f.receive?.({
+        ...last,
+        messages: [...first.messages, ...last.messages, ...ordinary.messages],
+      }),
+    );
+    const banner = useToast.getState().toasts.at(-1)!;
+    expect(banner.event).toBe('replyMe');
+    const row = { chatType: 2, uid: group.conv, readSeq: '159', viewedReplySeqs: ['162'] };
+    store.dismissReadMessages(binding, [row]);
+    store.dismissReadMessages({ ...binding, expectedAccountConfigId: 'backup' }, [
+      { ...row, viewedReplySeqs: ['160', '162'] },
+    ]);
+    expect(useToast.getState().leaving).toEqual([]);
+    store.dismissReadMessages(binding, [{ ...row, readSeq: '160' }]);
+    expect(useToast.getState().leaving).toEqual([banner.id]);
+
+    const next = reply('164');
+    await act(async () =>
+      f.receive?.({ ...next, messages: [...next.messages, ...batch('165', group).messages] }),
+    );
+    const nextBanner = useToast.getState().toasts.at(-1)!;
+    store.dismissReadMessages(binding, [{ ...row, readSeq: '164', viewedReplySeqs: undefined }]);
+    expect(useToast.getState().leaving).toContain(nextBanner.id);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 it('后来的普通消息不覆盖另一渠道的 @你预览和位置', async () => {
   const events = useNotificationPolicy.getState().events;
   const next = Object.fromEntries(

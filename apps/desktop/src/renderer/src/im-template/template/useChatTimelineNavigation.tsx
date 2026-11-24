@@ -1,5 +1,6 @@
 import { TIMELINE_VIRTUAL_THRESHOLD } from '../../hooks/useVirtualTimeline';
 import { conversationInteractionId } from '../../../../shared/conversation_interaction';
+import { isReplyToSelf } from '../../../../shared/message_notifications';
 import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
 import { findUnreadMessage } from '../../lib/unreadNavigation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -12,7 +13,13 @@ import { countAppendedMessages, unreadTimelineBoundary } from './chatTimelineMod
 import { unreadDockKind, type UnreadDockKind } from './unreadDock';
 
 type ViewportReadRow = { seq: string; bottom: number };
-type ObservedTimelineRow = { id: string; report: boolean; seq?: string; readable: boolean };
+type ObservedTimelineRow = {
+  id: string;
+  report: boolean;
+  seq?: string;
+  readable: boolean;
+  reply: boolean;
+};
 const READ_GESTURE_MS = 1000;
 const DOCK_VISIBLE_MS = 180;
 
@@ -31,6 +38,7 @@ export function useChatTimelineNavigation({
   readThroughViewport,
   confirmedReadSeq,
   onReadCurrentConversation,
+  onSeeReplies,
   pendingInteractions,
   onSeeInteractions,
   parentJumpToSeq,
@@ -58,6 +66,7 @@ export function useChatTimelineNavigation({
   readThroughViewport: ChatPaneProps['readThroughViewport'];
   confirmedReadSeq: ChatPaneProps['confirmedReadSeq'];
   onReadCurrentConversation: ChatPaneProps['onReadCurrentConversation'];
+  onSeeReplies?: ChatPaneProps['onSeeReplies'];
   pendingInteractions?: ChatPaneProps['pendingInteractions'];
   onSeeInteractions?: ChatPaneProps['onSeeInteractions'];
   parentJumpToSeq: ReplyJump;
@@ -85,6 +94,16 @@ export function useChatTimelineNavigation({
     () => ({ navigationKey, ids: new Set<string>(), sequences: new Set<string>() }),
     [navigationKey],
   );
+  const replyViews = useMemo(
+    () => ({ reported: new Set<string>(), pending: new Set<string>() }),
+    [navigationKey],
+  );
+  const followRead = useRef<{ scope: typeof navigationKey; id: string } | undefined>(undefined);
+  const followReadEnabled =
+    !readThroughViewport &&
+    Boolean(onReadCurrentConversation) &&
+    (conversation?.type === 'group' ||
+      (conversation?.type === 'direct' && (conversation.chatType ?? 1) === 1));
   const navigationScope = useRef(navigationKey);
   navigationScope.current = navigationKey;
   // 独立聊天预览和测试夹具可能没有上层队列。
@@ -383,6 +402,8 @@ export function useChatTimelineNavigation({
       atBottomRef.current &&
       (prevId === null || timelineSettings?.autoFollowLatestMessages !== false)
     ) {
+      if (followReadEnabled && prevId !== null && appended > 0 && newest)
+        followRead.current = { scope: navigationKey, id: newest.id };
       setNewMessagePill(0);
       scrollMessagesToBottomRef.current();
       return;
@@ -403,6 +424,8 @@ export function useChatTimelineNavigation({
     user.id,
     timelineSettings?.autoFollowLatestMessages,
     keepLatestInView,
+    followReadEnabled,
+    navigationKey,
   ]);
 
   useLayoutEffect(() => {
@@ -758,20 +781,32 @@ export function useChatTimelineNavigation({
       entryVisibility.sequences.clear();
     }
     const observeRead = viewportReadEnabled && !loading && !loadingNewer;
+    const observeFollow =
+      unreadDockViewportActive &&
+      followReadEnabled &&
+      followRead.current?.scope === navigationKey &&
+      !loading &&
+      !loadingNewer;
+    const observeReplies =
+      unreadDockViewportActive && Boolean(onSeeReplies) && conversation?.type === 'group';
     if (
       !observeDock &&
       !observeRead &&
+      !observeFollow &&
+      !observeReplies &&
       !interactionTargets?.targets.size &&
       !interactionTargets?.latestBannerTarget
     )
       return;
     let rows = new Map<Element, ObservedTimelineRow>();
     const dockSince = new Map<string, number>();
+    const replySince = new Map<string, number>();
     let dockTimer: number | undefined;
     const clearVisibleRead = () => {
       viewportRead.visible.clear();
       viewportRead.scrollTop = undefined;
       dockSince.clear();
+      replySince.clear();
       window.clearTimeout(dockTimer);
       dockTimer = undefined;
     };
@@ -797,6 +832,8 @@ export function useChatTimelineNavigation({
       const now = performance.now();
       const dockVisibleIds = new Set<string>();
       const dockSeen = new Set<string>();
+      const visibleReplies = new Set<string>();
+      const seenReplies: string[] = [];
       let nextDockCheck = Infinity;
       const scrollTop = scroll.scrollTop;
       const forward =
@@ -834,17 +871,38 @@ export function useChatTimelineNavigation({
         )
           ready.add(seq);
       };
-      for (const [target, { id, seq, readable }] of rows) {
+      for (const [target, { id, seq, readable, reply }] of rows) {
         const stops = observeDock ? dockTargets?.get(id) : undefined;
         const trackEntry = observeDock && entryPending && seq && !entryVisibility.ids.has(id);
-        if (!(readNow && readable) && !stops && !trackEntry) continue;
+        const trackReply =
+          reply && seq && !replyViews.reported.has(seq) && !replyViews.pending.has(seq)
+            ? seq
+            : undefined;
+        const follow =
+          observeFollow &&
+          atBottom &&
+          seq &&
+          readable &&
+          followRead.current?.scope === navigationKey &&
+          followRead.current.id === id;
+        if (!(readNow && readable) && !stops && !trackEntry && !trackReply && !follow) continue;
         const rect = target.getBoundingClientRect();
         const shown = Math.min(rect.bottom, bounds.bottom) - Math.max(rect.top, bounds.top);
-        if (
-          (stops || trackEntry) &&
-          shown > 0 &&
-          shown >= Math.min(rect.height, bounds.height) / 2
-        ) {
+        const readablyVisible = shown > 0 && shown >= Math.min(rect.height, bounds.height) / 2;
+        if (follow && readablyVisible) {
+          followRead.current = undefined;
+          current.onReadCurrentConversation?.(current.conversation, undefined, seq);
+        }
+        if (trackReply && readablyVisible && !visibleReplies.has(trackReply)) {
+          visibleReplies.add(trackReply);
+          const since = replySince.get(trackReply) ?? now;
+          replySince.set(trackReply, since);
+          const remaining = DOCK_VISIBLE_MS - (now - since);
+          if (remaining > 0) nextDockCheck = Math.min(nextDockCheck, remaining);
+          else if (seenReplies.length < 64) seenReplies.push(trackReply);
+          else nextDockCheck = 0;
+        }
+        if ((stops || trackEntry) && readablyVisible) {
           dockVisibleIds.add(id);
           const since = dockSince.get(id) ?? now;
           dockSince.set(id, since);
@@ -867,16 +925,31 @@ export function useChatTimelineNavigation({
         previous.delete(id);
         if (seen && forward && rect.bottom <= bounds.top) confirm(seq);
         // 看到足够内容后持续追踪，直到整条消息从视口上沿滑出。
-        if (shown > 0 && (seen || shown >= Math.min(rect.height, bounds.height) / 2)) {
+        if (shown > 0 && (seen || readablyVisible)) {
           visible.set(id, { seq, bottom: rect.bottom - bounds.top + scrollTop });
           if (atBottom) confirm(seq);
         }
       }
       if (observeDock) {
         for (const id of dockSince.keys()) if (!dockVisibleIds.has(id)) dockSince.delete(id);
-        if (nextDockCheck < Infinity)
-          dockTimer = window.setTimeout(() => sampleViewport(false), nextDockCheck);
         visitStops(navigationKey, [...dockSeen]);
+      }
+      for (const seq of replySince.keys()) if (!visibleReplies.has(seq)) replySince.delete(seq);
+      if (nextDockCheck < Infinity)
+        dockTimer = window.setTimeout(() => sampleViewport(false), nextDockCheck);
+      if (seenReplies.length && onSeeReplies) {
+        for (const seq of seenReplies) replyViews.pending.add(seq);
+        void onSeeReplies(current.conversation.id, seenReplies)
+          .then((recorded) => {
+            if (!recorded) return;
+            for (const seq of seenReplies) replyViews.reported.add(seq);
+            while (replyViews.reported.size > 256)
+              replyViews.reported.delete(replyViews.reported.values().next().value!);
+          })
+          .catch(() => {})
+          .finally(() => {
+            for (const seq of seenReplies) replyViews.pending.delete(seq);
+          });
       }
       if (!readNow) return;
       if (forward) {
@@ -902,7 +975,11 @@ export function useChatTimelineNavigation({
     };
     let readFrame: number | undefined;
     const scheduleRead = () => {
-      if ((!observeRead && !observeDock) || readFrame !== undefined) return;
+      if (
+        (!observeRead && !observeDock && !observeFollow && !observeReplies) ||
+        readFrame !== undefined
+      )
+        return;
       readFrame = window.requestAnimationFrame(() => {
         readFrame = undefined;
         sampleViewport();
@@ -953,7 +1030,10 @@ export function useChatTimelineNavigation({
             },
             {
               root: scroll,
-              threshold: observeRead ? [Number.EPSILON, 0.5] : Number.EPSILON,
+              threshold:
+                observeRead || observeReplies || observeFollow
+                  ? [Number.EPSILON, 0.5]
+                  : Number.EPSILON,
             },
           );
     let initialSync = true;
@@ -971,7 +1051,8 @@ export function useChatTimelineNavigation({
         );
         let seq: string | undefined;
         let readable = false;
-        if (entryPending || observeRead) {
+        let reply = false;
+        if (entryPending || observeRead || observeFollow || observeReplies) {
           const index = target.closest<HTMLElement>('.weq-virtual-timeline-row')?.dataset.index;
           const message = index === undefined ? undefined : visibleMessages[Number(index)];
           if (
@@ -983,12 +1064,34 @@ export function useChatTimelineNavigation({
             /^[1-9]\d{0,19}$/.test(message.msgSeq)
           ) {
             seq = message.msgSeq;
-            readable =
-              observeRead && Boolean(message.msgId) && target.classList.contains('message-line');
+            readable = Boolean(message.msgId) && target.classList.contains('message-line');
+            reply =
+              observeReplies &&
+              readable &&
+              !message.recall &&
+              message.senderId !== user.id &&
+              (confirmedWatermark === undefined || BigInt(seq) > confirmedWatermark) &&
+              (Boolean(
+                message.qqElements?.some((el) => isReplyToSelf(el, user.identityValue, user.uid)),
+              ) ||
+                Boolean(
+                  conversation?.highlights?.some(
+                    (hit) =>
+                      hit.kind === 'replyMe' &&
+                      hit.msgSeq === seq &&
+                      hit.senderUid === message.senderUid,
+                  ),
+                ));
           }
         }
-        if (shouldReport || seq || (observeDock && dockTargets?.has(id)))
-          next.set(target, { id, report: shouldReport, seq, readable });
+        if (
+          shouldReport ||
+          reply ||
+          (seq &&
+            (entryPending || observeRead || (observeFollow && followRead.current?.id === id))) ||
+          (observeDock && dockTargets?.has(id))
+        )
+          next.set(target, { id, report: shouldReport, seq, readable, reply });
       }
       for (const target of rows.keys()) if (!next.has(target)) observer?.unobserve(target);
       for (const target of next.keys()) if (!rows.has(target)) observer?.observe(target);
@@ -998,9 +1101,9 @@ export function useChatTimelineNavigation({
       else scheduleRead();
       initialSync = false;
     };
-    if (observeRead || observeDock)
+    if (observeRead || observeDock || observeFollow || observeReplies)
       scroll.addEventListener('scroll', onViewportScroll, { passive: true });
-    if (interactionTargets || observeRead || observeDock) {
+    if (interactionTargets || observeRead || observeDock || observeFollow || observeReplies) {
       window.addEventListener('focus', probe);
       window.addEventListener('blur', clearVisibleRead);
       document.addEventListener('visibilitychange', probe);
@@ -1023,6 +1126,8 @@ export function useChatTimelineNavigation({
     loadingNewer,
     navigationKey,
     conversation?.id,
+    conversation?.type,
+    conversation?.highlights,
     confirmedReadSeq,
     confirmedWatermark,
     entryPending,
@@ -1038,6 +1143,12 @@ export function useChatTimelineNavigation({
     dockTargets,
     interactionTargets,
     onSeeInteractions,
+    onSeeReplies,
+    followReadEnabled,
+    replyViews,
+    user.id,
+    user.uid,
+    user.identityValue,
     visibleMessages,
     visitStops,
   ]);

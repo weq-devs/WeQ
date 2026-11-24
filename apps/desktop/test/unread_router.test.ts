@@ -14,6 +14,8 @@ const fixture = vi.hoisted(() => ({
   root: '',
   reportOfficialRead: vi.fn(),
   getUnreadInfos: vi.fn(),
+  getViewedReplySeqs: vi.fn(),
+  recordReplyViews: vi.fn(),
   markRead: vi.fn(),
   markLocalRead: vi.fn(),
   visibleReadSequence: vi.fn(),
@@ -31,6 +33,8 @@ vi.mock('../src/main/context/app_context', async () => {
     accountConfig: { getRecord: () => ({ configId: fixture.configId }) },
     unreadInfo: {
       getUnreadInfos: fixture.getUnreadInfos,
+      getViewedReplySeqs: fixture.getViewedReplySeqs,
+      recordReplyViews: fixture.recordReplyViews,
       markReadAndReport: fixture.markRead,
       markLocalRead: fixture.markLocalRead,
       visibleReadSequence: fixture.visibleReadSequence,
@@ -227,6 +231,21 @@ describe('未读 IPC', () => {
     });
     await expect(api.markViewportRead(input)).rejects.toThrow('数据源已切换');
     expect(fixture.markRead).toHaveBeenCalledOnce();
+  });
+  it('单条回复回执绑定账号来源，随未读快照交付但不写已读位置', async () => {
+    const api = accountRouter.createCaller({});
+    const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+    const input = { ...binding, uid: '777', sequences: ['11'] };
+    await expect(api.recordReplyViews(input)).resolves.toEqual({ recorded: true });
+    expect(fixture.recordReplyViews).toHaveBeenCalledWith('777', ['11']);
+    fixture.getViewedReplySeqs.mockReturnValue(['11']);
+    await expect(api.getUnreadInfos({ ...binding, targets })).resolves.toMatchObject([
+      { viewedReplySeqs: ['11'], readSeq: '10', unreadCount: 1 },
+    ]);
+    fixture.configId = 'source-b';
+    await expect(api.recordReplyViews(input)).rejects.toThrow('数据源已切换');
+    expect(fixture.recordReplyViews).toHaveBeenCalledOnce();
+    expect(fixture.markRead).not.toHaveBeenCalled();
   });
   it('手动批量标记及撤销强制账号隔离，结果沿用未读序列化', async () => {
     const api = accountRouter.createCaller({});

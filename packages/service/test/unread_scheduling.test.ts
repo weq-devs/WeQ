@@ -192,6 +192,24 @@ it('代理未读叠加已确认快照，合并重放和随后到来的 QQ 落库
   expect((await service.getUnreadInfos([target], false, true))[0]?.unreadCount).toBe(0);
 });
 
+it('逐条查看回复只发布对应会话，不推进水位或清除中间未读', async () => {
+  const { service, markRead } = fixture();
+  const [before] = await service.getUnreadInfos([target]);
+  const changed = vi.fn();
+  const stop = service.onCountsChanged(changed);
+  try {
+    service.recordReplyViews(target.uid, ['100', '100']);
+    service.recordReplyViews(target.uid, ['100']);
+    expect(service.getViewedReplySeqs(target.uid)).toEqual(['100']);
+    expect(service.getViewedReplySeqs('another-group')).toBeUndefined();
+    expect(changed.mock.calls).toEqual([[[target]]]);
+    expect((await service.getUnreadInfos([target]))[0]).toBe(before);
+    expect(markRead).not.toHaveBeenCalled();
+  } finally {
+    stop();
+  }
+});
+
 it('不同批次和兼容轻量请求共用初始化快照，后续读取不发 SQL', async () => {
   const f = fixture();
   const [a, b] = await Promise.all([f.query(), f.query(true)]);

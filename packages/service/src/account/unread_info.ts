@@ -111,6 +111,7 @@ export class UnreadInfoService {
     }
   >();
   private readonly results = new Map<string, ResolvedUnreadInfo>();
+  private readonly viewedReplies = new Map<string, Set<string>>();
   private readonly targets = new Map<string, UnreadInfoTarget>();
   private readonly confirmedSent = new Map<string, string[]>();
   private readonly archivedRecalls = new Map<string, string[]>();
@@ -191,6 +192,26 @@ export class UnreadInfoService {
         this.changeTimer = undefined;
       }
     };
+  }
+
+  /** 逐条确认只供横幅使用，不改未读计数或 QQ 水位。 */
+  recordReplyViews(uid: string, sequences: readonly string[]): void {
+    if (this.disposed) return;
+    const viewed = this.viewedReplies.get(uid) ?? new Set<string>();
+    const size = viewed.size;
+    for (const seq of sequences) viewed.add(seq);
+    if (viewed.size === size) return;
+    while (viewed.size > 256) viewed.delete(viewed.values().next().value!);
+    this.viewedReplies.delete(uid);
+    this.viewedReplies.set(uid, viewed);
+    while (this.viewedReplies.size > 128)
+      this.viewedReplies.delete(this.viewedReplies.keys().next().value!);
+    this.publish([{ chatType: 2, uid }]);
+  }
+
+  getViewedReplySeqs(uid: string): string[] | undefined {
+    const viewed = this.viewedReplies.get(uid);
+    return viewed && [...viewed];
   }
 
   /** 同一文件已有独立事件与轮询时，未读订阅只保留低频全量对账。 */
@@ -467,6 +488,7 @@ export class UnreadInfoService {
     this.writes.clear();
     this.countSource?.clear();
     this.countListeners.clear();
+    this.viewedReplies.clear();
     this.pushedUnread.clear();
     this.clearProxyReads();
     this.reads.abort();
@@ -495,6 +517,7 @@ export class UnreadInfoService {
     this.retryTimer = undefined;
     for (const [key, version] of this.targetVersions) this.targetVersions.set(key, version + 1);
     this.local.clear();
+    this.viewedReplies.clear();
     this.pushedUnread.clear();
     this.clearProxyReads();
     const targets = [...this.snapshots.values()];

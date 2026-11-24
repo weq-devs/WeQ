@@ -144,6 +144,15 @@ const redPacketTypes = new Set<number>([
   RedbagType.VOICE,
 ]);
 
+export function isReplyToSelf(element: PlainElement, selfUin: string, selfUid?: string) {
+  if (element.type !== 'reply') return false;
+  const data = (element.data ?? {}) as Record<string, unknown>;
+  return (
+    (Boolean(selfUid) && data.origSenderUid === selfUid) ||
+    (Boolean(selfUin) && String(data.origSenderUin ?? '') === selfUin)
+  );
+}
+
 /** QQ 的未读标记可能后到，优先使用新消息中可确认的身份和元素类型。 */
 export function incomingImportantEvents(
   elements: readonly PlainElement[],
@@ -154,11 +163,7 @@ export function incomingImportantEvents(
   for (const element of elements) {
     const data = (element.data ?? {}) as Record<string, unknown>;
     if (element.type === 'reply') {
-      if (
-        (selfUid && data.origSenderUid === selfUid) ||
-        String(data.origSenderUin ?? '') === selfUin
-      )
-        events.add('replyMe');
+      if (isReplyToSelf(element, selfUin, selfUid)) events.add('replyMe');
     } else if (element.type === 'at') {
       if (data.atTargetUid === 'all') events.add('mentionAll');
       else if (selfUid && data.atTargetUid === selfUid) events.add('mentionMe');

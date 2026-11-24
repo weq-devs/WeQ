@@ -102,6 +102,7 @@ it('提前投影普通引用、单图及可定位语音，缺字段、特殊媒�
     account,
     now,
   ).rows;
+  expect(rows[0]).toMatchObject({ kind: 'group', msgSeq: '100', ntSeqVerified: true });
   expect(rows.map((row) => row.elements)).toMatchObject([
     [
       {

@@ -90,7 +90,8 @@ export async function readDirectoryUnreadInfos(input: UnreadRequest) {
             uid: row.uid,
             chatType: row.chatType as UnreadRequest['targets'][number]['chatType'],
           });
-        else rows.push(row);
+        // 单条回复的查看回执独立于 QQ 小表是否可读。
+        if (!row.readError || row.viewedReplySeqs?.length) rows.push(row);
       }
     }
   });

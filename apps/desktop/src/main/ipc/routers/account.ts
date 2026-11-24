@@ -3542,7 +3542,11 @@ export const accountRouter = router({
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
       )
         throw new Error('账号或数据源已切换');
-      return rows.map(unreadInfoToWire);
+      return rows.map((row) => {
+        const viewedReplySeqs =
+          row.chatType === 2 ? services.unreadInfo.getViewedReplySeqs(row.uid) : undefined;
+        return { ...unreadInfoToWire(row), ...(viewedReplySeqs && { viewedReplySeqs }) };
+      });
     }),
 
   getDeviceReadSnapshot: procedure
@@ -3868,6 +3872,23 @@ export const accountRouter = router({
       )
         return { changed: false, report: { state: 'skipped' as const } };
       return applyConversationRead(services, chatType, uid, sequence);
+    }),
+
+  recordReplyViews: procedure
+    .input(
+      exportAccountBindingInput.required().extend({
+        uid: z.string().regex(/^[1-9]\d{0,15}$/),
+        sequences: z
+          .array(z.string().regex(/^[1-9]\d{0,19}$/))
+          .min(1)
+          .max(64),
+      }),
+    )
+    .mutation(({ input }) => {
+      const { expectedAccountUin, expectedAccountConfigId, uid, sequences } = input;
+      const services = requireExpectedAccount(expectedAccountUin, expectedAccountConfigId);
+      services.unreadInfo.recordReplyViews(uid, sequences);
+      return { recorded: true };
     }),
 
   getReadReportStatus: procedure.query(() => requireServices().unreadInfo.getReadReportStatus()),

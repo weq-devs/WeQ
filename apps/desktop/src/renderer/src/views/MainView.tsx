@@ -3982,6 +3982,7 @@ function MainWorkspace(): ReactElement {
     messagesLoading || trackedConversationId !== shell.activeConversationId;
   const requestUnreadRefreshRef = useRef<((target?: UnreadTarget) => void) | null>(null);
   const requestNewDirectoryUnreadRef = useRef<(() => void) | null>(null);
+  const retryEntryUnreadRef = useRef<(rows: UnreadRows) => void>(() => {});
   const refreshArchivedUnread = useStableCallback(() => {
     void utils.account.listHiddenSessions.invalidate();
     void utils.account.listDeletedSessions.invalidate();
@@ -4023,12 +4024,14 @@ function MainWorkspace(): ReactElement {
 
     const refresh = createUnreadRefresh(loadUnread);
     const applyLive = (rows: UnreadRows, startedAt: number) => {
-      const accepted = rows.filter((row) => !row.readError && guard.accepts(row.uid, startedAt));
+      const current = rows.filter((row) => guard.accepts(row.uid, startedAt));
+      if (binding) useToast.getState().dismissReadMessages(binding, current);
+      const accepted = current.filter((row) => !row.readError);
       if (!accepted.length) return;
       // 实时结果也推进版本，不能被更早启动的全量扫描回灌。
       const finish = guard.begin(accepted.map((row) => row.uid));
       finish();
-      if (binding) useToast.getState().dismissReadMessages(binding, accepted);
+      retryEntryUnreadRef.current(accepted);
       applyUnreadReadPositions(accepted);
       setUnreadByConv((current) => {
         const next = { ...current };
@@ -5555,7 +5558,23 @@ function MainWorkspace(): ReactElement {
     chatType: UnreadTarget['chatType'];
     deviceTail?: string;
     autoRead?: { snapshot: UnreadRows[number]; revision: number };
+    retrySnapshot?: boolean;
   } | null>(null);
+  const [unreadEntryRetry, setUnreadEntryRetry] = useState<{
+    request: NonNullable<typeof unreadDockRequestRef.current>;
+    row: UnreadRows[number];
+  }>();
+  retryEntryUnreadRef.current = (rows) => {
+    const request = unreadDockRequestRef.current;
+    if (!request?.retrySnapshot || request.scope !== messageScopeRef.current) return;
+    const row = rows.find(
+      (row) =>
+        row.chatType === request.chatType && row.uid === request.convId && row.latestSeq !== null,
+    );
+    if (!row) return;
+    request.retrySnapshot = false;
+    setUnreadEntryRetry({ request, row });
+  };
   const unreadSnapshotPendingRef = useRef<{ convId: string } | null>(null);
   const entryUnreadInfoRef = useRef<{
     selection: NonNullable<typeof selectionRef.current>;
@@ -5588,6 +5607,7 @@ function MainWorkspace(): ReactElement {
     snapshot?: Awaited<ReturnType<typeof client.account.getUnreadInfos.query>>[number];
     visibleSeqs?: string[];
     devicePosition?: string;
+    throughSeq?: string;
   };
   const readRequestsRef = useRef(new Map<string, { next?: AutoRead; promise: Promise<void> }>());
   const readSettingsReady = Boolean(displaySettings.data);
@@ -5634,11 +5654,11 @@ function MainWorkspace(): ReactElement {
       const binding = messageBindingRef.current;
       const chatType =
         conv.type === 'group' ? (2 as const) : (unreadChatType(conv.chatType ?? 1) ?? 1);
-      const isCurrent = (visibleSeqs: AutoRead['visibleSeqs']) =>
+      const isCurrent = ({ visibleSeqs, throughSeq }: AutoRead) =>
         Boolean(binding) &&
         readPolicy.current.readSettingsReady &&
         readPolicy.current.readThroughViewport === Boolean(visibleSeqs) &&
-        ((!visibleSeqs && chatType !== 8 && chatType !== 134) ||
+        ((!visibleSeqs && !throughSeq && chatType !== 8 && chatType !== 134) ||
           readPolicy.current.readViewportActive) &&
         messageScopeRef.current === source &&
         messagesTabActiveRef.current &&
@@ -5647,7 +5667,7 @@ function MainWorkspace(): ReactElement {
         selectionRef.current?.kind === conv.type &&
         !manualReadPendingRef.current.has(conv.id) &&
         useViewState.getState().openedUin === openedUin;
-      if (!isCurrent(read.visibleSeqs) || !binding) return;
+      if (!isCurrent(read) || !binding) return;
       const key = `${source}:${conv.type}:${conv.id}`;
       const existing = readRequestsRef.current.get(key);
       if (existing) {
@@ -5667,15 +5687,15 @@ function MainWorkspace(): ReactElement {
       };
       entry.promise = (async () => {
         while (entry.next) {
-          const { snapshot, visibleSeqs, devicePosition } = entry.next;
+          const { snapshot, visibleSeqs, devicePosition, throughSeq } = entry.next;
           entry.next = undefined;
-          const stillCurrent = () => isCurrent(visibleSeqs);
+          const stillCurrent = () => isCurrent({ visibleSeqs, throughSeq });
           if (!stillCurrent()) continue;
           const finishUpdate = unreadUpdateGuardRef.current.begin([conv.id]);
           try {
             if (visibleSeqs && chatType !== 1 && chatType !== 2) continue;
-            let latestSeq: string | undefined;
-            if (!visibleSeqs && !devicePosition) {
+            let latestSeq = throughSeq;
+            if (!visibleSeqs && !devicePosition && !latestSeq) {
               // 摘要可能来自乐观更新或漫游；传统模式固定使用本次捕获的小表最新水位。
               const info =
                 snapshot ??
@@ -5737,6 +5757,27 @@ function MainWorkspace(): ReactElement {
       return entry.promise;
     },
     [openedUin, applyUnreadRows, messageScopeRef, messageBindingRef, selectionRef],
+  );
+
+  const confirmVisibleReplies = useCallback(
+    async (uid: string, sequences: string[]) => {
+      const binding = messageBindingRef.current;
+      if (!binding) return false;
+      const source = messageScopeRef.current;
+      const stillCurrent = () =>
+        messageScopeRef.current === source &&
+        selectionRef.current?.kind === 'group' &&
+        selectionRef.current.id === uid &&
+        messagesTabActiveRef.current &&
+        readPolicy.current.readViewportActive &&
+        document.visibilityState !== 'hidden';
+      const result = await retryConversationRead(
+        () => client.account.recordReplyViews.mutate({ ...binding, uid, sequences }),
+        stillCurrent,
+      );
+      return result?.recorded === true;
+    },
+    [messageBindingRef, messageScopeRef, selectionRef],
   );
 
   async function changeConversationReadState(rows: Conversation[], unread: boolean) {
@@ -6011,7 +6052,16 @@ function MainWorkspace(): ReactElement {
     const convId = conv.id;
     const deviceTail = device ? loaded.at(-1)?.msgId : undefined;
     const source = messageScope;
+    const recovered =
+      unreadEntryRetry &&
+      unreadEntryRetry.request === unreadDockRequestRef.current &&
+      unreadEntryRetry.request.convId === convId &&
+      unreadEntryRetry.request.scope === source &&
+      unreadEntryRetry.request.chatType === chatType
+        ? unreadEntryRetry.row
+        : undefined;
     if (
+      !recovered &&
       unreadDockRequestRef.current?.convId === convId &&
       unreadDockRequestRef.current.scope === source &&
       unreadDockRequestRef.current.chatType === chatType &&
@@ -6066,7 +6116,7 @@ function MainWorkspace(): ReactElement {
 
     unreadSnapshotPendingRef.current = request;
     (async () => {
-      let info: UnreadRows[number] | undefined;
+      let info: UnreadRows[number] | undefined = recovered;
       const guard = unreadUpdateGuardRef.current;
       const startedAt = guard.revision();
       try {
@@ -6076,7 +6126,7 @@ function MainWorkspace(): ReactElement {
             chatType,
             uid: convId,
           });
-        } else {
+        } else if (!info) {
           info = await readEntryUnreadInfo(chatType, convId);
         }
       } catch (err) {
@@ -6087,6 +6137,10 @@ function MainWorkspace(): ReactElement {
       if (!stillCurrent()) return;
       if (!info || info.readError) {
         finishSnapshot(null);
+        if (!device) {
+          request.retrySnapshot = true;
+          requestUnreadRefreshRef.current?.({ chatType, uid: convId });
+        }
         return;
       }
       if (device) {
@@ -6144,6 +6198,7 @@ function MainWorkspace(): ReactElement {
     unreadSelectionChatType,
     unreadSelectionId,
     unreadEntryKey,
+    unreadEntryRetry,
   ]);
 
   useEffect(() => {
@@ -11234,11 +11289,7 @@ function MainWorkspace(): ReactElement {
                             onDismissReadingJump={readingPrompt.dismiss}
                             chatJumpLayout={mergeChatJumpButtons ? 'combined' : 'separate'}
                             readThroughViewport={readThroughViewport}
-                            confirmedReadSeq={
-                              readThroughViewport
-                                ? (cachedReadPosition?.readSeq ?? undefined)
-                                : undefined
-                            }
+                            confirmedReadSeq={cachedReadPosition?.readSeq ?? undefined}
                             unreadDividerRange={
                               entryFirstUnreadSeq && entryLastUnreadSeq
                                 ? { firstSeq: entryFirstUnreadSeq, lastSeq: entryLastUnreadSeq }
@@ -11247,13 +11298,22 @@ function MainWorkspace(): ReactElement {
                             onReadCurrentConversation={
                               readThroughViewport && !readViewportActive
                                 ? undefined
-                                : (conv, visibleSeqs) => {
+                                : (conv, visibleSeqs, throughSeq) => {
                                     if (
                                       visibleSeqs ||
+                                      throughSeq ||
                                       unreadSnapshotPendingRef.current?.convId !== conv.id
                                     )
-                                      void markVisibleConversationRead(conv, { visibleSeqs });
+                                      void markVisibleConversationRead(conv, {
+                                        visibleSeqs,
+                                        throughSeq,
+                                      });
                                   }
+                            }
+                            onSeeReplies={
+                              readViewportActive && (!IS_WEB || firstPageStreamReady)
+                                ? confirmVisibleReplies
+                                : undefined
                             }
                             pendingInteractions={
                               messagesTabActive &&

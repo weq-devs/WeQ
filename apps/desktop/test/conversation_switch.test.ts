@@ -1288,6 +1288,57 @@ it.each([
   },
 );
 
+it('首次会话未读读取失败后，收到该会话的有效快照会补交自动已读', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  f.unreadMode = true;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    f.unreadFailures = 1;
+    await act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === '10001')!
+        .click(),
+    );
+    await act(async () =>
+      f.reads.at(-1)!.show({
+        complete: true,
+        rows: [
+          {
+            msgId: 'target-message',
+            msgSeq: '100',
+            sendTime: '1794200000',
+            senderUid: 'u_peer',
+            senderUin: '20001',
+            elements: [{ type: 'text', data: { textContent: '已显示的消息' } }],
+          },
+        ],
+      }),
+    );
+    expect(host.querySelector('[data-message-id="target-message"]')).not.toBeNull();
+    expect(f.markedRead).toEqual([]);
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    expect(f.markedRead).toEqual([
+      expect.objectContaining({ chatType: 2, uid: '10001', latestSeq: '100' }),
+    ]);
+  } finally {
+    await act(async () => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
+
 it.each([false, true])('首批消息立即显示未读分界线，进入会话后的快照延迟=%s', async (delayed) => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

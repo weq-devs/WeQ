@@ -57,6 +57,7 @@ export function ChatMainContent({
   readThroughViewport,
   confirmedReadSeq,
   onReadCurrentConversation,
+  onSeeReplies,
   pendingInteractions,
   onSeeInteractions,
   conversationPrefs,
@@ -158,6 +159,7 @@ export function ChatMainContent({
   | 'onDismissReadingJump'
   | 'chatJumpLayout'
   | 'onReadCurrentConversation'
+  | 'onSeeReplies'
   | 'readThroughViewport'
   | 'confirmedReadSeq'
   | 'pendingInteractions'
@@ -368,6 +370,7 @@ export function ChatMainContent({
       readThroughViewport={readThroughViewport}
       confirmedReadSeq={confirmedReadSeq}
       onReadCurrentConversation={onReadCurrentConversation}
+      onSeeReplies={onSeeReplies}
       pendingInteractions={pendingInteractions}
       onSeeInteractions={onSeeInteractions}
       preference={activeConversation ? conversationPrefs[activeConversation.id] : undefined}
