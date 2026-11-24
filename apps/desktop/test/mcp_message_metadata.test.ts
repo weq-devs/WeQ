@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { expect, it, vi } from 'vitest';
+import type { RenderElement } from '@weq/service';
 
 const recentContacts = vi.hoisted(() =>
   [
@@ -33,8 +34,51 @@ const profileCache = vi.hoisted(() => ({
   switched: false,
   read: vi.fn(async () => ({ uin: 1n, uid: 'u_self', nick: '合成账号', avatarUrl: '' })),
 }));
+const detailRows = vi.hoisted(() => {
+  const host = {
+    msgId: 9007199254740993n,
+    msgSeq: 2n,
+    sendTime: 1792461600n,
+    senderUid: 'fixture_sender',
+    senderUin: 1n,
+    elements: [] as RenderElement[],
+  };
+  const groupOriginal = {
+    ...host,
+    msgId: 9007199254740995n,
+    msgSeq: 1n,
+    sendTime: 1792461500n,
+    senderUid: 'u_original',
+    senderUin: 2n,
+    targetGroupCode: '123',
+  };
+  const c2cOriginal = {
+    ...host,
+    msgId: groupOriginal.msgId,
+    msgSeq: 120n,
+    clientSeq: 7n,
+    sendTime: groupOriginal.sendTime,
+    senderUid: groupOriginal.senderUid,
+    senderUin: groupOriginal.senderUin,
+    targetUid: 'u_peer',
+  };
+  return {
+    host,
+    groupOriginal,
+    c2cOriginal,
+    groupById: vi.fn(async (_conv: string, id: bigint) => {
+      if (id === host.msgId) return { ...host, targetGroupCode: '123' };
+      return id === groupOriginal.msgId ? groupOriginal : null;
+    }),
+    c2cById: vi.fn(async () => ({ ...host, targetUid: 'u_peer' })),
+    groupBySeq: vi.fn(async (..._args: unknown[]) => [groupOriginal]),
+    c2cBySeq: vi.fn(async (..._args: unknown[]) => [c2cOriginal]),
+    resolveC2cSeq: vi.fn(async (..._args: unknown[]) => 120n),
+  };
+});
 
-vi.mock('../src/main/context/app_context', () => {
+vi.mock('../src/main/context/app_context', async () => {
+  const { MsgService } = await import('@weq/service');
   const context = {
     account: { context: { uin: '1' } },
     services: {
@@ -45,18 +89,23 @@ vi.mock('../src/main/context/app_context', () => {
         nicksByUids: async () => ({}),
       },
       recentContacts: { getRecentContact: async () => recentContacts },
-      msgs: {
-        getGroupMessageById: async () => ({
-          msgId: 9007199254740993n,
-          msgSeq: 2n,
-          sendTime: 1792461600n,
-          senderUid: 'fixture_sender',
-          senderUin: 1n,
-          elements: [],
-        }),
-        getLocalMessagePage: localMessagePage,
-        getGroupBefore: legacyBefore,
-      },
+      msgs: Object.assign(
+        new MsgService({
+          groupMsgs: { listBySeqsInPartition: detailRows.groupBySeq },
+          c2cMsgs: {
+            listBySeqsInPartition: detailRows.c2cBySeq,
+            resolveReplySeq: detailRows.resolveC2cSeq,
+          },
+          uidMap: { sortNoByUid: () => 55n },
+          msgDbPath: 'fixture',
+        } as never),
+        {
+          getGroupMessageById: detailRows.groupById,
+          getC2cMessageById: detailRows.c2cById,
+          getLocalMessagePage: localMessagePage,
+          getGroupBefore: legacyBefore,
+        },
+      ),
     },
   };
   return {
@@ -132,6 +181,94 @@ it('returns the same raw time in read-only message details', async () => {
   });
   expect(profileRead).not.toHaveBeenCalled();
   expect(cacheRead).toHaveBeenCalledWith('9007199254740993', { recalledOnly: true });
+});
+
+function quotedReply(origMsgSeq: number, origMsgIndex = 0): RenderElement {
+  return {
+    type: 'reply',
+    data: {
+      elementId: 1n,
+      isSender: false,
+      subType: 0,
+      origMsgId: 72057594037927937n,
+      origMsgSeq,
+      origMsgIndex,
+      origMsgTime: 1792461500,
+      origSenderUid: 'u_original',
+      origSenderUin: 2,
+      origElements: [{ type: 'text', data: { textContent: '原引文' } }],
+    },
+  };
+}
+
+const readReplyDetail = (kind: 'group' | 'c2c', conv: string, includePayload = true) =>
+  AI_TOOLS.find((item) => item.name === 'get_message_details')!.run({
+    kind,
+    conv,
+    msgId: String(detailRows.host.msgId),
+    includePayload,
+    includeMedia: false,
+  });
+
+it('resolves a group reply to an exact 64-bit message ID that can be read back', async () => {
+  detailRows.groupById.mockResolvedValueOnce({
+    ...detailRows.host,
+    targetGroupCode: '123',
+    elements: [quotedReply(1)],
+  });
+  const result = await readReplyDetail('group', '123');
+  const original = { msgId: '9007199254740995', msgSeq: '1', sendTime: '1792461500' };
+  expect(result).toMatchObject({
+    elements: [{ payload: { origMsgId: '72057594037927937', origMsgSeq: '1', original } }],
+  });
+  expect(detailRows.groupBySeq).toHaveBeenLastCalledWith('123', [1n]);
+  const tool = AI_TOOLS.find((item) => item.name === 'get_message_details')!;
+  expect(
+    await tool.run({
+      kind: 'group',
+      conv: '123',
+      msgId: original.msgId,
+      includePayload: false,
+      includeMedia: false,
+    }),
+  ).toMatchObject({ found: true, ...original });
+});
+
+it('keeps only the preview on ambiguous or mismatched matches and skips lookup without payload', async () => {
+  const host = { ...detailRows.host, targetGroupCode: '123', elements: [quotedReply(1)] };
+  detailRows.groupById.mockResolvedValueOnce(host);
+  detailRows.groupBySeq.mockResolvedValueOnce([
+    detailRows.groupOriginal,
+    { ...detailRows.groupOriginal, msgId: 42n },
+  ]);
+  const ambiguous = await readReplyDetail('group', '123');
+  expect(ambiguous).toMatchObject({ elements: [{ payload: { quoteText: '原引文' } }] });
+  expect(ambiguous).not.toHaveProperty('elements.0.payload.original');
+
+  detailRows.groupById.mockResolvedValueOnce(host);
+  detailRows.groupBySeq.mockResolvedValueOnce([{ ...detailRows.groupOriginal, senderUin: 3n }]);
+  expect(await readReplyDetail('group', '123')).not.toHaveProperty('elements.0.payload.original');
+
+  const lookups = detailRows.groupBySeq.mock.calls.length;
+  detailRows.groupById.mockResolvedValueOnce(host);
+  expect(await readReplyDetail('group', '123', false)).not.toHaveProperty('elements.0.payload');
+  detailRows.groupById.mockResolvedValueOnce(host);
+  expect(await readReplyDetail('group', '999')).toMatchObject({ found: false });
+  expect(detailRows.groupBySeq).toHaveBeenCalledTimes(lookups);
+});
+
+it('uses the conversation sequence or resolves the sender-local sequence for private replies', async () => {
+  const host = { ...detailRows.host, targetUid: 'u_peer', msgSeq: 125n };
+  const expected = { elements: [{ payload: { original: { msgSeq: '120' } } }] };
+  const resolutions = detailRows.resolveC2cSeq.mock.calls.length;
+  detailRows.c2cById.mockResolvedValueOnce({ ...host, elements: [quotedReply(7, 120)] });
+  expect(await readReplyDetail('c2c', 'u_peer')).toMatchObject(expected);
+  expect(detailRows.resolveC2cSeq).toHaveBeenCalledTimes(resolutions);
+
+  detailRows.c2cById.mockResolvedValueOnce({ ...host, elements: [quotedReply(7)] });
+  expect(await readReplyDetail('c2c', 'u_peer')).toMatchObject(expected);
+  expect(detailRows.resolveC2cSeq).toHaveBeenLastCalledWith({ sortNo: 55n }, 7n, 2n, 1792461500n);
+  expect(detailRows.c2cBySeq).toHaveBeenLastCalledWith({ sortNo: 55n }, [120n]);
 });
 
 it('本人资料返回原字段，切换账号后拒绝旧读取结果', async () => {

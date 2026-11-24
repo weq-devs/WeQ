@@ -2814,6 +2814,8 @@ export const AI_TOOLS: AiTool[] = [
       '语音转写文本等）。' +
       '\n【怎么定位消息】msgId 来自 get_messages / get_messages_by_date 的 includeIds=true 输出，' +
       '或 list_recalled_messages / list_deleted_messages 返回的 msgId；也可以像 get_forward_messages 一样先 execute_sql 查 40001。' +
+      '\n【回复引用】includePayload=true 时，若在同一会话定位到唯一原消息，elements[].payload.original 返回 msgId、msgSeq、sendTime（Unix 秒）。' +
+      '用 original.msgId 回查；origMsgId 是引用字段，不是可回查的消息主键。没有 original 时，quoteText 只是引文预览。' +
       'kind: c2c=私聊（数据线设备 uid 也按 c2c 传），group=群聊；conv 与读该消息的会话一致。' +
       '只读本地，不发网络；找不到时返回 found=false（msgId 可能不在该会话）。',
     input: z.object({
@@ -2838,6 +2840,8 @@ export const AI_TOOLS: AiTool[] = [
         kind === 'group'
           ? await svc.msgs.getGroupMessageById(conv, id)
           : await svc.msgs.getC2cMessageById(conv, id);
+      const localConv =
+        local && ('targetGroupCode' in local ? local.targetGroupCode : local.targetUid);
       const cached = await svc.gapHistory.findByMsgId(msgId, { recalledOnly: true });
       const row =
         cached?.recall && cached.kind === kind && cached.conv === conv
@@ -2849,7 +2853,9 @@ export const AI_TOOLS: AiTool[] = [
               sendTime: BigInt(cached.sendTime),
               deletedKind: undefined,
             }
-          : local;
+          : localConv === conv
+            ? local
+            : null;
       if (!row) {
         return {
           found: false,
@@ -2867,7 +2873,25 @@ export const AI_TOOLS: AiTool[] = [
         ? '我'
         : (datalineName(row.senderUid) ?? nameByUid[row.senderUid] ?? String(row.senderUin));
 
-      const details = row.elements.map((el, i) => elementAiDetail(el, i, includePayload));
+      const details = await Promise.all(
+        row.elements.map(async (el, i) => {
+          const detail = elementAiDetail(el, i, includePayload);
+          if (!includePayload || el.type !== 'reply') return detail;
+          const original = await svc.msgs.resolveLocalReplyOriginal(kind, conv, row.msgId, el.data);
+          if (!original) return detail;
+          return {
+            ...detail,
+            payload: {
+              ...detail.payload,
+              original: {
+                msgId: String(original.msgId),
+                msgSeq: String(original.msgSeq),
+                sendTime: String(original.sendTime),
+              },
+            },
+          };
+        }),
+      );
       const media = includeMedia
         ? await mediaForElements(svc.fileSearch, Number(row.sendTime), row.elements)
         : [];

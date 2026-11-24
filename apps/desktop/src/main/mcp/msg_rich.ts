@@ -88,6 +88,10 @@ export function elementAiPayload(el: RenderElement): Record<string, unknown> {
       if (d.origMsgId !== undefined && d.origMsgId !== null && d.origMsgId !== 0n) {
         out.origMsgId = String(d.origMsgId);
       }
+      for (const field of ['origMsgSeq', 'origMsgIndex', 'origMsgTime'] as const) {
+        const value = el.data[field];
+        if (Number.isSafeInteger(value) && value > 0) out[field] = String(value);
+      }
       if (str(d.origSenderUid)) out.origSenderUid = str(d.origSenderUid);
       if (Array.isArray(d.origElements) && d.origElements.length) {
         out.quoteText = elementsToText(d.origElements as RenderElement[]).trim();

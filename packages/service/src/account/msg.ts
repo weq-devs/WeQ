@@ -1019,6 +1019,49 @@ export class MsgService {
     );
   }
 
+  /** Resolve a reply to a local row, never to its embedded quote snapshot. */
+  async resolveLocalReplyOriginal(
+    kind: 'group' | 'c2c',
+    conv: string,
+    replyMsgId: bigint,
+    quote: Extract<RenderElement, { type: 'reply' }>['data'],
+  ) {
+    const positive = (value: number) =>
+      Number.isSafeInteger(value) && value > 0 ? BigInt(value) : undefined;
+    const replySeq = positive(quote.origMsgSeq);
+    const senderUin = positive(quote.origSenderUin);
+    const sendTime = positive(quote.origMsgTime);
+    let rows: (GroupMsg | C2cMsg)[];
+    if (kind === 'group') {
+      if (!replySeq) return;
+      rows = await this.session.groupMsgs.listBySeqsInPartition(conv, [replySeq]);
+    } else {
+      const db = this.c2cDbFor(conv);
+      const partition = this.c2cPartition(conv);
+      let seq = positive(quote.origMsgIndex);
+      if (!seq && replySeq && (senderUin || sendTime)) {
+        seq = (await db.resolveReplySeq(partition, replySeq, senderUin, sendTime)) ?? undefined;
+      }
+      if (!seq) return;
+      rows = await db.listBySeqsInPartition(partition, [seq]);
+    }
+    const matches = rows.filter(
+      (row) =>
+        ('targetGroupCode' in row ? row.targetGroupCode : row.targetUid) === conv &&
+        row.msgId !== 0n &&
+        row.msgId !== replyMsgId &&
+        (!quote.origSenderUid || row.senderUid === quote.origSenderUid) &&
+        (!senderUin || row.senderUin === senderUin) &&
+        (!sendTime || row.sendTime === sendTime) &&
+        (!replySeq || !('clientSeq' in row) || !row.clientSeq || row.clientSeq === replySeq),
+    );
+    const original = matches.length === 1 ? matches[0] : undefined;
+    if (original) {
+      const { msgId, msgSeq, sendTime } = original;
+      return { msgId, msgSeq, sendTime };
+    }
+  }
+
   calendar(kind: 'group' | 'c2c', conv: string) {
     return kind === 'group'
       ? this.session.groupMsgs.calendar(conv)
