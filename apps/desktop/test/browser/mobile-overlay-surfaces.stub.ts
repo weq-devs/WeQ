@@ -6,6 +6,7 @@ const gift = {
 };
 const data: Record<string, unknown> = {
   'account.listGroupAlbums': [],
+  'account.listGroupAlbumBrowse': { albums: [], complete: true },
   'account.listGroupFiles': { files: [], folders: [] },
   'account.getGroupAlbumAccessState': { qqOnline: false, attachEnabled: false },
   'account.giftMall.list': { giftList: [gift], attachInfo: '', isEnd: true },

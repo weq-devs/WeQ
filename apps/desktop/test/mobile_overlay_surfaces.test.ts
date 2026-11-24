@@ -23,6 +23,7 @@ vi.mock('../src/renderer/src/views/export/preflight', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => {
   const data: Record<string, unknown> = {
     listGroupAlbums: [],
+    listGroupAlbumBrowse: { albums: [], complete: true },
     listGroupFiles: { files: [], folders: [] },
     getGroupAlbumAccessState: { qqOnline: false, attachEnabled: false },
   };

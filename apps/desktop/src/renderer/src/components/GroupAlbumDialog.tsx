@@ -108,6 +108,7 @@ function GroupAlbumDialogBody({
   const [hasAlbumSnapshot, setHasAlbumSnapshot] = useState(initialAlbums !== undefined);
   const [loadingAlbums, setLoadingAlbums] = useState(!initialAlbums);
   const [albumError, setAlbumError] = useState<string | null>(null);
+  const [albumIncomplete, setAlbumIncomplete] = useState(false);
   const [albumRevision, setAlbumRevision] = useState(0);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('source');
@@ -151,13 +152,14 @@ function GroupAlbumDialogBody({
     const controller = new AbortController();
     setLoadingAlbums(true);
     readWithRetry(
-      () => client.account.listGroupAlbums.query({ groupCode, ...binding }),
+      () => client.account.listGroupAlbumBrowse.query({ groupCode, ...binding }),
       controller.signal,
     )
       .then((page) => {
         if (controller.signal.aborted) return;
-        setAlbums(page);
+        setAlbums(page.albums);
         setHasAlbumSnapshot(true);
+        setAlbumIncomplete(!page.complete);
         setAlbumError(null);
       })
       .catch((e) => {
@@ -243,7 +245,6 @@ function GroupAlbumDialogBody({
       !hasAlbumSnapshot ||
       !initialAlbumId ||
       loadingAlbums ||
-      albumError ||
       handledSearch.current === initialAlbumId
     )
       return;
@@ -251,8 +252,16 @@ function GroupAlbumDialogBody({
     if (album) {
       handledSearch.current = initialAlbumId;
       void openRef.current(album);
-    } else setAlbumError('指定相册不存在或当前账号不可访问。');
-  }, [initialAlbumId, albums, loadingAlbums, albumError, activity.enabled, hasAlbumSnapshot]);
+    } else if (!albumIncomplete && !albumError) setAlbumError('指定相册不存在或当前账号不可访问。');
+  }, [
+    initialAlbumId,
+    albums,
+    loadingAlbums,
+    albumError,
+    albumIncomplete,
+    activity.enabled,
+    hasAlbumSnapshot,
+  ]);
 
   const management = (
     <GroupAlbumManagement
@@ -334,7 +343,7 @@ function GroupAlbumDialogBody({
               groupCode={groupCode}
               albums={albums}
               loading={loadingAlbums}
-              error={albumError}
+              error={albumError ?? (albumIncomplete ? '相册列表未读全，已显示取得的相册。' : null)}
               disabled={!activity.enabled || mediaState.status === 'loading'}
               paused={!activity.enabled}
               search={search}

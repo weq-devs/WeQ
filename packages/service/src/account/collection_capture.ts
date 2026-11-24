@@ -68,7 +68,7 @@ export async function captureCollectionPages(
   readPage: (cursor: CollectionNetworkCursor | null) => Promise<NetworkCollectionCursorPage>,
   options: CollectionCaptureOptions,
 ): Promise<CollectionCaptureCheckpoint> {
-  let checkpoint = options.checkpoint ?? {
+  const initial: CollectionCaptureCheckpoint = {
     version: 1 as const,
     uin,
     cursor: null,
@@ -79,6 +79,7 @@ export async function captureCollectionPages(
     reportedTotal: null,
     complete: false,
   };
+  let checkpoint = options.checkpoint ?? initial;
   if (
     checkpoint.version !== 1 ||
     checkpoint.uin !== uin ||
@@ -100,10 +101,12 @@ export async function captureCollectionPages(
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1000)
     throw new Error('收藏页数上限无效。');
   try {
-    const seen = new Set(checkpoint.seenCids);
+    // 终页计数不符后重新扫描；历史仍保留，但旧一轮观察过的 CID 不能证明新一轮完整。
+    let active = checkpoint.incompleteReason === 'count-mismatch' ? initial : checkpoint;
+    const seen = new Set(active.seenCids);
     for (let i = 0; i < limit && !checkpoint.complete; i++) {
       options.signal?.throwIfAborted();
-      const page = await readPage(checkpoint.cursor);
+      const page = await readPage(active.cursor);
       const versions = page.items.map((item) => ({
         cid: item.cid,
         sha256: sourceVersionHash(item),
@@ -113,19 +116,18 @@ export async function captureCollectionPages(
         page.hasMore &&
         (!page.nextCursor ||
           page.items.length === 0 ||
-          hash === checkpoint.lastPageHash ||
-          (checkpoint.cursor &&
-            BigInt(page.nextCursor.timeStamp) >= BigInt(checkpoint.cursor.timeStamp)))
+          hash === active.lastPageHash ||
+          (active.cursor && BigInt(page.nextCursor.timeStamp) >= BigInt(active.cursor.timeStamp)))
       )
         throw new Error('收藏分页没有进展，未标记完成。');
       for (const item of page.items) seen.add(item.cid);
-      const reportedTotal = page.totalCount ?? checkpoint.reportedTotal;
+      const reportedTotal = page.totalCount ?? active.reportedTotal;
       const countMismatch = !page.hasMore && reportedTotal !== null && seen.size !== reportedTotal;
       const next: CollectionCaptureCheckpoint = {
-        ...checkpoint,
+        ...active,
         cursor: page.nextCursor,
-        pages: checkpoint.pages + 1,
-        observedItems: checkpoint.observedItems + page.items.length,
+        pages: active.pages + 1,
+        observedItems: active.observedItems + page.items.length,
         uniqueItems: seen.size,
         seenCids: [...seen],
         reportedTotal,
@@ -142,10 +144,8 @@ export async function captureCollectionPages(
         rawResponse: page.rawResponse,
       });
       checkpoint = next;
-      if (countMismatch)
-        throw new Error(
-          `收藏终页唯一条目数 ${seen.size} 与服务端 totalCount ${reportedTotal} 不一致。`,
-        );
+      active = next;
+      if (countMismatch) break;
     }
     return checkpoint;
   } catch (cause) {

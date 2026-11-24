@@ -82,13 +82,22 @@ describe('resumable collection capture', () => {
   });
   it('does not mark a terminal page complete when unique ids differ from totalCount', async () => {
     const read = vi.fn(async () => ({ ...page('a', null), totalCount: 2 }));
-    await expect(captureCollectionPages('10001', read, { onPage: vi.fn() })).rejects.toMatchObject({
-      checkpoint: {
-        complete: false,
-        incompleteReason: 'count-mismatch',
-        uniqueItems: 1,
-        reportedTotal: 2,
-      },
+    const sink = vi.fn();
+    const checkpoint = await captureCollectionPages('10001', read, { onPage: sink });
+    expect(checkpoint).toMatchObject({
+      complete: false,
+      incompleteReason: 'count-mismatch',
+      uniqueItems: 1,
+      reportedTotal: 2,
+    });
+    expect(sink).toHaveBeenCalledOnce();
+    read.mockResolvedValueOnce({ ...page('b', null), totalCount: 2 });
+    await expect(
+      captureCollectionPages('10001', read, { onPage: sink, checkpoint }),
+    ).resolves.toMatchObject({
+      complete: false,
+      seenCids: ['b'],
+      uniqueItems: 1,
     });
   });
   it('hashes revisions and bigint metadata without depending on key order', () => {

@@ -18,6 +18,7 @@ import { WebAuthError, WebCredentialProvider, withRetry, type WebNative } from '
 import { getFriendDress, type FriendDress } from './friend_dress';
 import {
   getGroupAlbumList,
+  getGroupAlbumListing,
   uploadGroupAlbumImage,
   type GroupAlbum,
   type UploadGroupAlbumImageParams,
@@ -267,6 +268,10 @@ export class WebQueryService {
 
   async getGroupAlbumList(groupId: string, beforeSend?: () => void): Promise<GroupAlbum[]> {
     return withRetry(this.creds, QZONE_DOMAIN, (c) => getGroupAlbumList(c, groupId), beforeSend);
+  }
+
+  async getGroupAlbumListing(groupId: string, beforeSend?: () => void) {
+    return withRetry(this.creds, QZONE_DOMAIN, (c) => getGroupAlbumListing(c, groupId), beforeSend);
   }
 
   async getGroupAlbumFeed(

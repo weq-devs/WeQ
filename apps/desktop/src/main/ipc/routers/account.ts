@@ -8167,6 +8167,26 @@ export const accountRouter = router({
       return albums;
     }),
 
+  /** Browse confirmed album rows even when the directory is incomplete. */
+  listGroupAlbumBrowse: procedure
+    .input(groupAlbumInput.merge(exportAccountBindingInput))
+    .query(async ({ input }) => {
+      const { services, check } = groupAlbumReadScope(input);
+      requireOnlineQqForWeb(services);
+      const listing = await services.webQuery.getGroupAlbumListing(input.groupCode, check);
+      check();
+      services.contentSearch?.remember(
+        listing.albums.map((album) => ({
+          target: { kind: 'groupAlbum', groupCode: input.groupCode, albumId: album.id },
+          title: album.title,
+          content: album.desc,
+          sourceName: `群 ${input.groupCode}`,
+          time: 0,
+        })),
+      );
+      return listing;
+    }),
+
   /** List all media for one group album. Requires the saved online QQ pid. */
   listGroupAlbumMedia: procedure
     .input(groupAlbumMediaInput.merge(exportAccountBindingInput))

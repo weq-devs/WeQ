@@ -59,6 +59,7 @@ const accountReads = new Set([
   'listGroupEssenceMessages',
   'listGroupFiles',
   'listGroupAlbums',
+  'listGroupAlbumBrowse',
   'listGroupAlbumMedia',
   'getGroupAlbumFeed',
 ]);

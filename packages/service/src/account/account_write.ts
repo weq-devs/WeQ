@@ -359,14 +359,14 @@ export class AccountWriteService {
     return found;
   }
 
-  async friendRoster(includeDirectory = true, includeRemark = false) {
+  async friendRoster(includeDirectory = true, includeRemark = false, allowPartial = false) {
     const pid = this.resolvePid();
-    const seen = new Set<string>();
     const cookies = new Set<string>();
     let cookie: Uint8Array | undefined;
-    const friends: FriendSnsPage['friends'] = [];
+    const observed = new Map<string, FriendSnsPage['friends'][number]>();
     const categories = new Map<string, NonNullable<FriendSnsPage['categories']>[number]>();
     let categoriesPresent = false;
+    let partial = false;
     for (let page = 0; page < 100; page++) {
       this.assertCurrentPid(pid);
       const result = await GetFriendSnsPage.invoke(this.nt, pid, {
@@ -378,9 +378,15 @@ export class AccountWriteService {
       if (result.selfUin !== undefined && result.selfUin !== this.identity.uin)
         throw new Error('好友名册与当前账号不一致');
       for (const row of result.friends) {
-        if (seen.has(row.uid)) throw new Error('好友名册分页返回重复目标，请重新读取');
-        seen.add(row.uid);
-        friends.push(row);
+        const previous = observed.get(row.uid);
+        if (!previous) observed.set(row.uid, row);
+        else {
+          if (!allowPartial || previous.uin !== row.uin)
+            throw new Error('好友名册分页返回重复目标，请重新读取');
+          partial = true;
+          if (previous.categoryId !== row.categoryId)
+            observed.set(row.uid, { ...previous, categoryId: undefined });
+        }
       }
       if (result.categories !== undefined) categoriesPresent = true;
       for (const row of result.categories ?? []) {
@@ -400,8 +406,11 @@ export class AccountWriteService {
           continue;
         const key = row.id === null ? `missing:${row.name}:${row.sortOrder}` : String(row.id);
         const previous = categories.get(key);
-        if (previous && JSON.stringify(previous) !== JSON.stringify(row))
-          throw new Error('好友分组目录分页不一致');
+        if (previous && JSON.stringify(previous) !== JSON.stringify(row)) {
+          if (!allowPartial) throw new Error('好友分组目录分页不一致');
+          partial = true;
+          continue;
+        }
         categories.set(key, row);
       }
       cookie = result.cookie;
@@ -409,11 +418,14 @@ export class AccountWriteService {
         throw new Error('好友名册尚未结束，但未返回下一页游标');
       // 只有完整请求全部走完，缺省 SNS 才能按已验证的关闭响应处理。
       if (result.isEnd === true || !cookie?.length) {
-        if (!includeDirectory) return { friends, categories: null };
+        const friends = [...observed.values()];
+        const coverage = partial ? { partial: true as const } : {};
+        if (!includeDirectory) return { friends, categories: null, ...coverage };
         const rawCategories = [...categories.values()];
         const missing = rawCategories.filter((row) => row.id === null);
         const memberCount = friends.filter((friend) => (friend.categoryId ?? 0) === 0).length;
         const cloudConfirmed =
+          !partial &&
           missing.length === 1 &&
           missing[0]!.buddyCount === memberCount &&
           friends.every(
@@ -426,7 +438,7 @@ export class AccountWriteService {
         const zeroSortOmitted =
           rawCategories.filter((row) => row.sortOrder === null).length === 1 &&
           !rawCategories.some((row) => row.sortOrder === 0);
-        const resolved = rawCategories.map((row) => {
+        const resolved = rawCategories.flatMap((row) => {
           const sortOrder = row.sortOrder ?? (zeroSortOmitted ? 0 : null);
           if (row.id !== null) return { ...row, sortOrder, id: row.id, idPresent: true };
           // 零 ID 可被省略；本地唯一同名默认组或完整云端归属均可确认身份。
@@ -436,16 +448,22 @@ export class AccountWriteService {
             missing.length !== 1 ||
             rawCategories.some((entry) => entry.id === 0) ||
             (candidates.length !== 1 && !cloudConfirmed)
-          )
+          ) {
+            if (partial) return [];
             throw new OperationError('分组目录缺少可确认的 ID，请刷新本地联系人后重试', 'expected');
+          }
           return { ...row, sortOrder, id: 0, idPresent: false };
         });
         const normalizedFriends = friends.map((row) =>
           row.categoryId === undefined
-            ? { ...row, categoryId: 0, categoryIdPresent: false }
+            ? { ...row, ...(partial ? {} : { categoryId: 0 }), categoryIdPresent: false }
             : { ...row, categoryIdPresent: true },
         );
-        return { friends: normalizedFriends, categories: categoriesPresent ? resolved : null };
+        return {
+          friends: normalizedFriends,
+          categories: categoriesPresent ? resolved : null,
+          ...coverage,
+        };
       }
       const key = Buffer.from(cookie).toString('base64');
       if (cookies.has(key)) throw new Error('好友名册分页游标循环');

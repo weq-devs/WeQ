@@ -9,7 +9,7 @@ import {
 import { computeBkn, WebAuthError } from '../src/account/web/credential';
 import { WebCredentialProvider } from '../src/account/web/credential';
 import { WebQueryService } from '../src/account/web';
-import { getGroupAlbumList } from '../src/account/web/group_album';
+import { getGroupAlbumList, getGroupAlbumListing } from '../src/account/web/group_album';
 import type { AccountSession } from '@weq/account';
 
 const credential = { uin: '10001', skey: 'synthetic-sk', pskey: 'synthetic-psk' };
@@ -46,6 +46,32 @@ describe('群相册管理 Web 请求', () => {
     await expect(getGroupAlbumList(credential, '123')).rejects.toThrow('列表缺失');
     respond({ code: 0, data: { total: 0, offset: 1000 } });
     expect(await getGroupAlbumList(credential, '123')).toEqual([]);
+  });
+  it('游标前进时保留去重后的相册，写前核对不能把相同结果当完整列表', async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal('fetch', fetcher);
+    const pages = () => {
+      fetcher
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ code: 0, data: { album: [{ id: 'a' }], total: 3, offset: 1 } }),
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              code: 0,
+              data: { album: [{ id: 'a' }, { id: 'b' }], total: 2, offset: 3 },
+            }),
+          ),
+        );
+    };
+    pages();
+    const listing = await getGroupAlbumListing(credential, '123');
+    expect(listing.complete).toBe(false);
+    expect(listing.albums.map((row) => row.id)).toEqual(['a', 'b']);
+    pages();
+    await expect(getGroupAlbumList(credential, '123')).rejects.toThrow('不完整');
   });
   it('详情的 album 是单对象，保留原权限和已有封面，编辑只带回已存在字段', async () => {
     respond({ code: 0, data: { album: { id: 'a', privacy: 0, lloc: 'original-cover' } } });

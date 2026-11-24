@@ -141,6 +141,7 @@ async function reply(path: string, input: Record<string, unknown>) {
   if (path === 'account.listGroupFiles')
     return { targetDirectory: input.folderId, files: [], folders: [] };
   if (path === 'account.listGroupAlbums') return [];
+  if (path === 'account.listGroupAlbumBrowse') return { albums: [], complete: true };
   if (path.includes('Permissions')) return { canManage: false };
   if (path.endsWith('.groupJoinSettings') || path.endsWith('.groupJoinManagement'))
     return { groupId: input.groupId, option: 2, categoryId: null };

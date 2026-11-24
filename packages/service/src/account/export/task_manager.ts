@@ -5246,8 +5246,13 @@ export class ExportTaskManager extends EventEmitter {
       if (deps.syncHistory && !task.collection?.cids) {
         try {
           history = await deps.syncHistory(abort.signal);
+          if (history && !history.complete) {
+            historyError = '云收藏历史仅取得部分结果，已保留数据，可重新核对。';
+            this.log(id, 'message', historyError, 'warn');
+          }
         } catch (error) {
           if (aborted()) throw error;
+          history = deps.historySummary?.() ?? history;
           historyError = error instanceof Error ? error.message : String(error);
           this.log(id, 'message', `云收藏历史同步未完成：${historyError}`, 'warn');
         }

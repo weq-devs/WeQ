@@ -145,6 +145,27 @@ describe('好友分组服务编排', () => {
       directory,
     ]);
   }
+  it('浏览保留重叠页的好友，删组不能把该名册当成完整快照', async () => {
+    const first = firstDirectoryPage(0);
+    const last = encode(GetFriendSnsPage.respSchema, {
+      selfUin: 10001n,
+      isEnd: true,
+      friends: [
+        { uid: 'u_first', uin: 10002n, categoryId: 5 },
+        { uid: 'u_last', uin: 10003n, categoryId: 5 },
+      ],
+      categories: [{ id: 5, name: '朋友', buddyCount: 1, sortOrder: 2 }],
+    });
+    const browse = await pagedRoster([first, last]).service.friendRoster(true, false, true);
+    expect(browse.partial).toBe(true);
+    expect(browse.friends.map((row) => [row.uid, row.categoryId])).toEqual([
+      ['u_first', undefined],
+      ['u_last', 5],
+    ]);
+    await expect(
+      pagedRoster([first, last]).service.manageFriendCategories({ type: 'delete', id: 5 }),
+    ).rejects.toThrow('重复目标');
+  });
   it.each([undefined, 0])('后续页的名称占位不覆盖前页默认组，ID=%s', async (id) => {
     const middlePages = [2, 3, 4].map((cursor) =>
       Buffer.concat([

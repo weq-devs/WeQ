@@ -23,6 +23,7 @@ const state = vi.hoisted(() => {
       | { canManage: boolean; selfUin: string }
       | undefined,
     web: false,
+    albumsComplete: true,
     albums: vi.fn(async (_input: unknown): Promise<GroupAlbumWire[]> => []),
     media: vi.fn(async (_input: unknown): Promise<unknown[]> => []),
     access: vi.fn(async () => ({ qqOnline: true })),
@@ -97,7 +98,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
   client: {
     account: {
-      listGroupAlbums: { query: state.albums },
+      listGroupAlbumBrowse: {
+        query: async (...args: Parameters<typeof state.albums>) => ({
+          albums: await state.albums(...args),
+          complete: state.albumsComplete,
+        }),
+      },
       listGroupAlbumMedia: { query: state.media },
       getGroupAlbumAccessState: { query: state.access },
       mediaSave: { save: { mutate: state.save }, background: { mutate: async () => true } },
@@ -147,6 +153,7 @@ beforeEach(() => {
   state.permissions = { canManage: false, selfUin: '10001' };
   state.albumRights = { create: true, modify: true, upload: true, deleteAlbum: true };
   state.web = false;
+  state.albumsComplete = true;
   state.albums.mockReset().mockResolvedValue([album('a', '合成相册甲'), album('b', '合成相册乙')]);
   state.media.mockReset().mockResolvedValue([picture('photo-a'), picture('video-b', 'video')]);
   state.access.mockReset().mockResolvedValue({ qqOnline: true });
@@ -434,6 +441,14 @@ it('只有视频封面时按图片预览和保存，不把 jpg 传给 video', as
     source: { url: albumMediaUrl(cover.previewUrl) },
   });
 });
+it('部分相册可浏览，但不宣称缺失的目标相册不存在', async () => {
+  state.albumsComplete = false;
+  await mount({ initialAlbumId: 'missing' });
+  expect(document.querySelector('[role="alert"]')?.textContent).toContain('相册列表未读全');
+  await openFirst();
+  expect(state.media).toHaveBeenCalled();
+});
+
 it('刷新失败保留原网格，重试恢复，不以失败伪装空相册', async () => {
   await mount();
   await openFirst();

@@ -99,6 +99,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
         getGroupDetail: { query: async () => null },
         getGroupExtendedProfile: { query: async () => null },
         listGroupAlbums: { query: async () => albums() },
+        listGroupAlbumBrowse: { query: async () => ({ albums: albums(), complete: true }) },
         qqActions: {
           albumManagement: { mutate: (input: unknown) => state.writes('album', input) },
         },

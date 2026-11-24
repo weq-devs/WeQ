@@ -227,8 +227,8 @@ async function reply(path: string, input: Record<string, unknown>) {
       ],
       folders: [],
     };
-  if (path === 'account.listGroupAlbums')
-    return ['周末活动', '资料图片'].map((title, index) => ({
+  if (path === 'account.listGroupAlbums' || path === 'account.listGroupAlbumBrowse') {
+    const albums = ['周末活动', '资料图片'].map((title, index) => ({
       id: `fixture-album-${index + 1}`,
       title,
       photoCount: 0,
@@ -239,6 +239,8 @@ async function reply(path: string, input: Record<string, unknown>) {
       createTime: '2026-11-13T08:00:00+08:00',
       updateTime: '2026-11-13T08:00:00+08:00',
     }));
+    return path === 'account.listGroupAlbumBrowse' ? { albums, complete: true } : albums;
+  }
   if (path === 'account.listGroupAlbumMedia') return [];
   if (path === 'account.qqActions.fileSummary')
     return { fileCount: 2, maxCount: 1000, usedSpace: 1572864, totalSpace: 10737418240 };

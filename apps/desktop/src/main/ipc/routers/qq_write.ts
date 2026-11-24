@@ -225,7 +225,7 @@ export function createQQWriteRouter(
       }),
     friendRoster: procedure.input(binding).query(async ({ input }) => {
       const services = resolve(input);
-      const result = await services.accountWrite.friendRoster();
+      const result = await services.accountWrite.friendRoster(true, false, true);
       if (resolve(input) !== services) throw new Error('账号已切换，请重新读取好友名册');
       return result;
     }),

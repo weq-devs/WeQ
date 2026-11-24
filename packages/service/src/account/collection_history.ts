@@ -133,8 +133,11 @@ export class CollectionHistoryStore {
       ),
       rawPages: this.ledger.rawPages.length,
       complete: this.ledger.activeCheckpoint === null && this.ledger.lastComplete !== null,
-      uniqueItems: this.ledger.lastComplete?.uniqueItems ?? 0,
-      reportedTotal: this.ledger.lastComplete?.reportedTotal ?? null,
+      uniqueItems:
+        this.ledger.activeCheckpoint?.uniqueItems ?? this.ledger.lastComplete?.uniqueItems ?? 0,
+      reportedTotal: this.ledger.activeCheckpoint
+        ? this.ledger.activeCheckpoint.reportedTotal
+        : (this.ledger.lastComplete?.reportedTotal ?? null),
     };
   }
 

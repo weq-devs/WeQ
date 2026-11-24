@@ -47,7 +47,12 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     client: {
       account: {
         getGroupAlbumFeed: { query: rpc.feed },
-        listGroupAlbums: { query: rpc.albums },
+        listGroupAlbumBrowse: {
+          query: async (...args: Parameters<typeof rpc.albums>) => ({
+            albums: await rpc.albums(...args),
+            complete: true,
+          }),
+        },
         listGroupAlbumMedia: { query: rpc.media },
         getGroupAlbumAccessState: { query: async () => ({ qqOnline: true }) },
         mediaSave: proxy(),

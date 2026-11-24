@@ -17,6 +17,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     getWeqAssistantStatus: { running: false, port: 20001 },
     getMcpStatus: { running: false, port: 20002 },
     listGroupAlbums: [],
+    listGroupAlbumBrowse: { albums: [], complete: true },
     listGroupFiles: { files: [], folders: [] },
   };
   const proxy = (path: string[] = []): unknown =>

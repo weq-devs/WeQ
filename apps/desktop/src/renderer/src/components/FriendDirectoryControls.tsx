@@ -45,6 +45,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
   });
   const mutation = trpc.account.qqWrite.friendCategories.useMutation();
   const categories = roster.data?.categories ?? null;
+  const partial = roster.data?.partial === true;
   const assignments = useMemo(
     () =>
       new Map(
@@ -55,7 +56,7 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
     [roster.data?.friends],
   );
   async function run(operation: Operation) {
-    if (!session.binding || !session.available || running.current) return;
+    if (!session.binding || !session.available || running.current || partial) return;
     const captured = scope;
     running.current = true;
     setBusy(true);
@@ -104,10 +105,14 @@ export function FriendDirectoryControls({ children }: { children: ReactNode }) {
         categories,
         assignments,
         busy,
-        available: session.available && !roster.error && Boolean(categories),
+        available: session.available && !roster.error && !partial && Boolean(categories),
         error: session.available
           ? (roster.error?.message ??
-            (roster.data && !categories ? '云端未返回好友分组目录' : undefined))
+            (partial
+              ? '好友名册未读全，刷新确认后才能修改分组。'
+              : roster.data && !categories
+                ? '云端未返回好友分组目录'
+                : undefined))
           : undefined,
         retry: () => void roster.refetch(),
         create: () => edit('create'),
