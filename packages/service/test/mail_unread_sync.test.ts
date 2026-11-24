@@ -18,7 +18,9 @@ class UnreadTransport implements MailTransport {
   async request(raw: string | URL, options?: MailRequest): Promise<MailResponse> {
     const path = new URL(raw).pathname;
     if (path === '/mgr/mailmgr') throw new Error('提醒同步不应写入邮件状态');
+    if (path === '/groupmail/readmail') throw new Error('提醒同步不应请求群邮件正文');
     if (path === '/read/readmail') {
+      expect(options?.form?.func).toBe(6);
       const item = this.mailItems.get(String(options?.form?.mailid));
       return {
         status: 200,
@@ -68,7 +70,7 @@ describe('跨客户端邮箱未读同步', () => {
   it('推送在横幅发出前设置红点，查询失败保留红点，后续同步确认已读后清除', async () => {
     vi.useFakeTimers();
     const transport = new UnreadTransport();
-    transport.unread = 0;
+    transport.unread = transport.panelUnread = 0;
     const auth = new MailAuth(native, '12345678', () => 42, transport);
     const socket = Object.assign(new EventEmitter(), { send() {}, close() {}, terminate() {} });
     const onRead = vi.fn();

@@ -573,6 +573,40 @@ describe('邮箱移动返回层级', () => {
       view.close();
     }
   });
+
+  it('展开会话邮件不清除未读，打开单封邮件后清除该封未读', async () => {
+    const { api, list } = fixture();
+    const original = page();
+    const thread = { ...original.items[0]!, id: 'C1Tfixture' };
+    const child = { ...thread, id: 'thread-child' };
+    const single = { ...thread, id: 'single-fixture' };
+    list.mockResolvedValue({ ...original, items: [thread, single] });
+    vi.mocked(api.read).mockImplementation(async (id) => ({
+      ...(id === thread.id ? thread : single),
+      // 会话详情可能没有聚合未读标记，列表仍应保留原状态。
+      unread: false,
+      html: '<p>正文</p>',
+      replyTo: null,
+      attachments: [],
+      ...(id === thread.id ? { thread: [child] } : {}),
+    }));
+    const view = await mount(api);
+    const rows = view.host.querySelectorAll('article.weq-mail-row');
+    const dot = (index: number) => rows[index]?.querySelector('[aria-label="未读"]');
+    const click = (index: number) =>
+      act(async () => rows[index]?.querySelector<HTMLButtonElement>('.weq-mail-row-main')?.click());
+    try {
+      expect(dot(0)).toBeTruthy();
+      expect(dot(1)).toBeTruthy();
+      await click(0);
+      expect(dot(0)).toBeTruthy();
+      await click(1);
+      expect(dot(1)).toBeNull();
+      expect(dot(0)).toBeTruthy();
+    } finally {
+      view.close();
+    }
+  });
 });
 
 describe('邮箱修饰键多选', () => {

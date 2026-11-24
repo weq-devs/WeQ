@@ -367,12 +367,14 @@ export class QQMailService {
     });
   }
 
-  private async readMailItem(id: string, signal?: AbortSignal) {
-    const group = id.startsWith('@');
+  private async fetchMailItem(id: string, mode: 'body' | 'metadata', signal?: AbortSignal) {
+    const groupBody = mode === 'body' && id.startsWith('@');
+    // 官方简要详情使用 func=6；正文接口可能推进已读状态。
+    const func = mode === 'metadata' ? 6 : groupBody ? 0 : 1;
     const body = await this.scoped((auth) =>
       auth.cgi(
-        group ? '/groupmail/readmail' : '/read/readmail',
-        { mailid: id, func: group ? 0 : 1 },
+        groupBody ? '/groupmail/readmail' : '/read/readmail',
+        { mailid: id, func },
         { signal },
       ),
     );
@@ -401,7 +403,7 @@ export class QQMailService {
           .filter((item) => item.id),
       };
     }
-    const entry = await this.readMailItem(id, signal);
+    const entry = await this.fetchMailItem(id, 'body', signal);
     const summary = mailSummary(entry);
     const html = await this.scoped((auth) =>
       auth.redact(protectMailHtml(text(entry.content), this.attachments)),
@@ -631,7 +633,7 @@ export class QQMailService {
       }
       const results = await Promise.allSettled(
         ids.map(async (id) => {
-          const entry = await this.readMailItem(id, signal);
+          const entry = await this.fetchMailItem(id, 'metadata', signal);
           const info = object(entry.info);
           return text(info.emailid ?? entry.emailid) === id
             ? parseMailUnread(info.unread ?? entry.unread)

@@ -443,7 +443,7 @@ export function MailPage({
         if (controller.signal.aborted || sequence !== readSequence.current) return;
         loadedRead.current = { api, id: selectedId, revision: searchReadRevision };
         setDetail(value);
-        if (!value.fromRemoteCache)
+        if (!value.fromRemoteCache && !value.thread)
           setPage((current) => ({
             ...current,
             items: current.items.map((item) =>
