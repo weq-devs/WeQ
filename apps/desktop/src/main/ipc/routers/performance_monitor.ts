@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { getPerformanceMonitor } from '@weq/service/performance';
 import { getHost } from '@weq/service';
 import { basename } from 'node:path';

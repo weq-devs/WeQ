@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat } from 'node:fs/promises';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 const releaseSchema = z.object({
   tag_name: z.string(),

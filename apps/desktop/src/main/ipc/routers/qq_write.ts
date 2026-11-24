@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { AccountServices } from '../../context/app_context';
 import { procedure as baseProcedure, router } from '../trpc';
 import { groupMemberToWire, userProfileToWire } from '../serde';

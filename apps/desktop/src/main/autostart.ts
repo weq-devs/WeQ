@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { AppAutostartStatus } from '@weq/service';
 import { legacyDaemonStateDir, retireLegacyDaemon, type RunCommand } from './legacy_daemon';
 import { AUTOSTART_ARG } from './startup_window';

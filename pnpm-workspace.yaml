@@ -31,6 +31,8 @@ ignoreWorkspaceCycles: true
 allowBuilds:
   electron: true
   esbuild: true
+  # 仅 Squirrel.Windows 的 7-Zip 安装步骤；WeQ 使用 NSIS。
+  electron-winstaller: false
   # onnxruntime-node（本地 OCR / 意图感知推理引擎）默认的 postinstall 会照 install-metadata
   # 给 linux/x64 拉 CUDA EP，我们优先使用已自带的 bin/ 二进制，显式设为 false 避免冗余下载。
   onnxruntime-node: false
@@ -48,3 +50,5 @@ patchedDependencies:
   '@tanstack/virtual-core@3.19.7': patches/@tanstack__virtual-core@3.19.7.patch
   # 让菜单重启和源码热重载共用 electron-vite 的 Electron 子进程生命周期。
   electron-vite@6.0.0: patches/electron-vite@6.0.0.patch
+  # MCP SDK 使用已修复的 v4；WeQ 的 v3 兼容入口也要在数组校验时尽早退出。
+  zod@4.6.6: patches/zod@4.6.6.patch

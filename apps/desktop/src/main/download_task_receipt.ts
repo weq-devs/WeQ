@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { BackgroundTask } from '../shared/background_task';
 
 /** 只保存可重建的任务状态，下载控制和文件校验仍由业务负责。 */

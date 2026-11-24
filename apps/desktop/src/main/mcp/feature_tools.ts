@@ -10,7 +10,7 @@ import {
   FEATURE_CLIENTS,
   featureUnsupported,
 } from '../../shared/feature_access';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { getAppContext } from '../context/app_context';
 import { toolExecutionOptions } from './account_scope';
 import { canLinkToFeature, featureLink } from '../../shared/feature_links';

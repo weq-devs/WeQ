@@ -9,7 +9,7 @@
  */
 import { getHost, getLogger, OperationError } from '@weq/service';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import type { TranscribeResult } from '../../transcribe/engine';
 import { procedure, router } from '../trpc';

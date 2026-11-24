@@ -51,7 +51,7 @@ import {
   CircleCheck,
 } from 'lucide-react';
 import type { CleanupTargetStat, CleanupVariant, CleanupResult } from '@weq/service';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { usePageState } from '../../components/PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import { client, trpc } from '../../trpc/client';

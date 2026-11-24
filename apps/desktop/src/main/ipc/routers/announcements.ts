@@ -1,5 +1,5 @@
 import { observable } from '@trpc/server/observable';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { ANNOUNCEMENT_ID, MAX_ANNOUNCEMENTS } from '@weq/network/announcement-metadata';
 import { getAnnouncements } from '../../announcements';
 import { procedure, router } from '../trpc';

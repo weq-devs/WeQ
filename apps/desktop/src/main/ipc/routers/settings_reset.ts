@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import {
   DEFAULT_ANTI_RECALL_CONFIG,
   DEFAULT_APP_SETTINGS,

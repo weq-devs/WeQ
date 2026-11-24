@@ -14,7 +14,7 @@
  */
 import { OperationError } from '@weq/service';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { existsSync } from 'node:fs';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { getHost } from '@weq/service';

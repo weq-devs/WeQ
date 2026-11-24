@@ -49,7 +49,7 @@ import {
   Images,
 } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { PageSnapshotScope } from '../components/PageSnapshots';
 import { usePageDataCache, usePageState } from '../components/PageSnapshots.shared';
 import { PageScrollSnapshot } from '../components/PageScrollSnapshot';

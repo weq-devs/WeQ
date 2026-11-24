@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { usePageState } from '../PageSnapshots.shared';
 import { BarChart3, FolderOpen, Trash2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';

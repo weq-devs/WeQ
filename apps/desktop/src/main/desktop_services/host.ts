@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { UserConfigService } from '@weq/service';
 import { getLogger, MediaCacheService } from '@weq/service';
 import { onSettingsChanged } from '@weq/service/settings-changes';

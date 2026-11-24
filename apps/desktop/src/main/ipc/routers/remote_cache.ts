@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { getAppContext } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { accountRouter } from './account';

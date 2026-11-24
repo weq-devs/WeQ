@@ -7,7 +7,7 @@
  */
 import { OperationError } from '@weq/service';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { fullModeAllowed } from '../../context/full_mode';
 import { procedure, router } from '../trpc';

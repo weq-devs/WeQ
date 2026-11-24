@@ -10,7 +10,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { servicePortCandidates } from '@weq/service/service-ports';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { externalMcpTools, type McpServerOptions } from '../mcp/server';
 import { MCP_MAIL_ATTACHMENT_ROUTE } from '../mcp/mail_tools';
 import { MCP_CHAT_VIDEO_ROUTE } from '../mcp/chat_video_download';

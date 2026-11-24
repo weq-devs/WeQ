@@ -16,7 +16,7 @@ import * as timeFormat from '@weq/time';
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { databasePerformance, type HistoryCursor } from '@weq/db';
 import { listSettings } from '@weq/service/settings-catalog';
 import { getAppContext, type AccountServices } from '../context/app_context';

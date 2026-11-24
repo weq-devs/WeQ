@@ -13,7 +13,7 @@
  * 不解析任何业务协议：载荷原样 hex 交给前端，详情面板自己试 protobuf/JCE。
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { copyFile, writeFile } from 'node:fs/promises';
 import { getHost } from '@weq/service';
 import { procedure, router } from '../trpc';

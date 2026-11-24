@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { backgroundTasks } from '../../background_tasks';
 import { backgroundTaskVisible } from '../../../shared/background_task';
 import { procedure, router } from '../trpc';

@@ -1,5 +1,5 @@
 import { OperationError } from '@weq/service';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getAppContext, type AccountServices } from '../../context/app_context';

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 vi.mock('../src/main/ipc/trpc', async () => {
   const { initTRPC } = await import('@trpc/server');

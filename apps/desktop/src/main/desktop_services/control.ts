@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { join } from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 import { writeFileAtomic } from '@weq/service';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 export const PRIVATE_TOKEN_HEADER = 'x-weq-desktop-service';
 export const PRIVATE_WEB_ROUTE_HEADER = 'x-weq-desktop-web-route';

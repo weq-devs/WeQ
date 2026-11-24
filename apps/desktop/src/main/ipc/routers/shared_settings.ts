@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { procedure, router } from '../trpc';
 import { getAppContext, requireBootstrap, emitDressChanged } from '../../context/app_context';
 import { intentSenseFeatureProcedures } from './intent_sense';

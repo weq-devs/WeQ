@@ -31,7 +31,7 @@ import {
   pushNotificationClick,
 } from '../../notification_click_bus';
 import { reconcileLocalModelResources } from '../../context/local_model_resources';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { assertAccountBinding, optionalAccountBinding } from '../account_binding';
 import { normalizeContactCard } from '@weq/service/contact-card';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';

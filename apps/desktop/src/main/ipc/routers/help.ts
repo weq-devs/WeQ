@@ -8,7 +8,7 @@
  * 日志读取做了路径约束：只允许读日志目录内的文件，避免渲染层任意读盘。
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { spawnSync } from 'node:child_process';
 import {
   closeSync,

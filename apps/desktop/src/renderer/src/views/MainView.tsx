@@ -82,7 +82,7 @@ import React, {
   type ReactElement,
 } from 'react';
 import { flushSync } from 'react-dom';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { OverlayScrollbar } from '../components/OverlayScrollbar';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target.shared';

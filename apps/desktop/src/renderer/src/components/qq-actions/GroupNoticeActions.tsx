@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { Loader2, MoreHorizontal, Plus, Send, Trash2, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';

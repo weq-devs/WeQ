@@ -14,7 +14,7 @@
  */
 import { OperationError } from '@weq/service';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { backgroundTasks } from '../../background_tasks';
 import { startEnhancementDownloads } from '../../enhancements/tasks';
 import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';

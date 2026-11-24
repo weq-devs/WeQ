@@ -10,7 +10,7 @@ import {
 } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { afterEach, expect, it, vi } from 'vitest';
 import { RetainedTabs, TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';

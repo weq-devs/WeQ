@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { observable } from '@trpc/server/observable';
 import type { EnhancementUpdateNotice } from '../../../shared/enhancement_release';
 import { ENHANCEMENT_PACK_IDS } from '../../../shared/enhancement_manifest';

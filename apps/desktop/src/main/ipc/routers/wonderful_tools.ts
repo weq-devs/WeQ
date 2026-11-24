@@ -22,7 +22,7 @@
  * 离线账号列表可以秒出，不会被逐进程端口探测拖慢。
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { connectLongTermAuthorization } from '../../authorization/client';

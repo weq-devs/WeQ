@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from 'react';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { List, Plus, Trash2, X } from 'lucide-react';
 import {
   MAX_SUGGESTION_FALLBACK_TEXTS,

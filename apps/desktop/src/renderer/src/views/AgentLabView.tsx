@@ -2,7 +2,7 @@ import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
 import { TimeLabel } from '../components/TimeLabel';
 import * as timeFormat from '@weq/time';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { usePageState } from '../components/PageSnapshots.shared';
 import { LoadingIndicator } from '../components/LoadingIndicator';
 import { pageValue } from '../lib/pageSnapshots';

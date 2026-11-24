@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { getLogger, logErrorContext } from '@weq/service';
 import { observable } from '@trpc/server/observable';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { procedure, router } from '../trpc';
 import {
   mergeNoticeSeen,

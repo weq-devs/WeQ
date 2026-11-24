@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 export const remoteConnectionMode = z.enum(['lan', 'existing', 'tailscale']);
 export type RemoteConnectionMode = z.infer<typeof remoteConnectionMode>;

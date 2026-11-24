@@ -2,7 +2,7 @@ import { constants } from 'node:fs';
 import { copyFile } from 'node:fs/promises';
 import { dirname, extname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { observable } from '@trpc/server/observable';
 import { classifyChatType } from '@weq/codec';
 import { describeViewerFile, discoverViewerSources, getHost, readViewerPage } from '@weq/service';

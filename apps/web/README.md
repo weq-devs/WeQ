@@ -17,7 +17,7 @@
 
 ## 快速开始
 
-需要 **Node.js ≥ 24**（不内置，推荐 24 LTS）。
+需要 **Node.js ≥ 24**（不内置，推荐 24 LTS 的 `24.22.3` 或更新补丁版）。
 
 从 [Releases](https://github.com/weq-devs/WeQ/releases) 下载与运行机器匹配的压缩包，解压后：
 
@@ -36,7 +36,7 @@
 ```
 
 依赖已随包预装，无需联网 `npm install`。启动脚本会先检查 Node 是否存在、
-版本是否 ≥ 22，缺失时给出安装指引。想手动启动就 `node server.mjs`。
+版本是否 ≥ 24，缺失时给出安装指引。想手动启动就 `node server.mjs`。
 
 请保留 `package.json`、`pnpm-lock.yaml` 和 `runtime-deps.json`。若自行删除了 `node_modules`，
 启动脚本会通过 npm 自带的 npx 调用清单锁定版本的 pnpm，按冻结锁文件修复；这一步需要网络或已有工具缓存。

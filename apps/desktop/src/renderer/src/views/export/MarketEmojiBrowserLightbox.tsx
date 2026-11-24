@@ -13,7 +13,7 @@ import { observeCompactToolbar } from '../../components/CompactToolbar.shared';
 import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { MarketFaceDetail } from '../../components/MarketFaceLightbox';
 import {
   ArrowLeft,

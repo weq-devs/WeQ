@@ -12,7 +12,7 @@
  */
 import { OperationError } from '@weq/service';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import {
   exportAccountBindingInput,
   exportSavePolicyInput,

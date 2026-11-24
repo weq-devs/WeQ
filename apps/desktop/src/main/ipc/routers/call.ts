@@ -12,7 +12,7 @@
  * 一个请求里会让背压互相拖累。
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { observable } from '@trpc/server/observable';
 import {
   developmentDressToolsEnabled,

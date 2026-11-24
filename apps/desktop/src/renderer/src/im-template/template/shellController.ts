@@ -9,7 +9,7 @@ import {
   pushMobileBack,
   resetMobileRoot,
 } from '../../hooks/useMobileNavigation';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { contactWorkspaceTabSchema, type ContactWorkspaceTab } from '../../lib/profileNavigation';
 import type { Contact, ContactNoticeView, ContactTab, Conversation, MainView } from './types';
 

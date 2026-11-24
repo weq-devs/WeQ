@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { writeFileAtomicSync, type UserConfig } from '@weq/service';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { mcpCredentialId } from './mcp_gateway';
 
 const grantSchema = z.object({

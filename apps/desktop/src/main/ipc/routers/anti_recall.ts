@@ -1,7 +1,7 @@
 /** 防撤回设置与记录的共用路由，供桌面、Web 和 Remote 使用。 */
 import { DEFAULT_ANTI_RECALL_CONFIG, OperationError } from '@weq/service';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { getAppContext, requireBootstrap, type AccountServices } from '../../context/app_context';
 import type { AntiRecallStatus } from '@weq/service';
 import { procedure, router } from '../trpc';

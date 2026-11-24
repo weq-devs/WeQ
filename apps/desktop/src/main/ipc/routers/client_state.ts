@@ -2,7 +2,7 @@ import { createReadStream, constants } from 'node:fs';
 import { copyFile, mkdir, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join, relative, isAbsolute, extname } from 'node:path';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { observable } from '@trpc/server/observable';
 import type { ClientStateStore } from '@weq/service/client-state';
 import { onSettingsChanged } from '@weq/service/settings-changes';

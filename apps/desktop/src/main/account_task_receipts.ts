@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { JsonStore } from '@weq/service/json-store';
 import { parseCustomFaceId } from '@weqbot/protocol';
 import type {

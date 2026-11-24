@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { normalizeExportContent } from '@weq/service/export-content';
 const tier = z.enum(['none', 'local', 'cloud']);
 export const exportExtraInput = z

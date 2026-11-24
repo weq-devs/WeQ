@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { albumMediaTransferTarget, mediaTransferTarget } from '../shared/transfer_progress';
 import {
   clientKeyExpiryMs,

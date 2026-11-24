@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { tmpdir } from 'node:os';
 import { expect, it, vi } from 'vitest';
 import { procedure, router } from '../src/main/ipc/trpc';

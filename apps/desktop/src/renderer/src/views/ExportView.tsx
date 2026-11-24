@@ -118,7 +118,7 @@ import { RetainedTabs } from '../components/RetainedTabs';
 import { useTabActive } from '../components/RetainedTabs.shared';
 import { usePageState } from '../components/PageSnapshots.shared';
 import { pageValue } from '../lib/pageSnapshots';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { ScheduleSettings } from '../components/tasks/ScheduleSettings';
 import {
   PersonaBotExportPane,

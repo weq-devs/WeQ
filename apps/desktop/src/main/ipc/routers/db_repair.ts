@@ -5,7 +5,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { observable } from '@trpc/server/observable';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { maintainDatabases } from '@weq/db';
 import {
   ACCOUNT_HEALTH_DATABASES,

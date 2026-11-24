@@ -14,7 +14,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { MESSAGE_CATEGORIES, OperationError } from '@weq/service';
 import { MsgType } from '@weq/codec/proto/msg/40900';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { plainContentText } from '@weq/service/message-plain-text';
 import { setReactionWithRecent } from '../../recent_reactions';
 import {

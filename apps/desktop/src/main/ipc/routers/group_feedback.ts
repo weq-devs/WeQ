@@ -13,7 +13,7 @@ import { networkFetch } from '@weq/network';
  */
 import { OperationError } from '@weq/service';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { existsSync } from 'node:fs';
 import type { NtHelperBinding } from '@weq/native';
 import { getLogger } from '@weq/service';

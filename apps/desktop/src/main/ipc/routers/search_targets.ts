@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { procedure, router } from '../trpc';
 import { groupBulletinToWire, groupNoticeToBulletinWire } from '../serde';
 import type { AccountServices } from '../../context/app_context';

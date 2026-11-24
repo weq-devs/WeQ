@@ -7,7 +7,7 @@
  * 包装），不追求通用。
  */
 
-import type { z } from 'zod';
+import type { z } from 'zod/v3';
 import { getExternalMcpHub } from './external';
 import { AI_TOOLS } from './tools';
 import { assertAccountToolScope } from './account_scope';

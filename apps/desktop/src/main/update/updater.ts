@@ -16,7 +16,7 @@
  */
 
 import { app } from 'electron';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { JsonStore } from '@weq/service/json-store';
 import { TransferGate, shouldPauseTransfer } from '@weq/service/data-saver';
 import { transferBehavior } from '@weq/service/network-scope';

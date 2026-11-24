@@ -2,7 +2,7 @@ import { execFile, spawn } from 'node:child_process';
 import { lstat, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import signingIdentity from '../../shared/mac-signing.json';
 import { officialArchive } from './official_archive';
 export { verifyOfficialArchive as verifyMacArchive } from './official_archive';

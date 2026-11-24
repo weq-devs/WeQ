@@ -17,7 +17,7 @@
 
 import { observable } from '@trpc/server/observable';
 import { TRPCError } from '@trpc/server';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { isUpdateCheckInterval } from '@weq/service/update-settings';
 import { procedure, router } from '../trpc';
 import { backgroundTasks } from '../../background_tasks';

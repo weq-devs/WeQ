@@ -20,7 +20,7 @@
   "dependencies": {
     "@protobuf-ts/runtime": "^2.11.1",
     "pinyin-pro": "3.26.0",
-    "zod": "^3.25.76"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

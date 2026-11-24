@@ -10,7 +10,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(new URL('../apps/desktop/package.json', import.meta.url));
 const { Arch } = require('electron-builder');
 const platformKeys = { darwin: 'mac', win32: 'win', linux: 'linux' };
-export const MIN_REMOTE_GO_VERSION = '1.27.3';
+export const MIN_REMOTE_GO_VERSION = '1.27.4';
+const REMOTE_TAILSCALE_VERSION = 'v1.104.7';
 
 export function remoteNetworkTarget(context) {
   const platform = context.electronPlatformName;
@@ -48,6 +49,13 @@ export function verifyRemoteNetworkBinary(helper, platform, arch, inspect = exec
     : -1;
   if (comparison < 0)
     throw new Error(`Remote 辅助程序必须由 Go ${MIN_REMOTE_GO_VERSION} 或更高稳定版构建`);
+  if (
+    !(info.Deps ?? []).some(
+      ({ Path, Version, Replace }) =>
+        Path === 'tailscale.com' && Version === REMOTE_TAILSCALE_VERSION && !Replace,
+    )
+  )
+    throw new Error(`Remote 辅助程序必须使用 Tailscale ${REMOTE_TAILSCALE_VERSION}`);
   const settings = new Map((info.Settings ?? []).map(({ Key, Value }) => [Key, Value]));
   if (
     info.Path !== 'weq.local/remote-network' ||

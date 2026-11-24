@@ -7,7 +7,7 @@ const require = createRequire(new URL('../apps/desktop/package.json', import.met
 const { signAsync } = require('@electron/osx-sign');
 const run = promisify(execFile);
 
-/** electron-builder 25 不会为无证书构建自动补完整的 ad-hoc 资源签名。 */
+/** 为无证书构建补齐 ad-hoc 资源签名。 */
 export function macSigningOptions(options, env = process.env) {
   if (options.platform !== 'darwin' || options.identity === null)
     throw new Error('仅支持未禁用签名的 macOS 桌面构建');

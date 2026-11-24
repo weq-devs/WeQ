@@ -6,7 +6,7 @@ import { uptime } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
 import { writeFileAtomic } from '@weq/service/atomic-write';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { RecallJournal } from './recall_journal';
 import { QqSyncProxy } from './proxy';
 import { QQ_SYNC_CONTROL_VERSION, type SyncProxyConfig } from './ipc';

@@ -26,7 +26,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { usePageState } from '../../components/PageSnapshots.shared';
 import {
   CalendarClock,

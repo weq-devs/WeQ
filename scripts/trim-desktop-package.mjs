@@ -25,7 +25,7 @@ const require = createRequire(new URL('../apps/desktop/package.json', import.met
 const { Arch } = require('electron-builder');
 const ts = require('typescript');
 
-/** electron-builder 25 只裁剪应用资源目录，补上 macOS Framework 内的语言包。 */
+/** 补裁 macOS Framework 内的语言包。 */
 export function pruneMacFrameworkLanguages(directory, languages) {
   if (!languages?.length || !existsSync(directory)) return;
   const entries = readdirSync(directory).filter((name) => name.endsWith('.lproj'));

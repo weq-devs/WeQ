@@ -1,5 +1,5 @@
 import { JsonStore, OperationError } from '@weq/service';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import {
   createCalendarSources,
   generatedMessages,

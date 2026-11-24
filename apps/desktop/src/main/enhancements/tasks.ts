@@ -1,5 +1,5 @@
 import { JsonStore } from '@weq/service/json-store';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { join } from 'node:path';
 import { ENHANCEMENT_PACK_IDS, type EnhancementPackId } from '../../shared/enhancement_manifest';
 import type { EnhancementPacks, PackOperation } from './packs';

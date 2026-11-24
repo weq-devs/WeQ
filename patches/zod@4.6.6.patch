@@ -1,0 +1,108 @@
+diff --git a/v3/types.cjs b/v3/types.cjs
+index 7c3fa90509fe0149fde8ad5e647b9657014c538f..6f768fb589b87f99caacd5ec1549cca1fa90ab87 100644
+--- a/v3/types.cjs
++++ b/v3/types.cjs
+@@ -1792,6 +1792,8 @@ class ZodArray extends ZodType {
+                     exact: true,
+                     message: def.exactLength.message,
+                 });
++                if (tooBig)
++                    return parseUtil_js_1.INVALID;
+                 status.dirty();
+             }
+         }
+@@ -1818,20 +1820,30 @@ class ZodArray extends ZodType {
+                     exact: false,
+                     message: def.maxLength.message,
+                 });
+-                status.dirty();
++                return parseUtil_js_1.INVALID;
+             }
+         }
++        // Do not accumulate an input-sized list of errors for an unbounded array.
++        const values = [];
++        const length = ctx.data.length;
+         if (ctx.common.async) {
+-            return Promise.all([...ctx.data].map((item, i) => {
+-                return def.type._parseAsync(new ParseInputLazyPath(ctx, item, ctx.path, i));
+-            })).then((result) => {
+-                return parseUtil_js_1.ParseStatus.mergeArray(status, result);
+-            });
++            return (async () => {
++                for (let i = 0; i < length; i++) {
++                    const item = await def.type._parseAsync(new ParseInputLazyPath(ctx, ctx.data[i], ctx.path, i));
++                    if (item.status !== "valid")
++                        return parseUtil_js_1.INVALID;
++                    values.push(item.value);
++                }
++                return { status: status.value, value: values };
++            })();
+         }
+-        const result = [...ctx.data].map((item, i) => {
+-            return def.type._parseSync(new ParseInputLazyPath(ctx, item, ctx.path, i));
+-        });
+-        return parseUtil_js_1.ParseStatus.mergeArray(status, result);
++        for (let i = 0; i < length; i++) {
++            const item = def.type._parseSync(new ParseInputLazyPath(ctx, ctx.data[i], ctx.path, i));
++            if (item.status !== "valid")
++                return parseUtil_js_1.INVALID;
++            values.push(item.value);
++        }
++        return { status: status.value, value: values };
+     }
+     get element() {
+         return this._def.type;
+diff --git a/v3/types.js b/v3/types.js
+index ea2be4dba5775eabf4d5b5fecdead5e1a0ca52ff..2ba1461664e6b26c6b00e50b03a7dc86e7354238 100644
+--- a/v3/types.js
++++ b/v3/types.js
+@@ -1771,6 +1771,8 @@ export class ZodArray extends ZodType {
+                     exact: true,
+                     message: def.exactLength.message,
+                 });
++                if (tooBig)
++                    return INVALID;
+                 status.dirty();
+             }
+         }
+@@ -1797,20 +1799,30 @@ export class ZodArray extends ZodType {
+                     exact: false,
+                     message: def.maxLength.message,
+                 });
+-                status.dirty();
++                return INVALID;
+             }
+         }
++        // Do not accumulate an input-sized list of errors for an unbounded array.
++        const values = [];
++        const length = ctx.data.length;
+         if (ctx.common.async) {
+-            return Promise.all([...ctx.data].map((item, i) => {
+-                return def.type._parseAsync(new ParseInputLazyPath(ctx, item, ctx.path, i));
+-            })).then((result) => {
+-                return ParseStatus.mergeArray(status, result);
+-            });
++            return (async () => {
++                for (let i = 0; i < length; i++) {
++                    const item = await def.type._parseAsync(new ParseInputLazyPath(ctx, ctx.data[i], ctx.path, i));
++                    if (item.status !== "valid")
++                        return INVALID;
++                    values.push(item.value);
++                }
++                return { status: status.value, value: values };
++            })();
+         }
+-        const result = [...ctx.data].map((item, i) => {
+-            return def.type._parseSync(new ParseInputLazyPath(ctx, item, ctx.path, i));
+-        });
+-        return ParseStatus.mergeArray(status, result);
++        for (let i = 0; i < length; i++) {
++            const item = def.type._parseSync(new ParseInputLazyPath(ctx, ctx.data[i], ctx.path, i));
++            if (item.status !== "valid")
++                return INVALID;
++            values.push(item.value);
++        }
++        return { status: status.value, value: values };
+     }
+     get element() {
+         return this._def.type;

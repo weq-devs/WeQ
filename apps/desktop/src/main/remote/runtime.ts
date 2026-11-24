@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import type { Server } from 'node:http';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import QRCode from 'qrcode';
 import { RemotePairing } from './pairing';
 import { createRemoteServer } from './http';

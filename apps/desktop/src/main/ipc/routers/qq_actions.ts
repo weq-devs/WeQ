@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { basename } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { observeUpload, transferIdInput } from './transfer_progress';
 import {
   GROUP_SELECTED_TAG_LIMIT,

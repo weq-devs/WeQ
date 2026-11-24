@@ -1,5 +1,5 @@
 import { createContext } from 'react';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { Contact, GroupConversation, GroupMember, User } from '../im-template/template/types';
 import { avatarFromUin } from './avatarResolver';
 import type { SettingsNavigation } from '../hooks/useSettingsNavigation';

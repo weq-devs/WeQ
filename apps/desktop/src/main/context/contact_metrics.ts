@@ -1,7 +1,7 @@
 import { eventTimeFormatter } from '@weq/time';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import {
   ContactMetricsService,
   ContactHistoryService,

@@ -7,7 +7,7 @@
  */
 import { OperationError, requireDevelopmentDressTools } from '@weq/service';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { exportAccountBindingInput, exportSavePolicyInput } from './export_save';
 import { join } from 'node:path';
 import { copyFile, mkdir } from 'node:fs/promises';

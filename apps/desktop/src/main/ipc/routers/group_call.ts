@@ -1,5 +1,5 @@
 import { observable } from '@trpc/server/observable';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { GroupCallSnapshot } from '@weq/service';
 import { currentGroupCall, inviteGroupCallMembers, startGroupCall } from '../../group_call';
 import { withCallStart } from '../../call_registry';

@@ -2,7 +2,7 @@ import { statfs } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { TRPCError } from '@trpc/server';
 import { observable } from '@trpc/server/observable';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { exportExtraInput } from '../../../shared/export_content';
 import { describeExportOutput, exportOutputFileName, getHost } from '@weq/service';
 import {

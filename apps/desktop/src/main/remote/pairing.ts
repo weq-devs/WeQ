@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { RemoteObservation } from './device';
 import type { RemoteDeviceInfo, RemoteConnectionInfo } from '../../shared/remote_device';
 

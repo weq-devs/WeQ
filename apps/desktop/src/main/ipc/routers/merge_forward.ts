@@ -12,7 +12,7 @@
 import { join, relative, isAbsolute, dirname } from 'node:path';
 import { realpath, rm } from 'node:fs/promises';
 import { compositionMediaSource } from '../../composition_media';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import {
   MergeForwardArchiveStore,
   MergeForwardDraftStore,

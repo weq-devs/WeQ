@@ -17,7 +17,7 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@weq/testkit": "workspace:*",
-    "electron": "44.10.0",
+    "electron": "44.11.5",
     "tsx": "^4.19.2",
     "vitest": "^2.1.8"
   }

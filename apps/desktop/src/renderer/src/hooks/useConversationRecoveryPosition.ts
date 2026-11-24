@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { usePageSnapshotKey } from '../components/PageSnapshots.shared';
 import {
   atConversationReadingEnd,

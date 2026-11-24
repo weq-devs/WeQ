@@ -11,7 +11,7 @@ import {
   useClientPreferences,
 } from '../../lib/clientPreferences';
 import { MailListResizeHandle } from './MailListResizeHandle';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { usePageState } from '../../components/PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {

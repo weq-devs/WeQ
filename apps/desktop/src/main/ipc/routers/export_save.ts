@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { exportContentPolicyInput } from '../../../shared/export_content';
 import {
   sanitizeSegment,

@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { captureReadingPosition, restoreReadingPosition } from '../lib/conversationReadingPosition';
 import { pageSnapshots } from '../lib/pageSnapshots';
 import { usePageSnapshotKey } from './PageSnapshots.shared';

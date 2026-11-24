@@ -7,7 +7,7 @@
  * service — this layer only shapes input. Destructive; account-bound.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { backgroundTasks, taskError } from '../../background_tasks';

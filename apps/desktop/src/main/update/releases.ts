@@ -1,6 +1,6 @@
 import { networkFetch } from '@weq/network';
 import semver from 'semver';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { getReleaseFeed } from './release_feed';
 
 const releasesSchema = z.array(

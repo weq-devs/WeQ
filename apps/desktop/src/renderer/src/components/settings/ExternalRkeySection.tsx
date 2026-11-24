@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import {
   CheckCircle2,

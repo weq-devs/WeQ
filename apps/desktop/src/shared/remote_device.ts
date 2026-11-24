@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 const deviceText = z.string().trim().min(1).max(128);
 export const remoteDeviceInfoSchema = z.object({

@@ -26,7 +26,7 @@ import {
   useState,
   type ReactElement,
 } from 'react';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import {
   Loader2,
   Check,

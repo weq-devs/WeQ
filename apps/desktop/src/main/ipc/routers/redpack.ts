@@ -10,7 +10,7 @@
  * 再放开一段 CSP。
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { listRedPackSkins, type RedPackSkinVariant } from '../../redpack_catalog';
 import { procedure, router } from '../trpc';
 

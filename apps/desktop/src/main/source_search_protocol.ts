@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 const value = z.union([z.null(), z.number().finite(), z.string()]);
 export const sourceSearchRequest = z.object({
   target: z.object({

@@ -1,5 +1,5 @@
 import { Fragment, useContext, useEffect, useMemo, useRef, type ReactNode } from 'react';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { SlidersHorizontal } from 'lucide-react';
 import { AutoSave } from './AutoSave';

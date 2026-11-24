@@ -3,7 +3,7 @@ import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { ANNOUNCEMENT_ID } from '@weq/network/announcement-metadata';
 import { writeFileAtomic } from '@weq/service/atomic-write';
 

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import superjson from 'superjson';
 
 const PREFIX = 'weq:page-snapshot:v1:';

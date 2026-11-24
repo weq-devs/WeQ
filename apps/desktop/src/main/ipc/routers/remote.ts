@@ -1,5 +1,5 @@
 import { TRPCError } from '@trpc/server';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { getHost } from '@weq/service';
 import { remoteRuntime } from '../../remote/runtime';
 import { getAppContext } from '../../context/app_context';

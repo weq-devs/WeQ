@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import { JsonStore } from '@weq/service';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 const time = z.number().int().safe().positive().nullable();
 const entries = z.record(

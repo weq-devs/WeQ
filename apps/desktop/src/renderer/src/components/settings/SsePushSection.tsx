@@ -17,7 +17,7 @@
 
 import { useEffect, useState, type FormEvent, type ReactElement } from 'react';
 import { EditorDialog } from '../EditorDialog';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { usePageState } from '../PageSnapshots.shared';
 import { useNumericSettingDraft } from './useNumericSettingDraft';
 import {

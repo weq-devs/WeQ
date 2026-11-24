@@ -30,7 +30,7 @@ import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
 import { EditorDialog } from '../EditorDialog';
 import { useDraftClose } from '../../lib/draftClose';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
 import { SETTINGS_PAGE_LABELS } from './navigation';

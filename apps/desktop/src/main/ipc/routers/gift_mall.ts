@@ -14,7 +14,7 @@
  */
 import { OperationError } from '@weq/service';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { GIFT_MALL_SUBTABS, GIFT_MALL_TABS } from '@weqbot/protocol';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { fullModeAllowed } from '../../context/full_mode';

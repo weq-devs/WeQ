@@ -7,7 +7,7 @@ import {
   type ResourceExportSummary,
 } from '@weq/service';
 import { QZONE_SHARE_CATEGORIES, type QzoneShareCategory } from '@weqbot/protocol/web';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { open } from 'node:fs/promises';
 import { rememberQzoneAlbums, rememberQzonePosts } from '../../search_content';
 import { withQzonePaginationTimeout } from '@weq/service/qzone-pagination';

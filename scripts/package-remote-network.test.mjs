@@ -31,6 +31,7 @@ test('包内校验拒绝缺件、空文件、无执行权限及错误平台/架�
     JSON.stringify({
       GoVersion: `go${MIN_REMOTE_GO_VERSION}`,
       Path: 'weq.local/remote-network',
+      Deps: [{ Path: 'tailscale.com', Version: 'v1.104.7' }],
       Settings: [
         { Key: 'GOOS', Value: 'linux' },
         { Key: 'GOARCH', Value: 'arm64' },
@@ -44,10 +45,16 @@ test('包内校验拒绝缺件、空文件、无执行权限及错误平台/架�
     chmodSync(helper, 0o700);
     verifyRemoteNetworkBinary(helper, 'linux', 'arm64', inspect);
     const oldGo = JSON.parse(inspect());
-    oldGo.GoVersion = 'go1.27.2';
+    oldGo.GoVersion = 'go1.27.3';
     assert.throws(
       () => verifyRemoteNetworkBinary(helper, 'linux', 'arm64', () => JSON.stringify(oldGo)),
       /更高稳定版/,
+    );
+    const oldTailscale = JSON.parse(inspect());
+    oldTailscale.Deps[0].Version = 'v1.104.1';
+    assert.throws(
+      () => verifyRemoteNetworkBinary(helper, 'linux', 'arm64', () => JSON.stringify(oldTailscale)),
+      /必须使用 Tailscale/,
     );
     assert.throws(
       () => verifyRemoteNetworkBinary(helper, 'darwin', 'arm64', inspect),

@@ -1,5 +1,5 @@
 import { networkFetch } from '@weq/network';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { basename, extname, join } from 'node:path';
 import { open, unlink } from 'node:fs/promises';
 import { Readable, Transform } from 'node:stream';

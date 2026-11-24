@@ -2,7 +2,7 @@ import { createHTTPHandler } from '@trpc/server/adapters/standalone';
 import { applyWSSHandler } from '@trpc/server/adapters/ws';
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { clientStateRouter } from '../../src/main/ipc/routers/client_state';
 import { procedure, router } from './client-sync-trpc';
 import { requireBootstrap } from './client-sync-context';

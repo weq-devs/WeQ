@@ -8,7 +8,7 @@
  *   if (result.success) { ... }
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { PicType, GrayTipSubType, CallType } from './types';
 
 const BaseElementFieldsSchema = z.object({

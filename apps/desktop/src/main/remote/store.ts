@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import type { Claim } from './pairing';
 import { remoteConnectionMode } from '../../shared/remote_bootstrap';
 import { remoteDeviceInfoSchema, remoteConnectionInfoSchema } from '../../shared/remote_device';

@@ -102,7 +102,7 @@ import { useToastApi } from './Toast.shared';
 import { SettingsNotificationSource } from '../lib/notificationNavigation';
 import { Modal } from './Dialog';
 import type { SettingsNavigation } from '../hooks/useSettingsNavigation';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
 import LogPerformanceSettings from './settings/LogPerformanceSettings';
 import { useAppLock } from '../state/lock';

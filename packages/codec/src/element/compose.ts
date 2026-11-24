@@ -15,7 +15,7 @@
  * msgType convention (DB column 40011): no reply → 2, has reply → 9.
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import {
   TextElementSchema,
   AtElementSchema,

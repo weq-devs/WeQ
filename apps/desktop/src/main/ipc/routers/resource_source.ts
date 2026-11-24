@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 
 /** 旧工具可省略身份；融合工具始终传完整账号和配置来源。 */

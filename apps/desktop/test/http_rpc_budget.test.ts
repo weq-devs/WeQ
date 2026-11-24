@@ -3,10 +3,48 @@ import http from 'node:http';
 import { initTRPC } from '@trpc/server';
 import { createTRPCUntypedClient, httpLink } from '@trpc/client';
 import superjson from 'superjson';
-import { z } from 'zod';
+import { z as z4 } from 'zod';
+import { z } from 'zod/v3';
 import { afterEach, expect, it } from 'vitest';
 import { createTrpcHandler } from '../src/main/web/trpc_adapter';
 const servers: http.Server[] = [];
+
+it('WeQ 兼容 schema 和 MCP SDK 使用的 schema 都先检查数组长度', async () => {
+  let visits = 0;
+  const mark = () => {
+    visits += 1;
+    return true;
+  };
+  for (const schema of [
+    z.array(z.string().refine(mark)).max(1),
+    z4.array(z4.string().refine(mark)).max(1),
+  ]) {
+    expect(await schema.safeParseAsync(['a', 'b'])).toMatchObject({
+      success: false,
+      error: { issues: [{ code: 'too_big' }] },
+    });
+  }
+  expect(visits).toBe(0);
+});
+
+it('WeQ 数组遇到首个无效值就停止，合法数组仍逐项转换', async () => {
+  const item = z
+    .string()
+    .min(2)
+    .transform((value) => value.trim());
+  const array = z.array(item);
+  expect(array.safeParse([' abc ', 'x', 'y'])).toMatchObject({
+    success: false,
+    error: { issues: [{ path: [1] }] },
+  });
+  expect(await array.safeParseAsync([' abc ', 'x', 'y'])).toMatchObject({
+    success: false,
+    error: { issues: [{ path: [1] }] },
+  });
+  expect(array.parse([' abc ', ' def '])).toEqual(['abc', 'def']);
+  await expect(array.parseAsync([' abc ', ' def '])).resolves.toEqual(['abc', 'def']);
+});
+
 afterEach(async () => {
   for (const server of servers.splice(0)) {
     server.closeAllConnections();

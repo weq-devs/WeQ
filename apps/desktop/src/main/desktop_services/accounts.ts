@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage } from 'node:http';
 import { setTimeout as pause } from 'node:timers/promises';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import {
   accountIsRunning,
   savedInstanceAccounts,
