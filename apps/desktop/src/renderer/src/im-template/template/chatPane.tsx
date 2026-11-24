@@ -938,8 +938,10 @@ function ChatPaneContent({
   const showUnreadDivider = preferenceValue('showUnreadDivider');
   const swipeToQuote = preferenceValue('swipeToQuote');
   const directory = useContext(ConversationDirectoryContext);
-  const [body, setBody] = useState('');
-  const draftMediaFingerprint = JSON.stringify([...composerAssetIds(body)].sort());
+  // 编辑器维护可见正文。只有发送可用性、草稿素材和打开的语音面板需要 React 状态。
+  const bodyRef = useRef('');
+  const [hasComposerBody, setHasComposerBody] = useState(false);
+  const [draftMediaFingerprint, setDraftMediaFingerprint] = useState('[]');
   const [restoringDraftMedia, setRestoringDraftMedia] = useState(false);
   const draftMediaRestore = useRef(0);
   const composerEdited = useRef(false);
@@ -1043,8 +1045,26 @@ function ChatPaneContent({
   const [toolsOpen, setToolsOpen] = useState(false);
   const { returnId, setReturnId, takeTranscriptDraft } = useVoiceMode()!;
   const conversationId = conversation?.id ?? null;
-  const [voiceConversationId, setVoiceConversationId] = useState<string | null>(null);
-  const voiceOpen = conversationId !== null && voiceConversationId === conversationId;
+  const [voiceComposer, setVoiceComposer] = useState<{
+    conversationId: string;
+    text: string;
+  } | null>(null);
+  const voiceOpen = voiceComposer !== null && voiceComposer.conversationId === conversationId;
+  const openVoiceComposer = useCallback((id: string) => {
+    setVoiceComposer({ conversationId: id, text: composerSpeechText(bodyRef.current) });
+  }, []);
+  const updateComposerSnapshot = useCallback((value: string) => {
+    bodyRef.current = value;
+    const assetIds = composerAssetIds(value);
+    setHasComposerBody(value.length > 0);
+    setDraftMediaFingerprint(JSON.stringify([...assetIds].sort()));
+    setVoiceComposer((current) => {
+      if (!current) return current;
+      const text = composerSpeechText(value);
+      return text === current.text ? current : { ...current, text };
+    });
+    return assetIds.size > 0;
+  }, []);
   // 「链接卡片」面板：填标题 / 描述 / 图标 / 跳转链接，summary 固定 [分享]。
   const [arkOpen, setArkOpen] = useState(false);
   // 「闪传」文件框：拖文件 / 选文件夹 → 灯箱确认封面 → 走 fileset 发送。
@@ -2326,8 +2346,6 @@ function ChatPaneContent({
   const scheduleMobileComposerMeasureRef = useRef<(editor?: HTMLElement | null) => void>(() => {});
   const draftRef = useRef(draft);
   draftRef.current = draft;
-  const bodyRef = useRef(body);
-  bodyRef.current = body;
   const draftConversationId = conversation?.id;
   const draftMediaScope = draftScope ?? user.identityValue;
 
@@ -2353,14 +2371,13 @@ function ChatPaneContent({
     draftIdentity.current = identity;
     composerEdited.current = false;
     const currentDraft = draftRef.current;
-    bodyRef.current = currentDraft;
-    setBody(currentDraft);
+    updateComposerSnapshot(currentDraft);
     composerSelectionRef.current = null;
     if (editor) {
       restoreComposer(editor, currentDraft);
       scheduleMobileComposerMeasureRef.current(editor);
     }
-  }, [conversation?.id, draftMediaScope, user.id, draft]);
+  }, [conversation?.id, draftMediaScope, user.id, draft, updateComposerSnapshot]);
 
   useLayoutEffect(() => {
     // 切换会话/标签时收起键盘；仅切换窗口布局不打断当前输入。
@@ -2601,7 +2618,7 @@ function ChatPaneContent({
   }, [composerFont.family, tabActive, compactHeader, voiceOpen]);
 
   useLayoutEffect(() => {
-    setVoiceConversationId((current) => (current === conversationId ? current : null));
+    setVoiceComposer((current) => (current?.conversationId === conversationId ? current : null));
   }, [conversationId]);
 
   useLayoutEffect(() => {
@@ -2609,9 +2626,9 @@ function ChatPaneContent({
     setComposerCollapsed(false);
     setMobileComposerExpanded(false);
     setFlashOpen(false);
-    setVoiceConversationId(returnId);
+    openVoiceComposer(returnId);
     setReturnId(null);
-  }, [conversationId, returnId, setReturnId, tabActive]);
+  }, [conversationId, openVoiceComposer, returnId, setReturnId, tabActive]);
 
   // 闪传文件框：点到外面 / Esc 就收起来（与语音 / ark 面板同一套交互）。
   // 灯箱在面板内部，所以点灯箱不会被误判成「点到外面」。
@@ -2898,8 +2915,7 @@ function ChatPaneContent({
         };
         const next = result.rewrite(bodyRef.current);
         // 只刷新本次页面的预览地址，不把恢复动作当成新输入或重新上传。
-        bodyRef.current = next;
-        setBody(next);
+        updateComposerSnapshot(next);
         for (const editor of [composerEditorRef.current, expandedComposerEditorRef.current])
           if (editor) restoreComposer(editor, next);
         setRestoringDraftMedia(false);
@@ -2924,6 +2940,7 @@ function ChatPaneContent({
     draft,
     draftMediaFingerprint,
     pushToast,
+    updateComposerSnapshot,
   ]);
 
   useLayoutEffect(
@@ -3123,7 +3140,7 @@ function ChatPaneContent({
   function insertComposerText(value: string, focus = true) {
     const editor = currentComposerEditor();
     if (!editor) {
-      setComposerBody(`${body}${value}`);
+      setComposerBody(`${bodyRef.current}${value}`);
       return;
     }
 
@@ -3150,7 +3167,7 @@ function ChatPaneContent({
     const editor = currentComposerEditor();
     const label = mentionText(member);
     if (!editor) {
-      setComposerBody(`${body}${label} `);
+      setComposerBody(`${bodyRef.current}${label} `);
       setMentionMenu(null);
       return;
     }
@@ -3815,7 +3832,7 @@ function ChatPaneContent({
   function insertComposerLineBreak() {
     const editor = currentComposerEditor();
     if (!editor) {
-      setComposerBody(`${body}\n`);
+      setComposerBody(`${bodyRef.current}\n`);
       return;
     }
 
@@ -3858,7 +3875,7 @@ function ChatPaneContent({
 
     const editor = currentComposerEditor();
     if (!editor) {
-      setComposerBody(`${body}${createEmojiToken(item)}`);
+      setComposerBody(`${bodyRef.current}${createEmojiToken(item)}`);
       return;
     }
 
@@ -4039,7 +4056,7 @@ function ChatPaneContent({
     } = {},
   ) {
     const editor = currentComposerEditor();
-    const draftBody = editor ? serializeComposer(editor) : body;
+    const draftBody = editor ? serializeComposer(editor) : bodyRef.current;
     const stagedMedia = options.speechOnly ? [] : [...mediaAttachmentRef.current];
     const sendsSpecialMedia = stagedMedia.some((attachment) => attachment.special);
     const singleToken =
@@ -5521,14 +5538,12 @@ function ChatPaneContent({
   }
 
   function setComposerBody(value: string) {
-    const nextIds = composerAssetIds(value);
     composerEdited.current = true;
-    bodyRef.current = value;
-    setBody(value);
+    const hasDraftMedia = updateComposerSnapshot(value);
     if (conversation) {
       onDraftChange(conversation.id, value);
     }
-    if (!nextIds.size) setRestoringDraftMedia(false);
+    if (!hasDraftMedia) setRestoringDraftMedia(false);
   }
 
   function setSpeechDraftText(text: string) {
@@ -5769,7 +5784,7 @@ function ChatPaneContent({
 
   function closeVoicePanel() {
     applyTranscriptToEmptyDraft();
-    setVoiceConversationId(null);
+    setVoiceComposer(null);
   }
 
   function toggleVoicePanel() {
@@ -5785,7 +5800,7 @@ function ChatPaneContent({
     setMentionMenu(null);
     setSlashMenu(null);
     if (voiceOpen) closeVoicePanel();
-    else setVoiceConversationId(conversationId);
+    else if (conversationId !== null) openVoiceComposer(conversationId);
   }
 
   function toggleArkPanel() {
@@ -5924,7 +5939,7 @@ function ChatPaneContent({
 
   function closeMobileComposerExpanded() {
     const editor = expandedComposerEditorRef.current;
-    const nextBody = editor ? serializeComposer(editor) : body;
+    const nextBody = editor ? serializeComposer(editor) : bodyRef.current;
     setComposerBody(nextBody);
     setMobileComposerExpanded(false);
     setEmojiOpen(false);
@@ -6090,7 +6105,7 @@ function ChatPaneContent({
     groupSpeechBlocked ||
     currentPreference.blocked ||
     sending ||
-    (body.length === 0 && !hasSingleSend && !hasQuote && !hasExternalAttachments);
+    (!hasComposerBody && !hasSingleSend && !hasQuote && !hasExternalAttachments);
   const sendTitle = !sendAvailable
     ? sendBlockedReason || '在线能力受限，无法发送消息'
     : groupSpeechBlocked
@@ -7214,7 +7229,7 @@ function ChatPaneContent({
             });
           }}
           onInsert={(text) => {
-            const prefix = body.trim().length > 0 ? ' ' : '';
+            const prefix = bodyRef.current.trim().length > 0 ? ' ' : '';
             insertComposerText(`${prefix}${text}`);
             window.requestAnimationFrame(() => focusComposerEnd(currentComposerEditor()));
           }}
@@ -7739,7 +7754,7 @@ function ChatPaneContent({
               key={conversation.id}
               conversationId={conversation.id}
               conversationLabel={chatHeaderTitle(conversation)}
-              text={composerSpeechText(body)}
+              text={voiceComposer?.text ?? ''}
               onTextChange={setSpeechDraftText}
               onUseTranscriptDraft={applyTranscriptToEmptyDraft}
               onExitVoiceMode={closeVoicePanel}
