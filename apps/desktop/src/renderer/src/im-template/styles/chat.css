@@ -482,7 +482,7 @@
   right: 24px;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 8px;
   max-width: calc(100% - 24px);
   pointer-events: none;
