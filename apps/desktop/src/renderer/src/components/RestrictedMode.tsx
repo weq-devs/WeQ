@@ -1,5 +1,14 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { KeyRound, LoaderCircle, Play, RefreshCw, ShieldAlert, X, Zap } from 'lucide-react';
+import {
+  KeyRound,
+  LoaderCircle,
+  Play,
+  RefreshCw,
+  Settings,
+  ShieldAlert,
+  X,
+  Zap,
+} from 'lucide-react';
 import { LongTermAuthorizationLink } from './LongTermAuthorizationLink';
 import { RestrictedQqAction } from './RestrictedQqAction';
 import { client, trpc } from '../trpc/client';
@@ -16,6 +25,7 @@ import { useToastApi } from './Toast.shared';
 import { notificationSource } from '../lib/notificationNavigation.shared';
 import { useOverlayLayer } from '../lib/overlayStack';
 import { topSurface } from '../lib/surfaceEscape';
+import { requestOpenSettings } from '../lib/callSettingsBridge';
 import '../styles/restricted-mode.css';
 import { ipc, QQ_ONLINE_DETAILS_ID } from './RestrictedMode.shared';
 
@@ -810,7 +820,23 @@ export function RestrictedModeHost() {
             ))}
             {signature && error && <p role="alert">{error}</p>}
             {signature && !awaitingAuthorization && (
-              <div className="weq-restricted-actions">{actions}</div>
+              <div className="weq-restricted-actions">
+                {actions}
+                {!openedFromSettings && active && (
+                  <button
+                    type="button"
+                    className="weq-set-btn"
+                    disabled={busy || launching || entering}
+                    onClick={() => {
+                      useRestrictedMode.getState().setOpen(false);
+                      requestOpenSettings('qqOnlineCapability');
+                    }}
+                  >
+                    <Settings size={14} aria-hidden />
+                    在线能力设置
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </section>

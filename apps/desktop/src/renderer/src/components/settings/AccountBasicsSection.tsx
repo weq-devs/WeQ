@@ -37,7 +37,6 @@ import { useTabActive } from '../RetainedTabs.shared';
 import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, SettingsStatusBadge, Toggle } from './controls';
-import { LongTermAuthorizationSection } from './LongTermAuthorizationSection';
 import { DatabaseReadSettings } from './DatabaseReadSettings';
 import { FullFunctionSetup } from './FullFunctionSetup';
 import { NotificationMethodSelect } from './NotificationMethodSelect';
@@ -45,6 +44,7 @@ import { CopyButton } from '../CopyButton';
 import { QqProxyRecovery } from '../QqProxyConnection';
 import { qqProxySetupGuide } from '../QqProxyConnection.shared';
 import { formatExpiry } from './AccountBasicsSection.shared';
+import { SETTINGS_PAGE_LABELS } from './navigation';
 
 /** rkey `type_` → human label. Mirrors media_download.ts scene constants. */
 const RKEY_TYPE_LABEL: Record<number, string> = {
@@ -126,7 +126,7 @@ export function AccountBasicsSection({
   heading = true,
   databaseKeyTools,
 }: {
-  page?: 'account' | 'credentials' | 'media' | 'listening';
+  page?: 'account' | 'qq-proxy' | 'credentials' | 'media' | 'listening';
   heading?: boolean;
   databaseKeyTools?: ReactNode;
 }): ReactElement {
@@ -161,9 +161,9 @@ export function AccountBasicsSection({
   const [qqSyncPortDraft, setQqSyncPortDraft] = useState<string | null>(null);
   const pushToast = useToast((state) => state.push);
   const qqSyncStatus = trpc.bootstrap.getQqClientSyncStatus.useQuery(undefined, {
-    enabled: active && page === 'account',
+    enabled: active && page === 'qq-proxy',
     staleTime: 0,
-    refetchInterval: active && page === 'account' ? 5000 : false,
+    refetchInterval: active && page === 'qq-proxy' ? 5000 : false,
   });
   const setQqProxyEnabled = trpc.bootstrap.setQqProxyEnabled.useMutation({
     onSuccess: async () => {
@@ -302,6 +302,8 @@ export function AccountBasicsSection({
   const settingsLoading = settings.isLoading;
   const attachAllowed = fullMode.data?.allowed === true;
   const isMac = systemInfo.data?.platformKind === 'darwin';
+  const settingsPage =
+    page === 'media' ? 'resource-loading' : page === 'listening' ? 'database-management' : page;
 
   // Each toggle: flip locally for instant feedback, persist, then refetch so a
   // reopen reflects what's on disk. On failure, reconcile + surface the error.
@@ -368,21 +370,8 @@ export function AccountBasicsSection({
     <div className="weq-set">
       {heading && (
         <SectionHeader
-          page={
-            page === 'account' || page === 'credentials'
-              ? page
-              : page === 'media'
-                ? 'resource-loading'
-                : 'database-management'
-          }
-          title={
-            {
-              account: '在线能力与授权',
-              credentials: '凭据管理',
-              media: '资源加载',
-              listening: '监听与读取',
-            }[page]
-          }
+          page={settingsPage}
+          title={page === 'listening' ? '监听与读取' : SETTINGS_PAGE_LABELS[settingsPage]}
           desc={page === 'credentials' ? '当前账号的敏感凭据，默认隐藏。' : undefined}
         />
       )}
@@ -606,185 +595,184 @@ export function AccountBasicsSection({
         </Card>
       )}
       {page === 'account' && (
-        <>
-          <FullFunctionSetup
-            isMac={isMac}
-            enableSetting={
-              <Row
-                settingId="auto-full-mode"
-                desc="开启后，WeQ 会从已登录的 QQ 获取会话凭据。在线能力就绪时，WeQ 自动向 QQ 服务器上报已读位置。"
-                control={
-                  <Toggle
-                    checked={autoAttach}
-                    disabled={settingsLoading || setAutoAttachQq.isLoading}
-                    onChange={(v) =>
-                      void persist(
-                        () => setAutoAttach(v),
-                        () => setAutoAttachQq.mutateAsync({ enabled: v }),
-                      )
-                    }
-                    label="启用 QQ 在线能力"
-                  />
+        <FullFunctionSetup
+          isMac={isMac}
+          enableSetting={
+            <Row
+              settingId="auto-full-mode"
+              desc="开启后，WeQ 会从已登录的 QQ 获取会话凭据。在线能力就绪时，WeQ 自动向 QQ 服务器上报已读位置。要把已读同步回本机 QQ，请使用「QQ 代理连接」。"
+              control={
+                <Toggle
+                  checked={autoAttach}
+                  disabled={settingsLoading || setAutoAttachQq.isLoading}
+                  onChange={(v) =>
+                    void persist(
+                      () => setAutoAttach(v),
+                      () => setAutoAttachQq.mutateAsync({ enabled: v }),
+                    )
+                  }
+                  label="启用 QQ 在线能力"
+                />
+              }
+            />
+          }
+        >
+          <Row
+            settingId="restricted-mode-indicator"
+            control={
+              <Toggle
+                checked={restrictedIndicator}
+                disabled={
+                  settingsLoading || !settings.data || Boolean(settings.error) || savingIndicator
                 }
+                onChange={(value) => void toggleRestrictedIndicator(value)}
+                label="在线能力受限时显示窗口提示"
               />
             }
-          >
-            <Row
-              settingId="restricted-mode-indicator"
-              control={
-                <Toggle
-                  checked={restrictedIndicator}
-                  disabled={
-                    settingsLoading || !settings.data || Boolean(settings.error) || savingIndicator
-                  }
-                  onChange={(value) => void toggleRestrictedIndicator(value)}
-                  label="在线能力受限时显示窗口提示"
-                />
-              }
+          />
+          <Row
+            label="在线能力受限时通知"
+            desc="QQ 在线能力就绪后再次受限时，按通知设置提醒。授权请求、主动操作错误和启用进度不受影响。"
+            control={<NotificationMethodSelect event="runtime" />}
+          />
+        </FullFunctionSetup>
+      )}
+      {page === 'qq-proxy' && (
+        <Card
+          settingId="qq-proxy-connection"
+          title="QQ 代理连接"
+          titleBadge={
+            <SettingsStatusBadge
+              label={proxyStatusText}
+              tone={proxyStatusError ? 'warning' : proxy?.connected ? 'ready' : 'neutral'}
             />
-            <Row
-              label="在线能力受限时通知"
-              desc="QQ 在线能力就绪后再次受限时，按通知设置提醒。授权请求、主动操作错误和启用进度不受影响。"
-              control={<NotificationMethodSelect event="runtime" />}
-            />
-          </FullFunctionSetup>
-          <Card
-            settingId="qq-proxy-connection"
-            title="QQ 代理连接"
-            titleBadge={
-              <SettingsStatusBadge
-                label={proxyStatusText}
-                tone={proxyStatusError ? 'warning' : proxy?.connected ? 'ready' : 'neutral'}
+          }
+          desc="连接本机 QQ，以便同步本人消息和已读，也可用来加速实时更新。"
+          icon={<Network size={15} strokeWidth={1.8} />}
+          resetId="qq-client-sync"
+        >
+          <Row
+            label="启用 QQ 代理"
+            desc="本机各账号窗口共用代理开关和端口。停用前请先在 QQ 的「网络设置」中恢复直连。"
+            control={
+              <Toggle
+                checked={proxyEnabled}
+                disabled={
+                  !proxy ||
+                  qqSyncStatus.isError ||
+                  setQqProxyEnabled.isPending ||
+                  setQqClientSyncPort.isPending
+                }
+                onChange={(enabled) => void toggleQqProxy(enabled)}
+                label="启用 QQ 代理"
               />
             }
-            desc="连接本机 QQ，以便同步本人消息和已读，也可用来加速实时更新。"
-            icon={<Network size={15} strokeWidth={1.8} />}
-            resetId="qq-client-sync"
-          >
-            <Row
-              label="启用 QQ 代理"
-              desc="本机各账号窗口共用代理开关和端口。停用前请先在 QQ 的「网络设置」中恢复直连。"
-              control={
-                <Toggle
-                  checked={proxyEnabled}
+          />
+          <Row
+            label="代理端口"
+            desc={proxyEnabled ? qqProxySetupGuide(qqSyncPort) : undefined}
+            control={
+              <form
+                className="weq-set-btn-group"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (canSaveQqSyncPort) setQqClientSyncPort.mutate({ port: newQqSyncPort });
+                }}
+              >
+                <input
+                  className="weq-set-input weq-set-input-sm weq-number"
+                  aria-label="QQ 代理端口"
+                  inputMode="numeric"
+                  value={qqSyncPortDraft ?? qqSyncPort ?? ''}
                   disabled={
-                    !proxy ||
-                    qqSyncStatus.isError ||
+                    qqSyncPort === undefined ||
                     setQqProxyEnabled.isPending ||
                     setQqClientSyncPort.isPending
                   }
-                  onChange={(enabled) => void toggleQqProxy(enabled)}
-                  label="启用 QQ 代理"
+                  onChange={(event) =>
+                    setQqSyncPortDraft(event.target.value.replace(/\D/g, '').slice(0, 5))
+                  }
+                  title="请输入 1–65535 之间的整数"
                 />
-              }
-            />
-            <Row
-              label="代理端口"
-              desc={proxyEnabled ? qqProxySetupGuide(qqSyncPort) : undefined}
-              control={
-                <form
-                  className="weq-set-btn-group"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (canSaveQqSyncPort) setQqClientSyncPort.mutate({ port: newQqSyncPort });
-                  }}
+                <button
+                  type="submit"
+                  className="weq-set-btn weq-set-btn-primary weq-set-btn-sm"
+                  disabled={!canSaveQqSyncPort}
                 >
-                  <input
-                    className="weq-set-input weq-set-input-sm weq-number"
-                    aria-label="QQ 代理端口"
-                    inputMode="numeric"
-                    value={qqSyncPortDraft ?? qqSyncPort ?? ''}
-                    disabled={
-                      qqSyncPort === undefined ||
-                      setQqProxyEnabled.isPending ||
-                      setQqClientSyncPort.isPending
-                    }
-                    onChange={(event) =>
-                      setQqSyncPortDraft(event.target.value.replace(/\D/g, '').slice(0, 5))
-                    }
-                    title="请输入 1–65535 之间的整数"
-                  />
-                  <button
-                    type="submit"
-                    className="weq-set-btn weq-set-btn-primary weq-set-btn-sm"
-                    disabled={!canSaveQqSyncPort}
-                  >
-                    保存端口
-                  </button>
-                </form>
-              }
-            />
-            {proxyStatusError && (
-              <p className="weq-set-note weq-set-note-warn" role="alert">
-                {proxyStatusError}
-              </p>
+                  保存端口
+                </button>
+              </form>
+            }
+          />
+          {proxyStatusError && (
+            <p className="weq-set-note weq-set-note-warn" role="alert">
+              {proxyStatusError}
+            </p>
+          )}
+          {proxyEnabled &&
+            proxy?.connectionExpected &&
+            !proxy.connected &&
+            !qqSyncStatus.isError && (
+              <QqProxyRecovery onLaunch={() => void qqSyncStatus.refetch()} />
             )}
-            {proxyEnabled &&
-              proxy?.connectionExpected &&
-              !proxy.connected &&
-              !qqSyncStatus.isError && (
-                <QqProxyRecovery onLaunch={() => void qqSyncStatus.refetch()} />
-              )}
-            <Row
-              settingId="qq-client-sync"
-              desc="把 WeQ 发送的本人消息和已向 QQ 服务器成功上报的已读位置，同步回本机 QQ。"
-              control={
-                <Toggle
-                  checked={settings.data?.qqClientSyncEnabled ?? false}
-                  disabled={
-                    !proxyEnabled ||
-                    setQqProxyEnabled.isPending ||
-                    settingsLoading ||
-                    setQqClientSync.isPending ||
-                    setQqClientSyncPort.isPending
-                  }
-                  onChange={(enabled) => setQqClientSync.mutate({ enabled })}
-                  label="自动同步本人消息与已读"
-                />
-              }
-            />
-            {proxyStatusDetails && (
-              <p className="weq-set-note" role="status">
-                {proxyStatusDetails}
-              </p>
-            )}
-            <Row
-              settingId="qq-live-messages"
-              desc="利用 QQ 推送减少消息、未读、互动和群资料的重复读库与刷新，可能显著提升性能。代理断开后由数据库监听接手。"
-              control={
-                <Toggle
-                  checked={settings.data?.qqLiveMessagesEnabled ?? false}
-                  disabled={
-                    !proxyEnabled ||
-                    setQqProxyEnabled.isPending ||
-                    settingsLoading ||
-                    setQqLiveMessages.isPending
-                  }
-                  onChange={(enabled) => setQqLiveMessages.mutate({ enabled })}
-                  label="通过 QQ 代理加速实时更新"
-                />
-              }
-            />
-            <Row
-              settingId="qq-proxy-indicator"
-              control={
-                <Toggle
-                  checked={settings.data?.qqProxyIndicatorEnabled ?? true}
-                  disabled={
-                    !proxyEnabled ||
-                    setQqProxyEnabled.isPending ||
-                    !settings.data ||
-                    Boolean(settings.error) ||
-                    setQqProxyIndicator.isLoading
-                  }
-                  onChange={(enabled) => setQqProxyIndicator.mutate({ enabled })}
-                  label="QQ 代理未连接时显示窗口提示"
-                />
-              }
-            />
-          </Card>
-          <LongTermAuthorizationSection />
-        </>
+          <Row
+            settingId="qq-client-sync"
+            desc="把 WeQ 发送的本人消息和已向 QQ 服务器成功上报的已读位置，同步回本机 QQ。"
+            control={
+              <Toggle
+                checked={settings.data?.qqClientSyncEnabled ?? false}
+                disabled={
+                  !proxyEnabled ||
+                  setQqProxyEnabled.isPending ||
+                  settingsLoading ||
+                  setQqClientSync.isPending ||
+                  setQqClientSyncPort.isPending
+                }
+                onChange={(enabled) => setQqClientSync.mutate({ enabled })}
+                label="自动同步本人消息与已读"
+              />
+            }
+          />
+          {proxyStatusDetails && (
+            <p className="weq-set-note" role="status">
+              {proxyStatusDetails}
+            </p>
+          )}
+          <Row
+            settingId="qq-live-messages"
+            desc="利用 QQ 推送减少消息、未读、互动和群资料的重复读库与刷新，可能显著提升性能。代理断开后由数据库监听接手。"
+            control={
+              <Toggle
+                checked={settings.data?.qqLiveMessagesEnabled ?? false}
+                disabled={
+                  !proxyEnabled ||
+                  setQqProxyEnabled.isPending ||
+                  settingsLoading ||
+                  setQqLiveMessages.isPending
+                }
+                onChange={(enabled) => setQqLiveMessages.mutate({ enabled })}
+                label="通过 QQ 代理加速实时更新"
+              />
+            }
+          />
+          <Row
+            settingId="qq-proxy-indicator"
+            control={
+              <Toggle
+                checked={settings.data?.qqProxyIndicatorEnabled ?? true}
+                disabled={
+                  !proxyEnabled ||
+                  setQqProxyEnabled.isPending ||
+                  !settings.data ||
+                  Boolean(settings.error) ||
+                  setQqProxyIndicator.isLoading
+                }
+                onChange={(enabled) => setQqProxyIndicator.mutate({ enabled })}
+                label="QQ 代理未连接时显示窗口提示"
+              />
+            }
+          />
+        </Card>
       )}
       {/* 外部安卓图片缓存（放最下面，带引导文案） */}
       {page === 'media' && (

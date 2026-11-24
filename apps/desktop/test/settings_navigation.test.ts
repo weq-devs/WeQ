@@ -50,10 +50,12 @@ describe('设置的两级导航', () => {
       settingId: 'weq-assistant-default-model',
     });
   });
-  it('常规在启动后展示在线能力与授权，旧主页入口仍能定位', () => {
+  it('常规在启动后依次展示在线能力、代理连接和长期授权', () => {
     expect(settingsGroupFor('startup').sections).toEqual([
       'startup',
       'account',
+      'qq-proxy',
+      'long-term-authorization',
       'appearance',
       'home',
       'global',
@@ -64,6 +66,16 @@ describe('设置的两级导航', () => {
     expect(SETTINGS_PAGE_LABELS.appearance).toBe('外观与布局');
     expect(SETTINGS_PAGE_LABELS.global).toBe('通知与提醒');
     expect(settingsSectionFor('home')).toBe('home');
+    expect(
+      searchAppEntries('在线能力与授权')
+        .filter((entry) => entry.id.startsWith('settings.page.'))
+        .map((entry) => entry.target),
+    ).toEqual(
+      ['account', 'qq-proxy', 'long-term-authorization'].map((section) => ({
+        kind: 'setting',
+        section,
+      })),
+    );
   });
   it.each([
     ['使用仿 Windows 窗口按钮', 'windows-style-controls', 'appearance', '外观与布局'],

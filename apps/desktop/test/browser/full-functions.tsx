@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { AccountBasicsSection } from '../../src/renderer/src/components/settings/AccountBasicsSection';
+import { LongTermAuthorizationSection } from '../../src/renderer/src/components/settings/LongTermAuthorizationSection';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { RestrictedModeHost } from '../../src/renderer/src/components/RestrictedMode';
 import { WelcomeDialog } from '../../src/renderer/src/components/WelcomeDialog';
@@ -29,7 +30,11 @@ createRoot(document.getElementById('root')!).render(
     ) : (
       <>
         <main className="weq-settings-dialog full-functions-fixture">
-          <AccountBasicsSection />
+          <div className="weq-set">
+            <AccountBasicsSection heading={false} />
+            <AccountBasicsSection page="qq-proxy" heading={false} />
+            <LongTermAuthorizationSection />
+          </div>
         </main>
         <RestrictedModeHost />
       </>

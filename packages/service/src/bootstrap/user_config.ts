@@ -844,7 +844,7 @@ export interface AppSettings {
   exportSaveMode: import('../account/export/save_output').ExportSaveMode;
   realtimeEnabled: boolean;
   /**
-   * QQ 在线能力开关（设置 → 常规 → 在线能力与授权）。
+   * QQ 在线能力开关（设置 → 常规 → QQ 在线能力）。
    *
    * 默认**关闭**：是否读取登录中的 QQ 进程内存，由用户在**首次运行欢迎框**里
    * 自己选择（见 {@link WELCOME_POLICY_VERSION}）。开启后后台自动读进程内存，

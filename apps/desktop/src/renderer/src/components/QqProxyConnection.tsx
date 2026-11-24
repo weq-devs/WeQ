@@ -28,7 +28,7 @@ export function QqProxySettingsLink({
       className="weq-set-btn"
       onClick={() => {
         beforeNavigate?.();
-        if (navigate) navigate('account', 'qq-proxy-connection');
+        if (navigate) navigate('qq-proxy', 'qq-proxy-connection');
         else requestOpenSettings('qqProxyConnection');
       }}
     >

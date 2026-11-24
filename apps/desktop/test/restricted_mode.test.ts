@@ -17,6 +17,7 @@ import { ToastHost } from '../src/renderer/src/components/Toast';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { DialogHost } from '../src/renderer/src/components/Dialog';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import { onOpenSettingsRequest } from '../src/renderer/src/lib/callSettingsBridge';
 import type { QqDataAccess } from '../src/main/qq_data_access';
 import type { QqDebugCopyStatus } from '../src/shared/qq_debug_copy';
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_MAC: true, IS_WEB: false }));
@@ -501,6 +502,25 @@ it('菜单自动检查不发起手动启用，主动启用提交完整来源', a
   expect(mock.accessOptions).toHaveBeenLastCalledWith(
     expect.objectContaining({ refetchInterval: 5000, refetchIntervalInBackground: false }),
   );
+});
+it('受限详情可直接打开在线能力设置，且不触发启用', () => {
+  mock.access = { ...ready, attachEnabled: false };
+  const f = fixture();
+  const openSettings = vi.fn();
+  const unsubscribe = onOpenSettingsRequest(openSettings);
+  try {
+    act(() => useRestrictedMode.getState().setOpen(true));
+    const button = [...f.host.querySelectorAll('button')].find(
+      (action) => action.textContent === '在线能力设置',
+    );
+    expect(button).toBeDefined();
+    act(() => button!.click());
+    expect(openSettings).toHaveBeenCalledWith('qqOnlineCapability');
+    expect(mock.requestFull).not.toHaveBeenCalled();
+    expect(f.host.querySelector('.weq-restricted-panel')).toBeNull();
+  } finally {
+    unsubscribe();
+  }
 });
 it.each([false, true])('凭据不全时可主动补读，SIP 开启：%s', async (sip) => {
   mock.sip = sip;

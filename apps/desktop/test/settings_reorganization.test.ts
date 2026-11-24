@@ -209,15 +209,15 @@ describe('设置归位后的实际页面', () => {
       f.close();
     }
   });
-  it('QQ 在线能力先说明差异再分启用路线，授权与自动策略独立展示', () => {
+  it('QQ 在线能力、代理连接和长期授权各自成页，保留各自的设置', () => {
     conditional.platform = 'darwin';
     const f = mount('account');
     const titles = () =>
       [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent);
     try {
-      expect(titles()).toEqual(['QQ 在线能力', 'QQ 代理连接', '长期授权']);
+      expect(titles()).toEqual(['QQ 在线能力']);
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('常规');
-      expect(f.body().querySelector('h3')?.textContent).toBe('在线能力与授权');
+      expect(f.body().querySelector('h3')?.textContent).toBe('QQ 在线能力');
       const overview = f.body().querySelector('[data-setting-id="full-features"]')!;
       const routes = f.body().querySelector('[data-setting-id="full-feature-routes"]')!;
       expect(overview).not.toBeNull();
@@ -248,12 +248,7 @@ describe('设置归位后的实际页面', () => {
       expect(routes.querySelector('[data-setting-id="long-term-authorization"]')).toBeNull();
       expect(f.body().textContent).not.toContain('完整模式');
       expect(f.body().querySelector('.weq-set-card .weq-set-card')).toBeNull();
-      const ordered = [
-        'full-features',
-        'auto-full-mode',
-        'full-feature-routes',
-        'long-term-authorization',
-      ];
+      const ordered = ['full-features', 'auto-full-mode', 'full-feature-routes'];
       const nodes = ordered.map((id) => f.body().querySelector(`[data-setting-id="${id}"]`)!);
       for (let i = 1; i < nodes.length; i++)
         expect(
@@ -264,6 +259,12 @@ describe('设置归位后的实际页面', () => {
         f.body().querySelector('[data-setting-id="restricted-mode-indicator"]'),
       ).not.toBeNull();
       expect(f.body().querySelector('[data-setting-id="database-read-concurrency"]')).toBeNull();
+      f.render('qq-proxy');
+      expect(titles()).toEqual(['QQ 代理连接']);
+      expect(f.body().querySelector('[aria-label="启用 QQ 代理"]')).not.toBeNull();
+      f.render('long-term-authorization');
+      expect(titles()).toEqual(['长期授权']);
+      expect(f.body().querySelector('[aria-label="恢复本页默认设置"]')).toBeNull();
       f.render('database-management');
       expect(f.body().querySelector('h3')?.textContent).toBe('QQ 数据库管理');
       expect(
@@ -272,7 +273,7 @@ describe('设置归位后的实际页面', () => {
       expect(titles()).toEqual(['数据库浏览', '监听与读取', '数据库检查与修复']);
       conditional.platform = 'linux';
       f.render('account');
-      expect(titles()).toEqual(['QQ 在线能力', 'QQ 代理连接', '长期授权']);
+      expect(titles()).toEqual(['QQ 在线能力']);
       expect(f.body().querySelector('[data-setting-id="qq-debug-copy"]')).toBeNull();
       expect(f.body().textContent).not.toContain('SIP');
       expect(f.body().querySelector('[data-setting-id="full-features"]')).not.toBeNull();
@@ -301,18 +302,21 @@ describe('设置归位后的实际页面', () => {
     }
   });
   it.each([
-    'full-features',
-    'full-feature-routes',
-    'qq-debug-copy',
-    'long-term-authorization',
-    'auto-full-mode',
-    'restricted-mode-indicator',
-    'restricted-mode-banner',
-  ])('整理后的 QQ 在线能力入口 %s 仍可通过搜索定位', async (settingId) => {
+    ['full-features', 'account'],
+    ['full-feature-routes', 'account'],
+    ['qq-debug-copy', 'account'],
+    ['long-term-authorization', 'long-term-authorization'],
+    ['qq-proxy-connection', 'qq-proxy'],
+    ['qq-client-sync', 'qq-proxy'],
+    ['auto-full-mode', 'account'],
+    ['restricted-mode-indicator', 'account'],
+    ['restricted-mode-banner', 'global'],
+  ])('旧在线能力与授权入口 %s 定位到 %s', async (settingId, page) => {
     conditional.platform = 'darwin';
     const f = mount('account');
     try {
       await act(async () => f.render('account', { section: 'account', settingId, revision: 1 }));
+      expect(f.body().getAttribute('data-settings-page')).toBe(page);
       expect(
         f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
       ).toBe(settingId);
@@ -1015,7 +1019,9 @@ describe('设置归位后的实际页面', () => {
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
       ).toEqual([
         '启动与退出',
-        '在线能力与授权',
+        'QQ 在线能力',
+        'QQ 代理连接',
+        '长期授权',
         '外观与布局',
         '主页',
         '通知与提醒',

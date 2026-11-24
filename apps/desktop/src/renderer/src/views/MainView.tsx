@@ -1735,14 +1735,23 @@ function MainWorkspace(): ReactElement {
   useEffect(
     () =>
       onOpenSettingsRequest((section) => {
-        if (section === 'qqProxyConnection') {
+        if (
+          section === 'qqOnlineCapability' ||
+          section === 'qqProxyConnection' ||
+          section === 'longTermAuthorization'
+        ) {
+          const target = {
+            qqOnlineCapability: { section: 'account', settingId: 'auto-full-mode' },
+            qqProxyConnection: { section: 'qq-proxy', settingId: 'qq-proxy-connection' },
+            longTermAuthorization: {
+              section: 'long-term-authorization',
+              settingId: 'long-term-authorization',
+            },
+          } as const;
+          const destination = target[section];
           settingsNavigation.navigate(() => {
-            setSettingsSection('account');
-            setSettingsSearchTarget({
-              section: 'account',
-              settingId: 'qq-proxy-connection',
-              revision: Date.now(),
-            });
+            setSettingsSection(destination.section);
+            setSettingsSearchTarget({ ...destination, revision: Date.now() });
             setSettingsOpen(true);
           });
           return;
@@ -1762,16 +1771,6 @@ function MainWorkspace(): ReactElement {
         if (section === 'enhancementPacks') {
           setSettingsSearchTarget(null);
           setSettingsSection('enhancement-packs');
-          setSettingsOpen(true);
-          return;
-        }
-        if (section === 'longTermAuthorization') {
-          setSettingsSection('account');
-          setSettingsSearchTarget({
-            section: 'account',
-            settingId: 'long-term-authorization',
-            revision: Date.now(),
-          });
           setSettingsOpen(true);
           return;
         }

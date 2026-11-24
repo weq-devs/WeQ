@@ -149,7 +149,12 @@ function mount(showProxyIndicator = false) {
   const render = () =>
     act(() =>
       root.render(
-        h('div', null, h(AccountBasicsSection), showProxyIndicator && h(QqProxyIndicator)),
+        h(
+          'div',
+          null,
+          h(AccountBasicsSection, { page: showProxyIndicator ? 'qq-proxy' : 'account' }),
+          showProxyIndicator && h(QqProxyIndicator),
+        ),
       ),
     );
   cleanup = () => {

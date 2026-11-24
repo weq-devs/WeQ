@@ -46,6 +46,7 @@ import { MailSettingsSection } from './settings/MailSettingsSection';
 import { PrivacySection } from './settings/PrivacySection';
 import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
+import { LongTermAuthorizationSection } from './settings/LongTermAuthorizationSection';
 import { ComponentAppearance } from './settings/ComponentAppearance';
 import { WindowAppearanceCard } from './settings/WindowAppearanceCard';
 import { DesktopOnly } from '../lib/target';
@@ -172,8 +173,26 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'account',
-    label: '在线能力与授权',
+    label: SETTINGS_PAGE_LABELS.account,
     render: () => <AccountBasicsSection />,
+  },
+  {
+    id: 'qq-proxy',
+    label: SETTINGS_PAGE_LABELS['qq-proxy'],
+    render: () => <AccountBasicsSection page="qq-proxy" />,
+  },
+  {
+    id: 'long-term-authorization',
+    label: SETTINGS_PAGE_LABELS['long-term-authorization'],
+    render: () => (
+      <div className="weq-set">
+        <SectionHeader
+          page="long-term-authorization"
+          title={SETTINGS_PAGE_LABELS['long-term-authorization']}
+        />
+        <LongTermAuthorizationSection />
+      </div>
+    ),
   },
   {
     id: 'accounts',
