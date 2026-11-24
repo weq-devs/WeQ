@@ -156,22 +156,69 @@ async function mountReset(items?: SettingsResetItem[]) {
   };
   return { host, button, click, settled };
 }
-it('读取文件不直接写入，明确预览并确认后直接恢复；改选使旧确认失效', async () => {
-  const f = fixture(),
-    ui = await mount(f.api);
-  await ui.click('选择备份文件');
-  expect(f.api.stage).not.toHaveBeenCalled();
-  await ui.click('预览恢复');
-  expect(ui.host.textContent).toContain('确认恢复范围');
-  await act(async () => {
-    ui.host.querySelectorAll<HTMLButtonElement>('[aria-label="同名数据处理"] button')[1]!.click();
+it('选择备份后自动校验，取消时释放来源，确认导入才写入', async () => {
+  const f = fixture();
+  const ui = await mount(f.api);
+  await ui.click('导入备份');
+  expect(f.api.prepare).toHaveBeenCalledWith('source-1', {
+    parts: ['settings'],
+    conflict: 'skip',
+    keepLocalPaths: true,
+    includeClient: true,
+    clientId: expect.any(String),
   });
-  expect(ui.host.textContent).not.toContain('确认恢复范围');
-  await ui.click('预览恢复');
-  expect(ui.host.textContent).toContain('无需重启 WeQ');
-  await ui.click('确认恢复');
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('synthetic.zip');
+  expect(document.activeElement).toBe(ui.button('取消'));
+  expect(ui.button('确认导入').dataset.danger).toBe('solid');
+  expect(f.api.stage).not.toHaveBeenCalled();
+  await ui.click('取消');
+  expect(f.api.dispose).toHaveBeenCalledWith('source-1');
+  expect(f.api.stage).not.toHaveBeenCalled();
+  await ui.click('导入备份');
+  await ui.click('确认导入');
   expect(f.api.stage).toHaveBeenCalledWith('preview-1');
 });
+
+it('没有可导入的项目时释放备份，不关闭账号执行恢复', async () => {
+  const f = fixture();
+  const review = await f.api.prepare();
+  f.api.prepare.mockClear().mockResolvedValue({ ...review, planned: [], skipped: ['account'] });
+  const ui = await mount(f.api);
+  await ui.click('导入备份');
+  expect(f.api.dispose).toHaveBeenCalledWith('source-1');
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(f.api.stage).not.toHaveBeenCalled();
+});
+
+it('导出时由服务读取所有备份范围，Web 直接开始下载', async () => {
+  const f = fixture();
+  const download = vi
+    .spyOn(window.HTMLAnchorElement.prototype, 'click')
+    .mockImplementation(() => {});
+  try {
+    const exportBackup = vi.fn(async () => ({
+      id: 'export-id',
+      path: '/synthetic/backup.zip',
+      downloadUrl: '/synthetic-download',
+      canReveal: false,
+      summary: (await f.api.pick()).summary,
+    }));
+    const ui = await mount({ ...f.api, export: exportBackup });
+    await ui.click('导出备份');
+    expect(exportBackup).toHaveBeenCalledWith({
+      parts: ['settings', 'accounts', 'api', 'clones'],
+      includeClient: true,
+      client: expect.any(Object),
+    });
+    expect(download).toHaveBeenCalledOnce();
+    expect((download.mock.instances[0] as unknown as HTMLAnchorElement).getAttribute('href')).toBe(
+      '/synthetic-download',
+    );
+  } finally {
+    download.mockRestore();
+  }
+});
+
 it('配置备份页保留全局恢复入口，先读取范围、取消不提交，确认才恢复全部设置', async () => {
   const f = fixture();
   const ui = await mount(f.api);
@@ -446,7 +493,7 @@ it('旧暂存任务可确认后直接应用，Web 同样不要求重启服务', 
     confirmation?.querySelectorAll<HTMLButtonElement>('button')[1]?.click();
   });
   expect(api.apply).toHaveBeenCalledTimes(1);
-  expect(ui.button('选择备份文件')).toBeDefined();
+  expect(ui.button('导入备份').disabled).toBe(false);
 });
 
 it('Esc 可取消确认，提交中不能重复或关闭，失败留在弹窗且可重试', async () => {
@@ -486,7 +533,7 @@ it('组件关闭后迟到文件被释放，不把旧选择留作可确认输入'
       }),
   );
   const ui = await mount(f.api);
-  await ui.click('选择备份文件');
+  await ui.click('导入备份');
   const close = cleanups.pop()!;
   close();
   await act(async () => {
@@ -568,7 +615,7 @@ it('本地分片读取期间关闭页面，不会在读取完成后再发送一�
   expect(localBackgroundTasks.snapshot()).toEqual([]);
 });
 
-it('浏览器分片上传完成后在设置页显示备份预览，不创建任务', async () => {
+it('浏览器分片上传完成后自动校验并显示确认，不创建任务', async () => {
   const f = fixture();
   const api: typeof backupApi = {
     ...f.api,
@@ -585,6 +632,8 @@ it('浏览器分片上传完成后在设置页显示备份预览，不创建任�
   await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
   expect(api.chunk).toHaveBeenCalledOnce();
   expect(api.finish).toHaveBeenCalledWith('synthetic-upload');
-  expect(ui.host.textContent).toContain('synthetic.zip');
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('synthetic.zip');
+  expect(f.api.prepare).toHaveBeenCalledOnce();
+  expect(f.api.stage).not.toHaveBeenCalled();
   expect(localBackgroundTasks.snapshot()).toEqual([]);
 });

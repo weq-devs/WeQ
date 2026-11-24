@@ -50,13 +50,8 @@ export const SETTINGS_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   'prefer-cdn': ['下载加速'],
   'weq-space-cleanup': ['清理数据', '释放空间'],
   'external-chatpic': ['Android 图片'],
-  'backup-export': ['备份配置', '界面外观与布局'],
-  'backup-import': [
-    '恢复备份',
-    '恢复界面偏好到此设备',
-    '同名数据处理',
-    '保留本机导出目录与图片库路径',
-  ],
+  'backup-export': ['备份配置', '保存备份'],
+  'backup-import': ['恢复备份', '选择备份文件'],
   'weq-config-management': ['重置设置', '恢复出厂'],
   'tts-providers': [
     '语音合成',

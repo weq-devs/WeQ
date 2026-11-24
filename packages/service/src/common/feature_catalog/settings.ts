@@ -54,7 +54,7 @@ const pageDetails: Partial<
     docs: ['guide/settings.md'],
   },
   backup: {
-    summary: '导出当前配置备份，或从已有备份恢复所选内容。',
+    summary: '导出 WeQ 配置备份，或从备份文件导入。',
     docs: ['guide/settings.md'],
   },
   version: {

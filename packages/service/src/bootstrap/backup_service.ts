@@ -181,7 +181,8 @@ export class WeqBackupService {
       );
       files.push(...clones.files);
       warnings.push(...clones.warnings);
-      if (!clones.files.length) warnings.push('所选数据域没有可备份的克隆或助手数据。');
+      if (selection.cloneConfigIds?.length && !clones.files.length)
+        warnings.push('所选数据域没有可备份的克隆或助手数据。');
     }
     const archive = buildWeqBackup(files);
     const bundle = readWeqBackup(archive);
