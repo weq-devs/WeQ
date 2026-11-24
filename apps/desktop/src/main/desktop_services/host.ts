@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { UserConfigService } from '@weq/service';
-import { getLogger } from '@weq/service';
+import { getLogger, MediaCacheService } from '@weq/service';
 import { onSettingsChanged } from '@weq/service/settings-changes';
 import { DesktopWebRuntime, desktopWebRuntime } from '../web/runtime';
 import { DesktopAccountRoutes } from './accounts';
@@ -16,6 +16,7 @@ import {
   type ServiceEndpoint,
 } from './control';
 import { DesktopWebEntry } from './web_entry';
+import type { WebAuth } from '../web/application';
 import { RemoteRuntime } from '../remote/runtime';
 import { RemoteWebGateway } from '../remote/web_gateway';
 import { remoteConnectionMode, remoteInviteInput } from '../../shared/remote_bootstrap';
@@ -38,6 +39,16 @@ export async function runDesktopServices(options: {
   const generation = currentDesktopServiceGeneration();
   const registry = new DesktopServiceRegistry(options.dataRoot);
   const accounts = new DesktopAccountRoutes(options.dataRoot, registry);
+  const avatarCache = new MediaCacheService(config);
+  const loadAccountAvatar = (uin: string) => {
+    const src = `https://thirdqq.qlogo.cn/g?b=sdk&nk=${uin}&s=100`;
+    const preferences = config.getSharedPreference('client');
+    return preferences.dataSaverMode === 'always' && preferences.dataSaverAvatars === false
+      ? avatarCache.getLocal(src, 'avatar')
+      : avatarCache.get(src, 'avatar');
+  };
+  const createWebEntry = (auth: WebAuth) =>
+    new DesktopWebEntry({ auth, accounts, publicDir, developmentUrl, loadAccountAvatar });
   const mcpGrants = new McpGrants(options.dataRoot);
   const mcp = new DesktopMcpGateway(accounts, (id) => {
     const settings = config.getSettings().mcp;
@@ -55,7 +66,7 @@ export async function runDesktopServices(options: {
   web.configure({
     core: {
       assetsInstalled: !!developmentUrl || existsSync(join(publicDir, 'index.html')),
-      entry: (auth) => new DesktopWebEntry({ auth, accounts, publicDir, developmentUrl }),
+      entry: createWebEntry,
     },
     getAutoStart: () => config.getSettings().webServiceAutoStart,
     setAutoStart: (enabled) => config.setSettings({ webServiceAutoStart: enabled }),
@@ -64,11 +75,7 @@ export async function runDesktopServices(options: {
   remote.configure({
     helper: options.remoteHelper,
     stateDir: options.remoteDirectory,
-    web: () =>
-      new RemoteWebGateway(
-        remote.pairing,
-        (auth) => new DesktopWebEntry({ auth, accounts, publicDir, developmentUrl }),
-      ),
+    web: () => new RemoteWebGateway(remote.pairing, createWebEntry),
     onRequest: () => {
       void accounts
         .windows()

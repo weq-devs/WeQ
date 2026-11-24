@@ -23,10 +23,10 @@ import {
   type DesktopAccountRoutes,
 } from '../src/main/desktop_services/accounts';
 
-async function fixture(configIds = ['101', '202']) {
+async function fixture(configIds = ['101', '202'], uins: Record<string, string> = {}) {
   const accounts = configIds.map((configId) => ({
     configId,
-    uin: configId,
+    uin: uins[configId] ?? configId,
     displayName: `账号 ${configId}`,
     static: false,
   }));
@@ -54,8 +54,9 @@ async function fixture(configIds = ['101', '202']) {
     };
   });
   const open = vi.fn(find);
-  const routes = { list: () => accounts, open, find } as unknown as DesktopAccountRoutes;
-  return { routes, open, find, close: () => stopPrivate(tcp) };
+  const windows = vi.fn(async (): ReturnType<DesktopAccountRoutes['windows']> => []);
+  const routes = { list: () => accounts, open, find, windows } as unknown as DesktopAccountRoutes;
+  return { routes, open, find, windows, close: () => stopPrivate(tcp) };
 }
 
 it('开发重载交接旧桌面服务，旧窗口不会取代新进程', async () => {
@@ -116,6 +117,7 @@ it('同一 Web 登录中的两个标签页可以分别读 A、B，退出 A 只�
   const entry = new DesktopWebEntry({
     accounts: worker.routes,
     publicDir: '/fixture/web',
+    loadAccountAvatar: async () => null,
     auth: {
       login: async () => false,
       logout: () => {},
@@ -228,7 +230,13 @@ it('已有只读客户端只能直连令牌唯一授权的在用账号，不会�
 });
 
 it('远程页面只打开已授权账号，选择失败和服务重启后可重新选择', async () => {
-  const worker = await fixture(['101', '202', '303', '404']);
+  const worker = await fixture(['101', '202', '303', '404'], { '303': '202' });
+  worker.windows.mockResolvedValue([await worker.find('202')]);
+  const avatarBytes = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWMQ6d4FAAIQAVpr3peTAAAAAElFTkSuQmCC',
+    'base64',
+  );
+  const loadAccountAvatar = vi.fn(async () => ({ data: avatarBytes, contentType: 'image/png' }));
   let grant = ['101'];
   const publicDir = mkdtempSync(join(tmpdir(), 'weq-scoped-web-'));
   writeFileSync(join(publicDir, 'index.html'), '<!doctype html><title>测试 Web 首屏</title>');
@@ -236,6 +244,7 @@ it('远程页面只打开已授权账号，选择失败和服务重启后可重�
     new DesktopWebEntry({
       accounts: worker.routes,
       publicDir,
+      loadAccountAvatar,
       auth: {
         remoteClient: true,
         accountIds: () => grant,
@@ -267,6 +276,18 @@ it('远程页面只打开已授权账号，选择失败和服务重启后可重�
     expect(list).toContain('账号 202');
     expect(list).toContain('账号 303');
     expect(list).not.toContain('账号 404');
+    const row = (configId: string) =>
+      list.split('</form>').find((part) => part.includes(`value="${configId}"`));
+    expect(row('202')).toContain('WeQ 在线');
+    expect(row('303')).toContain('WeQ 离线');
+    expect(loadAccountAvatar).not.toHaveBeenCalled();
+    expect(row('202')).toContain('/_weq/account-avatar?configId=202');
+    const avatar = await fetch(`${base}/_weq/account-avatar?configId=202`);
+    expect(avatar.status).toBe(200);
+    expect(avatar.headers.get('content-type')).toBe('image/png');
+    expect(Buffer.from(await avatar.arrayBuffer())).toEqual(avatarBytes);
+    expect((await fetch(`${base}/_weq/account-avatar?configId=404`)).status).toBe(404);
+    expect(loadAccountAvatar.mock.calls).toEqual([['202']]);
     const select = (configId: string) =>
       fetch(base + '/_weq/select-account', {
         method: 'POST',
@@ -331,6 +352,7 @@ it('Remote 下载正式及开发网页的启动脚本时不需要先选账号', 
   const publicOptions = {
     accounts: worker.routes,
     publicDir: dir,
+    loadAccountAvatar: async () => null,
     auth: {
       remoteClient: true,
       login: async () => false,

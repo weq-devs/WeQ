@@ -10,11 +10,14 @@ import { handleRequest } from '../web/http';
 import { serveStatic } from '../web/static';
 import { preparedStartupDocument } from '../web/startup_assets';
 import { DevelopmentWebProxy } from '../web/development';
+import { avatarResponse } from '../avatar_response';
+import { toProtocolRequest, writeResponse } from '../web/protocol_adapter';
 import { type DesktopAccountRoutes, PRIVATE_ACCOUNT_HEADER, type RoutedAccount } from './accounts';
 import { PRIVATE_TOKEN_HEADER, PRIVATE_WEB_ROUTE_HEADER } from './control';
 
 const ACCOUNT_PATH = /^\/_weq\/account\/([a-z\d][a-z\d_-]{0,127})\/([a-f\d-]{36})(\/.*)?$/i;
 const ACCOUNT_SELECT = '/_weq/select-account';
+const ACCOUNT_AVATAR = '/_weq/account-avatar';
 const LEAVE_ACCOUNT = '/_weq/leave-account';
 const BUSINESS_PATH = /^\/(?:trpc(?:[/-]|$)|_[a-z][a-z0-9-]*(?:\/|\?|$))/;
 const STATIC_PATH =
@@ -23,6 +26,7 @@ const MAX_ACTIVE_ROUTES = 128;
 const selectionStartup = `window.weqRemoteStartup = { state: 'action-required' };
 window.dispatchEvent(new Event('weq-remote-startup'));`;
 const selectionStartupHash = createHash('sha256').update(selectionStartup).digest('base64');
+const QQ_UIN = /^[1-9]\d{0,19}$/;
 
 function escapeHtml(text: string): string {
   return text.replace(
@@ -33,6 +37,7 @@ function escapeHtml(text: string): string {
 
 function selectionPage(
   accounts: ReturnType<DesktopAccountRoutes['list']>,
+  online: ReadonlySet<string> | null,
   remote: boolean,
   error?: string,
 ): string {
@@ -43,19 +48,33 @@ ${remote ? '<meta name="referrer" content="same-origin">' : ''}
 <title>WeQ · 打开账号</title><style>
 body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:24px;color:CanvasText;background:Canvas}
 main{max-width:32rem;margin:10vh auto}h1{font-size:1.75rem}
-button{font:inherit;text-align:left;width:100%;margin-bottom:8px;padding:12px 16px;border:1px solid GrayText;border-radius:8px;color:CanvasText;background:Canvas;cursor:pointer}
+button{display:flex;align-items:center;gap:12px;font:inherit;text-align:left;width:100%;margin-bottom:8px;padding:12px 16px;border:1px solid GrayText;border-radius:8px;color:CanvasText;background:Canvas;cursor:pointer}
 button:hover{border-color:Highlight}small{display:block;color:GrayText}
+.avatar{position:relative;display:grid;place-items:center;flex:none;width:2.5rem;height:2.5rem;overflow:hidden;border-radius:50%;background:color-mix(in srgb,CanvasText 10%,Canvas);font-weight:600}
+.avatar::after{content:'';position:absolute;inset:0;background:var(--avatar,none) center/cover no-repeat}
+.account-name{flex:1;min-width:0;overflow-wrap:anywhere}
+.status{flex:none;display:inline-flex;align-items:center;gap:6px}
+.status::before{content:'';width:6px;height:6px;border-radius:50%;background:GrayText}
+.status[data-online]::before{background:#21834c}
+@media(prefers-color-scheme:dark){.status[data-online]::before{background:#59c982}}
 </style></head><body><main><h1>打开 WeQ 账号</h1>
 ${error ? `<p role="alert">${escapeHtml(error)}</p>` : ''}
 ${
   accounts.length
     ? accounts
-        .map(
-          (item) => `<form method="post" action="${ACCOUNT_SELECT}">
+        .map((item) => {
+          const avatar = QQ_UIN.test(item.uin)
+            ? ` style="--avatar:url('${ACCOUNT_AVATAR}?${new URLSearchParams({ configId: item.configId })}')"`
+            : '';
+          const initial = [...item.displayName.trim()][0] ?? '?';
+          const ready = online?.has(item.configId);
+          return `<form method="post" action="${ACCOUNT_SELECT}">
 <button type="submit" name="configId" value="${escapeHtml(item.configId)}">
-${escapeHtml(item.displayName)} <small>${escapeHtml(item.uin)}${item.static ? ' · 静态备份' : ''}</small>
-</button></form>`,
-        )
+<span class="avatar" aria-hidden="true"${avatar}>${escapeHtml(initial)}</span>
+<span class="account-name">${escapeHtml(item.displayName)} <small>${escapeHtml(item.uin)}${item.static ? ' · 静态备份' : ''}</small></span>
+<small class="status"${ready ? ' data-online' : ''}>${ready === undefined ? '状态未知' : ready ? 'WeQ 在线' : 'WeQ 离线'}</small>
+</button></form>`;
+        })
         .join('')
     : '<p>暂无可访问的账号。请在电脑上的 WeQ 检查账号及授权。</p>'
 }
@@ -172,6 +191,7 @@ export class DesktopWebEntry {
       publicDir: string;
       developmentUrl?: string;
       accounts: DesktopAccountRoutes;
+      loadAccountAvatar: (uin: string) => Promise<{ data: Uint8Array; contentType: string } | null>;
     },
   ) {
     if (options.developmentUrl)
@@ -209,19 +229,47 @@ export class DesktopWebEntry {
     active?.controller.abort();
   }
 
-  private showAccounts(req: IncomingMessage, res: ServerResponse, error?: string) {
-    const remote = !!this.options.auth.remoteClient;
-    const accounts = this.options.accounts
-      .list()
-      .filter((account) => this.allowed(req, account.configId));
+  private async showAccounts(req: IncomingMessage, res: ServerResponse, error?: string) {
+    const { auth, accounts } = this.options;
+    const remote = !!auth.remoteClient;
+    const saved = accounts.list().filter((account) => this.allowed(req, account.configId));
+    const windows = saved.length ? await accounts.windows().catch(() => null) : [];
+    if (res.destroyed) return;
+    if (!auth.isAuthed(req)) return respondError(res, 401, '账号授权已变化。');
+    const online =
+      windows && new Set(windows.flatMap((w) => (w.account ? w.account.configId : [])));
     // 手机 WebView 不展示 4xx 主文档；可继续选择的错误页仍走启动回执。
     res
       .writeHead(error && !remote ? 409 : 200, {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
-        'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'${remote ? `; script-src 'sha256-${selectionStartupHash}'` : ''}`,
+        'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'self'; frame-ancestors 'none'${remote ? `; script-src 'sha256-${selectionStartupHash}'` : ''}`,
       })
-      .end(selectionPage(accounts, remote, error));
+      .end(
+        selectionPage(
+          saved.filter((item) => this.allowed(req, item.configId)),
+          online,
+          remote,
+          error,
+        ),
+      );
+  }
+
+  private async showAccountAvatar(req: IncomingMessage, res: ServerResponse, configId: string) {
+    const { auth, accounts, loadAccountAvatar } = this.options;
+    const account = this.allowed(req, configId)
+      ? accounts.list().find((item) => item.configId === configId)
+      : undefined;
+    if (!account || !QQ_UIN.test(account.uin)) return respondError(res, 404, '头像不可用。');
+    const avatar = await loadAccountAvatar(account.uin);
+    if (res.destroyed) return;
+    if (!auth.isAuthed(req) || !this.allowed(req, configId))
+      return respondError(res, 401, '账号授权已变化。');
+    if (!avatar?.data.length) return respondError(res, 404, '头像不可用。');
+    const request = toProtocolRequest(req, 'weq-avatar', '/_weq');
+    const response = avatarResponse(avatar, request ?? undefined);
+    response.headers.set('Cache-Control', 'private, no-cache');
+    return writeResponse(res, response);
   }
 
   private async openSelected(req: IncomingMessage, res: ServerResponse, configId: string) {
@@ -274,10 +322,16 @@ export class DesktopWebEntry {
         const configId = await selectedAccount(req);
         await this.openSelected(req, res, configId);
       } catch (error) {
-        this.showAccounts(req, res, error instanceof Error ? error.message : '账号打开失败。');
+        return this.showAccounts(
+          req,
+          res,
+          error instanceof Error ? error.message : '账号打开失败。',
+        );
       }
       return;
     }
+    if (pathname === ACCOUNT_AVATAR && req.method === 'GET')
+      return this.showAccountAvatar(req, res, url.searchParams.get('configId') ?? '');
     if (STATIC_PATH.test(pathname) && (req.method === 'GET' || req.method === 'HEAD')) {
       if (this.development) await this.development.handle(req, res);
       else await serveStatic(res, publicDir, pathname, req.headers['accept-encoding']);
@@ -308,13 +362,16 @@ export class DesktopWebEntry {
           try {
             await this.openSelected(req, res, allowed[0]!.configId);
           } catch (error) {
-            this.showAccounts(req, res, error instanceof Error ? error.message : '账号打开失败。');
+            return this.showAccounts(
+              req,
+              res,
+              error instanceof Error ? error.message : '账号打开失败。',
+            );
           }
           return;
         }
       }
-      this.showAccounts(req, res);
-      return;
+      return this.showAccounts(req, res);
     }
     const scope = scopedRequest(req);
     const routed = this.route(req, scope);
