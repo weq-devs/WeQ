@@ -52,6 +52,7 @@ const READ_ONLY_TOOLS = new Set([
   'list_deleted_messages',
   'get_forward_messages',
   'get_message_details',
+  'get_chat_image_file',
   'download_chat_video',
   'get_ocr_status',
   'analyze_chat_image',

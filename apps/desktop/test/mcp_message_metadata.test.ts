@@ -133,6 +133,16 @@ it('聊天翻页把同序号边界的原始 ID 与时间传回存储层', async 
 });
 
 import { AI_TOOLS } from '../src/main/mcp/tools';
+import { mentionAllKind } from '../src/main/mcp/msg_rich';
+
+it('distinguishes native group-wide reminders from text and messages with a body', () => {
+  const at: RenderElement = { type: 'at', data: { atTargetUid: 'all', textContent: '@全体成员' } };
+  const text = (textContent: string): RenderElement => ({ type: 'text', data: { textContent } });
+  expect(mentionAllKind([text('@全体成员')])).toBeUndefined();
+  expect(mentionAllKind([{ ...at, data: { ...at.data, atTargetUid: 'u_peer' } }])).toBeUndefined();
+  expect(mentionAllKind([at, text('  '), { type: 'reply', data: {} }])).toBe('only');
+  expect(mentionAllKind([at, text('报名截至周五')])).toBe('with_content');
+});
 
 it('lists directly readable conversation keys without guessing for aggregate or missing targets', async () => {
   const tool = AI_TOOLS.find((item) => item.name === 'list_conversations')!;

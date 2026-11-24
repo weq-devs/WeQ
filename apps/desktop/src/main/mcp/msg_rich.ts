@@ -70,6 +70,22 @@ export function elementsToAiText(elements: readonly unknown[]): string {
   return parts.join(' ').trim() || '[空消息]';
 }
 
+export function mentionAllKind(
+  elements: readonly RenderElement[],
+): 'only' | 'with_content' | undefined {
+  const isAll = (element: RenderElement) =>
+    element.type === 'at' && element.data.atTargetUid === 'all';
+  if (!elements.some(isAll)) return undefined;
+  return elements.some(
+    (element) =>
+      !isAll(element) &&
+      element.type !== 'reply' &&
+      !(element.type === 'text' && !str(element.data.textContent).trim()),
+  )
+    ? 'with_content'
+    : 'only';
+}
+
 /** Optional structured payload for a single element — enough for the model to
  *  quote real content without seeing every raw CDN token. */
 export function elementAiPayload(el: RenderElement): Record<string, unknown> {

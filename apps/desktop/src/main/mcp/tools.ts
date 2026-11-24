@@ -82,7 +82,7 @@ import {
   JS_SANDBOX_MAX_TIMEOUT_MS,
   runJsSandbox,
 } from './js_sandbox';
-import { elementAiDetail, elementsToAiText, mediaForElements } from './msg_rich';
+import { elementAiDetail, elementsToAiText, mediaForElements, mentionAllKind } from './msg_rich';
 import {
   recentContactToWire,
   groupDetailToWire,
@@ -297,6 +297,10 @@ interface AiMsgLine {
   /** 原始 Unix 秒与稳定发送者，供只读消费者使用，不依赖 SQL 工具。 */
   sendTime?: string;
   senderUid?: string;
+  elementCount?: number;
+  deletedKind?: string;
+  recall?: true;
+  mentionAll?: ReturnType<typeof mentionAllKind>;
   /**
    * 发送方本地 client sequence（列 40005，仅私聊有值，仅 includeIds 时附上）——
    * 私聊引用回复要把它当 `replyToClientSeq` 传回去，只用 msgSeq 定位不到原消息。
@@ -1110,7 +1114,7 @@ export const AI_TOOLS: AiTool[] = [
       '读取某个会话的消息，按时间正序（旧→新）返回，方便顺读。默认取最新一页。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。会话标识可来自 list_conversations / list_groups。' +
       '每条为精简形：time 时间、sender 发送者昵称、mine 是否本人发送、text 文本；间隔较大时附 gap（距上一条多久）。' +
-      '想要拿到某条消息的 msgId/msgSeq 以便回查详情或媒体，把 includeIds 设为 true，同时返回原始 Unix 秒 sendTime 和稳定发送者 senderUid。' +
+      'includeIds=true 附带消息 ID、原始发送时间、发送者 UID、元素数量、删除标记（若有），以及群消息的原生 @全体类型（若有）。' +
       '\n【翻页】返回带 hasMore / nextBefore：还想往更早读，就把 nextBefore 原样传回 before 参数取上一页；' +
       '一次别把 limit 开太大，顺着翻更省 token 也更聚焦。',
     input: z.object({
@@ -1160,7 +1164,15 @@ export const AI_TOOLS: AiTool[] = [
           mine: r.senderUin === selfUin,
           text: flattenElements(r.elements),
           ...(includeIds
-            ? { ...msgIdsOf(r), sendTime: String(r.sendTime), senderUid: r.senderUid }
+            ? {
+                ...msgIdsOf(r),
+                sendTime: String(r.sendTime),
+                senderUid: r.senderUid,
+                elementCount: r.elements.length,
+                ...(r.deletedKind ? { deletedKind: r.deletedKind } : {}),
+                ...(r.recall ? { recall: true as const } : {}),
+                mentionAll: kind === 'group' ? mentionAllKind(r.elements) : undefined,
+              }
             : {}),
         };
         // 与上一条（更早那条）的间隔：只在 ≥30 分钟时标注，给「聊天有没有断档」的时间感又不刷屏。
@@ -2909,6 +2921,7 @@ export const AI_TOOLS: AiTool[] = [
         senderUid: row.senderUid,
         text: flattenElements(row.elements),
         elementCount: row.elements.length,
+        ...(kind === 'group' ? { mentionAll: mentionAllKind(row.elements) } : {}),
         elements: details,
         media,
       };
@@ -2928,6 +2941,22 @@ export const AI_TOOLS: AiTool[] = [
         }));
       }
       return out;
+    },
+  }),
+
+  tool({
+    name: 'get_chat_image_file',
+    description:
+      '按消息 ID 和图片序号取当前账号聊天图片的本机文件路径。先用本地原图，缺图时走 WeQ 原图下载链路（含已配置的 rkey），失败时可返回本地缩略图。不调用视觉模型。',
+    input: z.object({
+      kind: z.enum(['c2c', 'group']),
+      conv: z.string().min(1).max(128),
+      msgId: z.string().regex(/^-?\d{1,20}$/),
+      imageIndex: z.number().int().nonnegative().default(0),
+    }),
+    run: async ({ kind, conv, msgId, imageIndex }) => {
+      const { chatImageFileForTool } = await import('./chat_image_file');
+      return chatImageFileForTool({ kind, conv, msgId, imageIndex });
     },
   }),
 
