@@ -142,10 +142,9 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
       'weq-storage',
       'accounts',
       'backup',
-      'logs',
     ],
   },
-  { id: 'about', label: '关于', sections: ['version', 'faq', 'feedback'] },
+  { id: 'about', label: '关于', sections: ['version', 'faq', 'logs', 'feedback'] },
 ];
 
 export interface SettingsScope {

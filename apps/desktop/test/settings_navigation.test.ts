@@ -89,14 +89,15 @@ describe('设置的两级导航', () => {
       settingId,
     });
   });
-  it('存储和备份归应用，帮助和更新归关于，旧入口仍可用', () => {
+  it('存储和备份归应用，帮助、更新和日志与性能归关于，旧入口仍可用', () => {
     expect(settingsSectionFor('help')).toBe('faq');
     expect(settingsSectionFor('updates')).toBe('version');
     expect(settingsSectionFor('storage')).toBe('weq-storage');
-    for (const id of ['storage', 'backup', 'performance-monitor', 'accounts'] as const) {
+    for (const id of ['storage', 'backup', 'accounts'] as const) {
       expect(settingsGroupFor(id).id).toBe('app');
     }
-    expect(settingsGroupFor('help').sections).toEqual(['version', 'faq', 'feedback']);
+    expect(settingsGroupFor('performance-monitor').id).toBe('about');
+    expect(settingsGroupFor('help').sections).toEqual(['version', 'faq', 'logs', 'feedback']);
   });
   it.each(['WeQ 存储管理', '桌面缓存'])('%s 搜索显示应用中的存储管理路径', (keyword) => {
     const entry = searchAppEntries(keyword)[0];
@@ -135,7 +136,7 @@ describe('设置的两级导航', () => {
     ['优先使用 CDN', '优先直连 QQ 加载图片', '网络'],
     ['媒体来源', '资源加载', '网络'],
     ['省流量模式', '省流量模式', '网络'],
-    ['性能监视', '性能监视', '应用'],
+    ['性能监视', '性能监视', '关于'],
   ])('旧名或新名 %s 展示规范名称 %s 与新路径', (keyword, title, group) => {
     const entry = searchAppEntries(keyword)[0];
     expect(entry?.title).toBe(title);
