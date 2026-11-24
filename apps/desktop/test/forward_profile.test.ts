@@ -188,7 +188,7 @@ it('转发记录沿用时间分隔与元数据设置，仍仅头像打开名片'
     expect(name.closest('button')).toBeNull();
     const dialog = author.closest('[role="dialog"]')!;
     const times = Array.from(dialog.querySelectorAll('time'));
-    expect(times.map((time) => time.textContent)).toEqual(['昨天 06:13:20', '昨天 06:23:19']);
+    expect(times.map((time) => time.textContent)).toEqual(['昨天 06:13', '昨天 06:23']);
     expect(times[0]?.title).toBe('2023-11-15 06:13:20（北京时间）');
     expect(author.parentElement?.previousElementSibling).toBe(times[0]);
     expect(dialog.textContent).not.toContain('seq 42');
