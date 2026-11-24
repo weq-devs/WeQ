@@ -5,7 +5,6 @@ export function useAppUpdate() {
   const downloadFixture = new URLSearchParams(window.location.search).has('download');
   const [includePrerelease, setPrerelease] = useState(false);
   const [phase, setPhase] = useState<UpdatePhase>(downloadFixture ? 'downloading' : 'idle');
-  const [foreground, setForeground] = useState(true);
   const [intervalMinutes, setIntervalMinutes] = useState(60);
   const paused = phase === 'paused';
   return {
@@ -31,7 +30,7 @@ export function useAppUpdate() {
     downloadTask: downloadFixture
       ? {
           id: 'synthetic',
-          foreground,
+          foreground: false,
           status: paused ? 'paused' : 'running',
           statusLabel: paused ? '已暂停' : undefined,
           actions: [{ id: paused ? 'continue' : 'pause', label: paused ? '继续下载' : '暂停下载' }],
@@ -39,8 +38,7 @@ export function useAppUpdate() {
       : null,
     controllingDownload: false,
     controlDownload: async (action: string) => {
-      if (action === 'background') setForeground(false);
-      else if (action === 'pause') setPhase('paused');
+      if (action === 'pause') setPhase('paused');
       else if (action === 'continue') setPhase('downloading');
     },
     mirrorName: '',

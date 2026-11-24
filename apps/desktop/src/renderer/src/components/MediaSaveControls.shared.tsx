@@ -292,18 +292,13 @@ export function useMediaSave({
       }
     }
   }
-  async function control(source: MediaSaveSource, action: 'background' | 'resume' | 'open') {
+  async function control(source: MediaSaveSource, action: 'resume' | 'open') {
     const item = recordFor(source);
     if (!item || !save.binding) return;
     const ref = { ...save.binding, taskId: item.taskId };
     try {
       if (action === 'resume') await run(source, item.taskId);
-      else if (action === 'background') {
-        await client.account.mediaSave.background.mutate(ref);
-        record(sourceKey(source), undefined);
-        if (pending.current?.taskId === item.taskId) pending.current.controller.abort();
-        notifyTaskCreated(item.taskId, '媒体保存已转到后台');
-      } else if (IS_WEB) {
+      else if (IS_WEB) {
         const result = await client.account.exportTaskDownload.mutate(ref);
         if (!result) throw new Error('当前环境不支持浏览器下载');
         if (owner.released || !save.isCurrent()) return;

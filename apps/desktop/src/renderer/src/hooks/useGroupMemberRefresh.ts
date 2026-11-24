@@ -40,7 +40,6 @@ export function useGroupMemberRefresh() {
         target: 'groupMembers',
         range: 'all',
         missingOnly: false,
-        foreground: true,
       });
       if (useViewState.getState().openedUin !== uin) return;
       void utils.account.contactMetrics.status.invalidate(binding);
@@ -55,17 +54,11 @@ export function useGroupMemberRefresh() {
     acting.current = true;
     setBusy(true);
     try {
-      if (action === 'background')
-        await client.account.contactMetrics.backgroundRefresh.mutate({
-          ...binding,
-          taskId: task.taskId,
-        });
-      else
-        await client.backgroundTasks.act.mutate({
-          id: task.taskId,
-          action,
-          scope: { uin: binding.expectedAccountUin, configId: binding.expectedAccountConfigId },
-        });
+      await client.backgroundTasks.act.mutate({
+        id: task.taskId,
+        action,
+        scope: { uin: binding.expectedAccountUin, configId: binding.expectedAccountConfigId },
+      });
       await utils.account.contactMetrics.status.invalidate(binding);
     } catch (reason) {
       if (useViewState.getState().openedUin === uin)

@@ -268,6 +268,7 @@ function restoreUpdateTask() {
     {
       ...task,
       ...updatePresentation(version),
+      foreground: false,
       status,
       statusLabel: status === 'paused' ? '等待继续' : undefined,
       note: installed

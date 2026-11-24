@@ -29,7 +29,6 @@ import {
 import { ToolSurface, type ToolPresentation } from '../../components/ToolSurface';
 import {
   X,
-  ListTodo,
   Loader2,
   Square,
   Trash2,
@@ -256,7 +255,7 @@ export function ResourceCleanupDialog({
           ? customSel
           : null
       : null;
-  useDraftProtection(embedded ? draft : null, embedded && running);
+  const { reset: resetDraft } = useDraftProtection(embedded ? draft : null);
 
   useEffect(
     () => () => {
@@ -365,18 +364,19 @@ export function ResourceCleanupDialog({
     if (chosen.preset.extreme && phrase.trim() !== CONFIRM_PHRASE) return;
     pending.current = true;
     const run = ++runRef.current;
+    resetDraft(null);
     setError(null);
     setStage('running');
     try {
       const res = await client.account.resourceCleanup.cleanup.mutate({
         ...source,
         instructions: chosen.instructions,
-        foreground: true,
       });
-      if (run !== runRef.current) return;
-      setResult({ receipt: res, targets: [...targets] });
-      setStage('done');
-      // Every browser + 整体分析 reads these trees — force a rescan on next open.
+      if (run === runRef.current) {
+        setResult({ receipt: res, targets: [...targets] });
+        setStage('done');
+      }
+      // 即使已离开清理页，也要刷新仍打开的资源概览。
       void utils.account.invalidate();
       if (refresh) void refresh();
     } catch (e) {
@@ -385,11 +385,11 @@ export function ResourceCleanupDialog({
       setStage('confirm');
     } finally {
       pending.current = false;
-      void execution.refetch();
+      if (run === runRef.current) void execution.refetch();
     }
   };
 
-  const control = async (action: 'stop' | 'background'): Promise<void> => {
+  const stop = async (): Promise<void> => {
     if (!operation || controlling) return;
     setControlling(true);
     setError(null);
@@ -397,10 +397,9 @@ export function ResourceCleanupDialog({
       await client.account.resourceCleanup.control.mutate({
         ...source,
         taskId: operation.id,
-        action,
+        action: 'stop',
       });
-      if (action === 'background') onClose();
-      else await execution.refetch();
+      await execution.refetch();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -443,13 +442,7 @@ export function ResourceCleanupDialog({
             共 <span className="weq-number weq-number-inherit">{fmtBytes(totalBytes)}</span>
           </span>
           {!embedded ? (
-            <button
-              type="button"
-              className="weq-ra-close"
-              onClick={onClose}
-              disabled={running && operation?.foreground !== false}
-              aria-label="关闭"
-            >
+            <button type="button" className="weq-ra-close" onClick={onClose} aria-label="关闭">
               <X size={18} />
             </button>
           ) : null}
@@ -523,21 +516,10 @@ export function ResourceCleanupDialog({
                       type="button"
                       className="weq-set-btn"
                       disabled={controlling}
-                      onClick={() => void control('stop')}
+                      onClick={() => void stop()}
                     >
                       <Square size={14} aria-hidden />
                       停止后续清理
-                    </button>
-                  )}
-                  {operation.foreground && (
-                    <button
-                      type="button"
-                      className="weq-set-btn"
-                      disabled={controlling}
-                      onClick={() => void control('background')}
-                    >
-                      <ListTodo size={14} aria-hidden />
-                      后台进行
                     </button>
                   )}
                 </div>
@@ -572,15 +554,7 @@ export function ResourceCleanupDialog({
   return embedded ? (
     content(onClose)
   ) : (
-    <ToolSurface
-      title="清理缓存"
-      presentation={presentation}
-      busy={running && operation?.foreground !== false}
-      draft={draft}
-      onClose={() => {
-        if (!running || operation?.foreground === false) onClose();
-      }}
-    >
+    <ToolSurface title="清理缓存" presentation={presentation} draft={draft} onClose={onClose}>
       {content}
     </ToolSurface>
   );

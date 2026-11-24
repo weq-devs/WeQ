@@ -82,7 +82,7 @@ function MemberRefreshProgress({ task, busy, control }: ReturnType<typeof useGro
           label="群成员更新进度"
         />
       )}
-      {task.actions?.length || (task.foreground && pending) ? (
+      {task.actions?.length ? (
         <div className="weq-group-refresh-actions">
           {task.actions?.map((action) => (
             <button
@@ -95,16 +95,6 @@ function MemberRefreshProgress({ task, busy, control }: ReturnType<typeof useGro
               {action.label}
             </button>
           ))}
-          {task.foreground && pending && (
-            <button
-              type="button"
-              className="weq-set-btn"
-              disabled={busy}
-              onClick={() => void control('background')}
-            >
-              后台进行
-            </button>
-          )}
         </div>
       ) : null}
     </div>

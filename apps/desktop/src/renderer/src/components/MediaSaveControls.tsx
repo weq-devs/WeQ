@@ -1,4 +1,4 @@
-import { AlertCircle, Check, Download, ListTodo, Play, X } from 'lucide-react';
+import { AlertCircle, Check, Download, Play, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import type { MediaSaveSource } from '../../../shared/media_save';
 import { IS_WEB } from '../lib/target.shared';
@@ -118,18 +118,6 @@ export function MediaSaveControls({
         </button>
       )}
       {statusTarget ? createPortal(errorStatus, statusTarget) : errorStatus}
-      {record && (record.status === 'running' || paused) && (
-        <button
-          type="button"
-          className={className}
-          title="后台进行"
-          aria-label="后台进行"
-          onClick={() => void save.control(source, 'background')}
-        >
-          <ListTodo size={15} aria-hidden />
-          {iconOnly ? null : <ToolbarLabel>后台进行</ToolbarLabel>}
-        </button>
-      )}
       {(((save.downloading || save.foreground) && working) || paused) && (
         <button
           type="button"

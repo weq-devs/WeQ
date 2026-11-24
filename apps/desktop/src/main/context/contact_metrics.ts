@@ -404,7 +404,7 @@ export class ContactDirectoryRuntime {
     const saved = this.refreshStore.data.task;
     if (!saved) return;
     const status = saved.status === 'running' ? 'paused' : saved.status;
-    this.refresh = { ...saved, status };
+    this.refresh = { ...saved, status, foreground: false };
     this.completed = new Set(saved.done);
     this.taskId = saved.id;
     this.target = saved.options.target;
@@ -428,7 +428,6 @@ export class ContactDirectoryRuntime {
         id: saved.id,
         kind: 'contacts',
         scope: this.scope,
-        foreground: saved.foreground,
         startedAt: saved.startedAt,
         updatedAt: saved.updatedAt,
         status,

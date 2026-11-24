@@ -109,13 +109,13 @@ async function downloaded(kind: 'settings' | 'expired') {
 }
 
 describe('重启并安装反馈', () => {
-  it('版本与更新原位暂停、继续、转后台和重试同一下载', async () => {
+  it('版本与更新直接启动可在任务列表查看的下载，原位控制同一任务', async () => {
     await act(async () => root.render(createElement(UpdateCard)));
     const button = (text: string) =>
       [...document.querySelectorAll('button')].find((item) => item.textContent?.trim() === text);
     await act(async () => button('立即更新')!.click());
-    expect(fixture.download).toHaveBeenCalledWith({ foreground: true });
-    const task = { id: 'task', foreground: true, version: '1.1.0' };
+    expect(fixture.download).toHaveBeenCalledWith(undefined);
+    const task = { id: 'task', foreground: false, version: '1.1.0' };
     await act(async () =>
       fixture.event?.({
         kind: 'download-task',
@@ -135,13 +135,11 @@ describe('重启并安装反馈', () => {
       }),
     );
     await act(async () => button('继续下载')!.click());
-    await act(async () => button('后台进行')!.click());
     await act(async () =>
       fixture.event?.({
         kind: 'download-task',
         task: {
           ...task,
-          foreground: false,
           status: 'failed',
           note: '合成下载失败',
           actions: [{ id: 'retry', label: '重试' }],
@@ -149,10 +147,9 @@ describe('重启并安装反馈', () => {
       }),
     );
     expect(document.querySelector('[role="alert"]')?.textContent).toBe('合成下载失败');
-    expect(button('后台进行')).toBeUndefined();
     await act(async () => button('重试下载')!.click());
     expect(fixture.control.mock.calls).toEqual(
-      ['pause', 'continue', 'background', 'retry'].map((action) => [{ id: 'task', action }]),
+      ['pause', 'continue', 'retry'].map((action) => [{ id: 'task', action }]),
     );
   });
   it('自动检查失败后恢复手动检查按钮，不弹出后台失败提示', async () => {

@@ -379,28 +379,23 @@ it('预览保存沿用公共偏好，在原页展示成品而不创建全局提�
   });
   expect(state.toast).not.toHaveBeenCalled();
 });
-it.each(['handoff', 'close'])(
-  '预览离开或交接时将同一个未完成文件转到后台（%s）',
-  async (action) => {
-    state.receipt.mockResolvedValueOnce({ status: 'running', error: undefined });
-    const view = await mount();
-    await click(view.host, '保存图片');
-    expect(state.accepted).not.toHaveBeenCalled();
-    expect(view.host.querySelector('[aria-label="后台进行"]')).not.toBeNull();
-    if (action === 'handoff') await click(view.host, '后台进行');
-    else view.close();
-    await vi.waitFor(() => {
-      expect(state.background).toHaveBeenCalledOnce();
-      expect(state.background).toHaveBeenCalledWith({
-        expectedAccountUin: '10001',
-        expectedAccountConfigId: 'source-a',
-        taskId: 'media-task',
-        ...(action === 'close' ? { unfinishedOnly: true } : {}),
-      });
+it('关闭预览时自动将同一个未完成文件交给任务列表', async () => {
+  state.receipt.mockResolvedValueOnce({ status: 'running', error: undefined });
+  const view = await mount();
+  await click(view.host, '保存图片');
+  expect(state.accepted).not.toHaveBeenCalled();
+  view.close();
+  await vi.waitFor(() => {
+    expect(state.background).toHaveBeenCalledOnce();
+    expect(state.background).toHaveBeenCalledWith({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      taskId: 'media-task',
+      unfinishedOnly: true,
     });
-    expect(state.save).toHaveBeenCalledOnce();
-  },
-);
+  });
+  expect(state.save).toHaveBeenCalledOnce();
+});
 it.each([false, true])('Web 和 Remote 原位另存直接交给当前设备（remote=%s）', async (remote) => {
   state.web = true;
   state.remote = remote;

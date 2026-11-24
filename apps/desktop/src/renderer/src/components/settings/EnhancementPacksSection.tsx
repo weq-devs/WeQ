@@ -5,7 +5,6 @@ import {
   AudioLines,
   BrainCircuit,
   Download,
-  ListTodo,
   Package,
   Palette,
   RefreshCw,
@@ -63,7 +62,6 @@ export function EnhancementPacksSection() {
   const settings = trpc.bootstrap.setEnhancementUpdates.useMutation();
   const pause = trpc.bootstrap.pauseEnhancementPack.useMutation();
   const resume = trpc.bootstrap.resumeEnhancementPack.useMutation();
-  const background = trpc.bootstrap.backgroundEnhancementPack.useMutation();
   const packs = query.data?.packs ?? [];
   const preferences = query.data?.preferences ?? { autoCheck: true, autoInstall: false };
   async function refresh() {
@@ -86,8 +84,7 @@ export function EnhancementPacksSection() {
       await refresh();
     }
   }
-  const preparePack = (id: EnhancementPackId) =>
-    prepare.mutateAsync({ ids: [id], foreground: true });
+  const preparePack = (id: EnhancementPackId) => prepare.mutateAsync({ ids: [id] });
   async function erase(id: EnhancementPackId) {
     const pack = packs.find((entry) => entry.id === id)!;
     const confirmed = await dialog.confirm(
@@ -295,20 +292,6 @@ export function EnhancementPacksSection() {
                       >
                         {paused ? <Play size={14} /> : <Pause size={14} />}
                       </button>
-                      {task?.foreground && (
-                        <button
-                          type="button"
-                          className="weq-set-btn weq-set-btn-soft"
-                          title="后台进行"
-                          aria-label={`${pack.name}后台进行`}
-                          disabled={background.isLoading}
-                          onClick={() =>
-                            void act(() => background.mutateAsync({ id: pack.id, taskId: task.id }))
-                          }
-                        >
-                          <ListTodo size={14} />
-                        </button>
-                      )}
                     </div>
                     {operation?.total ? (
                       <span className="weq-enhancement-phase" title={operation?.source}>

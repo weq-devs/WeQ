@@ -53,6 +53,7 @@ export function restoreEnhancementTasks(packs: EnhancementPacks, directory: stri
       {
         ...saved,
         ...presentation(saved.name, saved.action),
+        foreground: false,
         status,
         statusLabel: status === 'paused' ? '等待继续' : saved.statusLabel,
         note:

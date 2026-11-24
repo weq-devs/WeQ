@@ -24,7 +24,6 @@ import {
 } from '../src/shared/enhancement_release';
 import { backgroundTasks } from '../src/main/background_tasks';
 import {
-  backgroundEnhancementDownload,
   enhancementDownloadTask,
   forgetEnhancementTask,
   restoreEnhancementTasks,
@@ -446,19 +445,16 @@ it('关闭自动安装时启动核对已有资源，不生成增强包已就绪�
   expect(backgroundTasks.snapshot()).toEqual([]);
 });
 
-it('增强包设置在原位跟进，交后台时同步准备观察者与按钮仍共用一条记录', async () => {
+it('增强包原位进度和任务列表从启动起共用一条记录', async () => {
   const f = await fixture(false);
   f.packs.observePreparations((id, name) => {
     void trackEnhancementPreparation(f.packs, id, name).catch(() => {});
   });
-  await startEnhancementDownloads(f.packs, ['dress'], true);
+  await startEnhancementDownloads(f.packs, ['dress']);
   const tasks = backgroundTasks.snapshot();
   expect(tasks).toHaveLength(1);
   expect(tasks[0]?.display?.action).toBe('安装增强包');
   const taskId = tasks[0]!.id;
-  expect(enhancementDownloadTask(f.packs, 'dress')).toMatchObject({ id: taskId, foreground: true });
-  expect(() => backgroundEnhancementDownload(f.packs, 'text', taskId)).toThrow('已改变');
-  backgroundEnhancementDownload(f.packs, 'dress', taskId);
   expect(enhancementDownloadTask(f.packs, 'dress')).toMatchObject({
     id: taskId,
     foreground: false,
@@ -500,12 +496,12 @@ it('重启找回暂停的增强包，自动安装只检查，手动继续才接�
   expect(backgroundTasks.snapshot()[0]).toMatchObject({
     id,
     status: 'paused',
-    foreground: true,
+    foreground: false,
     display: { action: '更新增强包' },
   });
   await restarted.controller.check(['dress'], true);
   expect(restarted.ensure).not.toHaveBeenCalled();
-  await startEnhancementDownloads(restarted.packs, ['dress'], true);
+  await startEnhancementDownloads(restarted.packs, ['dress']);
   await restarted.packs.wait();
   await vi.waitFor(() => expect(backgroundTasks.snapshot()[0]?.status).toBe('completed'));
   expect(restarted.ensure).toHaveBeenCalledOnce();

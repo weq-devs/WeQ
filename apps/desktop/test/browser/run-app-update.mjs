@@ -87,8 +87,7 @@ try {
   await page.getByRole('button', { name: '暂停下载', exact: true }).click();
   await page.getByRole('status').filter({ hasText: '已暂停' }).waitFor();
   await page.getByRole('button', { name: '继续下载', exact: true }).click();
-  await page.getByRole('button', { name: '后台进行', exact: true }).click();
-  await page.getByRole('button', { name: '后台进行', exact: true }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: '暂停下载', exact: true }).waitFor();
   if (!(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)))
     throw new Error('update controls overflow at 320px');
   if (errors.length) throw new Error(errors.join('\n'));

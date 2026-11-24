@@ -215,7 +215,6 @@ it('全部清理仍需确认短语，只提交一次白名单 ID，完成后共�
   });
   expect(f.cleanup).toHaveBeenCalledOnce();
   expect(f.cleanup).toHaveBeenCalledWith({
-    foreground: true,
     ...source,
     instructions: targets.map((target) => ({ id: target.id, variant: 'all' })),
   });
@@ -223,6 +222,27 @@ it('全部清理仍需确认短语，只提交一次白名单 ID，完成后共�
   expect(f.list).toHaveBeenCalledTimes(2);
   expect(page.host.querySelectorAll('.weq-clean-done .weq-clean-review-row')).toHaveLength(11);
   expect(page.host.querySelector('.weq-clean-done-title')?.textContent).toContain('逻辑文件量');
+});
+it('离开正在清理的页面后不重复提交，完成时更新原资源概览', async () => {
+  const gate = Promise.withResolvers<void>();
+  const cleanup = f.cleanup.getMockImplementation()!;
+  f.cleanup.mockImplementationOnce(async (input) => {
+    await gate.promise;
+    return cleanup(input);
+  });
+  const page = await mount();
+  await page.view('qq-storage-cleanup');
+  await act(async () => page.button('完全安全清理').click());
+  await act(async () =>
+    page.host.querySelector<HTMLButtonElement>('.weq-clean-confirm-foot .weq-clean-go')!.click(),
+  );
+  expect(f.cleanup).toHaveBeenCalledOnce();
+  await page.view('qq-storage-analysis');
+  expect(page.host.querySelector('[data-resource-panel="overview"]')).not.toBeNull();
+  expect(f.list).toHaveBeenCalledOnce();
+  await act(async () => gate.resolve());
+  expect(f.cleanup).toHaveBeenCalledOnce();
+  expect(f.list).toHaveBeenCalledTimes(2);
 });
 it('静态账号不挂载任何扫描或清理能力', async () => {
   f.static = true;

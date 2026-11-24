@@ -12,7 +12,6 @@ import {
   CheckCircle2,
   Download,
   Gauge,
-  ListTodo,
   Loader2,
   Pause,
   Play,
@@ -158,17 +157,6 @@ export function UpdateCard(): ReactElement {
           </span>
         </div>
         <div className="weq-set-row-ctrl weq-update-actions">
-          {downloadTask?.foreground && (phase === 'downloading' || phase === 'paused') ? (
-            <button
-              type="button"
-              className="weq-set-btn"
-              disabled={controllingDownload}
-              onClick={() => void controlDownload('background')}
-            >
-              <ListTodo size={14} aria-hidden />
-              后台进行
-            </button>
-          ) : null}
           {phase === 'installing' ? (
             <button
               type="button"

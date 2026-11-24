@@ -130,7 +130,7 @@ it('清理已按旧来源开始后，换实例不向新来源返回旧回执', a
   expect(f.cleanup).toHaveBeenCalledOnce();
 });
 
-it('同一清理批次提供逐类进度，并可交接后台或停止余下类别', async () => {
+it('清理启动即进入任务列表，提供逐类进度并可停止余下类别', async () => {
   const caller = resourceCleanupRouter.createCaller({});
   const instructions = [
     { id: 'pic', variant: 'thumb' as const },
@@ -146,19 +146,17 @@ it('同一清理批次提供逐类进度，并可交接后台或停止余下类�
     options.after(row);
     return { freedBytes: 2, perTarget: [row] };
   });
-  const execution = caller.cleanup({ ...source, foreground: true, instructions });
+  const execution = caller.cleanup({ ...source, instructions });
   try {
     await vi.waitFor(() => expect(f.cleanup).toHaveBeenCalledOnce());
     const task = await caller.status(source);
     expect(task).toMatchObject({
-      foreground: true,
       total: 2,
       processed: 0,
       current: 'pic · thumb',
     });
+    expect(task?.foreground).not.toBe(true);
     await expect(caller.cleanup({ ...source, instructions })).rejects.toThrow('正在清理');
-    await caller.control({ ...source, taskId: task!.id, action: 'background' });
-    expect(await caller.status(source)).toMatchObject({ id: task!.id, foreground: false });
     await caller.control({ ...source, taskId: task!.id, action: 'stop' });
     expect(signal?.aborted).toBe(true);
     expect(await caller.status(source)).toMatchObject({

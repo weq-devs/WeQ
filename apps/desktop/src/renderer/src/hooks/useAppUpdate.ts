@@ -16,7 +16,7 @@ import { useTabActive } from '../components/RetainedTabs.shared';
 import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '@weq/service/update-settings';
 import type { UpdateDownloadTask } from '../../../main/update/state';
 
-type DownloadControl = 'pause' | 'continue' | 'retry' | 'background';
+type DownloadControl = 'pause' | 'continue' | 'retry';
 
 export type UpdatePhase =
   | 'idle'
@@ -85,7 +85,7 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-export function useAppUpdate(foreground = false): AppUpdate {
+export function useAppUpdate(showDownloadErrorInline = false): AppUpdate {
   const utils = trpc.useContext();
   const active = useTabActive();
   const showError = useDialog((s) => s.showError);
@@ -216,7 +216,7 @@ export function useAppUpdate(foreground = false): AppUpdate {
           installPending.current = false;
           setProgress(null);
           setPhase((p) => (p === 'installing' ? 'downloaded' : p === 'downloading' ? 'error' : p));
-          if (!foreground || wasInstalling) showError('更新失败', e.message);
+          if (!showDownloadErrorInline || wasInstalling) showError('更新失败', e.message);
         }
       },
       onError: (err) => console.error('[update] event subscription error', err),
@@ -226,7 +226,7 @@ export function useAppUpdate(foreground = false): AppUpdate {
       ps.unsubscribe();
       es.unsubscribe();
     };
-  }, [foreground, showError, observe]);
+  }, [showDownloadErrorInline, showError, observe]);
 
   const check = useCallback(async (): Promise<void> => {
     setPhase('checking');
@@ -267,13 +267,13 @@ export function useAppUpdate(foreground = false): AppUpdate {
     setProgress({ percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 });
     setPhase('downloading');
     try {
-      await downloadMut.mutateAsync(foreground ? { foreground: true } : undefined);
+      await downloadMut.mutateAsync(undefined);
     } catch (e) {
       setProgress(null);
       setPhase('error');
       showError('启动下载失败', errMsg(e));
     }
-  }, [downloadMut, foreground, showError]);
+  }, [downloadMut, showError]);
 
   const controlDownload = useCallback(
     async (action: DownloadControl) => {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { TaskProgressBar } from '../tasks/TaskProgressBar';
-import { Film, ListTodo, RefreshCw, Square, Upload, X } from 'lucide-react';
+import { Film, RefreshCw, Square, Upload, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import { mediaUrl } from '../../lib/resourceUrl';
@@ -239,14 +239,13 @@ function GroupAlbumVideoUploadBody({
       { refreshCaches: false },
     );
   }
-  async function control(action: 'background' | 'verify') {
+  async function verifyUpload() {
     if (!a.binding || !task || acting) return;
     setActing(true);
     setError('');
     try {
       const ref = { ...input, taskId: task.id };
-      if (action === 'background') await client.account.qqActions.albumVideoBackground.mutate(ref);
-      else await client.account.qqActions.albumVideoVerify.mutate(ref);
+      await client.account.qqActions.albumVideoVerify.mutate(ref);
       await status.refetch();
     } catch (reason) {
       if (mounted.current) setError(reason instanceof Error ? reason.message : String(reason));
@@ -384,22 +383,12 @@ function GroupAlbumVideoUploadBody({
         <div className="weq-qq-action-bar">
           <p role="status">{task.statusLabel ?? task.note ?? '正在处理视频上传'}</p>
           {task.statusLabel && task.note && <p>{task.note}</p>}
-          {task.foreground && (running || task.status === 'paused') && (
-            <ActionIcon
-              label="在后台继续上传视频"
-              text="后台进行"
-              disabled={acting}
-              onClick={() => void control('background')}
-            >
-              <ListTodo size={14} />
-            </ActionIcon>
-          )}
           {task.canVerify && (
             <ActionIcon
               label="核对上传结果"
               text="核对上传结果"
               disabled={acting || !a.available}
-              onClick={() => void control('verify')}
+              onClick={() => void verifyUpload()}
             >
               <RefreshCw size={14} />
             </ActionIcon>

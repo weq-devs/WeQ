@@ -195,11 +195,17 @@ async function mount() {
       h(GroupAlbumVideoUpload, { groupId: 123, albumId: 'synthetic-album', onChanged: f.changed }),
     ),
   );
-  cleanups.push(() => act(() => root.unmount()));
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    act(() => root.unmount());
+  };
+  cleanups.push(close);
   await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="选择视频"]')!.click());
   const upload = () =>
     act(async () => host.querySelector<HTMLButtonElement>('[aria-label="上传视频"]')!.click());
-  return { host, upload };
+  return { host, upload, close };
 }
 
 it('取消确认不提交任务，选择视频本身不算上传', async () => {
@@ -209,14 +215,13 @@ it('取消确认不提交任务，选择视频本身不算上传', async () => {
   expect(f.task).toBeNull();
   expect(f.upload).not.toHaveBeenCalled();
 });
-it('宿主接管后可显示原位进度，交接不重复提交视频', async () => {
+it('宿主接管后可显示原位进度，离开相册自动交接且不重复提交', async () => {
   const ui = await mount();
   await ui.upload();
   expect(ui.host.textContent).toContain('正在上传到 QQ 并发布');
   expect(f.changed).not.toHaveBeenCalled();
-  await act(async () =>
-    ui.host.querySelector<HTMLButtonElement>('[aria-label="在后台继续上传视频"]')!.click(),
-  );
+  ui.close();
+  await vi.waitFor(() => expect(f.background).toHaveBeenCalledOnce());
   expect(f.background).toHaveBeenCalledWith({
     ...binding,
     taskId: 'synthetic-task',

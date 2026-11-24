@@ -97,7 +97,7 @@ function render() {
   return { button: host.querySelector('button')!, rerender };
 }
 
-it('打开页面不更新名单，主动刷新只在原页启动群成员范围任务', async () => {
+it('打开页面不更新名单，主动刷新启动群成员范围任务且不弹开任务列表', async () => {
   const { button } = render();
   expect(state.mutate).not.toHaveBeenCalled();
   await act(async () => {
@@ -112,7 +112,6 @@ it('打开页面不更新名单，主动刷新只在原页启动群成员范围�
     expectedAccountUin: '99999',
     expectedAccountConfigId: 'synthetic',
     target: 'groupMembers',
-    foreground: true,
     range: 'all',
     missingOnly: false,
   });
