@@ -1476,8 +1476,14 @@ export class GroupMsgDb {
       conditions.push(`"40020" = ?`);
       params.push(opts.senderUid);
     }
+    // 多群有时间窗口时，用已存在的时间索引缩小范围，避免按群索引重复遍历整段历史。
+    const timeIndex =
+      groupCodes.length > 1 && (opts.startTime ?? 0) > 0
+        ? await this.qq.findIndexPrefix('group_msg_table', ['40050'])
+        : undefined;
+    const index = timeIndex ? ` INDEXED BY "${timeIndex.replaceAll('"', '""')}"` : '';
     const rows = await this.qq.query(
-      `SELECT "40027", COUNT(*) FROM group_msg_table WHERE ${conditions.join(' AND ')} GROUP BY "40027"`,
+      `SELECT "40027", COUNT(*) FROM group_msg_table${index} WHERE ${conditions.join(' AND ')} GROUP BY "40027"`,
       params,
     );
     const result: Record<string, number> = {};

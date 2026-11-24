@@ -165,6 +165,9 @@ export class C2cMsgDb {
   get sourcePath(): string {
     return this.qq.dbPath;
   }
+  hasTable(): Promise<boolean> {
+    return this.qq.hasTable(this.table);
+  }
   directoryTimePage(before?: string) {
     return directoryTimePage(this.qq, before);
   }

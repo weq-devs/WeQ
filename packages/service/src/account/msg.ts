@@ -18,6 +18,7 @@ import { decodeBody, measureMessageWork, recordMessagePartition, recordMessageWo
 import type {
   C2cMsg,
   GroupMsg,
+  BrowseCursor,
   HistoryCursor,
   C2cPartition,
   AppendMsgFields,
@@ -35,6 +36,7 @@ import {
   validateComposeMessage,
   COMPOSE_ELEMENT_SPECS,
   isDatalineUid,
+  DATALINE_UID_TO_DEVICE,
   compareMessageOrder,
   type ComposeKind,
   type FieldSpec,
@@ -1240,6 +1242,53 @@ export class MsgService {
         ? this.renderGroupWithState(row as GroupMsg, recalls)
         : this.renderC2cWithState(row as C2cMsg, recalls),
     );
+  }
+
+  /** Latest local messages in a time interval, with rowid breaking ties within a second. */
+  async getLocalMessageRangePage(
+    kind: 'c2c' | 'group',
+    conv: string,
+    range: { start: number; end: number },
+    limit: number,
+    before?: BrowseCursor,
+  ) {
+    const rows =
+      kind === 'group'
+        ? await this.session.groupMsgs.browse(conv, range, before, limit + 1)
+        : await this.c2cDbFor(conv).browse(
+            await this.c2cPagePartition(conv),
+            range,
+            before,
+            limit + 1,
+          );
+    const page = rows.slice(0, limit);
+    const last = rows.length > limit ? page.at(-1) : undefined;
+    const recalls = await this.recallMapFor(
+      kind,
+      conv,
+      page.map(({ message }) => message),
+    );
+    return {
+      messages: page.map(({ message }) =>
+        'targetGroupCode' in message
+          ? this.renderGroupWithState(message, recalls)
+          : this.renderC2cWithState(message, recalls),
+      ),
+      nextBefore: last && { time: last.message.sendTime, rowId: last.rowId },
+    };
+  }
+
+  /** 以本地数据线消息为准，历史设备会话可能已从最近会话列表移除。 */
+  async listDatalineConversations() {
+    const db = this.session.datalineMsgs;
+    if (!(await db.hasTable())) return [];
+    const sessions = await Promise.all(
+      Object.keys(DATALINE_UID_TO_DEVICE).map(async (conv) => {
+        const [latest] = await db.listNewestHistory(this.c2cPartition(conv), 1);
+        return latest ? [{ conv, lastTime: latest.sendTime, lastSeq: latest.msgSeq }] : [];
+      }),
+    );
+    return sessions.flat().sort((a, b) => Number(b.lastTime - a.lastTime));
   }
 
   /** Newest N group messages in one group. */

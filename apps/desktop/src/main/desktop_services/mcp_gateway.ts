@@ -212,11 +212,15 @@ export class DesktopMcpGateway {
   }
 
   private async runTool(session: ToolSession, name: string, args: unknown, signal: AbortSignal) {
-    if (name === 'list_accounts')
+    if (name === 'list_accounts') {
+      const windows = await this.accounts.windows();
+      const open = new Set(windows.map((window) => window.account?.configId));
       return this.candidates(session).map((account) => ({
         ...account,
+        open: open.has(account.configId),
         current: session.selected?.account.configId === account.configId,
       }));
+    }
     if (name === 'switch_account') {
       const { configId } = z.object({ configId: z.string() }).parse(args);
       const target = await this.select(session, configId);
@@ -402,7 +406,7 @@ export class DesktopMcpGateway {
       if (compact && !isCompactMcpTool(tool.name)) continue;
       const description =
         tool.name === 'list_accounts'
-          ? '列出当前令牌可访问的账号与数据源。'
+          ? '列出当前令牌可访问的账号与数据源。open=true 可用 select_open_account 选择；current=true 是当前 MCP 会话选中的数据源。'
           : tool.name === 'switch_account'
             ? '选择当前 MCP 会话的账号。目标就绪后返回，其他客户端与桌面窗口继续使用原账号。'
             : tool.description;

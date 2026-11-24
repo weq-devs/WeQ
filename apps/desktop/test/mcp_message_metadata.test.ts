@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import type { RenderElement } from '@weq/service';
 
 const recentContacts = vi.hoisted(() =>
@@ -17,6 +17,7 @@ const recentContacts = vi.hoisted(() =>
   })),
 );
 const profileRead = vi.hoisted(() => vi.fn(async () => null));
+beforeEach(() => profileRead.mockClear());
 const cacheRead = vi.hoisted(() => vi.fn(async () => null));
 const legacyBefore = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => []));
 const localMessagePage = vi.hoisted(() => {
@@ -76,6 +77,11 @@ const detailRows = vi.hoisted(() => {
     resolveC2cSeq: vi.fn(async (..._args: unknown[]) => 120n),
   };
 });
+const browseGroup = vi.hoisted(() => vi.fn());
+const dataline = vi.hoisted(() => ({
+  hasTable: vi.fn(async () => true),
+  listNewestHistory: vi.fn(),
+}));
 
 vi.mock('../src/main/context/app_context', async () => {
   const { MsgService } = await import('@weq/service');
@@ -89,14 +95,17 @@ vi.mock('../src/main/context/app_context', async () => {
         nicksByUids: async () => ({}),
       },
       recentContacts: { getRecentContact: async () => recentContacts },
+      groupInfo: { listAllGroups: async () => [] },
       msgs: Object.assign(
         new MsgService({
-          groupMsgs: { listBySeqsInPartition: detailRows.groupBySeq },
+          groupMsgs: { listBySeqsInPartition: detailRows.groupBySeq, browse: browseGroup },
           c2cMsgs: {
+            browse: async () => [],
             listBySeqsInPartition: detailRows.c2cBySeq,
             resolveReplySeq: detailRows.resolveC2cSeq,
           },
-          uidMap: { sortNoByUid: () => 55n },
+          datalineMsgs: dataline,
+          uidMap: { sortNoByUid: (uid: string) => (uid === 'u_peer' ? 55n : undefined) },
           msgDbPath: 'fixture',
         } as never),
         {
@@ -130,6 +139,34 @@ it('聊天翻页把同序号边界的原始 ID 与时间传回存储层', async 
   expect(page).toMatchObject({ hasMore: false, messages: [{ msgId: '9007199254740992' }] });
   expect(await tool.run({ ...args, before: '2' })).toMatchObject({ hasMore: false, messages: [] });
   expect(legacyBefore).toHaveBeenLastCalledWith('123', 2n, 2);
+});
+
+it('按北京时间读取历史日期并在同秒消息之间继续翻页', async () => {
+  const tool = AI_TOOLS.find((item) => item.name === 'get_messages_by_date')!;
+  const start = Date.parse('2020-06-01T00:00:00+08:00') / 1000;
+  const row = { ...detailRows.host, sendTime: BigInt(start), targetGroupCode: '123' };
+  const older = { ...row, msgId: row.msgId - 1n };
+  browseGroup.mockResolvedValueOnce([
+    { rowId: '9007199254740993', message: row },
+    { rowId: '9007199254740992', message: older },
+  ]);
+  browseGroup.mockResolvedValueOnce([{ rowId: '9007199254740992', message: older }]);
+  const args = { kind: 'group', conv: '123', date: '2020-06-01', limit: 1, includeIds: true };
+  const first = (await tool.run({ ...args, before: '' })) as { nextBefore: string };
+  expect(first).toMatchObject({ hasMore: true, messages: [{ msgId: String(row.msgId) }] });
+  expect(browseGroup).toHaveBeenLastCalledWith('123', { start, end: start + 86399 }, undefined, 2);
+  const page = await tool.run({ ...args, before: first.nextBefore });
+  expect(browseGroup).toHaveBeenLastCalledWith(
+    '123',
+    { start, end: start + 86399 },
+    { time: start, rowId: '9007199254740993' },
+    2,
+  );
+  expect(page).toMatchObject({ hasMore: false, messages: [{ msgId: String(older.msgId) }] });
+  expect(page).not.toHaveProperty('nextBefore');
+  await expect(tool.run({ ...args, date: '2020-06-02', before: first.nextBefore })).rejects.toThrow(
+    '游标无效',
+  );
 });
 
 import { AI_TOOLS } from '../src/main/mcp/tools';
@@ -168,6 +205,32 @@ it('returns exact source time and sender identity with message IDs without SQL',
   expect(compact.messages[0]).not.toHaveProperty('sendTime');
   expect(compact.messages[0]).not.toHaveProperty('senderUid');
   expect(profileRead).not.toHaveBeenCalled();
+});
+
+it('历史摘要包含之后又收到新消息的会话，并报告实际覆盖范围', async () => {
+  const tool = AI_TOOLS.find((item) => item.name === 'get_daily_digest')!;
+  const start = BigInt(Date.parse('2020-06-01T00:00:00+08:00') / 1000);
+  browseGroup.mockResolvedValueOnce([
+    { rowId: '1', message: { ...detailRows.host, sendTime: start, targetGroupCode: '456' } },
+  ]);
+  expect(await tool.run({ date: '2020-06-01' })).toMatchObject({
+    totals: { conversationsTouched: 1, friendsIChattedWith: 0 },
+    groups: [{ groupCode: '456', totalCount: 1 }],
+    coverage: { conversationsScanned: 2, messagesLimited: false },
+  });
+});
+
+it('可从本地消息发现已离开最近列表的数据线设备', async () => {
+  const tool = AI_TOOLS.find((item) => item.name === 'list_dataline_conversations')!;
+  dataline.listNewestHistory.mockImplementation(async ({ uid }: { uid: string }) =>
+    uid === 'u_Wcc5rknRRqRO8y5gxMD6sA' ? [detailRows.host] : [],
+  );
+  expect(await tool.run({ limit: 1 })).toMatchObject({
+    count: 1,
+    sessions: [{ device: '我的手机', conv: 'u_Wcc5rknRRqRO8y5gxMD6sA', lastSeq: '2' }],
+  });
+  dataline.hasTable.mockResolvedValueOnce(false);
+  expect(await tool.run({ limit: 1 })).toMatchObject({ count: 0, sessions: [] });
 });
 
 it('returns the same raw time in read-only message details', async () => {

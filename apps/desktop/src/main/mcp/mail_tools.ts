@@ -14,6 +14,7 @@ export function mailSummaryForTool(mail: MailSummary) {
     id: mail.id,
     folderId: mail.folderId,
     subject: mail.subject,
+    snippet: mail.snippet,
     sender: mail.sender,
     time: mail.time,
     unread: mail.unread,
@@ -60,14 +61,18 @@ function httpsLinks(html: string, hosts: string[]): string[] {
   return [...links];
 }
 
-export function mailDetailForTool(detail: MailDetail, linkHosts: string[]) {
-  const text = htmlPlainText(detail.html);
+export function mailDetailForTool(
+  detail: MailDetail & { bodyAvailable: boolean },
+  linkHosts: string[],
+) {
+  const text = detail.bodyAvailable ? htmlPlainText(detail.html) : '';
   return {
     ...mailSummaryForTool(detail),
     recipients: detail.to,
+    bodyAvailable: detail.bodyAvailable,
     text: text.slice(0, MAX_BODY_LENGTH),
     truncated: text.length > MAX_BODY_LENGTH,
-    links: httpsLinks(detail.html, linkHosts),
+    links: detail.bodyAvailable ? httpsLinks(detail.html, linkHosts) : [],
     attachments: detail.attachments.map(({ id, name, size, big, available }) => ({
       id,
       name,

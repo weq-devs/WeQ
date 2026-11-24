@@ -239,6 +239,13 @@ it('MCP 后台会话只选择已打开的授权账号', async () => {
     client.callTool({ name: 'select_open_account', arguments: { configId } });
   try {
     await client.connect(transport);
+    worker.windows.mockResolvedValueOnce([(await worker.find('101'))!]);
+    worker.find.mockClear();
+    const accounts = await client.callTool({ name: 'list_accounts', arguments: {} });
+    expect(JSON.parse((accounts.content as { text: string }[])[0]!.text)).toEqual([
+      expect.objectContaining({ configId: '101', open: true, current: false }),
+      expect.objectContaining({ configId: '202', open: false, current: false }),
+    ]);
     expect((await select('303')).isError).toBe(true);
     expect(worker.find).not.toHaveBeenCalled();
     worker.find.mockResolvedValueOnce(undefined);

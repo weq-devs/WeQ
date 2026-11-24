@@ -43,6 +43,7 @@ import { nextAlbumMediaCursor } from '../account_resource_exports';
 import { hasAccountSwitchSubscriber, pushAccountSwitchRequest } from '../account_switch_bus';
 import {
   classifyChatType,
+  ChatType,
   datalineName,
   isDatalineSelfUid,
   isDatalineUid,
@@ -398,6 +399,7 @@ function rangeLabel(days: number, windowStart: number | null): string {
 
 /** 排行类工具的统一 coverage 提醒——只统计本地已同步的消息。 */
 const RANK_COVERAGE = '仅基于本地已同步的聊天记录统计；未漫游/未拉取的历史不计入。';
+const SEARCH_COVERAGE = '仅搜索 QQ 本地消息索引。新消息和未进入索引的消息可能搜不到。';
 
 /**
  * 解析「某天」为北京 [startSec, endSec) 半开窗口（秒），默认今天。
@@ -811,7 +813,7 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'get_mail_message',
     description:
-      '读取 QQ 邮箱中的一封邮件，不标记已读。返回纯文本、附件 ID，以及可选的指定主机 HTTPS 链接（仅返回，不访问链接）。会话邮件返回子邮件列表，可再传子邮件 id 读正文。',
+      '只读预览 QQ 邮件，保留未读状态。返回邮件摘要与可用的附件 ID；bodyAvailable=false 表示 QQ 的简要详情未提供正文，可查看 snippet 或在邮箱中打开。会话邮件返回子邮件列表。提供正文时，可选提取指定主机的 HTTPS 链接。',
     input: z.object({
       id: z.string().min(1).max(2048).describe('list_mail_messages 返回的邮件 ID'),
       linkHosts: z
@@ -827,7 +829,7 @@ export const AI_TOOLS: AiTool[] = [
     }),
     run: async ({ id, linkHosts }) =>
       withMail(async (mail) =>
-        mailDetailForTool(await mail.read(id, toolExecutionOptions().signal, false), linkHosts),
+        mailDetailForTool(await mail.preview(id, toolExecutionOptions().signal), linkHosts),
       ),
   }),
   tool({
@@ -898,8 +900,8 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'search_messages',
     description:
-      '在本地 QQ 聊天记录里全文搜索关键词。scope: buddy=私聊, group=群聊, all=两者合并按时间排序。' +
-      '返回精简命中：time 时间、scope 会话类型、conv 会话标识、sender 发送者昵称、mine 是否本人发送、text 文本。' +
+      '在 QQ 本地消息索引里搜索关键词。scope: buddy=私聊, group=群聊, all=两者合并。' +
+      '每条命中附 kind、conv、msgId，可传给 get_message_details 读取原消息。' +
       '\n【怎么用我】底层是**本地字面关键词匹配**，不理解整句问题：keyword 只能传一个最有辨识度、可能真出现在原话里的短词/短语，' +
       '别把用户的问句、同义词列表或空格拼接的多词丢进来。想限定某个人/某个群里搜，改用 search_in_conversation 更准。' +
       '\n【结果不能代表什么】一次零命中**不等于**内容不存在——可能是词没选对；要换更短/近义的关键词多试几次，或改用 get_messages 直接把相关会话读出来判断。' +
@@ -936,7 +938,9 @@ export const AI_TOOLS: AiTool[] = [
       const items = hits.map((h) => ({
         time: fmtTime(h.sendTime),
         scope: Number(h.chatType) === 2 ? 'group' : 'c2c',
+        kind: Number(h.chatType) === 2 ? 'group' : 'c2c',
         conv: h.targetUid,
+        msgId: String(h.msgId),
         sender: h.senderUid === selfUid ? '我' : nameByUid[h.senderUid] || h.senderUid,
         mine: h.senderUid === selfUid,
         text: h.content,
@@ -948,7 +952,7 @@ export const AI_TOOLS: AiTool[] = [
         scope,
         count: items.length,
         hasMore,
-        coverage: RANK_COVERAGE,
+        coverage: SEARCH_COVERAGE,
         hits: items,
         ...(items.length === 0
           ? {
@@ -956,7 +960,7 @@ export const AI_TOOLS: AiTool[] = [
             }
           : hasMore
             ? {
-                hint: `命中较多，只返回按时间最新的 ${limit} 条；调大 limit 或换更具体的关键词收窄。`,
+                hint: `命中较多，只返回 ${limit} 条；调大 limit 或换更具体的关键词收窄。`,
               }
             : {}),
       };
@@ -966,10 +970,10 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'search_in_conversation',
     description:
-      '在【指定会话内】全文搜索关键词——比全局 search_messages 更精准，专治「某人/某群里 TA 说过什么」。' +
+      '在指定会话的 QQ 本地消息索引里搜索关键词。' +
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）。会话标识来自 find_contact / list_conversations / list_groups。' +
       '提到人名/群名时先用 find_contact 解析成会话标识，再用这个在该会话里搜，别把人名当关键词。' +
-      '返回 hits：time 时间、sender 发送者昵称、mine 是否本人发送、text 文本；带 hasMore（命中是否被截断）。' +
+      '返回 hits：时间、发送者、文本和 msgId；结合结果的 kind、conv 可调用 get_message_details。hasMore 表示命中是否被截断。' +
       '同样是字面匹配：keyword 传短词、零命中≠不存在，可换词或改用 get_messages 顺读。',
     input: z.object({
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
@@ -996,6 +1000,7 @@ export const AI_TOOLS: AiTool[] = [
 
       const items = hits.map((h) => ({
         time: fmtTime(h.sendTime),
+        msgId: String(h.msgId),
         sender: h.senderUid === selfUid ? '我' : nameByUid[h.senderUid] || h.senderUid,
         mine: h.senderUid === selfUid,
         text: h.content,
@@ -1008,7 +1013,7 @@ export const AI_TOOLS: AiTool[] = [
         keyword,
         count: items.length,
         hasMore,
-        coverage: RANK_COVERAGE,
+        coverage: SEARCH_COVERAGE,
         hits: items,
         ...(items.length === 0
           ? {
@@ -1439,7 +1444,7 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'find_contact',
     description:
-      '按名字/备注/群名模糊查找联系人与群，返回可直接用于 get_messages / search_messages 的会话标识。' +
+      '按名字/备注/群名模糊查找联系人与群，返回可直接用于 get_messages / search_in_conversation 的会话标识。' +
       '当用户提到某个人名或群名（如「小枳壳」）时，先用这个把名字解析成会话（私聊对方 uid 或群号），再去读/搜该会话——' +
       '不要把人名本身当作搜索关键词丢给 search_messages。',
     input: z.object({
@@ -1513,12 +1518,12 @@ export const AI_TOOLS: AiTool[] = [
 
       return {
         query,
-        people, // get_messages/search_messages: kind=c2c, conv=uid
+        people, // get_messages/search_in_conversation: kind=c2c, conv=uid
         groups, // get_messages: kind=group, conv=groupCode；或 list_group_members
         hint:
           people.length === 0 && groups.length === 0
             ? '没有匹配的联系人或群。可换更短的关键词，或用 list_conversations / list_buddies / list_groups 浏览。'
-            : '用 people[].uid 作为 c2c 会话标识，用 groups[].groupCode 作为群会话标识，继续 get_messages / search_messages。',
+            : '用 people[].uid 作为 c2c 会话标识，用 groups[].groupCode 作为群会话标识，继续 get_messages / search_in_conversation。',
       };
     },
   }),
@@ -2050,7 +2055,7 @@ export const AI_TOOLS: AiTool[] = [
     name: 'get_daily_digest',
     description:
       '一站式「某天活跃总览」——回答「我今天在哪些群发了消息」「今天和哪些好友聊了天」「今日活跃日记」等。' +
-      '高效：先用最近会话筛出当天动过的会话，再并发统计，不做全表扫描。date 默认今天，可传 YYYY-MM-DD 看某天（如昨天）。' +
+      '从最近会话中按北京时间查询当天的本地消息。date 默认今天，也可传 YYYY-MM-DD。coverage 说明覆盖的会话与读取上限。' +
       '返回：totals 总览（我发了多少条/触达会话数/我发言的群数/聊过的好友数/首末活跃时刻/活跃小时数）、hourlyMine 我的逐小时分布、' +
       'groups 当天动过的群（含 myCount 我在该群发言数、totalCount 群当天总条数、lastSnippet 最后一条摘要）、friends 当天私聊好友（含 myCount/peerCount）。' +
       '适合接着用 write_report 出一份带图表/时间线的「活跃日记」HTML 报告。',
@@ -2063,15 +2068,15 @@ export const AI_TOOLS: AiTool[] = [
       const self = await svc.profile.getSelfProfile();
       const selfUin = self?.uin ?? -1n;
 
-      // 1) 廉价筛出「当天动过」的会话（recent_contact 自带最后消息时间）。
+      // 最近消息晚于目标日的会话也可能在当天发过消息。
       const contacts = await svc.recentContacts.getRecentContact(200);
       const CAP = 80;
       const touched = contacts
-        .filter((c) => Number(c.sendTime) >= startSec && Number(c.sendTime) < endSec)
+        .filter((c) => Number(c.sendTime) >= startSec)
         .map((c) => ({ c, wire: recentContactToWire(c), kind: convKindOf(c.chatType) }))
         .filter(
           (t): t is { c: typeof t.c; wire: typeof t.wire; kind: 'c2c' | 'group' } =>
-            t.kind !== null,
+            t.kind !== null && Boolean(t.wire.targetUid),
         );
       const capped = touched.slice(0, CAP);
 
@@ -2087,14 +2092,12 @@ export const AI_TOOLS: AiTool[] = [
       const perConv = await Promise.all(
         capped.map(async (t) => {
           const conv = t.wire.targetUid;
-          const rows =
-            t.kind === 'group'
-              ? await svc.msgs.getGroupLatest(conv, READ_GROUP)
-              : await svc.msgs.getC2cLatest(conv, READ_C2C);
           const limit = t.kind === 'group' ? READ_GROUP : READ_C2C;
-          // rows 为最新在前；过滤到当天窗口。
-          const day = rows.filter(
-            (r) => Number(r.sendTime) >= startSec && Number(r.sendTime) < endSec,
+          const { messages: day, nextBefore } = await svc.msgs.getLocalMessageRangePage(
+            t.kind,
+            conv,
+            { start: startSec, end: endSec - 1 },
+            limit,
           );
           let myCount = 0;
           const hourly: Record<number, number> = {};
@@ -2108,16 +2111,14 @@ export const AI_TOOLS: AiTool[] = [
               myCount += 1;
               if (sec < myFirstSec) myFirstSec = sec;
               if (sec > myLastSec) myLastSec = sec;
-              hourly[timeFormat.calendarParts(sec * 1000)!.hour] =
-                (hourly[timeFormat.calendarParts(sec * 1000)!.hour] ?? 0) + 1;
+              const { hour } = timeFormat.calendarParts(sec * 1000)!;
+              hourly[hour] = (hourly[hour] ?? 0) + 1;
             }
           }
           const name =
             t.kind === 'group'
               ? groupNameByCode.get(conv) || t.wire.targetDisplayName || conv
               : t.wire.targetRemark || t.wire.targetDisplayName || t.wire.senderNick || conv;
-          // 当天消息条数 >= 读取上限时，更早的可能被截断。
-          const truncated = rows.length >= limit && day.length === rows.length;
           return {
             kind: t.kind,
             conv,
@@ -2130,10 +2131,10 @@ export const AI_TOOLS: AiTool[] = [
             lastSec,
             lastSnippet: day.length ? flattenElements(day[0]!.elements).slice(0, 60) : '',
             hourly,
-            truncated,
+            truncated: Boolean(nextBefore),
           };
         }),
-      );
+      ).then((items) => items.filter((item) => item.total > 0));
 
       // 3) 汇总。
       const hourlyMine: Record<number, number> = {};
@@ -2174,6 +2175,7 @@ export const AI_TOOLS: AiTool[] = [
           total: p.total,
           lastActive: p.lastSec ? hhmm(p.lastSec) : '',
           lastSnippet: p.lastSnippet,
+          ...(p.truncated ? { truncated: true } : {}),
         }));
       const activeHours = Object.values(hourlyMine).filter((n) => n > 0).length;
 
@@ -2182,9 +2184,9 @@ export const AI_TOOLS: AiTool[] = [
         self: { uin: selfUin.toString(), nick: self?.nick ?? '' },
         totals: {
           myMessages,
-          conversationsTouched: touched.length,
-          groupsIPostedIn: groups.filter((g) => g.myCount > 0).length,
-          friendsIChattedWith: friends.length,
+          conversationsTouched: perConv.length,
+          groupsIPostedIn: perConv.filter((p) => p.kind === 'group' && p.myCount > 0).length,
+          friendsIChattedWith: perConv.filter((p) => p.kind === 'c2c').length,
           firstActive: firstActive === Infinity ? '' : hhmm(firstActive),
           lastActive: lastActive ? hhmm(lastActive) : '',
           activeHours,
@@ -2192,12 +2194,16 @@ export const AI_TOOLS: AiTool[] = [
         hourlyMine,
         groups,
         friends,
+        coverage: {
+          scope: '本地最近会话',
+          conversationsScanned: capped.length,
+          conversationsLimited: touched.length > CAP || contacts.length >= 200,
+          messagesLimited: perConv.some((p) => p.truncated),
+        },
         hint:
-          touched.length > CAP
-            ? `当天动过的会话有 ${touched.length} 个，仅统计了最近 ${CAP} 个。`
-            : myMessages === 0
-              ? '这一天你没有发送记录（或消息超出读取上限被截断）。'
-              : '可据此用 write_report 生成「活跃日记」；想看与某人具体聊了啥，用 get_messages_by_date。',
+          myMessages === 0
+            ? '在已查询的会话和消息范围内没有找到你的发言。'
+            : '用 get_messages_by_date 可继续查看指定会话当天的消息。',
       };
     },
   }),
@@ -2402,11 +2408,12 @@ export const AI_TOOLS: AiTool[] = [
       'kind: c2c=私聊（conv 传对方 uid），group=群聊（conv 传群号）；会话标识可由 find_contact 解析。date 默认今天，可传 YYYY-MM-DD。' +
       '每条为精简形：time（北京时间完整日期与时分秒）、sender 发送者昵称、mine 是否本人、text 文本；间隔较大时附 gap（距上一条多久）。' +
       '需要 msgId/msgSeq 供 get_message_details 回查时把 includeIds 设为 true。' +
-      '\n【局限】只在该会话最近若干条里筛当天；查很久以前的某天可能扫不到（返回 coverage 会点明），那种情况改用 inspect_timeline 的 readWindows 找活跃日、或直接读最近的日期。',
+      '直接按北京时间查本机历史。hasMore 为 true 时，将同一 date 和返回的 nextBefore 传给 before 继续读取当天更早的消息。',
     input: z.object({
       kind: z.enum(['c2c', 'group']).describe('会话类型'),
       conv: z.string().min(1).describe('私聊为对方 uid，群聊为群号'),
       date: z.string().default('').describe('某天 YYYY-MM-DD；空=今天'),
+      before: z.string().default('').describe('同一日期上一页的 nextBefore'),
       limit: z
         .number()
         .int()
@@ -2422,29 +2429,33 @@ export const AI_TOOLS: AiTool[] = [
             '私聊的 clientSeq 是引用回复要传给 send_text_message 的 replyToClientSeq；默认 false）',
         ),
     }),
-    run: async ({ kind, conv, date, limit, includeIds }) => {
+    run: async ({ kind, conv, date, limit, includeIds, before }) => {
       const svc = services();
       const selfUin = currentMessageSelfUin();
       const { startSec, endSec, label } = dayWindow(date);
-      const READ = kind === 'group' ? 1000 : 600;
-      const rows =
-        kind === 'group'
-          ? await svc.msgs.getGroupLatest(conv, READ)
-          : await svc.msgs.getC2cLatest(conv, READ);
-      const day = rows.filter((r) => Number(r.sendTime) >= startSec && Number(r.sendTime) < endSec);
-      // 读取窗口触顶且最旧一条仍晚于目标日 → 目标日可能落在未扫到的更早区间，coverage 要如实点明。
-      const oldestSec = rows.length
-        ? Number(rows[rows.length - 1]!.sendTime)
-        : Number.MAX_SAFE_INTEGER;
-      const mayMissEarlier = rows.length >= READ && oldestSec >= endSec;
+      let cursor: { time: number; rowId: string } | undefined;
+      if (before) {
+        const match = /^(-?\d{1,15}):(-?\d{1,19})$/.exec(before);
+        const time = Number(match?.[1]);
+        const rowId = match ? BigInt(match[2]!) : 0n;
+        if (!match || time < startSec || time >= endSec || BigInt.asIntN(64, rowId) !== rowId)
+          throw new Error('日期翻页游标无效，请使用同一日期上一页的 nextBefore');
+        cursor = { time, rowId: String(rowId) };
+      }
+      const { messages: page, nextBefore } = await svc.msgs.getLocalMessageRangePage(
+        kind,
+        conv,
+        { start: startSec, end: endSec - 1 },
+        limit,
+        cursor,
+      );
 
       const otherUids = [
-        ...new Set(day.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid)),
+        ...new Set(page.filter((r) => r.senderUin !== selfUin).map((r) => r.senderUid)),
       ];
       const nameByUid = otherUids.length ? await svc.profile.nicksByUids(otherUids) : {};
 
-      // day 为最新在前；取当天最近 limit 条后翻成旧→新方便顺读。
-      const slice = day.slice(0, limit).reverse();
+      const slice = page.reverse();
       const messages: AiMsgLine[] = slice.map((r, i) => {
         const line: AiMsgLine = {
           time: hhmm(r.sendTime),
@@ -2465,21 +2476,13 @@ export const AI_TOOLS: AiTool[] = [
         kind,
         conv,
         count: messages.length,
-        coverage: mayMissEarlier
-          ? `${RANK_COVERAGE}（注意：只扫了该会话最近 ${READ} 条，这一天可能更早、未完全覆盖）`
-          : RANK_COVERAGE,
+        coverage: RANK_COVERAGE,
+        hasMore: Boolean(nextBefore),
+        ...(nextBefore ? { nextBefore: `${nextBefore.time}:${nextBefore.rowId}` } : {}),
         messages,
-        ...(day.length > limit
-          ? {
-              hint: `当天共 ${day.length} 条，只返回最近 ${limit} 条；如需更早可缩小到更早的日期或提高 limit。`,
-            }
-          : day.length === 0
-            ? {
-                hint: mayMissEarlier
-                  ? '在最近的读取窗口里没扫到这一天（可能更久远）；用 inspect_timeline 找活跃日、或读更近的日期。'
-                  : '这一天该会话没有消息记录。',
-              }
-            : {}),
+        ...(messages.length
+          ? {}
+          : { hint: cursor ? '当天没有更早的本地消息。' : '这一天该会话没有本地消息记录。' }),
       };
     },
   }),
@@ -3567,33 +3570,25 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '列出「数据线」会话——QQ 跨设备同步的“我的手机 / 我的电脑 / 我的平板”聊天（数据存在 dataline_msg_table）。' +
       '返回：conv（设备伪 uid，读消息时传给 get_dataline_messages）、device 设备名、lastTime、lastSeq。' +
-      '只读本地 recent_contact 列表，不发网络。回答「我和手机/电脑之间传过什么」这类问题时先调它拿 conv。',
+      '直接查询本地数据线历史。回答「我和手机或电脑之间传过什么」时可先用它选会话。',
     input: z.object({
-      limit: z
-        .number()
-        .int()
-        .min(1)
-        .max(100)
-        .default(30)
-        .describe('从最近会话里最多找多少个数据线会话'),
+      limit: z.number().int().min(1).max(100).default(30).describe('返回条数上限'),
     }),
     run: async ({ limit }) => {
-      const svc = services();
-      const contacts = await svc.recentContacts.getRecentContact(limit * 5);
-      const sessions = contacts.filter((c) => classifyChatType(c.chatType) === 'dataline');
+      const sessions = (await services().msgs.listDatalineConversations()).slice(0, limit);
       return {
         count: sessions.length,
-        source: 'local-recent-contact',
+        source: 'local-dataline_msg_table',
         sessions: sessions.map((c) => ({
-          conv: c.targetUid,
-          device: datalineName(c.targetUid) ?? '未知设备',
-          chatType: String(c.chatType),
-          lastSeq: c.msgSeq.toString(),
-          lastTime: fmtTime(c.sendTime),
+          conv: c.conv,
+          device: datalineName(c.conv) ?? '未知设备',
+          chatType: ChatType[ChatType.KCHATTYPEDATALINE],
+          lastSeq: c.lastSeq.toString(),
+          lastTime: fmtTime(c.lastTime),
         })),
         hint:
           sessions.length === 0
-            ? '最近会话列表里没有数据线会话（从未用过跨设备同步，或太久没动没出现在最近列表）。'
+            ? '本机没有已保存的数据线消息。'
             : '会话列表按最后消息时间排序；想看具体内容用 get_dataline_messages。',
       };
     },
@@ -4072,7 +4067,7 @@ export const AI_TOOLS: AiTool[] = [
     name: 'list_databases',
     description:
       '列出当前账号目录下可访问的 QQ 数据库文件（name、完整 dbPath、bytes、kind：account=账号库 / login=全局登录库）。' +
-      '是 execute_sql / decrypt_database 选库的入口：dbName 直接取这里的 name 即可。只读本地目录，不发网络。',
+      '把这里的 name 传给 list_db_tables 或 get_db_columns。只读本地目录。',
     input: z.object({}),
     run: async () => {
       const svc = services();
@@ -4088,7 +4083,7 @@ export const AI_TOOLS: AiTool[] = [
         hint:
           dbs.length === 0
             ? '当前账号目录下没有找到 .db 文件。'
-            : '需要操作某库时把 name 传给 execute_sql；需要拿到明文副本用 decrypt_database。',
+            : '把 name 传给 list_db_tables 查看数据库结构。',
       };
     },
   }),
@@ -4097,12 +4092,9 @@ export const AI_TOOLS: AiTool[] = [
     name: 'list_db_tables',
     description:
       '列出当前账号某个 QQ 数据库里的表 / 视图 / 索引（来自 sqlite_master，不含内部 sqlite_* 与触发器）。' +
-      'DB 逆向或想确认 execute_sql 该查哪张表时先用它。dbName 用 list_databases 的 name。',
+      'dbName 用 list_databases 的 name；把表名传给 get_db_columns 查看字段。',
     input: z.object({
-      dbName: z
-        .string()
-        .min(1)
-        .describe('数据库文件名（如 msg.db、login.db、bc_09.db），可用 list_databases 查'),
+      dbName: z.string().min(1).describe('数据库文件名（如 nt_msg.db），可用 list_databases 查'),
     }),
     run: async ({ dbName }) => {
       const dbFile = await accountDbFile(dbName);
@@ -4134,9 +4126,9 @@ export const AI_TOOLS: AiTool[] = [
     name: 'get_db_columns',
     description:
       '列出当前账号某个 QQ 数据库里指定表/视图的列（cid、列名、类型、NOT NULL、是否主键）。' +
-      '配合 list_db_tables / execute_sql 做数据库探索：不用先手写 PRAGMA table_info。',
+      '数据库名和表名分别由 list_databases 与 list_db_tables 提供。',
     input: z.object({
-      dbName: z.string().min(1).describe('数据库文件名（如 msg.db），可用 list_databases 查'),
+      dbName: z.string().min(1).describe('数据库文件名（如 nt_msg.db），可用 list_databases 查'),
       table: z.string().min(1).describe('表名或视图名（list_db_tables 可查）'),
     }),
     run: async ({ dbName, table }) => {
@@ -5462,8 +5454,7 @@ export const AI_TOOLS: AiTool[] = [
     name: 'search_market_emoji',
     description:
       '搜索【商城表情包目录】（需安装商城表情目录增强包）。' +
-      'keyword 对名称/介绍做子串匹配；feeTypes 过滤来源（free/paid/vip/svip）。返回 packId、名称、介绍、来源标签。' +
-      '拿到 packId 后接 get_market_pack_detail 看单套表情清单、get_market_pack_key 破解图片密钥。',
+      'keyword 对名称/介绍做子串匹配；feeTypes 过滤来源（free/paid/vip/svip）。entries[].id 可作为 packId 传给 get_market_pack_detail。',
     input: z.object({
       keyword: z.string().default('').describe('搜索关键词（名称/介绍子串匹配，空=全部）'),
       feeTypes: z
@@ -5490,7 +5481,7 @@ export const AI_TOOLS: AiTool[] = [
         hint:
           page.entries.length === 0
             ? '没有命中；换个更短的关键词，或放宽 feeTypes。'
-            : 'packId 可接 get_market_pack_detail（单套清单）与 get_market_pack_key（图片密钥）。',
+            : '把 entries[].id 作为 packId 传给 get_market_pack_detail 查看表情清单。',
       };
     },
   }),
@@ -5498,8 +5489,7 @@ export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'get_market_pack_detail',
     description:
-      '获取一套【商城表情包的在线详情】：名称、介绍、来源（免费/付费/VIP）、表情数量与每张表情的 hash/名称/关键词。' +
-      '（CDN 拉 android.json 解析。）图片密钥用 get_market_pack_key。',
+      '获取一套商城表情包的在线详情。返回名称、介绍、来源和单张表情的 hash、名称、关键词。',
     input: z.object({
       packId: z.string().min(1).describe('表情包 ID（search_market_emoji 返回的 id）'),
     }),

@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { GroupMsgDb, C2cMsgDb } from '@weq/db';
 import { fixtureDb, createSqliteStub, closeAllFixtureDbs } from '@weq/testkit';
 
@@ -39,12 +39,26 @@ function fixture() {
     add.run(6, 0, 'u_alice', 'u_peer', '777', 123, null);
     add.run(7, 0, 'u_alice', 'u_peer', '777', 123, null);
   }
+  const groupBinding = createSqliteStub();
   return {
     sql,
-    group: new GroupMsgDb(createSqliteStub(), { dbPath: path }),
+    groupBinding,
+    group: new GroupMsgDb(groupBinding, { dbPath: path }),
     c2c: new C2cMsgDb(createSqliteStub(), { dbPath: path }),
   };
 }
+it('多群日期统计复用本地时间索引，并保留群和发送者筛选', async () => {
+  const { group, groupBinding, sql } = fixture();
+  const startTime = Date.parse('2026-10-15T00:00:00+08:00') / 1000;
+  const opts = { startTime, endTime: startTime, senderUid: 'u_alice' };
+  expect(await group.countByGroups(['777', '999'], opts)).toEqual({ '777': 1, '999': 1 });
+  sql.exec('CREATE INDEX "date "" index" ON group_msg_table ("40050", "40027")');
+  const execute = vi.spyOn(groupBinding, 'executeSql');
+  expect(await group.countByGroups(['777', '999'], opts)).toEqual({ '777': 1, '999': 1 });
+  expect(execute.mock.calls.some(([, query]) => query.includes('INDEXED BY "date "" index"'))).toBe(
+    true,
+  );
+});
 it('占位发送者（40020 写成群号）不进任何发言人统计', async () => {
   const { group, sql } = fixture();
   // QQ 删除/撤回留下的是占位行：40020 直接写成群号，40033 = 0，40800 为空。

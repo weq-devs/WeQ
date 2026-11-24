@@ -73,19 +73,20 @@ export class QqDb {
   }
 
   async hasIndexPrefix(table: string, columns: readonly string[]): Promise<boolean> {
-    if (!columns.length) return false;
-    return (
-      (
-        await this.query(
-          `SELECT 1 FROM pragma_index_list(?) i WHERE i.partial=0 AND NOT EXISTS (
+    return (await this.findIndexPrefix(table, columns)) !== undefined;
+  }
+
+  async findIndexPrefix(table: string, columns: readonly string[]): Promise<string | undefined> {
+    if (!columns.length) return;
+    const [row] = await this.query(
+      `SELECT i.name FROM pragma_index_list(?) i WHERE i.partial=0 AND NOT EXISTS (
          SELECT 1 FROM json_each(?) wanted LEFT JOIN pragma_index_info(i.name) c
            ON c.seqno=CAST(wanted.key AS INTEGER)
          WHERE c.name IS NULL OR c.name!=wanted.value
        ) LIMIT 1`,
-          [table, JSON.stringify(columns)],
-        )
-      ).length > 0
+      [table, JSON.stringify(columns)],
     );
+    return typeof row?.[0] === 'string' ? row[0] : undefined;
   }
 
   /** LIMIT 必须是最后一个参数；超预算只缩小未完成页，不丢弃或跳过数据。 */
