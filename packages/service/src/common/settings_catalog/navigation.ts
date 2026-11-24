@@ -38,6 +38,7 @@ export const SETTINGS_PAGE_LABELS = {
   'database-management': 'QQ 数据库管理',
   'qq-storage': 'QQ 资源管理',
   'resource-loading': '资源加载',
+  'data-saver': '省流量模式',
   remote: 'Web 与 Remote',
   mcp: 'MCP 服务器',
   onebot: 'OneBot',
@@ -124,6 +125,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     sections: [
       'credentials',
       'resource-loading',
+      'data-saver',
       'qq-storage',
       'database-management',
       'diagnostics',
@@ -972,10 +974,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'data-saver',
-    section: 'resource-loading',
-    label: '省流量模式',
-    aliases: ['低数据模式', '计费网络', '节省流量'],
-    from: ['resource-loading'],
+    section: 'data-saver',
+    label: '启用方式与行为',
+    aliases: ['省流量模式', '低数据模式', '计费网络', '节省流量'],
+    from: ['resource-loading', 'data-saver'],
   },
   {
     id: 'typing-status',

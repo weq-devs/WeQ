@@ -1755,12 +1755,8 @@ function MainWorkspace(): ReactElement {
           return;
         }
         if (section === 'dataSaver') {
-          setSettingsSection('resource-loading');
-          setSettingsSearchTarget({
-            section: 'resource-loading',
-            settingId: 'data-saver',
-            revision: Date.now(),
-          });
+          setSettingsSearchTarget(null);
+          setSettingsSection('data-saver');
           setSettingsOpen(true);
           return;
         }

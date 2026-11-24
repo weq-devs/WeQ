@@ -166,6 +166,7 @@ describe('设置的两级导航', () => {
         sections: [
           'credentials',
           'resource-loading',
+          'data-saver',
           'qq-storage',
           'database-management',
           'diagnostics',
@@ -202,6 +203,7 @@ describe('设置的两级导航', () => {
     ['已保存的 provider', '已保存的服务商', '增强功能'],
     ['优先使用 CDN', '优先直连 QQ 加载图片', '凭据与数据'],
     ['媒体来源', '资源加载', '凭据与数据'],
+    ['省流量模式', '省流量模式', '凭据与数据'],
     ['性能监视', '性能监视', '关于 WeQ'],
   ])('旧名或新名 %s 展示规范名称 %s 与新路径', (keyword, title, group) => {
     const entry = searchAppEntries(keyword)[0];

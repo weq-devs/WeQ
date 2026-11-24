@@ -1,4 +1,3 @@
-import { CloudDownload } from 'lucide-react';
 import {
   dataSaverBehaviorDefaults,
   type DataSaverMode,
@@ -102,9 +101,7 @@ export function DataSaverSettings() {
   const { host, local, enabled } = useDataSaver();
   return (
     <Card
-      title="省流量模式"
-      icon={<CloudDownload size={15} />}
-      settingId="data-saver"
+      resetId="data-saver"
       action={
         reset ? undefined : (
           <button

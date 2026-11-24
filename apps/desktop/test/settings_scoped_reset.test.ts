@@ -599,11 +599,11 @@ describe('分级恢复默认', () => {
     const page = 'resource-loading';
     const preview = await api.preview({ page, card: 'chat-image-preview' });
     expect(preview.items).toMatchObject([{ current: true, defaultValue: false }]);
-    await api.restore({ page, card: 'chat-image-preview', source: null });
+    await api.restore({ page, source: null });
     expect(state.settings.sharedPreferences.client.autoDownloadPreviewOriginal).toBe(false);
     expect(state.settings.sharedPreferences.client.dataSaverMode).toBe('always');
     state.settings.sharedPreferences.client.autoDownloadPreviewOriginal = true;
-    await api.restore({ page, card: 'data-saver', source: null });
+    await api.restore({ page: 'data-saver', source: null });
     expect(state.settings.sharedPreferences.client.dataSaverMode).toBe('auto');
     expect(state.settings.sharedPreferences.client.autoDownloadPreviewOriginal).toBe(true);
   });

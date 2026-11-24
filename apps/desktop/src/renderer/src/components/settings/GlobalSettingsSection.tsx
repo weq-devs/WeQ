@@ -47,7 +47,6 @@ import { IS_WEB } from '../../lib/target.shared';
 import { useRemoteImagePreference } from '../../lib/remoteWebStartup';
 import { mergeStorageEntries } from '../../lib/storage-entries';
 import '../../styles/storage-management.css';
-import { DataSaverSettings } from './DataSaverSettings';
 import { QqShowSettings } from './QqShowSettings';
 import { SharedDisplayToggle } from './SharedDisplayToggle';
 import { ChatImageCacheSettings, ChatMessagePrewarmSettings } from './ChatImageCacheSettings';
@@ -603,7 +602,6 @@ export function GlobalSettingsSection({
           />
         </Card>
       )}
-      {section === 'network' && <DataSaverSettings />}
       {section === 'network' && (
         <Card title="QQ 秀缓存" icon={<Shirt size={15} strokeWidth={1.8} />} resetId="qqshow-cache">
           <QqShowSettings cacheOnly />

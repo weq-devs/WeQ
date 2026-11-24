@@ -36,6 +36,7 @@ import {
   X,
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
+import { DataSaverSettings } from './settings/DataSaverSettings';
 import { HelpSection } from './settings/HelpSection';
 import { VersionSection } from './settings/VersionSection';
 import { QzoneSettingsSection } from './settings/QzoneSettingsSection';
@@ -220,6 +221,16 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
         <AccountBasicsSection page="media" heading={false} />
         <ExternalRkeySection />
       </>
+    ),
+  },
+  {
+    id: 'data-saver',
+    label: SETTINGS_PAGE_LABELS['data-saver'],
+    render: () => (
+      <div className="weq-set">
+        <SectionHeader title={SETTINGS_PAGE_LABELS['data-saver']} page="data-saver" />
+        <DataSaverSettings />
+      </div>
     ),
   },
   {

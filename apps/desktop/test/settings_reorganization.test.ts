@@ -662,6 +662,7 @@ describe('设置归位后的实际页面', () => {
     ['qq-accounts', 'QQ 登录记录管理', 'qq-accounts', 'QQ 高级工具'],
     ['logs', '数据库读取并发上限', 'database-read-concurrency', 'QQ 数据库管理'],
     ['rkey', '外部 RKEY', 'external-rkey', '资源加载'],
+    ['resource-loading', '省流量模式', 'data-saver', '省流量模式'],
     ['credentials', '签名器（wrapper.node）', 'signer-status', 'QQ 高级工具'],
     ['call-recording', '通话抓包', 'call-udp-trace', 'QQ 高级工具'],
     ['applock', '隐私模式', 'privacy-mode', '隐私'],
