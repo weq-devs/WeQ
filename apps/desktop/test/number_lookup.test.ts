@@ -137,7 +137,7 @@ describe('号码查询', () => {
       expect(open).toHaveBeenLastCalledWith(profile(kind), avatar);
       act(() => image.dispatchEvent(new Event('error')));
       expect(avatar.querySelector('img')).toBeNull();
-      expect(avatar.querySelector('.weq-search-avatar')?.textContent).toBe('合');
+      expect(avatar.querySelector('.weq-search-avatar svg')).not.toBeNull();
       expect(name.textContent).toBe('合成资料');
       act(() => avatar.click());
       expect(open).toHaveBeenLastCalledWith(profile(kind), avatar);
