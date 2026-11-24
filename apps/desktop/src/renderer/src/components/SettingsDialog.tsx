@@ -106,7 +106,6 @@ import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
 import LogPerformanceSettings from './settings/LogPerformanceSettings';
 import { useAppLock } from '../state/lock';
 import {
-  SETTINGS_GROUPS,
   SETTINGS_PAGE_LABELS,
   resolveSettingsTarget,
   settingsScopeFor,
@@ -136,16 +135,21 @@ interface SettingsSection {
   render: (onOpenMaintenance: (tool: MaintenanceTool) => void) => ReactNode;
 }
 
-const SETTINGS_SECTIONS: SettingsSection[] = [
+const SETTINGS_NAVIGATION: SettingsSection[] = [
   {
-    id: 'contact-card',
-    label: '联系人名片',
-    render: () => <ContactCardSettings />,
+    id: 'startup',
+    label: '启动与退出',
+    render: () => <StartupSection />,
   },
   {
-    id: 'backup',
-    label: '配置备份与恢复',
-    render: () => <BackupSection />,
+    id: 'appearance',
+    label: '外观与布局',
+    render: () => <AppearanceSection page="appearance" />,
+  },
+  {
+    id: 'home',
+    label: SETTINGS_PAGE_LABELS.home,
+    render: () => <HomeSettingsSection />,
   },
   {
     id: 'global',
@@ -158,197 +162,9 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <UnreadBadgeSettings />,
   },
   {
-    id: 'version',
-    label: '版本与更新',
-    render: () => <VersionSection />,
-  },
-  {
-    id: 'appearance',
-    label: '外观与布局',
-    render: () => <AppearanceSection page="appearance" />,
-  },
-  {
     id: 'privacy',
     label: '隐私',
     render: () => <PrivacySection />,
-  },
-  {
-    id: 'account',
-    label: SETTINGS_PAGE_LABELS.account,
-    render: () => <AccountBasicsSection />,
-  },
-  {
-    id: 'qq-proxy',
-    label: SETTINGS_PAGE_LABELS['qq-proxy'],
-    render: () => <AccountBasicsSection page="qq-proxy" />,
-  },
-  {
-    id: 'long-term-authorization',
-    label: SETTINGS_PAGE_LABELS['long-term-authorization'],
-    render: () => (
-      <div className="weq-set">
-        <SectionHeader
-          page="long-term-authorization"
-          title={SETTINGS_PAGE_LABELS['long-term-authorization']}
-        />
-        <LongTermAuthorizationSection />
-      </div>
-    ),
-  },
-  {
-    id: 'accounts',
-    label: 'WeQ 账号管理',
-    render: () => <GlobalSettingsSection section="accounts" />,
-  },
-  {
-    id: 'call-recording',
-    label: '通话与录音',
-    render: () => <CallRecordingSection />,
-  },
-  {
-    id: 'qzone',
-    label: 'QQ 空间',
-    render: () => <QzoneSettingsSection />,
-  },
-  {
-    id: 'mail',
-    label: 'QQ 邮箱',
-    render: () => <MailSettingsSection />,
-  },
-  {
-    id: 'database-management',
-    label: 'QQ 数据库管理',
-    render: (onOpen) => <DatabaseManagementSection onOpen={onOpen} />,
-  },
-  {
-    id: 'qq-storage',
-    label: 'QQ 资源管理',
-    render: () => <ResourceManagementSection />,
-  },
-  {
-    id: 'enhancement-packs',
-    label: '增强包',
-    render: () => <EnhancementPacksSection />,
-  },
-  {
-    id: 'resource-loading',
-    label: '资源加载',
-    render: () => (
-      <>
-        <GlobalSettingsSection section="network" />
-        <AccountBasicsSection page="media" heading={false} />
-        <ExternalRkeySection />
-      </>
-    ),
-  },
-  {
-    id: 'data-saver',
-    label: SETTINGS_PAGE_LABELS['data-saver'],
-    render: () => (
-      <div className="weq-set">
-        <SectionHeader title={SETTINGS_PAGE_LABELS['data-saver']} page="data-saver" />
-        <DataSaverSettings />
-      </div>
-    ),
-  },
-  {
-    id: 'logs',
-    label: '日志与性能',
-    render: () => <LogPerformanceSettings />,
-  },
-  {
-    id: 'diagnostics',
-    label: 'QQ 高级工具',
-    render: (onOpen) => <DiagnosticsSettingsSection onOpen={onOpen} />,
-  },
-  {
-    id: 'qq-accounts',
-    label: SETTINGS_PAGE_LABELS['qq-accounts'],
-    render: () => (
-      <div className="weq-set">
-        <SectionHeader title={SETTINGS_PAGE_LABELS['qq-accounts']} page="qq-accounts" />
-        <div data-setting-id="qq-accounts">
-          <LoginAccountPanel />
-        </div>
-      </div>
-    ),
-  },
-  {
-    id: 'model-usage',
-    label: 'API 用量',
-    render: () => <ModelUsageSection />,
-  },
-  {
-    id: 'recognition',
-    label: '识别与转写',
-    render: () => <RecognitionSettingsSection />,
-  },
-  {
-    id: 'agentlab',
-    label: 'API 配置',
-    render: () => (
-      <>
-        <AgentLabSection />
-        <div className="weq-set">
-          <TtsProvidersCard />
-        </div>
-      </>
-    ),
-  },
-  {
-    id: 'weq-assistant',
-    label: 'WeQ 助手',
-    render: () => <WeqAssistantSettingsSection />,
-  },
-  {
-    id: 'interaction-profile',
-    label: '互动画像',
-    render: () => <InteractionProfileSection />,
-  },
-  {
-    id: 'reply-suggestions',
-    label: '推荐回复',
-    render: () => <ReplySuggestionsSection />,
-  },
-  {
-    id: 'intent-sense',
-    label: '意图感知',
-    render: () => <IntentSenseSection />,
-  },
-  {
-    id: 'mcp',
-    label: 'MCP 服务器',
-    render: () => <McpServerSection />,
-  },
-  {
-    id: 'onebot',
-    label: SETTINGS_PAGE_LABELS.onebot,
-    render: () => <OneBotSection />,
-  },
-  {
-    id: 'remote',
-    label: 'Web 与 Remote',
-    render: () => <RemoteSection />,
-  },
-  {
-    id: 'assistant',
-    label: 'QQ 公众号推送',
-    render: () => <AssistantSection />,
-  },
-  {
-    id: 'sse',
-    label: 'SSE 推送',
-    render: () => <SsePushSection />,
-  },
-  {
-    id: 'faq',
-    label: '常见问题',
-    render: () => <HelpSection page="faq" />,
-  },
-  {
-    id: 'feedback',
-    label: '反馈',
-    render: () => <HelpSection page="feedback" />,
   },
   {
     id: 'chat-messages',
@@ -385,25 +201,93 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     ),
   },
   {
-    id: 'startup',
-    label: '启动与退出',
-    render: () => <StartupSection />,
+    id: 'contact-card',
+    label: '联系人名片',
+    render: () => <ContactCardSettings />,
   },
   {
-    id: 'home',
-    label: SETTINGS_PAGE_LABELS.home,
-    render: () => <HomeSettingsSection />,
+    id: 'call-recording',
+    label: '通话与录音',
+    render: () => <CallRecordingSection />,
   },
   {
-    id: 'weq-storage',
-    label: 'WeQ 存储管理',
+    id: 'qzone',
+    label: 'QQ 空间',
+    render: () => <QzoneSettingsSection />,
+  },
+  {
+    id: 'mail',
+    label: 'QQ 邮箱',
+    render: () => <MailSettingsSection />,
+  },
+  {
+    id: 'enhancement-packs',
+    label: '增强包',
+    render: () => <EnhancementPacksSection />,
+  },
+  {
+    id: 'recognition',
+    label: '识别与转写',
+    render: () => <RecognitionSettingsSection />,
+  },
+  {
+    id: 'weq-assistant',
+    label: 'WeQ 助手',
+    render: () => <WeqAssistantSettingsSection />,
+  },
+  {
+    id: 'reply-suggestions',
+    label: '推荐回复',
+    render: () => <ReplySuggestionsSection />,
+  },
+  {
+    id: 'intent-sense',
+    label: '意图感知',
+    render: () => <IntentSenseSection />,
+  },
+  {
+    id: 'interaction-profile',
+    label: '互动画像',
+    render: () => <InteractionProfileSection />,
+  },
+  {
+    id: 'agentlab',
+    label: 'API 配置',
     render: () => (
       <>
+        <AgentLabSection />
         <div className="weq-set">
-          <SectionHeader title="WeQ 存储管理" page="weq-storage" />
+          <TtsProvidersCard />
         </div>
-        <GlobalSettingsSection section="storage" heading={false} />
       </>
+    ),
+  },
+  {
+    id: 'model-usage',
+    label: 'API 用量',
+    render: () => <ModelUsageSection />,
+  },
+  {
+    id: 'account',
+    label: SETTINGS_PAGE_LABELS.account,
+    render: () => <AccountBasicsSection />,
+  },
+  {
+    id: 'qq-proxy',
+    label: SETTINGS_PAGE_LABELS['qq-proxy'],
+    render: () => <AccountBasicsSection page="qq-proxy" />,
+  },
+  {
+    id: 'long-term-authorization',
+    label: SETTINGS_PAGE_LABELS['long-term-authorization'],
+    render: () => (
+      <div className="weq-set">
+        <SectionHeader
+          page="long-term-authorization"
+          title={SETTINGS_PAGE_LABELS['long-term-authorization']}
+        />
+        <LongTermAuthorizationSection />
+      </div>
     ),
   },
   {
@@ -422,11 +306,122 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
       />
     ),
   },
+  {
+    id: 'qq-accounts',
+    label: SETTINGS_PAGE_LABELS['qq-accounts'],
+    render: () => (
+      <div className="weq-set">
+        <SectionHeader title={SETTINGS_PAGE_LABELS['qq-accounts']} page="qq-accounts" />
+        <div data-setting-id="qq-accounts">
+          <LoginAccountPanel />
+        </div>
+      </div>
+    ),
+  },
+  {
+    id: 'accounts',
+    label: 'WeQ 账号管理',
+    render: () => <GlobalSettingsSection section="accounts" />,
+  },
+  {
+    id: 'remote',
+    label: 'Web 与 Remote',
+    render: () => <RemoteSection />,
+  },
+  {
+    id: 'mcp',
+    label: 'MCP 服务器',
+    render: () => <McpServerSection />,
+  },
+  {
+    id: 'onebot',
+    label: SETTINGS_PAGE_LABELS.onebot,
+    render: () => <OneBotSection />,
+  },
+  {
+    id: 'sse',
+    label: 'SSE 推送',
+    render: () => <SsePushSection />,
+  },
+  {
+    id: 'assistant',
+    label: 'QQ 公众号推送',
+    render: () => <AssistantSection />,
+  },
+  {
+    id: 'resource-loading',
+    label: '资源加载',
+    render: () => (
+      <>
+        <GlobalSettingsSection section="network" />
+        <AccountBasicsSection page="media" heading={false} />
+        <ExternalRkeySection />
+      </>
+    ),
+  },
+  {
+    id: 'data-saver',
+    label: SETTINGS_PAGE_LABELS['data-saver'],
+    render: () => (
+      <div className="weq-set">
+        <SectionHeader title={SETTINGS_PAGE_LABELS['data-saver']} page="data-saver" />
+        <DataSaverSettings />
+      </div>
+    ),
+  },
+  {
+    id: 'qq-storage',
+    label: 'QQ 资源管理',
+    render: () => <ResourceManagementSection />,
+  },
+  {
+    id: 'weq-storage',
+    label: 'WeQ 存储管理',
+    render: () => (
+      <>
+        <div className="weq-set">
+          <SectionHeader title="WeQ 存储管理" page="weq-storage" />
+        </div>
+        <GlobalSettingsSection section="storage" heading={false} />
+      </>
+    ),
+  },
+  {
+    id: 'database-management',
+    label: 'QQ 数据库管理',
+    render: (onOpen) => <DatabaseManagementSection onOpen={onOpen} />,
+  },
+  {
+    id: 'backup',
+    label: '配置备份与恢复',
+    render: () => <BackupSection />,
+  },
+  {
+    id: 'diagnostics',
+    label: 'QQ 高级工具',
+    render: (onOpen) => <DiagnosticsSettingsSection onOpen={onOpen} />,
+  },
+  {
+    id: 'logs',
+    label: '日志与性能',
+    render: () => <LogPerformanceSettings />,
+  },
+  {
+    id: 'version',
+    label: '版本与更新',
+    render: () => <VersionSection />,
+  },
+  {
+    id: 'faq',
+    label: '常见问题',
+    render: () => <HelpSection page="faq" />,
+  },
+  {
+    id: 'feedback',
+    label: '反馈',
+    render: () => <HelpSection page="feedback" />,
+  },
 ];
-
-const SETTINGS_NAVIGATION = SETTINGS_GROUPS.flatMap(({ sections }) =>
-  sections.map((id) => SETTINGS_SECTIONS.find((section) => section.id === id)!),
-);
 
 /** Quick-pick accent presets. First entry is the WeQ default blue. */
 const ACCENT_PRESETS = [
