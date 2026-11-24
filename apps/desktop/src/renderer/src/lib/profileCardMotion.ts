@@ -16,6 +16,7 @@ export function useProfileCardMotion(ref: RefObject<HTMLElement | null>, close?:
     const enter = reduced.matches
       ? undefined
       : element.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150, easing: 'ease-out' });
+    void enter?.finished.catch(() => {});
     return () => {
       closers.delete(element);
       if (!reduced.matches && element.isConnected) fadeRemovedCard(element, view);

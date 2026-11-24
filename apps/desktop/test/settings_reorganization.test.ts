@@ -525,10 +525,13 @@ describe('设置归位后的实际页面', () => {
         [...display.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
       ).toEqual([
         '定位到上次阅读的位置',
-        '显示跳转到上次阅读位置按钮',
         '自动跟随最新消息',
         '发送消息后定位到最新消息',
         '向下滚动时显示定位到底部按钮',
+        '合并未读跳转按钮',
+        '首条未读',
+        '重要消息',
+        '上次阅读位置',
         '显示未读分界线',
         '触屏左滑引用',
         '查看时自动拉取缺失的消息',
@@ -634,6 +637,7 @@ describe('设置归位后的实际页面', () => {
           {
             'link-screenshot': 'link-preview-auto-fetch',
             'preserve-unread-until-read': 'read-first-unread',
+            'combined-chat-jump-mode': 'merge-chat-jump-buttons',
           }[item.id] ?? item.id,
         );
       }

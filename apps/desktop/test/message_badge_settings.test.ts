@@ -342,14 +342,15 @@ it('每个消息开关保存失败均保留原值并提示，保存期间不能�
 it('阅读位置开关切换时显示相应子项，并保留未读计数偏好', () => {
   const f = mount();
   const parent = () => f.toggle('定位到上次阅读的位置');
-  const manual = () => f.toggle('显示跳转到上次阅读位置按钮');
+  const manual = () => f.host.querySelector('[role="radiogroup"][aria-label="上次阅读位置"]');
+  const manualMode = () => manual()?.querySelector('[role="radio"][aria-checked="true"]');
   const child = () => f.toggle('保留尚未读到的消息的未读计数');
   try {
     expect(child()).toBeUndefined();
-    expect(manual().getAttribute('aria-checked')).toBe('true');
+    expect(manualMode()?.textContent).toBe('切换后保留');
     act(() => parent().click());
     f.render();
-    expect(manual()).toBeUndefined();
+    expect(manual()).toBeNull();
     expect(child().getAttribute('aria-checked')).toBe('true');
     act(() => child().click());
     f.render();
@@ -358,10 +359,10 @@ it('阅读位置开关切换时显示相应子项，并保留未读计数偏好'
     act(() => parent().click());
     f.render();
     expect(child()).toBeUndefined();
-    expect(manual().getAttribute('aria-checked')).toBe('true');
+    expect(manualMode()?.textContent).toBe('切换后保留');
     act(() => parent().click());
     f.render();
-    expect(manual()).toBeUndefined();
+    expect(manual()).toBeNull();
     expect(child().getAttribute('aria-checked')).toBe('false');
   } finally {
     f.close();

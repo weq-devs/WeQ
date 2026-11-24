@@ -1,6 +1,6 @@
 import { act, createElement, type ComponentProps } from 'react';
-import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { createQueryRoot } from './support/query_root';
 import { MobileWebNavigation } from '../src/renderer/src/components/MobileWebNavigation';
 import { mobileBack } from '../src/renderer/src/hooks/useMobileNavigation';
 import type { MobileNavigationChange } from '../src/renderer/src/lib/mobileNavigation';
@@ -16,7 +16,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let host: HTMLDivElement;
-let root: ReturnType<typeof createRoot>;
+let root: ReturnType<typeof createQueryRoot>;
 let directions: string[];
 const onNavigate = (event: Event) =>
   directions.push((event as CustomEvent<MobileNavigationChange>).detail.direction);
@@ -47,7 +47,7 @@ beforeEach(() => {
   );
   host = document.createElement('div');
   document.body.append(host);
-  root = createRoot(host);
+  root = createQueryRoot(host);
   directions = [];
   window.addEventListener('weq-mobile-navigate', onNavigate);
 });
