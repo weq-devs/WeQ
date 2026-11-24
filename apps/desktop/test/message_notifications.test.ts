@@ -9,6 +9,7 @@ import {
 import { RedbagType } from '@weq/codec';
 import { preferenceDefaults, validatePreferencePatch } from '@weq/service/client-preferences';
 import { NEW_CONV_FRESH_SEC } from '@weq/service/live-message';
+import { notificationOverrideKey } from '@weq/service/notification-settings';
 
 const message = {
   kind: 'c2c' as const,
@@ -33,7 +34,7 @@ describe('普通消息通知与应用角标', () => {
     const listGroupDirectory = vi.fn().mockResolvedValue([{ groupCode: '10003', notifyLevel: 4 }]);
     const directory = { recentContacts: { getByTargetUids }, groupInfo: { listGroupDirectory } };
     const included = (mode: string, targets: string[] = []) =>
-      groupKeywordNotificationIncluded(directory, '10003', { mode, targets });
+      groupKeywordNotificationIncluded(directory, '10003', { keyword: { mode, targets } });
     expect(await included('selected', ['group:10004'])).toBe(false);
     expect(await included('selected', ['group:10003'])).toBe(true);
     expect(getByTargetUids).not.toHaveBeenCalled();
@@ -44,6 +45,21 @@ describe('普通消息通知与应用角标', () => {
     listGroupDirectory.mockResolvedValue([]);
     expect(await included('nonMuted')).toBe(true);
     expect(listGroupDirectory).toHaveBeenLastCalledWith(10003n);
+    const key = notificationOverrideKey('keyword', 'group:10003');
+    getByTargetUids.mockClear();
+    expect(
+      await groupKeywordNotificationIncluded(directory, '10003', {
+        keyword: { mode: 'selected', targets: [] },
+        [key]: true,
+      }),
+    ).toBe(true);
+    expect(
+      await groupKeywordNotificationIncluded(directory, '10003', {
+        keyword: { mode: 'nonMuted', targets: [] },
+        [key]: false,
+      }),
+    ).toBe(false);
+    expect(getByTargetUids).not.toHaveBeenCalled();
   });
   it('通知默认关闭、角标默认开启，两个共享值独立校验', () => {
     expect(preferenceDefaults.messageNotifications).toBe(false);

@@ -172,6 +172,11 @@ export const SCOPED_NOTIFICATION_EVENTS = [
   'keyword',
 ] as const;
 export type ScopedNotificationEvent = (typeof SCOPED_NOTIFICATION_EVENTS)[number];
+export const GROUP_ONLY_NOTIFICATION_EVENTS: ReadonlySet<ScopedNotificationEvent> = new Set([
+  'mentionAll',
+  'replyMe',
+  'keyword',
+]);
 export function isScopedNotificationEvent(
   event: NotificationEvent,
 ): event is ScopedNotificationEvent {
@@ -195,7 +200,7 @@ export function normalizeNotificationScope(
   raw: unknown,
   event?: ScopedNotificationEvent,
 ): NotificationScope {
-  if (raw === undefined) return { mode: event === 'specialCare' ? 'nonMuted' : 'all', targets: [] };
+  if (raw == null) return { mode: event === 'specialCare' ? 'nonMuted' : 'all', targets: [] };
   if (!raw || typeof raw !== 'object') return { mode: 'selected', targets: [] };
   const mode: unknown = Reflect.get(raw, 'mode');
   const targets: unknown = Reflect.get(raw, 'targets');
@@ -218,9 +223,19 @@ export function mutedFromNotifyLevel(level: number | undefined): boolean {
   return level !== undefined && level !== 0 && level !== 1;
 }
 
+export interface NotificationScopeConversation {
+  key: string;
+  muted: boolean;
+  groupAssistant: boolean;
+}
+
+export function notificationScopeUsesConversationState(scope: NotificationScope): boolean {
+  return scope.mode === 'nonGroupAssistant' || scope.mode === 'nonMuted';
+}
+
 export function notificationScopeIncludes(
   scope: NotificationScope,
-  conversation: { key: string; muted: boolean; groupAssistant: boolean },
+  conversation: NotificationScopeConversation,
 ): boolean {
   switch (scope.mode) {
     case 'all':
@@ -232,4 +247,38 @@ export function notificationScopeIncludes(
     case 'selected':
       return scope.targets.includes(conversation.key);
   }
+}
+
+export function notificationOverridePrefix(event: ScopedNotificationEvent) {
+  return `override:${event}:`;
+}
+
+export function notificationOverrideKey(event: ScopedNotificationEvent, conversationKey: string) {
+  return `${notificationOverridePrefix(event)}${conversationKey}`;
+}
+
+export function isNotificationOverrideKey(key: string): boolean {
+  const match = /^override:([^:]+):(c2c|group):.+$/.exec(key);
+  const event = SCOPED_NOTIFICATION_EVENTS.find((candidate) => candidate === match?.[1]);
+  return Boolean(event && (match?.[2] === 'group' || !GROUP_ONLY_NOTIFICATION_EVENTS.has(event)));
+}
+
+export function conversationNotificationOverride(
+  records: Readonly<Record<string, unknown>>,
+  event: ScopedNotificationEvent,
+  conversationKey: string,
+): boolean | undefined {
+  const value = records[notificationOverrideKey(event, conversationKey)];
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+export function conversationNotificationIncluded(
+  records: Readonly<Record<string, unknown>>,
+  event: ScopedNotificationEvent,
+  conversation: NotificationScopeConversation,
+): boolean {
+  return (
+    conversationNotificationOverride(records, event, conversation.key) ??
+    notificationScopeIncludes(normalizeNotificationScope(records[event], event), conversation)
+  );
 }

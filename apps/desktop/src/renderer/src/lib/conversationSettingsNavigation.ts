@@ -5,6 +5,7 @@ import type { GroupResourceRequest } from '../hooks/useGroupResourceWindows';
 
 export type ConversationSettingsSection =
   | 'qq'
+  | 'notifications'
   | 'group-management'
   | 'antirecall'
   | 'keyword'

@@ -88,7 +88,7 @@ export function NotificationScopeEditor({ event }: { event: ScopedNotificationEv
       </button>
       {open && (
         <ToolSurface
-          title={`${NOTIFICATION_LABELS[event]} · 提醒会话`}
+          title={`${NOTIFICATION_LABELS[event]} · 默认提醒范围`}
           presentation="modal"
           draft={
             mode !== saved.mode ||
@@ -102,7 +102,7 @@ export function NotificationScopeEditor({ event }: { event: ScopedNotificationEv
           {(requestClose) => (
             <div className="weq-notification-scope-editor">
               <PageShell
-                title={`${NOTIFICATION_LABELS[event]} · 提醒会话`}
+                title={`${NOTIFICATION_LABELS[event]} · 默认提醒范围`}
                 onClose={requestClose}
                 actions={
                   <button
@@ -133,7 +133,7 @@ export function NotificationScopeEditor({ event }: { event: ScopedNotificationEv
               >
                 <div className="weq-notification-scope-body">
                   <SegmentedControl
-                    label="提醒会话范围"
+                    label="默认提醒范围"
                     value={mode}
                     options={NOTIFICATION_SCOPE_OPTIONS}
                     onChange={setMode}

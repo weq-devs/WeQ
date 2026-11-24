@@ -800,11 +800,14 @@ function mountGroupKeyword(session: AccountSession, rules: GroupKeywordRules): v
         const { services, account, platform } = getAppContext();
         if (account !== session || !services || !platform) return;
         const configId = services.accountConfig.getRecord()?.configId;
-        const scope = configId
+        const records = configId
           ? clientStateStore(platform.appDataRoot(), configId).snapshot().records.notifications
-              ?.keyword
           : undefined;
-        const included = await groupKeywordNotificationIncluded(services, hit.groupCode, scope);
+        const included = await groupKeywordNotificationIncluded(
+          services,
+          hit.groupCode,
+          records ?? {},
+        );
         const copy = included ? await groupKeywordContent(services, hit) : undefined;
         if (getAppContext().account !== session) return;
         if (copy)

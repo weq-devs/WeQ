@@ -1,9 +1,11 @@
 import type { GroupKeywordHit, RecallNotifyEvent } from '@weq/service';
 import { classifyChatType } from '@weq/codec';
 import {
+  conversationNotificationOverride,
   mutedFromNotifyLevel,
   normalizeNotificationScope,
   notificationScopeIncludes,
+  notificationScopeUsesConversationState,
 } from '@weq/service/notification-settings';
 import { groupKeywordCopy, notificationInlineText } from '../shared/notification_copy';
 import type { AccountServices } from './context/app_context';
@@ -16,11 +18,13 @@ export async function groupKeywordNotificationIncluded(
     groupInfo: Pick<AccountServices['groupInfo'], 'listGroupDirectory'>;
   },
   groupCode: string,
-  rawScope: unknown,
+  records: Readonly<Record<string, unknown>>,
 ): Promise<boolean> {
-  const scope = normalizeNotificationScope(rawScope, 'keyword');
   const conversation = { key: `group:${groupCode}`, muted: false, groupAssistant: false };
-  if (scope.mode === 'nonGroupAssistant' || scope.mode === 'nonMuted') {
+  const override = conversationNotificationOverride(records, 'keyword', conversation.key);
+  if (override !== undefined) return override;
+  const scope = normalizeNotificationScope(records.keyword, 'keyword');
+  if (notificationScopeUsesConversationState(scope)) {
     const [recent, [group]] = await Promise.all([
       directory.recentContacts.getByTargetUids([groupCode]),
       directory.groupInfo.listGroupDirectory(BigInt(groupCode)),

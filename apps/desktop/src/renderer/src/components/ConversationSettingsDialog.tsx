@@ -2,26 +2,33 @@
  * 会话设置窗格 —— 在会话头部设置按钮附近原位打开。
  *
  * 紧凑窗格保留左侧分类导航与右侧内容。
- *   • 防撤回：就地设置本会话的保护和提醒；通知方式修改统一设置。保护范围写操作是乐观的
+ *   • 防撤回：就地设置本会话的保护。保护范围写操作是乐观的
  *     （服务层落配置后立刻返回期望状态），点击即生效，不需要 QQ 在线。防撤回处于
  *     「关闭」时，打开这里的「保护此会话」会自动把启用范围切到「按会话勾选」。
  *   • 群关键词（仅群聊）：把 GroupKeywordEditor 那套关键词 + 成员范围编辑器**内嵌**
  *     在这一页里直接编辑，不再另开灯箱。编辑器自己防抖落盘，关窗即保存。
  *
- * 保护范围在防撤回设置，通知方式各入口共用，提醒名单在「常规 → 通知与提醒」。
+ * 消息提醒在本会话内单独设置，全局通知方式在「常规 → 通知与提醒」。
  */
 
 import { useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { accountBinding } from '../lib/clientPreferences';
-import { useNotificationPolicy } from '../lib/notificationPolicy';
-import { BellRing, BrainCircuit, Palette, Settings2, ShieldCheck, UsersRound } from 'lucide-react';
+import {
+  Bell,
+  BellRing,
+  BrainCircuit,
+  Palette,
+  Settings2,
+  ShieldCheck,
+  UsersRound,
+} from 'lucide-react';
 import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog.shared';
 import { Card, Row, Toggle } from './settings/controls';
 import { GroupKeywordEditor, type KeywordMember } from './GroupKeywordEditor';
 import { ConversationSettingsFrame } from './ConversationSettingsFrame';
 import { QQConversationControls } from './QQConversationControls';
-import { NotificationMethodSelect } from './settings/NotificationMethodSelect';
+import { ConversationNotificationSettings } from './ConversationNotificationSettings';
 import { ConversationDressSettings } from './ConversationDressSettings';
 import type {
   ConversationSettingsRequest,
@@ -47,6 +54,7 @@ export function ConversationSettingsDialog({
   onClose,
   onReopen,
   anchor,
+  notificationState,
   initialSection,
   initialDressSlot,
 }: {
@@ -61,6 +69,7 @@ export function ConversationSettingsDialog({
   onClose: () => void;
   onReopen?: (section: ConversationSettingsSection) => void;
   anchor?: HTMLElement;
+  notificationState?: { muted: boolean; groupAssistant: boolean };
   initialSection?: ConversationSettingsRequest['initialSection'];
   initialDressSlot?: ConversationSettingsRequest['initialDressSlot'];
 }): ReactElement {
@@ -68,7 +77,11 @@ export function ConversationSettingsDialog({
   const utils = trpc.useUtils();
   const source = useRef(accountBinding());
   const [section, setSection] = useState<ConversationSettingsSection>(
-    kind === 'dataline' ? 'antirecall' : (initialSection ?? 'qq'),
+    initialSection === 'notifications'
+      ? initialSection
+      : kind === 'dataline'
+        ? 'antirecall'
+        : (initialSection ?? 'qq'),
   );
   /** 关键词编辑器的保存状态 —— 由内嵌的 editor 外抛（灯箱那套同一份实现）。 */
   const [checkingProtection, setCheckingProtection] = useState(false);
@@ -111,10 +124,7 @@ export function ConversationSettingsDialog({
       ]);
     },
   });
-  const globalRecallMuted = useNotificationPolicy(
-    ({ ready, events }) => ready && !events.recall.banner && !events.recall.system,
-  );
-  const busy = setScope.isLoading || setTargets.isLoading || setConversationNotify.isLoading;
+  const busy = setScope.isLoading || setTargets.isLoading;
 
   // 意图感知：全局状态（同 key 共享缓存）+ 单会话覆盖写。
   const intentStatus = trpc.account.intentSense.getStatus.useQuery(undefined, {
@@ -213,7 +223,7 @@ export function ConversationSettingsDialog({
       sectionDescription={
         section === 'dress'
           ? '当前会话在 WeQ 中的背景和挂件'
-          : section === 'group-management'
+          : section === 'group-management' || section === 'notifications'
             ? undefined
             : section === 'qq'
               ? kind === 'group'
@@ -228,14 +238,17 @@ export function ConversationSettingsDialog({
       sections={[
         ...(kind !== 'dataline'
           ? [{ id: 'qq' as const, label: '会话偏好', icon: <Settings2 size={16} /> }]
-          : []),
+          : [{ id: 'antirecall' as const, label: '防撤回', icon: <ShieldCheck size={16} /> }]),
+        { id: 'notifications', label: '消息提醒', icon: <Bell size={16} /> },
         ...(kind === 'group'
           ? [{ id: 'group-management' as const, label: '群管理', icon: <UsersRound size={16} /> }]
           : []),
         ...(kind !== 'dataline'
           ? [{ id: 'dress' as const, label: '装扮', icon: <Palette size={16} /> }]
           : []),
-        { id: 'antirecall', label: '防撤回', icon: <ShieldCheck size={16} /> },
+        ...(kind !== 'dataline'
+          ? [{ id: 'antirecall' as const, label: '防撤回', icon: <ShieldCheck size={16} /> }]
+          : []),
         ...(kind !== 'dataline'
           ? [{ id: 'intentsense' as const, label: '意图感知', icon: <BrainCircuit size={16} /> }]
           : []),
@@ -244,7 +257,21 @@ export function ConversationSettingsDialog({
           : []),
       ]}
     >
-      {section === 'dress' && kind !== 'dataline' ? (
+      {section === 'notifications' ? (
+        <ConversationNotificationSettings
+          key={`${kind}:${conv}`}
+          kind={kind}
+          conv={conv}
+          notificationState={notificationState}
+          onClose={onClose}
+          recall={{
+            checked: notifyHere,
+            protectedHere: enabled && protectedHere,
+            disabled: setConversationNotify.isLoading || !status.data || Boolean(status.error),
+            onChange: onToggleRecallNotify,
+          }}
+        />
+      ) : section === 'dress' && kind !== 'dataline' ? (
         <div className="weq-cvs-body-scroll">
           <ConversationDressSettings
             kind={kind}
@@ -330,28 +357,6 @@ export function ConversationSettingsDialog({
                   label="保护此会话"
                 />
               }
-            />
-            <Row
-              label="本会话撤回提醒"
-              desc={
-                globalRecallMuted
-                  ? '全局撤回通知已关闭，暂不会提醒。'
-                  : notifyHere && (!enabled || !protectedHere)
-                    ? '本会话未开启防撤回，暂不会提醒。'
-                    : undefined
-              }
-              control={
-                <Toggle
-                  checked={notifyHere}
-                  disabled={busy || !status.data || Boolean(status.error)}
-                  onChange={(next) => void onToggleRecallNotify(next)}
-                  label="本会话撤回提醒"
-                />
-              }
-            />
-            <Row
-              label="撤回通知方式（全局）"
-              control={<NotificationMethodSelect event="recall" />}
             />
             <Row
               label="实际保护状态"

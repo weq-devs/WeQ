@@ -6,6 +6,8 @@ import {
   normalizeNotificationEvents,
   notificationGroupState,
   normalizeNotificationScope,
+  notificationOverrideKey,
+  conversationNotificationIncluded,
 } from '../src/common/notification_settings';
 import { configFixture } from './support/user_config';
 import { ClientStateStore } from '../src/bootstrap/client_state';
@@ -189,6 +191,32 @@ it('范围按数据源持久保存，写其他事件不覆盖已有名单，非�
   expect(new ClientStateStore(first.path).snapshot().records.notifications).toEqual(
     reopened.records.notifications,
   );
+});
+it('单会话覆盖独立保存，重开后优先于范围；清除后重新跟随范围', () => {
+  const f = configFixture();
+  const store = new ClientStateStore(join(f.root, 'account.json'));
+  const own = { key: 'group:20001', muted: true, groupAssistant: true };
+  const other = { key: 'group:20002', muted: false, groupAssistant: false };
+  const ownKey = notificationOverrideKey('specialCare', own.key);
+  const otherKey = notificationOverrideKey('specialCare', other.key);
+  store.records('notifications', { [ownKey]: true });
+  store.records('notifications', { [otherKey]: false });
+  const records = () => new ClientStateStore(store.path).snapshot().records.notifications ?? {};
+  expect(conversationNotificationIncluded(records(), 'specialCare', own)).toBe(true);
+  expect(conversationNotificationIncluded(records(), 'specialCare', other)).toBe(false);
+  expect(conversationNotificationIncluded(records(), 'redPacket', other)).toBe(true);
+  expect(() =>
+    store.records('notifications', {
+      [notificationOverrideKey('keyword', 'c2c:u_friend')]: true,
+    }),
+  ).toThrow('无效的单会话提醒设置');
+  expect(() => store.records('notifications', { [ownKey]: 'true' })).toThrow(
+    '无效的单会话提醒设置',
+  );
+  store.records('notifications', { [ownKey]: null, specialCare: null });
+  expect(records()).not.toHaveProperty(ownKey);
+  expect(conversationNotificationIncluded(records(), 'specialCare', own)).toBe(false);
+  expect(records()[otherKey]).toBe(false);
 });
 it('首次旧账号迁移前保存无关设置，不固化通知默认值遮蔽随后迁入的旧选择', () => {
   const f = configFixture();

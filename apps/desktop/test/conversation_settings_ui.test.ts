@@ -2,8 +2,13 @@ import { act, createElement as h, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConversationSettingsDialog } from '../src/renderer/src/components/ConversationSettingsDialog';
-import { normalizeNotificationEvents } from '@weq/service/notification-settings';
+import {
+  normalizeNotificationEvents,
+  notificationOverrideKey,
+} from '@weq/service/notification-settings';
 import { useNotificationPolicy } from '../src/renderer/src/lib/notificationPolicy';
+import { acceptAccountState, bindAccountState } from '../src/renderer/src/lib/clientPreferences';
+import { OPEN_NOTIFICATION_SETTINGS } from '../src/renderer/src/lib/notificationSettingsNavigation';
 
 const intent = vi.hoisted(() => ({
   data: {
@@ -30,6 +35,7 @@ const anti = vi.hoisted(() => ({
   invalidateAccount: vi.fn(),
   invalidateSettings: vi.fn(),
 }));
+const accountPatch = vi.hoisted(() => vi.fn());
 
 vi.mock('../src/renderer/src/components/WindowSurface', () => ({
   WindowSurface: ({ children }: { children: ReactNode }) => children,
@@ -48,6 +54,7 @@ vi.mock('../src/renderer/src/components/QQConversationControls', () => ({
     h('div', { 'data-testid': 'qq-controls', 'data-section': section ?? 'conversation' }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: { clientState: { accountPatch: { mutate: accountPatch } } },
   trpc: {
     bootstrap: {
       getSettings: {
@@ -70,6 +77,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     }),
     account: {
+      qqWrite: { peerState: { useQuery: () => ({}) } },
       antiRecall: {
         getStatus: { useQuery: () => ({ data: anti.data, refetch: anti.refetch }) },
         setScope: { useMutation: () => ({ mutateAsync: anti.write }) },
@@ -109,6 +117,7 @@ beforeEach(() => {
   anti.writeNotify.mockReset();
   anti.invalidateAccount.mockClear();
   anti.invalidateSettings.mockClear();
+  accountPatch.mockReset();
   useNotificationPolicy.setState(useNotificationPolicy.getInitialState());
 });
 
@@ -160,6 +169,7 @@ it('防撤回写入的期望触发器不冒充安装状态，独立回读后显�
 });
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
+  bindAccountState(null);
   vi.unstubAllGlobals();
 });
 
@@ -179,7 +189,13 @@ it('全局不通知时仍可在当前会话开关提醒，并刷新两个设置�
   const render = () =>
     act(() =>
       root.render(
-        h(ConversationSettingsDialog, { kind: 'dataline', conv: '123', title: '手机', onClose }),
+        h(ConversationSettingsDialog, {
+          kind: 'dataline',
+          conv: '123',
+          title: '手机',
+          initialSection: 'notifications',
+          onClose,
+        }),
       ),
     );
   render();
@@ -200,6 +216,67 @@ it('全局不通知时仍可在当前会话开关提醒，并刷新两个设置�
   expect(anti.invalidateAccount).toHaveBeenCalledTimes(2);
   expect(anti.invalidateSettings).toHaveBeenCalledTimes(2);
   expect(onClose).not.toHaveBeenCalled();
+});
+
+it('在第二个分区单独保存当前群的提醒，即使全局渠道已关闭也不修改全局设置', async () => {
+  const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'fixture' };
+  const overrideKey = notificationOverrideKey('mentionMe', 'group:12345');
+  bindAccountState(binding);
+  acceptAccountState({ revision: 1, values: {}, records: {} }, binding);
+  accountPatch.mockResolvedValue({
+    revision: 2,
+    values: {},
+    records: { notifications: { [overrideKey]: false } },
+  });
+  const events = normalizeNotificationEvents({ mentionMe: { banner: false, system: false } });
+  useNotificationPolicy.getState().setEvents(events);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const onClose = vi.fn();
+  const navigation = vi.fn();
+  window.addEventListener(OPEN_NOTIFICATION_SETTINGS, navigation);
+  cleanups.push(() => {
+    window.removeEventListener(OPEN_NOTIFICATION_SETTINGS, navigation);
+    act(() => root.unmount());
+    host.remove();
+  });
+  act(() =>
+    root.render(
+      h(ConversationSettingsDialog, {
+        kind: 'group',
+        conv: '12345',
+        title: '群',
+        notificationState: { muted: false, groupAssistant: false },
+        onClose,
+      }),
+    ),
+  );
+  const section = host.querySelectorAll<HTMLButtonElement>('.weq-cvs-nav-item')[1]!;
+  expect(section.textContent).toBe('消息提醒');
+  act(() => section.click());
+  expect(host.querySelector('[aria-label="本会话普通群聊消息提醒"]')).toBeNull();
+  const toggle = host.querySelector<HTMLButtonElement>('[aria-label="本会话@自己提醒"]')!;
+  expect(toggle.getAttribute('aria-checked')).toBe('true');
+  await act(async () => toggle.click());
+  expect(accountPatch).toHaveBeenCalledWith({
+    ...binding,
+    namespace: 'notifications',
+    seed: false,
+    values: { [overrideKey]: false },
+  });
+  expect(toggle.getAttribute('aria-checked')).toBe('false');
+  expect(useNotificationPolicy.getState().events.mentionMe).toEqual({
+    banner: false,
+    system: false,
+  });
+  act(() =>
+    [...host.querySelectorAll('button')]
+      .find((button) => button.textContent === '前往通知设置')!
+      .click(),
+  );
+  expect(onClose).toHaveBeenCalledOnce();
+  expect(navigation.mock.calls[0]?.[0].detail.settingId).toBe('notification-events');
 });
 
 it.each([

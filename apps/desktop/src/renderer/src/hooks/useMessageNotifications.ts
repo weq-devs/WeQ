@@ -26,9 +26,8 @@ import { PRIVATE_MESSAGE_NOTICE } from '../../../shared/notification_copy';
 import { WEB_NOTICE_OPEN, browserNoticeChannel } from '../lib/browserNotifications';
 import { useNotificationPolicy, claimMessageBanner } from '../lib/notificationPolicy';
 import {
-  normalizeNotificationScope,
+  conversationNotificationIncluded,
   normalizeNotificationEvents,
-  notificationScopeIncludes,
   type NotificationChannel,
   type NotificationEvent,
 } from '@weq/service/notification-settings';
@@ -169,7 +168,7 @@ export function useMessageNotifications(options: {
       pending.current.delete(key);
       if (message.live) {
         const scopeIncludes = (event: 'specialCare' | 'keyword') =>
-          notificationScopeIncludes(normalizeNotificationScope(scopes[event], event), policy);
+          conversationNotificationIncluded(scopes, event, policy);
         const enabled = (event: 'specialCare' | 'keyword' | 'groupMessage' | 'directMessage') =>
           activeEvents[event].banner || activeEvents[event].system;
         const carePending =
@@ -234,8 +233,7 @@ export function useMessageNotifications(options: {
       for (const event of important) {
         if (event === 'replyMe' && message.kind !== 'group') continue;
         if (event !== 'specialCare' && !isAccountStateReady()) continue;
-        if (notificationScopeIncludes(normalizeNotificationScope(scopes[event], event), policy))
-          reasons.push(event);
+        if (conversationNotificationIncluded(scopes, event, policy)) reasons.push(event);
       }
       if (!reasons.length) continue;
       let notice = notices.get(policy.key);
@@ -245,7 +243,7 @@ export function useMessageNotifications(options: {
       }
       const keywordNotifies =
         message.groupKeyword === true &&
-        notificationScopeIncludes(normalizeNotificationScope(scopes.keyword, 'keyword'), policy);
+        conversationNotificationIncluded(scopes, 'keyword', policy);
       notice.items.push({ message, elements, reasons, keywordNotifies });
     }
     while (seen.current.size > 5000) seen.current.delete(seen.current.values().next().value!);

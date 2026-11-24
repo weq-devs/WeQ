@@ -296,6 +296,7 @@ describe('分级恢复默认', () => {
     state.notifications = {
       specialCare: { mode: 'all', targets: [] },
       mentionMe: { mode: 'selected', targets: ['group:synthetic'] },
+      'override:redPacket:group:synthetic': false,
       'mute:assistant:synthetic': true,
     };
     const input = { page: 'global', card: 'notification-scopes' } as const;

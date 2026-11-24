@@ -9219,6 +9219,18 @@ function MainWorkspace(): ReactElement {
     foregroundConversation:
       messagesTabActive && !settingsOpen && !dressUpOpen ? selectedUid : undefined,
   });
+  const notificationSettingsState = (() => {
+    if (!convSettings || convSettings.ownerKey !== messageScope || convSettings.kind === 'dataline')
+      return undefined;
+    const type = convSettings.kind === 'group' ? 'group' : 'direct';
+    const row = conversations.find((row) => row.id === convSettings.conv && row.type === type);
+    if (!row) return undefined;
+    const groupAssistant = type === 'group' && groupAssistantIds.has(row.id);
+    return {
+      groupAssistant,
+      muted: groupAssistant || Boolean(conversationPrefs[row.id]?.muted ?? row.preference?.muted),
+    };
+  })();
   conversationViewsRef.current = conversationViews;
   const currentViewRows = useMemo(() => {
     const rows = conversationViewRows(conversationViews, conversationView, allConversationOptions);
@@ -11550,6 +11562,7 @@ function MainWorkspace(): ReactElement {
               conv={convSettings.conv}
               title={convSettings.title}
               anchor={convSettings.anchor}
+              notificationState={notificationSettingsState}
               members={(convSettings.groupConversation?.members ?? []).map((m) => ({
                 uid: m.id,
                 displayName: m.displayName,

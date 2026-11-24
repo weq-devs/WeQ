@@ -34,6 +34,7 @@ import { DEFAULT_MONITOR_SETTINGS, getPerformanceMonitor } from '@weq/service/pe
 import { TOAST_TIMED_KINDS } from '@weq/service/toast-settings';
 import {
   normalizeNotificationScope,
+  notificationOverridePrefix,
   SCOPED_NOTIFICATION_EVENTS,
 } from '@weq/service/notification-settings';
 import {
@@ -453,19 +454,25 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       const account = { expectedAccountUin: record.uin, expectedAccountConfigId: record.configId };
       const { records } = await clientState.accountSnapshot(account);
       for (const event of SCOPED_NOTIFICATION_EVENTS) {
+        const overrideKeys = Object.keys(records.notifications ?? {}).filter((key) =>
+          key.startsWith(notificationOverridePrefix(event)),
+        );
         const summarize = (value: unknown) => {
           const scope = normalizeNotificationScope(value, event);
           return { mode: scope.mode, count: scope.targets.length };
         };
         bind(
           `notification-scopes:${event}`,
-          summarize(records.notifications?.[event]),
-          summarize(undefined),
+          { ...summarize(records.notifications?.[event]), overrides: overrideKeys.length },
+          { ...summarize(undefined), overrides: 0 },
           () =>
             clientState.accountPatch({
               ...account,
               namespace: 'notifications',
-              values: { [event]: null },
+              values: {
+                [event]: null,
+                ...Object.fromEntries(overrideKeys.map((key) => [key, null])),
+              },
             }),
         );
       }

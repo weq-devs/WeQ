@@ -6,6 +6,7 @@ import { DRAFT_MEDIA_DIR, isDraftImageName, mapDraftImagePaths } from '../common
 import { normalizeSearchPreferences } from '../account/search_policy';
 import { getLogger } from '../common/logger';
 import {
+  isNotificationOverrideKey,
   isNotificationScopeMode,
   SCOPED_NOTIFICATION_EVENTS,
 } from '../common/notification_settings';
@@ -344,6 +345,15 @@ export class ClientStateStore {
         continue;
       }
       if (namespace === 'notifications') {
+        if (key.startsWith('override:')) {
+          if (!isNotificationOverrideKey(key) || (value !== null && typeof value !== 'boolean'))
+            throw new Error('无效的单会话提醒设置');
+          if (!seed || !Object.hasOwn(rows, key)) {
+            if (value === null) delete rows[key];
+            else rows[key] = value;
+          }
+          continue;
+        }
         if (/^mute:(virtual:(?:persona|group)|assistant):.+$/.test(key)) {
           if (typeof value !== 'boolean') throw new Error('无效的免打扰状态');
         } else if (
