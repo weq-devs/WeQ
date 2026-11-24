@@ -1917,7 +1917,7 @@ function ChatPaneContent({
     pagingNewer,
   ]);
   const rowRestore = useStableCallback(onRestoreMessage);
-  const rowSwipeReply = useStableCallback((message: Message) => startQuote(message, true));
+  const rowSwipeReply = useStableCallback(startQuote);
   const rowContext = useStableCallback(openMessageMenu);
   const rowLongPress = useStableCallback(
     (point: { x: number; y: number }, message: Message, target?: EventTarget | null) =>
@@ -3930,7 +3930,7 @@ function ChatPaneContent({
   }
 
   /**
-   * 右键菜单「引用」：把这条消息挂到输入框上方。
+   * 从消息菜单或左滑引用：把消息挂到输入框上方，接着输入正文。
    *
    * 不能引用的消息（系统灰条 / 无 seq）在菜单里已经置灰，这里再兜一层。
    * **嵌套引用是允许的**：引用的消息自己也是引用也行，只是它的 reply 元素会被排掉
@@ -3938,7 +3938,7 @@ function ChatPaneContent({
    * 引用条与「只能单独发」的卡片互斥 —— 挂上引用就把卡片卸掉（预览地址一并释放），
    * 反过来卡片顶掉引用见 setMedia / stageSuperEmoji。
    */
-  function startQuote(message: Message, fromSwipe = false) {
+  function startQuote(message: Message) {
     if (!conversation || quoteBlockReason(message)) {
       return;
     }
@@ -3951,48 +3951,42 @@ function ChatPaneContent({
       return;
     }
 
-    const showQuote = () => {
+    // 在点击或松手事件内露出正文并聚焦，下一帧聚焦可能无法唤起软键盘。
+    flushSync(() => {
       setContextMenu(null);
       clearMediaAttachments();
       setPendingSuperEmoji(null);
       setAttachmentError(null);
       setPendingQuote(quote);
-      if (fromSwipe || isMobileWebComposer()) setComposerCollapsed(false);
+      setComposerCollapsed(false);
+      setFontOpen(false);
       setEmojiOpen(false);
       setToolsOpen(false);
       setLocationMenu(null);
       setLocationCardOpen(false);
       setArkOpen(false);
-      if (fromSwipe) {
-        if (voiceOpen) closeVoicePanel();
-        setFlashOpen(false);
-      }
-    };
-    // 松手时同步露出可编辑的正文；延到下一帧聚焦可能失去软键盘需要的触摸手势。
-    if (fromSwipe) flushSync(showQuote);
-    else showQuote();
+      if (voiceOpen) closeVoicePanel();
+      setFlashOpen(false);
+    });
+    const editor = currentComposerEditor();
+    if (editor?.contentEditable !== 'true') return;
+    focusComposerEnd(editor);
+
     if (conversation.type === 'group' && preferenceValue('autoMentionOnQuote')) {
       const self = new Set(selfIdentityValues(user));
-      const editor = currentComposerEditor();
-      const alreadyMentioned =
-        editor &&
-        [...editor.querySelectorAll<HTMLElement>('[data-weq-at-uid]')].some(
-          (node) =>
-            node.dataset.weqAtUid === sender.id ||
-            (node.dataset.weqAtUin && node.dataset.weqAtUin === sender.identityValue),
-        );
+      const alreadyMentioned = [...editor.querySelectorAll<HTMLElement>('[data-weq-at-uid]')].some(
+        (node) =>
+          node.dataset.weqAtUid === sender.id ||
+          (node.dataset.weqAtUin && node.dataset.weqAtUin === sender.identityValue),
+      );
       if (
-        editor &&
         !isSelfIdentity(self, sender.id) &&
         !isSelfIdentity(self, sender.identityValue) &&
         !alreadyMentioned
       ) {
-        focusComposerEnd(editor);
         insertMention(sender as GroupMember, false);
       }
     }
-    if (fromSwipe) focusComposerEnd(currentComposerEditor());
-    else window.requestAnimationFrame(() => focusComposerEnd(composerEditorRef.current));
   }
 
   function removeQuote() {

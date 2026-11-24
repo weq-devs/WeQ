@@ -829,6 +829,20 @@ async function checkScroll(page) {
     await quotePreview.tap();
     await page.waitForSelector('[data-message-id="row-1001"].weq-reply-target-flash');
     assert.equal(await quote.count(), 0);
+
+    await text.click({ button: 'right' });
+    const reply = page.getByRole('menuitem', { name: '引用', exact: true });
+    // 下一帧才获得焦点对手机不够，检查点击回调返回时能否直接输入。
+    assert.ok(
+      await reply.evaluate((button) => {
+        button.click();
+        return document.activeElement?.matches('.composer-editor');
+      }),
+    );
+    assert.match(await quote.textContent(), /合成消息 1003/);
+    await page.keyboard.insertText('，菜单引用也能继续输入');
+    assert.match(await editor.textContent(), /引用后直接输入，菜单引用也能继续输入/);
+
     await cdp.detach();
     await page.reload();
     await page.waitForSelector('[data-message-id="row-1001"]');
