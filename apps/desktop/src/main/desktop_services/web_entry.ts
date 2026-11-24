@@ -49,10 +49,13 @@ ${remote ? '<meta name="referrer" content="same-origin">' : ''}
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">
 <title>WeQ · 打开账号</title><style>
 body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:24px;color:CanvasText;background:Canvas}
-main{max-width:32rem;margin:10vh auto}h1{font-size:1.75rem}
+main{max-width:32rem;margin:10vh auto}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:1.125rem}
+h1{font-size:1.75rem;margin:0}
 button{display:flex;align-items:center;gap:12px;font:inherit;text-align:left;width:100%;margin-bottom:8px;padding:12px 16px;border:1px solid GrayText;border-radius:8px;color:CanvasText;background:Canvas;cursor:pointer}
 button:hover{border-color:Highlight}small{display:block;color:GrayText}
-.cancel{display:inline-flex;align-items:center;min-height:44px;color:LinkText}
+.cancel{display:grid;place-items:center;flex:none;width:44px;height:44px;border-radius:8px;color:CanvasText}
+.cancel:hover{background:color-mix(in srgb,CanvasText 10%,Canvas)}
 .avatar{position:relative;display:grid;place-items:center;flex:none;width:2.5rem;height:2.5rem;overflow:hidden;border-radius:50%;background:color-mix(in srgb,CanvasText 10%,Canvas);font-weight:600}
 .avatar::after{content:'';position:absolute;inset:0;background:var(--avatar,none) center/cover no-repeat}
 .account-name{flex:1;min-width:0;overflow-wrap:anywhere}
@@ -60,7 +63,15 @@ button:hover{border-color:Highlight}small{display:block;color:GrayText}
 .status::before{content:'';width:6px;height:6px;border-radius:50%;background:GrayText}
 .status[data-online]::before{background:#21834c}
 @media(prefers-color-scheme:dark){.status[data-online]::before{background:#59c982}}
-</style></head><body><main><h1>${returnTo ? '切换账号' : '打开 WeQ 账号'}</h1>
+</style></head><body><main><header><h1>${returnTo ? '切换账号' : '打开 WeQ 账号'}</h1>
+${
+  returnTo
+    ? `<a class="cancel" href="${returnTo}" aria-label="取消切换" title="取消切换">
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+</a>`
+    : ''
+}
+</header>
 ${error ? `<p role="alert">${escapeHtml(error)}</p>` : ''}
 ${
   accounts.length
@@ -81,7 +92,6 @@ ${
         .join('')
     : '<p>暂无可访问的账号。请在电脑上的 WeQ 检查账号及授权。</p>'
 }
-${returnTo ? `<a class="cancel" href="${returnTo}">取消切换</a>` : ''}
 </main>${remote ? `<script>${selectionStartup}</script>` : ''}</body></html>`;
 }
 
