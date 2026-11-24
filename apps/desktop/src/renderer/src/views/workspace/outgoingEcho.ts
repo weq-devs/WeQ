@@ -129,7 +129,7 @@ export function matchOutgoingEchoes({
   }
   const remainingMessages = unmatched(messages);
   if (remainingMessages.length) {
-    const files = matchFileMessages(remainingMessages, rows, convId, consumed);
+    const files = matchFileMessages(remainingMessages, rows, convId, consumed, direct);
     for (const item of remainingMessages) claim(item, candidates.get(files.get(item.id) ?? ''));
     const generated = matchGeneratedMessages(
       unmatched(remainingMessages),

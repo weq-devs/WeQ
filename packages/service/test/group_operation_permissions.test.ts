@@ -5,7 +5,11 @@ import { GroupInfoService } from '../src/account/group_info';
 function fixture() {
   const directory = vi.fn(async () => [{ groupCode: '123', role: 'admin' }]);
   const getMember = vi.fn(async () => ({ adminFlag: 1, memberFlag: 0 }));
-  const messages = vi.fn(async () => [{ senderUid: 'u_peer', senderUin: 20002n }]);
+  const messages = vi.fn(
+    async (): Promise<
+      Array<{ senderUid: string; senderUin: bigint; msgType?: bigint; msgRandom?: bigint }>
+    > => [{ senderUid: 'u_peer', senderUin: 20002n }],
+  );
   const session = {
     context: { uin: '10001' },
     selfUid: 'u_self',
@@ -34,6 +38,29 @@ describe('群操作提交前以真实目标重新核对', () => {
     const f = fixture();
     f.messages.mockResolvedValue([{ senderUid: 'u_self', senderUin: 10001n }]);
     await expect(f.service.assertOperation('recall', 123, undefined, 42)).resolves.toBeUndefined();
+  });
+  it('撤回忽略同号灰条，并用回执 random 区分同号正文', async () => {
+    const f = fixture();
+    f.directory.mockResolvedValue([{ groupCode: '123', role: 'member' }]);
+    const tip = { senderUid: 'u_tip', senderUin: 20003n, msgType: 5n, msgRandom: 99n };
+    const own = { senderUid: 'u_self', senderUin: 10001n, msgType: 2n, msgRandom: 33n };
+    f.messages.mockResolvedValueOnce([tip, own]);
+    await expect(f.service.assertOperation('recall', 123, undefined, 42)).resolves.toBeUndefined();
+    const peer = { ...own, senderUid: 'u_peer', senderUin: 20002n, msgRandom: 44n };
+    f.messages.mockResolvedValue([tip, peer, own]);
+    await expect(
+      f.service.assertOperation('recall', 123, undefined, 42, 33),
+    ).resolves.toBeUndefined();
+    await expect(f.service.assertOperation('recall', 123, undefined, 42, 44)).rejects.toThrow(
+      '无权',
+    );
+    await expect(f.service.assertOperation('recall', 123, undefined, 42)).rejects.toThrow('无权');
+    f.messages.mockClear();
+    f.directory.mockResolvedValue([{ groupCode: '123', role: 'admin' }]);
+    await expect(
+      f.service.assertOperation('essenceSet', 123, undefined, 42, 33),
+    ).resolves.toBeUndefined();
+    expect(f.messages).not.toHaveBeenCalled();
   });
   it('已离群目标不继续按普通成员允许管理操作', async () => {
     const f = fixture();
@@ -76,16 +103,25 @@ describe('群操作提交前以真实目标重新核对', () => {
     await expect(service.operationContext(123)).resolves.toMatchObject({ role: 'admin' });
     expect(sendOidbPacket).not.toHaveBeenCalled();
   });
-  it('群发文件的一次新读取同时检查发言与上传，而不是复用展示缓存', async () => {
+  it('群发文件由同一次权限核对同时检查发言与上传', async () => {
     const f = fixture();
     const context = vi
       .spyOn(f.service, 'operationContext')
       .mockResolvedValue({ role: 'member', memberCanUpload: false });
     await expect(f.service.assertCanSend(123, true)).rejects.toThrow('上传');
     expect(context).toHaveBeenCalledOnce();
-    expect(context).toHaveBeenCalledWith(123, undefined, true);
+    expect(context).toHaveBeenCalledWith(123);
     context.mockResolvedValue({ role: 'admin', muteUntil: Date.now() / 1000 + 60 });
     await expect(f.service.assertCanSend(123, false)).rejects.toThrow('禁言');
+  });
+  it('群发送定向读取群号，不因无关群详情失败被挡住', async () => {
+    const f = fixture();
+    const detail = vi
+      .spyOn(f.service, 'getGroupDetail')
+      .mockRejectedValue(new Error('群详情不可用'));
+    await expect(f.service.assertCanSend(123, false)).resolves.toBeUndefined();
+    expect(f.directory).toHaveBeenCalledWith(123n);
+    expect(detail).not.toHaveBeenCalled();
   });
   it('实际权限查询回包能拦截全员禁言群的普通成员发送，管理者仍可发言', async () => {
     const f = fixture();

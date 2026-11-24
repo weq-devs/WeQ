@@ -98,11 +98,11 @@ export function useEditableSelfProfileFields() {
                 ? '未设置'
                 : null)
         }
-        disabled={disabled || Boolean(errors.birthday)}
+        disabled={disabled}
       >
         <BirthdayEditor
           initial={profile.data?.birthday ?? ''}
-          disabled={disabled || Boolean(errors.birthday)}
+          disabled={disabled}
           onSave={(birthday) => save({ birthday })}
         />
       </SelfProfileField>
@@ -120,14 +120,14 @@ export function useEditableSelfProfileFields() {
             : null) ??
           (errors.region || profile.error ? '读取失败' : profile.data ? '未设置' : null)
         }
-        disabled={disabled || Boolean(errors.region)}
+        disabled={disabled}
       >
         <RegionEditor
           label="所在地"
           value={profile.data?.region ?? null}
           layers={3}
           regions={directory.data?.regions ?? []}
-          disabled={disabled || Boolean(errors.region)}
+          disabled={disabled}
           onSave={(region) => save({ region })}
         />
       </SelfProfileField>
@@ -143,13 +143,13 @@ export function useEditableSelfProfileFields() {
               ? profile.data.email || '未设置'
               : null
         }
-        disabled={disabled || Boolean(errors.email)}
+        disabled={disabled}
       >
         <QQWriteTextRow
           label="邮箱"
           icon={<Mail size={14} />}
           initial={profile.data?.email ?? null}
-          disabled={disabled || Boolean(errors.email)}
+          disabled={disabled}
           maxLength={996}
           onSave={(email) => save({ email })}
         />
@@ -168,13 +168,13 @@ export function useEditableSelfProfileFields() {
                 (profile.data.profession === null ? '未设置' : String(profile.data.profession)))
               : null
         }
-        disabled={disabled || Boolean(errors.profession)}
+        disabled={disabled}
       >
         <QQWriteSelectRow
           label="职业"
           icon={<BriefcaseBusiness size={14} />}
           initial={profile.data?.profession ?? null}
-          disabled={disabled || Boolean(errors.profession)}
+          disabled={disabled}
           options={directory.data?.professions ?? []}
           onSave={(profession) => save({ profession })}
         />
@@ -188,14 +188,14 @@ export function useEditableSelfProfileFields() {
           regionText(profile.data?.hometown) ??
           (errors.hometown || profile.error ? '读取失败' : profile.data ? '未设置' : null)
         }
-        disabled={disabled || Boolean(errors.hometown)}
+        disabled={disabled}
       >
         <RegionEditor
           label="家乡"
           value={profile.data?.hometown ?? null}
           layers={4}
           regions={directory.data?.regions ?? []}
-          disabled={disabled || Boolean(errors.hometown)}
+          disabled={disabled}
           onSave={(hometown) => save({ hometown })}
         />
       </SelfProfileField>
@@ -211,13 +211,13 @@ export function useEditableSelfProfileFields() {
               ? profile.data.company || '未设置'
               : null
         }
-        disabled={disabled || Boolean(errors.company)}
+        disabled={disabled}
       >
         <QQWriteTextRow
           label="公司"
           icon={<BriefcaseBusiness size={14} />}
           initial={profile.data?.company ?? null}
-          disabled={disabled || Boolean(errors.company)}
+          disabled={disabled}
           maxLength={996}
           onSave={(company) => save({ company })}
         />
@@ -234,13 +234,13 @@ export function useEditableSelfProfileFields() {
               ? profile.data.personalDescription || '未设置'
               : null
         }
-        disabled={disabled || Boolean(errors.personalDescription)}
+        disabled={disabled}
       >
         <QQWriteTextRow
           label="个人说明"
           icon={<FileText size={14} />}
           initial={profile.data?.personalDescription ?? null}
-          disabled={disabled || Boolean(errors.personalDescription)}
+          disabled={disabled}
           maxLength={383}
           multiline
           onSave={(personalDescription) => save({ personalDescription })}

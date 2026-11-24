@@ -2,8 +2,39 @@ interface ReplySource {
   msgSeq: string;
   clientSeq?: string;
   senderUin: string;
+  senderUid?: string;
   sendTime: string;
   elements: unknown[];
+}
+
+export function chooseReplySource<T>(
+  candidates: readonly T[],
+  data: Record<string, unknown>,
+  source: (candidate: T) => { senderUid?: string; senderUin?: string; sendTime?: string | number },
+  senderLocalSeq = false,
+): T | undefined {
+  const uid = typeof data.origSenderUid === 'string' ? data.origSenderUid : '';
+  const uin = Number(data.origSenderUin) > 0 ? String(data.origSenderUin) : '';
+  const time = Number(data.origMsgTime) > 0 ? String(data.origMsgTime) : undefined;
+  const viable = candidates.filter((candidate) => {
+    const row = source(candidate);
+    if (uid && row.senderUid) return uid === row.senderUid;
+    if (uin && row.senderUin && row.senderUin !== '0') return row.senderUin === uin;
+    return (
+      !senderLocalSeq || (!uid && !uin) || (time !== undefined && String(row.sendTime) === time)
+    );
+  });
+  if (viable.length === 1) return viable[0];
+  const bySender = viable.filter((candidate) => {
+    const row = source(candidate);
+    return uid && row.senderUid ? uid === row.senderUid : Boolean(uin && row.senderUin === uin);
+  });
+  if (bySender.length === 1) return bySender[0];
+  if (time === undefined) return;
+  const byTime = (bySender.length ? bySender : viable).filter(
+    (row) => String(source(row).sendTime) === time,
+  );
+  return byTime.length === 1 ? byTime[0] : undefined;
 }
 
 export interface ReplyPreviewIndex {
@@ -44,15 +75,17 @@ export function findReplyPreview(
         : clientSeq > 0
           ? sources.byClientSeq.get(String(clientSeq))
           : undefined) ?? []);
-  const matches = candidates.filter(
+  const viable = candidates.filter(
     (row) =>
       (pointer > 0
         ? row.msgSeq === String(pointer)
         : clientSeq > 0 && row.clientSeq === String(clientSeq)) &&
-      (!Number(data.origSenderUin) || row.senderUin === String(data.origSenderUin)) &&
-      (!Number(data.origMsgTime) || row.sendTime === String(data.origMsgTime)),
+      row.elements.some((item) => !(item as { type?: string } | null)?.type?.startsWith('grayTip')),
   );
-  return matches.length === 1
-    ? matches[0]!.elements.filter((item) => (item as { type?: string } | null)?.type !== 'reply')
-    : undefined;
+  return chooseReplySource(
+    viable,
+    data,
+    (row) => row,
+    pointer <= 0 || !Number.isFinite(pointer),
+  )?.elements.filter((item) => (item as { type?: string } | null)?.type !== 'reply');
 }

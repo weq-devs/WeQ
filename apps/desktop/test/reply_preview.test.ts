@@ -39,6 +39,20 @@ it('旧引用摘要按正确编号恢复，并排除上一层引用', () => {
   ]);
   expect(findReplyPreview('c2c', { origMsgIndex: 120 }, [source])).toEqual([text]);
   expect(findReplyPreview('c2c', { origMsgIndex: 7 }, [source])).toBeUndefined();
+  expect(
+    findReplyPreview('group', { origMsgSeq: 120, origSenderUin: 20002, origMsgTime: 1700000001 }, [
+      { ...source, senderUin: '0' },
+      { ...source, elements: [{ type: 'grayTipXml' }] },
+    ]),
+  ).toEqual([text]);
+  expect(
+    findReplyPreview('c2c', { origClientSeq: 7, origSenderUin: 20002, origMsgTime: 1700000001 }, [
+      source,
+    ]),
+  ).toEqual([text]);
+  expect(
+    findReplyPreview('group', { origMsgSeq: 120, origSenderUin: 10001 }, [source]),
+  ).toBeUndefined();
 });
 it('同一 client sequence 重号时必须消歧，不能显示另一人的内容', () => {
   const sources = [source, { ...source, msgSeq: '121', senderUin: '10001' }];

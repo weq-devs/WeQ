@@ -33,18 +33,16 @@ function FriendActions({ friendUid, removeFriend, actions, ...props }: FriendMen
       actions={[
         ...actions,
         ...(uid
-          ? [
-              {
-                label: care.enabled ? '取消特别关心' : '特别关心',
-                icon: <FEATURE_ICONS.specialCare size={16} aria-hidden />,
-                disabled: care.disabled,
-                reason: care.reason,
-                keepOpen: true,
-                action: () => {
-                  void care.change(!care.enabled).finally(props.onClose);
-                },
+          ? (care.enabled === null ? [true, false] : [!care.enabled]).map((enabled) => ({
+              label: enabled ? '特别关心' : '取消特别关心',
+              icon: <FEATURE_ICONS.specialCare size={16} aria-hidden />,
+              disabled: care.disabled,
+              reason: care.reason,
+              keepOpen: true,
+              action: () => {
+                void care.change(enabled).finally(props.onClose);
               },
-            ]
+            }))
           : []),
         ...(removeFriend ? [removeFriend] : []),
       ]}

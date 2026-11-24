@@ -292,13 +292,28 @@ export function QQConversationControls({
                     }
                     onSave={(enabled) => changePeerToggle('friendDisturb', enabled)}
                   />
-                  <QQWriteToggleRow
-                    label="特别关心"
-                    icon={<FEATURE_ICONS.specialCare size={14} strokeWidth={1.8} aria-hidden />}
-                    initial={specialCare.enabled}
-                    disabled={friendDisabled || specialCare.disabled}
-                    onSave={specialCare.change}
-                  />
+                  {specialCare.enabled === null ? (
+                    <QQWriteSelectRow
+                      label="特别关心"
+                      icon={<FEATURE_ICONS.specialCare size={14} strokeWidth={1.8} aria-hidden />}
+                      initial={null}
+                      autoSave
+                      disabled={friendDisabled || specialCare.disabled}
+                      options={[
+                        { value: 1, label: '开启' },
+                        { value: 0, label: '关闭' },
+                      ]}
+                      onSave={(value) => specialCare.change(value === 1)}
+                    />
+                  ) : (
+                    <QQWriteToggleRow
+                      label="特别关心"
+                      icon={<FEATURE_ICONS.specialCare size={14} strokeWidth={1.8} aria-hidden />}
+                      initial={specialCare.enabled}
+                      disabled={friendDisabled || specialCare.disabled}
+                      onSave={specialCare.change}
+                    />
+                  )}
                 </>
               ) : (
                 <QQWriteSelectRow

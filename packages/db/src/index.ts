@@ -43,6 +43,7 @@ export {
   waitForDatabaseQuiet,
 } from './query_schedule';
 export type { DatabasePriority, SlowDatabaseOperation } from './query_schedule';
+export type { HistoryCursor } from './msg/history';
 export { CalendarMetadataDb } from './msg/calendar_metadata';
 export type { CalendarTable, CalendarCursor, CalendarMetadata } from './msg/calendar_metadata';
 export { withDatabaseRequest } from './query_diagnostics';

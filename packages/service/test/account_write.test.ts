@@ -92,7 +92,7 @@ describe('账号写操作编排', () => {
     const f = fixture();
     expect(await f.service.friendRemark('u_friend', '同学')).toEqual({ state: 'confirmed' });
     expect(await f.service.friendRemark('u_friend', '')).toEqual({ state: 'accepted' });
-    expect(f.calls.map((c) => c.command)).toEqual([0xfd4, 0x912e, 0xfd4, 0x912f]);
+    expect(f.calls.map((c) => c.command)).toEqual([0x912e, 0x912f]);
   });
 
   it('云端未知分组不写入，已在目标分组不重复操作，不依赖过期本地归属', async () => {
@@ -104,7 +104,7 @@ describe('账号写操作编排', () => {
     expect(f.calls.filter((call) => call.command === MoveFriendCategory.command)).toHaveLength(1);
   });
 
-  it('等待名册期间切号，发包前重新核对绑定', async () => {
+  it('等待本地好友身份期间切号，发包前重新核对绑定', async () => {
     const f = fixture();
     const get = f.identity.getBuddy;
     f.identity.getBuddy = async (uid) => {
@@ -114,6 +114,19 @@ describe('账号写操作编排', () => {
     };
     await expect(f.service.friendRemark('u_friend', '同学')).rejects.toThrow(/切换/);
     expect(f.calls).toHaveLength(0);
+  });
+  it('特别关心和明确的本人资料字段可以提交，不预读旧值', async () => {
+    const f = fixture();
+    await expect(f.service.friendSpecialCare('u_friend', true)).resolves.toEqual({
+      state: 'unconfirmed',
+    });
+    await expect(f.service.editSelfProfile({ birthday: '2000-02-29' })).resolves.toEqual({
+      state: 'unconfirmed',
+    });
+    expect(f.calls.map(({ command, sub }) => [command, sub])).toEqual([
+      [0x5d6, 6],
+      [0x112a, 2],
+    ]);
   });
 
   it('群策略使用账号自己的 UID，好友免打扰不伪造确认', async () => {

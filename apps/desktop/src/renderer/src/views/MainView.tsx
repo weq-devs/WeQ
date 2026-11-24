@@ -15,7 +15,7 @@ import {
   countMessageBadgeUnread,
   createUnreadConversationCycle,
   firstUnreadMessage,
-  matchesUnreadMessage,
+  findUnreadMessage,
 } from '../lib/unreadNavigation';
 import {
   toMessageWire,
@@ -6345,8 +6345,7 @@ function MainWorkspace(): ReactElement {
           const findTarget = () => {
             if (mode === 'firstUnread' && targetSeq) return firstUnreadMessage(merged, targetSeq);
             if (exactId) return findTimelineMessageById(merged, exactId, targetSeq);
-            if (targetSeq)
-              return merged.find((m) => matchesUnreadMessage(m, targetSeq, importantMessage));
+            if (targetSeq) return findUnreadMessage(merged, targetSeq, importantMessage);
           };
           let target = findTarget();
 
@@ -6535,9 +6534,7 @@ function MainWorkspace(): ReactElement {
 
       const here =
         !jumpTarget.msgId &&
-        loadedRef.current.find((m) =>
-          matchesUnreadMessage(m, targetSeq, jumpTarget.importantMessage),
-        );
+        findUnreadMessage(loadedRef.current, targetSeq, jumpTarget.importantMessage);
       if (here && scrollToMsgId(timelineRowKey(here))) return true;
 
       const current = loadedRef.current;

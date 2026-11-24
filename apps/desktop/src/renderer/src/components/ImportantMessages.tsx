@@ -143,14 +143,12 @@ export function ImportantMessagesList({
   const scope = useRef(source);
   scope.current = source;
   const previewScope = useRef({ source, kinds, open });
-  const previewRequests = useRef(new Map<string, Promise<string | undefined>>());
   if (
     previewScope.current.source !== source ||
     previewScope.current.kinds !== kinds ||
     previewScope.current.open !== open
   ) {
     previewScope.current = { source, kinds, open };
-    previewRequests.current.clear();
   }
   useEffect(() => {
     alive.current = true;
@@ -239,7 +237,7 @@ export function ImportantMessagesList({
         setPending(false);
         const seqs = result.items.filter((row) => !row.msgId).map((row) => row.msgSeq);
         if (!seqs.length) return;
-        const previews = client.account.importantGroupPreviews
+        void client.account.importantGroupPreviews
           .query({ expectedAccountUin, expectedAccountConfigId, groupCode, seqs })
           .then(({ items, contentUnavailable }) => {
             const bySeq = new Map(items.map((row) => [row.msgSeq, row]));
@@ -255,20 +253,11 @@ export function ImportantMessagesList({
                 }),
               }));
             }
-            return bySeq;
           })
           .catch(() => {
             if (alive.current && previewScope.current === previewOwner)
               setPage((old) => ({ ...old, contentUnavailable: true }));
-            return undefined;
           });
-        for (const seq of seqs) {
-          const request = previews.then((refs) => refs?.get(seq)?.msgId);
-          previewRequests.current.set(seq, request);
-          void request.then(() => {
-            if (previewRequests.current.get(seq) === request) previewRequests.current.delete(seq);
-          });
-        }
       })
       .catch((reason: unknown) => {
         if (!active) return;
@@ -313,23 +302,14 @@ export function ImportantMessagesList({
     focusedSeq.current = currentSeq;
   }, [open, currentSeq, page.items]);
   async function locate(target: ReplyJumpTarget) {
-    if (busy.current || locatePending) return;
+    if (busy.current || locatePending || !previewScope.current.open) return;
     const started = scope.current;
     busy.current = true;
     setLocating(String(target.seq));
     setLocateError('');
     try {
-      const owner = previewScope.current;
-      const msgId = target.msgId ?? (await previewRequests.current.get(String(target.seq)));
-      if (
-        !alive.current ||
-        scope.current !== started ||
-        previewScope.current !== owner ||
-        !owner.open
-      )
-        return;
-      if ((await onLocate(msgId ? { ...target, msgId } : target)) === false) return;
-      if (!alive.current || scope.current !== started) return;
+      if ((await onLocate(target)) === false) return;
+      if (!alive.current || scope.current !== started || !previewScope.current.open) return;
       setSelected(String(target.seq));
       if (mobile) onClose();
     } catch (reason) {
@@ -445,6 +425,14 @@ export function ImportantMessagesList({
             const kinds = IMPORTANT_MESSAGE_KINDS.filter((kind) =>
               row.reasons.some((reason) => reason.kind === kind),
             );
+            const target = {
+              seq: row.msgSeq,
+              importantMessage: {
+                kind: kinds.includes('newFile') ? ('newFile' as const) : kinds[0],
+                senderUid: row.senderUid,
+                sendTime: row.sendTime,
+              },
+            };
             const reasonLabel = (kind: ImportantMessageKind) =>
               row.reasons
                 .filter((reason) => reason.kind === kind)
@@ -464,10 +452,8 @@ export function ImportantMessagesList({
                   aria-busy={locating === row.msgSeq}
                   aria-label={`${kinds.map(reasonLabel).join('、')}，${sender}，${time}，${preview}`}
                   title={`${time} · 定位到原消息`}
-                  onClick={() => void locate({ seq: row.msgSeq, msgId: row.msgId })}
-                  onContextMenu={(event) =>
-                    locateMenu.openMenu(event, { seq: row.msgSeq, msgId: row.msgId })
-                  }
+                  onClick={() => void locate(target)}
+                  onContextMenu={(event) => locateMenu.openMenu(event, target)}
                 >
                   <span className="weq-important-types">
                     {kinds.map((kind) => {

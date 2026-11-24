@@ -40,6 +40,20 @@ describe('文件发送回显对账', () => {
     );
   });
 
+  it('按真实会话水位匹配新文件，不受本机时钟影响也不吃旧文件', () => {
+    const old = wire('late-old', { msgSeq: '10' });
+    const fresh = wire('new', { msgSeq: '11', sendTime: String(Math.floor(at / 1000) - 1) });
+    const items = [pending('pending', { afterSeq: '10' })];
+    expect(matchFileMessages(items, [old, fresh], 'group', new Map()).get('pending')).toBe(
+      'group:new',
+    );
+    expect(matchFileMessages(items, [old], 'group', new Map()).size).toBe(0);
+    expect(
+      matchFileMessages(items, [{ ...fresh, sourceFormat: 'protocol' }], 'group', new Map(), true)
+        .size,
+    ).toBe(0);
+  });
+
   it('同名不同 ID、旧消息、其他会话、发送中和失败条目均不匹配', () => {
     const messages = [
       wire('old'),

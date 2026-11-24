@@ -24,7 +24,7 @@
 
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import { readMessageSourceRows } from './export_source';
-import { nativeHistoryCursor } from './history';
+import { nativeHistoryCursor, newestHistoryPage, type HistoryCursor } from './history';
 import { directoryTimePage } from './directory_times';
 import { listDeletedRefs } from './deleted_refs';
 import type {
@@ -233,6 +233,28 @@ export class C2cMsgDb {
     return rows.map(rowToC2cMsg);
   }
 
+  async listNewestHistory(part: C2cPartition, limit: number, before?: HistoryCursor) {
+    if ('uid' in part && !(await this.qq.hasLeadingIndex(this.table, '40021'))) {
+      const older = (row: SqlRow) => {
+        if (!before) return true;
+        const seq = toBigint(row[2]);
+        if (seq !== before.msgSeq) return seq < before.msgSeq;
+        const time = toBigint(row[3]);
+        return time === before.sendTime ? toBigint(row[4]) < before.msgId : time < before.sendTime;
+      };
+      return this.listUidPage(part.uid, limit, true, older, true);
+    }
+    const rows = await newestHistoryPage(
+      this.qq,
+      this.table,
+      SELECT_COLUMNS,
+      partitionWhere(part),
+      limit,
+      before,
+    );
+    return rows.map(rowToC2cMsg);
+  }
+
   /** 与群消息相同的三字段键集游标，不把 clientSeq 当分页序号。 */
   async listHistory(
     part: C2cPartition,
@@ -359,13 +381,14 @@ export class C2cMsgDb {
     limit: number,
     descending: boolean,
     accept: (row: SqlRow) => boolean = () => true,
+    normalizeMissing = false,
   ): Promise<C2cMsg[]> {
     if (limit === 0) return [];
     const selected: SqlRow[] = [];
     const compare = (a: SqlRow, b: SqlRow) => {
       for (const index of [2, 3, 4]) {
-        const left = a[index],
-          right = b[index];
+        const left = normalizeMissing ? toBigint(a[index]) : a[index],
+          right = normalizeMissing ? toBigint(b[index]) : b[index];
         const order =
           left === null
             ? right === null
@@ -686,29 +709,29 @@ export class C2cMsgDb {
     return rows.map(rowToC2cMsg);
   }
 
-  /** 私聊引用指针使用发送方的 client sequence；结合发送者和时间消除重号。 */
+  /** undefined 表示本地未命中；null 表示重号仍有歧义，不能改用较少的缓存候选猜测。 */
   async resolveReplySeq(
     part: C2cPartition,
     clientSeq: bigint,
     senderUin?: bigint,
     sendTime?: bigint,
-  ): Promise<bigint | null> {
+  ): Promise<bigint | null | undefined> {
     const { clause, value } = partitionWhere(part);
     const params: SqlValue[] = [value, clientSeq];
-    const conditions = [clause, '"40005" = ?'];
+    const conditions = [clause, '"40005" = ?', '"40003" > 0'];
     if (senderUin && senderUin > 0n) {
       conditions.push('"40033" = ?');
       params.push(senderUin);
     }
-    if (sendTime && sendTime > 0n) {
-      conditions.push('"40050" = ?');
-      params.push(sendTime);
-    }
     const rows = await this.qq.query(
-      `SELECT DISTINCT "40003" FROM ${this.table} WHERE ${conditions.join(' AND ')} LIMIT 2`,
-      params,
+      `SELECT "40003", MAX(CASE WHEN "40050"=? THEN 1 ELSE 0 END) AS exact_time
+       FROM ${this.table} WHERE ${conditions.join(' AND ')} GROUP BY "40003"
+       ORDER BY exact_time DESC LIMIT 2`,
+      [sendTime ?? null, ...params],
     );
-    return rows.length === 1 ? toBigint(rows[0]?.[0]) : null;
+    const [first, second] = rows;
+    if (!first) return;
+    return !second || Number(first[1]) > Number(second[1]) ? toBigint(first[0]) : null;
   }
 
   /**

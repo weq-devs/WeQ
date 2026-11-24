@@ -25,6 +25,7 @@ import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq
 import type { GuildDirectMsg } from './types';
 import { decodeBody, decodeDress, toBigint } from '../msg/util';
 import { QqDb } from '../qq_db';
+import { newestHistoryPage, type HistoryCursor } from '../msg/history';
 
 const SELECT_COLUMNS = `"40001","40003","40027","40026","40025","40013","40050","40800","40011","40012","40801"`;
 
@@ -146,6 +147,18 @@ export class GuildDirectMsgDb {
       hasMore: before.length >= 50,
       items: [...before.reverse(), rowToGuildDirectMsg(row), ...after.items],
     };
+  }
+
+  async listNewestHistory(nodeId: bigint, limit: number, before?: HistoryCursor) {
+    const rows = await newestHistoryPage(
+      this.qq,
+      'guild_msg_table',
+      SELECT_COLUMNS,
+      { clause: '"40027"=?', value: nodeId },
+      limit,
+      before,
+    );
+    return rows.map(rowToGuildDirectMsg);
   }
 
   /** Newest N messages of one DM conversation, newest-first (seq DESC). */

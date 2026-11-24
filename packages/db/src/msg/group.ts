@@ -57,7 +57,7 @@ import {
   type BrowseDirection,
 } from './browse';
 import { type SalvageStreamOptions, windowPlanFrom } from '../salvage';
-import { nativeHistoryCursor } from './history';
+import { nativeHistoryCursor, newestHistoryPage, type HistoryCursor } from './history';
 import { groupDirectoryTimes, recentGroupDirectoryTimes } from './directory_times';
 import { listDeletedRefs } from './deleted_refs';
 import { readMessageSourceRows } from './export_source';
@@ -203,6 +203,18 @@ export class GroupMsgDb {
         ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
       [targetGroupCode, BigInt(limit)],
+    );
+    return rows.map(rowToGroupMsg);
+  }
+
+  async listNewestHistory(targetGroupCode: string, limit: number, before?: HistoryCursor) {
+    const rows = await newestHistoryPage(
+      this.qq,
+      'group_msg_table',
+      SELECT_COLUMNS,
+      { clause: '"40027"=?', value: targetGroupCode },
+      limit,
+      before,
     );
     return rows.map(rowToGroupMsg);
   }

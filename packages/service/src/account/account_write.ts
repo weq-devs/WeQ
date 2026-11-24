@@ -241,11 +241,6 @@ export class AccountWriteService {
   async editSelfProfile(patch: EditableProfilePatch): Promise<AccountWriteOutcome> {
     encodeEditableProfile(patch);
     const pid = this.resolvePid();
-    const original = await this.editableSelfProfile();
-    for (const field of Object.keys(patch) as Array<keyof EditableProfilePatch>) {
-      if (original.errors[field]) throw new Error(original.errors[field]);
-    }
-    this.assertCurrentPid(pid);
     try {
       await writeEditableProfile(this.nt, pid, this.identity.uin, patch);
     } catch {
@@ -258,7 +253,7 @@ export class AccountWriteService {
 
   private async friend(uid: string): Promise<Buddy> {
     const buddy = await this.identity.getBuddy(uid);
-    if (!buddy) throw new Error('目标不是当前账号的好友');
+    if (!buddy || buddy.uid !== uid) throw new Error('目标不是当前账号的好友');
     return buddy;
   }
 
@@ -281,9 +276,8 @@ export class AccountWriteService {
 
   async friendRemark(uid: string, remark: string): Promise<AccountWriteOutcome> {
     if (remark !== '') SetFriendRemark.serialize({ uid, remark });
-    await this.friend(uid);
     const pid = this.resolvePid();
-    await this.getFriendRemark(uid);
+    await this.friend(uid);
     this.assertCurrentPid(pid);
     try {
       if (remark === '') {
@@ -340,8 +334,7 @@ export class AccountWriteService {
 
   async friendSpecialCare(uid: string, enabled: boolean): Promise<AccountWriteOutcome> {
     const pid = this.resolvePid();
-    // 先读取原态，不能因 ACK 未知或超时自动重放写请求。
-    await this.getFriendSpecialCare(uid);
+    await this.friend(uid);
     this.assertCurrentPid(pid);
     try {
       await SetFriendSpecialCare.invoke(this.nt, pid, { uid, enabled });
@@ -359,7 +352,6 @@ export class AccountWriteService {
     includeRemark = false,
   ): Promise<FriendSnsPage['friends'][number]> {
     const buddy = await this.friend(uid);
-    if (buddy.uid !== uid) throw new Error('好友资料与读取目标不一致');
     const result = await this.friendRoster(includeDirectory, includeRemark);
     const found = result.friends.find((row) => row.uid === uid);
     if (!found) throw new Error('云端好友名册中没有读取目标');
@@ -539,10 +531,11 @@ export class AccountWriteService {
         throw new Error('目标好友分组不存在');
       if (operation.type === 'delete' && (!operation.id || !hasCategory(operation.id)))
         throw new Error('不能删除默认分组或不存在的分组');
+      const byUid = new Map(before.friends.map((row) => [row.uid, row]));
       const members =
         operation.type === 'move'
-          ? operation.uids.map((uid) => {
-              const friend = before.friends.find((row) => row.uid === uid);
+          ? [...new Set(operation.uids)].map((uid) => {
+              const friend = byUid.get(uid);
               if (!friend) throw new Error('部分目标已不是好友，请刷新后重试');
               return friend;
             })
@@ -556,30 +549,49 @@ export class AccountWriteService {
           (operation.type === 'delete' && target === operation.id))
       )
         throw new Error('请选择有效的合并目标分组');
+      let dispatched = false;
+      let uncertain = false;
       for (const friend of members) {
         if (target === undefined || friend.categoryId === target) continue;
-        await write(() =>
-          MoveFriendCategory.invoke(this.nt, pid, { uid: friend.uid, categoryId: target }),
-        );
-        const observed = await this.friendSns(friend.uid, true);
-        this.assertCurrentPid(pid);
-        if (observed.categoryId !== target)
-          throw new Error('部分好友移组尚未确认，已停止后续操作，请刷新后核对');
+        dispatched = true;
+        try {
+          await write(() =>
+            MoveFriendCategory.invoke(this.nt, pid, { uid: friend.uid, categoryId: target }),
+          );
+        } catch {
+          this.assertCurrentPid(pid);
+          uncertain = true;
+          break;
+        }
       }
+      if (operation.type === 'move' && !dispatched) return { state: 'confirmed' };
       if (operation.type === 'delete') {
-        const current = await this.friendRoster();
+        if (uncertain) return { state: 'unconfirmed' };
+        const current = await this.friendRoster().catch(() => null);
         this.assertCurrentPid(pid);
+        const categoryByUid = new Map(current?.friends.map((row) => [row.uid, row.categoryId]));
         if (
+          !current ||
           current.friends.some(
             (row) => row.categoryId === undefined || row.categoryId === operation.id,
-          )
+          ) ||
+          members.some((row) => categoryByUid.get(row.uid) !== target)
         )
           throw new Error('分组仍有好友或状态未知，未删除分组');
         await write(() => DeleteFriendCategory.invoke(this.nt, pid, { categoryId: operation.id }));
       }
     }
-    const after = await this.friendRoster();
+    const after = await this.friendRoster().catch(() => null);
     this.assertCurrentPid(pid);
+    if (!after) return { state: 'unconfirmed' };
+    if (operation.type === 'move') {
+      const observed = new Map(after.friends.map((row) => [row.uid, row.categoryId]));
+      return {
+        state: operation.uids.every((uid) => observed.get(uid) === operation.categoryId)
+          ? 'confirmed'
+          : 'unconfirmed',
+      };
+    }
     if (!after.categories) return { state: 'unconfirmed' };
     const confirmed =
       operation.type === 'create'
@@ -596,19 +608,13 @@ export class AccountWriteService {
             )
           : operation.type === 'delete'
             ? !after.categories.some((row) => row.id === operation.id)
-            : operation.type === 'move'
-              ? operation.uids.every((uid) =>
-                  after.friends.some(
-                    (row) => row.uid === uid && row.categoryId === operation.categoryId,
-                  ),
-                )
-              : [...after.categories]
-                  .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-                  .map((row) => row.id)
-                  .join(',') === operation.ids.join(',') &&
-                categories.every((before) =>
-                  after.categories!.some((row) => row.id === before.id && row.name === before.name),
-                );
+            : [...after.categories]
+                .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+                .map((row) => row.id)
+                .join(',') === operation.ids.join(',') &&
+              categories.every((before) =>
+                after.categories!.some((row) => row.id === before.id && row.name === before.name),
+              );
     return { state: confirmed ? 'confirmed' : 'unconfirmed' };
   }
 

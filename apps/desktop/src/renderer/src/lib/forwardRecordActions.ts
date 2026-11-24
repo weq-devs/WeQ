@@ -11,6 +11,7 @@ import {
   type MessageGroupPosition,
 } from '../im-template/template/chatTimelineModel';
 import { grayTipOf } from '../im-template/template/messageRow.shared';
+import { chooseReplySource } from './replyPreview';
 import { isArkMultiMsg } from '../components/ForwardWindow.shared';
 
 export type ForwardEntry = {
@@ -61,14 +62,8 @@ function resolveForwardReplies(entries: ForwardEntry[]) {
       record.msgType === 9 && record.subMsgs?.length === 1 ? record.subMsgs[0] : null;
     const cachedId = positiveNumberKey(snapshot?.msgId);
     const cachedMatches = byId.get(cachedId ?? '')?.filter((row) => row.index < entry.index);
-    const senderUin = positiveNumberKey(data.origSenderUin);
-    const senderUid = typeof data.origSenderUid === 'string' ? data.origSenderUid : '';
-    const sendTime = positiveNumberKey(data.origMsgTime);
     const matchesReply = ({ index, record: row }: ForwardEntry) =>
-      index < entry.index &&
-      (!senderUin || !row.senderUin || row.senderUin === '0' || row.senderUin === senderUin) &&
-      (!senderUid || !row.senderUid || row.senderUid === senderUid) &&
-      (!sendTime || !row.sendTime || String(row.sendTime) === sendTime);
+      index < entry.index && !grayTipOf(row);
     const seqMatches = bySeq.get(positiveNumberKey(data.origMsgIndex) ?? '')?.filter(matchesReply);
     const replySeq = positiveNumberKey(data.origClientSeq) ?? positiveNumberKey(data.origMsgSeq);
     const matches = seqMatches?.length
@@ -77,9 +72,7 @@ function resolveForwardReplies(entries: ForwardEntry[]) {
     const target =
       cachedMatches?.length === 1
         ? cachedMatches[0]
-        : matches?.length === 1
-          ? matches[0]
-          : undefined;
+        : chooseReplySource(matches ?? [], data, (row) => row.record, !seqMatches?.length);
     entry.reply = {
       targetId: target?.id,
       senderName: target?.record.sendNick?.trim() || snapshot?.sendNick?.trim(),

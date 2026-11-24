@@ -31,11 +31,7 @@ import { readFavoriteEmojiMedia } from './favorite_emoji_media';
 import { runResumableExport } from '../../resumable_exports';
 import { groupNoticeSequenceId, type NoticeOperationWire } from '../../../shared/contact_notices';
 import { sameGroupTags } from '../../../shared/group_tags';
-import {
-  albumMediaDeleteAllowed,
-  groupPermission,
-  qqResourceOwnedBy,
-} from '@weq/service/qq-permissions';
+import { albumMediaDeleteAllowed, qqResourceOwnedBy } from '@weq/service/qq-permissions';
 
 const binding = z.object({
   expectedAccountUin: z.string().min(1),
@@ -895,10 +891,6 @@ export function createQQActionsRouter(
       .mutation(async ({ input: i }) => {
         let state: 'accepted' | 'unconfirmed' = 'unconfirmed';
         await write(i, async (s, current) => {
-          const permission = await s.groupInfo.operationContext(i.groupId, undefined, true);
-          current();
-          if (!groupPermission('fileUpload', permission))
-            throw new Error('此群不允许当前成员上传文件');
           const path = await s.fileResource.resolveLocalFile(i.path);
           current();
           if (!path) throw new Error('文件未授权，请重新选择');
@@ -955,32 +947,12 @@ export function createQQActionsRouter(
           if (i.action !== 'createFolder' && !i.id) throw new Error('缺少文件或文件夹标识');
           if (['rename', 'createFolder', 'renameFolder'].includes(i.action) && !i.name)
             throw new Error('名称不能为空');
-          const permissions = await groupPermissions(s, i.groupId);
           current();
-          if (!permissions.canManage) {
-            if (i.action === 'move') throw new Error('移动群文件需要群主或管理员权限');
-            if (['createFolder', 'deleteFolder', 'renameFolder'].includes(i.action))
-              throw new Error('管理文件夹需要群主或管理员权限');
-            const listing = await s.groupFile.list(i.groupId, i.directory);
-            current();
-            const file = listing.files.find((file) => file.fileId === i.id);
-            if (
-              !file ||
-              !groupPermission(i.action === 'rename' ? 'fileRename' : 'fileDelete', {
-                role: permissions.role,
-                owned: qqResourceOwnedBy(file.uploaderUin, {
-                  uin: permissions.selfUin,
-                  uid: permissions.selfUid,
-                }),
-              })
-            )
-              throw new Error('普通成员只能管理自己上传的文件，或文件已不存在');
-          }
           switch (i.action) {
             case 'delete':
-              return s.groupFile.deleteFile(i.groupId, i.id!, i.directory);
+              return s.groupFile.deleteFile(i.groupId, i.id!, i.directory, current);
             case 'rename':
-              return s.groupFile.renameFile(i.groupId, i.id!, i.directory, i.name!);
+              return s.groupFile.renameFile(i.groupId, i.id!, i.directory, i.name!, current);
             case 'move':
               if (!i.destination) throw new Error('请选择目标文件夹');
               return s.groupFile.moveFile(i.groupId, i.id!, i.directory, i.destination);

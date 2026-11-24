@@ -38,14 +38,8 @@ export function useFriendSpecialCare(uid: string | undefined) {
     );
   }
   return {
-    enabled: state.data?.enabled ?? null,
-    disabled:
-      !uid ||
-      !session.available ||
-      session.busy ||
-      state.isFetching ||
-      Boolean(state.error) ||
-      !state.data,
+    enabled: state.error ? null : (state.data?.enabled ?? null),
+    disabled: !uid || !session.available || session.busy,
     reason: state.error?.message,
     change,
   };

@@ -65,18 +65,34 @@ export function GroupManagementRules({
   }
   function renderSwitch([key, label]: (typeof memberSwitches | typeof robotSwitches)[number]) {
     const value = query.data?.[key];
+    const direct =
+      key === 'newMemberHistory' || key === 'robotMemberSwitch' || key === 'robotMemberExamine';
     return (
       <Row
         key={key}
         label={label}
         control={
-          value == null ? (
+          value == null && direct ? (
+            <FormSelect
+              className="weq-set-input"
+              aria-label={label}
+              value=""
+              disabled={action.disabled || query.isFetching}
+              onChange={(event) => update({ key, value: event.target.value === 'on' })}
+            >
+              <option value="" disabled>
+                {query.isFetching ? '读取中…' : '状态未知'}
+              </option>
+              <option value="on">开启</option>
+              <option value="off">关闭</option>
+            </FormSelect>
+          ) : value == null ? (
             <span className="weq-set-row-status">{query.isFetching ? '读取中…' : '状态未知'}</span>
           ) : (
             <Toggle
               label={label}
               checked={value}
-              disabled={disabled}
+              disabled={direct ? action.disabled || query.isFetching : disabled}
               onChange={(value) => update({ key, value })}
             />
           )

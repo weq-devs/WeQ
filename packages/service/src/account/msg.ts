@@ -18,6 +18,7 @@ import { decodeBody, measureMessageWork, recordMessagePartition, recordMessageWo
 import type {
   C2cMsg,
   GroupMsg,
+  HistoryCursor,
   C2cPartition,
   AppendMsgFields,
   C2cMsgDb,
@@ -1009,7 +1010,7 @@ export class MsgService {
     clientSeq: bigint,
     senderUin?: bigint,
     sendTime?: bigint,
-  ): Promise<bigint | null> {
+  ): Promise<bigint | null | undefined> {
     return this.c2cDbFor(conv).resolveReplySeq(
       this.c2cPartition(conv),
       clientSeq,
@@ -1167,6 +1168,29 @@ export class MsgService {
       kind === 'group'
         ? await this.session.groupMsgs.listHistory(conv, options)
         : await this.c2cDbFor(conv).listHistory(this.c2cPartition(conv), options);
+    const recalls = await this.recallMapFor(kind, conv, rows);
+    return rows.map((row) =>
+      kind === 'group'
+        ? this.renderGroupWithState(row as GroupMsg, recalls)
+        : this.renderC2cWithState(row as C2cMsg, recalls),
+    );
+  }
+
+  async getLocalMessagePage(
+    kind: 'c2c' | 'group',
+    conv: string,
+    limit: number,
+    before?: HistoryCursor,
+  ): Promise<(RenderC2cMsg | RenderGroupMsg)[]> {
+    const rows =
+      kind === 'group'
+        ? await this.session.groupMsgs.listNewestHistory(conv, limit, before)
+        : await this.c2cDbFor(conv).listNewestHistory(
+            await this.c2cPagePartition(conv),
+            limit,
+            before,
+          );
+    await this.enrichReplyMedia(rows, kind);
     const recalls = await this.recallMapFor(kind, conv, rows);
     return rows.map((row) =>
       kind === 'group'

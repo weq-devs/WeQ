@@ -96,6 +96,10 @@ it('实际分页 SQL 的 sortNo 路径使用现有复合索引，UID 回退分�
   expect(first[0]?.msgId).toBe(9007199254740993002n);
   expect(second[0]?.msgId).toBe(9007199254740993001n);
   expect(first[0]?.clientSeq).toBe(200n);
+  const newest = await db.listNewestHistory({ sortNo: 42n }, 1);
+  expect(newest[0]?.msgId).toBe(9007199254740993002n);
+  const byUid = await db.listNewestHistory({ uid: 'u_peer' }, 1, newest[0]);
+  expect(byUid[0]?.msgId).toBe(9007199254740993001n);
 });
 
 it('UID 分段读取跨稀疏负数及 64 位 rowid，跨分区和同序号排序与原 SQL 一致', async () => {

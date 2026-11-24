@@ -1,7 +1,7 @@
 import { TIMELINE_VIRTUAL_THRESHOLD } from '../../hooks/useVirtualTimeline';
 import { conversationInteractionId } from '../../../../shared/conversation_interaction';
 import { revealTimelineMessage, timelineViewport } from '../../lib/timelineViewport';
-import { matchesUnreadMessage } from '../../lib/unreadNavigation';
+import { findUnreadMessage } from '../../lib/unreadNavigation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReplyJump, ReplyJumpTarget } from '../../state/messageContext';
 import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
@@ -176,16 +176,15 @@ export function useChatTimelineNavigation({
       const seq = target.seq == null ? null : String(target.seq);
       setLocatedSeq(seq);
       const stop = started.dock?.stops.find((stop) => stop.seq === seq);
+      const exact =
+        stop?.identity && target.msgId
+          ? findUnreadMessage(messagesForDock.current, stop.seq, stop.identity)
+          : undefined;
       if (
         stop &&
         (!stop.identity ||
           target.importantMessage === stop.identity ||
-          (target.msgId &&
-            messagesForDock.current.some(
-              (message) =>
-                (message.msgId ?? message.id) === target.msgId &&
-                matchesUnreadMessage(message, stop.seq, stop.identity),
-            )))
+          (exact && (exact.msgId ?? exact.id) === target.msgId))
       )
         visitStops(started, [stop.seq]);
       return true;
@@ -630,15 +629,17 @@ export function useChatTimelineNavigation({
     if (!pending?.length) return undefined;
     const pendingBySeq = new Map(pending.map((stop) => [stop.seq, stop]));
     const idsBySeq = new Map<string, string>();
+    const candidates = new Map<string, (typeof messages)[number][]>();
     for (const message of messages) {
       const stop = message.msgSeq ? pendingBySeq.get(message.msgSeq) : undefined;
-      if (
-        stop &&
-        stop.kind !== 'unread' &&
-        !idsBySeq.has(stop.seq) &&
-        matchesUnreadMessage(message, stop.seq, stop.identity)
-      )
-        idsBySeq.set(stop.seq, message.id);
+      if (!stop || stop.kind === 'unread') continue;
+      const rows = candidates.get(stop.seq);
+      if (rows) rows.push(message);
+      else candidates.set(stop.seq, [message]);
+    }
+    for (const [seq, rows] of candidates) {
+      const row = findUnreadMessage(rows, seq, pendingBySeq.get(seq)?.identity);
+      if (row) idsBySeq.set(seq, row.id);
     }
     const unreadSeq = pending.find((stop) => stop.kind === 'unread')?.seq;
     if (unreadSeq) {

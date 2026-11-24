@@ -158,6 +158,7 @@ export class GroupModerationService {
       groupId: string | number,
       targetUid?: string,
       sequence?: number,
+      random?: number,
     ) => Promise<void>,
   ) {}
 
@@ -166,9 +167,10 @@ export class GroupModerationService {
     groupId: string | number,
     targetUid?: string,
     sequence?: number,
+    random?: number,
   ) {
     const pid = this.resolvePid();
-    await this.authorize?.(action, groupId, targetUid, sequence);
+    await this.authorize?.(action, groupId, targetUid, sequence, random);
     if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新操作');
     return pid;
   }
@@ -185,11 +187,12 @@ export class GroupModerationService {
     const pid = this.resolvePid();
     if (params.kind === 'group') {
       const groupId = Number(params.conv);
-      await this.permitted('recall', groupId, undefined, params.sequence);
+      const random = params.random && params.random > 0 ? params.random : undefined;
+      await this.permitted('recall', groupId, undefined, params.sequence, random);
       await RecallGroup.invoke(this.nt, pid, {
         groupId,
         sequence: params.sequence,
-        ...(params.random && params.random > 0 ? { random: params.random } : {}),
+        ...(random !== undefined ? { random } : {}),
       });
       return;
     }
@@ -229,6 +232,7 @@ export class GroupModerationService {
       params.groupId,
       undefined,
       params.sequence,
+      params.random,
     );
     await SetGroupEssence.invoke(this.nt, this.resolvePid(), params);
   }
@@ -394,29 +398,31 @@ export class GroupModerationService {
         beforeSend: checkCurrent,
       });
     }
-    const settings = await this.advancedSettings(groupId);
-    checkCurrent();
-    if (settings[change.key] === null) throw new Error('服务端未返回对应设置，请刷新后重试');
-    if (settings[change.key] === change.value) return;
     switch (change.key) {
       case 'newMemberHistory':
+        checkCurrent();
         return SetGroupHistoryVisibility.invoke(this.nt, pid, { groupId, visible: change.value });
       case 'robotMemberSwitch':
       case 'robotMemberExamine':
+        checkCurrent();
         return ModifyGroupExtInfo.invoke(this.nt, pid, {
           groupId,
           [change.key]: GROUP_ROBOT_VALUES[change.key][change.value ? 'on' : 'off'],
         });
       default: {
+        const { settingFields } = await FetchGroupDetail.invoke(this.nt, pid, { groupId });
+        checkCurrent();
+        const flags = settingFields?.privilegeFlag;
+        if (flags === undefined) throw new Error('群成员权限不可读');
+        if (decodeGroupMemberPermissions(flags)[change.key] === change.value) return;
         const permission = {
           allowMemberUploadAlbum: 'upload_album',
           allowMemberTemporarySession: 'temporary_session',
           allowMemberCreateGroup: 'create_group',
         } as const;
-        if (settings.privilegeFlag === null) throw new Error('群成员权限不可读');
         return SetGroupMemberPermission.invoke(this.nt, pid, {
           groupId,
-          currentPrivilegeFlag: settings.privilegeFlag,
+          currentPrivilegeFlag: flags,
           permission: permission[change.key],
           allow: change.value,
         });

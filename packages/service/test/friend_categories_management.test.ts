@@ -10,13 +10,14 @@ import {
 } from '@weqbot/protocol';
 import { AccountWriteService } from '../src/account/account_write';
 
-function fixture() {
+function fixture(uids = ['u_friend']) {
   let categories = [
     { id: 0, name: '默认', buddyCount: 0, sortOrder: 0 },
     { id: 5, name: '朋友', buddyCount: 1, sortOrder: 1 },
   ];
-  const friends = [{ uid: 'u_friend', uin: 10002n, categoryId: 5 }];
+  const friends = uids.map((uid, index) => ({ uid, uin: 10002n + BigInt(index), categoryId: 5 }));
   let rejectMove = false;
+  let uncertainUid: string | undefined;
   let clearUpdatedNames = false;
   const commands: number[] = [];
   const send = vi.fn(async (_pid: number, command: number, _sub: number, body: Buffer) => {
@@ -34,7 +35,11 @@ function fixture() {
       );
     if (command === MoveFriendCategory.command) {
       const request = decode(MoveFriendCategory.reqSchema, body);
-      if (!rejectMove) friends[0]!.categoryId = Number(request.categoryId);
+      if (request.uid === uncertainUid) throw new Error('超时');
+      if (!rejectMove)
+        friends.find((friend) => friend.uid === request.uid)!.categoryId = Number(
+          request.categoryId,
+        );
     }
     if (command === DeleteFriendCategory.command) {
       const request = decode(DeleteFriendCategory.reqSchema, body);
@@ -86,6 +91,9 @@ function fixture() {
       clearUpdatedNames = true;
     },
     commands,
+    timeoutFor: (uid: string) => {
+      uncertainUid = uid;
+    },
     rejectMove: () => {
       rejectMove = true;
     },
@@ -335,15 +343,29 @@ describe('好友分组服务编排', () => {
     expect(await f.service.manageFriendCategories({ type: 'delete', id: 5, mergeInto: 0 })).toEqual(
       { state: 'confirmed' },
     );
-    expect(f.commands).toEqual([0xfd4, 0x10eb, 0xfd4, 0xfd4, 0x1125, 0xfd4]);
+    expect(f.commands).toEqual([0xfd4, 0x10eb, 0xfd4, 0x1125, 0xfd4]);
   });
   it('移组未读回时停止，绝不删除仍有成员的分组', async () => {
     const f = fixture();
     f.rejectMove();
     await expect(
       f.service.manageFriendCategories({ type: 'delete', id: 5, mergeInto: 0 }),
-    ).rejects.toThrow('停止');
+    ).rejects.toThrow('仍有好友');
     expect(f.commands).not.toContain(DeleteFriendCategory.command);
+  });
+  it('批量移组只在首尾重读名册，遇到未知回执不继续提交', async () => {
+    const uids = ['u_first', 'u_second', 'u_third'];
+    const f = fixture(uids);
+    await expect(
+      f.service.manageFriendCategories({ type: 'move', uids, categoryId: 0 }),
+    ).resolves.toEqual({ state: 'confirmed' });
+    expect(f.commands).toEqual([0xfd4, 0x10eb, 0x10eb, 0x10eb, 0xfd4]);
+    const partial = fixture(uids);
+    partial.timeoutFor('u_second');
+    await expect(
+      partial.service.manageFriendCategories({ type: 'move', uids, categoryId: 0 }),
+    ).resolves.toEqual({ state: 'unconfirmed' });
+    expect(partial.commands).toEqual([0xfd4, 0x10eb, 0x10eb, 0xfd4]);
   });
   it('未选择合并目标或删除默认分组时不写', async () => {
     const f = fixture();

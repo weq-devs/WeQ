@@ -182,9 +182,7 @@ function QQProfileFieldEditor({
   const categoryId =
     roster.data?.friends.find((row) => row.uid === target)?.categoryId ?? peer.data?.categoryId;
   const ready = Boolean(
-    peer.data &&
-      (field !== 'friendRemark' || remark.data) &&
-      (field !== 'friendCategory' || (categoryOptions && categoryId != null)),
+    peer.data && (field !== 'friendCategory' || (categoryOptions && categoryId != null)),
   );
   const allowed = group
     ? field !== 'groupName' ||
@@ -196,7 +194,7 @@ function QQProfileFieldEditor({
   useProfileFieldEscape(editor, !ready || !allowed, onClose, session.busy);
   const initial =
     field === 'friendRemark'
-      ? (remark.data?.remark ?? '')
+      ? ((remark.data ? remark.data.remark : peer.data?.remark) ?? '')
       : field === 'groupName'
         ? (peer.data?.groupName ?? '')
         : field === 'friendCategory'
@@ -232,7 +230,11 @@ function QQProfileFieldEditor({
           initialEditing
           inline
           editable
-          disabled={!session.available || session.busy || Boolean(error)}
+          disabled={
+            !session.available ||
+            session.busy ||
+            Boolean(field === 'friendRemark' ? peer.error : error)
+          }
           maxLength={field === 'groupName' ? 256 : 1024}
           allowEmpty={field !== 'groupName' && field !== 'friendCategory'}
           options={

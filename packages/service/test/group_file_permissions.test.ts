@@ -34,12 +34,18 @@ function fixture(transferSourcesPath?: string) {
     folders: [],
     files: [{ fileId: 'file', uploaderUin: 10001 } as GroupFileItem],
   });
+  const listPage = vi.spyOn(service, 'listPage').mockResolvedValue({
+    isEnd: true,
+    folders: [],
+    files: [{ fileId: 'file', uploaderUin: 10001 } as GroupFileItem],
+  });
   const remove = vi.spyOn(DeleteGroupFile, 'invoke').mockResolvedValue(undefined);
   const rename = vi.spyOn(RenameGroupFile, 'invoke').mockResolvedValue(undefined);
   const move = vi.spyOn(MoveGroupFile, 'invoke').mockResolvedValue(undefined);
   return {
     service,
     listing,
+    listPage,
     context,
     remove,
     rename,
@@ -55,7 +61,7 @@ it('上传者可删除改名，但不能移动；所有权限由服务端读取�
   await f.service.renameFile(123, 'file', '/folder', 'name');
   await f.service.deleteFile(123, 'file', '/folder');
   await expect(f.service.moveFile(123, 'file', '/folder', '/')).rejects.toThrow('无权');
-  expect(f.listing).toHaveBeenCalledWith(123, '/folder');
+  expect(f.listPage).toHaveBeenCalledWith(123, '/folder', 0, 100);
   expect(f.rename).toHaveBeenCalledOnce();
   expect(f.remove).toHaveBeenCalledOnce();
   expect(f.move).not.toHaveBeenCalled();
@@ -64,16 +70,16 @@ it('角色和资源归属变化后不复用旧权限', async () => {
   const f = fixture();
   f.context.mockResolvedValueOnce({ role: 'admin' });
   await f.service.moveFile(123, 'file', '/', '/folder');
-  f.listing.mockResolvedValue({ targetDirectory: '/', folders: [], files: [] });
+  f.listPage.mockResolvedValue({ isEnd: true, folders: [], files: [] });
   await expect(f.service.deleteFile(123, 'file')).rejects.toThrow('无权');
   expect(f.remove).not.toHaveBeenCalled();
 });
 it('查询上传者期间 QQ 运行时发生变化，不继续删除', async () => {
   const f = fixture();
-  f.listing.mockImplementation(async () => {
+  f.listPage.mockImplementation(async () => {
     f.switchPid();
     return {
-      targetDirectory: '/',
+      isEnd: true,
       folders: [],
       files: [{ fileId: 'file', uploaderUin: 10001 } as GroupFileItem],
     };
@@ -83,18 +89,18 @@ it('查询上传者期间 QQ 运行时发生变化，不继续删除', async () 
 });
 it('未带目录的 OneBot 删除按需找到子目录内的本人文件，显式目录不扩查', async () => {
   const f = fixture();
-  const root = { targetDirectory: '/', files: [], folders: [{ folderId: '/nested' }] };
-  f.listing.mockImplementation(async (_groupId, directory = '/') =>
+  const root = { isEnd: true, files: [], folders: [{ folderId: '/nested' }] };
+  f.listPage.mockImplementation(async (_groupId, directory = '/') =>
     directory === '/'
-      ? (root as Awaited<ReturnType<typeof f.service.list>>)
+      ? (root as Awaited<ReturnType<typeof f.service.listPage>>)
       : {
-          targetDirectory: directory,
+          isEnd: true,
           folders: [],
           files: [{ fileId: 'file', uploaderUin: 10001 } as GroupFileItem],
         },
   );
   await expect(f.service.deleteFile(123, 'file')).resolves.toBeUndefined();
-  expect(f.listing).toHaveBeenNthCalledWith(2, 123, '/nested');
+  expect(f.listPage).toHaveBeenNthCalledWith(2, 123, '/nested', 0, 100);
   f.remove.mockClear();
   await expect(f.service.deleteFile(123, 'file', '/')).rejects.toThrow('无权');
   expect(f.remove).not.toHaveBeenCalled();
@@ -102,16 +108,31 @@ it('未带目录的 OneBot 删除按需找到子目录内的本人文件，显�
 it('未知文件的目录搜索有上限，不因服务端持续返回子目录无限扫描', async () => {
   const f = fixture();
   let serial = 0;
-  f.listing.mockImplementation(
+  f.listPage.mockImplementation(
     async () =>
       ({
-        targetDirectory: '/',
+        isEnd: true,
         files: [],
         folders: [{ folderId: `/folder-${++serial}` }],
-      }) as Awaited<ReturnType<typeof f.service.list>>,
+      }) as Awaited<ReturnType<typeof f.service.listPage>>,
   );
   await expect(f.service.deleteFile(123, 'missing')).rejects.toThrow('parent_directory');
-  expect(f.listing.mock.calls.length).toBeLessThan(100);
+  expect(f.listPage.mock.calls.length).toBeLessThan(100);
+  expect(f.remove).not.toHaveBeenCalled();
+});
+it('第一页已找到文件所有者时不再扫描后续页，并在写前检查账号', async () => {
+  const f = fixture();
+  f.listPage.mockResolvedValueOnce({
+    isEnd: false,
+    folders: [],
+    files: [{ fileId: 'file', uploaderUin: 10001 } as GroupFileItem],
+  });
+  await expect(
+    f.service.deleteFile(123, 'file', '/', () => {
+      throw new Error('账号已切换');
+    }),
+  ).rejects.toThrow('切换');
+  expect(f.listPage).toHaveBeenCalledOnce();
   expect(f.remove).not.toHaveBeenCalled();
 });
 

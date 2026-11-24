@@ -60,6 +60,7 @@ import type {
 } from '@weq/db';
 import { isSenderUid } from '@weq/db';
 import type { Element } from '@weq/codec';
+import { MsgType } from '@weq/codec/proto/msg/40900';
 import { toRenderElements, type RenderElement } from './msg_view';
 import { GroupNotifyService } from './group_notify';
 import {
@@ -1109,10 +1110,15 @@ export class GroupInfoService {
   ): Promise<QQGroupPermissionContext & { joined: boolean }> {
     this.operationGuard?.();
     const code = String(groupId);
+    const numericCode = BigInt(code);
+    const isSelf = qqResourceOwnedBy(targetUid, {
+      uid: this.session.selfUid,
+      uin: this.session.context.uin,
+    });
     const [directory, detail, member, state] = await Promise.all([
-      this.listGroupDirectory(),
-      this.getGroupDetail(BigInt(code)),
-      targetUid ? this.getMemberInfo(BigInt(code), targetUid) : Promise.resolve(null),
+      this.listGroupDirectory(numericCode),
+      targetUid && !isSelf ? this.getGroupDetail(numericCode) : null,
+      targetUid && !isSelf ? this.getMemberInfo(numericCode, targetUid) : null,
       this.operationState(groupId, refresh),
     ]);
     const entry = directory.find((row) => row.groupCode === code);
@@ -1121,9 +1127,7 @@ export class GroupInfoService {
       ...state,
       joined: Boolean(entry),
       role: entry?.role ?? null,
-      isSelf:
-        targetUid !== undefined &&
-        qqResourceOwnedBy(targetUid, { uid: this.session.selfUid, uin: this.session.context.uin }),
+      isSelf,
       targetRole:
         targetUid && detail?.ownerUid === targetUid
           ? 'owner'
@@ -1178,7 +1182,13 @@ export class GroupInfoService {
   }
 
   async assertCanSend(groupId: number, uploadFile: boolean): Promise<void> {
-    const context = await this.operationContext(groupId, undefined, true);
+    const key = String(groupId);
+    const cached = this.operationStates.get(key);
+    let context = await this.operationContext(groupId);
+    const allowed = (state: QQGroupPermissionContext) =>
+      groupPermission('speak', state) && (!uploadFile || groupPermission('fileUpload', state));
+    if (cached?.value && this.operationStates.get(key) === cached && !allowed(context))
+      context = await this.operationContext(groupId, undefined, true);
     if (!groupPermission('speak', context))
       throw new Error('当前账号在此群被禁言，暂时无法发送消息');
     if (uploadFile && !groupPermission('fileUpload', context))
@@ -1192,17 +1202,27 @@ export class GroupInfoService {
     groupId: string | number,
     targetUid?: string,
     sequence?: number,
+    random?: number,
   ): Promise<void> {
     this.operationGuard?.();
     let uid = targetUid;
-    if (sequence !== undefined) {
+    if (sequence !== undefined && (action === 'recall' || action === 'essenceRemove')) {
       const rows = await this.session.groupMsgs.listBySeqsInPartition(String(groupId), [
         BigInt(sequence),
       ]);
-      const row = rows[0];
+      const candidates = rows.filter(
+        (row) =>
+          row.msgType !== BigInt(MsgType.GRAY_TIP) &&
+          !(row.msgType === 1n && row.subType === 1n) &&
+          (!row.elements?.length || row.elements.some((el) => !isGrayTip(el))) &&
+          (!random ||
+            (row.msgRandom !== undefined && BigInt.asUintN(32, row.msgRandom) === BigInt(random))),
+      );
+      const row = candidates.length === 1 ? candidates[0] : undefined;
+      uid = undefined;
       if (row)
         uid =
-          row.senderUid ||
+          (isSenderUid(row.senderUid) ? row.senderUid : undefined) ??
           (String(row.senderUin) === String(this.session.context.uin)
             ? this.session.selfUid
             : undefined);

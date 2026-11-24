@@ -20,7 +20,9 @@ it('私聊引用按会话、client sequence、发送者及时间消歧，不把 
     INSERT INTO c2c_msg_table VALUES ('u_peer',1,120,7,20002,1700000000),('u_peer',1,121,7,10001,1700000001),('u_other',2,999,7,20002,1700000000)`);
   const db = new C2cMsgDb(createSqliteStub(), { dbPath });
   expect(await db.resolveReplySeq({ sortNo: 1n }, 7n, 20002n, 1700000000n)).toBe(120n);
+  expect(await db.resolveReplySeq({ sortNo: 1n }, 7n, 20002n, 1700000001n)).toBe(120n);
   expect(await db.resolveReplySeq({ uid: 'u_peer' }, 7n, 10001n)).toBe(121n);
   expect(await db.resolveReplySeq({ uid: 'u_peer' }, 7n)).toBeNull();
-  expect(await db.resolveReplySeq({ uid: 'u_missing' }, 7n)).toBeNull();
+  expect(await db.resolveReplySeq({ uid: 'u_peer' }, 7n, undefined, 1700000001n)).toBe(121n);
+  expect(await db.resolveReplySeq({ uid: 'u_missing' }, 7n)).toBeUndefined();
 });

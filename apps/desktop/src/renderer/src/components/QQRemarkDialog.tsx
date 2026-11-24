@@ -78,14 +78,15 @@ function QQRemarkDialogBody({ target, onClose }: { target: RoamingTarget; onClos
         {state.data && (
           <QQWriteTextRow
             label={label}
-            initial={target.kind === 'c2c' ? (friendState.data?.remark ?? null) : state.data.remark}
+            initial={
+              target.kind === 'c2c' && friendState.data
+                ? friendState.data.remark
+                : state.data.remark
+            }
             autoFocus
             onDirtyChange={setDirty}
             disabled={
-              !session.available ||
-              session.busy ||
-              (target.kind === 'c2c' &&
-                (!state.data.friend || !friendState.data || Boolean(friendState.error)))
+              !session.available || session.busy || (target.kind === 'c2c' && !state.data.friend)
             }
             onSave={(remark) =>
               session.run(

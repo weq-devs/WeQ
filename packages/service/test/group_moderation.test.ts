@@ -176,6 +176,18 @@ describe('GroupModerationService', () => {
     ).toEqual(['08b960120808b9601203e80101', '08b960120808b9601203f00101']);
   });
 
+  it('历史可见和机器人设置不依赖旧值，读改写的成员权限仍须原位', async () => {
+    const nt = fakeNative();
+    const service = makeService(nt);
+    await service.setAdvancedSetting(12345, { key: 'newMemberHistory', value: true }, () => {});
+    await service.setAdvancedSetting(12345, { key: 'robotMemberSwitch', value: true }, () => {});
+    expect(nt.oidb.map(({ command }) => command)).toEqual([0x89a, 0xf00]);
+    await expect(
+      service.setAdvancedSetting(12345, { key: 'allowMemberCreateGroup', value: true }, () => {}),
+    ).rejects.toThrow();
+    expect(nt.oidb.map(({ command }) => command)).toEqual([0x89a, 0xf00, 0x88d]);
+  });
+
   it('从群详情补读机器人扩展，成功返回扩展时使用 QQ 的缺省值', async () => {
     const nt = fakeNative(Buffer.from('0a0f08b9601a0aa801b960ea0603e80101', 'hex'));
     expect(await makeService(nt).advancedSettings(12345)).toMatchObject({

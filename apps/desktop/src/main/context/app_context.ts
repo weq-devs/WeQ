@@ -2841,8 +2841,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         groupModeration: new GroupModerationService(
           platform.native.ntHelper,
           resolveOnlinePid,
-          (action, groupId, uid, sequence) =>
-            groupInfo.assertOperation(action, groupId, uid, sequence),
+          (action, groupId, uid, sequence, random) =>
+            groupInfo.assertOperation(action, groupId, uid, sequence, random),
         ),
         groupGift: new GroupGiftService(platform.native.ntHelper, resolveOnlinePid),
         locationShare: new LocationShareService(platform.native.ntHelper, resolveOnlinePid),
@@ -3780,8 +3780,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         groupModeration: new GroupModerationService(
           platform.native.ntHelper,
           livePid,
-          (action, groupId, uid, sequence) =>
-            groupInfo.assertOperation(action, groupId, uid, sequence),
+          (action, groupId, uid, sequence, random) =>
+            groupInfo.assertOperation(action, groupId, uid, sequence, random),
         ),
         groupGift: new GroupGiftService(platform.native.ntHelper, livePid),
         locationShare: new LocationShareService(platform.native.ntHelper, livePid),

@@ -51,7 +51,7 @@ afterEach(() => {
 const render = () => act(async () => root.render(h(ImportantMessagesList, props)));
 const hit = () => host.querySelector<HTMLButtonElement>('.weq-important-row')!;
 
-it('先显示索引，摘要未完成时点击仍使用随后查到的精确消息 ID', async () => {
+it('先显示索引，定位不等待摘要读取', async () => {
   let release!: (result: { items: ReturnType<typeof row>[]; contentUnavailable: boolean }) => void;
   rpc.query.mockResolvedValue({
     ...page([]),
@@ -65,10 +65,13 @@ it('先显示索引，摘要未完成时点击仍使用随后查到的精确消�
   await render();
   expect(hit().textContent).toContain('消息 102');
   await act(async () => hit().click());
-  expect(props.onLocate).not.toHaveBeenCalled();
+  expect(props.onLocate).toHaveBeenCalledWith({
+    seq: '102',
+    importantMessage: { kind: 'atMe', senderUid: 'u_peer', sendTime: '1794380000' },
+  });
   await act(async () => release({ items: [row('102')], contentUnavailable: false }));
   expect(hit().textContent).toContain('正文 102');
-  expect(props.onLocate).toHaveBeenCalledWith({ seq: '102', msgId: '900102' });
+  expect(props.onLocate).toHaveBeenCalledOnce();
 });
 
 it('已读条目用多个类型图标定位，不重复类型名称；连续定位与失败重试均保留', async () => {
@@ -83,7 +86,10 @@ it('已读条目用多个类型图标定位，不重复类型名称；连续定�
   await act(async () => hit().click());
   await act(async () => hit().click());
   expect(props.onLocate).toHaveBeenCalledTimes(2);
-  expect(props.onLocate).toHaveBeenLastCalledWith({ seq: '101', msgId: '900101' });
+  expect(props.onLocate).toHaveBeenLastCalledWith({
+    seq: '101',
+    importantMessage: { kind: 'atMe', senderUid: 'u_peer', sendTime: '1794380000' },
+  });
   props.onLocate.mockRejectedValueOnce(new Error('合成定位失败'));
   await act(async () => hit().click());
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('合成定位失败');
@@ -178,7 +184,10 @@ it('定位后保留列表并选中原条目，右键与单击共用精确定位'
     hit().dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 30 })),
   );
   await act(async () => document.querySelector<HTMLButtonElement>('[role="menuitem"]')!.click());
-  expect(props.onLocate).toHaveBeenLastCalledWith({ seq: '101', msgId: '900101' });
+  expect(props.onLocate).toHaveBeenLastCalledWith({
+    seq: '101',
+    importantMessage: { kind: 'atMe', senderUid: 'u_peer', sendTime: '1794380000' },
+  });
   expect(props.onClose).not.toHaveBeenCalled();
   expect(host.querySelectorAll('li')).toHaveLength(2);
 });

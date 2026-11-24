@@ -668,39 +668,19 @@ describe('主动操作的账号与参数边界', () => {
     });
     expect(f.s.groupModeration.leaveGroup.mock.calls).toEqual([[123], [123]]);
   });
-  it('普通成员只能管理自己上传的文件，不能管理目录或设置群待办', async () => {
+  it('文件权限由服务决定，群待办仍保留自己的角色检查', async () => {
     const f = fixture();
-    f.s.groupInfo.listGroupDirectory.mockResolvedValue([{ groupCode: '123', role: 'member' }]);
-    const file = {
-      fileId: 'own',
-      fileName: '文件',
-      fileSize: 1,
-      busId: 102,
-      uploadedTime: 0,
-      expireTime: 0,
-      modifiedTime: 0,
-      downloadedTimes: 0,
-      uploaderUin: 10001,
-      uploaderName: '自己',
-      parentDirectory: '/',
-    };
-    f.s.groupFile.list.mockResolvedValue({
-      targetDirectory: '/',
-      folders: [],
-      files: [file, { ...file, fileId: 'other', uploaderUin: 10002 }],
-    });
+    f.s.groupFile.renameFile.mockRejectedValueOnce(new Error('当前账号无权改名'));
     await expect(f.caller.file({ ...group, action: 'delete', id: 'own' })).resolves.toEqual({
       state: 'accepted',
     });
     await expect(
       f.caller.file({ ...group, action: 'rename', id: 'other', name: '新名称' }),
-    ).rejects.toThrow(/自己/);
-    await expect(f.caller.file({ ...group, action: 'delete', id: 'missing' })).rejects.toThrow(
-      /自己|不存在/,
-    );
-    await expect(f.caller.file({ ...group, action: 'createFolder', name: '目录' })).rejects.toThrow(
-      /管理员/,
-    );
+    ).rejects.toThrow(/无权/);
+    expect(f.s.groupInfo.operationContext).not.toHaveBeenCalled();
+    expect(f.s.groupFile.list).not.toHaveBeenCalled();
+    expect(f.s.groupFile.deleteFile).toHaveBeenCalledWith(123, 'own', '/', expect.any(Function));
+    f.s.groupInfo.listGroupDirectory.mockResolvedValue([{ groupCode: '123', role: 'member' }]);
     await expect(f.caller.todo({ ...group, sequence: '123', action: 'set' })).rejects.toThrow(
       /管理员/,
     );
@@ -710,22 +690,19 @@ describe('主动操作的账号与参数边界', () => {
     await expect(f.caller.todo({ ...group, sequence: '123', action: 'complete' })).resolves.toEqual(
       { state: 'accepted' },
     );
-    expect(f.s.groupFile.deleteFile).toHaveBeenCalledTimes(1);
-    expect(f.s.groupFile.renameFile).not.toHaveBeenCalled();
   });
   it('核对文件归属期间切号不提交，管理员管理文件无需额外扫描目录', async () => {
     const f = fixture();
     await f.caller.file({ ...group, action: 'delete', id: 'file-a' });
     expect(f.s.groupFile.list).not.toHaveBeenCalled();
-    f.s.groupInfo.listGroupDirectory.mockResolvedValue([{ groupCode: '123', role: 'member' }]);
-    f.s.groupFile.list.mockImplementation(async () => {
+    f.s.groupFile.deleteFile.mockImplementationOnce(async (_group, _file, _dir, beforeSend) => {
       f.switchAccount();
-      return { targetDirectory: '/', folders: [], files: [] };
+      (beforeSend as () => void)();
     });
     await expect(f.caller.file({ ...group, action: 'delete', id: 'file-a' })).rejects.toThrow(
       /切换|改变/,
     );
-    expect(f.s.groupFile.deleteFile).toHaveBeenCalledTimes(1);
+    expect(f.s.groupFile.deleteFile).toHaveBeenCalledTimes(2);
   });
   it('通用分享链接加群接口已移除，群设置和申请审批继续保留', () => {
     const f = fixture();
@@ -747,6 +724,7 @@ describe('主动操作的账号与参数边界', () => {
       folderId: 'folder-a',
       beforeSend: expect.any(Function),
     });
+    expect(f.s.groupInfo.operationContext).not.toHaveBeenCalled();
     const summary = await f.caller.fileSummary(group);
     expect(summary).toMatchObject({ fileCount: 2, maxCount: 10, usedSpace: 100, totalSpace: 1000 });
   });

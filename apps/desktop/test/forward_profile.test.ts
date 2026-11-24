@@ -40,6 +40,31 @@ vi.mock('../src/renderer/src/im-template/template/messageRow', () => ({
   grayTipOf: () => null,
 }));
 
+it('转发引用用同一包内的唯一可信序号，时间偏移不阻止打开正文', () => {
+  const source: ForwardRecordWire = {
+    msgId: '1',
+    msgSeq: '70',
+    senderUid: 'u_original',
+    sendTime: 1700000000,
+    elements: [{ type: 'text', data: { textContent: '原文' } }],
+  };
+  const tip = { ...source, msgId: '2', elements: [{ type: 'grayTipXml' }] };
+  const reply: ForwardRecordWire = {
+    ...source,
+    msgId: '3',
+    msgSeq: '71',
+    elements: [
+      {
+        type: 'reply',
+        data: { origMsgIndex: 70, origMsgTime: 1700000001, origSenderUid: 'u_original' },
+      },
+    ],
+  };
+  const entries = forwardEntries({ id: 1, records: [source, tip, reply] }, false);
+  expect(entries[2]?.reply?.targetId).toBe(entries[0]?.id);
+  expect(entries[2]?.record.elements[0]?.data?.origElements).toEqual(source.elements);
+});
+
 it('转发包允许原序号跳过和媒体插入，但不以同名替代发送者身份', () => {
   const first: ForwardRecordWire = {
     msgId: '1',

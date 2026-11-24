@@ -10,7 +10,12 @@
 
 import type { AccountSession } from '@weq/account';
 import type { Element, MsgDecoration } from '@weq/codec';
-import type { GuildDirectMsg, GuildDirectSession, GuildMessageCursor } from '@weq/db';
+import type {
+  GuildDirectMsg,
+  GuildDirectSession,
+  GuildMessageCursor,
+  HistoryCursor,
+} from '@weq/db';
 import { decodeBody, decodeDress } from '@weq/db';
 import { toRenderElements, type RenderElement } from './msg_view';
 import type { GuildExportTaskMeta } from './export/guild_source';
@@ -275,6 +280,12 @@ export class GuildDirectService {
       console.error('[GuildDirectService] listSessions failed:', e);
       return [];
     }
+  }
+
+  async getLocalMessagePage(nodeId: string, limit: number, before?: HistoryCursor) {
+    return (
+      await this.session.guildDirectMsgs.listNewestHistory(BigInt(nodeId), limit, before)
+    ).map(renderGuildDirectMsg);
   }
 
   /** Newest N messages of one DM conversation, newest-first (seq DESC). */

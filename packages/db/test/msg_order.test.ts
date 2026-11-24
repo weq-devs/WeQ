@@ -115,6 +115,20 @@ function sameSeqInversions(rows: GroupMsg[]): Array<[GroupMsg, GroupMsg]> {
 }
 
 describe('GroupMsgDb ordering (offline fixture)', () => {
+  it('最新起始的三字段游标可遍历同号消息和零／空序号旧记录', async () => {
+    createFixture();
+    fixtureDb(dbPath).exec(`INSERT INTO group_msg_table ("40001","40003","40027","40050")
+      VALUES (9,0,'777',250),(10,NULL,'777',300),(11,0,'777',NULL)`);
+    const ids: bigint[] = [];
+    let before: Pick<GroupMsg, 'msgId' | 'msgSeq' | 'sendTime'> | undefined;
+    for (let i = 0; i < 7; i++) {
+      const page = await db.listNewestHistory(GROUP, 2, before);
+      if (!page.length) break;
+      ids.push(...page.map((row) => row.msgId));
+      before = page.at(-1);
+    }
+    expect(ids).toEqual([7n, 6n, 5n, 4n, 3n, 2n, 1n, 10n, 9n, 11n]);
+  });
   it('键集分页可以停在同序号内部，不丢灰条且正反方向一致', async () => {
     createFixture();
     const options = { min: 1n, max: 100n, descending: true, limit: 3 };

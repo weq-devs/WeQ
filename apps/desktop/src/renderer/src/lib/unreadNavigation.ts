@@ -1,10 +1,12 @@
 import type {
   Conversation,
+  ConversationHighlightKind,
   ConversationPreferences,
   MergedKind,
 } from '../im-template/template/types';
 import { sortConversationRows } from './conversationListOrder';
 import { aggregateView, type ConversationViewDirectory } from './conversationViews';
+import { grayTipOf, messageElements } from '../im-template/template/messageRow.shared';
 
 type AggregateUnreadBadges = Readonly<Partial<Record<MergedKind, boolean>>>;
 
@@ -39,32 +41,51 @@ export function countMessageBadgeUnread(
 export type UnreadMessageIdentity = {
   senderUid?: string;
   sendTime?: string;
-  kind?: 'newFile';
+  kind?: ConversationHighlightKind;
 };
 
-export function matchesUnreadMessage(
-  message: {
-    msgSeq?: string;
-    senderUid?: string;
-    sendTime?: string;
-    elements?: readonly unknown[];
-    qqElements?: readonly unknown[];
-  },
+type UnreadCandidate = {
+  msgSeq?: string;
+  senderUid?: string;
+  sendTime?: string;
+  elements?: readonly unknown[];
+  qqElements?: readonly unknown[];
+};
+
+export function findUnreadMessage<T extends UnreadCandidate>(
+  messages: readonly T[],
   seq: string,
   identity?: UnreadMessageIdentity,
-): boolean {
-  if (message.msgSeq !== seq) return false;
-  if (identity?.kind === 'newFile') {
-    // 群文件由会话内序号定位，同序号的灰条不属于文件消息。
-    const elements = message.qqElements ?? message.elements;
-    return (
-      elements?.some((element) => (element as { type?: string } | null)?.type === 'file') ?? false
+): T | undefined {
+  if (!identity) return messages.find((row) => row.msgSeq === seq);
+  let candidates = messages.filter((row) => {
+    if (row.msgSeq !== seq) return false;
+    if (identity.kind === 'newFile') return messageElements(row).some((el) => el?.type === 'file');
+    return identity.kind === 'groupAnnouncement' || !grayTipOf(row);
+  });
+  const elementType =
+    identity.kind === 'redPacket'
+      ? 'wallet'
+      : identity.kind === 'replyMe'
+        ? 'reply'
+        : identity.kind === 'atMe' || identity.kind === 'atAll'
+          ? 'at'
+          : undefined;
+  if (elementType && candidates.length > 1) {
+    const typed = candidates.filter((row) =>
+      messageElements(row).some((el) => el?.type === elementType),
     );
+    if (typed.length) candidates = typed;
   }
-  return (
-    (!identity?.senderUid || message.senderUid === identity.senderUid) &&
-    (!identity?.sendTime || message.sendTime === identity.sendTime)
-  );
+  if (candidates.length === 1) return candidates[0];
+  const bySender = identity.senderUid
+    ? candidates.filter((row) => row.senderUid === identity.senderUid)
+    : [];
+  if (bySender.length === 1) return bySender[0];
+  const byTime = identity.sendTime
+    ? (bySender.length ? bySender : candidates).filter((row) => row.sendTime === identity.sendTime)
+    : [];
+  return byTime.length === 1 ? byTime[0] : undefined;
 }
 
 /** 在未读区间内选最早的真实消息，不回退到已读水位之前。 */

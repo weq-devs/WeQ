@@ -112,17 +112,23 @@ export class GroupFileService {
     for (let count = 0; pending.length; count++) {
       if (count >= MAX_PERMISSION_DIRECTORIES)
         throw new Error('群文件目录较多，请提供文件所在的 parent_directory 后重试');
-      if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新操作');
-      const listing = await this.list(groupId, pending.shift()!);
-      const file = listing.files.find((row) => row.fileId === fileId);
-      if (file) return file;
-      // OneBot 删除只要求 file_id；未带目录时按需寻找，显式目录不扩成全群扫描。
-      if (directory === undefined)
-        for (const folder of listing.folders) {
-          if (!folder.folderId || seen.has(folder.folderId)) continue;
-          seen.add(folder.folderId);
-          pending.push(folder.folderId);
-        }
+      const parent = pending.shift()!;
+      for (let page = 0; ; page++) {
+        if (page >= MAX_PAGES) throw new Error('群文件分页超过上限，未找到目标文件');
+        if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新操作');
+        const listing = await this.listPage(groupId, parent, page * PAGE_SIZE, PAGE_SIZE);
+        if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新操作');
+        const file = listing.files.find((row) => row.fileId === fileId);
+        if (file) return file;
+        // OneBot 删除只要求 file_id；显式目录不扩成全群扫描。
+        if (directory === undefined)
+          for (const folder of listing.folders) {
+            if (!folder.folderId || seen.has(folder.folderId)) continue;
+            seen.add(folder.folderId);
+            pending.push(folder.folderId);
+          }
+        if (listing.isEnd || listing.files.length + listing.folders.length === 0) break;
+      }
     }
     return undefined;
   }
@@ -234,8 +240,14 @@ export class GroupFileService {
   }
 
   /** 删除单个群文件（OIDB 0x6D6_3）。 */
-  async deleteFile(groupId: number, fileId: string, directory?: string): Promise<void> {
+  async deleteFile(
+    groupId: number,
+    fileId: string,
+    directory?: string,
+    beforeSend?: () => void,
+  ): Promise<void> {
     await this.permitted('fileDelete', groupId, fileId, directory);
+    beforeSend?.();
     await DeleteGroupFile.invoke(this.nt, this.resolvePid(), { groupId, fileId });
   }
 
@@ -245,8 +257,10 @@ export class GroupFileService {
     fileId: string,
     parentDirectory: string,
     newFileName: string,
+    beforeSend?: () => void,
   ): Promise<void> {
     await this.permitted('fileRename', groupId, fileId, parentDirectory);
+    beforeSend?.();
     await RenameGroupFile.invoke(this.nt, this.resolvePid(), {
       groupId,
       fileId,

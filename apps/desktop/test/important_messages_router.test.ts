@@ -52,6 +52,14 @@ it('离线按页批量补摘要和精确 ID，保留已读项，缺消息仍返�
   rpc.read.mockResolvedValueOnce([
     {
       msgSeq: 102n,
+      msgId: 9007199254750000n,
+      msgType: 5n,
+      senderUid: 'u_other',
+      sendTime: 12n,
+      elements: [],
+    },
+    {
+      msgSeq: 102n,
       msgId: 9007199254740999n,
       senderUid: 'u_peer',
       sendTime: 11n,

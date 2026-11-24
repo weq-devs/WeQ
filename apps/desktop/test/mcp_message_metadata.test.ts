@@ -17,6 +17,18 @@ const recentContacts = vi.hoisted(() =>
 );
 const profileRead = vi.hoisted(() => vi.fn(async () => null));
 const cacheRead = vi.hoisted(() => vi.fn(async () => null));
+const legacyBefore = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => []));
+const localMessagePage = vi.hoisted(() => {
+  const message = {
+    msgId: 9007199254740993n,
+    msgSeq: 2n,
+    sendTime: 1792461600n,
+    senderUid: 'fixture_sender',
+    senderUin: 1n,
+    elements: [],
+  };
+  return vi.fn(async (..._args: unknown[]) => [message]);
+});
 const profileCache = vi.hoisted(() => ({
   switched: false,
   read: vi.fn(async () => ({ uin: 1n, uid: 'u_self', nick: '合成账号', avatarUrl: '' })),
@@ -42,22 +54,33 @@ vi.mock('../src/main/context/app_context', () => {
           senderUin: 1n,
           elements: [],
         }),
-        getGroupLatest: async () => [
-          {
-            msgId: 9007199254740993n,
-            msgSeq: 2n,
-            sendTime: 1792461600n,
-            senderUid: 'fixture_sender',
-            senderUin: 1n,
-            elements: [],
-          },
-        ],
+        getLocalMessagePage: localMessagePage,
+        getGroupBefore: legacyBefore,
       },
     },
   };
   return {
     getAppContext: () => (profileCache.switched ? { ...context, services: {} } : context),
   };
+});
+
+it('聊天翻页把同序号边界的原始 ID 与时间传回存储层', async () => {
+  const tool = AI_TOOLS.find((item) => item.name === 'get_messages')!;
+  const args = { kind: 'group', conv: '123', limit: 1, includeIds: true };
+  const [message] = await localMessagePage();
+  const next = { ...message!, msgId: 9007199254740992n };
+  localMessagePage.mockResolvedValueOnce([message!, next]).mockResolvedValueOnce([next]);
+  const first = (await tool.run({ ...args, before: '' })) as { nextBefore: string };
+  expect(first.nextBefore).toBe('v1:2:1792461600:9007199254740993');
+  const page = await tool.run({ ...args, before: first.nextBefore });
+  expect(localMessagePage).toHaveBeenLastCalledWith('group', '123', 2, {
+    msgId: 9007199254740993n,
+    msgSeq: 2n,
+    sendTime: 1792461600n,
+  });
+  expect(page).toMatchObject({ hasMore: false, messages: [{ msgId: '9007199254740992' }] });
+  expect(await tool.run({ ...args, before: '2' })).toMatchObject({ hasMore: false, messages: [] });
+  expect(legacyBefore).toHaveBeenLastCalledWith('123', 2n, 2);
 });
 
 import { AI_TOOLS } from '../src/main/mcp/tools';

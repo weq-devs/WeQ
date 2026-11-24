@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { expect, it } from 'vitest';
 import { buildUnreadDock } from '../src/renderer/src/im-template/template/unreadDock';
-import { matchesUnreadMessage } from '../src/renderer/src/lib/unreadNavigation';
+import { findUnreadMessage } from '../src/renderer/src/lib/unreadNavigation';
 import { ChatType, unreadChatType } from '@weq/codec';
 
 it('设备未读目标不归一成好友，兼容普通与临时私聊', () => {
@@ -22,13 +22,13 @@ it('排除已读的重要消息，首条未读本身是重要消息时只保留�
   const atMe = { kind: 'atMe' as const, msgSeq: '4999', senderUid: 'u_fixture', rawKind: 1 };
   expect(buildUnreadDock({ readSeq: '4999', unread: 0, highlights: [atMe] })).toBeNull();
   expect(buildUnreadDock({ readSeq: '4998', unread: 1, highlights: [atMe] })?.stops).toEqual([
-    { kind: 'atMe', seq: '4999', identity: { senderUid: 'u_fixture' } },
+    { kind: 'atMe', seq: '4999', identity: { kind: 'atMe', senderUid: 'u_fixture' } },
   ]);
   expect(buildUnreadDock({ readSeq: '4998', unread: 1, highlights: [atMe] })?.firstUnreadSeq).toBe(
     '4999',
   );
   expect(buildUnreadDock({ readSeq: null, unread: 0, highlights: [atMe] })?.stops).toEqual([
-    { kind: 'atMe', seq: '4999', identity: { senderUid: 'u_fixture' } },
+    { kind: 'atMe', seq: '4999', identity: { kind: 'atMe', senderUid: 'u_fixture' } },
   ]);
 });
 
@@ -45,9 +45,7 @@ it('群文件提醒只匹配同序号的原消息，不匹配后来插入的灰�
     unread: 130,
     highlights: [{ ...file, kind: 'newFile', rawKind: 2001 }],
   })?.stops[0];
-  expect(
-    [sameSenderTip, file].find((row) => matchesUnreadMessage(row, stop!.seq, stop!.identity)),
-  ).toBe(file);
+  expect(findUnreadMessage([sameSenderTip, file], stop!.seq, stop!.identity)).toBe(file);
 });
 
 it('群文件按会话内序号定位，提醒时间和发送者不参与匹配', () => {
@@ -64,8 +62,26 @@ it('群文件按会话内序号定位，提醒时间和发送者不参与匹配'
     sendTime: '1000',
     elements: [{ type: 'file' }],
   };
-  expect(matchesUnreadMessage(file, stop!.seq, stop!.identity)).toBe(true);
-  expect(matchesUnreadMessage({ ...file, msgSeq: '101' }, stop!.seq, stop!.identity)).toBe(false);
-  expect(matchesUnreadMessage(file, stop!.seq, { sendTime: '1200' })).toBe(false);
-  expect(matchesUnreadMessage(file, stop!.seq, { senderUid: 'u_notice' })).toBe(false);
+  expect(findUnreadMessage([file], stop!.seq, stop!.identity)).toBe(file);
+  expect(
+    findUnreadMessage([{ ...file, msgSeq: '101' }], stop!.seq, stop!.identity),
+  ).toBeUndefined();
+});
+
+it.each([
+  ['atMe', 'at'],
+  ['replyMe', 'reply'],
+  ['redPacket', 'wallet'],
+] as const)('%s 在已知序号下优先定位正文，发送者和时间只消除歧义', (kind, type) => {
+  const body = { msgSeq: '120', senderUid: 'u_real', sendTime: '1000', elements: [{ type }] };
+  const tip = {
+    ...body,
+    senderUid: 'u_notice',
+    sendTime: '1001',
+    elements: [{ type: 'grayTipXml' }],
+  };
+  const plain = { ...body, elements: [{ type: 'text' }] };
+  const identity = { kind, senderUid: 'u_notice', sendTime: '1001' };
+  expect(findUnreadMessage([tip, plain, body], '120', identity)).toBe(body);
+  expect(findUnreadMessage([tip, body, { ...body }], '120', identity)).toBeUndefined();
 });

@@ -12,6 +12,7 @@
  */
 import { setTimeout as delay } from 'node:timers/promises';
 import { MESSAGE_CATEGORIES, OperationError } from '@weq/service';
+import { MsgType } from '@weq/codec/proto/msg/40900';
 
 import { z } from 'zod';
 import { plainContentText } from '@weq/service/message-plain-text';
@@ -1243,10 +1244,8 @@ async function importantGroupPreviews(
   seqs: string[],
 ) {
   let contentUnavailable = false;
-  const bySeq = new Map<
-    string,
-    Awaited<ReturnType<typeof account.groupMsgs.listBySeqsInPartition>>[number]
-  >();
+  type GroupRow = Awaited<ReturnType<typeof account.groupMsgs.listBySeqsInPartition>>[number];
+  const bySeq = new Map<string, GroupRow[]>();
   try {
     if (seqs.length) {
       for (const message of await account.groupMsgs.listBySeqsInPartition(
@@ -1254,33 +1253,42 @@ async function importantGroupPreviews(
         seqs.map(BigInt),
       )) {
         const key = String(message.msgSeq);
-        const prior = bySeq.get(key);
-        if (!prior || (prior.msgType === 1n && message.msgType !== 1n)) bySeq.set(key, message);
+        const rows = bySeq.get(key);
+        if (rows) rows.push(message);
+        else bySeq.set(key, [message]);
       }
     }
   } catch {
     contentUnavailable = true;
   }
-  const items = [...bySeq].map(([msgSeq, message]) => {
+  const items = [...bySeq].flatMap(([msgSeq, rows]) => {
+    const body = rows.filter(
+      (row) =>
+        row.msgType !== BigInt(MsgType.GRAY_TIP) && !(row.msgType === 1n && row.subType === 1n),
+    );
+    const message = body.length === 1 ? body[0] : rows.length === 1 ? rows[0] : undefined;
+    if (!message) return [];
     const elements = toRenderElements(message.elements);
     const picture = elements.find((element) => element.type === 'pic' && !element.data.isFlash);
-    return {
-      msgSeq,
-      msgId: String(message.msgId),
-      senderUid: message.senderUid,
-      sendTime: String(message.sendTime),
-      preview: plainContentText(elements).slice(0, 512),
-      thumbnail:
-        picture?.type === 'pic'
-          ? {
-              name: picture.data.fileName,
-              token: picture.data.fileToken,
-              orig: picture.data.originalUrl,
-              md5: picture.data.md5,
-              recv: picture.data.subType === 1 ? 1 : 0,
-            }
-          : undefined,
-    };
+    return [
+      {
+        msgSeq,
+        msgId: String(message.msgId),
+        senderUid: message.senderUid,
+        sendTime: String(message.sendTime),
+        preview: plainContentText(elements).slice(0, 512),
+        thumbnail:
+          picture?.type === 'pic'
+            ? {
+                name: picture.data.fileName,
+                token: picture.data.fileToken,
+                orig: picture.data.originalUrl,
+                md5: picture.data.md5,
+                recv: picture.data.subType === 1 ? 1 : 0,
+              }
+            : undefined,
+      },
+    ];
   });
   return { items, contentUnavailable };
 }
@@ -4213,15 +4221,14 @@ export const accountRouter = router({
         input.senderUin ? BigInt(input.senderUin) : undefined,
         input.sendTime ? BigInt(input.sendTime) : undefined,
       );
-      return (
-        seq?.toString() ??
-        services.gapHistory.resolveReplySeq(
-          input.conv,
-          input.clientSeq,
-          input.senderUin,
-          input.sendTime,
-        )
-      );
+      return seq === undefined
+        ? services.gapHistory.resolveReplySeq(
+            input.conv,
+            input.clientSeq,
+            input.senderUin,
+            input.sendTime,
+          )
+        : (seq?.toString() ?? null);
     }),
 
   /** The page just older than `beforeSeq` (scroll up), newest-first. */

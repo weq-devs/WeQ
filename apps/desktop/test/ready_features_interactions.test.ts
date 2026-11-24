@@ -170,7 +170,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             useQuery: () => ({
               data: {
                 birthday: '2000-02-29',
-                email: 'synthetic@example.invalid',
+                email: state.errors.email ? null : 'synthetic@example.invalid',
                 school: '合成学校',
                 profession: 13,
                 region: null,
@@ -451,14 +451,27 @@ describe('可接入功能交互回归', () => {
     expect(f.host.textContent).toContain('缓存好友');
     expect(f.host.textContent).toContain('合成读取失败');
   });
-  it('资料按字段隔离读取失败，邮箱失败时生日仍可保存', () => {
+  it('邮箱旧值读取失败仍可提交新值，未确认时保留编辑', async () => {
     state.errors = { email: '邮箱读取失败' };
     const f = mount(() => h(EditableSelfProfile));
     act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="编辑生日"]')!.click());
     expect(f.host.querySelector<HTMLButtonElement>('[aria-label="保存生日"]')!.disabled).toBe(
       false,
     );
-    expect(f.host.querySelector('[aria-label="编辑邮箱"]')).toBeNull();
+    act(() => f.host.querySelector<HTMLButtonElement>('[aria-label="编辑邮箱"]')!.click());
+    const email = f.host.querySelector<HTMLInputElement>('input[aria-label="邮箱"]')!;
+    setValue(email, 'new@example.invalid');
+    await act(async () => {
+      f.host.querySelector<HTMLButtonElement>('[aria-label="保存邮箱"]')!.click();
+      await vi.dynamicImportSettled();
+    });
+    expect(state.writes).toHaveBeenCalledWith('profile', {
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-a',
+      patch: { email: 'new@example.invalid' },
+    });
+    expect(email.value).toBe('new@example.invalid');
+    expect(f.host.contains(email)).toBe(true);
   });
   it('职业展开后确认保存单字段，浏览态没有输入框', async () => {
     const f = mount(() => h(EditableSelfProfile));

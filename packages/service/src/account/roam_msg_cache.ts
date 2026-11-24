@@ -559,13 +559,15 @@ export class RoamMsgCacheDb {
     await this.ensureSchema();
     const rows = await this.nt.executeSql(
       this.dbPath,
-      `SELECT DISTINCT msg_seq FROM ${PROTOCOL_TABLE} WHERE kind='c2c' AND conv=?
+      `SELECT msg_seq, MAX(CASE WHEN json_extract(payload,'$.sendTime')=? THEN 1 ELSE 0 END) AS exact_time
+       FROM ${PROTOCOL_TABLE} WHERE kind='c2c' AND conv=? AND nt_seq_verified=1 AND msg_seq>0
        AND json_extract(payload,'$.clientSeq')=?
        AND (? IS NULL OR json_extract(payload,'$.senderUin')=?)
-       AND (? IS NULL OR json_extract(payload,'$.sendTime')=?) LIMIT 2`,
-      [conv, clientSeq, senderUin ?? null, senderUin ?? null, sendTime ?? null, sendTime ?? null],
+       GROUP BY msg_seq ORDER BY exact_time DESC LIMIT 2`,
+      [sendTime ?? null, conv, clientSeq, senderUin ?? null, senderUin ?? null],
     );
-    return rows.length === 1 ? String(rows[0]?.[0]) : null;
+    const [first, second] = rows;
+    return first && (!second || Number(first[1]) > Number(second[1])) ? String(first[0]) : null;
   }
 
   /** 把拉取到的消息全部写入缓存（幂等：同一 seq 覆盖为最新）。 */

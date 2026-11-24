@@ -17,7 +17,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
-import { databasePerformance } from '@weq/db';
+import { databasePerformance, type HistoryCursor } from '@weq/db';
 import { listSettings } from '@weq/service/settings-catalog';
 import { getAppContext, type AccountServices } from '../context/app_context';
 import { fullModeAllowed } from '../context/full_mode';
@@ -353,6 +353,22 @@ function safeBigint(text: string): bigint | null {
     return null;
   }
 }
+
+function messageBefore(text: string): bigint | HistoryCursor | undefined {
+  const value = text.trim();
+  if (!value) return;
+  if (!value.startsWith('v1:')) return safeBigint(value) ?? undefined;
+  const match = /^v1:(-?\d{1,19}):(-?\d{1,19}):(-?\d{1,19})$/.exec(value);
+  if (match) {
+    const [msgSeq, sendTime, msgId] = match.slice(1).map(BigInt) as [bigint, bigint, bigint];
+    if ([msgSeq, sendTime, msgId].every((part) => BigInt.asIntN(64, part) === part))
+      return { msgSeq, sendTime, msgId };
+  }
+  throw new Error('消息翻页游标无效，请使用上一页返回的 nextBefore');
+}
+
+const nextMessageBefore = (row: HistoryCursor | undefined): string =>
+  row ? `v1:${row.msgSeq}:${row.sendTime}:${row.msgId}` : '';
 
 function currentMessageSelfUin(): bigint {
   const uin = safeBigint(toolContext().account?.context.uin ?? '') ?? 0n;
@@ -1116,22 +1132,19 @@ export const AI_TOOLS: AiTool[] = [
     run: async ({ kind, conv, limit, before, includeIds }) => {
       const svc = services();
       const selfUin = currentMessageSelfUin();
-      const beforeSeq = before.trim() ? safeBigint(before) : null;
+      const cursor = messageBefore(before);
       // 探测法：多取一条判断是否还有更早的消息，既得到诚实的 hasMore、又不返回会翻出空页的游标。
       const probe = limit + 1;
       const rows =
-        kind === 'group'
-          ? beforeSeq != null
-            ? await svc.msgs.getGroupBefore(conv, beforeSeq, probe)
-            : await svc.msgs.getGroupLatest(conv, probe)
-          : beforeSeq != null
-            ? await svc.msgs.getC2cBefore(conv, beforeSeq, probe)
-            : await svc.msgs.getC2cLatest(conv, probe);
+        typeof cursor !== 'bigint'
+          ? await svc.msgs.getLocalMessagePage(kind, conv, probe, cursor)
+          : kind === 'group'
+            ? await svc.msgs.getGroupBefore(conv, cursor, probe)
+            : await svc.msgs.getC2cBefore(conv, cursor, probe);
 
       const hasMore = rows.length > limit;
       const page = rows.slice(0, limit); // DB 最新在前，取最新的 limit 条
-      // 更早一页的游标 = 本页最旧那条的 seq（page 仍是新→旧，故取末元素）。
-      const nextBefore = hasMore && page.length ? String(page[page.length - 1]!.msgSeq) : '';
+      const nextBefore = hasMore ? nextMessageBefore(page.at(-1)) : '';
 
       // 名字解析：自己=「我」，其余批量取昵称（私聊就对方一个人，群聊各发言人）。
       const otherUids = [
@@ -1169,7 +1182,7 @@ export const AI_TOOLS: AiTool[] = [
         ...(messages.length === 0
           ? {
               hint:
-                beforeSeq != null
+                cursor !== undefined
                   ? '没有更早的消息了。'
                   : '该会话本地没有消息记录（确认 conv 是否正确、或消息尚未同步）。',
             }
@@ -3517,14 +3530,15 @@ export const AI_TOOLS: AiTool[] = [
       }
       const svc = services();
       const selfUin = (await svc.profile.getSelfProfile())?.uin ?? -1n;
-      const beforeSeq = before.trim() ? safeBigint(before) : null;
+      const cursor = messageBefore(before);
       const probe = limit + 1;
-      const rows = beforeSeq
-        ? await svc.msgs.getC2cBefore(conv, beforeSeq, probe)
-        : await svc.msgs.getC2cLatest(conv, probe);
+      const rows =
+        typeof cursor === 'bigint'
+          ? await svc.msgs.getC2cBefore(conv, cursor, probe)
+          : await svc.msgs.getLocalMessagePage('c2c', conv, probe, cursor);
       const hasMore = rows.length > limit;
       const page = rows.slice(0, limit);
-      const nextBefore = hasMore && page.length ? String(page[page.length - 1]!.msgSeq) : '';
+      const nextBefore = hasMore ? nextMessageBefore(page.at(-1)) : '';
       const lines = projectRows([...page].reverse(), selfUin, () => undefined);
       return {
         conv,
@@ -3536,7 +3550,7 @@ export const AI_TOOLS: AiTool[] = [
         messages: lines,
         ...(lines.length === 0
           ? {
-              hint: beforeSeq != null ? '没有更早的消息了。' : '该数据线会话本地没有消息记录。',
+              hint: cursor !== undefined ? '没有更早的消息了。' : '该数据线会话本地没有消息记录。',
             }
           : {}),
       };
@@ -3598,14 +3612,15 @@ export const AI_TOOLS: AiTool[] = [
           `未找到频道私聊会话（nodeId=${nodeId}）；可先用 list_guild_direct_sessions 确认。`,
         );
       }
-      const beforeSeq = before.trim() ? safeBigint(before) : null;
+      const cursor = messageBefore(before);
       const probe = limit + 1;
-      const rows = beforeSeq
-        ? await svc.guildDirect.getBefore(nodeId, beforeSeq, probe)
-        : await svc.guildDirect.getLatest(nodeId, probe);
+      const rows =
+        typeof cursor === 'bigint'
+          ? await svc.guildDirect.getBefore(nodeId, cursor, probe)
+          : await svc.guildDirect.getLocalMessagePage(nodeId, probe, cursor);
       const hasMore = rows.length > limit;
       const page = rows.slice(0, limit); // 最新在前
-      const nextBefore = hasMore && page.length ? String(page[page.length - 1]!.msgSeq) : '';
+      const nextBefore = hasMore ? nextMessageBefore(page.at(-1)) : '';
       const ordered = [...page].reverse();
       const messages: AiMsgLine[] = [];
       let prevSec: number | null = null;
@@ -3632,7 +3647,8 @@ export const AI_TOOLS: AiTool[] = [
         messages,
         ...(messages.length === 0
           ? {
-              hint: beforeSeq != null ? '没有更早的消息了。' : '该频道私聊会话本地没有消息记录。',
+              hint:
+                cursor !== undefined ? '没有更早的消息了。' : '该频道私聊会话本地没有消息记录。',
             }
           : hasMore
             ? { hint: '还有更早的消息；把 nextBefore 传回 before 可继续往前读。' }

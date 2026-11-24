@@ -484,10 +484,14 @@ describe('offline roaming timeline cache pages', () => {
       expect(before[0]).toMatchObject({ localSent: true, msgRandom: String(outcome.random) });
       expect(before[0]!.decoration?.fontId).toBe(31001);
       expect(before[0]!.decoration?.bubbleId).toBe(2116371);
-      if (kind === 'c2c')
+      if (kind === 'c2c') {
+        await reopened.store([
+          { ...before[0]!, msgId: '90000000002', msgSeq: '19750', ntSeqVerified: false },
+        ]);
         expect(
-          await reopened.resolveReplySeq(conv, before[0]!.clientSeq!, '10001', '1700000000'),
+          await reopened.resolveReplySeq(conv, before[0]!.clientSeq!, '10001', '1700000001'),
         ).toBe('19749');
+      }
       await reopened.store([
         {
           ...before[0]!,

@@ -80,12 +80,7 @@ export function dockStopTone(stop: UnreadDockStop): HighlightTone {
 }
 
 export function unreadHighlightKey(conversationId: string, stop: UnreadDockStop): string {
-  return JSON.stringify([
-    conversationId,
-    stop.seq,
-    stop.identity?.senderUid,
-    stop.identity?.sendTime,
-  ]);
+  return JSON.stringify([conversationId, stop.seq]);
 }
 
 function toBig(value: string | number | undefined | null): bigint {
@@ -132,12 +127,14 @@ export function buildUnreadDock(input: {
       highlight.senderUid && highlight.senderUid !== '0' ? highlight.senderUid : undefined;
     const sendTime =
       highlight.sendTime && /^[1-9]\d*$/.test(highlight.sendTime) ? highlight.sendTime : undefined;
-    const identity =
+    const identity: UnreadDockStop['identity'] =
       highlight.kind === 'newFile'
         ? { kind: 'newFile' as const }
-        : senderUid || sendTime
-          ? { senderUid, sendTime }
-          : undefined;
+        : {
+            kind: highlight.kind,
+            ...(senderUid ? { senderUid } : {}),
+            ...(sendTime ? { sendTime } : {}),
+          };
     if (!existing)
       bySeq.set(seq, {
         kind: highlight.kind,
