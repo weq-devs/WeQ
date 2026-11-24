@@ -25,6 +25,7 @@ import {
   ChevronRight,
   CloudDownload,
   Code2,
+  FileText,
   ImageIcon,
   Monitor,
   MessagesSquare,
@@ -1231,86 +1232,85 @@ function AppearanceSection({
             </Card>
           )}
           {page === 'message-content' && (
-            <Card
-              icon={<Monitor size={15} />}
-              settingId="custom-message-display"
-              resetId="message-content"
-            >
+            <>
               <MessageDisplayOptions />
-              <h4 className="weq-message-display-heading">正文与预览</h4>
-              <VoiceAutoTranscribeSetting />
-              <Row
-                settingId="text-markdown"
-                label="文本消息自动渲染为 Markdown"
-                desc={
-                  <>
-                    把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
-                    自己的功能，关闭后默认显示原文，仍可右键手动选择「显示
-                    Markdown」。单条消息的手动选择优先，QQ 原生 Markdown 消息不受影响。
-                  </>
-                }
-                control={
-                  <Toggle
-                    checked={textMarkdown}
-                    disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
-                    onChange={(next) => void onSetTextMarkdown(next)}
-                    label="文本消息自动渲染为 Markdown"
-                  />
-                }
-              />
-              <Row
-                settingId="link-preview"
-                desc="一条消息只有一个链接时，显示 QQ 已提供或本地已缓存的预览。关闭后，链接仍可点击。"
-                control={
-                  <span
-                    data-setting-fallback={
-                      !linkPreview.enabled ? 'link-preview-auto-fetch link-screenshot' : undefined
-                    }
-                  >
-                    <Toggle
-                      checked={linkPreview.enabled}
-                      disabled={settings.isLoading || setLinkPreview.isLoading}
-                      onChange={(enabled) => void onSetLinkPreview({ enabled })}
-                      label="链接预览卡片"
-                    />
-                  </span>
-                }
-              />
-              {linkPreview.enabled ? (
+              <Card title="正文与预览" icon={<FileText size={15} />}>
+                <VoiceAutoTranscribeSetting />
                 <Row
-                  settingId="link-preview-auto-fetch"
-                  indent
-                  desc="允许在浏览消息时访问链接或封面地址，补齐本地缺失的标题、简介和图片。"
+                  settingId="text-markdown"
+                  label="文本消息自动渲染为 Markdown"
+                  desc={
+                    <>
+                      把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
+                      自己的功能，关闭后默认显示原文，仍可右键手动选择「显示
+                      Markdown」。单条消息的手动选择优先，QQ 原生 Markdown 消息不受影响。
+                    </>
+                  }
+                  control={
+                    <Toggle
+                      checked={textMarkdown}
+                      disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
+                      onChange={(next) => void onSetTextMarkdown(next)}
+                      label="文本消息自动渲染为 Markdown"
+                    />
+                  }
+                />
+                <Row
+                  settingId="link-preview"
+                  desc="一条消息只有一个链接时，显示 QQ 已提供或本地已缓存的预览。关闭后，链接仍可点击。"
                   control={
                     <span
-                      data-setting-fallback={!linkPreview.autoFetch ? 'link-screenshot' : undefined}
+                      data-setting-fallback={
+                        !linkPreview.enabled ? 'link-preview-auto-fetch link-screenshot' : undefined
+                      }
                     >
                       <Toggle
-                        checked={linkPreview.autoFetch}
+                        checked={linkPreview.enabled}
                         disabled={settings.isLoading || setLinkPreview.isLoading}
-                        onChange={(autoFetch) => void onSetLinkPreview({ autoFetch })}
-                        label="自动联网补全链接预览"
+                        onChange={(enabled) => void onSetLinkPreview({ enabled })}
+                        label="链接预览卡片"
                       />
                     </span>
                   }
                 />
-              ) : null}
-              {linkPreview.enabled && linkPreview.autoFetch ? (
-                <Row
-                  settingId="link-screenshot"
-                  indent
-                  desc="联网补全时，如果网页没有封面图，可在隔离窗口中打开网页并截取首屏。"
-                  control={
-                    <Toggle
-                      checked={linkPreview.screenshot}
-                      disabled={settings.isLoading || setLinkPreview.isLoading}
-                      onChange={(screenshot) => void onSetLinkPreview({ screenshot })}
-                      label="无封面时网页截图"
-                    />
-                  }
-                />
-              ) : null}
-            </Card>
+                {linkPreview.enabled ? (
+                  <Row
+                    settingId="link-preview-auto-fetch"
+                    indent
+                    desc="允许在浏览消息时访问链接或封面地址，补齐本地缺失的标题、简介和图片。"
+                    control={
+                      <span
+                        data-setting-fallback={
+                          !linkPreview.autoFetch ? 'link-screenshot' : undefined
+                        }
+                      >
+                        <Toggle
+                          checked={linkPreview.autoFetch}
+                          disabled={settings.isLoading || setLinkPreview.isLoading}
+                          onChange={(autoFetch) => void onSetLinkPreview({ autoFetch })}
+                          label="自动联网补全链接预览"
+                        />
+                      </span>
+                    }
+                  />
+                ) : null}
+                {linkPreview.enabled && linkPreview.autoFetch ? (
+                  <Row
+                    settingId="link-screenshot"
+                    indent
+                    desc="联网补全时，如果网页没有封面图，可在隔离窗口中打开网页并截取首屏。"
+                    control={
+                      <Toggle
+                        checked={linkPreview.screenshot}
+                        disabled={settings.isLoading || setLinkPreview.isLoading}
+                        onChange={(screenshot) => void onSetLinkPreview({ screenshot })}
+                        label="无封面时网页截图"
+                      />
+                    }
+                  />
+                ) : null}
+              </Card>
+            </>
           )}
         </>
       )}
