@@ -1,7 +1,7 @@
 import { NumericText } from './NumericText';
 import { eventTimeFormatter } from '@weq/time';
 /**
- * 凭据与数据 → QQ 登录记录与设备标识。
+ * 凭据与数据 → QQ 设备标识与登录账号。
  *
  * 一页把「这台机器上 QQ 认得哪些号」讲清楚，并提供三个动作：
  *
@@ -205,7 +205,7 @@ export function LoginAccountPanel(): ReactElement {
         <p className="weq-login-acc-identity-hint">
           {overview?.supported === false
             ? '当前原生产物没有更换 guid 的能力，请更新 nt_helper 产物后重试。'
-            : '换一个 guid 会让本机被识别为新设备；QQ 自己的登录状态不受影响。'}
+            : '换一个 GUID 会让本机被识别为新设备；QQ 自己的登录状态不受影响。'}
         </p>
         {overview?.dataRoot ? (
           <p className="weq-login-acc-root" title={overview.dataRoot}>
@@ -228,7 +228,7 @@ export function LoginAccountPanel(): ReactElement {
                 'QQ 运行状态尚未确认，请先恢复数据读取权限并重新检查。'
               ) : (
                 <>
-                  <NumericText>{`检测到 ${overview.qqInstanceCount} 个 QQ 实例正在运行，请先`}</NumericText>
+                  <NumericText>{`检测到 ${overview.qqInstanceCount} 个 QQ 实例正在运行。操作前请先`}</NumericText>
                   <b>完全退出 QQ</b>。
                 </>
               )}

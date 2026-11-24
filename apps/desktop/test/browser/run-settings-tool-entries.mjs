@@ -111,7 +111,7 @@ try {
         if (output)
           await page.screenshot({ path: resolve(output, `capture-${width}-${theme}.png`) });
         if (advancedOnly) {
-          await page.getByRole('button', { name: 'QQ 登录记录与设备标识', exact: true }).click();
+          await page.getByRole('button', { name: 'QQ 设备标识与登录账号', exact: true }).click();
           const loginRecords = page.locator('[data-setting-id="qq-accounts"]');
           await loginRecords.scrollIntoViewIfNeeded();
           await loginRecords.getByText('合成登录账号', { exact: true }).waitFor();
