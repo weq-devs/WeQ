@@ -112,6 +112,7 @@ export const updateRouter = router({
     return observable<UpdateEvent>((emit) => {
       const handler = (e: UpdateEvent): void => emit.next(e);
       updateBus.on('event', handler);
+      handler({ kind: 'availability', available: getUpdateState()?.hasUpdate === true });
       const task = getUpdateActions().getDownloadTask?.();
       if (task) handler({ kind: 'download-task', task });
       return () => {

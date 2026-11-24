@@ -55,7 +55,6 @@ export const APP_SETTING_FIELDS = (
       'contact-unread-count',
       CONTACT_UNREAD_COUNT_LABEL,
     ],
-    ['notification-badges', 'showGroupAssistantMessageCount', 'group-assistant-count', '群助手'],
     ['reading', 'readFromFirstUnread', 'read-first-unread', '打开会话时继续上次阅读'],
     ['reading', 'preserveUnreadUntilRead', 'preserve-unread-until-read', '按阅读进度更新未读数'],
     ['conversation-markers', 'showGroupAssistantMessageCount', 'group-assistant-count', '群助手'],
@@ -178,17 +177,8 @@ export const CLIENT_SETTING_FIELDS = (
     ['emoji-shortcuts', 'slashEmojiEnabled', 'slash-emoji-input', '斜杠表情快捷输入'],
     ['emoji-shortcuts', 'slashEmojiAutoReplace', 'slash-emoji-auto-replace', '无需回车即自动替换'],
     ['notification-badges', 'applicationBadge', 'application-unread-badge', '应用图标未读角标'],
-    [
-      'notification-badges',
-      'showInteractionBadge',
-      'conversation-interaction-badge',
-      '会话互动红点',
-    ],
     ...ENTRY_BADGE_SETTINGS.map(
       ([key, id, label]) => ['notification-badges', key, id, label] as const,
-    ),
-    ...AGGREGATE_BADGE_SETTINGS.filter(([, key]) => key !== 'showGroupAssistantMessageCount').map(
-      ([, key, id, label]) => ['notification-badges', key, id, label] as const,
     ),
     [
       'conversation-markers',

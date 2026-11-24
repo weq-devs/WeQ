@@ -86,6 +86,7 @@ import { z } from 'zod/v3';
 import { OverlayScrollbar } from '../components/OverlayScrollbar';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target.shared';
+import { useUpdateStore } from '../state/update';
 import { isSingleColumnLayout } from '../lib/responsiveLayout';
 import {
   type InfiniteData,
@@ -1486,7 +1487,9 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     const sub = client.update.onEvent.subscribe(undefined, {
       onData(e) {
-        if (e.kind === 'installing' || (e.kind === 'chosen' && !e.hasUpdate)) {
+        if (e.kind === 'availability') {
+          useUpdateStore.getState().setSoftwareAvailable(e.available);
+        } else if (e.kind === 'installing' || (e.kind === 'chosen' && !e.hasUpdate)) {
           useToast.getState().resolve('weq-update');
         } else if ((e.kind === 'available' || e.kind === 'downloaded') && e.latest) {
           useToast.getState().push({

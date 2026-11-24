@@ -14,6 +14,7 @@ const cleanups: Array<() => void> = [];
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   acceptPreferences({ epoch: String(Math.random()), revision: 0, values: {}, records: {} }, false);
+  useUpdateStore.setState({ softwareAvailable: false, packsAvailable: false });
 });
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
@@ -105,4 +106,29 @@ it('菜单汇总任务和增强包更新；关闭角标不清空对应状态', (
     ),
   );
   expect(host.querySelector('.weq-reminder-count')?.textContent).toBe('1');
+});
+
+it('菜单分别遵循软件更新和增强包更新的角标开关', () => {
+  useWorkspaceMenu.setState({ running: 0, finished: 0, unreadFailed: 0 });
+  const host = mount(h(WorkspaceMenuButton));
+  const label = () => host.querySelector('button')?.getAttribute('aria-label');
+  expect(label()).toBe('菜单');
+
+  act(() => useUpdateStore.getState().setSoftwareAvailable(true));
+  expect(label()).toContain('有软件更新');
+  act(() => useUpdateStore.getState().setPacksAvailable(true));
+  expect(label()).toContain('有软件更新和增强包更新');
+  act(() =>
+    acceptPreferences({ revision: 1, values: { showUpdateBadge: false }, records: {} }, false),
+  );
+  expect(label()).toContain('有软件更新');
+  expect(label()).not.toContain('增强包');
+  act(() =>
+    acceptPreferences(
+      { revision: 2, values: { showSoftwareUpdateBadge: false }, records: {} },
+      false,
+    ),
+  );
+  expect(label()).toContain('有增强包更新');
+  expect(useUpdateStore.getState().softwareAvailable).toBe(true);
 });

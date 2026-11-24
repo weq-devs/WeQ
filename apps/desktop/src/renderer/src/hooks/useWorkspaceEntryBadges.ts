@@ -1,6 +1,10 @@
 import { useAnnouncementPresentation } from '../lib/announcementPresentation';
 import { navigationBadge } from '../lib/navigationBadges';
-import { useEnhancementUpdateBadge, useUnreadMarkers } from '../lib/unreadMarkers';
+import {
+  useEnhancementUpdateBadge,
+  useSoftwareUpdateBadge,
+  useUnreadMarkers,
+} from '../lib/unreadMarkers';
 import { workspaceTaskBadge } from '../lib/workspaceIndicators';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 
@@ -13,7 +17,10 @@ export function useWorkspaceTaskBadge() {
 }
 
 export function useWorkspaceSettingsBadge() {
-  return navigationBadge('notice', Number(useEnhancementUpdateBadge()), '有增强包更新');
+  const software = useSoftwareUpdateBadge();
+  const packs = useEnhancementUpdateBadge();
+  const description = software ? (packs ? '有软件更新和增强包更新' : '有软件更新') : '有增强包更新';
+  return navigationBadge('notice', Number(software || packs), description);
 }
 
 export function useWorkspaceAnnouncementBadge() {

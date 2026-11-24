@@ -82,7 +82,6 @@ async function ready() {
   const state = await import('../src/main/update/state');
   const updater = await import('../src/main/update/updater');
   const events: unknown[] = [];
-  state.updateBus.on('event', (event) => events.push(event));
   state.setUpdateState({
     current: '1.0.0',
     latest: '1.1.0',
@@ -90,6 +89,7 @@ async function ready() {
     base: 'https://synthetic.invalid',
     ranked: ['https://synthetic.invalid'],
   });
+  state.updateBus.on('event', (event) => events.push(event));
   fixture.checkForUpdates.mockImplementation(async () => ({
     updateInfo: { version: state.getUpdateState()?.latest ?? '1.1.0' },
     cancellationToken: { cancel: fixture.cancelDownload },
@@ -109,6 +109,25 @@ async function ready() {
   });
   return { updater, autoUpdater, events };
 }
+
+it('软件更新订阅先回放缓存可用状态，切换检查渠道后清除', async () => {
+  const { updater } = await ready();
+  const { updateRouter } = await import('../src/main/ipc/routers/update');
+  const stream = await updateRouter.createCaller({}).onEvent();
+  const seen: boolean[] = [];
+  const subscription = stream.subscribe({
+    next: (event) => {
+      if (event.kind === 'availability') seen.push(event.available);
+    },
+  });
+  try {
+    expect(seen).toEqual([true]);
+    updater.setCheckPrerelease(true);
+    expect(seen).toEqual([true, false]);
+  } finally {
+    subscription.unsubscribe();
+  }
+});
 
 describe.each(['win32', 'linux'])('更新安装动作（%s）', (platform) => {
   beforeEach(() => {

@@ -143,11 +143,14 @@ function mount() {
               '显示群成员头衔与身份',
             ].includes(label)
           ? '消息显示'
-          : ['在消息图标上显示红点', '在联系人界面显示未读消息数', '群助手显示总消息数'].includes(
-                label,
-              )
+          : ['在消息图标上显示红点', '在联系人界面显示未读消息数', '软件更新'].includes(label)
             ? '未读角标'
-            : ['显示会话预览', '鼠标停留时保持会话位置', '会话互动红点'].includes(label)
+            : [
+                  '显示会话预览',
+                  '鼠标停留时保持会话位置',
+                  '会话互动红点',
+                  '群助手显示总消息数',
+                ].includes(label)
               ? '会话列表'
               : '会话浏览';
       if (page === '未读角标')
@@ -204,6 +207,7 @@ function mount() {
 const sharedToggles = [
   ['在消息图标上显示红点', 'showMessageUnreadBadge', true],
   ['在联系人界面显示未读消息数', 'showContactUnreadCount', false],
+  ['软件更新', 'showSoftwareUpdateBadge', true],
   ['群助手显示总消息数', 'showGroupAssistantMessageCount', false],
   ['会话互动红点', 'showInteractionBadge', false],
   ['显示会话预览', 'showConversationPreview', true],
@@ -226,35 +230,20 @@ const toggles = [
   ['向下浏览时显示「回到最新」按钮', 'showScrollToBottomButton', true],
 ] as const;
 
-it('未读角标按系统图标、主导航、常规视图、联系人和菜单排列', () => {
+it('未读角标页从会话列表按钮直达常规视图角标设置', () => {
   const f = mount();
   try {
     f.toggle('在消息图标上显示红点');
-    const card = f.host.querySelector('[data-setting-id="notification-badges"]');
+    const page = f.host.querySelector('[data-settings-page="notification-badges"]:not([hidden])')!;
+    expect(page.querySelector('[role="switch"][aria-label="会话互动红点"]')).toBeNull();
+    const jump = [...page.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === '前往设置',
+    )!;
+    act(() => jump.click());
+    const target = f.host.querySelector('[data-settings-page="chat-messages"]:not([hidden])');
     expect(
-      [...card!.querySelectorAll('[role="switch"]')].map((toggle) =>
-        toggle.getAttribute('aria-label'),
-      ),
-    ).toEqual([
-      '应用图标未读角标',
-      '消息导航未读角标',
-      '邮箱导航未读角标',
-      '会话互动红点',
-      '群助手',
-      '公众号',
-      '服务号',
-      '频道私聊',
-      '已隐藏会话',
-      '已删除会话',
-      '克隆会话',
-      'WeQ 助手会话',
-      '好友与群通知未读角标',
-      '好友与群聊未读消息数',
-      '进行中任务',
-      '已完成任务',
-      '增强包更新',
-      '官方公告',
-    ]);
+      target?.querySelector('[data-setting-id="conversation-markers"] [aria-label="会话互动红点"]'),
+    ).toBeTruthy();
   } finally {
     f.close();
   }

@@ -249,21 +249,48 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       from: ['global'],
     }),
   ),
-  ...(
-    [
-      ...ENTRY_BADGE_SETTINGS.map(([, id, label]) => [id, label] as const),
-      ...AGGREGATE_BADGE_SETTINGS.filter(([, key]) => key !== 'showGroupAssistantMessageCount').map(
-        ([, , id, label]) => [id, label] as const,
-      ),
-    ] as const
-  ).map(
-    ([id, label]): ItemRedirect => ({
+  ...ENTRY_BADGE_SETTINGS.map(
+    ([, id, label]): ItemRedirect => ({
       id,
       section: 'notification-badges',
       label,
       from: ['notification-badges', 'global', 'mail', 'chat-messages', 'agentlab', 'version'],
     }),
   ),
+  {
+    id: 'conversation-markers',
+    section: 'chat-messages',
+    label: '常规视图未读角标',
+    aliases: ['会话列表常规视图'],
+    from: ['chat-messages', 'notification-badges'],
+  },
+  ...AGGREGATE_BADGE_SETTINGS.map(
+    ([, , id, label]): ItemRedirect => ({
+      id,
+      section: 'chat-messages',
+      label,
+      aliases:
+        id === 'group-assistant-count' ? ['群助手未读汇总角标', '群助手显示总消息数'] : undefined,
+      from: [
+        'chat-messages',
+        'notification-badges',
+        'global',
+        'mail',
+        'agentlab',
+        'version',
+        'message-display',
+        'message-content',
+        'chat-interaction',
+      ],
+    }),
+  ),
+  {
+    id: 'conversation-interaction-badge',
+    section: 'chat-messages',
+    label: '会话互动红点',
+    aliases: ['戳一戳红点', '撤回红点'],
+    from: ['global', 'message-display', 'chat-messages', 'chat-interaction', 'notification-badges'],
+  },
   {
     id: 'show-conversation-preview',
     section: 'chat-messages',
@@ -797,7 +824,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     [
       ['message-system-notifications', '普通私聊消息', '新消息系统通知', '消息弹窗提醒'],
       ['application-unread-badge', '应用图标未读角标', 'Dock 任务栏 Badge'],
-      ['conversation-interaction-badge', '会话互动红点', '戳一戳红点', '撤回红点'],
     ] as const
   ).map(
     ([id, label, ...aliases]): ItemRedirect => ({
@@ -824,7 +850,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
         '联系人列表未读消息数',
         '在联系人界面显示未读消息数',
       ],
-      ['group-assistant-count', '群助手', '群助手未读汇总角标', '群助手显示总消息数'],
       ['all-conversations-include-hidden', '包含已隐藏会话', '全部会话隐藏范围'],
       ['all-conversations-include-deleted', '包含已删除会话', '全部会话删除范围'],
       ['read-first-unread', '打开会话时继续上次阅读', '定位到上次阅读的位置'],
@@ -921,9 +946,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       label,
       aliases,
       section:
-        id === 'message-unread-badge' ||
-        id === 'contact-unread-count' ||
-        id === 'group-assistant-count'
+        id === 'message-unread-badge' || id === 'contact-unread-count'
           ? 'notification-badges'
           : chatMessagePageFor(id),
       from: [

@@ -1,13 +1,14 @@
-import { BellDot } from 'lucide-react';
+import { useContext } from 'react';
+import { ChevronRight } from 'lucide-react';
 import {
   AGGREGATE_BADGE_SETTINGS,
   CONTACT_UNREAD_COUNT_LABEL,
   ENTRY_BADGE_SETTINGS,
 } from '@weq/service/client-preferences';
 import { Card, Row, SectionHeader } from './controls';
+import { SettingsNavigateContext } from './controls.shared';
 import { SharedDisplayToggle } from './SharedDisplayToggle';
 import { MailNotificationSettings } from './MailNotificationSettings';
-import '../../styles/unread-badge-settings.css';
 
 export function BadgeSettingRow(
   props: Parameters<typeof SharedDisplayToggle>[0] & { settingId: string; desc?: string },
@@ -46,29 +47,22 @@ export function ConversationListBadgeRows() {
   );
 }
 
-const entryBadgeGroups = {
-  requests: ['showContactRequestBadge'],
-  tasks: ['showTaskRunningBadge', 'showTaskResultBadge'],
-  updates: ['showUpdateBadge'],
-  announcements: ['showOfficialAnnouncementBadge'],
-} as const satisfies Record<string, readonly (typeof ENTRY_BADGE_SETTINGS)[number][0][]>;
-
-export function EntryBadgeRows({ kind }: { kind: keyof typeof entryBadgeGroups }) {
-  const keys: readonly string[] = entryBadgeGroups[kind];
+function EntryBadgeRows({ kind }: { kind: 'requests' | 'menu' }) {
+  const requests = kind === 'requests';
   return (
     <>
-      {ENTRY_BADGE_SETTINGS.filter(([key]) => keys.includes(key)).map(([key, id, label]) => (
-        <BadgeSettingRow
-          key={key}
-          name={key}
-          settingId={id}
-          label={label}
-          desc={
-            kind === 'requests' ? '在联系人导航及好友通知、群通知入口显示未读角标。' : undefined
-          }
-          fallback={true}
-        />
-      ))}
+      {ENTRY_BADGE_SETTINGS.filter(([key]) => (key === 'showContactRequestBadge') === requests).map(
+        ([key, id, label]) => (
+          <BadgeSettingRow
+            key={key}
+            name={key}
+            settingId={id}
+            label={label}
+            desc={requests ? '在联系人导航及好友通知、群通知入口显示未读角标。' : undefined}
+            fallback={true}
+          />
+        ),
+      )}
     </>
   );
 }
@@ -89,23 +83,19 @@ function ContactBadgeRows() {
 }
 
 export function UnreadBadgeSettings() {
+  const navigate = useContext(SettingsNavigateContext);
   return (
     <div className="weq-set">
       <SectionHeader title="未读角标" page="notification-badges" />
-      <Card
-        title="角标显示"
-        icon={<BellDot size={15} />}
-        resetId="notification-badges"
-        settingId="notification-badges"
-      >
-        <h4 className="weq-badge-group-title">系统应用图标</h4>
+      <Card title="系统应用图标" resetId="notification-badges">
         <BadgeSettingRow
           name="applicationBadge"
           settingId="application-unread-badge"
           label="应用图标未读角标"
           fallback={true}
         />
-        <h4 className="weq-badge-group-title">主导航</h4>
+      </Card>
+      <Card title="主导航">
         <BadgeSettingRow
           name="showMessageUnreadBadge"
           settingId="message-unread-badge"
@@ -113,14 +103,24 @@ export function UnreadBadgeSettings() {
           fallback={true}
         />
         <MailNotificationSettings kind="unread" />
-        <h4 className="weq-badge-group-title">会话列表常规视图</h4>
-        <ConversationListBadgeRows />
-        <h4 className="weq-badge-group-title">联系人页</h4>
+      </Card>
+      <Card
+        title="会话列表"
+        action={
+          <button
+            type="button"
+            className="weq-set-btn"
+            onClick={() => navigate?.('chat-messages', 'conversation-markers')}
+          >
+            前往设置 <ChevronRight size={14} aria-hidden />
+          </button>
+        }
+      />
+      <Card title="联系人页">
         <ContactBadgeRows />
-        <h4 className="weq-badge-group-title">菜单</h4>
-        <EntryBadgeRows kind="tasks" />
-        <EntryBadgeRows kind="updates" />
-        <EntryBadgeRows kind="announcements" />
+      </Card>
+      <Card title="菜单">
+        <EntryBadgeRows kind="menu" />
       </Card>
     </div>
   );

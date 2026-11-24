@@ -12,7 +12,7 @@ import {
 } from '../../components/WorkspacePages.shared';
 import { preloadWorkspace } from '../../components/lazyWorkspaces.shared';
 import { ReminderCount, ReminderDot } from '../../components/ReminderBadge';
-import { useEnhancementUpdateBadge } from '../../lib/unreadMarkers';
+import { useWorkspaceSettingsBadge } from '../../hooks/useWorkspaceEntryBadges';
 import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
 import { APP_NAVIGATION, activateNavigation, navigationEntries } from '../../lib/appNavigation';
 
@@ -77,7 +77,7 @@ export function AppRail({
   const reselectMessages =
     activeView === 'messages' && !mainPageOpen ? onMessageBadgeClick : undefined;
   const developmentDressTools = useDevelopmentDressTools();
-  const packUpdate = useEnhancementUpdateBadge();
+  const settingsBadge = useWorkspaceSettingsBadge();
   const settingsButton = (mobile = false) => (
     <button
       className={cn(
@@ -95,16 +95,20 @@ export function AppRail({
         onOpenSettings();
       }}
       title={
-        packUpdate
-          ? `${APP_NAVIGATION.settings.label} · 有增强包更新`
+        settingsBadge
+          ? `${APP_NAVIGATION.settings.label} · ${settingsBadge.description}`
           : APP_NAVIGATION.settings.label
       }
       type="button"
     >
       <Settings size={22} strokeWidth={1.75} aria-hidden />
       {mobile ? <span className="rail-label">{APP_NAVIGATION.settings.label}</span> : null}
-      {packUpdate ? (
-        <ReminderDot overlay className="rail-badge rail-badge-dot" aria-label="有增强包更新" />
+      {settingsBadge ? (
+        <ReminderDot
+          overlay
+          className="rail-badge rail-badge-dot"
+          aria-label={settingsBadge.description}
+        />
       ) : null}
     </button>
   );

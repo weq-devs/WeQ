@@ -44,6 +44,7 @@ export type UpdateDownloadTask = Pick<
 > & { version?: string; progress?: UpdateProgress };
 
 export type UpdateEvent =
+  | { kind: 'availability'; available: boolean }
   | { kind: 'download-task'; task: UpdateDownloadTask | null }
   /** Speed-test started — `mirrors` mirrors are being screened. */
   | { kind: 'checking'; mirrors: number }
@@ -69,7 +70,11 @@ export function getUpdateState(): UpdateState | null {
 }
 
 export function setUpdateState(state: UpdateState | null): void {
+  const wasAvailable = lastState?.hasUpdate === true;
   lastState = state;
+  const available = state?.hasUpdate === true;
+  if (available !== wasAvailable)
+    updateBus.emit('event', { kind: 'availability', available } satisfies UpdateEvent);
 }
 
 /**
