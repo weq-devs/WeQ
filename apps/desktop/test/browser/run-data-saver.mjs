@@ -77,7 +77,7 @@ try {
       await page.evaluate((theme) => {
         document.documentElement.dataset.theme = theme;
       }, theme);
-      assert.equal(await page.locator('.weq-set-card').count(), 1);
+      assert.equal(await page.locator('.weq-set-card').count(), 3);
       await page.getByRole('heading', { name: '省流量模式下的行为' }).waitFor();
       assert.equal(await page.getByRole('switch').count(), 9);
       assert.deepEqual(

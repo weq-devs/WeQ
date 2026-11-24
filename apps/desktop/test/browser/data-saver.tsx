@@ -40,7 +40,9 @@ createRoot(document.getElementById('root')!).render(
   <>
     <Header />
     <main style={{ maxWidth: 800, padding: 16 }}>
-      <DataSaverSettings />
+      <div className="weq-set">
+        <DataSaverSettings />
+      </div>
       <QqImage
         data={{ fileName: 'available.png', fileToken: 'available', imgWidth: 640, imgHeight: 480 }}
         sendTimeMs={1}
