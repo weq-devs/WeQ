@@ -115,6 +115,49 @@ async function brandDevApp(app, staging, iconPath) {
   ]);
 }
 
+async function runningElectronExecutables() {
+  // ps 可能报告真实路径，也可能保留启动时的路径别名。
+  const { stdout } = await run('/bin/ps', ['-ww', '-axo', 'comm=']);
+  const commands = stdout.split('\n').map((line) => line.trim());
+  return Promise.all(
+    commands
+      .filter((command) => command.includes('/Electron.app/Contents/'))
+      .map((command) => realpath(command).catch(() => null)),
+  );
+}
+
+async function selectRuntime(directory, fingerprint) {
+  let running;
+  for (let slot = 0; ; slot++) {
+    const location = slot === 0 ? directory : join(directory, `slot-${slot}`);
+    const target = join(location, 'Electron.app');
+    const targetExec = join(target, 'Contents/MacOS/Electron');
+    const markerPath = join(location, 'weq-runtime.json');
+    const marker = (await exists(markerPath))
+      ? JSON.parse(await readFile(markerPath, 'utf8'))
+      : null;
+    if (marker && JSON.stringify(marker) === fingerprint) {
+      try {
+        await verify(target);
+        return { targetExec, cached: true };
+      } catch {
+        // 缓存损坏时重建，但不能替换正在使用的宿主。
+      }
+    }
+    const backup = join(location, 'Electron.previous.app');
+    if (await exists(backup)) throw new Error(`上次准备留有恢复资产，请先检查：${backup}`);
+    if (await exists(target)) {
+      if (![1, 2].includes(marker?.format) || (await lstat(target)).isSymbolicLink())
+        throw new Error(`开发宿主位置已有非管理应用，未覆盖：${target}`);
+      const contents = `${await realpath(target)}/Contents/`;
+      running ??= await runningElectronExecutables();
+      // QQ 同步监护进程可在窗口退出后继续使用旧宿主。保留完整路径，改用下一个缓存位置。
+      if (running.some((path) => path?.startsWith(contents))) continue;
+    }
+    return { location, target, targetExec, markerPath, backup };
+  }
+}
+
 /** 仅准备独立开发宿主，不改 node_modules 原件及渲染子进程签名。 */
 export async function prepareDevElectron({
   executable = require('electron'),
@@ -125,17 +168,14 @@ export async function prepareDevElectron({
 } = {}) {
   if (platform !== 'darwin') return executable;
   const source = resolve(dirname(executable), '../..');
-  const target = join(directory, 'Electron.app');
-  const targetExec = join(target, 'Contents/MacOS/Electron');
-  const markerPath = join(directory, 'weq-runtime.json');
-  const fingerprint = {
+  const fingerprint = JSON.stringify({
     format: 2,
     source,
     executable: await hash(executable),
     info: await hash(join(source, 'Contents/Info.plist')),
     entitlements: await hash(entitlementPath),
     icon: await hash(iconPath),
-  };
+  });
   await mkdir(directory, { recursive: true });
   const lock = join(directory, '.prepare-lock');
   try {
@@ -145,33 +185,13 @@ export async function prepareDevElectron({
     throw error;
   }
   let staging;
-  const backup = join(directory, 'Electron.previous.app');
   try {
-    let marker;
-    if (await exists(markerPath)) marker = JSON.parse(await readFile(markerPath, 'utf8'));
-    if (marker && JSON.stringify(marker) === JSON.stringify(fingerprint)) {
-      try {
-        await verify(target);
-        return targetExec;
-      } catch {
-        // 缓存损坏时重建，但不能替换正在运行的宿主。
-      }
-    }
-    if (await exists(backup)) throw new Error(`上次准备留有恢复资产，请先检查：${backup}`);
-    if (await exists(target)) {
-      if (![1, 2].includes(marker?.format) || (await lstat(target)).isSymbolicLink())
-        throw new Error(`开发宿主位置已有非管理应用，未覆盖：${target}`);
-      // ps 可能报告真实路径，也可能保留启动时的路径别名。
-      const contents = `${await realpath(target)}/Contents/`;
-      const { stdout } = await run('/bin/ps', ['-ww', '-axo', 'comm=']);
-      for (const line of stdout.split('\n')) {
-        const command = line.trim();
-        if (!command.includes('/Electron.app/Contents/')) continue;
-        const actual = await realpath(command).catch(() => null);
-        if (actual?.startsWith(contents))
-          throw new Error('开发宿主需要更新，请先按 Cmd+Q 退出 WeQ 后重新启动。');
-      }
-    }
+    const { location, target, targetExec, markerPath, backup, cached } = await selectRuntime(
+      directory,
+      fingerprint,
+    );
+    if (cached) return targetExec;
+    await mkdir(location, { recursive: true });
     staging = await mkdtemp(join(directory, '.prepare-'));
     const app = join(staging, 'Electron.app');
     await run('/bin/cp', ['-cR', source, app]);
@@ -206,7 +226,7 @@ export async function prepareDevElectron({
     await run('/usr/bin/codesign', signArgs);
     await verify(app, { deep });
     const stagedMarker = join(staging, 'weq-runtime.json');
-    await writeFile(stagedMarker, JSON.stringify(fingerprint));
+    await writeFile(stagedMarker, fingerprint);
     const hadTarget = await exists(target);
     if (hadTarget) await rename(target, backup);
     try {

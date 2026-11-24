@@ -205,7 +205,7 @@ test('真实系统签名补齐主进程权限，源文件保真，重复启动�
   assert.equal((await stat(target)).ino, before.ino);
 });
 
-test('运行中的有效宿主可复用，需要更新时不替换正在运行的应用', {
+test('运行中的有效宿主可复用，更新时另建宿主且不打断旧进程', {
   skip: process.platform !== 'darwin',
 }, async (t) => {
   const options = await fixture(t);
@@ -243,10 +243,18 @@ test('运行中的有效宿主可复用，需要更新时不替换正在运行�
   const alias = join(dirname(options.directory), 'prepared-alias');
   await symlink(options.directory, alias);
   const before = await stat(target);
-  await assert.rejects(
-    prepareDevElectron({ ...options, directory: alias, entitlementPath }),
-    /先按 Cmd\+Q/,
-  );
+  const updatedOptions = { ...options, directory: alias, entitlementPath };
+  const alternate = await prepareDevElectron(updatedOptions);
+  const standby = await stat(alternate);
+  assert.notEqual(standby.ino, before.ino);
+  assert.equal((await stat(target)).ino, before.ino);
+  assert.doesNotThrow(() => process.kill(child.pid, 0));
+  assert.equal(await prepareDevElectron(updatedOptions), alternate);
+  assert.equal((await stat(alternate)).ino, standby.ino);
+
+  await writeFile(entitlementPath, Buffer.concat([existing, Buffer.from('\n\n')]));
+  assert.equal(await prepareDevElectron(updatedOptions), alternate);
+  assert.notEqual((await stat(alternate)).ino, standby.ino);
   assert.equal((await stat(target)).ino, before.ino);
 });
 
