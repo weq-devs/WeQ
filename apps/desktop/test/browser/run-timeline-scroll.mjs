@@ -721,13 +721,24 @@ async function checkScroll(page) {
       );
     const near = (actual, expected) =>
       assert.ok(Math.abs(actual - expected) < 1, `${actual} ≠ ${expected}`);
-    const swipe = async (target, dx, dy, onMove, beforeStart) => {
+    const swipe = async (target, dx, dy, { onMove, beforeStart, slowStart } = {}) => {
       await target.scrollIntoViewIfNeeded();
       const bounds = await target.boundingBox();
       await beforeStart?.();
       const x = bounds.x + Math.min(80, bounds.width / 2);
       const y = bounds.y + bounds.height / 2;
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      if (slowStart) {
+        // 前 500 ms 内缓慢左移，但还没到消息开始跟手的距离。
+        for (const distance of [3, 6, 9]) {
+          await new Promise((resolve) => setTimeout(resolve, 130));
+          await cdp.send('Input.dispatchTouchEvent', {
+            type: 'touchMove',
+            touchPoints: [{ x: x - distance, y }],
+          });
+        }
+        await new Promise((resolve) => setTimeout(resolve, 120));
+      }
       for (const fraction of [0.25, 0.5, 0.75, 1]) {
         await cdp.send('Input.dispatchTouchEvent', {
           type: 'touchMove',
@@ -753,30 +764,24 @@ async function checkScroll(page) {
     );
     assert.equal(await quote.count(), 0);
     let start;
-    await swipe(
-      image,
-      -36,
-      0,
-      async (fraction, bounds) => {
+    await swipe(image, -36, 0, {
+      onMove: async (fraction, bounds) => {
         if (fraction !== 1) return;
         near(await xOf(image), bounds.x - 36);
         near(await xOf(avatar), start.avatar);
       },
-      async () => {
+      beforeStart: async () => {
         start = { avatar: await xOf(avatar), image: await xOf(image) };
       },
-    );
+    });
     assert.equal(await quote.count(), 0);
     assert.equal(await page.locator('[role="dialog"]').count(), 0);
     await waitForX(image, start.image);
 
     const parts = [text, avatar, meta];
     let initial;
-    await swipe(
-      text,
-      -52,
-      0,
-      async (fraction) => {
+    await swipe(text, -52, 0, {
+      onMove: async (fraction) => {
         if (fraction === 0.25) return;
         for (const [index, part] of parts.entries()) {
           near(await xOf(part), initial.parts[index] - 52 * fraction);
@@ -788,7 +793,7 @@ async function checkScroll(page) {
           'visible',
         );
       },
-      async () => {
+      beforeStart: async () => {
         initial = {
           parts: await Promise.all(parts.map(xOf)),
           neighbor: await xOf(last),
@@ -799,11 +804,14 @@ async function checkScroll(page) {
           'hidden',
         );
       },
-    );
+    });
     await waitForX(text, initial.parts[0]);
     assert.equal(await quote.count(), 0);
-    await swipe(quotePreview, -80, 0, async (fraction) => {
-      if (fraction === 1) assert.equal(await quote.count(), 0);
+    await swipe(quotePreview, -80, 0, {
+      slowStart: true,
+      onMove: async (fraction) => {
+        if (fraction === 1) assert.equal(await quote.count(), 0);
+      },
     });
     await quote.waitFor({ timeout: 3000 });
     assert.match(await quote.textContent(), /合成消息 1003/);
@@ -817,6 +825,7 @@ async function checkScroll(page) {
     await page.keyboard.insertText('引用后直接输入');
     assert.match(await editor.textContent(), /引用后直接输入/);
     await quote.getByRole('button', { name: '取消引用' }).click();
+    await quote.waitFor({ state: 'detached' });
     await quotePreview.tap();
     await page.waitForSelector('[data-message-id="row-1001"].weq-reply-target-flash');
     assert.equal(await quote.count(), 0);

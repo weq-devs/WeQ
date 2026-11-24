@@ -328,7 +328,6 @@ function MessageBubbleBody({
     id: number;
     x: number;
     y: number;
-    started: number;
     moving: boolean;
   } | null>(null);
   const lineRef = useRef<HTMLDivElement | null>(null);
@@ -482,7 +481,6 @@ function MessageBubbleBody({
           id: event.pointerId,
           x: event.clientX,
           y: event.clientY,
-          started: event.timeStamp,
           moving: false,
         };
       }
@@ -518,19 +516,16 @@ function MessageBubbleBody({
       if (!swipe.moving && (dx < -swipeReplySlop || (dy > swipeReplySlop && dy >= dx))) {
         resetSwipeReply();
       } else if (!swipe.moving && dx > swipeReplySlop) {
-        if (event.timeStamp - swipe.started > 450) resetSwipeReply();
-        else {
-          swipe.moving = true;
-          // 用未移动的外层定位箭头，快速连续滑动时也不会受上一轮回弹影响。
-          const viewport = line.closest('.message-scroll');
-          const row = line.parentElement;
-          const edge =
-            viewport && row
-              ? viewport.getBoundingClientRect().right - row.getBoundingClientRect().right
-              : 0;
-          line.style.setProperty('--swipe-reply-edge', `${edge}px`);
-          line.setPointerCapture(event.pointerId);
-        }
+        swipe.moving = true;
+        // 用未移动的外层定位箭头，快速连续滑动时也不会受上一轮回弹影响。
+        const viewport = line.closest('.message-scroll');
+        const row = line.parentElement;
+        const edge =
+          viewport && row
+            ? viewport.getBoundingClientRect().right - row.getBoundingClientRect().right
+            : 0;
+        line.style.setProperty('--swipe-reply-edge', `${edge}px`);
+        line.setPointerCapture(event.pointerId);
       }
       if (swipe.moving) {
         const distance = Math.max(0, dx);
