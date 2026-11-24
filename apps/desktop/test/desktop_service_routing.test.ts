@@ -23,8 +23,8 @@ import {
   type DesktopAccountRoutes,
 } from '../src/main/desktop_services/accounts';
 
-async function fixture() {
-  const accounts = ['101', '202'].map((configId) => ({
+async function fixture(configIds = ['101', '202']) {
+  const accounts = configIds.map((configId) => ({
     configId,
     uin: configId,
     displayName: `账号 ${configId}`,
@@ -227,8 +227,9 @@ it('已有只读客户端只能直连令牌唯一授权的在用账号，不会�
   }
 });
 
-it('远程页面只列出已授权账号，手工提交未授权账号也不会启动它', async () => {
-  const worker = await fixture();
+it('远程页面只打开已授权账号，选择失败后可重新选择', async () => {
+  const worker = await fixture(['101', '202', '303', '404']);
+  let grant = ['101'];
   const publicDir = mkdtempSync(join(tmpdir(), 'weq-scoped-web-'));
   writeFileSync(join(publicDir, 'index.html'), '<!doctype html><title>测试 Web 首屏</title>');
   const entry = new DesktopWebEntry({
@@ -236,7 +237,7 @@ it('远程页面只列出已授权账号，手工提交未授权账号也不会�
     publicDir,
     auth: {
       remoteClient: true,
-      accountIds: () => ['101'],
+      accountIds: () => grant,
       login: async () => false,
       logout: () => {},
       isAuthed: () => true,
@@ -252,29 +253,34 @@ it('远程页面只列出已授权账号，手工提交未授权账号也不会�
     expect(await shell.text()).toContain('测试 Web 首屏');
     const startup = await fetch(base + '/trpc/startup.snapshot');
     expect(startup.headers.get('x-weq-account-selection')).toBe('required');
-    const list = await (await fetch(base + '/_weq/accounts')).text();
-    expect(list).toContain('账号 101');
-    expect(list).not.toContain('账号 202');
-    const denied = await fetch(base + '/_weq/select-account', {
-      method: 'POST',
-      headers: { origin: base },
-      body: new URLSearchParams({ configId: '202' }),
-      redirect: 'manual',
-    });
-    expect(denied.status).toBe(409);
-    expect(worker.open).not.toHaveBeenCalled();
     const first = await fetch(base + '/_weq/accounts?resume=1', { redirect: 'manual' });
     expect(first.headers.get('location')).toMatch(/^\/_weq\/account\/101\//);
-    const selected = await fetch(base + '/_weq/select-account', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${'a'.repeat(64)}` },
-      body: new URLSearchParams({ configId: '101' }),
-      redirect: 'manual',
-    });
+
+    grant = ['101', '202', '303'];
+    worker.open.mockClear();
+    const picker = await fetch(base + '/_weq/accounts?resume=1', { redirect: 'manual' });
+    expect(picker.status).toBe(200);
+    const list = await picker.text();
+    expect(list).toContain('账号 101');
+    expect(list).toContain('账号 202');
+    expect(list).toContain('账号 303');
+    expect(list).not.toContain('账号 404');
+    const select = (configId: string) =>
+      fetch(base + '/_weq/select-account', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${'a'.repeat(64)}` },
+        body: new URLSearchParams({ configId }),
+        redirect: 'manual',
+      });
+    expect((await select('404')).status).toBe(200);
+    expect(worker.open).not.toHaveBeenCalled();
+    worker.open.mockRejectedValueOnce(new Error('账号尚未就绪'));
+    expect((await select('202')).status).toBe(200);
+    const selected = await select('202');
     expect(selected.status).toBe(303);
     const route = selected.headers.get('location')!.split('/').at(-2);
     const media = await fetch(`${base}/_media/pic?cid=test~${route}`);
-    expect(await media.json()).toEqual({ uin: '101' });
+    expect(await media.json()).toEqual({ uin: '202' });
   } finally {
     entry.close();
     stopPrivate(server);

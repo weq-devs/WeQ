@@ -1,5 +1,5 @@
 import { request, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { setMaxListeners } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -19,6 +19,9 @@ const LEAVE_ACCOUNT = '/_weq/leave-account';
 const BUSINESS_PATH = /^\/(?:trpc(?:[/-]|$)|_[a-z][a-z0-9-]*(?:\/|\?|$))/;
 const STATIC_PATH = /^\/(?:assets\/|src\/|node_modules\/|@[^/]+\/|favicon\.|robots\.txt)/;
 const MAX_ACTIVE_ROUTES = 128;
+const selectionStartup = `window.weqRemoteStartup = { state: 'action-required' };
+window.dispatchEvent(new Event('weq-remote-startup'));`;
+const selectionStartupHash = createHash('sha256').update(selectionStartup).digest('base64');
 
 function escapeHtml(text: string): string {
   return text.replace(
@@ -27,8 +30,14 @@ function escapeHtml(text: string): string {
   );
 }
 
-function selectionPage(accounts: ReturnType<DesktopAccountRoutes['list']>, error?: string): string {
+function selectionPage(
+  accounts: ReturnType<DesktopAccountRoutes['list']>,
+  remote: boolean,
+  error?: string,
+): string {
+  // 手机网关外层使用 no-referrer；表单需要保留同源 Origin，不能发送 null。
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+${remote ? '<meta name="referrer" content="same-origin">' : ''}
 <meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">
 <title>WeQ · 打开账号</title><style>
 body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:24px;color:CanvasText;background:Canvas}
@@ -49,7 +58,7 @@ ${escapeHtml(item.displayName)} <small>${escapeHtml(item.uin)}${item.static ? ' 
         .join('')
     : '<p>暂无可访问的账号。请在电脑上的 WeQ 检查账号及授权。</p>'
 }
-</main></body></html>`;
+</main>${remote ? `<script>${selectionStartup}</script>` : ''}</body></html>`;
 }
 
 function visiblePath(req: IncomingMessage): URL {
@@ -201,17 +210,18 @@ export class DesktopWebEntry {
   }
 
   private showAccounts(req: IncomingMessage, res: ServerResponse, error?: string) {
+    const remote = !!this.options.auth.remoteClient;
     const accounts = this.options.accounts
       .list()
       .filter((account) => this.allowed(req, account.configId));
+    // 手机 WebView 不展示 4xx 主文档；可继续选择的错误页仍走启动回执。
     res
-      .writeHead(error ? 409 : 200, {
+      .writeHead(error && !remote ? 409 : 200, {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
-        'Content-Security-Policy':
-          "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+        'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'${remote ? `; script-src 'sha256-${selectionStartupHash}'` : ''}`,
       })
-      .end(selectionPage(accounts, error));
+      .end(selectionPage(accounts, remote, error));
   }
 
   private async openSelected(req: IncomingMessage, res: ServerResponse, configId: string) {
