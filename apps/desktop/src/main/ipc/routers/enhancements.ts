@@ -3,6 +3,7 @@ import { observable } from '@trpc/server/observable';
 import type { EnhancementUpdateNotice } from '../../../shared/enhancement_release';
 import { ENHANCEMENT_PACK_IDS } from '../../../shared/enhancement_manifest';
 import { requireBootstrap } from '../../context/app_context';
+import type { EnhancementStateChange } from '../../enhancements/updates';
 import {
   backgroundEnhancementDownload,
   enhancementDownloadTask,
@@ -15,6 +16,11 @@ const packId = z.enum(ENHANCEMENT_PACK_IDS);
 const selection = z.object({ ids: z.array(packId).min(1).max(ENHANCEMENT_PACK_IDS.length) });
 
 export const enhancementProcedures = {
+  onEnhancementStateChanged: procedure.subscription(() =>
+    observable<EnhancementStateChange>((emit) =>
+      requireBootstrap().enhancements.updates.subscribeState((change) => emit.next(change)),
+    ),
+  ),
   onEnhancementUpdates: procedure.subscription(() =>
     observable<EnhancementUpdateNotice[]>((emit) =>
       requireBootstrap().enhancements.updates.subscribeNotifications((notices) =>

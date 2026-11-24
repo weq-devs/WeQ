@@ -13,6 +13,8 @@ import type { ExportSavePolicy } from '@weq/service';
 
 const saveState = vi.hoisted(() => ({
   developmentTools: true,
+  catalogVersion: null as string | null,
+  catalogDownloaded: false,
   prepare: vi.fn(
     async (intent?: ExportSavePolicy) =>
       intent ?? { mode: 'before' as const, directory: '/fixture/export' },
@@ -27,6 +29,28 @@ vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({ account: { listExportTasks: { invalidate: async () => {} } } }),
+    bootstrap: {
+      enhancementPacks: {
+        useQuery: (
+          _: undefined,
+          options: {
+            select: (result: {
+              packs: { id: string; installedVersion: string | null; downloaded: boolean }[];
+            }) => string | null;
+          },
+        ) => ({
+          data: options.select({
+            packs: [
+              {
+                id: 'market-emoji',
+                installedVersion: saveState.catalogVersion,
+                downloaded: saveState.catalogDownloaded,
+              },
+            ],
+          }),
+        }),
+      },
+    },
     account: {
       dressup: {
         getState: { useQuery: () => ({ data: { qqOnline: false, own: { chatBgUrl: '' } } }) },
@@ -83,6 +107,32 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
 }));
+
+it('已打开的商城目录在同版本包补齐或删除后重新读取首页', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const root = createRoot(document.createElement('div'));
+  const search = vi.mocked(client.account.marketEmoji.searchCatalog.query);
+  search.mockClear();
+  saveState.catalogVersion = 'installed';
+  const render = () => act(async () => root.render(h(MarketEmojiBrowserLightbox)));
+  try {
+    await render();
+    expect(search).toHaveBeenCalledOnce();
+    saveState.catalogDownloaded = true;
+    await render();
+    expect(search).toHaveBeenCalledTimes(2);
+    saveState.catalogVersion = null;
+    saveState.catalogDownloaded = false;
+    await render();
+    expect(search).toHaveBeenCalledTimes(3);
+    expect(search).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: null }));
+  } finally {
+    saveState.catalogVersion = null;
+    saveState.catalogDownloaded = false;
+    act(() => root.unmount());
+    vi.unstubAllGlobals();
+  }
+});
 
 it('商城表情在页签内离线搜索和清空，切换页签保留独立关键词', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

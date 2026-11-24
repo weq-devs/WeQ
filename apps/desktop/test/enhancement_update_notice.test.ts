@@ -2,12 +2,16 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { EnhancementUpdateNotice } from '../src/shared/enhancement_release';
+import type { EnhancementStateChange } from '../src/main/enhancements/updates';
 import { useEnhancementUpdates } from '../src/renderer/src/hooks/useEnhancementUpdates';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { onOpenSettingsRequest } from '../src/renderer/src/lib/callSettingsBridge';
+import { useUpdateStore } from '../src/renderer/src/state/update';
 const fixture = vi.hoisted(() => ({
   emit: null as ((notices: EnhancementUpdateNotice[]) => void) | null,
+  emitState: null as ((change: EnhancementStateChange) => void) | null,
+  refetch: vi.fn(async () => {}),
   acknowledge: vi.fn(async () => true),
   unsubscribe: vi.fn(),
   packs: undefined as
@@ -24,7 +28,16 @@ const fixture = vi.hoisted(() => ({
     | undefined,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => {
-  const utils = { bootstrap: { enhancementPacks: { invalidate: async () => {} } } };
+  const query = { invalidate: async () => {} };
+  const utils = {
+    bootstrap: {
+      enhancementPacks: { cancel: async () => {}, invalidate: fixture.refetch },
+      localModelResources: query,
+      getLocalEngine: query,
+    },
+    settings: { intent: { getStatus: query } },
+    account: { intentSense: { getStatus: query }, dressup: { getState: query } },
+  };
   return {
     trpc: {
       useUtils: () => utils,
@@ -32,6 +45,12 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     },
     client: {
       bootstrap: {
+        onEnhancementStateChanged: {
+          subscribe: (_: unknown, handler: { onData: typeof fixture.emitState }) => {
+            fixture.emitState = handler.onData;
+            return { unsubscribe() {} };
+          },
+        },
         onEnhancementUpdates: {
           subscribe: (_: unknown, handler: { onData: typeof fixture.emit }) => {
             fixture.emit = handler.onData;
@@ -46,10 +65,13 @@ vi.mock('../src/renderer/src/trpc/client', () => {
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   useToast.setState({ toasts: [], leaving: [], seq: 0 });
+  useUpdateStore.setState({ packsAvailable: false });
 });
 afterEach(() => {
   useDialog.getState().close();
   fixture.emit = null;
+  fixture.emitState = null;
+  fixture.refetch.mockReset();
   fixture.packs = undefined;
   vi.clearAllMocks();
   vi.unstubAllGlobals();
@@ -155,6 +177,40 @@ it('安装确认前保留增强包提醒，安装一部分只移除对应项', (
       packs: [pack(first, first.contentVersion), pack(second, second.contentVersion)],
     };
     render();
+    expect(useToast.getState().leaving).toEqual([item!.id]);
+  } finally {
+    unmount();
+  }
+});
+
+it('其他端安装完成不需要新的更新通知，刷新后收起红点和旧横幅', async () => {
+  const notice = notices[0]!;
+  const initial = {
+    id: notice.id,
+    installed: true,
+    installedVersion: 'legacy',
+    ready: true,
+    busy: false,
+    updateAvailable: true,
+  };
+  fixture.packs = { packs: [initial] };
+  let render!: () => void;
+  const unmount = mount((refresh) => {
+    render = refresh;
+  });
+  try {
+    act(() => fixture.emit?.([notice]));
+    act(() => fixture.emit?.([]));
+    const [item] = useToast.getState().toasts;
+    expect(useUpdateStore.getState().packsAvailable).toBe(true);
+    fixture.refetch.mockImplementation(async () => {
+      fixture.packs = {
+        packs: [{ ...initial, installedVersion: notice.contentVersion, updateAvailable: false }],
+      };
+      render();
+    });
+    await act(async () => fixture.emitState?.({ kind: 'resources', id: notice.id }));
+    expect(useUpdateStore.getState().packsAvailable).toBe(false);
     expect(useToast.getState().leaving).toEqual([item!.id]);
   } finally {
     unmount();

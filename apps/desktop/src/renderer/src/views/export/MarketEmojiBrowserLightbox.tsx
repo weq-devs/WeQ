@@ -425,6 +425,11 @@ function MarketEmojiBrowser({
   preferPackImage,
 }: MarketEmojiBrowserProps & { preferPackImage: boolean }): ReactElement {
   const utils = trpc.useUtils();
+  const { data: installedCatalogVersion } = trpc.bootstrap.enhancementPacks.useQuery(undefined, {
+    select: ({ packs }) =>
+      packs.find(({ id, downloaded }) => id === 'market-emoji' && downloaded)?.installedVersion ??
+      null,
+  });
   const dialog = useAppDialog();
   const report = useExportReportDialog();
   const save = useExportSavePolicy();
@@ -582,7 +587,17 @@ function MarketEmojiBrowser({
       }
     })();
     return cancel;
-  }, [query, feeSel, latest, embedded, composer, catalogCache, catalogKey, refresh]);
+  }, [
+    query,
+    feeSel,
+    latest,
+    embedded,
+    composer,
+    catalogCache,
+    catalogKey,
+    refresh,
+    installedCatalogVersion,
+  ]);
 
   const loadMore = useCallback(async (): Promise<void> => {
     const current = catalogRef.current;

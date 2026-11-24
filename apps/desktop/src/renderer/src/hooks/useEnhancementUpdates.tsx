@@ -54,7 +54,6 @@ export function useEnhancementUpdates() {
   useEffect(() => {
     const subscription = client.bootstrap.onEnhancementUpdates.subscribe(undefined, {
       onData: (notices) => {
-        void utils.bootstrap.enhancementPacks.invalidate();
         const updates = notices.filter(
           (notice) => shown.current.get(notice.id) !== notice.contentVersion,
         );
@@ -76,6 +75,31 @@ export function useEnhancementUpdates() {
           );
       },
       onError: (error) => console.error('[enhancements] notification subscription error', error),
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+  useEffect(() => {
+    const refreshPacks = async () => {
+      // 首次读取若仍在途，不能复用可能早于变更的旧请求。
+      await utils.bootstrap.enhancementPacks.cancel();
+      await utils.bootstrap.enhancementPacks.invalidate();
+    };
+    const subscription = client.bootstrap.onEnhancementStateChanged.subscribe(undefined, {
+      onData: (change) => {
+        void refreshPacks();
+        if (change.kind !== 'snapshot' && change.kind !== 'resources') return;
+        const id = 'id' in change ? change.id : undefined;
+        if (!id || id === 'text' || id === 'voice' || id === 'intent') {
+          void utils.bootstrap.localModelResources.invalidate();
+          if (id !== 'voice') {
+            void utils.bootstrap.getLocalEngine.invalidate();
+            void utils.settings.intent.getStatus.invalidate();
+            void utils.account.intentSense.getStatus.invalidate();
+          }
+        }
+        if (!id || id === 'dress') void utils.account.dressup.getState.invalidate();
+      },
+      onError: (error) => console.error('[enhancements] state subscription error', error),
     });
     return () => subscription.unsubscribe();
   }, [utils]);

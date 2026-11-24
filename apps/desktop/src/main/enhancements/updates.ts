@@ -39,7 +39,7 @@ import {
 } from '../../shared/enhancement_release';
 import { createEnhancementCatalog, createRelease, releaseContentVersion } from './release_catalog';
 import { enhancementTaskNeedsInput, startEnhancementDownloads } from './tasks';
-import type { EnhancementPacks } from './packs';
+import type { EnhancementPacks, PackChange } from './packs';
 
 export interface EnhancementCheckState {
   phase: 'unchecked' | 'checking' | 'waiting-network' | 'checked' | 'failed';
@@ -47,6 +47,7 @@ export interface EnhancementCheckState {
   error?: string;
   pauseReasons?: string[];
 }
+export type EnhancementStateChange = PackChange | { kind: 'snapshot' | 'check' | 'preferences' };
 const releaseList = z.array(
   z.object({
     tag_name: z.string(),
@@ -119,6 +120,7 @@ export class EnhancementUpdateController {
   private readonly notifiedVersions = new Map<EnhancementPackId, string>();
   private notifications: EnhancementUpdateNotice[] = [];
   private readonly notificationListeners = new Set<(notices: EnhancementUpdateNotice[]) => void>();
+  private readonly checkListeners = new Set<() => void>();
   private saving = Promise.resolve();
   private readonly scheduler: UpdateCheckScheduler;
   private readonly loaded: Promise<void>;
@@ -237,6 +239,21 @@ export class EnhancementUpdateController {
   state(id: EnhancementPackId) {
     return this.states.get(id) ?? { phase: 'unchecked' as const };
   }
+  subscribeState(listener: (change: EnhancementStateChange) => void) {
+    const stopPacks = this.packs.onChanged(listener);
+    const stopSettings = onSettingsChanged((change) => {
+      if (!change || change.fields.includes('enhancementUpdates'))
+        listener({ kind: 'preferences' });
+    });
+    const check = () => listener({ kind: 'check' });
+    this.checkListeners.add(check);
+    listener({ kind: 'snapshot' });
+    return () => {
+      stopPacks();
+      stopSettings();
+      this.checkListeners.delete(check);
+    };
+  }
   subscribeNotifications(listener: (notices: EnhancementUpdateNotice[]) => void) {
     this.notificationListeners.add(listener);
     listener(this.notifications);
@@ -293,8 +310,10 @@ export class EnhancementUpdateController {
       );
     };
     this.stopSettings = onSettingsChanged(configure);
-    this.stopSettled = this.packs.onSettled(() => {
+    this.stopSettled = this.packs.onChanged(({ kind }) => {
+      if (kind !== 'resources') return;
       void this.installKnown(ENHANCEMENT_PACK_IDS).catch(() => {});
+      if (this.notifications.length) void this.refreshNotifications().catch(() => {});
     });
     configure();
     void this.loaded.then(() => this.packs.reconcileExisting());
@@ -329,6 +348,7 @@ export class EnhancementUpdateController {
       this.continueCheck = undefined;
       this.forceCheck = false;
       this.pendingIds.clear();
+      for (const listener of this.checkListeners) listener();
     });
     return this.pending;
   }
@@ -350,13 +370,16 @@ export class EnhancementUpdateController {
       policyPaused = waiting;
       gate.restrict('network', waiting);
       if (gate.paused) for (const request of this.requests) request.abort(CHECK_PAUSED);
+      const phase = gate.paused ? 'waiting-network' : 'checking';
+      const phaseChanged = ids.some((id) => this.state(id).phase !== phase);
       for (const id of ids)
         this.states.set(id, {
           ...this.state(id),
-          phase: gate.paused ? 'waiting-network' : 'checking',
+          phase,
           pauseReasons: gate.pauseReasons,
           error: undefined,
         });
+      if (phaseChanged) for (const listener of this.checkListeners) listener();
     };
     this.continueCheck = () => {
       gate.continue();

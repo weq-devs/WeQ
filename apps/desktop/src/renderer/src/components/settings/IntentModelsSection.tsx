@@ -9,7 +9,10 @@ export function IntentModelsSection() {
   const active = useTabActive();
   const utils = trpc.useUtils();
   const showError = useDialog((state) => state.showError);
-  const resources = trpc.bootstrap.localModelResources.useQuery(undefined, { enabled: active });
+  const resources = trpc.bootstrap.localModelResources.useQuery(undefined, {
+    enabled: active,
+    refetchOnMount: true,
+  });
   const engine = trpc.bootstrap.getLocalEngine.useQuery(undefined, {
     enabled: active,
     staleTime: 0,

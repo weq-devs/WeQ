@@ -75,6 +75,8 @@ export interface PackOperation {
   error?: string;
 }
 
+export type PackChange = { kind: 'operation' | 'resources'; id: EnhancementPackId };
+
 async function waitUnlessAborted(work: Promise<void>, signal: AbortSignal) {
   let abort!: () => void;
   try {
@@ -99,10 +101,13 @@ export class EnhancementPacks {
     this.resolveRelease = resolve;
   }
   private preparationObserver?: (id: EnhancementPackId, name: string) => void;
-  private readonly settled = new Set<(id: EnhancementPackId) => void>();
-  onSettled(listener: (id: EnhancementPackId) => void) {
-    this.settled.add(listener);
-    return () => this.settled.delete(listener);
+  private readonly listeners = new Set<(change: PackChange) => void>();
+  onChanged(listener: (change: PackChange) => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  private publish(change: PackChange) {
+    for (const listener of this.listeners) listener(change);
   }
   observePreparations(observer: (id: EnhancementPackId, name: string) => void) {
     this.preparationObserver = observer;
@@ -321,6 +326,7 @@ export class EnhancementPacks {
               .find(Boolean) ?? (download ? this.releases.get(id)?.blocker : null));
       if (blocker) {
         this.operations.set(id, { phase: 'failed', received: 0, total: 0, error: blocker });
+        this.publish({ kind: 'operation', id });
         continue;
       }
       this.operations.set(id, {
@@ -351,13 +357,14 @@ export class EnhancementPacks {
           const latest = this.releases.get(id);
           if (!abort.signal.aborted && latest && !latest.blocker)
             this.selectComponents(latest.release);
-          setTimeout(() => {
-            for (const listener of this.settled) listener(id);
-          }, 0).unref();
+          // 让同一操作的任务回执先完成；删除会发布自己的最终状态。
+          if (!abort.signal.aborted)
+            setTimeout(() => this.publish({ kind: 'resources', id }), 0).unref();
         });
       this.pending.set(id, task);
       this.queue = previousTask.then(() => task);
       if (download) this.preparationObserver?.(id, pack.name);
+      this.publish({ kind: 'operation', id });
     }
   }
 
@@ -604,6 +611,7 @@ export class EnhancementPacks {
     const operation = this.operations.get(id);
     if (operation) this.operations.set(id, { ...operation, paused: true, pauseReasons: ['user'] });
     control.active?.pause?.();
+    this.publish({ kind: 'operation', id });
   }
   resume(id: EnhancementPackId) {
     if (!this.pending.has(id) || this.isRemoving(id)) return;
@@ -613,6 +621,7 @@ export class EnhancementPacks {
     control.continued = true;
     control.gate.continue();
     control.active?.resume?.();
+    this.publish({ kind: 'operation', id });
   }
 
   async remove(id: EnhancementPackId): Promise<void> {
@@ -620,8 +629,12 @@ export class EnhancementPacks {
     if (pending) return pending;
     const pack = this.definitions.find((pack) => pack.id === id);
     if (!pack || pack.enabled === false) throw new Error('增强包不可用');
-    const removal = this.removePack(pack).finally(() => this.removals.delete(id));
+    const removal = this.removePack(pack).finally(() => {
+      this.removals.delete(id);
+      setTimeout(() => this.publish({ kind: 'resources', id }), 0).unref();
+    });
     this.removals.set(id, removal);
+    this.publish({ kind: 'operation', id });
     return removal;
   }
 

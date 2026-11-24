@@ -34,6 +34,11 @@ import {
 import { updateTransferPolicy } from '@weq/service/transfer-policy';
 import { networkCost } from '@weq/service/data-saver';
 import { enhancementEngineCompatibility } from '../src/shared/enhancement_manifest';
+import { enhancementProcedures } from '../src/main/ipc/routers/enhancements';
+import { router } from '../src/main/ipc/trpc';
+
+const host = vi.hoisted(() => ({ bootstrap: {} as unknown }));
+vi.mock('../src/main/context/app_context', () => ({ requireBootstrap: () => host.bootstrap }));
 
 const roots: string[] = [];
 const controllers: EnhancementUpdateController[] = [];
@@ -764,6 +769,66 @@ it('增强包按内容版本提醒，已提醒版本在 WeQ 升级后不重复�
   expect(nextNotices).toHaveBeenLastCalledWith([
     { id: 'dress', name: '装扮', contentVersion: next.contentVersion },
   ]);
+});
+
+it('另一端可在增强包安装、失败和删除后读取新状态，即使更新通知已确认', async () => {
+  const f = await fixture();
+  host.bootstrap = {
+    userConfig: f.config,
+    enhancements: { packs: f.packs, updates: f.controller, inspected: Promise.resolve() },
+  };
+  const api = router({ bootstrap: router(enhancementProcedures) });
+  const desktop = api.createCaller({}).bootstrap;
+  const remote = api.createCaller({ authorize: () => {} }).bootstrap;
+  const events = await desktop.onEnhancementStateChanged();
+  const snapshots: ReturnType<typeof desktop.enhancementPacks>[] = [];
+  const state = vi.fn();
+  const subscription = events.subscribe({
+    next: (change) => {
+      state(change);
+      if (change.kind === 'resources' || change.kind === 'snapshot')
+        snapshots.push(desktop.enhancementPacks());
+    },
+  });
+  const notifications = vi.fn();
+  const stopNotifications = f.controller.subscribeNotifications(notifications);
+  try {
+    expect(await snapshots[0]).toMatchObject({ packs: [{ installed: true }] });
+    await remote.setEnhancementUpdates({ autoCheck: false });
+    expect(state).toHaveBeenLastCalledWith({ kind: 'preferences' });
+    await remote.checkEnhancementUpdates({ ids: ['dress'] });
+    expect(state).toHaveBeenLastCalledWith({ kind: 'check' });
+    expect((await desktop.enhancementPacks()).packs[0]?.updateAvailable).toBe(true);
+    await remote.acknowledgeEnhancementUpdates([
+      { id: 'dress', contentVersion: f.next.contentVersion },
+    ]);
+    expect(notifications).toHaveBeenLastCalledWith([]);
+    notifications.mockClear();
+
+    f.ensure.mockRejectedValueOnce(new Error('download failed'));
+    await remote.prepareEnhancementPacks({ ids: ['dress'] });
+    await vi.waitFor(async () =>
+      expect(await snapshots.at(-1)).toMatchObject({
+        packs: [{ busy: false, updateAvailable: true, operation: { phase: 'failed' } }],
+      }),
+    );
+    await remote.prepareEnhancementPacks({ ids: ['dress'] });
+    await vi.waitFor(async () =>
+      expect(await snapshots.at(-1)).toMatchObject({
+        packs: [{ ready: true, updateAvailable: false, installedVersion: f.next.contentVersion }],
+      }),
+    );
+    await remote.deleteEnhancementPack({ id: 'dress' });
+    await vi.waitFor(async () =>
+      expect(await snapshots.at(-1)).toMatchObject({
+        packs: [{ installed: false, updateAvailable: false, busy: false }],
+      }),
+    );
+    expect(notifications).not.toHaveBeenCalled();
+  } finally {
+    subscription.unsubscribe();
+    stopNotifications();
+  }
 });
 
 it('新订阅可取得尚未提醒的结果，旧弹窗确认不会清除新内容版本', async () => {

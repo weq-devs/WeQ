@@ -123,8 +123,23 @@ it('装扮和省流量只刷新关联服务，旧事件仍触发完整校准', a
   expect(mocks.snapshot).toHaveBeenCalledOnce();
   mocks.invalidations.length = 0;
   await act(async () => event!({ revision: 2, section: 'preferences' }));
-  expect(mocks.invalidations).toHaveLength(14);
+  expect(mocks.invalidations).toContain('bootstrap.localModelResources');
+  expect(mocks.invalidations).toContain('bootstrap.getLocalEngine');
   expect(mocks.snapshot).toHaveBeenCalledTimes(2);
+});
+
+it('另一端切换本地模型后同时刷新资源选择和本地引擎', async () => {
+  const { event } = await fixture();
+  await act(async () =>
+    event!({
+      revision: 1,
+      section: 'preferences',
+      settings: { fields: ['modelResources'], groups: [], clientFields: [] },
+    }),
+  );
+  expect(mocks.invalidations).toContain('bootstrap.localModelResources');
+  expect(mocks.invalidations).toContain('bootstrap.getLocalEngine');
+  expect(mocks.snapshot).not.toHaveBeenCalled();
 });
 
 it('收到其他端的 QQ 在线能力开关变更时立即刷新能力状态', async () => {

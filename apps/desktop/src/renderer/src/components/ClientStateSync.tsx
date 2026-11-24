@@ -66,6 +66,8 @@ function invalidateSettingsChange(utils: SettingsUtils, change?: SettingsChange)
   if (!change) {
     // 恢复、配置重读和旧宿主未提供字段时，保留完整校准。
     invalidateModelSettings(utils);
+    void utils.bootstrap.localModelResources.invalidate();
+    void utils.bootstrap.getLocalEngine.invalidate();
     void utils.settings.invalidate();
     void utils.account.intentSense.getStatus.invalidate();
     void utils.account.antiRecall.getStatus.invalidate();
@@ -80,6 +82,10 @@ function invalidateSettingsChange(utils: SettingsUtils, change?: SettingsChange)
   const models = fields.includes('agentLab');
   const notifications = fields.includes('notificationEvents');
   if (models) invalidateModelSettings(utils);
+  if (fields.includes('modelResources') || fields.includes('ocr')) {
+    void utils.bootstrap.localModelResources.invalidate();
+  }
+  if (fields.includes('modelResources')) void utils.bootstrap.getLocalEngine.invalidate();
   if (models || fields.includes('modelResources') || groups.includes('intent')) {
     void utils.settings.intent.getStatus.invalidate();
     void utils.account.intentSense.getStatus.invalidate();
