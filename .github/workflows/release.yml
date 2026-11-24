@@ -43,14 +43,14 @@ jobs:
       matrix:
         component: [remote-network, enhancements]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.source_ref }}
           persist-credentials: false
           submodules: recursive
       - name: Setup Go
         if: matrix.component == 'remote-network'
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: tools/remote-network/go.mod
           cache-dependency-path: tools/remote-network/go.sum
@@ -67,9 +67,9 @@ jobs:
           go build -v -p 2 -trimpath '-ldflags=-s -w' -o "$env:RUNNER_TEMP\weq-remote-network.exe" .
           if ($LASTEXITCODE -ne 0) { throw 'Go helper build failed' }
           go version -m -json "$env:RUNNER_TEMP\weq-remote-network.exe"
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
         if: matrix.component == 'enhancements'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         if: matrix.component == 'enhancements'
         with:
           node-version: 22
@@ -114,7 +114,7 @@ jobs:
       commit: ${{ steps.check.outputs.commit }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -140,7 +140,7 @@ jobs:
     outputs:
       id: ${{ steps.draft.outputs.id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
       - name: Create or validate draft
@@ -162,21 +162,21 @@ jobs:
     needs: [prepare, checks]
     if: ${{ !cancelled() && needs.checks.result == 'success' && (needs.prepare.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.package_candidate)) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Setup Go for Remote helper
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: tools/remote-network/go.mod
           cache-dependency-path: tools/remote-network/go.sum
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
@@ -310,21 +310,21 @@ jobs:
     needs: [windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Setup Go for Remote helper
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: tools/remote-network/go.mod
           cache-dependency-path: tools/remote-network/go.sum
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           architecture: x64
@@ -423,21 +423,21 @@ jobs:
     needs: [windows]
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Setup Go for Remote helper
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: tools/remote-network/go.mod
           cache-dependency-path: tools/remote-network/go.sum
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           architecture: arm64
@@ -533,21 +533,21 @@ jobs:
     needs: [windows]
     runs-on: macos-15-intel
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Setup Go for Remote helper
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: tools/remote-network/go.mod
           cache-dependency-path: tools/remote-network/go.sum
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           architecture: x64
@@ -661,21 +661,21 @@ jobs:
     needs: [windows]
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Setup Go for Remote helper
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: tools/remote-network/go.mod
           cache-dependency-path: tools/remote-network/go.sum
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           # 显式指定架构：macOS arm64 runner 的默认 shell / setup-node 自带
@@ -793,7 +793,7 @@ jobs:
     needs: [macos-x64, macos-arm64]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download per-arch update manifests
         env:
@@ -855,15 +855,15 @@ jobs:
     env:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           architecture: ${{ matrix.architecture }}
@@ -928,7 +928,7 @@ jobs:
     needs: [prepare, windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
@@ -1037,12 +1037,12 @@ jobs:
     needs: [gate, checks, prepare, windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web, notes]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
           submodules: recursive
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: pnpm install --filter @weq/network --frozen-lockfile --ignore-scripts
@@ -1076,11 +1076,11 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: pnpm install --filter @weq/network --frozen-lockfile --ignore-scripts
@@ -1092,7 +1092,7 @@ jobs:
         run: node scripts/publish-announcements.mjs publish-release
       - name: Preserve previous signed announcements on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: announcement-backup-${{ github.run_attempt }}
           path: ${{ runner.temp }}/announcement-backup
@@ -1115,15 +1115,15 @@ jobs:
     if: needs.gate.outputs.release == 'true' && needs.gate.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -1177,7 +1177,7 @@ jobs:
     if: needs.gate.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # 拉全量产物（约 2.6 GB）用来算 piece 哈希。
       - name: Download release assets

@@ -51,14 +51,14 @@ jobs:
       # 那一晚跑：CDN 放开、上一轮扫描失败都需要第二天重试。
       unverified: ${{ steps.plan.outputs.unverified }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: main
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
@@ -177,11 +177,11 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: main
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -415,7 +415,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: signcheck-${{ matrix.platform }}
           path: ${{ runner.temp }}/qq/result.json
@@ -430,7 +430,7 @@ jobs:
     if: success() && (needs.refresh.outputs.unverified != '[]' || inputs.force_compat)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: main
 
@@ -438,7 +438,7 @@ jobs:
       # 每个平台的 artifact 落到 reports/<platform>/result.json。
       # 不 merge-multiple：同名文件会互相覆盖，剩下的就只剩一个平台了。
       - name: Download reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: signcheck-*
           path: reports
@@ -483,7 +483,7 @@ jobs:
     if: ${{ !cancelled() && needs.refresh.outputs.has_upgrade == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: main
 
@@ -492,7 +492,7 @@ jobs:
       # download-artifact@v4 没有 if-no-files-found：匹配不到时本身就会跳过，
       # 正好对应「compat 没跑」的情况。
       - name: Download reports
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         # 下载失败也要把报告发出去：脚本会把缺失的报告写成「未产出」，
         # 总比因为 artifact 服务抖动而整条通知消失强。
         continue-on-error: true
