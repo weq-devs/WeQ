@@ -5,6 +5,8 @@ import { createServer } from 'node:http';
 import { initTRPC, TRPCError } from '@trpc/server';
 import { observable } from '@trpc/server/observable';
 import { HTTP_BATCH_MAX_URL_LENGTH } from '../src/renderer/src/lib/queryInputBatches';
+import { summarizeConversationDirectoryReads } from '../src/renderer/src/lib/conversationDirectory';
+import { setRemoteWorkspaceCheckPending } from '../src/renderer/src/lib/remoteWorkspaceCheck';
 import { useWebConnection } from '../src/renderer/src/state/webConnection';
 import { createTrpcHandler } from '../src/main/web/trpc_adapter';
 
@@ -22,6 +24,7 @@ beforeEach(() => {
   vi.stubGlobal('location', Object.assign(new URL('http://localhost'), { reload: vi.fn() }));
 });
 afterEach(() => {
+  setRemoteWorkspaceCheckPending(false);
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
@@ -322,4 +325,63 @@ it('Remote 完整群目录和聚合批次挂起时，摘要、未读和小查询
     await Promise.all(requests);
   }
   expect(completed).toEqual(new Set([...slow, ...fast]));
+});
+
+it('Remote 会话目录等待核验时不报读取失败，真实失败仍提示并合并重复原因', async () => {
+  const paths = [
+    'account.listAllGroups',
+    'account.listHiddenSessions',
+    'account.listDeletedSessions',
+  ];
+  const repeated = '正在连接电脑，本机缓存可继续浏览';
+  const distinct = '已删除会话目录读取失败';
+  const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+    const url = new URL(String(input), location.origin);
+    const results = url.pathname
+      .slice('/trpc/'.length)
+      .split(',')
+      .map((path) => {
+        if (path === 'startup.snapshot') return { result: { data: '已核验' } };
+        return {
+          error: {
+            message: path === 'account.listDeletedSessions' ? distinct : repeated,
+            code: -32603,
+            data: { code: 'INTERNAL_SERVER_ERROR', httpStatus: 500 },
+          },
+        };
+      });
+    return new Response(JSON.stringify(url.searchParams.has('batch') ? results : results[0]));
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const { createLinks } = await import('../src/renderer/src/trpc/transport.web');
+  const client = createTRPCUntypedClient({ links: createLinks() });
+  const readDirectory = () =>
+    Promise.all(
+      paths.map((path) =>
+        client.query(path).then(
+          () => ({ error: null }),
+          (error: Error) => ({ error }),
+        ),
+      ),
+    );
+
+  setRemoteWorkspaceCheckPending(true);
+  const pending = await readDirectory();
+  expect(summarizeConversationDirectoryReads(pending)).toEqual({
+    waitingForRemote: true,
+    error: undefined,
+  });
+  expect(fetcher).not.toHaveBeenCalled();
+  await expect(client.query('startup.snapshot')).resolves.toBe('已核验');
+
+  setRemoteWorkspaceCheckPending(false);
+  const failures = await readDirectory();
+  expect(summarizeConversationDirectoryReads([...pending, ...failures])).toEqual({
+    waitingForRemote: true,
+    error: `${repeated}；${distinct}`,
+  });
+  expect(summarizeConversationDirectoryReads(failures)).toEqual({
+    waitingForRemote: false,
+    error: `${repeated}；${distinct}`,
+  });
 });

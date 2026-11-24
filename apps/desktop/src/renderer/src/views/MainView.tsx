@@ -458,6 +458,7 @@ import {
   ConversationDirectoryContext,
   ContactDirectoryContext,
   guildConversationRow,
+  summarizeConversationDirectoryReads,
   virtualConversationRow,
   type ConcreteConversation,
   type ConversationLocateRequest,
@@ -9417,14 +9418,13 @@ function MainWorkspace(): ReactElement {
                   : conversationView === 'deleted'
                     ? [deletedSessions]
                     : [contacts, allGroups, hiddenSessions, deletedSessions];
-  const currentViewError =
-    currentViewQueries
-      .map((query) => query.error?.message)
-      .filter(Boolean)
-      .join('；') || undefined;
+  const { error: currentViewError, waitingForRemote } =
+    summarizeConversationDirectoryReads(currentViewQueries);
   const currentViewLoading =
     !currentViewRows.length && currentViewQueries.some((query) => query.isLoading);
   const currentViewCalendarReady =
+    !remoteWorkspaceCheckPending() &&
+    !waitingForRemote &&
     currentViewQueries.every((query) => !query.isLoading) &&
     (!currentViewPaged || !contacts.hasNextPage || Boolean(contacts.error));
 

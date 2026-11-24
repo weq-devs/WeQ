@@ -1,6 +1,8 @@
 let pending = false;
 const listeners = new Set<() => void>();
 
+export class RemoteWorkspacePendingError extends Error {}
+
 export function remoteWorkspaceCheckPending() {
   return pending;
 }

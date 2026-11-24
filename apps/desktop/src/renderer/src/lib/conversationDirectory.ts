@@ -4,8 +4,27 @@ import type { RoamingTarget } from '@weq/service';
 import type { ConversationScope } from '@weq/service/search-policy';
 import { previewNodes, previewNodesToText } from './conversationPreview';
 import type { ConversationView, ConversationViewDirectory } from './conversationViews';
+import { RemoteWorkspacePendingError } from './remoteWorkspaceCheck';
 
 export type ConcreteConversation = Exclude<Conversation, { type: 'merged' }>;
+
+export function summarizeConversationDirectoryReads(
+  queries: readonly { error: { message: string; cause?: unknown } | null }[],
+) {
+  const messages = new Set<string>();
+  let waitingForRemote = false;
+  for (const { error } of queries) {
+    if (
+      error instanceof RemoteWorkspacePendingError ||
+      error?.cause instanceof RemoteWorkspacePendingError
+    ) {
+      waitingForRemote = true;
+    } else if (error?.message) {
+      messages.add(error.message);
+    }
+  }
+  return { waitingForRemote, error: [...messages].join('；') || undefined };
+}
 
 export interface ConversationLocateRequest {
   id: string;

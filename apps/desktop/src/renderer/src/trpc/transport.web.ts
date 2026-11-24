@@ -22,7 +22,10 @@ import { networkClientId } from '../lib/networkClientId';
 import { HTTP_BATCH_MAX_URL_LENGTH } from '../lib/queryInputBatches';
 import { fetchRpcWithDeadline } from './httpDeadline';
 import { prepareRpcBatchResponse } from './httpBatchStream';
-import { remoteWorkspaceCheckPending } from '../lib/remoteWorkspaceCheck';
+import {
+  RemoteWorkspacePendingError,
+  remoteWorkspaceCheckPending,
+} from '../lib/remoteWorkspaceCheck';
 import { isRemoteClient } from '../lib/remoteClient';
 import { remoteCacheLink } from './remoteCacheLink';
 import {
@@ -54,7 +57,7 @@ function checkCachedWorkspace(input: RequestInfo | URL) {
       path,
     )
   )
-    throw new Error('正在连接电脑，本机缓存可继续浏览');
+    throw new RemoteWorkspacePendingError('正在连接电脑，本机缓存可继续浏览');
 }
 
 const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
