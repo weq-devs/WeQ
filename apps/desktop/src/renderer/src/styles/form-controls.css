@@ -136,16 +136,46 @@ html[data-theme] input:is([type='checkbox'], [type='radio'], [type='range']):foc
   }
 }
 
-.weq-disclosure-summary {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+/* 保留原生展开交互，统一使用线形箭头。已有 Lucide 箭头的标题沿用自身布局。 */
+:where(details > summary) {
+  --weq-disclosure-angle: -45deg;
   list-style: none;
   cursor: pointer;
 }
 
-.weq-disclosure-summary::-webkit-details-marker {
+:where(details > summary)::-webkit-details-marker {
   display: none;
+}
+
+:where(details[open] > summary) {
+  --weq-disclosure-angle: 45deg;
+}
+
+:where(
+  details
+    > summary:not([aria-disabled='true']):not(
+      :has(> svg:is(.lucide-chevron-right, .lucide-chevron-down, .lucide-chevron-up))
+    )
+)::before {
+  content: '';
+  box-sizing: border-box;
+  display: inline-block;
+  flex: none;
+  inline-size: 0.56em;
+  block-size: 0.56em;
+  margin-inline: 0.14em 0.62em;
+  vertical-align: 0.12em;
+  color: var(--weq-fg-secondary, currentColor);
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  border-end-end-radius: 1px;
+  transform: rotate(var(--weq-disclosure-angle));
+}
+
+.weq-disclosure-summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .weq-disclosure-summary > .weq-disclosure-chevron {

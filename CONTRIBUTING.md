@@ -110,6 +110,7 @@ git checkout -b feat/your-feature
 
 - 桌面和共用界面跟随浅深主题、自定义主题色和聊天背景。沿用 [样式入口](./apps/desktop/src/renderer/src/styles/index.css) 的语义 token。高亮、描边、图表与强调色使用 `--weq-accent-effective`，透明色用 `color-mix()` 派生。
 - 普通按钮用中性的 `weq-set-btn`，保存、提交、确认或流程的主要下一步加 `weq-set-btn-primary`。一个操作区通常至多一个主按钮。开关和选中状态沿用各自的样式，`weq-set-btn-soft` 是旧中性用法。
+- 展开与收起统一使用线形箭头，禁止使用实心三角、三角字符或浏览器默认折叠标记。原生 `details` / `summary` 默认由共用样式绘制箭头，折叠时向右、展开时向下。需要定制位置或布局时，可在 `summary` 下直接放置 Lucide `ChevronRight` / `ChevronDown` 并随状态改变方向。独立页面同样使用线形箭头。
 - 全局恢复、永久删除整段历史和清理不可再生媒体等操作用 `data-danger="solid"`。局部恢复、删除单项配置等用 `data-danger="outline"`，只染文字、图标和已有的描边。菜单只染文字和图标。危险与禁用样式沿用控件尺寸、圆角、描边厚度和阴影。危险色独立于主题色，需兼顾悬停和键盘焦点。
 - 危险等级由实际操作提供，确认框使用 `danger`，QQ 操作和菜单传递同一等级。文案、提示 `tone`、清空搜索或选择、取消、关闭、返回和普通重试均不触发危险样式。
 - 深色差异用 `html[data-theme="dark"]` 覆盖。`dark:` 桥接用于 streamdown。检查硬编码白色遮罩、描边和半透明栏是否适配。聊天浮层与卡片沿用聊天画布的背景处理。

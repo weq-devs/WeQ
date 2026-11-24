@@ -170,15 +170,30 @@
   margin: 0;
 }
 
-.weq-usage-retention summary,
-.weq-usage-personas summary {
+.weq-usage-retention > summary {
   width: fit-content;
   max-width: 100%;
-  cursor: pointer;
   color: var(--weq-fg-primary);
 }
 
-.weq-usage-retention[open] summary,
+.weq-usage-personas > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--weq-fg-primary);
+}
+
+.weq-usage-personas > summary::before {
+  order: 1;
+  margin-inline: auto 3px;
+}
+
+.weq-usage-retention > summary:hover::before,
+.weq-usage-personas > summary:hover::before {
+  color: var(--weq-fg-primary);
+}
+
+.weq-usage-retention[open] > summary,
 .weq-usage-personas[open] > summary {
   margin-bottom: 10px;
 }
