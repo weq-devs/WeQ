@@ -122,6 +122,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version-file: .node-version
+          package-manager-cache: false
 
       - name: Fetch release branches
         run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main +refs/heads/dev:refs/remotes/origin/dev
@@ -152,6 +153,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version-file: .node-version
+          package-manager-cache: false
       - name: Create or validate draft
         id: draft
         env:
@@ -808,6 +810,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version-file: .node-version
+          package-manager-cache: false
 
       - name: Download per-arch update manifests
         env:
@@ -950,6 +953,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version-file: .node-version
+          package-manager-cache: false
 
       # 内置 native 的构建 / 过期时间来自 native/pinned.json —— 那是本地
       # `pnpm native:fetch` 装完 .node 后写回的（日期源头是二进制自报的
@@ -1064,6 +1068,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version-file: .node-version
+          package-manager-cache: false
       - run: pnpm install --filter @weq/network --frozen-lockfile --ignore-scripts
       - name: Verify release metadata signer
         env:
@@ -1102,6 +1107,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version-file: .node-version
+          package-manager-cache: false
       - run: pnpm install --filter @weq/network --frozen-lockfile --ignore-scripts
       - name: Publish signed release announcement
         env:
@@ -1145,6 +1151,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version-file: .node-version
+          package-manager-cache: false
 
       # 私钥只落在 runner 的临时目录里，结束即随虚拟机销毁；写入前先清空
       # 一个全新目录，避免 ~/.ssh 里别的密钥（如果有）被一起使用。
@@ -1202,6 +1209,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version-file: .node-version
+          package-manager-cache: false
 
       # 拉全量产物（约 2.6 GB）用来算 piece 哈希。
       - name: Download release assets

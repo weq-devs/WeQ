@@ -36,6 +36,8 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version-file: .node-version
+          # 此任务不装 pnpm；仅运行 Node 脚本。
+          package-manager-cache: false
 
       - name: Verify docs submodule commit is pushed
         run: node scripts/check-docs-submodule.mjs

@@ -184,6 +184,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          package-manager-cache: false
 
       - name: Resolve target version
         id: target
@@ -438,6 +439,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 24
+          package-manager-cache: false
 
       # compat 的各 job 把报告放在 artifact 里；这里逐个取回来汇总。
       # 每个平台的 artifact 落到 reports/<platform>/result.json。
@@ -496,6 +498,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 24
+          package-manager-cache: false
 
       # compat 的每个平台各上传一个 signcheck-<platform> artifact，这里只读
       # 报告，不重新跑验证。被跳过 / 早退的平台没有报告，脚本会写成「未执行」。
