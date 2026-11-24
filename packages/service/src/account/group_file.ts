@@ -212,29 +212,32 @@ export class GroupFileService {
       busId: file.busId,
     });
     check();
+    const savedId = result.saveFilePath || fileId;
     const folders = directory === '/' ? ['/'] : [directory, '/'];
     for (const folder of folders) {
       const refreshed = await this.list(groupId, folder, { beforeRequest: check }).catch(
         () => null,
       );
       check();
-      // 104 转存的回执可能仍带 104。以目录里同一文件的永久状态为准。
-      const saved = refreshed?.files.find(
-        (item) =>
-          (item.fileId === result.saveFilePath || item.fileId === fileId) &&
-          item.busId === GROUP_PERMANENT_FILE_BUS_ID &&
-          item.expireTimeKnown === true &&
-          item.expireTime === 0 &&
-          item.fileName === file.fileName &&
-          item.fileSize === file.fileSize,
-      );
+      const candidates = refreshed?.files.filter((item) => item.fileId === savedId) ?? [];
+      if (candidates.length > 1) break;
+      const saved = candidates[0];
       if (!saved) continue;
       // 聊天附件仍保留临时文件 ID，定位时需要同时识别两个 ID。
       if (this.transferSources && saved.fileId !== fileId) {
         this.transferSources.data[`${groupId}:${saved.fileId}`] = fileId;
         this.transferSources.save();
       }
-      return { state: 'accepted' as const, fileId: saved.fileId, directory: folder };
+      // 104 转存的回执可能仍带 104。目录的永久状态与新旧 ID 映射独立。
+      const permanent =
+        saved.busId === GROUP_PERMANENT_FILE_BUS_ID &&
+        saved.expireTimeKnown === true &&
+        saved.expireTime === 0;
+      return {
+        state: permanent ? ('accepted' as const) : ('unconfirmed' as const),
+        fileId: saved.fileId,
+        directory: folder,
+      };
     }
     return { state: 'unconfirmed' as const, fileId: null, directory: null };
   }

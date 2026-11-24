@@ -155,7 +155,7 @@ it.each([102, 104])('业务号 %i 按原值提交，以群目录确认转存后�
   const listing = { targetDirectory: '/', folders: [], files: [file] };
   f.listing.mockResolvedValueOnce(listing).mockResolvedValueOnce({
     ...listing,
-    files: [{ ...file, fileId: 'saved', busId: 102, expireTime: 0 }],
+    files: [{ ...file, fileId: 'saved', fileName: '已改名', busId: 102, expireTime: 0 }],
   });
   await expect(f.service.makePermanent(123, 'original', '/', () => {})).resolves.toEqual({
     state: 'accepted',
@@ -181,7 +181,7 @@ it('省略业务号的旧转存调用仍使用 102', () => {
   });
 });
 
-it('目录确认转存后，重开账号仍能按当前群找到原文件 ID', async () => {
+it('目录按回执确认文件身份后，永久状态未确认也能在同群定位原文件', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'weq-group-file-transfers-'));
   try {
     const path = join(directory, 'transfers.json');
@@ -199,10 +199,10 @@ it('目录确认转存后，重开账号仍能按当前群找到原文件 ID', a
     const listing = { targetDirectory: '/', folders: [], files: [file] };
     f.listing.mockResolvedValueOnce(listing).mockResolvedValueOnce({
       ...listing,
-      files: [{ ...file, fileId: 'saved', busId: 102, expireTime: 0 }],
+      files: [{ ...file, fileId: 'saved', busId: 102, expireTimeKnown: undefined, expireTime: 0 }],
     });
     const outcome = await f.service.makePermanent(123, 'temporary', '/', () => {});
-    expect(outcome).toEqual({ state: 'accepted', fileId: 'saved', directory: '/' });
+    expect(outcome).toEqual({ state: 'unconfirmed', fileId: 'saved', directory: '/' });
     const reopened = fixture(path).service;
     expect(reopened.originalFileId('123', 'saved')).toBe('temporary');
     expect(reopened.originalFileId('321', 'saved')).toBeUndefined();

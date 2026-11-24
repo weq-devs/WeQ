@@ -1324,7 +1324,7 @@ function GroupFileManagerBody({
                                 directory,
                                 fileId: temporaryFile.fileId,
                               });
-                            if (result.directory && result.fileId)
+                            if (result.state === 'accepted' && result.directory && result.fileId)
                               destination = { directory: result.directory, fileId: result.fileId };
                             return result;
                           },
