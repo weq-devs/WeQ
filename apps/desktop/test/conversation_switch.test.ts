@@ -34,6 +34,7 @@ import * as replyPreview from '../src/renderer/src/lib/replyPreview';
 import * as conversationOrder from '@weq/service/conversation-order';
 import * as conversationRows from '../src/renderer/src/lib/conversationListOrder';
 import { timelineViewport } from '../src/renderer/src/lib/timelineViewport';
+import { UNREAD_BATCH_SIZE } from '../src/renderer/src/lib/unreadRefresh';
 import type { QQWriteBinding } from '../src/renderer/src/hooks/useQQWriteSession';
 import { ReplyJumpContext } from '../src/renderer/src/state/messageContext';
 import type { ReplyJumpTarget } from '../src/renderer/src/components/QqMessageContent';
@@ -454,7 +455,7 @@ vi.mock('../src/renderer/src/im-template/template/chatSidebarContent', () => ({
       { 'data-list-view': directory?.view },
       h('span', { 'data-list-locate': directory?.locate?.id ?? '' }),
       h('span', { 'data-previews': true }, JSON.stringify(props.conversations)),
-      ...(['hidden', 'all'] as const).map((view) =>
+      ...(['hidden', 'all', 'groupAssistant'] as const).map((view) =>
         h(
           'button',
           {
@@ -2997,6 +2998,79 @@ it('全目录一次获取共享结果，不在前端轮询精算，服务快照�
     act(() => root.unmount());
     client.clear();
     host.remove();
+  }
+});
+
+it('未读请求有失败批次时主列表和群助手仍显示成功结果，只补查失败目标', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  localStorage.setItem('weq:group-assistant-pins:90001', '{"10001":true}');
+  useViewState.getState().setOpenedUin('90001');
+  f.unreadMode = true;
+  f.unreadFailures = 1;
+  f.unreadCounts = { u_peer: 3, '10001': 5, '10002': 7, '30000': 9 };
+  f.groups = ['10001', '10002'].map((groupCode) => ({
+    groupCode,
+    groupName: groupCode,
+    remark: '',
+    memberCount: 1,
+    maxMemberCount: 100,
+    customLabels: [],
+    directory: { memberCount: 1, role: 'member', notifyLevel: 2 },
+  }));
+  const filler = Array.from({ length: UNREAD_BATCH_SIZE }, (_, index) => ({
+    ...f.recent[0]!,
+    targetUid: String(30000 + index),
+  }));
+  f.recent.unshift(...filler);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const rows = () => JSON.parse(host.querySelector('[data-previews]')!.textContent!);
+  const click = (selector: string) =>
+    act(async () => host.querySelector<HTMLButtonElement>(selector)!.click());
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await click('[data-messages]');
+    await act(async () => vi.advanceTimersByTimeAsync(100));
+    expect(f.unreadReads).toHaveLength(2);
+    expect(rows()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'u_peer', unreadCount: 3 }),
+        expect.objectContaining({ id: 'merged:group-assistant', unreadCount: 12 }),
+      ]),
+    );
+    await click('[data-list-switch="groupAssistant"]');
+    expect(rows()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: '10001',
+          unreadCount: 5,
+          preference: expect.objectContaining({ pinned: true }),
+        }),
+        expect.objectContaining({
+          id: '10002',
+          unreadCount: 7,
+          preference: expect.objectContaining({ pinned: false }),
+        }),
+      ]),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(10));
+    expect(f.unreadReads).toHaveLength(3);
+    expect(f.unreadReads[2]?.targets).toEqual(f.unreadReads[0]?.targets);
+    await click('[data-locate-unread]');
+    expect(rows()).toContainEqual(expect.objectContaining({ id: '30000', unreadCount: 9 }));
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+    f.recent.splice(0, filler.length);
   }
 });
 

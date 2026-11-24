@@ -8,6 +8,7 @@ import {
   useMessageReadSelection,
   useMessageWindowDescriptor,
   useConversationWindowEntry,
+  readDirectoryUnreadInfos,
   readUnreadInfos,
 } from './workspace/useConversationWindowRead';
 import { PAGE_SIZE } from './workspace/paging';
@@ -4011,10 +4012,13 @@ function MainWorkspace(): ReactElement {
       const targets = unreadDirectoryTargetsRef.current;
       knownTargets = new Set(targets.map(targetKey));
       // 共享服务快照一次准备；所有批次返回后只提交一帧角标，不逐会话回填。
-      const rows = await readUnreadInfos({ ...binding, targets });
+      const { rows, failed } = await readDirectoryUnreadInfos({ ...binding, targets });
       if (!isCurrent()) return true;
       applyLive(rows, startedAt);
-      return !rows.some((row) => row.readError);
+      if (!failed.length) return true;
+      if (!rows.length) return false;
+      liveRefresh.request(failed, false);
+      return true;
     }
 
     const refresh = createUnreadRefresh(loadUnread);
@@ -4059,12 +4063,10 @@ function MainWorkspace(): ReactElement {
     const readTargets = async (targets: UnreadTarget[]) => {
       if (!isCurrent() || !binding) return true;
       const startedAt = guard.revision();
-      const rows = await readUnreadInfos({ ...binding, targets });
+      const { rows, failed } = await readDirectoryUnreadInfos({ ...binding, targets });
       if (!isCurrent()) return true;
       applyLive(rows, startedAt);
-      return rows
-        .filter((row) => row.readError)
-        .map((row) => ({ chatType: row.chatType as UnreadTarget['chatType'], uid: row.uid }));
+      return failed;
     };
     const liveRefresh = createUnreadTargetRefresh<UnreadTarget>(
       readTargets,

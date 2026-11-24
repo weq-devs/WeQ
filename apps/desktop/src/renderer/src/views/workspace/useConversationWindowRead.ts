@@ -64,11 +64,37 @@ type EntryInput = SelectionInput & {
   ) => Promise<boolean>;
 };
 
+function queryUnreadBatches(input: UnreadRequest) {
+  return unreadRequestBatches(input, IS_WEB).map((batch) => ({
+    targets: batch.targets,
+    result: client.account.getUnreadInfos.query(batch),
+  }));
+}
+
 export async function readUnreadInfos(input: UnreadRequest) {
-  const batches = unreadRequestBatches(input, IS_WEB);
-  return (
-    await Promise.all(batches.map((batch) => client.account.getUnreadInfos.query(batch)))
-  ).flat();
+  return (await Promise.all(queryUnreadBatches(input).map(({ result }) => result))).flat();
+}
+
+/** 目录批次失败时仍交付成功结果；只把失败目标交给定向补查。 */
+export async function readDirectoryUnreadInfos(input: UnreadRequest) {
+  const batches = queryUnreadBatches(input);
+  const results = await Promise.allSettled(batches.map(({ result }) => result));
+  const rows: Awaited<ReturnType<typeof readUnreadInfos>> = [];
+  const failed: UnreadRequest['targets'] = [];
+  results.forEach((result, index) => {
+    if (result.status === 'rejected') failed.push(...batches[index]!.targets);
+    else {
+      for (const row of result.value) {
+        if (row.readError)
+          failed.push({
+            uid: row.uid,
+            chatType: row.chatType as UnreadRequest['targets'][number]['chatType'],
+          });
+        else rows.push(row);
+      }
+    }
+  });
+  return { rows, failed };
 }
 
 /** 渲染期间先切换窗口身份，不能把旧会话正文提交到新会话。 */
