@@ -112,6 +112,25 @@ async function run() {
     await page.goto(`${base}&unread-from=${seq}`);
     const dock = page.getByRole('button', { name: '跳到首条未读', exact: true });
     await dock.waitFor();
+    if (count === 50) {
+      const flashed = await page.evaluate(
+        async ({ id, tail }) => {
+          const scroll = document.querySelector('.message-scroll');
+          window.timelineTest.jump(id);
+          const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+          await nextFrame();
+          await nextFrame();
+          const row = scroll.querySelector(`[data-message-id="${id}"]`)?.getBoundingClientRect();
+          const viewport = scroll.getBoundingClientRect();
+          window.timelineTest.jump(tail);
+          return row && row.bottom > viewport.top && row.top < viewport.bottom;
+        },
+        { id: `row-${seq}`, tail: `row-${newest}` },
+      );
+      assert.ok(flashed, '快速掠过的样本必须确实进入过视口');
+      await waitForViewport(seq, false);
+      assert.equal(await dock.count(), 1, '只闪过两帧的目标不应消耗跳转提醒');
+    }
     await page.evaluate((id) => window.timelineTest.jump(id), `row-${seq}`);
     await waitForViewport(seq, true);
     await dock.waitFor({ state: 'hidden' });
@@ -161,6 +180,7 @@ async function run() {
     const lateDock = page.getByRole('button', { name: '跳到首条未读', exact: true });
     await waitForViewport(1001, true);
     await waitForViewport(seq, seen);
+    if (seen) await page.waitForTimeout(250);
     await send();
     await waitForViewport(1151, true);
     await page.evaluate(() => window.timelineTest.showUnreadDock());

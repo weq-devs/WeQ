@@ -5,7 +5,7 @@
  * 规则（与产品约定一致）：
  *   1. 重要消息按 seq 从大到小排，右上角只显示下一个尚未查看的跳转点。
  *   2. 普通未读排在最后，跳到最早那条未读（已读水位 + 1）。
- *   3. 目标进入聊天视口、定位成功或点过确认缺失的提醒后，从队列移除。
+ *   3. 目标可读地显示、定位成功或明确收起提示后，从队列移除。
  *
  * 本模块是纯函数（不依赖 React / service），便于单测与在模板层复用。
  */
@@ -79,16 +79,53 @@ export function dockStopTone(stop: UnreadDockStop): HighlightTone {
   return stop.kind === 'unread' ? 'info' : highlightTone(stop.kind);
 }
 
-export function unreadHighlightKey(conversationId: string, stop: UnreadDockStop): string {
-  return JSON.stringify([conversationId, stop.seq]);
-}
-
 function toBig(value: string | number | undefined | null): bigint {
   try {
     return BigInt(value ?? '0');
   } catch {
     return 0n;
   }
+}
+
+export type UnreadDockProgress = { dock: UnreadDock | null; through: bigint };
+
+/** 已纳入提醒的批次不因小表重读而重新出现；新一批保留尚未完成的旧目标。 */
+export function mergeUnreadDock(
+  previous: UnreadDockProgress | undefined,
+  snapshot: UnreadDock | null,
+  latestSeq?: string | null,
+): UnreadDockProgress | undefined {
+  if (!snapshot) return previous;
+  const through = snapshot.stops.reduce(
+    (max, { seq }) => (toBig(seq) > max ? toBig(seq) : max),
+    toBig(latestSeq),
+  );
+  if (!previous) return { dock: snapshot, through };
+  if (through <= previous.through) return previous;
+  const pending = previous.dock?.stops ?? [];
+  const important = [
+    ...pending.filter(({ kind }) => kind !== 'unread'),
+    ...snapshot.stops.filter(({ kind, seq }) => kind !== 'unread' && toBig(seq) > previous.through),
+  ].sort(bySeqDesc);
+  let first = previous.dock?.firstUnreadSeq;
+  if (!first && snapshot.firstUnreadSeq) {
+    const snapshotFirst = toBig(snapshot.firstUnreadSeq);
+    first = String(snapshotFirst > previous.through ? snapshotFirst : previous.through + 1n);
+  }
+  const stops = important;
+  if (first && !stops.some(({ seq }) => seq === first)) stops.push({ kind: 'unread', seq: first });
+  return { dock: stops.length ? { stops, firstUnreadSeq: first } : null, through };
+}
+
+export function consumeUnreadDock(progress: UnreadDockProgress, seqs: readonly string[]) {
+  const dock = progress.dock;
+  if (!dock) return progress;
+  const done = new Set(seqs);
+  const stops = dock.stops.filter(({ seq }) => !done.has(seq));
+  if (stops.length === dock.stops.length) return progress;
+  const firstUnreadSeq =
+    dock.firstUnreadSeq && !done.has(dock.firstUnreadSeq) ? dock.firstUnreadSeq : undefined;
+  return { ...progress, dock: stops.length ? { stops, firstUnreadSeq } : null };
 }
 
 /** 降序比较两个 seq（大的在前）。 */

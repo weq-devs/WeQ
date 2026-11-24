@@ -86,6 +86,7 @@ function App() {
               onBack={() => {}}
               onSend={async () => {}}
               unreadDock={dock}
+              unreadDockViewportActive={false}
               headerActions={
                 <button
                   type="button"

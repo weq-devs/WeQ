@@ -1,7 +1,11 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, useCallback, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { useChatTimelineNavigation } from '../src/renderer/src/im-template/template/useChatTimelineNavigation';
+import {
+  consumeUnreadDock,
+  mergeUnreadDock,
+} from '../src/renderer/src/im-template/template/unreadDock';
 import type { ReplyJumpTarget } from '../src/renderer/src/state/messageContext';
 import { createTemplateDemoData } from './support/templateDemoData';
 
@@ -41,7 +45,6 @@ it('定位进行中不消耗跳转点，失败可重试，旧会话任务结束�
       onJumpToLatest: undefined,
       onReadCurrentConversation: undefined,
       parentJumpToSeq,
-      selectionOrder: messages,
       tabActive: true,
       unreadDock: dock,
       user: data.user,
@@ -90,8 +93,21 @@ it('列表与队列共享定位进度，确认缺失只结束对应的浮动提�
     ],
   };
   let state!: ReturnType<typeof useChatTimelineNavigation>;
-  const seenUnreadHighlights = new Set<string>();
   function Harness({ conversationId = '777' }: { conversationId?: string }) {
+    const [queues, setQueues] = useState(
+      () => new Map(['777', '888'].map((id) => [id, mergeUnreadDock(undefined, dock)!])),
+    );
+    const onConsumeUnreadDock = useCallback(
+      (seqs: string[]) => {
+        setQueues((current) =>
+          new Map(current).set(
+            conversationId,
+            consumeUnreadDock(current.get(conversationId)!, seqs),
+          ),
+        );
+      },
+      [conversationId],
+    );
     state = useChatTimelineNavigation({
       atLatest: false,
       conversation: { ...demo.conversations[0]!, id: conversationId },
@@ -106,10 +122,9 @@ it('列表与队列共享定位进度，确认缺失只结束对应的浮动提�
       onJumpToLatest: undefined,
       onReadCurrentConversation: undefined,
       parentJumpToSeq: jump,
-      selectionOrder: [],
       tabActive: true,
-      unreadDock: dock,
-      seenUnreadHighlights,
+      unreadDock: queues.get(conversationId)!.dock,
+      onConsumeUnreadDock,
       user: demo.user,
       visibleMessages: messages,
     });
@@ -170,7 +185,7 @@ it('列表与队列共享定位进度，确认缺失只结束对应的浮动提�
     expect(state.dockStop?.kind).toBe('replyMe');
     expect(state.dockImportantRemaining).toBe(1);
     await act(async () => root.render(h(Harness, { conversationId: '777' })));
-    expect(state.dockStop?.kind).toBe('unread');
+    expect(state.dockStop).toBeNull();
     await act(async () => root.render(h(Harness, { conversationId: '888' })));
     expect(state.dockStop?.kind).toBe('replyMe');
   } finally {
@@ -209,7 +224,6 @@ it.each([false, true])(
         onJumpToLatest: undefined,
         onReadCurrentConversation: undefined,
         parentJumpToSeq: jump,
-        selectionOrder: [],
         tabActive: true,
         unreadDock: undefined,
         user: demo.user,

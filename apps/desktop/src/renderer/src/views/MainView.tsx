@@ -567,7 +567,12 @@ import type {
 import type { RedPacketDraft } from '../im-template/template/redPacketPanel';
 import { useChatShellController } from '../im-template/template/shellController';
 import { toIpcElements } from '../im-template/template/draftElements';
-import { buildUnreadDock } from '../im-template/template/unreadDock';
+import {
+  type UnreadDockProgress,
+  buildUnreadDock,
+  consumeUnreadDock,
+  mergeUnreadDock,
+} from '../im-template/template/unreadDock';
 import { unreadTimelineStart } from '../im-template/template/chatTimelineModel';
 import {
   buildComposerSendPlan,
@@ -5525,7 +5530,11 @@ function MainWorkspace(): ReactElement {
     cached?: UnreadReadPosition;
     snapshot?: { dock: UnreadDock | null; position?: UnreadReadPosition };
   }>();
-  const seenUnreadHighlights = useMemo(() => new Set<string>(), [messageScope]);
+  const [unreadDocks, setUnreadDocks] = useState<{
+    scope: string;
+    byConversation: Map<string, UnreadDockProgress>;
+  }>();
+  if (unreadDocks && unreadDocks.scope !== messageScope) setUnreadDocks(undefined);
   // 最近一次跳转落空的目标 seq（被撤回 / 删除 / 未同步）。非 null 时聊天区会在
   // 最近邻消息旁渲染一条「点击拉取」的缺口条 —— 因为这种单条缺失 seq 差恰好为 1，
   // 默认的缺口条（只在跳空 >1 时出现）不会渲染，得由这次跳转手动补上入口。
@@ -5901,10 +5910,30 @@ function MainWorkspace(): ReactElement {
   // 首屏使用打开时的列表快照，实时刷新只更新读进度和计数。
   if (!currentUnreadEntry) setUnreadEntry({ key: unreadEntryKey, cached: cachedReadPosition });
   // undefined 表示等待进会话时的快照，null 表示没有可用跳转点。
-  const unreadDock = currentUnreadEntry?.snapshot?.dock;
+  const unreadDockProgress =
+    unreadDocks?.scope === messageScope
+      ? unreadDocks.byConversation.get(unreadEntryKey)
+      : undefined;
+  const unreadDock = unreadDockProgress
+    ? unreadDockProgress.dock
+    : currentUnreadEntry?.snapshot?.dock;
+  const onConsumeUnreadDock = useCallback(
+    (seqs: string[]) => {
+      setUnreadDocks((current) => {
+        if (current?.scope !== messageScope) return current;
+        const progress = current.byConversation.get(unreadEntryKey);
+        if (!progress) return current;
+        const next = consumeUnreadDock(progress, seqs);
+        if (next === progress) return current;
+        const byConversation = new Map(current.byConversation).set(unreadEntryKey, next);
+        return { ...current, byConversation };
+      });
+    },
+    [messageScope, unreadEntryKey],
+  );
   const entryPosition = currentUnreadEntry?.snapshot?.position ?? currentUnreadEntry?.cached;
   const entryFirstUnreadSeq = unreadTimelineStart(
-    unreadDock,
+    currentUnreadEntry?.snapshot?.dock,
     entryPosition?.unreadCount,
     entryPosition?.readSeq ?? undefined,
   );
@@ -5964,6 +5993,23 @@ function MainWorkspace(): ReactElement {
       );
     };
     const finishSnapshot = (dock: UnreadDock | null, position?: UnreadReadPosition) => {
+      if (dock) {
+        setUnreadDocks((current) => {
+          const previous = current?.scope === source ? current.byConversation : undefined;
+          const byConversation = new Map(previous);
+          const next = mergeUnreadDock(
+            byConversation.get(unreadEntryKey),
+            dock,
+            position?.latestSeq,
+          );
+          if (!next) return current;
+          byConversation.delete(unreadEntryKey);
+          byConversation.set(unreadEntryKey, next);
+          while (byConversation.size > 512)
+            byConversation.delete(byConversation.keys().next().value!);
+          return { scope: source, byConversation };
+        });
+      }
       setUnreadEntry((current) =>
         current?.key === unreadEntryKey ? { ...current, snapshot: { dock, position } } : current,
       );
@@ -6053,7 +6099,7 @@ function MainWorkspace(): ReactElement {
   useEffect(() => {
     const request = unreadDockRequestRef.current;
     if (
-      unreadDock === undefined ||
+      !currentUnreadEntry?.snapshot ||
       !messagesTabActive ||
       !readSettingsReady ||
       readThroughViewport ||
@@ -6074,7 +6120,7 @@ function MainWorkspace(): ReactElement {
         : undefined,
     });
   }, [
-    unreadDock,
+    currentUnreadEntry?.snapshot,
     messagesTabActive,
     readSettingsReady,
     readThroughViewport,
@@ -11265,7 +11311,11 @@ function MainWorkspace(): ReactElement {
                               handleRestoreMessage(msgId, selectedConversation)
                             }
                             unreadDock={unreadSelectionId === null ? null : unreadDock}
-                            seenUnreadHighlights={seenUnreadHighlights}
+                            unreadDockEntryPending={
+                              unreadSelectionId !== null && !currentUnreadEntry?.snapshot
+                            }
+                            unreadDockViewportActive={readViewportActive}
+                            onConsumeUnreadDock={onConsumeUnreadDock}
                             missingJumpSeq={missingJumpSeq}
                             resolvedGapIds={resolvedGaps}
                           />

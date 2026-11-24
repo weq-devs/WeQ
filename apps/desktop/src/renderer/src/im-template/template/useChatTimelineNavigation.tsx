@@ -6,7 +6,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ReplyJump, ReplyJumpTarget } from '../../state/messageContext';
 import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
 import type { Conversation, Message, UnreadDockStop } from './types';
-import { unreadHighlightKey } from './unreadDock';
 import type { ChatPaneProps } from './chatPane';
 import type { TimelineVisibility } from './chatTimeline';
 import { countAppendedMessages, unreadTimelineBoundary } from './chatTimelineModel';
@@ -14,6 +13,7 @@ import { countAppendedMessages, unreadTimelineBoundary } from './chatTimelineMod
 type ViewportReadRow = { seq: string; bottom: number };
 type ObservedTimelineRow = { id: string; report: boolean; seq?: string; readable: boolean };
 const READ_GESTURE_MS = 1000;
+const DOCK_VISIBLE_MS = 180;
 
 export function useChatTimelineNavigation({
   atLatest,
@@ -35,7 +35,9 @@ export function useChatTimelineNavigation({
   parentJumpToSeq,
   tabActive,
   unreadDock,
-  seenUnreadHighlights,
+  unreadDockEntryPending,
+  unreadDockViewportActive = true,
+  onConsumeUnreadDock,
   user,
   visibleMessages,
 }: {
@@ -60,7 +62,9 @@ export function useChatTimelineNavigation({
   parentJumpToSeq: ReplyJump;
   tabActive: boolean;
   unreadDock: ChatPaneProps['unreadDock'];
-  seenUnreadHighlights?: Set<string>;
+  unreadDockEntryPending?: boolean;
+  unreadDockViewportActive?: boolean;
+  onConsumeUnreadDock?: ChatPaneProps['onConsumeUnreadDock'];
   user: ChatPaneProps['user'];
   visibleMessages: Message[];
 }) {
@@ -69,30 +73,27 @@ export function useChatTimelineNavigation({
   const locatedJump = useRef<typeof jumpRequest>(undefined);
 
   const [locatedSeq, setLocatedSeq] = useState<string | null>(null);
-  const entryVisibility = useMemo(
-    () => ({ ids: new Set<string>(), sequences: new Set<string>() }),
-    [conversation?.id, conversation?.type],
-  );
   const confirmedWatermark =
     confirmedReadSeq && /^\d{1,20}$/.test(confirmedReadSeq) ? BigInt(confirmedReadSeq) : undefined;
   const navigationKey = useMemo(
-    () => ({ conversationId: conversation?.id, dock: unreadDock, seenUnreadHighlights }),
-    [conversation?.id, unreadDock, seenUnreadHighlights],
+    // 跳转期间增减队列不使定位失效，但切换账号、来源或会话会。
+    () => ({ id: conversation?.id, type: conversation?.type, onConsumeUnreadDock }),
+    [conversation?.id, conversation?.type, onConsumeUnreadDock],
+  );
+  const entryVisibility = useMemo(
+    () => ({ navigationKey, ids: new Set<string>(), sequences: new Set<string>() }),
+    [navigationKey],
   );
   const navigationScope = useRef(navigationKey);
   navigationScope.current = navigationKey;
-  // 普通未读只记本次跳转；重要提醒在同一数据源内切换会话后仍记得已查看。
+  // 独立聊天预览和测试夹具可能没有上层队列。
   const [visited, setVisited] = useState<{ scope: typeof navigationKey; seqs: Set<string> }>();
   const visitedStops = visited?.scope === navigationKey ? visited.seqs : undefined;
   const visitStops = useCallback((scope: typeof navigationKey, seqs: string[]) => {
     if (navigationScope.current !== scope || !seqs.length) return;
-    const { conversationId, dock, seenUnreadHighlights: seen } = scope;
-    if (conversationId && seen) {
-      for (const stop of dock?.stops ?? []) {
-        if (stop.kind !== 'unread' && seqs.includes(stop.seq))
-          seen.add(unreadHighlightKey(conversationId, stop));
-      }
-      while (seen.size > 512) seen.delete(seen.values().next().value!);
+    if (scope.onConsumeUnreadDock) {
+      scope.onConsumeUnreadDock(seqs);
+      return;
     }
     setVisited((current) => {
       const previous = current?.scope === scope ? current.seqs : undefined;
@@ -102,14 +103,8 @@ export function useChatTimelineNavigation({
     });
   }, []);
   const isVisited = useCallback(
-    (stop: UnreadDockStop) =>
-      visitedStops?.has(stop.seq) ||
-      (stop.kind === 'unread'
-        ? entryVisibility.sequences.has(stop.seq) ||
-          (confirmedWatermark !== undefined && BigInt(stop.seq) <= confirmedWatermark)
-        : navigationKey.conversationId &&
-          seenUnreadHighlights?.has(unreadHighlightKey(navigationKey.conversationId, stop))),
-    [confirmedWatermark, entryVisibility, navigationKey, seenUnreadHighlights, visitedStops],
+    (stop: UnreadDockStop) => visitedStops?.has(stop.seq),
+    [visitedStops],
   );
   const locateTask = useRef<object | null>(null);
   const [dockJumping, setDockJumping] = useState(false);
@@ -151,6 +146,8 @@ export function useChatTimelineNavigation({
   const readGestureUntil = useRef(0);
   const messagesForDock = useRef(messages);
   messagesForDock.current = messages;
+  const currentDock = useRef(unreadDock);
+  currentDock.current = unreadDock;
 
   const jumpToSeq = useCallback(
     async (target: ReplyJumpTarget, dismissMissingStop?: UnreadDockStop): Promise<boolean> => {
@@ -161,6 +158,7 @@ export function useChatTimelineNavigation({
       const scroll = messageScrollRef.current;
       if (scroll) timelineViewport(scroll)?.cancelScroll?.();
       const started = navigationScope.current;
+      const dock = currentDock.current;
       const task = {};
       locateTask.current = task;
       let missing = false;
@@ -175,7 +173,7 @@ export function useChatTimelineNavigation({
       }
       const seq = target.seq == null ? null : String(target.seq);
       setLocatedSeq(seq);
-      const stop = started.dock?.stops.find((stop) => stop.seq === seq);
+      const stop = dock?.stops.find((stop) => stop.seq === seq);
       const exact =
         stop?.identity && target.msgId
           ? findUnreadMessage(messagesForDock.current, stop.seq, stop.identity)
@@ -249,12 +247,12 @@ export function useChatTimelineNavigation({
     revision: number | undefined;
   } | null>(null);
 
-  // 换会话（或上层重下了新的一份快照）时，跳转坞从第一个跳转点重新开始。
+  // 换会话时取消上个会话的在途定位。
   useEffect(() => {
     setLocatedSeq(null);
     dockTask.current = null;
     setDockJumping(false);
-  }, [conversation?.id, unreadDock]);
+  }, [navigationKey]);
 
   const timelineEnabled = visibleMessages.length > TIMELINE_VIRTUAL_THRESHOLD;
 
@@ -562,8 +560,8 @@ export function useChatTimelineNavigation({
   }
 
   function handleReadGesture(event: { target: EventTarget | null }) {
-    if (event.target instanceof Element && event.target.closest('.message-scroll'))
-      readGestureUntil.current = performance.now() + READ_GESTURE_MS;
+    if (!(event.target instanceof Element) || !event.target.closest('.message-scroll')) return;
+    readGestureUntil.current = performance.now() + READ_GESTURE_MS;
     requestReadAtBottom();
   }
 
@@ -614,9 +612,7 @@ export function useChatTimelineNavigation({
   }
 
   // ── 未读跳转坞 ──────────────────────────────────────────────────────────
-  // 打开会话时上层已经把未读/高亮读进内存并清了库，这里只负责按顺序引导：
-  // 每点一下跳一个目标（高亮按 seq 从大到小，最后是首条未读），
-  // 跳完自动消失。
+  // 每点一下跳一个目标（高亮按 seq 从大到小，最后是首条未读）。
   const nextDockIndex = unreadDock?.stops.findIndex((stop) => !isVisited(stop)) ?? -1;
   const dockIndex = nextDockIndex < 0 ? (unreadDock?.stops.length ?? 0) : nextDockIndex;
   const dockStop = unreadDock?.stops[dockIndex] ?? null;
@@ -723,7 +719,8 @@ export function useChatTimelineNavigation({
     visibleMessages,
   ]);
 
-  const entryPending = unreadDock === undefined && Boolean(onReadCurrentConversation);
+  const entryPending =
+    unreadDockEntryPending ?? (unreadDock === undefined && Boolean(onReadCurrentConversation));
   const observeMessageVisibility = useCallback((): TimelineVisibility | undefined => {
     const scroll = messageScrollRef.current;
     if (
@@ -733,28 +730,41 @@ export function useChatTimelineNavigation({
       (!entryPending && (loading || loadingNewer))
     )
       return;
-    const unreadSeq = unreadDock?.stops.find((stop) => stop.kind === 'unread')?.seq;
-    if (dockTargets && unreadSeq)
-      for (const [id, seqs] of dockTargets)
-        if (entryVisibility.ids.has(id) && seqs.includes(unreadSeq)) {
-          visitStops(navigationKey, [unreadSeq]);
-          break;
-        }
+    const observeDock = unreadDockViewportActive && (entryPending || Boolean(dockTargets?.size));
+    if (unreadDockViewportActive && !entryPending && unreadDock) {
+      const seen = new Set(
+        unreadDock.stops
+          .filter(({ kind, seq }) => kind === 'unread' && entryVisibility.sequences.has(seq))
+          .map(({ seq }) => seq),
+      );
+      if (dockTargets)
+        for (const [id, seqs] of dockTargets)
+          if (entryVisibility.ids.has(id)) for (const seq of seqs) seen.add(seq);
+      visitStops(navigationKey, [...seen]);
+      entryVisibility.ids.clear();
+      entryVisibility.sequences.clear();
+    }
     const observeRead = viewportReadEnabled && !loading && !loadingNewer;
     if (
-      !entryPending &&
+      !observeDock &&
       !observeRead &&
-      !dockTargets?.size &&
       !interactionTargets?.targets.size &&
       !interactionTargets?.latestBannerTarget
     )
       return;
     let rows = new Map<Element, ObservedTimelineRow>();
+    const dockSince = new Map<string, number>();
+    let dockTimer: number | undefined;
     const clearVisibleRead = () => {
       viewportRead.visible.clear();
       viewportRead.scrollTop = undefined;
+      dockSince.clear();
+      window.clearTimeout(dockTimer);
+      dockTimer = undefined;
     };
-    const sampleViewport = () => {
+    const sampleViewport = (sampleRead = true) => {
+      window.clearTimeout(dockTimer);
+      dockTimer = undefined;
       const current = readContextRef.current;
       if (
         !current.tabActive ||
@@ -767,7 +777,14 @@ export function useChatTimelineNavigation({
         return;
       }
       const bounds = scroll.getBoundingClientRect();
-      if (bounds.height <= 0) return;
+      if (bounds.height <= 0) {
+        clearVisibleRead();
+        return;
+      }
+      const now = performance.now();
+      const dockVisibleIds = new Set<string>();
+      const dockSeen = new Set<string>();
+      let nextDockCheck = Infinity;
       const scrollTop = scroll.scrollTop;
       const forward =
         viewportRead.scrollTop !== undefined &&
@@ -780,7 +797,8 @@ export function useChatTimelineNavigation({
       const previous = viewportRead.visible;
       const visible = new Map<string, ViewportReadRow>();
       const { ready } = viewportRead;
-      if (confirmedWatermark !== viewportRead.watermark) {
+      const readNow = sampleRead && observeRead && current.viewportReadEnabled;
+      if (readNow && confirmedWatermark !== viewportRead.watermark) {
         if (
           viewportRead.watermark !== undefined &&
           confirmedWatermark !== undefined &&
@@ -804,14 +822,34 @@ export function useChatTimelineNavigation({
           ready.add(seq);
       };
       for (const [target, { id, seq, readable }] of rows) {
-        if (!seq) continue;
+        const stops = observeDock ? dockTargets?.get(id) : undefined;
+        const trackEntry = observeDock && entryPending && seq && !entryVisibility.ids.has(id);
+        if (!(readNow && readable) && !stops && !trackEntry) continue;
         const rect = target.getBoundingClientRect();
         const shown = Math.min(rect.bottom, bounds.bottom) - Math.max(rect.top, bounds.top);
-        if (entryPending && shown > 0) {
-          entryVisibility.ids.add(id);
-          entryVisibility.sequences.add(seq);
+        if (
+          (stops || trackEntry) &&
+          shown > 0 &&
+          shown >= Math.min(rect.height, bounds.height) / 2
+        ) {
+          dockVisibleIds.add(id);
+          const since = dockSince.get(id) ?? now;
+          dockSince.set(id, since);
+          const remaining = DOCK_VISIBLE_MS - (now - since);
+          if (remaining > 0) nextDockCheck = Math.min(nextDockCheck, remaining);
+          else {
+            if (trackEntry && seq) {
+              entryVisibility.ids.add(id);
+              entryVisibility.sequences.add(seq);
+              while (entryVisibility.ids.size > 512)
+                entryVisibility.ids.delete(entryVisibility.ids.values().next().value!);
+              while (entryVisibility.sequences.size > 512)
+                entryVisibility.sequences.delete(entryVisibility.sequences.values().next().value!);
+            }
+            if (stops) for (const stop of stops) dockSeen.add(stop);
+          }
         }
-        if (!readable || !current.viewportReadEnabled) continue;
+        if (!readNow || !seq || !readable) continue;
         const seen = previous.get(id)?.seq === seq;
         previous.delete(id);
         if (seen && forward && rect.bottom <= bounds.top) confirm(seq);
@@ -821,7 +859,13 @@ export function useChatTimelineNavigation({
           if (atBottom) confirm(seq);
         }
       }
-      if (!observeRead || !current.viewportReadEnabled) return;
+      if (observeDock) {
+        for (const id of dockSince.keys()) if (!dockVisibleIds.has(id)) dockSince.delete(id);
+        if (nextDockCheck < Infinity)
+          dockTimer = window.setTimeout(() => sampleViewport(false), nextDockCheck);
+        visitStops(navigationKey, [...dockSeen]);
+      }
+      if (!readNow) return;
       if (forward) {
         // 虚拟列表可能先卸载刚滑出的行，使用上一帧实际测得的下沿。
         for (const [id, row] of previous)
@@ -845,7 +889,7 @@ export function useChatTimelineNavigation({
     };
     let readFrame: number | undefined;
     const scheduleRead = () => {
-      if ((!observeRead && !entryPending) || readFrame !== undefined) return;
+      if ((!observeRead && !observeDock) || readFrame !== undefined) return;
       readFrame = window.requestAnimationFrame(() => {
         readFrame = undefined;
         sampleViewport();
@@ -858,10 +902,6 @@ export function useChatTimelineNavigation({
       scheduleRead();
     };
     const report = (rows: string[]) => {
-      visitStops(
-        navigationKey,
-        rows.flatMap((id) => dockTargets?.get(id) ?? []),
-      );
       if (!interactionTargets || document.visibilityState === 'hidden' || !document.hasFocus())
         return;
       const visible = rows.flatMap((id) => interactionTargets.targets.get(id) ?? []);
@@ -873,9 +913,8 @@ export function useChatTimelineNavigation({
       }
     };
     const probe = () => {
-      if (entryPending) sampleViewport();
-      else scheduleRead();
-      if (!dockTargets?.size && !interactionTargets) return;
+      scheduleRead();
+      if (!interactionTargets) return;
       const bounds = scroll.getBoundingClientRect();
       if (bounds.height <= 0) return;
       const seen: string[] = [];
@@ -915,9 +954,7 @@ export function useChatTimelineNavigation({
         }
         const id = target.dataset.messageId ?? '';
         const shouldReport = Boolean(
-          dockTargets?.has(id) ||
-            interactionTargets?.targets.has(id) ||
-            interactionTargets?.latestBannerTarget?.id === id,
+          interactionTargets?.targets.has(id) || interactionTargets?.latestBannerTarget?.id === id,
         );
         let seq: string | undefined;
         let readable = false;
@@ -937,20 +974,20 @@ export function useChatTimelineNavigation({
               observeRead && Boolean(message.msgId) && target.classList.contains('message-line');
           }
         }
-        if (shouldReport || seq) next.set(target, { id, report: shouldReport, seq, readable });
+        if (shouldReport || seq || (observeDock && dockTargets?.has(id)))
+          next.set(target, { id, report: shouldReport, seq, readable });
       }
       for (const target of rows.keys()) if (!next.has(target)) observer?.unobserve(target);
       for (const target of next.keys()) if (!rows.has(target)) observer?.observe(target);
       rows = next;
       // 预挂载不等于可见。首次及无观察器时直接检查，滚动时复用原有订阅。
       if (initialSync || !observer) probe();
-      else if (entryPending) sampleViewport();
       else scheduleRead();
       initialSync = false;
     };
-    if (observeRead || entryPending)
+    if (observeRead || observeDock)
       scroll.addEventListener('scroll', onViewportScroll, { passive: true });
-    if (interactionTargets || observeRead || entryPending) {
+    if (interactionTargets || observeRead || observeDock) {
       window.addEventListener('focus', probe);
       window.addEventListener('blur', clearVisibleRead);
       document.addEventListener('visibilitychange', probe);
@@ -962,6 +999,7 @@ export function useChatTimelineNavigation({
         observer?.takeRecords();
         scroll.removeEventListener('scroll', onViewportScroll);
         if (readFrame !== undefined) window.cancelAnimationFrame(readFrame);
+        window.clearTimeout(dockTimer);
         window.removeEventListener('focus', probe);
         window.removeEventListener('blur', clearVisibleRead);
         document.removeEventListener('visibilitychange', probe);
@@ -980,6 +1018,7 @@ export function useChatTimelineNavigation({
     loadError,
     tabActive,
     unreadDock,
+    unreadDockViewportActive,
     viewportRead,
     viewportReadEnabled,
     viewportReadVersion,
@@ -990,6 +1029,8 @@ export function useChatTimelineNavigation({
     visitStops,
   ]);
   const dockVisible = Boolean(dockStop);
+  const dismissUnreadDock = () =>
+    visitStops(navigationKey, unreadDock?.stops.map(({ seq }) => seq) ?? []);
 
   async function jumpDockStop(): Promise<boolean> {
     if (!dockStop || !unreadDock || dockTask.current) return false;
@@ -1026,6 +1067,7 @@ export function useChatTimelineNavigation({
     dockJumping,
     dockStop,
     dockVisible,
+    dismissUnreadDock,
     endRef,
     handleMessageScroll,
     handleReadGesture,

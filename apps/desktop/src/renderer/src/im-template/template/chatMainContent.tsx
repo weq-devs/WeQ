@@ -129,7 +129,9 @@ export function ChatMainContent({
   onSelectTool,
   unreadDock,
   unreadDividerRange,
-  seenUnreadHighlights,
+  unreadDockEntryPending,
+  unreadDockViewportActive,
+  onConsumeUnreadDock,
   missingJumpSeq,
   resolvedGapIds,
   onLoadOlder,
@@ -220,7 +222,9 @@ export function ChatMainContent({
   | 'onForwardMessages'
   | 'unreadDock'
   | 'unreadDividerRange'
-  | 'seenUnreadHighlights'
+  | 'unreadDockEntryPending'
+  | 'unreadDockViewportActive'
+  | 'onConsumeUnreadDock'
   | 'missingJumpSeq'
   | 'resolvedGapIds'
   | 'onLoadOlder'
@@ -427,7 +431,9 @@ export function ChatMainContent({
       onRestoreMessage={onRestoreMessage}
       unreadDock={unreadDock}
       unreadDividerRange={unreadDividerRange}
-      seenUnreadHighlights={seenUnreadHighlights}
+      unreadDockEntryPending={unreadDockEntryPending}
+      unreadDockViewportActive={unreadDockViewportActive}
+      onConsumeUnreadDock={onConsumeUnreadDock}
       missingJumpSeq={missingJumpSeq}
       resolvedGapIds={resolvedGapIds}
       onLoadOlder={onLoadOlder}

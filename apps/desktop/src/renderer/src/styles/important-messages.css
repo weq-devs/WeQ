@@ -68,6 +68,7 @@
   height: auto;
   min-height: 30px;
   gap: 0;
+  translate: var(--weq-dock-drag, 0) 0;
 }
 .unread-dock-button.weq-important-dock[data-important-kind],
 html[data-theme='dark'] .unread-dock-button.weq-important-dock[data-important-kind] {
@@ -89,6 +90,11 @@ html[data-theme='dark'] .unread-dock-button.weq-important-dock[data-important-ki
 }
 .weq-important-dock > button:first-child {
   flex: 1;
+}
+.weq-important-dock > .weq-dock-touch {
+  touch-action: pan-y pinch-zoom;
+  min-height: 44px;
+  -webkit-touch-callout: none;
 }
 .weq-important-dock .unread-dock-label {
   overflow: hidden;
@@ -333,4 +339,7 @@ html[data-theme='dark'] {
 
 .unread-dock-button.reading-position-below-unread {
   top: calc(var(--chat-header-height) + 44px);
+}
+:where(html[data-weq-layout='single']) .unread-dock-button.reading-position-below-unread {
+  top: calc(var(--chat-header-height) + 62px);
 }

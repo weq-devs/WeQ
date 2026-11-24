@@ -8,7 +8,8 @@ import assert from 'node:assert/strict';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const output = process.env.WEQ_IMPORTANT_ARTIFACTS;
-if (!output) throw new Error('请设置 WEQ_IMPORTANT_ARTIFACTS');
+const dockOnly = process.argv.includes('--dock-only');
+if (!output && !dockOnly) throw new Error('请设置 WEQ_IMPORTANT_ARTIFACTS');
 const server = await createServer({
   configFile: false,
   root,
@@ -36,8 +37,8 @@ const server = await createServer({
 });
 let browser;
 const report = { shots: [], metrics: [], errors: [] };
-try {
-  await mkdir(output, { recursive: true });
+async function run() {
+  if (output) await mkdir(output, { recursive: true });
   await server.listen();
   browser = await chromium.launch({
     headless: true,
@@ -65,9 +66,61 @@ try {
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/important-messages.html`,
   );
   const open = async () => {
-    await page.getByRole('button', { name: '重要消息', exact: true }).click();
+    const more = page.getByRole('button', { name: '更多会话操作' });
+    if (await more.isVisible()) {
+      await more.click();
+      await page.getByRole('menuitem', { name: '消息', exact: true }).click();
+    } else await page.getByRole('button', { name: '消息', exact: true }).click();
+    await page.getByRole('menuitem', { name: '重要消息', exact: true }).click();
     await page.locator('.weq-important-row').first().waitFor();
   };
+  if (dockOnly) {
+    const dock = page.locator('.weq-important-dock');
+    await page.setViewportSize({ width: 1180, height: 800 });
+    await dock.getByRole('button', { name: '收起跳转提示' }).click();
+    await dock.waitFor({ state: 'hidden' });
+    await open();
+    await page.keyboard.press('Escape');
+    await page.locator('.weq-important-messages').waitFor({ state: 'hidden' });
+
+    await page.setViewportSize({ width: 390, height: 740 });
+    await page.evaluate(() => window.changeImportantGroup('888'));
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true });
+    const touchDock = async ({ dx = 0, hold = false, cancel = false } = {}) => {
+      const { x, y, height } = await dock.locator('button').first().boundingBox();
+      const point = { x: x + 12, y: y + height / 2 };
+      const send = (type, touchPoints) =>
+        cdp.send('Input.dispatchTouchEvent', { type, touchPoints });
+      await send('touchStart', [point]);
+      if (hold) await new Promise((resolve) => setTimeout(resolve, 525));
+      if (dx) await send('touchMove', [{ ...point, x: point.x + dx }]);
+      await send(cancel ? 'touchCancel' : 'touchEnd', []);
+    };
+    await dock.waitFor();
+    await touchDock({ dx: 24 });
+    await touchDock({ dx: 66, cancel: true });
+    await dock.waitFor();
+    assert.equal(await page.locator('output').getAttribute('data-locate-count'), '0');
+    await touchDock({ hold: true });
+    await page.locator('.weq-important-row').first().waitFor();
+    assert.equal(await page.locator('output').getAttribute('data-locate-count'), '0');
+    await page.getByLabel('关闭重要消息', { exact: true }).click();
+    await touchDock({ dx: 66 });
+    await dock.waitFor({ state: 'hidden' });
+
+    await page.evaluate(() => window.changeImportantGroup('999'));
+    await dock.waitFor();
+    await page.getByRole('button', { name: '更多会话操作' }).click();
+    await page.getByRole('menuitem', { name: '消息', exact: true }).click();
+    await page.getByRole('menuitem', { name: '收起跳转提示', exact: true }).click();
+    await dock.waitFor({ state: 'hidden' });
+    assert.deepEqual(report.errors, []);
+    console.log(
+      'Validated close, touch hold, cancelled/short drag, dismiss swipe and menu fallback.',
+    );
+    return;
+  }
   for (const theme of ['light', 'dark']) {
     await page.evaluate((value) => {
       const state = window.importantTheme.getState();
@@ -275,6 +328,9 @@ try {
   assert.deepEqual(report.errors, []);
   await writeFile(resolve(output, 'report.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify(report, null, 2));
+}
+try {
+  await run();
 } finally {
   await browser?.close();
   await server.close();

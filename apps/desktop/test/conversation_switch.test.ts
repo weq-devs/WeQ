@@ -1370,6 +1370,90 @@ it.each([false, true])('首批消息立即显示未读分界线，进入会话�
   }
 });
 
+it('切回会话保留未完成的跳转，收起后不恢复旧队列且新一批仍提示', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+  useViewState.getState().setOpenedUin('90001');
+  f.unreadMode = true;
+  const important = { kind: 'atMe', rawKind: 1, msgSeq: '104', senderUid: 'u_peer' };
+  const original = {
+    uid: '10001',
+    chatType: 2,
+    readSeq: '100',
+    latestSeq: '105',
+    unreadCount: 5,
+    highlights: [important],
+  };
+  const read = { ...original, readSeq: '105', unreadCount: 0, highlights: [] };
+  const rows = [106, 105, 104, 103, 102, 101, 100].map(
+    (seq): TestMessage => ({
+      msgId: String(seq),
+      msgSeq: String(seq),
+      sendTime: '1794200000',
+      senderUid: 'u_peer',
+      senderUin: '20001',
+      elements: [{ type: 'text', data: { textContent: `消息 ${seq}` } }],
+    }),
+  );
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const select = (id: string) =>
+    act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === id)!
+        .click(),
+    );
+  const load = () => act(async () => f.reads.at(-1)!.show({ complete: true, rows }));
+  const target = () => host.querySelector('.weq-important-dock button')?.getAttribute('title');
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    f.unreadReply = async () => [original];
+    await select('10001');
+    await load();
+    expect(target()).toBe('下一条：有人@我');
+    expect(f.markedRead).toContainEqual(
+      expect.objectContaining({ uid: '10001', latestSeq: '105' }),
+    );
+
+    await select('10002');
+    f.unreadReply = async () => [read];
+    await select('10001');
+    await load();
+    expect(target()).toBe('下一条：有人@我');
+    const marked = f.markedRead.length;
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('button[aria-label="收起跳转提示"]')!.click(),
+    );
+    expect(target()).toBeUndefined();
+    expect(f.markedRead).toHaveLength(marked);
+
+    await select('10002');
+    f.unreadReply = async () => [original];
+    await select('10001');
+    await load();
+    expect(target()).toBeUndefined();
+
+    await select('10002');
+    f.unreadReply = async () => [{ ...original, latestSeq: '106', unreadCount: 6 }];
+    await select('10001');
+    await load();
+    expect(target()).toBe('跳到首条未读');
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
+
 it.each([false, true])('当前会话收到新消息时不新增分界线：续读模式=%s', async (resume) => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

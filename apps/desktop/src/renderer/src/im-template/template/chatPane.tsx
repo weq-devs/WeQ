@@ -94,7 +94,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
-  ChevronsUp,
   CirclePlus,
   Download,
   Eye,
@@ -366,7 +365,8 @@ import type {
   UnreadDock,
   User,
 } from './types';
-import { dockStopLabel, dockStopTone, highlightLabel } from './unreadDock';
+import { dockStopTone } from './unreadDock';
+import { UnreadDockJumpButton } from './unreadDockButton';
 import { displayGroupName, displayUserName } from './user';
 import { OnlineStatus } from '../../components/OnlineStatus';
 import { MessageDecorationCard } from '../../components/MessageDecorationCard';
@@ -749,7 +749,9 @@ export type ChatPaneProps = {
   unreadDock?: UnreadDock | null;
   /** 进入会话时已有的未读序号范围。 */
   unreadDividerRange?: { firstSeq: string; lastSeq: string };
-  seenUnreadHighlights?: Set<string>;
+  unreadDockEntryPending?: boolean;
+  unreadDockViewportActive?: boolean;
+  onConsumeUnreadDock?: (seqs: string[]) => void;
   /**
    * 最近一次跳转落空的目标 seq（被撤回 / 删除 / 未同步）。非 null 时，若它恰好
    * 落在相邻两行之间的「单条缺口」上（seq 差为 1，默认缺口条不渲染），就在那里
@@ -866,7 +868,9 @@ function ChatPaneContent({
   onForwardMessages,
   unreadDock,
   unreadDividerRange,
-  seenUnreadHighlights,
+  unreadDockEntryPending,
+  unreadDockViewportActive,
+  onConsumeUnreadDock,
   missingJumpSeq,
   resolvedGapIds,
   headerActions,
@@ -1771,6 +1775,7 @@ function ChatPaneContent({
     locatedSeq,
     dockStop,
     dockVisible,
+    dismissUnreadDock,
     endRef,
     handleMessageScroll,
     handleReadGesture,
@@ -1812,10 +1817,23 @@ function ChatPaneContent({
     parentJumpToSeq,
     tabActive,
     unreadDock,
-    seenUnreadHighlights,
+    unreadDockEntryPending,
+    unreadDockViewportActive:
+      unreadDockViewportActive !== false &&
+      !mobileGroupInfoVisible &&
+      !(compactHeader && messageHistoryActive),
+    onConsumeUnreadDock,
     user,
     visibleMessages,
   });
+  const canOpenImportant = conversation?.type === 'group' && !restrictedSource;
+  function openImportantMessages() {
+    if (!conversation) return;
+    onCloseMessageRecords?.();
+    setImportantMessagesVisited(conversation.id);
+    setImportantMessagesOpen(true);
+    setMobileGroupInfoOpen(false);
+  }
   const captureTimeline = useStableCallback((element: HTMLDivElement | null) => {
     messageScrollRef.current = element;
     onTimelineElement?.(element);
@@ -6519,16 +6537,8 @@ function ChatPaneContent({
                     ? () => onSearchChatRecords(conversation, 'media')
                     : undefined
                 }
-                onImportant={
-                  conversation.type === 'group' && !restrictedSource
-                    ? () => {
-                        onCloseMessageRecords?.();
-                        setImportantMessagesVisited(conversation.id);
-                        setImportantMessagesOpen(true);
-                        setMobileGroupInfoOpen(false);
-                      }
-                    : undefined
-                }
+                onImportant={canOpenImportant ? openImportantMessages : undefined}
+                onDismissUnreadDock={compactHeader && dockVisible ? dismissUnreadDock : undefined}
                 onGroupInfo={
                   conversation.type === 'group' && !sidecarOpen
                     ? (anchor) => {
@@ -6982,6 +6992,7 @@ function ChatPaneContent({
       {/* 未读跳转坞：重要消息与索引共用类型色，普通未读保留原有样式。 */}
       {dockVisible && dockStop && unreadDock ? (
         <div
+          key={`unread-dock:${conversation.type}:${conversation.id}`}
           ref={importantDockRef}
           className={cn(
             'unread-dock-button',
@@ -6990,50 +7001,34 @@ function ChatPaneContent({
           )}
           data-important-kind={dockStop.kind === 'unread' ? undefined : dockStop.kind}
         >
-          <button
-            type="button"
-            title={
-              dockStop.kind === 'unread'
-                ? dockStopLabel(dockStop)
-                : `下一条：${dockStopLabel(dockStop)}`
-            }
-            disabled={dockJumping}
-            onClick={() => {
-              void jumpDockStop();
-            }}
-          >
-            {dockStop.kind === 'unread' ? (
-              <ChevronsUp size={13} strokeWidth={2.4} aria-hidden />
-            ) : (
-              <Sparkles size={13} strokeWidth={2.4} aria-hidden />
-            )}
-            <span className={cn('unread-dock-label')}>
-              {dockStop.kind === 'unread' ? dockStopLabel(dockStop) : highlightLabel(dockStop.kind)}
-            </span>
-            {dockStop.kind !== 'unread' ? (
-              <span
-                className={cn('unread-dock-count')}
-                aria-label={`剩余 ${dockImportantRemaining} 条重要消息`}
-              >
-                {dockImportantRemaining}
-              </span>
-            ) : null}
-          </button>
-          {!compactHeader && conversation.type === 'group' && !restrictedSource ? (
+          <UnreadDockJumpButton
+            stop={dockStop}
+            importantRemaining={dockImportantRemaining}
+            jumping={dockJumping}
+            onJump={() => void jumpDockStop()}
+            onOpenImportant={canOpenImportant ? openImportantMessages : undefined}
+            onSwipeDismiss={compactHeader ? dismissUnreadDock : undefined}
+          />
+          {!compactHeader && canOpenImportant ? (
             <button
               type="button"
               title="展开重要消息列表"
               aria-label="展开重要消息列表"
               aria-expanded={importantMessagesActive}
               aria-controls="weq-important-messages"
-              onClick={() => {
-                onCloseMessageRecords?.();
-                setImportantMessagesVisited(conversation.id);
-                setImportantMessagesOpen(true);
-                setMobileGroupInfoOpen(false);
-              }}
+              onClick={openImportantMessages}
             >
               <ListFilter size={14} />
+            </button>
+          ) : null}
+          {!compactHeader ? (
+            <button
+              type="button"
+              title="收起跳转提示"
+              aria-label="收起跳转提示"
+              onClick={dismissUnreadDock}
+            >
+              <X size={14} aria-hidden />
             </button>
           ) : null}
         </div>
