@@ -24,6 +24,7 @@ export interface ForwardCardTarget {
 export interface ForwardRecordTarget {
   index: number;
   msgId: string;
+  recordIdentity?: string;
 }
 
 export interface ForwardExportTarget extends ForwardCardTarget {

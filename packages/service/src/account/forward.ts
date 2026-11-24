@@ -22,10 +22,23 @@ import { decodeMessage, encode, fetchForwardRaw, PUSH_MSG_BODY } from '@weqbot/p
 import { renderDecodedElements } from './gap_history';
 import type { RenderElement } from './msg_view';
 import { mediaElementFromRenderElement, type MediaElement } from './media_url';
+import { sourceVersionHash } from './collection_capture';
+
+export function forwardCacheIdentity(row: MsgCacheRecord, depth = 0): string {
+  return `cache:${sourceVersionHash({
+    id: row.msgId,
+    sender: row.senderUin || row.senderUid,
+    time: row.sendTime,
+    elements: row.elements,
+    children:
+      depth < 16 ? row.subMsgs?.map((child) => forwardCacheIdentity(child, depth + 1)) : undefined,
+  })}`;
+}
 
 /** One forwarded record pulled from QQ servers, in the renderer's wire shape. */
 export interface FetchedForwardRecord {
   msgId: string;
+  recordIdentity?: string;
   msgSeq?: string;
   clientSeq?: string;
   msgType?: number;
@@ -39,6 +52,7 @@ export interface FetchedForwardRecord {
 
 export class ForwardMsgService {
   private readonly fetchedMedia = new Map<string, Map<string, MediaElement>>();
+  private readonly snapshots = new Map<string, FetchedForwardRecord[]>();
 
   constructor(
     private readonly session: AccountSession,
@@ -77,8 +91,18 @@ export class ForwardMsgService {
     if (res.error) {
       throw new Error(`fetch merged forward failed: ${res.error}`);
     }
-    const records = res.messages.map(toFetchedForwardRecord);
+    const result = res.decodedResponse.result as { resId?: string } | undefined;
+    if (result?.resId && result.resId !== resId) throw new Error('聊天记录资源与请求不一致');
+    const records = res.messages.map((raw) => ({
+      ...toFetchedForwardRecord(raw),
+      recordIdentity: `remote:${sourceVersionHash(raw)}`,
+    }));
     await this.resolveSenders(records);
+    this.snapshots.delete(resId);
+    if (records.length && res.inflated && res.inflated.length <= 1024 * 1024) {
+      this.snapshots.set(resId, structuredClone(records));
+      if (this.snapshots.size > 4) this.snapshots.delete(this.snapshots.keys().next().value!);
+    }
     const media = new Map<string, MediaElement>();
     for (const row of records) {
       for (const element of row.elements) {
@@ -96,6 +120,11 @@ export class ForwardMsgService {
     if (this.fetchedMedia.size > 8)
       this.fetchedMedia.delete(this.fetchedMedia.keys().next().value!);
     return records;
+  }
+
+  async fetchForExport(resId: string): Promise<FetchedForwardRecord[]> {
+    const snapshot = this.snapshots.get(resId);
+    return snapshot ? structuredClone(snapshot) : this.fetchRemote(resId);
   }
 
   /** 读取刚打开的在线转发中的媒体引用，不拿子消息 ID 去查普通会话。 */

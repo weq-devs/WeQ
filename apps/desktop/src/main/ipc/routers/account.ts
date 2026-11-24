@@ -9009,6 +9009,10 @@ export const accountRouter = router({
                       record: z.object({
                         index: z.number().int().nonnegative(),
                         msgId: z.string().max(64),
+                        recordIdentity: z
+                          .string()
+                          .regex(/^(cache|remote):[a-f0-9]{64}$/)
+                          .optional(),
                       }),
                     }),
                   )
@@ -9016,7 +9020,14 @@ export const accountRouter = router({
                   .optional(),
                 records: z
                   .array(
-                    z.object({ index: z.number().int().nonnegative(), msgId: z.string().max(64) }),
+                    z.object({
+                      index: z.number().int().nonnegative(),
+                      msgId: z.string().max(64),
+                      recordIdentity: z
+                        .string()
+                        .regex(/^(cache|remote):[a-f0-9]{64}$/)
+                        .optional(),
+                    }),
                   )
                   .min(1)
                   .max(10000)

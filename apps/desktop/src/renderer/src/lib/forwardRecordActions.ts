@@ -168,7 +168,11 @@ export function forwardMessage(win: ForwardWindowState, entry: ForwardEntry): Me
 }
 
 export function forwardRecordTarget(entry: ForwardEntry): ForwardRecordTarget {
-  return { index: entry.index, msgId: entry.record.msgId || '' };
+  return {
+    index: entry.index,
+    msgId: entry.record.msgId || '',
+    ...(entry.record.recordIdentity ? { recordIdentity: entry.record.recordIdentity } : {}),
+  };
 }
 
 export function forwardExportSelection(

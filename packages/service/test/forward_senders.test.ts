@@ -112,7 +112,8 @@ it('在线私聊转发保留引用所需的发送方序号和昵称，优先使�
       }),
     ),
   );
-  expect(await f.service.fetchRemote('fixture')).toMatchObject([
+  const viewed = await f.service.fetchRemote('fixture');
+  expect(viewed).toMatchObject([
     {
       senderUid: 'u_friend',
       senderUin: '10002',
@@ -122,6 +123,9 @@ it('在线私聊转发保留引用所需的发送方序号和昵称，优先使�
     },
     { senderUin: '10004', sendNick: '包内昵称', msgSeq: '91', clientSeq: '8' },
   ]);
+  expect(await f.service.fetchForExport('fixture')).toEqual(viewed);
+  expect(f.sendPacket).toHaveBeenCalledOnce();
+  await expect(f.service.fetchRemote('other-card')).rejects.toThrow('资源与请求不一致');
 });
 
 it('资料查询失败仍返回原记录，不让缺少昵称阻断聊天记录加载', async () => {

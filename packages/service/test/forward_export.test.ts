@@ -123,6 +123,36 @@ it('专属导出支持 Ark 聊天记录，本地嵌套缓存完整时无需联�
   expect(msgs.exportFetchForward).not.toHaveBeenCalled();
 });
 
+it('转发精确选择优先复用原来源，重排后只恢复唯一同源记录', async () => {
+  const recordIdentity = `remote:${'a'.repeat(64)}`;
+  const forwardTarget = {
+    elementIndex: 0,
+    resId: 'outer',
+    records: [{ index: 0, msgId: '9', recordIdentity }],
+  };
+  const selected: FetchedForwardRecord = {
+    msgId: '9',
+    recordIdentity,
+    elements: [{ type: 'text', data: { textContent: '选中的远端快照' } }],
+  };
+  const other: FetchedForwardRecord = { msgId: '9', elements: [] };
+  const fetch = vi.fn(async () => [other, selected]);
+  const msgs = {
+    exportFilter: { messageIds: ['1'], forwardTarget },
+    listForward: async () => [{ msgId: 9n, elements: [] }],
+    exportFetchForward: fetch,
+  } as unknown as MsgService;
+  const exported = message();
+  await expect(expandForwards(msgs, 'group', exported)).resolves.toBeUndefined();
+  expect(elementsToText(exported.elements)).toContain('选中的远端快照');
+  expect(fetch).toHaveBeenCalledOnce();
+
+  fetch.mockResolvedValueOnce([other, selected, selected]);
+  await expect(expandForwards(msgs, 'group', message())).rejects.toThrow('所选消息已变化');
+  fetch.mockResolvedValueOnce([]);
+  await expect(expandForwards(msgs, 'group', message())).rejects.toThrow('所选消息已变化');
+});
+
 it('嵌套记录按所选位置导出，重复 ID 不合并，也不下载未选卡片', async () => {
   const root = mkdtempSync(join(tmpdir(), 'weq-record-selection-'));
   roots.push(root);

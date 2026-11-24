@@ -42,6 +42,7 @@ import {
   type RenderGuildDirectMsg,
 } from '@weq/service';
 import type { GroupNotice, GroupTodoView, HiddenSessionSummary } from '@weq/service';
+import { forwardCacheIdentity } from '@weq/service';
 
 export interface UserProfileWire {
   uid: string;
@@ -926,7 +927,13 @@ export function forwardRecordToWire(record: MsgCacheRecord): unknown {
   if (record.senderUin !== undefined) carrier.senderUin = String(record.senderUin);
   if (record.flag40005) carrier.clientSeq = String(record.flag40005);
   const decoration = proto40801 instanceof Uint8Array ? decodeMsgDressWire(proto40801) : null;
-  return { ...carrier, elements, subMsgs, ...(decoration ? { decoration } : {}) };
+  return {
+    ...carrier,
+    recordIdentity: forwardCacheIdentity(record),
+    elements,
+    subMsgs,
+    ...(decoration ? { decoration } : {}),
+  };
 }
 
 /**

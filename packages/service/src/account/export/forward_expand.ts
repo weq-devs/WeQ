@@ -19,6 +19,7 @@
  */
 
 import { decodeElement, type MsgCacheRecord } from '@weq/codec';
+import { forwardCacheIdentity } from '../forward';
 import type { MsgService, RenderC2cMsg, RenderGroupMsg } from '../msg';
 import { toExportedMessage } from './message_source';
 import { toRenderElements, type ForwardMessage, type RenderElement } from '../msg_view';
@@ -92,6 +93,7 @@ export function liftForwardRecords(records: MsgCacheRecord[], depth = 0): Forwar
     }
     out.push({
       ...(rec.msgId != null ? { msgId: String(rec.msgId) } : {}),
+      recordIdentity: forwardCacheIdentity(raw),
       ...(rec.senderUid ? { senderUid: rec.senderUid } : {}),
       senderName: recordSenderName(rec),
       senderUin: num(rec.senderUin) > 0 ? String(num(rec.senderUin)) : '',
@@ -187,18 +189,31 @@ function contents(card: ForwardCard): ForwardMessage[] {
   return rows;
 }
 
-function matchRecord(card: ForwardCard, target: ForwardRecordTarget): ForwardMessage {
-  const row = contents(card)[target.index];
-  if (!row || (row.msgId ?? '') !== target.msgId)
-    throw new Error('所选消息已变化，请重新打开聊天记录并选择。');
-  return row;
+function matchRecord(card: ForwardCard, target: ForwardRecordTarget) {
+  const rows = contents(card);
+  const matches = (row: ForwardMessage) =>
+    (row.msgId ?? '') === target.msgId &&
+    (!target.recordIdentity || row.recordIdentity === target.recordIdentity);
+  const atIndex = rows[target.index];
+  if (atIndex && matches(atIndex)) return { index: target.index, record: atIndex };
+  if (target.recordIdentity) {
+    const candidates = rows.flatMap((record, index) =>
+      matches(record) ? [{ index, record }] : [],
+    );
+    if (candidates.length === 1) return candidates[0]!;
+  }
+  throw new Error('所选消息已变化，请重新打开聊天记录并选择。');
 }
 
 function selectedRecords(card: ForwardCard, target: ForwardExportTarget) {
   if (!target.records) return contents(card).map((record, index) => ({ index, record }));
   if (!target.records.length) throw new Error('未选择聊天记录内的消息。');
   const records = new Map<number, ForwardMessage>();
-  for (const item of target.records) records.set(item.index, matchRecord(card, item));
+  for (const item of target.records) {
+    const { index, record } = matchRecord(card, item);
+    if (records.has(index)) throw new Error('所选消息已变化，请重新打开聊天记录并选择。');
+    records.set(index, record);
+  }
   return [...records].sort(([a], [b]) => a - b).map(([index, record]) => ({ index, record }));
 }
 
@@ -211,14 +226,14 @@ async function prepareSelectedForwards(
   let card = root;
   for (const child of target.path ?? []) {
     msgs.exportSignal?.throwIfAborted();
-    await loadRemoteForward(msgs, card);
+    await loadRemoteForward(msgs, card, child.record.recordIdentity);
     if (card.data.resId) visited.add(card.data.resId);
-    const row = matchRecord(card, child.record);
+    const { record: row } = matchRecord(card, child.record);
     normalizeNestedForwards(row.elements);
     card = matchCard(row.elements[child.elementIndex], child);
     if (card.data.resId && visited.has(card.data.resId)) throw new Error('聊天记录包含循环引用。');
   }
-  await loadRemoteForward(msgs, card);
+  await loadRemoteForward(msgs, card, target.records?.[0]?.recordIdentity);
   if (card.data.resId) visited.add(card.data.resId);
   for (const { record } of selectedRecords(card, target)) {
     normalizeNestedForwards(record.elements);
@@ -285,14 +300,28 @@ async function expandRemote(
   }
 }
 
-async function loadRemoteForward(msgs: MsgService, element: ForwardCard): Promise<void> {
+async function loadRemoteForward(
+  msgs: MsgService,
+  element: ForwardCard,
+  identity?: string,
+): Promise<void> {
   const resId = element.data.resId;
-  if (element.data.forwardMessages?.length || !resId || !msgs.exportFetchForward) return;
+  const existing = element.data.forwardMessages;
+  const needsRemote = identity?.startsWith('remote:');
+  if (
+    !resId ||
+    !msgs.exportFetchForward ||
+    identity?.startsWith('cache:') ||
+    (existing?.length &&
+      (!needsRemote || existing.some((row) => row.recordIdentity?.startsWith('remote:'))))
+  )
+    return;
   try {
     const records = await msgs.exportFetchForward(resId);
     if (records.length) {
       element.data.forwardMessages = records.map((record) => ({
         msgId: record.msgId,
+        recordIdentity: record.recordIdentity,
         senderUid: record.senderUid,
         senderName: record.sendNick || record.senderUin || record.senderUid || '匿名',
         senderUin: record.senderUin ?? '',
@@ -323,7 +352,10 @@ export async function* exportForwardContents(
     let element = row.elements[0];
     if (element?.type !== 'multiMsg') throw new Error('聊天记录卡片已变化，请重试导出。');
     for (const child of target.path ?? [])
-      element = matchCard(matchRecord(element, child.record).elements[child.elementIndex], child);
+      element = matchCard(
+        matchRecord(element, child.record).record.elements[child.elementIndex],
+        child,
+      );
     for (const { index, record } of selectedRecords(element, target)) {
       msgs.exportSignal?.throwIfAborted();
       yield {

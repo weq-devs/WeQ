@@ -2153,6 +2153,11 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       );
       // 漫游消息缓存：聊天页「缺失消息」与导出「消息补全」共用同一实例 / 同一库，
       // 先建好再喂给 exportManager 的 messageBackfill dep（缓存命中 / 拉取复用）。
+      const forwardMsgs = new ForwardMsgService(
+        session,
+        platform.native.ntHelper,
+        resolveOnlinePid,
+      );
       const gapHistory = new GapHistoryService(
         platform.native.ntHelper,
         session,
@@ -2373,7 +2378,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             return out;
           },
         }),
-        forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, resolveOnlinePid),
+        forwardMsgs,
         groupInfo,
         buddyAnalytics: new BuddyAnalyticsService(session, gapHistory),
         groupNotify: new GroupNotifyService(session, {
@@ -2670,12 +2675,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
             messageBackfill: gapHistory,
             exportAccountUin: session.context.uin,
-            fetchForward: (resId) =>
-              new ForwardMsgService(
-                session,
-                platform.native.ntHelper,
-                resolveOnlinePid,
-              ).fetchRemote(resId),
+            fetchForward: (resId) => forwardMsgs.fetchForExport(resId),
             // 漫游缓存元素回退：补全消息不在本地 msg 表，导出下载按 msgId 定位媒体元素。
             gapHistory,
           },
@@ -3267,6 +3267,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       );
       // 漫游消息缓存：聊天页「缺失消息」与导出「消息补全」共用同一实例 / 同一库
       // （静态账号需要同一账号的 QQ 在线时才能拉取，与聊天页一致）。
+      const forwardMsgs = new ForwardMsgService(session, platform.native.ntHelper, livePid);
       const gapHistory = new GapHistoryService(
         platform.native.ntHelper,
         session,
@@ -3349,7 +3350,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             return out;
           },
         }),
-        forwardMsgs: new ForwardMsgService(session, platform.native.ntHelper, livePid),
+        forwardMsgs,
         groupInfo,
         buddyAnalytics: new BuddyAnalyticsService(session, gapHistory),
         groupNotify: new GroupNotifyService(session, {
@@ -3623,8 +3624,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             // 消息补全：与聊天页共用漫游缓存与拉取能力（在线 QQ + 非完全离线模式）。
             messageBackfill: gapHistory,
             exportAccountUin: session.context.uin,
-            fetchForward: (resId) =>
-              new ForwardMsgService(session, platform.native.ntHelper, livePid).fetchRemote(resId),
+            fetchForward: (resId) => forwardMsgs.fetchForExport(resId),
             // 漫游缓存元素回退：补全消息不在本地 msg 表，导出下载按 msgId 定位媒体元素。
             gapHistory,
           },

@@ -403,6 +403,7 @@ export interface RenderMarkdownElement {
  */
 export interface ForwardMessage {
   msgId?: string;
+  recordIdentity?: string;
   senderUid?: string;
   /** Sender display name (nickname / card / uin fallback). */
   senderName: string;

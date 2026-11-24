@@ -8,6 +8,7 @@ import { seedMessageBubbles, messageBubble } from '../lib/messageBubbles';
 export interface ForwardRecordWire {
   cachedBubbles?: MessageBubbleSkin[];
   msgId: string;
+  recordIdentity?: string;
   msgSeq?: string | number;
   clientSeq?: string | number;
   msgType?: number;
