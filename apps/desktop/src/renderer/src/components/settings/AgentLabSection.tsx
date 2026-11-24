@@ -144,6 +144,16 @@ function parseTokenCount(input: string): number | undefined {
   return Number.isSafeInteger(tokens) ? tokens : undefined;
 }
 
+function formatTokenCount(value: number | null): string {
+  if (value === null) return '';
+  if (value >= 1_000_000) {
+    const digits = String(value);
+    const fraction = digits.slice(-6).replace(/0+$/, '');
+    return `${digits.slice(0, -6)}${fraction ? `.${fraction}` : ''}M`;
+  }
+  return value % 1000 === 0 ? `${value / 1000}k` : String(value);
+}
+
 const MODEL_TOKEN_DEFAULT_ROWS = [
   {
     field: 'defaultContextWindowTokens',
@@ -176,9 +186,7 @@ function ModelTokenDefaultRow({
   const change = trpc.bootstrap.setAgentLabModelTokenDefaults.useMutation();
   const utils = trpc.useUtils();
   const { field, id, label, desc, defaultValue, reset } = definition;
-  const formatted = (value: number | null) =>
-    value === null ? '' : value % 1000 === 0 ? `${value / 1000}k` : String(value);
-  const input = draft ?? formatted(saved);
+  const input = draft ?? formatTokenCount(saved);
   const value = input.trim()
     ? parseTokenCount(input)
     : field === 'defaultContextWindowTokens'
@@ -217,7 +225,9 @@ function ModelTokenDefaultRow({
             aria-label={label}
             aria-invalid={ready && value === undefined}
             title="Token；支持 k、M 简写"
-            placeholder={field === 'defaultContextWindowTokens' ? formatted(defaultValue) : '不设'}
+            placeholder={
+              field === 'defaultContextWindowTokens' ? formatTokenCount(defaultValue) : '不设'
+            }
             value={input}
             disabled={!ready}
             onChange={(event) => setDraft(event.target.value)}

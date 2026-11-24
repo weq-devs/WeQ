@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   catalogError: false,
   refetch: vi.fn(async () => ({})),
   providers: [] as AgentLabProviderConfig[],
+  tokenDefaults: { defaultContextWindowTokens: 128_000, defaultMaxOutputTokens: 32_000 },
   tts: [] as TtsProviderConfig[],
   saveTts: vi.fn(),
   save: vi.fn(),
@@ -79,9 +80,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
       bootstrap: {
         getSettings: {
           useQuery: () => ({
-            data: {
-              agentLab: { defaultContextWindowTokens: 128_000, defaultMaxOutputTokens: 32_000 },
-            },
+            data: { agentLab: state.tokenDefaults },
           }),
         },
         setAgentLabModelTokenDefaults: { useMutation: () => ({ mutateAsync: vi.fn() }) },
@@ -177,6 +176,7 @@ beforeEach(() => {
   state.catalogError = false;
   state.refetch.mockClear();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  state.tokenDefaults = { defaultContextWindowTokens: 128_000, defaultMaxOutputTokens: 32_000 };
   state.providers = [
     {
       id: 'synthetic-provider',
@@ -483,6 +483,26 @@ describe('多 API provider 配置', () => {
       capabilities: ['vision', 'embedding'],
       reasoningEfforts: ['low', 'high'],
     });
+  });
+
+  it('全局 Token 默认值按容量显示 k 或 M，保留精确值', () => {
+    state.tokenDefaults = {
+      defaultContextWindowTokens: 1_000_000,
+      defaultMaxOutputTokens: 256_000,
+    };
+    const f = mount();
+    const context = f.host.querySelector<HTMLInputElement>('[aria-label="默认上下文窗口"]')!;
+    const output = f.host.querySelector<HTMLInputElement>('[aria-label="默认最大输出"]')!;
+    expect(context.value).toBe('1M');
+    expect(output.value).toBe('256k');
+
+    state.tokenDefaults = {
+      defaultContextWindowTokens: 1_048_576,
+      defaultMaxOutputTokens: Number.MAX_SAFE_INTEGER,
+    };
+    f.render();
+    expect(context.value).toBe('1.048576M');
+    expect(output.value).toBe('9007199254.740991M');
   });
 
   it('Token 简写失焦后转为整数，保存时也校验并转换尚未失焦的输入', async () => {
