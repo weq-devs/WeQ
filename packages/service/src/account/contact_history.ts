@@ -151,11 +151,7 @@ export class ContactHistoryService {
       {
         eval: true,
         workerData: { path: join(root, 'history.sqlite') },
-        execArgv:
-          Number(process.versions.node.split('.')[0]) === 22 &&
-          Number(process.versions.node.split('.')[1]) < 13
-            ? ['--experimental-sqlite']
-            : [],
+        execArgv: [],
       },
     );
     this.worker.unref();

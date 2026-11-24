@@ -60,7 +60,7 @@ jobs:
 
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -183,7 +183,7 @@ jobs:
 
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Resolve target version
         id: target
@@ -434,6 +434,11 @@ jobs:
         with:
           ref: main
 
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
       # compat 的各 job 把报告放在 artifact 里；这里逐个取回来汇总。
       # 每个平台的 artifact 落到 reports/<platform>/result.json。
       # 不 merge-multiple：同名文件会互相覆盖，剩下的就只剩一个平台了。
@@ -442,7 +447,7 @@ jobs:
         with:
           pattern: signcheck-*
           path: reports
-          # download-artifact@v4 没有 if-no-files-found；匹配不到时不会建目录，
+          # 匹配不到报告时不会建目录，
           # 下面的合并脚本本身就按「目录不存在」处理。
 
       - name: Merge into supported.json
@@ -487,9 +492,14 @@ jobs:
         with:
           ref: main
 
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
       # compat 的每个平台各上传一个 signcheck-<platform> artifact，这里只读
       # 报告，不重新跑验证。被跳过 / 早退的平台没有报告，脚本会写成「未执行」。
-      # download-artifact@v4 没有 if-no-files-found：匹配不到时本身就会跳过，
+      # 匹配不到时本身就会跳过，
       # 正好对应「compat 没跑」的情况。
       - name: Download reports
         uses: actions/download-artifact@v7

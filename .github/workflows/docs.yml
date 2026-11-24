@@ -35,7 +35,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version-file: .node-version
 
       - name: Verify docs submodule commit is pushed
         run: node scripts/check-docs-submodule.mjs

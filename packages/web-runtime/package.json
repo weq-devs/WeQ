@@ -3,6 +3,9 @@
   "version": "2.8.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "packageManager": "pnpm@12.8.1",
   "files": [
     "README.md"

@@ -83,11 +83,7 @@ export class AnalysisReportsService extends EventEmitter {
     super();
     this.worker = new Worker(workerPath, {
       workerData: { path: join(root, 'reports.sqlite') },
-      execArgv:
-        Number(process.versions.node.split('.')[0]) === 22 &&
-        Number(process.versions.node.split('.')[1]) < 13
-          ? ['--experimental-sqlite']
-          : [],
+      execArgv: [],
     });
     this.worker.unref();
     this.worker.on('message', (reply: { id: number; value: unknown; error?: string }) => {

@@ -17,7 +17,7 @@
     "@weq/native": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22.10.6",
+    "@types/node": "^24.0.0",
     "vitest": "^2.1.8"
   }
 }

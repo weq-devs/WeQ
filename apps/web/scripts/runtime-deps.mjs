@@ -67,12 +67,15 @@ export function readRuntimeSource(root) {
   };
 }
 
+export const NODE_MIN_MAJOR = 24;
+
 export function runtimeManifest(source, version) {
   return {
     name: 'weq-web',
     version,
     private: true,
     type: 'module',
+    engines: { node: `>=${NODE_MIN_MAJOR}` },
     packageManager: source.packageManager,
     dependencies: source.manifest.dependencies,
   };
@@ -108,9 +111,20 @@ export function completeDeployLock(source, text) {
   for (const [name, snapshot] of Object.entries(project.snapshots ?? {})) {
     const original = source.project.snapshots?.[name];
     if (!original) throw new Error(`部署包含未冻结的依赖 ${name}`);
-    for (const key of ['dependencies', 'optionalDependencies', 'transitivePeerDependencies'])
-      if (!same(snapshot[key] ?? {}, original[key] ?? {}))
-        throw new Error(`部署依赖边 ${name} 偏离根锁文件`);
+    for (const key of ['dependencies', 'optionalDependencies', 'transitivePeerDependencies']) {
+      const actual = snapshot[key] ?? {};
+      let expected = original[key] ?? {};
+      // pnpm deploy --prod can omit sharp's optional, compile-time-only peer.
+      if (
+        key === 'optionalDependencies' &&
+        name.startsWith('sharp@') &&
+        !('@types/node' in actual)
+      ) {
+        expected = { ...expected };
+        delete expected['@types/node'];
+      }
+      if (!same(actual, expected)) throw new Error(`部署依赖边 ${name} 偏离根锁文件`);
+    }
   }
   const options = { noRefs: true, lineWidth: 120 };
   return (

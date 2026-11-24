@@ -34,7 +34,7 @@ test('安装依赖的 CI 与发布任务先检出文档子模块，匹配冻结�
       const steps = definition.steps ?? [];
       const install = steps.findIndex((step) => /pnpm install/.test(step.run ?? ''));
       if (install < 0) continue;
-      const checkout = steps.findIndex((step) => step.uses === 'actions/checkout@v4');
+      const checkout = steps.findIndex((step) => step.uses?.startsWith('actions/checkout@'));
       assert.ok(checkout >= 0 && checkout < install, `${name}/${job} 先检出源码`);
       assert.equal(steps[checkout].with?.submodules, 'recursive', `${name}/${job}`);
     }
@@ -46,7 +46,7 @@ test('文档门禁先验证主仓记录的提交可拉取，再初始化子模�
     readFileSync(new URL('../.github/workflows/docs.yml', import.meta.url), 'utf8'),
   );
   const steps = docs.jobs.pointer.steps;
-  const checkout = steps.find((step) => step.uses === 'actions/checkout@v4');
+  const checkout = steps.find((step) => step.uses?.startsWith('actions/checkout@'));
   assert.notEqual(checkout.with?.submodules, 'recursive');
   const verify = steps.findIndex((step) => step.run === 'node scripts/check-docs-submodule.mjs');
   const initialize = steps.findIndex(
@@ -129,7 +129,7 @@ test('类型检查分组覆盖每个包和桌面端两个配置，保留完整�
 
 test('类型缓存按平台、分组和编译配置区分，命中缓存也不能跳过检查', () => {
   const steps = workflow.jobs['typecheck-suites'].steps;
-  const cache = steps.find((step) => step.uses === 'actions/cache@v4');
+  const cache = steps.find((step) => step.uses?.startsWith('actions/cache@'));
   assert.ok(cache);
   const paths = cache.with.path.trim().split('\n');
   assert.deepEqual(paths, [
@@ -144,6 +144,7 @@ test('类型缓存按平台、分组和编译配置区分，命中缓存也不�
     assert.ok(prefix.includes(`\${{ ${field} }}`));
   }
   for (const input of [
+    '.node-version',
     'pnpm-lock.yaml',
     'package.json',
     'tsconfig.base.json',

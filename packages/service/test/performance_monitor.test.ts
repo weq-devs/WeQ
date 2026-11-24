@@ -9,7 +9,6 @@ import {
   normalizeMonitorSettings,
   DEFAULT_MONITOR_SETTINGS,
   finishPerformanceRecordingReset,
-  sqliteWorkerExecArgv,
   type MonitorCollector,
   type MonitorRecord,
   type MonitorPrunePreview,
@@ -97,13 +96,6 @@ afterEach(async () => {
 });
 
 describe('宿主性能监视', () => {
-  it('最低 Node 22.12 的 SQLite 开关仅传给需要它的 Worker', () => {
-    expect(sqliteWorkerExecArgv('22.12.0')).toEqual(['--experimental-sqlite']);
-    expect(sqliteWorkerExecArgv('22.13.0')).toBeUndefined();
-    expect(sqliteWorkerExecArgv('23.3.0')).toEqual(['--experimental-sqlite']);
-    expect(sqliteWorkerExecArgv('23.4.0')).toBeUndefined();
-    expect(sqliteWorkerExecArgv('24.22.1')).toBeUndefined();
-  });
   it('配置损坏时停止采集并保留历史，不在维护重试时静默覆盖设置', async () => {
     vi.useFakeTimers({
       toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],

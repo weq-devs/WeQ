@@ -113,7 +113,7 @@
     "ws": "8.21.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.6",
+    "@types/node": "^24.0.0",
     "@types/pngjs": "6.0.5",
     "@types/qrcode": "^1.5.5",
     "@types/ws": "8.18.1",

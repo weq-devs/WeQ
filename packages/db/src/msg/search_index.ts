@@ -467,7 +467,7 @@ export class MsgSearchIndexDb {
         String(r[9] ?? ''),
       );
     }
-    // 占位符一律用匿名 `?`：node:sqlite（Node 22）不支持带编号的 `?N`，绑定时直接
+    // 占位符一律用匿名 `?`：node:sqlite 用位置参数绑定带编号的 `?N` 时会
     // 抛 SQLITE_RANGE（column index out of range）。匿名 `?` 按出现顺序编号，
     // 正好与 params 的拼装顺序一致。
     const values = rows.map(() => `(${Array.from({ length: 10 }, () => '?').join(',')})`).join(',');

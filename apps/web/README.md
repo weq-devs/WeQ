@@ -17,7 +17,7 @@
 
 ## 快速开始
 
-需要 **Node.js ≥ 22**（不内置）。
+需要 **Node.js ≥ 24**（不内置，推荐 24 LTS）。
 
 从 [Releases](https://github.com/weq-devs/WeQ/releases) 下载与运行机器匹配的压缩包，解压后：
 

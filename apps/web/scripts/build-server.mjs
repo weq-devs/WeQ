@@ -16,7 +16,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { currentTarget, LABELS, nativeRel } from './platform.mjs';
-import { readRuntimeSource, runtimeManifest } from './runtime-deps.mjs';
+import { NODE_MIN_MAJOR, readRuntimeSource, runtimeManifest } from './runtime-deps.mjs';
 import {
   checkDressManifest,
   includeSharedResource,
@@ -31,9 +31,6 @@ const desktopMain = join(repoRoot, 'apps/desktop/src/main');
 
 const NATIVE_SRC = join(repoRoot, 'native');
 const RESOURCES_SRC = join(repoRoot, 'resources');
-
-/** Minimum Node major the launchers accept — matches the esbuild `target`. */
-const NODE_MIN_MAJOR = 22;
 
 // `scripts/set-version.mjs` stamps this from the release tag; baked in so the
 // running server can report its own version without reading package.json.
@@ -72,7 +69,7 @@ const ENTRIES = {
 const shared = {
   bundle: true,
   platform: 'node',
-  target: 'node22',
+  target: `node${NODE_MIN_MAJOR}`,
   format: 'esm',
   external: [...Object.keys(NATIVE_DEPS), 'sherpa-onnx-node', '@receptron/laya', '*.node'],
   banner: {
@@ -141,7 +138,7 @@ writeFileSync(
   [
     'WeQ Web — 浏览器版',
     '',
-    '需要 Node.js 22 或更高版本（不内置）。',
+    `需要 Node.js ${NODE_MIN_MAJOR} 或更高版本（不内置）。`,
     '',
     '启动：',
     '  Windows：双击 start.bat',
@@ -193,17 +190,17 @@ function writeLaunchers() {
       'if errorlevel 1 (',
       '  echo.',
       '  echo   没有找到 Node.js。',
-      '  echo   请先安装 Node.js 22 或更高版本： https://nodejs.org/',
+      `  echo   请先安装 Node.js ${NODE_MIN_MAJOR} 或更高版本： https://nodejs.org/`,
       '  echo.',
       '  pause',
       '  exit /b 1',
       ')',
       '',
-      'rem 取主版本号（v22.16.0 -> 22）并要求 >= 22。',
+      'rem 取 Node.js 主版本号。',
       `for /f "tokens=1 delims=." %%v in ('node -p "process.versions.node"') do set NODE_MAJOR=%%v`,
       `if %NODE_MAJOR% LSS ${NODE_MIN_MAJOR} (`,
       '  echo.',
-      '  echo   Node.js 版本过低（当前 v%NODE_MAJOR%），需要 22 或更高。',
+      `  echo   Node.js 版本过低（当前 v%NODE_MAJOR%），需要 ${NODE_MIN_MAJOR} 或更高。`,
       '  echo   请到 https://nodejs.org/ 升级。',
       '  echo.',
       '  pause',
@@ -231,18 +228,18 @@ function writeLaunchers() {
       'if ! command -v node >/dev/null 2>&1; then',
       '  echo',
       '  echo "  没有找到 Node.js。"',
-      '  echo "  请先安装 Node.js 22 或更高版本："',
-      '  echo "    Debian/Ubuntu:  curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt install -y nodejs"',
+      `  echo "  请先安装 Node.js ${NODE_MIN_MAJOR} 或更高版本："`,
+      `  echo "    Debian/Ubuntu:  curl -fsSL https://deb.nodesource.com/setup_${NODE_MIN_MAJOR}.x | sudo -E bash - && sudo apt install -y nodejs"`,
       '  echo "    其它发行版:      https://nodejs.org/"',
       '  echo',
       '  exit 1',
       'fi',
       '',
-      '# 主版本号（v22.16.0 -> 22）。',
+      '# 取 Node.js 主版本号。',
       'NODE_MAJOR=$(node -p "process.versions.node.split(\'.\')[0]")',
       `if [ "$NODE_MAJOR" -lt ${NODE_MIN_MAJOR} ]; then`,
       '  echo',
-      '  echo "  Node.js 版本过低（当前 v$NODE_MAJOR），需要 22 或更高。"',
+      `  echo "  Node.js 版本过低（当前 v$NODE_MAJOR），需要 ${NODE_MIN_MAJOR} 或更高。"`,
       '  echo "  升级方式见 https://nodejs.org/"',
       '  echo',
       '  exit 1',

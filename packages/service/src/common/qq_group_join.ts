@@ -82,7 +82,7 @@ function hexToUtf8(hex: string): string {
 export function decodeBase64Utf8(value: string): string {
   const normalized = value.trim().replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
-  // atob / TextDecoder 在 Node 22 与浏览器里都在（Node 16+ 起 atob 是全局的）。
+  // Node 和浏览器都提供 atob / TextDecoder。
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);

@@ -16,13 +16,6 @@ import {
 } from './types';
 export * from './types';
 
-export function sqliteWorkerExecArgv(version: string): string[] | undefined {
-  const [major, minor] = version.split('.').map(Number);
-  return (major === 22 && minor! < 13) || (major === 23 && minor! < 4)
-    ? ['--experimental-sqlite']
-    : undefined;
-}
-
 export interface MonitorCollector {
   host: 'desktop' | 'web';
   capabilities: string[];
@@ -104,7 +97,6 @@ export class PerformanceMonitor {
   private startWorker() {
     const worker = new Worker(`(${performanceWorker.toString()})(require)`, {
       eval: true,
-      execArgv: sqliteWorkerExecArgv(process.versions.node),
       workerData: { path: join(this.root, 'performance-monitor', 'history.sqlite') },
     });
     this.worker = worker;

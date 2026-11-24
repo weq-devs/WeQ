@@ -39,9 +39,8 @@ export async function startDevelopment({
   },
   run = runCommand,
 } = {}) {
-  const [major, minor] = process.versions.node.split('.').map(Number);
-  if (major < 22 || (major === 22 && minor < 12))
-    throw new Error('开发启动需要 Node.js >= 22.12.0');
+  if (Number(process.versions.node.split('.')[0]) < 24)
+    throw new Error('开发启动需要 Node.js >= 24');
   nativePlatform();
   const config = await loadConfig(repo, env);
   const childEnv = { ...env };

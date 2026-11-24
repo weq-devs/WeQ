@@ -42,7 +42,7 @@ export async function buildWeqbotDaemon(
     bundle: true,
     platform: 'node',
     format: 'esm',
-    target: 'node22',
+    target: 'node24',
     legalComments: 'none',
     logLevel: 'warning',
     // 依赖里还有 CJS（ws）：ESM 输出里没有 `require`，用 createRequire 补上，
