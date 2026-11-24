@@ -482,7 +482,7 @@ describe('设置归位后的实际页面', () => {
     try {
       const activeTab = f.host.querySelector('.weq-settings-subnav-item.is-active');
       const loginTab = activeTab?.nextElementSibling as HTMLButtonElement;
-      expect(loginTab.textContent).toBe('QQ 设备标识与登录账号');
+      expect(loginTab.textContent).toBe('QQ 登录管理');
       act(() => loginTab.click());
       expect(f.body().getAttribute('data-settings-page')).toBe('qq-accounts');
       const panel = f.body().querySelector('[data-setting-id="qq-accounts"] .weq-login-acc')!;
@@ -673,7 +673,7 @@ describe('设置归位后的实际页面', () => {
     ['global', '默认发送正在输入状态', 'typing-status', '消息输入与回复'],
     ['storage', '优先使用 CDN', 'prefer-cdn', '资源加载'],
     ['media', '允许使用外部安卓图片缓存', 'external-chatpic', '资源加载'],
-    ['diagnostics', 'QQ 登录记录管理', 'qq-accounts', 'QQ 设备标识与登录账号'],
+    ['diagnostics', 'QQ 登录记录管理', 'qq-accounts', 'QQ 登录管理'],
     ['logs', '数据库读取并发上限', 'database-read-concurrency', 'QQ 数据库管理'],
     ['rkey', '外部 RKEY', 'external-rkey', '资源加载'],
     ['resource-loading', '省流量模式', 'data-saver', '省流量模式'],

@@ -103,6 +103,7 @@ export const SETTINGS_PAGE_ALIASES: Partial<Record<SettingsPageId, readonly stri
   'long-term-authorization': ['在线能力与授权'],
   accounts: ['账号管理'],
   credentials: ['账号凭据'],
+  'qq-accounts': ['QQ 设备标识与登录账号'],
   diagnostics: ['高级诊断', '诊断工具', 'QQ 协议工具'],
   'database-management': [
     '维护工具',

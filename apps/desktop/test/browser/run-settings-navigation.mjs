@@ -169,7 +169,7 @@ try {
       assert.deepEqual(await page.locator('.weq-settings-subnav-item').allTextContents(), [
         '监听与读取',
         '凭据管理',
-        'QQ 设备标识与登录账号',
+        'QQ 登录管理',
         '资源加载',
         '省流量模式',
         'QQ 资源管理',
@@ -203,7 +203,7 @@ try {
       );
       if (output)
         await page.screenshot({ path: resolve(output, `advanced-tools-${width}-${theme}.png`) });
-      await page.getByRole('button', { name: 'QQ 设备标识与登录账号', exact: true }).click();
+      await page.getByRole('button', { name: 'QQ 登录管理', exact: true }).click();
       const loginRecords = page.locator('.weq-settings-body [data-setting-id="qq-accounts"]');
       await loginRecords.scrollIntoViewIfNeeded();
       await loginRecords.getByText('合成登录账号', { exact: true }).waitFor();

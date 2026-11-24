@@ -35,7 +35,7 @@ export const SETTINGS_PAGE_LABELS = {
   'qq-proxy': 'QQ 代理连接',
   'long-term-authorization': '长期授权',
   credentials: '凭据管理',
-  'qq-accounts': 'QQ 设备标识与登录账号',
+  'qq-accounts': 'QQ 登录管理',
   accounts: 'WeQ 账号管理',
   diagnostics: 'QQ 高级工具',
   'database-management': 'QQ 数据库管理',
