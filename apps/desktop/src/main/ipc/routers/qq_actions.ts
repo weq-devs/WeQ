@@ -969,17 +969,19 @@ export function createQQActionsRouter(
       ),
     makeGroupFilePermanent: procedure
       .input(group.extend({ fileId: id, directory: id.default('/') }))
-      .mutation(async ({ input: i }) => {
-        let result: Awaited<ReturnType<QQActionServices['groupFile']['makePermanent']>> = {
-          state: 'unconfirmed',
-          fileId: null,
-          directory: null,
-        };
-        await write(i, async (s, current) => {
-          result = await s.groupFile.makePermanent(i.groupId, i.fileId, i.directory, current);
-        });
-        return result;
-      }),
+      .mutation(
+        async ({ input: i }): ReturnType<QQActionServices['groupFile']['makePermanent']> => {
+          let result: Awaited<ReturnType<QQActionServices['groupFile']['makePermanent']>> = {
+            state: 'unconfirmed',
+            fileId: null,
+            directory: null,
+          };
+          await write(i, async (s, current) => {
+            result = await s.groupFile.makePermanent(i.groupId, i.fileId, i.directory, current);
+          });
+          return result;
+        },
+      ),
     folders: procedure
       .input(group.extend({ directory: id.default('/') }))
       .query(({ input: i }) => read(i, (s) => s.groupFile.list(i.groupId, i.directory))),
