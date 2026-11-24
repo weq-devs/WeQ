@@ -526,7 +526,7 @@ export class EnhancementUpdateController {
       .map((pack) => pack.id);
     if (install.length)
       await networkScope.run({ restricted: false, intent: 'batch' }, () =>
-        startEnhancementDownloads(this.packs, install),
+        startEnhancementDownloads(this.packs, install, { installedOnly: true }),
       );
   }
   private async readSignedFeed(repository: string, feedTag?: string): Promise<ReleaseIndex | null> {

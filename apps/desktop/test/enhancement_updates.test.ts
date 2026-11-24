@@ -26,6 +26,7 @@ import { backgroundTasks } from '../src/main/background_tasks';
 import {
   enhancementDownloadTask,
   forgetEnhancementTask,
+  forgetRemovedPackTask,
   restoreEnhancementTasks,
   startEnhancementDownloads,
   trackEnhancementPreparation,
@@ -130,15 +131,21 @@ it('统一索引的两包分别校验资产和兼容身份', () => {
   expect(read('market-emoji')).toEqual(market);
 });
 
-it('独立安装、更新、重开与删除商城目录，更新失败保留旧版', async () => {
+it('商城目录更新失败保留旧版，删除会取消暂停的更新并清理任务和文件', async () => {
   const root = await mkdtemp(join(tmpdir(), 'weq-market-emoji-'));
   roots.push(root);
   const installedPath = join(root, 'market-emoji');
   const receiptPath = join(root, 'ready.json');
   const csv = (name: string) => `id,name,mark,feetype\n248001,${name},"包含,逗号",1\n`;
   let response: string | Buffer = csv('第一版');
-  const fetcher: typeof fetch = async () =>
-    new Response(typeof response === 'string' ? response : new Uint8Array(response));
+  let streaming: PromiseWithResolvers<AbortSignal> | undefined;
+  const fetcher: typeof fetch = async (_url, init) => {
+    if (streaming) {
+      streaming.resolve(init!.signal!);
+      return new Response(new ReadableStream());
+    }
+    return new Response(typeof response === 'string' ? response : new Uint8Array(response));
+  };
   const create = () => {
     const catalog = createMarketEmojiComponent(installedPath, fetcher);
     const packs = new EnhancementPacks(
@@ -157,7 +164,7 @@ it('独立安装、更新、重开与删除商城目录，更新失败保留旧�
     );
     return { catalog, packs };
   };
-  const install = async (packs: EnhancementPacks, content: string | Buffer) => {
+  const select = (packs: EnhancementPacks, content: string | Buffer) => {
     const name = typeof content === 'string' ? 'market.csv' : 'market.csv.gz';
     packs.selectRelease(
       createRelease('market-emoji', [
@@ -173,6 +180,9 @@ it('独立安装、更新、重开与删除商城目录，更新失败保留旧�
       ]),
       null,
     );
+  };
+  const install = async (packs: EnhancementPacks, content: string | Buffer) => {
+    select(packs, content);
     packs.start(['market-emoji']);
     await packs.wait();
   };
@@ -194,7 +204,25 @@ it('独立安装、更新、重开与删除商城目录，更新失败保留旧�
     const reopened = create();
     reopened.catalog.restore(receipt.components[0].version);
     expect(searchCatalog({}).entries[0]?.name).toBe('第二版');
+    restoreEnhancementTasks(reopened.packs, root);
+    streaming = Promise.withResolvers<AbortSignal>();
+    select(reopened.packs, gzipSync(csv('第三版')));
+    await startEnhancementDownloads(reopened.packs, ['market-emoji']);
+    const requestSignal = await streaming.promise;
+    reopened.packs.pause('market-emoji');
+    expect(requestSignal.aborted).toBe(true);
+    await vi.waitFor(() =>
+      expect(enhancementDownloadTask(reopened.packs, 'market-emoji')?.status).toBe('paused'),
+    );
     await reopened.packs.remove('market-emoji');
+    await forgetRemovedPackTask(reopened.packs, 'market-emoji');
+    expect(backgroundTasks.snapshot()).toEqual([]);
+    expect(JSON.parse(await readFile(join(root, 'download-tasks.json'), 'utf8'))).toEqual({});
+    expect((await reopened.packs.list())[0]).toMatchObject({
+      installed: false,
+      busy: false,
+      sizeOnDisk: 0,
+    });
     expect(searchCatalog({}).catalogVersion).toBeNull();
   } finally {
     setMarketCatalogReader(() => null);
@@ -476,7 +504,7 @@ it('重启找回暂停的增强包，自动安装只检查，手动继续才接�
     await gate.promise;
     return ensure();
   });
-  await startEnhancementDownloads(first.packs, ['dress'], true);
+  await startEnhancementDownloads(first.packs, ['dress'], { foreground: true });
   const id = backgroundTasks.snapshot()[0]!.id;
   await vi.waitFor(() => expect(first.ensure).toHaveBeenCalledOnce());
   await backgroundTasks.act(id, 'pause');

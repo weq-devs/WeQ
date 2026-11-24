@@ -442,10 +442,11 @@ export class EnhancementEngineStore {
   ensure(
     kind: EnhancementEngineKind,
     onProgress?: (state: EngineTransferState) => void,
+    signal?: AbortSignal,
   ): Promise<string> {
     const existing = this.pending.get(kind);
     if (existing) return existing;
-    const task = this.prepare(kind, onProgress).finally(() => this.pending.delete(kind));
+    const task = this.prepare(kind, onProgress, signal).finally(() => this.pending.delete(kind));
     this.pending.set(kind, task);
     return task;
   }
@@ -453,7 +454,9 @@ export class EnhancementEngineStore {
   private async prepare(
     kind: EnhancementEngineKind,
     onProgress?: (state: EngineTransferState) => void,
+    signal?: AbortSignal,
   ): Promise<string> {
+    signal?.throwIfAborted();
     if (!this.supported(kind)) throw new Error('当前平台没有此增强引擎的兼容预编译版本');
     const current = this.discover(kind);
     const development = !current && this.developmentDirectory(kind);
@@ -511,6 +514,7 @@ export class EnhancementEngineStore {
       maxBytes: artifact.downloadBytes,
       identity: { sha256: artifact.sha256, size: artifact.downloadBytes },
       fetcher: this.options.fetcher,
+      signal,
       state: onProgress,
       validate: async (path, _response, bytes) => {
         if (
@@ -528,6 +532,7 @@ export class EnhancementEngineStore {
       const payload = artifact.files.filter((file) => !file.link);
       const reused = new Set<string>();
       for (const file of payload) {
+        signal?.throwIfAborted();
         const sources = new Set([
           join(destination, file.path),
           ...stored.flatMap((entry) =>
@@ -558,6 +563,7 @@ export class EnhancementEngineStore {
           (await enhancementFileHash(archive)) !== artifact.sha256
         )
           await transfer.file(artifact.url, archive);
+        signal?.throwIfAborted();
         const allowed = new Map(
           artifact.files.filter((file) => !file.link).map((file) => [file.path, file]),
         );

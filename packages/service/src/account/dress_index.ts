@@ -347,11 +347,17 @@ export class DressIndexStore {
       .catch(() => false);
   }
 
-  ensure(kind: DressIndexKind, retry = false, allowDownload = true): Promise<boolean> {
+  ensure(
+    kind: DressIndexKind,
+    retry = false,
+    allowDownload = true,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    if (signal?.aborted) return Promise.resolve(false);
     const pending = this.pending.get(kind);
     if (pending)
       return allowDownload && this.localPending.has(kind)
-        ? pending.then((ready) => ready || this.ensure(kind, retry, true))
+        ? pending.then((ready) => ready || this.ensure(kind, retry, true, signal))
         : pending;
     if (this.verified.has(kind) && existsSync(join(this.directory, `${kind}.dat`)))
       return Promise.resolve(true);
@@ -359,7 +365,7 @@ export class DressIndexStore {
     if (allowDownload && !retry && now() - (this.failedAt.get(kind) ?? -Infinity) < 60_000)
       return Promise.resolve(false);
     if (!allowDownload) this.localPending.add(kind);
-    const task = this.prepare(kind, allowDownload).finally(() => {
+    const task = this.prepare(kind, allowDownload, signal).finally(() => {
       this.pending.delete(kind);
       this.localPending.delete(kind);
     });
@@ -392,7 +398,7 @@ export class DressIndexStore {
     return this.snapshot();
   }
 
-  async remove(): Promise<void> {
+  async remove(active = true): Promise<void> {
     this.disabled = true;
     if (this.pending.size) throw new Error('装扮索引正在准备，请稍后删除');
     for (const kind of DRESS_INDEX_KINDS) {
@@ -404,7 +410,7 @@ export class DressIndexStore {
     this.failedAt.clear();
     await mkdir(this.directory, { recursive: true });
     await writeFile(join(this.directory, 'removed.json'), JSON.stringify({ at: Date.now() }));
-    await rm(join(this.root, 'active.json'), { force: true });
+    if (active) await rm(join(this.root, 'active.json'), { force: true });
     this.revision += 1;
   }
 
@@ -422,7 +428,11 @@ export class DressIndexStore {
     }
   }
 
-  private async prepare(kind: DressIndexKind, allowDownload: boolean): Promise<boolean> {
+  private async prepare(
+    kind: DressIndexKind,
+    allowDownload: boolean,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
     const target = join(this.directory, `${kind}.dat`);
     const incoming = `${target}.incoming`;
     const part = this.manifest.parts[kind];
@@ -455,6 +465,7 @@ export class DressIndexStore {
                 maxBytes: part.size,
                 attempts: 2,
                 fetcher,
+                signal,
                 onProgress: (downloadedBytes) => {
                   const now = Date.now();
                   if (now - lastProgressAt < 200 && downloadedBytes < part.size) return;
@@ -469,6 +480,7 @@ export class DressIndexStore {
               batch: true,
               total: part.size,
               maxBytes: part.size,
+              signal,
               identity: { sha256: part.sha256, size: part.size },
               state: (state) =>
                 this.update(kind, {
@@ -497,6 +509,7 @@ export class DressIndexStore {
             }
           }
         }
+        signal?.throwIfAborted();
         if (!(await this.matches(incoming, kind))) throw new Error('装扮索引大小或哈希校验失败');
         await rename(incoming, target);
       }

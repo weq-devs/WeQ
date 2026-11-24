@@ -103,14 +103,11 @@ export function createEnhancementResources(
           blocker: !state.supported ? '当前平台没有此能力的兼容预编译引擎' : undefined,
         };
       },
-      ensure: async (report) => {
-        await engines.ensure(kind, (state) =>
-          report({
-            received: state.received,
-            total: state.total,
-            paused: state.paused,
-            note: state.paused ? '下载已暂停' : '下载推理引擎',
-          }),
+      ensure: async (report, signal) => {
+        await engines.ensure(
+          kind,
+          (state) => report({ ...state, note: state.paused ? '下载已暂停' : '下载推理引擎' }),
+          signal,
         );
       },
       check: () => engines.checkExisting(kind),
@@ -159,7 +156,7 @@ export function createEnhancementResources(
         blocker: dress ? undefined : '装扮离线索引清单未准备',
       };
     },
-    ensure: async (report) => {
+    ensure: async (report, signal) => {
       if (!dress) throw new Error('装扮离线索引清单未准备');
       await inspected;
       const initial = dress
@@ -178,7 +175,7 @@ export function createEnhancementResources(
       });
       try {
         for (const kind of DRESS_INDEX_KINDS)
-          if (!(await dress.ensure(kind, true)))
+          if (!(await dress.ensure(kind, true, true, signal)))
             throw new Error(
               dress.snapshot().find((state) => state.kind === kind)?.error ?? '装扮索引下载失败',
             );
@@ -424,11 +421,13 @@ export function createEnhancementResources(
             candidate.artifact(kind)?.id !== engines.directory(kind)?.split(/[\\/]/).at(-1),
         };
       },
-      ensure: async (report) =>
+      ensure: async (report, signal) =>
         stagedEngines
           .get(kind)!
-          .ensure(kind, (state) =>
-            report({ ...state, pauseReasons: state.reasons, note: '准备推理引擎' }),
+          .ensure(
+            kind,
+            (state) => report({ ...state, pauseReasons: state.reasons, note: '准备推理引擎' }),
+            signal,
           )
           .then(() => {}),
       pause: () => stagedEngines.get(kind)!.pause(kind),
@@ -500,7 +499,7 @@ export function createEnhancementResources(
           }, 0),
         };
       },
-      ensure: async (report) => {
+      ensure: async (report, signal) => {
         await stagedDress!.inspect();
         const initial = stagedDress!
           .snapshot()
@@ -526,7 +525,7 @@ export function createEnhancementResources(
         });
         try {
           for (const kind of DRESS_INDEX_KINDS)
-            if (!(await stagedDress!.ensure(kind, true)))
+            if (!(await stagedDress!.ensure(kind, true, true, signal)))
               throw new Error(
                 stagedDress!.snapshot().find((state) => state.kind === kind)?.error ??
                   '索引下载失败',
@@ -543,6 +542,7 @@ export function createEnhancementResources(
       },
       cleanup: () => dress.cleanPrevious(oldDressDirectory),
       remove: async () => {
+        if (stagedDress!.directory !== dress.directory) await stagedDress!.remove(false);
         await original.remove();
         if (!platform.native.ntHelper.getBuildInfo?.().isDev)
           platform.native.ntHelper.clearDressResourceIndexes?.();

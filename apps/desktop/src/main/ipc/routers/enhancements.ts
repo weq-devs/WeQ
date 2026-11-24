@@ -68,7 +68,7 @@ export const enhancementProcedures = {
     .input(selection.extend({ foreground: z.boolean().optional() }))
     .mutation(async ({ input }) => {
       const packs = requireBootstrap().enhancements.packs;
-      await startEnhancementDownloads(packs, input.ids, input.foreground);
+      await startEnhancementDownloads(packs, input.ids, { foreground: input.foreground });
       return true;
     }),
   backgroundEnhancementPack: procedure
@@ -80,7 +80,7 @@ export const enhancementProcedures = {
   deleteEnhancementPack: procedure.input(z.object({ id: packId })).mutation(async ({ input }) => {
     const packs = requireBootstrap().enhancements.packs;
     await packs.remove(input.id);
-    forgetRemovedPackTask(packs, input.id);
+    await forgetRemovedPackTask(packs, input.id);
     return true;
   }),
   pauseEnhancementPack: procedure.input(z.object({ id: packId })).mutation(({ input }) => {

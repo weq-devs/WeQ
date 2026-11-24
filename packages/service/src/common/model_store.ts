@@ -449,6 +449,7 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
   downloadModel(
     id: string,
     sourceOverrides: Readonly<Record<string, string | readonly string[]>> = {},
+    signal?: AbortSignal,
   ): Promise<{ success: boolean; error?: string }> {
     if (this.isRemoved(id))
       return Promise.resolve({ success: false, error: '模型已删除，请通过增强包重新下载' });
@@ -456,6 +457,7 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
       return Promise.resolve({ success: false, error: '模型已删除，请通过增强包重新下载' });
     const pending = this.downloadTasks.get(id);
     if (pending) return pending;
+    if (signal?.aborted) return Promise.resolve({ success: false, error: String(signal.reason) });
 
     const model = this.getModel(id);
     if (!model) {
@@ -488,6 +490,7 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
       };
       const transfer = new ManagedDownload({
         ...this.downloadOptions,
+        ...(signal ? { signal } : {}),
         batch: true,
         total: model.sizeBytes,
         validate: async (path, _response, bytes) => {
@@ -514,6 +517,7 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
         const reusable = new Set<string>();
         // 复用的文件可能排在后面，先计入基线，避免它们被重复计作本次下载量。
         for (const file of model.files) {
+          signal?.throwIfAborted();
           const target = join(dir, file.name);
           if (await this.validFile(target, file)) {
             reusable.add(file.key);
@@ -522,6 +526,7 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
         }
         report(completedBytes);
         for (const f of model.files) {
+          signal?.throwIfAborted();
           const target = join(dir, f.name);
           if (reusable.has(f.key)) continue;
           mkdirSync(dirname(target), { recursive: true });
@@ -555,9 +560,8 @@ export abstract class ModelStore<T extends ModelEntry> extends EventEmitter {
         return { success: false, error };
       } finally {
         this.transfers.delete(id);
-        this.downloadTasks.delete(id);
       }
-    })();
+    })().finally(() => this.downloadTasks.delete(id));
 
     this.downloadTasks.set(id, task);
     return task;

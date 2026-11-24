@@ -146,7 +146,7 @@ export function createModelComponent<T extends ModelEntry>(
       candidate = same(store.getModel(id)!, target) ? store : store.revisionStore(target, revision);
       inspected = '';
     },
-    ensure: async (report) => {
+    ensure: async (report, signal) => {
       manuallyPaused = false;
       continued = false;
       if (candidate === store) {
@@ -178,11 +178,13 @@ export function createModelComponent<T extends ModelEntry>(
         const downloading = candidate.downloadModel(
           id,
           Object.fromEntries(target.files.map((file) => [file.key, file.sources ?? file.url])),
+          signal,
         );
         if (manuallyPaused) candidate.pauseDownload(id);
         else if (continued) candidate.continueDownload(id);
         const result = await downloading;
         if (!result.success) throw new Error(result.error ?? '模型下载失败');
+        signal.throwIfAborted();
         await writeFile(
           join(candidate.resolveModelDir(id), 'model-files.json'),
           JSON.stringify(target.files),

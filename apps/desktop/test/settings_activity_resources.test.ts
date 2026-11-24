@@ -277,7 +277,7 @@ describe('增强设置与非活动页面资源', () => {
       f.dispose();
     }
   });
-  it('检查等网络时可主动检查，真正准备资源时仍禁用互斥操作', async () => {
+  it('检查等网络时可主动检查，准备资源时同一排可暂停、检查和删除', async () => {
     fixture.ready = true;
     fixture.checkPhase = 'waiting-network';
     fixture.checkLoading = true;
@@ -288,13 +288,25 @@ describe('增强设置与非活动页面资源', () => {
       expect(check.disabled).toBe(false);
       await act(async () => check.click());
       expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      fixture.ready = false;
+      f.render(false);
+      f.render(true);
+      const download = f.host.querySelector<HTMLButtonElement>('[aria-label="下载本地文字识别"]')!;
       fixture.busy = true;
       f.render(false);
       f.render(true);
-      expect(check.disabled).toBe(true);
-      expect(
-        f.host.querySelector<HTMLButtonElement>('[aria-label="删除本地文字识别"]')!.disabled,
-      ).toBe(true);
+      expect(check.disabled).toBe(false);
+      expect(download.getAttribute('aria-label')).toBe('暂停本地文字识别');
+      expect(download.disabled).toBe(false);
+      const remove = f.host.querySelector<HTMLButtonElement>('[aria-label="删除本地文字识别"]')!;
+      expect(remove.disabled).toBe(false);
+      await act(async () => remove.click());
+      expect(fixture.confirm).toHaveBeenLastCalledWith(
+        '删除本地文字识别？',
+        expect.stringContaining('将停止本次下载或更新'),
+        expect.objectContaining({ okLabel: '删除' }),
+      );
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ id: 'text' });
       expect(f.host.textContent).not.toContain('等待网络允许检查');
     } finally {
       f.dispose();

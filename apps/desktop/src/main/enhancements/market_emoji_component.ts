@@ -91,7 +91,7 @@ export function createMarketEmojiComponent(directory: string, fetcher?: typeof f
       if (entry.type !== 'market-emoji') throw new Error('商城表情目录组件不匹配');
       target = entry.asset;
     },
-    ensure: async (report) => {
+    ensure: async (report, signal) => {
       if (!target) throw new Error('尚未取得商城表情目录的发布清单');
       const { sha256, sizeBytes, url } = target;
       const compressed = target.name === 'market.csv.gz';
@@ -105,6 +105,7 @@ export function createMarketEmojiComponent(directory: string, fetcher?: typeof f
         maxBytes: sizeBytes,
         identity: { sha256, size: sizeBytes },
         fetcher,
+        signal,
         state: (state) =>
           report({
             received: state.received,

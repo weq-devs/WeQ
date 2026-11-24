@@ -11,6 +11,7 @@ interface PreparationTaskPort {
     Array<{ id: EnhancementPackId; ready: boolean; operation?: PackOperation | null }>
   >;
   waitFor(id: EnhancementPackId): Promise<void>;
+  isRemoving?(id: EnhancementPackId): boolean;
   start?(ids: readonly EnhancementPackId[]): void;
   pause?(id: EnhancementPackId): void;
   resume?(id: EnhancementPackId): void;
@@ -116,20 +117,30 @@ export function forgetEnhancementTask(packs: EnhancementPacks, taskId: string): 
   return true;
 }
 
-export function forgetRemovedPackTask(packs: EnhancementPacks, id: EnhancementPackId) {
-  const taskId = stores.get(packs)?.data[id]?.id;
-  if (taskId && forgetEnhancementTask(packs, taskId)) backgroundTasks.remove(taskId);
+export async function forgetRemovedPackTask(packs: EnhancementPacks, id: EnhancementPackId) {
+  const taskId = taskIds.get(packs)?.get(id) ?? stores.get(packs)?.data[id]?.id;
+  if (!taskId) return;
+  await pending
+    .get(packs)
+    ?.get(id)
+    ?.catch(() => {});
+  if (forgetEnhancementTask(packs, taskId)) {
+    if (taskIds.get(packs)?.get(id) === taskId) taskIds.get(packs)?.delete(id);
+    backgroundTasks.remove(taskId);
+  }
 }
 
 export async function startEnhancementDownloads(
   packs: EnhancementPacks,
   requested: readonly EnhancementPackId[],
-  foreground = false,
+  options: { foreground?: boolean; installedOnly?: boolean } = {},
 ): Promise<void> {
+  const { foreground = false, installedOnly = false } = options;
   const previous = await packs.list();
-  const ids = [...new Set(requested)].filter(
-    (id) => !previous.find((pack) => pack.id === id)?.busy,
-  );
+  const ids = [...new Set(requested)].filter((id) => {
+    const pack = previous.find((item) => item.id === id);
+    return !pack?.busy && (!installedOnly || pack?.installed);
+  });
   // start 会同步通知准备观察者，先固定本次操作意图，两个入口共用同一任务。
   const actions = new Map(
     ids.map((id) => {
@@ -225,7 +236,7 @@ export function trackEnhancementPreparation(
     updating = true;
     try {
       const current = (await packs.list()).find((entry) => entry.id === id);
-      if (!polling) return;
+      if (!polling || packs.isRemoving?.(id)) return;
       const operation = current?.operation;
       const patch = {
         progress: operation?.total
@@ -265,6 +276,11 @@ export function trackEnhancementPreparation(
   const task = (async () => {
     try {
       await packs.waitFor(id);
+      if (packs.isRemoving?.(id)) {
+        backgroundTasks.finish(taskId, 'cancelled', { note: '增强包下载已取消' });
+        backgroundTasks.setActions(taskId, []);
+        return;
+      }
       const current = (await packs.list()).find((entry) => entry.id === id);
       if (!current?.ready || current.operation?.phase === 'failed')
         throw new Error(current?.operation?.error ?? '增强包未准备完成');

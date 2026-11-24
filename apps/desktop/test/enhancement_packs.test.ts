@@ -86,6 +86,11 @@ it('删除文字包保留意图使用的 ONNX，最后一个使用者删除后�
   expect((await f.packs.list()).find((pack) => pack.id === 'intent')!.ready).toBe(true);
   await f.packs.remove('intent');
   expect(f.components.get('engine:onnx')!.remove).toHaveBeenCalledTimes(1);
+
+  f.packs.start(['text', 'intent']);
+  await f.packs.wait();
+  await Promise.all([f.packs.remove('text'), f.packs.remove('intent')]);
+  expect(f.components.get('engine:onnx')!.remove).toHaveBeenCalledTimes(2);
 });
 
 it('一个包失败仍继续其余包；实际加载失败不发布就绪，重试复用已有文件', async () => {
@@ -105,23 +110,52 @@ it('一个包失败仍继续其余包；实际加载失败不发布就绪，重�
   expect((await f.packs.list()).find((pack) => pack.id === 'text')!.ready).toBe(true);
 });
 
-it('在途准备或推理不能删除；未知 ID 不会扩大文件操作范围', async () => {
+it('排队的包可独立删除，不会启动后续包或中断前一个包', async () => {
   const f = await fixture();
-  let release = () => {};
-  f.components.get('text-model')!.ensure = vi.fn(
-    () =>
-      new Promise<void>((resolve) => {
-        release = resolve;
-      }),
-  );
+  f.packs.start(['text', 'intent', 'dress']);
+  f.packs.pause('text');
+  await f.packs.remove('intent');
+  expect(f.components.get('intent-model')!.ensure).not.toHaveBeenCalled();
+  expect(f.components.get('engine:onnx')!.remove).not.toHaveBeenCalled();
+  expect(f.components.get('dress-index')!.ensure).not.toHaveBeenCalled();
+  expect(f.packs.isPreparing('text')).toBe(true);
+  f.packs.resume('text');
+  await f.packs.wait();
+  expect((await f.packs.list()).map((pack) => pack.ready)).toEqual([true, false, true]);
+});
+
+it('推理使用中的资源仍不能删除', async () => {
+  const f = await fixture();
   f.packs.start(['text']);
-  await expect(f.packs.remove('text')).rejects.toThrow('正在下载或使用');
-  await vi.waitFor(() => expect(f.components.get('text-model')!.ensure).toHaveBeenCalled());
-  release();
   await f.packs.wait();
   f.components.get('engine:onnx')!.busy = () => true;
-  await expect(f.packs.remove('text')).rejects.toThrow('正在下载或使用');
+  await expect(f.packs.remove('text')).rejects.toThrow('正在使用');
   expect(f.components.get('text-model')!.remove).not.toHaveBeenCalled();
+});
+
+it('切换中的包先完成提交，再删除新版本，重启也不会恢复', async () => {
+  const f = await fixture();
+  const switching = Promise.withResolvers<void>();
+  const finishSwitch = Promise.withResolvers<void>();
+  const model = f.components.get('text-model')!;
+  model.activate = async () => {
+    switching.resolve();
+    await finishSwitch.promise;
+    return () => {};
+  };
+  f.packs.start(['text']);
+  await switching.promise;
+  const removing = f.packs.remove('text');
+  try {
+    expect((await f.packs.list())[0]?.operation?.phase).toBe('removing');
+    expect(model.remove).not.toHaveBeenCalled();
+  } finally {
+    finishSwitch.resolve();
+    await removing;
+  }
+  expect(model.remove).toHaveBeenCalledOnce();
+  const restarted = new EnhancementPacks(f.definitions, f.components, f.root);
+  expect((await restarted.list())[0]).toMatchObject({ installed: false, ready: false });
 });
 
 it('用户自行放入的兼容模型保留共享引擎；文件身份变化要求重新检查', async () => {

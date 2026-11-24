@@ -87,9 +87,10 @@ export function EnhancementPacksSection() {
   const preparePack = (id: EnhancementPackId) => prepare.mutateAsync({ ids: [id] });
   async function erase(id: EnhancementPackId) {
     const pack = packs.find((entry) => entry.id === id)!;
+    const cancelling = pack.busy || pack.downloadTask?.status === 'paused';
     const confirmed = await dialog.confirm(
       `删除${pack.name}？`,
-      `将移除 ${enhancementBytes(pack.deleteBytes)} 本地资源，下次使用需重新下载。功能设置、已有识别与分析结果、具体装扮素材，以及其他能力使用的共享资源会保留。`,
+      `${cancelling ? '将停止本次下载或更新。' : ''}将移除 ${enhancementBytes(pack.deleteBytes)} 本地资源，下次使用需重新下载。功能设置、已有识别与分析结果、具体装扮素材，以及其他能力使用的共享资源会保留。`,
       { danger: 'outline', okLabel: '删除', cancelLabel: '取消', tone: 'warning' },
     );
     if (confirmed) await act(() => remove.mutateAsync({ id }));
@@ -151,6 +152,8 @@ export function EnhancementPacksSection() {
             const task = pack.downloadTask;
             const waiting = !pack.busy && task?.status === 'paused';
             const paused = operation?.paused || waiting;
+            const canPause =
+              pack.busy && operation?.phase !== 'removing' && operation?.phase !== 'installing';
             const checking =
               pack.check?.phase === 'checking' ||
               (check.isLoading && check.variables?.ids.includes(pack.id));
@@ -194,6 +197,8 @@ export function EnhancementPacksSection() {
                 : pack.updateAvailable
                   ? '更新'
                   : null;
+            const primaryLabel = waiting || canPause ? (paused ? '继续' : '暂停') : prepareLabel;
+            const PrimaryIcon = waiting || canPause ? (paused ? Play : Pause) : Download;
             return (
               <li
                 className="weq-enhancement-item"
@@ -222,36 +227,50 @@ export function EnhancementPacksSection() {
                   role="group"
                   aria-label={`${pack.name}操作`}
                 >
-                  {prepareLabel ? (
+                  {primaryLabel && (!pack.busy || canPause) ? (
                     <button
                       type="button"
-                      className="weq-set-btn weq-set-btn-soft"
-                      title={`${prepareLabel}${pack.name} · ${enhancementBytes(pack.downloadBytes)}${missing ? `\n${missing}` : ''}`}
-                      aria-label={`${prepareLabel}${pack.name}`}
-                      disabled={pack.busy || !!pack.blocker || prepare.isLoading}
-                      onClick={() => void act(() => preparePack(pack.id))}
+                      className="weq-set-btn weq-set-btn-soft weq-enhancement-prepare"
+                      title={
+                        waiting || canPause
+                          ? `${primaryLabel}${pack.name}`
+                          : `${primaryLabel}${pack.name} · ${enhancementBytes(pack.downloadBytes)}${missing ? `\n${missing}` : ''}`
+                      }
+                      aria-label={`${primaryLabel}${pack.name}`}
+                      disabled={Boolean(pack.blocker && !canPause)}
+                      onClick={() =>
+                        void act(() =>
+                          !canPause
+                            ? preparePack(pack.id)
+                            : paused
+                              ? resume.mutateAsync({ id: pack.id })
+                              : pause.mutateAsync({ id: pack.id }),
+                        )
+                      }
                     >
-                      <Download size={14} />
+                      <PrimaryIcon size={14} />
                     </button>
                   ) : null}
                   <button
                     type="button"
-                    className="weq-set-btn weq-set-btn-soft"
+                    className="weq-set-btn weq-set-btn-soft weq-enhancement-check"
                     title={`检查${pack.name}更新`}
                     aria-label={`检查${pack.name}更新`}
-                    disabled={pack.busy}
                     onClick={() => void act(() => check.mutateAsync({ ids: [pack.id] }))}
                   >
                     <RefreshCw size={14} />
                   </button>
-                  {pack.downloaded || pack.installed || pack.sizeOnDisk > 0 ? (
+                  {pack.busy ||
+                  waiting ||
+                  pack.downloaded ||
+                  pack.installed ||
+                  pack.sizeOnDisk > 0 ? (
                     <button
                       data-danger="outline"
                       type="button"
-                      className="weq-set-btn weq-set-btn-soft"
+                      className="weq-set-btn weq-set-btn-soft weq-enhancement-delete"
                       title={`删除${pack.name}`}
                       aria-label={`删除${pack.name}`}
-                      disabled={pack.busy || remove.isLoading}
                       onClick={() => void erase(pack.id)}
                     >
                       <Trash2 size={14} />
@@ -269,30 +288,6 @@ export function EnhancementPacksSection() {
                         ? `${enhancementBytes(operation.received)} / ${enhancementBytes(operation.total)}`
                         : status}
                     </span>
-                    <div className="weq-enhancement-progress-actions">
-                      <button
-                        type="button"
-                        className="weq-set-btn weq-set-btn-soft"
-                        title={paused ? '继续下载' : '暂停'}
-                        aria-label={`${paused ? '继续' : '暂停'}${pack.name}`}
-                        disabled={
-                          operation?.phase === 'installing' ||
-                          prepare.isLoading ||
-                          Boolean(waiting && pack.blocker)
-                        }
-                        onClick={() =>
-                          void act(() =>
-                            waiting
-                              ? preparePack(pack.id)
-                              : paused
-                                ? resume.mutateAsync({ id: pack.id })
-                                : pause.mutateAsync({ id: pack.id }),
-                          )
-                        }
-                      >
-                        {paused ? <Play size={14} /> : <Pause size={14} />}
-                      </button>
-                    </div>
                     {operation?.total ? (
                       <span className="weq-enhancement-phase" title={operation?.source}>
                         {status}
@@ -331,13 +326,14 @@ export function EnhancementPacksSection() {
                           前往 WeQ 更新
                         </a>
                       </>
-                    ) : operation?.phase === 'failed' || task?.status === 'failed' ? (
+                    ) : !pack.busy &&
+                      (operation?.phase === 'failed' || task?.status === 'failed') ? (
                       <>
                         {' '}
                         <button
                           type="button"
                           className="weq-enhancement-retry weq-retry-button"
-                          disabled={prepare.isLoading || Boolean(pack.blocker)}
+                          disabled={Boolean(pack.blocker)}
                           onClick={() => void act(() => preparePack(pack.id))}
                         >
                           <RefreshCw size={14} aria-hidden />

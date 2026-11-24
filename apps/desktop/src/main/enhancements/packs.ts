@@ -38,6 +38,7 @@ export interface EnhancementComponent {
       attempt?: number;
       retryAt?: number;
     }) => void,
+    signal: AbortSignal,
   ): Promise<void>;
   check?(): Promise<void>;
   remove(): Promise<void>;
@@ -74,6 +75,23 @@ export interface PackOperation {
   error?: string;
 }
 
+async function waitUnlessAborted(work: Promise<void>, signal: AbortSignal) {
+  let abort!: () => void;
+  try {
+    await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        abort = () => reject(signal.reason);
+        if (signal.aborted) abort();
+        else signal.addEventListener('abort', abort, { once: true });
+      }),
+    ]);
+    signal.throwIfAborted();
+  } finally {
+    signal.removeEventListener('abort', abort);
+  }
+}
+
 /** 能力包只协调现有资源；共享组件按物理使用者保留，页面关闭不终止任务。 */
 export class EnhancementPacks {
   private resolveRelease?: (id: EnhancementPackId) => Promise<void>;
@@ -94,10 +112,12 @@ export class EnhancementPacks {
   private readonly activatingSizes = new Map<string, number>();
   private readonly componentTasks = new Map<string, Promise<void>>();
   private readonly deleting = new Set<string>();
+  private readonly removals = new Map<EnhancementPackId, Promise<void>>();
   private readonly removed = new Set<EnhancementPackId>();
   private readonly installed = new Set<EnhancementPackId>();
   private receipts: Partial<Record<EnhancementPackId, string>> = {};
   private queue = Promise.resolve();
+  private removalQueue = Promise.resolve();
   private writes = Promise.resolve();
   private readonly loaded: Promise<void>;
   private readonly releases = new Map<
@@ -105,7 +125,15 @@ export class EnhancementPacks {
     { release: EnhancementRelease; blocker: string | null; requiresWeqUpdate: boolean }
   >();
   private readonly installedVersions = new Map<EnhancementPackId, string>();
-  private readonly gates = new Map<EnhancementPackId, { gate: TransferGate; continued: boolean }>();
+  private readonly gates = new Map<
+    EnhancementPackId,
+    {
+      gate: TransferGate;
+      continued: boolean;
+      abort: AbortController;
+      active?: EnhancementComponent;
+    }
+  >();
 
   constructor(
     readonly definitions: EnhancementPackDefinition[],
@@ -143,7 +171,7 @@ export class EnhancementPacks {
   ): void {
     if (!this.isEnabled(release.id)) return;
     this.releases.set(release.id, { release, blocker, requiresWeqUpdate });
-    if (this.pending.has(release.id)) return;
+    if (this.pending.has(release.id) || this.isRemoving(release.id)) return;
     if (blocker) return;
     this.selectComponents(release);
   }
@@ -154,7 +182,10 @@ export class EnhancementPacks {
       if (!definition.components.includes(id)) throw new Error('增强包组件不匹配');
       if (
         queued ||
-        !this.definitions.some((pack) => this.pending.has(pack.id) && pack.components.includes(id))
+        (!this.deleting.has(id) &&
+          !this.definitions.some(
+            (pack) => this.pending.has(pack.id) && pack.components.includes(id),
+          ))
       )
         this.components.get(id)?.select?.(component);
     }
@@ -177,8 +208,11 @@ export class EnhancementPacks {
     return enabled.map((pack) => {
       const components = pack.components.map((id) => this.components.get(id)!);
       const states = components.map((component) => component.state());
-      const operation = this.operations.get(pack.id);
-      const busy = this.pending.has(pack.id) || operation?.phase === 'removing';
+      const removing = this.isRemoving(pack.id);
+      const operation: PackOperation | undefined = removing
+        ? { phase: 'removing', received: 0, total: 0, note: '正在删除' }
+        : this.operations.get(pack.id);
+      const busy = removing || this.pending.has(pack.id);
       const selected = this.releases.get(pack.id);
       const version = this.installedVersions.get(pack.id);
       const ready =
@@ -277,7 +311,7 @@ export class EnhancementPacks {
       if (this.pending.has(id)) continue;
       const pack = this.definitions.find((pack) => pack.id === id);
       if (!pack || pack.enabled === false) throw new Error('增强包不可用');
-      if (pack.components.some((component) => this.deleting.has(component)))
+      if (this.isRemoving(id) || pack.components.some((component) => this.deleting.has(component)))
         throw new Error('增强包正在删除，请稍后重试');
       const blocker =
         download && this.resolveRelease
@@ -294,10 +328,13 @@ export class EnhancementPacks {
         received: 0,
         total: this.plan([id]).downloadBytes,
       });
-      this.gates.set(id, { gate: new TransferGate(), continued: false });
-      const task = this.queue
-        .then(() => this.prepare(pack, download))
+      const abort = new AbortController();
+      this.gates.set(id, { gate: new TransferGate(), continued: false, abort });
+      const previousTask = this.queue;
+      const task = waitUnlessAborted(previousTask, abort.signal)
+        .then(() => this.prepare(pack, download, abort.signal))
         .catch((error: unknown) => {
+          if (abort.signal.aborted) return;
           const previous = this.operations.get(id)!;
           this.operations.set(id, {
             ...previous,
@@ -307,17 +344,19 @@ export class EnhancementPacks {
           });
         })
         .finally(() => {
-          for (const component of pack.components) this.activatingSizes.delete(component);
+          if (this.operations.get(id)?.phase !== 'queued')
+            for (const component of pack.components) this.activatingSizes.delete(component);
           this.pending.delete(id);
           this.gates.delete(id);
           const latest = this.releases.get(id);
-          if (latest && !latest.blocker) this.selectComponents(latest.release);
+          if (!abort.signal.aborted && latest && !latest.blocker)
+            this.selectComponents(latest.release);
           setTimeout(() => {
             for (const listener of this.settled) listener(id);
           }, 0).unref();
         });
       this.pending.set(id, task);
-      this.queue = task;
+      this.queue = previousTask.then(() => task);
       if (download) this.preparationObserver?.(id, pack.name);
     }
   }
@@ -327,6 +366,9 @@ export class EnhancementPacks {
   }
   isPreparing(id: EnhancementPackId): boolean {
     return this.pending.has(id);
+  }
+  isRemoving(id: EnhancementPackId): boolean {
+    return this.removals.has(id);
   }
   async waitFor(id: EnhancementPackId): Promise<void> {
     await this.pending.get(id);
@@ -347,6 +389,7 @@ export class EnhancementPacks {
       .filter(
         (pack) =>
           !this.pending.has(pack.id) &&
+          !this.isRemoving(pack.id) &&
           this.operations.get(pack.id)?.phase !== 'failed' &&
           !this.removed.has(pack.id) &&
           this.receipts[pack.id] !== this.identity(pack) &&
@@ -361,16 +404,26 @@ export class EnhancementPacks {
     this.start(ids, false);
   }
 
-  private async prepare(pack: EnhancementPackDefinition, download: boolean): Promise<void> {
+  private async prepare(
+    pack: EnhancementPackDefinition,
+    download: boolean,
+    signal: AbortSignal,
+  ): Promise<void> {
     await this.loaded;
+    signal.throwIfAborted();
+    const control = this.gates.get(pack.id)!;
+    const { gate } = control;
     if (download && this.resolveRelease) {
       this.operations.set(pack.id, {
         phase: 'checking',
         received: 0,
         total: 0,
         note: '读取在线增强包清单',
+        paused: gate.paused,
+        pauseReasons: gate.pauseReasons,
       });
-      await this.resolveRelease(pack.id);
+      // 清单检查可被多个入口共用，只停止本次准备等待它。
+      await waitUnlessAborted(this.resolveRelease(pack.id), signal);
     }
     const selected = download ? this.releases.get(pack.id) : undefined;
     const release = selected;
@@ -388,8 +441,8 @@ export class EnhancementPacks {
     const total = budgets.reduce((sum, bytes) => sum + bytes, 0);
     for (const [index, id] of pack.components.entries()) {
       const component = this.components.get(id)!;
-      const control = this.gates.get(pack.id)!;
-      await control.gate.wait();
+      await gate.wait(signal);
+      signal.throwIfAborted();
       const missing = budgets[index]!;
       const base = completed;
       let received = 0;
@@ -408,6 +461,7 @@ export class EnhancementPacks {
         await component.check?.();
         continue;
       }
+      control.active = component;
       try {
         let task = this.componentTasks.get(id);
         if (!task) {
@@ -420,7 +474,7 @@ export class EnhancementPacks {
                 override: control.continued,
               },
               async () => {
-                while (control.gate.paused) await control.gate.wait();
+                while (control.gate.paused) await control.gate.wait(signal);
                 return component.ensure((progress) => {
                   if (!reporting) return;
                   if (Number.isFinite(progress.received))
@@ -438,7 +492,7 @@ export class EnhancementPacks {
                       : progress.pauseReasons,
                     note: progress.note,
                   });
-                });
+                }, signal);
               },
             )
             .finally(() => this.componentTasks.delete(id));
@@ -446,6 +500,7 @@ export class EnhancementPacks {
         }
         await task;
       } finally {
+        control.active = undefined;
         // 上一组件的迟到事件不能覆盖新阶段、校验或失败状态。
         reporting = false;
       }
@@ -456,34 +511,44 @@ export class EnhancementPacks {
       received: total,
       total,
       note: '正在检查实际加载',
-      paused: this.gates.get(pack.id)!.gate.paused,
-      pauseReasons: this.gates.get(pack.id)!.gate.pauseReasons,
+      paused: gate.paused,
+      pauseReasons: gate.pauseReasons,
     });
-    await this.gates.get(pack.id)!.gate.wait();
+    await gate.wait(signal);
+    signal.throwIfAborted();
     await pack.validate();
+    signal.throwIfAborted();
     await pack.validateShared?.();
-    await this.gates.get(pack.id)!.gate.wait();
     let unlock: (() => void) | undefined;
     for (;;) {
-      await this.gates.get(pack.id)!.gate.wait();
+      await gate.wait(signal);
       unlock = await pack.lockActivation?.();
-      if (!this.gates.get(pack.id)!.gate.paused) break;
+      if (!gate.paused && !signal.aborted) break;
       unlock?.();
     }
-    while (pack.components.some((id) => this.components.get(id)?.busy?.()))
-      await new Promise((resolve) => setTimeout(resolve, 100));
+    try {
+      while (pack.components.some((id) => this.components.get(id)?.busy?.())) {
+        await gate.wait(signal);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      await gate.wait(signal);
+      signal.throwIfAborted();
+    } catch (error) {
+      unlock?.();
+      throw error;
+    }
     const undo: Array<() => void | Promise<void>> = [];
     const previousReceipt = this.receipts[pack.id];
     const previousReceipts = { ...this.receipts };
     const previousVersion = this.installedVersions.get(pack.id);
     const previouslyRemoved = this.removed.has(pack.id);
-    this.operations.set(pack.id, {
-      phase: 'installing',
-      received: total,
-      total,
-      note: '正在切换资源',
-    });
     try {
+      this.operations.set(pack.id, {
+        phase: 'installing',
+        received: total,
+        total,
+        note: '正在切换资源',
+      });
       // 组件逐个切换，共享资源也等整包提交或回滚后才显示新大小。
       for (const id of pack.components) {
         const state = this.components.get(id)!.state();
@@ -528,46 +593,66 @@ export class EnhancementPacks {
   }
 
   pause(id: EnhancementPackId) {
-    if (this.operations.get(id)?.phase === 'installing') return;
-    this.gates.get(id)?.gate.pause();
+    if (
+      !this.pending.has(id) ||
+      this.isRemoving(id) ||
+      this.operations.get(id)?.phase === 'installing'
+    )
+      return;
+    const control = this.gates.get(id)!;
+    control.gate.pause();
     const operation = this.operations.get(id);
-    if (operation && this.pending.has(id))
-      this.operations.set(id, { ...operation, paused: true, pauseReasons: ['user'] });
-    this.control(id, 'pause');
+    if (operation) this.operations.set(id, { ...operation, paused: true, pauseReasons: ['user'] });
+    control.active?.pause?.();
   }
   resume(id: EnhancementPackId) {
+    if (!this.pending.has(id) || this.isRemoving(id)) return;
     const operation = this.operations.get(id);
-    if (operation && this.pending.has(id))
-      this.operations.set(id, { ...operation, paused: false, pauseReasons: [] });
-    const control = this.gates.get(id);
-    if (control) {
-      control.continued = true;
-      control.gate.continue();
-    }
-    this.control(id, 'resume');
-  }
-  private control(id: EnhancementPackId, action: 'pause' | 'resume') {
-    for (const component of this.definitions.find((pack) => pack.id === id)?.components ?? [])
-      this.components.get(component)?.[action]?.();
+    if (operation) this.operations.set(id, { ...operation, paused: false, pauseReasons: [] });
+    const control = this.gates.get(id)!;
+    control.continued = true;
+    control.gate.continue();
+    control.active?.resume?.();
   }
 
   async remove(id: EnhancementPackId): Promise<void> {
+    const pending = this.removals.get(id);
+    if (pending) return pending;
     const pack = this.definitions.find((pack) => pack.id === id);
     if (!pack || pack.enabled === false) throw new Error('增强包不可用');
-    const removable = pack.components.filter((component) => !this.shared(id, component));
+    const removal = this.removePack(pack).finally(() => this.removals.delete(id));
+    this.removals.set(id, removal);
+    return removal;
+  }
+
+  private async removePack(pack: EnhancementPackDefinition): Promise<void> {
+    const { id } = pack;
+    await this.loaded;
+    const control = this.gates.get(id);
+    control?.abort.abort(new Error('增强包下载已取消'));
+    // 等下载关闭文件句柄；已进入切换阶段的操作先完成整包提交或回滚。
+    await this.pending.get(id);
+    if (control) this.operations.delete(id);
+    const removal = this.removalQueue.then(() => this.removeResources(pack));
+    this.removalQueue = removal.catch(() => {});
+    await removal;
+  }
+
+  private async removeResources(pack: EnhancementPackDefinition): Promise<void> {
+    const { id } = pack;
+    const removable = pack.components.filter(
+      (component) =>
+        !this.shared(id, component) &&
+        !this.definitions.some(
+          (other) => this.pending.has(other.id) && other.components.includes(component),
+        ),
+    );
     if (
-      this.pending.has(id) ||
       pack.components.some((component) => this.components.get(component)?.busy?.()) ||
-      removable.some((component) => this.deleting.has(component)) ||
-      this.definitions.some(
-        (other) =>
-          this.pending.has(other.id) &&
-          other.components.some((component) => removable.includes(component)),
-      )
+      removable.some((component) => this.deleting.has(component))
     )
-      throw new Error('增强包正在下载或使用，请稍后删除');
+      throw new Error('增强包资源正在使用，请稍后删除');
     for (const component of removable) this.deleting.add(component);
-    this.operations.set(id, { phase: 'removing', received: 0, total: 0 });
     try {
       this.removed.add(id);
       await this.save();
