@@ -154,6 +154,7 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
   if (
     [
       'typing-status',
+      'swipe-to-quote',
       'quote-auto-mention',
       'quote-backspace-remove',
       'slash-emoji-input',
@@ -181,8 +182,6 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
       'link-preview-auto-fetch',
       'link-screenshot',
       'auto-transcribe-voice',
-      'chat-image-cache',
-      'chat-message-prewarm',
       'read-first-unread',
       'show-reading-position-button',
       'merge-chat-jump-buttons',
@@ -191,7 +190,6 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
       'combined-chat-jump-mode',
       'preserve-unread-until-read',
       'unread-divider',
-      'swipe-to-quote',
       'auto-fetch-missing-messages',
       'auto-fetch-missing-context',
       'missing-message-context-count',
@@ -581,8 +579,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['sse-targets', 'sse', '已配置的推送目标', '推送地址', 'SSE access_token', '添加推送目标'],
       ['assistant-resource', 'assistant', '资源服务', '公众号资源地址'],
       ['assistant-port', 'assistant', 'QQ 公众号推送端口', '公众号端口'],
-      ['chat-image-cache', 'message-display', '图片预览内存预算', '图片与表情', '内存缓存'],
-      ['chat-message-prewarm', 'message-display', '完整消息预热内存预算', '聊天快滚', '消息预热'],
+      ['chat-image-cache', 'resource-loading', '图片预览内存预算', '图片与表情', '内存缓存'],
+      ['chat-message-prewarm', 'resource-loading', '完整消息预热内存预算', '聊天快滚', '消息预热'],
     ] as const
   ).map(
     ([id, section, label, ...aliases]): ItemRedirect => ({
@@ -592,7 +590,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       aliases,
       from:
         id === 'chat-image-cache' || id === 'chat-message-prewarm'
-          ? ['chat-messages', section]
+          ? ['chat-messages', 'message-display', section]
           : [section],
     }),
   ),
@@ -776,23 +774,45 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['group-assistant-count', '群助手', '群助手未读汇总角标', '群助手显示总消息数'],
       ['all-conversations-include-hidden', '包含已隐藏会话', '全部会话隐藏范围'],
       ['all-conversations-include-deleted', '包含已删除会话', '全部会话删除范围'],
-      ['read-first-unread', '定位到上次阅读的位置'],
-      ['show-reading-position-button', '上次阅读位置跳转', '显示跳转到上次阅读位置按钮'],
-      ['merge-chat-jump-buttons', '合并未读跳转按钮', '合并跳转按钮', '聊天跳转按钮'],
-      ['first-unread-jump-mode', '首条未读跳转'],
-      ['important-jump-mode', '重要消息跳转'],
-      ['combined-chat-jump-mode', '合并后的未读跳转', '合并后的跳转按钮'],
+      ['read-first-unread', '打开会话时继续上次阅读', '定位到上次阅读的位置'],
+      [
+        'show-reading-position-button',
+        '继续上次阅读按钮',
+        '上次阅读位置跳转',
+        '显示跳转到上次阅读位置按钮',
+      ],
+      [
+        'merge-chat-jump-buttons',
+        '合并首条未读和重要消息入口',
+        '合并未读跳转按钮',
+        '合并跳转按钮',
+        '聊天跳转按钮',
+      ],
+      ['first-unread-jump-mode', '首条未读入口', '首条未读跳转'],
+      ['important-jump-mode', '重要消息入口', '重要消息跳转'],
+      ['combined-chat-jump-mode', '合并入口', '合并后的未读跳转', '合并后的跳转按钮'],
       [
         'preserve-unread-until-read',
+        '按阅读进度更新未读数',
         '保留尚未读到的消息的未读计数',
         '保留未读',
         '按阅读进度标为已读',
       ],
       ['unread-divider', '显示未读分界线', '以下为未读消息', '未读起点'],
-      ['swipe-to-quote', '触屏左滑引用', '滑动回复', '左滑回复'],
-      ['auto-fetch-missing-messages', '查看时自动拉取缺失的消息', '自动补全消息', '漫游消息'],
-      ['auto-fetch-missing-context', '定位到缺失消息时自动拉取上下文'],
-      ['missing-message-context-count', '自动拉取上下文条数'],
+      ['swipe-to-quote', '左滑引用消息', '触屏左滑引用', '滑动回复', '左滑回复'],
+      [
+        'auto-fetch-missing-messages',
+        '看到缺口时自动补全',
+        '查看时自动拉取缺失的消息',
+        '自动补全消息',
+        '漫游消息',
+      ],
+      [
+        'auto-fetch-missing-context',
+        '跳转到缺失消息时补全附近记录',
+        '定位到缺失消息时自动拉取上下文',
+      ],
+      ['missing-message-context-count', '补全附近消息的条数', '自动拉取上下文条数'],
       ['keep-conversation-position-on-hover', '鼠标停留时保持会话位置', '会话排序', '悬停排序'],
       [
         'close-conversation-outside-view',
@@ -800,9 +820,14 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
         '切换会话视图',
         '保留当前会话',
       ],
-      ['auto-follow-latest-messages', '自动跟随最新消息'],
-      ['jump-latest-after-send', '发送消息后定位到最新消息'],
-      ['scroll-to-bottom-button', '向下滚动时显示定位到底部按钮', '快速到底部'],
+      ['auto-follow-latest-messages', '在底部时跟随新消息', '自动跟随最新消息'],
+      ['jump-latest-after-send', '发送后回到最新消息', '发送消息后定位到最新消息'],
+      [
+        'scroll-to-bottom-button',
+        '向下浏览时显示「回到最新」按钮',
+        '向下滚动时显示定位到底部按钮',
+        '快速到底部',
+      ],
       ['quote-auto-mention', '群聊引用时自动 @ 对方', '引用自动提及'],
       ['slash-emoji-input', '斜杠表情快捷输入', '系统表情快捷搜索'],
       ['slash-emoji-auto-replace', '无需回车即自动替换', '表情自动替换'],

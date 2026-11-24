@@ -220,10 +220,10 @@ const sharedToggles = [
 ] as const;
 
 const toggles = [
-  ['定位到上次阅读的位置', 'readFromFirstUnread', false],
-  ['自动跟随最新消息', 'autoFollowLatestMessages', true],
-  ['发送消息后定位到最新消息', 'jumpToLatestAfterSend', true],
-  ['向下滚动时显示定位到底部按钮', 'showScrollToBottomButton', true],
+  ['打开会话时继续上次阅读', 'readFromFirstUnread', false],
+  ['在底部时跟随新消息', 'autoFollowLatestMessages', true],
+  ['发送后回到最新消息', 'jumpToLatestAfterSend', true],
+  ['向下浏览时显示「回到最新」按钮', 'showScrollToBottomButton', true],
 ] as const;
 
 it('未读角标按系统图标、主导航、常规视图、联系人和菜单排列', () => {
@@ -264,9 +264,6 @@ it('消息开关分别按默认值展示、保存、刷新共享设置，重开�
   let f = mount();
   const toggle = (label: string) => f.toggle(label);
   try {
-    f.toggle('定位到上次阅读的位置');
-    const setting = f.host.querySelector('[data-setting-id="read-first-unread"]');
-    expect(setting?.querySelector('.weq-set-row-label')?.textContent).toBe('定位到上次阅读的位置');
     for (const [label, key, defaultValue] of toggles) {
       vi.clearAllMocks();
       expect(toggle(label).getAttribute('aria-checked'), label).toBe(String(defaultValue));
@@ -341,13 +338,13 @@ it('每个消息开关保存失败均保留原值并提示，保存期间不能�
 
 it('阅读位置开关切换时显示相应子项，并保留未读计数偏好', () => {
   const f = mount();
-  const parent = () => f.toggle('定位到上次阅读的位置');
-  const manual = () => f.host.querySelector('[role="radiogroup"][aria-label="上次阅读位置"]');
+  const parent = () => f.toggle('打开会话时继续上次阅读');
+  const manual = () => f.host.querySelector('[role="radiogroup"][aria-label="继续上次阅读按钮"]');
   const manualMode = () => manual()?.querySelector('[role="radio"][aria-checked="true"]');
-  const child = () => f.toggle('保留尚未读到的消息的未读计数');
+  const child = () => f.toggle('按阅读进度更新未读数');
   try {
     expect(child()).toBeUndefined();
-    expect(manualMode()?.textContent).toBe('切换后保留');
+    expect(manualMode()?.textContent).toBe('切回后仍提示');
     act(() => parent().click());
     f.render();
     expect(manual()).toBeNull();
@@ -359,7 +356,7 @@ it('阅读位置开关切换时显示相应子项，并保留未读计数偏好'
     act(() => parent().click());
     f.render();
     expect(child()).toBeUndefined();
-    expect(manualMode()?.textContent).toBe('切换后保留');
+    expect(manualMode()?.textContent).toBe('切回后仍提示');
     act(() => parent().click());
     f.render();
     expect(manual()).toBeNull();

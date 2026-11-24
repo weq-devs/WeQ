@@ -524,33 +524,30 @@ describe('设置归位后的实际页面', () => {
       expect(
         [...display.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
       ).toEqual([
-        '定位到上次阅读的位置',
-        '自动跟随最新消息',
-        '发送消息后定位到最新消息',
-        '向下滚动时显示定位到底部按钮',
-        '合并未读跳转按钮',
-        '首条未读',
-        '重要消息',
-        '上次阅读位置',
+        '打开会话时继续上次阅读',
+        '继续上次阅读按钮',
         '显示未读分界线',
-        '触屏左滑引用',
-        '查看时自动拉取缺失的消息',
-        '定位到缺失消息时自动拉取上下文',
+        '合并首条未读和重要消息入口',
+        '首条未读入口',
+        '重要消息入口',
+        '在底部时跟随新消息',
+        '发送后回到最新消息',
+        '向下浏览时显示「回到最新」按钮',
+        '看到缺口时自动补全',
+        '跳转到缺失消息时补全附近记录',
         '优先使用 QQ 秀替换头像',
         '个性装扮',
+        '合并连续发言',
         '群消息发送者',
         '消息元数据',
-        '合并连续发言',
         '语音消息自动转文字',
         '文本消息自动渲染为 Markdown',
         '链接预览卡片',
         '自动联网补全链接预览',
-        '图片预览内存预算',
-        '完整消息预热内存预算',
       ]);
       expect(
         [...display.querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
-      ).toEqual(['阅读与定位', '内容显示']);
+      ).toEqual(['打开会话', '未读与重要消息', '浏览消息', '历史消息补全', '内容显示']);
       expect(
         [...display.querySelectorAll('[aria-label="个性装扮"] button')].map(
           (node) => node.textContent,
@@ -560,12 +557,12 @@ describe('设置归位后的实际页面', () => {
         [...display.querySelectorAll('[aria-label="群消息发送者"] button')].map(
           (node) => node.textContent,
         ),
-      ).toEqual(['等级', '头衔或身份', '昵称或备注']);
+      ).toEqual(['昵称或备注', '等级', '头衔或身份']);
       expect(
         [...display.querySelectorAll('[aria-label="消息元数据"] button')].map(
           (node) => node.textContent,
         ),
-      ).toEqual(['消息序号（seq）', '日期', '时间']);
+      ).toEqual(['日期', '时间', '消息序号（seq）']);
       act(() => tabs.find((tab) => tab.textContent === '互动与防撤回')!.click());
       expect(f.body().querySelector('[data-setting-id="typing-status"]')).not.toBeNull();
       expect(f.body().querySelector('[data-setting-id="read-sync"]')).toBeNull();
@@ -668,7 +665,9 @@ describe('设置归位后的实际页面', () => {
     ['message-display', '显示消息汇总红点', 'message-unread-badge', '通知与提醒'],
     ['chat-messages', '纯文本消息自动渲染为 Markdown', 'text-markdown', '消息阅读'],
     ['chat-messages', '语音消息自动转文字', 'auto-transcribe-voice', '消息阅读'],
-    ['chat-messages', '图片预览内存预算', 'chat-image-cache', '消息阅读'],
+    ['chat-messages', '图片预览内存预算', 'chat-image-cache', '资源加载'],
+    ['message-display', '完整消息预热内存预算', 'chat-message-prewarm', '资源加载'],
+    ['message-display', '触屏左滑引用', 'swipe-to-quote', '互动与防撤回'],
     ['reply-suggestions', '常驻显示', 'intent-persistent-display', '意图感知'],
     ['reply-suggestions', '悬停显示', 'intent-hover-display', '意图感知'],
     ['intent-models', '意图模型资源', 'intent-engine', '意图感知'],

@@ -48,36 +48,34 @@ try {
     await page.setViewportSize({ width: 390, height: 900 });
     await page.goto(`${base}?section=message-display`);
     const body = page.locator('.weq-settings-body');
-    const important = body.getByRole('radiogroup', { name: '重要消息', exact: true });
     const exact = (name) => ({ name, exact: true });
-    await important.getByRole('radio', exact('仅本次进入')).click();
-    assert.equal(
-      await important.getByRole('radio', exact('仅本次进入')).getAttribute('aria-checked'),
-      'true',
-    );
-    const reading = body.getByRole('radiogroup', exact('上次阅读位置'));
-    const automatic = body.getByRole('switch', exact('定位到上次阅读的位置'));
-    await reading.getByRole('radio', exact('仅本次进入')).click();
+    const important = body.getByRole('combobox', exact('重要消息入口'));
+    const reading = body.getByRole('combobox', exact('继续上次阅读按钮'));
+    const automatic = body.getByRole('switch', exact('打开会话时继续上次阅读'));
+    async function selectMode(row, option) {
+      await row.click();
+      await page.getByRole('option', exact(option)).click();
+      await row.filter({ hasText: option }).waitFor();
+    }
+    await selectMode(important, '仅首次提示');
+    await selectMode(reading, '仅首次提示');
     await automatic.click();
     await reading.waitFor({ state: 'detached' });
     await important.waitFor();
-    const toggle = body.getByRole('switch', exact('合并未读跳转按钮'));
+    const toggle = body.getByRole('switch', exact('合并首条未读和重要消息入口'));
     await toggle.click();
-    const combined = body.getByRole('radiogroup', exact('合并后的未读跳转'));
-    await combined.getByRole('radio', exact('关闭')).click();
+    const combined = body.getByRole('combobox', exact('合并入口'));
+    await selectMode(combined, '不显示');
     assert.equal(await important.count(), 0);
     assert.equal(await reading.count(), 0);
     await automatic.click();
-    const savedReadingMode = reading.getByRole('radio', { ...exact('仅本次进入'), checked: true });
+    const savedReadingMode = reading.filter({ hasText: '仅首次提示' });
     await savedReadingMode.waitFor();
-    await combined.getByRole('radio', { ...exact('关闭'), checked: true }).waitFor();
+    await combined.filter({ hasText: '不显示' }).waitFor();
     await toggle.click();
     await important.waitFor();
     await savedReadingMode.waitFor();
-    assert.equal(
-      await important.getByRole('radio', exact('仅本次进入')).getAttribute('aria-checked'),
-      'true',
-    );
+    await important.filter({ hasText: '仅首次提示' }).waitFor();
     assert.equal(await body.evaluate((node) => node.scrollWidth > node.clientWidth + 1), false);
   }
   for (const width of jumpOnly ? [] : [1280, 390])
@@ -123,7 +121,10 @@ try {
           ]);
         } else {
           assert.deepEqual(await body.locator('.weq-set-card-title').allTextContents(), [
-            '阅读与定位',
+            '打开会话',
+            '未读与重要消息',
+            '浏览消息',
+            '历史消息补全',
             '内容显示',
           ]);
           const group = body.getByRole('group', { name: '个性装扮', exact: true });
@@ -164,9 +165,9 @@ try {
             fullPage: true,
           });
         if (section === 'message-display') {
-          const last = body.locator('[data-setting-id="chat-image-cache"]');
+          const last = body.locator('[data-setting-id="link-preview"]');
           await last.scrollIntoViewIfNeeded();
-          assert(await last.isVisible(), '图片预览内存预算无法滚动到达');
+          assert(await last.isVisible(), '链接预览设置无法滚动到达');
           if (output)
             await page.screenshot({
               path: resolve(output, `${section}-${width}-${theme}-bottom.png`),

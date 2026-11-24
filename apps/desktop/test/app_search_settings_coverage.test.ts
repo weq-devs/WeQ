@@ -18,7 +18,7 @@ const pages = {
   McpServerSection: 'mcp',
   AssistantSection: 'assistant',
   PrivacySection: 'privacy',
-  ChatImageCacheSettings: 'message-display',
+  ChatImageCacheSettings: 'resource-loading',
 } as const;
 
 describe('功能目录与真实设置控件同步', () => {

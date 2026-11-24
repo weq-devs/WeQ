@@ -481,27 +481,31 @@ describe('分级恢复默认', () => {
       ],
     ]);
   });
-  it('阅读定位恢复预览包含条件隐藏的上下文配置', async () => {
+  it('历史消息补全的恢复预览包含条件隐藏的配置，打开会话的恢复不包含它们', async () => {
     state.settings.sharedPreferences.client = {
       autoFetchMissingMessages: true,
       autoFetchMissingContext: true,
       missingMessageContextCount: 80,
     };
-    const preview = await caller().preview({ page: 'message-display', card: 'reading' });
+    const preview = await caller().preview({ page: 'message-display', card: 'missing-messages' });
     expect(preview.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: 'reading:autoFetchMissingMessages',
+          id: 'missing-messages:autoFetchMissingMessages',
           current: true,
           defaultValue: false,
         }),
         expect.objectContaining({
-          id: 'reading:autoFetchMissingContext',
+          id: 'missing-messages:autoFetchMissingContext',
           current: true,
           defaultValue: false,
         }),
-        expect.objectContaining({ id: 'reading:missingMessageContextCount', current: 80 }),
+        expect.objectContaining({ id: 'missing-messages:missingMessageContextCount', current: 80 }),
       ]),
+    );
+    const opening = await caller().preview({ page: 'message-display', card: 'reading' });
+    expect(opening.items.map(({ id }) => id)).not.toContain(
+      'missing-messages:missingMessageContextCount',
     );
   });
   it('会话列表恢复默认不改写消息阅读设置', async () => {

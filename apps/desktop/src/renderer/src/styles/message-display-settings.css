@@ -1,3 +1,14 @@
+.weq-message-display-heading {
+  margin: 4px 0 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.weq-set-row.is-indent[data-setting-id='link-screenshot'] {
+  margin-inline-start: 16px;
+}
+
 .weq-message-display-options.weq-search-scope {
   justify-content: flex-end;
   max-width: 100%;

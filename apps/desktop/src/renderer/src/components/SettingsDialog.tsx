@@ -23,6 +23,7 @@ import {
   BookOpen,
   Check,
   ChevronRight,
+  CloudDownload,
   Code2,
   ImageIcon,
   LockKeyhole,
@@ -67,14 +68,9 @@ import { StartupSection } from './settings/StartupSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
 import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
 import { ResourceManagementSection } from './settings/ResourceManagementSection';
-import {
-  ChatImageCacheSettings,
-  ChatMessagePrewarmSettings,
-} from './settings/ChatImageCacheSettings';
 import { MissingMessageSettings } from './settings/MissingMessageSettings';
-import { ChatJumpSettings } from './settings/ChatJumpSettings';
+import { ChatJumpSettings, ReadingPositionJumpSetting } from './settings/ChatJumpSettings';
 import { SlashEmojiSettings } from './settings/SlashEmojiSettings';
-import { QqShowSettings } from './settings/QqShowSettings';
 import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
 import { MessageDisplayOptions } from './settings/MessageDisplayOptions';
 import { Card, Row, SectionHeader, Toggle } from './settings/controls';
@@ -907,6 +903,49 @@ function AppearanceSection({
     await settings.refetch();
   }
 
+  const automaticReadingPosition = Boolean(settings.data?.readFromFirstUnread);
+
+  function readingToggle(
+    key:
+      | 'readFromFirstUnread'
+      | 'preserveUnreadUntilRead'
+      | 'autoFollowLatestMessages'
+      | 'jumpToLatestAfterSend'
+      | 'showScrollToBottomButton',
+    settingId: string,
+    label: string,
+    mutation: typeof setReadFromFirstUnread,
+    options: { desc?: string; indent?: boolean; fallbackTarget?: string } = {},
+  ) {
+    return (
+      <Row
+        settingId={settingId}
+        label={label}
+        desc={options.desc}
+        indent={options.indent}
+        control={
+          <span data-setting-fallback={options.fallbackTarget}>
+            <Toggle
+              checked={settings.data?.[key] ?? key !== 'readFromFirstUnread'}
+              disabled={!settings.data || mutation.isLoading}
+              onChange={(enabled) => {
+                setReadingError(null);
+                mutation.mutate(
+                  { enabled },
+                  {
+                    onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
+                    onError: (error) => setReadingError(error.message),
+                  },
+                );
+              }}
+              label={label}
+            />
+          </span>
+        }
+      />
+    );
+  }
+
   return (
     <section className="weq-settings-section">
       {heading && (
@@ -1052,109 +1091,75 @@ function AppearanceSection({
             </Card>
           )}
           {category === 'display' && (
-            <Card
-              title="阅读与定位"
-              resetId="reading"
-              icon={<BookOpen size={15} strokeWidth={1.8} />}
-            >
-              {[
-                {
-                  key: 'readFromFirstUnread' as const,
-                  settingId: 'read-first-unread',
-                  label: '定位到上次阅读的位置',
-                  desc: '打开会话时回到离开前的阅读位置。贴着会话底部离开时，下次打开显示最新消息。',
-                  fallback: false,
-                  mutation: setReadFromFirstUnread,
-                },
-                {
-                  key: 'preserveUnreadUntilRead' as const,
-                  settingId: 'preserve-unread-until-read',
-                  label: '保留尚未读到的消息的未读计数',
-                  fallback: true,
-                  mutation: setPreserveUnreadUntilRead,
-                },
-                {
-                  key: 'autoFollowLatestMessages' as const,
-                  settingId: 'auto-follow-latest-messages',
-                  label: '自动跟随最新消息',
-                  fallback: true,
-                  mutation: setAutoFollowLatestMessages,
-                },
-                {
-                  key: 'jumpToLatestAfterSend' as const,
-                  settingId: 'jump-latest-after-send',
-                  label: '发送消息后定位到最新消息',
-                  fallback: true,
-                  mutation: setJumpToLatestAfterSend,
-                },
-                {
-                  key: 'showScrollToBottomButton' as const,
-                  settingId: 'scroll-to-bottom-button',
-                  label: '向下滚动时显示定位到底部按钮',
-                  fallback: true,
-                  mutation: setShowScrollToBottomButton,
-                },
-              ]
-                .filter(
-                  ({ key }) =>
-                    key !== 'preserveUnreadUntilRead' || settings.data?.readFromFirstUnread,
-                )
-                .map(({ key, settingId, label, fallback, mutation }) => (
-                  <Row
-                    key={key}
-                    settingId={settingId}
-                    label={label}
-                    indent={key === 'preserveUnreadUntilRead'}
-                    control={
-                      <span
-                        data-setting-fallback={
-                          key === 'readFromFirstUnread'
-                            ? settings.data?.readFromFirstUnread
-                              ? 'show-reading-position-button'
-                              : 'preserve-unread-until-read'
-                            : undefined
-                        }
-                      >
-                        <Toggle
-                          checked={settings.data?.[key] ?? fallback}
-                          disabled={!settings.data || mutation.isLoading}
-                          onChange={(enabled) => {
-                            setReadingError(null);
-                            mutation.mutate(
-                              { enabled },
-                              {
-                                onSuccess: () => void utils.bootstrap.getSettings.invalidate(),
-                                onError: (error) => setReadingError(error.message),
-                              },
-                            );
-                          }}
-                          label={label}
-                        />
-                      </span>
-                    }
-                  />
-                ))}
-              <ChatJumpSettings
-                automaticReadingPosition={Boolean(settings.data?.readFromFirstUnread)}
-              />
-              {category === 'display' ? (
-                <>
-                  <Row
-                    settingId="unread-divider"
-                    desc="在聊天时间线标出「以下为未读消息」。"
-                    control={
-                      <SharedDisplayToggle name="showUnreadDivider" label="显示未读分界线" />
-                    }
-                  />
-                  <Row
-                    settingId="swipe-to-quote"
-                    desc="在触屏上向左滑动消息，松手后引用该消息并聚焦输入框。"
-                    control={<SharedDisplayToggle name="swipeToQuote" label="触屏左滑引用" />}
-                  />
-                  <MissingMessageSettings />
-                </>
-              ) : null}
-            </Card>
+            <>
+              <Card resetId="reading" icon={<BookOpen size={15} strokeWidth={1.8} />}>
+                {readingToggle(
+                  'readFromFirstUnread',
+                  'read-first-unread',
+                  '打开会话时继续上次阅读',
+                  setReadFromFirstUnread,
+                  {
+                    desc: '没有上次阅读位置时，显示最新消息。',
+                    fallbackTarget: automaticReadingPosition
+                      ? 'show-reading-position-button'
+                      : 'preserve-unread-until-read',
+                  },
+                )}
+                {automaticReadingPosition ? (
+                  readingToggle(
+                    'preserveUnreadUntilRead',
+                    'preserve-unread-until-read',
+                    '按阅读进度更新未读数',
+                    setPreserveUnreadUntilRead,
+                    {
+                      desc: '跳过的消息仍保留为未读。',
+                      indent: true,
+                    },
+                  )
+                ) : (
+                  <ReadingPositionJumpSetting />
+                )}
+              </Card>
+              <Card
+                resetId="unread-jumps"
+                icon={<Bell size={15} />}
+                desc="仅首次提示：切回会话时不再提示原来的目标，新目标仍会提示。"
+              >
+                <Row
+                  settingId="unread-divider"
+                  desc="在聊天时间线标出「以下为未读消息」。"
+                  control={<SharedDisplayToggle name="showUnreadDivider" label="显示未读分界线" />}
+                />
+                <ChatJumpSettings />
+              </Card>
+              <Card resetId="message-browsing" icon={<MessagesSquare size={15} />}>
+                {readingToggle(
+                  'autoFollowLatestMessages',
+                  'auto-follow-latest-messages',
+                  '在底部时跟随新消息',
+                  setAutoFollowLatestMessages,
+                )}
+                {readingToggle(
+                  'jumpToLatestAfterSend',
+                  'jump-latest-after-send',
+                  '发送后回到最新消息',
+                  setJumpToLatestAfterSend,
+                )}
+                {readingToggle(
+                  'showScrollToBottomButton',
+                  'scroll-to-bottom-button',
+                  '向下浏览时显示「回到最新」按钮',
+                  setShowScrollToBottomButton,
+                  {
+                    desc: '关闭不影响新消息提醒。',
+                  },
+                )}
+              </Card>
+              {readingError ? <p role="alert">{readingError}</p> : null}
+              <Card resetId="missing-messages" icon={<CloudDownload size={15} />}>
+                <MissingMessageSettings />
+              </Card>
+            </>
           )}
           {category === 'sending' && (
             <Card title="表情输入" icon={<Smile size={15} />} resetId="emoji-shortcuts">
@@ -1162,7 +1167,12 @@ function AppearanceSection({
             </Card>
           )}
           {category === 'sending' && (
-            <Card title="引用回复" icon={<MessagesSquare size={15} />}>
+            <Card resetId="quote-replies" icon={<MessagesSquare size={15} />}>
+              <Row
+                settingId="swipe-to-quote"
+                desc="在触屏上向左滑动消息，松手后引用该消息并聚焦输入框。"
+                control={<SharedDisplayToggle name="swipeToQuote" label="左滑引用消息" />}
+              />
               <Row
                 settingId="quote-auto-mention"
                 control={
@@ -1185,7 +1195,6 @@ function AppearanceSection({
               />
             </Card>
           )}
-          {readingError ? <p role="alert">{readingError}</p> : null}
           {category === 'display' && (
             <Card
               title="内容显示"
@@ -1193,15 +1202,8 @@ function AppearanceSection({
               settingId="custom-message-display"
               resetId="message-content"
             >
-              <QqShowSettings />
               <MessageDisplayOptions />
-              <Row
-                settingId="group-consecutive-messages"
-                desc="在私聊、群聊和合并转发记录中合并同一人的连续发言，头像和发送者信息只显示在组首。"
-                control={
-                  <SharedDisplayToggle name="groupConsecutiveMessages" label="合并连续发言" />
-                }
-              />
+              <h4 className="weq-message-display-heading">正文与预览</h4>
               <VoiceAutoTranscribeSetting />
               <Row
                 settingId="text-markdown"
@@ -1274,8 +1276,6 @@ function AppearanceSection({
                   }
                 />
               ) : null}
-              <ChatImageCacheSettings embedded />
-              <ChatMessagePrewarmSettings />
             </Card>
           )}
         </>

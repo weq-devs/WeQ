@@ -51,6 +51,7 @@ import '../../styles/storage-management.css';
 import { DataSaverSettings } from './DataSaverSettings';
 import { QqShowSettings } from './QqShowSettings';
 import { SharedDisplayToggle } from './SharedDisplayToggle';
+import { ChatImageCacheSettings, ChatMessagePrewarmSettings } from './ChatImageCacheSettings';
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -564,6 +565,12 @@ export function GlobalSettingsSection({
       {section === 'network' && (
         <Card title="QQ 秀缓存" icon={<Shirt size={15} strokeWidth={1.8} />} resetId="qqshow-cache">
           <QqShowSettings cacheOnly />
+        </Card>
+      )}
+      {section === 'network' && (
+        <Card resetId="chat-memory" icon={<ImageIcon size={15} strokeWidth={1.8} />}>
+          <ChatImageCacheSettings embedded />
+          <ChatMessagePrewarmSettings />
         </Card>
       )}
       {/* WeQ 存储管理 */}

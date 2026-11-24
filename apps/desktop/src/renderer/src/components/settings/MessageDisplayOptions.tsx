@@ -6,6 +6,8 @@ import {
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
 import { Row } from './controls';
+import { QqShowSettings } from './QqShowSettings';
+import { SharedDisplayToggle } from './SharedDisplayToggle';
 import '../../styles/message-display-settings.css';
 import '../../styles/search-scope.css';
 
@@ -21,17 +23,17 @@ const groups = [
   {
     label: '群消息发送者',
     options: [
+      ['showGroupMemberName', 'group-message-name', '昵称或备注', true],
       ['showGroupMemberLevel', 'group-message-level', '等级', true],
       ['showGroupMemberTitle', 'group-message-title', '头衔或身份', true],
-      ['showGroupMemberName', 'group-message-name', '昵称或备注', true],
     ],
   },
   {
     label: '消息元数据',
     options: [
-      ['showMessageSeq', 'message-seq', '消息序号（seq）', false],
       ['showMessageDate', 'message-date', '日期', false],
       ['showMessageTime', 'message-time', '时间', false],
+      ['showMessageSeq', 'message-seq', '消息序号（seq）', false],
     ],
   },
 ] as const;
@@ -40,7 +42,7 @@ export function MessageDisplayOptions() {
   const active = useTabActive();
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, { enabled: active });
   useClientPreferences((state) => state.tick);
-  return groups.map((group) => (
+  const renderGroup = (group: (typeof groups)[number]) => (
     <Row
       key={group.label}
       label={group.label}
@@ -77,5 +79,20 @@ export function MessageDisplayOptions() {
         </div>
       }
     />
-  ));
+  );
+  return (
+    <>
+      <h4 className="weq-message-display-heading">消息外观</h4>
+      <QqShowSettings />
+      {renderGroup(groups[0])}
+      <Row
+        settingId="group-consecutive-messages"
+        desc="同一人的连续发言只在组首显示头像和发送者信息。"
+        control={<SharedDisplayToggle name="groupConsecutiveMessages" label="合并连续发言" />}
+      />
+      <h4 className="weq-message-display-heading">发送者与消息信息</h4>
+      {renderGroup(groups[1])}
+      {renderGroup(groups[2])}
+    </>
+  );
 }

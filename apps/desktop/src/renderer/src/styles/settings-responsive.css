@@ -1,3 +1,8 @@
+.weq-chat-jump-select.weq-set-input {
+  inline-size: 8em;
+  max-inline-size: 100%;
+}
+
 @media (max-width: 650px) {
   .weq-settings-dialog {
     grid-template-columns: minmax(0, 1fr);

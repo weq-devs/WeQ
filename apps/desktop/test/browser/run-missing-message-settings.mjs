@@ -51,7 +51,7 @@ try {
     for (const theme of ['light', 'dark']) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(
-        `http://127.0.0.1:${server.httpServer.address().port}/test/browser/settings-audit.html?section=chat-messages`,
+        `http://127.0.0.1:${server.httpServer.address().port}/test/browser/settings-audit.html?section=message-display`,
       );
       await page.waitForFunction(() => !!window.settingsAuditQa);
       await page.evaluate(async (theme) => {
@@ -62,12 +62,12 @@ try {
           .getState()
           .setAccent(theme === 'light' ? '#b5243e' : '#81c995');
       }, theme);
-      const automatic = page.getByRole('switch', { name: '查看时自动拉取缺失的消息', exact: true });
+      const automatic = page.getByRole('switch', { name: '看到缺口时自动补全', exact: true });
       const context = page.getByRole('switch', {
-        name: '定位到缺失消息时自动拉取上下文',
+        name: '跳转到缺失消息时补全附近记录',
         exact: true,
       });
-      const count = page.getByRole('spinbutton', { name: '自动拉取上下文条数', exact: true });
+      const count = page.getByRole('spinbutton', { name: '补全附近消息的条数', exact: true });
       await automatic.waitFor();
       assert.equal(await count.count(), 0);
       await context.click();

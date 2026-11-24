@@ -25,32 +25,40 @@ export function MissingMessageSettings() {
       <Row
         settingId="auto-fetch-missing-messages"
         control={
-          <Toggle
-            label="查看时自动拉取缺失的消息"
-            checked={automatic}
-            disabled={!ready}
-            onChange={(value) => void changePreference('autoFetchMissingMessages', value)}
-          />
+          <span
+            data-setting-fallback={
+              automatic ? 'auto-fetch-missing-context missing-message-context-count' : undefined
+            }
+          >
+            <Toggle
+              label="看到缺口时自动补全"
+              checked={automatic}
+              disabled={!ready}
+              onChange={(value) => void changePreference('autoFetchMissingMessages', value)}
+            />
+          </span>
         }
       />
       {!automatic ? (
         <>
           <Row
             settingId="auto-fetch-missing-context"
-            indent
             control={
-              <Toggle
-                label="定位到缺失消息时自动拉取上下文"
-                checked={context}
-                disabled={!ready}
-                onChange={(value) => void changePreference('autoFetchMissingContext', value)}
-              />
+              <span data-setting-fallback={!context ? 'missing-message-context-count' : undefined}>
+                <Toggle
+                  label="跳转到缺失消息时补全附近记录"
+                  checked={context}
+                  disabled={!ready}
+                  onChange={(value) => void changePreference('autoFetchMissingContext', value)}
+                />
+              </span>
             }
           />
           {context ? (
             <Row
               settingId="missing-message-context-count"
               indent
+              desc="目标前后的总条数，不含目标本身。"
               control={
                 <AutoSave
                   value={value}
@@ -70,7 +78,7 @@ export function MissingMessageSettings() {
                     max={500}
                     step={1}
                     value={draft}
-                    aria-label="自动拉取上下文条数"
+                    aria-label="补全附近消息的条数"
                     aria-invalid={!valid}
                     disabled={!ready}
                     onChange={(event) => setDraft(event.target.value)}
