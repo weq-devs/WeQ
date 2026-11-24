@@ -3133,8 +3133,8 @@ function MainWorkspace(): ReactElement {
     [contactRequests, friendNoticeInbox.operations],
   );
   const { ids: groupNoticeIds, legacyIds: legacyGroupNoticeIds } = useMemo(
-    () => noticeBadgeList(groupRequests, groupNoticeInbox.operations),
-    [groupRequests, groupNoticeInbox.operations],
+    () => noticeBadgeList(groupRequests, groupNoticeInbox.operations, user),
+    [groupRequests, groupNoticeInbox.operations, user],
   );
   const { readSequence, canReportRead } = groupNoticeInbox;
   const viewingContactNotices = messageActivity.enabled && shell.view === 'contacts';

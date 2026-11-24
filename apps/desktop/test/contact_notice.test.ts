@@ -169,6 +169,65 @@ describe('通知卡片操作匹配', () => {
         ?.operation,
     ).toBeUndefined();
   });
+  it('本人发出的好友申请不计红点，收到的申请和处理结果仍可提醒', () => {
+    const incoming: ContactRequest = {
+      id: 'friend-incoming',
+      user,
+      direction: 'incoming',
+      status: 'pending',
+      message: null,
+      createdAt: group.createdAt,
+      respondedAt: null,
+    };
+    const outgoing = { ...incoming, id: 'friend-outgoing', direction: 'outgoing' as const };
+    const accepted = { ...outgoing, id: 'friend-accepted', status: 'accepted' as const };
+    expect(noticeBadgeList([outgoing, incoming, accepted], []).ids).toEqual([
+      incoming.id,
+      accepted.id,
+    ]);
+  });
+
+  it('本人发出的入群申请不计红点，处理结果和其他群通知仍可提醒', () => {
+    const record = {
+      msgTime: 1794843040,
+      status: 1,
+      verifyStatus: 1,
+      groupUin: '123',
+      groupName: '测试群',
+      operatedUid: 'u_self',
+      operatedUin: '10001',
+      operatedNick: '',
+      operatorUid: '',
+      operatorUin: '',
+      operatorNick: '',
+      opTime: 0,
+      remark: '',
+      systemRemark: '',
+      sourceTable: 'group_notify_list' as const,
+    };
+    const own = groupNotifyToGroupRequest(record, new Map(), new Map())!;
+    const withoutUin = groupNotifyToGroupRequest(
+      { ...record, operatedUin: '' },
+      new Map(),
+      new Map(),
+    )!;
+    const self = { uid: 'u_self', identityValue: '10001' };
+    expect(noticeBadgeList([own], [], { identityValue: self.identityValue }).ids).toEqual([]);
+    expect(noticeBadgeList([withoutUin], [], self).ids).toEqual([]);
+
+    const accepted = { ...own, handleState: 'agreed' as const };
+    const adminChange = {
+      ...own,
+      id: 'admin-change',
+      action: '被设置为管理员',
+      handleState: 'none' as const,
+    };
+    expect(noticeBadgeList([accepted, adminChange, group], [], self).ids).toEqual([
+      accepted.id,
+      adminChange.id,
+      group.id,
+    ]);
+  });
   it('按群和身份匹配，只绑定最新申请且不串过滤收件箱', () => {
     const latest = { ...group, id: 'new', createdAt: '2026-10-19T02:00:00Z' };
     const result = bindNoticeOperations([group, latest], [operation]);
