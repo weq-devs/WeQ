@@ -167,11 +167,7 @@ export class AccountWriteService {
     };
   }
 
-  async commonRelationships(
-    target: string,
-    priority = 0,
-    field?: 'commonFriends' | 'commonGroups',
-  ) {
+  async commonRelationships(target: string, priority = 0, source: 'both' | 'attributes' = 'both') {
     const pid = this.resolvePid();
     const loadFriends = () => getCommonFriendCount(this.nt, pid, this.identity.uin, target);
     const loadAttributes = async () => {
@@ -179,29 +175,23 @@ export class AccountWriteService {
       this.assertCurrentPid(pid);
       return getCommonAttributes(this.nt, pid, this.identity.uin, target, version);
     };
-    const loadFriendsCached = () =>
+    const loadBatchFriends = () =>
       this.contactMetrics
-        ? this.contactMetrics.query(
-            `friend:${target}`,
-            ['commonFriends'],
-            loadFriends,
-            (value) => ({ commonFriends: value }),
-            priority,
-          )
+        ? this.contactMetrics.schedule(`friend:${target}:batchCommonFriends`, loadFriends, priority)
         : loadFriends();
     const loadAttributesCached = () =>
       this.contactMetrics
         ? this.contactMetrics.query(
             `friend:${target}`,
-            ['commonGroups'],
+            ['commonFriends', 'commonGroups'],
             loadAttributes,
-            (value) => ({ commonGroups: value.groups }),
+            (value) => ({ commonFriends: value.friendCount, commonGroups: value.groups }),
             priority,
           )
         : loadAttributes();
     const [friends, attributes] = await Promise.allSettled([
-      field === 'commonGroups' ? null : loadFriendsCached(),
-      field === 'commonFriends' ? null : loadAttributesCached(),
+      source === 'both' ? loadBatchFriends() : null,
+      loadAttributesCached(),
     ]);
     this.assertCurrentPid(pid);
     const data = attributes.status === 'fulfilled' ? attributes.value : null;

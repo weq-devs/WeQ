@@ -736,8 +736,12 @@ export class ContactDirectoryRuntime {
         jobs.push({
           key: `${key}:common`,
           run: async () => {
-            const result = await this.services.accountWrite.commonRelationships(uin, 1);
-            const friendMissing = !!result.friendError || result.friendCount === null;
+            const result = await this.services.accountWrite.commonRelationships(
+              uin,
+              1,
+              'attributes',
+            );
+            const friendMissing = result.attributeFriendCount === null;
             const groupMissing = !!result.groupError || result.groups === null;
             if (
               (needs('commonFriends') && friendMissing) ||
@@ -1493,12 +1497,12 @@ export class ContactDirectoryRuntime {
           if (!this.current() || this.disposed) return;
           const uin = next.get(uid);
           if (uin) {
-            await this.services.accountWrite.commonRelationships(uin, 1);
+            await this.services.accountWrite.commonRelationships(uin, 1, 'attributes');
             this.assertCurrent();
             const row = (await this.cache.snapshot()).rows[`friend:${uin}`];
             this.assertCurrent();
             if (row?.commonGroups?.state === 'stale' || row?.commonFriends?.state === 'stale')
-              await this.services.accountWrite.commonRelationships(uin, 1);
+              await this.services.accountWrite.commonRelationships(uin, 1, 'attributes');
           }
         }
       if (this.online() && addedFriends.length) {

@@ -14,6 +14,7 @@ export {
   GROUP_SORTS,
   GROUP_GROUPS,
   isDirectoryPreference,
+  removeBatchCommonFriendCounts,
 } from './contact_directory_preferences';
 export const MAX_SHARED_DRAFT_IMAGE_BYTES = 32 * 1024 * 1024;
 export const CHAT_JUMP_MODES = ['off', 'entry', 'keep'] as const;

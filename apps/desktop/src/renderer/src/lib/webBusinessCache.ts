@@ -12,6 +12,8 @@ import {
   recentMessageWindowTag,
 } from './recentMessageCache';
 import superjson from 'superjson';
+import type { ContactMetricsSnapshot } from '@weq/service';
+import { removeBatchCommonFriendCounts } from '@weq/service/client-preferences';
 import type { QQWriteBinding } from '../hooks/useQQWriteSession';
 import { isProfileCacheQuery } from './profileQuery';
 import {
@@ -363,11 +365,20 @@ export async function restoreBusinessCache(
           query.state?.status === 'success' &&
           Number.isFinite(query.state.dataUpdatedAt),
       )
-      .map((query) =>
-        profile(query.queryKey) || isQzoneHomeQuery(query.queryKey)
-          ? { ...query, state: { ...query.state, isInvalidated: true } }
-          : query,
-      );
+      .map((query) => {
+        if (profile(query.queryKey) || isQzoneHomeQuery(query.queryKey))
+          return { ...query, state: { ...query.state, isInvalidated: true } };
+        const path = query.queryKey[0];
+        if (Array.isArray(path) && path.join('.') === 'account.contactMetrics.snapshot') {
+          const data = query.state.data as ContactMetricsSnapshot | undefined;
+          if (data?.rows && typeof data.rows === 'object') {
+            const rows = removeBatchCommonFriendCounts(data.rows);
+            if (rows !== data.rows)
+              return { ...query, state: { ...query.state, data: { ...data, rows } } };
+          }
+        }
+        return query;
+      });
     hydrate(client, { mutations: [], queries });
   };
   // 任一存储损坏时，另一份快照仍可以恢复。

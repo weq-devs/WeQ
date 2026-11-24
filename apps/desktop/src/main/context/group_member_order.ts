@@ -302,9 +302,13 @@ export function startGroupMemberOrderTask(
                   await services.accountWrite.friendClue(uid, 1);
                   break;
                 default: {
-                  const common = await services.accountWrite.commonRelationships(target, 1, sort);
-                  const error = sort === 'commonFriends' ? common.friendError : common.groupError;
-                  if (error) throw new Error(error);
+                  const common = await services.accountWrite.commonRelationships(
+                    target,
+                    1,
+                    'attributes',
+                  );
+                  if (sort === 'commonGroups' && common.groupError)
+                    throw new Error(common.groupError);
                 }
               }
               const value = memberMetric(

@@ -1,3 +1,18 @@
+import type { ContactMetricRows } from '../account/contact_metrics';
+
+/** 旧缓存中的共同好友计数来自批量加好友接口，不能继续用作共同属性计数。 */
+export function removeBatchCommonFriendCounts(rows: ContactMetricRows): ContactMetricRows {
+  let updated: ContactMetricRows | undefined;
+  for (const [key, row] of Object.entries(rows)) {
+    if (!row?.commonFriends || row.commonFriends.source === 'commonAttributes') continue;
+    updated ??= { ...rows };
+    const fields = { ...row };
+    delete fields.commonFriends;
+    updated[key] = fields;
+  }
+  return updated ?? rows;
+}
+
 export const FRIEND_SORTS = {
   remark: '备注',
   nick: '昵称',

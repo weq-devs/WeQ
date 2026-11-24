@@ -191,7 +191,10 @@ export function projectContactHistoryFields(
   }
   if (name === 'getFriendRemark') add('remark', typeof value === 'string' ? value : row.remark);
   if (name === 'commonRelationships') {
-    if (row.friendCount !== null) add('commonFriends', row.friendCount);
+    const count = Object.hasOwn(row, 'attributeFriendCount')
+      ? row.attributeFriendCount
+      : row.friendCount;
+    if (typeof count === 'number') add('commonFriends', count);
     if (Array.isArray(row.groups))
       add('commonGroups', stableList(row.groups, ['groupCode', 'name']));
   }
