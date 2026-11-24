@@ -1011,7 +1011,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     id: 'qq-accounts',
     section: 'qq-accounts',
     label: '登录记录与设备标识',
-    aliases: ['QQ 登录记录管理', 'QQ 账号管理', '设备 GUID', '登录记录'],
+    aliases: ['QQ 登录记录管理', 'QQ 账号管理', '设备 GUID', '登录记录', '登录账号列表'],
     from: ['qq-accounts', 'diagnostics'],
     desktopOnly: true,
   },

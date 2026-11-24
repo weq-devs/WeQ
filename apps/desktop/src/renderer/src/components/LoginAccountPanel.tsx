@@ -214,7 +214,7 @@ export function LoginAccountPanel(): ReactElement {
         ) : null}
       </Card>
 
-      <Card title="本机登录记录">
+      <Card title="登录账号列表">
         {canWrite ? (
           <div className="weq-login-acc-gate is-ready">
             <ShieldCheck size={14} strokeWidth={1.9} />

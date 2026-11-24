@@ -485,7 +485,7 @@ describe('设置归位后的实际页面', () => {
       const cards = [...panel.querySelectorAll(':scope > .weq-set-card')];
       expect(cards.map((card) => card.querySelector('.weq-set-card-title')?.textContent)).toEqual([
         '本机设备标识（GUID）',
-        '本机登录记录',
+        '登录账号列表',
       ]);
       expect(cards[0]?.querySelector('.weq-login-acc-identity-value')).not.toBeNull();
       expect(cards[1]?.querySelector('.weq-login-acc-list')).not.toBeNull();
