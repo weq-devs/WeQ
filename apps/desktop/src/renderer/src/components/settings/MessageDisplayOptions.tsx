@@ -83,23 +83,23 @@ export function MessageDisplayOptions() {
   );
   return (
     <>
+      <Card title="发送者与消息信息" icon={<UsersRound size={15} />}>
+        <QqShowSettings />
+        {renderGroup(groups[1])}
+        {renderGroup(groups[2])}
+      </Card>
       <Card
         title="消息外观"
         icon={<Monitor size={15} />}
         settingId="custom-message-display"
         resetId="message-content"
       >
-        <QqShowSettings />
         {renderGroup(groups[0])}
         <Row
           settingId="group-consecutive-messages"
           desc="同一人的连续发言只在组首显示头像和发送者信息。"
           control={<SharedDisplayToggle name="groupConsecutiveMessages" label="合并连续发言" />}
         />
-      </Card>
-      <Card title="发送者与消息信息" icon={<UsersRound size={15} />}>
-        {renderGroup(groups[1])}
-        {renderGroup(groups[2])}
       </Card>
     </>
   );

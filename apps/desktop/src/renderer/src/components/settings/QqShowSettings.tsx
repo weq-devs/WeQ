@@ -1,5 +1,5 @@
 /**
- * 「自定义消息显示」里的 QQ 秀两行：开关 + 本地映射有效期。
+ * QQ 秀头像开关与本地映射有效期分别位于消息显示和资源加载。
  *
  * 开关只影响聊天头像的展示（开启时用全身像替换头像，也不再叠挂件）；有效期决定
  * uin → 形象 URL 的本地缓存多久后重新向 QQ 查询，个性主页共用同一份缓存。
@@ -51,7 +51,6 @@ export function QqShowSettings({ cacheOnly = false }: { cacheOnly?: boolean }) {
         <Row
           settingId="chat-qqshow"
           label="优先使用 QQ 秀替换头像"
-          desc="用成员的 QQ 秀全身像替换头像与挂件。"
           control={
             <SharedDisplayToggle
               name="showChatQqShow"

@@ -557,10 +557,10 @@ describe('设置归位后的实际页面', () => {
         [...display.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
       ).toEqual([
         '优先使用 QQ 秀替换头像',
-        '个性装扮',
-        '合并连续发言',
         '群消息发送者',
         '消息元数据',
+        '个性装扮',
+        '合并连续发言',
         '语音消息自动转文字',
         '文本消息自动渲染为 Markdown',
         '链接预览卡片',
