@@ -227,24 +227,26 @@ it('已有只读客户端只能直连令牌唯一授权的在用账号，不会�
   }
 });
 
-it('远程页面只打开已授权账号，选择失败后可重新选择', async () => {
+it('远程页面只打开已授权账号，选择失败和服务重启后可重新选择', async () => {
   const worker = await fixture(['101', '202', '303', '404']);
   let grant = ['101'];
   const publicDir = mkdtempSync(join(tmpdir(), 'weq-scoped-web-'));
   writeFileSync(join(publicDir, 'index.html'), '<!doctype html><title>测试 Web 首屏</title>');
-  const entry = new DesktopWebEntry({
-    accounts: worker.routes,
-    publicDir,
-    auth: {
-      remoteClient: true,
-      accountIds: () => grant,
-      login: async () => false,
-      logout: () => {},
-      isAuthed: () => true,
-      identityKey: () => 'remote-fixture',
-      watchSession: () => () => {},
-    },
-  });
+  const createEntry = () =>
+    new DesktopWebEntry({
+      accounts: worker.routes,
+      publicDir,
+      auth: {
+        remoteClient: true,
+        accountIds: () => grant,
+        login: async () => false,
+        logout: () => {},
+        isAuthed: () => true,
+        identityKey: () => 'remote-fixture',
+        watchSession: () => () => {},
+      },
+    });
+  let entry = createEntry();
   const server = createServer((req, res) => entry.handle(req, res));
   const base = `http://127.0.0.1:${await listenPrivate(server)}`;
   try {
@@ -278,9 +280,29 @@ it('远程页面只打开已授权账号，选择失败后可重新选择', asyn
     expect((await select('202')).status).toBe(200);
     const selected = await select('202');
     expect(selected.status).toBe(303);
-    const route = selected.headers.get('location')!.split('/').at(-2);
+    const accountPath = selected.headers.get('location')!;
+    const route = accountPath.split('/').at(-2);
     const media = await fetch(`${base}/_media/pic?cid=test~${route}`);
     expect(await media.json()).toEqual({ uin: '202' });
+
+    const snapshotPath = `${base}${accountPath}trpc/startup.snapshot`;
+    expect(await (await fetch(snapshotPath)).json()).toEqual({ uin: '202' });
+    entry.close();
+    entry = createEntry();
+    worker.open.mockClear();
+    for (const path of ['startup.snapshot', 'account.listRecentContacts?batch=1']) {
+      const stale = await fetch(`${base}${accountPath}trpc/${path}`);
+      expect(stale.status).toBe(409);
+      expect(stale.headers.get('x-weq-account-selection')).toBe('required');
+    }
+    const staleWrite = await fetch(`${base}${accountPath}trpc/account.sendMessage`, {
+      method: 'POST',
+    });
+    expect(staleWrite.status).toBe(409);
+    expect(staleWrite.headers.has('x-weq-account-selection')).toBe(false);
+    expect(worker.open).not.toHaveBeenCalled();
+    const resumed = await fetch(base + '/_weq/accounts?resume=1');
+    expect(await resumed.text()).toContain('账号 202');
   } finally {
     entry.close();
     stopPrivate(server);

@@ -182,8 +182,7 @@ export class DesktopWebEntry {
     return grant === undefined || grant.includes(configId);
   }
 
-  private route(req: IncomingMessage) {
-    const scope = scopedRequest(req);
+  private route(req: IncomingMessage, scope = scopedRequest(req)) {
     if (!scope) return null;
     const active = this.paths.get(scope.routeId);
     const configId = active?.account.account.configId;
@@ -316,9 +315,15 @@ export class DesktopWebEntry {
       this.showAccounts(req, res);
       return;
     }
-    const routed = this.route(req);
+    const scope = scopedRequest(req);
+    const routed = this.route(req, scope);
     if (!routed) {
-      if (auth.remoteClient && /^\/trpc\/startup\.snapshot(?:,|$)/.test(pathname)) {
+      // 服务重启会丢弃旧页面的账号路由；由当前页面重新选择，不重投旧请求。
+      if (
+        auth.remoteClient &&
+        req.method === 'GET' &&
+        (/^\/trpc\/startup\.snapshot(?:,|$)/.test(pathname) || scope?.path.startsWith('/trpc/'))
+      ) {
         res
           .writeHead(409, { 'X-WeQ-Account-Selection': 'required', 'Cache-Control': 'no-store' })
           .end();
