@@ -324,11 +324,24 @@ describe('shared SSO physical windows', () => {
       type: 'emojiBounce' as const,
       senderUid: 'u_sender',
       senderUin: '10001',
-      sendTime: '1700000000',
+      sendTime: '1700000001',
     };
-    const restored = await f.history.fetch('group', group.conv, 1, 1, { specialMessage: lookup });
+    const restored = await f.history.fetch('group', group.conv, 1, 1, {
+      specialMessage: lookup,
+      cacheOnly: true,
+    });
     expect(restored).toMatchObject({ ok: true, networkRequested: false, messages: [row] });
     expect(f.sendPacket).not.toHaveBeenCalled();
+
+    await f.history.retainForBatch([
+      { ...row!, msgId: '111111', msgRandom: '222222', sendTime: '1699999999' },
+    ]);
+    expect(
+      await f.history.fetch('group', group.conv, 1, 1, {
+        specialMessage: lookup,
+        cacheOnly: true,
+      }),
+    ).toMatchObject({ ok: true, networkRequested: false, messages: [] });
 
     const wrongSender = await f.history.fetch('group', group.conv, 1, 1, {
       specialMessage: { ...lookup, senderUid: 'u_other' },

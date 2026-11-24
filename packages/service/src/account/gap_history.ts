@@ -106,7 +106,10 @@ function hasSpecialElement(elements: RenderElement[], type: SpecialMessageKind):
       return elements.some((element) => element.type === 'face' && element.data.subType === 5);
     case 'flashPhoto':
       return elements.some(
-        (element) => element.type === 'pic' && element.data.fileToken?.startsWith('/'),
+        (element) =>
+          element.type === 'pic' &&
+          element.data.isFlash === true &&
+          element.data.fileToken?.startsWith('/'),
       );
   }
 }
@@ -115,14 +118,15 @@ function projectSpecialMessage(
   message: GapFetchedMessage,
   lookup: SpecialMessageLookup,
 ): GapFetchedMessage | undefined {
-  if (message.recall || message.sendTime !== lookup.sendTime) return undefined;
-  const sameSender =
-    message.senderUid && lookup.senderUid
-      ? message.senderUid === lookup.senderUid
-      : message.senderUin !== '0' &&
-        message.senderUin !== '' &&
-        message.senderUin === lookup.senderUin;
-  if (!sameSender) return undefined;
+  if (message.recall || (message.kind === 'c2c' && message.ntSeqVerified !== true)) return;
+  const uidsKnown = Boolean(message.senderUid && lookup.senderUid);
+  const uinsKnown = /^[1-9]\d*$/.test(message.senderUin) && /^[1-9]\d*$/.test(lookup.senderUin);
+  if (
+    (uidsKnown && message.senderUid !== lookup.senderUid) ||
+    (uinsKnown && message.senderUin !== lookup.senderUin) ||
+    (!uidsKnown && !uinsKnown && message.sendTime !== lookup.sendTime)
+  )
+    return;
   if (hasSpecialElement(message.elements, lookup.type)) return message;
   if (message.sourceFormat !== 'protocol' || !message.protocolRaw) return undefined;
   // 旧版本可能保存了完整协议包，同时在投影时丢掉了特殊元素。
@@ -486,6 +490,7 @@ export class GapHistoryService {
       strictIdentity?: boolean;
       beforeRequest?: () => void;
       specialMessage?: SpecialMessageLookup;
+      cacheOnly?: boolean;
     } = {},
   ): Promise<GapFetchResult> {
     if (
@@ -499,12 +504,15 @@ export class GapHistoryService {
       return { ok: false, reason: 'error', networkRequested: false, message: 'SSO 历史窗口无效。' };
     const windowEnd = Math.min(endSeq, startSeq + SERVER_MAX_WINDOW - 1);
     const specialMessage = options.specialMessage;
-    const readCache = () =>
-      specialMessage
-        ? this.cache.matchingMessage(kind, conv, startSeq, (row) =>
-            projectSpecialMessage(row, specialMessage),
-          )
-        : this.cache.query(kind, conv, startSeq, windowEnd, kind === 'c2c');
+    const readCache = async () => {
+      if (!specialMessage) return this.cache.query(kind, conv, startSeq, windowEnd, kind === 'c2c');
+      const candidates = await this.cache.matchingMessage(kind, conv, startSeq, (row) =>
+        projectSpecialMessage(row, specialMessage),
+      );
+      if (candidates.length <= 1) return candidates;
+      const exact = candidates.filter((row) => row.sendTime === specialMessage.sendTime);
+      return exact.length === 1 ? exact : [];
+    };
     const complete = (rows: GapFetchedMessage[]) =>
       new Set(rows.map((row) => row.msgSeq)).size === windowEnd - startSeq + 1;
     const nextStartSeq = windowEnd < endSeq ? windowEnd + 1 : null;
@@ -521,6 +529,14 @@ export class GapHistoryService {
     }
     if (complete(cached))
       return { ok: true, messages: cached, nextStartSeq, fetched: 0, networkRequested: false };
+    if (options.cacheOnly)
+      return {
+        ok: true,
+        messages: cached,
+        nextStartSeq: null,
+        fetched: 0,
+        networkRequested: false,
+      };
     let pid: number;
     try {
       pid = this.resolvePid();

@@ -5877,6 +5877,7 @@ export const accountRouter = router({
           conv: z.string().min(1),
           startSeq: z.number().int().min(0),
           endSeq: z.number().int().min(0),
+          cacheOnly: z.boolean().optional(),
           specialMessage: z
             .object({
               type: z.enum(SPECIAL_MESSAGE_KINDS),
@@ -5898,7 +5899,7 @@ export const accountRouter = router({
         input.conv,
         input.startSeq,
         input.endSeq,
-        { specialMessage: input.specialMessage },
+        { specialMessage: input.specialMessage, cacheOnly: input.cacheOnly },
       );
       if (
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services

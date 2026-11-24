@@ -38,6 +38,7 @@ export function useMessageElementPatches(
       patches: saved.patches,
       dead: new Set(saved.dead),
       attempts: new Map<string, number>(),
+      offlineChecked: new Set<string>(),
       inFlight: new Map<string, Promise<FetchResult | undefined>>(),
     };
   }, [key]);
@@ -48,10 +49,8 @@ export function useMessageElementPatches(
 
   useEffect(() => {
     if (!key || !kind || !conv || !account || !config) return;
-    if (!online) {
-      session.attempts.clear();
-      return;
-    }
+    if (!online) session.attempts.clear();
+    else session.offlineChecked.clear();
 
     const candidates = rows.flatMap((row) => {
       const type = messageFallbackKind(row);
@@ -73,8 +72,15 @@ export function useMessageElementPatches(
       for (const { msgId, seq, lookup } of candidates) {
         if (!active) return;
         const attempts = session.attempts.get(msgId) ?? 0;
-        if (session.patches[msgId] || session.dead.has(msgId) || attempts >= MAX_ATTEMPTS) continue;
-        let request = session.inFlight.get(msgId);
+        if (
+          session.patches[msgId] ||
+          (online
+            ? session.dead.has(msgId) || attempts >= MAX_ATTEMPTS
+            : session.offlineChecked.has(msgId))
+        )
+          continue;
+        const requestKey = `${online}:${msgId}`;
+        let request = session.inFlight.get(requestKey);
         if (!request) {
           request = client.account.fetchGapMessages
             .query({
@@ -82,17 +88,19 @@ export function useMessageElementPatches(
               conv,
               startSeq: seq,
               endSeq: seq,
+              cacheOnly: !online,
               specialMessage: lookup,
               expectedAccountUin: account,
               expectedAccountConfigId: config,
             })
             .catch(() => undefined)
-            .finally(() => session.inFlight.delete(msgId));
-          session.inFlight.set(msgId, request);
+            .finally(() => session.inFlight.delete(requestKey));
+          session.inFlight.set(requestKey, request);
         }
         const result = await request;
         if (!active) return;
-        session.attempts.set(msgId, attempts + 1);
+        if (online) session.attempts.set(msgId, attempts + 1);
+        else session.offlineChecked.add(msgId);
         const message = result?.ok && result.messages.length === 1 ? result.messages[0] : undefined;
         if (message) {
           session.patches = {
@@ -101,7 +109,8 @@ export function useMessageElementPatches(
           };
           persist();
           setUpdated({ session, patches: session.patches });
-        } else if (
+        } else if (!online) continue;
+        else if (
           result &&
           !result.ok &&
           !isTransientMessageBackfillFailure(result.reason, result.message)
