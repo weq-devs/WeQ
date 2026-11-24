@@ -127,7 +127,7 @@ export function MobileWebNavigation({
   }, [moreOpen, onViewChange]);
   const tabs = navigationEntries('mobile-tabs');
   const primary = tabs.some((entry) => entry.id === view && entry.id !== 'more');
-  const active = moreOpen || !primary ? 'more' : view;
+  const active = primary ? view : view === 'home' ? undefined : 'more';
   const locateUnread = active === 'messages' && !mobilePage ? onMessageBadgeClick : undefined;
   const select = (next: MainView) => {
     mobilePage?.close();
