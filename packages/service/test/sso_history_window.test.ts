@@ -224,7 +224,14 @@ describe('shared SSO physical windows', () => {
   it('keeps incomplete observations unresolved in durable job coverage', async () => {
     const f = fixture();
     f.listSeqWindow.mockResolvedValue({ seqs: [61n, 0n], below: null, above: null });
-    withIncompleteSlot(f, 25);
+    f.sendPacket.mockImplementation(async (_pid, _command, body) => {
+      const response = decode(GetGroupHistory.respSchema, f.response(body)) as {
+        body: { messages: { contentHead: { sequence: number; timestamp?: number } }[] };
+      };
+      const row = response.body.messages.find((row) => row.contentHead.sequence === 25);
+      if (row) delete row.contentHead.timestamp;
+      return Buffer.from(encode(GetGroupHistory.respSchema, response));
+    });
     const job = await f.plan();
     f.manager.start(job.id);
     await f.done();
@@ -235,13 +242,16 @@ describe('shared SSO physical windows', () => {
       pendingSeqs: 0,
     });
     expect(await f.history.cached('group', group.conv, 25, 25)).toHaveLength(0);
+    expect(
+      await f.nt.executeSql(f.cachePath, 'SELECT reason FROM protocol_gap_observation', null),
+    ).toEqual([['missing_message_time']]);
   });
   it('does not quarantine a wrong-peer slot or checkpoint a failed observation write', async () => {
     const wrong = fixture();
     withIncompleteSlot(wrong, 490, true);
     expect(await wrong.fetch()).toMatchObject({
       ok: false,
-      message: expect.stringContaining('会话或 NT 序号不一致'),
+      message: expect.stringContaining('会话不一致'),
     });
     expect(wrong.steps).toHaveLength(0);
     const failed = fixture();

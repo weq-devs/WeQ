@@ -4,7 +4,7 @@ import {
   type fetchGroupHistoryRaw,
   type fetchC2cHistoryRaw,
 } from '@weqbot/protocol';
-import { assertRoamingPageIdentity, toGapMessage, type GapFetchedMessage } from './gap_history';
+import { toGapMessage, type GapFetchedMessage } from './gap_history';
 import type { RoamingTarget } from './roaming_backfill';
 
 export interface ProtocolHistoryObservation {
@@ -18,32 +18,27 @@ export interface ProtocolHistoryObservation {
    *   典型来源是私聊通话记录 —— 它挂靠在宿主消息上、复用宿主的 seq 与 newId，
    *   所以服务端会为同一个 seq 回两条（见 `docs/database/nt_msg/row.md` 的同 seq 约定）。
    */
-  reason: 'missing_message_identity' | 'duplicate_message_identity';
+  reason:
+    | 'missing_message_identity'
+    | 'duplicate_message_identity'
+    | 'unverified_message_scope'
+    | 'invalid_message_sequence'
+    | 'missing_message_time';
 }
 
-/**
- * 群里的「空槽位」：有 peer/seq，但没有任何消息身份。
- *
- * 保持群专属 —— 私聊走 `assertRoamingPageIdentity` 严格核验，不放松。
- */
-function isIncompleteGroupSlot(
+/** 身份字段缺失的行只作观察；明确指向另一会话的行使整窗失效。 */
+function verifiedPrivateScope(
   conv: string,
   decoded: ReturnType<typeof decodeMessage>,
-  newId: bigint,
-  window: { start: number; end: number },
+  selfUin: string,
 ): boolean {
-  return (
-    decoded.head.msgType === 82 &&
-    String(decoded.session.uin) === conv &&
-    Number.isSafeInteger(decoded.head.sequence) &&
-    decoded.head.sequence >= window.start &&
-    decoded.head.sequence <= window.end &&
-    decoded.head.timestamp === 0 &&
-    decoded.head.msgId === 0 &&
-    newId === 0n &&
-    decoded.sender.uin === 0 &&
-    decoded.sender.uid === ''
-  );
+  const { sender, session } = decoded;
+  const matches = (uid: string, uin: number) => uid === conv && String(uin) === selfUin;
+  if (matches(sender.uid, session.uin) || matches(session.uid, sender.uin)) return true;
+  const compatible = (uid: string, uin: number) =>
+    (!uid || uid === conv) && (!uin || String(uin) === selfUin);
+  if (compatible(sender.uid, session.uin) || compatible(session.uid, sender.uin)) return false;
+  throw Error('漫游响应的账号或会话不一致，未提交本窗覆盖。');
 }
 
 type HistoryResponse =
@@ -74,7 +69,9 @@ export function decodeSsoHistoryWindow(
     );
     if (!raw) throw Error('纯协议历史消息原始字节不完整。');
     const decoded = decodeMessage(raw);
-    const header = response.messages[i]!.responseHead as { toUin?: number } | undefined;
+    const header = response.messages[i]!.responseHead as
+      | { toUin?: number; grp?: { groupUin?: number } }
+      | undefined;
     // Group records can omit the recipient; the authenticated session and group still bind them.
     if (
       target.kind === 'group' &&
@@ -83,25 +80,41 @@ export function decodeSsoHistoryWindow(
       String(header.toUin) !== selfUin
     )
       throw Error('纯协议群历史响应账号不一致。');
+    const groupUin = header?.grp?.groupUin;
+    if (groupUin && (target.kind !== 'group' || String(groupUin) !== target.conv))
+      throw Error('漫游响应的账号或会话不一致，未提交本窗覆盖。');
+    const scoped =
+      target.kind === 'group'
+        ? Boolean(groupUin)
+        : verifiedPrivateScope(target.conv, decoded, selfUin);
     const content = response.messages[i]!.contentHead as { newId?: bigint } | undefined;
-    // Some group slots have a valid peer/seq but no message identity. Keep evidence, not coverage.
-    if (
-      target.kind === 'group' &&
-      isIncompleteGroupSlot(target.conv, decoded, content?.newId ?? 0n, window)
-    ) {
+    const id =
+      content?.newId && content.newId > 0n ? content.newId.toString() : String(decoded.head.msgId);
+    const seq = decoded.head.sequence;
+    const validSeq =
+      Number.isSafeInteger(seq) &&
+      seq >= window.start &&
+      seq <= window.end &&
+      (target.kind === 'group' || decoded.head.ntMsgSeq === seq);
+    const reason = !scoped
+      ? 'unverified_message_scope'
+      : !validSeq
+        ? 'invalid_message_sequence'
+        : !/^[1-9]\d*$/.test(id)
+          ? 'missing_message_identity'
+          : !Number.isSafeInteger(decoded.head.timestamp) || decoded.head.timestamp <= 0
+            ? 'missing_message_time'
+            : null;
+    if (reason) {
       observations.push({
-        kind: 'group',
+        kind: target.kind,
         conv: target.conv,
-        msgSeq: decoded.head.sequence,
+        msgSeq: scoped && validSeq ? seq : 0,
         protocolRaw: Buffer.from(raw).toString('base64'),
-        reason: 'missing_message_identity',
+        reason,
       });
       continue;
     }
-    assertRoamingPageIdentity(target.kind, target.conv, selfUin, decoded, window.start, window.end);
-    const id =
-      content?.newId && content.newId > 0n ? content.newId.toString() : String(decoded.head.msgId);
-    if (!/^[1-9]\d*$/.test(id)) throw Error('纯协议历史消息缺少精确标识。');
     const key = `${decoded.head.sequence}:${id}`;
     if (ids.has(key)) {
       // 同 seq 同 ID 的第二条：服务端确实会回（私聊通话记录挂靠宿主消息，复用宿主的

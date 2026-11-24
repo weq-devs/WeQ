@@ -191,33 +191,6 @@ export function toGapMessage(
   };
 }
 
-export function assertRoamingPageIdentity(
-  kind: 'group' | 'c2c',
-  conv: string,
-  selfUin: string,
-  decoded: ReturnType<typeof decodeMessage>,
-  start: number,
-  end: number,
-): void {
-  const peerMatches =
-    kind === 'group'
-      ? String(decoded.session.uin) === conv
-      : (decoded.sender.uid === conv && String(decoded.session.uin) === selfUin) ||
-        (decoded.session.uid === conv && String(decoded.sender.uin) === selfUin);
-  if (
-    !peerMatches ||
-    !Number.isSafeInteger(decoded.head.sequence) ||
-    decoded.head.sequence < start ||
-    decoded.head.sequence > end ||
-    !Number.isSafeInteger(decoded.head.timestamp) ||
-    decoded.head.timestamp <= 0 ||
-    (kind === 'c2c' &&
-      (!(decoded.head.ntMsgSeq && decoded.head.ntMsgSeq > 0) ||
-        decoded.head.sequence !== decoded.head.ntMsgSeq))
-  )
-    throw new Error('漫游响应的账号、会话或 NT 序号不一致，未提交本窗覆盖。');
-}
-
 export class GapHistoryService {
   private readonly cache: RoamMsgCacheDb;
 
@@ -600,7 +573,7 @@ export class GapHistoryService {
           this.deleted?.restoreFetched(decoded.messages);
           const observed = [
             ...decoded.messages.map((row) => Number(row.msgSeq)),
-            ...decoded.observations.map((row) => row.msgSeq),
+            ...decoded.observations.map((row) => row.msgSeq).filter((seq) => seq >= startSeq),
           ];
           return {
             cached: false as const,
