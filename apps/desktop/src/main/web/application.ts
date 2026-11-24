@@ -19,7 +19,9 @@ export type WebAuth = Pick<AuthGate, 'login' | 'logout' | 'isAuthed' | 'watchSes
   accountScoped?: boolean;
 };
 
-export type WebEntry = Pick<WebApplication, 'handle' | 'attach' | 'close' | 'stableWebRelease'>;
+export type WebEntry = Pick<WebApplication, 'handle' | 'attach' | 'close' | 'stableWebRelease'> & {
+  readonly webAccountEntry?: true;
+};
 
 export interface WebCoreConfig {
   publicDir: string;

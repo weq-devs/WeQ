@@ -54,6 +54,10 @@ export class RemoteWebGateway {
     return this.application.stableWebRelease();
   }
 
+  get webAccountEntry(): true | undefined {
+    return this.application.webAccountEntry;
+  }
+
   attach(server: Server): void {
     this.application.attach(server);
   }

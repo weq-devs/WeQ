@@ -5,7 +5,12 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
-import type { RemoteAccountChoice } from '../../shared/remote_account_switch';
+import {
+  LAST_REMOTE_ACCOUNT_KEY,
+  REMOTE_ACCOUNT_ENTRY,
+  REMOTE_WORKSPACE_KEY,
+  type RemoteAccountChoice,
+} from '../../shared/remote_account_switch';
 import type { WebAuth } from '../web/application';
 import { handleRequest } from '../web/http';
 import { serveStatic } from '../web/static';
@@ -29,6 +34,26 @@ const selectionStartup = `window.weqRemoteStartup = { state: 'action-required' }
 window.dispatchEvent(new Event('weq-remote-startup'));`;
 const selectionStartupHash = createHash('sha256').update(selectionStartup).digest('base64');
 const QQ_UIN = /^[1-9]\d{0,19}$/;
+
+// 在加载业务分包前，从同一手机网页来源恢复上次选中的账号。
+const accountEntryStartup = String.raw`(function () {
+  var last;
+  try {
+    last = localStorage.getItem(${JSON.stringify(LAST_REMOTE_ACCOUNT_KEY)});
+    if (!last) {
+      var workspace = JSON.parse(localStorage.getItem(${JSON.stringify(REMOTE_WORKSPACE_KEY)}) || 'null');
+      if (workspace && typeof workspace.uin === 'string' && /^\d+$/.test(workspace.uin) &&
+          typeof workspace.configId === 'string' && workspace.configId.length > 0 && workspace.configId.length <= 512 &&
+          typeof workspace.static === 'boolean' && typeof workspace.mobile === 'boolean') last = workspace.configId;
+    }
+  } catch (_) {}
+  var query = new URLSearchParams({ resume: '1' });
+  if (last) query.set('last', last);
+  window.weqRemoteStartup = { state: 'loading', message: '正在确认账号' };
+  window.dispatchEvent(new Event('weq-remote-startup'));
+  location.replace('/_weq/accounts?' + query);
+})();`;
+const accountEntryHash = createHash('sha256').update(accountEntryStartup).digest('base64');
 
 function escapeHtml(text: string): string {
   return text.replace(
@@ -200,6 +225,7 @@ async function selectedAccount(req: IncomingMessage): Promise<string> {
 }
 
 export class DesktopWebEntry {
+  readonly webAccountEntry = true;
   private readonly paths = new Map<
     string,
     {
@@ -417,6 +443,18 @@ export class DesktopWebEntry {
     if (pathname === ACCOUNT_SELECT && req.method === 'POST') return this.selectFromForm(req, res);
     if (pathname === ACCOUNT_AVATAR && req.method === 'GET')
       return this.showAccountAvatar(req, res, url.searchParams.get('configId') ?? '');
+    if (pathname === REMOTE_ACCOUNT_ENTRY && req.method === 'GET' && auth.remoteClient) {
+      res
+        .writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'Content-Security-Policy': `default-src 'none'; script-src 'sha256-${accountEntryHash}'; frame-ancestors 'none'`,
+        })
+        .end(
+          `<!doctype html><meta charset="utf-8"><title>WeQ</title><script>${accountEntryStartup}</script>`,
+        );
+      return;
+    }
     if (STATIC_PATH.test(pathname) && (req.method === 'GET' || req.method === 'HEAD')) {
       if (this.development) await this.development.handle(req, res);
       else await serveStatic(res, publicDir, pathname, req.headers['accept-encoding']);

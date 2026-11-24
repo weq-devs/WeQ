@@ -3,10 +3,14 @@ import { createServer } from 'node:http';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { expect, it, vi } from 'vitest';
 import { DesktopWebEntry } from '../src/main/desktop_services/web_entry';
+import { createRemoteServer } from '../src/main/remote/http';
+import { RemotePairing, tokenHash } from '../src/main/remote/pairing';
+import { RemoteWebGateway } from '../src/main/remote/web_gateway';
 import { createWebHost, lookupDownload } from '../src/main/web/host';
 import { withWebAccountRoute } from '../src/main/web/account_route';
 import { DesktopMcpGateway, mcpCredentialId } from '../src/main/desktop_services/mcp_gateway';
@@ -23,8 +27,17 @@ import {
   type DesktopAccountRoutes,
   type RoutedAccount,
 } from '../src/main/desktop_services/accounts';
+import {
+  LAST_REMOTE_ACCOUNT_KEY,
+  REMOTE_ACCOUNT_ENTRY,
+  REMOTE_WORKSPACE_KEY,
+} from '../src/shared/remote_account_switch';
 
-async function fixture(configIds = ['101', '202'], uins: Record<string, string> = {}) {
+async function fixture(
+  configIds = ['101', '202'],
+  uins: Record<string, string> = {},
+  shell?: string,
+) {
   const accounts = configIds.map((configId) => ({
     configId,
     uin: uins[configId] ?? configId,
@@ -37,6 +50,8 @@ async function fixture(configIds = ['101', '202'], uins: Record<string, string> 
     if (req.headers[PRIVATE_TOKEN_HEADER] !== 'a'.repeat(64) || typeof uin !== 'string')
       return sendJson(res, 403, {});
     if (stale.has(uin)) return res.writeHead(401).end();
+    if (shell && req.url === '/')
+      return res.writeHead(200, { 'Content-Type': 'text/html' }).end(shell);
     if (req.url === '/tool') {
       req.resume();
       return sendJson(res, 200, { value: { uin, downloadPath: '/chat/videos/fixture' } });
@@ -233,6 +248,91 @@ it('已有只读客户端只能直连令牌唯一授权的在用账号，不会�
   } finally {
     await gateway.stop();
     worker.close();
+  }
+});
+
+it('Remote 在线入口先选账号，再加载一份带首屏资源的网页', async () => {
+  const shell = '<!doctype html><script type="module" src="/assets/entry.js"></script>';
+  const worker = await fixture(['101', '202'], {}, shell);
+  const publicDir = mkdtempSync(join(tmpdir(), 'weq-account-entry-'));
+  writeFileSync(join(publicDir, 'index.html'), '<!doctype html><title>测试离线入口</title>');
+  const pairing = new RemotePairing();
+  const token = 'b'.repeat(64);
+  const claim = pairing.claim({
+    invitation: pairing.invite().secret,
+    name: '测试手机',
+    scope: 'web:access',
+    tokenHash: tokenHash(token),
+  });
+  pairing.decide(claim.id, true, '101');
+  const gateway = new RemoteWebGateway(
+    pairing,
+    (auth) =>
+      new DesktopWebEntry({
+        auth,
+        accounts: worker.routes,
+        publicDir,
+        loadAccountAvatar: async () => null,
+      }),
+  );
+  const server = createRemoteServer(pairing, gateway);
+  const base = `http://127.0.0.1:${await listenPrivate(server)}`;
+  const get = (path: string, redirect: RequestRedirect = 'manual') =>
+    fetch(base + path, { redirect, headers: { Authorization: `Bearer ${token}` } });
+  try {
+    expect(await (await get('/v1/status')).json()).toMatchObject({ webAccountEntry: true });
+    expect((await fetch(base + REMOTE_ACCOUNT_ENTRY)).status).toBe(403);
+    const entry = await get(REMOTE_ACCOUNT_ENTRY);
+    expect(entry.status).toBe(200);
+    expect(entry.headers.get('cache-control')).toBe('no-store');
+    const html = await entry.text();
+    expect(html).not.toMatch(/<(?:link\b|script\b[^>]*\bsrc\s*=)/i);
+    const script = /<script>([\s\S]+)<\/script>/.exec(html)?.[1];
+    expect(script).toBeTruthy();
+    const resume = async (storage: Record<string, string> = {}) => {
+      let path = '';
+      runInNewContext(script!, {
+        URLSearchParams,
+        Event,
+        window: new EventTarget(),
+        localStorage: { getItem: (key: string) => storage[key] ?? null },
+        location: {
+          replace: (target: string) => {
+            path = target;
+          },
+        },
+      });
+      return get(path, 'follow');
+    };
+    const first = await resume();
+    expect(new URL(first.url).pathname).toMatch(/^\/_weq\/account\/101\//);
+    expect(await first.text()).toBe(shell);
+
+    pairing.setAccountConfigIds(claim.id, ['101', '202']);
+    const workspace = (configId: string) =>
+      JSON.stringify({ configId, uin: configId, static: false, mobile: false });
+    const returning = await resume({
+      [LAST_REMOTE_ACCOUNT_KEY]: '202',
+      [REMOTE_WORKSPACE_KEY]: workspace('101'),
+    });
+    expect(new URL(returning.url).pathname).toMatch(/^\/_weq\/account\/202\//);
+    expect(await returning.text()).toBe(shell);
+    const migrated = await resume({ [REMOTE_WORKSPACE_KEY]: workspace('101') });
+    expect(new URL(migrated.url).pathname).toMatch(/^\/_weq\/account\/101\//);
+    expect(await migrated.text()).toBe(shell);
+    const malformed = await resume({ [REMOTE_WORKSPACE_KEY]: '{' });
+    expect(new URL(malformed.url).pathname).toBe('/_weq/accounts');
+    await malformed.text();
+
+    pairing.setAccountConfigIds(claim.id, ['101']);
+    const revoked = await resume({ [LAST_REMOTE_ACCOUNT_KEY]: '202' });
+    expect(new URL(revoked.url).pathname).toBe('/_weq/accounts');
+    expect(await revoked.text()).not.toContain('/assets/entry.js');
+    expect(await (await get('/')).text()).toContain('测试离线入口');
+  } finally {
+    stopPrivate(server);
+    worker.close();
+    rmSync(publicDir, { recursive: true, force: true });
   }
 });
 

@@ -12,7 +12,7 @@ function bearer(req: IncomingMessage): string {
 export function createRemoteServer(
   pairing: RemotePairing,
   web?: Pick<RemoteWebGateway, 'handle' | 'attach' | 'close'> &
-    Partial<Pick<RemoteWebGateway, 'stableWebRelease'>>,
+    Partial<Pick<RemoteWebGateway, 'stableWebRelease' | 'webAccountEntry'>>,
   readThemeAccent?: () => string | undefined,
 ) {
   let windowStart = Date.now();
@@ -97,6 +97,7 @@ export function createRemoteServer(
           scope: 'status:read',
           online: true,
           webRelease,
+          webAccountEntry: web?.webAccountEntry,
           themeAccent,
         });
       }
