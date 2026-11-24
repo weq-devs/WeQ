@@ -63,7 +63,7 @@ async function run() {
   );
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto(
-    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/important-messages.html`,
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/important-messages.html${dockOnly ? '?reading-position' : ''}`,
   );
   const open = async () => {
     const more = page.getByRole('button', { name: '更多会话操作' });
@@ -76,6 +76,7 @@ async function run() {
   };
   if (dockOnly) {
     const dock = page.locator('.weq-important-dock');
+    const reading = page.getByRole('button', { name: '跳到上次阅读位置', exact: true });
     await page.setViewportSize({ width: 1180, height: 800 });
     await dock.getByRole('button', { name: '收起跳转提示' }).click();
     await dock.waitFor({ state: 'hidden' });
@@ -98,6 +99,11 @@ async function run() {
       await send(cancel ? 'touchCancel' : 'touchEnd', []);
     };
     await dock.waitFor();
+    const [unreadBox, readingBox] = await Promise.all([dock.boundingBox(), reading.boundingBox()]);
+    assert.ok(
+      unreadBox && readingBox && readingBox.y > unreadBox.y + unreadBox.height,
+      '竖屏群聊的两种跳转入口应上下分开',
+    );
     await touchDock({ dx: 24 });
     await touchDock({ dx: 66, cancel: true });
     await dock.waitFor();
@@ -108,6 +114,8 @@ async function run() {
     await page.getByLabel('关闭重要消息', { exact: true }).click();
     await touchDock({ dx: 66 });
     await dock.waitFor({ state: 'hidden' });
+    await reading.click();
+    await reading.waitFor({ state: 'hidden' });
 
     await page.evaluate(() => window.changeImportantGroup('999'));
     await dock.waitFor();
@@ -117,7 +125,7 @@ async function run() {
     await dock.waitFor({ state: 'hidden' });
     assert.deepEqual(report.errors, []);
     console.log(
-      'Validated close, touch hold, cancelled/short drag, dismiss swipe and menu fallback.',
+      'Validated separate jump buttons, close, touch hold, cancelled/short drag, dismiss swipe and menu fallback.',
     );
     return;
   }

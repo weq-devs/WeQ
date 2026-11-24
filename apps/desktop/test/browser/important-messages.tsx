@@ -33,6 +33,9 @@ const dock = {
     { kind: 'unread' as const, seq: '1000' },
   ],
 };
+const readingPosition = new URLSearchParams(location.search).has('reading-position');
+const firstUnreadDock = { stops: [{ kind: 'unread' as const, seq: '1000' }] };
+const jumpToReadingPosition = async () => true;
 function App() {
   const [located, setLocated] = useState('1024');
   const [count, setCount] = useState(0);
@@ -85,7 +88,8 @@ function App() {
               onDraftChange={() => {}}
               onBack={() => {}}
               onSend={async () => {}}
-              unreadDock={dock}
+              unreadDock={readingPosition ? firstUnreadDock : dock}
+              onJumpToReadingPosition={readingPosition ? jumpToReadingPosition : undefined}
               unreadDockViewportActive={false}
               headerActions={
                 <button

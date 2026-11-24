@@ -826,12 +826,14 @@
 }
 
 /* 移动端把跳转坞放在顶栏正下方、贴右边缘。 */
+:where(html[data-weq-layout='single']) .unread-dock-button {
+  top: calc(var(--chat-header-height) + 10px);
+}
 
 :where(html[data-weq-layout='single']) .unread-dock-button,
 :where(html[data-weq-layout='single'])
   .chat-pane.with-group-info:not(.group-info-collapsed)
   .unread-dock-button {
-  top: calc(var(--chat-header-height) + 10px);
   right: 12px;
   height: 30px;
   gap: 6px;
