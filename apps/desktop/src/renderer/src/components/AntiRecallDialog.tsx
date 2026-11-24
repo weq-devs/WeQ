@@ -395,7 +395,7 @@ export function AntiRecallDialog({
 
   const protectionControls = (
     <>
-      <div className="weq-applock-settings-group">
+      <div className="weq-ar-protection-methods">
         <div className="weq-set-card-title">防撤回方式</div>
         <div className="weq-applock-methods" role="radiogroup" aria-label="防撤回方式">
           {METHODS.map((option) => (
