@@ -216,6 +216,37 @@ it('MCP 会话独立切号，旧下载票据随原会话切号失效', async () 
   }
 });
 
+it('MCP 后台会话只选择已打开的授权账号', async () => {
+  const worker = await fixture();
+  const token = 'c'.repeat(64);
+  const gateway = new DesktopMcpGateway(worker.routes, (id) =>
+    id === mcpCredentialId(token) ? ['101', '202'] : undefined,
+  );
+  await gateway.configure({ port: 0, token });
+  const client = new Client({ name: 'fixture-background', version: '1' });
+  const transport = new StreamableHTTPClientTransport(
+    new URL(`http://127.0.0.1:${gateway.boundPort}`),
+    { requestInit: { headers: { Authorization: `Bearer ${token}` } } },
+  );
+  const select = (configId: string) =>
+    client.callTool({ name: 'select_open_account', arguments: { configId } });
+  try {
+    await client.connect(transport);
+    expect((await select('303')).isError).toBe(true);
+    expect(worker.find).not.toHaveBeenCalled();
+    worker.find.mockResolvedValueOnce(undefined);
+    expect((await select('202')).isError).toBe(true);
+    expect((await select('101')).isError).not.toBe(true);
+    const profile = await client.callTool({ name: 'get_self_profile', arguments: {} });
+    expect(JSON.parse((profile.content as { text: string }[])[0]!.text).uin).toBe('101');
+    expect(worker.open).not.toHaveBeenCalled();
+  } finally {
+    await client.close();
+    await gateway.stop();
+    worker.close();
+  }
+});
+
 it('已有只读客户端只能直连令牌唯一授权的在用账号，不会开窗或切号', async () => {
   const worker = await fixture();
   const token = 'c'.repeat(64);
