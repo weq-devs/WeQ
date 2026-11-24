@@ -17,8 +17,8 @@ import {
   SetFriendSpecialCare,
   type FriendSnsPage,
   getCloudProfile,
+  getCommonAttributes,
   getCommonFriendCount,
-  getCommonGroups,
   getFriendClue,
   GetGroupJoinInfo,
   readEditableProfile,
@@ -174,10 +174,10 @@ export class AccountWriteService {
   ) {
     const pid = this.resolvePid();
     const loadFriends = () => getCommonFriendCount(this.nt, pid, this.identity.uin, target);
-    const loadGroups = async () => {
+    const loadAttributes = async () => {
       const version = (await this.identity.clientVersion?.()) ?? '';
       this.assertCurrentPid(pid);
-      return getCommonGroups(this.nt, pid, this.identity.uin, target, version);
+      return getCommonAttributes(this.nt, pid, this.identity.uin, target, version);
     };
     const loadFriendsCached = () =>
       this.contactMetrics
@@ -189,26 +189,29 @@ export class AccountWriteService {
             priority,
           )
         : loadFriends();
-    const loadGroupsCached = () =>
+    const loadAttributesCached = () =>
       this.contactMetrics
         ? this.contactMetrics.query(
             `friend:${target}`,
             ['commonGroups'],
-            loadGroups,
-            (value) => ({ commonGroups: value }),
+            loadAttributes,
+            (value) => ({ commonGroups: value.groups }),
             priority,
           )
-        : loadGroups();
-    const [friends, groups] = await Promise.allSettled([
+        : loadAttributes();
+    const [friends, attributes] = await Promise.allSettled([
       field === 'commonGroups' ? null : loadFriendsCached(),
-      field === 'commonFriends' ? null : loadGroupsCached(),
+      field === 'commonFriends' ? null : loadAttributesCached(),
     ]);
     this.assertCurrentPid(pid);
+    const data = attributes.status === 'fulfilled' ? attributes.value : null;
     return {
       friendCount: friends.status === 'fulfilled' ? friends.value : null,
-      groups: groups.status === 'fulfilled' ? groups.value : null,
+      attributeFriendCount: data?.friendCount ?? null,
+      groups: data?.groups ?? null,
       friendError: friends.status === 'rejected' ? '共同好友读取失败' : null,
-      groupError: groups.status === 'rejected' ? '共同群读取失败' : null,
+      groupError:
+        attributes.status === 'rejected' || data?.groups === null ? '共同群读取失败' : null,
     };
   }
 

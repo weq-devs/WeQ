@@ -46,6 +46,7 @@ const state = vi.hoisted(() => ({
   confirm: true,
   errors: {} as Record<string, string>,
   commonGroups: [{ groupCode: '123', name: '合成共同群' }],
+  attributeFriendCount: 3 as number | null,
   searchFriends: [
     { uid: 'u_peer', uin: '10002', nick: '合成好友', remark: '好友备注' },
     { uid: 'u_self', uin: '10001', nick: '自己', remark: '' },
@@ -217,7 +218,11 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           },
           commonRelationships: {
             useQuery: () => ({
-              data: { friendCount: 3, groups: state.commonGroups },
+              data: {
+                friendCount: 3,
+                attributeFriendCount: state.attributeFriendCount,
+                groups: state.commonGroups,
+              },
             }),
           },
         },
@@ -238,6 +243,7 @@ beforeEach(() => {
   state.profiles = [];
   state.errors = {};
   state.commonGroups = [{ groupCode: '123', name: '合成共同群' }];
+  state.attributeFriendCount = 3;
   state.writes.mockClear();
   state.reads.mockClear();
 });
@@ -714,6 +720,18 @@ describe('可接入功能交互回归', () => {
     });
     expect(f.host.textContent).toContain('合成共同群');
     expect(f.host.textContent).not.toContain('不完整');
+  });
+  it('共同好友数不同则按来源展示，缺少共同属性则显示已有计数', () => {
+    state.attributeFriendCount = 31;
+    const both = mount(() => h(CommonRelationships, { uin: '10002' }));
+    const value = both.host.querySelector('.weq-profile-data-value');
+    expect(value?.textContent?.trim()).toBe('31 / 3');
+    expect(value?.querySelector('[title="共同属性接口返回的数据"]')?.textContent).toBe('31');
+    expect(value?.querySelector('[title="批量加好友接口返回的数据"]')?.textContent).toBe('3');
+
+    state.attributeFriendCount = null;
+    const batch = mount(() => h(CommonRelationships, { uin: '10002' }));
+    expect(batch.host.querySelector('.weq-profile-data-value')?.textContent?.trim()).toBe('3');
   });
   it('共同群头像打开对应群名片，关闭名片后仍保留列表', async () => {
     const f = mount(() => h(CommonRelationships, { uin: '10002' }));

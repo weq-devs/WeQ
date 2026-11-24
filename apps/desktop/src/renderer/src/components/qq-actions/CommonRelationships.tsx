@@ -49,6 +49,13 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
         ),
     },
   );
+  const { attributeFriendCount, friendCount, friendError } = query.data ?? {};
+  const displayedCount = attributeFriendCount ?? friendCount;
+  const countsDiffer =
+    attributeFriendCount != null &&
+    friendCount != null &&
+    !friendError &&
+    attributeFriendCount !== friendCount;
   const selected = query.data?.groups?.find((group) => group.groupCode === selectedCode);
   const known = directory?.real?.find(
     (conversation) => conversation.type === 'group' && conversation.id === selectedCode,
@@ -69,19 +76,29 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
       <ContactRow
         label="共同好友"
         empty={
-          query.data?.friendCount == null &&
+          displayedCount == null &&
           !query.isFetching &&
           !query.error &&
           !query.data?.friendError &&
           !query.data?.groupError
         }
       >
-        {query.data?.friendCount == null ? (
+        {countsDiffer ? (
+          <>
+            <span title="共同属性接口返回的数据">
+              <NumericText>{attributeFriendCount}</NumericText>
+            </span>
+            {' / '}
+            <span title="批量加好友接口返回的数据">
+              <NumericText>{friendCount}</NumericText>
+            </span>
+          </>
+        ) : displayedCount == null ? (
           query.isFetching ? (
             '读取中…'
           ) : null
         ) : (
-          <NumericText>{query.data.friendCount}</NumericText>
+          <NumericText>{displayedCount}</NumericText>
         )}
         {query.error || query.data?.friendError || query.data?.groupError ? (
           <button

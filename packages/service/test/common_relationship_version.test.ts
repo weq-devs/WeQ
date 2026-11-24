@@ -2,14 +2,14 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { PacketNative } from '@weqbot/protocol';
 import type { ContactMetricsService } from '../src/account/contact_metrics';
 
-const groups = vi.hoisted(() => vi.fn(async () => []));
+const attributes = vi.hoisted(() => vi.fn(async () => ({ friendCount: 2, groups: [] })));
 vi.mock('@weqbot/protocol', async (original) => ({
   ...(await original<typeof import('@weqbot/protocol')>()),
   getCommonFriendCount: vi.fn(async () => 1),
-  getCommonGroups: groups,
+  getCommonAttributes: attributes,
 }));
 import { AccountWriteService } from '../src/account/account_write';
-beforeEach(() => groups.mockClear());
+beforeEach(() => attributes.mockClear());
 
 it.each([false, true])('共同关系等待异步版本快照后才发请求，metrics=%s', async (metrics) => {
   let release!: (version: string) => void;
@@ -36,15 +36,16 @@ it.each([false, true])('共同关系等待异步版本快照后才发请求，me
       query: (_key: string, _fields: string[], load: () => Promise<unknown>) => load(),
     } as unknown as ContactMetricsService;
   const pending = service.commonRelationships('u_peer');
-  expect(groups).not.toHaveBeenCalled();
+  expect(attributes).not.toHaveBeenCalled();
   release('7.0.2-200');
   expect(await pending).toMatchObject({
     friendCount: 1,
+    attributeFriendCount: 2,
     groups: [],
     friendError: null,
     groupError: null,
   });
-  expect(groups).toHaveBeenCalledWith(nt, 42, '10001', 'u_peer', '7.0.2-200');
+  expect(attributes).toHaveBeenCalledWith(nt, 42, '10001', 'u_peer', '7.0.2-200');
   expect(version).toHaveBeenCalledOnce();
 });
 
@@ -69,5 +70,5 @@ it('等待版本期间切换进程，不向旧会话发送迟到的共同群请�
   pid = 43;
   release('7.0.2-200');
   await expect(pending).rejects.toThrow();
-  expect(groups).not.toHaveBeenCalled();
+  expect(attributes).not.toHaveBeenCalled();
 });
