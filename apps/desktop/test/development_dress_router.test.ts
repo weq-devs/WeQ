@@ -48,7 +48,14 @@ vi.mock('../src/main/context/app_context', () => {
     emoji: {
       getMarketPackKey: state.key,
       listMarketPackages: async () => [
-        { packId: '123', name: 'QQ 表情包', summary: '', addTime: 1, sizeInfoJson: '' },
+        {
+          packId: '123',
+          name: 'QQ 表情包',
+          summary: '',
+          addTime: 1,
+          sizeInfoJson: '',
+          coverHash: 'fedcba9876543210fedcba9876543210',
+        },
       ],
       getMarketPackItems: async (packId: string) => ({
         packId,
@@ -133,13 +140,17 @@ it('普通模式可查目录、删除 QQ 来源的表情包并重新添加到输
   expect((await market.searchCatalog({ composer: true })).entries.map(({ id }) => id)).toEqual([
     '123',
   ]);
-  expect((await emojiPanel.marketPackages()).map(({ name }) => name)).toEqual(['QQ 表情包']);
+  expect(await emojiPanel.marketPackages()).toMatchObject([
+    { name: 'QQ 表情包', coverHash: 'fedcba9876543210fedcba9876543210' },
+  ]);
   await market.removeComposerPack({ packId: '123' });
   expect(await emojiPanel.marketPackages()).toEqual([]);
   expect(await market.listPackages()).toMatchObject([{ packId: '123', name: 'QQ 表情包' }]);
 
   await expect(market.addComposerPack({ packId: '123' })).resolves.toEqual({ cached: 1, total: 1 });
-  expect((await emojiPanel.marketPackages()).map(({ name }) => name)).toEqual(['商城表情包']);
+  expect(await emojiPanel.marketPackages()).toMatchObject([
+    { name: '商城表情包', coverHash: '0123456789abcdef0123456789abcdef' },
+  ]);
   expect(state.userConfig.hiddenComposerMarketPackIds).toEqual([]);
   await market.removeComposerPack({ packId: '123' });
   expect(await emojiPanel.marketPackages()).toEqual([]);

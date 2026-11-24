@@ -339,19 +339,33 @@
 }
 
 /* 商城表情包列表。 */
+.emoji-market-section {
+  container: emoji-market / inline-size;
+}
+
 .emoji-pack-list {
   display: grid;
-  gap: 6px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@container emoji-market (width < 304px) {
+  .emoji-pack-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .emoji-pack-card {
   display: grid;
-  gap: 2px;
-  padding: 9px 12px;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  justify-items: center;
+  gap: 6px;
+  padding: 8px;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 80%, transparent);
-  border-radius: 10px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--weq-fg-muted, #858585) 4%, transparent);
-  text-align: left;
+  text-align: center;
   transition:
     border-color 120ms ease,
     background 120ms ease;
@@ -362,18 +376,31 @@
   background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 7%, transparent);
 }
 
+.emoji-pack-cover {
+  position: relative;
+  display: grid;
+  width: min(76px, 100%);
+  aspect-ratio: 1;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  color: var(--weq-fg-muted);
+}
+
+.emoji-pack-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .emoji-pack-name {
+  display: -webkit-box;
+  overflow: hidden;
   color: var(--weq-fg-primary, #111111);
   font-size: 13px;
   font-weight: 500;
-}
-
-.emoji-pack-summary {
-  overflow: hidden;
-  color: var(--weq-fg-muted, #858585);
-  font-size: 11.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .kaomoji-grid {

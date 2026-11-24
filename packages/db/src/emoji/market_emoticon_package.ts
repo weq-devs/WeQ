@@ -25,16 +25,31 @@ export interface MarketEmoticonPackage {
   addTime: number;
   /** 尺寸列表原始 JSON 字符串（如 `[{"Height":300,"Width":300}]`）。 */
   sizeInfoJson: string;
+  /** 本地明细中可用作封面的表情 hash。 */
+  coverHash?: string;
 }
 
-const SELECT_COLUMNS = `"80943","80947","80948","80963","80970"`;
+const SELECT_COLUMNS = `p."80943",p."80947",p."80948",p."80963",p."80970"`;
+const PACKAGES = 'market_emoticon_package_table p';
 
 export class MarketEmoticonPackageDb extends QqDb {
   /** 列出全部本地商城表情包，按添加时间倒序（最近添加在前）。 */
   async listAll(): Promise<MarketEmoticonPackage[]> {
-    const rows = await this.query(
-      `SELECT ${SELECT_COLUMNS} FROM market_emoticon_package_table ORDER BY "80963" DESC`,
-    );
+    let rows: SqlRow[];
+    try {
+      rows = await this.query(`SELECT ${SELECT_COLUMNS}, c.coverHash
+        FROM ${PACKAGES}
+        LEFT JOIN (
+          SELECT e."80943" AS packId, MIN(e."80920") AS coverHash
+          FROM market_emoticon_table e
+          WHERE length(e."80920") = 32 AND e."80920" NOT GLOB '*[^0-9A-Fa-f]*'
+          GROUP BY e."80943"
+        ) c ON c.packId = p."80943"
+        ORDER BY p."80963" DESC`);
+    } catch {
+      // 没有明细表的库仍可显示表情包清单。
+      rows = await this.query(`SELECT ${SELECT_COLUMNS} FROM ${PACKAGES} ORDER BY p."80963" DESC`);
+    }
     return rows.map(rowToPackage);
   }
 }
@@ -46,5 +61,6 @@ function rowToPackage(row: SqlRow): MarketEmoticonPackage {
     summary: String(row[2] ?? ''),
     addTime: Number(row[3] ?? 0),
     sizeInfoJson: String(row[4] ?? ''),
+    ...(typeof row[5] === 'string' ? { coverHash: row[5] } : {}),
   };
 }

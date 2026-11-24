@@ -39,7 +39,9 @@ import { trpc } from '../../trpc/client';
 import { EditorDialog } from '../../components/EditorDialog';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { DressSearchForm } from '../../components/DressSearchForm';
+import { ShimmerImage } from '../../components/ShimmerImage';
 import { useDevelopmentDressTools } from '../../hooks/useDevelopmentDressTools';
+import { mediaUrl } from '../../lib/resourceUrl';
 import '../../styles/composer-emoji-catalog.css';
 import { cn } from './classNames';
 import { BounceEmojiPanel, type BounceEmojiDraft } from './bounceEmojiPanel';
@@ -543,6 +545,24 @@ function MarketAddButton({ onClick }: { onClick: () => void }) {
   );
 }
 
+function MarketPackCover({ packId, hash }: { packId: string; hash?: string }) {
+  const [unavailable, setUnavailable] = useState(false);
+  return (
+    <span className={cn('emoji-pack-cover')} aria-hidden>
+      {hash && !unavailable ? (
+        <ShimmerImage
+          src={mediaUrl('mface', { pack: packId, hash })}
+          loading="lazy"
+          draggable={false}
+          onError={() => setUnavailable(true)}
+        />
+      ) : (
+        <Sticker size={26} strokeWidth={1.5} />
+      )}
+    </span>
+  );
+}
+
 function MarketTab({
   packId,
   onOpenPack,
@@ -573,7 +593,7 @@ function MarketTab({
 
   const list = packages.data ?? [];
   return (
-    <div className={cn('emoji-section')}>
+    <div className={cn('emoji-section', 'emoji-market-section')}>
       {remove.error ? (
         <div className="emoji-state" role="alert">
           {remove.error.message}
@@ -590,31 +610,35 @@ function MarketTab({
         />
       ) : (
         <div className={cn('emoji-pack-list')}>
-          {list.map((pkg) => (
-            <button
-              key={pkg.packId}
-              type="button"
-              className={cn('emoji-pack-card')}
-              title={pkg.name}
-              aria-haspopup="menu"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => onOpenPack(pkg.packId)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setMenu({ x: event.clientX, y: event.clientY, packId: pkg.packId });
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
-                event.preventDefault();
-                const rect = event.currentTarget.getBoundingClientRect();
-                setMenu({ x: rect.left, y: rect.bottom, packId: pkg.packId });
-              }}
-            >
-              <span className={cn('emoji-pack-name')}>{pkg.name || `表情包 ${pkg.packId}`}</span>
-              <span className={cn('emoji-pack-summary')}>{pkg.summary || '点击查看全部表情'}</span>
-            </button>
-          ))}
+          {list.map((pkg) => {
+            const name = pkg.name || `表情包 ${pkg.packId}`;
+            return (
+              <button
+                key={pkg.packId}
+                type="button"
+                className={cn('emoji-pack-card')}
+                title={pkg.summary ? `${name}\n${pkg.summary}` : name}
+                aria-haspopup="menu"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => onOpenPack(pkg.packId)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setMenu({ x: event.clientX, y: event.clientY, packId: pkg.packId });
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                    return;
+                  event.preventDefault();
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setMenu({ x: rect.left, y: rect.bottom, packId: pkg.packId });
+                }}
+              >
+                <MarketPackCover key={pkg.coverHash} packId={pkg.packId} hash={pkg.coverHash} />
+                <span className={cn('emoji-pack-name')}>{name}</span>
+              </button>
+            );
+          })}
         </div>
       )}
       {menu ? (

@@ -108,10 +108,10 @@ export const emojiPanelRouter = router({
     const config = getAppContext().bootstrap?.userConfig.read();
     const added = config?.composerMarketPacks ?? [];
     const hidden = new Set(config?.hiddenComposerMarketPackIds);
-    const packs = new Map(
-      added.map(({ packId, name, summary }) => [
+    const packs = new Map<string, (typeof local)[number]>(
+      added.map(({ packId, name, summary, items }) => [
         packId,
-        { packId, name, summary, addTime: 0, sizeInfoJson: '' },
+        { packId, name, summary, addTime: 0, sizeInfoJson: '', coverHash: items[0]?.hash },
       ]),
     );
     for (const pack of local) {

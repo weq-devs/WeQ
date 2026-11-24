@@ -1,20 +1,13 @@
 .composer-font-panel.emoji-panel {
+  container: composer-font / inline-size;
   grid-template-rows: auto minmax(0, 1fr) repeat(2, auto);
 }
 
 .composer-font-list {
   display: grid;
-  gap: 8px;
-}
-
-.composer-font-list[data-expanded='false'] {
-  grid-template-rows: repeat(2, minmax(0, 1fr));
-  overflow: hidden;
-}
-
-.composer-font-list[data-expanded='true'] {
-  grid-auto-rows: 64px;
+  grid-auto-rows: max-content;
   align-content: start;
+  gap: 8px;
 }
 
 .composer-font-option {
@@ -23,7 +16,7 @@
   grid-template-columns: minmax(0, 1fr) minmax(78px, auto) 16px;
   align-items: center;
   gap: 10px;
-  min-height: 0;
+  min-height: 64px;
   padding: 8px 10px;
   border: 1px solid var(--weq-border-subtle);
   border-radius: 8px;
@@ -65,14 +58,18 @@
 }
 
 .composer-font-sample {
+  position: relative;
   display: grid;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
+  height: 46px;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
   border-radius: 5px;
   background: var(--weq-bg-elevated);
   font-size: 15px;
+}
+
+.composer-font-option[data-has-preview='true'] .composer-font-sample {
+  height: 88px;
 }
 
 .composer-font-sample img {
@@ -89,9 +86,7 @@
 
 .composer-font-option-label small,
 .composer-font-option-label strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .composer-font-option-label strong {
@@ -102,6 +97,21 @@
 .composer-font-option-label small {
   color: var(--weq-fg-secondary);
   font-size: 11px;
+}
+
+@container composer-font (width < 330px) {
+  .composer-font-option[data-has-preview='true'] {
+    grid-template-columns: minmax(0, 1fr) 16px;
+    row-gap: 6px;
+  }
+
+  .composer-font-option[data-has-preview='true'] .composer-font-sample {
+    grid-column: 1 / -1;
+  }
+
+  .composer-font-option[data-has-preview='true'] .composer-font-option-label {
+    max-width: none;
+  }
 }
 
 .composer-font-controls {

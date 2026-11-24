@@ -32,11 +32,11 @@ function FontSample({ item }: { item: FontOption }) {
     item.localFont?.deriveVersion,
   );
   return (
-    <span className="composer-font-sample">
+    <span className="composer-font-sample" aria-hidden>
       {item.preview ? (
         <ShimmerImage src={dressUrl(item.preview)} alt="" loading="lazy" />
       ) : (
-        <span aria-hidden style={family ? { fontFamily: family } : undefined}>
+        <span style={family ? { fontFamily: family } : undefined}>
           {item.disabled ? '未设置' : FONT_EXAMPLE}
         </span>
       )}
@@ -120,18 +120,14 @@ export function ComposerFontPanel({
           </div>
         ) : null}
       </header>
-      <div
-        className="emoji-panel-body composer-font-list"
-        data-expanded={development}
-        role="radiogroup"
-        aria-label="选择字体"
-      >
+      <div className="emoji-panel-body composer-font-list" role="radiogroup" aria-label="选择字体">
         {options.map((item) => {
           const itemId = typeof item.value === 'number' ? item.value : undefined;
           return (
             <label
               key={item.value}
               className="composer-font-option"
+              data-has-preview={Boolean(item.preview)}
               data-unavailable={item.disabled}
               onContextMenu={
                 itemId
