@@ -761,12 +761,19 @@ describe('QQ 写操作账号与生命周期', () => {
     vi.useFakeTimers();
     try {
       const f = harness();
-      const action = vi.fn(async (): Promise<QQWriteOutcome> => ({ state: 'accepted' }));
+      let successText = '';
+      const action = vi.fn(async (): Promise<QQWriteOutcome> => {
+        successText = '操作结果已确认';
+        return { state: 'accepted' };
+      });
       const readback = vi.fn(async () => false).mockResolvedValueOnce(false);
       if (synced) readback.mockResolvedValueOnce(true);
       let pending!: Promise<boolean>;
       await act(async () => {
-        pending = f.session().run(action, undefined, { readback });
+        pending = f.session().run(action, undefined, {
+          readback,
+          readbackSuccessText: () => successText,
+        });
       });
       await act(async () => {
         await vi.runAllTimersAsync();
@@ -776,6 +783,7 @@ describe('QQ 写操作账号与生命周期', () => {
       expect(readback).toHaveBeenCalledTimes(synced ? 2 : 4);
       expect(f.host.textContent).toBe('');
       expect(useToast.getState().toasts.at(-1)?.tone).toBe(synced ? 'success' : 'warning');
+      if (synced) expect(useToast.getState().toasts.at(-1)?.title).toBe(successText);
     } finally {
       vi.useRealTimers();
     }

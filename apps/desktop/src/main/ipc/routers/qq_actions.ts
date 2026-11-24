@@ -12,7 +12,11 @@ import {
   type GroupRequest,
 } from '@weqbot/protocol';
 import { isIncomingPendingBuddyRequest } from '@weq/service/buddy-request';
-import { FAVORITE_EMOJI_MAX_ARCHIVE_BYTES, FAVORITE_EMOJI_MAX_ITEMS } from '@weq/service';
+import {
+  FAVORITE_EMOJI_MAX_ARCHIVE_BYTES,
+  FAVORITE_EMOJI_MAX_ITEMS,
+  type PanelFavItem,
+} from '@weq/service';
 import type { AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import type { QQWriteBinding } from './qq_write';
@@ -1294,22 +1298,27 @@ export function createQQActionsRouter(
     favoriteFromMedia: procedure
       .input(binding.extend({ url: z.string().min(1).max(16_384) }))
       .mutation(async ({ input: i }) => {
-        let emojiId = '';
-        let local: Awaited<ReturnType<QQActionServices['emoji']['rememberFavorite']>> = null;
+        const result: { emojiId: string; alreadyExists: boolean; local: PanelFavItem | null } = {
+          emojiId: '',
+          alreadyExists: false,
+          local: null,
+        };
         await write(i, async (s, current) => {
           const bytes = await readFavoriteEmojiMedia(i.url, current);
           current();
           const md5 = createHash('md5').update(bytes).digest('hex').toUpperCase();
           const ids = await s.emoji.fetchOnlineFavoriteIds();
           current();
-          emojiId = ids.find((id) => parseCustomFaceId(id).md5 === md5) ?? '';
-          if (!emojiId) emojiId = await s.emoji.addFavorite(bytes, undefined, current);
+          const existingId = ids.find((id) => parseCustomFaceId(id).md5 === md5);
+          const emojiId = existingId ?? (await s.emoji.addFavorite(bytes, undefined, current));
           current();
           if (!emojiId) throw new Error('未取得表情标识，请刷新表情列表核对结果');
-          local = await s.emoji.rememberFavorite(bytes);
+          result.emojiId = emojiId;
+          result.alreadyExists = existingId !== undefined;
+          result.local = await s.emoji.rememberFavorite(bytes);
           current();
         });
-        return { ...accepted, emojiId, local };
+        return { ...accepted, ...result };
       }),
     favorite: procedure
       .input(

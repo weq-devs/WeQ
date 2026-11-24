@@ -86,7 +86,7 @@ export function useQQWriteSession(scope: string, passive = false) {
       profileUid?: string;
       memberUid?: string;
       readback?: () => Promise<boolean>;
-      readbackSuccessText?: string;
+      readbackSuccessText?: string | (() => string);
       /** 有读回要求的开关不能在未同步时进入已提交锁定态。 */
       requireReadback?: boolean;
       source?: NotificationSource;
@@ -167,9 +167,10 @@ export function useQQWriteSession(scope: string, passive = false) {
             finish('已停止确认：操作对象已切换，请稍后重新读取', 'warning');
             return;
           }
+          const successText = options?.readbackSuccessText;
           finish(
             readbackMatched
-              ? (options?.readbackSuccessText ?? '操作已完成')
+              ? ((typeof successText === 'function' ? successText() : successText) ?? '操作已完成')
               : expired
                 ? '确认超时，请稍后重新读取操作结果'
                 : qqWriteOutcomeText({ state: 'unconfirmed' }),
