@@ -565,7 +565,6 @@ export type ChatPaneProps = {
   onPreviewLatest?: (conversation: Conversation) => void;
   onJumpToLatest?: () => Promise<boolean>;
   onJumpToReadingPosition?: () => Promise<boolean>;
-  readingJumpAnchor?: ConversationReadingPosition;
   onDismissReadingJump?: () => void;
   chatJumpLayout?: 'separate' | 'combined';
   readThroughViewport?: boolean;
@@ -797,7 +796,6 @@ function ChatPaneContent({
   onPreviewLatest,
   onJumpToLatest,
   onJumpToReadingPosition,
-  readingJumpAnchor,
   onDismissReadingJump,
   chatJumpLayout,
   readThroughViewport,
@@ -1829,8 +1827,6 @@ function ChatPaneContent({
       !mobileGroupInfoVisible &&
       !(compactHeader && messageHistoryActive),
     onConsumeUnreadDock,
-    readingJumpAnchor: chatJumpLayout === 'combined' ? readingJumpAnchor : undefined,
-    onDismissReadingJump,
     user,
     visibleMessages,
   });
@@ -1851,28 +1847,23 @@ function ChatPaneContent({
   const jumpStops = (
     chatJumpLayout === 'separate'
       ? [importantStop, unreadStop, readingStop]
-      : chatJumpLayout === 'combined'
-        ? [dockStop ?? readingStop]
-        : [dockStop, readingStop]
+      : [dockStop, readingStop]
   ).filter((stop): stop is ChatJumpStop => !!stop);
   function dismissReadingJump() {
     if (onDismissReadingJump) onDismissReadingJump();
     else if (onJumpToReadingPosition) setReadingJump({ run: onJumpToReadingPosition, done: true });
   }
   function dismissJumpStop(stop: ChatJumpStop) {
-    if (chatJumpLayout === 'combined') {
-      dismissUnreadDock();
-      if (readingStop) dismissReadingJump();
-    } else if (stop.kind === 'reading') dismissReadingJump();
+    if (stop.kind === 'reading') dismissReadingJump();
     else dismissUnreadDock(chatJumpLayout === 'separate' ? unreadDockKind(stop) : undefined);
   }
   function dismissJumpLabel(stop: ChatJumpStop) {
-    if (chatJumpLayout !== 'separate' || jumpStops.length === 1) return '收起跳转提示';
-    return stop.kind === 'reading'
-      ? '收起上次阅读位置跳转'
-      : stop.kind === 'unread'
-        ? '收起首条未读跳转'
-        : '收起重要消息跳转';
+    if (jumpStops.length === 1) return '收起跳转提示';
+    if (stop.kind === 'reading') return '收起上次阅读位置跳转';
+    if (chatJumpLayout === 'combined') return '收起未读跳转';
+    if (chatJumpLayout === 'separate')
+      return stop.kind === 'unread' ? '收起首条未读跳转' : '收起重要消息跳转';
+    return '收起跳转提示';
   }
   async function jumpToSavedReadingPosition() {
     const run = onJumpToReadingPosition;
@@ -7036,15 +7027,15 @@ function ChatPaneContent({
             return (
               <div
                 key={
-                  chatJumpLayout === 'combined'
-                    ? 'combined'
-                    : reading
-                      ? 'reading'
+                  reading
+                    ? 'reading'
+                    : chatJumpLayout === 'combined'
+                      ? 'combined'
                       : importantKind
                         ? 'important'
                         : 'unread'
                 }
-                ref={index === 0 ? importantDockRef : undefined}
+                ref={!reading && index === 0 ? importantDockRef : undefined}
                 className={cn(
                   'unread-dock-button weq-chat-jump',
                   !reading && 'weq-important-dock',
@@ -7057,10 +7048,10 @@ function ChatPaneContent({
                   importantRemaining={dockImportantRemaining}
                   jumping={reading ? readingJump?.run === onJumpToReadingPosition : dockJumping}
                   onJump={() => void (reading ? jumpToSavedReadingPosition() : jumpDockStop(stop))}
-                  onOpenImportant={canOpenImportant ? openImportantMessages : undefined}
+                  onOpenImportant={!reading && canOpenImportant ? openImportantMessages : undefined}
                   onSwipeDismiss={compactHeader ? dismiss : undefined}
                 />
-                {!compactHeader && canOpenImportant && index === 0 ? (
+                {!reading && !compactHeader && canOpenImportant && index === 0 ? (
                   <button
                     type="button"
                     title="展开重要消息列表"

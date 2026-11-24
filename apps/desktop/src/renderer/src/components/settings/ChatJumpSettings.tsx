@@ -17,12 +17,16 @@ const options = [
 const separateModes = [
   ['firstUnreadJumpMode', 'first-unread-jump-mode', '首条未读'],
   ['importantJumpMode', 'important-jump-mode', '重要消息'],
-  ['readingPositionJumpMode', 'show-reading-position-button', '上次阅读位置'],
+] as const;
+const readingMode = [
+  'readingPositionJumpMode',
+  'show-reading-position-button',
+  '上次阅读位置',
 ] as const;
 const combinedMode = [
   'combinedChatJumpMode',
   'combined-chat-jump-mode',
-  '合并后的跳转按钮',
+  '合并后的未读跳转',
 ] as const;
 
 export function ChatJumpSettings({
@@ -32,25 +36,24 @@ export function ChatJumpSettings({
 }) {
   useClientPreferences((state) => state.tick);
   const merged = preferenceValue('mergeChatJumpButtons');
-  const availableModes = automaticReadingPosition
-    ? separateModes.filter(([name]) => name !== 'readingPositionJumpMode')
-    : separateModes;
+  const modes = merged ? [combinedMode] : [...separateModes];
+  const visibleModes = automaticReadingPosition ? modes : [...modes, readingMode];
   return (
     <>
       <Row
-        label="合并跳转按钮"
+        label="合并未读跳转按钮"
         settingId="merge-chat-jump-buttons"
         control={
           <span
             data-setting-fallback={
-              merged ? availableModes.map(([, id]) => id).join(' ') : combinedMode[1]
+              merged ? separateModes.map(([, id]) => id).join(' ') : combinedMode[1]
             }
           >
-            <SharedDisplayToggle name="mergeChatJumpButtons" label="合并跳转按钮" />
+            <SharedDisplayToggle name="mergeChatJumpButtons" label="合并未读跳转按钮" />
           </span>
         }
       />
-      {(merged ? [combinedMode] : availableModes).map(([name, settingId, label]) => (
+      {visibleModes.map(([name, settingId, label]) => (
         <Row
           key={name}
           label={label}

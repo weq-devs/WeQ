@@ -39,8 +39,6 @@ export function useChatTimelineNavigation({
   unreadDockEntryPending,
   unreadDockViewportActive = true,
   onConsumeUnreadDock,
-  readingJumpAnchor,
-  onDismissReadingJump,
   user,
   visibleMessages,
 }: {
@@ -68,8 +66,6 @@ export function useChatTimelineNavigation({
   unreadDockEntryPending?: boolean;
   unreadDockViewportActive?: boolean;
   onConsumeUnreadDock?: ChatPaneProps['onConsumeUnreadDock'];
-  readingJumpAnchor?: ChatPaneProps['readingJumpAnchor'];
-  onDismissReadingJump?: ChatPaneProps['onDismissReadingJump'];
   user: ChatPaneProps['user'];
   visibleMessages: Message[];
 }) {
@@ -94,11 +90,9 @@ export function useChatTimelineNavigation({
   // 独立聊天预览和测试夹具可能没有上层队列。
   const [visited, setVisited] = useState<{ scope: typeof navigationKey; seqs: Set<string> }>();
   const visitedStops = visited?.scope === navigationKey ? visited.seqs : undefined;
-  const matchReadingJump = useRef<((seqs: string[]) => void) | undefined>(undefined);
   const visitStops = useCallback(
-    (scope: typeof navigationKey, seqs: string[], kind?: UnreadDockKind, located = true) => {
+    (scope: typeof navigationKey, seqs: string[], kind?: UnreadDockKind) => {
       if (navigationScope.current !== scope || !seqs.length) return;
-      if (located) matchReadingJump.current?.(seqs);
       if (scope.onConsumeUnreadDock) {
         scope.onConsumeUnreadDock(seqs, kind);
         return;
@@ -179,7 +173,7 @@ export function useChatTimelineNavigation({
       if (navigationScope.current !== started || locateTask.current !== task) return false;
       if (found === false) {
         if (missing && dismissMissingStop)
-          visitStops(started, [dismissMissingStop.seq], 'important', false);
+          visitStops(started, [dismissMissingStop.seq], 'important');
         return false;
       }
       const seq = target.seq == null ? null : String(target.seq);
@@ -669,23 +663,6 @@ export function useChatTimelineNavigation({
     }
     return seqsById;
   }, [messages, visibleMessages, unreadDock, isVisited]);
-  matchReadingJump.current =
-    readingJumpAnchor && onDismissReadingJump
-      ? (seqs) => {
-          const { anchorId, anchorSeq } = readingJumpAnchor;
-          if (anchorId && dockTargets?.get(anchorId)?.some((seq) => seqs.includes(seq))) {
-            onDismissReadingJump();
-            return;
-          }
-          if (
-            anchorSeq &&
-            seqs.includes(anchorSeq) &&
-            (!anchorId ||
-              ![...(dockTargets?.values() ?? [])].some((targets) => targets.includes(anchorSeq)))
-          )
-            onDismissReadingJump();
-        }
-      : undefined;
   const interactionConversationId = conversation?.id;
   const interactionConversationType = conversation?.type;
   const interactionTargets = useMemo(() => {
@@ -1071,7 +1048,6 @@ export function useChatTimelineNavigation({
         .filter((stop) => !kind || unreadDockKind(stop) === kind)
         .map(({ seq }) => seq) ?? [],
       kind,
-      false,
     );
 
   async function jumpDockStop(stop = dockStop): Promise<boolean> {

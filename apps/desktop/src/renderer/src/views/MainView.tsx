@@ -5908,7 +5908,7 @@ function MainWorkspace(): ReactElement {
   const importantJumpMode = mergeChatJumpButtons
     ? combinedJumpMode
     : preferenceValue('importantJumpMode');
-  const readingJumpMode = mergeChatJumpButtons ? combinedJumpMode : readingPositionJumpMode();
+  const readingJumpMode = readingPositionJumpMode();
   const unreadSelectionId =
     (!mobileLayout || !mobileConversationList) &&
     selectedConversation &&
@@ -11231,7 +11231,6 @@ function MainWorkspace(): ReactElement {
                             onJumpToReadingPosition={
                               readingPrompt.show ? jumpToReadingPosition : undefined
                             }
-                            readingJumpAnchor={readingPrompt.show ? readingPosition : undefined}
                             onDismissReadingJump={readingPrompt.dismiss}
                             chatJumpLayout={mergeChatJumpButtons ? 'combined' : 'separate'}
                             readThroughViewport={readThroughViewport}

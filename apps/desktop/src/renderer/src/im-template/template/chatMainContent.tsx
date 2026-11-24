@@ -52,7 +52,6 @@ export function ChatMainContent({
   onPreviewLatest,
   onJumpToLatest,
   onJumpToReadingPosition,
-  readingJumpAnchor,
   onDismissReadingJump,
   chatJumpLayout,
   readThroughViewport,
@@ -156,7 +155,6 @@ export function ChatMainContent({
   | 'onPreviewLatest'
   | 'onJumpToLatest'
   | 'onJumpToReadingPosition'
-  | 'readingJumpAnchor'
   | 'onDismissReadingJump'
   | 'chatJumpLayout'
   | 'onReadCurrentConversation'
@@ -365,7 +363,6 @@ export function ChatMainContent({
       onPreviewLatest={onPreviewLatest}
       onJumpToLatest={onJumpToLatest}
       onJumpToReadingPosition={onJumpToReadingPosition}
-      readingJumpAnchor={readingJumpAnchor}
       onDismissReadingJump={onDismissReadingJump}
       chatJumpLayout={chatJumpLayout}
       readThroughViewport={readThroughViewport}

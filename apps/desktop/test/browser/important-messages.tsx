@@ -100,11 +100,6 @@ function App() {
               chatJumpLayout={
                 jumpLayout === 'separate' || jumpLayout === 'combined' ? jumpLayout : undefined
               }
-              readingJumpAnchor={
-                jumpLayout && !readingDismissed
-                  ? { scrollTop: 0, anchorSeq: params.has('same-target') ? '1000' : '999' }
-                  : undefined
-              }
               onDismissReadingJump={jumpLayout ? () => setReadingDismissed(true) : undefined}
               unreadDockViewportActive={false}
               headerActions={

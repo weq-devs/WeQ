@@ -149,21 +149,31 @@ async function run() {
       assert.equal(await all.count(), before - 1);
     }
 
-    for (const sameTarget of [false, true]) {
-      await page.goto(`${fixture}?jump-layout=combined${sameTarget ? '&same-target' : ''}`);
-      for (const button of [
-        important,
-        page.getByTitle('下一条：有人回复我', { exact: true }),
-        first,
-      ]) {
-        await button.waitFor();
-        assert.equal(await all.count(), 1);
-        await button.click();
-      }
-      if (!sameTarget) await reading.click();
-      await all.waitFor({ state: 'hidden' });
-      assert.equal(await page.locator('output').getAttribute('data-locate-count'), '3');
+    await page.goto(`${fixture}?jump-layout=combined`);
+    await reading.waitFor();
+    for (const button of [
+      important,
+      page.getByTitle('下一条：有人回复我', { exact: true }),
+      first,
+    ]) {
+      await button.waitFor();
+      assert.equal(await all.count(), 2);
+      await button.click();
     }
+    await dock.waitFor({ state: 'hidden' });
+    await reading.click();
+    await all.waitFor({ state: 'hidden' });
+    assert.equal(await page.locator('output').getAttribute('data-locate-count'), '3');
+
+    await page.reload();
+    await reading.click();
+    await reading.waitFor({ state: 'hidden' });
+    await important.waitFor();
+
+    await page.reload();
+    await page.getByRole('button', { name: '收起未读跳转', exact: true }).click();
+    await dock.waitFor({ state: 'hidden' });
+    await reading.waitFor();
     assert.deepEqual(report.errors, []);
     console.log(
       'Validated separate jump buttons, close, touch hold, cancelled/short drag, dismiss swipe and menu fallback.',

@@ -778,10 +778,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['all-conversations-include-deleted', '包含已删除会话', '全部会话删除范围'],
       ['read-first-unread', '定位到上次阅读的位置'],
       ['show-reading-position-button', '上次阅读位置跳转', '显示跳转到上次阅读位置按钮'],
-      ['merge-chat-jump-buttons', '合并跳转按钮', '聊天跳转按钮'],
+      ['merge-chat-jump-buttons', '合并未读跳转按钮', '合并跳转按钮', '聊天跳转按钮'],
       ['first-unread-jump-mode', '首条未读跳转'],
       ['important-jump-mode', '重要消息跳转'],
-      ['combined-chat-jump-mode', '合并后的跳转按钮'],
+      ['combined-chat-jump-mode', '合并后的未读跳转', '合并后的跳转按钮'],
       [
         'preserve-unread-until-read',
         '保留尚未读到的消息的未读计数',

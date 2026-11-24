@@ -61,16 +61,19 @@ try {
     await automatic.click();
     await reading.waitFor({ state: 'detached' });
     await important.waitFor();
-    const toggle = body.getByRole('switch', exact('合并跳转按钮'));
+    const toggle = body.getByRole('switch', exact('合并未读跳转按钮'));
     await toggle.click();
-    const combined = body.getByRole('radiogroup', exact('合并后的跳转按钮'));
+    const combined = body.getByRole('radiogroup', exact('合并后的未读跳转'));
     await combined.getByRole('radio', exact('关闭')).click();
     assert.equal(await important.count(), 0);
-    await toggle.click();
-    await important.waitFor();
     assert.equal(await reading.count(), 0);
     await automatic.click();
-    await reading.getByRole('radio', { ...exact('仅本次进入'), checked: true }).waitFor();
+    const savedReadingMode = reading.getByRole('radio', { ...exact('仅本次进入'), checked: true });
+    await savedReadingMode.waitFor();
+    await combined.getByRole('radio', { ...exact('关闭'), checked: true }).waitFor();
+    await toggle.click();
+    await important.waitFor();
+    await savedReadingMode.waitFor();
     assert.equal(
       await important.getByRole('radio', exact('仅本次进入')).getAttribute('aria-checked'),
       'true',
