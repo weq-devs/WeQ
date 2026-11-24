@@ -32,12 +32,12 @@ function FontSample({ item }: { item: FontOption }) {
     item.localFont?.deriveVersion,
   );
   return (
-    <span className="composer-font-sample" aria-hidden>
+    <span className="composer-preview-cover composer-font-sample" aria-hidden>
       {item.preview ? (
-        <ShimmerImage src={dressUrl(item.preview)} alt="" loading="lazy" />
+        <ShimmerImage src={dressUrl(item.preview)} alt="" loading="lazy" draggable={false} />
       ) : (
         <span style={family ? { fontFamily: family } : undefined}>
-          {item.disabled ? '未设置' : FONT_EXAMPLE}
+          {item.disabled ? item.description : FONT_EXAMPLE}
         </span>
       )}
     </span>
@@ -120,53 +120,55 @@ export function ComposerFontPanel({
           </div>
         ) : null}
       </header>
-      <div className="emoji-panel-body composer-font-list" role="radiogroup" aria-label="选择字体">
-        {options.map((item) => {
-          const itemId = typeof item.value === 'number' ? item.value : undefined;
-          return (
-            <label
-              key={item.value}
-              className="composer-font-option"
-              data-has-preview={Boolean(item.preview)}
-              data-unavailable={item.disabled}
-              onContextMenu={
-                itemId
-                  ? (event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setMenu({ x: event.clientX, y: event.clientY, itemId });
-                    }
-                  : undefined
-              }
-              onKeyDown={
-                itemId
-                  ? (event) => {
-                      if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
-                        return;
-                      event.preventDefault();
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      setMenu({ x: rect.left, y: rect.bottom, itemId });
-                    }
-                  : undefined
-              }
-            >
-              <input
-                type="radio"
-                name={id}
-                checked={item.value === selected}
-                disabled={item.disabled || disabled}
-                aria-haspopup={itemId ? 'menu' : undefined}
-                onChange={() => save.mutate({ choice: item.value })}
-              />
-              <FontSample item={item} />
-              <span className="composer-font-option-label">
-                <strong>{item.name}</strong>
-                {!item.disabled && item.description ? <small>{item.description}</small> : null}
-              </span>
-              <Check size={16} aria-hidden />
-            </label>
-          );
-        })}
+      <div className="emoji-panel-body composer-preview-section">
+        <div className="composer-preview-grid" role="radiogroup" aria-label="选择字体">
+          {options.map((item) => {
+            const itemId = typeof item.value === 'number' ? item.value : undefined;
+            return (
+              <label
+                key={item.value}
+                className="composer-preview-card composer-font-option"
+                onContextMenu={
+                  itemId
+                    ? (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setMenu({ x: event.clientX, y: event.clientY, itemId });
+                      }
+                    : undefined
+                }
+                onKeyDown={
+                  itemId
+                    ? (event) => {
+                        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                          return;
+                        event.preventDefault();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setMenu({ x: rect.left, y: rect.bottom, itemId });
+                      }
+                    : undefined
+                }
+              >
+                <input
+                  type="radio"
+                  name={id}
+                  checked={item.value === selected}
+                  disabled={item.disabled || disabled}
+                  aria-haspopup={itemId ? 'menu' : undefined}
+                  onChange={() => save.mutate({ choice: item.value })}
+                />
+                <FontSample item={item} />
+                <span className="composer-font-option-label">
+                  <span className="composer-preview-name" title={item.name}>
+                    {item.name}
+                  </span>
+                  {!item.disabled && item.description ? <small>{item.description}</small> : null}
+                </span>
+                <Check className="composer-font-check" size={14} aria-hidden />
+              </label>
+            );
+          })}
+        </div>
       </div>
       {menu ? (
         <ConversationActionsMenu

@@ -548,7 +548,7 @@ function MarketAddButton({ onClick }: { onClick: () => void }) {
 function MarketPackCover({ packId, hash }: { packId: string; hash?: string }) {
   const [unavailable, setUnavailable] = useState(false);
   return (
-    <span className={cn('emoji-pack-cover')} aria-hidden>
+    <span className={cn('composer-preview-cover')} aria-hidden>
       {hash && !unavailable ? (
         <ShimmerImage
           src={mediaUrl('mface', { pack: packId, hash })}
@@ -593,7 +593,7 @@ function MarketTab({
 
   const list = packages.data ?? [];
   return (
-    <div className={cn('emoji-section', 'emoji-market-section')}>
+    <div className={cn('emoji-section', 'composer-preview-section')}>
       {remove.error ? (
         <div className="emoji-state" role="alert">
           {remove.error.message}
@@ -609,14 +609,14 @@ function MarketTab({
           body="点右上「添加」去搜索"
         />
       ) : (
-        <div className={cn('emoji-pack-list')}>
+        <div className={cn('composer-preview-grid')}>
           {list.map((pkg) => {
             const name = pkg.name || `表情包 ${pkg.packId}`;
             return (
               <button
                 key={pkg.packId}
                 type="button"
-                className={cn('emoji-pack-card')}
+                className={cn('composer-preview-card')}
                 title={pkg.summary ? `${name}\n${pkg.summary}` : name}
                 aria-haspopup="menu"
                 onMouseDown={(event) => event.preventDefault()}
@@ -635,7 +635,7 @@ function MarketTab({
                 }}
               >
                 <MarketPackCover key={pkg.coverHash} packId={pkg.packId} hash={pkg.coverHash} />
-                <span className={cn('emoji-pack-name')}>{name}</span>
+                <span className={cn('composer-preview-name')}>{name}</span>
               </button>
             );
           })}
