@@ -938,11 +938,11 @@ jobs:
           ls -laR apps/web/dist 2>/dev/null | head -50 || echo "(no dist/)"
 
   # ======================= Release 说明（中文）=======================
-  # 等所有产物上传到草稿后，写入下载表、CHANGELOG 正文及 GitHub 变更列表。
+  # 等所有产物上传到草稿后写入发布说明，测试版正文取标签中的 Unreleased。
   notes:
     permissions:
       contents: write
-    needs: [prepare, windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web]
+    needs: [gate, prepare, windows, linux-x64, linux-arm64, macos-x64, macos-arm64, mac-merge-update-info, web]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -987,21 +987,31 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
+          PRERELEASE: ${{ needs.gate.outputs.prerelease }}
           NATIVE_TAG: ${{ steps.native.outputs.tag }}
           NATIVE_BUILT_AT: ${{ steps.native.outputs.builtAt }}
           NATIVE_EXPIRES_AT: ${{ steps.native.outputs.expiresAt }}
         run: |
           set -euo pipefail
 
-          SECTION=$(node scripts/extract-changelog.mjs "$TAG")
           SUBTITLE=""
-          if [[ "$SECTION" == '### '* ]]; then
+          SECTION_NAME="$TAG"
+          if [[ "$PRERELEASE" == 'true' ]]; then
+            SUBTITLE=$'> 这是 WeQ 测试版。\n\n'
+            SECTION_NAME="Unreleased"
+          fi
+          SECTION=$(node scripts/extract-changelog.mjs "$SECTION_NAME")
+          if [[ "$PRERELEASE" == 'false' && "$SECTION" == '### '* ]]; then
             SUBTITLE=${SECTION%%$'\n'*}
             SECTION=${SECTION#"$SUBTITLE"}
             while [[ "$SECTION" == $'\n'* ]]; do
               SECTION=${SECTION#$'\n'}
             done
             SUBTITLE+=$'\n\n'
+          fi
+          UPDATE_CONTENT=""
+          if [[ -n "$SECTION" ]]; then
+            UPDATE_CONTENT=$'## 更新内容\n'"${SECTION}"$'\n\n'
           fi
           DOCS_COMMIT=$(git rev-parse "${TAG}:docs")
           VERSION="${TAG#v}"
@@ -1034,13 +1044,10 @@ jobs:
           | Linux ARM64 | [AppImage](${ASSET_BASE}/weQ-${VERSION}-linux-arm64.AppImage) · [桌面压缩包](${ASSET_BASE}/weQ-${VERSION}-linux-arm64.tar.gz) | [Web 压缩包](${ASSET_BASE}/weq-web-${VERSION}-linux-arm64.tar.gz) |
 
           - **macOS**：安装包用固定自签证书签名，未公证。打开 DMG，把 WeQ 拖入「应用程序」。若首次提示无法验证开发者，确认来源后按 [macOS 安装与首次打开](https://github.com/weq-devs/WeqDocs/blob/${DOCS_COMMIT}/guide/macos-install.md) 中的步骤选择「仍要打开」。
-          - **Linux**：AppImage 执行 \`chmod +x 文件名.AppImage\` 后打开；若遇到 FUSE 错误，改用桌面压缩包。Arch Linux 可用 \`paru -S weq-bin\` 或 \`yay -S weq-bin\` 安装桌面版。
+          - **Linux**：AppImage 执行 \`chmod +x 文件名.AppImage\` 后打开；若遇到 FUSE 错误，改用桌面压缩包。Arch Linux 可用 \`paru -S weq-bin\` 或 \`yay -S weq-bin\` 安装正式版。
           - **独立 Web**：推荐 Node.js 24 LTS，也支持 22.23.5 及以上的 22.x，无需 \`npm install\`。解压后，Windows 双击 \`start.bat\`，macOS / Linux 运行 \`./start.sh\`。在浏览器打开终端打印的地址并输入令牌。[部署说明](https://github.com/${REPO}/blob/${TAG}/apps/web/README.md)
 
-          ## 更新内容
-          ${SECTION}
-
-          ## 内置组件
+          ${UPDATE_CONTENT}## 内置组件
           ${NATIVE_LINE:-（未记录 native 构建时间）}
 
           ## 完整变更
@@ -1188,7 +1195,7 @@ jobs:
 
 
   # ========================== QQ 群通知 ==========================
-  # 最终公开成功后才发送 QQ 群通知，正文仍来自 CHANGELOG 对应章节。
+  # 正式版公开成功后才发送 QQ 群通知，正文来自 CHANGELOG 对应章节。
   #
   # 下载方式换成了「磁力种子 + web seed」，不再直发安装包：
   #   - 单个产物早就超过 QQ 的 200 MB 附件上限（setup.exe 就 222 MB），
@@ -1200,7 +1207,7 @@ jobs:
   #     各平台下载用内联键盘的链接按钮（5 行 × 2 列）。
   qq-notify:
     needs: [publish, gate]
-    if: needs.gate.outputs.release == 'true'
+    if: needs.gate.outputs.release == 'true' && needs.gate.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

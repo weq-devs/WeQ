@@ -28,5 +28,6 @@ test('extractSection 原样保留发布正文，不混入其他版本', () => {
   ].join('\n');
 
   assert.equal(extractSection(raw, 'v2.6.0'), section.join('\n'));
+  assert.equal(extractSection(raw, 'Unreleased'), '- 尚未发布');
   assert.equal(extractSection(raw, '2.6.1'), '');
 });

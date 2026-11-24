@@ -117,6 +117,37 @@ test('旧任务不能覆盖更新的渠道版本', async () => {
     '2.8.0',
   );
 });
+test('测试版从标签中的 Unreleased 提取摘要，写入签名索引的测试渠道', async () => {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const repository = 'weq-devs/WeQ';
+  const stable = release('2.7.5');
+  const beta = { ...release('2.8.0-beta.1'), prerelease: true };
+  const publicKeys = [publicKey.export({ type: 'spki', format: 'pem' }).toString()];
+  let uploaded;
+  await publishReleaseFeed({
+    repository,
+    tag: beta.tag_name,
+    privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    publicKeys,
+    api: async (method) => (method === 'GET' ? [stable, beta] : { id: 2, draft: true }),
+    readAsset: async () => catalog,
+    readChangelog: (tag) => {
+      assert.equal(tag, beta.tag_name);
+      return '## Unreleased - 进行中\n- 测试版变更\n## 2.7.5\n- 正式版变更';
+    },
+    upload: async (_release, signed) => {
+      uploaded = signed;
+    },
+  });
+  const { releases } = verifyReleaseIndex(uploaded, repository, publicKeys);
+  assert.deepEqual(
+    releases.map(({ tag, prerelease, summary }) => ({ tag, prerelease, summary })),
+    [
+      { tag: beta.tag_name, prerelease: true, summary: '测试版变更' },
+      { tag: stable.tag_name, prerelease: false, summary: undefined },
+    ],
+  );
+});
 test('表情目录和装扮索引使用独立签名索引', async () => {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   const releaseTag = 'market-emoji-0123456789ab';

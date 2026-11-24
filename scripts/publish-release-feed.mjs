@@ -31,8 +31,8 @@ function resourceTrack(tag) {
   return null;
 }
 
-function releaseSummary(changelog, tag) {
-  const firstBullet = /^[-*][ \t]+(.+)$/m.exec(extractSection(changelog, tag))?.[1];
+function releaseSummary(changelog, section) {
+  const firstBullet = /^[-*][ \t]+(.+)$/m.exec(extractSection(changelog, section))?.[1];
   if (!firstBullet) return undefined;
   const summary = firstBullet
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
@@ -175,7 +175,8 @@ export async function publishReleaseFeed({
     const descriptor = await describeRelease(repository, release, readAsset);
     if (publishingResources) descriptor.track = resourceTrack(release.tag_name);
     if (repository.endsWith('/WeQ') && release.tag_name === tag && readChangelog) {
-      const summary = releaseSummary(await readChangelog(tag), tag);
+      const section = release.prerelease ? 'Unreleased' : tag;
+      const summary = releaseSummary(await readChangelog(tag), section);
       if (summary) descriptor.summary = summary;
     }
     descriptions.push(descriptor);
