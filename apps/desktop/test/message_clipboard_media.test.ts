@@ -55,11 +55,11 @@ describe('消息富文本及图片', () => {
         ],
       });
   });
-  it('发送者、时间、正文与引用保持轻量结构，HTML 输入不能注入元素', () => {
+  it('富文本和纯文本回退都显示北京时间，保留发送者、正文与引用', () => {
     const result = messageRichClipboard([
       {
         sender: '<script>姓名</script>',
-        time: '2026-10-17',
+        time: '2026-10-17T17:02:03.000Z',
         body: '正文\n第二行',
         elements: [
           {
@@ -71,10 +71,10 @@ describe('消息富文本及图片', () => {
     ]);
     const root = new DOMParser().parseFromString(result.html, 'text/html');
     expect(root.querySelector('strong')?.textContent).toBe('<script>姓名</script>');
-    expect(root.querySelector('small')?.textContent).toContain('2026-10-17');
+    expect(root.querySelector('small')?.textContent?.trim()).toBe('2026-10-18 01:02:03');
     expect(root.querySelector('blockquote')?.textContent).toBe('原话');
     expect(root.querySelector('script')).toBeNull();
-    expect(result.text).toContain('正文\n第二行');
+    expect(result.text).toBe('<script>姓名</script> 2026-10-18 01:02:03\n> 原话\n正文\n第二行');
   });
   it('富文本保留 @ 的唯一身份', () => {
     const result = messageRichClipboard([
