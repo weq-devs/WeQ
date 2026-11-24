@@ -6,6 +6,7 @@ import { publishRemoteStartup } from '../lib/remoteStartup';
 import { IS_WEB } from '../lib/target.shared';
 import { observeRemoteStartupSurface } from '../lib/remoteStartupSurface';
 import { remoteWorkspaceCheckPending } from '../lib/remoteWorkspaceCheck';
+import { rememberRemoteAccount } from '../lib/accountGateway';
 
 /** 启动只等待必要配置与真实界面，业务列表在界面内异步加载。 */
 export function RemoteStartupReporter() {
@@ -18,6 +19,7 @@ export function RemoteStartupReporter() {
     enabled: IS_WEB && view === 'bootstrap' && stage !== 'booting' && native.data === null,
   });
   const config = trpc.account.getAccountConfig.useQuery(undefined, { enabled });
+  const configId = config.data?.configId;
   useEffect(() => {
     if (!IS_WEB) return;
     const error = native.error || (enabled ? config.error : install.error);
@@ -46,7 +48,11 @@ export function RemoteStartupReporter() {
       return observeRemoteStartupSurface(
         root,
         view === 'main' ? '.app-shell-root' : '.weq-account-workspace',
-        () => publishRemoteStartup({ state: 'ready' }),
+        () => {
+          if (enabled && configId && !remoteWorkspaceCheckPending())
+            rememberRemoteAccount(configId);
+          publishRemoteStartup({ state: 'ready' });
+        },
         (message) => publishRemoteStartup({ state: 'loading', message }),
       );
     }
@@ -55,6 +61,7 @@ export function RemoteStartupReporter() {
     stage,
     switching,
     enabled,
+    configId,
     config.error,
     config.isLoading,
     native.error,

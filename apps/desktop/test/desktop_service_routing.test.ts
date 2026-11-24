@@ -21,6 +21,7 @@ import {
 import {
   PRIVATE_ACCOUNT_HEADER,
   type DesktopAccountRoutes,
+  type RoutedAccount,
 } from '../src/main/desktop_services/accounts';
 
 async function fixture(configIds = ['101', '202'], uins: Record<string, string> = {}) {
@@ -30,10 +31,12 @@ async function fixture(configIds = ['101', '202'], uins: Record<string, string> 
     displayName: `账号 ${configId}`,
     static: false,
   }));
+  const stale = new Set<string>();
   const tcp = createServer((req, res) => {
     const uin = req.headers[PRIVATE_ACCOUNT_HEADER];
     if (req.headers[PRIVATE_TOKEN_HEADER] !== 'a'.repeat(64) || typeof uin !== 'string')
       return sendJson(res, 403, {});
+    if (stale.has(uin)) return res.writeHead(401).end();
     if (req.url === '/tool') {
       req.resume();
       return sendJson(res, 200, { value: { uin, downloadPath: '/chat/videos/fixture' } });
@@ -42,9 +45,9 @@ async function fixture(configIds = ['101', '202'], uins: Record<string, string> 
   });
   const port = await listenPrivate(tcp);
   const endpoint = { port, token: 'a'.repeat(64) };
-  const find = vi.fn(async (configId: string) => {
+  const find = vi.fn(async (configId: string): Promise<RoutedAccount | undefined> => {
     const account = accounts.find((item) => item.configId === configId);
-    if (!account) throw new Error('账号不存在');
+    if (!account) return undefined;
     return {
       account: { ...account, generation: configId },
       mcp: endpoint,
@@ -53,10 +56,14 @@ async function fixture(configIds = ['101', '202'], uins: Record<string, string> 
       control: endpoint,
     };
   });
-  const open = vi.fn(find);
+  const open = vi.fn(async (configId: string) => {
+    const account = await find(configId);
+    if (!account) throw new Error('账号不存在');
+    return account;
+  });
   const windows = vi.fn(async (): ReturnType<DesktopAccountRoutes['windows']> => []);
   const routes = { list: () => accounts, open, find, windows } as unknown as DesktopAccountRoutes;
-  return { routes, open, find, windows, close: () => stopPrivate(tcp) };
+  return { routes, open, find, windows, stale, close: () => stopPrivate(tcp) };
 }
 
 it('开发重载交接旧桌面服务，旧窗口不会取代新进程', async () => {
@@ -231,7 +238,7 @@ it('已有只读客户端只能直连令牌唯一授权的在用账号，不会�
 
 it('远程页面只打开已授权账号，选择失败和服务重启后可重新选择', async () => {
   const worker = await fixture(['101', '202', '303', '404'], { '303': '202' });
-  worker.windows.mockResolvedValue([await worker.find('202')]);
+  worker.windows.mockResolvedValue([(await worker.find('202'))!]);
   const avatarBytes = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADElEQVQImWMQ6d4FAAIQAVpr3peTAAAAAElFTkSuQmCC',
     'base64',
@@ -302,12 +309,35 @@ it('远程页面只打开已授权账号，选择失败和服务重启后可重�
     const selected = await select('202');
     expect(selected.status).toBe(303);
     const accountPath = selected.headers.get('location')!;
+    const switchPath = `${base}${accountPath}_weq/switch-account`;
+    expect((await fetch(switchPath, { method: 'HEAD' })).status).toBe(204);
+    const switching = await fetch(switchPath, { redirect: 'manual' });
+    expect(switching.status).toBe(200);
+    expect(await switching.text()).toContain(`href="${accountPath}"`);
+    const changeAccount = (configId: string) =>
+      fetch(`${base}${accountPath}_weq/select-account`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${'a'.repeat(64)}` },
+        body: new URLSearchParams({ configId }),
+        redirect: 'manual',
+      });
+    expect(await (await changeAccount('404')).text()).toContain(`href="${accountPath}"`);
+    expect((await changeAccount('101')).headers.get('location')).toMatch(/^\/_weq\/account\/101\//);
+    grant = ['202'];
+    expect((await fetch(switchPath, { method: 'HEAD' })).status).toBe(404);
+    grant = ['101', '202', '303'];
     const route = accountPath.split('/').at(-2);
     const media = await fetch(`${base}/_media/pic?cid=test~${route}`);
     expect(await media.json()).toEqual({ uin: '202' });
 
     const snapshotPath = `${base}${accountPath}trpc/startup.snapshot`;
     expect(await (await fetch(snapshotPath)).json()).toEqual({ uin: '202' });
+    worker.stale.add('202');
+    const closedAccount = await fetch(snapshotPath);
+    expect(closedAccount.status).toBe(409);
+    expect(closedAccount.headers.get('x-weq-account-selection')).toBe('required');
+    expect((await fetch(snapshotPath, { method: 'POST' })).status).toBe(401);
+    worker.stale.delete('202');
     entry.close();
     entry = createEntry();
     worker.open.mockClear();
@@ -322,8 +352,20 @@ it('远程页面只打开已授权账号，选择失败和服务重启后可重�
     expect(staleWrite.status).toBe(409);
     expect(staleWrite.headers.has('x-weq-account-selection')).toBe(false);
     expect(worker.open).not.toHaveBeenCalled();
-    const resumed = await fetch(base + '/_weq/accounts?resume=1');
-    expect(await resumed.text()).toContain('账号 202');
+    const resume = (configId: string) =>
+      fetch(`${base}/_weq/accounts?resume=1&last=${configId}`, { redirect: 'manual' });
+    const resumed = await resume('202');
+    expect(resumed.status).toBe(303);
+    expect(resumed.headers.get('location')).toMatch(/^\/_weq\/account\/202\//);
+    worker.find.mockResolvedValueOnce(undefined);
+    expect((await resume('303')).status).toBe(200);
+    grant = ['101'];
+    worker.find.mockClear();
+    const revoked = await resume('202');
+    expect(revoked.status).toBe(200);
+    expect(await revoked.text()).not.toContain('账号 202');
+    expect(worker.find).not.toHaveBeenCalled();
+    expect(worker.open).not.toHaveBeenCalled();
   } finally {
     entry.close();
     stopPrivate(server);

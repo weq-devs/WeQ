@@ -716,6 +716,13 @@ html:where([data-weq-layout='single'])[data-theme]
   font-size: 13px;
 }
 
+:where(html[data-weq-layout='single']) .weq-mobile-more-account .weq-mobile-more-account-switch {
+  flex: none;
+  min-height: 44px;
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+
 :where(html[data-weq-layout='single']) .weq-mobile-more > button {
   display: flex;
   width: 100%;

@@ -14,6 +14,7 @@ import {
   type RemoteStartupSnapshot,
 } from '../src/renderer/src/lib/remoteWebStartup';
 import { setRemoteWorkspaceCheckPending } from '../src/renderer/src/lib/remoteWorkspaceCheck';
+import * as accountGateway from '../src/renderer/src/lib/accountGateway';
 import { PageSnapshots, PageSnapshotScope } from '../src/renderer/src/components/PageSnapshots';
 import { PageScrollSnapshot } from '../src/renderer/src/components/PageScrollSnapshot';
 import { usePageState } from '../src/renderer/src/components/PageSnapshots.shared';
@@ -158,7 +159,7 @@ it('Remote 离线恢复直取设置，重连收到关闭后更新当前页面和
   }
 });
 
-it.each(['启动', '已交互', '断网后恢复', '保留上次页面'] as const)(
+it.each(['启动', '断网后恢复', '保留上次页面'] as const)(
   'Remote %s收到电脑的当前启动设置',
   async (phase) => {
     const cache = new QueryClient();
@@ -244,13 +245,11 @@ it.each(['启动', '已交互', '断网后恢复', '保留上次页面'] as cons
           ),
         );
       });
-      expect(host.querySelector('output')?.scrollTop).toBe(900);
+      if (phase === '断网后恢复') expect(host.querySelector('output')?.scrollTop).toBe(900);
+      else expect(host.querySelector('output')).toBeNull();
       await act(async () => {
         if (phase === '断网后恢复') window.dispatchEvent(new Event('weq-remote-connection'));
-        else {
-          if (phase === '已交互') document.dispatchEvent(new Event('pointerdown'));
-          verify(result);
-        }
+        else verify(result);
       });
       expect(readRemoteWorkspace()?.page).toBe(phase === '保留上次页面' ? null : 'home');
       expect(useViewState.getState().startupPage).toBe(phase === '启动' ? 'home' : null);
@@ -267,3 +266,48 @@ it.each(['启动', '已交互', '断网后恢复', '保留上次页面'] as cons
     }
   },
 );
+
+it('Remote 有缓存时仍先确认账号，要求重新选择时不挂载旧工作区', async () => {
+  const cache = new QueryClient();
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const renderWorkspace = vi.fn(() => createElement('output'));
+  const selecting = vi
+    .spyOn(accountGateway, 'remoteAccountSelectionPending')
+    .mockReturnValue(false);
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  vi.stubGlobal('location', { hostname: '127.0.0.1' });
+  vi.stubGlobal('weqRemoteShell', { openMenu() {} });
+  let reject!: (error: Error) => void;
+  startup.mockReturnValue(
+    new Promise((_resolve, fail) => {
+      reject = fail;
+    }),
+  );
+  try {
+    saveRemoteWorkspace(config, DEFAULT_APP_SETTINGS, false);
+    await act(async () => {
+      root.render(
+        createElement(
+          WebStartupCache.Provider,
+          { value: cache },
+          createElement(BackupStartupGate, null, createElement(renderWorkspace)),
+        ),
+      );
+    });
+    expect(renderWorkspace).not.toHaveBeenCalled();
+    await act(async () => {
+      selecting.mockReturnValue(true);
+      reject(new Error('正在打开账号选择'));
+    });
+    expect(renderWorkspace).not.toHaveBeenCalled();
+    expect(window.weqRemoteStartup?.state).toBe('loading');
+  } finally {
+    act(() => root.unmount());
+    selecting.mockRestore();
+    startup.mockReset();
+    cache.clear();
+    vi.unstubAllGlobals();
+  }
+});

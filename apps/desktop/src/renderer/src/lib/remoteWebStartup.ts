@@ -150,7 +150,6 @@ export function openRemoteWorkspace(cache: QueryClient, cached: CachedWorkspace)
     view: 'main',
     homeStage: 'home',
   });
-  return !updating;
 }
 
 export function watchRemoteRelease() {

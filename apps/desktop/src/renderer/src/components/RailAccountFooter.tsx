@@ -47,7 +47,8 @@ import { LoadingIndicator } from './LoadingIndicator';
 import { QqAvatar } from './QqAvatar';
 import { IS_WEB, shellBridge } from '../lib/target.shared';
 import { useRemoteClient } from '../lib/remoteClient';
-import { accountGatewayPath, isAccountGateway } from '../lib/accountGateway';
+import { accountGatewayPath, isAccountGateway, rememberRemoteAccount } from '../lib/accountGateway';
+import { clearRemoteWorkspace } from '../lib/remoteWebStartup';
 import '../styles/rail-account.css';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { useMenuCapture } from '../hooks/useMenuCapture';
@@ -285,6 +286,8 @@ export function RailAccountFooter({
       return;
     }
     if (isAccountGateway) {
+      rememberRemoteAccount(undefined);
+      clearRemoteWorkspace();
       await fetch(accountGatewayPath('/_weq/leave-account'), { method: 'POST' }).catch(
         () => undefined,
       );

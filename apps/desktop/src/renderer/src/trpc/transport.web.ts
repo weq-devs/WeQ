@@ -25,7 +25,11 @@ import { prepareRpcBatchResponse } from './httpBatchStream';
 import { remoteWorkspaceCheckPending } from '../lib/remoteWorkspaceCheck';
 import { isRemoteClient } from '../lib/remoteClient';
 import { remoteCacheLink } from './remoteCacheLink';
-import { accountGatewayPath, accountGatewayUnscopedPath } from '../lib/accountGateway';
+import {
+  accountGatewayPath,
+  accountGatewayUnscopedPath,
+  resumeRemoteAccount,
+} from '../lib/accountGateway';
 
 function sessionExpired() {
   if (isRemoteClient()) window.weqRemoteShell?.connectionFailed?.();
@@ -34,7 +38,7 @@ function sessionExpired() {
 
 function checkAccountSelection(response: Response) {
   if (response.headers.get('x-weq-account-selection') === 'required') {
-    location.replace('/_weq/accounts?resume=1');
+    resumeRemoteAccount();
     throw new Error('正在打开账号选择');
   }
 }

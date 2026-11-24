@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { FolderOpen, RefreshCw, ShieldAlert } from 'lucide-react';
+import { TRPCClientError } from '@trpc/client';
 import { client } from '../trpc/client';
 import {
   restoreBackupClient,
@@ -39,6 +40,11 @@ import { useWebConnection } from '../state/webConnection';
 import { WarmupSplash } from './WarmupSplash';
 import { advanceStartup } from '../state/startupProgress';
 import { isRemoteClient } from '../lib/remoteClient';
+import {
+  accountGatewayConfigId,
+  remoteAccountSelectionPending,
+  setCachedRemoteAccount,
+} from '../lib/accountGateway';
 
 const RUNTIME_ERROR_KEY = 'weq.runtime-file-error';
 
@@ -50,37 +56,29 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(true);
   const [confirmSkip, setConfirmSkip] = useState(false);
   const generation = useRef(0);
-  const cached = useRef(readRemoteWorkspace());
+  const [localWorkspace] = useState(readRemoteWorkspace);
+  const cached = useRef(
+    !accountGatewayConfigId || accountGatewayConfigId === localWorkspace?.configId
+      ? localWorkspace
+      : undefined,
+  );
   const [cachedReady, setCachedReady] = useState(false);
-  const canCorrectStartup = useRef(true);
+  const cachedShown = useRef(false);
+  const showOfflineWorkspace = useCallback(() => {
+    if (!cached.current || !queryCache || cachedShown.current) return;
+    openRemoteWorkspace(queryCache, cached.current);
+    cachedShown.current = true;
+    setCachedReady(true);
+  }, [queryCache]);
   useLayoutEffect(() => {
-    if (!cached.current || !queryCache) return;
+    setCachedRemoteAccount(localWorkspace?.configId);
+    if (!cached.current) return;
     usePrivacyStore.getState().hydrate();
     if (usePrivacyStore.getState().effective) {
       cached.current = undefined;
       clearRemoteWorkspace();
-      return;
     }
-    if (!openRemoteWorkspace(queryCache, cached.current)) canCorrectStartup.current = false;
-    setCachedReady(true);
-  }, [queryCache]);
-  useLayoutEffect(() => {
-    if (!cachedReady || !canCorrectStartup.current) return;
-    const keepCurrentPage = () => {
-      canCorrectStartup.current = false;
-    };
-    const events = ['pointerdown', 'click', 'keydown', 'wheel'] as const;
-    for (const event of events)
-      document.addEventListener(event, keepCurrentPage, { capture: true, passive: true });
-    const onVisibilityChange = () => {
-      if (document.hidden) keepCurrentPage();
-    };
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => {
-      for (const event of events) document.removeEventListener(event, keepCurrentPage, true);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
-  }, [cachedReady]);
+  }, [localWorkspace]);
   useEffect(() => {
     if (!cachedReady && (busy || !state?.ok || error)) return;
     return watchRemoteRelease();
@@ -106,10 +104,11 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
     async (recover = false) => {
       const seq = ++generation.current;
       const cachedWorkspace = cached.current;
-      if (!cachedWorkspace) setBusy(true);
+      if (!cachedShown.current) setBusy(true);
       setError(null);
       advanceStartup('restore');
-      if (!cachedWorkspace) publishRemoteStartup({ state: 'loading', message: '正在检查恢复状态' });
+      if (!cachedShown.current)
+        publishRemoteStartup({ state: 'loading', message: '正在检查恢复状态' });
       let verified: RemoteStartupSnapshot | null = null;
       try {
         if (recover) await client.bootstrap.backupRetryRecovery.mutate();
@@ -155,17 +154,15 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
             clearRemoteWorkspace();
             purgeAccountQueries(queryCache);
             useViewState.setState({ openedUin: null, view: 'bootstrap', homeStage: 'booting' });
-          } else if (canCorrectStartup.current && useViewState.getState().view === 'main') {
+          } else if (!cachedShown.current) {
             const page = snapshot?.settings.startupPage;
-            if ((page === 'home' || page === 'messages') && page !== cachedWorkspace.page) {
-              // 缓存只决定临时首屏。首次校验仍在进行且用户尚未交互时，按电脑设置重置现场。
-              useViewState.setState((current) => ({
-                startupPage: page,
-                startupNavigationRevision: current.startupNavigationRevision + 1,
-              }));
-            }
+            openRemoteWorkspace(queryCache, {
+              ...cachedWorkspace,
+              page: page === 'home' || page === 'messages' ? page : null,
+            });
           }
           cached.current = undefined;
+          cachedShown.current = false;
           setRemoteWorkspaceCheckPending(false);
           setCachedReady(false);
         }
@@ -191,9 +188,11 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
         } else setError(result.error || '文件恢复尚未完成');
       } catch (e) {
         if (seq !== generation.current) return;
-        if (cachedWorkspace) {
-          // 离线首屏已投入使用，后续重连只同步下次启动的设置。
-          canCorrectStartup.current = false;
+        if (remoteAccountSelectionPending()) return;
+        const response = e instanceof TRPCClientError ? e.meta?.response : undefined;
+        const status = response instanceof Response ? response.status : undefined;
+        if (cachedWorkspace && queryCache && (!status || status >= 500)) {
+          showOfflineWorkspace();
           return;
         }
         setError(e instanceof Error ? e.message : String(e));
@@ -219,10 +218,10 @@ export function BackupStartupGate({ children }: { children: ReactNode }) {
           );
         } catch {}
       } finally {
-        if (seq === generation.current) setBusy(false);
+        if (seq === generation.current && !remoteAccountSelectionPending()) setBusy(false);
       }
     },
-    [queryCache],
+    [queryCache, showOfflineWorkspace],
   );
   useEffect(() => {
     let pending = false;

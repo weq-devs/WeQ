@@ -17,6 +17,7 @@ import { PRIVATE_TOKEN_HEADER, PRIVATE_WEB_ROUTE_HEADER } from './control';
 
 const ACCOUNT_PATH = /^\/_weq\/account\/([a-z\d][a-z\d_-]{0,127})\/([a-f\d-]{36})(\/.*)?$/i;
 const ACCOUNT_SELECT = '/_weq/select-account';
+const ACCOUNT_SWITCH = '/_weq/switch-account';
 const ACCOUNT_AVATAR = '/_weq/account-avatar';
 const LEAVE_ACCOUNT = '/_weq/leave-account';
 const BUSINESS_PATH = /^\/(?:trpc(?:[/-]|$)|_[a-z][a-z0-9-]*(?:\/|\?|$))/;
@@ -40,6 +41,7 @@ function selectionPage(
   online: ReadonlySet<string> | null,
   remote: boolean,
   error?: string,
+  returnTo = '',
 ): string {
   // 手机网关外层使用 no-referrer；表单需要保留同源 Origin，不能发送 null。
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
@@ -50,6 +52,7 @@ body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:24px;color:CanvasText;b
 main{max-width:32rem;margin:10vh auto}h1{font-size:1.75rem}
 button{display:flex;align-items:center;gap:12px;font:inherit;text-align:left;width:100%;margin-bottom:8px;padding:12px 16px;border:1px solid GrayText;border-radius:8px;color:CanvasText;background:Canvas;cursor:pointer}
 button:hover{border-color:Highlight}small{display:block;color:GrayText}
+.cancel{display:inline-flex;align-items:center;min-height:44px;color:LinkText}
 .avatar{position:relative;display:grid;place-items:center;flex:none;width:2.5rem;height:2.5rem;overflow:hidden;border-radius:50%;background:color-mix(in srgb,CanvasText 10%,Canvas);font-weight:600}
 .avatar::after{content:'';position:absolute;inset:0;background:var(--avatar,none) center/cover no-repeat}
 .account-name{flex:1;min-width:0;overflow-wrap:anywhere}
@@ -57,7 +60,7 @@ button:hover{border-color:Highlight}small{display:block;color:GrayText}
 .status::before{content:'';width:6px;height:6px;border-radius:50%;background:GrayText}
 .status[data-online]::before{background:#21834c}
 @media(prefers-color-scheme:dark){.status[data-online]::before{background:#59c982}}
-</style></head><body><main><h1>打开 WeQ 账号</h1>
+</style></head><body><main><h1>${returnTo ? '切换账号' : '打开 WeQ 账号'}</h1>
 ${error ? `<p role="alert">${escapeHtml(error)}</p>` : ''}
 ${
   accounts.length
@@ -68,7 +71,7 @@ ${
             : '';
           const initial = [...item.displayName.trim()][0] ?? '?';
           const ready = online?.has(item.configId);
-          return `<form method="post" action="${ACCOUNT_SELECT}">
+          return `<form method="post" action="${returnTo.slice(0, -1)}${ACCOUNT_SELECT}">
 <button type="submit" name="configId" value="${escapeHtml(item.configId)}">
 <span class="avatar" aria-hidden="true"${avatar}>${escapeHtml(initial)}</span>
 <span class="account-name">${escapeHtml(item.displayName)} <small>${escapeHtml(item.uin)}${item.static ? ' · 静态备份' : ''}</small></span>
@@ -78,6 +81,7 @@ ${
         .join('')
     : '<p>暂无可访问的账号。请在电脑上的 WeQ 检查账号及授权。</p>'
 }
+${returnTo ? `<a class="cancel" href="${returnTo}">取消切换</a>` : ''}
 </main>${remote ? `<script>${selectionStartup}</script>` : ''}</body></html>`;
 }
 
@@ -144,6 +148,10 @@ function respondError(res: ServerResponse, status: number, message: string): voi
         'Cache-Control': 'no-store',
       })
       .end(message);
+}
+
+function requireRemoteSelection(res: ServerResponse): void {
+  res.writeHead(409, { 'X-WeQ-Account-Selection': 'required', 'Cache-Control': 'no-store' }).end();
 }
 
 function validSelectionOrigin(req: IncomingMessage, auth: WebAuth): boolean {
@@ -229,10 +237,19 @@ export class DesktopWebEntry {
     active?.controller.abort();
   }
 
-  private async showAccounts(req: IncomingMessage, res: ServerResponse, error?: string) {
+  private availableAccounts(req: IncomingMessage) {
+    return this.options.accounts.list().filter((account) => this.allowed(req, account.configId));
+  }
+
+  private async showAccounts(
+    req: IncomingMessage,
+    res: ServerResponse,
+    error?: string,
+    returnTo?: string,
+  ) {
     const { auth, accounts } = this.options;
     const remote = !!auth.remoteClient;
-    const saved = accounts.list().filter((account) => this.allowed(req, account.configId));
+    const saved = this.availableAccounts(req);
     const windows = saved.length ? await accounts.windows().catch(() => null) : [];
     if (res.destroyed) return;
     if (!auth.isAuthed(req)) return respondError(res, 401, '账号授权已变化。');
@@ -251,6 +268,7 @@ export class DesktopWebEntry {
           online,
           remote,
           error,
+          returnTo,
         ),
       );
   }
@@ -272,10 +290,30 @@ export class DesktopWebEntry {
     return writeResponse(res, response);
   }
 
-  private async openSelected(req: IncomingMessage, res: ServerResponse, configId: string) {
-    const { auth, accounts } = this.options;
-    if (!this.allowed(req, configId)) throw new Error('此账号未授权。');
-    const selected = await accounts.open(configId);
+  private async openSelected(
+    req: IncomingMessage,
+    res: ServerResponse,
+    configId: string,
+    returnTo?: string,
+  ) {
+    try {
+      if (!this.allowed(req, configId)) throw new Error('此账号未授权。');
+      const selected = await this.options.accounts.open(configId);
+      return this.enterAccount(req, res, selected);
+    } catch (error) {
+      return this.showAccounts(
+        req,
+        res,
+        error instanceof Error ? error.message : '账号打开失败。',
+        returnTo,
+      );
+    }
+  }
+
+  private enterAccount(req: IncomingMessage, res: ServerResponse, selected: RoutedAccount) {
+    const { auth } = this.options;
+    const { configId } = selected.account;
+    if (res.destroyed) return;
     if (!auth.isAuthed(req) || !this.allowed(req, configId))
       return respondError(res, 401, '账号授权已变化。');
     const id = randomUUID();
@@ -298,6 +336,23 @@ export class DesktopWebEntry {
     res.writeHead(303, { Location: location, 'Cache-Control': 'no-store' }).end();
   }
 
+  private async selectFromForm(req: IncomingMessage, res: ServerResponse, returnTo?: string) {
+    if (!validSelectionOrigin(req, this.options.auth))
+      return respondError(res, 403, '账号选择需由当前页面发起。');
+    let configId: string;
+    try {
+      configId = await selectedAccount(req);
+    } catch (error) {
+      return this.showAccounts(
+        req,
+        res,
+        error instanceof Error ? error.message : '账号打开失败。',
+        returnTo,
+      );
+    }
+    return this.openSelected(req, res, configId, returnTo);
+  }
+
   handle(req: IncomingMessage, res: ServerResponse): void {
     void this.process(req, res).catch(() => respondError(res, 503, '账号服务暂不可用。'));
   }
@@ -315,21 +370,7 @@ export class DesktopWebEntry {
       });
       return;
     }
-    if (pathname === ACCOUNT_SELECT && req.method === 'POST') {
-      if (!validSelectionOrigin(req, auth))
-        return respondError(res, 403, '账号选择需由当前页面发起。');
-      try {
-        const configId = await selectedAccount(req);
-        await this.openSelected(req, res, configId);
-      } catch (error) {
-        return this.showAccounts(
-          req,
-          res,
-          error instanceof Error ? error.message : '账号打开失败。',
-        );
-      }
-      return;
-    }
+    if (pathname === ACCOUNT_SELECT && req.method === 'POST') return this.selectFromForm(req, res);
     if (pathname === ACCOUNT_AVATAR && req.method === 'GET')
       return this.showAccountAvatar(req, res, url.searchParams.get('configId') ?? '');
     if (STATIC_PATH.test(pathname) && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -357,36 +398,28 @@ export class DesktopWebEntry {
         req.method === 'GET' &&
         auth.remoteClient
       ) {
-        const allowed = accounts.list().filter((account) => this.allowed(req, account.configId));
-        if (allowed.length === 1) {
-          try {
-            await this.openSelected(req, res, allowed[0]!.configId);
-          } catch (error) {
-            return this.showAccounts(
-              req,
-              res,
-              error instanceof Error ? error.message : '账号打开失败。',
-            );
+        const allowed = this.availableAccounts(req);
+        const preferred = url.searchParams.get('last');
+        if (preferred) {
+          if (allowed.some((account) => account.configId === preferred)) {
+            const active = await accounts.find(preferred).catch(() => undefined);
+            if (active) return this.enterAccount(req, res, active);
           }
-          return;
+        } else if (allowed.length === 1) {
+          return this.openSelected(req, res, allowed[0]!.configId);
         }
       }
       return this.showAccounts(req, res);
     }
     const scope = scopedRequest(req);
     const routed = this.route(req, scope);
+    const remoteAccountRead =
+      auth.remoteClient &&
+      req.method === 'GET' &&
+      (/^\/trpc\/startup\.snapshot(?:,|$)/.test(pathname) || scope?.path.startsWith('/trpc/'));
     if (!routed) {
       // 服务重启会丢弃旧页面的账号路由；由当前页面重新选择，不重投旧请求。
-      if (
-        auth.remoteClient &&
-        req.method === 'GET' &&
-        (/^\/trpc\/startup\.snapshot(?:,|$)/.test(pathname) || scope?.path.startsWith('/trpc/'))
-      ) {
-        res
-          .writeHead(409, { 'X-WeQ-Account-Selection': 'required', 'Cache-Control': 'no-store' })
-          .end();
-        return;
-      }
+      if (remoteAccountRead) return requireRemoteSelection(res);
       if ((req.headers.accept ?? '').includes('text/html')) {
         res.writeHead(303, { Location: '/', 'Cache-Control': 'no-store' }).end();
         return;
@@ -395,6 +428,20 @@ export class DesktopWebEntry {
     }
     if (!auth.isAuthed(req) || !this.allowed(req, routed.scope.configId))
       return respondError(res, 401, '账号授权已变化。');
+    if (auth.remoteClient) {
+      const returnTo = `/_weq/account/${routed.scope.configId}/${routed.scope.routeId}/`;
+      if (routed.scope.path === ACCOUNT_SWITCH) {
+        if (req.method === 'HEAD')
+          return res
+            .writeHead(this.availableAccounts(req).length > 1 ? 204 : 404, {
+              'Cache-Control': 'no-store',
+            })
+            .end();
+        if (req.method === 'GET') return this.showAccounts(req, res, undefined, returnTo);
+      }
+      if (routed.scope.path === ACCOUNT_SELECT && req.method === 'POST')
+        return this.selectFromForm(req, res, returnTo);
+    }
     if (req.method === 'POST' && routed.scope.path === LEAVE_ACCOUNT) {
       if (!validSelectionOrigin(req, auth))
         return respondError(res, 403, '账号退出需由当前页面发起。');
@@ -415,8 +462,21 @@ export class DesktopWebEntry {
     };
     const unwatch = auth.watchSession(req, abort);
     routed.signal.addEventListener('abort', abort, { once: true });
-    upstream.once('error', () => respondError(res, 502, '账号窗口连接已关闭。'));
+    upstream.once('error', (error: NodeJS.ErrnoException) => {
+      if (res.destroyed) return;
+      if (remoteAccountRead && !res.headersSent && error.code === 'ECONNREFUSED') {
+        requireRemoteSelection(res);
+        return;
+      }
+      respondError(res, 502, '账号窗口连接已关闭。');
+    });
     upstream.once('response', (response) => {
+      // 账号进程先用空 401 拒绝过期的 generation；业务鉴权错误带有正文类型。
+      if (remoteAccountRead && response.statusCode === 401 && !response.headers['content-type']) {
+        response.resume();
+        requireRemoteSelection(res);
+        return;
+      }
       if (response.statusCode === 401 && (req.headers.accept ?? '').includes('text/html')) {
         response.resume();
         res.writeHead(303, { Location: '/', 'Cache-Control': 'no-store' }).end();

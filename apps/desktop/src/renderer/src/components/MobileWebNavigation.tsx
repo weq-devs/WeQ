@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ArrowLeftRight, ChevronRight } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { Avatar } from '../im-template/template/primitives';
 import { AnnouncementEntry } from './AnnouncementCenter';
 import { NavigationBadgeMark } from './ReminderBadge';
@@ -27,12 +28,18 @@ import { useDataSaver } from '../lib/dataSaver';
 import { registerMobileBack } from '../hooks/useMobileNavigation';
 import { mobileRootTab } from '../lib/mobileRootTransition';
 import { isSingleColumnLayout, subscribeResponsiveLayout } from '../lib/responsiveLayout';
+import { accountGatewayPath, isAccountGateway } from '../lib/accountGateway';
+import { useRemoteClient } from '../lib/remoteClient';
+import { useWebConnection } from '../state/webConnection';
+import { confirmMailAccountLeave } from '../state/mailDraft';
 import {
   activateNavigation,
   navigationEntries,
   type AppNavigationTarget,
 } from '../lib/appNavigation';
 import '../styles/mobile-web.css';
+
+const switchAccountPath = accountGatewayPath('/_weq/switch-account');
 
 export function MobileWebNavigation({
   user,
@@ -91,6 +98,21 @@ export function MobileWebNavigation({
   }, [mobile, view]);
   const openTool = useWorkspaceMenu((state) => state.openMobileTool);
   const moreOpen = view === 'more' && !mobilePage;
+  const remote = useRemoteClient();
+  const recovery = useWebConnection((state) => state.recovery);
+  const accountSwitch = useQuery({
+    queryKey: ['remote-account-switch', recovery],
+    queryFn: async ({ signal }) => {
+      const response = await fetch(switchAccountPath, {
+        method: 'HEAD',
+        redirect: 'manual',
+        signal,
+      });
+      return response.status === 204;
+    },
+    enabled: remote && isAccountGateway && mobile && moreOpen && !hidden,
+    retry: false,
+  });
   useEffect(() => {
     if (mobile && moreOpen && !dataSaver) return preloadMobilePages(mobileMorePageLoaders);
     return undefined;
@@ -140,6 +162,18 @@ export function MobileWebNavigation({
           <strong>{displayUserName(user)}</strong>
           <span>{user.identityValue}</span>
         </div>
+        {remote && accountSwitch.data === true ? (
+          <button
+            type="button"
+            className="weq-set-btn weq-mobile-more-account-switch"
+            onClick={async () => {
+              if (await confirmMailAccountLeave()) location.assign(switchAccountPath);
+            }}
+          >
+            <ArrowLeftRight size={16} aria-hidden />
+            切换账号
+          </button>
+        ) : null}
       </div>
       {moreEntries.map(({ id, label, icon: Icon, target, workspace, badge }) =>
         target.kind === 'announcements' ? (
