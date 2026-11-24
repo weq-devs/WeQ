@@ -10,42 +10,59 @@
   white-space: normal;
 }
 
+/* 独立于设置行的布局，给文字和控件留出底色内边距。 */
 .weq-settings-body [data-search-highlight='true'] {
-  --weq-search-highlight-bg: color-mix(
-    in srgb,
-    var(--weq-accent-effective) 10%,
-    var(--weq-bg-surface)
-  );
-  /* 命中提示只用左侧强调条 + 底色渐隐，避免整行描边被误读成聚焦框或错误框。 */
-  box-shadow: inset 3px 0 0 0 var(--weq-accent-effective);
-  border-radius: 6px;
-  background: var(--weq-search-highlight-bg);
+  --weq-search-highlight-tint: 11%;
+  position: relative;
+  isolation: isolate;
   scroll-margin-block: 16px;
-  animation: weq-settings-search-highlight 2s ease-out forwards;
 }
 
 html[data-theme='dark'] .weq-settings-body [data-search-highlight='true'] {
-  --weq-search-highlight-bg: color-mix(
+  --weq-search-highlight-tint: 18%;
+  --weq-search-highlight-card-tint: 12%;
+}
+
+.weq-settings-body :not(tr)[data-search-highlight='true']::before,
+.weq-settings-body tr[data-search-highlight='true'] > :is(th, td):first-child::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: -3px -8px;
+  pointer-events: none;
+  border-radius: 8px;
+  background: color-mix(
     in srgb,
-    var(--weq-accent-effective) 18%,
-    var(--weq-bg-surface)
+    var(--weq-accent-effective) var(--weq-search-highlight-tint),
+    transparent
   );
+  animation: weq-settings-search-highlight 2s ease-out forwards;
+}
+
+.weq-settings-body
+  :is(.weq-set-card, .weq-settings-appearance-card)[data-search-highlight='true']::before {
+  --weq-search-highlight-tint: var(--weq-search-highlight-card-tint, 8%);
+  inset: 4px;
+  border-radius: 6px;
+}
+
+.weq-settings-body tr[data-search-highlight='true'] > :is(th, td):first-child::before {
+  inset-block: 3px;
 }
 
 @keyframes weq-settings-search-highlight {
   0%,
   70% {
-    box-shadow: inset 3px 0 0 0 var(--weq-accent-effective);
-    background-color: var(--weq-search-highlight-bg);
+    opacity: 1;
   }
   100% {
-    box-shadow: inset 3px 0 0 0 transparent;
-    background-color: transparent;
+    opacity: 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .weq-settings-body [data-search-highlight='true'] {
+  .weq-settings-body :not(tr)[data-search-highlight='true']::before,
+  .weq-settings-body tr[data-search-highlight='true'] > :is(th, td):first-child::before {
     animation: none;
   }
 }

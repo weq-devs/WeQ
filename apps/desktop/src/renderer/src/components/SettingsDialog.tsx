@@ -316,7 +316,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   },
   {
     id: 'message-display',
-    label: '消息阅读',
+    label: SETTINGS_PAGE_LABELS['message-display'],
     render: () => <AppearanceSection page="message-display" />,
   },
   {
@@ -1221,7 +1221,6 @@ function AppearanceSection({
           )}
           {page === 'message-content' && (
             <Card
-              title="消息样式与预览"
               icon={<Monitor size={15} />}
               settingId="custom-message-display"
               resetId="message-content"

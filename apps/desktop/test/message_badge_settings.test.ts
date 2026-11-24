@@ -142,14 +142,14 @@ function mount() {
               '显示群成员等级',
               '显示群成员头衔与身份',
             ].includes(label)
-          ? '内容显示'
+          ? '消息显示'
           : ['在消息图标上显示红点', '在联系人界面显示未读消息数', '群助手显示总消息数'].includes(
                 label,
               )
             ? '未读角标'
             : ['显示会话预览', '鼠标停留时保持会话位置', '会话互动红点'].includes(label)
               ? '会话列表'
-              : '消息阅读';
+              : '会话浏览';
       if (page === '未读角标')
         act(() =>
           [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]

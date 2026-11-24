@@ -39,14 +39,16 @@ describe('basic_settings_navigation', () => {
         expect(result.target).toEqual({ kind: 'setting', section: 'call-recording' });
         expect(result.path).toBe('设置 / 基础功能 / 通话与录音');
       }
-      expect(searchAppEntries('消息显示')[0]?.target).toEqual({
-        kind: 'setting',
-        section: 'message-content',
-      });
+      for (const name of ['消息显示', '内容显示']) {
+        expect(searchAppEntries(name)[0]?.target).toEqual({
+          kind: 'setting',
+          section: 'message-content',
+        });
+      }
       expect(searchAppEntries('自定义消息显示')[0]?.target).toEqual({
         kind: 'setting',
         section: 'message-content',
-        item: '内容显示',
+        item: '消息样式与预览',
         settingId: 'custom-message-display',
       });
       expect(searchAppEntries('自启时显示窗口')[0]?.target).toEqual({

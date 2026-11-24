@@ -279,7 +279,7 @@ try {
       ['常规', '外观与布局', 'appearance'],
       ['基础功能', 'QQ 邮箱', 'mail'],
       ['基础功能', '联系人名片', 'contact-card'],
-      ['基础功能', '内容显示', 'message-content'],
+      ['基础功能', '消息显示', 'message-content'],
       ['关于 WeQ', '配置备份与恢复', 'backup'],
     ]) {
       await page.goto(`${base()}?section=${id}`);

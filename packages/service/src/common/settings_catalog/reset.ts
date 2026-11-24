@@ -28,7 +28,7 @@ export const SETTINGS_RESET_CARDS = [
   ['message-display', 'unread-jumps', '未读与重要消息'],
   ['message-display', 'message-browsing', '浏览消息'],
   ['message-display', 'missing-messages', '历史消息补全'],
-  ['message-content', 'message-content', '内容显示'],
+  ['message-content', 'message-content', '消息样式与预览'],
   ['contact-card', 'contact-card', '联系人名片'],
   ['chat-interaction', 'quote-replies', '引用回复'],
   ['chat-interaction', 'emoji-shortcuts', '表情输入'],

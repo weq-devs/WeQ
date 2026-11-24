@@ -10,13 +10,16 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 
 describe('设置的两级导航', () => {
-  it.each(['消息阅读', '消息区域'])('%s 搜索统一显示消息阅读并保留旧名称入口', (keyword) => {
-    expect(SETTINGS_PAGE_LABELS['message-display']).toBe('消息阅读');
-    expect(searchAppEntries(keyword)[0]).toMatchObject({
-      path: '设置 / 基础功能 / 消息阅读',
-      target: { kind: 'setting', section: 'message-display' },
-    });
-  });
+  it.each(['会话浏览', '消息阅读', '消息区域'])(
+    '%s 搜索统一显示会话浏览并保留旧名称入口',
+    (keyword) => {
+      expect(SETTINGS_PAGE_LABELS['message-display']).toBe('会话浏览');
+      expect(searchAppEntries(keyword)[0]).toMatchObject({
+        path: '设置 / 基础功能 / 会话浏览',
+        target: { kind: 'setting', section: 'message-display' },
+      });
+    },
+  );
   it.each([
     ['引用自动提及', 'quote-auto-mention', 'chat-interaction'],
     ['退格取消引用', 'quote-backspace-remove', 'chat-interaction'],

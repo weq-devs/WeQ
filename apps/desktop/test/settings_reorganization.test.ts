@@ -498,8 +498,8 @@ describe('设置归位后的实际页面', () => {
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
       ).toEqual([
         '会话列表',
-        '消息阅读',
-        '内容显示',
+        '会话浏览',
+        '消息显示',
         '消息输入与回复',
         '防撤回',
         '联系人名片',
@@ -520,7 +520,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().querySelector('[data-setting-id="anti-recall"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="text-markdown"]')).toBeNull();
       const tabs = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')];
-      act(() => tabs.find((tab) => tab.textContent === '消息阅读')!.click());
+      act(() => tabs.find((tab) => tab.textContent === '会话浏览')!.click());
       const reading = f.body();
       expect(reading.querySelector('.weq-set-card .weq-set-card')).toBeNull();
       expect(
@@ -541,7 +541,7 @@ describe('设置归位后的实际页面', () => {
       expect(
         [...reading.querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
       ).toEqual(['打开会话', '未读与重要消息', '浏览消息', '历史消息补全']);
-      act(() => tabs.find((tab) => tab.textContent === '内容显示')!.click());
+      act(() => tabs.find((tab) => tab.textContent === '消息显示')!.click());
       const display = f.body();
       expect(
         [...display.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
@@ -595,7 +595,7 @@ describe('设置归位后的实际页面', () => {
       } as const;
       f.render('chat-messages', target);
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '内容显示',
+        '消息显示',
       );
       expect(
         f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
@@ -677,8 +677,8 @@ describe('设置归位后的实际页面', () => {
     ['maintenance', '密钥扫描', 'key-scan', '凭据管理'],
     ['maintenance', '其它设备密钥', 'other-device-key', '凭据管理'],
     ['message-display', '显示消息汇总红点', 'message-unread-badge', '未读角标'],
-    ['chat-messages', '纯文本消息自动渲染为 Markdown', 'text-markdown', '内容显示'],
-    ['chat-messages', '语音消息自动转文字', 'auto-transcribe-voice', '内容显示'],
+    ['chat-messages', '纯文本消息自动渲染为 Markdown', 'text-markdown', '消息显示'],
+    ['chat-messages', '语音消息自动转文字', 'auto-transcribe-voice', '消息显示'],
     ['chat-messages', '图片预览内存预算', 'chat-image-cache', '资源加载'],
     ['message-display', '完整消息预热内存预算', 'chat-message-prewarm', '资源加载'],
     ['message-display', '触屏左滑引用', 'swipe-to-quote', '消息输入与回复'],
@@ -869,8 +869,8 @@ describe('设置归位后的实际页面', () => {
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((item) => item.textContent),
       ).toEqual([
         '会话列表',
-        '消息阅读',
-        '内容显示',
+        '会话浏览',
+        '消息显示',
         '消息输入与回复',
         '防撤回',
         '联系人名片',
