@@ -215,6 +215,7 @@ export function ExternalRkeySection(): ReactElement {
         title="外部 rKey 服务器"
         desc="通过外部 rkey 服务器为本机补全缺失的聊天图片/表情。"
         resetId="rkey"
+        settingId="external-rkey"
         icon={<Server size={15} strokeWidth={1.8} />}
         action={
           <button

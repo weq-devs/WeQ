@@ -115,7 +115,7 @@ createRoot(document.getElementById('root')!).render(
         {settings ? (
           <SettingsDialog
             open
-            initialSection={settings === 'display' ? 'message-display' : 'chat-interaction'}
+            initialSection={settings === 'display' ? 'message-content' : 'chat-interaction'}
             onClose={() => {}}
             onOpenMaintenance={() => {}}
             onOpenRecalls={() => {}}

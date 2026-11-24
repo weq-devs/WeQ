@@ -21,9 +21,9 @@ describe('设置的两级导航', () => {
     ['引用自动提及', 'quote-auto-mention', 'chat-interaction'],
     ['退格取消引用', 'quote-backspace-remove', 'chat-interaction'],
     ['表情自动替换', 'slash-emoji-auto-replace', 'chat-interaction'],
-    ['显示群成员昵称', 'group-message-name', 'message-display'],
-    ['显示群成员等级', 'group-message-level', 'message-display'],
-    ['显示群成员头衔与身份', 'group-message-title', 'message-display'],
+    ['显示群成员昵称', 'group-message-name', 'message-content'],
+    ['显示群成员等级', 'group-message-level', 'message-content'],
+    ['显示群成员头衔与身份', 'group-message-title', 'message-content'],
   ])('%s 搜索直达群消息或引用设置', (keyword, settingId, section) => {
     expect(searchAppEntries(keyword)[0]?.target).toMatchObject({
       kind: 'setting',
@@ -52,13 +52,15 @@ describe('设置的两级导航', () => {
       'startup',
       'account',
       'appearance',
+      'home',
       'global',
+      'notification-badges',
       'privacy',
     ]);
     expect(SETTINGS_PAGE_LABELS.startup).toBe('启动与退出');
     expect(SETTINGS_PAGE_LABELS.appearance).toBe('外观与布局');
     expect(SETTINGS_PAGE_LABELS.global).toBe('通知与提醒');
-    expect(settingsSectionFor('home')).toBe('startup');
+    expect(settingsSectionFor('home')).toBe('home');
   });
   it.each([
     ['使用仿 Windows 窗口按钮', 'windows-style-controls', 'appearance', '外观与布局'],
@@ -134,7 +136,9 @@ describe('设置的两级导航', () => {
     expect(settingsGroupFor('mail').sections).toEqual([
       'chat-messages',
       'message-display',
+      'message-content',
       'chat-interaction',
+      'anti-recall',
       'contact-card',
       'call-recording',
       'qzone',
@@ -174,7 +178,7 @@ describe('设置的两级导航', () => {
     expect(settingsGroupFor('diagnostics').id).toBe('data');
     expect(settingsGroupFor('accounts').id).toBe('help');
     expect(settingsGroupFor('backup').id).toBe('help');
-    expect(settingsSectionFor('rkey')).toBe('credentials');
+    expect(settingsSectionFor('rkey')).toBe('resource-loading');
     expect(SETTINGS_PAGE_LABELS.diagnostics).toBe('QQ 高级工具');
     expect(settingsSectionFor('database-tolerance')).toBe('database-management');
     expect(settingsSectionFor('qq-accounts')).toBe('diagnostics');

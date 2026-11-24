@@ -354,7 +354,7 @@ describe('设置归位后的实际页面', () => {
           ).toBeNull();
         }
       }
-      for (const page of ['backup', 'faq', 'feedback', 'diagnostics', 'weq-storage'] as const) {
+      for (const page of ['backup', 'faq', 'feedback', 'credentials', 'weq-storage'] as const) {
         f.render(page);
         expect(f.body().querySelector('[aria-label="恢复本页默认设置"]'), page).toBeNull();
       }
@@ -383,7 +383,7 @@ describe('设置归位后的实际页面', () => {
     }
   });
   it('Markdown 开关明确为自动渲染，关闭后仍可手动渲染', () => {
-    const f = mount('message-display');
+    const f = mount('message-content');
     try {
       const row = f.body().querySelector('[data-setting-id="text-markdown"]')!;
       expect(row.querySelector('.weq-set-row-label')?.textContent).toBe(
@@ -499,7 +499,9 @@ describe('设置归位后的实际页面', () => {
       ).toEqual([
         '会话列表',
         '消息阅读',
-        '互动与防撤回',
+        '内容显示',
+        '消息输入与回复',
+        '防撤回',
         '联系人名片',
         '通话与录音',
         'QQ 空间',
@@ -519,10 +521,10 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().querySelector('[data-setting-id="text-markdown"]')).toBeNull();
       const tabs = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')];
       act(() => tabs.find((tab) => tab.textContent === '消息阅读')!.click());
-      const display = f.body();
-      expect(display.querySelector('.weq-set-card .weq-set-card')).toBeNull();
+      const reading = f.body();
+      expect(reading.querySelector('.weq-set-card .weq-set-card')).toBeNull();
       expect(
-        [...display.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
+        [...reading.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
       ).toEqual([
         '打开会话时继续上次阅读',
         '继续上次阅读按钮',
@@ -535,6 +537,15 @@ describe('设置归位后的实际页面', () => {
         '向下浏览时显示「回到最新」按钮',
         '看到缺口时自动补全',
         '跳转到缺失消息时补全附近记录',
+      ]);
+      expect(
+        [...reading.querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
+      ).toEqual(['打开会话', '未读与重要消息', '浏览消息', '历史消息补全']);
+      act(() => tabs.find((tab) => tab.textContent === '内容显示')!.click());
+      const display = f.body();
+      expect(
+        [...display.querySelectorAll('.weq-set-row-label')].map((node) => node.textContent),
+      ).toEqual([
         '优先使用 QQ 秀替换头像',
         '个性装扮',
         '合并连续发言',
@@ -545,9 +556,7 @@ describe('设置归位后的实际页面', () => {
         '链接预览卡片',
         '自动联网补全链接预览',
       ]);
-      expect(
-        [...display.querySelectorAll('.weq-set-card-title')].map((node) => node.textContent),
-      ).toEqual(['打开会话', '未读与重要消息', '浏览消息', '历史消息补全', '内容显示']);
+
       expect(
         [...display.querySelectorAll('[aria-label="个性装扮"] button')].map(
           (node) => node.textContent,
@@ -563,11 +572,14 @@ describe('设置归位后的实际页面', () => {
           (node) => node.textContent,
         ),
       ).toEqual(['日期', '时间', '消息序号（seq）']);
-      act(() => tabs.find((tab) => tab.textContent === '互动与防撤回')!.click());
+      act(() => tabs.find((tab) => tab.textContent === '消息输入与回复')!.click());
       expect(f.body().querySelector('[data-setting-id="typing-status"]')).not.toBeNull();
       expect(f.body().querySelector('[data-setting-id="read-sync"]')).toBeNull();
-      expect(f.body().querySelector('[data-setting-id="anti-recall"]')).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="anti-recall"]')).toBeNull();
       expect(f.body().querySelector('[role="tablist"]')).toBeNull();
+      act(() => tabs.find((tab) => tab.textContent === '防撤回')!.click());
+      expect(f.body().querySelector('[data-setting-id="anti-recall"]')).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="typing-status"]')).toBeNull();
     } finally {
       f.close();
     }
@@ -583,7 +595,7 @@ describe('设置归位后的实际页面', () => {
       } as const;
       f.render('chat-messages', target);
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '消息阅读',
+        '内容显示',
       );
       expect(
         f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
@@ -644,17 +656,19 @@ describe('设置归位后的实际页面', () => {
     }
   });
   it.each([
-    ['global', '默认发送正在输入状态', 'typing-status', '互动与防撤回'],
+    ['global', '默认发送正在输入状态', 'typing-status', '消息输入与回复'],
     ['storage', '优先使用 CDN', 'prefer-cdn', '资源加载'],
     ['media', '允许使用外部安卓图片缓存', 'external-chatpic', '资源加载'],
     ['qq-accounts', 'QQ 登录记录管理', 'qq-accounts', 'QQ 高级工具'],
     ['logs', '数据库读取并发上限', 'database-read-concurrency', 'QQ 数据库管理'],
-    ['rkey', '外部 RKEY', 'external-rkey', '凭据管理'],
+    ['rkey', '外部 RKEY', 'external-rkey', '资源加载'],
+    ['credentials', '签名器（wrapper.node）', 'signer-status', 'QQ 高级工具'],
+    ['call-recording', '通话抓包', 'call-udp-trace', 'QQ 高级工具'],
     ['applock', '隐私模式', 'privacy-mode', '隐私'],
     ['applock', '启用应用锁', 'app-lock', '隐私'],
     ['applock', '解锁方式', 'unlock-method', '隐私'],
     ['applock', '无操作自动上锁', 'auto-lock', '隐私'],
-    ['anti-recall', '防撤回', 'anti-recall', '互动与防撤回'],
+    ['anti-recall', '防撤回', 'anti-recall', '防撤回'],
     ['maintenance', '本地缓存', 'resource-viewer', 'QQ 资源管理'],
     ['maintenance', '存储占用', 'qq-storage-analysis', 'QQ 资源管理'],
     ['maintenance', '清理缓存', 'qq-storage-cleanup', 'QQ 资源管理'],
@@ -662,12 +676,12 @@ describe('设置归位后的实际页面', () => {
     ['maintenance', '导出明文数据库', 'database-export', 'QQ 数据库管理'],
     ['maintenance', '密钥扫描', 'key-scan', '凭据管理'],
     ['maintenance', '其它设备密钥', 'other-device-key', '凭据管理'],
-    ['message-display', '显示消息汇总红点', 'message-unread-badge', '通知与提醒'],
-    ['chat-messages', '纯文本消息自动渲染为 Markdown', 'text-markdown', '消息阅读'],
-    ['chat-messages', '语音消息自动转文字', 'auto-transcribe-voice', '消息阅读'],
+    ['message-display', '显示消息汇总红点', 'message-unread-badge', '未读角标'],
+    ['chat-messages', '纯文本消息自动渲染为 Markdown', 'text-markdown', '内容显示'],
+    ['chat-messages', '语音消息自动转文字', 'auto-transcribe-voice', '内容显示'],
     ['chat-messages', '图片预览内存预算', 'chat-image-cache', '资源加载'],
     ['message-display', '完整消息预热内存预算', 'chat-message-prewarm', '资源加载'],
-    ['message-display', '触屏左滑引用', 'swipe-to-quote', '互动与防撤回'],
+    ['message-display', '触屏左滑引用', 'swipe-to-quote', '消息输入与回复'],
     ['reply-suggestions', '常驻显示', 'intent-persistent-display', '意图感知'],
     ['reply-suggestions', '悬停显示', 'intent-hover-display', '意图感知'],
     ['intent-models', '意图模型资源', 'intent-engine', '意图感知'],
@@ -856,7 +870,9 @@ describe('设置归位后的实际页面', () => {
       ).toEqual([
         '会话列表',
         '消息阅读',
-        '互动与防撤回',
+        '内容显示',
+        '消息输入与回复',
+        '防撤回',
         '联系人名片',
         '通话与录音',
         'QQ 空间',
@@ -867,13 +883,22 @@ describe('设置归位后的实际页面', () => {
       f.render('call-recording');
       expect(f.body().querySelector('h3')?.textContent).toBe('通话与录音');
       expect(f.body().querySelector('.weq-set-desc')?.textContent).toBe(
-        '配置通话连接方式、录音内容与保存位置，以及抓包排障选项。',
+        '配置通话连接方式、录音内容与保存位置。',
       );
       expect(f.body().textContent).toContain('录音来源');
       expect(f.body().textContent).toContain('同时录电脑声音');
       expect(f.body().textContent).toContain('禁用 P2P 直连');
-      expect(f.body().textContent).toContain('记录 UDP 流量');
       expect(f.body().querySelector('.weq-settings-scope')).toBeNull();
+      expect(f.body().querySelector('[aria-label="记录 UDP 流量"]')).toBeNull();
+      const traceLink = [...f.body().querySelectorAll('button')].find(
+        (button) => button.textContent === '前往通话抓包',
+      );
+      act(() => traceLink!.click());
+      expect(f.body().getAttribute('data-settings-page')).toBe('diagnostics');
+      expect(f.body().querySelector('[aria-label="记录 UDP 流量"]')).not.toBeNull();
+      expect(
+        f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
+      ).toBe('call-udp-trace');
       f.render('mail');
       expect(f.body().querySelector('[aria-label="在邮箱图标上显示红点"]')).toBeNull();
       expect(f.body().querySelector('[aria-label="收到新邮件时横幅提醒"]')).toBeNull();
@@ -971,13 +996,21 @@ describe('设置归位后的实际页面', () => {
       f.close();
     }
   });
-  it('启动与退出依次展示自启、启动页面、关闭窗口和主页，旧主页入口仍定位底部', () => {
+  it('启动与退出与主页各自成页，旧主页入口仍能定位', () => {
     const f = mount('startup');
     try {
       expect(f.body().querySelector('h3')?.textContent).toBe('启动与退出');
       expect(
         [...f.host.querySelectorAll('.weq-settings-subnav-item')].map((node) => node.textContent),
-      ).toEqual(['启动与退出', '在线能力与授权', '外观与布局', '通知与提醒', '隐私']);
+      ).toEqual([
+        '启动与退出',
+        '在线能力与授权',
+        '外观与布局',
+        '主页',
+        '通知与提醒',
+        '未读角标',
+        '隐私',
+      ]);
       const ids = [
         ...new Set(
           [...f.body().querySelectorAll('[data-setting-id]')].map((node) =>
@@ -990,17 +1023,10 @@ describe('设置归位后的实际页面', () => {
         'startup-enabled',
         'startup-page',
         'window-close-behavior',
-        'home-settings',
-        'home-prefer-qqshow',
-        'home-tags',
-        'home-greeting',
-        'home-hitokoto',
       ]);
       expect(f.body().querySelector('.weq-set-row-label')?.textContent).toBe('开机自动启动');
       f.render('home');
-      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
-        '启动与退出',
-      );
+      expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe('主页');
       expect(
         f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
       ).toBe('home-settings');
@@ -1011,7 +1037,7 @@ describe('设置归位后的实际页面', () => {
         ['一言', 'home-hitokoto'],
         ['一言屏蔽词', 'home-hitokoto'],
       ] as const) {
-        f.render('home', { section: 'home', item, revision: 1 });
+        f.render('startup', { section: 'startup', item, revision: 1 });
         expect(
           f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
         ).toBe(id);
@@ -1026,6 +1052,7 @@ describe('设置归位后的实际页面', () => {
     try {
       expect(f.body().querySelector('h3')?.textContent).toBe('通知与提醒');
       expect(f.body().querySelector('[data-setting-id="notification-events"]')).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="notification-badges"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="window-close-behavior"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="windows-style-controls"]')).toBeNull();
       f.render('appearance');

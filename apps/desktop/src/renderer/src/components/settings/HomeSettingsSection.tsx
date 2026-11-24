@@ -12,7 +12,7 @@ import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
 import { useDialog } from '../Dialog.shared';
 import { Modal } from '../Dialog';
-import { Card, Row, Toggle } from './controls';
+import { Card, Row, SectionHeader, Toggle } from './controls';
 import { SaveStatusSlotContext } from './controls.shared';
 import { REVEAL_SETTING_EVENT } from './searchTarget';
 import '../../styles/settings-home.css';
@@ -89,8 +89,14 @@ export function HomeSettingsSection() {
 
   return (
     <div className="weq-set">
+      <SectionHeader title="主页" page="home" />
       {settings.isError && <p role="alert">{settings.error.message}</p>}
-      <Card title="主页" icon={<House size={16} strokeWidth={1.8} />}>
+      <Card
+        title="主页内容"
+        icon={<House size={16} strokeWidth={1.8} />}
+        resetId="home"
+        settingId="home-settings"
+      >
         {(
           [
             ['preferQqShow', '优先展示 QQ 秀', 'home-prefer-qqshow'],

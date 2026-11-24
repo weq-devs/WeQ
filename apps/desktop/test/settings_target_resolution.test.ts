@@ -10,18 +10,18 @@ import {
 
 describe('设置重构的规范目标与旧入口分流', () => {
   it.each(['global', 'chat-messages', 'message-display', 'chat-interaction'] as const)(
-    '%s 的消息提醒入口统一定位到通知与提醒',
+    '%s 的消息通知和角标分别定位',
     (section) => {
-      for (const [settingId, item] of [
-        ['message-system-notifications', '新消息系统通知'],
-        ['application-unread-badge', '应用图标未读角标'],
+      for (const [settingId, item, page] of [
+        ['message-system-notifications', '新消息系统通知', 'global'],
+        ['application-unread-badge', '应用图标未读角标', 'notification-badges'],
       ]) {
         expect(resolveSettingsTarget({ section, item })).toMatchObject({
-          section: 'global',
+          section: page,
           settingId,
         });
         expect(resolveSettingsTarget({ section, settingId })).toMatchObject({
-          section: 'global',
+          section: page,
           settingId,
         });
       }
@@ -40,12 +40,14 @@ describe('设置重构的规范目标与旧入口分流', () => {
     const sections = SETTINGS_GROUPS.flatMap((group) => group.sections);
     expect(sections).toHaveLength(Object.keys(SETTINGS_PAGE_LABELS).length);
     expect(new Set(sections)).toEqual(new Set(Object.keys(SETTINGS_PAGE_LABELS)));
-    expect(SETTINGS_GROUPS[0]?.sections).not.toContain('home');
+    expect(SETTINGS_GROUPS[0]?.sections).toContain('home');
     expect(SETTINGS_GROUPS[0]?.sections[0]).toBe('startup');
     expect(SETTINGS_GROUPS[1]?.sections).toEqual([
       'chat-messages',
       'message-display',
+      'message-content',
       'chat-interaction',
+      'anti-recall',
       'contact-card',
       'call-recording',
       'qzone',
@@ -59,8 +61,8 @@ describe('设置重构的规范目标与旧入口分流', () => {
     target: string;
     settingId?: string;
   }>([
-    { section: 'home', target: 'startup', settingId: 'home-settings' },
-    { section: 'home', item: '一言屏蔽词', target: 'startup', settingId: 'home-blocked-words' },
+    { section: 'home', target: 'home', settingId: 'home-settings' },
+    { section: 'home', item: '一言屏蔽词', target: 'home', settingId: 'home-blocked-words' },
     { section: 'applock', target: 'privacy', settingId: 'app-lock' },
     { section: 'applock', item: '启用应用锁', target: 'privacy', settingId: 'app-lock' },
     { section: 'applock', item: '解锁方式', target: 'privacy', settingId: 'unlock-method' },
@@ -87,8 +89,8 @@ describe('设置重构的规范目标与旧入口分流', () => {
       settingId: 'typing-status',
     },
     { section: 'account', target: 'account' },
-    { section: 'message-display', item: '显示消息序号（seq）', target: 'message-display' },
-    { section: 'anti-recall', target: 'chat-interaction', settingId: 'anti-recall' },
+    { section: 'message-display', item: '显示消息序号（seq）', target: 'message-content' },
+    { section: 'anti-recall', target: 'anti-recall', settingId: 'anti-recall' },
     { section: 'media', target: 'resource-loading' },
     { section: 'qq-accounts', target: 'diagnostics', settingId: 'qq-accounts' },
     {
@@ -97,7 +99,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
       target: 'resource-loading',
       settingId: 'external-chatpic',
     },
-    { section: 'rkey', target: 'credentials', settingId: 'external-rkey' },
+    { section: 'rkey', target: 'resource-loading', settingId: 'external-rkey' },
     {
       section: 'accounts',
       item: '关联资源目录',

@@ -90,6 +90,7 @@ const computerSettingIds = new Set([
   'qq-storage-cleanup',
   'qq-accounts',
   'external-chatpic',
+  'call-udp-trace',
   'other-device-key',
   'qq-debug-copy',
   'long-term-authorization',

@@ -11,11 +11,15 @@ export const SETTINGS_PAGE_LABELS = {
   'contact-card': '联系人名片',
   appearance: '外观与布局',
   global: '通知与提醒',
+  'notification-badges': '未读角标',
   startup: '启动与退出',
+  home: '主页',
   'weq-storage': 'WeQ 存储管理',
   'chat-messages': '会话列表',
   'message-display': '消息阅读',
-  'chat-interaction': '互动与防撤回',
+  'message-content': '内容显示',
+  'chat-interaction': '消息输入与回复',
+  'anti-recall': '防撤回',
   'call-recording': '通话与录音',
   qzone: 'QQ 空间',
   mail: 'QQ 邮箱',
@@ -51,8 +55,6 @@ export type SettingsPageId = keyof typeof SETTINGS_PAGE_LABELS;
 export type SectionId =
   | SettingsPageId
   | 'performance-monitor'
-  | 'anti-recall'
-  | 'home'
   | 'applock'
   | 'saving'
   | 'storage'
@@ -77,7 +79,15 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'general',
     label: '常规',
-    sections: ['startup', 'account', 'appearance', 'global', 'privacy'],
+    sections: [
+      'startup',
+      'account',
+      'appearance',
+      'home',
+      'global',
+      'notification-badges',
+      'privacy',
+    ],
   },
   {
     id: 'basic',
@@ -85,7 +95,9 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     sections: [
       'chat-messages',
       'message-display',
+      'message-content',
       'chat-interaction',
+      'anti-recall',
       'contact-card',
       'call-recording',
       'qzone',
@@ -182,6 +194,12 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
       'link-preview-auto-fetch',
       'link-screenshot',
       'auto-transcribe-voice',
+    ].includes(settingId)
+  ) {
+    return 'message-content';
+  }
+  if (
+    [
       'read-first-unread',
       'show-reading-position-button',
       'merge-chat-jump-buttons',
@@ -234,9 +252,9 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ).map(
     ([id, label]): ItemRedirect => ({
       id,
-      section: 'global',
+      section: 'notification-badges',
       label,
-      from: ['global', 'mail', 'chat-messages', 'agentlab', 'version'],
+      from: ['notification-badges', 'global', 'mail', 'chat-messages', 'agentlab', 'version'],
     }),
   ),
   {
@@ -262,7 +280,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['call-mode', 'call-recording', '录音来源'],
       ['call-system-audio', 'call-recording', '同时录电脑声音'],
       ['call-directory', 'call-recording', '保存位置'],
-      ['call-udp-trace', 'call-recording', '记录 UDP 流量'],
       ['theme-mode', 'appearance', '基础模式'],
       ['theme-accent', 'appearance', '主题色'],
       ['theme-background', 'appearance', '界面背景'],
@@ -284,7 +301,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['contact-card-group-fields', 'contact-card', '群内资料'],
       ['enhancement-updates', 'enhancement-packs', '增强包自动更新'],
       ['enhancement-management', 'enhancement-packs', '增强包管理'],
-      ['signer-status', 'credentials', '签名器（wrapper.node）'],
     ] as const
   ).map(
     ([id, section, label]): ItemRedirect => ({
@@ -498,10 +514,23 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     aliases: ['互动画像图片', '画像 OCR'],
     from: ['interaction-profile'],
   },
+  {
+    id: 'call-udp-trace',
+    section: 'diagnostics',
+    label: '记录 UDP 流量',
+    aliases: ['udp 抓包', 'pcapng', '通话抓包'],
+    from: ['call-recording', 'diagnostics'],
+  },
+  {
+    id: 'signer-status',
+    section: 'diagnostics',
+    label: '签名器（wrapper.node）',
+    from: ['credentials', 'diagnostics'],
+  },
   { id: 'tts-providers', section: 'agentlab', label: 'TTS 语音合成', from: ['agentlab', 'tts'] },
   {
     id: 'home-settings',
-    section: 'startup',
+    section: 'home',
     label: '主页',
     aliases: ['主页显示'],
     from: ['home', 'startup'],
@@ -514,9 +543,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['home-hitokoto', '一言'],
       ['home-blocked-words', '一言屏蔽词'],
     ] as const
-  ).map(
-    ([id, label]): ItemRedirect => ({ id, label, section: 'startup', from: ['home', 'startup'] }),
-  ),
+  ).map(([id, label]): ItemRedirect => ({ id, label, section: 'home', from: ['home', 'startup'] })),
   {
     id: 'qqnt-capture',
     section: 'diagnostics',
@@ -630,10 +657,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'mail-unread-badge',
-    section: 'global',
+    section: 'notification-badges',
     label: '邮箱导航未读角标',
     aliases: ['显示未读邮件数', '在邮箱图标上显示红点', '邮箱红点'],
-    from: ['mail', 'global'],
+    from: ['mail', 'global', 'notification-badges'],
   },
   {
     id: 'mail-banner',
@@ -764,8 +791,14 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       id,
       label,
       aliases,
-      section: 'global',
-      from: ['global', 'message-display', 'chat-messages', 'chat-interaction'],
+      section: id === 'message-system-notifications' ? 'global' : 'notification-badges',
+      from: [
+        'global',
+        'message-display',
+        'chat-messages',
+        'chat-interaction',
+        'notification-badges',
+      ],
     }),
   ),
   ...(
@@ -878,9 +911,16 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
         id === 'message-unread-badge' ||
         id === 'contact-unread-count' ||
         id === 'group-assistant-count'
-          ? 'global'
+          ? 'notification-badges'
           : chatMessagePageFor(id),
-      from: ['message-display', 'chat-messages', 'chat-interaction', 'global'],
+      from: [
+        'message-display',
+        'message-content',
+        'chat-messages',
+        'chat-interaction',
+        'global',
+        'notification-badges',
+      ],
     }),
   ),
   {
@@ -953,7 +993,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'anti-recall',
-    section: 'chat-interaction',
+    section: 'anti-recall',
     label: '防撤回',
     from: ['anti-recall', 'chat-messages', 'chat-interaction'],
   },
@@ -974,10 +1014,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'external-rkey',
-    section: 'credentials',
+    section: 'resource-loading',
     label: '外部 rKey 服务器',
     aliases: ['外部 rKey', '外部 RKEY', '已导入的服务器', 'HTTP 服务器地址', 'rKey access_token'],
-    from: ['rkey', 'credentials'],
+    from: ['rkey', 'credentials', 'resource-loading'],
   },
   {
     id: 'damage-reminder',
@@ -988,10 +1028,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'notification-badges',
-    section: 'global',
+    section: 'notification-badges',
     label: '未读角标',
     aliases: ['红点与未读标记'],
-    from: ['global', 'chat-messages'],
+    from: ['global', 'chat-messages', 'notification-badges'],
   },
   {
     id: 'recall-notifications',
@@ -1114,13 +1154,13 @@ const SECTION_REDIRECTS: Partial<
 > = {
   applock: { section: 'privacy', settingId: 'app-lock' },
   'performance-monitor': { section: 'logs', settingId: 'performance-monitor' },
-  home: { section: 'startup', settingId: 'home-settings' },
+  home: { section: 'home', settingId: 'home-settings' },
   saving: { section: 'global' },
   storage: { section: 'weq-storage' },
-  'anti-recall': { section: 'chat-interaction', settingId: 'anti-recall' },
+  'anti-recall': { section: 'anti-recall', settingId: 'anti-recall' },
   media: { section: 'resource-loading' },
   'qq-accounts': { section: 'diagnostics', settingId: 'qq-accounts' },
-  rkey: { section: 'credentials', settingId: 'external-rkey' },
+  rkey: { section: 'resource-loading', settingId: 'external-rkey' },
   database: { section: 'database-management', settingId: 'database-repair' },
   'database-tolerance': { section: 'database-management', settingId: 'database-repair' },
   'database-repair': { section: 'database-management', settingId: 'database-repair' },

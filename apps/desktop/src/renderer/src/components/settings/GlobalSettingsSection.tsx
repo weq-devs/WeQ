@@ -40,7 +40,6 @@ import { Card, CheckPill, Row, SectionHeader, Toggle } from './controls';
 import { SettingsNavigateContext } from './controls.shared';
 import { useTabActive } from '../RetainedTabs.shared';
 import { ToastSettingsCard } from './ToastSettingsCard';
-import { UnreadBadgeSettings } from './UnreadBadgeSettings';
 import { NotificationEventSettings } from './NotificationEventSettings';
 import type { SettingsSearchTarget } from './searchTarget';
 import { WebNotificationsSection } from './WebNotificationsSection';
@@ -451,7 +450,6 @@ export function GlobalSettingsSection({
             target={notificationTarget}
           />
           <ToastSettingsCard />
-          <UnreadBadgeSettings />
           {IS_WEB && <WebNotificationsSection />}
         </>
       )}

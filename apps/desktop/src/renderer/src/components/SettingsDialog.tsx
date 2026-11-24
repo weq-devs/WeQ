@@ -40,7 +40,7 @@ import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
 import { HelpSection } from './settings/HelpSection';
 import { VersionSection } from './settings/VersionSection';
 import { QzoneSettingsSection } from './settings/QzoneSettingsSection';
-import { CallRecordingSection } from './settings/CallRecordingSection';
+import { CallRecordingSection, CallUdpTraceSettings } from './settings/CallRecordingSection';
 import { MailSettingsSection } from './settings/MailSettingsSection';
 import { PrivacySection } from './settings/PrivacySection';
 import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
@@ -65,6 +65,7 @@ import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
 import { AssistantSection } from './settings/AssistantSection';
 import { StartupSection } from './settings/StartupSection';
+import { HomeSettingsSection } from './settings/HomeSettingsSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
 import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
 import { ResourceManagementSection } from './settings/ResourceManagementSection';
@@ -114,7 +115,11 @@ export type { SectionId } from './settings/navigation';
 import { useThemeStore, type ThemeBackground, type ThemePreference } from '../state/theme';
 import { SharedDisplayToggle } from './settings/SharedDisplayToggle';
 import { useEnhancementUpdateBadge } from '../lib/unreadMarkers';
-import { BadgeSettingRow, ConversationListBadgeRows } from './settings/UnreadBadgeSettings';
+import {
+  BadgeSettingRow,
+  ConversationListBadgeRows,
+  UnreadBadgeSettings,
+} from './settings/UnreadBadgeSettings';
 import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSaveQueue';
 import { ContactCardSettings } from './settings/ContactCardSettings';
 import { useRemoteClient } from '../lib/remoteClient';
@@ -148,6 +153,11 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     render: () => <GlobalSettingsSection />,
   },
   {
+    id: 'notification-badges',
+    label: SETTINGS_PAGE_LABELS['notification-badges'],
+    render: () => <UnreadBadgeSettings />,
+  },
+  {
     id: 'version',
     label: '版本与更新',
     render: () => <VersionSection />,
@@ -155,7 +165,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: 'appearance',
     label: '外观与布局',
-    render: () => <AppearanceSection page="theme" />,
+    render: () => <AppearanceSection page="appearance" />,
   },
   {
     id: 'privacy',
@@ -209,6 +219,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
       <>
         <GlobalSettingsSection section="network" />
         <AccountBasicsSection page="media" heading={false} />
+        <ExternalRkeySection />
       </>
     ),
   },
@@ -220,41 +231,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: 'diagnostics',
     label: 'QQ 高级工具',
-    render: (onOpen) => (
-      <div className="weq-set">
-        <SectionHeader title="QQ 高级工具" page="diagnostics" />
-        <Card
-          title="QQNT 抓包"
-          icon={<Radio size={15} />}
-          action={
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft"
-              data-setting-id="qqnt-capture"
-              onClick={() => onOpen('capture')}
-            >
-              打开抓包
-              <ArrowUpRight size={14} aria-hidden />
-            </button>
-          }
-        />
-        <Card
-          title="登录记录与设备标识"
-          icon={<LoginAccountsIcon size={15} />}
-          settingId="qq-accounts"
-        >
-          <LoginAccountPanel />
-        </Card>
-        <SignerStatusCard />
-        <Card
-          title="Protobuf / JCE 逆向"
-          icon={<Code2 size={15} strokeWidth={1.8} />}
-          settingId="reverse-tool"
-        >
-          <ReverseTool />
-        </Card>
-      </div>
-    ),
+    render: (onOpen) => <DiagnosticsSettingsSection onOpen={onOpen} />,
   },
   {
     id: 'model-usage',
@@ -336,27 +313,46 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   {
     id: 'chat-messages',
     label: '会话列表',
-    render: () => <AppearanceSection page="messages" category="reading" />,
+    render: () => <AppearanceSection page="chat-messages" />,
   },
   {
     id: 'message-display',
     label: '消息阅读',
-    render: () => <AppearanceSection page="messages" category="display" />,
+    render: () => <AppearanceSection page="message-display" />,
+  },
+  {
+    id: 'message-content',
+    label: SETTINGS_PAGE_LABELS['message-content'],
+    render: () => <AppearanceSection page="message-content" />,
   },
   {
     id: 'chat-interaction',
-    label: '互动与防撤回',
+    label: SETTINGS_PAGE_LABELS['chat-interaction'],
     render: () => (
       <>
-        <AppearanceSection page="messages" category="sending" />
+        <AppearanceSection page="chat-interaction" />
         <TypingStatusSettingsCard />
       </>
+    ),
+  },
+  {
+    id: 'anti-recall',
+    label: SETTINGS_PAGE_LABELS['anti-recall'],
+    render: () => (
+      <div className="weq-set">
+        <SectionHeader title={SETTINGS_PAGE_LABELS['anti-recall']} page="anti-recall" />
+      </div>
     ),
   },
   {
     id: 'startup',
     label: '启动与退出',
     render: () => <StartupSection />,
+  },
+  {
+    id: 'home',
+    label: SETTINGS_PAGE_LABELS.home,
+    render: () => <HomeSettingsSection />,
   },
   {
     id: 'weq-storage',
@@ -384,9 +380,6 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
               tools={['key-scan', 'other-device-key']}
             />
           </Card>
-        </div>
-        <div data-setting-id="external-rkey">
-          <ExternalRkeySection />
         </div>
       </>
     ),
@@ -717,7 +710,7 @@ function SettingsContent({
                               });
                             }}
                           >
-                            {active.id === 'chat-interaction' ? (
+                            {active.id === 'anti-recall' ? (
                               <>
                                 {active.render(onOpenMaintenance)}
                                 <SettingsScopeContext.Provider value={null}>
@@ -823,6 +816,50 @@ function SettingsContent({
   );
 }
 
+function DiagnosticsSettingsSection({
+  onOpen,
+}: {
+  onOpen: (tool: MaintenanceTool) => void;
+}): ReactElement {
+  const remote = useRemoteClient();
+  return (
+    <div className="weq-set">
+      <SectionHeader title="QQ 高级工具" page="diagnostics" pageReset={!remote} />
+      <Card
+        title="QQNT 抓包"
+        icon={<Radio size={15} />}
+        action={
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft"
+            data-setting-id="qqnt-capture"
+            onClick={() => onOpen('capture')}
+          >
+            打开抓包
+            <ArrowUpRight size={14} aria-hidden />
+          </button>
+        }
+      />
+      <Card
+        title="登录记录与设备标识"
+        icon={<LoginAccountsIcon size={15} />}
+        settingId="qq-accounts"
+      >
+        <LoginAccountPanel />
+      </Card>
+      <CallUdpTraceSettings />
+      <SignerStatusCard />
+      <Card
+        title="Protobuf / JCE 逆向"
+        icon={<Code2 size={15} strokeWidth={1.8} />}
+        settingId="reverse-tool"
+      >
+        <ReverseTool />
+      </Card>
+    </div>
+  );
+}
+
 function ModelUsageSection(): ReactElement {
   return (
     <div className="weq-set weq-settings-model-usage">
@@ -834,12 +871,8 @@ function ModelUsageSection(): ReactElement {
 
 function AppearanceSection({
   page,
-  heading = true,
-  category = 'reading',
 }: {
-  page: 'theme' | 'messages';
-  heading?: boolean;
-  category?: 'reading' | 'display' | 'sending';
+  page: 'appearance' | 'chat-messages' | 'message-display' | 'message-content' | 'chat-interaction';
 }): ReactElement {
   const active = useTabActive();
   const preference = useThemeStore((state) => state.preference);
@@ -949,30 +982,9 @@ function AppearanceSection({
 
   return (
     <section className="weq-settings-section">
-      {heading && (
-        <SectionHeader
-          page={
-            page === 'theme'
-              ? 'appearance'
-              : category === 'reading'
-                ? 'chat-messages'
-                : category === 'sending'
-                  ? 'chat-interaction'
-                  : 'message-display'
-          }
-          title={
-            page === 'theme'
-              ? '外观与布局'
-              : category === 'reading'
-                ? '会话列表'
-                : category === 'sending'
-                  ? '互动与防撤回'
-                  : '消息阅读'
-          }
-        />
-      )}
+      <SectionHeader page={page} title={SETTINGS_PAGE_LABELS[page]} />
 
-      {page === 'theme' && (
+      {page === 'appearance' && (
         <>
           <Card
             title="基础模式"
@@ -1021,9 +1033,9 @@ function AppearanceSection({
           </DesktopOnly>
         </>
       )}
-      {page === 'messages' && (
+      {page !== 'appearance' && (
         <>
-          {category === 'reading' && (
+          {page === 'chat-messages' && (
             <Card
               title="会话预览"
               icon={<MessagesSquare size={15} />}
@@ -1047,7 +1059,7 @@ function AppearanceSection({
               />
             </Card>
           )}
-          {category === 'reading' && (
+          {page === 'chat-messages' && (
             <Card title="列表行为" icon={<MessagesSquare size={15} />} resetId="conversation-order">
               <Row
                 settingId="keep-conversation-position-on-hover"
@@ -1072,12 +1084,12 @@ function AppearanceSection({
               />
             </Card>
           )}
-          {category === 'reading' && (
+          {page === 'chat-messages' && (
             <Card title="常规视图未读角标" icon={<Bell size={15} />} resetId="conversation-markers">
               <ConversationListBadgeRows />
             </Card>
           )}
-          {category === 'reading' && (
+          {page === 'chat-messages' && (
             <Card
               title="全部会话视图"
               icon={<MessagesSquare size={15} />}
@@ -1105,7 +1117,7 @@ function AppearanceSection({
               />
             </Card>
           )}
-          {category === 'display' && (
+          {page === 'message-display' && (
             <>
               <Card resetId="reading" icon={<BookOpen size={15} strokeWidth={1.8} />}>
                 {readingToggle(
@@ -1176,12 +1188,12 @@ function AppearanceSection({
               </Card>
             </>
           )}
-          {category === 'sending' && (
+          {page === 'chat-interaction' && (
             <Card title="表情输入" icon={<Smile size={15} />} resetId="emoji-shortcuts">
               <SlashEmojiSettings />
             </Card>
           )}
-          {category === 'sending' && (
+          {page === 'chat-interaction' && (
             <Card resetId="quote-replies" icon={<MessagesSquare size={15} />}>
               <Row
                 settingId="swipe-to-quote"
@@ -1210,9 +1222,9 @@ function AppearanceSection({
               />
             </Card>
           )}
-          {category === 'display' && (
+          {page === 'message-content' && (
             <Card
-              title="内容显示"
+              title="消息样式与预览"
               icon={<Monitor size={15} />}
               settingId="custom-message-display"
               resetId="message-content"

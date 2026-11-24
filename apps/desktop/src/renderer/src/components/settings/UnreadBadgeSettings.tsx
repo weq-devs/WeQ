@@ -4,7 +4,7 @@ import {
   CONTACT_UNREAD_COUNT_LABEL,
   ENTRY_BADGE_SETTINGS,
 } from '@weq/service/client-preferences';
-import { Card, Row } from './controls';
+import { Card, Row, SectionHeader } from './controls';
 import { SharedDisplayToggle } from './SharedDisplayToggle';
 import { MailNotificationSettings } from './MailNotificationSettings';
 import '../../styles/unread-badge-settings.css';
@@ -90,35 +90,38 @@ function ContactBadgeRows() {
 
 export function UnreadBadgeSettings() {
   return (
-    <Card
-      title="未读角标"
-      icon={<BellDot size={15} />}
-      resetId="notification-badges"
-      settingId="notification-badges"
-    >
-      <h4 className="weq-badge-group-title">系统应用图标</h4>
-      <BadgeSettingRow
-        name="applicationBadge"
-        settingId="application-unread-badge"
-        label="应用图标未读角标"
-        fallback={true}
-      />
-      <h4 className="weq-badge-group-title">主导航</h4>
-      <BadgeSettingRow
-        name="showMessageUnreadBadge"
-        settingId="message-unread-badge"
-        label="消息导航未读角标"
-        fallback={true}
-      />
-      <MailNotificationSettings kind="unread" />
-      <h4 className="weq-badge-group-title">会话列表常规视图</h4>
-      <ConversationListBadgeRows />
-      <h4 className="weq-badge-group-title">联系人页</h4>
-      <ContactBadgeRows />
-      <h4 className="weq-badge-group-title">菜单</h4>
-      <EntryBadgeRows kind="tasks" />
-      <EntryBadgeRows kind="updates" />
-      <EntryBadgeRows kind="announcements" />
-    </Card>
+    <div className="weq-set">
+      <SectionHeader title="未读角标" page="notification-badges" />
+      <Card
+        title="角标显示"
+        icon={<BellDot size={15} />}
+        resetId="notification-badges"
+        settingId="notification-badges"
+      >
+        <h4 className="weq-badge-group-title">系统应用图标</h4>
+        <BadgeSettingRow
+          name="applicationBadge"
+          settingId="application-unread-badge"
+          label="应用图标未读角标"
+          fallback={true}
+        />
+        <h4 className="weq-badge-group-title">主导航</h4>
+        <BadgeSettingRow
+          name="showMessageUnreadBadge"
+          settingId="message-unread-badge"
+          label="消息导航未读角标"
+          fallback={true}
+        />
+        <MailNotificationSettings kind="unread" />
+        <h4 className="weq-badge-group-title">会话列表常规视图</h4>
+        <ConversationListBadgeRows />
+        <h4 className="weq-badge-group-title">联系人页</h4>
+        <ContactBadgeRows />
+        <h4 className="weq-badge-group-title">菜单</h4>
+        <EntryBadgeRows kind="tasks" />
+        <EntryBadgeRows kind="updates" />
+        <EntryBadgeRows kind="announcements" />
+      </Card>
+    </div>
   );
 }

@@ -42,7 +42,7 @@ export async function runConnectionTest(
             kind: 'app',
             target: {
               kind: 'setting',
-              section: kind === 'rkey' ? 'credentials' : kind === 'sse' ? 'sse' : 'agentlab',
+              section: kind === 'rkey' ? 'resource-loading' : kind === 'sse' ? 'sse' : 'agentlab',
               settingId:
                 kind === 'rkey'
                   ? 'external-rkey'

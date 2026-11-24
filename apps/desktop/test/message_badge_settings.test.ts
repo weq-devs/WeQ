@@ -132,7 +132,7 @@ function mount() {
     render,
     toggle: (label: string) => {
       const page = ['群聊引用时自动 @ 对方', '按退格键移除引用'].includes(label)
-        ? '互动与防撤回'
+        ? '消息输入与回复'
         : [
               '消息气泡',
               '消息字体',
@@ -142,15 +142,15 @@ function mount() {
               '显示群成员等级',
               '显示群成员头衔与身份',
             ].includes(label)
-          ? '消息阅读'
+          ? '内容显示'
           : ['在消息图标上显示红点', '在联系人界面显示未读消息数', '群助手显示总消息数'].includes(
                 label,
               )
-            ? '通知与提醒'
+            ? '未读角标'
             : ['显示会话预览', '鼠标停留时保持会话位置', '会话互动红点'].includes(label)
               ? '会话列表'
               : '消息阅读';
-      if (page === '通知与提醒')
+      if (page === '未读角标')
         act(() =>
           [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]
             .find((button) => button.textContent === '常规')!

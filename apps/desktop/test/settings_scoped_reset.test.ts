@@ -213,7 +213,7 @@ describe('分级恢复默认', () => {
     expect(await recall.setScope({ scope: 'off' })).toMatchObject({ enabled: false, mode: 'all' });
     expect(await recall.setMethod({ method: 'weq' })).toMatchObject({ enabled: true, mode: 'all' });
     await recall.setMode({ mode: 'selected' });
-    const target = { page: 'chat-interaction', card: 'recall-scope' } as const;
+    const target = { page: 'anti-recall', card: 'recall-scope' } as const;
     const preview = await caller().preview(target);
     expect(preview.items).toContainEqual(
       expect.objectContaining({
@@ -533,14 +533,8 @@ describe('分级恢复默认', () => {
   });
   it('通知与红点迁移后，旧功能页恢复不再修改通知偏好', async () => {
     const global = await caller().preview({ page: 'global' });
-    expect(global.items.map((item) => item.id)).toEqual(
-      expect.arrayContaining([
-        'notification-badges:showMessageUnreadBadge',
-        'notification-badges:showContactUnreadCount',
-        'notification-events:notificationEvents',
-        'notification-badges:unread',
-      ]),
-    );
+    expect(global.items.map((item) => item.id)).toContain('notification-events:notificationEvents');
+    expect(global.items.some((item) => item.id.startsWith('notification-badges:'))).toBe(false);
     expect(global.items.some((item) => item.id.startsWith('damage-reminder:'))).toBe(false);
     for (const page of [
       'mail',
@@ -559,8 +553,17 @@ describe('分级恢复默认', () => {
         ),
       ).toBe(false);
     }
-    const badges = await caller().preview({ page: 'global', card: 'notification-badges' });
+    const badges = await caller().preview({ page: 'notification-badges' });
+    expect(badges.items.map((item) => item.id)).toEqual(
+      expect.arrayContaining([
+        'notification-badges:showMessageUnreadBadge',
+        'notification-badges:showContactUnreadCount',
+        'notification-badges:unread',
+      ]),
+    );
+    expect(badges.items.every((item) => item.id.startsWith('notification-badges:'))).toBe(true);
     expect(badges.items.some((item) => item.id.includes('reportRead'))).toBe(false);
+    expect(await caller().preview({ page: 'global', card: 'notification-badges' })).toEqual(badges);
   });
   it('只读预览不写入，卡片恢复不影响同页其他配置或连接凭据', async () => {
     state.settings.qzonePagination = { windowSeconds: 30, maxPages: 12 };

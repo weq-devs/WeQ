@@ -53,7 +53,9 @@ import {
 
 const target = z
   .object({
-    page: z.custom<SettingsResetTarget['page']>((v) => SETTINGS_RESET_CARDS.some(([p]) => p === v)),
+    page: z.custom<SettingsResetTarget['page']>(
+      (v) => v === 'credentials' || SETTINGS_RESET_CARDS.some(([p]) => p === v),
+    ),
     card: z
       .custom<SettingsResetCardId>((v) => SETTINGS_RESET_CARDS.some(([, c]) => c === v))
       .optional(),
