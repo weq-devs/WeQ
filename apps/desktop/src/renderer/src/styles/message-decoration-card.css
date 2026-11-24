@@ -36,6 +36,20 @@
   gap: 6px;
 }
 
+.weq-decoration-card-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.weq-decoration-card-actions :is(.weq-set-btn, .weq-decoration-card-save) {
+  min-height: 32px;
+  padding-inline: 7px;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
 .weq-decoration-card .weq-decoration-card-item {
   gap: 8px;
   padding: 10px;

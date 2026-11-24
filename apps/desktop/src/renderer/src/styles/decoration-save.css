@@ -10,9 +10,3 @@
 .weq-decoration-card-titlebar {
   flex-wrap: wrap;
 }
-
-.weq-decoration-card-slot > .weq-save-action-group {
-  flex-wrap: wrap;
-  justify-content: center;
-  max-width: 100%;
-}

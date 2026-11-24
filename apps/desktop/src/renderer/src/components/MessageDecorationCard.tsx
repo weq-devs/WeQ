@@ -3,11 +3,13 @@
  *
  * 右键消息气泡时显示该消息的三装扮（字体/气泡/挂件）的 ID 和预览图。
  */
-import { X, ImageOff } from 'lucide-react';
-import { Loader2 } from 'lucide-react';
+import { Check, ImageOff, Loader2, Plus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { OverlayLayer } from './OverlayLayer';
 import { trpc } from '../trpc/client';
+import { useAppDialog } from '../lib/dialogUtils';
+import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
+import { dressPreviewUrl } from '../../../shared/dress_item';
 import { dressFontUrl } from '../lib/resourceUrl';
 import { fontFaces } from '../lib/fontFaces';
 import { DRESS_KIND_ICONS, FEATURE_ICONS } from '../lib/featureIcons.shared';
@@ -22,16 +24,6 @@ interface MessageDecorationCardProps {
     widgetId: number;
   } | null;
   onClose: () => void;
-}
-
-function getPreviewUrl(type: 'font' | 'bubble' | 'widget', id: number): string {
-  if (type === 'font') {
-    return `https://tianquan.gtimg.cn/font/item/${id}/newPreview1.png`;
-  }
-  if (type === 'bubble') {
-    return `https://tianquan.gtimg.cn/bubble/item/${id}/newPreview1.png`;
-  }
-  return `https://tianquan.gtimg.cn/faceAddon/item/${id}/newPreview1.png`;
 }
 
 function getLocalUrl(type: 'font' | 'bubble' | 'widget', id: number): string {
@@ -61,7 +53,7 @@ type DecorationItemRow = DecorationItemProps & { type: DecorationKind };
 function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
   const [imageState, setImageState] = useState<ImageState>('cdn');
   const [fontPreviewState, setFontPreviewState] = useState<FontPreviewState>('loading');
-  const cdnUrl = getPreviewUrl(type, id);
+  const cdnUrl = dressPreviewUrl(type, id);
   const localUrl = type === 'font' ? '' : getLocalUrl(type, id);
   const fontFamily = `weq-message-decoration-${id}`;
   const fontResource = trpc.account.dressup.resolveMsgDecoration.useQuery(
@@ -181,9 +173,20 @@ function DecorationItem({ type, id, label, icon }: DecorationItemProps) {
 export function MessageDecorationCard({ decoration, onClose }: MessageDecorationCardProps) {
   const cardRef = useRef<HTMLElement>(null);
   const save = useDecorationSave();
+  const dressTools = useDevelopmentDressTools();
+  const dialog = useAppDialog();
+  const utils = trpc.useUtils();
 
   const hasDecoration =
     decoration && (decoration.fontId || decoration.bubbleId || decoration.widgetId);
+  const state = trpc.account.dressup.getState.useQuery(undefined, {
+    enabled: dressTools && Boolean(hasDecoration),
+  });
+  const installOptions = { onSuccess: () => utils.account.dressup.getState.invalidate() };
+  const bubble = trpc.account.dressup.installBubble.useMutation(installOptions);
+  const font = trpc.account.dressup.installFont.useMutation(installOptions);
+  const widget = trpc.account.dressup.installWidget.useMutation(installOptions);
+  const installing = bubble.isLoading || font.isLoading || widget.isLoading;
   const items: DecorationItemRow[] = [];
 
   if (decoration?.fontId) {
@@ -209,6 +212,41 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
       label: '挂件',
       icon: <DRESS_KIND_ICONS.widget size={18} aria-hidden />,
     });
+  }
+
+  function renderAddButton({ type, id, label }: DecorationItemRow) {
+    const manifest = state.data?.manifest;
+    const entries = { bubble: manifest?.bubbles, font: manifest?.fonts, widget: manifest?.widgets };
+    const install = { bubble, font, widget }[type];
+    const added = entries[type]?.some(({ itemId }) => itemId === id) || install.data?.itemId === id;
+    const busy = install.isLoading && install.variables?.itemId === id;
+    const title = added ? `${label}已添加` : `添加${label}到已装`;
+    return (
+      <button
+        type="button"
+        className="weq-set-btn"
+        aria-label={title}
+        title={title}
+        disabled={added || installing || state.isInitialLoading}
+        onClick={() => {
+          void install.mutateAsync({ itemId: id }).catch((error: unknown) => {
+            dialog.error(
+              `添加${label}失败`,
+              error instanceof Error ? error.message : String(error),
+            );
+          });
+        }}
+      >
+        {added ? (
+          <Check size={14} />
+        ) : busy ? (
+          <Loader2 size={14} className="weq-spin" />
+        ) : (
+          <Plus size={14} />
+        )}
+        <span>{added ? '已添加' : busy ? '添加中' : '添加'}</span>
+      </button>
+    );
   }
 
   return (
@@ -258,18 +296,28 @@ export function MessageDecorationCard({ decoration, onClose }: MessageDecoration
         ) : (
           <div className="weq-decoration-card-grid">
             {items.map((item) => (
-              <div className="weq-decoration-card-slot" key={item.type}>
+              <div className="weq-decoration-card-slot" key={`${item.type}:${item.id}`}>
                 <DecorationItem type={item.type} id={item.id} label={item.label} icon={item.icon} />
-                <DecorationSaveControls
-                  className="weq-decoration-card-save"
-                  title={`保存${item.label}资源`}
-                  busy={save.savingKey === item.type}
-                  disabled={save.disabled}
-                  onSave={(intent, browser) => {
-                    if (decoration)
-                      void save.run({ ...decoration, kind: item.type }, item.type, intent, browser);
-                  }}
-                />
+                {dressTools ? (
+                  <div className="weq-decoration-card-actions">
+                    {renderAddButton(item)}
+                    <DecorationSaveControls
+                      className="weq-decoration-card-save"
+                      title={`保存${item.label}资源`}
+                      busy={save.savingKey === item.type}
+                      disabled={save.disabled}
+                      onSave={(intent, browser) => {
+                        if (decoration)
+                          void save.run(
+                            { ...decoration, kind: item.type },
+                            item.type,
+                            intent,
+                            browser,
+                          );
+                      }}
+                    />
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
