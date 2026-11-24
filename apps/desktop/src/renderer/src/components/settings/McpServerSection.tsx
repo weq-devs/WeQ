@@ -677,7 +677,7 @@ function McpAccountAccess({ active }: { active: boolean }) {
   const grants = new Map(access.data?.grants.map((grant) => [grant.id, grant]));
   // 创建成功即显示一次性令牌，账号授权列表刷新失败时也能复制。
   for (const { id, label } of createdById.values()) {
-    if (!grants.has(id)) grants.set(id, { id, label, configIds: [] });
+    if (!grants.has(id)) grants.set(id, { id, label, configIds: [], writeConfigIds: [] });
   }
 
   function dismissToken(id: string) {
