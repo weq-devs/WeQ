@@ -4,9 +4,9 @@
  * 展示 resources/help/faq.md 的渲染结果（本地 Markdown，跟随深浅模式）。
  */
 
-import type { ReactElement } from 'react';
+import type { MouseEvent, ReactElement } from 'react';
 import { BookOpen, Loader2 } from 'lucide-react';
-import { Streamdown } from 'streamdown';
+import { type Components, Streamdown } from 'streamdown';
 import remarkGfm from 'remark-gfm';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
@@ -17,6 +17,39 @@ import { Card, SectionHeader } from './controls';
 const REMARK_PLUGINS = [remarkGfm];
 const PLUGINS = { code: shikiCodeHighlighter };
 const LINK_SAFETY = { enabled: false };
+
+function jumpToSection(event: MouseEvent<HTMLAnchorElement>) {
+  // 页内跳转不占用 Web 移动端用于返回设置上一级的浏览历史。
+  event.preventDefault();
+  const link = event.currentTarget;
+  const headings = link.closest('.weq-help-md')?.querySelectorAll<HTMLHeadingElement>('h2[id]');
+  const section = Array.from(headings ?? []).find(
+    (heading) => `#${encodeURI(heading.id)}` === link.hash,
+  );
+  section?.focus({ preventScroll: true });
+  section?.scrollIntoView({ block: 'start' });
+}
+
+const FAQ_COMPONENTS: Components = {
+  h2: ({ children }) => (
+    <h2
+      id={typeof children === 'string' ? children.toLowerCase().replaceAll(' ', '-') : undefined}
+      tabIndex={-1}
+    >
+      {children}
+    </h2>
+  ),
+  a: ({ href, title, children }) =>
+    href?.startsWith('#') ? (
+      <a href={href} title={title} onClick={jumpToSection}>
+        {children}
+      </a>
+    ) : (
+      <a href={href} title={title} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    ),
+};
 
 export function FaqPanel(): ReactElement {
   const active = useTabActive();
@@ -51,6 +84,7 @@ export function FaqPanel(): ReactElement {
         ) : faq.data?.ok ? (
           <div className="weq-help-md">
             <Streamdown
+              components={FAQ_COMPONENTS}
               remarkPlugins={REMARK_PLUGINS}
               plugins={PLUGINS}
               linkSafety={LINK_SAFETY}
