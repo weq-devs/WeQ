@@ -19,7 +19,9 @@ function setup() {
   };
   const acknowledged = vi.fn();
   const markRead = vi.fn(async () => true);
-  const listFrom = vi.fn(async () => [{ msgSeq: 50n, clientSeq: 999n, sendTime: 123n }]);
+  const listFrom = vi.fn(async () => [
+    { msgSeq: 50n, msgType: 2n, clientSeq: 999n, sendTime: 123n },
+  ]);
   const calendarMessage = vi.fn(async (_partition: unknown, msgId: bigint) => [
     { msgId, msgSeq: 0n, sendTime: msgId },
   ]);
@@ -234,8 +236,9 @@ describe('已读上报服务', () => {
   it('同序号灰条不替代原消息时间，时间冲突时跳过而不是猜测', async () => {
     const f = setup();
     f.listFrom.mockResolvedValueOnce([
-      { msgSeq: 50n, clientSeq: 0n, sendTime: 999n },
-      { msgSeq: 50n, clientSeq: 12n, sendTime: 123n },
+      { msgSeq: 50n, msgType: 5n, clientSeq: 99n, sendTime: 999n },
+      { msgSeq: 50n, msgType: 1n, clientSeq: 13n, sendTime: 998n },
+      { msgSeq: 50n, msgType: 2n, clientSeq: 0n, sendTime: 123n },
     ]);
     await f.service.markReadAndReport(1, 'u_x', '50');
     await settled(f.service);
@@ -243,8 +246,8 @@ describe('已读上报服务', () => {
       c2c: { timestamp: 123n },
     });
     f.listFrom.mockResolvedValueOnce([
-      { msgSeq: 60n, clientSeq: 12n, sendTime: 123n },
-      { msgSeq: 60n, clientSeq: 13n, sendTime: 124n },
+      { msgSeq: 60n, msgType: 2n, clientSeq: 12n, sendTime: 123n },
+      { msgSeq: 60n, msgType: 2n, clientSeq: 0n, sendTime: 124n },
     ]);
     expect((await f.service.markReadAndReport(1, 'u_x', '60')).report.state).toBe('skipped');
     expect(f.nt.sendPacket).toHaveBeenCalledTimes(1);

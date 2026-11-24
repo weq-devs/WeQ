@@ -1243,12 +1243,19 @@ export class UnreadInfoService {
           sortNo === undefined ? { uid } : { sortNo },
           [seq],
         );
-        // 灰条可能与正文共用 msgSeq；只接受带发送方序号且时间唯一的原消息。
+        // 灰条可能与正文共用 NT 序号；发送方序号不参与已读上报。
         const candidates = rows.filter(
-          (row) => row.msgSeq === seq && row.sendTime > 0n && (row.clientSeq ?? 0n) > 0n,
+          (row) =>
+            row.msgSeq === seq &&
+            row.msgType > BigInt(MsgType.NULL) &&
+            row.msgType !== BigInt(MsgType.GRAY_TIP),
         );
         const row = candidates[0];
-        if (!row || candidates.some((candidate) => candidate.sendTime !== row.sendTime))
+        if (
+          !row ||
+          row.sendTime <= 0n ||
+          candidates.some((candidate) => candidate.sendTime !== row.sendTime)
+        )
           return finish({ state: 'skipped' });
         target = {
           kind: 'c2c',
