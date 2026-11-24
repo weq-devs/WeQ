@@ -18,7 +18,7 @@
  */
 
 import { NumericText } from '../NumericText';
-import { useEffect, useId, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {
@@ -627,7 +627,6 @@ export function McpServerSection(): ReactElement {
 
 function McpAccountAccess({ active }: { active: boolean }) {
   const access = trpc.bootstrap.getMcpAccountGrants.useQuery(undefined, { enabled: active });
-  const headingId = useId();
   const accounts = access.data?.accounts;
   const [busy, setBusy] = useState(false);
   const [label, setLabel] = useState('');
@@ -649,66 +648,63 @@ function McpAccountAccess({ active }: { active: boolean }) {
     }
   }
   return (
-    <section className="weq-set weq-set-mcp-access" aria-labelledby={headingId}>
-      <header className="weq-set-head">
-        <h4 id={headingId} className="weq-set-card-title">
-          令牌可访问的账号
-        </h4>
-        <p className="weq-set-desc">为每个令牌勾选可访问的账号。修改后，相关客户端需重新连接。</p>
-      </header>
-      {access.error && (
-        <p className="weq-set-note" role="alert">
-          {access.error.message}
-        </p>
-      )}
-      {access.data?.grants.map((grant) => (
-        <Card
-          key={grant.id}
-          title={grant.label}
-          action={
-            !grant.primary ? (
-              <button
-                type="button"
-                className="weq-set-btn weq-set-btn-sm"
-                data-danger="outline"
-                aria-label={`撤销令牌 ${grant.label}`}
-                disabled={busy}
-                onClick={() =>
-                  void act(() => client.bootstrap.revokeMcpAccountToken.mutate({ id: grant.id }))
-                }
-              >
-                撤销令牌
-              </button>
-            ) : null
-          }
-        >
-          {accounts?.map((account) => (
-            <Row
-              key={account.configId}
-              label={account.displayName}
-              desc={`${account.uin}${account.static ? ' · 静态备份' : ''}`}
-              control={
-                <Toggle
-                  label={`允许${grant.label}访问${account.displayName}`}
-                  checked={grant.configIds.includes(account.configId)}
+    <div className="weq-set-mcp-access">
+      <Card
+        title="令牌可访问的账号"
+        desc="为每个令牌勾选可访问的账号。修改后，相关客户端需重新连接。"
+      >
+        {access.error && (
+          <p className="weq-set-note" role="alert">
+            {access.error.message}
+          </p>
+        )}
+        {access.data?.grants.map((grant) => (
+          <Card
+            key={grant.id}
+            title={grant.label}
+            action={
+              !grant.primary ? (
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-sm"
+                  data-danger="outline"
+                  aria-label={`撤销令牌 ${grant.label}`}
                   disabled={busy}
-                  onChange={(enabled) =>
-                    void act(() =>
-                      client.bootstrap.setMcpAccountGrant.mutate({
-                        id: grant.id,
-                        configIds: enabled
-                          ? [...grant.configIds, account.configId]
-                          : grant.configIds.filter((configId) => configId !== account.configId),
-                      }),
-                    )
+                  onClick={() =>
+                    void act(() => client.bootstrap.revokeMcpAccountToken.mutate({ id: grant.id }))
                   }
-                />
-              }
-            />
-          ))}
-        </Card>
-      ))}
-      <Card>
+                >
+                  撤销令牌
+                </button>
+              ) : null
+            }
+          >
+            {accounts?.map((account) => (
+              <Row
+                key={account.configId}
+                label={account.displayName}
+                desc={`${account.uin}${account.static ? ' · 静态备份' : ''}`}
+                control={
+                  <Toggle
+                    label={`允许${grant.label}访问${account.displayName}`}
+                    checked={grant.configIds.includes(account.configId)}
+                    disabled={busy}
+                    onChange={(enabled) =>
+                      void act(() =>
+                        client.bootstrap.setMcpAccountGrant.mutate({
+                          id: grant.id,
+                          configIds: enabled
+                            ? [...grant.configIds, account.configId]
+                            : grant.configIds.filter((configId) => configId !== account.configId),
+                        }),
+                      )
+                    }
+                  />
+                }
+              />
+            ))}
+          </Card>
+        ))}
         <form
           className="weq-set-btn-group"
           onSubmit={(event) => {
@@ -743,6 +739,6 @@ function McpAccountAccess({ active }: { active: boolean }) {
           />
         )}
       </Card>
-    </section>
+    </div>
   );
 }

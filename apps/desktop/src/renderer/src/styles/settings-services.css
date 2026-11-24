@@ -98,7 +98,12 @@ html[data-theme] .weq-service-settings .weq-set-iconbtn:disabled {
   flex-wrap: wrap;
 }
 
-.weq-set-mcp-access .weq-set-card-heading {
+html[data-theme] .weq-set-mcp-access > .weq-set-card > .weq-set-card {
+  padding: 10px 12px;
+  border-color: var(--weq-border-subtle);
+}
+
+.weq-set-mcp-access .weq-set-card > .weq-set-card .weq-set-card-heading {
   overflow-wrap: anywhere;
 }
 
