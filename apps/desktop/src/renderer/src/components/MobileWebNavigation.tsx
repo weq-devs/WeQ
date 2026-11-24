@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowLeftRight, ChevronRight } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Avatar } from '../im-template/template/primitives';
@@ -17,6 +17,7 @@ import { displayUserName } from '../im-template/template/user';
 import { TitleBarSearch } from './TitleBarSearch';
 import { DataSaverMenu } from './DataSaverMenu';
 import { RemoteShellMenuButton } from './RemoteShellMenus';
+import { RemoteAccountSwitcher } from './RemoteAccountSwitcher';
 import { OnlineStatus } from './OnlineStatus';
 import { useWorkspaceMobilePage } from './WorkspacePages.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
@@ -31,7 +32,6 @@ import { isSingleColumnLayout, subscribeResponsiveLayout } from '../lib/responsi
 import { accountGatewayPath, isAccountGateway } from '../lib/accountGateway';
 import { useRemoteClient } from '../lib/remoteClient';
 import { useWebConnection } from '../state/webConnection';
-import { confirmMailAccountLeave } from '../state/mailDraft';
 import {
   activateNavigation,
   navigationEntries,
@@ -99,6 +99,7 @@ export function MobileWebNavigation({
   const openTool = useWorkspaceMenu((state) => state.openMobileTool);
   const moreOpen = view === 'more' && !mobilePage;
   const remote = useRemoteClient();
+  const [switchingAccount, setSwitchingAccount] = useState(false);
   const recovery = useWebConnection((state) => state.recovery);
   const accountSwitch = useQuery({
     queryKey: ['remote-account-switch', recovery],
@@ -166,9 +167,7 @@ export function MobileWebNavigation({
           <button
             type="button"
             className="weq-set-btn weq-mobile-more-account-switch"
-            onClick={async () => {
-              if (await confirmMailAccountLeave()) location.assign(switchAccountPath);
-            }}
+            onClick={() => setSwitchingAccount(true)}
           >
             <ArrowLeftRight size={16} aria-hidden />
             切换账号
@@ -234,6 +233,12 @@ export function MobileWebNavigation({
         <RemoteShellMenuButton />
       </header>
       {moreOpen ? moreContent : null}
+      {switchingAccount && (
+        <RemoteAccountSwitcher
+          listPath={switchAccountPath}
+          onClose={() => setSwitchingAccount(false)}
+        />
+      )}
       {mobile && (
         <div hidden inert aria-hidden="true" data-mobile-root-preview="more">
           {moreContent}

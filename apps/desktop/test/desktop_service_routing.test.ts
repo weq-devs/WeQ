@@ -314,15 +314,32 @@ it('远程页面只打开已授权账号，选择失败和服务重启后可重�
     const switching = await fetch(switchPath, { redirect: 'manual' });
     expect(switching.status).toBe(200);
     expect(await switching.text()).toContain(`href="${accountPath}"`);
-    const changeAccount = (configId: string) =>
+    const choices = await fetch(switchPath, { headers: { accept: 'application/json' } });
+    expect(choices.headers.get('cache-control')).toBe('no-store');
+    expect(await choices.json()).toMatchObject([
+      { configId: '101', online: false },
+      { configId: '202', online: true, avatarUrl: '/_weq/account-avatar?configId=202' },
+      { configId: '303', online: false },
+    ]);
+    const changeAccount = (configId: string, accept = 'text/html') =>
       fetch(`${base}${accountPath}_weq/select-account`, {
         method: 'POST',
-        headers: { authorization: `Bearer ${'a'.repeat(64)}` },
+        headers: { authorization: `Bearer ${'a'.repeat(64)}`, accept },
         body: new URLSearchParams({ configId }),
         redirect: 'manual',
       });
     expect(await (await changeAccount('404')).text()).toContain(`href="${accountPath}"`);
     expect((await changeAccount('101')).headers.get('location')).toMatch(/^\/_weq\/account\/101\//);
+    const denied = await changeAccount('404', 'application/json');
+    expect(denied.status).toBe(409);
+    expect(await denied.json()).toEqual({ error: '此账号未授权。' });
+    const changed = await changeAccount('101', 'application/json');
+    expect(changed.status).toBe(200);
+    const destination = (await changed.json()).location;
+    expect(destination).toMatch(/^\/_weq\/account\/101\//);
+    expect(await (await fetch(`${base}${destination}trpc/startup.snapshot`)).json()).toEqual({
+      uin: '101',
+    });
     grant = ['202'];
     expect((await fetch(switchPath, { method: 'HEAD' })).status).toBe(404);
     grant = ['101', '202', '303'];

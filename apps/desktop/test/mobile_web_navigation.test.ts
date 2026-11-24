@@ -1,7 +1,8 @@
 import './support/development-features.stub';
 import { act, createElement, useLayoutEffect, useState, type ComponentProps } from 'react';
-import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { createQueryRoot } from './support/query_root';
+import { stubNarrowViewport } from './support/narrowViewport';
 import { MobileWebNavigation as Navigation } from '../src/renderer/src/components/MobileWebNavigation';
 import { OnlineStatus } from '../src/renderer/src/components/OnlineStatus';
 import { ChatHeader } from '../src/renderer/src/components/ChatHeader';
@@ -9,7 +10,19 @@ import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigat
 import { AnnouncementUnread } from '../src/renderer/src/lib/announcementPresentation';
 import { useUpdateStore } from '../src/renderer/src/state/update';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
-const { onlineStatusQuery } = vi.hoisted(() => ({ onlineStatusQuery: vi.fn() }));
+const { onlineStatusQuery, remote } = vi.hoisted(() => ({
+  onlineStatusQuery: vi.fn(),
+  remote: { enabled: false },
+}));
+vi.mock('../src/renderer/src/lib/remoteClient', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/lib/remoteClient')>()),
+  useRemoteClient: () => remote.enabled,
+}));
+vi.mock('../src/renderer/src/lib/accountGateway', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/lib/accountGateway')>()),
+  isAccountGateway: true,
+  accountGatewayConfigId: 'current',
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     useUtils: () => ({}),
@@ -39,7 +52,7 @@ function MobileWebNavigation(props: ComponentProps<typeof Navigation>) {
   });
 }
 let host: HTMLDivElement;
-let root: ReturnType<typeof createRoot>;
+let root: ReturnType<typeof createQueryRoot>;
 const props = {
   user: {
     id: 'fixture',
@@ -66,11 +79,13 @@ beforeEach(() => {
   onlineStatusQuery.mockReturnValue({ data: null });
   host = document.createElement('div');
   document.body.append(host);
-  root = createRoot(host);
+  root = createQueryRoot(host);
 });
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  remote.enabled = false;
+  vi.unstubAllGlobals();
 });
 async function click(label: string) {
   const button = [...host.querySelectorAll('button')].find(
@@ -98,6 +113,46 @@ it('QQ 空间从更多打开，进入后底栏仍选中更多', async () => {
   await click('QQ 空间');
   expect(props.onViewChange).toHaveBeenLastCalledWith('qzone');
   expect(host.querySelector('nav > [aria-current="page"]')?.textContent).toContain('更多');
+});
+
+it('Remote 取消账号切换时不导航，保留更多页和滚动位置', async () => {
+  remote.enabled = true;
+  stubNarrowViewport();
+  const fetch = vi.fn(async (_url: string, options?: RequestInit) => {
+    if (options?.method === 'HEAD') return new Response(null, { status: 204 });
+    if (options?.method === 'POST')
+      return Response.json({ error: '目标账号未能打开' }, { status: 409 });
+    return Response.json([
+      { configId: 'another', displayName: '另一个账号', uin: '10002', online: true },
+    ]);
+  });
+  vi.stubGlobal('fetch', fetch);
+  const go = vi.spyOn(location, 'assign');
+  try {
+    await act(async () => root.render(createElement(MobileWebNavigation, props)));
+    await openMore();
+    const more = host.querySelector<HTMLElement>('[aria-label="更多功能"]')!;
+    more.scrollTop = 73;
+    const findButton = (container: ParentNode, name: string) =>
+      [...container.querySelectorAll('button')].find((button) =>
+        button.textContent?.includes(name),
+      );
+    await act(async () => vi.waitFor(() => expect(findButton(more, '切换账号')).toBeDefined()));
+    await act(async () => findButton(more, '切换账号')!.click());
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    await act(async () => vi.waitFor(() => expect(findButton(dialog, '另一个账号')).toBeDefined()));
+    await act(async () => findButton(dialog, '另一个账号')!.click());
+    expect(dialog.querySelector('[role="alert"]')?.textContent).toBe('目标账号未能打开');
+    await act(async () =>
+      dialog.querySelector<HTMLButtonElement>('[aria-label="取消切换"]')!.click(),
+    );
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(host.querySelector('[aria-label="更多功能"]')).toBe(more);
+    expect(more.scrollTop).toBe(73);
+    expect(go).not.toHaveBeenCalled();
+  } finally {
+    go.mockRestore();
+  }
 });
 
 it('更多保留其余次级入口，选中后关闭列表并调用原有操作', async () => {

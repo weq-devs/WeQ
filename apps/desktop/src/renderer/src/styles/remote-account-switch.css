@@ -1,0 +1,135 @@
+.weq-web-dialog-layer.weq-remote-account-layer:not(.is-anchored-popover) {
+  padding: 0;
+  background: var(--weq-bg-surface);
+  backdrop-filter: none;
+}
+
+.weq-remote-account-layer > .weq-modal.weq-remote-account-picker {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  padding-bottom: max(24px, var(--weq-safe-bottom, 0px));
+  border: 0;
+  border-radius: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--weq-bg-surface);
+  color: var(--weq-fg-primary);
+  box-shadow: none;
+}
+
+.weq-remote-account-tools {
+  display: flex;
+  justify-content: flex-end;
+  min-height: calc(56px + var(--weq-window-safe-top, 0px));
+  padding: calc(6px + var(--weq-window-safe-top, 0px)) max(12px, var(--weq-safe-right, 0px)) 0;
+}
+
+.weq-remote-account-content {
+  box-sizing: content-box;
+  max-width: 32rem;
+  margin: 0 auto;
+  padding: 12px max(24px, var(--weq-safe-right, 0px)) 0 max(24px, var(--weq-safe-left, 0px));
+}
+
+.weq-remote-account-content > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.weq-remote-account-content h1 {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+.weq-remote-account-close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+}
+
+.weq-remote-account-close:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.weq-remote-account-choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 12px 16px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.weq-remote-account-choice:hover:not(:disabled) {
+  border-color: var(--weq-accent-effective);
+}
+
+.weq-remote-account-choice:disabled {
+  opacity: 0.6;
+}
+
+.weq-remote-account-avatar {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.weq-remote-account-avatar > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.weq-remote-account-name {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.weq-remote-account-choice small {
+  color: var(--weq-fg-secondary);
+}
+
+.weq-remote-account-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.weq-remote-account-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.weq-remote-account-status[data-online]::before {
+  background: var(--weq-account-online, #21834c);
+}
+
+html[data-theme='dark'] .weq-remote-account-picker {
+  --weq-account-online: #59c982;
+}

@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
+import type { RemoteAccountChoice } from '../../shared/remote_account_switch';
 import type { WebAuth } from '../web/application';
 import { handleRequest } from '../web/http';
 import { serveStatic } from '../web/static';
@@ -160,6 +161,16 @@ function respondError(res: ServerResponse, status: number, message: string): voi
       .end(message);
 }
 
+function respondSelectionJson(res: ServerResponse, status: number, body: object): void {
+  res
+    .writeHead(status, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      Vary: 'Accept',
+    })
+    .end(JSON.stringify(body));
+}
+
 function requireRemoteSelection(res: ServerResponse): void {
   res.writeHead(409, { 'X-WeQ-Account-Selection': 'required', 'Cache-Control': 'no-store' }).end();
 }
@@ -259,28 +270,40 @@ export class DesktopWebEntry {
   ) {
     const { auth, accounts } = this.options;
     const remote = !!auth.remoteClient;
+    const json = remote && returnTo && req.headers.accept === 'application/json';
     const saved = this.availableAccounts(req);
     const windows = saved.length ? await accounts.windows().catch(() => null) : [];
     if (res.destroyed) return;
     if (!auth.isAuthed(req)) return respondError(res, 401, '账号授权已变化。');
+    if (json && error) return respondSelectionJson(res, 409, { error });
     const online =
       windows && new Set(windows.flatMap((w) => (w.account ? w.account.configId : [])));
+    const allowed = saved.filter((item) => this.allowed(req, item.configId));
+    if (json) {
+      const choices = allowed.map(
+        ({ configId, displayName, uin, static: isStatic }) =>
+          ({
+            configId,
+            displayName,
+            uin,
+            static: isStatic,
+            online: online?.has(configId) ?? null,
+            avatarUrl: QQ_UIN.test(uin)
+              ? `${ACCOUNT_AVATAR}?${new URLSearchParams({ configId })}`
+              : null,
+          }) satisfies RemoteAccountChoice,
+      );
+      return respondSelectionJson(res, 200, choices);
+    }
     // 手机 WebView 不展示 4xx 主文档；可继续选择的错误页仍走启动回执。
     res
       .writeHead(error && !remote ? 409 : 200, {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
+        ...(returnTo ? { Vary: 'Accept' } : {}),
         'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; form-action 'self'; frame-ancestors 'none'${remote ? `; script-src 'sha256-${selectionStartupHash}'` : ''}`,
       })
-      .end(
-        selectionPage(
-          saved.filter((item) => this.allowed(req, item.configId)),
-          online,
-          remote,
-          error,
-          returnTo,
-        ),
-      );
+      .end(selectionPage(allowed, online, remote, error, returnTo));
   }
 
   private async showAccountAvatar(req: IncomingMessage, res: ServerResponse, configId: string) {
@@ -309,7 +332,12 @@ export class DesktopWebEntry {
     try {
       if (!this.allowed(req, configId)) throw new Error('此账号未授权。');
       const selected = await this.options.accounts.open(configId);
-      return this.enterAccount(req, res, selected);
+      return this.enterAccount(
+        req,
+        res,
+        selected,
+        !!returnTo && req.headers.accept === 'application/json',
+      );
     } catch (error) {
       return this.showAccounts(
         req,
@@ -320,7 +348,12 @@ export class DesktopWebEntry {
     }
   }
 
-  private enterAccount(req: IncomingMessage, res: ServerResponse, selected: RoutedAccount) {
+  private enterAccount(
+    req: IncomingMessage,
+    res: ServerResponse,
+    selected: RoutedAccount,
+    json = false,
+  ) {
     const { auth } = this.options;
     const { configId } = selected.account;
     if (res.destroyed) return;
@@ -343,6 +376,7 @@ export class DesktopWebEntry {
     }
     if (this.paths.size > MAX_ACTIVE_ROUTES) this.removePath(this.paths.keys().next().value!);
     const location = `/_weq/account/${encodeURIComponent(configId)}/${id}/`;
+    if (json) return respondSelectionJson(res, 200, { location });
     res.writeHead(303, { Location: location, 'Cache-Control': 'no-store' }).end();
   }
 
