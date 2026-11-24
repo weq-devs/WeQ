@@ -26,7 +26,6 @@ import {
   CloudDownload,
   Code2,
   ImageIcon,
-  LockKeyhole,
   Monitor,
   MessagesSquare,
   Moon,
@@ -370,18 +369,16 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'credentials',
     label: '凭据管理',
     render: (onOpen) => (
-      <>
-        <AccountBasicsSection page="credentials" />
-        <div className="weq-set">
-          <Card title="密钥工具" icon={<LockKeyhole size={15} />}>
-            <DataMaintenanceSection
-              title={null}
-              onOpen={onOpen}
-              tools={['key-scan', 'other-device-key']}
-            />
-          </Card>
-        </div>
-      </>
+      <AccountBasicsSection
+        page="credentials"
+        databaseKeyTools={
+          <DataMaintenanceSection
+            title={null}
+            onOpen={onOpen}
+            tools={['key-scan', 'other-device-key']}
+          />
+        }
+      />
     ),
   },
 ];

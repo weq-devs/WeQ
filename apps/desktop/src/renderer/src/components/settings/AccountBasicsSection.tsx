@@ -16,7 +16,7 @@ import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
  * settings mutation we refetch so a reopen reflects what was persisted.
  */
 
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import {
   ChevronDown,
   Copy,
@@ -124,9 +124,11 @@ function KeyValueRow({
 export function AccountBasicsSection({
   page = 'account',
   heading = true,
+  databaseKeyTools,
 }: {
   page?: 'account' | 'credentials' | 'media' | 'listening';
   heading?: boolean;
+  databaseKeyTools?: ReactNode;
 }): ReactElement {
   const active = useTabActive();
   const showError = useDialog((s) => s.showError);
@@ -422,6 +424,7 @@ export function AccountBasicsSection({
                 {cfg.algos['nt_msg.db'].kdfHmacAlgorithm}
               </p>
             ) : null}
+            {databaseKeyTools}
           </Card>
 
           {/* 会话密钥：在线 QQ 内存里采集的 a1 / a2 / d2 / d2key + 设备 guid。
