@@ -1109,9 +1109,9 @@ function AppearanceSection({
                       <span
                         data-setting-fallback={
                           key === 'readFromFirstUnread'
-                            ? !settings.data?.readFromFirstUnread
-                              ? 'preserve-unread-until-read'
-                              : undefined
+                            ? settings.data?.readFromFirstUnread
+                              ? 'show-reading-position-button'
+                              : 'preserve-unread-until-read'
                             : undefined
                         }
                       >

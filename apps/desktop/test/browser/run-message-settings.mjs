@@ -55,12 +55,22 @@ try {
       await important.getByRole('radio', exact('仅本次进入')).getAttribute('aria-checked'),
       'true',
     );
+    const reading = body.getByRole('radiogroup', exact('上次阅读位置'));
+    const automatic = body.getByRole('switch', exact('定位到上次阅读的位置'));
+    await reading.getByRole('radio', exact('仅本次进入')).click();
+    await automatic.click();
+    await reading.waitFor({ state: 'detached' });
+    await important.waitFor();
     const toggle = body.getByRole('switch', exact('合并跳转按钮'));
     await toggle.click();
     const combined = body.getByRole('radiogroup', exact('合并后的跳转按钮'));
     await combined.getByRole('radio', exact('关闭')).click();
     assert.equal(await important.count(), 0);
     await toggle.click();
+    await important.waitFor();
+    assert.equal(await reading.count(), 0);
+    await automatic.click();
+    await reading.getByRole('radio', { ...exact('仅本次进入'), checked: true }).waitFor();
     assert.equal(
       await important.getByRole('radio', exact('仅本次进入')).getAttribute('aria-checked'),
       'true',

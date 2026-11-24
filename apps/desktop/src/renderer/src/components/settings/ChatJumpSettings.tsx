@@ -32,6 +32,9 @@ export function ChatJumpSettings({
 }) {
   useClientPreferences((state) => state.tick);
   const merged = preferenceValue('mergeChatJumpButtons');
+  const availableModes = automaticReadingPosition
+    ? separateModes.filter(([name]) => name !== 'readingPositionJumpMode')
+    : separateModes;
   return (
     <>
       <Row
@@ -40,14 +43,14 @@ export function ChatJumpSettings({
         control={
           <span
             data-setting-fallback={
-              merged ? separateModes.map(([, id]) => id).join(' ') : combinedMode[1]
+              merged ? availableModes.map(([, id]) => id).join(' ') : combinedMode[1]
             }
           >
             <SharedDisplayToggle name="mergeChatJumpButtons" label="合并跳转按钮" />
           </span>
         }
       />
-      {(merged ? [combinedMode] : separateModes).map(([name, settingId, label]) => (
+      {(merged ? [combinedMode] : availableModes).map(([name, settingId, label]) => (
         <Row
           key={name}
           label={label}
@@ -62,7 +65,6 @@ export function ChatJumpSettings({
                   ? readingPositionJumpMode()
                   : preferenceValue(name)
               }
-              disabled={name === 'readingPositionJumpMode' && automaticReadingPosition}
               onChange={(value) => void changePreference(name, value)}
             />
           }
