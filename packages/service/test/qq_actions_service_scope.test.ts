@@ -96,7 +96,7 @@ it('列表回包前 QQ 运行态变化，不返回旧进程的收藏顺序', asy
 it('不支持的移动位置在发包前拒绝，已有最前项不重复写入', async () => {
   const f = emojiFixture();
   await expect(f.svc.moveFavorite(favoriteB, 2)).rejects.toThrow('移到最前');
-  await f.svc.moveFavorite(favoriteA, 1);
+  await expect(f.svc.moveFavorite(favoriteA, 1)).resolves.toBe(false);
   expect(f.sendOidbPacket).not.toHaveBeenCalled();
 });
 
@@ -106,7 +106,7 @@ it('空详情和重复请求不发包，也不会占住后续排序的串行槽'
   const ref = parseCustomFaceId(favoriteA);
   await expect(f.svc.fetchOnlineFavoriteDetails([ref, ref])).rejects.toThrow('重复');
   expect(f.sendOidbPacket).not.toHaveBeenCalled();
-  await f.svc.moveFavorite(favoriteB, 1);
+  await expect(f.svc.moveFavorite(favoriteB, 1)).resolves.toBe(true);
   expect(f.sendOidbPacket.mock.calls.map((call) => call[1])).toEqual([OrderCustomFace.command]);
 });
 

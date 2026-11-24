@@ -188,7 +188,7 @@ describe('添加到表情按钮', () => {
     }
   });
 
-  it('精确读回 ID 并提示同图已收藏，失败不关闭菜单', async () => {
+  it('已在首位时静默完成，失败时保留菜单', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     const root = createRoot(host);
@@ -198,14 +198,12 @@ describe('添加到表情按钮', () => {
       state: 'accepted',
       emojiId: 'expected-id',
       alreadyExists: true,
+      existingPosition: 1,
     });
-    state.query.mockResolvedValue(['unrelated-id']);
     state.perform.mockImplementation(async (write, refresh, _warning, options) => {
       await write(binding);
-      expect(await options.readback()).toBe(false);
-      state.query.mockResolvedValue(['expected-id']);
       expect(await options.readback()).toBe(true);
-      expect(options.readbackSuccessText()).toBe('已在收藏表情中');
+      expect(options.readbackSuccessText()).toBeNull();
       await refresh();
       return true;
     });
@@ -215,6 +213,7 @@ describe('添加到表情按钮', () => {
       );
       await act(async () => host.querySelector('button')!.click());
       expect(state.mutate).toHaveBeenCalledWith({ ...binding, url });
+      expect(state.query).not.toHaveBeenCalled();
       expect(state.favorites).toHaveBeenCalledOnce();
       expect(state.overview).toHaveBeenCalledOnce();
       expect(state.panelFavorites).toHaveBeenCalledOnce();
@@ -242,11 +241,14 @@ describe('添加到表情按钮', () => {
     }
   });
 
-  it.each([false, true])('已收藏的表情需确认才能移到最前：%s', async (move) => {
+  it.each(['保留原位', '排序已提交', '确认时已在首位'])('重复收藏：%s', async (result) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     const root = createRoot(host);
     const close = vi.fn();
+    const move = result !== '保留原位';
+    const moveSubmitted = result === '排序已提交';
+    const feedback: Array<string | null> = [];
     const local = { id: 'favorite:abc', hash: 'abc', scope: 'favorite', oriFile: 'abc.gif' };
     const rows = [
       { emojiId: 'old', desc: '', position: 1, local: null },
@@ -257,15 +259,17 @@ describe('添加到表情按钮', () => {
       emojiId: 'same',
       local,
       alreadyExists: true,
+      existingPosition: 2,
     });
     state.query.mockResolvedValue(['old', 'same']);
     state.move.mockImplementation(async () => {
       state.query.mockResolvedValue(['same', 'old']);
-      return { state: 'accepted' };
+      return { state: 'accepted', moveSubmitted };
     });
     state.perform.mockImplementation(async (write, refresh, _warning, options) => {
       await write(binding);
       const confirmed = await options.readback();
+      if (confirmed) feedback.push(options.readbackSuccessText());
       await refresh();
       return confirmed;
     });
@@ -287,6 +291,8 @@ describe('添加到表情按钮', () => {
         useDialog.getState().close(dialog!.id);
       });
       expect(state.mutate).toHaveBeenCalledOnce();
+      expect(feedback).toEqual(move ? [null, moveSubmitted ? '已移到最前' : null] : [null]);
+      expect(state.query).toHaveBeenCalledTimes(moveSubmitted ? 1 : 0);
       expect(close).toHaveBeenCalledOnce();
       const update = state.setData.mock.calls.at(-1)![1];
       if (move) {

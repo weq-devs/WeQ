@@ -103,6 +103,7 @@ describe('添加聊天表情路由', () => {
       emojiId: f.emojiId,
       local: null,
       alreadyExists: false,
+      existingPosition: 0,
     });
     expect(f.emoji.addFavorite).toHaveBeenCalledWith(png, undefined, expect.any(Function));
     f.emoji.fetchOnlineFavoriteIds.mockResolvedValue([f.emojiId]);
@@ -114,7 +115,7 @@ describe('添加聊天表情路由', () => {
     f.emoji.fetchOnlineFavoriteIds.mockResolvedValue([f.emojiId]);
     expect(
       await f.caller.favoriteFromMedia({ ...binding, url: '/_media/pic?token=a' }),
-    ).toMatchObject({ emojiId: f.emojiId, alreadyExists: true });
+    ).toMatchObject({ emojiId: f.emojiId, alreadyExists: true, existingPosition: 1 });
     expect(f.emoji.addFavorite).not.toHaveBeenCalled();
     expect(f.emoji.rememberFavorite).toHaveBeenCalledWith(png);
   });

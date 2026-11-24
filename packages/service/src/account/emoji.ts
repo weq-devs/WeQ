@@ -1177,21 +1177,22 @@ export class EmojiService {
   }
 
   /**
-   * 把一张收藏表情移到最前。position=1 是已验证的操作，不是任意位置序号。
+   * 把一张收藏表情移到最前，返回是否实际提交排序。已有首位项直接返回 false。
    * 不将与详情相同的 0x902E opType=2 请求误当成必需的整表排序提交。
    */
-  async moveFavorite(emojiId: string, position = 1, beforeSend?: () => void): Promise<void> {
+  async moveFavorite(emojiId: string, position = 1, beforeSend?: () => void): Promise<boolean> {
     if (position !== 1) throw new Error('当前仅确认支持移到最前');
     return this.withFavoriteDetails(async (nt, pid, current) => {
       const ids = await this.fetchOnlineFavoriteIds();
       current();
       beforeSend?.();
       if (!ids.includes(emojiId)) throw new Error('收藏表情已变化，请刷新');
-      if (ids[0] === emojiId) return;
+      if (ids[0] === emojiId) return false;
       const target = parseCustomFaceId(emojiId);
       await OrderCustomFace.invoke(nt, pid, { emojiId: target.emojiId, position: 1 });
       current();
       beforeSend?.();
+      return true;
     });
   }
 

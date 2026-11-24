@@ -76,11 +76,15 @@ export function MessageFavoriteEmojiAction({
       undefined,
       {
         readback: async () => {
+          if (result.existingPosition > 0) {
+            position = result.existingPosition;
+            return true;
+          }
           const ids = await client.account.qqActions.favoriteIds.query(binding);
           position = ids.indexOf(result.emojiId) + 1;
           return position > 0;
         },
-        readbackSuccessText: () => (result.alreadyExists ? '已在收藏表情中' : '已添加到表情'),
+        readbackSuccessText: () => (result.alreadyExists ? null : '已添加到表情'),
       },
     );
     if (!completed) return;
@@ -95,24 +99,29 @@ export function MessageFavoriteEmojiAction({
       }))
     ) {
       let moveConfirmed = false;
+      let moveSubmitted: boolean | undefined;
       await action.perform(
-        (binding) =>
-          client.account.qqActions.favorite.mutate({
+        async (binding) => {
+          const outcome = await client.account.qqActions.favorite.mutate({
             ...binding,
             action: 'move',
             emojiId: result.emojiId,
             position: 1,
-          }),
+          });
+          moveSubmitted = outcome.moveSubmitted;
+          return outcome;
+        },
         () => refresh(moveConfirmed),
         undefined,
         {
           readback: async () => {
-            const ids = await client.account.qqActions.favoriteIds.query(binding);
-            moveConfirmed = ids[0] === result.emojiId;
+            moveConfirmed =
+              moveSubmitted === false ||
+              (await client.account.qqActions.favoriteIds.query(binding))[0] === result.emojiId;
             if (moveConfirmed) position = 1;
             return moveConfirmed;
           },
-          readbackSuccessText: '已移到最前',
+          readbackSuccessText: () => (moveSubmitted ? '已移到最前' : null),
         },
       );
     }

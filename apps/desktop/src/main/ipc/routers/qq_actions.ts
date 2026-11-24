@@ -1298,9 +1298,15 @@ export function createQQActionsRouter(
     favoriteFromMedia: procedure
       .input(binding.extend({ url: z.string().min(1).max(16_384) }))
       .mutation(async ({ input: i }) => {
-        const result: { emojiId: string; alreadyExists: boolean; local: PanelFavItem | null } = {
+        const result: {
+          emojiId: string;
+          alreadyExists: boolean;
+          existingPosition: number;
+          local: PanelFavItem | null;
+        } = {
           emojiId: '',
           alreadyExists: false,
+          existingPosition: 0,
           local: null,
         };
         await write(i, async (s, current) => {
@@ -1309,12 +1315,14 @@ export function createQQActionsRouter(
           const md5 = createHash('md5').update(bytes).digest('hex').toUpperCase();
           const ids = await s.emoji.fetchOnlineFavoriteIds();
           current();
-          const existingId = ids.find((id) => parseCustomFaceId(id).md5 === md5);
+          const existingIndex = ids.findIndex((id) => parseCustomFaceId(id).md5 === md5);
+          const existingId = ids[existingIndex];
           const emojiId = existingId ?? (await s.emoji.addFavorite(bytes, undefined, current));
           current();
           if (!emojiId) throw new Error('未取得表情标识，请刷新表情列表核对结果');
           result.emojiId = emojiId;
           result.alreadyExists = existingId !== undefined;
+          result.existingPosition = existingIndex + 1;
           result.local = await s.emoji.rememberFavorite(bytes);
           current();
         });
@@ -1332,6 +1340,7 @@ export function createQQActionsRouter(
       )
       .mutation(async ({ input: i }) => {
         let addedEmojiId: string | undefined;
+        const move = { submitted: false };
         const result = await write(i, async (s, current) => {
           if (i.action === 'add') {
             if (!i.path) throw new Error('请选择图片');
@@ -1347,9 +1356,13 @@ export function createQQActionsRouter(
           if (!i.emojiId) throw new Error('缺少收藏表情标识');
           if (i.action === 'delete') return s.emoji.deleteFavorite(i.emojiId);
           if (i.action === 'rename') return s.emoji.modifyFavoriteDesc(i.emojiId, i.desc ?? '');
-          return s.emoji.moveFavorite(i.emojiId, i.position ?? 1, current);
+          move.submitted = await s.emoji.moveFavorite(i.emojiId, i.position ?? 1, current);
         });
-        return { ...result, ...(addedEmojiId ? { emojiId: addedEmojiId } : {}) };
+        return {
+          ...result,
+          ...(addedEmojiId ? { emojiId: addedEmojiId } : {}),
+          ...(i.action === 'move' ? { moveSubmitted: move.submitted } : {}),
+        };
       }),
     requests: procedure
       .input(requestInboxBinding)

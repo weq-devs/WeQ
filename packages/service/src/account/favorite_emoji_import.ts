@@ -37,7 +37,7 @@ export interface FavoriteEmojiImportPort {
     beforeSend?: () => void,
   ): Promise<string>;
   modifyFavoriteDesc(emojiId: string, description: string): Promise<void>;
-  moveFavorite(emojiId: string, position: number, beforeSend?: () => void): Promise<void>;
+  moveFavorite(emojiId: string, position: number, beforeSend?: () => void): Promise<unknown>;
 }
 
 const message = (error: unknown) =>

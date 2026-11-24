@@ -155,7 +155,7 @@ function fixture(confirmGroupRead?: Parameters<typeof createQQActionsRouter>[4])
       addFavorite: vi.fn(async (..._args: unknown[]): Promise<string> => ''),
       deleteFavorite: empty(),
       modifyFavoriteDesc: empty(),
-      moveFavorite: empty(),
+      moveFavorite: vi.fn(async () => true),
     },
     profile: {
       listBuddyRequests: vi.fn(async () => [
@@ -301,10 +301,17 @@ describe('收藏包导入路由', () => {
       f.caller.favorite({ ...binding, action: 'move', emojiId, position: 2 }),
     ).rejects.toThrow();
     expect(f.s.emoji.moveFavorite).not.toHaveBeenCalled();
-    expect(
-      (await f.caller.favorite({ ...binding, action: 'move', emojiId, position: 1 })).state,
-    ).toBe('accepted');
+    const request = { ...binding, action: 'move' as const, emojiId, position: 1 as const };
+    await expect(f.caller.favorite(request)).resolves.toEqual({
+      state: 'accepted',
+      moveSubmitted: true,
+    });
     expect(f.s.emoji.moveFavorite).toHaveBeenCalledWith(emojiId, 1, expect.any(Function));
+    f.s.emoji.moveFavorite.mockResolvedValueOnce(false);
+    await expect(f.caller.favorite(request)).resolves.toEqual({
+      state: 'accepted',
+      moveSubmitted: false,
+    });
   });
   it('私有预览携带令牌，离线仍可读取和清理，不触发 QQ 写入', async () => {
     const f = fixture();
