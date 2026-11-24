@@ -274,6 +274,21 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     aliases: ['@我', '@全体成员', '回复我', '特别关心', '群提醒词', '新文件', '红包', '群公告'],
     from: ['chat-messages'],
   },
+  {
+    id: 'windows-style-controls',
+    section: 'appearance',
+    label: '使用仿 Windows 窗口按钮',
+    aliases: ['窗口按钮', '红绿灯', '原生窗口'],
+    from: ['global', 'appearance'],
+    desktopOnly: true,
+  },
+  {
+    id: 'theme-mode',
+    section: 'appearance',
+    label: '主题模式',
+    aliases: ['基础模式'],
+    from: ['appearance'],
+  },
   ...(
     [
       ['toast-success', 'global', '成功通知停留时长'],
@@ -283,7 +298,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['call-mode', 'call-recording', '录音来源'],
       ['call-system-audio', 'call-recording', '同时录电脑声音'],
       ['call-directory', 'call-recording', '保存位置'],
-      ['theme-mode', 'appearance', '基础模式'],
       ['theme-accent', 'appearance', '主题色'],
       ['theme-background', 'appearance', '界面背景'],
       ['auto-enter-account', 'accounts', '现有配置'],
@@ -397,14 +411,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     label: '数字字体',
     aliases: ['特殊数字字体', '跟随界面字体', '数字排版'],
     from: ['appearance'],
-  },
-  {
-    id: 'windows-style-controls',
-    section: 'appearance',
-    label: '使用仿 Windows 窗口按钮',
-    aliases: ['窗口按钮', '红绿灯', '原生窗口'],
-    from: ['global', 'appearance'],
-    desktopOnly: true,
   },
   {
     id: 'window-close-behavior',

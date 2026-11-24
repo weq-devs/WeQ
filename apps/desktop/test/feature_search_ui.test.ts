@@ -126,7 +126,7 @@ describe('功能与设置搜索界面', () => {
       }
       const themeResult = [
         ...host.querySelectorAll<HTMLButtonElement>('.weq-app-search [role="option"]'),
-      ].find((button) => button.querySelector('.weq-search-name')?.textContent === '基础模式');
+      ].find((button) => button.querySelector('.weq-search-name')?.textContent === '主题模式');
       expect(themeResult).toBeDefined();
       act(() => themeResult!.click());
       expect(select).toHaveBeenCalledWith(
@@ -135,7 +135,7 @@ describe('功能与设置搜索界面', () => {
           target: {
             kind: 'setting',
             section: 'appearance',
-            item: '基础模式',
+            item: '主题模式',
             settingId: 'theme-mode',
           },
         }),

@@ -774,7 +774,7 @@ describe('设置归位后的实际页面', () => {
   it('手动离开后再次搜索同一页面也会重新定位，不被原 section 相同挡住', () => {
     const f = mount('qzone');
     try {
-      const target = { section: 'appearance', item: '基础模式', revision: 1 } as const;
+      const target = { section: 'appearance', item: '主题模式', revision: 1 } as const;
       f.render('appearance', target);
       act(() =>
         [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
@@ -788,7 +788,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.host.querySelector('.weq-settings-subnav-item.is-active')?.textContent).toBe(
         '外观与布局',
       );
-      expect(f.body().querySelector('[data-search-highlight]')?.textContent).toContain('基础模式');
+      expect(f.body().querySelector('[data-search-highlight]')?.textContent).toContain('主题模式');
     } finally {
       f.close();
     }

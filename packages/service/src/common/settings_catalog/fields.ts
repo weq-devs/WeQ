@@ -130,7 +130,7 @@ export const APP_SETTING_FIELDS = (
 /** 前端即时反馈与宿主恢复都消费同一份共享偏好绑定。 */
 export const CLIENT_SETTING_FIELDS = (
   [
-    ['theme-mode', 'preference', 'theme-mode', '基础模式'],
+    ['theme-mode', 'preference', 'theme-mode', '主题模式'],
     ['theme-accent', 'accent', 'theme-accent', '主题色'],
     ['theme-background', 'background', 'theme-background', '界面背景'],
     ['theme-components', 'componentStyle', 'component-style', '组件风格'],

@@ -195,12 +195,14 @@ describe('feature_search', () => {
     it('功能指向真实入口，设置别名指向具体控件而不是执行配置变更', () => {
       expect(searchAppEntries('年度报告')[0]?.target).toEqual({ kind: 'view', view: 'annual' });
       expect(searchAppEntries('导出查看器')[0]?.target).toEqual({ kind: 'tool', tool: 'viewer' });
-      expect(searchAppEntries('深色模式')[0]?.target).toEqual({
-        kind: 'setting',
-        section: 'appearance',
-        item: '基础模式',
-        settingId: 'theme-mode',
-      });
+      for (const keyword of ['主题模式', '基础模式', '深色模式']) {
+        expect(searchAppEntries(keyword)[0]?.target).toEqual({
+          kind: 'setting',
+          section: 'appearance',
+          item: '主题模式',
+          settingId: 'theme-mode',
+        });
+      }
       expect(searchAppEntries('消息序号')[0]?.target).toEqual({
         kind: 'setting',
         section: 'message-content',

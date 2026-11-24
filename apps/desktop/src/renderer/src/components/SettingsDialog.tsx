@@ -997,8 +997,11 @@ function AppearanceSection({
 
       {page === 'appearance' && (
         <>
+          <DesktopOnly>
+            <WindowAppearanceCard />
+          </DesktopOnly>
+
           <Card
-            title="基础模式"
             desc="控制浅色、深色与跟随系统"
             icon={<Sun size={15} strokeWidth={1.8} />}
             resetId="theme-mode"
@@ -1039,9 +1042,6 @@ function AppearanceSection({
           </Card>
 
           <ComponentAppearance />
-          <DesktopOnly>
-            <WindowAppearanceCard />
-          </DesktopOnly>
         </>
       )}
       {page !== 'appearance' && (
