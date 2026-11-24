@@ -37,6 +37,7 @@ import {
   RotateCcw,
   Save,
   Square,
+  UserRoundCheck,
 } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { IS_WEB } from '../../lib/target.shared';
@@ -679,6 +680,7 @@ function McpAccountAccess({ active }: { active: boolean }) {
     <div className="weq-set-mcp-access">
       <Card
         title="令牌可访问的账号"
+        icon={<UserRoundCheck size={15} strokeWidth={1.8} />}
         desc="为每个令牌勾选可访问的账号。修改后，相关客户端需重新连接。"
       >
         {access.error ? (

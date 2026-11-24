@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { ChevronDown, Copy, GitBranch, Monitor, RefreshCw, Settings, Zap } from 'lucide-react';
+import { ChevronDown, RefreshCw, Settings, Zap } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { IS_WEB } from '../../lib/target.shared';
@@ -132,7 +132,6 @@ export function FullFunctionSetup({
         <div className="weq-full-function-preferences">{children}</div>
         <section className="weq-full-function-section" data-setting-id="full-feature-routes">
           <h4 className="weq-full-function-section-title">
-            <GitBranch size={15} strokeWidth={1.8} aria-hidden />
             {isMac ? '启用方式（macOS）' : '启用方式'}
           </h4>
           {isMac && <p className="weq-set-note">以下两条路线任选其一，不需要同时配置。</p>}
@@ -165,10 +164,7 @@ export function FullFunctionSetup({
                   data-applicable={applicable === 'copy'}
                 >
                   <header className="weq-full-function-route-heading">
-                    <h5 className="weq-set-row-label weq-set-row-icon">
-                      <Copy size={15} strokeWidth={1.8} aria-hidden />
-                      QQ 调试副本
-                    </h5>
+                    <h5 className="weq-set-row-label">QQ 调试副本</h5>
                     <span className="weq-full-function-route-condition">
                       无需关闭 SIP{applicable === 'copy' ? '（适用于本机）' : ''}
                     </span>
@@ -195,10 +191,7 @@ export function FullFunctionSetup({
                   data-applicable={applicable === 'original'}
                 >
                   <header className="weq-full-function-route-heading">
-                    <h5 className="weq-set-row-label weq-set-row-icon">
-                      <Monitor size={15} strokeWidth={1.8} aria-hidden />
-                      原版 QQ
-                    </h5>
+                    <h5 className="weq-set-row-label">原版 QQ</h5>
                     <span className="weq-full-function-route-condition">
                       需关闭 SIP{applicable === 'original' ? '（适用于本机）' : ''}
                     </span>

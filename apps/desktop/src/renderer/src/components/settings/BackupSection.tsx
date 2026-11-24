@@ -341,6 +341,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
       {inventory?.accountStorageMigration && (
         <Card
           title="账号窗口资料迁移"
+          icon={<ArchiveRestore size={15} strokeWidth={1.8} />}
           desc={`已处理 ${inventory.accountStorageMigration.imported} 份账号资料，保留 ${inventory.accountStorageMigration.differences} 项差异及其原件位置。`}
           action={
             <button

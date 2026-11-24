@@ -64,7 +64,7 @@ export function FaqPanel(): ReactElement {
     <div className="weq-set weq-help-faq">
       <SectionHeader
         title="常见问题"
-        icon={<BookOpen size={15} strokeWidth={1.9} />}
+        page="faq"
         desc="内容来自本地资源文件，随版本更新。以下条目正在陆续整理中。"
       />
       <Card

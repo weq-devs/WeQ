@@ -1,7 +1,17 @@
 /** 通用 API 用量：记录范围、请求状态、趋势与功能／服务商明细。 */
 import { NumericText } from '../../components/NumericText';
 import { useId, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
-import { Activity, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  Activity,
+  ArrowLeftRight,
+  ChartLine,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Layers,
+  Server,
+  UsersRound,
+} from 'lucide-react';
 import { formatDateTime } from '@weq/time';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../../shared/router';
@@ -236,14 +246,29 @@ function UsagePagination({
   );
 }
 
-function UsageTable({ title, children }: { title: string; children: ReactNode }): ReactElement {
+function UsageTable({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon?: ReactNode;
+  children: ReactNode;
+}): ReactElement {
   const [page, setPage] = useState(0);
   const rows = Array.isArray(children) ? children : [children];
   const lastPage = Math.max(0, Math.ceil(rows.length / PAGE_SIZE) - 1);
   const currentPage = Math.min(page, lastPage);
   return (
     <section className="weq-usage-section">
-      <h4 className="weq-set-card-title">{title}</h4>
+      <h4 className="weq-set-card-title">
+        {icon ? (
+          <span className="weq-set-card-icon" aria-hidden>
+            {icon}
+          </span>
+        ) : null}
+        {title}
+      </h4>
       <div className="weq-usage-accounting-table" tabIndex={0} role="region" aria-label={title}>
         <table>
           <UsageTableHead label={title === '克隆体明细' ? '克隆体' : '服务商 / 模型'} />
@@ -314,7 +339,12 @@ function UsageCategory({ row }: { row: UsageStats['byCategory'][number] }): Reac
 function FeatureUsage({ rows }: { rows: UsageStats['byCategory'] }): ReactElement {
   return (
     <section className="weq-usage-section">
-      <h4 className="weq-set-card-title">功能用量</h4>
+      <h4 className="weq-set-card-title">
+        <span className="weq-set-card-icon" aria-hidden>
+          <Layers size={15} strokeWidth={1.8} />
+        </span>
+        功能用量
+      </h4>
       <div className="weq-usage-accounting-table" tabIndex={0} role="region" aria-label="功能用量">
         <table>
           <UsageTableHead label="功能 / 用途" />
@@ -490,6 +520,9 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
           <section className="weq-usage-section">
             <div className="weq-usage-section-heading">
               <h4 className="weq-set-card-title">
+                <span className="weq-set-card-icon" aria-hidden>
+                  <ChartLine size={15} strokeWidth={1.8} />
+                </span>
                 {d.period === 'retained' ? '近 30 天趋势' : '用量趋势'}
               </h4>
               <SegmentedControl
@@ -505,7 +538,11 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
             <HourLine data={points} metric={metric} daily={d.period !== '24h'} />
           </section>
           <FeatureUsage key={`features-${d.period}`} rows={d.byCategory} />
-          <UsageTable key={`models-${d.period}`} title="服务商与模型">
+          <UsageTable
+            key={`models-${d.period}`}
+            title="服务商与模型"
+            icon={<Server size={15} strokeWidth={1.8} />}
+          >
             {d.byModel.map((row) => (
               <tr key={row.key}>
                 <th scope="row">
@@ -521,7 +558,12 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
             ))}
           </UsageTable>
           <section className="weq-usage-section">
-            <h4 className="weq-set-card-title">已知输入 / 输出 token</h4>
+            <h4 className="weq-set-card-title">
+              <span className="weq-set-card-icon" aria-hidden>
+                <ArrowLeftRight size={15} strokeWidth={1.8} />
+              </span>
+              已知输入 / 输出 token
+            </h4>
             <dl className="weq-usage-io">
               <div>
                 <dt>输入</dt>
@@ -555,7 +597,14 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
               className="weq-usage-personas"
               onToggle={(event) => setPersonasOpen(event.currentTarget.open)}
             >
-              <summary>克隆体明细</summary>
+              <summary>
+                <span className="weq-set-card-title">
+                  <span className="weq-set-card-icon" aria-hidden>
+                    <UsersRound size={15} strokeWidth={1.8} />
+                  </span>
+                  克隆体明细
+                </span>
+              </summary>
               {personasOpen ? <PersonaUsage rows={clones} /> : null}
             </details>
           ) : null}

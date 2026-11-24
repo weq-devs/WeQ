@@ -13,7 +13,7 @@ import { useDataSaver, dataSaverModeOptions } from '../../lib/dataSaver';
 import { SegmentedControl } from '../SegmentedControl';
 import { IS_WEB } from '../../lib/target.shared';
 import { Card, Row, Toggle } from './controls';
-import { RotateCcw } from 'lucide-react';
+import { Download, Images, RotateCcw, Wifi } from 'lucide-react';
 import '../../styles/data-saver-settings.css';
 import { useContext, useEffect, useState } from 'react';
 import { SettingsResetContext } from './resetContext';
@@ -103,6 +103,7 @@ export function DataSaverSettings() {
     <>
       <Card
         title="模式与网络"
+        icon={<Wifi size={15} strokeWidth={1.8} />}
         resetId="data-saver"
         action={
           reset ? undefined : (
@@ -139,7 +140,11 @@ export function DataSaverSettings() {
           <BooleanRow name="dataSaverOnMetered" label="使用流量时自动启用" />
         ) : null}
       </Card>
-      <Card title="图片与媒体" desc="省流量模式生效时按以下设置加载，已有缓存照常使用。">
+      <Card
+        title="图片与媒体"
+        icon={<Images size={15} strokeWidth={1.8} />}
+        desc="省流量模式生效时按以下设置加载，已有缓存照常使用。"
+      >
         <Row
           label="聊天图片自动加载"
           control={
@@ -159,7 +164,11 @@ export function DataSaverSettings() {
           <BooleanRow key={name} name={name} label={label} />
         ))}
       </Card>
-      <Card title="下载与任务" desc="设置省流量期间如何暂停任务，以及限制解除后如何继续。">
+      <Card
+        title="下载与任务"
+        icon={<Download size={15} strokeWidth={1.8} />}
+        desc="设置省流量期间如何暂停任务，以及限制解除后如何继续。"
+      >
         {taskOptions.map(([name, label, desc]) => (
           <BooleanRow key={name} name={name} label={label} desc={desc} />
         ))}

@@ -28,9 +28,11 @@ import {
   KeyRound,
   Loader2,
   LogOut,
+  MonitorCog,
   RefreshCw,
   ShieldCheck,
   Trash2,
+  UsersRound,
 } from 'lucide-react';
 import { client } from '../trpc/client';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
@@ -165,7 +167,7 @@ export function LoginAccountPanel(): ReactElement {
 
   return (
     <div className="weq-login-acc">
-      <Card title="本机设备标识（GUID）">
+      <Card title="本机设备标识（GUID）" icon={<MonitorCog size={15} strokeWidth={1.8} />}>
         <div className="weq-login-acc-identity-main">
           <code className="weq-login-acc-identity-value">
             {overview?.guid ? shortGuid(overview.guid) : '未读取到'}
@@ -214,7 +216,7 @@ export function LoginAccountPanel(): ReactElement {
         ) : null}
       </Card>
 
-      <Card title="登录账号列表">
+      <Card title="登录账号列表" icon={<UsersRound size={15} strokeWidth={1.8} />}>
         {canWrite ? (
           <div className="weq-login-acc-gate is-ready">
             <ShieldCheck size={14} strokeWidth={1.9} />

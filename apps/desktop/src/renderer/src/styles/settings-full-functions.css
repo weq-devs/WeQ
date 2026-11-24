@@ -110,19 +110,11 @@
 }
 
 .weq-full-function-section-title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
   margin: 0;
   color: var(--weq-fg-primary);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.55;
-}
-
-.weq-full-function-section-title > svg {
-  flex: none;
-  color: var(--weq-accent-ink, var(--weq-accent-effective));
 }
 
 .weq-full-function-route-heading {

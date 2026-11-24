@@ -417,7 +417,7 @@ export function BugReportPanel(): ReactElement {
     <div className="weq-set weq-help-bug">
       <SectionHeader
         title="反馈"
-        icon={<MessageCircle size={16} />}
+        page="feedback"
         desc="提交前先确认不是已知问题，并按模板写清复现步骤、系统版本与当天日志。"
       />
       {/* 顶部 banner：底部渐变模糊 */}

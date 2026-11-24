@@ -1,5 +1,12 @@
 import { useContext } from 'react';
-import { ChevronRight } from 'lucide-react';
+import {
+  AppWindow,
+  ChevronRight,
+  ContactRound,
+  Menu,
+  MessagesSquare,
+  PanelLeft,
+} from 'lucide-react';
 import {
   AGGREGATE_BADGE_SETTINGS,
   CONTACT_UNREAD_COUNT_LABEL,
@@ -87,7 +94,11 @@ export function UnreadBadgeSettings() {
   return (
     <div className="weq-set">
       <SectionHeader title="未读角标" page="notification-badges" />
-      <Card title="系统应用图标" resetId="notification-badges">
+      <Card
+        title="系统应用图标"
+        icon={<AppWindow size={15} strokeWidth={1.8} />}
+        resetId="notification-badges"
+      >
         <BadgeSettingRow
           name="applicationBadge"
           settingId="application-unread-badge"
@@ -95,7 +106,7 @@ export function UnreadBadgeSettings() {
           fallback={true}
         />
       </Card>
-      <Card title="主导航">
+      <Card title="主导航" icon={<PanelLeft size={15} strokeWidth={1.8} />}>
         <BadgeSettingRow
           name="showMessageUnreadBadge"
           settingId="message-unread-badge"
@@ -106,6 +117,7 @@ export function UnreadBadgeSettings() {
       </Card>
       <Card
         title="会话列表"
+        icon={<MessagesSquare size={15} strokeWidth={1.8} />}
         action={
           <button
             type="button"
@@ -116,10 +128,10 @@ export function UnreadBadgeSettings() {
           </button>
         }
       />
-      <Card title="联系人页">
+      <Card title="联系人页" icon={<ContactRound size={15} strokeWidth={1.8} />}>
         <ContactBadgeRows />
       </Card>
-      <Card title="菜单">
+      <Card title="菜单" icon={<Menu size={15} strokeWidth={1.8} />}>
         <EntryBadgeRows kind="menu" />
       </Card>
     </div>
