@@ -102,6 +102,16 @@ function choice(host: HTMLElement, id: string) {
   return host.querySelector<HTMLButtonElement>(`[data-cache-id="${id}"] [role="checkbox"]`)!;
 }
 
+function expandStorageGroups(host: HTMLElement) {
+  act(() => {
+    for (const button of host.querySelectorAll<HTMLButtonElement>(
+      'h4 > button[aria-expanded="false"]',
+    )) {
+      button.click();
+    }
+  });
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -157,6 +167,7 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      expandStorageGroups(host);
       expect(host.querySelectorAll('[data-cache-id="avatar"] [role="checkbox"]')).toHaveLength(1);
       expect(host.textContent).not.toContain('空装扮');
       expect(host.textContent).not.toContain('表情、装扮与背景');
@@ -175,7 +186,7 @@ describe('WeQ 存储管理页面', () => {
       fixture.items.splice(length);
     }
   });
-  it('按已知用途显示占用小计，备份详情可查看，其他页面管理的数据不计入清理', async () => {
+  it('分组默认折叠并显示小计，按组展开后可查看备份详情', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const length = fixture.items.length;
@@ -216,15 +227,19 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
-      const groups = [...host.querySelectorAll('section[aria-labelledby]')];
-      expect(groups.map((group) => group.querySelector('h4')?.textContent)).toEqual([
-        '搜索与内容识别',
-        '数据库备份与维护',
-        '媒体、头像与预览',
+      const groups = [...host.querySelectorAll<HTMLButtonElement>('h4 > button[aria-expanded]')];
+      expect(groups.map((button) => button.textContent)).toEqual([
+        '搜索与内容识别2 KB',
+        '数据库备份与维护1 KB',
+        '媒体、头像与预览1 KB',
       ]);
-      expect(groups[0]?.textContent).toContain('搜索与内容识别2 KB');
+      expect(groups.every((button) => button.getAttribute('aria-expanded') === 'false')).toBe(true);
+      expect(host.querySelector('[role="checkbox"]')).toBeNull();
+      act(() => groups[1]!.click());
+      expect(groups[1]?.getAttribute('aria-expanded')).toBe('true');
+      expect(groups[0]?.getAttribute('aria-expanded')).toBe('false');
+      expect(groups[2]?.getAttribute('aria-expanded')).toBe('false');
       const backup = host.querySelector<HTMLElement>('[data-cache-id="database-backup"]')!;
-      expect(groups[1]?.contains(backup)).toBe(true);
       expect(backup.textContent).toContain('数据库备份');
       act(() => backup.querySelector<HTMLButtonElement>('.weq-storage-details-toggle')!.click());
       expect(host.textContent).toContain('已关联修复记录');
@@ -288,6 +303,7 @@ describe('WeQ 存储管理页面', () => {
           }),
         ),
       );
+      expandStorageGroups(host);
       expect(host.textContent).toContain('头像缓存');
       expect(host.textContent).not.toContain('清除账号与应用配置');
       expect(host.textContent).not.toContain('重置全局配置');
@@ -332,6 +348,7 @@ describe('WeQ 存储管理页面', () => {
       );
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      expandStorageGroups(host);
       act(() => choice(host, 'avatar').click());
       await act(async () => choice(host, 'agentlab').click());
       await click('开始清理');
@@ -416,6 +433,7 @@ describe('WeQ 存储管理页面', () => {
       await act(async () => button.click());
       expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'], acknowledgeRisk: true });
       expect(fixture.exitClear).not.toHaveBeenCalled();
+      expandStorageGroups(host);
       const checkbox = choice(host, 'backup:test');
       expect(checkbox.getAttribute('aria-checked')).toBe('false');
       fixture.confirm.mockResolvedValueOnce(false);
@@ -428,6 +446,10 @@ describe('WeQ 存储管理页面', () => {
       );
       await act(async () => checkbox.click());
       expect(checkbox.getAttribute('aria-checked')).toBe('true');
+      const group = checkbox.closest('section')!.querySelector<HTMLButtonElement>('h4 > button')!;
+      act(() => group.click());
+      expect(group.textContent).toContain('已选 1 项');
+      expect(host.querySelector('[data-cache-id="backup:test"]')).toBeNull();
       expect(button.textContent).toBe('开始清理');
       fixture.confirm.mockResolvedValueOnce(false);
       await act(async () => button.click());
@@ -469,6 +491,7 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      expandStorageGroups(host);
       await act(async () => choice(host, 'dress_shared').click());
       const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
         (item) => item.textContent === '开始清理',
@@ -495,6 +518,7 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      expandStorageGroups(host);
       expect(host.textContent).toContain('WeQ 存储管理');
       expect(host.textContent).toContain('本页占用 3 KB');
       expect(host.textContent).toContain('可清理 1 KB');
@@ -542,6 +566,7 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      expandStorageGroups(host);
       expect(host.textContent).toContain('本页占用 7 KB');
       expect(host.textContent).not.toContain('.DS_Store');
       expect(host.textContent).not.toContain('空缓存');

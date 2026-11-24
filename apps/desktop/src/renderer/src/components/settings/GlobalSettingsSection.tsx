@@ -137,6 +137,7 @@ export function GlobalSettingsSection({
   const cleanupBusy = cleaning || clearStorageData.isLoading;
   const [pickedCats, setPickedCats] = useState<Set<string>>(new Set());
   const [storageDetails, setStorageDetails] = useState<string | null>(null);
+  const [expandedStorageGroups, setExpandedStorageGroups] = useState<Set<string>>(new Set());
   const storageHeadingId = useId();
   const [confirmingSelection, setConfirmingSelection] = useState(false);
   const selectionInFlight = useRef(false);
@@ -208,7 +209,9 @@ export function GlobalSettingsSection({
   }
   const selectionDisabled = cleanupBusy || confirmingSelection || cacheUsage.isFetching;
   const cacheMulti = useMultiSelection({
-    ids: storageEntries.map(({ item }) => item.id),
+    ids: storageGroups.flatMap(({ id, entries }) =>
+      expandedStorageGroups.has(id) ? entries.map(({ item }) => item.id) : [],
+    ),
     selected: pickedCats,
     onChange: (next) => void changeStorageSelection(next),
     disabled: selectionDisabled,
@@ -682,18 +685,47 @@ export function GlobalSettingsSection({
             ) : storageGroups.length === 0 ? (
               <div className="weq-set-empty">暂无存储数据</div>
             ) : (
-              storageGroups.map(({ id, label, bytes, incomplete, entries }) => (
-                <section key={id} aria-labelledby={`${storageHeadingId}-${id}`}>
-                  <div className="weq-storage-group-heading">
-                    <h4 id={`${storageHeadingId}-${id}`}>{label}</h4>
-                    <span>
-                      {incomplete ? '至少 ' : ''}
-                      <NumericText>{formatBytes(bytes)}</NumericText>
-                    </span>
-                  </div>
-                  {entries.map(({ item, members }) => storageItem(item, members))}
-                </section>
-              ))
+              storageGroups.map(({ id, label, bytes, incomplete, entries }) => {
+                const headingId = `${storageHeadingId}-${id}`;
+                const panelId = `${headingId}-items`;
+                const expanded = expandedStorageGroups.has(id);
+                const pickedCount = expanded
+                  ? 0
+                  : entries.filter(({ item }) => pickedCats.has(item.id)).length;
+                return (
+                  <section key={id} className="weq-storage-group" aria-labelledby={headingId}>
+                    <h4 id={headingId} className="weq-storage-group-heading">
+                      <button
+                        type="button"
+                        className="weq-storage-group-toggle"
+                        aria-expanded={expanded}
+                        aria-controls={panelId}
+                        onClick={() =>
+                          setExpandedStorageGroups((previous) => {
+                            const next = new Set(previous);
+                            if (next.has(id)) next.delete(id);
+                            else next.add(id);
+                            return next;
+                          })
+                        }
+                      >
+                        <ChevronRight className="weq-storage-group-chevron" size={14} aria-hidden />
+                        <span>
+                          {label}
+                          {pickedCount > 0 && <small> · 已选 {pickedCount} 项</small>}
+                        </span>
+                        <span className="weq-storage-group-size">
+                          {incomplete ? '至少 ' : ''}
+                          <NumericText>{formatBytes(bytes)}</NumericText>
+                        </span>
+                      </button>
+                    </h4>
+                    <div id={panelId} hidden={!expanded}>
+                      {expanded && entries.map(({ item, members }) => storageItem(item, members))}
+                    </div>
+                  </section>
+                );
+              })
             )}
           </div>
           <div className="weq-set-actions">

@@ -46,10 +46,20 @@ try {
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/storage-management.html`,
   );
-  await page.waitForSelector('[data-cleanup] .weq-storage-item');
+  const groupToggles = page.locator('[data-cleanup] .weq-storage-group-toggle');
+  await groupToggles.first().waitFor();
   const output = process.env.WEQ_STORAGE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   const failures = [];
+  if (await page.locator('[data-cleanup] .weq-storage-item').count())
+    failures.push('groupsCollapsedOnEntry');
+  for (const group of await groupToggles.all()) await group.click();
+  await groupToggles.first().press('Enter');
+  if ((await groupToggles.first().getAttribute('aria-expanded')) !== 'false')
+    failures.push('keyboardCollapse');
+  await groupToggles.first().press('Space');
+  if ((await groupToggles.first().getAttribute('aria-expanded')) !== 'true')
+    failures.push('keyboardExpand');
   let cases = 0;
   for (const width of [1280, 390, 320])
     for (const theme of ['light', 'dark', 'system'])
