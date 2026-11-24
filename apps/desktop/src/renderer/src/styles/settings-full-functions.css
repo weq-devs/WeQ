@@ -56,12 +56,6 @@
   gap: 10px;
 }
 
-.weq-full-function-preferences {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-}
-
 .weq-full-function-routes {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
@@ -105,8 +99,6 @@
   display: grid;
   gap: 10px;
   min-width: 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--weq-border-subtle);
 }
 
 .weq-full-function-section-title {

@@ -72,11 +72,9 @@ function OnlineCapabilityStatus() {
 export function FullFunctionSetup({
   isMac,
   enableSetting,
-  children,
 }: {
   isMac: boolean;
   enableSetting: ReactNode;
-  children: ReactNode;
 }) {
   const [debugOpen, setDebugOpen] = useState(false);
   const autoRefresh = useQQAutoRefresh(isMac);
@@ -91,7 +89,7 @@ export function FullFunctionSetup({
   return (
     <>
       <Card
-        title="QQ 在线能力"
+        title="在线能力"
         titleBadge={<OnlineCapabilityStatus />}
         icon={<Zap size={15} strokeWidth={1.8} />}
         desc="使用当前 QQ 会话发送消息、拉取漫游和查看在线内容。"
@@ -129,7 +127,6 @@ export function FullFunctionSetup({
             </span>
           </p>
         </details>
-        <div className="weq-full-function-preferences">{children}</div>
         <section className="weq-full-function-section" data-setting-id="full-feature-routes">
           <h4 className="weq-full-function-section-title">
             {isMac ? '启用方式（macOS）' : '启用方式'}

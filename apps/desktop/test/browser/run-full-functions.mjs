@@ -166,12 +166,22 @@ try {
     assert.deepEqual(groups[1], groups[0], `${style}: QQ 在线能力分组与设置基线不一致`);
     assert.deepEqual(groups[2], groups[0], `${style}: QQ 代理连接分组与设置基线不一致`);
   }
-  for (const id of ['full-feature-routes', 'auto-full-mode', 'restricted-mode-indicator'])
+  for (const [id, title] of [
+    ['full-feature-routes', '在线能力'],
+    ['auto-full-mode', '在线能力'],
+    ['restricted-mode-indicator', '状态提醒'],
+    ['qq-client-sync', '同步与实时更新'],
+    ['qq-live-messages', '同步与实时更新'],
+    ['qq-proxy-indicator', '状态提醒'],
+  ])
     assert.equal(
       await page
         .locator(`[data-setting-id="${id}"]`)
-        .evaluate((node) => node.closest('.weq-set-card')?.getAttribute('data-setting-id')),
-      'full-features',
+        .evaluate(
+          (node) =>
+            node.closest('.weq-set-card')?.querySelector('.weq-set-card-title')?.textContent,
+        ),
+      title,
     );
   await page
     .getByRole('region', { name: 'QQ 调试副本路线', exact: true })
