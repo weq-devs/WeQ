@@ -33,6 +33,7 @@ export const SETTINGS_PAGE_LABELS = {
   recognition: '识别与转写',
   account: '在线能力与授权',
   credentials: '凭据管理',
+  'qq-accounts': 'QQ 登录记录与设备标识',
   accounts: 'WeQ 账号管理',
   diagnostics: 'QQ 高级工具',
   'database-management': 'QQ 数据库管理',
@@ -61,7 +62,6 @@ export type SectionId =
   | 'storage'
   | 'rkey'
   | 'media'
-  | 'qq-accounts'
   | 'database'
   | 'database-status'
   | 'database-repair'
@@ -124,6 +124,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     label: '凭据与数据',
     sections: [
       'credentials',
+      'qq-accounts',
       'resource-loading',
       'data-saver',
       'qq-storage',
@@ -1008,7 +1009,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'qq-accounts',
-    section: 'diagnostics',
+    section: 'qq-accounts',
     label: '登录记录与设备标识',
     aliases: ['QQ 登录记录管理', 'QQ 账号管理', '设备 GUID', '登录记录'],
     from: ['qq-accounts', 'diagnostics'],
@@ -1161,7 +1162,6 @@ const SECTION_REDIRECTS: Partial<
   storage: { section: 'weq-storage' },
   'anti-recall': { section: 'anti-recall', settingId: 'anti-recall' },
   media: { section: 'resource-loading' },
-  'qq-accounts': { section: 'diagnostics', settingId: 'qq-accounts' },
   rkey: { section: 'resource-loading', settingId: 'external-rkey' },
   database: { section: 'database-management', settingId: 'database-repair' },
   'database-tolerance': { section: 'database-management', settingId: 'database-repair' },

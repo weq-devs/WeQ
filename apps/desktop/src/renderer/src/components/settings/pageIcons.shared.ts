@@ -43,7 +43,7 @@ import {
   TextCursorInput,
   UsersRound,
 } from 'lucide-react';
-import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
+import { FEATURE_ICONS, MAINTENANCE_TOOL_ICONS } from '../../lib/featureIcons.shared';
 import type { FeatureIcon } from '../../lib/featureIcons';
 import type { SettingsPageId } from './navigation';
 
@@ -90,6 +90,7 @@ export const SETTINGS_PAGE_ICONS = {
   home: House,
   'weq-storage': HardDrive,
   credentials: KeyRound,
+  'qq-accounts': MAINTENANCE_TOOL_ICONS['login-accounts'],
 } satisfies Record<SettingsPageId, FeatureIcon>;
 
 export const SETTINGS_GROUP_ICONS: Record<string, FeatureIcon> = {

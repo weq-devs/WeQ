@@ -105,12 +105,13 @@ try {
         await page.getByRole('button', { name: 'QQ 高级工具', exact: true }).click();
         assert.deepEqual(
           await page.locator('.weq-settings-body .weq-set-card-title').allTextContents(),
-          ['QQNT 抓包', '登录记录与设备标识', '签名器（wrapper.node）', 'Protobuf / JCE 逆向'],
+          ['QQNT 抓包', '通话抓包', '签名器（wrapper.node）', 'Protobuf / JCE 逆向'],
         );
         await checkButton('qqnt-capture', '打开抓包', 'QQNT 抓包', 'capture');
         if (output)
           await page.screenshot({ path: resolve(output, `capture-${width}-${theme}.png`) });
         if (advancedOnly) {
+          await page.getByRole('button', { name: 'QQ 登录记录与设备标识', exact: true }).click();
           const loginRecords = page.locator('[data-setting-id="qq-accounts"]');
           await loginRecords.scrollIntoViewIfNeeded();
           await loginRecords.getByText('合成登录账号', { exact: true }).waitFor();

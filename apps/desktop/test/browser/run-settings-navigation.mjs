@@ -169,6 +169,7 @@ try {
       assert.deepEqual(await page.locator('.weq-settings-subnav-item').allTextContents(), [
         '监听与读取',
         '凭据管理',
+        'QQ 登录记录与设备标识',
         '资源加载',
         '省流量模式',
         'QQ 资源管理',
@@ -200,13 +201,13 @@ try {
         await page.locator('.weq-settings-body [data-setting-id="performance-monitor"]').count(),
         0,
       );
-      await page.locator('.weq-settings-body [data-setting-id="qq-accounts"]').waitFor();
       if (output)
         await page.screenshot({ path: resolve(output, `advanced-tools-${width}-${theme}.png`) });
+      await page.getByRole('button', { name: 'QQ 登录记录与设备标识', exact: true }).click();
       const loginRecords = page.locator('.weq-settings-body [data-setting-id="qq-accounts"]');
       await loginRecords.scrollIntoViewIfNeeded();
       await loginRecords.getByText('合成登录账号', { exact: true }).waitFor();
-      assert.equal(await loginRecords.locator('.weq-set-card').count(), 0);
+      assert.equal(await loginRecords.locator('.weq-login-acc > .weq-set-card').count(), 2);
       assert.equal(
         await loginRecords.evaluate((node) => node.scrollWidth > node.clientWidth),
         false,

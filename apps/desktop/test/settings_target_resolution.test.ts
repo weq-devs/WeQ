@@ -92,7 +92,13 @@ describe('设置重构的规范目标与旧入口分流', () => {
     { section: 'message-display', item: '显示消息序号（seq）', target: 'message-content' },
     { section: 'anti-recall', target: 'anti-recall', settingId: 'anti-recall' },
     { section: 'media', target: 'resource-loading' },
-    { section: 'qq-accounts', target: 'diagnostics', settingId: 'qq-accounts' },
+    { section: 'qq-accounts', target: 'qq-accounts' },
+    {
+      section: 'diagnostics',
+      item: '登录记录与设备标识',
+      target: 'qq-accounts',
+      settingId: 'qq-accounts',
+    },
     {
       section: 'media',
       item: '允许使用外部安卓图片缓存',

@@ -165,6 +165,7 @@ describe('设置的两级导航', () => {
         label: '凭据与数据',
         sections: [
           'credentials',
+          'qq-accounts',
           'resource-loading',
           'data-saver',
           'qq-storage',
@@ -175,7 +176,7 @@ describe('设置的两级导航', () => {
     }
   });
 
-  it('账号配置归关于，媒体与登录记录合并到对应页面，旧分区仍可跳转', () => {
+  it('账号配置归关于，媒体归资源加载，QQ 登录记录归数据分类独立页', () => {
     expect(settingsGroupFor('performance-monitor').id).toBe('help');
     expect(settingsGroupFor('media').id).toBe('data');
     expect(settingsGroupFor('accounts').sections).not.toContain('performance-monitor');
@@ -185,7 +186,7 @@ describe('设置的两级导航', () => {
     expect(settingsSectionFor('rkey')).toBe('resource-loading');
     expect(SETTINGS_PAGE_LABELS.diagnostics).toBe('QQ 高级工具');
     expect(settingsSectionFor('database-tolerance')).toBe('database-management');
-    expect(settingsSectionFor('qq-accounts')).toBe('diagnostics');
+    expect(settingsSectionFor('qq-accounts')).toBe('qq-accounts');
     expect(settingsSectionFor('media')).toBe('resource-loading');
     expect(SETTINGS_PAGE_LABELS['database-management']).toBe('QQ 数据库管理');
     expect(SETTINGS_PAGE_LABELS['qq-storage']).toBe('QQ 资源管理');
@@ -196,6 +197,7 @@ describe('设置的两级导航', () => {
   it.each([
     ['诊断工具', 'QQ 高级工具', '凭据与数据'],
     ['QQ 协议工具', 'QQ 高级工具', '凭据与数据'],
+    ['QQ 登录记录与设备标识', 'QQ 登录记录与设备标识', '凭据与数据'],
     ['QQ 账号管理', '登录记录与设备标识', '凭据与数据'],
     ['QQ 登录记录管理', '登录记录与设备标识', '凭据与数据'],
     ['数据库宽容', 'QQ 数据库管理', '凭据与数据'],

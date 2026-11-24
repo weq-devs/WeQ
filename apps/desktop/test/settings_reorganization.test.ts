@@ -184,7 +184,7 @@ describe('设置归位后的实际页面', () => {
       f.close();
     }
   });
-  it('媒体来源并入资源加载，QQ 登录记录并入高级工具，不保留资源关联入口', () => {
+  it('媒体来源并入资源加载，QQ 登录记录迁出高级工具，不保留资源关联入口', () => {
     const f = mount('accounts');
     try {
       expect(f.body().querySelector('[data-setting-id="linked-resources"]')).toBeNull();
@@ -196,9 +196,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().querySelector('[data-setting-id="external-chatpic"]')).not.toBeNull();
       f.render('diagnostics');
       expect(f.body().querySelector('h3')?.textContent).toBe('QQ 高级工具');
-      expect(
-        f.body().querySelector('[data-setting-id="qq-accounts"] .weq-login-acc'),
-      ).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="qq-accounts"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="performance-monitor"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="qqnt-capture"]')).not.toBeNull();
       f.render('resource-loading');
@@ -475,10 +473,22 @@ describe('设置归位后的实际页面', () => {
       f.close();
     }
   });
-  it('QQ 登录账号与逆向直接呈现在设置正文，不再是工具入口', () => {
-    const f = mount('qq-accounts');
+  it('登录记录独立展示且 GUID 在先，逆向仍在高级工具正文', () => {
+    const f = mount('credentials');
     try {
-      expect(f.body().querySelector('.weq-login-acc')).not.toBeNull();
+      const activeTab = f.host.querySelector('.weq-settings-subnav-item.is-active');
+      const loginTab = activeTab?.nextElementSibling as HTMLButtonElement;
+      expect(loginTab.textContent).toBe('QQ 登录记录与设备标识');
+      act(() => loginTab.click());
+      expect(f.body().getAttribute('data-settings-page')).toBe('qq-accounts');
+      const panel = f.body().querySelector('[data-setting-id="qq-accounts"] .weq-login-acc')!;
+      const cards = [...panel.querySelectorAll(':scope > .weq-set-card')];
+      expect(cards.map((card) => card.querySelector('.weq-set-card-title')?.textContent)).toEqual([
+        '本机设备标识（GUID）',
+        '本机登录记录',
+      ]);
+      expect(cards[0]?.querySelector('.weq-login-acc-identity-value')).not.toBeNull();
+      expect(cards[1]?.querySelector('.weq-login-acc-list')).not.toBeNull();
       expect(f.body().querySelector('.weq-maintenance-entry')).toBeNull();
       f.render('diagnostics');
       expect(f.body().querySelector('[data-setting-id="reverse-tool"] textarea')).not.toBeNull();
@@ -659,7 +669,7 @@ describe('设置归位后的实际页面', () => {
     ['global', '默认发送正在输入状态', 'typing-status', '消息输入与回复'],
     ['storage', '优先使用 CDN', 'prefer-cdn', '资源加载'],
     ['media', '允许使用外部安卓图片缓存', 'external-chatpic', '资源加载'],
-    ['qq-accounts', 'QQ 登录记录管理', 'qq-accounts', 'QQ 高级工具'],
+    ['diagnostics', 'QQ 登录记录管理', 'qq-accounts', 'QQ 登录记录与设备标识'],
     ['logs', '数据库读取并发上限', 'database-read-concurrency', 'QQ 数据库管理'],
     ['rkey', '外部 RKEY', 'external-rkey', '资源加载'],
     ['resource-loading', '省流量模式', 'data-saver', '省流量模式'],

@@ -1,7 +1,7 @@
 import { NumericText } from './NumericText';
 import { eventTimeFormatter } from '@weq/time';
 /**
- * QQ 高级工具 → 登录记录与设备标识。
+ * 凭据与数据 → QQ 登录记录与设备标识。
  *
  * 一页把「这台机器上 QQ 认得哪些号」讲清楚，并提供三个动作：
  *
@@ -25,7 +25,6 @@ import {
   AlertTriangle,
   Check,
   Copy,
-  Fingerprint,
   KeyRound,
   Loader2,
   LogOut,
@@ -38,6 +37,7 @@ import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { readWithRetry } from '../lib/autoRead';
 import { QqAvatar } from './QqAvatar';
 import { useToast } from './Toast.shared';
+import { Card } from './settings/controls';
 import '../styles/maintenance-tools.css';
 import '../styles/login-account.css';
 
@@ -165,18 +165,11 @@ export function LoginAccountPanel(): ReactElement {
 
   return (
     <div className="weq-login-acc">
-      {/* ── 设备身份：本机 guid 是服务端认设备的依据 ── */}
-      <section className="weq-login-acc-identity">
+      <Card title="本机设备标识（GUID）">
         <div className="weq-login-acc-identity-main">
-          <span className="weq-login-acc-identity-icon">
-            <Fingerprint size={16} strokeWidth={1.9} />
-          </span>
-          <div className="weq-login-acc-identity-text">
-            <span className="weq-login-acc-identity-label">本机设备标识（guid）</span>
-            <code className="weq-login-acc-identity-value">
-              {overview?.guid ? shortGuid(overview.guid) : '未读取到'}
-            </code>
-          </div>
+          <code className="weq-login-acc-identity-value">
+            {overview?.guid ? shortGuid(overview.guid) : '未读取到'}
+          </code>
           {overview?.guid ? (
             <button
               type="button"
@@ -219,194 +212,197 @@ export function LoginAccountPanel(): ReactElement {
             {overview.dataRoot}
           </p>
         ) : null}
-      </section>
+      </Card>
 
-      {/* ── 写操作闸门：QQ 实例数 ── */}
-      {canWrite ? (
-        <div className="weq-login-acc-gate is-ready">
-          <ShieldCheck size={14} strokeWidth={1.9} />
-          <span>当前没有 QQ 在运行，可以安全修改登录数据。</span>
-        </div>
-      ) : (
-        <div className="weq-login-acc-gate is-blocked">
-          <AlertTriangle size={14} strokeWidth={1.9} />
-          <span>
-            {overview?.qqInstanceCount == null ? (
-              'QQ 运行状态尚未确认，请先恢复数据读取权限并重新检查。'
+      <Card title="本机登录记录">
+        {canWrite ? (
+          <div className="weq-login-acc-gate is-ready">
+            <ShieldCheck size={14} strokeWidth={1.9} />
+            <span>当前没有 QQ 在运行，可以安全修改登录数据。</span>
+          </div>
+        ) : (
+          <div className="weq-login-acc-gate is-blocked">
+            <AlertTriangle size={14} strokeWidth={1.9} />
+            <span>
+              {overview?.qqInstanceCount == null ? (
+                'QQ 运行状态尚未确认，请先恢复数据读取权限并重新检查。'
+              ) : (
+                <>
+                  <NumericText>{`检测到 ${overview.qqInstanceCount} 个 QQ 实例正在运行，请先`}</NumericText>
+                  <b>完全退出 QQ</b>。
+                </>
+              )}
+            </span>
+          </div>
+        )}
+
+        {/* ── 账号列表工具条 ── */}
+        <div className="weq-login-acc-bar">
+          <span className="weq-login-acc-count">
+            共 <span className="weq-number weq-number-inherit">{accounts.length}</span> 个账号
+            {quickLoginCount > 0 ? (
+              <NumericText>{` · ${quickLoginCount} 个可快速登录`}</NumericText>
             ) : (
-              <>
-                <NumericText>{`检测到 ${overview.qqInstanceCount} 个 QQ 实例正在运行，请先`}</NumericText>
-                <b>完全退出 QQ</b>。
-              </>
+              ''
             )}
           </span>
-        </div>
-      )}
-
-      {/* ── 账号列表工具条 ── */}
-      <div className="weq-login-acc-bar">
-        <span className="weq-login-acc-count">
-          共 <span className="weq-number weq-number-inherit">{accounts.length}</span> 个账号
-          {quickLoginCount > 0 ? (
-            <NumericText>{` · ${quickLoginCount} 个可快速登录`}</NumericText>
-          ) : (
-            ''
+          {error && (
+            <button
+              type="button"
+              className="weq-wtools-refresh"
+              onClick={() => void load()}
+              disabled={busy !== null}
+            >
+              {busy === 'refresh' ? (
+                <Loader2 size={13} className="weq-spin" />
+              ) : (
+                <RefreshCw size={13} />
+              )}
+              重试读取
+            </button>
           )}
-        </span>
-        {error && (
-          <button
-            type="button"
-            className="weq-wtools-refresh"
-            onClick={() => void load()}
-            disabled={busy !== null}
-          >
-            {busy === 'refresh' ? (
-              <Loader2 size={13} className="weq-spin" />
-            ) : (
-              <RefreshCw size={13} />
-            )}
-            重试读取
-          </button>
-        )}
-      </div>
+        </div>
 
-      {/* ── 列表 ── */}
-      <div className="weq-login-acc-list">
-        {busy === 'refresh' && !overview ? (
-          <div className="weq-login-acc-state">
-            <Loader2 size={20} className="weq-spin" />
-            <span>正在读取登录记录…</span>
-          </div>
-        ) : error && !overview ? (
-          <div className="weq-login-acc-state is-error" role="alert" title={error}>
+        {/* ── 列表 ── */}
+        <div className="weq-login-acc-list">
+          {busy === 'refresh' && !overview ? (
+            <div className="weq-login-acc-state">
+              <Loader2 size={20} className="weq-spin" />
+              <span>正在读取登录记录…</span>
+            </div>
+          ) : error && !overview ? (
+            <div className="weq-login-acc-state is-error" role="alert" title={error}>
+              读取登录记录失败，请确认 QQ 已安装、数据目录可访问后重试。
+            </div>
+          ) : accounts.length === 0 ? (
+            <div className="weq-login-acc-state">
+              没有读到任何登录记录，请先在 QQ 里登录过账号。
+            </div>
+          ) : (
+            accounts.map((acc) => (
+              <article key={acc.uin} className="weq-login-acc-row">
+                <QqAvatar
+                  uin={acc.uin}
+                  url={acc.avatarUrl}
+                  size={40}
+                  className="weq-login-acc-avatar"
+                />
+                <div className="weq-login-acc-info">
+                  <div className="weq-login-acc-title">
+                    <strong>{acc.userName || acc.uin}</strong>
+                    <span className="weq-login-acc-uin">
+                      <span className="weq-number weq-number-inherit">{acc.uin}</span>
+                    </span>
+                    {acc.hasA1 ? (
+                      <span className="weq-login-acc-badge" title="login.db 里有缓存的 a1">
+                        快速登录
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="weq-login-acc-meta">
+                    <span>
+                      上次登录{' '}
+                      <span className="weq-number weq-number-inherit">
+                        {humanTime(acc.lastLoginAt)}
+                      </span>
+                    </span>
+                    {acc.dbPaths.length > 1 ? (
+                      <span>
+                        <span className="weq-number weq-number-inherit">{acc.dbPaths.length}</span>{' '}
+                        处登录记录
+                      </span>
+                    ) : null}
+                    {acc.dataDir ? null : (
+                      <span className="weq-login-acc-meta-warn">数据目录已不存在</span>
+                    )}
+                  </div>
+                </div>
+                <div className="weq-login-acc-actions">
+                  <button
+                    data-danger="outline"
+                    type="button"
+                    className="weq-set-btn weq-set-btn-soft"
+                    disabled={!canWrite || busy !== null || !acc.hasA1}
+                    title={
+                      acc.hasA1 ? '清掉缓存的 a1，下次需重新登录' : '这个账号没有缓存 a1，无需移除'
+                    }
+                    onClick={() =>
+                      void runWrite(
+                        'a1',
+                        () => client.wonderfulTools.loginAccountRemoveA1.mutate({ uin: acc.uin }),
+                        { title: `已移除 ${acc.userName || acc.uin} 的快速登录` },
+                      )
+                    }
+                  >
+                    {busy === 'a1' ? (
+                      <Loader2 size={13} className="weq-spin" />
+                    ) : (
+                      <LogOut size={13} />
+                    )}
+                    移除快登
+                  </button>
+                  {confirmDeleteUin === acc.uin ? (
+                    <>
+                      <button
+                        type="button"
+                        className="weq-set-btn weq-set-btn-danger"
+                        disabled={busy !== null}
+                        onClick={() => {
+                          setConfirmDeleteUin(null);
+                          void runWrite(
+                            'delete',
+                            () => client.wonderfulTools.loginAccountDelete.mutate({ uin: acc.uin }),
+                            {
+                              title: `已删除账号 ${acc.userName || acc.uin}`,
+                              detail: '聊天记录与账号目录未改动。',
+                            },
+                          );
+                        }}
+                      >
+                        {busy === 'delete' ? (
+                          <Loader2 size={13} className="weq-spin" />
+                        ) : (
+                          <Trash2 size={13} />
+                        )}
+                        确认删除
+                      </button>
+                      <button
+                        type="button"
+                        className="weq-set-btn weq-set-btn-soft"
+                        onClick={() => setConfirmDeleteUin(null)}
+                      >
+                        取消
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-soft weq-set-btn-del"
+                      disabled={!canWrite || busy !== null}
+                      title="从 login.db 中删除该账号（不删聊天记录）"
+                      onClick={() => setConfirmDeleteUin(acc.uin)}
+                    >
+                      <Trash2 size={13} />
+                      删除
+                    </button>
+                  )}
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+
+        {error && overview ? (
+          <div className="weq-login-acc-inline-error" role="alert" title={error}>
             读取登录记录失败，请确认 QQ 已安装、数据目录可访问后重试。
           </div>
-        ) : accounts.length === 0 ? (
-          <div className="weq-login-acc-state">没有读到任何登录记录，请先在 QQ 里登录过账号。</div>
-        ) : (
-          accounts.map((acc) => (
-            <article key={acc.uin} className="weq-login-acc-card">
-              <QqAvatar
-                uin={acc.uin}
-                url={acc.avatarUrl}
-                size={40}
-                className="weq-login-acc-avatar"
-              />
-              <div className="weq-login-acc-info">
-                <div className="weq-login-acc-title">
-                  <strong>{acc.userName || acc.uin}</strong>
-                  <span className="weq-login-acc-uin">
-                    <span className="weq-number weq-number-inherit">{acc.uin}</span>
-                  </span>
-                  {acc.hasA1 ? (
-                    <span className="weq-login-acc-badge" title="login.db 里有缓存的 a1">
-                      快速登录
-                    </span>
-                  ) : null}
-                </div>
-                <div className="weq-login-acc-meta">
-                  <span>
-                    上次登录{' '}
-                    <span className="weq-number weq-number-inherit">
-                      {humanTime(acc.lastLoginAt)}
-                    </span>
-                  </span>
-                  {acc.dbPaths.length > 1 ? (
-                    <span>
-                      <span className="weq-number weq-number-inherit">{acc.dbPaths.length}</span>{' '}
-                      处登录记录
-                    </span>
-                  ) : null}
-                  {acc.dataDir ? null : (
-                    <span className="weq-login-acc-meta-warn">数据目录已不存在</span>
-                  )}
-                </div>
-              </div>
-              <div className="weq-login-acc-actions">
-                <button
-                  data-danger="outline"
-                  type="button"
-                  className="weq-set-btn weq-set-btn-soft"
-                  disabled={!canWrite || busy !== null || !acc.hasA1}
-                  title={
-                    acc.hasA1 ? '清掉缓存的 a1，下次需重新登录' : '这个账号没有缓存 a1，无需移除'
-                  }
-                  onClick={() =>
-                    void runWrite(
-                      'a1',
-                      () => client.wonderfulTools.loginAccountRemoveA1.mutate({ uin: acc.uin }),
-                      { title: `已移除 ${acc.userName || acc.uin} 的快速登录` },
-                    )
-                  }
-                >
-                  {busy === 'a1' ? (
-                    <Loader2 size={13} className="weq-spin" />
-                  ) : (
-                    <LogOut size={13} />
-                  )}
-                  移除快登
-                </button>
-                {confirmDeleteUin === acc.uin ? (
-                  <>
-                    <button
-                      type="button"
-                      className="weq-set-btn weq-set-btn-danger"
-                      disabled={busy !== null}
-                      onClick={() => {
-                        setConfirmDeleteUin(null);
-                        void runWrite(
-                          'delete',
-                          () => client.wonderfulTools.loginAccountDelete.mutate({ uin: acc.uin }),
-                          {
-                            title: `已删除账号 ${acc.userName || acc.uin}`,
-                            detail: '聊天记录与账号目录未改动。',
-                          },
-                        );
-                      }}
-                    >
-                      {busy === 'delete' ? (
-                        <Loader2 size={13} className="weq-spin" />
-                      ) : (
-                        <Trash2 size={13} />
-                      )}
-                      确认删除
-                    </button>
-                    <button
-                      type="button"
-                      className="weq-set-btn weq-set-btn-soft"
-                      onClick={() => setConfirmDeleteUin(null)}
-                    >
-                      取消
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    className="weq-set-btn weq-set-btn-soft weq-set-btn-del"
-                    disabled={!canWrite || busy !== null}
-                    title="从 login.db 中删除该账号（不删聊天记录）"
-                    onClick={() => setConfirmDeleteUin(acc.uin)}
-                  >
-                    <Trash2 size={13} />
-                    删除
-                  </button>
-                )}
-              </div>
-            </article>
-          ))
-        )}
-      </div>
+        ) : null}
 
-      {error && overview ? (
-        <div className="weq-login-acc-inline-error" role="alert" title={error}>
-          读取登录记录失败，请确认 QQ 已安装、数据目录可访问后重试。
-        </div>
-      ) : null}
-
-      <p className="weq-login-acc-foot">
-        <KeyRound size={12} strokeWidth={1.9} />
-        删除账号只清理 QQ 的登录记录，聊天记录与数据目录保持不动。
-      </p>
+        <p className="weq-login-acc-foot">
+          <KeyRound size={12} strokeWidth={1.9} />
+          删除账号只清理 QQ 的登录记录，聊天记录与数据目录保持不动。
+        </p>
+      </Card>
     </div>
   );
 }

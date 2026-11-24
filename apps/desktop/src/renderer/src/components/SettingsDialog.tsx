@@ -126,9 +126,6 @@ import { ContactCardSettings } from './settings/ContactCardSettings';
 import { useRemoteClient } from '../lib/remoteClient';
 import { remoteSettingAvailable } from '../../../shared/remote_capabilities';
 import { SettingsGroupIcon, SettingsPageIcon } from './settings/pageIcons';
-import { MAINTENANCE_TOOL_ICONS } from '../lib/featureIcons.shared';
-
-const LoginAccountsIcon = MAINTENANCE_TOOL_ICONS['login-accounts'];
 
 /** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
 interface SettingsSection {
@@ -243,6 +240,18 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
     id: 'diagnostics',
     label: 'QQ 高级工具',
     render: (onOpen) => <DiagnosticsSettingsSection onOpen={onOpen} />,
+  },
+  {
+    id: 'qq-accounts',
+    label: SETTINGS_PAGE_LABELS['qq-accounts'],
+    render: () => (
+      <div className="weq-set">
+        <SectionHeader title={SETTINGS_PAGE_LABELS['qq-accounts']} page="qq-accounts" />
+        <div data-setting-id="qq-accounts">
+          <LoginAccountPanel />
+        </div>
+      </div>
+    ),
   },
   {
     id: 'model-usage',
@@ -849,13 +858,6 @@ function DiagnosticsSettingsSection({
           </button>
         }
       />
-      <Card
-        title="登录记录与设备标识"
-        icon={<LoginAccountsIcon size={15} />}
-        settingId="qq-accounts"
-      >
-        <LoginAccountPanel />
-      </Card>
       <CallUdpTraceSettings />
       <SignerStatusCard />
       <Card
