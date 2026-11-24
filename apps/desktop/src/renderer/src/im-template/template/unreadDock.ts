@@ -5,7 +5,7 @@
  * 规则（与产品约定一致）：
  *   1. 重要消息按 seq 从大到小排，右上角只显示下一个尚未查看的跳转点。
  *   2. 普通未读排在最后，跳到最早那条未读（已读水位 + 1）。
- *   3. 目标是否已看见由聊天视口判断，不用已加载页推断。
+ *   3. 目标进入聊天视口、定位成功或点过确认缺失的提醒后，从队列移除。
  *
  * 本模块是纯函数（不依赖 React / service），便于单测与在模板层复用。
  */
@@ -132,12 +132,18 @@ export function buildUnreadDock(input: {
       highlight.senderUid && highlight.senderUid !== '0' ? highlight.senderUid : undefined;
     const sendTime =
       highlight.sendTime && /^[1-9]\d*$/.test(highlight.sendTime) ? highlight.sendTime : undefined;
+    const identity =
+      highlight.kind === 'newFile'
+        ? { senderUid, sendTime, kind: 'newFile' as const }
+        : senderUid || sendTime
+          ? { senderUid, sendTime }
+          : undefined;
     if (!existing)
       bySeq.set(seq, {
         kind: highlight.kind,
         seq,
         text: highlight.text,
-        ...(senderUid || sendTime ? { identity: { senderUid, sendTime } } : {}),
+        ...(identity ? { identity } : {}),
       });
     else if (highlight.kind === 'groupKeyword' && highlight.text) existing.text = highlight.text;
   }

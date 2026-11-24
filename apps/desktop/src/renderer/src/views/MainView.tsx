@@ -6261,9 +6261,14 @@ function MainWorkspace(): ReactElement {
       targetSeq?: string,
       exactRecord?: ChatMsgWire,
       messageId?: string,
-      mode?: ReplyJumpTarget['mode'],
-      importantMessage?: ReplyJumpTarget['importantMessage'],
-      readingPosition?: ConversationReadingPosition,
+      {
+        mode,
+        importantMessage,
+        onMissing,
+        readingPosition,
+      }: Pick<ReplyJumpTarget, 'mode' | 'importantMessage' | 'onMissing'> & {
+        readingPosition?: ConversationReadingPosition;
+      } = {},
     ): Promise<boolean> =>
       runMessageLocate(
         async (isCurrent) => {
@@ -6348,6 +6353,7 @@ function MainWorkspace(): ReactElement {
           const autoContext = () =>
             preferenceValue('autoFetchMissingMessages') ||
             preferenceValue('autoFetchMissingContext');
+          let contextFetchFailed = false;
           if (!target && targetSeq && autoContext()) {
             try {
               const rows = await fetchMissingContext(
@@ -6370,6 +6376,7 @@ function MainWorkspace(): ReactElement {
               target = findTarget();
             } catch (error) {
               if (!current()) return false;
+              contextFetchFailed = true;
               pushToast({
                 tone: 'warning',
                 title: '自动拉取上下文失败',
@@ -6425,6 +6432,7 @@ function MainWorkspace(): ReactElement {
           }
           const anchor = target ?? (targetSeq ? nearestBySeq(merged, targetSeq) : undefined);
           if (!target && targetSeq) {
+            if (!contextFetchFailed) onMissing?.();
             setMissingJumpSeq(targetSeq);
             pushToast({
               tone: 'info',
@@ -6563,14 +6571,14 @@ function MainWorkspace(): ReactElement {
               targetSeq,
               undefined,
               jumpTarget.msgId,
-              jumpTarget.mode,
-              jumpTarget.importantMessage,
+              jumpTarget,
             );
           }
           // 在已加载范围内却没有这一行 ⇒ 一条被撤回/删除/从未同步的「空消息」。
           // 不把用户丢回原地：滚到最近的邻居，并挂一条「点击拉取」的缺口条，
           // 同时 Toast 说明原因。
           notFound();
+          jumpTarget.onMissing?.();
           setMissingJumpSeq(targetSeq);
           const anchor = nearestBySeq(current, targetSeq);
           if (anchor) scrollToMsgId(timelineRowKey(anchor), false);
@@ -6578,15 +6586,7 @@ function MainWorkspace(): ReactElement {
         }
       }
 
-      return centerWindowOnSeq(
-        sel.id,
-        kind,
-        targetSeq,
-        undefined,
-        jumpTarget.msgId,
-        jumpTarget.mode,
-        jumpTarget.importantMessage,
-      );
+      return centerWindowOnSeq(sel.id, kind, targetSeq, undefined, jumpTarget.msgId, jumpTarget);
     },
     [centerWindowOnSeq, scrollToMsgId, pushToast, cancelMessageLocate, selectionRef, loadedRef],
   );
@@ -7175,9 +7175,7 @@ function MainWorkspace(): ReactElement {
           anchorSeq,
           undefined,
           anchorId,
-          undefined,
-          undefined,
-          readingPosition,
+          { readingPosition },
         )
       : false;
     if (positioned && selectionRef.current === selection) visitedHistoryRef.current = true;

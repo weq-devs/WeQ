@@ -14,6 +14,8 @@ export interface ReplyJumpTarget {
   mode?: 'firstUnread';
   /** 重要提醒可能与灰条同序号，保留原消息的身份。 */
   importantMessage?: UnreadMessageIdentity;
+  /** 读取成功但未找到目标时通知浮动提醒，加载失败仍可重试。 */
+  onMissing?: () => void;
   /** 已知原消息时优先精确匹配，兼容序号为空或同序号的漫游记录。 */
   msgId?: string;
   /** origMsgSeq (tag 47402) — the 40003 anchor for GROUP messages. */

@@ -36,17 +36,37 @@ export function countMessageBadgeUnread(
   return total;
 }
 
-export type UnreadMessageIdentity = { senderUid?: string; sendTime?: string };
+export type UnreadMessageIdentity = {
+  senderUid?: string;
+  sendTime?: string;
+  kind?: 'newFile';
+};
 
 export function matchesUnreadMessage(
-  message: UnreadMessageIdentity & { msgSeq?: string },
+  message: {
+    msgSeq?: string;
+    senderUid?: string;
+    sendTime?: string;
+    elements?: readonly unknown[];
+    qqElements?: readonly unknown[];
+  },
   seq: string,
   identity?: UnreadMessageIdentity,
 ): boolean {
-  return (
-    message.msgSeq === seq &&
-    (!identity?.senderUid || message.senderUid === identity.senderUid) &&
-    (!identity?.sendTime || message.sendTime === identity.sendTime)
+  if (message.msgSeq !== seq || (identity?.senderUid && message.senderUid !== identity.senderUid))
+    return false;
+  const sameTime = !identity?.sendTime || message.sendTime === identity.sendTime;
+  if (identity?.kind !== 'newFile') return sameTime;
+
+  const elements = message.qqElements ?? message.elements;
+  const hasFile = elements?.some(
+    (element) => (element as { type?: string } | null)?.type === 'file',
+  );
+  // QQ 群文件提醒的时间可能比聊天里的原消息晚一秒。
+  return Boolean(
+    hasFile &&
+      (sameTime ||
+        (message.sendTime && Math.abs(Number(message.sendTime) - Number(identity.sendTime)) <= 1)),
   );
 }
 

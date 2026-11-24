@@ -153,7 +153,7 @@ export function useChatTimelineNavigation({
   messagesForDock.current = messages;
 
   const jumpToSeq = useCallback(
-    async (target: ReplyJumpTarget): Promise<boolean> => {
+    async (target: ReplyJumpTarget, dismissMissingStop?: UnreadDockStop): Promise<boolean> => {
       // 滚动事件晚于消息刷新提交；先退出贴底，避免原消息刚定位就被刷新拉回末尾。
       atBottomRef.current = false;
       holdingHistoryPosition.current = true;
@@ -163,9 +163,16 @@ export function useChatTimelineNavigation({
       const started = navigationScope.current;
       const task = {};
       locateTask.current = task;
-      const found = await parentJumpToSeq(target);
-      if (found === false || navigationScope.current !== started || locateTask.current !== task)
+      let missing = false;
+      const onMissing = () => {
+        missing = true;
+      };
+      const found = await parentJumpToSeq(dismissMissingStop ? { ...target, onMissing } : target);
+      if (navigationScope.current !== started || locateTask.current !== task) return false;
+      if (found === false) {
+        if (missing && dismissMissingStop) visitStops(started, [dismissMissingStop.seq]);
         return false;
+      }
       const seq = target.seq == null ? null : String(target.seq);
       setLocatedSeq(seq);
       const stop = started.dock?.stops.find((stop) => stop.seq === seq);
@@ -989,14 +996,10 @@ export function useChatTimelineNavigation({
     dockTask.current = task;
     setDockJumping(true);
     try {
-      const found = await jumpToSeq({
-        seq: dockStop.seq,
-        ...(dockStop.kind === 'unread'
-          ? { mode: 'firstUnread' as const }
-          : dockStop.identity
-            ? { importantMessage: dockStop.identity }
-            : {}),
-      });
+      const found =
+        dockStop.kind === 'unread'
+          ? await jumpToSeq({ seq: dockStop.seq, mode: 'firstUnread' })
+          : await jumpToSeq({ seq: dockStop.seq, importantMessage: dockStop.identity }, dockStop);
       return found && dockTask.current === task;
     } catch (err) {
       console.error('[unread-dock] jump failed', err);

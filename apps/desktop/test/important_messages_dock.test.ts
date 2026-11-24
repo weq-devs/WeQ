@@ -2,6 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { useChatTimelineNavigation } from '../src/renderer/src/im-template/template/useChatTimelineNavigation';
+import type { ReplyJumpTarget } from '../src/renderer/src/state/messageContext';
 import { createTemplateDemoData } from './support/templateDemoData';
 
 it('定位进行中不消耗跳转点，失败可重试，旧会话任务结束不推进新队列', async () => {
@@ -73,7 +74,7 @@ it('定位进行中不消耗跳转点，失败可重试，旧会话任务结束�
   }
 });
 
-it('列表与队列共享定位进度，乱序选择只完成自身，重定位和失败不跳过其它提醒', async () => {
+it('列表与队列共享定位进度，确认缺失只结束对应的浮动提醒', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const demo = createTemplateDemoData();
   const jump = vi.fn().mockResolvedValue(undefined);
@@ -150,6 +151,7 @@ it('列表与队列共享定位进度，乱序选择只完成自身，重定位�
     expect(jump).toHaveBeenLastCalledWith({
       seq: '103',
       importantMessage: dock.stops[0]?.identity,
+      onMissing: expect.any(Function),
     });
     expect(state.dockStop?.seq).toBe('101');
     expect(state.dockRemaining).toBe(1);
@@ -159,8 +161,18 @@ it('列表与队列共享定位进度，乱序选择只完成自身，重定位�
     expect(state.dockRemaining).toBe(0);
     await act(async () => root.render(h(Harness, { conversationId: '888' })));
     expect(state.dockStop?.kind).toBe('newFile');
+    jump.mockImplementationOnce(async (target: ReplyJumpTarget) => {
+      target.onMissing?.();
+      return false;
+    });
+    await act(async () => expect(await state.jumpDockStop()).toBe(false));
+    expect(state.locatedSeq).toBeNull();
+    expect(state.dockStop?.kind).toBe('replyMe');
+    expect(state.dockImportantRemaining).toBe(1);
     await act(async () => root.render(h(Harness, { conversationId: '777' })));
     expect(state.dockStop?.kind).toBe('unread');
+    await act(async () => root.render(h(Harness, { conversationId: '888' })));
+    expect(state.dockStop?.kind).toBe('replyMe');
   } finally {
     act(() => root.unmount());
     host.remove();
