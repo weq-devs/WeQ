@@ -57,6 +57,24 @@ export const CONTENT_FEATURES = [
     '说说互动',
     '选定说说后查看已有点赞与评论，或使用适用操作。',
   ),
+  content(
+    'profile.activity',
+    'qzone',
+    '空间访客、留言、日志与分享',
+    '从空间主页打开该账号支持的访客、留言、日志或历史分享栏目。',
+    { docs: ['guide/album-qzone.md'] },
+  ),
+  content('feed.favorites', 'qzone', '特别关心动态', '在好友动态中筛选特别关心的人发布的动态。', {
+    context: ['account'],
+    docs: ['guide/album-qzone.md'],
+  }),
+  content(
+    'mark-all-read',
+    'mail',
+    '全部邮件标为已读',
+    '统计未读邮件并在确认后批量处理，选中邮件时可单独标记。',
+    { context: ['account'], docs: ['guide/qqmail.md#feature-mail.mark-all-read'] },
+  ),
   content('message.read', 'mail', '查看邮件', '从邮箱列表选择邮件以读正文和附件。', {
     docs: ['guide/qqmail.md#feature-mail.message.read'],
     tools: ['get_mail_message'],

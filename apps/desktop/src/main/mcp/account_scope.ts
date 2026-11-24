@@ -5,6 +5,7 @@ export interface ToolExecutionOptions {
   signal?: AbortSignal;
   visibleToolNames?: readonly string[];
   featureLinks?: boolean;
+  mcpCapabilityWrites?: boolean;
 }
 type ToolRunner = (
   name: string,

@@ -50,11 +50,17 @@ export async function runDesktopServices(options: {
   const createWebEntry = (auth: WebAuth) =>
     new DesktopWebEntry({ auth, accounts, publicDir, developmentUrl, loadAccountAvatar });
   const mcpGrants = new McpGrants(options.dataRoot);
-  const mcp = new DesktopMcpGateway(accounts, (id) => {
+  const findGrant = (id: string) => {
     const settings = config.getSettings().mcp;
-    if (!settings.enabled) return undefined;
-    return mcpGrants.list(settings.token).find((grant) => grant.id === id)?.configIds;
-  });
+    return settings.enabled
+      ? mcpGrants.list(settings.token).find((grant) => grant.id === id)
+      : undefined;
+  };
+  const mcp = new DesktopMcpGateway(
+    accounts,
+    (id) => findGrant(id)?.configIds,
+    (id, configId) => findGrant(id)?.writeConfigIds.includes(configId) === true,
+  );
   const configureMcp = async () => {
     const settings = config.getSettings().mcp;
     await mcp.configure(settings.enabled ? { port: settings.port, token: settings.token } : null);
@@ -184,13 +190,26 @@ export async function runDesktopServices(options: {
         return configureMcp();
       }
       if (method === 'mcp.grant') {
-        const { id, configIds } = z
-          .object({ id: z.string(), configIds: z.array(z.string()).max(256) })
+        const { id, configIds, writeConfigIds } = z
+          .object({
+            id: z.string(),
+            configIds: z.array(z.string()).max(256),
+            writeConfigIds: z.array(z.string()).max(256).optional(),
+          })
           .parse(input);
-        const saved = new Set(accounts.list().map((account) => account.configId));
+        const entries = accounts.list();
+        const saved = new Set(entries.map((account) => account.configId));
         if (configIds.some((configId) => !saved.has(configId)))
           throw new Error('账号数据源已经变化。');
-        mcpGrants.set(config.getSettings().mcp.token, id, configIds);
+        if (
+          writeConfigIds?.some(
+            (configId) =>
+              !configIds.includes(configId) ||
+              !entries.some((account) => !account.static && account.configId === configId),
+          )
+        )
+          throw new Error('QQ 在线操作只可授权给令牌已勾选的在线账号。');
+        mcpGrants.set(config.getSettings().mcp.token, id, configIds, writeConfigIds);
         mcp.invalidateCredential(id);
         return;
       }

@@ -44,7 +44,11 @@ export function AppSearchResults({
             role="option"
             className="weq-search-row"
             data-search-hit-key={`app:${entry.id}`}
-            data-search-keep-open={entry.target.kind === 'group-files' || undefined}
+            data-search-keep-open={
+              entry.target.kind === 'group-files' ||
+              entry.target.kind === 'group-albums' ||
+              undefined
+            }
             onClick={() => onSelect(entry)}
           >
             <span className="weq-search-avatar weq-search-source-icon" aria-hidden>

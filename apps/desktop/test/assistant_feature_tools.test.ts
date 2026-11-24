@@ -12,7 +12,11 @@ vi.mock('../src/main/context/app_context', () => ({
 }));
 
 it('助手默认工具规格和执行都能查目录，结果只认本轮收到的工具名', async () => {
-  const specs = aiToolSpecs({ permissionMode: 'sandbox' }).map((spec) => spec.function.name);
+  const definitions = aiToolSpecs({ permissionMode: 'sandbox' });
+  const specs = definitions.map((spec) => spec.function.name);
+  expect(
+    definitions.find(({ function: spec }) => spec.name === 'call_capability')?.function.parameters,
+  ).toMatchObject({ properties: { arguments: { type: 'object', additionalProperties: true } } });
   expect(specs).toContain('list_features');
   expect(specs).toContain('get_feature');
   const account = {};

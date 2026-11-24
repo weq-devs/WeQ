@@ -2090,13 +2090,23 @@ export const bootstrapRouter = router({
     if (ctx.authorize) throw new Error('请在桌面管理 MCP 授权。');
     return desktopServiceCommand<{
       accounts: { configId: string; displayName: string; uin: string; static: boolean }[];
-      grants: { id: string; label: string; configIds: string[]; primary?: true }[];
+      grants: {
+        id: string;
+        label: string;
+        configIds: string[];
+        writeConfigIds: string[];
+        primary?: true;
+      }[];
     }>('mcp.grants', undefined, () => ({ accounts: [], grants: [] }));
   }),
 
   setMcpAccountGrant: procedure
     .input(
-      z.object({ id: z.string().regex(/^[a-f0-9]{64}$/), configIds: z.array(z.string()).max(256) }),
+      z.object({
+        id: z.string().regex(/^[a-f0-9]{64}$/),
+        configIds: z.array(z.string()).max(256),
+        writeConfigIds: z.array(z.string()).max(256).optional(),
+      }),
     )
     .mutation(({ input, ctx }) => {
       if (ctx.authorize || !hasDesktopServices()) throw new Error('请在桌面管理 MCP 授权。');

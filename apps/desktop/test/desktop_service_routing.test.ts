@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
@@ -14,6 +14,7 @@ import { RemoteWebGateway } from '../src/main/remote/web_gateway';
 import { createWebHost, lookupDownload } from '../src/main/web/host';
 import { withWebAccountRoute } from '../src/main/web/account_route';
 import { DesktopMcpGateway, mcpCredentialId } from '../src/main/desktop_services/mcp_gateway';
+import { McpGrants } from '../src/main/desktop_services/mcp_grants';
 import {
   connectDesktopService,
   listenPrivate,
@@ -45,6 +46,7 @@ async function fixture(
     static: false,
   }));
   const stale = new Set<string>();
+  const toolCalls: unknown[] = [];
   const tcp = createServer((req, res) => {
     const uin = req.headers[PRIVATE_ACCOUNT_HEADER];
     if (req.headers[PRIVATE_TOKEN_HEADER] !== 'a'.repeat(64) || typeof uin !== 'string')
@@ -53,8 +55,13 @@ async function fixture(
     if (shell && req.url === '/')
       return res.writeHead(200, { 'Content-Type': 'text/html' }).end(shell);
     if (req.url === '/tool') {
-      req.resume();
-      return sendJson(res, 200, { value: { uin, downloadPath: '/chat/videos/fixture' } });
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        toolCalls.push(JSON.parse(Buffer.concat(chunks).toString()));
+        sendJson(res, 200, { value: { uin, downloadPath: '/chat/videos/fixture' } });
+      });
+      return;
     }
     sendJson(res, 200, { uin });
   });
@@ -78,7 +85,7 @@ async function fixture(
   });
   const windows = vi.fn(async (): ReturnType<DesktopAccountRoutes['windows']> => []);
   const routes = { list: () => accounts, open, find, windows } as unknown as DesktopAccountRoutes;
-  return { routes, open, find, windows, stale, close: () => stopPrivate(tcp) };
+  return { routes, open, find, windows, stale, toolCalls, close: () => stopPrivate(tcp) };
 }
 
 it('开发重载交接旧桌面服务，旧窗口不会取代新进程', async () => {
@@ -240,6 +247,76 @@ it('MCP 后台会话只选择已打开的授权账号', async () => {
     const profile = await client.callTool({ name: 'get_self_profile', arguments: {} });
     expect(JSON.parse((profile.content as { text: string }[])[0]!.text).uin).toBe('101');
     expect(worker.open).not.toHaveBeenCalled();
+  } finally {
+    await client.close();
+    await gateway.stop();
+    worker.close();
+  }
+});
+
+it('旧 MCP 令牌保留读权限，移除账号时同步撤销操作权限', () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-mcp-grants-'));
+  const token = 'c'.repeat(64);
+  const id = mcpCredentialId(token);
+  try {
+    mkdirSync(join(root, 'desktop-services'));
+    writeFileSync(
+      join(root, 'desktop-services', 'mcp-grants.json'),
+      JSON.stringify([{ id, label: '默认令牌', configIds: ['101', '202'] }]),
+    );
+    const grants = new McpGrants(root);
+    expect(grants.list(token)[0]).toMatchObject({ configIds: ['101', '202'], writeConfigIds: [] });
+    grants.set(token, id, ['101', '202'], ['202']);
+    expect(new McpGrants(root).list(token)[0]?.writeConfigIds).toEqual(['202']);
+    grants.set(token, id, ['101']);
+    grants.set(token, id, ['101', '202']);
+    expect(new McpGrants(root).list(token)[0]?.writeConfigIds).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('精简 MCP 只公布目录工具，操作授权跟随当前令牌选中的账号', async () => {
+  const worker = await fixture();
+  const token = 'c'.repeat(64);
+  const credential = mcpCredentialId(token);
+  const gateway = new DesktopMcpGateway(
+    worker.routes,
+    (id) => (id === credential ? ['101', '202'] : undefined),
+    (id, configId) => id === credential && configId === '202',
+  );
+  await gateway.configure({ port: 0, token });
+  const base = `http://127.0.0.1:${gateway.boundPort}`;
+  const client = new Client({ name: 'compact-fixture', version: '1' });
+  try {
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(base + '/mcp/compact'), {
+        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+      }),
+    );
+    expect((await client.listTools()).tools.map(({ name }) => name).sort()).toEqual([
+      'call_capability',
+      'get_capability',
+      'get_feature',
+      'list_accounts',
+      'list_capabilities',
+      'list_features',
+      'select_open_account',
+      'switch_account',
+    ]);
+    for (const configId of ['101', '202']) {
+      const selection = await client.callTool({
+        name: 'select_open_account',
+        arguments: { configId },
+      });
+      expect(selection.isError).not.toBe(true);
+      const result = await client.callTool({ name: 'list_capabilities', arguments: {} });
+      expect(result.structuredContent).toMatchObject({ uin: configId });
+    }
+    expect(worker.toolCalls).toEqual([
+      { name: 'list_capabilities', args: expect.any(Object), compact: true, allowWrites: false },
+      { name: 'list_capabilities', args: expect.any(Object), compact: true, allowWrites: true },
+    ]);
   } finally {
     await client.close();
     await gateway.stop();

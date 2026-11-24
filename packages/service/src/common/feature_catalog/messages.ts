@@ -47,6 +47,39 @@ export const CONVERSATION_CALENDAR_FEATURE = defineFeature(
 
 export const MESSAGE_FEATURES = [
   messageFeature(
+    'group-call',
+    '群语音与群视频',
+    '从群聊发起通话，可邀请成员、切换摄像头并查看通话中的消息。',
+    {
+      context: ['account', 'group'],
+      navigation: 'context',
+      docs: ['guide/chat-view.md#feature-messages.group-call'],
+    },
+  ),
+  messageFeature(
+    'timeline.resume',
+    '继续上次阅读',
+    '回到会话上次的阅读位置，或从首条未读开始查看。',
+    {
+      context: ['account', 'conversation'],
+      navigation: 'context',
+      docs: ['guide/chat-view.md'],
+    },
+  ),
+  messageFeature(
+    'copy.as-image',
+    '复制聊天长图',
+    '在桌面将选中的聊天消息复制为图片，保留会话样式。',
+    {
+      navigation: 'context',
+      docs: ['guide/chat-view.md'],
+    },
+  ),
+  messageFeature('media.flash-photo', '查看闪照', '在消息中打开可读取的闪照，沿用聊天媒体预览。', {
+    navigation: 'context',
+    docs: ['guide/chat-view.md'],
+  }),
+  messageFeature(
     'ai-voice-catalog',
     '群聊在线声线',
     '在群聊 AI 声聊面板浏览当前群的声线、试听并发送。',
@@ -161,7 +194,7 @@ export const MESSAGE_FEATURES = [
   }),
   messageFeature('red-packet.detail', 'QQ 红包详情与领取', '从红包消息查看领取记录或领取红包。', {
     navigation: 'context',
-    tools: ['get_red_bag_detail', 'grab_red_bag'],
+    tools: ['get_red_bag_detail', 'grab_red_bag', 'decode_redbag_packet'],
   }),
   messageFeature('reaction', '表情回应', '在适用的群消息上添加或取消表情回应。', {
     navigation: 'context',

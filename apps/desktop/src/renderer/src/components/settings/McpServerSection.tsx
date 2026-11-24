@@ -18,7 +18,7 @@
  */
 
 import { NumericText } from '../NumericText';
-import { useEffect, useId, useMemo, useRef, useState, type ReactElement } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactElement } from 'react';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {
@@ -104,7 +104,7 @@ export function McpServerSection(): ReactElement {
     if (!active) setReveal(false);
   }, [active]);
   const [copiedToken, setCopiedToken] = useState(false);
-  const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState<'standard' | 'compact' | null>(null);
   const [copiedConfig, setCopiedConfig] = useState(false);
   const [portDraft, setPortDraft] = usePageState('mcp:port', '', pageValue.string, true);
   usePageDraftConfirmation(
@@ -166,7 +166,7 @@ export function McpServerSection(): ReactElement {
   useEffect(() => {
     if (!active) {
       setCopiedToken(false);
-      setCopiedUrl(false);
+      setCopiedUrl(null);
       setCopiedConfig(false);
     }
     return () => {
@@ -186,7 +186,7 @@ export function McpServerSection(): ReactElement {
       if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
       copyTimer.current = window.setTimeout(() => {
         setCopiedToken(false);
-        setCopiedUrl(false);
+        setCopiedUrl(null);
         setCopiedConfig(false);
         copyTimer.current = null;
       }, 1500);
@@ -374,15 +374,37 @@ export function McpServerSection(): ReactElement {
               : '—'
           }
           control={
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-              disabled={!data?.url}
-              onClick={() => void copyText(data?.url ?? '', () => setCopiedUrl(true))}
-            >
-              {copiedUrl ? <Check size={13} className="weq-set-ok" /> : <Copy size={13} />}
-              复制地址
-            </button>
+            <div className="weq-set-btn-group">
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                disabled={!data?.url}
+                onClick={() => void copyText(data?.url ?? '', () => setCopiedUrl('standard'))}
+              >
+                {copiedUrl === 'standard' ? (
+                  <Check size={13} className="weq-set-ok" />
+                ) : (
+                  <Copy size={13} />
+                )}
+                复制地址
+              </button>
+              {data?.sharedService && data.url ? (
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                  onClick={() =>
+                    void copyText(`${data.url}/mcp/compact`, () => setCopiedUrl('compact'))
+                  }
+                >
+                  {copiedUrl === 'compact' ? (
+                    <Check size={13} className="weq-set-ok" />
+                  ) : (
+                    <Copy size={13} />
+                  )}
+                  复制精简地址
+                </button>
+              ) : null}
+            </div>
           }
         />
       </Card>
@@ -726,28 +748,57 @@ function McpAccountAccess({ active }: { active: boolean }) {
                 />
               ) : null}
               {accounts?.map((account) => (
-                <Row
-                  key={account.configId}
-                  label={account.displayName}
-                  desc={`${account.uin}${account.static ? ' · 静态备份' : ''}`}
-                  control={
-                    <Toggle
-                      label={`允许${grant.label}访问${account.displayName}`}
-                      checked={grant.configIds.includes(account.configId)}
-                      disabled={busy}
-                      onChange={(enabled) =>
-                        void act(() =>
-                          client.bootstrap.setMcpAccountGrant.mutate({
-                            id: grant.id,
-                            configIds: enabled
-                              ? [...grant.configIds, account.configId]
-                              : grant.configIds.filter((configId) => configId !== account.configId),
-                          }),
-                        )
+                <Fragment key={account.configId}>
+                  <Row
+                    label={account.displayName}
+                    desc={`${account.uin}${account.static ? ' · 静态备份' : ''}`}
+                    control={
+                      <Toggle
+                        label={`允许${grant.label}访问${account.displayName}`}
+                        checked={grant.configIds.includes(account.configId)}
+                        disabled={busy}
+                        onChange={(enabled) =>
+                          void act(() =>
+                            client.bootstrap.setMcpAccountGrant.mutate({
+                              id: grant.id,
+                              configIds: enabled
+                                ? [...grant.configIds, account.configId]
+                                : grant.configIds.filter(
+                                    (configId) => configId !== account.configId,
+                                  ),
+                            }),
+                          )
+                        }
+                      />
+                    }
+                  />
+                  {!account.static && grant.configIds.includes(account.configId) ? (
+                    <Row
+                      label={`允许操作 ${account.displayName}`}
+                      desc="允许通过 MCP 发送消息或执行已登记的 QQ 在线操作。"
+                      control={
+                        <Toggle
+                          label={`允许${grant.label}操作${account.displayName}`}
+                          checked={grant.writeConfigIds?.includes(account.configId) ?? false}
+                          disabled={busy}
+                          onChange={(enabled) =>
+                            void act(() =>
+                              client.bootstrap.setMcpAccountGrant.mutate({
+                                id: grant.id,
+                                configIds: grant.configIds,
+                                writeConfigIds: enabled
+                                  ? [...(grant.writeConfigIds ?? []), account.configId]
+                                  : (grant.writeConfigIds ?? []).filter(
+                                      (id) => id !== account.configId,
+                                    ),
+                              }),
+                            )
+                          }
+                        />
                       }
                     />
-                  }
-                />
+                  ) : null}
+                </Fragment>
               ))}
             </Card>
           );

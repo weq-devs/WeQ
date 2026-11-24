@@ -46,6 +46,7 @@ export type AppSearchTarget =
   | { kind: 'contact-notice'; notice: 'friend' | 'group' }
   | { kind: 'contact-overview' }
   | { kind: 'group-files' }
+  | { kind: 'group-albums' }
   | { kind: 'qzone-section'; section: QzoneFeatureSection }
   | { kind: 'self-qzone-albums' }
   | { kind: 'task-tab'; tab: TaskPanelTab }
@@ -126,6 +127,8 @@ export function appSearchIcon(target: AppSearchTarget): FeatureIcon {
       return APP_NAVIGATION['group-intersection'].icon;
     case 'group-files':
       return Folder;
+    case 'group-albums':
+      return FEATURE_ICONS.qzone;
     case 'qzone-section':
     case 'self-qzone-albums':
       return APP_NAVIGATION.qzone.icon;
@@ -146,6 +149,7 @@ const appSearchEntries: readonly AppSearchEntry[] = [
   ),
   feature(CONVERSATION_CALENDAR_FEATURE, { kind: 'conversation-calendar' }),
   feature(findFeature('groups.files')!, { kind: 'group-files' }),
+  feature(findFeature('groups.albums')!, { kind: 'group-albums' }),
   ...(
     Object.keys(CONVERSATION_VIEW_FEATURES) as Array<keyof typeof CONVERSATION_VIEW_FEATURES>
   ).map((view) => feature(CONVERSATION_VIEW_FEATURES[view], { kind: 'conversation-view', view })),
@@ -195,6 +199,7 @@ export function rankAppEntries(keyword: string, developmentDressTools = false) {
       entry,
       index,
       rank:
+        (query.toLowerCase() === entry.id ? 4 : 0) ||
         searchNameRank(query, entry.title, ...entry.keywords) ||
         searchNameRank(query, entry.path) ||
         pinyin?.rank(entry.title) ||

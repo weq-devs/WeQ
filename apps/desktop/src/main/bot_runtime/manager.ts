@@ -26,6 +26,7 @@ import {
   type ControlOneBotConfig,
   type ControlOneBotState,
   type ControlObservedMessage,
+  type ControlParams,
   type ControlPeer,
   type ControlStatus,
 } from '@weqbot/control';
@@ -161,6 +162,19 @@ export class BotRuntime {
   async status(uin: string): Promise<ControlStatus> {
     const handle = await this.ensure(uin);
     return handle.peer.request('status', {});
+  }
+
+  /** 读取能力和调用操作只使用已经连接的 daemon。 */
+  oneBotCapability<M extends 'onebot.mcpList' | 'onebot.mcpDescribe' | 'onebot.mcpCall'>(
+    uin: string,
+    method: M,
+    params: ControlParams<M>,
+  ) {
+    const handle = this.daemons.get(uin);
+    if (!handle || handle.peer.closed) throw new Error('当前账号的 OneBot 尚未上线或启用。');
+    return handle.peer.request(method, params, {
+      timeoutMs: method === 'onebot.mcpCall' ? 45_000 : 5_000,
+    });
   }
 
   async observeMessage(uin: string, sessionId: number, message: ControlObservedMessage) {

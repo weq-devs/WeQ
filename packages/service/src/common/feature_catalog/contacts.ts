@@ -60,6 +60,9 @@ export const CONTACT_GROUP_FEATURES = [
     ],
     docs: ['guide/contact-card.md#feature-contacts.profile'],
   }),
+  contact('shared-friends', '共同好友', '查看共同好友与本地共同属性的好友计数。', {
+    docs: ['guide/contact-card.md'],
+  }),
   contact('shared-groups', '共同群', '查看与指定联系人共同加入的群。', {
     tools: ['list_user_groups'],
   }),
@@ -87,6 +90,9 @@ export const CONTACT_GROUP_FEATURES = [
   group('members', '群成员', '从群资料或聊天侧栏搜索并分页浏览成员。', {
     tools: ['list_group_members'],
   }),
+  group('members.order', '群成员排序', '调整当前群的成员排序，可优先显示群主和管理员。', {
+    docs: ['guide/group-profiles.md'],
+  }),
   group('announcements', '群公告', '在当前群的公告入口查看公告。', {
     tools: ['get_group_bulletins'],
     docs: ['guide/album-qzone.md#feature-groups.announcements'],
@@ -113,7 +119,12 @@ export const CONTACT_GROUP_FEATURES = [
     '接收验证消息',
     '群主可在管理员权限里为单个管理员开启或关闭接收验证消息。',
   ),
-  group('management', '群管理', '在当前群的会话设置查看适用的管理操作。'),
+  group('management', '群管理', '在当前群的会话设置查看适用的管理操作。', {
+    docs: ['guide/qq-actions.md'],
+  }),
+  group('join-verification', '入群问答', '在有权限的群中查看或调整入群验证和问题设置。', {
+    docs: ['guide/qq-actions.md'],
+  }),
   group('nickname', '我的群昵称与头衔', '在当前群资料或会话设置中查看和编辑可操作的字段。'),
   group('remark', '编辑群备注', '通过群身份区的备注行提交修改。'),
   defineFeature('groups.honor', 'groups', '读取群荣誉榜单', [], {

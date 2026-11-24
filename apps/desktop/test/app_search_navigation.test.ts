@@ -85,6 +85,15 @@ function navigationContext() {
 }
 
 describe('功能搜索实际导航', () => {
+  it('群相册可按名称、拼音和稳定 ID 查找并沿用群资源入口', () => {
+    for (const query of ['群相册', 'qxc', 'groups.albums']) {
+      expect(searchAppEntries(query)[0]).toMatchObject({
+        id: 'groups.albums',
+        target: { kind: 'group-albums' },
+      });
+    }
+  });
+
   it('全拼和首字母命中功能与具体设置，命中仍指向现有导航目标', () => {
     for (const keyword of ['hhrl', 'hui hua ri li']) {
       expect(searchAppEntries(keyword)).toContainEqual(

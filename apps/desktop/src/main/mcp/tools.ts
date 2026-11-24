@@ -30,6 +30,14 @@ import {
   listFeatureDefinitions,
   getFeatureDefinition,
 } from './feature_tools';
+import {
+  callCapability,
+  callCapabilityInput,
+  getCapability,
+  getCapabilityInput,
+  listCapabilities,
+  listCapabilityInput,
+} from './capability_tools';
 import { runAssistantTool } from './openai_tools';
 import { nextAlbumMediaCursor } from '../account_resource_exports';
 import { hasAccountSwitchSubscriber, pushAccountSwitchRequest } from '../account_switch_bus';
@@ -732,17 +740,40 @@ function formatCst(unixSeconds: number): string {
 export const AI_TOOLS: AiTool[] = [
   tool({
     name: 'list_features',
+    structuredResult: true,
     description:
-      '按关键词、领域、类别及目标端查询 WeQ 功能目录。用 get_feature 查看具体入口、所需对象和本轮工具。',
+      '按名称、别名、拼音、稳定 ID、领域、类别及目标端查询 WeQ 功能目录。用 nextOffset 翻页，用 get_feature 查入口、对象和本轮工具。',
     input: listFeaturesInput,
     run: listFeatureDefinitions,
   }),
   tool({
     name: 'get_feature',
+    structuredResult: true,
     description:
       '按稳定 ID 查看 WeQ 功能的导航描述、业务条件及本轮是否提供相关工具。返回的是查询结果。',
     input: getFeatureInput,
     run: getFeatureDefinition,
+  }),
+  tool({
+    name: 'list_capabilities',
+    description: '分页发现 WeQ 或当前 OneBot 会话提供的能力。用 group 或 query 缩小范围。',
+    input: listCapabilityInput,
+    structuredResult: true,
+    run: listCapabilities,
+  }),
+  tool({
+    name: 'get_capability',
+    description: '查询单项 WeQ 或 OneBot 能力的参数、说明和操作级别。',
+    input: getCapabilityInput,
+    structuredResult: true,
+    run: getCapability,
+  }),
+  tool({
+    name: 'call_capability',
+    description: '调用当前会话提供的 WeQ 或 OneBot 能力。先按需查询 get_capability 后填写参数。',
+    input: callCapabilityInput,
+    structuredResult: true,
+    run: callCapability,
   }),
   tool({
     name: 'list_mail_folders',
@@ -1348,12 +1379,11 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '把 WeQ 切换到本机另一个已保存的账号。**异步语义**：调用成功只表示请求已交给界面，' +
       '切换要几秒（关旧账号 → 重开 → 预热），完成后工具调用本身不会再来通知。' +
-      '想确认切好了，稍等再调 get_self_profile 看 uin 是否已经变成目标账号。' +
+      '如需确认，切换结束后用 list_accounts 检查标为 current 的 configId。' +
       '\n【限制】必须有一个打开的 WeQ 界面来接请求（窗口被收进托盘时会自动唤起）。' +
       '工具报错说明请求根本没提交（目标不存在 / 没有界面），别自动重试同一个目标。' +
       '\n【需要用户确认】切换会关掉当前账号，若界面里有未保存的邮件草稿会弹确认框；' +
       '用户取消则切换不会发生，工具无法得知这个结果，请以 get_self_profile 的实际 uin 为准。' +
-      '\n【安全】令牌持有者因此可以读取本机所有已保存账号的数据，别把 MCP 地址和令牌给不可信的人。' +
       '\n先用 list_accounts 拿 configId。',
     input: z.object({
       configId: z
@@ -1400,7 +1430,7 @@ export const AI_TOOLS: AiTool[] = [
         uin: target.uin,
         displayName: target.displayName ?? null,
         note:
-          '请求已提交，界面正在执行切换。稍后调用 get_self_profile 确认 uin 已变为目标账号；' +
+          '请求已提交，界面正在执行切换。切换结束后用 list_accounts 确认标为 current 的 configId；' +
           '若用户取消了未保存内容的确认框，账号不会切换。',
       };
     },

@@ -149,7 +149,12 @@ export async function registerAccountWorker(options: {
       const run = async () => {
         if (req.method === 'POST' && req.url === '/tool') {
           const input = z
-            .object({ name: z.string(), args: z.unknown() })
+            .object({
+              name: z.string(),
+              args: z.unknown(),
+              allowWrites: z.boolean().optional(),
+              compact: z.boolean().optional(),
+            })
             .parse(await readControlJson(req));
           const value = await runDesktopMcpTool(
             input.name,
@@ -157,6 +162,8 @@ export async function registerAccountWorker(options: {
             account.session,
             () => options.currentAccount()?.session ?? null,
             controller.signal,
+            input.allowWrites,
+            input.compact,
           );
           sendJson(res, 200, { value });
         } else if (req.url?.startsWith(MCP_MAIL_ATTACHMENT_ROUTE)) {

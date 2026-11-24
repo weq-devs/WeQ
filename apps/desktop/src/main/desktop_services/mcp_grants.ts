@@ -9,6 +9,7 @@ const grantSchema = z.object({
   id: z.string().regex(/^[a-f0-9]{64}$/),
   label: z.string().min(1).max(64),
   configIds: z.array(z.string()).max(256),
+  writeConfigIds: z.array(z.string()).max(256).default([]),
 });
 type McpGrant = z.infer<typeof grantSchema>;
 
@@ -34,7 +35,12 @@ export class McpGrants {
       if (!token) continue;
       const id = mcpCredentialId(token);
       if (!this.grants.some((grant) => grant.id === id))
-        this.grants.push({ id, label: `旧窗口令牌 ${this.grants.length + 1}`, configIds: [] });
+        this.grants.push({
+          id,
+          label: `旧窗口令牌 ${this.grants.length + 1}`,
+          configIds: [],
+          writeConfigIds: [],
+        });
     }
     if (this.grants.length) this.save(this.grants);
   }
@@ -49,20 +55,35 @@ export class McpGrants {
     const id = mcpCredentialId(primary);
     const grant = this.grants.find((item) => item.id === id);
     return [
-      { id, label: '默认令牌', configIds: grant?.configIds ?? [], primary: true },
+      {
+        id,
+        label: '默认令牌',
+        configIds: grant?.configIds ?? [],
+        writeConfigIds: grant?.writeConfigIds ?? [],
+        primary: true,
+      },
       ...this.grants.filter((item) => item.id !== id),
     ];
   }
 
-  set(primary: string, id: string, configIds: string[]): void {
+  set(primary: string, id: string, configIds: string[], writeConfigIds?: string[]): void {
     const grant = this.list(primary).find((item) => item.id === id);
     if (!grant) throw new Error('此 MCP 令牌已失效。');
-    this.save([...this.grants.filter((item) => item.id !== id), { ...grant, configIds }]);
+    const writes = (writeConfigIds ?? grant.writeConfigIds).filter((configId) =>
+      configIds.includes(configId),
+    );
+    this.save([
+      ...this.grants.filter((item) => item.id !== id),
+      { ...grant, configIds, writeConfigIds: writes },
+    ]);
   }
 
   create(label: string): string {
     const token = randomBytes(32).toString('hex');
-    this.save([...this.grants, { id: mcpCredentialId(token), label, configIds: [] }]);
+    this.save([
+      ...this.grants,
+      { id: mcpCredentialId(token), label, configIds: [], writeConfigIds: [] },
+    ]);
     return token;
   }
 

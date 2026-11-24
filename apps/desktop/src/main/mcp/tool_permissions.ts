@@ -7,7 +7,26 @@
  * 因此两者都放进外部 MCP 的可见集合，并在 `docs/guide/mcp-server.md` 里写清
  * 「令牌持有者可以切换账号」这条语义。
  */
+/** 由桌面 MCP 网关处理，不进入账号工作进程或内置助手的注册表。 */
+export const SELECT_OPEN_ACCOUNT_TOOL = 'select_open_account';
+
+export const CAPABILITY_TOOLS = ['list_capabilities', 'get_capability', 'call_capability'] as const;
+
+export function isCapabilityTool(name: string): boolean {
+  return CAPABILITY_TOOLS.some((tool) => tool === name);
+}
+
+/** 有 QQ 操作授权的桌面 MCP 可通过目录调用这些已实现的操作。 */
+export const MCP_WRITE_TOOLS: ReadonlySet<string> = new Set([
+  'send_text_message',
+  'send_poke',
+  'set_message_reaction',
+  'send_group_signup',
+]);
+
 const READ_ONLY_TOOLS = new Set([
+  'list_capabilities',
+  'get_capability',
   'list_settings',
   'list_features',
   'get_feature',
@@ -87,14 +106,18 @@ export function isReadOnlyTool(name: string): boolean {
   return READ_ONLY_TOOLS.has(name);
 }
 
-/** 切换账号有副作用；脚本只有在沙箱内才限于只读宿主调用。 */
+export function isMcpTool(name: string): boolean {
+  return isReadOnlyTool(name) || name === 'call_capability';
+}
+
+/** 切换账号有副作用；沙箱里的脚本与能力调用只可执行审核过的读取。 */
 export function isAssistantToolReadOnly(
   name: string,
   permissionMode: 'sandbox' | 'unrestricted' = 'unrestricted',
 ): boolean {
   return (
     (name !== 'switch_account' && isReadOnlyTool(name)) ||
-    (permissionMode === 'sandbox' && name === 'run_js')
+    (permissionMode === 'sandbox' && (name === 'run_js' || name === 'call_capability'))
   );
 }
 

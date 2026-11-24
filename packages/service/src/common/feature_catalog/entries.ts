@@ -63,7 +63,13 @@ function dressFeature<K extends string>(
 
 export const DRESS_FEATURES = [
   dressFeature('appearance.bubble', 'bubble', '气泡商城', ['聊天气泡', '气泡'], ['get_dress_mall']),
-  dressFeature('appearance.font', 'font', '字体商城', ['个性字体', '字体'], ['get_dress_mall']),
+  dressFeature(
+    'appearance.font',
+    'font',
+    '字体商城',
+    ['个性字体', '字体'],
+    ['get_dress_mall', 'convert_font'],
+  ),
   dressFeature('appearance.avatar-widget', 'widget', '头像挂件', ['挂件商城'], ['get_dress_mall']),
   dressFeature('appearance.call-background', 'callbg', '通话背景'),
   dressFeature('appearance.chat-background', 'background', 'QQ 聊天背景', ['聊天背景商城']),
@@ -72,13 +78,21 @@ export const DRESS_FEATURES = [
     'emoji',
     '商城表情',
     ['表情商城'],
-    ['search_market_emoji', 'get_market_pack_detail'],
+    [
+      'search_market_emoji',
+      'get_market_pack_detail',
+      'get_market_pack_key',
+      'get_market_pack_image',
+    ],
   ),
   dressFeature('appearance.red-packet-cover', 'redpack', '红包封面', ['红包皮肤', '红包']),
 ] as const;
 
 export const WORKSPACE_FEATURES = {
-  clones: defineFeature('assistant.clones', 'assistant', '好友克隆', ['克隆聊天']),
+  clones: defineFeature('assistant.clones', 'assistant', '好友克隆', ['克隆聊天'], {
+    navigation: 'search',
+    docs: ['guide/agentlab.md'],
+  }),
   createClone: defineFeature('assistant.clones.create', 'assistant', '新建好友克隆', ['创建克隆']),
   createCloneGroup: defineFeature('assistant.clone-groups.create', 'assistant', '新建克隆体群聊', [
     '克隆群聊',
@@ -88,7 +102,11 @@ export const WORKSPACE_FEATURES = {
     'contacts',
     '我的资料',
     ['本人资料', '个人资料'],
-    { tools: ['get_self_profile', 'get_self_dress'] },
+    {
+      navigation: 'search',
+      tools: ['get_self_profile', 'get_self_dress'],
+      docs: ['guide/self-profile.md'],
+    },
   ),
   selfProfileEdit: defineFeature(
     'contacts.self-profile.edit',
@@ -99,19 +117,23 @@ export const WORKSPACE_FEATURES = {
       parentId: 'contacts.self-profile',
       context: ['account'],
       operation: 'profile-write',
+      navigation: 'search',
+      docs: ['guide/self-profile.md'],
     },
   ),
   giftWall: defineFeature('contacts.self-gift-wall', 'contacts', '礼物墙', ['我的礼物墙', '礼物'], {
     parentId: 'contacts.self-profile',
+    navigation: 'search',
+    docs: ['guide/self-profile.md'],
   }),
 };
 
 /** 代表上下文及纯工具能力，未绑定全局搜索入口。 */
 export const CONTEXT_FEATURES = [
-  defineFeature('groups.albums', 'groups', '群相册', [], {
+  defineFeature('groups.albums', 'groups', '群相册', ['群聊相册', '群照片'], {
     summary: '从指定群查看群相册及其媒体。',
     context: ['account', 'group'],
-    navigation: 'context',
+    navigation: 'search',
     operation: 'album-list',
     tools: ['get_group_albums', 'get_group_album_photos'],
     docs: ['guide/album-qzone.md#feature-groups.albums'],
@@ -128,6 +150,9 @@ export const CONTEXT_FEATURES = [
     summary: '打开消息中的图片，可以使用已经缓存的原图。',
     context: ['account', 'message'],
     operation: 'chat-image',
+    navigation: 'context',
+    tools: ['get_chat_image_file'],
+    docs: ['guide/chat-view.md', 'guide/mcp-server.md'],
   }),
   defineFeature('maintenance.message-performance', 'maintenance', '消息性能快照', [], {
     summary: '读取消息库排队和耗时统计。',

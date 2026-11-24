@@ -6766,13 +6766,14 @@ function MainWorkspace(): ReactElement {
 
   const searchQuery = shell.query.trim();
   const searchAccountKey = noticeAccountKey || openedUin;
-  const [searchFilesGroup, setSearchFilesGroup] = useState<{
+  const [searchResourceGroup, setSearchResourceGroup] = useState<{
     accountKey: string;
+    resource: 'group-files' | 'group-albums';
     group: SearchFileGroup | null;
     fromPicker: boolean;
   } | null>(null);
-  const activeSearchFilesGroup =
-    searchFilesGroup?.accountKey === searchAccountKey ? searchFilesGroup : null;
+  const activeSearchResourceGroup =
+    searchResourceGroup?.accountKey === searchAccountKey ? searchResourceGroup : null;
   const searchOpenedSettings = useRef<string | null>(null);
   const returnFromSearchTarget = useRef(false);
   const globalSearch = useGlobalSearch(
@@ -10164,7 +10165,7 @@ function MainWorkspace(): ReactElement {
     )
       return;
     const target = entry.target;
-    if (target.kind === 'group-files') {
+    if (target.kind === 'group-files' || target.kind === 'group-albums') {
       if (!searchAccountKey || !messageScope || messageScope !== messageScopeRef.current) return;
       const current =
         shell.view === 'contacts'
@@ -10174,7 +10175,12 @@ function MainWorkspace(): ReactElement {
             : null;
       const group =
         current?.type === 'group' ? { code: current.id, name: current.group.name } : null;
-      setSearchFilesGroup({ accountKey: searchAccountKey, group, fromPicker: !group });
+      setSearchResourceGroup({
+        accountKey: searchAccountKey,
+        resource: target.kind,
+        group,
+        fromPicker: !group,
+      });
       setSettingsOpen(false);
       restoreGlobalSearch();
       return;
@@ -10241,8 +10247,9 @@ function MainWorkspace(): ReactElement {
     } else if (target.kind === 'tool') {
       if (target.tool === 'assistant') {
         changeConversationView('assistant');
+        setMobileConversationList(true);
+        shell.switchView('messages');
         if (directoryAssistant.data?.[0]) openAssistantConversation(directoryAssistant.data[0].id);
-        else void createAssistantConversation();
         return;
       }
       setToolSearchRequest((previous) => ({
@@ -10290,7 +10297,9 @@ function MainWorkspace(): ReactElement {
   const openAppSearchResult = (entry: AppSearchEntry) => {
     searchOpenedSettings.current = entry.target.kind === 'setting' ? searchAccountKey : null;
     returnFromSearchTarget.current =
-      entry.target.kind !== 'group-files' && entry.target.kind !== 'setting';
+      entry.target.kind !== 'group-files' &&
+      entry.target.kind !== 'group-albums' &&
+      entry.target.kind !== 'setting';
     openAppSearchEntry(entry);
   };
 
@@ -10302,24 +10311,31 @@ function MainWorkspace(): ReactElement {
     if (restore) restoreGlobalSearch();
   };
 
-  const groupSearchTarget = activeSearchFilesGroup?.group;
+  const groupSearchTarget = activeSearchResourceGroup?.group;
   const closeGroupSearch = () => {
-    setSearchFilesGroup((current) =>
+    setSearchResourceGroup((current) =>
       current?.fromPicker && current.group ? { ...current, group: null } : null,
     );
   };
   const searchPanelOpen = (searchQuery || searchFocused) && !searchDismissed;
-  const groupFilesSearchPanel =
-    searchPanelOpen && activeSearchFilesGroup ? (
+  const groupResourceSearchPanel =
+    searchPanelOpen && activeSearchResourceGroup ? (
       <SearchGroupFiles
-        key={activeSearchFilesGroup.accountKey}
+        key={`${activeSearchResourceGroup.accountKey}:${activeSearchResourceGroup.resource}`}
         group={groupSearchTarget ?? null}
         onPick={(group) =>
-          setSearchFilesGroup({ ...activeSearchFilesGroup, group, fromPicker: true })
+          setSearchResourceGroup({ ...activeSearchResourceGroup, group, fromPicker: true })
         }
         onBack={closeGroupSearch}
       >
-        {groupSearchTarget ? (
+        {groupSearchTarget && activeSearchResourceGroup.resource === 'group-albums' ? (
+          <GroupAlbumDialog
+            embedded
+            groupCode={groupSearchTarget.code}
+            groupName={groupSearchTarget.name}
+            onClose={closeGroupSearch}
+          />
+        ) : groupSearchTarget ? (
           <GroupFileDialog
             embedded
             groupCode={groupSearchTarget.code}
@@ -10779,7 +10795,7 @@ function MainWorkspace(): ReactElement {
             onQueryChange={(query) => {
               searchReturn.clear();
               returnFromSearchTarget.current = false;
-              setSearchFilesGroup(null);
+              setSearchResourceGroup(null);
               shell.setQuery(query);
             }}
             onSearchFocus={() => {
@@ -10789,7 +10805,7 @@ function MainWorkspace(): ReactElement {
             // 搜索框下方的浮层：范围先于输入显示，结果由关键词控制。
             // 它挂在搜索框上（不是可滚动列表里），所以会话列表怎么滚都看得见。
             searchPanel={
-              searchPanelOpen && !groupFilesSearchPanel ? (
+              searchPanelOpen && !groupResourceSearchPanel ? (
                 <SearchResultsPanel
                   key={searchAccountKey}
                   navigation={searchReturn}
@@ -10924,7 +10940,7 @@ function MainWorkspace(): ReactElement {
                   onSelectAppEntry={openAppSearchResult}
                 />
               ) : (
-                groupFilesSearchPanel
+                groupResourceSearchPanel
               )
             }
             onOpenFriendNotices={() =>
