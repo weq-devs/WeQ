@@ -1589,6 +1589,7 @@ export function GroupList({
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
       <ContactDirectoryOrder
+        kind="groups"
         order={order}
         active={active}
         filtersApplied={hasFilter}
@@ -2402,6 +2403,7 @@ const ContactListContent = memo(function ContactListContent({
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
       <ContactDirectoryOrder
+        kind="friends"
         order={order}
         active={active}
         filtersApplied={hasFilters}

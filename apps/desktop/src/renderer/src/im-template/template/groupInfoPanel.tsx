@@ -141,9 +141,9 @@ const GroupMemberRow = memo(function GroupMemberRow({
           />
         </span>
         {detail ? (
-          <small className="member-sort-detail" title={detail.title || detail.text}>
+          <span className="weq-directory-sort-detail" title={detail.title || detail.text}>
             {detail.text}
-          </small>
+          </span>
         ) : null}
       </span>
       {member.kind === 'bot' ? (

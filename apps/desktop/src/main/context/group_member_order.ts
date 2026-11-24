@@ -132,17 +132,15 @@ function orderDetail(
   birth?: ReturnType<typeof contactBirth>,
 ) {
   if (sort === 'displayName') return null;
-  const label = GROUP_MEMBER_SORTS[sort];
   if (birth) {
     const date = contactBirthdayText(birth);
     const age = birth.age === null ? '' : `${birth.age} 岁`;
-    const detail = date ? (age ? `${date}（${age}）` : date) : age;
     return {
-      text: detail ? `${label}：${detail}` : `${label}未读取`,
+      text: date ? (age ? `${date}（${age}）` : date) : age || '未读取',
       title: birthRangeText(birth) ?? undefined,
     };
   }
-  if (value === null) return { text: `${label}未读取` };
+  if (value === null) return { text: '未读取' };
   const display =
     typeof value === 'number'
       ? ['joinedAt', 'lastSpeakAt', 'sigUpdateTime', 'lastMessageAt', 'addedAt'].includes(sort)
@@ -151,7 +149,7 @@ function orderDetail(
           ? `Lv${value}`
           : numbers.format(value)
       : value;
-  return { text: `${label}：${display}` };
+  return { text: display };
 }
 
 export async function listOrderedGroupMembers(

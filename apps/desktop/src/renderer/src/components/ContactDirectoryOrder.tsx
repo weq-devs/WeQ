@@ -1,3 +1,4 @@
+import { accountOrderDefaults } from '@weq/service/client-preferences';
 import type { ReactNode } from 'react';
 import type { useContactDirectoryOrder } from '../hooks/useContactDirectoryOrder';
 import { ContactCacheRefreshDialog } from './ContactRefreshButton';
@@ -5,12 +6,14 @@ import { DirectoryMenu, DirectorySortMenu } from './DirectorySortMenu';
 import { FormSelect } from './FormSelect';
 
 export function ContactDirectoryOrder({
+  kind,
   order,
   filters,
   filtersApplied = false,
   filtersDisabled = false,
   active = true,
 }: {
+  kind: 'friends' | 'groups';
   order: ReturnType<typeof useContactDirectoryOrder>;
   filters?: ReactNode;
   filtersApplied?: boolean;
@@ -18,6 +21,8 @@ export function ContactDirectoryOrder({
   active?: boolean;
 }) {
   const { grouping, sort, descending } = order.preferences;
+  const defaults = accountOrderDefaults[kind];
+  const sortChanged = sort !== defaults.sort || descending !== defaults.descending;
   return (
     <>
       <div className="weq-directory-order">
@@ -36,6 +41,7 @@ export function ContactDirectoryOrder({
             className="weq-set-btn weq-directory-menu-button"
             aria-label="分组依据"
             triggerLabel="分组"
+            data-active={grouping !== 'none' && grouping !== 'qq' ? '' : undefined}
             disabled={!active}
             value={grouping}
             onChange={(event) => order.change({ grouping: event.target.value })}
@@ -51,6 +57,7 @@ export function ContactDirectoryOrder({
             options={order.sortOptions}
             sort={sort}
             descending={descending}
+            highlighted={sortChanged}
             onSort={(sort) => order.change({ sort })}
             onDirection={(descending) => order.change({ descending })}
           />

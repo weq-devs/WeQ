@@ -68,8 +68,8 @@ describe('群成员列表排序', () => {
       prioritizeAdmins: true,
     });
     expect(first.members.map(({ member, sortDetail }) => [member.uid, sortDetail?.text])).toEqual([
-      ['u_1', '群等级未读取'],
-      ['u_4', '群等级：Lv8'],
+      ['u_1', '未读取'],
+      ['u_4', 'Lv8'],
     ]);
 
     const second = await listOrderedGroupMembers(services, {

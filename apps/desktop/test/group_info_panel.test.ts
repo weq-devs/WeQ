@@ -12,9 +12,11 @@
 import { act, createElement, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { GroupInfoPanel } from '@renderer/im-template/template/groupInfoPanel';
 import { TabActivity } from '@renderer/components/RetainedTabs';
+import { GroupRosterPanel } from '@renderer/components/groupProfile/GroupRosterPanel';
 import { GROUP_MEMBER_SORTS } from '../src/shared/group_member_order';
 import { formatShortDate } from '@renderer/im-template/template/format';
 
@@ -303,7 +305,7 @@ describe('群资料面板', () => {
   it('群内字段排在联系人字段之前，排序菜单可关闭群主和管理员置顶', () => {
     const onSort = vi.fn();
     const onPrioritizeAdmins = vi.fn();
-    const detail = { text: '群等级：Lv8' };
+    const detail = { text: 'Lv8' };
     mountPanel(undefined, undefined, {
       memberOrder: {
         options: GROUP_MEMBER_SORTS,
@@ -318,7 +320,7 @@ describe('群资料面板', () => {
     });
     const row = document.querySelector('.group-info-member-row')!;
     expect(row.querySelector('.member-name-with-badge')?.textContent).toContain('群主');
-    expect(row.querySelector('.member-sort-detail')?.textContent).toBe(detail.text);
+    expect(row.querySelector('.weq-directory-sort-detail')?.textContent).toBe(detail.text);
     const trigger = document.querySelector<HTMLButtonElement>('.group-info-sort-button')!;
     expect(trigger.getAttribute('aria-label')).toBe('排序');
     expect(trigger.textContent).toBe('');
@@ -340,6 +342,59 @@ describe('群资料面板', () => {
     expect(toggle.getAttribute('aria-checked')).toBe('true');
     act(() => toggle.click());
     expect(onPrioritizeAdmins).toHaveBeenCalledWith(false);
+  });
+  it('切换会话并重新打开群成员列表时，恢复该群的排序字段和方向', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    roots.push(root);
+    hosts.push(host);
+    const client = new QueryClient({ defaultOptions: { queries: { cacheTime: 0 } } });
+    const members = [
+      { ...CONVERSATION.members[0], displayName: '甲', nick: 'Alice' },
+      { ...CONVERSATION.members[0], id: 'uid-2', displayName: '乙', nick: 'Bob' },
+    ];
+    const open = (id?: string) =>
+      act(() =>
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client },
+            id
+              ? createElement(GroupRosterPanel, {
+                  conversation: { ...CONVERSATION, id, members, generated: true },
+                })
+              : null,
+          ),
+        ),
+      );
+    const showSort = () =>
+      act(() => host.querySelector<HTMLButtonElement>('button[aria-label="排序"]')!.click());
+    const selectedSort = () =>
+      document.querySelector('[aria-label="排序依据"] [aria-selected="true"]')?.textContent;
+    const values = () =>
+      [...host.querySelectorAll('.weq-directory-sort-detail')].map((row) => row.textContent);
+
+    open('clone-1');
+    showSort();
+    act(() =>
+      document.querySelector<HTMLButtonElement>('[role="option"][data-value="nick"]')!.click(),
+    );
+    act(() =>
+      [...document.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent === '拼音 Z–A')!
+        .click(),
+    );
+    expect(values()).toEqual(['Bob', 'Alice']);
+
+    open('clone-2');
+    showSort();
+    expect(selectedSort()).toBe('群内显示昵称');
+    open();
+    open('clone-1');
+    showSort();
+    expect(selectedSort()).toBe('昵称');
+    expect(values()).toEqual(['Bob', 'Alice']);
   });
   it('合成群不提供真实群的等级查询入口', () => {
     mountPanel(undefined, undefined, { conversation: { ...CONVERSATION, generated: true } });

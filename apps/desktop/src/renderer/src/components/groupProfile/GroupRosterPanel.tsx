@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import type { inferRouterInputs } from '@trpc/server';
 import type { AppRouter } from '../../../../shared/router';
 import { useCallback, useEffect, useMemo, useState, type ComponentProps } from 'react';
+import { create } from 'zustand';
 import { useGroupReadScope, previewMemberView } from '../../hooks/useGroupProfile';
 import { GroupInfoPanel } from '../../im-template/template/groupInfoPanel';
 import type { GroupMember } from '../../im-template/template/types';
@@ -26,14 +27,27 @@ type RosterProps = PanelProps & {
   ownerUid?: string;
   mapMember?: (row: GroupMemberWire) => GroupMember;
 };
+type RosterOrder = { sort: GroupMemberSort; descending: boolean; prioritizeAdmins: boolean };
+const defaultOrder: RosterOrder = {
+  sort: 'displayName',
+  descending: false,
+  prioritizeAdmins: GROUP_MEMBER_PRIORITIZE_ADMINS_DEFAULT,
+};
+const useRosterOrder = create<Record<string, RosterOrder>>(() => ({}));
 
 export function GroupRosterPanel(props: RosterProps) {
   const { active, binding, key } = useGroupReadScope(!props.conversation.generated);
-  // 切换群或数据源时恢复默认顺序，旧请求即使返回也只更新旧查询键。
+  const rosterKey = JSON.stringify([
+    key,
+    props.conversation.id,
+    Boolean(props.conversation.generated),
+  ]);
+  // 搜索和任务状态随群切换重置，排序保留在会话面板之外。
   return (
     <ScopedGroupRosterPanel
-      key={JSON.stringify([key, props.conversation.id])}
+      key={rosterKey}
       {...props}
+      rosterKey={rosterKey}
       scope={{ active, binding, key }}
     />
   );
@@ -43,9 +57,11 @@ function ScopedGroupRosterPanel({
   conversation,
   mapMember,
   ownerUid,
+  rosterKey,
   scope,
   ...props
 }: RosterProps & {
+  rosterKey: string;
   scope: Pick<ReturnType<typeof useGroupReadScope>, 'active' | 'binding' | 'key'>;
 }) {
   const { active, binding, key } = scope;
@@ -53,9 +69,13 @@ function ScopedGroupRosterPanel({
   const onVisibilityChange = useCallback((_group: string, value: boolean) => setVisible(value), []);
   const [keyword, setKeyword] = useState('');
   const [needle, setNeedle] = useState('');
-  const [sort, setSort] = useState<GroupMemberSort>('displayName');
-  const [descending, setDescending] = useState(false);
-  const [prioritizeAdmins, setPrioritizeAdmins] = useState(GROUP_MEMBER_PRIORITIZE_ADMINS_DEFAULT);
+  const { sort, descending, prioritizeAdmins } = useRosterOrder(
+    (orders) => orders[rosterKey] ?? defaultOrder,
+  );
+  const changeOrder = (patch: Partial<RosterOrder>) =>
+    useRosterOrder.setState((orders) => ({
+      [rosterKey]: { ...(orders[rosterKey] ?? defaultOrder), ...patch },
+    }));
   const [startedTask, setStartedTask] = useState<{ id: string; sort: GroupMemberSort }>();
   const pendingSearch = !conversation.generated && keyword.trim() !== needle;
   useEffect(() => {
@@ -145,7 +165,7 @@ function ScopedGroupRosterPanel({
           return {
             member,
             value,
-            sortDetail: sort === 'nick' ? { text: value ? `昵称：${value}` : '昵称未读取' } : null,
+            sortDetail: sort === 'nick' ? { text: value ?? '未读取' } : null,
           };
         })
         .sort(
@@ -204,8 +224,7 @@ function ScopedGroupRosterPanel({
   const total = pendingSearch ? 0 : (query.data?.pages[0]?.total ?? members.length);
   const setSortField = (field: GroupMemberSort) => {
     fill.reset();
-    setSort(field);
-    setDescending(groupMemberDefaultDescending(field));
+    changeOrder({ sort: field, descending: groupMemberDefaultDescending(field) });
   };
 
   return (
@@ -237,9 +256,11 @@ function ScopedGroupRosterPanel({
         descending,
         details,
         onSort: setSortField,
-        onDirection: setDescending,
+        onDirection: (descending) => changeOrder({ descending }),
         prioritizeAdmins,
-        onPrioritizeAdmins: conversation.generated ? undefined : setPrioritizeAdmins,
+        onPrioritizeAdmins: conversation.generated
+          ? undefined
+          : (prioritizeAdmins) => changeOrder({ prioritizeAdmins }),
         preparing: query.data?.pages[0]?.preparing,
         fill:
           !conversation.generated && binding && isGroupMemberOnlineSort(sort)

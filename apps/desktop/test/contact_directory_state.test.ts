@@ -109,7 +109,7 @@ function mount(kind: 'friends' | 'groups', entities: string[][] = [], freeze = f
     useLayoutEffect(() => {
       commits.push(order.preferences);
     });
-    return createElement(ContactDirectoryOrder, { order });
+    return createElement(ContactDirectoryOrder, { kind, order });
   }
   const render = (kind: 'friends' | 'groups', key = kind) =>
     act(() => root.render(createElement(Harness, { kind, key })));
