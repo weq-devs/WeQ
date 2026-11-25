@@ -4,13 +4,13 @@
  * 扫描、报告和修复各自使用独立标签页，维护状态保留在顶栏。
  * 修复是批处理动作，所以主按钮固定在底栏，不随列表滚走。
  *
- * 颜色全部来自主题 token：强调色只负责「当前/选中/可操作」，
- * 异常沿用设置页的 --weq-warn-*，不引入第二支色相。
+ * 空间偏低用琥珀色，空间不足沿用红色。其他提示跟随主题。
  */
 .weq-dbm {
   --dbm-surface: var(--weq-bg-elevated);
   --dbm-tint: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
   --dbm-hair: var(--weq-border-subtle);
+  --dbm-space-warn-ink: #92400e;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -23,6 +23,7 @@
 html[data-theme='dark'] .weq-dbm {
   --dbm-surface: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
   --dbm-tint: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
+  --dbm-space-warn-ink: #fcd34d;
 }
 
 .weq-dbm h1,
@@ -1195,9 +1196,9 @@ button.weq-dbm-db:hover,
 
 .weq-dbm-storage-warning,
 .weq-dbm .weq-set-btn.weq-dbm-repair-start.is-warn {
-  --dbm-space-ink: var(--weq-warn-fg);
-  --dbm-space-tint: var(--weq-warn-bg);
-  --dbm-space-border: var(--weq-warn-border);
+  --dbm-space-ink: var(--dbm-space-warn-ink);
+  --dbm-space-tint: color-mix(in srgb, #f59e0b 14%, transparent);
+  --dbm-space-border: color-mix(in srgb, #f59e0b 40%, transparent);
 }
 
 .weq-dbm-storage-warning.is-short,
@@ -1548,7 +1549,7 @@ button.weq-dbm-step.is-current {
 }
 
 .weq-dbm-repair-space-actions > p[role='alert'] {
-  color: var(--weq-warn-fg);
+  color: var(--dbm-space-warn-ink);
 }
 
 .weq-dbm-db.is-selectable:has(.weq-dbm-db-input:disabled) {
