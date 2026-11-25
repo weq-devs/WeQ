@@ -86,7 +86,7 @@ describe('设置的两级导航', () => {
     ['关闭按钮行为', 'window-close-behavior', 'startup', '启动与退出'],
   ] as const)('%s 搜索与旧入口都定位新页面', (item, settingId, section, label) => {
     expect(searchAppEntries(item)[0]).toMatchObject({
-      path: `设置 / 应用 / ${label}`,
+      path: `设置 / 通用 / ${label}`,
       target: { kind: 'setting', section, settingId },
     });
     expect(resolveSettingsTarget({ section: 'global', item })).toMatchObject({
@@ -121,10 +121,10 @@ describe('设置的两级导航', () => {
     expect(settingsSectionFor('tts')).toBe('agentlab');
   });
 
-  it('资源加载与 QQ 数据维护的旧入口分别归入网络和 QQ', () => {
+  it('资源加载与 QQ 数据维护的旧入口分别归入通用和 QQ', () => {
     expect(settingsSectionFor('rkey')).toBe('resource-loading');
     expect(settingsSectionFor('media')).toBe('resource-loading');
-    expect(settingsGroupFor('media').id).toBe('network');
+    expect(settingsGroupFor('media').id).toBe('general');
     expect(settingsSectionFor('database-tolerance')).toBe('database-management');
     expect(settingsSectionFor('qq-accounts')).toBe('qq-accounts');
     for (const id of ['database', 'database-status', 'maintenance'] as const) {
@@ -142,9 +142,9 @@ describe('设置的两级导航', () => {
     ['数据库宽容', 'QQ 数据库管理', 'QQ'],
     ['资源目录管理', 'QQ 资源管理', 'QQ'],
     ['已保存的 provider', '已保存的服务商', 'AI'],
-    ['优先使用 CDN', '优先直连 QQ 加载图片', '网络'],
-    ['媒体来源', '资源加载', '网络'],
-    ['省流量模式', '省流量模式', '网络'],
+    ['优先使用 CDN', '优先直连 QQ 加载图片', '通用'],
+    ['媒体来源', '资源加载', '通用'],
+    ['省流量模式', '省流量模式', '通用'],
     ['性能监视', '性能监视', '关于'],
   ])('旧名或新名 %s 展示规范名称 %s 与新路径', (keyword, title, group) => {
     const entry = searchAppEntries(keyword)[0];

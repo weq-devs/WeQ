@@ -8,7 +8,7 @@
  *   • 群关键词（仅群聊）：把 GroupKeywordEditor 那套关键词 + 成员范围编辑器**内嵌**
  *     在这一页里直接编辑，不再另开灯箱。编辑器自己防抖落盘，关窗即保存。
  *
- * 消息提醒在本会话内单独设置，全局通知方式在「应用 → 通知与提醒」。
+ * 消息提醒在本会话内单独设置，全局通知方式在「通用 → 通知与提醒」。
  */
 
 import { useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';

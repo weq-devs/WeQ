@@ -86,6 +86,19 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     sections: ['account', 'long-term-authorization', 'enhancement-packs'],
   },
   {
+    id: 'general',
+    label: '通用',
+    sections: [
+      'startup',
+      'appearance',
+      'home',
+      'global',
+      'notification-badges',
+      'resource-loading',
+      'data-saver',
+    ],
+  },
+  {
     id: 'chat',
     label: '聊天',
     sections: [
@@ -121,11 +134,6 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     sections: ['credentials', 'qq-accounts', 'qq-storage', 'database-management', 'diagnostics'],
   },
   {
-    id: 'network',
-    label: '网络',
-    sections: ['resource-loading', 'data-saver'],
-  },
-  {
     id: 'services',
     label: '服务',
     sections: ['remote', 'mcp', 'onebot', 'sse', 'assistant'],
@@ -133,17 +141,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'app',
     label: '应用',
-    sections: [
-      'startup',
-      'appearance',
-      'home',
-      'global',
-      'notification-badges',
-      'privacy',
-      'weq-storage',
-      'accounts',
-      'backup',
-    ],
+    sections: ['privacy', 'weq-storage', 'accounts', 'backup'],
   },
   { id: 'about', label: '关于', sections: ['version', 'faq', 'logs', 'feedback'] },
 ];

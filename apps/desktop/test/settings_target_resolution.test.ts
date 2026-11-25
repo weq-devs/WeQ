@@ -31,14 +31,29 @@ describe('设置重构的规范目标与旧入口分流', () => {
   it('九组按指定顺序展示，各设置页只出现一次', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '能力',
+      '通用',
       '聊天',
       '更多',
       'AI',
       'QQ',
-      '网络',
       '服务',
       '应用',
       '关于',
+    ]);
+    expect(settingsGroupFor('startup').sections).toEqual([
+      'startup',
+      'appearance',
+      'home',
+      'global',
+      'notification-badges',
+      'resource-loading',
+      'data-saver',
+    ]);
+    expect(settingsGroupFor('privacy').sections).toEqual([
+      'privacy',
+      'weq-storage',
+      'accounts',
+      'backup',
     ]);
     const sections = SETTINGS_GROUPS.flatMap((group) => group.sections);
     expect(sections).toHaveLength(Object.keys(SETTINGS_PAGE_LABELS).length);
