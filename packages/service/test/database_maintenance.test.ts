@@ -77,9 +77,15 @@ function fixture() {
   const changed = vi.fn();
   const sourceIdentity = vi.fn(() => 'original');
   const acquireMore = vi.fn(async (_targets: DbRepairTarget[], _signal: AbortSignal) => {});
+  const acquire = vi.fn(async () => ({
+    id: 'held-lock',
+    release,
+    acquireMore,
+    signal: lease.signal,
+  }));
   const maintenance = new DatabaseMaintenance({
     sourceIdentity,
-    acquire: vi.fn(async () => ({ id: 'held-lock', release, acquireMore, signal: lease.signal })),
+    acquire,
     scan,
     locate,
     deep,
@@ -89,6 +95,7 @@ function fixture() {
   });
   return {
     maintenance,
+    acquire,
     acquireMore,
     sourceIdentity,
     targets,
@@ -612,46 +619,41 @@ it('删除报告拒绝执行中的报告，结束后只删指定报告且不会�
   expect(await h.reports.list()).toHaveLength(1);
 });
 
-it.each([false, true])(
-  '未完成任何数据库就停止扫描不生成报告，解锁失败可重试（首次失败：%s）',
-  async (failRelease) => {
-    const h = fixture();
-    if (failRelease)
-      h.release.mockImplementationOnce(() => {
-        throw new Error('synthetic release failure');
-      });
-    let entered!: () => void;
-    const started = new Promise<void>((done) => {
-      entered = done;
-    });
-    h.scan.mockImplementationOnce(
-      (_target, signal) =>
-        new Promise((_done, reject) => {
-          entered();
-          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
-        }),
-    );
-    const run = h.maintenance.scan(scope, h.targets, 'scan');
-    await started;
-    expect(await h.reports.list()).toEqual([]);
-    const result = await h.maintenance.stop(scope);
-    await run;
-    expect(result).toMatchObject({
-      state: failRelease ? 'waiting' : 'ended',
-      locked: failRelease,
-      operation: { status: 'cancelled' },
-    });
-    expect(h.release).toHaveBeenCalledOnce();
-    expect(await h.maintenance.reports(scope)).toEqual([]);
-    if (failRelease) {
-      expect(result?.maintenanceError).toContain('释放维护锁失败');
-      await h.maintenance.end(scope);
-      expect(h.maintenance.current(scope)).toMatchObject({ state: 'ended', locked: false });
-      expect(await h.maintenance.reports(scope)).toEqual([]);
-    }
-    expect(() => h.maintenance.repair(scope, ['msg.db'])).toThrow('体检');
-  },
-);
+it('首库页检查未完成就暂停时保留锁，续检复用同一维护会话', async () => {
+  const h = fixture();
+  const target = h.targets[0]!;
+  const started = Promise.withResolvers<void>();
+  h.scan.mockImplementationOnce(
+    (_target, signal) =>
+      new Promise((_done, reject) => {
+        started.resolve();
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      }),
+  );
+  const run = h.maintenance.scan(scope, [target], 'scan');
+  await started.promise;
+  await h.maintenance.stop(scope);
+  const paused = await run;
+  expect(paused).toMatchObject({
+    state: 'waiting',
+    locked: true,
+    operation: { status: 'cancelled', completedDatabases: 0 },
+  });
+  expect(h.release).not.toHaveBeenCalled();
+  expect(await h.maintenance.reports(scope)).toEqual([]);
+  expect(() => h.maintenance.repair(scope, [target.dbName])).toThrow('完整的页检查结果');
+
+  const resumed = await h.maintenance.scan(scope, [], 'scan', [target.dbName]);
+  expect(resumed).toMatchObject({
+    id: paused.id,
+    locked: true,
+    operation: { status: 'completed', completedDatabases: 1 },
+  });
+  expect(h.acquire).toHaveBeenCalledOnce();
+  expect(h.scan).toHaveBeenCalledTimes(2);
+  await h.maintenance.end(scope);
+  expect(h.release).toHaveBeenCalledOnce();
+});
 
 it('补充检查保留初始范围，复用页扫描，快速失败后只为尚未修复的库启动深度修复', async () => {
   const h = fixture();

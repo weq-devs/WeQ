@@ -412,16 +412,13 @@ export class DatabaseMaintenance {
       await session.lease!.release();
       session.lease = undefined;
       snapshot.locked = false;
-    } else if (
-      (snapshot.maintenanceError && executionFailure) ||
-      (signal.aborted && !snapshot.databases.some((row) => row.scanStatus === 'completed'))
-    ) {
+    } else if (snapshot.maintenanceError && executionFailure) {
       try {
         await session.lease?.release();
         session.lease = undefined;
         snapshot.locked = false;
       } catch (error) {
-        snapshot.maintenanceError = `体检已暂停，但释放维护锁失败，请重试结束维护：${errorText(error)}`;
+        snapshot.maintenanceError = `释放维护锁失败，请重试结束维护：${errorText(error)}`;
       }
     }
     this.finish(
