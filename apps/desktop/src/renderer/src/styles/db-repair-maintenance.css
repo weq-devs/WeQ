@@ -1618,8 +1618,7 @@ button.weq-dbm-step.is-current {
   max-width: 280px;
 }
 
-.weq-dbm-progress-toolbar,
-.weq-dbm-report-actions {
+.weq-dbm-progress-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1628,10 +1627,6 @@ button.weq-dbm-step.is-current {
 
 .weq-dbm-progress-toolbar > strong {
   margin-right: auto;
-}
-
-.weq-dbm-report-actions:empty {
-  display: none;
 }
 
 .weq-dbm-plan-row {

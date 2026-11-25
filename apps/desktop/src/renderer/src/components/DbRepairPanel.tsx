@@ -630,9 +630,8 @@ export function DbRepairPanel({
   const showScanSetup = tab === 'scan' && !scanRunning && !repairing && !ending;
   const selectedBackups = selectedReady.filter((name) => backups[name]).length;
   const hasDeep = selectedReady.some((name) => methods[name] === 'deep');
-  const needsLocation = !!(activeRow && databaseNeedsPageLocation(activeRow));
-  const activeRepair = activeRow && databaseRepairRecommendation(activeRow);
-  const activeCanCheckQuick = !!(activeRow && databaseCanCheckQuickRepair(activeRow));
+  const needsSourceRecheck =
+    !locked && (activeRow?.repair?.nextAction === 'check-source' || !!live?.maintenanceError);
   const reportIdToExport = operation?.id;
   const canExportCurrent = !!operation && (operation.status !== 'cancelled' || scannedCount > 0);
   const activeProgress =
@@ -1110,6 +1109,30 @@ export function DbRepairPanel({
                   <NumericText>{`${scanCoverage}${abnormalCount ? ` · ${abnormalCount} 个异常` : ''}${repairAvailability}`}</NumericText>
                 </span>
               ) : null}
+              {tab === 'report' &&
+              !showReportSummary &&
+              (needsSourceRecheck || canExportCurrent) ? (
+                <div className="weq-dbm-dbs-tools">
+                  {needsSourceRecheck ? (
+                    <button
+                      className="weq-set-btn weq-set-btn-primary"
+                      type="button"
+                      onClick={() => {
+                        setScanSelection(databases.map((row) => row.dbName));
+                        setTab('scan');
+                      }}
+                    >
+                      重新核对原库
+                    </button>
+                  ) : null}
+                  {canExportCurrent ? (
+                    <ReportExportMenu
+                      disabled={exportReport.isLoading}
+                      onExport={onExportCurrent}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             <ul className="weq-dbm-list">
               {visibleDatabases.map((row) => (
@@ -1161,89 +1184,7 @@ export function DbRepairPanel({
         ) : null}
 
         {tab === 'report' && activeRow ? (
-          <>
-            <DatabaseDetail row={activeRow} bytes={bytesByName.get(activeRow.dbName)} />
-            <div className="weq-dbm-report-actions">
-              {waiting &&
-              activeRow.scanStatus === 'failed' &&
-              activeRow.support !== 'unsupported' ? (
-                <button
-                  className="weq-set-btn"
-                  type="button"
-                  disabled={!canScan}
-                  onClick={() => void startScan('scan', [activeRow.dbName])}
-                >
-                  重试未完成的扫描
-                </button>
-              ) : null}
-              {needsLocation && locked && !repairing && activeRow.support !== 'unsupported' ? (
-                <button
-                  className="weq-set-btn"
-                  type="button"
-                  disabled={!canScan}
-                  onClick={() => {
-                    setNextScanSelection([activeRow.dbName]);
-                    setScanKind('checkup');
-                    setTab('scan');
-                  }}
-                >
-                  前往补充检查
-                </button>
-              ) : null}
-              {hasRepairPlan &&
-              activeRepair &&
-              ((needsLocation && !activeCanCheckQuick) ||
-                activeRow.repair?.status === 'waiting') ? (
-                <button
-                  className="weq-set-btn"
-                  type="button"
-                  onClick={() => {
-                    setSelected((values) => [...new Set([...values, activeRow.dbName])]);
-                    setTab('repair');
-                  }}
-                >
-                  {(needsLocation && !activeCanCheckQuick) ||
-                  activeRow.repair?.nextAction === 'view-deep'
-                    ? '查看深度修复方案'
-                    : activeRow.repair?.nextAction === 'retry-space' &&
-                        activeRow.repair.method === 'quick'
-                      ? '重试快速修复'
-                      : '重试修复'}
-                </button>
-              ) : null}
-              {hasRepairPlan && activeRow.repair?.nextAction === 'retry-space' ? (
-                <button
-                  className="weq-set-btn"
-                  type="button"
-                  onClick={() => {
-                    setSelected((values) => [...new Set([...values, activeRow.dbName])]);
-                    setTab('repair');
-                    void utils.dbRepair.preflight.invalidate();
-                    void utils.dbRepair.repairStorage.invalidate();
-                  }}
-                >
-                  <RefreshCw size={13} />
-                  重新检查空间
-                </button>
-              ) : null}
-              {!locked &&
-              (activeRow.repair?.nextAction === 'check-source' || live?.maintenanceError) ? (
-                <button
-                  className="weq-set-btn weq-set-btn-primary"
-                  type="button"
-                  onClick={() => {
-                    setScanSelection(databases.map((row) => row.dbName));
-                    setTab('scan');
-                  }}
-                >
-                  重新核对原库
-                </button>
-              ) : null}
-              {!showReportSummary && canExportCurrent ? (
-                <ReportExportMenu disabled={exportReport.isLoading} onExport={onExportCurrent} />
-              ) : null}
-            </div>
-          </>
+          <DatabaseDetail row={activeRow} bytes={bytesByName.get(activeRow.dbName)} />
         ) : null}
         {showFooter ? (
           <section className="weq-dbm-plan" aria-label="修复方案">

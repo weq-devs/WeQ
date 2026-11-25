@@ -84,11 +84,11 @@ try {
   assert.equal(await tab('报告').isDisabled(), true);
   assert.equal(await tab('修复').isDisabled(), true);
   await page.evaluate(() => window.maintenanceQa.complete());
-  await button('前往补充检查').waitFor();
+  const summary = page.getByRole('region', { name: '本轮检查结论' });
+  await summary.waitFor();
   assert.equal(await tab('报告').getAttribute('aria-selected'), 'true');
   await page.getByText('发现 1 个坏页，尚未定位', { exact: true }).first().waitFor();
   assert.equal(await page.getByRole('button', { name: '查看 unsupported.db 检查详情' }).count(), 0);
-  const summary = page.getByRole('region', { name: '本轮检查结论' });
   const exportButton = summary.getByRole('button', { name: '导出报告' });
   await exportButton.press('Enter');
   const exportMenu = page.getByRole('menu', { name: '导出报告' });
@@ -113,8 +113,9 @@ try {
   await button('追加扫描').waitFor();
   await capture('scan-after-completion-desktop');
   await tab('报告').click();
-  await button('前往补充检查').click();
-  await page.getByRole('radio', { checked: true, name: '深度体检' }).waitFor();
+  await summary.getByRole('button', { name: '追加扫描' }).click();
+  await page.getByRole('radio', { name: '深度体检' }).click();
+  await page.getByRole('checkbox', { name: '扫描 profile.db' }).uncheck();
   await button('开始补充检查').click();
   await button('暂停扫描').waitFor();
   await page.evaluate(() => window.maintenanceQa.structure());
@@ -173,8 +174,7 @@ try {
   await button('停止修复').waitFor();
   await tab('扫描').click();
   await page.evaluate(() => window.maintenanceQa.failQuick());
-  await button('查看深度修复方案').waitFor();
-  await button('查看深度修复方案').click();
+  await summary.getByRole('button', { name: '进入修复' }).click();
   await page.getByRole('heading', { name: 'nt_msg.db · 深度修复' }).waitFor();
   await page.setViewportSize({ width: 680, height: 780 });
   await page.evaluate(() => {
@@ -192,6 +192,15 @@ try {
   await page.waitForFunction(() => window.maintenanceQa.snapshot().locked === false);
   assert.equal(await tab('修复').isDisabled(), true);
   assert.equal(await tab('报告').getAttribute('aria-selected'), 'true');
+  await page
+    .getByRole('region', { name: '数据库列表' })
+    .getByRole('button', { name: '导出报告' })
+    .click();
+  await exportMenu.getByRole('menuitem', { name: 'JSON' }).click();
+  assert.equal(
+    await page.evaluate(() => window.maintenanceQa.calls.export.at(-1)?.reportId),
+    await page.evaluate(() => window.maintenanceQa.snapshot().operation.id),
+  );
   assert.deepEqual(
     await page.evaluate(() =>
       window.maintenanceQa.calls.repair.map((call) => call.methods['nt_msg.db']),
