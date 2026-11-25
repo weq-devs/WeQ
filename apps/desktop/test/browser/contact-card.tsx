@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemberProfileCard } from '../../src/renderer/src/components/MemberProfileCard';
@@ -226,6 +226,7 @@ function Fixture() {
                 }
               : undefined,
           };
+  const gestureTrigger = useRef<HTMLButtonElement>(null);
   return (
     <QueryClientProvider client={cache}>
       <CalendarNavigationContext.Provider
@@ -278,6 +279,7 @@ function Fixture() {
                             className="message-avatar-button"
                             style={{ marginTop: 96, width: 44, height: 44 }}
                             aria-label="群友头像"
+                            ref={gestureTrigger}
                             onClick={(event) =>
                               activateProfile(event, () => setView('card'), {
                                 landscape: () => {
@@ -343,7 +345,7 @@ function Fixture() {
                         {view === 'card' ? (
                           <MemberProfileCard
                             member={target}
-                            anchor={{ x: 16, y: 58 }}
+                            anchor={{ x: 16, y: 58, trigger: gestureTrigger.current ?? undefined }}
                             groupCode={target.profileContext?.groupCode}
                             groupName={target.profileContext?.groupName}
                             onClose={() => setView('closed')}

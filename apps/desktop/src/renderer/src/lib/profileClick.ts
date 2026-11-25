@@ -1,5 +1,9 @@
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
-import { dismissProfileCard, previewProfileCardDismissal } from './profileCardMotion';
+import {
+  dismissProfileCard,
+  ownsProfileCard,
+  previewProfileCardDismissal,
+} from './profileCardMotion';
 import { POKE_PRESS_MS, pressProfileAvatar, profileAvatarAtClick } from './profilePokeMotion';
 import { topSurface } from './surfaceEscape';
 
@@ -69,41 +73,37 @@ export function activateProfile(
   const document = event.currentTarget.ownerDocument;
   pendingClicks.get(document)?.();
   const view = document.defaultView;
-  if (
-    shortcut &&
-    view &&
-    !('key' in event) &&
-    event.detail > 0 &&
-    plainPrimaryClick(event.nativeEvent)
-  ) {
-    const pointer = clickPointer(event.nativeEvent, document, view);
+  const previous = topSurface(document, false);
+  const click = 'key' in event ? undefined : event;
+  const closesCard = previous && ownsProfileCard(previous, event.currentTarget, click?.nativeEvent);
+  if (view && click && click.detail > 0 && plainPrimaryClick(click.nativeEvent)) {
+    const pointer = clickPointer(click.nativeEvent, document, view);
     const landscape = view.matchMedia('(orientation: landscape)').matches;
-    const action = landscape ? shortcut.landscape : shortcut.portrait;
-    if (action && (pointer === 'touch' || (pointer === 'mouse' && event.detail === 1))) {
-      const previous = !landscape ? topSurface(document, false) : undefined;
+    const action = landscape ? shortcut?.landscape : shortcut?.portrait;
+    // 次数由 WeQ 自己的时间窗决定，鼠标 click.detail 仍可能包含更早的点击。
+    if ((action || closesCard) && (pointer === 'touch' || pointer === 'mouse')) {
       const newCard = () => {
         const current = topSurface(document, false);
         return current !== previous ? current : undefined;
       };
-      const avatar = !landscape
-        ? profileAvatarAtClick(event.currentTarget, event.target)
-        : undefined;
+      const avatar =
+        !landscape && action ? profileAvatarAtClick(event.currentTarget, event.target) : undefined;
       captureSecondClick(
         view,
         document,
-        event,
+        click,
         pointer,
         () => {
-          const current = !landscape ? newCard() : undefined;
+          const current = action && !closesCard ? newCard() : undefined;
           if (current) dismissProfileCard(current);
-          action();
+          action?.();
         },
         avatar
           ? () => {
               if (!avatar.isConnected) return;
               const reducedMotion = view.matchMedia('(prefers-reduced-motion: reduce)').matches;
               const finishAvatar = pressProfileAvatar(avatar, reducedMotion);
-              const current = !reducedMotion ? newCard() : undefined;
+              const current = !reducedMotion && !closesCard ? newCard() : undefined;
               const fade = current
                 ? previewProfileCardDismissal(current, POKE_PRESS_MS, PROFILE_DOUBLE_CLICK_MS)
                 : undefined;
@@ -116,7 +116,8 @@ export function activateProfile(
       );
     }
   }
-  openProfile();
+  if (closesCard) dismissProfileCard(previous);
+  else openProfile();
 }
 
 /** 首击可能换页、卸载菜单或用名片盖住入口。第二击仍以首击的坐标和动作识别。 */

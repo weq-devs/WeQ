@@ -490,8 +490,8 @@ function NoticeAvatar({
         const rect = event.currentTarget.getBoundingClientRect();
         const anchor =
           event.detail === 0
-            ? { x: rect.right, y: rect.bottom }
-            : { x: event.clientX, y: event.clientY };
+            ? { x: rect.right, y: rect.bottom, trigger: event.currentTarget }
+            : { x: event.clientX, y: event.clientY, trigger: event.currentTarget };
         activateProfile(
           event,
           () => onOpenProfile(user, anchor, group),

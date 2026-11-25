@@ -55,7 +55,11 @@ import { useRenderDocument } from '../lib/renderDocument';
 import { WindowSurface } from './WindowSurface';
 import { useSurfaceOutside } from '../lib/surfaceOutside';
 import { ContactFieldHistoryBoundary } from '../lib/contactFieldHistoryContext';
-import { useProfileCardMotion } from '../lib/profileCardMotion';
+import {
+  isProfileTrigger,
+  useProfileCardMotion,
+  type ProfileTrigger,
+} from '../lib/profileCardMotion';
 import { useMobileWebViewport } from '../hooks/useMobileWebViewport';
 import { IS_WEB } from '../lib/target.shared';
 import '../styles/dialog-layout.css';
@@ -76,6 +80,8 @@ export type OverlayLayerProps = {
   consumeOutsidePress?: boolean;
   /** 快速名片与会话资料共用纯淡入淡出，普通浮层不使用。 */
   profileCard?: boolean;
+  /** 名片入口与定位锚点不同时，单独记录实际点击的控件。 */
+  profileTrigger?: ProfileTrigger;
   /** 调用方自己的浮层类名（scrim 观感）。会与 `.weq-overlay-layer` 合并。 */
   className?: string;
   /**
@@ -137,6 +143,7 @@ function OpenOverlayLayer({
   dismissOnOutside = true,
   consumeOutsidePress = true,
   profileCard = false,
+  profileTrigger,
   portalTarget,
 }: Omit<OverlayLayerProps, 'open'>): ReactElement {
   const document = useRenderDocument();
@@ -162,12 +169,20 @@ function OpenOverlayLayer({
     100,
     scope,
   );
+  const trigger = profileCard
+    ? (profileTrigger ?? (anchor && 'element' in anchor ? anchor.element : (anchor ?? undefined)))
+    : undefined;
+  const ignoreProfilePress = useCallback(
+    (event: PointerEvent, target: Node) => !!trigger && isProfileTrigger(trigger, target, event),
+    [trigger],
+  );
   useSurfaceOutside(ref, onClose ? requestClose : undefined, dismissOnOutside, {
     scrim: true,
     anchor: placement.anchor?.element,
+    ignorePress: ignoreProfilePress,
     consume: consumeOutsidePress,
   });
-  useProfileCardMotion(ref, profileCard ? requestClose : undefined);
+  useProfileCardMotion(ref, profileCard && onClose ? requestClose : undefined, trigger);
 
   const handleScrimMouseDown = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     // 先断掉冒泡：内层浮层的按下不该顺带关掉下层浮层（见文件头第 4 点）。

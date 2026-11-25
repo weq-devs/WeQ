@@ -644,8 +644,8 @@ function MessageBubbleBody({
     const rect = event.currentTarget.getBoundingClientRect();
     const anchor =
       event.detail === 0
-        ? { x: rect.left, y: rect.bottom }
-        : { x: event.clientX, y: event.clientY };
+        ? { x: rect.left, y: rect.bottom, trigger: event.currentTarget }
+        : { x: event.clientX, y: event.clientY, trigger: event.currentTarget };
     activateProfile(
       event,
       () => onAvatarClick?.(sender, anchor),

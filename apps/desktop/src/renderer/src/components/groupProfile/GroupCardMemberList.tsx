@@ -278,6 +278,7 @@ function ScopedMemberList({
               disabled={!onOpenMember}
               onClick={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
+                const anchor = { x: rect.right, y: rect.bottom, trigger: event.currentTarget };
                 const shortcut = !generated
                   ? chatShortcut?.({
                       kind: 'direct',
@@ -285,19 +286,15 @@ function ScopedMemberList({
                       pokeGroupCode: conversation.group.identityValue,
                     })
                   : undefined;
-                activateProfile(
-                  event,
-                  () => onOpenMember?.(member, { x: rect.right, y: rect.bottom }),
-                  {
-                    landscape:
-                      shortcut?.landscape &&
-                      (() => {
-                        onClose();
-                        shortcut.landscape?.();
-                      }),
-                    portrait: shortcut?.portrait,
-                  },
-                );
+                activateProfile(event, () => onOpenMember?.(member, anchor), {
+                  landscape:
+                    shortcut?.landscape &&
+                    (() => {
+                      onClose();
+                      shortcut.landscape?.();
+                    }),
+                  portrait: shortcut?.portrait,
+                });
               }}
             >
               <Avatar

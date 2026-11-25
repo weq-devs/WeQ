@@ -2,6 +2,7 @@
  * 主聊天工作区：连接页面外壳、业务动作与工具视图。
  * 消息窗口、草稿、目录及 DTO 投影分别由 workspace/ 下的模块维护。
  */
+import type { ProfilePoint } from '../lib/profileCardMotion';
 import { useMessageWindowState } from './workspace/useMessageWindowState';
 import {
   useConversationWindowSelection,
@@ -1993,7 +1994,7 @@ function MainWorkspace(): ReactElement {
   } | null>(null);
   const [memberCard, setMemberCard] = useState<{
     member: User;
-    anchor: { x: number; y: number };
+    anchor: ProfilePoint;
     fromSpace?: boolean;
     /** 通知名片显式指定群上下文；null 表示好友通知，不继承当前聊天。 */
     groupContext?: { code: string; name: string } | null;
@@ -2031,7 +2032,7 @@ function MainWorkspace(): ReactElement {
     } else {
       setMemberCard({
         member: conversation.otherUser,
-        anchor: { x: rect.right, y: rect.top },
+        anchor: { x: rect.right, y: rect.top, trigger: anchor },
         groupContext: null,
       });
     }
@@ -11049,7 +11050,7 @@ function MainWorkspace(): ReactElement {
                           displayName: profile.name || profile.id,
                           avatarUrl: avatarFromUin(profile.id),
                         },
-                        anchor: { x: rect.right, y: rect.bottom },
+                        anchor: { x: rect.right, y: rect.bottom, trigger: anchor },
                         groupContext: null,
                       });
                     }

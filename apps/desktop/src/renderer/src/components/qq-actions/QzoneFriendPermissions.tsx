@@ -39,7 +39,7 @@ function PermissionProfile({ uin, name }: { uin: string; name: string }) {
       onClick={(event) => {
         const user = profileTargetUser({ identity: profile.data?.uid || uin, uin, name: nickname });
         if (!user || !navigate) return;
-        const anchor = { x: event.clientX, y: event.clientY };
+        const anchor = { x: event.clientX, y: event.clientY, trigger: event.currentTarget };
         activateProfile(
           event,
           () => navigate(user, anchor),

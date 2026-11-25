@@ -1,3 +1,4 @@
+import type { ProfilePoint } from '../lib/profileCardMotion';
 import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { User } from '../im-template/template/types';
 import { ContactWorkspaceNavigationContext } from '../lib/profileNavigation';
@@ -35,7 +36,7 @@ export function MemberProfileCard({
   localClone = Boolean(member.clone),
 }: {
   member: User;
-  anchor: { x: number; y: number };
+  anchor: ProfilePoint;
   onClose: () => void;
   groupCode?: string;
   groupName?: string;
@@ -137,6 +138,7 @@ export function MemberProfileCard({
       <ReadonlyProfileDisplay>
         <OverlayLayer
           profileCard
+          profileTrigger={anchor.trigger}
           presentation="popover"
           className="weq-member-pop-scrim"
           onClose={onClose}

@@ -1,3 +1,4 @@
+import type { ProfileTrigger } from '../../lib/profileCardMotion';
 import { ToolbarLabel } from '../CompactToolbar';
 import { observeCompactToolbar } from '../CompactToolbar.shared';
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
@@ -34,6 +35,7 @@ import type { OverlayAnchor } from '../../lib/overlayAnchor.shared';
 export interface GroupProfileSurfaceProps {
   conversation: GroupConversation | undefined;
   anchor?: HTMLElement | OverlayAnchor | null;
+  profileTrigger?: ProfileTrigger;
   onClose: () => void;
   detailsKnown?: boolean;
   memberCountKnown?: boolean;
@@ -54,6 +56,7 @@ export function GroupProfileSurface(props: GroupProfileSurfaceProps) {
 function GroupProfileBody({
   conversation: initial,
   anchor,
+  profileTrigger,
   embedded,
   onClose,
   onOpenChat,
@@ -274,6 +277,7 @@ function GroupProfileBody({
   ) : (
     <OverlayLayer
       profileCard
+      profileTrigger={profileTrigger}
       anchor={anchor}
       presentation="popover"
       className="weq-profile-layer weq-group-profile-layer"

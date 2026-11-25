@@ -64,6 +64,7 @@ import '../../styles/message-selection-toolbar.css';
 import '../../styles/conversation-title.css';
 import '../../styles/unified-conversation.css';
 import { GroupProfileDialog, CloneMemberProfileCard } from '../../components/lazyMainPanels';
+import { activateProfile } from '../../lib/profileClick';
 import { ConversationMessageActions } from '../../components/ConversationMessageActions';
 import { QQMessageEssenceAction } from '../../components/QQMessageEssenceAction';
 import { MessageTodoAction, TypingStatus } from '../../components/qq-actions/ChatActions';
@@ -1438,7 +1439,10 @@ function ChatPaneContent({
     Number(conversation?.group?.identityValue),
   );
   const [clearMessagesConfirmOpen, setClearMessagesConfirmOpen] = useState(false);
-  const [titleProfileGroupId, setTitleProfileGroupId] = useState<string | null>(null);
+  const [titleProfileGroup, setTitleProfileGroup] = useState<{
+    id: string;
+    trigger?: HTMLButtonElement;
+  } | null>(null);
   const [cloneMemberProfile, setCloneMemberProfile] = useState<{
     member: User;
     anchor: { x: number; y: number };
@@ -1518,7 +1522,7 @@ function ChatPaneContent({
   function handleOpenGroupInfoDetail(detail: GroupInfoDetail) {
     if (conversation?.type === 'group') {
       if (restrictedSource && detail === 'profile') {
-        setTitleProfileGroupId(conversation.id);
+        setTitleProfileGroup({ id: conversation.id });
       } else {
         onOpenGroupInfoDetail?.(conversation, detail);
       }
@@ -1528,7 +1532,7 @@ function ChatPaneContent({
   // 会话选区和锚点由独立 owner 保留，只关闭临时菜单。
   useEffect(() => {
     setSelectionMenu(null);
-    setTitleProfileGroupId(null);
+    setTitleProfileGroup(null);
     setCloneMemberProfile(null);
   }, [conversation?.id]);
 
@@ -6482,17 +6486,18 @@ function ChatPaneContent({
                 type="button"
                 title={conversation.type === 'group' ? '查看群名片' : '查看好友名片'}
                 onClick={(event) => {
-                  if (onOpenSourceProfile) {
-                    onOpenSourceProfile();
-                  } else if (conversation.type === 'group') {
-                    setTitleProfileGroupId(conversation.id);
-                  } else if (conversation.type === 'direct') {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    effectiveOpenGroupMember?.(conversation.otherUser, {
-                      x: rect.left,
-                      y: rect.bottom,
-                    });
-                  }
+                  const trigger = event.currentTarget;
+                  activateProfile(event, () => {
+                    if (onOpenSourceProfile) {
+                      onOpenSourceProfile();
+                    } else if (conversation.type === 'group') {
+                      setTitleProfileGroup({ id: conversation.id, trigger });
+                    } else if (conversation.type === 'direct') {
+                      const rect = trigger.getBoundingClientRect();
+                      const anchor = { x: rect.left, y: rect.bottom, trigger };
+                      effectiveOpenGroupMember?.(conversation.otherUser, anchor);
+                    }
+                  });
                 }}
               >
                 {conversation.type === 'group' ? (
@@ -6651,12 +6656,13 @@ function ChatPaneContent({
           </>
         }
       />
-      {conversation.type === 'group' && titleProfileGroupId === conversation.id ? (
+      {conversation.type === 'group' && titleProfileGroup?.id === conversation.id ? (
         <GroupProfileDialog
           conversation={conversation}
+          profileTrigger={titleProfileGroup.trigger}
           onOpenMember={restrictedSource ? effectiveOpenGroupMember : undefined}
-          onOpenChat={restrictedSource ? () => setTitleProfileGroupId(null) : undefined}
-          onClose={() => setTitleProfileGroupId(null)}
+          onOpenChat={restrictedSource ? () => setTitleProfileGroup(null) : undefined}
+          onClose={() => setTitleProfileGroup(null)}
         />
       ) : null}
       {restrictedSource && cloneMemberProfile ? (

@@ -31,11 +31,13 @@ export function useSurfaceOutside(
   {
     scrim = false,
     anchor,
+    ignorePress,
     consume = true,
     secondaryPress = false,
   }: {
     scrim?: boolean;
     anchor?: HTMLElement | null;
+    ignorePress?: (event: PointerEvent, target: Node) => boolean;
     consume?: boolean;
     secondaryPress?: boolean;
   } = {},
@@ -51,7 +53,7 @@ export function useSurfaceOutside(
       if (!eventSurfaces.has(event)) eventSurfaces.set(event, topSurface(document, false));
       if (eventSurfaces.get(event) !== surfaceRoot(element, false)) return;
       const target = event.target as Node | null;
-      if (!target || anchor?.contains(target)) return;
+      if (!target || anchor?.contains(target) || ignorePress?.(event, target)) return;
       // 横幅在应用浮层之上，关闭、复制或返回来源都由横幅自己处理。
       if (target.nodeType === 1 && (target as Element).closest('.weq-toast-host')) return;
       if (element.contains(target) && (!scrim || target !== element)) return;
@@ -60,5 +62,5 @@ export function useSurfaceOutside(
     };
     document.addEventListener('pointerdown', outside, true);
     return () => document.removeEventListener('pointerdown', outside, true);
-  }, [ref, onClose, active, scrim, anchor, consume, secondaryPress]);
+  }, [ref, onClose, active, scrim, anchor, ignorePress, consume, secondaryPress]);
 }

@@ -258,9 +258,10 @@ export function GroupMemberPreview({
             aria-label={`查看 ${displayUserName(member)} 的资料`}
             onClick={(event) => {
               const rect = event.currentTarget.getBoundingClientRect();
+              const anchor = { x: rect.right, y: rect.bottom, trigger: event.currentTarget };
               activateProfile(
                 event,
-                () => onOpen(member, { x: rect.right, y: rect.bottom }),
+                () => onOpen(member, anchor),
                 chatShortcut?.({ kind: 'direct', user: member }),
               );
             }}

@@ -3,6 +3,7 @@ import { z } from 'zod/v3';
 import type { Contact, GroupConversation, GroupMember, User } from '../im-template/template/types';
 import { avatarFromUin } from './avatarResolver';
 import type { SettingsNavigation } from '../hooks/useSettingsNavigation';
+import type { ProfilePoint } from './profileCardMotion';
 
 export const ProfileNavigationGuardContext = createContext<
   ((guard: SettingsNavigation) => () => void) | null
@@ -44,7 +45,7 @@ export function profileTargetUser(target: ProfileTarget): User | null {
 }
 
 export const ProfileNavigationContext = createContext<
-  ((user: User, anchor: { x: number; y: number }, group?: ProfileGroup) => void) | null
+  ((user: User, anchor: ProfilePoint, group?: ProfileGroup) => void) | null
 >(null);
 
 export const contactWorkspaceTabSchema = z.enum([

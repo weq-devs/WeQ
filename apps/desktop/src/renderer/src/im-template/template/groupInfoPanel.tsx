@@ -93,7 +93,7 @@ const GroupMemberRow = memo(function GroupMemberRow({
       onClick={
         events.open
           ? (event) => {
-              const anchor = { x: event.clientX, y: event.clientY };
+              const anchor = { x: event.clientX, y: event.clientY, trigger: event.currentTarget };
               activateProfile(
                 event,
                 () => events.open?.(member, anchor),
@@ -110,9 +110,12 @@ const GroupMemberRow = memo(function GroupMemberRow({
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
                 const rect = event.currentTarget.getBoundingClientRect();
-                activateProfile(event, () =>
-                  events.open?.(member, { x: rect.left + rect.width / 2, y: rect.bottom }),
-                );
+                const anchor = {
+                  x: rect.left + rect.width / 2,
+                  y: rect.bottom,
+                  trigger: event.currentTarget,
+                };
+                activateProfile(event, () => events.open?.(member, anchor));
               }
             }
           : undefined

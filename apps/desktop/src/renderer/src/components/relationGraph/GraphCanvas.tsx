@@ -10,6 +10,7 @@ import { fitGraphView, type GraphView } from './graphLayout';
 import { createGraphSimulationClient } from './graphSimulationClient';
 import { graphLabelVisible, indexGraphHit, indexGraphRender, type RenderEdge } from './graphRender';
 import { createGraphEdgeGpu, graphEdgePixelRatio } from './graphEdgeGpu';
+import type { ProfilePoint } from '../../lib/profileCardMotion';
 
 export function GraphCanvas({
   graph,
@@ -21,7 +22,7 @@ export function GraphCanvas({
   selectedId: string | null;
   onSelect: (
     node: GNode | null,
-    anchor: { x: number; y: number },
+    anchor: ProfilePoint,
     event: React.MouseEvent<HTMLDivElement>,
   ) => void;
   showRemarks?: boolean;
@@ -518,7 +519,18 @@ export function GraphCanvas({
       onClick={(event) => {
         const node = clickedNode.current;
         clickedNode.current = undefined;
-        if (node !== undefined) onSelect(node, { x: event.clientX, y: event.clientY }, event);
+        if (node === undefined) return;
+        const element = event.currentTarget;
+        const trigger = node
+          ? {
+              element,
+              hitTest: (point: MouseEvent) => {
+                const rect = element.getBoundingClientRect();
+                return nodeAt(point.clientX - rect.left, point.clientY - rect.top)?.id === node.id;
+              },
+            }
+          : undefined;
+        onSelect(node, { x: event.clientX, y: event.clientY, trigger }, event);
       }}
       onPointerUp={(e) => endPointer(e)}
       onPointerCancel={(e) => endPointer(e, true)}

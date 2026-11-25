@@ -178,6 +178,50 @@ if (process.argv.includes('--gestures')) {
         await card.waitFor();
         await page.keyboard.press('Escape');
         assert.equal(await cardVisual.count(), 0);
+
+        // The earlier cases let the new card cover the avatar. Here it remains clickable.
+        await page.setViewportSize({ width: 390, height: 844 });
+        await avatar.evaluate((node) => {
+          Object.assign(node.style, {
+            position: 'fixed',
+            inset: '2px 2px auto auto',
+            marginTop: 0,
+          });
+        });
+        const earlierActions = await actions();
+        const afterDoubleClickWindow = () => page.waitForTimeout(340);
+        await tapAvatar(1);
+        await card.waitFor();
+        await afterDoubleClickWindow();
+        await card.click({ position: { x: 20, y: 12 } });
+        assert.equal(await card.count(), 1, 'clicking inside the card keeps it open');
+        await tapAvatar(1);
+        assert.equal(await card.count(), 0, 'a new single tap closes the card');
+        assert.deepEqual(await actions(), earlierActions);
+
+        await afterDoubleClickWindow();
+        await tapAvatar(1);
+        await card.waitFor();
+        await afterDoubleClickWindow();
+        await tapAvatar(2);
+        assert.equal(await card.count(), 0, 'a new double tap keeps the card closed');
+        assert.deepEqual(await actions(), [...earlierActions, 'fixture.poke']);
+
+        await page.setViewportSize({ width: 844, height: 390 });
+        await avatar.click();
+        await card.waitFor();
+        await afterDoubleClickWindow();
+        const bounds = await avatar.boundingBox();
+        const centerX = bounds.x + bounds.width / 2;
+        const centerY = bounds.y + bounds.height / 2;
+        // The browser's click series can outlive WeQ's double-click window.
+        await page.mouse.move(centerX, centerY);
+        for (const clickCount of [2, 3]) {
+          await page.mouse.down({ clickCount });
+          await page.mouse.up({ clickCount });
+        }
+        assert.equal(await card.count(), 0, 'a new mouse double-click keeps the card closed');
+        assert.deepEqual(await actions(), [...earlierActions, 'fixture.poke', 'fixture.chat']);
         await page.setViewportSize({ width: 390, height: 844 });
         const priorActions = await actions();
         const faceSize = () => face.evaluate((node) => [node.offsetWidth, node.offsetHeight]);
