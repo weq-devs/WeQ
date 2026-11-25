@@ -1602,18 +1602,23 @@ function SegEditor({
       return (
         <div className="weq-mf-media">
           <MediaField
-            value={seg.path}
+            value={seg.chatFile?.name ?? seg.path}
             fileName={seg.fileName}
             busy={busy}
             label={seg.path ? undefined : '选择文件'}
             onPick={() =>
               void chooseFile('file', (p) =>
-                onChange({ ...seg, path: p.path, fileName: p.fileName, size: p.size }),
+                onChange({
+                  ...seg,
+                  chatFile: undefined,
+                  path: p.path,
+                  fileName: p.fileName,
+                  size: p.size,
+                }),
               )
             }
-            onClear={() => onChange({ ...seg, path: '', fileName: undefined })}
+            onClear={() => onChange({ ...seg, chatFile: undefined, path: '', fileName: undefined })}
           />
-          <p className="weq-mf-note">发送时会真实上传这个文件，对方在聊天记录里可以直接下载。</p>
         </div>
       );
     case 'mface':

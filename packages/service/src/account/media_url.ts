@@ -427,6 +427,7 @@ export interface DownloadOptions {
   expectedKind?: 'image' | 'video';
   expectedSize?: number;
   expectedSha256?: string;
+  expectedMd5?: string;
   maxBytes?: number;
   timeoutMs?: number;
   idleTimeoutMs?: number;
@@ -519,6 +520,7 @@ export async function downloadUrlToFile(
         }
         await mkdir(dirname(dest), { recursive: true });
         const hash = createHash('sha256');
+        const md5 = options.expectedMd5 ? createHash('md5') : undefined;
         let bytes = 0;
         let prefix = Buffer.alloc(0);
         const inspect = new Transform({
@@ -530,6 +532,7 @@ export async function downloadUrlToFile(
               return;
             }
             hash.update(chunk);
+            md5?.update(chunk);
             options.onProgress?.(bytes, transferTotal);
             if (prefix.length < 512)
               prefix = Buffer.concat([prefix, chunk.subarray(0, 512 - prefix.length)]);
@@ -556,6 +559,8 @@ export async function downloadUrlToFile(
           throw new Error('媒体大小与来源记录不符。');
         if (options.expectedSha256 && sha256 !== options.expectedSha256.toLowerCase())
           throw new Error('媒体哈希与来源记录不符。');
+        if (md5 && md5.digest('hex') !== options.expectedMd5?.toLowerCase())
+          throw new Error('文件内容与来源记录不符。');
         try {
           try {
             await link(temporary, dest);

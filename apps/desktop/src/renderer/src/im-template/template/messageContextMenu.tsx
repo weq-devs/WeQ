@@ -33,7 +33,8 @@ import { messageSequence, showsRoamingSource } from '../../components/MessagePro
 import type { Message } from './types';
 import { cn } from './classNames';
 import { copyTextToClipboard } from './clipboard';
-import { canRepeatMessage, forwardUnsupportedReason } from '../../lib/messageRepeat';
+import { canRepeatMessage } from '../../lib/messageRepeat';
+import { forwardContentBlockReason } from '../../lib/sequentialForward';
 import { parseFlashShareCode } from '../../lib/flashShare';
 import { messageMediaTarget } from '../../lib/messageMediaTarget';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
@@ -482,8 +483,7 @@ export function MessageContextMenu(props: Props) {
                   <Forward {...icon} />,
                   call(props.onForward),
                   props.forwardBlockedReason,
-                  Boolean(props.onForward) &&
-                    forwardUnsupportedReason(message.qqElements ?? []) === null,
+                  Boolean(props.onForward) && forwardContentBlockReason(message) === null,
                 ),
                 action(
                   'repeat',

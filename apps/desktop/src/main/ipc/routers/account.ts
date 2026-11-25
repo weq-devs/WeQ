@@ -17,6 +17,8 @@ import { MsgType } from '@weq/codec/proto/msg/40900';
 import { z } from 'zod/v3';
 import { plainContentText } from '@weq/service/message-plain-text';
 import { setReactionWithRecent } from '../../recent_reactions';
+import { ChatFileForward } from '../../chat_file_forward';
+import { chatFileForwardInput } from '../../../shared/chat_file_forward';
 import {
   albumAccessState,
   albumSelectionInput,
@@ -6123,6 +6125,45 @@ export const accountRouter = router({
         title: input.title,
         nodes: input.nodes as never,
       });
+    }),
+
+  /** 转发已经存在的聊天附件；只有明确确认的文件可走下载重传。 */
+  forwardChatFiles: outgoingProcedure
+    .input(
+      browserFileBinding.extend({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        confirmed: z.array(z.string().max(12000)).max(500).default([]),
+        content: z.discriminatedUnion('mode', [
+          z.object({ mode: z.literal('single'), source: chatFileForwardInput }),
+          z.object({
+            mode: z.literal('merged'),
+            title: z.string().optional(),
+            nodes: z.array(z.any()).min(1),
+          }),
+        ]),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { expectedAccountUin, expectedAccountConfigId, content } = input;
+      const services = requireExpectedAccount(expectedAccountUin, expectedAccountConfigId);
+      const pid = services.accountConfig.getRecord()?.qqPid;
+      const check = () => {
+        if (
+          requireExpectedAccount(expectedAccountUin, expectedAccountConfigId) !== services ||
+          services.accountConfig.getRecord()?.qqPid !== pid
+        )
+          throw new Error('账号数据源已切换，已停止转发');
+        requireQqOnlineForAlbum(services);
+      };
+      const task = new ChatFileForward(services, input, new Set(input.confirmed), check);
+      try {
+        return content.mode === 'single'
+          ? await task.sendFile(content.source)
+          : await task.sendCard(content.nodes, content.title);
+      } finally {
+        await task.dispose();
+      }
     }),
 
   /**

@@ -2,9 +2,14 @@ import * as timeFormat from '@weq/time';
 import { forwardUnsupportedReason, type RepeatElement } from './messageRepeat';
 import type { Message } from '../im-template/template/types';
 import { outgoingActionBlockReason } from './messageSelection';
+import { singleChatFile } from './chatFileForward';
+
+export function forwardContentBlockReason(message: Message): string | null {
+  return singleChatFile(message) ? null : forwardUnsupportedReason(message.qqElements ?? []);
+}
 
 export function forwardMessageBlockReason(message: Message): string | null {
-  return outgoingActionBlockReason(message) ?? forwardUnsupportedReason(message.qqElements ?? []);
+  return outgoingActionBlockReason(message) ?? forwardContentBlockReason(message);
 }
 
 export function partitionForwardMessages<T extends Message>(messages: readonly T[]) {
@@ -148,6 +153,7 @@ export async function forwardSequentially<T>(
     signal: AbortSignal;
     progress: (index: number, attempt: number, state: 'sending' | 'sent' | 'failed') => void;
     sleep?: (ms: number) => Promise<void>;
+    shouldRetry?: (row: T) => boolean;
   },
 ): Promise<{ sent: number; failed: number }> {
   validateForwardOptions(options);
@@ -191,7 +197,8 @@ export async function forwardSequentially<T>(
     }
     let error: unknown;
     let accepted = false;
-    for (let attempt = 1; attempt <= options.maxAttempts; attempt++) {
+    const maxAttempts = deps.shouldRetry?.(row) === false ? 1 : options.maxAttempts;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       deps.signal.throwIfAborted();
       deps.progress(index, attempt, 'sending');
       try {
@@ -207,7 +214,7 @@ export async function forwardSequentially<T>(
       deps.progress(index, 0, 'sent');
     } else {
       failed++;
-      deps.progress(index, options.maxAttempts, 'failed');
+      deps.progress(index, maxAttempts, 'failed');
       if (options.failure === 'abort') throw error;
     }
     if (options.mode !== 'text' && index < rows.length - 1) {

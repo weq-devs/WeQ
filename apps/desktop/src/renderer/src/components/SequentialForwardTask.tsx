@@ -18,6 +18,7 @@ import {
   openNotificationSource,
 } from '../lib/notificationNavigation.shared';
 import { localBackgroundTasks, rememberWindowTask } from '../state/backgroundTasks';
+import { singleChatFile } from '../lib/chatFileForward';
 import type { BackgroundTaskScope } from '../../../shared/background_task';
 import '../styles/sequential-forward.css';
 
@@ -178,6 +179,7 @@ export function startSequentialForward({
     try {
       await forwardSequentially(messages, options, {
         signal: local.signal,
+        shouldRetry: (message) => !singleChatFile(message),
         text: (message) => forwardMessageContent(message).text,
         nonText: (message) => forwardMessageContent(message).nonText,
         time: (message) => forwardMessageContent(message).timestampMs,

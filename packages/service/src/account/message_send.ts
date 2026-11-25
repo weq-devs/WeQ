@@ -37,6 +37,8 @@ import {
 } from '@weqbot/protocol';
 import {
   isSendUploadElement,
+  copyForwardFile,
+  publishForwardedFile,
   sendContactArk,
   sendForward as protocolSendForward,
   sendGroupFile,
@@ -52,6 +54,8 @@ import {
   SendAiVoice,
   SendLocationArk,
   type ContactArkKind,
+  type ForwardedFile,
+  type ForwardFileSource,
   type MediaSource,
   type PttWaveformSource,
   type SendDress,
@@ -1141,6 +1145,43 @@ export class MessageSendService {
         ? {}
         : { hint: 'finalize（0xE37_800）失败，已按不带 field6 的版本发出；文件本身仍可下载。' }),
     };
+  }
+
+  async prepareFileForward(params: {
+    peerType: SendPeerType;
+    targetId: string;
+    source: ForwardFileSource;
+    beforeSend: () => void;
+  }): Promise<ForwardedFile> {
+    this.assertWritable();
+    const target = this.resolveTarget(params.targetId, params.peerType, true);
+    await this.checkGroupTarget(target, true);
+    const selfUid = this.session.selfUid;
+    if (!params.source.groupId && !selfUid) throw new Error('暂时无法读取本账号的 UID');
+    return copyForwardFile(
+      guardedNative(this.nt, params.beforeSend),
+      this.resolvePid(),
+      params.source,
+      selfUid,
+      target.scene === 'group' ? { groupId: target.uin } : { userUid: target.uid },
+    );
+  }
+
+  async sendPreparedFileForward(params: {
+    peerType: SendPeerType;
+    targetId: string;
+    file: ForwardedFile;
+    beforeSend: () => void;
+  }) {
+    this.assertWritable();
+    const target = this.resolveTarget(params.targetId, params.peerType, true);
+    await this.checkGroupTarget(target, true);
+    return publishForwardedFile(
+      guardedNative(this.nt, params.beforeSend),
+      this.resolvePid(),
+      target.scene === 'group' ? { groupId: target.uin } : { userUid: target.uid },
+      params.file,
+    );
   }
 
   /**

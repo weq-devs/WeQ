@@ -603,6 +603,11 @@ import {
 } from '../lib/messageRepeat';
 import { forwardMessageBlockReason, partitionForwardMessages } from '../lib/sequentialForward';
 import {
+  chatFileForwardSource,
+  forwardWithFileConfirmation,
+  singleChatFile,
+} from '../lib/chatFileForward';
+import {
   resolveMentionLabels,
   resolveSendMentions,
   type MentionIdentity,
@@ -642,6 +647,10 @@ const workspaceLoading = <PanelLoading />;
 
 type PreparedChatFont = Awaited<ReturnType<typeof client.account.prepareChatFont.query>>;
 type FontAwareSubmission = ComposerSubmission & { preparedChatFont?: PreparedChatFont };
+type SentChatFileForward = Extract<
+  Awaited<ReturnType<typeof client.account.forwardChatFiles.mutate>>,
+  { status: 'sent' }
+>;
 
 function hasOutgoingText(elements: readonly unknown[]): boolean {
   const types = elements.map((element) => (element as { type?: string } | null)?.type);
@@ -3458,7 +3467,7 @@ function MainWorkspace(): ReactElement {
   /**
    * 给「本机 `nt_data` 里有缓存、但 40800 元素里没写路径」的媒体补上 `localPath`。
    *
-   * 收到的图片 / 语音 / 视频 / 文件通常**不带** `localPath`(45004)（那个 tag 基本只
+   * 收到的图片 / 语音 / 视频通常**不带** `localPath`(45004)（那个 tag 基本只
    * 在 QQ 自己发出 / 草稿里出现），但缓存文件是有的。不补的话导入后会被降级成
    * `[图片]` 文本（见 codecElementToSeg），转发出去就真的只剩一行文字。按
    * (发送时间, 文件名) 走主进程的 FileSearchService 找文件（与 `weq-media://pic`
@@ -3472,7 +3481,7 @@ function MainWorkspace(): ReactElement {
           if (!raw || typeof raw !== 'object') return;
           const el = raw as Record<string, unknown>;
           const kind = text(el.kind);
-          if (kind !== 'pic' && kind !== 'ptt' && kind !== 'video' && kind !== 'file') return;
+          if (kind !== 'pic' && kind !== 'ptt' && kind !== 'video') return;
           // 元素自带路径 = 发得出去，不用找（口径与 codecElementToSeg 一致）。
           // 剥掉 `::NTOSFull::` 虚拟前缀再判断 —— 带前缀的「路径」不是真文件，
           // 当成 existing 会既找不到缓存、又在发送时 ENOENT。
@@ -3481,9 +3490,7 @@ function MainWorkspace(): ReactElement {
               ? text(el.localPath) || text(el.filePath)
               : kind === 'ptt'
                 ? text(el.filePath)
-                : kind === 'video'
-                  ? text(el.filePath) || text(el.videoCoverLocalPath) || text(el.fileThumbLocalPath)
-                  : text(el.filePath),
+                : text(el.filePath) || text(el.videoCoverLocalPath) || text(el.fileThumbLocalPath),
           );
           if (existing) return;
           const name = text(el.fileName).trim();
@@ -3541,10 +3548,11 @@ function MainWorkspace(): ReactElement {
             : now * 1000;
         let segs: MfSeg[] = [];
         // 渲染视图元素与原始元素是**同一条 40800 列按顺序解出来的**，按下标一一对应。
-        // 交给导入函数后，「本机没有缓存文件的图片 / 视频 / 文件 / 语音」也能导成能画出
-        // 真卡片的 opaque 段，而不是一段 `[文件: x]` 文本。
-        const renderElements = ((message as { qqElements?: MfElement[] }).qqElements ??
-          []) as MfElement[];
+        // 普通文件保留来源身份，发送时再按目标转存；其他媒体仍使用原有预览与发送路径。
+        const renderElements: MfElement[] = (message.qqElements ?? []).map((element) => {
+          const chatFile = chatFileForwardSource(message, element);
+          return chatFile ? { ...element, data: { ...element.data, chatFile } } : element;
+        });
         if (message.forwardSnapshot) {
           const snapshot = renderElements.map((element) => ({
             ...element.data,
@@ -3764,7 +3772,7 @@ function MainWorkspace(): ReactElement {
   /**
    * 发送一份合并转发。
    *
-   * 流程：校验草稿 → 生成协议节点（媒体带本机路径，服务端真实上传 + SsoSendLongMsg）
+   * 流程：校验草稿 → 准备媒体节点（聊天文件优先转存）并上传合并卡片内容
    * → **乐观渲染**一张「聊天记录」卡片到目标会话（私聊同步慢，等不到真消息；群聊同样
    * 受益）。乐观消息只活在前端 state 里，**不落任何缓存 / 不写库**，并带「发送中 /
    * 已发送 / 发送失败」标识。
@@ -3777,6 +3785,12 @@ function MainWorkspace(): ReactElement {
       const problem = validateDraft(draft);
       if (problem) throw new Error(problem);
       const nodes = draftToSendNodes(draft, target.kind);
+      const hasChatFiles = (rows: typeof nodes): boolean =>
+        rows.some(
+          (row) =>
+            row.elements.some((element) => element.kind === 'file' && 'chatFile' in element) ||
+            Boolean(row.innerForward && hasChatFiles(row.innerForward)),
+        );
       const peerType = target.kind === 'group' ? 'group' : 'c2c';
       const title = draft.title || draftTitle(draft.nodes);
       const preview = draftCardPreview(draft);
@@ -3799,15 +3813,40 @@ function MainWorkspace(): ReactElement {
           current.map((item) => (item.id === optimisticId ? { ...item, ...next } : item)),
         );
       try {
-        const outcome = await client.account.sendForward.mutate({
+        const request = {
           ...outgoingReceipt(optimisticId),
           expectedAccountUin: user.identityValue,
           ...binding,
           peerType,
           targetId: target.conv,
-          title: draft.title || undefined,
-          nodes,
-        });
+        } as const;
+        const content = { title: draft.title || undefined, nodes };
+        const sourceConfigId = binding?.expectedAccountConfigId ?? configId;
+        const scope = messageScopeRef.current;
+        const forwardWithFiles = async () => {
+          if (!sourceConfigId) throw new Error('账号来源未就绪，请重新打开会话');
+          const sent = await forwardWithFileConfirmation<SentChatFileForward>(
+            (confirmed) =>
+              client.account.forwardChatFiles.mutate({
+                ...request,
+                expectedAccountConfigId: sourceConfigId,
+                confirmed,
+                content: { mode: 'merged', ...content },
+              }),
+            target.name,
+            () =>
+              scope === messageScopeRef.current &&
+              user.identityValue === useViewState.getState().openedUin,
+          );
+          return sent && 'outcome' in sent ? sent.outcome : null;
+        };
+        const outcome = hasChatFiles(nodes)
+          ? await forwardWithFiles()
+          : await client.account.sendForward.mutate({ ...request, ...content });
+        if (!outcome) {
+          setOptimisticForwards((current) => current.filter((item) => item.id !== optimisticId));
+          return false;
+        }
         if (!outcome.ok) {
           const reason = outcome.card?.errMsg || outcome.hint || '发送失败';
           patch({ state: 'failed', error: reason });
@@ -3841,6 +3880,7 @@ function MainWorkspace(): ReactElement {
               '请让对方确认；若没有，重发一次。',
           });
         }
+        return true;
       } catch (error) {
         patch({ state: 'failed', error: error instanceof Error ? error.message : String(error) });
         pushToast({
@@ -3851,7 +3891,15 @@ function MainWorkspace(): ReactElement {
         throw error;
       }
     },
-    [client, pushToast, user.identityValue, outgoingAfterSeq, outgoingReceipt],
+    [
+      client,
+      pushToast,
+      user.identityValue,
+      outgoingAfterSeq,
+      outgoingReceipt,
+      configId,
+      messageScopeRef,
+    ],
   );
 
   const handleSelectConversation = useCallback(
@@ -7706,12 +7754,72 @@ function MainWorkspace(): ReactElement {
     account = forwardBatch?.account,
     expectedAccountConfigId?: string,
   ) {
-    const isCurrent = () => !signal.aborted && account === useViewState.getState().openedUin;
+    const scope = messageScopeRef.current;
+    const isCurrent = () =>
+      !signal.aborted &&
+      scope === messageScopeRef.current &&
+      account === useViewState.getState().openedUin;
     if (!isCurrent()) throw new Error('账号已切换或转发已停止');
     const reason = forwardMessageBlockReason(message);
     if (reason) throw new Error(reason);
     const destination = conversations.find((item) => item.id === target.id);
     if (!destination || destination.type === 'merged') throw new Error('目标会话已不存在');
+    const file = singleChatFile(message);
+    if (file) {
+      const peer = sendTargetOf(destination);
+      if (!peer || peer.tempGroupCode) throw new Error('此会话暂不支持转发文件');
+      const sourceConfigId = expectedAccountConfigId ?? configId;
+      if (!sourceConfigId) throw new Error('账号来源未就绪，请重新打开会话');
+      const id = `optimistic-${mfId('file')}`;
+      const element = message.qqElements?.find((item) => item.type === 'file');
+      const existingMsgIds = loadedRef.current.map((row) => row.msgId);
+      setOptimisticMessages((current) => [
+        ...current,
+        {
+          id,
+          convId: target.id,
+          afterSeq: outgoingAfterSeq(target.id),
+          body: message.body,
+          elements: [
+            { type: 'file', data: { fileName: file.name, fileSize: element?.data?.fileSize } },
+          ],
+          state: 'sending',
+          at: Date.now(),
+        },
+      ]);
+      const patch = (update: Partial<OptimisticMessage>) =>
+        setOptimisticMessages((current) =>
+          current.map((item) => (item.id === id ? { ...item, ...update } : item)),
+        );
+      try {
+        const sent = await forwardWithFileConfirmation<SentChatFileForward>(
+          (confirmed) =>
+            client.account.forwardChatFiles.mutate({
+              ...outgoingReceipt(id),
+              expectedAccountUin: user.identityValue,
+              expectedAccountConfigId: sourceConfigId,
+              peerType: peer.peerType,
+              targetId: peer.targetId,
+              confirmed,
+              content: { mode: 'single', source: file },
+            }),
+          target.name,
+          isCurrent,
+        );
+        if (!sent) {
+          setOptimisticMessages((current) => current.filter((item) => item.id !== id));
+          throw new Error('已取消转发此文件');
+        }
+        if (!('file' in sent)) throw new Error('未收到文件转发结果');
+        const keys = expectedKeysOf({ peerType: peer.peerType, ...sent.file, ok: true });
+        if (keys.seqRejected) throw new Error('QQ 未分配消息序号，文件转发结果未确认');
+        patch({ state: 'sent', fileSync: { fileId: sent.file.fileId, existingMsgIds }, ...keys });
+      } catch (error) {
+        patch({ state: 'failed', error: composerSendError(error) });
+        throw error;
+      }
+      return;
+    }
     // 引用指针属于来源会话，不能指向目标会话中同序号的另一条消息。
     const source = (
       (message as Message & { qqElements?: RepeatElement[] }).qqElements ?? []

@@ -56,7 +56,11 @@ export function MergeForwardDialog({
   /** 保存为可续编的合成记录。 */
   onPersist: (draft: MfDraft) => Promise<void> | void;
   /** 发送接缝：真正的合并转发发包在这里接入（本分支不实现）。 */
-  onForward: (draft: MfDraft, target: MfTarget, binding?: CompositionBinding) => Promise<void>;
+  onForward: (
+    draft: MfDraft,
+    target: MfTarget,
+    binding?: CompositionBinding,
+  ) => Promise<undefined | boolean>;
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
   const [draft, setDraft] = useState<MfDraft>(initialDraft);
@@ -93,9 +97,10 @@ export function MergeForwardDialog({
     }
     setSending(true);
     let failed = 0;
+    const sent: MfTarget[] = [];
     for (const target of picked) {
       try {
-        await onForward(draft, target, binding ?? undefined);
+        if ((await onForward(draft, target, binding ?? undefined)) !== false) sent.push(target);
       } catch (error) {
         failed += 1;
         pushToast({
@@ -106,24 +111,27 @@ export function MergeForwardDialog({
       }
     }
     setSending(false);
+    setSelected(
+      new Set(picked.filter((target) => !sent.includes(target)).map((target) => target.id)),
+    );
     if (failed > 0) {
       // 协议还没接入 / 发送失败时不要把用户拼好的东西弄丢 —— 存一份草稿。
       await onPersist(draft);
-      return;
     }
+    if (!sent.length) return;
     pushToast({
       tone: 'success',
       title: '已转发',
-      summary: `${picked.length} 个会话`,
+      summary: `${sent.length} 个会话`,
       source: binding
         ? notificationSource(
-            { kind: 'forwarded-conversations', targets: picked, binding },
-            picked.length === 1 ? '打开转发会话' : '选择转发会话',
+            { kind: 'forwarded-conversations', targets: sent, binding },
+            sent.length === 1 ? '打开转发会话' : '选择转发会话',
             binding,
           )
         : undefined,
     });
-    onClose();
+    if (sent.length === picked.length) onClose();
   }
 
   return (
