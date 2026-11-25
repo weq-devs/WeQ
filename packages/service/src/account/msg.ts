@@ -50,7 +50,12 @@ import { toRenderElements, type RenderElement } from './msg_view';
 import { DeletedMsgStore } from './deleted_msgs';
 import type { AntiRecallService } from './anti_recall';
 import type { ExportSkippedRanges } from './export/message_source';
-import { matchesMessageFilter, messageSelectionKey, type MessageFilter } from './message_filter';
+import {
+  compileMessageFilter,
+  matchesMessageFilter,
+  messageSelectionKey,
+  type MessageFilter,
+} from './message_filter';
 import type { GapFetchedMessage } from './gap_history';
 import { elementsToText } from './export/element_text';
 import { sourceStamp } from './export/resume';
@@ -305,6 +310,8 @@ export class MsgService {
     let next = cursor;
     let hasMore = true;
     const recalls = await this.recallMapFor(kind, conv);
+    const matches = compileMessageFilter(filter);
+    let scannedTime: number | undefined;
     while (items.length < limit && scanned < 5000) {
       const page =
         kind === 'group'
@@ -316,12 +323,14 @@ export class MsgService {
       }
       for (const row of page) {
         scanned++;
-        next = { time: Number(row.message.sendTime), rowId: row.rowId };
+        const time = Number(row.message.sendTime);
+        if (time > 0) scannedTime = time;
+        next = { time, rowId: row.rowId };
         const rendered =
           kind === 'group'
             ? this.renderGroupWithState(row.message as GroupMsg, recalls)
             : this.renderC2cWithState(row.message as C2cMsg, recalls);
-        if (matchesMessageFilter(rendered, filter)) items.push(rendered);
+        if (matches(rendered)) items.push(rendered);
         if (items.length === limit) break;
       }
       if (items.length === limit) break;
@@ -341,6 +350,7 @@ export class MsgService {
         content: elementsToText(m.elements),
       })),
       cursor: hasMore ? next : null,
+      scannedTime,
       scanned,
       hasMore,
     };
@@ -1064,10 +1074,10 @@ export class MsgService {
     }
   }
 
-  calendar(kind: 'group' | 'c2c', conv: string) {
+  calendar(kind: 'group' | 'c2c', conv: string, bounds?: { start: number; end: number }) {
     return kind === 'group'
-      ? this.session.groupMsgs.calendar(conv)
-      : this.c2cDbFor(conv).calendar(this.c2cPartition(conv));
+      ? this.session.groupMsgs.calendar(conv, bounds)
+      : this.c2cDbFor(conv).calendar(this.c2cPartition(conv), bounds);
   }
 
   boundary(

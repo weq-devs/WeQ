@@ -168,8 +168,8 @@ export class GroupMsgDb {
     }));
   }
 
-  calendar(targetGroupCode: string) {
-    return queryMessageDays(this.qq, 'group_msg_table', '"40027"=?', targetGroupCode);
+  calendar(targetGroupCode: string, bounds?: Required<MessageBounds>) {
+    return queryMessageDays(this.qq, 'group_msg_table', '"40027"=?', targetGroupCode, bounds);
   }
 
   async browse(

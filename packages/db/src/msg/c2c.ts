@@ -196,9 +196,9 @@ export class C2cMsgDb {
     }));
   }
 
-  calendar(part: C2cPartition) {
+  calendar(part: C2cPartition, bounds?: Required<MessageBounds>) {
     const { clause, value } = partitionWhere(part);
-    return queryMessageDays(this.qq, this.table, clause, value);
+    return queryMessageDays(this.qq, this.table, clause, value, bounds);
   }
 
   async browse(

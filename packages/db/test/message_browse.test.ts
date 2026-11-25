@@ -81,6 +81,16 @@ it('calendar groups by Beijing date and never leaks another conversation', async
   ]);
   expect(await c2c.calendar({ uid: 'u_peer' })).toEqual(await group.calendar('777'));
 });
+it('按自然日分批读取计数，边界上的消息只统计一次', async () => {
+  const { group, c2c } = fixture();
+  const start = Date.parse('2026-10-15T00:00:00+08:00') / 1000;
+  expect(await group.calendar('777', { start: start - 86400, end: start - 1 })).toEqual([
+    { day: '2026-10-14', count: 1 },
+  ]);
+  expect(await c2c.calendar({ uid: 'u_peer' }, { start, end: start + 86399 })).toEqual([
+    { day: '2026-10-15', count: 3 },
+  ]);
+});
 it('date boundary uses chronological time and reports no usable seq explicitly', async () => {
   const { group } = fixture();
   const start = Date.parse('2026-10-15T00:00:00+08:00') / 1000;
@@ -129,6 +139,19 @@ it('sender UID/UIN and inclusive date bounds combine using bound SQL parameters'
   expect(await group.browse('777', { sender: "123' OR 1=1 --" })).toEqual([]);
 });
 
+it('QQ 号和 UID 可同时匹配多个发送者，并保留会话及时间条件', async () => {
+  const { group, c2c } = fixture();
+  const start = Date.parse('2026-10-15T00:00:00+08:00') / 1000;
+  const filter = { start, end: start, senders: ['123', 'u_bob'] };
+  expect((await group.browse('777', filter)).map(({ message }) => String(message.msgId))).toEqual([
+    '3',
+    '2',
+  ]);
+  expect(
+    (await c2c.browse({ uid: 'u_peer' }, filter)).map(({ message }) => String(message.msgId)),
+  ).toEqual(['3', '2']);
+  expect(await group.browse('777', { senders: ['u_missing'] })).toEqual([]);
+});
 it('正序浏览按时间与行号完整翻页，不遗漏空序号或同时间记录', async () => {
   const { c2c, group } = fixture();
   const first = await c2c.browse({ uid: 'u_peer' }, {}, undefined, 2, 'newer');

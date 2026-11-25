@@ -1,119 +1,238 @@
 .weq-chatrecords-body:has(> .weq-record-progress) {
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
 }
 
-.weq-record-progress {
+.weq-conversation-records .weq-chatrecords-body {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.weq-conversation-records .weq-chatrecords-msgs {
+  padding: 0 0 16px;
+  overscroll-behavior: contain;
+}
+
+.weq-conversation-records .weq-chatrecords-msg {
+  cursor: default;
+  border-radius: 0;
+  padding-inline: 18px;
+}
+
+.weq-conversation-records .weq-chatrecords-msg:hover {
+  background: transparent;
+}
+
+.weq-conversation-records .weq-chatrecords-msg + .weq-chatrecords-msg {
+  border-top: 0;
+}
+
+.weq-record-search-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px 8px;
+}
+
+.weq-record-search-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  padding-inline: 10px 4px;
+  border-radius: 8px;
+  background: var(--muted);
+  color: var(--weq-fg-secondary);
+}
+
+.weq-record-search-input:focus-within {
+  outline: 1px solid var(--weq-accent-effective);
+}
+
+.weq-record-search-input > input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--weq-fg-primary);
+}
+
+.weq-record-search-input input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.weq-record-filter-trigger {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 4px 7px;
+  border-radius: 8px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-record-filter-trigger:hover,
+.weq-record-filter-trigger[aria-expanded='true'],
+.weq-record-filter-trigger[data-active] {
+  background: var(--muted);
+  color: var(--primary);
+}
+
+.weq-record-sender-avatar {
+  flex: none;
+}
+
+.weq-record-sender-picker {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+}
+
+.weq-record-sender-picker h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.weq-record-sender-picker > input {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 6px;
+  background: var(--weq-bg-surface);
+}
+
+.weq-record-sender-options {
+  max-height: min(45vh, 360px);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.weq-record-sender-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 4px 8px;
+  text-align: left;
+  border-radius: 6px;
+}
+
+.weq-record-sender-option:hover,
+.weq-record-sender-option[aria-pressed='true'] {
+  background: var(--muted);
+}
+
+.weq-record-sender-option > span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weq-record-types.weq-qzn {
+  flex: none;
+  height: auto;
+  background: transparent;
+}
+
+.weq-record-types > .weq-qzn-navigation {
+  padding: 0 18px 8px;
+}
+
+.weq-record-types :is(nav, nav > button) {
+  white-space: nowrap;
+}
+
+.weq-record-progress,
+.weq-record-notice {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 36px;
+  min-height: 32px;
+  margin: 0;
   padding: 6px 12px;
   color: var(--weq-fg-secondary);
   font-size: 13px;
 }
 
-.weq-record-calendar-actions {
-  display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 0 18px 12px;
+.weq-record-progress {
+  border-top: 1px solid var(--weq-border-subtle);
 }
 
-.weq-record-calendar-actions > button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 30px;
-  max-width: 100%;
-  padding: 4px 10px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 4px;
-  background: var(--weq-bg-surface);
+.weq-record-day-heading {
+  margin: 16px 0 0;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--weq-border-subtle);
   color: var(--weq-fg-primary);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
 }
 
-.weq-record-calendar-actions > button > svg {
-  flex: none;
-}
-
-.weq-record-calendar-actions > button:hover:not(:disabled) {
-  border-color: var(--weq-accent-effective);
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface));
-}
-
-.weq-record-calendar-actions > button:focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
-}
-
-.weq-record-calendar-actions > button:disabled {
-  color: var(--weq-fg-muted);
-  cursor: default;
-}
-
-.weq-record-range-button {
-  min-height: 30px;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-
-html[data-theme='dark'] .weq-record-calendar-actions > button {
-  border-color: var(--weq-border-strong);
-}
-
-.weq-record-media-categories {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.weq-record-media-categories > button[aria-pressed='true'] {
-  border-color: var(--weq-accent-effective);
-  color: var(--weq-accent-ink, var(--weq-accent-effective));
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-surface));
+.weq-record-day-heading:first-child {
+  margin-top: 0;
 }
 
 .weq-record-media-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 112px), 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 110px), 1fr));
+  gap: 8px;
+  padding: 15px 18px 10px;
 }
 
-.weq-record-media-tile {
-  display: grid;
-  align-content: start;
-  gap: 4px;
-  min-width: 0;
+.weq-record-media-grid.is-emoji {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 78px), 1fr));
 }
 
 .weq-record-media-thumbnail {
   position: relative;
+  display: block;
   width: 100%;
   aspect-ratio: 1;
   padding: 0;
   overflow: hidden;
   border: 0;
   border-radius: 8px;
-  background: var(--weq-bg-surface);
+  background: var(--muted);
   color: var(--weq-fg-primary);
+}
+
+button.weq-record-media-thumbnail {
   cursor: pointer;
 }
 
-.weq-record-media-thumbnail:focus-visible {
+.weq-record-filter-trigger:focus-visible,
+.weq-record-media-thumbnail:focus-visible,
+.weq-conversation-records .weq-chatrecords-msg:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 .weq-record-media-thumbnail > img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.weq-record-media-thumbnail.is-native {
+  display: grid;
+  place-items: center;
+}
+
+.weq-record-media-thumbnail.is-native :is(.qq-media-action, .qq-media-image, .qq-media-mface) {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
 }
 
 .weq-record-media-play {
@@ -123,4 +242,11 @@ html[data-theme='dark'] .weq-record-calendar-actions > button {
   box-sizing: content-box;
   border-radius: 50%;
   background: var(--weq-bg-surface);
+}
+
+@media (pointer: coarse) {
+  .weq-record-filter-trigger {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }

@@ -730,7 +730,7 @@ export type ChatPaneProps = {
   messageRecords?: React.ReactNode;
   onCloseMessageRecords?: () => void;
   /** 顶栏「搜索聊天记录」按钮：在当前会话内搜索并跳转。 */
-  onSearchChatRecords?: (conversation: Conversation, view?: 'media') => void;
+  onSearchChatRecords?: (conversation: Conversation) => void;
   onOpenRoamingBackfill?: (conversation: Conversation) => void;
   /** 缺失消息占位条点击：携带占位条两侧消息的 seq（开区间即缺失窗口）。 */
   onOpenGapMessages?: (
@@ -6627,11 +6627,6 @@ function ChatPaneContent({
                 compact={compactHeader}
                 showPortrait={Boolean(portraitPeer && intentStatus.data?.profileEnabled)}
                 onSearch={onSearchChatRecords ? () => onSearchChatRecords(conversation) : undefined}
-                onMedia={
-                  onSearchChatRecords && !restrictedSource && !readOnly
-                    ? () => onSearchChatRecords(conversation, 'media')
-                    : undefined
-                }
                 onImportant={canOpenImportant ? openImportantMessages : undefined}
                 dismissJumpActions={
                   compactHeader

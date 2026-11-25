@@ -59,12 +59,14 @@ export async function queryMessageDays(
   table: string,
   clause: string,
   value: SqlValue,
+  bounds?: Required<MessageBounds>,
 ): Promise<MessageDay[]> {
   const rows = await qq.query(
     `SELECT date("40050",'unixepoch','+8 hours'),COUNT(*) FROM ${table}
     WHERE ${clause} AND "40050">0 AND "40050"<253402272000
+    ${bounds ? 'AND "40050" BETWEEN ? AND ?' : ''}
     GROUP BY 1 ORDER BY 1`,
-    [value],
+    bounds ? [value, BigInt(bounds.start), BigInt(bounds.end)] : [value],
   );
   return rows
     .filter((row) => typeof row[0] === 'string')

@@ -2730,7 +2730,7 @@ function MainWorkspace(): ReactElement {
 
   // 聊天顶栏「搜索聊天记录」：把当前会话固化为搜索目标，打开单会话版聊天记录模态。
   const handleSearchChatRecords = useCallback(
-    (conversation: Conversation, view?: 'media') => {
+    (conversation: Conversation) => {
       const scope = messageScopeRef.current;
       if (!scope) return;
       let hit: ChatRecordSearchHit;
@@ -2747,7 +2747,8 @@ function MainWorkspace(): ReactElement {
         };
       } else if (conversation.type === 'direct') {
         const { otherUser } = conversation;
-        const uin = otherUser.username || otherUser.identityValue || '';
+        const uin =
+          [otherUser.identityValue, otherUser.username].find((id) => /^[1-9]\d*$/.test(id)) ?? '';
         hit = {
           category: 'chatRecord',
           source: 'buddy',
@@ -2760,11 +2761,10 @@ function MainWorkspace(): ReactElement {
       } else return;
       setChatRecordsTarget((previous) =>
         previous?.scope === scope &&
-        previous.view === view &&
         previous.hit.source === hit.source &&
         previous.hit.targetUid === hit.targetUid
           ? { ...previous, suspended: false }
-          : { hit, scope, view, suspended: false },
+          : { hit, scope, suspended: false },
       );
     },
     [messageScopeRef],
@@ -2894,7 +2894,6 @@ function MainWorkspace(): ReactElement {
   const [chatRecordsTarget, setChatRecordsTarget] = useState<{
     hit: ChatRecordSearchHit;
     scope: string;
-    view?: 'media';
     suspended: boolean;
   } | null>(null);
   useEffect(() => {
@@ -12136,12 +12135,11 @@ function MainWorkspace(): ReactElement {
           ) : null}
           {chatRecordsTarget?.scope === messageScope ? (
             <ChatRecordsModal
-              key={`${chatRecordsTarget.scope}:${chatRecordsTarget.hit.source}:${chatRecordsTarget.hit.targetUid}:${chatRecordsTarget.view ?? 'search'}`}
+              key={`${chatRecordsTarget.scope}:${chatRecordsTarget.hit.source}:${chatRecordsTarget.hit.targetUid}`}
               initialHit={chatRecordsTarget.hit}
               initialKeyword=""
               fixed
               accountBinding={pinSession.binding ?? undefined}
-              sharedMedia={chatRecordsTarget.view === 'media'}
               suspended={chatRecordsTarget.suspended}
               renderers={messageRenderers}
               user={user}

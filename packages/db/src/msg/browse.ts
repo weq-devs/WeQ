@@ -9,6 +9,7 @@ export interface BrowseFilter {
   start?: number;
   end?: number;
   sender?: string;
+  senders?: string[];
   /** 已确认的同一人的 QQ 号，兼容缺 UID 的旧消息；与 sender 取并集。 */
   senderUin?: string;
 }
@@ -46,6 +47,13 @@ export function browseConditions(
   } else if (filter.sender) {
     where.push('("40020"=? OR "40033"=?)');
     params.push(filter.sender, filter.sender);
+  }
+  if (filter.senders?.length) {
+    where.push(
+      `("40020" IN (SELECT value FROM json_each(?)) OR "40033" IN (SELECT CAST(value AS INTEGER) FROM json_each(?) WHERE value NOT GLOB '*[^0-9]*'))`,
+    );
+    const senders = JSON.stringify(filter.senders);
+    params.push(senders, senders);
   }
   if (cursor) {
     const comparison = direction === 'older' ? '<' : '>';

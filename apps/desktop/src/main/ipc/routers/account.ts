@@ -11,7 +11,7 @@
  * page, `listBefore` to page up, `listFrom` to re-read the loaded window live.
  */
 import { setTimeout as delay } from 'node:timers/promises';
-import { MESSAGE_CATEGORIES, OperationError } from '@weq/service';
+import { CONVERSATION_RECORD_TYPES, MESSAGE_CATEGORIES, OperationError } from '@weq/service';
 import { MsgType } from '@weq/codec/proto/msg/40900';
 
 import { z } from 'zod/v3';
@@ -3927,10 +3927,31 @@ export const accountRouter = router({
 
   getReadReportStatus: procedure.query(() => requireServices().unreadInfo.getReadReportStatus()),
 
-  /** Newest page of a conversation (open / switch-into), newest-first. */
+  /** 搜索浮窗按周读取会话日计数。 */
   conversationCalendar: procedure
-    .input(convInput)
-    .query(({ input }) => requireServices().msgs.calendar(input.kind, input.conv)),
+    .input(
+      convInput.merge(exportAccountBindingInput).extend({
+        bounds: z
+          .object({
+            start: z.number().int().nonnegative(),
+            end: z.number().int().nonnegative(),
+          })
+          .refine(({ start, end }) => end >= start && end - start < 7 * 86400)
+          .optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const days = await services.msgs.calendar(input.kind, input.conv, input.bounds);
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
+      return days;
+    }),
 
   exportCalendar: procedure
     .input(z.object({ targets: z.array(convInput) }))
@@ -3981,6 +4002,8 @@ export const accountRouter = router({
           start: z.number().int().nonnegative().optional(),
           end: z.number().int().nonnegative().optional(),
           sender: z.string().max(128).optional(),
+          senders: z.array(z.string().max(128)).optional(),
+          recordType: z.enum(CONVERSATION_RECORD_TYPES).optional(),
           keyword: z.string().max(512).optional(),
           category: z.enum(MESSAGE_CATEGORIES).optional(),
         }),
@@ -4029,6 +4052,8 @@ export const accountRouter = router({
           start: z.number().int().nonnegative().optional(),
           end: z.number().int().nonnegative().optional(),
           sender: z.string().max(128).optional(),
+          senders: z.array(z.string().max(128)).optional(),
+          recordType: z.enum(CONVERSATION_RECORD_TYPES).optional(),
           keyword: z.string().max(512).optional(),
           category: z.enum(MESSAGE_CATEGORIES).optional(),
         }),

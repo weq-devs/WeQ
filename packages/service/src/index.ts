@@ -24,8 +24,9 @@ export type {
   ForwardExportTarget,
   ForwardRecordTarget,
   MessageCategory,
+  ConversationRecordType,
 } from './account/message_filter';
-export { MESSAGE_CATEGORIES } from './account/message_filter';
+export { CONVERSATION_RECORD_TYPES, MESSAGE_CATEGORIES } from './account/message_filter';
 export { installContentSearchCapture } from './account/content_search_capture';
 export { writeCompositionBundle } from './account/export/composition_export';
 export { fileDigest } from './account/export/archive_resource';

@@ -3466,44 +3466,6 @@ html[data-theme='dark'] .weq-mface-detail-nav {
   font-size: 12px;
   color: var(--weq-fg-secondary);
 }
-.weq-record-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 8px;
-  padding: 0 16px 12px;
-  color: var(--weq-fg-secondary);
-}
-.weq-record-filters label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  font-size: 12px;
-}
-.weq-record-filters input,
-.weq-record-filters .weq-select-trigger {
-  max-width: 100%;
-  min-width: 0;
-  height: 30px;
-  padding: 4px 6px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 4px;
-  background: var(--weq-bg-elevated);
-  color: var(--weq-fg-primary);
-  font-size: 12px;
-}
-.weq-record-filters .weq-record-self {
-  flex-direction: row;
-  align-items: center;
-  height: 30px;
-}
-.weq-record-filters .weq-record-self input {
-  height: 14px;
-}
-.weq-record-filters input:not([type='checkbox']) {
-  width: 148px;
-}
 .weq-record-error {
   color: var(--weq-warn-fg);
   padding: 8px 16px;

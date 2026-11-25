@@ -112,8 +112,8 @@ export const MESSAGE_FEATURES = [
   ),
   messageFeature(
     'history.shared-media',
-    '共享媒体',
-    '从会话标题栏浏览图片、视频和文件，也可定位原消息。',
+    '会话内搜索',
+    '从会话标题栏按发送者、日期和消息类型查找聊天记录与媒体，并可定位原消息。',
     {
       context: ['account', 'conversation'],
       navigation: 'context',

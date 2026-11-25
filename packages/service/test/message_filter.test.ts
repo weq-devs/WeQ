@@ -94,3 +94,34 @@ it('同一个数值 ID 的本地消息和漫游变体按精确来源区分', () 
     ),
   ).toBe(false);
 });
+
+it('会话搜索将发送者取并集，再与关键词和分类组合', () => {
+  const filter = { senders: ['u_bob', '123'], keyword: 'project', recordType: 'media' } as const;
+  const matches = (row: typeof message, senders = [...filter.senders]) =>
+    matchesMessageFilter(row, { ...filter, senders });
+  expect(matches(message)).toBe(true);
+  expect(matches({ ...message, senderUid: 'u_bob', senderUin: 0n })).toBe(true);
+  expect(matches(message, ['u_bob'])).toBe(false);
+  expect(matches({ ...message, elements: [{ type: 'pic', data: {} } as RenderElement] })).toBe(
+    false,
+  );
+});
+
+it('会话分类区分图片表情、转发记录、其他卡片和纯文本', () => {
+  const categorize = (
+    elements: RenderElement[],
+    recordType: 'media' | 'emoji' | 'forward' | 'linkCard' | 'other',
+  ) => matchesMessageFilter({ ...message, elements }, { recordType });
+  const imageEmoji = [{ type: 'pic', data: { subType: 1 } } as RenderElement];
+  expect(categorize(imageEmoji, 'emoji')).toBe(true);
+  expect(categorize(imageEmoji, 'media')).toBe(false);
+  const ark = (app: string): RenderElement => ({
+    type: 'ark',
+    data: { arkData: JSON.stringify({ app }) },
+  });
+  expect(categorize([ark('com.tencent.multimsg')], 'forward')).toBe(true);
+  expect(categorize([ark('com.tencent.multimsg')], 'linkCard')).toBe(false);
+  expect(categorize([ark('com.tencent.mobileqq.structmsg')], 'linkCard')).toBe(true);
+  expect(categorize(message.elements.slice(0, 1), 'other')).toBe(true);
+  expect(categorize(message.elements, 'other')).toBe(false);
+});

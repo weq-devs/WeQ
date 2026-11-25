@@ -1,6 +1,14 @@
 import { FormSelect } from './FormSelect';
 import { NumericText } from './NumericText';
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type HTMLAttributes,
+  type ReactNode,
+} from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { beijingDay, messageDensity, type MessageDay } from '../lib/messageCalendar';
 import '../styles/message-calendar.css';
@@ -28,6 +36,7 @@ export const MessageCalendar = memo(function MessageCalendar({
   maxDay,
   dateOnly = false,
   fixedWeekCount = true,
+  dayProps,
 }: {
   days?: readonly MessageDay[];
   start?: string;
@@ -48,6 +57,7 @@ export const MessageCalendar = memo(function MessageCalendar({
   maxDay?: string;
   dateOnly?: boolean;
   fixedWeekCount?: boolean;
+  dayProps?: (day: string) => HTMLAttributes<HTMLButtonElement>;
 }) {
   const [localMonth, setLocalMonth] = useState((start || beijingDay()).slice(0, 7));
   const month = controlledMonth ?? localMonth;
@@ -139,6 +149,7 @@ export const MessageCalendar = memo(function MessageCalendar({
           const inRange = Boolean(start && end && day >= start && day <= end);
           return (
             <button
+              {...dayProps?.(day)}
               type="button"
               key={key}
               data-density={messageDensity(count, maxCount)}

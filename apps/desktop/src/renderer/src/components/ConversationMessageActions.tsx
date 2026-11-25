@@ -3,7 +3,6 @@ import {
   Bug,
   CirclePlus,
   Ellipsis,
-  Images,
   ListFilter,
   ListRestart,
   ListX,
@@ -47,7 +46,6 @@ export function ConversationMessageActions({
   compact = false,
   showPortrait = false,
   onSearch,
-  onMedia,
   onImportant,
   dismissJumpActions,
   onGroupInfo,
@@ -64,7 +62,6 @@ export function ConversationMessageActions({
   compact?: boolean;
   showPortrait?: boolean;
   onSearch?: () => void;
-  onMedia?: () => void;
   onImportant?: () => void;
   dismissJumpActions?: { label: string; action: () => void }[];
   onGroupInfo?: (anchor: HTMLButtonElement) => void;
@@ -205,7 +202,6 @@ export function ConversationMessageActions({
         ]
       : []),
     ...(onSearch ? [{ label: '搜索', icon: <Search size={18} />, action: onSearch }] : []),
-    ...(onMedia ? [{ label: '共享媒体', icon: <Images size={18} />, action: onMedia }] : []),
     ...(portraitPeer
       ? [
           {
