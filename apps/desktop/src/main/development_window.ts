@@ -10,7 +10,8 @@ export async function publishDevelopmentWindow(
     return openWindow();
   });
   try {
-    await writeFileAtomic(path, JSON.stringify(control.endpoint));
+    // 启动器已释放的锁目录不能由迟到的 Electron 进程重新创建。
+    await writeFileAtomic(path, JSON.stringify(control.endpoint), { createParent: false });
   } catch (error) {
     control.close();
     throw error;

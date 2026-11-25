@@ -540,6 +540,28 @@ test('开发锁拒绝同时启动并在失败后释放，可恢复已退出的�
   assert.equal(await exists(lock), false);
 });
 
+test('已退出会话的窗口控制端点不会重建启动锁', async (t) => {
+  const repo = await fixture(t);
+  const lock = join(repo, '.weq-dev/running');
+  const { publishDevelopmentWindow } = await tsImport(
+    '../apps/desktop/src/main/development_window.ts',
+    import.meta.url,
+  );
+  const release = await acquireProcessLock(lock);
+  await release();
+  const endpoint = join(lock, 'window-previous.json');
+  await assert.rejects(
+    async () => {
+      const close = await publishDevelopmentWindow(endpoint, async () => true);
+      close();
+    },
+    { code: 'ENOENT' },
+  );
+  assert.equal(await exists(lock), false);
+  const releaseNext = await acquireProcessLock(lock);
+  await releaseNext();
+});
+
 test('重复启动等候开发版就绪，每次请求只在当前会话新开一个窗口', {
   timeout: 10_000,
 }, async (t) => {
