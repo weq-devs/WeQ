@@ -56,12 +56,15 @@ import { TimeLabel } from './TimeLabel';
 import { client, trpc } from '../trpc/client';
 import { useRenderDocument } from '../lib/renderDocument';
 import { useDbRepairReturn } from '../state/dbRepairReturn';
+import { Modal } from './Dialog';
 import { useDialog } from './Dialog.shared';
 import { QqAvatar } from './QqAvatar';
 import { DatabaseMaintenanceProgress } from './DatabaseMaintenanceProgress';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
+import { FormSelect } from './FormSelect';
 import { SegmentedControl } from './SegmentedControl';
 import { WindowSurface } from './WindowSurface';
+import { Row } from './settings/controls';
 import { formatBytesOrUnknown } from '../lib/format';
 import { qqDatabasePurpose } from '../lib/qqDatabasePurpose';
 import '../styles/db-repair-maintenance.css';
@@ -235,6 +238,8 @@ export function DbRepairPanel({
   const [recentRepair, setRecentRepair] = useState<DatabaseMaintenanceStatus>();
   const [resultFocused, setResultFocused] = useState<string>();
   const spaceEstimateId = useId();
+  const settingsTitleId = useId();
+  const concurrencyDescriptionId = useId();
   const [starting, setStarting] = useState<
     | {
         kind: ScanKind;
@@ -1722,17 +1727,152 @@ export function DbRepairPanel({
         ) : null}
       </div>
 
-      {surface ? (
+      {surface === 'settings' ? (
+        <Modal
+          presentation="popover"
+          anchor={surfaceAnchor}
+          width={460}
+          labelledBy={settingsTitleId}
+          onClose={closeSurface}
+        >
+          <section className="weq-dialog weq-dbm-settings">
+            <header className="weq-dialog-head">
+              <h2 className="weq-dialog-title" id={settingsTitleId}>
+                数据库修复设置
+              </h2>
+              <button
+                type="button"
+                className="weq-dialog-x"
+                title="关闭"
+                aria-label="关闭"
+                onClick={closeSurface}
+              >
+                <X size={16} aria-hidden />
+              </button>
+            </header>
+            <div className="weq-set">
+              {error ? (
+                <p className="weq-dbm-alert" role="alert">
+                  {error}
+                </p>
+              ) : null}
+              <Row
+                label="体检并行数量"
+                desc={
+                  <span id={concurrencyDescriptionId}>
+                    同时检查的数据库数量。更改会在下次开始或继续体检时生效。
+                  </span>
+                }
+                control={
+                  <FormSelect
+                    aria-label="体检并行数量"
+                    aria-describedby={concurrencyDescriptionId}
+                    className="weq-set-input weq-number"
+                    value={checkupSettings.data?.concurrency ?? ''}
+                    disabled={!checkupSettings.data || setCheckupConcurrency.isLoading}
+                    onChange={(event) => {
+                      const concurrency = Number(event.currentTarget.value);
+                      void act(async () => {
+                        await setCheckupConcurrency.mutateAsync({ concurrency });
+                        await checkupSettings.refetch();
+                      });
+                    }}
+                  >
+                    {!checkupSettings.data ? <option value="">—</option> : null}
+                    {checkupConcurrencyOptions.map((count) => (
+                      <option key={count} value={count}>
+                        {count}
+                      </option>
+                    ))}
+                  </FormSelect>
+                }
+              />
+              {checkupSettings.error ? (
+                <p className="weq-dbm-alert" role="alert">
+                  {checkupSettings.error.message}
+                </p>
+              ) : null}
+              <Row
+                label="修复前备份"
+                desc={backupMode === 'all' ? '快速修复的备份须与原数据库位于同一磁盘。' : undefined}
+                control={
+                  <SegmentedControl<DatabaseRepairBackupMode>
+                    label="修复前备份"
+                    value={backupMode ?? null}
+                    disabled={!backupMode || repairing || setRepairBackupMode.isLoading}
+                    options={[
+                      { value: 'off', label: '关闭' },
+                      { value: 'deep', label: '仅深度修复' },
+                      { value: 'all', label: '开启' },
+                    ]}
+                    onChange={(mode) => void changeRepairBackupMode(mode)}
+                  />
+                }
+              />
+              {repairBackupMode.error ? (
+                <p className="weq-dbm-alert" role="alert">
+                  {repairBackupMode.error.message}
+                </p>
+              ) : null}
+              <Row
+                label="备份与修复工作区位置"
+                desc={cache.data?.override ?? '默认 WeQ 缓存目录'}
+                control={
+                  <div className="weq-set-btn-group">
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-sm"
+                      disabled={repairing || pickCache.isLoading || resetCache.isLoading}
+                      onClick={() => void changeCache()}
+                    >
+                      <FolderOpen size={14} aria-hidden />
+                      更改位置
+                    </button>
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-set-btn-sm"
+                      disabled={
+                        repairing ||
+                        resetCache.isLoading ||
+                        pickCache.isLoading ||
+                        !cache.data?.override
+                      }
+                      onClick={() =>
+                        void act(async () => {
+                          await resetCache.mutateAsync();
+                          await cache.refetch();
+                          await utils.dbRepair.preflight.invalidate();
+                          await utils.dbRepair.repairStorage.invalidate();
+                        })
+                      }
+                    >
+                      <RotateCcw size={14} aria-hidden />
+                      使用默认位置
+                    </button>
+                  </div>
+                }
+              />
+              {cache.error ? (
+                <p className="weq-dbm-alert" role="alert">
+                  {cache.error.message}
+                </p>
+              ) : null}
+            </div>
+          </section>
+        </Modal>
+      ) : null}
+
+      {surface === 'history' ? (
         <WindowSurface
           mode="anchored"
           anchor={surfaceAnchor}
-          width={surface === 'history' ? 680 : 460}
-          title={surface === 'history' ? '历史报告与恢复' : '数据库修复设置'}
+          width={680}
+          title="历史报告与恢复"
           onClose={closeSurface}
         >
           <section className="weq-dbm weq-dbm-overlay">
             <header className="weq-dbm-overlay-head">
-              <h2>{surface === 'history' ? '历史报告与恢复' : '数据库修复设置'}</h2>
+              <h2>历史报告与恢复</h2>
               <button
                 type="button"
                 className="weq-dbm-head-btn"
@@ -1743,107 +1883,13 @@ export function DbRepairPanel({
                 <X size={16} />
               </button>
             </header>
-            <div className="weq-dbm-body" key={`${surface}:${reportId ?? legacyId ?? ''}`}>
+            <div className="weq-dbm-body" key={reportId ?? legacyId ?? ''}>
               {error ? (
                 <p className="weq-dbm-alert" role="alert">
                   {error}
                 </p>
               ) : null}
-              {surface === 'settings' ? (
-                <>
-                  <section className="weq-dbm-checkup-setting">
-                    <label>
-                      <strong>体检并行数量</strong>
-                      <select
-                        className="weq-set-select weq-number"
-                        value={checkupSettings.data?.concurrency ?? ''}
-                        disabled={!checkupSettings.data || setCheckupConcurrency.isLoading}
-                        onChange={(event) => {
-                          const concurrency = Number(event.currentTarget.value);
-                          void act(async () => {
-                            await setCheckupConcurrency.mutateAsync({ concurrency });
-                            await checkupSettings.refetch();
-                          });
-                        }}
-                      >
-                        {!checkupSettings.data ? <option value="">—</option> : null}
-                        {checkupConcurrencyOptions.map((count) => (
-                          <option key={count} value={count}>
-                            {count}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <p>同时检查的数据库数量。更改会在下次开始或继续体检时生效。</p>
-                    {checkupSettings.error ? (
-                      <p className="weq-dbm-alert" role="alert">
-                        {checkupSettings.error.message}
-                      </p>
-                    ) : null}
-                  </section>
-                  <section className="weq-dbm-backup-setting">
-                    <h3>修复前备份</h3>
-                    <SegmentedControl<DatabaseRepairBackupMode>
-                      label="修复前备份"
-                      value={backupMode ?? null}
-                      disabled={!backupMode || repairing || setRepairBackupMode.isLoading}
-                      options={[
-                        { value: 'off', label: '关闭' },
-                        { value: 'deep', label: '仅深度修复' },
-                        { value: 'all', label: '开启' },
-                      ]}
-                      onChange={(mode) => void changeRepairBackupMode(mode)}
-                    />
-                    {backupMode === 'all' ? <p>快速修复的备份须与原数据库位于同一磁盘。</p> : null}
-                    {repairBackupMode.error ? (
-                      <p className="weq-dbm-alert" role="alert">
-                        {repairBackupMode.error.message}
-                      </p>
-                    ) : null}
-                  </section>
-                  <section className="weq-dbm-cache">
-                    <h3>备份与修复工作区位置</h3>
-                    <p>{cache.data?.override ?? '默认 WeQ 缓存目录'}</p>
-                    {cache.error ? (
-                      <p className="weq-dbm-alert" role="alert">
-                        {cache.error.message}
-                      </p>
-                    ) : null}
-                    <div className="weq-dbm-cache-actions">
-                      <button
-                        type="button"
-                        className="weq-set-btn weq-set-btn-sm"
-                        disabled={repairing || pickCache.isLoading || resetCache.isLoading}
-                        onClick={() => void changeCache()}
-                      >
-                        <FolderOpen size={14} />
-                        更改位置
-                      </button>
-                      <button
-                        type="button"
-                        className="weq-set-btn weq-set-btn-sm"
-                        disabled={
-                          repairing ||
-                          resetCache.isLoading ||
-                          pickCache.isLoading ||
-                          !cache.data?.override
-                        }
-                        onClick={() =>
-                          void act(async () => {
-                            await resetCache.mutateAsync();
-                            await cache.refetch();
-                            await utils.dbRepair.preflight.invalidate();
-                            await utils.dbRepair.repairStorage.invalidate();
-                          })
-                        }
-                      >
-                        <RotateCcw size={14} />
-                        使用默认位置
-                      </button>
-                    </div>
-                  </section>
-                </>
-              ) : legacyId ? (
+              {legacyId ? (
                 legacy.data ? (
                   <LegacyReport
                     data={legacy.data}
