@@ -1103,6 +1103,12 @@ function ChatPaneContent({
   const pendingQuoteRef = useRef(pendingQuote);
   pendingQuoteRef.current = pendingQuote;
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [composerSendNotice, setComposerSendNotice] = useState<{ text: string } | null>(null);
+  useEffect(() => {
+    if (!composerSendNotice) return;
+    const timer = setTimeout(() => setComposerSendNotice(null), 2400);
+    return () => clearTimeout(timer);
+  }, [composerSendNotice]);
   const [dropActive, setDropActive] = useState(false);
   const emojiUtils = trpc.useUtils();
   const recordRecentEmoji = trpc.account.emojiPanel.recordRecent.useMutation({
@@ -2875,6 +2881,7 @@ function ChatPaneContent({
     setPendingQuote(null);
     setComposerMenu(null);
     setAttachmentError(null);
+    setComposerSendNotice(null);
     setDropActive(false);
   }, [conversation?.id, releaseInlineImages, clearMediaAttachments]);
 
@@ -4514,6 +4521,15 @@ function ChatPaneContent({
     updateComposerMenus(event.currentTarget);
   }
 
+  function requestComposerSend() {
+    if (composerSendBlockedReason) {
+      setComposerSendNotice({ text: composerSendBlockedReason });
+      return;
+    }
+    setComposerSendNotice(null);
+    void submitMessage();
+  }
+
   function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
     if (readOnly) {
       event.preventDefault();
@@ -4619,13 +4635,12 @@ function ChatPaneContent({
 
     if (event.key === 'Enter') {
       event.preventDefault();
-      // 移动端长文展开、以及 QQ 未注入（发送按钮灰着）时，回车只当换行用，
-      // 不能落到 submitMessage 上去。
-      if (event.shiftKey || (mobileComposerExpanded && !pendingSuperEmoji) || !sendAvailable) {
+      // 展开的长文编辑器用独立按钮发送，回车用于换行。
+      if (event.shiftKey || (mobileComposerExpanded && !pendingSuperEmoji)) {
         insertComposerLineBreak();
         return;
       }
-      if (!event.repeat) void submitMessage();
+      if (!event.repeat) requestComposerSend();
     }
     if (
       event.key === 'Backspace' &&
@@ -6102,16 +6117,6 @@ function ChatPaneContent({
   const singleSendHint = pendingSuperEmoji ? '超级表情只能单独发送' : '请先发送或移除待发送附件';
   // 引用是正文之外的第二种内容，而它**不占**「单独发」那个槽位（引用 + 正文一起发）。
   const hasQuote = pendingQuote !== null;
-  // 内联图片的 token 就在正文里，所以只要正文非空（图算内容）就能发；卡片 / 引用
-  // 挂着时发送键也算有内容。
-  const sendDisabled =
-    restoringDraftMedia ||
-    preparingMedia ||
-    !sendAvailable ||
-    groupSpeechBlocked ||
-    currentPreference.blocked ||
-    sending ||
-    (!hasComposerBody && !hasSingleSend && !hasQuote && !hasExternalAttachments);
   const sendTitle = !sendAvailable
     ? sendBlockedReason || '在线能力受限，无法发送消息'
     : groupSpeechBlocked
@@ -6129,6 +6134,21 @@ function ChatPaneContent({
         : null;
   // 来源群禁言只限制在原地发送；转发另选目标，不使用此限制。
   const sendGateReason = actionGateReason || (groupSpeechBlocked ? groupSpeechReason : null);
+  // 图片 token 算正文，单发内容、引用和外部附件也可以独立发送。
+  const hasSendableContent = hasComposerBody || hasSingleSend || hasQuote || hasExternalAttachments;
+  const composerSendBlockedReason =
+    sendGateReason ??
+    (restoringDraftMedia
+      ? '正在恢复草稿附件，请稍候'
+      : preparingMedia
+        ? '正在准备附件，请稍候'
+        : hasSendableContent
+          ? null
+          : '请输入消息');
+  const visibleComposerSendNotice =
+    tabActive && composerSendNotice?.text === composerSendBlockedReason
+      ? composerSendBlockedReason
+      : null;
   const pokeBlockedReason = !sendAvailable
     ? '在线能力受限，无法戳一戳'
     : actionGateReason
@@ -7735,7 +7755,7 @@ function ChatPaneContent({
             <ComposerSuperEmojiStage
               item={pendingSuperEmoji}
               onRemove={removePendingSuperEmoji}
-              onSend={() => void submitMessage()}
+              onSend={requestComposerSend}
             />
           ) : null}
           {displayedQuote ? (
@@ -7979,12 +7999,17 @@ function ChatPaneContent({
           />
           <ComposerSendButton
             variant="desktop"
-            title={sendTitle}
-            disabled={sendDisabled}
+            title={composerSendBlockedReason ?? '发送'}
+            disabled={composerSendBlockedReason !== null}
             restriction={groupSpeechRestriction}
             active={tabActive && !mobileComposerExpanded}
-            onSend={() => void submitMessage()}
+            onSend={requestComposerSend}
           />
+          <div className="composer-send-notice" role="status">
+            {!mobileComposerExpanded && visibleComposerSendNotice ? (
+              <span>{visibleComposerSendNotice}</span>
+            ) : null}
+          </div>
           {attachmentError ? (
             <span className={cn('composer-attachment-error')} role="status">
               {attachmentError}
@@ -8070,7 +8095,7 @@ function ChatPaneContent({
               <ComposerSuperEmojiStage
                 item={pendingSuperEmoji}
                 onRemove={removePendingSuperEmoji}
-                onSend={() => void submitMessage()}
+                onSend={requestComposerSend}
               />
             ) : null}
             {mentionMenu ? (
@@ -8146,12 +8171,17 @@ function ChatPaneContent({
               <span />
               <ComposerSendButton
                 variant="expanded"
-                title={sendTitle}
-                disabled={sendDisabled}
+                title={composerSendBlockedReason ?? '发送'}
+                disabled={composerSendBlockedReason !== null}
                 restriction={groupSpeechRestriction}
                 active={tabActive}
-                onSend={() => void submitMessage()}
+                onSend={requestComposerSend}
               />
+            </div>
+            <div className="composer-send-notice" role="status">
+              {mobileComposerExpanded && visibleComposerSendNotice ? (
+                <span>{visibleComposerSendNotice}</span>
+              ) : null}
             </div>
             {fontOpen ? <ComposerFontPanel panelRef={fontPanelRef} font={composerFont} /> : null}
             {emojiOpen ? (

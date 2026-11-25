@@ -1,3 +1,29 @@
+.composer-send-notice {
+  position: absolute;
+  z-index: 4;
+  inset-inline-end: var(--composer-side-inset, 12px);
+  inset-block-end: calc(100% + 6px);
+  max-inline-size: min(320px, calc(100% - 2 * var(--composer-side-inset, 12px)));
+  pointer-events: none;
+}
+
+.composer-send-notice > span {
+  display: block;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.mobile-composer-expanded-sheet > .composer-send-notice {
+  --composer-side-inset: 22px;
+  inset-block-end: calc(68px + var(--mobile-composer-safe-bottom));
+}
+
 .composer-send[data-muted] {
   width: 160px;
 }

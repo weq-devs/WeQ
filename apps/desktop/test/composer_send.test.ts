@@ -257,6 +257,8 @@ describe('输入区发送交接', () => {
         act(() =>
           f.editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
         );
+        expect(serializeComposer(f.editor())).toBe('');
+        expect(f.host.querySelector('.composer [role="status"]')?.textContent).toBe('请输入消息');
       }
       expect(f.onSend).not.toHaveBeenCalled();
       type(f.editor(), '');
@@ -272,6 +274,34 @@ describe('输入区发送交接', () => {
       act(() => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
       expect(f.onSend).toHaveBeenCalledWith('\n', undefined);
       await act(async () => f.finish());
+    } finally {
+      f.close();
+    }
+  });
+
+  it('在线能力受限时回车提示发送原因，明确换行仍可编辑草稿', () => {
+    const f = mount();
+    try {
+      const reason = '请先在 QQ 登录当前账号';
+      f.render({ sendAvailable: false, sendBlockedReason: reason });
+      const pressEnter = (options?: KeyboardEventInit) => {
+        const event = new KeyboardEvent('keydown', {
+          key: 'Enter',
+          bubbles: true,
+          cancelable: true,
+          ...options,
+        });
+        act(() => f.editor().dispatchEvent(event));
+        return event;
+      };
+      expect(f.host.querySelector<HTMLButtonElement>('.composer-send')!.disabled).toBe(true);
+      expect(pressEnter().defaultPrevented).toBe(true);
+      expect(f.host.querySelector('.composer [role="status"]')?.textContent).toBe(reason);
+      expect(serializeComposer(f.editor())).toBe('第一条');
+      expect(f.onSend).not.toHaveBeenCalled();
+      expect(f.onDraftChange).not.toHaveBeenCalled();
+      pressEnter({ shiftKey: true });
+      expect(serializeComposer(f.editor())).toBe('第一条\n');
     } finally {
       f.close();
     }
