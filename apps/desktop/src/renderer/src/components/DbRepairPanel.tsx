@@ -79,6 +79,7 @@ export interface DbRepairAccountOption {
   configId?: string;
   dbName?: string;
   reportId?: string;
+  checkupResult?: DatabaseMaintenanceStatus;
   diagnostic?: { title: string; message: string; details: string[]; reportPath: string | null };
   name: string;
   avatarUrl: string;
@@ -216,7 +217,7 @@ export function DbRepairPanel({
   accounts: DbRepairAccountOption[];
   onRefreshAccounts: () => void;
   reportId?: string;
-  resultRequest?: { uin: string; configId?: string; reportId?: string };
+  resultRequest?: Pick<DbRepairAccountOption, 'uin' | 'configId' | 'reportId' | 'checkupResult'>;
 }) {
   const account = accounts.find((item) => item.uin === currentUin) ?? accounts[0];
   const ownerDocument = useRenderDocument();
@@ -230,7 +231,12 @@ export function DbRepairPanel({
   const sameReportScope = reportScope.uin === scope.uin && reportScope.configId === scope.configId;
   const [legacyId, setLegacyId] = useState<string>();
   const [focused, setFocused] = useState(account?.dbName);
-  const [requestedTab, setTab] = useState<MaintenanceTab>();
+  const [requestedTab, setRequestedTab] = useState<MaintenanceTab>();
+  const [openedCheck, setOpenedCheck] = useState<DatabaseMaintenanceStatus>();
+  function setTab(tab: MaintenanceTab) {
+    setRequestedTab(tab);
+    if (tab !== 'report') setOpenedCheck(undefined);
+  }
   const [scanSelection, setScanSelection] = useState<string[] | undefined>(
     account?.dbName ? [account.dbName] : undefined,
   );
@@ -338,6 +344,15 @@ export function DbRepairPanel({
       updateLive(maintenance.data);
   }, [maintenance.data, maintenance.isFetchedAfterMount, updateLive]);
   useEffect(() => {
+    if (resultRequest?.checkupResult) {
+      setOpenedCheck(resultRequest.checkupResult);
+      setRequestedTab('report');
+      setFocused(undefined);
+      setReportId(undefined);
+      setLegacyId(undefined);
+      setSurface(null);
+      return;
+    }
     if (
       resultRequest &&
       !resultRequest.reportId &&
@@ -442,6 +457,7 @@ export function DbRepairPanel({
       if (!dbNames.length) return;
       window.electron?.ipcRenderer.send('db-repair:scope', scope);
       setTab('report');
+      setOpenedCheck(undefined);
       setAdditionalNames(undefined);
       setAppendKind(undefined);
       setScanKind(kind);
@@ -691,7 +707,18 @@ export function DbRepairPanel({
   );
   const savedCheck =
     previousCheckId && previousCheck.data?.id === live?.id ? previousCheck.data : undefined;
-  const check = operation?.kind !== 'repair' ? live : (cachedCheck ?? savedCheck);
+  const currentCheck = operation?.kind !== 'repair' ? live : (cachedCheck ?? savedCheck);
+  const otherCheckScope =
+    !!openedCheck && (openedCheck.uin !== scope.uin || openedCheck.configId !== scope.configId);
+  // 旧提醒仍显示对应结果，修复和追加操作只能作用于当前维护。
+  const detachedCheck =
+    openedCheck &&
+    (otherCheckScope ||
+      openedCheck.operation?.id !== operation?.id ||
+      operation?.status === 'running')
+      ? openedCheck
+      : undefined;
+  const check = detachedCheck ?? currentCheck;
   const result =
     operation?.kind === 'repair' && operation.status !== 'running'
       ? live
@@ -815,11 +842,12 @@ export function DbRepairPanel({
         checkOperation.status !== 'running' &&
         checkOperation.status !== 'cancelled'
       ));
-  const hasReport = hasReportRows || scanRunning || paused || !!diagnostic;
+  const hasReport = hasReportRows || scanRunning || paused || !!diagnostic || !!openedCheck;
   const hasResult = !!resultOperation && resultRows.length > 0;
   const hasRepairPlan =
     waiting && maintenanceIdle && !stop.isLoading && repairCandidates.length > 0;
-  const repairUnavailable = hasRepairPlan
+  const canRepairCheck = hasRepairPlan && !detachedCheck;
+  const repairUnavailable = canRepairCheck
     ? undefined
     : operation?.status === 'completed' && !abnormalCount
       ? '本轮体检未发现需要修复的问题。'
@@ -914,13 +942,14 @@ export function DbRepairPanel({
     resultOperation.id === operation?.id &&
     resultRows.some((row) => row.repair?.nextAction === 'retry-space');
 
+  const alertSnapshot = tab === 'report' ? (detachedCheck ?? live) : live;
   const alerts = [
     ...new Set(
       [
         surface ? '' : error,
-        live?.maintenanceError,
-        operation?.error,
-        live?.reportError,
+        alertSnapshot?.maintenanceError,
+        alertSnapshot?.operation?.error,
+        alertSnapshot?.reportError,
         maintenance.error ? `无法读取维护状态：${maintenance.error.message}` : '',
         status.error?.message,
         status.data?.error,
@@ -936,10 +965,10 @@ export function DbRepairPanel({
   }, [live?.operation]);
   useLayoutEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
-  }, [scope, tab]);
+  }, [scope, tab, openedCheck]);
   useEffect(() => {
     if (requestedTab && tab !== requestedTab)
-      setTab((current) => (current === requestedTab ? tab : current));
+      setRequestedTab((current) => (current === requestedTab ? tab : current));
   }, [requestedTab, tab]);
 
   const setRepairSelection = (names: string[]) => {
@@ -1007,10 +1036,14 @@ export function DbRepairPanel({
       if (result) updateLive(result);
       await refresh();
     });
-  const exportOperation = (target: DatabaseMaintenanceOperation, format: ReportFormat) =>
-    void act(() => exportReport.mutateAsync({ ...scope, reportId: target.id, format }));
+  const exportOperation = (
+    target: DatabaseMaintenanceOperation,
+    format: ReportFormat,
+    { uin, configId }: Pick<DbRepairAccountOption, 'uin' | 'configId'> = scope,
+  ) => void act(() => exportReport.mutateAsync({ uin, configId, reportId: target.id, format }));
   const showProgress =
-    (tab === 'report' && (scanRunning || paused)) || (tab === 'result' && repairing);
+    (tab === 'report' && !detachedCheck && (scanRunning || paused)) ||
+    (tab === 'result' && repairing);
   const showLiveOperation = showProgress && operation?.status === 'running';
   const showReportSummary =
     tab === 'report' &&
@@ -1035,6 +1068,7 @@ export function DbRepairPanel({
         ? starting.dbNames
         : [];
   const displayedDatabases = tab === 'result' ? (repairing ? [] : resultRows) : checkRows;
+  const displayedBytes = tab === 'report' && otherCheckScope ? undefined : bytesByName;
   const displayedRows = new Map<string, DatabaseMaintenanceStatusRow | undefined>(
     displayedDatabases.map((row) => [row.dbName, row]),
   );
@@ -1089,9 +1123,8 @@ export function DbRepairPanel({
     </section>
   ) : null;
   const scanCoverage = `${scannedCount} / ${checkRows.length} 已体检`;
-  const repairAvailability = repairCandidates.length
-    ? ` · ${repairCandidates.length} 个可修复`
-    : '';
+  const repairAvailability =
+    !detachedCheck && repairCandidates.length ? ` · ${repairCandidates.length} 个可修复` : '';
   const stopping = stop.isLoading || !!operation?.stopping;
   const hasAppendCandidates = canAppendQuick || canAppendDeep;
   const canSubmitAppend = !!(activeScanKind && !stopping && !ending && namesToAppend.length);
@@ -1445,7 +1478,7 @@ export function DbRepairPanel({
           <p role="status">修复正在继续，可切换到「修复进度与结果」查看进度。</p>
         ) : null}
 
-        {tab === 'report' && !hasReportRows && diagnostic ? (
+        {tab === 'report' && !hasReportRows && !openedCheck && diagnostic ? (
           <section className="weq-dbm-callout">
             <AlertTriangle size={16} aria-hidden />
             <div>
@@ -1479,21 +1512,26 @@ export function DbRepairPanel({
               <p>
                 <NumericText>{`${scanCoverage}${repairAvailability}`}</NumericText>
               </p>
+              {otherCheckScope && openedCheck ? (
+                <p title={openedCheck.configId}>
+                  QQ <NumericText>{openedCheck.uin}</NumericText>
+                </p>
+              ) : null}
             </div>
             <div className="weq-dbm-hero-actions is-summary">
               <button
-                className={`weq-set-btn${hasRepairPlan && abnormalCount ? ' weq-set-btn-primary' : ''}`}
+                className={`weq-set-btn${canRepairCheck && abnormalCount ? ' weq-set-btn-primary' : ''}`}
                 type="button"
-                aria-disabled={!hasRepairPlan || undefined}
+                aria-disabled={!canRepairCheck || undefined}
                 title={repairUnavailable}
                 onClick={() => {
-                  if (hasRepairPlan) setTab('repair');
+                  if (canRepairCheck) setTab('repair');
                 }}
               >
                 <Wrench size={14} aria-hidden />
                 进入修复
               </button>
-              {needsSourceRecheck ? (
+              {!detachedCheck && needsSourceRecheck ? (
                 <button
                   className="weq-set-btn"
                   type="button"
@@ -1504,7 +1542,7 @@ export function DbRepairPanel({
                 >
                   重新核对原库
                 </button>
-              ) : additionalScanKind && !running ? (
+              ) : !detachedCheck && additionalScanKind && !running ? (
                 <button
                   className="weq-set-btn"
                   type="button"
@@ -1522,7 +1560,7 @@ export function DbRepairPanel({
               {canExportCheck && checkOperation ? (
                 <ReportExportMenu
                   disabled={exportReport.isLoading}
-                  onExport={(format) => exportOperation(checkOperation, format)}
+                  onExport={(format) => exportOperation(checkOperation, format, check ?? scope)}
                 />
               ) : null}
             </div>
@@ -1588,7 +1626,7 @@ export function DbRepairPanel({
                   <DatabaseCard
                     dbName={name}
                     row={row}
-                    bytes={bytesByName.get(name)}
+                    bytes={displayedBytes?.get(name)}
                     waitingFor={
                       tab !== 'report'
                         ? undefined
@@ -1659,7 +1697,7 @@ export function DbRepairPanel({
         {showingReport && selectedDetail ? (
           <DatabaseDetail
             row={selectedDetail}
-            bytes={bytesByName.get(selectedDetail.dbName)}
+            bytes={displayedBytes?.get(selectedDetail.dbName)}
             repairResult={tab === 'result'}
           />
         ) : null}

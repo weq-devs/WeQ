@@ -126,7 +126,7 @@ it('打开和查看结果只读取状态；扫描正常完成及结束维护静�
 });
 
 it.each(['pages', 'structure'] as const)(
-  '成功执行且发现 %s 异常，不创建列表任务，通知仍携带原报告目标',
+  '成功执行且发现 %s 异常，不创建列表任务，通知指向本次体检结果',
   async (part) => {
     fixture.bad = part === 'pages';
     fixture.healthy = part !== 'structure';
@@ -136,7 +136,7 @@ it.each(['pages', 'structure'] as const)(
     expect(databaseMaintenanceNotification(result)).toMatchObject({
       event: 'databaseDamage',
       title: '深度体检已完成，发现数据库异常',
-      account: { ...input, reportId: result.operation!.id },
+      account: { ...input, reportId: undefined, checkupResult: result },
     });
     expect(fixture.run.mock.calls.filter(([request]) => request.kind === 'scan')).toHaveLength(1);
   },
@@ -154,7 +154,7 @@ it('实际扫描失败留部分完成报告及失败提醒，不添加会覆盖�
   expect(databaseMaintenanceNotification(result)).toMatchObject({
     event: 'databaseDamage',
     tone: 'error',
-    account: { ...input, reportId: result.operation!.id },
+    account: { ...input, reportId: undefined, checkupResult: result },
   });
 });
 

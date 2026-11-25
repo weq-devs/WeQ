@@ -27,7 +27,7 @@ export function useDatabaseMaintenanceNotifications(popup: Window | null): void 
         ...message,
         source: notificationSource(
           { kind: 'local', open: () => useDbRepairWindow.getState().open(account) },
-          '查看数据库维护结果',
+          account.checkupResult ? '查看数据库体检结果' : '查看数据库维护结果',
         ),
       });
     };

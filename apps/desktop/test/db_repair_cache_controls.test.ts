@@ -1,8 +1,10 @@
-import { act, createElement as h, StrictMode } from 'react';
+import { act, createElement as h, StrictMode, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { DbRepairPanel } from '../src/renderer/src/components/DbRepairPanel';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import { databaseMaintenanceNotification } from '../src/renderer/src/lib/databaseMaintenanceNotification';
+import { summarizeDatabaseMaintenance } from '@weq/service/db-checkup';
 import { maintenanceQa, trpc } from './browser/database-maintenance.stub';
 
 vi.mock(
@@ -16,7 +18,7 @@ let host: HTMLDivElement;
 const account = { uin: 'synthetic', configId: 'source', name: '合成账号', avatarUrl: '' };
 async function mount(
   reportId?: string,
-  resultRequest?: { uin: string; configId?: string; reportId?: string },
+  resultRequest?: ComponentProps<typeof DbRepairPanel>['resultRequest'],
 ) {
   await act(async () =>
     root!.render(
@@ -557,6 +559,41 @@ it('查看历史结果与三种导出都不重新体检，导出仍指向原报�
       format,
     })),
   );
+});
+
+it.each([false, true])('体检横幅直达本轮结果，是否来自另一数据源：%s', async (otherScope) => {
+  maintenanceQa.ready('checkup');
+  const snapshot = summarizeDatabaseMaintenance(maintenanceQa.snapshot()!);
+  const checkup = otherScope
+    ? {
+        ...snapshot,
+        uin: 'other',
+        configId: 'other-source',
+        state: 'ended' as const,
+        locked: false,
+        operation: { ...snapshot.operation!, id: 'notice-checkup' },
+      }
+    : snapshot;
+  await mount();
+  await act(async () => tab('开始体检').click());
+  await act(async () => iconButton('历史报告与恢复').click());
+  const notice = databaseMaintenanceNotification(checkup)!;
+  await mount(undefined, notice.account);
+
+  expect(tab('体检进度与结果').getAttribute('aria-selected')).toBe('true');
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(host.querySelector('[aria-label="本轮检查结论"]')).not.toBeNull();
+  expect(button('进入修复').getAttribute('aria-disabled')).toBe(otherScope ? 'true' : null);
+  for (const step of ['导出报告', 'JSON']) await act(async () => button(step).click());
+  expect(maintenanceQa.calls.export).toEqual([
+    {
+      uin: checkup.uin,
+      configId: checkup.configId,
+      reportId: checkup.operation!.id,
+      format: 'json',
+    },
+  ]);
+  expect(maintenanceQa.calls.scan).toHaveLength(0);
 });
 
 it('跨数据源查看报告不切换正在维护的账号，返回当前结果后导出恢复原来源', async () => {
