@@ -1493,6 +1493,9 @@ button.weq-dbm-db:hover,
 
   .weq-dbm-hero-actions {
     grid-column: 1 / -1;
+  }
+
+  .weq-dbm-hero-actions:not(.is-summary) {
     justify-content: flex-start;
   }
 
@@ -1627,8 +1630,8 @@ button.weq-dbm-step.is-current {
   margin-right: auto;
 }
 
-.weq-dbm-report-actions .weq-dbm-export {
-  margin-left: auto;
+.weq-dbm-report-actions:empty {
+  display: none;
 }
 
 .weq-dbm-plan-row {

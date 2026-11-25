@@ -126,7 +126,9 @@ it('扫描选择只列未完成当前等级的库，补充深度体检只提交�
   await act(async () => button('扫描').click());
   expect(choiceToScan('nt_msg.db')).toBeNull();
   expect(button('扫描已完成').disabled).toBe(true);
-  await act(async () => button('深度体检').click());
+  await act(async () => button('报告').click());
+  await act(async () => button('追加扫描').click());
+  expect(button('深度体检').getAttribute('aria-checked')).toBe('true');
   expect(choiceToScan('nt_msg.db')?.checked).toBe(true);
   await act(async () => choiceToScan('profile.db')!.click());
   await act(async () => choiceToScan('unsupported.db')!.click());
@@ -157,6 +159,10 @@ it('扫描完成后可在原扫描页选中其他库，追加扫描不结束维�
   await act(async () => button('开始扫描').click());
   await act(async () => maintenanceQa.complete());
   await act(async () => button('扫描').click());
+  await act(async () => button('深度体检').click());
+  await act(async () => button('报告').click());
+  await act(async () => button('追加扫描').click());
+  expect(button('快速体检').getAttribute('aria-checked')).toBe('true');
   expect(host.querySelector('input[aria-label="扫描 nt_msg.db"]')).toBeNull();
   expect(button('追加扫描').disabled).toBe(true);
   await act(async () => choiceToScan('profile.db').click());
@@ -180,11 +186,12 @@ it('界面卸载不取消扫描、不删除已有结果或结束维护', async (
 it('报告可查看健康数据库，修复只选择本轮有方案的数据库', async () => {
   maintenanceQa.ready('checkup');
   await mount();
+  expect(
+    [...host.querySelectorAll('button')].map((item) => item.textContent?.trim()),
+  ).not.toContain('追加扫描');
   await act(async () => iconButton('查看 profile.db 检查详情').click());
   expect(host.querySelector('[aria-label="profile.db检查结果"]')).not.toBeNull();
-  await act(async () => iconButton('查看 nt_msg.db 检查详情').click());
-  expect(host.querySelector('[aria-label="nt_msg.db检查结果"]')).not.toBeNull();
-  await act(async () => button('查看修复方案').click());
+  await act(async () => button('进入修复').click());
   expect(choice('nt_msg.db').checked).toBe(true);
   expect(host.querySelector('input[aria-label="修复 profile.db"]')).toBeNull();
   expect(host.querySelector('input[aria-label="修复 unsupported.db"]')).toBeNull();
@@ -223,7 +230,7 @@ it('空间不足和持锁等待不阻止改缓存位置，开始修复后禁止�
   await act(async () => maintenanceQa.complete());
   expect(button('使用默认位置').disabled).toBe(false);
   await act(async () => iconButton('数据库修复设置').click());
-  await act(async () => button('查看修复方案').click());
+  await act(async () => button('进入修复').click());
   await act(async () => button('开始修复').click());
   await confirm(true);
   await act(async () => iconButton('数据库修复设置').click());
@@ -303,11 +310,11 @@ it('跨数据源查看报告不切换正在维护的账号，返回当前结果�
 it('放弃扫描结果必须明确确认，取消继续持锁，确认后仍能查看历史结果', async () => {
   maintenanceQa.ready();
   await mount();
-  await act(async () => button('结束维护').click());
+  await act(async () => button('解除占用').click());
   await confirm(false);
   expect(maintenanceQa.calls.end).toBe(0);
   expect(maintenanceQa.snapshot()?.locked).toBe(true);
-  await act(async () => button('结束维护').click());
+  await act(async () => button('解除占用').click());
   await confirm(true);
   expect(maintenanceQa.calls.end).toBe(1);
   expect(button('报告', host).disabled).toBe(true);

@@ -88,9 +88,23 @@ try {
   assert.equal(await tab('报告').getAttribute('aria-selected'), 'true');
   await page.getByText('发现 1 个坏页，尚未定位', { exact: true }).first().waitFor();
   assert.equal(await page.getByRole('button', { name: '查看 unsupported.db 检查详情' }).count(), 0);
-  await button('JSON').click();
+  const summary = page.getByRole('region', { name: '本轮检查结论' });
+  const exportButton = summary.getByRole('button', { name: '导出报告' });
+  await exportButton.press('Enter');
+  const exportMenu = page.getByRole('menu', { name: '导出报告' });
+  await exportMenu.getByRole('menuitem', { name: 'HTML' }).waitFor();
+  await capture('report-export-desktop');
+  await page.keyboard.press('Escape');
+  assert.equal(await exportMenu.count(), 0);
+  assert.equal(await exportButton.evaluate((element) => element === document.activeElement), true);
+  await exportButton.click();
+  await exportMenu.getByRole('menuitem', { name: 'JSON' }).click();
+  assert.equal(await exportMenu.count(), 0);
   await capture('report-unlocated-desktop');
-  await button('查看修复方案').click();
+  await page.setViewportSize({ width: 680, height: 780 });
+  await capture('report-unlocated-narrow');
+  await page.setViewportSize({ width: 1060, height: 780 });
+  await summary.getByRole('button', { name: '进入修复' }).click();
   await page.getByRole('heading', { name: 'nt_msg.db · 快速修复' }).waitFor();
   await page.getByRole('checkbox', { name: '使用深度修复' }).check();
   await page.getByRole('heading', { name: 'nt_msg.db · 深度修复' }).waitFor();
@@ -124,9 +138,12 @@ try {
   await button('继续扫描').click();
   await button('暂停扫描').waitFor();
   await page.evaluate(() => window.maintenanceQa.complete());
-  await button('查看修复方案').waitFor();
+  await button('进入修复').waitFor();
   assert.equal(await tab('报告').getAttribute('aria-selected'), 'true');
   await page.getByText('空闲叶页 · 页 4,663,083', { exact: true }).waitFor();
+  await summary.getByRole('button', { name: '追加扫描' }).click();
+  await page.getByRole('radio', { checked: true, name: '深度体检' }).waitFor();
+  await tab('报告').click();
   assert.deepEqual(
     await page.evaluate(() =>
       window.maintenanceQa.calls.scan.map(({ kind, dbNames }) => [kind, dbNames]),
@@ -148,7 +165,7 @@ try {
   const settingsPane = page.getByRole('dialog', { name: '数据库修复设置' });
   await settingsPane.getByText('/synthetic/cache', { exact: true }).waitFor();
   await settingsPane.getByRole('button', { name: '关闭', exact: true }).click();
-  await button('查看修复方案').click();
+  await button('进入修复').click();
   await page.getByRole('heading', { name: 'nt_msg.db · 快速修复' }).waitFor();
   await capture('quick-plan-desktop');
   await button('开始修复').click();

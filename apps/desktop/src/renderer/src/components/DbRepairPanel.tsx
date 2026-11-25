@@ -56,6 +56,7 @@ import { useDbRepairReturn } from '../state/dbRepairReturn';
 import { useDialog } from './Dialog.shared';
 import { QqAvatar } from './QqAvatar';
 import { DatabaseMaintenanceProgress } from './DatabaseMaintenanceProgress';
+import { ConversationActionsMenu } from './ConversationActionsMenu';
 import { SegmentedControl } from './SegmentedControl';
 import { WindowSurface } from './WindowSurface';
 import { formatBytesOrUnknown } from '../lib/format';
@@ -398,7 +399,12 @@ export function DbRepairPanel({
           .confirm(
             '结束数据库维护？',
             '放弃本次扫描结果并释放此账号全部目标数据库的维护锁。历史报告继续保留；下次修复需要主动重新扫描。',
-            { okLabel: '放弃结果并结束维护', cancelLabel: '继续维护', ownerDocument },
+            {
+              okLabel: '放弃结果并解除占用',
+              cancelLabel: '继续维护',
+              danger: 'outline',
+              ownerDocument,
+            },
           ))
       )
         return;
@@ -515,14 +521,20 @@ export function DbRepairPanel({
   const available = status.data?.databases.filter((row) => row.exists) ?? [];
   const databases = view?.databases ?? [];
   const maintainedRows = new Map(databases.map((row) => [row.dbName, row]));
-  const scanCandidates = locked
-    ? available.filter(({ dbName }) => {
-        const row = maintainedRows.get(dbName);
-        if (!row) return true;
-        if (row.scanStatus !== 'completed') return row.support !== 'unsupported';
-        return scanKind === 'checkup' && row.deepStatus !== 'completed';
-      })
-    : available;
+  const pendingDeepScan = available.filter(({ dbName }) => {
+    const row = maintainedRows.get(dbName);
+    if (!row) return true;
+    if (row.scanStatus !== 'completed') return row.support !== 'unsupported';
+    return row.deepStatus !== 'completed';
+  });
+  const pendingQuickScan = pendingDeepScan.filter(
+    ({ dbName }) => maintainedRows.get(dbName)?.scanStatus !== 'completed',
+  );
+  const scanCandidates = !locked
+    ? available
+    : scanKind === 'scan'
+      ? pendingQuickScan
+      : pendingDeepScan;
   const candidateNames = scanCandidates.map((row) => row.dbName);
   const scanSelectionForAction = locked
     ? (nextScanSelection ?? candidateNames.filter((name) => maintainedRows.has(name)))
@@ -533,6 +545,12 @@ export function DbRepairPanel({
   const allScanSelected = scanNames.length === candidateNames.length;
   const setScanCandidates = locked ? setNextScanSelection : setScanSelection;
   const operation = view?.operation;
+  const additionalScanKind =
+    locked && pendingDeepScan.length
+      ? operation?.kind === 'scan' && pendingQuickScan.length
+        ? 'scan'
+        : 'checkup'
+      : null;
   const bytesByName = useMemo(
     () => new Map(status.data?.databases.map((row) => [row.dbName, row.bytes]) ?? []),
     [status.data],
@@ -616,6 +634,7 @@ export function DbRepairPanel({
   const activeRepair = activeRow && databaseRepairRecommendation(activeRow);
   const activeCanCheckQuick = !!(activeRow && databaseCanCheckQuickRepair(activeRow));
   const reportIdToExport = operation?.id;
+  const canExportCurrent = !!operation && (operation.status !== 'cancelled' || scannedCount > 0);
   const activeProgress =
     progress && (progress.status === 'running' || progress.steps.length > 0) ? progress : undefined;
   const alerts = [
@@ -694,7 +713,7 @@ export function DbRepairPanel({
       if (result) updateLive(result);
       await refresh();
     });
-  const onExportCurrent = (format: 'html' | 'md' | 'json') => {
+  const onExportCurrent = (format: ReportFormat) => {
     if (reportIdToExport)
       void act(() => exportReport.mutateAsync({ ...scope, reportId: reportIdToExport, format }));
   };
@@ -1040,6 +1059,46 @@ export function DbRepairPanel({
                 <NumericText>{`${scanCoverage}${repairAvailability}`}</NumericText>
               </p>
             </div>
+            <div className="weq-dbm-hero-actions is-summary">
+              <button
+                className={`weq-set-btn${hasRepairPlan && abnormalCount ? ' weq-set-btn-primary' : ''}`}
+                type="button"
+                disabled={!hasRepairPlan}
+                onClick={() => setTab('repair')}
+              >
+                <Wrench size={14} aria-hidden />
+                进入修复
+              </button>
+              {additionalScanKind ? (
+                <button
+                  className="weq-set-btn"
+                  type="button"
+                  onClick={() => {
+                    setScanKind(additionalScanKind);
+                    setNextScanSelection(undefined);
+                    setTab('scan');
+                  }}
+                >
+                  <ScanLine size={14} aria-hidden />
+                  追加扫描
+                </button>
+              ) : null}
+              {canExportCurrent ? (
+                <ReportExportMenu disabled={exportReport.isLoading} onExport={onExportCurrent} />
+              ) : null}
+              {locked ? (
+                <button
+                  className="weq-set-btn"
+                  type="button"
+                  data-danger="outline"
+                  disabled={end.isLoading}
+                  onClick={() => void endMaintenance()}
+                >
+                  <UnlockKeyhole size={14} aria-hidden />
+                  解除占用
+                </button>
+              ) : null}
+            </div>
           </section>
         ) : null}
         {showDatabaseStatus && visibleDatabases.length > 0 ? (
@@ -1109,7 +1168,7 @@ export function DbRepairPanel({
               activeRow.scanStatus === 'failed' &&
               activeRow.support !== 'unsupported' ? (
                 <button
-                  className="weq-set-btn weq-set-btn-primary"
+                  className="weq-set-btn"
                   type="button"
                   disabled={!canScan}
                   onClick={() => void startScan('scan', [activeRow.dbName])}
@@ -1119,7 +1178,7 @@ export function DbRepairPanel({
               ) : null}
               {needsLocation && locked && !repairing && activeRow.support !== 'unsupported' ? (
                 <button
-                  className={`weq-set-btn${waiting && activeCanCheckQuick ? '' : ' weq-set-btn-primary'}`}
+                  className="weq-set-btn"
                   type="button"
                   disabled={!canScan}
                   onClick={() => {
@@ -1131,9 +1190,12 @@ export function DbRepairPanel({
                   前往补充检查
                 </button>
               ) : null}
-              {hasRepairPlan && activeRepair ? (
+              {hasRepairPlan &&
+              activeRepair &&
+              ((needsLocation && !activeCanCheckQuick) ||
+                activeRow.repair?.status === 'waiting') ? (
                 <button
-                  className={`weq-set-btn${(needsLocation && !activeCanCheckQuick) || activeRow.repair?.nextAction === 'retry-space' ? '' : ' weq-set-btn-primary'}`}
+                  className="weq-set-btn"
                   type="button"
                   onClick={() => {
                     setSelected((values) => [...new Set([...values, activeRow.dbName])]);
@@ -1146,14 +1208,12 @@ export function DbRepairPanel({
                     : activeRow.repair?.nextAction === 'retry-space' &&
                         activeRow.repair.method === 'quick'
                       ? '重试快速修复'
-                      : activeRow.repair?.status === 'waiting'
-                        ? '重试修复'
-                        : '查看修复方案'}
+                      : '重试修复'}
                 </button>
               ) : null}
               {hasRepairPlan && activeRow.repair?.nextAction === 'retry-space' ? (
                 <button
-                  className="weq-set-btn weq-set-btn-primary"
+                  className="weq-set-btn"
                   type="button"
                   onClick={() => {
                     setSelected((values) => [...new Set([...values, activeRow.dbName])]);
@@ -1179,19 +1239,8 @@ export function DbRepairPanel({
                   重新核对原库
                 </button>
               ) : null}
-              {locked && waiting ? (
-                <button
-                  className="weq-set-btn"
-                  type="button"
-                  disabled={end.isLoading}
-                  onClick={() => void endMaintenance()}
-                >
-                  <UnlockKeyhole size={14} />
-                  结束维护
-                </button>
-              ) : null}
-              {operation && (operation.status !== 'cancelled' || scannedCount > 0) ? (
-                <ExportButtons disabled={exportReport.isLoading} onExport={onExportCurrent} />
+              {!showReportSummary && canExportCurrent ? (
+                <ReportExportMenu disabled={exportReport.isLoading} onExport={onExportCurrent} />
               ) : null}
             </div>
           </>
@@ -2012,25 +2061,75 @@ function RepairStorageWarning({
   );
 }
 
-function ExportButtons({
+const reportFormats = [
+  { value: 'html', label: 'HTML' },
+  { value: 'md', label: 'Markdown' },
+  { value: 'json', label: 'JSON' },
+] as const;
+type ReportFormat = (typeof reportFormats)[number]['value'];
+
+function ReportExportMenu({
   disabled,
   onExport,
 }: {
-  disabled?: boolean;
-  onExport: (format: 'html' | 'md' | 'json') => void;
+  disabled: boolean;
+  onExport: (format: ReportFormat) => void;
 }) {
+  const [menu, setMenu] = useState<{ trigger: HTMLButtonElement; x: number; y: number }>();
+  const closeMenu = useCallback(() => {
+    setMenu(undefined);
+    menu?.trigger.focus();
+  }, [menu]);
+  return (
+    <>
+      <button
+        className="weq-set-btn"
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={!!menu}
+        disabled={disabled}
+        onClick={({ currentTarget }) => {
+          if (menu) closeMenu();
+          else {
+            const rect = currentTarget.getBoundingClientRect();
+            setMenu({ trigger: currentTarget, x: rect.right, y: rect.bottom + 4 });
+          }
+        }}
+      >
+        <Download size={14} aria-hidden />
+        导出报告
+        <ChevronDown size={13} aria-hidden />
+      </button>
+      {menu ? (
+        <ConversationActionsMenu
+          x={menu.x}
+          y={menu.y}
+          dropdown
+          label="导出报告"
+          onClose={closeMenu}
+          actions={reportFormats.map(({ value, label }) => ({
+            label,
+            icon: <Download size={14} aria-hidden />,
+            action: () => onExport(value),
+          }))}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function ExportButtons({ onExport }: { onExport: (format: ReportFormat) => void }) {
   return (
     <div className="weq-dbm-export">
-      {(['html', 'md', 'json'] as const).map((format) => (
+      {reportFormats.map(({ value, label }) => (
         <button
-          key={format}
+          key={value}
           type="button"
           className="weq-set-btn weq-set-btn-sm"
-          disabled={disabled}
-          onClick={() => onExport(format)}
+          onClick={() => onExport(value)}
         >
           <Download size={13} />
-          {format === 'md' ? 'Markdown' : format.toUpperCase()}
+          {label}
         </button>
       ))}
     </div>
@@ -2054,7 +2153,7 @@ function ReportView({
   activeRow?: DatabaseMaintenanceStatusRow;
   onFocus: (name: string) => void;
   onBack: () => void;
-  onExport: (format: 'html' | 'md' | 'json') => void;
+  onExport: (format: ReportFormat) => void;
 }) {
   const rows = view.databases;
   const abnormal = rows.filter((row) => databaseMaintenanceRowAbnormal(row)).length;
@@ -2181,7 +2280,7 @@ function LegacyReport({
     error?: string;
   };
   onBack: () => void;
-  onExport: (format: 'html' | 'md' | 'json') => void;
+  onExport: (format: ReportFormat) => void;
 }) {
   return (
     <>
