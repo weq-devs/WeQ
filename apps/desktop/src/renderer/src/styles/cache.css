@@ -418,6 +418,12 @@
   font-weight: 600;
 }
 
+.weq-cache-dbpick-purpose {
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
 .weq-cache-dbpick-item small {
   font-size: 11px;
   color: #8a94a4;

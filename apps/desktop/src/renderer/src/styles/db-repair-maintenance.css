@@ -773,6 +773,12 @@ button.weq-dbm-db:hover,
   white-space: nowrap;
 }
 
+.weq-dbm-db-purpose {
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
 .weq-dbm-db-note {
   display: -webkit-box;
   overflow: hidden;
@@ -928,7 +934,7 @@ button.weq-dbm-db:hover,
   min-width: 0;
 }
 
-.weq-dbm-detail-title > span {
+.weq-dbm-detail-name {
   color: var(--weq-fg-secondary);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11.5px;

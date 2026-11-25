@@ -1,4 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -49,6 +57,7 @@ import { DatabaseMaintenanceProgress } from './DatabaseMaintenanceProgress';
 import { SegmentedControl } from './SegmentedControl';
 import { WindowSurface } from './WindowSurface';
 import { formatBytesOrUnknown } from '../lib/format';
+import { qqDatabasePurpose } from '../lib/qqDatabasePurpose';
 import '../styles/db-repair-maintenance.css';
 
 export interface DbRepairAccountOption {
@@ -1530,6 +1539,8 @@ type DatabaseCardProps = {
 function DatabaseCard(props: DatabaseCardProps) {
   const row = 'row' in props ? props.row : undefined;
   const dbName = 'dbName' in props ? props.dbName : props.row.dbName;
+  const purpose = qqDatabasePurpose(dbName);
+  const purposeId = useId();
   const tone = row ? rowTone(row) : 'muted';
   const content = (
     <>
@@ -1550,6 +1561,11 @@ function DatabaseCard(props: DatabaseCardProps) {
         {row ? <Chip tone={tone}>{rowLabel(row)}</Chip> : null}
       </span>
       <span className="weq-dbm-db-name">{dbName}</span>
+      {purpose ? (
+        <span className="weq-dbm-db-purpose" id={purposeId}>
+          {purpose}
+        </span>
+      ) : null}
       {row ? <span className="weq-dbm-db-note">{rowSummary(row)}</span> : null}
       <span className="weq-dbm-db-foot">
         <span>
@@ -1581,6 +1597,7 @@ function DatabaseCard(props: DatabaseCardProps) {
           type="checkbox"
           className="weq-dbm-db-input"
           aria-label={`扫描 ${dbName}`}
+          aria-describedby={purpose ? purposeId : undefined}
           checked={selection.checked}
           onChange={(event) => selection.onChange(event.target.checked)}
           onFocus={({ currentTarget }) => {
@@ -1598,6 +1615,7 @@ function DatabaseCard(props: DatabaseCardProps) {
       className={className}
       data-tone={tone}
       aria-label={`查看 ${dbName} 检查详情`}
+      aria-describedby={purpose ? purposeId : undefined}
       aria-pressed={props.current}
       onClick={props.onFocus}
     >
@@ -1618,6 +1636,7 @@ function DatabaseDetail({
   bytes: number | null | undefined;
 }) {
   const tone = rowTone(row);
+  const purpose = qqDatabasePurpose(row.dbName);
   const issues = new Map(row.issues.map((issue) => [issue.message, issue]));
   if (row.scan?.plaintext) {
     const original = row.issues.find(
@@ -1657,7 +1676,8 @@ function DatabaseDetail({
         </span>
         <div className="weq-dbm-detail-title">
           <h2>数据库检查详情</h2>
-          <span>{row.dbName}</span>
+          <span className="weq-dbm-detail-name">{row.dbName}</span>
+          {purpose ? <span className="weq-dbm-db-purpose">{purpose}</span> : null}
         </div>
         <Chip tone={tone}>{rowLabel(row)}</Chip>
         <span className="weq-dbm-detail-support">

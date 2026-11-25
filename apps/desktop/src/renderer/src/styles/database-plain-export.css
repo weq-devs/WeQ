@@ -250,6 +250,13 @@
   background: var(--weq-accent-effective);
 }
 
+.weq-db-card-purpose {
+  position: relative;
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
 .weq-db-card-meta {
   position: relative;
   font-size: 11.5px;

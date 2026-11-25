@@ -33,6 +33,7 @@ import { useTabActive } from '../../components/RetainedTabs.shared';
 import { useRemoteClient } from '../../lib/remoteClient';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { CheckPill } from '../../components/settings/controls';
+import { qqDatabasePurpose } from '../../lib/qqDatabasePurpose';
 import { useSurfaceEscapeDismissal } from '../../lib/surfaceEscape';
 
 type SubTab = 'data' | 'sql';
@@ -173,23 +174,27 @@ export function DbExplorer({
                 className="weq-cache-dbpick-menu"
                 role="listbox"
               >
-                {dbList.map((db) => (
-                  <button
-                    key={db.path}
-                    type="button"
-                    className={`weq-cache-dbpick-item${db.path === dbPath ? ' is-on' : ''}`}
-                    onClick={() => {
-                      setDbPath(db.path);
-                      setPickerOpen(false);
-                    }}
-                    title={db.path}
-                  >
-                    <strong>{db.name}</strong>
-                    <small>
-                      <span className="weq-number weq-number-inherit">{fmtBytes(db.bytes)}</span>
-                    </small>
-                  </button>
-                ))}
+                {dbList.map((db) => {
+                  const purpose = qqDatabasePurpose(db.name);
+                  return (
+                    <button
+                      key={db.path}
+                      type="button"
+                      className={`weq-cache-dbpick-item${db.path === dbPath ? ' is-on' : ''}`}
+                      onClick={() => {
+                        setDbPath(db.path);
+                        setPickerOpen(false);
+                      }}
+                      title={db.path}
+                    >
+                      <strong>{db.name}</strong>
+                      {purpose ? <span className="weq-cache-dbpick-purpose">{purpose}</span> : null}
+                      <small>
+                        <span className="weq-number weq-number-inherit">{fmtBytes(db.bytes)}</span>
+                      </small>
+                    </button>
+                  );
+                })}
               </div>
             ) : null}
           </div>

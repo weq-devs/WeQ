@@ -2,7 +2,7 @@
  * Multi-select database picker for the decrypt flow.
  *
  * 数据库列表用**长方形卡片网格**呈现：每张卡片把数据库图标当作背景水印，
- * 正面是库名、大小、来源徽标和路径。点击卡片切换选中，键盘操作沿用
+ * 正面是库名、用途、大小、来源徽标和路径。点击卡片切换选中，键盘操作沿用
  * {@link useMultiSelection}（方向键 / 空格 / Ctrl+A）。
  */
 
@@ -12,6 +12,7 @@ import { Check, CheckCheck, Database, FlipHorizontal2, Search, X, SearchX } from
 import { PickerListSkeleton } from './ExportSkeleton';
 import { fmtBytes } from './types';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
+import { qqDatabasePurpose } from '../../lib/qqDatabasePurpose';
 
 export interface DbPickItem {
   name: string;
@@ -133,6 +134,7 @@ export function DatabasePicker({
         <div className="weq-db-cards-grid">
           {filtered.map((it) => {
             const checked = selected.has(it.path);
+            const purpose = qqDatabasePurpose(it.name);
             return (
               <button
                 key={it.path}
@@ -154,6 +156,7 @@ export function DatabasePicker({
                     {checked ? <Check size={13} strokeWidth={2.6} /> : null}
                   </span>
                 </span>
+                {purpose ? <span className="weq-db-card-purpose">{purpose}</span> : null}
                 <span className="weq-db-card-meta">
                   <span className="weq-number weq-number-inherit">{fmtBytes(it.bytes)}</span>
                 </span>
