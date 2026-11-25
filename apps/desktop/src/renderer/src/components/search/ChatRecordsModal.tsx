@@ -974,6 +974,8 @@ export function ChatRecordsModal({
   return (
     <Modal
       presentation="floating"
+      centered
+      resizeEdges
       onClose={() => {
         if (calendarOpen) setCalendarOpen(false);
         else if (senderOpen) setSenderOpen(false);

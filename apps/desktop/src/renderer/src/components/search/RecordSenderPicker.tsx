@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { UsersRound } from 'lucide-react';
+import { Search, UsersRound, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
 import { client } from '../../trpc/client';
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import { c2cAvatarSrc } from './SearchResultCard.shared';
+import { CheckPill } from '../settings/controls';
 
 export type RecordSender = { id: string; label: string; avatar?: string | null };
 
@@ -97,6 +98,7 @@ export function RecordSenderPicker({
       avatar: /^\d+$/.test(needle) ? c2cAvatarSrc(needle) : null,
     });
   const activeIds = new Set(selected.map(({ id }) => id));
+  const searchError = remote?.query === needle ? remote.error : undefined;
   return (
     <Modal
       presentation="popover"
@@ -107,42 +109,67 @@ export function RecordSenderPicker({
       labelledBy="record-senders-title"
     >
       <div className="weq-record-sender-picker">
-        <h3 id="record-senders-title">发送者</h3>
-        <input
-          aria-label="查找发送者"
-          placeholder="昵称、备注或 QQ 号"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          autoFocus
-        />
-        <button
-          type="button"
-          className="weq-record-sender-option"
-          aria-pressed={!selected.length}
-          onClick={() => onChange([])}
-        >
-          <RecordSenderAvatar /> 全部发送者
-        </button>
+        <header>
+          <h3 id="record-senders-title">发送者</h3>
+          <button type="button" className="weq-dialog-x" aria-label="关闭" onClick={onClose}>
+            <X size={16} aria-hidden />
+          </button>
+        </header>
+        <div className="weq-record-search-input">
+          <Search size={16} aria-hidden />
+          <input
+            type="search"
+            aria-label="查找发送者"
+            placeholder="昵称、备注或 QQ 号"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            autoFocus
+          />
+          {query ? (
+            <button
+              type="button"
+              className="weq-dialog-x"
+              aria-label="清空查找"
+              onClick={() => setQuery('')}
+            >
+              <X size={15} aria-hidden />
+            </button>
+          ) : null}
+        </div>
+        <CheckPill checked={!selected.length} onChange={() => onChange([])}>
+          <span className="weq-record-sender-placeholder">
+            <RecordSenderAvatar />
+          </span>
+          <span>全部发送者</span>
+        </CheckPill>
         <div className="weq-record-sender-options">
           {[...matches.values()].map((sender) => (
-            <label key={sender.id} className="weq-record-sender-option">
+            <CheckPill
+              key={sender.id}
+              checked={activeIds.has(sender.id)}
+              onChange={(checked) =>
+                onChange(
+                  checked ? [...selected, sender] : selected.filter(({ id }) => id !== sender.id),
+                )
+              }
+            >
               <RecordSenderAvatar sender={sender} />
-              <span data-privacy-sensitive>{sender.label}</span>
-              <input
-                type="checkbox"
-                checked={activeIds.has(sender.id)}
-                onChange={(event) =>
-                  onChange(
-                    event.target.checked
-                      ? [...selected, sender]
-                      : selected.filter(({ id }) => id !== sender.id),
-                  )
-                }
-              />
-            </label>
+              <span data-privacy-sensitive title={sender.label}>
+                {sender.label}
+              </span>
+            </CheckPill>
           ))}
+          {needle && !matches.size && !searchError ? (
+            <p className="weq-record-sender-feedback" role="status">
+              {groupCode && remote?.query !== needle ? '正在查找…' : '未找到发送者'}
+            </p>
+          ) : null}
         </div>
-        {remote?.query === needle && remote.error ? <p role="alert">{remote.error}</p> : null}
+        {searchError ? (
+          <p className="weq-record-sender-feedback" role="alert">
+            {searchError}
+          </p>
+        ) : null}
       </div>
     </Modal>
   );

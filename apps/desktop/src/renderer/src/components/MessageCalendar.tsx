@@ -14,10 +14,11 @@ import { beijingDay, messageDensity, type MessageDay } from '../lib/messageCalen
 import '../styles/message-calendar.css';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+const noDays: readonly MessageDay[] = [];
 const compactCount = Intl.NumberFormat('zh-CN', { notation: 'compact', maximumFractionDigits: 1 });
 
 export const MessageCalendar = memo(function MessageCalendar({
-  days = [],
+  days: suppliedDays,
   start = '',
   end = '',
   onPick,
@@ -59,6 +60,7 @@ export const MessageCalendar = memo(function MessageCalendar({
   fixedWeekCount?: boolean;
   dayProps?: (day: string) => HTMLAttributes<HTMLButtonElement>;
 }) {
+  const days = suppliedDays ?? noDays;
   const [localMonth, setLocalMonth] = useState((start || beijingDay()).slice(0, 7));
   const month = controlledMonth ?? localMonth;
   const setMonth = (value: string) => {
@@ -74,8 +76,16 @@ export const MessageCalendar = memo(function MessageCalendar({
   const counts = useMemo(() => new Map(days.map((row) => [row.day, row.count])), [days]);
   const maxCount = useMemo(
     () =>
-      days.reduce((max, row) => (!maxDay || row.day <= maxDay ? Math.max(max, row.count) : max), 0),
-    [days, maxDay],
+      days.reduce(
+        (max, row) =>
+          row.day.startsWith(month) &&
+          (!minDay || row.day >= minDay) &&
+          (!maxDay || row.day <= maxDay)
+            ? Math.max(max, row.count)
+            : max,
+        0,
+      ),
+    [days, month, minDay, maxDay],
   );
   const [year = 2026, mon = 1] = month.split('-').map(Number);
   const leadingDays = new Date(Date.UTC(year, mon - 1, 1)).getUTCDay();
@@ -147,6 +157,18 @@ export const MessageCalendar = memo(function MessageCalendar({
           const pending = dayStatus ? !dayStatus[day]?.complete : loading && !counts.has(day);
           const selected = day === start || day === end;
           const inRange = Boolean(start && end && day >= start && day <= end);
+          const countText =
+            outside || reason
+              ? ''
+              : pending
+                ? count > 0
+                  ? `${compactCount.format(count)}+`
+                  : paused
+                    ? '暂停'
+                    : '…'
+                : count || suppliedDays || dayStatus
+                  ? compactCount.format(count)
+                  : '';
           return (
             <button
               {...dayProps?.(day)}
@@ -154,7 +176,7 @@ export const MessageCalendar = memo(function MessageCalendar({
               key={key}
               data-density={messageDensity(count, maxCount)}
               className={`${selected && !outside ? 'is-selected' : ''} ${inRange && !outside ? 'is-range' : ''} ${outside ? 'is-future' : ''}`}
-              aria-pressed={selected && !outside}
+              aria-pressed={(selected || inRange) && !outside}
               aria-label={
                 unavailable
                   ? `${day}，不在可选范围内`
@@ -198,27 +220,11 @@ export const MessageCalendar = memo(function MessageCalendar({
               <span>
                 <span className="weq-number weq-number-inherit">{date}</span>
               </span>
-              <small>
-                {future || reason ? (
-                  ''
-                ) : pending ? (
-                  count > 0 ? (
-                    <NumericText>{`${compactCount.format(count)}+`}</NumericText>
-                  ) : paused ? (
-                    '暂停'
-                  ) : (
-                    '…'
-                  )
-                ) : count ? (
-                  <span className="weq-number weq-number-inherit">
-                    {compactCount.format(count)}
-                  </span>
-                ) : dayStatus ? (
-                  '0'
-                ) : (
-                  ''
-                )}
-              </small>
+              {dateOnly ? null : (
+                <small>
+                  <NumericText>{countText}</NumericText>
+                </small>
+              )}
             </button>
           );
         })}

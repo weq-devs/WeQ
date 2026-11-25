@@ -530,32 +530,9 @@
   padding: 8px 8px 6px;
 }
 
-/* 导出页日历：这里只收一下尺寸与外边距，密度色阶 / 选中态完全复用。 */
-.weq-roaming-scope .weq-density-calendar-tools {
-  margin-bottom: 6px;
-}
-.weq-roaming-scope .weq-density-calendar-grid {
-  gap: 3px;
-}
-.weq-roaming-scope .weq-density-calendar-grid > button,
-.weq-roaming-scope .weq-density-calendar-grid > span:not(.weq-density-weekday) {
-  height: 30px;
-  border-radius: 7px;
-}
-.weq-roaming-scope .weq-density-calendar-grid > button {
-  font-size: 11.5px;
-}
-.weq-roaming-scope .weq-density-calendar-grid > button small {
-  font-size: 8.5px;
-  line-height: 11px;
-  min-height: 11px;
-}
-.weq-roaming-scope .weq-density-calendar-grid > button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
-}
-.weq-roaming-scope .weq-density-calendar-status {
-  margin-top: 5px;
-  font-size: 10.5px;
+.weq-roaming-scope .weq-density-calendar {
+  --weq-calendar-gap: 3px;
+  --weq-calendar-cell-height: 34px;
 }
 
 .weq-roaming-field {

@@ -144,25 +144,9 @@
   outline-offset: 1px;
 }
 
-/* 月历在窄配置栏里缩小一档，别把日期格子撑破。 */
 .weq-analysis-card .weq-density-calendar {
-  font-size: 11px;
-}
-.weq-analysis-card .weq-density-calendar-tools {
-  gap: 4px;
-}
-.weq-analysis-card .weq-density-calendar-grid {
-  gap: 1px;
-}
-.weq-analysis-card .weq-density-calendar-grid button {
-  min-height: 26px;
-  padding: 1px 0;
-}
-.weq-analysis-card .weq-density-calendar-grid button small {
-  display: none;
-}
-.weq-analysis-card .weq-density-calendar-status {
-  font-size: 10.5px;
+  --weq-calendar-gap: 2px;
+  --weq-calendar-cell-height: 34px;
 }
 
 /* ---- 右侧对象列表 ---- */

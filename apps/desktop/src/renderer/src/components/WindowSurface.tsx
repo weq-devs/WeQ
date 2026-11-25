@@ -21,9 +21,44 @@ import { useMobileWebViewport } from '../hooks/useMobileWebViewport';
 import { IS_WEB } from '../lib/target.shared';
 
 type Box = { x: number; y: number; width: number; height: number };
+const resizeHandles = ['n', 'e', 's', 'w', 'nw', 'ne', 'sw'] as const;
+type ResizeHandle = (typeof resizeHandles)[number] | 'se';
 const margin = 8;
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(value, Math.max(min, max)));
+
+function resizeBox(
+  box: Box,
+  edge: ResizeHandle,
+  dx: number,
+  dy: number,
+  viewport: ReturnType<typeof visibleViewport>,
+): Box {
+  const left = viewport.left + margin;
+  const top = viewport.top + margin;
+  const right = viewport.left + viewport.width - margin;
+  const bottom = viewport.top + viewport.height - margin;
+  const minWidth = Math.min(320, Math.max(1, right - left));
+  const minHeight = Math.min(220, Math.max(1, bottom - top));
+  const west = edge.includes('w');
+  const north = edge.includes('n');
+  const width = west
+    ? clamp(box.width - dx, minWidth, box.x + box.width - left)
+    : edge.includes('e')
+      ? clamp(box.width + dx, minWidth, right - box.x)
+      : box.width;
+  const height = north
+    ? clamp(box.height - dy, minHeight, box.y + box.height - top)
+    : edge.includes('s')
+      ? clamp(box.height + dy, minHeight, bottom - box.y)
+      : box.height;
+  return {
+    width,
+    height,
+    x: west ? box.x + box.width - width : box.x,
+    y: north ? box.y + box.height - height : box.y,
+  };
+}
 
 /** 应用内浮窗与原位任务窗格共用边界、焦点和层级；不创建系统窗口。 */
 export function WindowSurface({
@@ -31,6 +66,8 @@ export function WindowSurface({
   open = true,
   mode,
   anchor,
+  centered = false,
+  resizeEdges = false,
   width = 640,
   labelledBy,
   title,
@@ -43,6 +80,8 @@ export function WindowSurface({
   open?: boolean;
   mode: 'floating' | 'anchored';
   anchor?: HTMLElement | null;
+  centered?: boolean;
+  resizeEdges?: boolean;
   width?: number | string;
   labelledBy?: string;
   title?: string;
@@ -58,7 +97,7 @@ export function WindowSurface({
   const layerRef = useRef<HTMLDivElement>(null);
   useMobileWebViewport(layerRef, active && IS_WEB);
   const placement = useOverlayAnchor(card, active, false, anchor);
-  const origin = placement.anchor;
+  const origin = mode === 'floating' && centered ? null : placement.anchor;
   const viewport = useCallback(() => visibleViewport(view), [view]);
   const fitViewport = useCallback(
     (value: Box): Box => {
@@ -105,13 +144,15 @@ export function WindowSurface({
     x: number;
     y: number;
     box: Box;
-    resize: boolean;
+    edge: ResizeHandle | undefined;
+    capture: Element;
   } | null>(null);
-  const finish = useCallback(() => {
-    const pointer = gesture.current?.pointerId;
+  const finish = useCallback((event?: PointerEvent<HTMLDivElement>) => {
+    const current = gesture.current;
+    if (!current || (event && event.pointerId !== current.pointerId)) return;
     gesture.current = null;
-    if (pointer !== undefined && card.current?.hasPointerCapture(pointer))
-      card.current.releasePointerCapture(pointer);
+    if (current.capture.hasPointerCapture(current.pointerId))
+      current.capture.releasePointerCapture(current.pointerId);
   }, []);
   useEffect(() => {
     if (!active) finish();
@@ -183,23 +224,26 @@ export function WindowSurface({
     // 这里每 pointerdown 一次都抬高的话，会把确认框压到任务窗下面。
     if (!hasActiveModal(document)) raise();
     if (mode !== 'floating' || event.button !== 0 || !(event.target instanceof Element)) return;
-    const resize = Boolean(event.target.closest('[data-window-resize]'));
+    const resizeHandle = event.target.closest<HTMLElement>('[data-window-resize]');
+    const edge = resizeHandle?.dataset.windowResize as ResizeHandle | undefined;
     const handle = event.target.closest('[data-window-drag-handle]');
     if (
-      !resize &&
+      !edge &&
       (!handle ||
         event.target.closest('button, input, select, textarea, a, [contenteditable="true"]'))
     )
       return;
+    const capture = resizeHandle ?? handle ?? event.currentTarget;
     event.preventDefault();
     gesture.current = {
       pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
       box: { ...latest.current },
-      resize,
+      edge,
+      capture,
     };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    capture.setPointerCapture(event.pointerId);
   };
   const move = (event: PointerEvent<HTMLDivElement>) => {
     const current = gesture.current;
@@ -207,11 +251,9 @@ export function WindowSurface({
     const dx = event.clientX - current.x,
       dy = event.clientY - current.y;
     setBox(
-      fitViewport(
-        current.resize
-          ? { ...current.box, width: current.box.width + dx, height: current.box.height + dy }
-          : { ...current.box, x: current.box.x + dx, y: current.box.y + dy },
-      ),
+      current.edge
+        ? resizeBox(current.box, current.edge, dx, dy, viewport())
+        : fitViewport({ ...current.box, x: current.box.x + dx, y: current.box.y + dy }),
     );
   };
   return createPortal(
@@ -228,6 +270,7 @@ export function WindowSurface({
         role={role}
         aria-labelledby={role === 'dialog' ? labelledBy : undefined}
         aria-label={role === 'dialog' && !labelledBy ? title : undefined}
+        data-resize-edges={mode === 'floating' && resizeEdges ? '' : undefined}
         className={`weq-window-surface is-${mode}${className ? ` ${className}` : ''}`}
         style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
         onPointerDownCapture={start}
@@ -259,11 +302,21 @@ export function WindowSurface({
             </OverlayAnchorContext.Provider>
           </OverlayLayerContext.Provider>
         </div>
+        {mode === 'floating' && resizeEdges
+          ? resizeHandles.map((edge) => (
+              <span
+                className="weq-window-resize-edge"
+                data-window-resize={edge}
+                key={edge}
+                aria-hidden
+              />
+            ))
+          : null}
         {mode === 'floating' ? (
           <button
             type="button"
             className="weq-window-resize"
-            data-window-resize
+            data-window-resize="se"
             title="调整窗口大小"
             aria-label="调整窗口大小"
             onKeyDown={(event) => {
@@ -272,15 +325,13 @@ export function WindowSurface({
               event.stopPropagation();
               const step = event.shiftKey ? 64 : 16;
               setBox((current) =>
-                fitViewport({
-                  ...current,
-                  width:
-                    current.width +
-                    (event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0),
-                  height:
-                    current.height +
-                    (event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0),
-                }),
+                resizeBox(
+                  current,
+                  'se',
+                  event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0,
+                  event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0,
+                  viewport(),
+                ),
               );
             }}
           >

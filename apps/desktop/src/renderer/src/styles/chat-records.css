@@ -93,51 +93,65 @@
 .weq-record-sender-picker {
   display: grid;
   gap: 8px;
-  padding: 14px;
+  padding: 12px;
 }
-
+.weq-record-sender-picker > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+}
 .weq-record-sender-picker h3 {
   margin: 0;
   font-size: 15px;
   font-weight: 600;
 }
-
-.weq-record-sender-picker > input {
+.weq-record-sender-picker .weq-record-search-input {
+  margin-bottom: 2px;
+}
+.weq-record-sender-picker .weq-set-chk {
+  justify-content: space-between;
   width: 100%;
   min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 6px;
-  background: var(--weq-bg-surface);
+  min-height: 36px;
+  padding-inline: 8px;
+  text-align: left;
 }
-
+.weq-record-sender-picker .weq-set-chk-box {
+  order: 1;
+}
+.weq-record-sender-picker .weq-set-chk-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.weq-record-sender-picker .weq-set-chk-label > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-record-sender-placeholder {
+  display: grid;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+}
 .weq-record-sender-options {
+  display: grid;
+  gap: 4px;
   max-height: min(45vh, 360px);
   overflow: auto;
   overscroll-behavior: contain;
 }
-
-.weq-record-sender-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 36px;
-  padding: 4px 8px;
-  text-align: left;
-  border-radius: 6px;
+.weq-record-sender-options:empty {
+  display: none;
 }
-
-.weq-record-sender-option:hover,
-.weq-record-sender-option[aria-pressed='true'] {
-  background: var(--muted);
-}
-
-.weq-record-sender-option > span {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.weq-record-sender-feedback {
+  margin: 4px 8px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
 }
 
 .weq-record-types.weq-qzn {
