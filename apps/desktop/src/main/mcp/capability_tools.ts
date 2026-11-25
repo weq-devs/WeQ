@@ -12,6 +12,7 @@ import {
   isSandboxTool,
   MCP_WRITE_TOOLS,
 } from './tool_permissions';
+import { AI_TOOLS } from './tools';
 
 const source = z
   .enum(['weq', 'onebot'])
@@ -54,8 +55,7 @@ function summaryLine(text: string) {
   return (text.split('\n')[0] ?? '').slice(0, 100);
 }
 
-async function weqCapabilities() {
-  const { AI_TOOLS } = await import('./tools');
+function weqCapabilities() {
   const options = toolExecutionOptions();
   const assistant = options.permissionMode !== undefined;
   const writes = allowWrites();
@@ -114,7 +114,7 @@ export async function listCapabilities(input: z.infer<typeof listCapabilityInput
     });
     return { source, ...result };
   }
-  const matches = (await weqCapabilities())
+  const matches = weqCapabilities()
     .filter((tool) => !group || tool.groups.includes(group as FeatureDefinition['domain']))
     .map((tool) => ({
       tool,
@@ -150,7 +150,7 @@ export async function getCapability({ source, name }: z.infer<typeof getCapabili
     });
     return detail ? { source, found: true, ...detail } : { source, found: false, name };
   }
-  const capability = (await weqCapabilities()).find((tool) => tool.name === name);
+  const capability = weqCapabilities().find((tool) => tool.name === name);
   if (!capability) return { source, found: false, name };
   return {
     source,
@@ -184,7 +184,7 @@ export async function callCapability({
       throw new Error(result?.wording || `OneBot 操作失败（${result?.retcode ?? '无返回码'}）。`);
     value = result.data;
   } else {
-    const capability = (await weqCapabilities()).find((tool) => tool.name === name);
+    const capability = weqCapabilities().find((tool) => tool.name === name);
     if (!capability) throw new Error('当前会话未提供此能力。');
     assertAccountToolScope();
     signal?.throwIfAborted();
