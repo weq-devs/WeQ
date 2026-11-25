@@ -9,6 +9,7 @@ import {
 } from '@weq/service/db-checkup';
 
 type Input = {
+  concurrency?: number;
   uin?: string;
   configId?: string;
   kind?: 'scan' | 'checkup';
@@ -33,6 +34,7 @@ let sequence = 0;
 let scopeNames = namesForFixture();
 let version = 0;
 let cache: string | null = '/synthetic/cache';
+let checkupConcurrency = 2;
 let freeBytes = 10_000_000_000;
 let resolveRun: ((value: unknown) => void) | undefined;
 const calls = {
@@ -245,6 +247,7 @@ export const maintenanceQa = {
     sequence = 0;
     scopeNames = namesForFixture();
     cache = '/synthetic/cache';
+    checkupConcurrency = 2;
     freeBytes = 10_000_000_000;
     calls.scan.length = 0;
     calls.append.length = 0;
@@ -477,6 +480,11 @@ export const trpc = {
     history: query(() => []),
     legacyReport: query(() => null),
     cacheLocation: query(() => ({ override: cache })),
+    checkupSettings: query(() => ({ concurrency: checkupConcurrency })),
+    setCheckupConcurrency: mutation(async ({ concurrency }) => {
+      checkupConcurrency = concurrency!;
+      notify();
+    }),
     preflight: query(() => ({
       cachePath: cache,
       space: [

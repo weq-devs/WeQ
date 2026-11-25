@@ -10,6 +10,7 @@ import type {
 } from './maintenance_reports';
 import { DbRepairError } from './service';
 import {
+  normalizeDatabaseCheckupConcurrency,
   databaseCanCheckQuickRepair,
   databaseReadyForRepair,
   databaseNeedsPageLocation,
@@ -34,6 +35,7 @@ export interface DatabaseMaintenanceLease {
   signal?: AbortSignal;
 }
 export interface DatabaseMaintenanceDeps {
+  scanConcurrency?(): number;
   sourceIdentity?(target: DbRepairTarget): string;
   acquire(targets: DbRepairTarget[], signal: AbortSignal): Promise<DatabaseMaintenanceLease>;
   scan(
@@ -82,6 +84,8 @@ interface ScanBatch {
   kind: 'scan' | 'checkup';
   targets: DbRepairTarget[];
 }
+class DatabaseSourceChangedError extends Error {}
+
 interface SavedPageScan {
   identity: string;
   nextPage: number;
@@ -276,6 +280,7 @@ export class DatabaseMaintenance {
     const otherKind = kind === 'scan' ? 'checkup' : 'scan';
     const otherTargets = selected.filter(({ dbName }) => resumeKinds?.[dbName] === otherKind);
     const firstBatch = selected.filter(({ dbName }) => resumeKinds?.[dbName] !== otherKind);
+    const concurrency = normalizeDatabaseCheckupConcurrency(this.deps.scanConcurrency?.());
     current.scanQueue = [];
     if (firstBatch.length) current.scanQueue.push({ kind, targets: firstBatch });
     if (otherTargets.length) current.scanQueue.push({ kind: otherKind, targets: otherTargets });
@@ -288,7 +293,7 @@ export class DatabaseMaintenance {
         ? Object.fromEntries(otherTargets.map(({ dbName }) => [dbName, otherKind]))
         : undefined,
     );
-    current.pending = this.scanSession(current, current.scanQueue).finally(() => {
+    current.pending = this.scanSession(current, current.scanQueue, concurrency).finally(() => {
       current.scanQueue = undefined;
       current.pending = undefined;
     });
@@ -364,6 +369,7 @@ export class DatabaseMaintenance {
   private async scanSession(
     session: Session,
     queue: ScanBatch[],
+    concurrency: number,
   ): Promise<DatabaseMaintenanceSnapshot> {
     const snapshot = session.snapshot;
     const signal = session.abort!.signal;
@@ -401,11 +407,14 @@ export class DatabaseMaintenance {
           snapshot.databases.push(...added.map(pendingRow));
           this.publish(session, true);
         }
-        executionFailure = await this.checkDatabases(session, kind, targets, signal);
-        if (executionFailure) break;
+        await this.checkDatabases(session, kind, targets, concurrency, signal);
       }
     } catch (error) {
       if (!signal.aborted) executionFailure = errorText(error);
+      if (error instanceof DatabaseSourceChangedError) {
+        executionFailure = error.message;
+        snapshot.maintenanceError = executionFailure;
+      }
     }
     const operation = snapshot.operation!;
     const selected = new Set(queuedTargets(session).map(({ dbName }) => dbName));
@@ -450,182 +459,209 @@ export class DatabaseMaintenance {
     session: Session,
     kind: 'scan' | 'checkup',
     selected: DbRepairTarget[],
+    concurrency: number,
     signal: AbortSignal,
-  ): Promise<string | undefined> {
-    const snapshot = session.snapshot;
-    let executionFailure: string | undefined;
-    snapshot.state = 'scanning';
-    for (const target of selected) {
-      signal.throwIfAborted();
-      const row = snapshot.databases.find((item) => item.dbName === target.dbName)!;
-      if (row.scanStatus === 'completed') {
-        if (row.repair?.status !== 'completed' && !this.hasSameSource(session, target)) {
-          executionFailure = '原库已发生变化。请结束维护并重新核对数据库。';
-          snapshot.maintenanceError = executionFailure;
-          break;
+  ): Promise<void> {
+    const runPhase = async (
+      check: (
+        target: DbRepairTarget,
+        row: DatabaseMaintenanceRow,
+        signal: AbortSignal,
+      ) => Promise<void>,
+    ) => {
+      const failed = new AbortController();
+      const phaseSignal = AbortSignal.any([signal, failed.signal]);
+      const rows = new Map(session.snapshot.databases.map((row) => [row.dbName, row]));
+      let next = 0;
+      const run = async () => {
+        while (!phaseSignal.aborted && next < selected.length) {
+          const target = selected[next++]!;
+          try {
+            await check(target, rows.get(target.dbName)!, phaseSignal);
+            this.countCompleted(session);
+            this.publish(session, true);
+          } catch (error) {
+            // 先停下其余检查，等所有在途子进程退出后再结算或释放维护锁。
+            failed.abort(error);
+          }
         }
-        continue;
+      };
+      await Promise.all(Array.from({ length: Math.min(concurrency, selected.length) }, run));
+      phaseSignal.throwIfAborted();
+    };
+    session.snapshot.state = 'scanning';
+    await runPhase((target, row, phaseSignal) =>
+      this.scanDatabase(session, target, row, phaseSignal),
+    );
+    if (kind === 'checkup') {
+      session.snapshot.state = 'checking';
+      await runPhase((target, row, phaseSignal) =>
+        this.checkDatabaseStructure(session, target, row, phaseSignal),
+      );
+    }
+  }
+
+  private async scanDatabase(
+    session: Session,
+    target: DbRepairTarget,
+    row: DatabaseMaintenanceRow,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (row.scanStatus === 'completed') {
+      if (row.repair?.status !== 'completed' && !this.hasSameSource(session, target)) {
+        throw new DatabaseSourceChangedError('原库已发生变化。请结束维护并重新核对数据库。');
       }
-      const tracker = this.tracker(session, row, 'scan');
-      row.scanStatus = 'running';
-      row.scanError = undefined;
-      this.tick(session, row, tracker, 'scan', { step: 'opening', message: '读取源库信息' });
-      try {
-        const lockError = session.lease!.errors?.[target.dbName];
-        if (lockError) throw new Error(lockError);
-        const identity = this.deps.sourceIdentity?.(target);
-        const saved = session.pageScans.get(target.dbName);
-        if (saved && identity !== saved.identity) {
-          executionFailure = '暂停期间原库发生变化，请重新开始体检。';
-          snapshot.maintenanceError = executionFailure;
-          throw new Error(executionFailure);
-        }
-        const scan = await this.scanPages(session, target, signal, identity, saved, (tick) =>
-          this.tick(session, row, tracker, 'scan', tick),
+      return;
+    }
+    const tracker = this.tracker(session, row, 'scan');
+    row.scanStatus = 'running';
+    row.scanError = undefined;
+    this.tick(session, row, tracker, 'scan', { step: 'opening', message: '读取源库信息' });
+    try {
+      const lockError = session.lease!.errors?.[target.dbName];
+      if (lockError) throw new Error(lockError);
+      const identity = this.deps.sourceIdentity?.(target);
+      const saved = session.pageScans.get(target.dbName);
+      if (saved && identity !== saved.identity) {
+        throw new DatabaseSourceChangedError('暂停期间原库发生变化，请重新开始体检。');
+      }
+      const scan = await this.scanPages(session, target, signal, identity, saved, (tick) =>
+        this.tick(session, row, tracker, 'scan', tick),
+      );
+      signal.throwIfAborted();
+      if (identity !== this.deps.sourceIdentity?.(target))
+        throw new Error('体检期间原库发生变化。');
+      session.pageScans.delete(target.dbName);
+      if (identity !== undefined) session.sourceIdentities.set(target.dbName, identity);
+      row.scan = scan;
+      row.scanStatus = 'completed';
+      row.support = row.scan.plaintext
+        ? 'unsupported'
+        : row.scan.usedHmac && row.scan.badPages.length < row.scan.pageCount
+          ? 'supported'
+          : 'possible';
+      row.issues = [];
+      if (row.scan.sourceLayout === 'standard')
+        row.issues.push({
+          message: '发现旧版修复留下的标准页布局，本轮重建将迁回 QQ 页布局。',
+          support: row.support,
+        });
+      if (row.scan.plaintext)
+        row.issues.push({
+          diagnostic: false,
+          message: '此数据库为明文库，当前重建工具仅支持加密库。',
+          support: 'unsupported',
+        });
+      if (row.scan.usedHmac && row.scan.badPages.length === row.scan.pageCount)
+        row.issues.push({
+          message: '全部页的签名都未通过；密钥或算法不匹配也会出现此结果，尚不能确认都是物理损坏。',
+          support: 'possible',
+        });
+      if (row.scan.badPages.length)
+        row.issues.push({
+          message: `发现 ${row.scan.badPages.length.toLocaleString('zh-CN')} 个坏页。`,
+          support: row.support,
+        });
+      if (row.scan.zeroPages.length)
+        row.issues.push({
+          diagnostic: false,
+          message: `发现 ${row.scan.zeroPages.length} 个全零页，需结合结构检查判断影响。`,
+          support: 'possible',
+        });
+      if (row.scan.trailingBytes)
+        row.issues.push({
+          message: `文件尾部有 ${row.scan.trailingBytes} 字节不足一页，重建不包含这部分字节。`,
+          support: 'possible',
+        });
+      row.progress = tracker.finish('completed');
+      row.scanProgress = row.progress;
+    } catch (error) {
+      row.scanStatus = signal.aborted ? 'pending' : 'failed';
+      row.scanError = errorText(error);
+      if (error instanceof DatabaseScanUnsupportedError) {
+        row.support = 'unsupported';
+        row.issues = [{ message: row.scanError, support: 'unsupported', diagnostic: false }];
+      }
+      row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
+      if (signal.aborted) throw error;
+      session.pageScans.delete(target.dbName);
+      if (error instanceof DatabaseSourceChangedError) throw error;
+    }
+  }
+
+  private async checkDatabaseStructure(
+    session: Session,
+    target: DbRepairTarget,
+    row: DatabaseMaintenanceRow,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (
+      row.scanStatus !== 'completed' ||
+      (row.deepStatus === 'completed' && !databaseNeedsPageLocation(row))
+    )
+      return;
+    row.integrity = undefined;
+    row.issues = row.issues.filter((issue) => issue.stage !== 'deep');
+    const tracker = this.tracker(session, row, 'checkup');
+    row.deepStatus = 'running';
+    this.tick(session, row, tracker, 'checkup', {
+      step: 'integrity',
+      message: '检查数据库整体结构',
+    });
+    try {
+      if (row.scan && this.deps.locate && databaseNeedsPageLocation(row)) {
+        const location = await this.deps.locate(target, row.scan, signal, (tick) =>
+          this.tick(session, row, tracker, 'checkup', tick),
         );
         signal.throwIfAborted();
-        if (identity !== this.deps.sourceIdentity?.(target))
-          throw new Error('体检期间原库发生变化。');
-        session.pageScans.delete(target.dbName);
-        if (identity !== undefined) session.sourceIdentities.set(target.dbName, identity);
-        row.scan = scan;
-        row.scanStatus = 'completed';
-        row.support = row.scan.plaintext
-          ? 'unsupported'
-          : row.scan.usedHmac && row.scan.badPages.length < row.scan.pageCount
-            ? 'supported'
-            : 'possible';
-        row.issues = [];
-        if (row.scan.sourceLayout === 'standard')
-          row.issues.push({
-            message: '发现旧版修复留下的标准页布局，本轮重建将迁回 QQ 页布局。',
-            support: row.support,
-          });
-        if (row.scan.plaintext)
-          row.issues.push({
-            diagnostic: false,
-            message: '此数据库为明文库，当前重建工具仅支持加密库。',
-            support: 'unsupported',
-          });
-        if (row.scan.usedHmac && row.scan.badPages.length === row.scan.pageCount)
-          row.issues.push({
-            message:
-              '全部页的签名都未通过；密钥或算法不匹配也会出现此结果，尚不能确认都是物理损坏。',
-            support: 'possible',
-          });
-        if (row.scan.badPages.length)
-          row.issues.push({
-            message: `发现 ${row.scan.badPages.length.toLocaleString('zh-CN')} 个坏页。`,
-            support: row.support,
-          });
-        if (row.scan.zeroPages.length)
-          row.issues.push({
-            diagnostic: false,
-            message: `发现 ${row.scan.zeroPages.length} 个全零页，需结合结构检查判断影响。`,
-            support: 'possible',
-          });
-        if (row.scan.trailingBytes)
-          row.issues.push({
-            message: `文件尾部有 ${row.scan.trailingBytes} 字节不足一页，重建不包含这部分字节。`,
-            support: 'possible',
-          });
-        row.progress = tracker.finish('completed');
-        row.scanProgress = row.progress;
-      } catch (error) {
-        row.scanStatus = signal.aborted ? 'pending' : 'failed';
-        row.scanError = errorText(error);
-        if (error instanceof DatabaseScanUnsupportedError) {
-          row.support = 'unsupported';
-          row.issues = [{ message: row.scanError, support: 'unsupported', diagnostic: false }];
-        }
-        row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
-        if (signal.aborted) throw error;
-        session.pageScans.delete(target.dbName);
-      }
-      this.countCompleted(session);
-      this.publish(session, true);
-      if (executionFailure) break;
-    }
-    if (kind === 'checkup' && !executionFailure) {
-      snapshot.state = 'checking';
-      for (const target of selected) {
-        signal.throwIfAborted();
-        const row = snapshot.databases.find((item) => item.dbName === target.dbName)!;
-        if (
-          row.scanStatus !== 'completed' ||
-          (row.deepStatus === 'completed' && !databaseNeedsPageLocation(row))
-        )
-          continue;
-        row.integrity = undefined;
-        row.issues = row.issues.filter((issue) => issue.stage !== 'deep');
-        const tracker = this.tracker(session, row, 'checkup');
-        row.deepStatus = 'running';
+        row.scan = { ...row.scan, affected: location.affected };
+        row.quickBudgetBytes = location.quickBudgetBytes;
+        row.locationChecked = true;
+        const located = row.scan.affected.reduce((sum, object) => sum + object.badPageCount, 0);
         this.tick(session, row, tracker, 'checkup', {
-          step: 'integrity',
-          message: '检查数据库整体结构',
+          step: 'mapping',
+          message: `已定位 ${located} / ${row.scan.badPages.length} 个坏页`,
+          status: 'completed',
+          outcome: located < row.scan.badPages.length ? 'unverified' : 'abnormal',
         });
-        try {
-          if (row.scan && this.deps.locate && databaseNeedsPageLocation(row)) {
-            const location = await this.deps.locate(target, row.scan, signal, (tick) =>
-              this.tick(session, row, tracker, 'checkup', tick),
-            );
-            signal.throwIfAborted();
-            row.scan.affected = location.affected;
-            row.quickBudgetBytes = location.quickBudgetBytes;
-            row.locationChecked = true;
-            const located = row.scan.affected.reduce((sum, object) => sum + object.badPageCount, 0);
-            this.tick(session, row, tracker, 'checkup', {
-              step: 'mapping',
-              message: `已定位 ${located} / ${row.scan.badPages.length} 个坏页`,
-              status: 'completed',
-              outcome: located < row.scan.badPages.length ? 'unverified' : 'abnormal',
-            });
-          }
-          row.integrity = await this.deps.deep(
-            row.scan?.plaintext ? { ...target, key: '' } : target,
-            signal,
-            (tick) => this.tick(session, row, tracker, 'checkup', tick),
-          );
-          signal.throwIfAborted();
-          if (!this.hasSameSource(session, target)) {
-            executionFailure = '补充检查期间原库发生变化，请重新核对数据库。';
-            snapshot.maintenanceError = executionFailure;
-            row.deepStatus = 'failed';
-            break;
-          }
-          row.deepStatus = row.integrity.ran
-            ? row.integrity.complete === false
-              ? 'partial'
-              : 'completed'
-            : 'failed';
-          if (row.integrity.ran && row.integrity.complete === false)
-            row.issues.push({
-              stage: 'deep',
-              diagnostic: false,
-              support: 'possible',
-              message: `以下结构未完成核验，当前结果不能证明相关问题已修复：${row.integrity.unverifiedTables?.join('、') || 'QQ 专用虚拟表或整体结构检查'}`,
-            });
-          if (
-            (row.integrity.ran && !row.integrity.healthy) ||
-            (!row.integrity.ran && row.integrity.corrupt)
-          )
-            row.issues.push({
-              stage: 'deep',
-              message: `结构检查发现异常${row.integrity.ran && row.integrity.corruptedTables.length ? `：${row.integrity.corruptedTables.join('、')}` : ''}；重建可恢复仍能读取的数据。`,
-              support: row.support === 'unsupported' ? 'unsupported' : 'possible',
-            });
-          row.progress = tracker.finish(row.deepStatus === 'failed' ? 'failed' : 'completed');
-        } catch (error) {
-          row.deepStatus = signal.aborted ? 'cancelled' : 'failed';
-          row.integrity = { ran: false, error: errorText(error) };
-          row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
-          if (signal.aborted) throw error;
-        }
-        this.countCompleted(session);
-        this.publish(session, true);
       }
+      row.integrity = await this.deps.deep(
+        row.scan?.plaintext ? { ...target, key: '' } : target,
+        signal,
+        (tick) => this.tick(session, row, tracker, 'checkup', tick),
+      );
+      signal.throwIfAborted();
+      if (!this.hasSameSource(session, target)) {
+        throw new DatabaseSourceChangedError('补充检查期间原库发生变化，请重新核对数据库。');
+      }
+      row.deepStatus = row.integrity.ran
+        ? row.integrity.complete === false
+          ? 'partial'
+          : 'completed'
+        : 'failed';
+      if (row.integrity.ran && row.integrity.complete === false)
+        row.issues.push({
+          stage: 'deep',
+          diagnostic: false,
+          support: 'possible',
+          message: `以下结构未完成核验，当前结果不能证明相关问题已修复：${row.integrity.unverifiedTables?.join('、') || 'QQ 专用虚拟表或整体结构检查'}`,
+        });
+      if (
+        (row.integrity.ran && !row.integrity.healthy) ||
+        (!row.integrity.ran && row.integrity.corrupt)
+      )
+        row.issues.push({
+          stage: 'deep',
+          message: `结构检查发现异常${row.integrity.ran && row.integrity.corruptedTables.length ? `：${row.integrity.corruptedTables.join('、')}` : ''}；重建可恢复仍能读取的数据。`,
+          support: row.support === 'unsupported' ? 'unsupported' : 'possible',
+        });
+      row.progress = tracker.finish(row.deepStatus === 'failed' ? 'failed' : 'completed');
+    } catch (error) {
+      row.deepStatus = signal.aborted ? 'cancelled' : 'failed';
+      row.integrity = { ran: false, error: errorText(error) };
+      row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
+      if (signal.aborted || error instanceof DatabaseSourceChangedError) throw error;
     }
-    return executionFailure;
   }
 
   private async scanPages(
@@ -994,7 +1030,8 @@ export class DatabaseMaintenance {
     row: DatabaseMaintenanceRow,
     kind: 'scan' | 'checkup' | 'repair',
   ) {
-    session.snapshot.operation!.currentDb = row.dbName;
+    const operation = session.snapshot.operation!;
+    if (kind === 'repair' || !operation.currentDb) operation.currentDb = row.dbName;
     return new DatabaseProgressTracker(
       kind,
       row.dbName,
@@ -1010,7 +1047,9 @@ export class DatabaseMaintenance {
     tick: DatabaseWorkProgress,
   ) {
     row.progress = tracker.update(phase, tick);
-    session.snapshot.progress = row.progress;
+    if (session.snapshot.operation?.currentDb === row.dbName) {
+      session.snapshot.progress = row.progress;
+    }
     // 进度管道只更新内存；广播限频并只发送摘要。
     if (session.publishTimer !== undefined) return;
     session.publishTimer = setTimeout(
@@ -1064,9 +1103,15 @@ export class DatabaseMaintenance {
     session.lastPublished = Date.now();
     if (session.ending) session.snapshot.state = 'ending';
     const op = session.snapshot.operation;
-    const row = op?.currentDb
-      ? session.snapshot.databases.find((item) => item.dbName === op.currentDb)
-      : undefined;
+    const currentDb = op?.currentDb ?? session.snapshot.progress?.dbName;
+    let row = session.snapshot.databases.find((item) => item.dbName === currentDb);
+    if (op?.status === 'running' && op.kind !== 'repair') {
+      const isChecking = (item: DatabaseMaintenanceRow) =>
+        item.scanStatus === 'running' || item.deepStatus === 'running';
+      const running = row && isChecking(row) ? row : session.snapshot.databases.find(isChecking);
+      op.currentDb = running?.dbName;
+      row = running ?? row;
+    }
     if (row?.progress) session.snapshot.progress = row.progress;
     if (op && op.status !== 'running' && session.snapshot.progress?.status === 'running')
       session.snapshot.progress =

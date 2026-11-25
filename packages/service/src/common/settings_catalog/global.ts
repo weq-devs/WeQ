@@ -70,6 +70,7 @@ export const APP_SETTINGS_RESET_POLICY = {
   logRetentionDays: 'preference',
   logCapacityMiB: 'preference',
   databaseReadConcurrency: 'preference',
+  databaseCheckupConcurrency: 'preference',
   qzonePagination: 'preference',
   qzonePublicRefreshCooldownMinutes: 'preference',
   qzoneForwardQuotePrevious: 'preference',

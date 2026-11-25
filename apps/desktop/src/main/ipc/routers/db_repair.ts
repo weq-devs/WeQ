@@ -30,6 +30,7 @@ import {
   type DbRepairRecord,
 } from '@weq/service';
 import {
+  MAX_DATABASE_CHECKUP_CONCURRENCY,
   summarizeDatabaseMaintenance,
   databaseRepairRecommendation,
   type DatabaseMaintenanceStatus,
@@ -214,6 +215,7 @@ function historicalRecords(scope: DatabaseMaintenanceScope) {
 }
 
 export const databaseMaintenance = new DatabaseMaintenance({
+  scanConcurrency: () => requireBootstrap().userConfig.getSetting('databaseCheckupConcurrency'),
   sourceIdentity: ({ dbPath }) => {
     const db = statSync(dbPath, { bigint: true });
     const sidecar = (suffix: string) => {
@@ -617,6 +619,14 @@ export const dbRepairRouter = router({
   cacheLocation: procedure.query(() => ({
     override: requireBootstrap().userConfig.getDbRepairCacheDir(),
   })),
+  checkupSettings: procedure.query(() => ({
+    concurrency: requireBootstrap().userConfig.getSetting('databaseCheckupConcurrency'),
+  })),
+  setCheckupConcurrency: procedure
+    .input(z.object({ concurrency: z.number().int().min(1).max(MAX_DATABASE_CHECKUP_CONCURRENCY) }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ databaseCheckupConcurrency: input.concurrency });
+    }),
   pickCacheLocation: procedure.mutation(async () => {
     assertCacheIdle();
     const picked = await getHost().pickDirectory({ title: '选择备份与修复工作区位置' });

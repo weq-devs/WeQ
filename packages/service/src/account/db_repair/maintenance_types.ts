@@ -3,6 +3,21 @@ import type { DbRepairCheckupIntegrity } from './checkup';
 import type { DatabaseTaskProgress } from './progress';
 import type { DbRepairRecord } from './types';
 
+export const DEFAULT_DATABASE_CHECKUP_CONCURRENCY = 2;
+export const MAX_DATABASE_CHECKUP_CONCURRENCY = 8;
+
+export function normalizeDatabaseCheckupConcurrency(
+  value: unknown,
+  fallback = DEFAULT_DATABASE_CHECKUP_CONCURRENCY,
+): number {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= MAX_DATABASE_CHECKUP_CONCURRENCY
+    ? value
+    : fallback;
+}
+
 export type DatabaseRepairMethod = 'quick' | 'deep';
 export type DatabaseRepairNextAction = 'retry-space' | 'view-deep' | 'retry' | 'check-source';
 export interface DatabasePageLocation {

@@ -496,6 +496,21 @@ it('空间不足和持锁等待不阻止改缓存位置，开始修复后禁止�
   expect(button('使用默认位置').disabled).toBe(true);
 });
 
+it('数据库修复设置可以保存并重新显示体检并行数量', async () => {
+  await mount();
+  await act(async () => iconButton('数据库修复设置').click());
+  const select = () => document.querySelector<HTMLSelectElement>('[role="dialog"] select')!;
+  expect(select().value).toBe('2');
+  await act(async () => {
+    select().value = '4';
+    select().dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await act(async () => iconButton('关闭').click());
+  await act(async () => iconButton('数据库修复设置').click());
+  expect(select().value).toBe('4');
+  expect(maintenanceQa.calls.scan).toHaveLength(0);
+});
+
 it('等待修复时，空间告警只跟随当前勾选的数据库', async () => {
   maintenanceQa.ready('checkup', { secondIssue: true });
   maintenanceQa.lowSpace(500_000);

@@ -1169,6 +1169,26 @@ button.weq-dbm-db:hover,
   height: 30px;
 }
 
+.weq-dbm-checkup-setting {
+  display: grid;
+  gap: 6px;
+  padding: 8px 0 4px;
+}
+
+.weq-dbm-checkup-setting label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.weq-dbm-checkup-setting p:not(.weq-dbm-alert) {
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
 .weq-dbm-cache {
   display: grid;
   gap: 9px;

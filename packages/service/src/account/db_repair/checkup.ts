@@ -22,6 +22,7 @@ export class DatabaseScanUnsupportedError extends Error {
   }
 }
 export {
+  MAX_DATABASE_CHECKUP_CONCURRENCY,
   databaseReadyForRepair,
   databaseNeedsPageLocation,
   databaseCanCheckQuickRepair,

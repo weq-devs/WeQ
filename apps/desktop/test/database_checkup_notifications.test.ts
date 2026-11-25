@@ -30,6 +30,7 @@ vi.mock('../src/main/context/app_context', () => ({
       ],
       cacheDir: (path: string) => join(fixture.root, 'cache', path),
       getDbRepairCacheDir: () => null,
+      getSetting: () => 2,
     },
   }),
   requirePlatform: () => ({

@@ -68,6 +68,10 @@ import {
 } from '../common/home_settings';
 import type { ExportFormat } from '../account/export/types';
 import {
+  DEFAULT_DATABASE_CHECKUP_CONCURRENCY,
+  normalizeDatabaseCheckupConcurrency,
+} from '../account/db_repair/maintenance_types';
+import {
   DEFAULT_CHAT_IMAGE_CACHE_MIB,
   normalizeChatImageCacheMiB,
 } from '../common/chat_image_cache';
@@ -1028,6 +1032,8 @@ export interface AppSettings {
   logCapacityMiB: HistoryCapacityMiB;
   /** 同一数据库的并行只读上限；宿主级设置，所有账号和客户端共用。 */
   databaseReadConcurrency: number;
+  /** 同一轮维护同时体检的数据库数量上限。 */
+  databaseCheckupConcurrency: number;
   /** App-wide online Qzone page request budget, shared across accounts and exports. */
   qzonePagination: QzonePaginationSettings;
   /** 空友爱看自动换首页的冷却分钟数；0 表示每次进入都刷新。 */
@@ -1359,6 +1365,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
   logCapacityMiB: DEFAULT_HISTORY_CAPACITY_MIB,
   databaseReadConcurrency: DEFAULT_DATABASE_READ_CONCURRENCY,
+  databaseCheckupConcurrency: DEFAULT_DATABASE_CHECKUP_CONCURRENCY,
   qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
   qzonePublicRefreshCooldownMinutes: DEFAULT_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,
   qzoneForwardQuotePrevious: false,
@@ -2295,6 +2302,9 @@ export class UserConfigService {
       logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
       logCapacityMiB: isHistoryCapacityMiB(s?.logCapacityMiB) ? s.logCapacityMiB : d.logCapacityMiB,
       databaseReadConcurrency: normalizeDatabaseReadConcurrency(s?.databaseReadConcurrency),
+      databaseCheckupConcurrency: normalizeDatabaseCheckupConcurrency(
+        s?.databaseCheckupConcurrency,
+      ),
       qzonePagination: normalizeQzonePagination(s?.qzonePagination),
       qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(
         s?.qzonePublicRefreshCooldownMinutes,
@@ -2528,6 +2538,10 @@ export class UserConfigService {
       databaseReadConcurrency: normalizeDatabaseReadConcurrency(
         patch.databaseReadConcurrency,
         current.databaseReadConcurrency,
+      ),
+      databaseCheckupConcurrency: normalizeDatabaseCheckupConcurrency(
+        patch.databaseCheckupConcurrency,
+        current.databaseCheckupConcurrency,
       ),
       qzonePagination: normalizeQzonePagination(patch.qzonePagination, current.qzonePagination),
       qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(

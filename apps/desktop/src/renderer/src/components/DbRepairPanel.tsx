@@ -35,6 +35,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  MAX_DATABASE_CHECKUP_CONCURRENCY,
   databaseCanCheckQuickRepair,
   databaseReadyForRepair,
   databaseNeedsPageLocation,
@@ -82,6 +83,10 @@ const recordStates = {
 };
 type Tone = 'ok' | 'warn' | 'run' | 'muted';
 type ScanKind = 'scan' | 'checkup';
+const checkupConcurrencyOptions = Array.from(
+  { length: MAX_DATABASE_CHECKUP_CONCURRENCY },
+  (_, index) => index + 1,
+);
 
 function rowLabel(row: DatabaseMaintenanceStatusRow) {
   if (row.repair) return repairStates[row.repair.status];
@@ -279,6 +284,10 @@ export function DbRepairPanel({
     { enabled: !!legacyId, retry: false },
   );
   const cache = trpc.dbRepair.cacheLocation.useQuery(undefined);
+  const checkupSettings = trpc.dbRepair.checkupSettings.useQuery(undefined, {
+    enabled: surface === 'settings',
+  });
+  const setCheckupConcurrency = trpc.dbRepair.setCheckupConcurrency.useMutation();
   const scan = trpc.dbRepair.scanAccount.useMutation();
   const appendScan = trpc.dbRepair.appendScan.useMutation();
   const repair = trpc.dbRepair.repairSelected.useMutation();
@@ -931,12 +940,12 @@ export function DbRepairPanel({
         : result?.progress?.dbName === resultRow?.dbName
           ? result?.progress
           : undefined
-      : tab === 'report' && !showProgress
-        ? (activeRow?.progress ?? check?.progress)
-        : paused
-          ? live?.progress
-          : (databases.find((row) => row.dbName === operation?.currentDb)?.progress ??
-            live?.progress);
+      : tab === 'report'
+        ? showProgress && !focused
+          ? check?.progress
+          : (activeRow?.progress ?? (!focused ? check?.progress : undefined))
+        : (databases.find((row) => row.dbName === operation?.currentDb)?.progress ??
+          live?.progress);
   const activeProgress =
     progress && (progress.status === 'running' || progress.steps.length > 0) ? progress : undefined;
   const scanCoverage = `${scannedCount} / ${checkRows.length} 已体检`;
@@ -982,11 +991,18 @@ export function DbRepairPanel({
         : deepScan
           ? '正在深度体检'
           : '正在快速体检';
+  const checkingCount = activeScanKind
+    ? databases.filter((row) => row.scanStatus === 'running' || row.deepStatus === 'running').length
+    : 0;
   const batchSummary =
     operation && (!busyStarting || operation.status === 'running') ? (
       <>
         <NumericText>{`${operation.completedDatabases} / ${operation.totalDatabases} 个数据库完成`}</NumericText>
-        {operation.currentDb ? ` · 当前 ${operation.currentDb}` : ''}
+        {checkingCount > 1 ? (
+          <NumericText>{` · ${checkingCount} 个正在体检`}</NumericText>
+        ) : operation.currentDb ? (
+          ` · 当前 ${operation.currentDb}`
+        ) : null}
       </>
     ) : (
       '正在准备…'
@@ -1661,48 +1677,80 @@ export function DbRepairPanel({
                 </p>
               ) : null}
               {surface === 'settings' ? (
-                <section className="weq-dbm-cache">
-                  <h3>备份与修复工作区位置</h3>
-                  <p>{cache.data?.override ?? '默认 WeQ 缓存目录'}</p>
-                  {cache.error ? (
-                    <p className="weq-dbm-alert" role="alert">
-                      {cache.error.message}
-                    </p>
-                  ) : null}
-                  <div className="weq-dbm-cache-actions">
-                    <button
-                      type="button"
-                      className="weq-set-btn weq-set-btn-sm"
-                      disabled={repairing || pickCache.isLoading || resetCache.isLoading}
-                      onClick={() => void changeCache()}
-                    >
-                      <FolderOpen size={14} />
-                      更改位置
-                    </button>
-                    <button
-                      type="button"
-                      className="weq-set-btn weq-set-btn-sm"
-                      disabled={
-                        repairing ||
-                        resetCache.isLoading ||
-                        pickCache.isLoading ||
-                        !cache.data?.override
-                      }
-                      onClick={() =>
-                        void act(async () => {
-                          await resetCache.mutateAsync();
-                          setAllowLowSpace(false);
-                          await cache.refetch();
-                          await utils.dbRepair.preflight.invalidate();
-                          await utils.dbRepair.repairStorage.invalidate();
-                        })
-                      }
-                    >
-                      <RotateCcw size={14} />
-                      使用默认位置
-                    </button>
-                  </div>
-                </section>
+                <>
+                  <section className="weq-dbm-checkup-setting">
+                    <label>
+                      <strong>体检并行数量</strong>
+                      <select
+                        className="weq-set-select weq-number"
+                        value={checkupSettings.data?.concurrency ?? ''}
+                        disabled={!checkupSettings.data || setCheckupConcurrency.isLoading}
+                        onChange={(event) => {
+                          const concurrency = Number(event.currentTarget.value);
+                          void act(async () => {
+                            await setCheckupConcurrency.mutateAsync({ concurrency });
+                            await checkupSettings.refetch();
+                          });
+                        }}
+                      >
+                        {!checkupSettings.data ? <option value="">—</option> : null}
+                        {checkupConcurrencyOptions.map((count) => (
+                          <option key={count} value={count}>
+                            {count}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <p>同时检查的数据库数量。更改会在下次开始或继续体检时生效。</p>
+                    {checkupSettings.error ? (
+                      <p className="weq-dbm-alert" role="alert">
+                        {checkupSettings.error.message}
+                      </p>
+                    ) : null}
+                  </section>
+                  <section className="weq-dbm-cache">
+                    <h3>备份与修复工作区位置</h3>
+                    <p>{cache.data?.override ?? '默认 WeQ 缓存目录'}</p>
+                    {cache.error ? (
+                      <p className="weq-dbm-alert" role="alert">
+                        {cache.error.message}
+                      </p>
+                    ) : null}
+                    <div className="weq-dbm-cache-actions">
+                      <button
+                        type="button"
+                        className="weq-set-btn weq-set-btn-sm"
+                        disabled={repairing || pickCache.isLoading || resetCache.isLoading}
+                        onClick={() => void changeCache()}
+                      >
+                        <FolderOpen size={14} />
+                        更改位置
+                      </button>
+                      <button
+                        type="button"
+                        className="weq-set-btn weq-set-btn-sm"
+                        disabled={
+                          repairing ||
+                          resetCache.isLoading ||
+                          pickCache.isLoading ||
+                          !cache.data?.override
+                        }
+                        onClick={() =>
+                          void act(async () => {
+                            await resetCache.mutateAsync();
+                            setAllowLowSpace(false);
+                            await cache.refetch();
+                            await utils.dbRepair.preflight.invalidate();
+                            await utils.dbRepair.repairStorage.invalidate();
+                          })
+                        }
+                      >
+                        <RotateCcw size={14} />
+                        使用默认位置
+                      </button>
+                    </div>
+                  </section>
+                </>
               ) : legacyId ? (
                 legacy.data ? (
                   <LegacyReport

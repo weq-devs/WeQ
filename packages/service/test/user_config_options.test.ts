@@ -25,6 +25,18 @@ it('单字段设置与整份快照隔离调用方修改，并在保存和重载�
   expect(f.service.getSetting('realtimeEnabled')).toBe(true);
 });
 
+it('数据库体检并行数有默认值，保存后重开仍生效，非法值不覆盖设置', () => {
+  const f = configFixture();
+  expect(f.service.getSetting('databaseCheckupConcurrency')).toBe(2);
+  f.service.setSettings({ databaseCheckupConcurrency: 5 });
+  f.service.setSettings({ databaseCheckupConcurrency: 9 });
+  expect(f.open().getSetting('databaseCheckupConcurrency')).toBe(5);
+  expect(snapshotWeqSettings(f.open().getSettings())).toMatchObject({
+    databaseCheckupConcurrency: 5,
+  });
+  expect(() => validateWeqAppSettings({ databaseCheckupConcurrency: 1.5 })).toThrow();
+});
+
 describe('自动检查更新频率', () => {
   it('旧配置默认 60 分钟，正数不设上限并随备份保留', () => {
     const f = configFixture();

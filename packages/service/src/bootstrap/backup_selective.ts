@@ -32,6 +32,7 @@ const DEVICE_FIELDS = [
   'autoAttachQq',
   'realtimeEnabled',
   'databaseReadConcurrency',
+  'databaseCheckupConcurrency',
   'chatImageCacheMiB',
   'chatMessagePrewarmMiB',
   'autoLockMinutes',
