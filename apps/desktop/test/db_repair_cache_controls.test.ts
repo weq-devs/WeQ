@@ -114,34 +114,56 @@ it('扫描时不可切换模式，暂停后保留就绪库，切换深度体检�
     uin: account.uin,
     configId: account.configId,
     kind: 'checkup',
-    dbNames: undefined,
+    dbNames: ['nt_msg.db', 'profile.db', 'unsupported.db'],
   });
 });
 
-it('重新扫描需确认，取消保留结果和维护锁，确认后结束旧维护再开始扫描', async () => {
+it('扫描选择只列未完成当前等级的库，补充深度体检只提交所选库', async () => {
   maintenanceQa.ready();
   await mount();
-  const previous = maintenanceQa.snapshot();
+  const choiceToScan = (name: string) =>
+    host.querySelector<HTMLInputElement>(`input[aria-label="扫描 ${name}"]`);
   await act(async () => button('扫描').click());
-  await act(async () => button('重新扫描').click());
-  expect(maintenanceQa.calls.scan).toHaveLength(0);
+  expect(choiceToScan('nt_msg.db')).toBeNull();
+  expect(button('扫描已完成').disabled).toBe(true);
+  await act(async () => button('深度体检').click());
+  expect(choiceToScan('nt_msg.db')?.checked).toBe(true);
+  await act(async () => choiceToScan('profile.db')!.click());
+  await act(async () => choiceToScan('unsupported.db')!.click());
+  await act(async () => button('开始补充检查').click());
   expect(maintenanceQa.calls.end).toBe(0);
-  await confirm(false);
-  expect(maintenanceQa.snapshot()).toBe(previous);
-  expect(maintenanceQa.snapshot()?.locked).toBe(true);
-  expect(maintenanceQa.snapshot()?.databases[0]?.scanStatus).toBe('completed');
-  await act(async () => button('重新扫描').click());
-  await confirm(true);
-  expect(maintenanceQa.calls.end).toBe(1);
   expect(maintenanceQa.calls.scan).toEqual([
     {
       uin: account.uin,
       configId: account.configId,
-      kind: 'scan',
-      dbNames: ['nt_msg.db', 'profile.db', 'unsupported.db'],
+      kind: 'checkup',
+      dbNames: ['nt_msg.db'],
     },
   ]);
-  expect(maintenanceQa.snapshot()?.state).toBe('scanning');
+  await act(async () => maintenanceQa.complete());
+  await act(async () => button('扫描').click());
+  expect(choiceToScan('nt_msg.db')).toBeNull();
+  expect(choiceToScan('profile.db')).not.toBeNull();
+  await act(async () => button('快速体检').click());
+  expect(choiceToScan('profile.db')).toBeNull();
+});
+
+it('扫描完成后可在原扫描页选中其他库，追加扫描不结束维护', async () => {
+  await mount();
+  const choiceToScan = (name: string) =>
+    host.querySelector<HTMLInputElement>(`input[aria-label="扫描 ${name}"]`)!;
+  await act(async () => choiceToScan('profile.db').click());
+  await act(async () => choiceToScan('unsupported.db').click());
+  await act(async () => button('开始扫描').click());
+  await act(async () => maintenanceQa.complete());
+  await act(async () => button('扫描').click());
+  expect(host.querySelector('input[aria-label="扫描 nt_msg.db"]')).toBeNull();
+  expect(button('追加扫描').disabled).toBe(true);
+  await act(async () => choiceToScan('profile.db').click());
+  await act(async () => button('追加扫描').click());
+  expect(maintenanceQa.calls.end).toBe(0);
+  expect(maintenanceQa.calls.scan[1]).toMatchObject({ dbNames: ['profile.db'] });
+  expect(maintenanceQa.snapshot()?.databases[0]?.scanStatus).toBe('completed');
 });
 
 it('界面卸载不取消扫描、不删除已有结果或结束维护', async () => {

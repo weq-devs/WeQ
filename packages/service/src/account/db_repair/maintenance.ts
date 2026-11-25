@@ -27,6 +27,7 @@ import {
 export interface DatabaseMaintenanceLease {
   id?: string;
   release(): void | Promise<void>;
+  acquireMore?(targets: DbRepairTarget[], signal: AbortSignal): Promise<void>;
   /** 锁内无法合并的 WAL 等逐库问题，不把主文件扫描冒充完整扫描。 */
   errors?: Record<string, string>;
   signal?: AbortSignal;
@@ -94,6 +95,12 @@ const keyFor = (scope: DatabaseMaintenanceScope) =>
   JSON.stringify([scope.uin, scope.configId ?? null]);
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const progressPublishIntervalMs = 1000;
+const pendingRow = ({ dbName }: DbRepairTarget): DatabaseMaintenanceRow => ({
+  dbName,
+  scanStatus: 'pending',
+  support: 'possible',
+  issues: [],
+});
 
 /** 维护的生命周期属于宿主，不属于窗口；每次执行各自留一份不可覆盖的历史结果。 */
 export class DatabaseMaintenance {
@@ -182,6 +189,7 @@ export class DatabaseMaintenance {
     scope: DatabaseMaintenanceScope,
     targets: DbRepairTarget[],
     kind: 'scan' | 'checkup',
+    requestedNames?: string[],
   ): Promise<DatabaseMaintenanceSnapshot> {
     let session = this.sessions.get(keyFor(scope));
     if (session?.ending || session?.snapshot.state === 'ending')
@@ -189,31 +197,46 @@ export class DatabaseMaintenance {
     if (session?.pending) throw new Error('数据库维护任务正在执行，请先停止当前操作。');
     if (session?.lease?.signal?.aborted)
       throw new Error('持续维护锁已中断，请先结束维护并重新扫描。');
+    if (requestedNames && !session?.snapshot.locked)
+      throw new Error('本轮维护已结束，请刷新后开始扫描。');
+    const existing = session?.targets ?? [];
+    const added = requestedNames
+      ? targets.filter(
+          (target) =>
+            requestedNames.includes(target.dbName) &&
+            !existing.some((row) => row.dbName === target.dbName || row.dbPath === target.dbPath),
+        )
+      : [];
+    if (added.length && !session?.lease?.acquireMore)
+      throw new Error('本轮无法追加数据库，请刷新维护状态后重试。');
+    const newTargets = requestedNames
+      ? added
+      : !session || session.snapshot.state === 'ended'
+        ? targets
+        : [];
+    const paths = new Set(newTargets.map((target) => target.dbPath));
+    if (
+      [...this.sessions.values()].some(
+        (other) =>
+          other !== session &&
+          other.snapshot.state !== 'ended' &&
+          other.targets.some((target) => paths.has(target.dbPath)),
+      )
+    )
+      throw new Error(
+        requestedNames ? '所选数据库正在另一个维护会话中使用。' : '此账号的数据源已经在维护中。',
+      );
     if (!session || session.snapshot.state === 'ended') {
       if (!targets.length) throw new Error('没有可扫描的数据库。');
-      const paths = new Set(targets.map((target) => target.dbPath));
-      if (
-        [...this.sessions.values()].some(
-          (other) =>
-            other.snapshot.state !== 'ended' &&
-            other.targets.some((target) => paths.has(target.dbPath)),
-        )
-      )
-        throw new Error('此账号的数据源已经在维护中。');
       session = {
         snapshot: {
           ...scope,
           id: randomUUID(),
           state: 'locking',
           locked: false,
-          databases: targets.map((target) => ({
-            dbName: target.dbName,
-            scanStatus: 'pending',
-            support: 'possible',
-            issues: [],
-          })),
+          databases: targets.map(pendingRow),
         },
-        targets,
+        targets: [...targets],
         sourceIdentities: new Map(),
         lastSaved: 0,
         lastPublished: 0,
@@ -222,8 +245,19 @@ export class DatabaseMaintenance {
       this.sessions.set(keyFor(scope), session);
     }
     const current = session;
-    this.begin(current, kind, current.targets.length);
-    current.pending = this.scanSession(current, kind).finally(() => {
+    const selected = requestedNames
+      ? [...current.targets, ...added].filter((target) => requestedNames.includes(target.dbName))
+      : current.targets;
+    if (!selected.length) throw new Error('请选择要扫描的数据库。');
+    // 等待追加的锁期间，也要阻止其他维护会话抢占这些路径。
+    current.targets.push(...added);
+    this.begin(
+      current,
+      kind,
+      selected.length,
+      requestedNames ? selected.map((target) => target.dbName) : undefined,
+    );
+    current.pending = this.scanSession(current, kind, selected, added).finally(() => {
       current.pending = undefined;
     });
     return current.pending;
@@ -232,11 +266,23 @@ export class DatabaseMaintenance {
   private async scanSession(
     session: Session,
     kind: 'scan' | 'checkup',
+    selected: DbRepairTarget[],
+    added: DbRepairTarget[],
   ): Promise<DatabaseMaintenanceSnapshot> {
     const snapshot = session.snapshot;
     const signal = session.abort!.signal;
     let executionFailure: string | undefined;
     try {
+      if (added.length) {
+        try {
+          await session.lease!.acquireMore!(added, signal);
+        } catch (error) {
+          session.targets.splice(-added.length);
+          throw error;
+        }
+        snapshot.databases.push(...added.map(pendingRow));
+        this.publish(session, true);
+      }
       if (!session.lease) {
         session.lease = await this.deps.acquire(session.targets, signal);
         snapshot.locked = true;
@@ -257,7 +303,7 @@ export class DatabaseMaintenance {
         this.publish(session);
       }
       snapshot.state = 'scanning';
-      for (const target of session.targets) {
+      for (const target of selected) {
         signal.throwIfAborted();
         const row = snapshot.databases.find((item) => item.dbName === target.dbName)!;
         if (row.scanStatus === 'completed') {
@@ -341,7 +387,7 @@ export class DatabaseMaintenance {
       }
       if (kind === 'checkup' && !executionFailure) {
         snapshot.state = 'checking';
-        for (const target of session.targets) {
+        for (const target of selected) {
           signal.throwIfAborted();
           const row = snapshot.databases.find((item) => item.dbName === target.dbName)!;
           if (
@@ -426,7 +472,8 @@ export class DatabaseMaintenance {
     }
     const failures = snapshot.databases.some(
       (row) =>
-        row.scanStatus !== 'completed' || (kind === 'checkup' && row.deepStatus !== 'completed'),
+        selected.some((target) => target.dbName === row.dbName) &&
+        (row.scanStatus !== 'completed' || (kind === 'checkup' && row.deepStatus !== 'completed')),
     );
     const lost = session.lease?.signal?.aborted;
     if (lost) {
@@ -748,7 +795,12 @@ export class DatabaseMaintenance {
       '持续维护锁已中断，本次结果不能继续用于修复，请主动重新开始扫描。';
     this.publish(session);
   }
-  private begin(session: Session, kind: 'scan' | 'checkup' | 'repair', total: number) {
+  private begin(
+    session: Session,
+    kind: 'scan' | 'checkup' | 'repair',
+    total: number,
+    databaseNames?: string[],
+  ) {
     session.abort = new AbortController();
     session.snapshot.storage = undefined;
     session.snapshot.operation = {
@@ -758,6 +810,7 @@ export class DatabaseMaintenance {
       startedAt: Date.now(),
       elapsedMs: 0,
       totalDatabases: total,
+      ...(databaseNames ? { databaseNames } : {}),
       completedDatabases: 0,
     };
     session.preparation = new DatabaseProgressTracker(kind, '账号数据库');

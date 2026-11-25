@@ -144,9 +144,13 @@ function finish(status: 'completed' | 'cancelled' = 'completed') {
     live.locked = false;
   } else {
     if (status === 'completed') {
-      live.databases = scopeNames.map(regularRow);
+      const targets = live.operation.databaseNames ?? scopeNames;
+      live.databases = live.databases.map((row, index) =>
+        targets.includes(row.dbName) ? regularRow(row.dbName, index) : row,
+      );
       if (live.operation.kind === 'checkup') {
         for (const [index, row] of live.databases.entries()) {
+          if (!targets.includes(row.dbName)) continue;
           row.deepStatus = 'completed';
           if (index === 0) {
             row.locationChecked = true;
@@ -261,7 +265,7 @@ export const maintenanceQa = {
   },
   pages() {
     if (!live?.operation) return;
-    const row = live.databases[0]!;
+    const row = live.databases.find((item) => item.dbName === live?.operation?.currentDb)!;
     row.scanStatus = 'running';
     row.progress = tracker.update('scan', {
       step: 'pages',
@@ -495,12 +499,19 @@ export const trpc = {
     }),
     scanAccount: mutation(async (input) => {
       calls.scan.push(input);
-      if (input.dbNames) scopeNames = input.dbNames;
       const previous = live?.locked ? live.databases : undefined;
+      const targets = input.dbNames ?? scopeNames;
+      scopeNames = previous ? [...new Set([...scopeNames, ...targets])] : targets;
       live = create(input.kind);
-      if (previous) live.databases = previous;
-      live.operation!.currentDb = scopeNames[0];
-      tracker = new DatabaseProgressTracker('scan', names[0]!);
+      if (previous)
+        live.databases = live.databases.map(
+          (row) => previous.find((item) => item.dbName === row.dbName) ?? row,
+        );
+      live.operation!.databaseNames = targets;
+      live.operation!.totalDatabases = targets.length;
+      const currentDb = targets[0]!;
+      live.operation!.currentDb = currentDb;
+      tracker = new DatabaseProgressTracker('scan', currentDb);
       maintenanceQa.pages();
       return new Promise((resolve) => {
         resolveRun = resolve;

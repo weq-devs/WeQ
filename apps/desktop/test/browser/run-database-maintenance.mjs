@@ -92,6 +92,9 @@ try {
   await page.getByRole('checkbox', { name: '使用深度修复' }).check();
   await page.getByRole('heading', { name: 'nt_msg.db · 深度修复' }).waitFor();
   await page.getByRole('checkbox', { name: '使用深度修复' }).uncheck();
+  await tab('扫描').click();
+  await button('追加扫描').waitFor();
+  await capture('scan-after-completion-desktop');
   await tab('报告').click();
   await button('前往补充检查').click();
   await page.getByRole('radio', { checked: true, name: '深度体检' }).waitFor();
@@ -127,8 +130,8 @@ try {
     ),
     [
       ['scan', ['nt_msg.db', 'profile.db']],
-      ['checkup', undefined],
-      ['checkup', undefined],
+      ['checkup', ['nt_msg.db']],
+      ['checkup', ['nt_msg.db', 'profile.db']],
     ],
   );
   await button('历史报告与恢复').click();

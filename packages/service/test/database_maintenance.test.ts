@@ -76,9 +76,10 @@ function fixture() {
   }));
   const changed = vi.fn();
   const sourceIdentity = vi.fn(() => 'original');
+  const acquireMore = vi.fn(async (_targets: DbRepairTarget[], _signal: AbortSignal) => {});
   const maintenance = new DatabaseMaintenance({
     sourceIdentity,
-    acquire: vi.fn(async () => ({ id: 'held-lock', release, signal: lease.signal })),
+    acquire: vi.fn(async () => ({ id: 'held-lock', release, acquireMore, signal: lease.signal })),
     scan,
     locate,
     deep,
@@ -88,6 +89,7 @@ function fixture() {
   });
   return {
     maintenance,
+    acquireMore,
     sourceIdentity,
     targets,
     scan,
@@ -692,6 +694,55 @@ it('补充检查保留初始范围，复用页扫描，快速失败后只为尚�
     'profile.db',
   ]);
   expect(h.release).toHaveBeenCalledOnce();
+});
+
+it('追加扫描为新库取锁，失败可重试，本轮已完成的库不用重扫', async () => {
+  const h = fixture();
+  const first = h.targets[0]!;
+  const second = h.targets[1]!;
+  const initial = await h.maintenance.scan(scope, [first], 'scan');
+  h.acquireMore.mockRejectedValueOnce(new Error('新库无法加锁'));
+  const failed = await h.maintenance.scan(scope, [second], 'scan', [second.dbName]);
+  expect(failed).toMatchObject({
+    id: initial.id,
+    locked: true,
+    operation: { status: 'failed', error: '新库无法加锁' },
+  });
+  expect(failed.databases).toEqual(initial.databases);
+  expect(h.release).not.toHaveBeenCalled();
+  const finished = await h.maintenance.scan(scope, [second], 'scan', [second.dbName]);
+  expect(finished).toMatchObject({
+    id: initial.id,
+    locked: true,
+    operation: { status: 'completed', totalDatabases: 1, databaseNames: [second.dbName] },
+  });
+  expect(h.acquireMore.mock.calls.map(([targets]) => targets)).toEqual([[second], [second]]);
+  expect(h.scan.mock.calls.map(([target]) => target.dbName)).toEqual([first.dbName, second.dbName]);
+  expect(finished.databases[0]).toEqual(initial.databases[0]);
+  const saved = await h.maintenance.report(scope, initial.operation!.id);
+  expect(saved?.databases.map((row) => row.scan)).toEqual(initial.databases.map((row) => row.scan));
+  const checked = await h.maintenance.scan(scope, [], 'checkup', [first.dbName]);
+  expect(checked.operation).toMatchObject({ status: 'completed', databaseNames: [first.dbName] });
+  expect(h.deep.mock.calls.map(([target]) => target.dbName)).toEqual([first.dbName]);
+  expect(h.scan).toHaveBeenCalledTimes(2);
+  expect(checked.databases[1]?.deepStatus).toBeUndefined();
+  await h.maintenance.end(scope);
+  expect(h.release).toHaveBeenCalledOnce();
+});
+
+it('有效页扫描发现尚未定位的坏页时，仍可直接选择深度修复', async () => {
+  const h = fixture();
+  const base = h.scan.getMockImplementation()!;
+  h.scan.mockImplementation((...args) =>
+    base(...args).then((value) => ({ ...value, affected: [] })),
+  );
+  await h.maintenance.scan(scope, h.targets.slice(0, 1), 'scan');
+  const repaired = await h.maintenance.repair(scope, ['msg.db'], {
+    methods: { 'msg.db': 'deep' },
+  });
+  expect(h.locate).not.toHaveBeenCalled();
+  expect(h.deep).not.toHaveBeenCalled();
+  expect(repaired.databases[0]?.repair).toMatchObject({ method: 'deep', status: 'completed' });
 });
 
 it.each(['eligible', 'unverified', 'source-changed'] as const)(

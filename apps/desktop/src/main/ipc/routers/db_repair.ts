@@ -61,7 +61,7 @@ const targetRef = accountRef.extend({ dbName: z.string().min(1) });
 const recordRef = accountRef.extend({ recordId: z.string().min(1) });
 const reportRef = accountRef.extend({ reportId: z.string().min(1) });
 const progressBus = new EventEmitter();
-const maintenanceLocks = new Map<string, DatabaseMaintenanceLock>();
+const maintenanceLocks = new Map<string, Map<string, DatabaseMaintenanceLock>>();
 let closedAccountDuringRun = false;
 
 function configuredDbDir(dataDir: string): string | undefined {
@@ -111,7 +111,11 @@ const deps: DbRepairDeps = {
   probeLock: (path) => {
     try {
       const probe = requirePlatform().native.ntHelper.probeDbLock(path);
-      const owned = new Set([...maintenanceLocks.values()].map((worker) => worker.pid));
+      const owned = new Set(
+        [...maintenanceLocks.values()].flatMap((workers) =>
+          [...workers.values()].map((worker) => worker.pid),
+        ),
+      );
       return { ...probe, holders: probe.holders.filter((holder) => !owned.has(holder.pid)) };
     } catch {
       return { success: false, holders: [] };
@@ -156,7 +160,7 @@ const deps: DbRepairDeps = {
     await runDatabaseMaintenanceWorker({ kind: 'clone-backup', source, target }, signal);
   },
   protectProduct: async (id, path, product) => {
-    const worker = maintenanceLocks.get(id);
+    const worker = maintenanceLocks.get(id)?.get(path);
     if (!worker) throw new Error('持续维护锁已经释放，不能替换数据库。');
     await worker.protect(path, product);
   },
@@ -240,44 +244,66 @@ export const databaseMaintenance = new DatabaseMaintenance({
       !nt.setDatabaseMaintenanceWriteBarrier
     )
       throw new Error('当前原生组件不支持持续维护锁，请更新原生组件后再开始扫描。');
-    const releaseWrites = maintainDatabases(targets.map((target) => target.dbPath));
     const id = randomUUID();
-    let worker: DatabaseMaintenanceLock | undefined;
-    try {
-      nt.setDatabaseMaintenanceWriteBarrier(
-        id,
-        targets.map((target) => target.dbPath),
-        true,
-      );
-      for (const target of targets) nt.closeDb(target.dbPath);
-      worker = new DatabaseMaintenanceLock();
-      const locks = await worker.begin(id, targets, signal);
-      maintenanceLocks.set(id, worker);
-      const owned = worker;
-      return {
-        id,
-        signal: worker.signal,
-        errors: Object.fromEntries(
-          locks.flatMap((lock) =>
-            lock.error
-              ? [[targets.find((target) => target.dbPath === lock.dbPath)!.dbName, lock.error]]
-              : [],
-          ),
-        ),
-        release: async () => {
+    const setWriteBarrier = nt.setDatabaseMaintenanceWriteBarrier.bind(nt);
+    const workers = new Map<string, DatabaseMaintenanceLock>();
+    const releases = new Set<() => Promise<void>>();
+    const errors: Record<string, string> = Object.create(null);
+    const lost = new AbortController();
+    // 每批库有自己的原生持锁进程，替换产物时仍使用原库实际对应的锁。
+    const acquireMore = async (batch: typeof targets, signal: AbortSignal) => {
+      const batchId = randomUUID();
+      const paths = batch.map((target) => target.dbPath);
+      const releaseWrites = maintainDatabases(paths);
+      let worker: DatabaseMaintenanceLock | undefined;
+      try {
+        setWriteBarrier(batchId, paths, true);
+        for (const path of paths) nt.closeDb(path);
+        worker = new DatabaseMaintenanceLock();
+        const locks = await worker.begin(batchId, batch, signal);
+        worker.signal.throwIfAborted();
+        const owned = worker;
+        owned.signal.addEventListener('abort', () => lost.abort(owned.signal.reason), {
+          once: true,
+        });
+        for (const { dbPath, dbName } of batch) {
+          workers.set(dbPath, owned);
+          const error = locks.find((lock) => lock.dbPath === dbPath)?.error;
+          if (error) errors[dbName] = error;
+        }
+        const release = async () => {
           await owned.end();
-          nt.setDatabaseMaintenanceWriteBarrier!(id, [], false);
+          setWriteBarrier(batchId, [], false);
           releaseWrites();
-          maintenanceLocks.delete(id);
-          service.endMaintenance(id);
-        },
-      };
-    } catch (error) {
-      await worker?.terminate();
-      nt.setDatabaseMaintenanceWriteBarrier(id, [], false);
-      releaseWrites();
-      throw error;
-    }
+          for (const path of paths) workers.delete(path);
+          releases.delete(release);
+        };
+        releases.add(release);
+      } catch (error) {
+        await worker?.terminate();
+        setWriteBarrier(batchId, [], false);
+        releaseWrites();
+        throw error;
+      }
+    };
+    await acquireMore(targets, signal);
+    maintenanceLocks.set(id, workers);
+    return {
+      id,
+      signal: lost.signal,
+      errors,
+      acquireMore,
+      release: async () => {
+        const results = await Promise.allSettled([...releases].map((release) => release()));
+        const failure = results.find((result) => result.status === 'rejected');
+        if (failure) {
+          lost.abort(failure.reason);
+          throw failure.reason;
+        }
+        maintenanceLocks.delete(id);
+        service.endMaintenance(id);
+      },
+    };
   },
   scan: async (target, signal, progress) =>
     (await runDatabaseMaintenanceWorker({ kind: 'scan', target }, signal, (tick) => {
@@ -435,17 +461,23 @@ export const dbRepairRouter = router({
     )
     .mutation(async ({ input }) => {
       const info = service.accountInfo(input.uin);
-      const names =
-        input.dbNames ??
-        rowsFor(input.uin, info.dbDir)
-          .filter((row) => row.exists)
-          .map((row) => row.dbName);
-      // 继续时由现有会话保留初次勾选的路径及对应的锁。
-      const targets = databaseMaintenance.status(input)?.locked
-        ? []
-        : [...new Set(names)].map((name) => service.resolveTarget(input.uin, name));
+      const current = databaseMaintenance.status(input);
+      const names = current?.locked
+        ? (input.dbNames ?? []).filter(
+            (name) => !current.databases.some((row) => row.dbName === name),
+          )
+        : (input.dbNames ??
+          rowsFor(input.uin, info.dbDir)
+            .filter((row) => row.exists)
+            .map((row) => row.dbName));
+      const targets = [...new Set(names)].map((name) => service.resolveTarget(input.uin, name));
       return summarizeDatabaseMaintenance(
-        await databaseMaintenance.scan(input, targets, input.kind),
+        await databaseMaintenance.scan(
+          input,
+          targets,
+          input.kind,
+          current?.locked ? input.dbNames : undefined,
+        ),
       );
     }),
   repairSelected: procedure
