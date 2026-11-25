@@ -283,9 +283,15 @@ export const databaseMaintenance = new DatabaseMaintenance({
     (await runDatabaseMaintenanceWorker({ kind: 'scan', target }, signal, (tick) => {
       if ('step' in tick) progress(tick);
     })) as BadPageScanReport,
-  locate: async (target, scan, signal, progress) =>
+  locate: async (target, scan, signal, progress, quickOnly) =>
     (await runDatabaseMaintenanceWorker(
-      { kind: 'locate', target, scan, references: backupReferencesFor(target.dbPath, target.uin) },
+      {
+        kind: 'locate',
+        target,
+        scan,
+        references: backupReferencesFor(target.dbPath, target.uin),
+        quickOnly,
+      },
       signal,
       (tick) => {
         if ('step' in tick) progress(tick);

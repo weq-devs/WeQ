@@ -45,8 +45,8 @@ async function main() {
     result = { cloned: true };
   } else if (request.kind === 'locate') {
     const { dbPath, dbDir, key, algo } = request.target;
-    const scan = request.scan;
-    progress({ step: 'mapping', message: '定位坏页所属表与索引' });
+    const { scan, quickOnly } = request;
+    if (!quickOnly) progress({ step: 'mapping', message: '定位坏页所属表与索引' });
     const evidence = await nt
       .inspectDatabaseQuickPages?.(dbPath, key, algo, scan.badPages, request.references)
       .catch(() => undefined);
@@ -56,9 +56,12 @@ async function main() {
     ];
     const known = new Set(candidates.flatMap((candidate) => candidate.pages));
     const unresolved = scan.badPages.filter((page) => !known.has(page));
-    const affected = nt.locateDatabaseBadPages
-      ? await nt.locateDatabaseBadPages(dbPath, key, algo, unresolved).catch(() => [])
-      : await mapBadPagesToObjects(nt, dbPath, key, algo, unresolved);
+    const affected =
+      quickOnly || !unresolved.length
+        ? []
+        : nt.locateDatabaseBadPages
+          ? await nt.locateDatabaseBadPages(dbPath, key, algo, unresolved).catch(() => [])
+          : await mapBadPagesToObjects(nt, dbPath, key, algo, unresolved);
     for (const { name, pagetype, pages } of candidates) {
       if (pages.length)
         affected.push({

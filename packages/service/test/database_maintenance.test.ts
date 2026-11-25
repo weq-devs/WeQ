@@ -663,7 +663,6 @@ it('补充检查保留初始范围，复用页扫描，快速失败后只为尚�
   });
   const initial = await h.maintenance.scan(scope, h.targets.slice(0, 2), 'scan');
   expect(initial.databases.map((row) => row.dbName)).toEqual(['msg.db', 'profile.db']);
-  expect(() => h.maintenance.repair(scope, ['msg.db'])).toThrow('不支持修复');
   await h.maintenance.scan(scope, h.targets, 'checkup');
   expect(h.scan).toHaveBeenCalledTimes(2);
   expect(h.locate).toHaveBeenCalledTimes(2);
@@ -674,6 +673,7 @@ it('补充检查保留初始范围，复用页扫描，快速失败后只为尚�
   const waiting = await h.maintenance.repair(scope, ['msg.db', 'profile.db']);
   expect(waiting).toMatchObject({ id: initial.id, locked: true });
   expect(waiting.databases[0]?.repair).toMatchObject({ status: 'completed', method: 'quick' });
+  expect(h.locate).toHaveBeenCalledTimes(2);
   expect(waiting.databases[1]?.repair).toMatchObject({
     status: 'waiting',
     method: 'quick',
@@ -693,6 +693,64 @@ it('补充检查保留初始范围，复用页扫描，快速失败后只为尚�
   ]);
   expect(h.release).toHaveBeenCalledOnce();
 });
+
+it.each(['eligible', 'unverified', 'source-changed'] as const)(
+  '快速修复先用现有页号核验条件（%s）',
+  async (outcome) => {
+    const h = fixture();
+    const base = h.scan.getMockImplementation()!;
+    h.scan.mockImplementation((...args) =>
+      base(...args).then((value) => ({ ...value, affected: [] })),
+    );
+    const initial = await h.maintenance.scan(scope, h.targets.slice(0, 1), 'scan');
+    expect(h.locate).not.toHaveBeenCalled();
+    h.locate.mockImplementationOnce(async () => {
+      expect(h.repair).not.toHaveBeenCalled();
+      if (outcome === 'source-changed') h.sourceIdentity.mockReturnValue('changed');
+      return {
+        affected: [
+          { name: '空闲叶页', pagetype: 'freelist-leaf', badPageCount: 1, samplePages: [2] },
+        ],
+        quickBudgetBytes: outcome === 'unverified' ? undefined : 32 * 1024 * 1024,
+      };
+    });
+    const result = await h.maintenance.repair(scope, ['msg.db'], {
+      methods: { 'msg.db': 'quick' },
+    });
+    expect(h.scan).toHaveBeenCalledOnce();
+    expect(h.deep).not.toHaveBeenCalled();
+    expect(h.locate).toHaveBeenCalledOnce();
+    expect(h.locate).toHaveBeenCalledWith(
+      h.targets[0],
+      expect.objectContaining({ badPages: [2], dbPath: h.targets[0]!.dbPath }),
+      expect.any(AbortSignal),
+      expect.any(Function),
+      true,
+    );
+    if (outcome === 'eligible') {
+      expect(result.databases[0]?.repair).toMatchObject({ method: 'quick', status: 'completed' });
+      expect(h.repair).toHaveBeenCalledOnce();
+    } else {
+      expect(h.repair).not.toHaveBeenCalled();
+      if (outcome === 'unverified') {
+        expect(result).toMatchObject({ id: initial.id, locked: true, state: 'waiting' });
+        expect(result.databases[0]?.repair).toMatchObject({
+          status: 'waiting',
+          nextAction: 'view-deep',
+        });
+        await h.maintenance.repair(scope, ['msg.db'], { methods: { 'msg.db': 'deep' } });
+        expect(h.scan).toHaveBeenCalledOnce();
+        expect(h.repair).toHaveBeenCalledOnce();
+      } else {
+        expect(result).toMatchObject({ state: 'ended', locked: false });
+        expect(result.databases[0]?.repair).toMatchObject({
+          status: 'failed',
+          nextAction: 'check-source',
+        });
+      }
+    }
+  },
+);
 
 it('原库变化后停止修复批次并要求核对，旧扫描不能继续提交', async () => {
   const h = fixture();

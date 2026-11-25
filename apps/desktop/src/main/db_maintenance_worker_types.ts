@@ -3,7 +3,13 @@ import type { BadPageScanReport, DatabaseRepairMethod, DbRepairTarget } from '@w
 
 export type DatabaseMaintenanceWorkerRequest =
   | { kind: 'scan' | 'deep'; target: DbRepairTarget }
-  | { kind: 'locate'; target: DbRepairTarget; scan: BadPageScanReport; references: string[] }
+  | {
+      kind: 'locate';
+      target: DbRepairTarget;
+      scan: BadPageScanReport;
+      references: string[];
+      quickOnly?: true;
+    }
   | { kind: 'clone-backup'; source: string; target: string }
   | {
       kind: 'repair';

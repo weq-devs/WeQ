@@ -9,6 +9,7 @@ import type {
 } from './maintenance_reports';
 import { DbRepairError } from './service';
 import {
+  databaseCanCheckQuickRepair,
   databaseReadyForRepair,
   databaseNeedsPageLocation,
   databaseRepairRecommendation,
@@ -43,6 +44,7 @@ export interface DatabaseMaintenanceDeps {
     scan: BadPageScanReport,
     signal: AbortSignal,
     progress: (tick: DatabaseWorkProgress) => void,
+    quickOnly?: true,
   ): Promise<DatabasePageLocation>;
   deep(
     target: DbRepairTarget,
@@ -486,7 +488,7 @@ export class DatabaseMaintenance {
       if (!databaseReadyForRepair(row)) throw new Error(`${name} 当前不支持修复。`);
       const recommended = databaseRepairRecommendation(row);
       const method = options.methods?.[name] ?? recommended ?? 'deep';
-      if (method === 'quick' && recommended !== 'quick')
+      if (method === 'quick' && recommended !== 'quick' && !databaseCanCheckQuickRepair(row))
         throw new Error(`${name} 当前没有可用的快速修复方案。`);
       methods[name] = method;
     }
@@ -527,6 +529,8 @@ export class DatabaseMaintenance {
         try {
           if (!this.hasSameSource(session, target))
             throw new DbRepairError('changed-during-repair', '原库与扫描时不同，请重新核对原库。');
+          if (method === 'quick' && !row.quickBudgetBytes)
+            await this.checkQuickRepair(session, row, target, tracker, signal);
           const record = await this.deps.repair(
             target,
             row.scan!,
@@ -575,7 +579,7 @@ export class DatabaseMaintenance {
               nextAction: space ? 'retry-space' : canDeep ? 'view-deep' : 'retry',
             };
             if (error.storage) snapshot.storage = error.storage;
-            row.progress = tracker.finish('cancelled');
+            row.progress = tracker.finish(canDeep ? 'failed' : 'cancelled');
             for (const pending of snapshot.databases)
               if (pending.repair?.status === 'pending')
                 pending.repair = {
@@ -631,6 +635,51 @@ export class DatabaseMaintenance {
       await this.flushReports(session);
     }
     return structuredClone(snapshot);
+  }
+
+  private async checkQuickRepair(
+    session: Session,
+    row: DatabaseMaintenanceRow,
+    target: DbRepairTarget,
+    tracker: DatabaseProgressTracker,
+    signal: AbortSignal,
+  ) {
+    const step = 'quick-repair-check';
+    this.tick(session, row, tracker, 'preparing', { step, message: '核验坏页与同卷克隆能力' });
+    let checkError: string | undefined;
+    const result = await this.deps
+      .locate?.(target, row.scan!, signal, () => {}, true)
+      .catch((error: unknown) => {
+        checkError = errorText(error);
+        return undefined;
+      });
+    signal.throwIfAborted();
+    if (!this.hasSameSource(session, target))
+      throw new DbRepairError('changed-during-repair', '核验期间原库发生变化，请重新核对原库。');
+    if (!result?.quickBudgetBytes) {
+      const error = new DbRepairError(
+        'recover-failed',
+        checkError
+          ? `快速修复条件核验失败：${checkError}`
+          : '未能确认所有坏页都可修复且原库所在卷支持克隆。可以查看深度修复方案。',
+      );
+      error.sourceUnchanged = true;
+      this.tick(session, row, tracker, 'preparing', {
+        step,
+        message: '快速修复条件未满足',
+        status: 'failed',
+        detail: error.message,
+      });
+      throw error;
+    }
+    row.scan!.affected = result.affected;
+    row.locationChecked = true;
+    row.quickBudgetBytes = result.quickBudgetBytes;
+    this.tick(session, row, tracker, 'preparing', {
+      step,
+      message: '已核验坏页与同卷克隆能力',
+      status: 'completed',
+    });
   }
 
   private hasSameSource(session: Session, target: DbRepairTarget): boolean {

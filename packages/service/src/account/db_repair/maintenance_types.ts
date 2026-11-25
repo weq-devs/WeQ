@@ -79,6 +79,7 @@ export interface DatabaseMaintenanceStatusRow
     badPageCount: number;
     zeroPageCount: number;
     affected?: BadPageScanReport['affected'];
+    quickRepairEligible?: boolean;
   };
   repair?: Omit<NonNullable<DatabaseMaintenanceRow['repair']>, 'record'> & {
     verification?: {
@@ -108,6 +109,7 @@ export function summarizeDatabaseMaintenance(
           badPageCount: scan.badPages.length,
           zeroPageCount: scan.zeroPages.length,
           affected: scan.affected,
+          quickRepairEligible: quickRepairEligible(scan),
         },
         repair: repair && {
           status: repair.status,
@@ -151,7 +153,8 @@ export function databaseReadyForRepair(
     row.scanStatus === 'completed' &&
     !!row.scan &&
     row.support !== 'unsupported' &&
-    !databaseNeedsPageLocation(row) &&
+    // 常规扫描已验证存在正常页时，深度修复可直接重建；快速修复仍须取得坏页证据。
+    (row.support === 'supported' || !databaseNeedsPageLocation(row)) &&
     row.repair?.status !== 'completed'
   );
 }
@@ -159,7 +162,37 @@ export function databaseRepairRecommendation(
   row: DatabaseMaintenanceStatusRow | DatabaseMaintenanceRow,
 ): DatabaseRepairMethod | undefined {
   if (!databaseReadyForRepair(row) || !databaseMaintenanceRowAbnormal(row)) return undefined;
-  return row.quickBudgetBytes && row.repair?.nextAction !== 'view-deep' ? 'quick' : 'deep';
+  return row.quickBudgetBytes &&
+    !databaseNeedsPageLocation(row) &&
+    row.repair?.nextAction !== 'view-deep'
+    ? 'quick'
+    : 'deep';
+}
+
+function quickRepairEligible(scan: BadPageScanReport): boolean {
+  return (
+    scan.usedHmac &&
+    !scan.plaintext &&
+    scan.sourceLayout !== 'standard' &&
+    !scan.trailingBytes &&
+    scan.pageSize === 4096 &&
+    scan.badPages.length > 0 &&
+    scan.badPages.length <= 128 &&
+    scan.badPages.length < scan.pageCount
+  );
+}
+
+export function databaseCanCheckQuickRepair(
+  row: DatabaseMaintenanceStatusRow | DatabaseMaintenanceRow,
+): boolean {
+  const { scan } = row;
+  return (
+    databaseReadyForRepair(row) &&
+    row.repair?.nextAction !== 'view-deep' &&
+    databaseNeedsPageLocation(row) &&
+    !!scan &&
+    ('badPages' in scan ? quickRepairEligible(scan) : scan.quickRepairEligible === true)
+  );
 }
 
 export function databaseNeedsPageLocation(

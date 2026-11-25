@@ -24,6 +24,7 @@ export class DatabaseScanUnsupportedError extends Error {
 export {
   databaseReadyForRepair,
   databaseNeedsPageLocation,
+  databaseCanCheckQuickRepair,
   databaseRepairRecommendation,
   verifiedDatabaseScans,
   summarizeDatabaseMaintenance,

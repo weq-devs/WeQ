@@ -87,6 +87,12 @@ try {
   assert.equal(await page.getByRole('button', { name: '查看 unsupported.db 检查详情' }).count(), 0);
   await button('JSON').click();
   await capture('report-unlocated-desktop');
+  await button('查看修复方案').click();
+  await page.getByRole('heading', { name: 'nt_msg.db · 快速修复' }).waitFor();
+  await page.getByRole('checkbox', { name: '使用深度修复' }).check();
+  await page.getByRole('heading', { name: 'nt_msg.db · 深度修复' }).waitFor();
+  await page.getByRole('checkbox', { name: '使用深度修复' }).uncheck();
+  await tab('报告').click();
   await button('前往补充检查').click();
   await page.getByRole('radio', { checked: true, name: '深度体检' }).waitFor();
   await button('开始补充检查').click();

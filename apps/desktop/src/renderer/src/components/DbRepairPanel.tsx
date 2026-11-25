@@ -33,6 +33,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  databaseCanCheckQuickRepair,
   databaseReadyForRepair,
   databaseNeedsPageLocation,
   databaseRepairRecommendation,
@@ -190,6 +191,7 @@ export function DbRepairPanel({
     account?.dbName ? [account.dbName] : undefined,
   );
   const [selected, setSelected] = useState<string[]>([]);
+  const [deepChoices, setDeepChoices] = useState<string[]>([]);
   const [backupChoices, setBackupChoices] = useState<Record<string, boolean>>({});
   const [strictPages, setStrictPages] = useState(false);
   const [allowLowSpace, setAllowLowSpace] = useState(false);
@@ -308,6 +310,7 @@ export function DbRepairPanel({
       sessionId.current = live.id;
       touched.current.clear();
       setSelected([]);
+      setDeepChoices([]);
     }
     const defaults = live.databases
       .filter(
@@ -402,7 +405,9 @@ export function DbRepairPanel({
       const quickNames = names.filter((name) => methods[name] === 'quick');
       const deepNames = names.filter((name) => methods[name] === 'deep');
       const detail = [
-        quickNames.length ? `${quickNames.join('、')} 将快速修复，保留消息记录。` : '',
+        quickNames.length
+          ? `${quickNames.join('、')} 将先核验快速修复条件，通过后修复并保留消息记录。`
+          : '',
         deepNames.length ? `${deepNames.join('、')} 将重建数据库，损坏的记录可能无法恢复。` : '',
       ]
         .filter(Boolean)
@@ -521,8 +526,13 @@ export function DbRepairPanel({
       : activeRow;
   const progress = progressOwner?.progress ?? view?.progress;
   const plans = databases.flatMap((row) => {
-    const method = databaseRepairRecommendation(row);
-    return method ? [{ row, method }] : [];
+    const recommended = databaseRepairRecommendation(row);
+    if (!recommended) return [];
+    const canCheckQuick = databaseCanCheckQuickRepair(row);
+    const method = canCheckQuick && !deepChoices.includes(row.dbName) ? 'quick' : recommended;
+    return [
+      { row, method, canCheckQuick, budgetPending: method === 'quick' && !row.quickBudgetBytes },
+    ];
   });
   const readyNames = plans.map(({ row }) => row.dbName);
   const methods = Object.fromEntries(plans.map(({ row, method }) => [row.dbName, method]));
@@ -533,6 +543,9 @@ export function DbRepairPanel({
     ]),
   );
   const selectedReady = selected.filter((name) => readyNames.includes(name));
+  const selectedWithBudget = plans
+    .filter(({ row, budgetPending }) => !budgetPending && selectedReady.includes(row.dbName))
+    .map(({ row }) => row.dbName);
   const scannedCount = databases.filter((row) => row.scanStatus === 'completed').length;
   const abnormalCount = databases.filter((row) => databaseMaintenanceRowAbnormal(row)).length;
   const needsCheckup =
@@ -568,6 +581,8 @@ export function DbRepairPanel({
   const selectedBackups = selectedReady.filter((name) => backups[name]).length;
   const hasDeep = selectedReady.some((name) => methods[name] === 'deep');
   const needsLocation = !!(activeRow && databaseNeedsPageLocation(activeRow));
+  const activeRepair = activeRow && databaseRepairRecommendation(activeRow);
+  const activeCanCheckQuick = !!(activeRow && databaseCanCheckQuickRepair(activeRow));
   const reportIdToExport = operation?.id;
   const activeProgress =
     progress && (progress.status === 'running' || progress.steps.length > 0) ? progress : undefined;
@@ -930,10 +945,10 @@ export function DbRepairPanel({
         {tab === 'repair' ? (
           <RepairStorageWarning
             scope={scope}
-            names={selectedReady}
+            names={selectedWithBudget}
             backups={backups}
             methods={methods}
-            enabled={showFooter && selectedReady.length > 0}
+            enabled={showFooter && selectedWithBudget.length > 0}
             storage={repairing ? live?.storage : undefined}
             onChangeCache={() => void changeCache()}
             cacheDisabled={repairing || pickCache.isLoading || resetCache.isLoading}
@@ -1057,7 +1072,7 @@ export function DbRepairPanel({
             <div className="weq-dbm-report-actions">
               {needsLocation && locked && !repairing && activeRow.support !== 'unsupported' ? (
                 <button
-                  className="weq-set-btn weq-set-btn-primary"
+                  className={`weq-set-btn${waiting && activeCanCheckQuick ? '' : ' weq-set-btn-primary'}`}
                   type="button"
                   disabled={!canScan}
                   onClick={() => {
@@ -1068,16 +1083,17 @@ export function DbRepairPanel({
                   前往补充检查
                 </button>
               ) : null}
-              {!needsLocation && waiting && databaseRepairRecommendation(activeRow) ? (
+              {waiting && activeRepair ? (
                 <button
-                  className={`weq-set-btn${activeRow.repair?.nextAction === 'retry-space' ? '' : ' weq-set-btn-primary'}`}
+                  className={`weq-set-btn${(needsLocation && !activeCanCheckQuick) || activeRow.repair?.nextAction === 'retry-space' ? '' : ' weq-set-btn-primary'}`}
                   type="button"
                   onClick={() => {
                     setSelected((values) => [...new Set([...values, activeRow.dbName])]);
                     setTab('repair');
                   }}
                 >
-                  {activeRow.repair?.nextAction === 'view-deep'
+                  {(needsLocation && !activeCanCheckQuick) ||
+                  activeRow.repair?.nextAction === 'view-deep'
                     ? '查看深度修复方案'
                     : activeRow.repair?.nextAction === 'retry-space' &&
                         activeRow.repair.method === 'quick'
@@ -1157,7 +1173,7 @@ export function DbRepairPanel({
                 重新检查空间
               </button>
             </div>
-            {plans.map(({ row, method }) => (
+            {plans.map(({ row, method, canCheckQuick, budgetPending }) => (
               <div key={row.dbName} className="weq-dbm-detail weq-dbm-plan-row">
                 <header className="weq-dbm-detail-head">
                   <label className="weq-dbm-plan-select">
@@ -1182,10 +1198,30 @@ export function DbRepairPanel({
                   </label>
                 </header>
                 <p>
-                  {method === 'quick'
-                    ? `只修复已核验的 ${row.scan?.badPageCount} 个坏页，保留消息记录。复核可能需要通读数据库。`
-                    : '抢救可读记录并重建数据库。损坏的记录可能无法恢复。'}
+                  {budgetPending
+                    ? '开始后先核验坏页和同卷克隆能力，再检查所需空间。'
+                    : method === 'quick'
+                      ? `只修复已核验的 ${row.scan?.badPageCount} 个坏页，保留消息记录。复核可能需要通读数据库。`
+                      : '抢救可读记录并重建数据库。损坏的记录可能无法恢复。'}
                 </p>
+                {canCheckQuick ? (
+                  <label className="weq-dbm-plan-select">
+                    <input
+                      type="checkbox"
+                      checked={method === 'deep'}
+                      onChange={(event) => {
+                        const checked = event.target.checked;
+                        setAllowLowSpace(false);
+                        setDeepChoices((names) =>
+                          checked
+                            ? [...names, row.dbName]
+                            : names.filter((name) => name !== row.dbName),
+                        );
+                      }}
+                    />
+                    <span>使用深度修复</span>
+                  </label>
+                ) : null}
                 <label className="weq-dbm-plan-select">
                   <input
                     type="checkbox"
@@ -1200,13 +1236,15 @@ export function DbRepairPanel({
                   />
                   <span>{method === 'quick' ? '保留同卷克隆备份' : '修复前保留备份'}</span>
                 </label>
-                <RepairBudget
-                  scope={scope}
-                  dbName={row.dbName}
-                  enabled={!running}
-                  method={method}
-                  backup={!!backups[row.dbName]}
-                />
+                {budgetPending ? null : (
+                  <RepairBudget
+                    scope={scope}
+                    dbName={row.dbName}
+                    enabled={!running}
+                    method={method}
+                    backup={!!backups[row.dbName]}
+                  />
+                )}
               </div>
             ))}
           </section>
