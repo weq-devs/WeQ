@@ -53,6 +53,7 @@ import type { ExportSkippedRanges } from './export/message_source';
 import {
   compileMessageFilter,
   matchesMessageFilter,
+  messageSearchText,
   messageSelectionKey,
   type MessageFilter,
 } from './message_filter';
@@ -60,6 +61,7 @@ import type { GapFetchedMessage } from './gap_history';
 import { elementsToText } from './export/element_text';
 import { sourceStamp } from './export/resume';
 import { mergeRoamingTimeline } from '../common/roaming_timeline';
+import { RecordSearchIndex } from './record_search_index';
 
 const bodyCodec = new ProtoMsg(MsgBody);
 
@@ -175,6 +177,7 @@ export interface RenderGroupMsg extends Omit<GroupMsg, 'elements'> {
 
 export class MsgService {
   private readonly deletionWrites = new Map<string, Promise<unknown>>();
+  private readonly recordSearchIndex = new RecordSearchIndex();
   /**
    * `deleted` is the per-account {@link DeletedMsgStore}; omit it for contexts
    * that never delete (e.g. the export pipeline's private MsgService).
@@ -310,27 +313,38 @@ export class MsgService {
     let next = cursor;
     let hasMore = true;
     const recalls = await this.recallMapFor(kind, conv);
-    const matches = compileMessageFilter(filter);
+    const keyword = filter.keyword?.toLocaleLowerCase();
+    const matches = compileMessageFilter({ ...filter, keyword: undefined });
     let scannedTime: number | undefined;
     while (items.length < limit && scanned < 5000) {
       const page =
         kind === 'group'
-          ? await this.session.groupMsgs.browse(conv, filter, next)
-          : await this.c2cDbFor(conv).browse(this.c2cPartition(conv), filter, next);
+          ? await this.session.groupMsgs.browseRows(conv, filter, next)
+          : await this.c2cDbFor(conv).browseRows(this.c2cPartition(conv), filter, next);
       if (!page.length) {
         hasMore = false;
         break;
       }
       for (const row of page) {
         scanned++;
-        const time = Number(row.message.sendTime);
+        const time = Number(row.time);
         if (time > 0) scannedTime = time;
         next = { time, rowId: row.rowId };
+        if (keyword && !row.body) continue;
+        const key = `${kind}:${conv}:${row.rowId}`;
+        const indexed = keyword ? this.recordSearchIndex.get(key, row.body) : undefined;
+        if (keyword && indexed !== undefined && !indexed.includes(keyword)) continue;
         const rendered =
           kind === 'group'
-            ? this.renderGroupWithState(row.message as GroupMsg, recalls)
-            : this.renderC2cWithState(row.message as C2cMsg, recalls);
-        if (matches(rendered)) items.push(rendered);
+            ? this.renderGroupWithState(row.decode() as GroupMsg, recalls)
+            : this.renderC2cWithState(row.decode() as C2cMsg, recalls);
+        if (!matches(rendered)) continue;
+        if (keyword && indexed === undefined) {
+          const text = messageSearchText(rendered.elements);
+          this.recordSearchIndex.set(key, row.body, text);
+          if (!text.includes(keyword)) continue;
+        }
+        items.push(rendered);
         if (items.length === limit) break;
       }
       if (items.length === limit) break;

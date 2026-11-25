@@ -56,6 +56,8 @@ import {
 } from './calendar';
 import {
   browseConditions,
+  queryBrowsePage,
+  browseRow,
   type BrowseFilter,
   type BrowseCursor,
   type BrowseDirection,
@@ -179,13 +181,30 @@ export class GroupMsgDb {
     limit = 500,
     direction: BrowseDirection = 'older',
   ) {
-    const query = browseConditions('"40027"=?', conv, filter, cursor, direction);
-    const order = direction === 'older' ? 'DESC' : 'ASC';
-    const rows = await this.qq.query(
-      `SELECT rowid,${SELECT_COLUMNS} FROM group_msg_table WHERE ${query.clause} ORDER BY COALESCE("40050",0) ${order},rowid ${order} LIMIT ?`,
-      [...query.params, BigInt(limit)],
+    const rows = await this.browseRows(conv, filter, cursor, limit, direction);
+    return rows.map((row) => ({ rowId: row.rowId, message: row.decode() }));
+  }
+
+  async browseRows(
+    conv: string,
+    filter: BrowseFilter,
+    cursor?: BrowseCursor,
+    limit = 500,
+    direction: BrowseDirection = 'older',
+  ) {
+    const rows = await queryBrowsePage(
+      this.qq,
+      'group_msg_table',
+      SELECT_COLUMN_NAMES,
+      { clause: '"40027"=?', value: conv },
+      filter,
+      cursor,
+      limit,
+      direction,
     );
-    return rows.map((row) => ({ rowId: String(row[0]), message: rowToGroupMsg(row.slice(1)) }));
+    const timeIndex = SELECT_COLUMN_NAMES.indexOf('40050');
+    const bodyIndex = SELECT_COLUMN_NAMES.indexOf('40800');
+    return rows.map((row) => browseRow(row, timeIndex, bodyIndex, rowToGroupMsg));
   }
 
   boundary(targetGroupCode: string, newest: boolean, bounds?: MessageBounds) {

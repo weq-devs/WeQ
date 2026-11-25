@@ -82,6 +82,10 @@ export function compileMessageFilter(
   return (message) => matchesMessageFilter(message, snapshot, ids, senders);
 }
 
+export function messageSearchText(elements: RenderElement[]): string {
+  return elementsToText(elements).toLocaleLowerCase();
+}
+
 type ClassifiedElement = RenderElement | { type?: string; data?: Record<string, unknown> };
 
 function categoryOf(element: ClassifiedElement): MessageCategory {
@@ -172,9 +176,7 @@ export function matchesMessageFilter(
   }
   if (
     filter.keyword &&
-    !elementsToText(message.elements)
-      .toLocaleLowerCase()
-      .includes(filter.keyword.toLocaleLowerCase())
+    !messageSearchText(message.elements).includes(filter.keyword.toLocaleLowerCase())
   )
     return false;
   return true;

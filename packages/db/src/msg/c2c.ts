@@ -56,7 +56,8 @@ import {
   type MessageBounds,
 } from './calendar';
 import {
-  browseConditions,
+  queryBrowsePage,
+  browseRow,
   type BrowseFilter,
   type BrowseCursor,
   type BrowseDirection,
@@ -208,14 +209,30 @@ export class C2cMsgDb {
     limit = 500,
     direction: BrowseDirection = 'older',
   ) {
-    const { clause, value } = partitionWhere(part);
-    const query = browseConditions(clause, value, filter, cursor, direction);
-    const order = direction === 'older' ? 'DESC' : 'ASC';
-    const rows = await this.qq.query(
-      `SELECT rowid,${SELECT_COLUMNS} FROM ${this.table} WHERE ${query.clause} ORDER BY COALESCE("40050",0) ${order},rowid ${order} LIMIT ?`,
-      [...query.params, BigInt(limit)],
+    const rows = await this.browseRows(part, filter, cursor, limit, direction);
+    return rows.map((row) => ({ rowId: row.rowId, message: row.decode() }));
+  }
+
+  async browseRows(
+    part: C2cPartition,
+    filter: BrowseFilter,
+    cursor?: BrowseCursor,
+    limit = 500,
+    direction: BrowseDirection = 'older',
+  ) {
+    const rows = await queryBrowsePage(
+      this.qq,
+      this.table,
+      SELECT_COLUMN_NAMES,
+      partitionWhere(part),
+      filter,
+      cursor,
+      limit,
+      direction,
     );
-    return rows.map((row) => ({ rowId: String(row[0]), message: rowToC2cMsg(row.slice(1)) }));
+    const timeIndex = SELECT_COLUMN_NAMES.indexOf('40050');
+    const bodyIndex = SELECT_COLUMN_NAMES.indexOf('40800');
+    return rows.map((row) => browseRow(row, timeIndex, bodyIndex, rowToC2cMsg));
   }
 
   boundary(part: C2cPartition, newest: boolean, bounds?: MessageBounds) {

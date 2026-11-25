@@ -139,6 +139,37 @@ it('sender UID/UIN and inclusive date bounds combine using bound SQL parameters'
   expect(await group.browse('777', { sender: "123' OR 1=1 --" })).toEqual([]);
 });
 
+it('日期页可走普通复合时间索引，空时间与零时间的跨页顺序保持一致', async () => {
+  const { group, groupBinding, sql } = fixture();
+  const time = Date.parse('2026-10-15T00:00:00+08:00') / 1000;
+  sql.exec(`CREATE INDEX by_conversation_time ON group_msg_table ("40027", "40050");
+    INSERT INTO group_msg_table ("40001","40027","40050") VALUES (21,'777',0),(22,'777',-1);`);
+  const execute = vi.spyOn(groupBinding, 'executeSql');
+  const first = await group.browse('777', { start: time - 1, end: time + 1 }, undefined, 2);
+  const anchor = first[1]!;
+  const remaining = await group.browse(
+    '777',
+    { start: time - 1, end: time + 1 },
+    {
+      time: anchor.message.sendTime,
+      rowId: anchor.rowId,
+    },
+  );
+  expect([...first, ...remaining].map(({ message }) => message.msgId)).toEqual([4n, 3n, 2n, 1n]);
+  const [, statement, params] = execute.mock.calls.at(-1)!;
+  const plan = sql.prepare(`EXPLAIN QUERY PLAN ${statement}`).all(...(params ?? []));
+  expect(
+    plan.some(({ detail }) => String(detail).includes('COVERING INDEX by_conversation_time')),
+  ).toBe(true);
+
+  const rowId = (id: number) =>
+    String(sql.prepare('SELECT rowid FROM group_msg_table WHERE "40001"=?').get(id)?.rowid);
+  const undated = await group.browse('777', {}, { time: 0, rowId: rowId(21) }, 4);
+  expect(undated.map(({ message }) => message.msgId)).toEqual([7n, 6n, 22n]);
+  const newer = await group.browse('777', {}, { time: 0, rowId: rowId(7) }, 3, 'newer');
+  expect(newer.map(({ message }) => message.msgId)).toEqual([21n, 1n, 2n]);
+});
+
 it('QQ 号和 UID 可同时匹配多个发送者，并保留会话及时间条件', async () => {
   const { group, c2c } = fixture();
   const start = Date.parse('2026-10-15T00:00:00+08:00') / 1000;
