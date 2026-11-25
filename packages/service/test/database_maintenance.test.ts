@@ -75,7 +75,7 @@ function fixture(scanConcurrency = () => 1) {
       corruptedTables: ['broken'],
     }),
   );
-  const locate = vi.fn(
+  const locate = vi.fn<NonNullable<DatabaseMaintenanceDeps['locate']>>(
     async (_target: DbRepairTarget, _scan: BadPageScanReport): Promise<DatabasePageLocation> => ({
       affected: [],
     }),
@@ -83,7 +83,7 @@ function fixture(scanConcurrency = () => 1) {
   const changed = vi.fn();
   const sourceIdentity = vi.fn((_target: DbRepairTarget) => 'original');
   const acquireMore = vi.fn(async (_targets: DbRepairTarget[], _signal: AbortSignal) => {});
-  const acquire = vi.fn(async () => ({
+  const acquire = vi.fn<DatabaseMaintenanceDeps['acquire']>(async () => ({
     id: 'held-lock',
     release,
     acquireMore,
@@ -117,6 +117,38 @@ function fixture(scanConcurrency = () => 1) {
   };
 }
 const scope = { uin: '10001', configId: 'source-a' };
+
+it('等待维护锁期间展示当前数据库和批次计数', async () => {
+  const h = fixture();
+  const acquire = h.acquire.getMockImplementation()!;
+  const hold = Promise.withResolvers<void>();
+  const targets = h.targets.slice(0, 2);
+  h.acquire.mockImplementationOnce(async (...args) => {
+    args[2]({
+      step: 'lock',
+      message: '合并预写日志',
+      completed: 1,
+      total: 2,
+      unit: 'databases',
+      objectName: targets[1]!.dbName,
+    });
+    await hold.promise;
+    return acquire(...args);
+  });
+  const run = h.maintenance.scan(scope, targets, 'scan');
+  await vi.waitFor(() =>
+    expect(h.maintenance.current(scope)?.progress?.current).toMatchObject({
+      step: 'lock',
+      completed: 1,
+      total: 2,
+      objectName: 'profile.db',
+    }),
+  );
+  expect(h.scan).not.toHaveBeenCalled();
+  hold.resolve();
+  await run;
+  await h.maintenance.end(scope);
+});
 
 it('页扫描和结构检查各自限制并行数量，空出位置即开始下一库', async () => {
   const h = fixture(() => 2);
@@ -1070,7 +1102,9 @@ it('深度体检正在检查结构时可以追加库，锁与报告沿用同一�
 
   resume.resolve();
   const finished = await run;
-  expect(h.acquireMore.mock.calls).toEqual([[[added], expect.any(AbortSignal)]]);
+  expect(h.acquireMore.mock.calls).toEqual([
+    [[added], expect.any(AbortSignal), expect.any(Function)],
+  ]);
   expect(h.deep.mock.calls.map(([target]) => target.dbName)).toEqual([first.dbName, added.dbName]);
   expect(finished.operation).toMatchObject({
     id: operationId,
@@ -1188,7 +1222,9 @@ it('暂停时保留已排队的库和深度检查，续检时才为尚未开始�
     '本次体检已停止或完成',
   );
   await h.maintenance.scan(scope, [added], 'scan', [first.dbName, current.dbName, added.dbName]);
-  expect(h.acquireMore.mock.calls).toEqual([[[added], expect.any(AbortSignal)]]);
+  expect(h.acquireMore.mock.calls).toEqual([
+    [[added], expect.any(AbortSignal), expect.any(Function)],
+  ]);
   expect(h.scan.mock.calls.map(([target]) => target.dbName)).toEqual([
     first.dbName,
     current.dbName,
@@ -1254,8 +1290,15 @@ it.each(['eligible', 'unverified', 'source-changed'] as const)(
     const initial = await h.maintenance.scan(scope, h.targets.slice(0, 1), 'scan');
     expect(h.locate).not.toHaveBeenCalled();
     const singleByteCorrection = { page: 2, offset: 99, originalByte: 11, replacementByte: 36 };
-    h.locate.mockImplementationOnce(async () => {
+    h.locate.mockImplementationOnce(async (_target, _scan, _signal, progress) => {
       expect(h.repair).not.toHaveBeenCalled();
+      progress({
+        step: 'quick-free-pages',
+        message: '核验空闲页',
+        completed: 10,
+        total: 20,
+        unit: 'pages',
+      });
       if (outcome === 'source-changed') h.sourceIdentity.mockReturnValue('changed');
       return {
         affected: [
@@ -1271,6 +1314,9 @@ it.each(['eligible', 'unverified', 'source-changed'] as const)(
     expect(h.scan).toHaveBeenCalledOnce();
     expect(h.deep).not.toHaveBeenCalled();
     expect(h.locate).toHaveBeenCalledOnce();
+    expect(result.databases[0]?.progress?.steps).toContainEqual(
+      expect.objectContaining({ step: 'quick-free-pages', completed: 10, total: 20 }),
+    );
     expect(h.locate).toHaveBeenCalledWith(
       h.targets[0],
       expect.objectContaining({ badPages: [2], dbPath: h.targets[0]!.dbPath }),

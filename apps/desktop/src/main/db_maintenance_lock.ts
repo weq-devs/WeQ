@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { StringDecoder } from 'node:string_decoder';
-import { resolveNtHelperPath } from '@weq/native';
+import { resolveNtHelperPath, type DatabaseProgress } from '@weq/native';
 import type { DbRepairTarget } from '@weq/service';
 import { resolveChildWorkerPath } from './worker_path';
 
@@ -10,6 +10,7 @@ type LockReply = {
   requestId: number;
   error?: string;
   databases?: Array<{ dbPath: string; error?: string }>;
+  progress?: DatabaseProgress;
 };
 
 /** 持锁进程与扫描、重建进程分离；只有它确认退出后才撤销主进程的写入拦截。 */
@@ -27,6 +28,7 @@ export class DatabaseMaintenanceLock {
     {
       resolve(value: LockReply): void;
       reject(error: Error): void;
+      onProgress?: (tick: DatabaseProgress) => void;
       timer: ReturnType<typeof setTimeout>;
     }
   >();
@@ -81,6 +83,10 @@ export class DatabaseMaintenanceLock {
           const reply = JSON.parse(line) as LockReply;
           const request = this.requests.get(reply.requestId);
           if (!request) continue;
+          if (reply.progress) {
+            request.onProgress?.(reply.progress);
+            continue;
+          }
           this.requests.delete(reply.requestId);
           clearTimeout(request.timer);
           if (reply.error) request.reject(new Error(reply.error));
@@ -95,14 +101,19 @@ export class DatabaseMaintenanceLock {
     this.child.stderr.resume();
   }
 
-  async begin(id: string, targets: DbRepairTarget[], signal: AbortSignal) {
+  async begin(
+    id: string,
+    targets: DbRepairTarget[],
+    signal: AbortSignal,
+    onProgress?: (tick: DatabaseProgress) => void,
+  ) {
     const abort = () => {
       void this.terminate();
     };
     signal.addEventListener('abort', abort, { once: true });
     try {
       signal.throwIfAborted();
-      const reply = await this.request({ kind: 'begin', id, targets }, 5 * 60_000);
+      const reply = await this.request({ kind: 'begin', id, targets }, 5 * 60_000, onProgress);
       signal.throwIfAborted();
       if (
         !reply.databases ||
@@ -149,7 +160,11 @@ export class DatabaseMaintenanceLock {
       clearTimeout(timer);
     }
   }
-  private request(value: object, timeoutMs = 30_000): Promise<LockReply> {
+  private request(
+    value: object,
+    timeoutMs = 30_000,
+    onProgress?: (tick: DatabaseProgress) => void,
+  ): Promise<LockReply> {
     if (this.exited || this.signal.aborted)
       return Promise.reject(new Error('持续维护锁已经释放。'));
     const requestId = ++this.sequence;
@@ -159,7 +174,7 @@ export class DatabaseMaintenanceLock {
         reject(new Error('持续维护锁进程未响应。'));
         void this.terminate();
       }, timeoutMs);
-      this.requests.set(requestId, { resolve, reject, timer });
+      this.requests.set(requestId, { resolve, reject, timer, onProgress });
       this.child.stdin.write(`${JSON.stringify({ ...value, requestId })}\n`);
     });
   }

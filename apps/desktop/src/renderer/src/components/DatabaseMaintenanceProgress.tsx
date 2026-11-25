@@ -46,7 +46,7 @@ function stageKey(step: DatabaseStepProgress, kind: DatabaseTaskProgress['kind']
   if (kind !== 'repair')
     return step.step.startsWith('integrity')
       ? 'integrity'
-      : step.step === 'mapping'
+      : step.step === 'mapping' || step.step.startsWith('quick-')
         ? 'mapping'
         : step.step === 'pages'
           ? 'pages'
@@ -68,10 +68,20 @@ function countText(step: DatabaseStepProgress): string | undefined {
     step.unit === 'bytes' ? formatBytesOrUnknown(value) : Math.floor(value).toLocaleString('zh-CN');
   const suffix =
     (
-      { pages: '页', tables: '张表', fields: '个字段', records: '条记录' } as Record<string, string>
+      {
+        pages: '页',
+        tables: '张表',
+        fields: '个字段',
+        records: '条记录',
+        indexes: '个索引',
+        backups: '份备份',
+        databases: '个数据库',
+      } as Record<string, string>
     )[step.unit ?? ''] ?? '';
   const prefix = step.step === 'recover-data' && step.unit === 'fields' ? '累计 ' : '';
-  return `${prefix}${count(step.completed)}${step.total === undefined ? '' : ` / ${count(step.total)}`}${suffix ? ` ${suffix}` : ''}`;
+  const fields =
+    step.processedFields === undefined ? '' : ` · 累计 ${count(step.processedFields)} 个字段`;
+  return `${prefix}${count(step.completed)}${step.total === undefined ? '' : ` / ${count(step.total)}`}${suffix ? ` ${suffix}` : ''}${fields}`;
 }
 function attention(step: DatabaseStepProgress): boolean {
   return (
@@ -244,7 +254,11 @@ export function DatabaseMaintenanceProgress({
               ) : null}
               {step.badPages !== undefined ? (
                 <span>
-                  <NumericText>{`已发现 ${step.badPages.toLocaleString('zh-CN')} 个坏页`}</NumericText>
+                  <NumericText>
+                    {step.locatedPages === undefined
+                      ? `已发现 ${step.badPages.toLocaleString('zh-CN')} 个坏页`
+                      : `已定位 ${step.locatedPages.toLocaleString('zh-CN')} / ${step.badPages.toLocaleString('zh-CN')} 个坏页`}
+                  </NumericText>
                 </span>
               ) : null}
               {step.zeroPages ? (
@@ -265,9 +279,10 @@ export function DatabaseMaintenanceProgress({
     );
   };
   const basePlan = stages[progress.kind];
-  const plan = steps.some((step) => step.step === 'mapping')
-    ? [...basePlan.slice(0, 2), ['mapping', '归属分析'] as const, ...basePlan.slice(2)]
-    : basePlan;
+  const plan =
+    progress.kind !== 'repair' && steps.some((step) => stageKey(step, progress.kind) === 'mapping')
+      ? [...basePlan.slice(0, 2), ['mapping', '归属分析'] as const, ...basePlan.slice(2)]
+      : basePlan;
   const currentIndex = plan.findIndex(([key]) => key === currentKey);
   const abnormal = steps.filter((step) => step.outcome === 'abnormal').length;
   return (

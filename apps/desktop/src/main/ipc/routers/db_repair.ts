@@ -243,7 +243,7 @@ export const databaseMaintenance = new DatabaseMaintenance({
       sidecar('-journal'),
     ].join(':');
   },
-  acquire: async (targets, signal) => {
+  acquire: async (targets, signal, progress) => {
     const nt = requirePlatform().native.ntHelper;
     if (
       !nt.beginDatabaseMaintenance ||
@@ -259,7 +259,11 @@ export const databaseMaintenance = new DatabaseMaintenance({
     const errors: Record<string, string> = Object.create(null);
     const lost = new AbortController();
     // 每批库有自己的原生持锁进程，替换产物时仍使用原库实际对应的锁。
-    const acquireMore = async (batch: typeof targets, signal: AbortSignal) => {
+    const acquireMore = async (
+      batch: typeof targets,
+      signal: AbortSignal,
+      onProgress: (tick: DatabaseProgress) => void,
+    ) => {
       const batchId = randomUUID();
       const paths = batch.map((target) => target.dbPath);
       const releaseWrites = maintainDatabases(paths);
@@ -268,7 +272,7 @@ export const databaseMaintenance = new DatabaseMaintenance({
         setWriteBarrier(batchId, paths, true);
         for (const path of paths) nt.closeDb(path);
         worker = new DatabaseMaintenanceLock();
-        const locks = await worker.begin(batchId, batch, signal);
+        const locks = await worker.begin(batchId, batch, signal, onProgress);
         worker.signal.throwIfAborted();
         const owned = worker;
         owned.signal.addEventListener('abort', () => lost.abort(owned.signal.reason), {
@@ -294,7 +298,7 @@ export const databaseMaintenance = new DatabaseMaintenance({
         throw error;
       }
     };
-    await acquireMore(targets, signal);
+    await acquireMore(targets, signal, progress);
     maintenanceLocks.set(id, workers);
     return {
       id,

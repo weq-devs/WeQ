@@ -699,7 +699,7 @@ export class DbRepairService {
       const progress = { ...latest, storage };
       if (
         latest.phase === 'Repair' &&
-        latest.detail?.step !== 'recover-finalize' &&
+        (!latest.detail || latest.detail.step === 'recover-data') &&
         rebuildPercent !== undefined
       ) {
         const detail = latest.detail ?? { step: latest.phase, message: latest.message };
@@ -716,9 +716,7 @@ export class DbRepairService {
       const phaseChanged = latest.phase !== progress.phase;
       // 同一重建阶段的摘要与空间采样应保留正在执行的具体步骤。
       latest =
-        !phaseChanged &&
-        !progress.detail &&
-        (latest.detail?.step === 'recover-data' || latest.detail?.step === 'recover-finalize')
+        !phaseChanged && progress.phase === 'Repair' && !progress.detail && latest.detail
           ? { ...progress, detail: latest.detail }
           : progress;
       if (!committing && (phaseChanged || Date.now() - lastSpaceCheck >= 1000)) checkSpace();

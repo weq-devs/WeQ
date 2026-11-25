@@ -29,7 +29,11 @@ import {
 export interface DatabaseMaintenanceLease {
   id?: string;
   release(): void | Promise<void>;
-  acquireMore?(targets: DbRepairTarget[], signal: AbortSignal): Promise<void>;
+  acquireMore?(
+    targets: DbRepairTarget[],
+    signal: AbortSignal,
+    progress: (tick: DatabaseWorkProgress) => void,
+  ): Promise<void>;
   /** 锁内无法合并的 WAL 等逐库问题，不把主文件扫描冒充完整扫描。 */
   errors?: Record<string, string>;
   signal?: AbortSignal;
@@ -37,7 +41,11 @@ export interface DatabaseMaintenanceLease {
 export interface DatabaseMaintenanceDeps {
   scanConcurrency?(): number;
   sourceIdentity?(target: DbRepairTarget): string;
-  acquire(targets: DbRepairTarget[], signal: AbortSignal): Promise<DatabaseMaintenanceLease>;
+  acquire(
+    targets: DbRepairTarget[],
+    signal: AbortSignal,
+    progress: (tick: DatabaseWorkProgress) => void,
+  ): Promise<DatabaseMaintenanceLease>;
   scan(
     target: DbRepairTarget,
     signal: AbortSignal,
@@ -387,10 +395,16 @@ export class DatabaseMaintenance {
   ): Promise<DatabaseMaintenanceSnapshot> {
     const snapshot = session.snapshot;
     const signal = session.abort!.signal;
+    const lockProgress = (tick: DatabaseWorkProgress) => {
+      if (signal.aborted) return;
+      snapshot.operation!.currentDb = undefined;
+      snapshot.progress = session.preparation?.update('preparing', tick);
+      this.queueProgressPublish(session);
+    };
     let executionFailure: string | undefined;
     try {
       if (!session.lease) {
-        session.lease = await this.deps.acquire(session.targets, signal);
+        session.lease = await this.deps.acquire(session.targets, signal, lockProgress);
         snapshot.locked = true;
         const lease = session.lease;
         lease.signal?.addEventListener(
@@ -417,7 +431,9 @@ export class DatabaseMaintenance {
         if (added.length) {
           if (!session.lease.acquireMore)
             throw new Error('本轮无法追加数据库，请刷新维护状态后重试。');
-          await session.lease.acquireMore(added, signal);
+          session.preparation = new DatabaseProgressTracker(snapshot.operation!.kind, '账号数据库');
+          lockProgress({ step: 'lock', message: '准备锁定新增数据库' });
+          await session.lease.acquireMore(added, signal, lockProgress);
           session.targets.push(...added);
           snapshot.databases.push(...added.map(pendingRow));
           this.publish(session, true);
@@ -636,7 +652,9 @@ export class DatabaseMaintenance {
         const located = row.scan.affected.reduce((sum, object) => sum + object.badPageCount, 0);
         this.tick(session, row, tracker, 'checkup', {
           step: 'mapping',
-          message: `已定位 ${located} / ${row.scan.badPages.length} 个坏页`,
+          message: '坏页归属定位完成',
+          locatedPages: located,
+          badPages: row.scan.badPages.length,
           status: 'completed',
           outcome: located < row.scan.badPages.length ? 'unverified' : 'abnormal',
         });
@@ -936,7 +954,15 @@ export class DatabaseMaintenance {
     this.tick(session, row, tracker, 'preparing', { step, message: '核验坏页与同卷克隆能力' });
     let checkError: string | undefined;
     const result = await this.deps
-      .locate?.(target, row.scan!, signal, () => {}, true)
+      .locate?.(
+        target,
+        row.scan!,
+        signal,
+        (tick) => {
+          this.tick(session, row, tracker, 'preparing', tick);
+        },
+        true,
+      )
       .catch((error: unknown) => {
         checkError = errorText(error);
         return undefined;
@@ -1183,6 +1209,9 @@ export class DatabaseMaintenance {
     if (session.snapshot.operation?.currentDb === row.dbName) {
       session.snapshot.progress = row.progress;
     }
+    this.queueProgressPublish(session);
+  }
+  private queueProgressPublish(session: Session) {
     // 进度管道只更新内存；广播限频并只发送摘要。
     if (session.publishTimer !== undefined) return;
     session.publishTimer = setTimeout(

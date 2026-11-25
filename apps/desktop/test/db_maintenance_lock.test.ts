@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { fileURLToPath } from 'node:url';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import type { DbRepairTarget } from '@weq/service';
 import { DatabaseMaintenanceLock } from '../src/main/db_maintenance_lock';
 
@@ -22,10 +22,15 @@ const target: DbRepairTarget = {
 it('扫描停止后持锁进程保持运行；替换需要明确确认，结束维护等待实际进程退出', async () => {
   const worker = new DatabaseMaintenanceLock(options);
   const abort = new AbortController();
+  const progress = vi.fn();
   try {
-    expect(await worker.begin('session', [target], abort.signal)).toEqual([
+    expect(await worker.begin('session', [target], abort.signal, progress)).toEqual([
       { dbPath: target.dbPath },
     ]);
+    expect(progress).toHaveBeenCalledOnce();
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({ step: 'lock', completed: 0, total: 1, objectName: target.dbName }),
+    );
     abort.abort();
     expect(worker.signal.aborted).toBe(false);
     await worker.protect(target.dbPath, '/synthetic/product.db');

@@ -534,6 +534,8 @@ export interface DatabaseProgress {
   objectName?: string;
   badPages?: number;
   zeroPages?: number;
+  processedFields?: number;
+  locatedPages?: number;
 }
 
 /** 单个阶段的耗时。 */
@@ -1189,6 +1191,7 @@ export interface NtHelperBinding {
   beginDatabaseMaintenance?(
     id: string,
     targets: Array<{ dbPath: string; key: string; algo: DatabaseAlgorithms }>,
+    onProgress?: (error: Error | null, progress: DatabaseProgress) => void,
   ): Promise<Array<{ dbPath: string; error?: string }>>;
   protectDatabaseMaintenanceProduct?(id: string, dbPath: string, product: string): void;
   endDatabaseMaintenance?(id: string): boolean;
@@ -1204,6 +1207,7 @@ export interface NtHelperBinding {
     key: string,
     algo: DatabaseAlgorithms,
     pages: number[],
+    onProgress?: (error: Error | null, progress: DatabaseProgress) => void,
   ): Promise<{ name: string; pagetype: string; badPageCount: number; samplePages: number[] }[]>;
   inspectDatabaseQuickPages?(
     dbPath: string,
@@ -1211,6 +1215,7 @@ export interface NtHelperBinding {
     algo: DatabaseAlgorithms,
     pages: number[],
     references: string[],
+    onProgress?: (error: Error | null, progress: DatabaseProgress) => void,
   ): Promise<QuickPageEvidence>;
   assessDatabaseQuickRepair?(
     dbPath: string,
@@ -1219,6 +1224,7 @@ export interface NtHelperBinding {
     scan: BadPageScanResult,
     sourceLayout: 'qq' | 'standard',
     references: string[],
+    onProgress?: (error: Error | null, progress: DatabaseProgress) => void,
   ): Promise<QuickRepairAssessment>;
   cloneDatabaseRepairBackup?(source: string, target: string): Promise<void>;
   probeDatabaseCloneBudget?(directory: string): Promise<number>;

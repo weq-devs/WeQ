@@ -393,7 +393,13 @@ describe('DbRepairService.repair 成功路径', () => {
           await vi.advanceTimersByTimeAsync(1000);
           progress({
             ...tick,
-            detail: { step: 'recover-finalize', message: '正在查找可恢复的数据' },
+            detail: {
+              step: 'recover-scan',
+              message: '扫描原库查找可恢复的数据',
+              completed: 8,
+              total: 20,
+              unit: 'pages',
+            },
           });
           await vi.advanceTimersByTimeAsync(1000);
           progress(tick);
@@ -416,9 +422,10 @@ describe('DbRepairService.repair 成功路径', () => {
       const finalizing = rebuilding.slice(5);
       expect(finalizing).toHaveLength(3);
       for (const tick of finalizing) {
-        expect(tick.detail?.step).toBe('recover-finalize');
+        expect(tick.detail?.step).toBe('recover-scan');
         expect(tick.detail?.rebuildPercent).toBeUndefined();
-        expect(tick.detail?.completed).toBeUndefined();
+        expect(tick.detail?.completed).toBe(8);
+        expect(tick.detail?.total).toBe(20);
         expect(tick.detail?.objectName).toBeUndefined();
       }
       expect(
