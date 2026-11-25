@@ -198,6 +198,17 @@ it('报告可查看健康数据库，修复只选择本轮有方案的数据库'
   await act(async () => button('停止修复').click());
   expect(maintenanceQa.calls.stop).toBe(1);
   expect(maintenanceQa.snapshot()?.locked).toBe(false);
+  expect(button('修复', host).disabled).toBe(true);
+  expect(button('报告', host).getAttribute('aria-selected')).toBe('true');
+
+  await act(async () => root!.unmount());
+  root = createRoot(host);
+  await mount();
+  expect(button('报告', host).disabled).toBe(true);
+  expect(button('修复', host).disabled).toBe(true);
+  expect(button('开始扫描').disabled).toBe(false);
+  await act(async () => iconButton('历史报告与恢复').click());
+  expect(button('查看结果')).toBeDefined();
 });
 
 it('空间不足和持锁等待不阻止改缓存位置，开始修复后禁止更改', async () => {
@@ -299,6 +310,9 @@ it('放弃扫描结果必须明确确认，取消继续持锁，确认后仍能�
   await act(async () => button('结束维护').click());
   await confirm(true);
   expect(maintenanceQa.calls.end).toBe(1);
+  expect(button('报告', host).disabled).toBe(true);
+  expect(button('修复', host).disabled).toBe(true);
+  expect(button('扫描', host).getAttribute('aria-selected')).toBe('true');
   await act(async () => iconButton('历史报告与恢复').click());
   expect(button('查看结果')).toBeDefined();
   await act(async () => button('查看结果').click());

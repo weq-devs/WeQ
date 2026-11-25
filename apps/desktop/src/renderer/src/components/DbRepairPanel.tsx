@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -186,7 +187,7 @@ export function DbRepairPanel({
   const sameReportScope = reportScope.uin === scope.uin && reportScope.configId === scope.configId;
   const [legacyId, setLegacyId] = useState<string>();
   const [focused, setFocused] = useState(account?.dbName);
-  const [tab, setTab] = useState<MaintenanceTab>('scan');
+  const [requestedTab, setTab] = useState<MaintenanceTab>('scan');
   const [scanSelection, setScanSelection] = useState<string[] | undefined>(
     account?.dbName ? [account.dbName] : undefined,
   );
@@ -201,6 +202,7 @@ export function DbRepairPanel({
   const [surface, setSurface] = useState<'history' | 'settings' | null>(null);
   const [surfaceAnchor, setSurfaceAnchor] = useState<HTMLElement>();
   const [reportFocused, setReportFocused] = useState<string>();
+  const [diagnostic, setDiagnostic] = useState(account?.diagnostic);
   const [error, setError] = useState('');
   const [connectionError, setConnectionError] = useState(false);
   const touched = useRef(new Set<string>());
@@ -214,6 +216,7 @@ export function DbRepairPanel({
   const maintenance = trpc.dbRepair.maintenance.useQuery(scope, {
     enabled: !!scope.uin,
     refetchInterval: 2000,
+    refetchOnMount: 'always',
     retry: false,
   });
   const reports = trpc.dbRepair.reports.useQuery(scope, { enabled: !!scope.uin, retry: false });
@@ -244,6 +247,21 @@ export function DbRepairPanel({
   const deleteReport = trpc.dbRepair.deleteReport.useMutation();
   const deleteRecord = trpc.dbRepair.deleteRecord.useMutation();
 
+  const updateLive = useCallback((snapshot: DatabaseMaintenanceStatus | null) => {
+    setLive((current) => {
+      if (snapshot?.state !== 'ended') return snapshot;
+      // 当前窗口内的修复结果和异常仍可查看。重新打开时从历史报告查看已结束的维护。
+      const hasResult =
+        snapshot.operation?.kind === 'repair' ||
+        snapshot.operation?.error ||
+        snapshot.maintenanceError ||
+        snapshot.reportError;
+      return current?.id === snapshot.id && current.state !== 'ending' && hasResult
+        ? snapshot
+        : null;
+    });
+  }, []);
+
   useEffect(() => {
     const dismissOptions = (event: PointerEvent) => {
       const options = optionsRef.current;
@@ -253,8 +271,9 @@ export function DbRepairPanel({
     return () => ownerDocument.removeEventListener('pointerdown', dismissOptions, true);
   }, [ownerDocument]);
   useEffect(() => {
-    if (maintenance.data !== undefined) setLive(maintenance.data);
-  }, [maintenance.data]);
+    if (maintenance.isFetchedAfterMount && maintenance.data !== undefined)
+      updateLive(maintenance.data);
+  }, [maintenance.data, maintenance.isFetchedAfterMount, updateLive]);
   useEffect(() => {
     if (
       resultRequest &&
@@ -292,7 +311,7 @@ export function DbRepairPanel({
     const sub = client.dbRepair.onMaintenance.subscribe(undefined, {
       onData(snapshot) {
         if (snapshot.uin !== scope.uin || snapshot.configId !== scope.configId) return;
-        setLive(snapshot);
+        updateLive(snapshot);
         setConnectionError(false);
         if (snapshot.operation?.status !== 'running') {
           void utils.dbRepair.reports.invalidate(scope);
@@ -304,7 +323,7 @@ export function DbRepairPanel({
       },
     });
     return () => sub.unsubscribe();
-  }, [scope, utils]);
+  }, [scope, updateLive, utils]);
   useEffect(() => {
     if (!live) return;
     if (sessionId.current !== live.id) {
@@ -312,6 +331,9 @@ export function DbRepairPanel({
       touched.current.clear();
       setSelected([]);
       setDeepChoices([]);
+      setBackupChoices({});
+      setStrictPages(false);
+      setNextScanSelection(undefined);
     }
     const defaults = live.databases
       .filter(
@@ -354,10 +376,15 @@ export function DbRepairPanel({
       setReportId(undefined);
       setReportScope(scope);
       setLegacyId(undefined);
+      setDiagnostic(undefined);
+      if (!locked) {
+        setLive(null);
+        setFocused(account?.dbName);
+      }
       setStarting(kind);
       setAllowLowSpace(false);
       try {
-        setLive(await scan.mutateAsync({ ...scope, kind, dbNames }));
+        updateLive(await scan.mutateAsync({ ...scope, kind, dbNames }));
         await refresh();
       } finally {
         setStarting(null);
@@ -376,6 +403,8 @@ export function DbRepairPanel({
       )
         return;
       await end.mutateAsync(scope);
+      setLive(null);
+      setTab('scan');
       await refresh();
     });
   const startRepair = () =>
@@ -418,7 +447,7 @@ export function DbRepairPanel({
           strictPages,
           allowLowSpace,
         });
-        setLive(result.snapshot);
+        updateLive(result.snapshot);
         if (result.closedAccount)
           useDbRepairReturn.getState().arm({
             title: '本轮数据库维护已结束',
@@ -564,7 +593,22 @@ export function DbRepairPanel({
           ? '维护中'
           : '已结束';
   const canScan = !!(status.data?.keyPresent && !status.data.error && !running && !ending);
-  const showFooter = tab === 'repair' && waiting && !running && readyNames.length > 0;
+  const hasReportRows =
+    databases.length > 0 &&
+    (scannedCount > 0 ||
+      databases.some((row) => row.scanStatus === 'failed') ||
+      !!(operation && operation.status !== 'running' && operation.status !== 'cancelled'));
+  const hasReport = hasReportRows || !!diagnostic;
+  const hasRepairPlan = waiting && !running && readyNames.length > 0;
+  const enabledTabs = maintenanceTabs.filter(({ id }) =>
+    id === 'report' ? hasReport : id === 'repair' ? repairing || hasRepairPlan : true,
+  );
+  const tab = enabledTabs.some(({ id }) => id === requestedTab)
+    ? requestedTab
+    : requestedTab === 'repair' && hasReport
+      ? 'report'
+      : 'scan';
+  const showFooter = tab === 'repair' && hasRepairPlan;
   const showScanSetup = tab === 'scan' && !scanRunning && !repairing && !ending;
   const selectedBackups = selectedReady.filter((name) => backups[name]).length;
   const hasDeep = selectedReady.some((name) => methods[name] === 'deep');
@@ -597,6 +641,9 @@ export function DbRepairPanel({
   useLayoutEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
   }, [scope, tab]);
+  useEffect(() => {
+    if (tab !== requestedTab) setTab((current) => (current === requestedTab ? tab : current));
+  }, [requestedTab, tab]);
 
   const selectAll = (checked: boolean) => {
     for (const name of readyNames) touched.current.add(name);
@@ -644,7 +691,7 @@ export function DbRepairPanel({
   const pauseOrStop = () =>
     act(async () => {
       const result = await stop.mutateAsync(scope);
-      if (result) setLive(result);
+      if (result) updateLive(result);
       await refresh();
     });
   const onExportCurrent = (format: 'html' | 'md' | 'json') => {
@@ -747,13 +794,14 @@ export function DbRepairPanel({
       </header>
 
       <div className="weq-dbm-steps" role="tablist" aria-label="数据库维护">
-        {maintenanceTabs.map(({ id, label, Icon }, index) => (
+        {maintenanceTabs.map(({ id, label, Icon }) => (
           <button
             id={`dbm-tab-${id}`}
             key={id}
             className={`weq-dbm-step${tab === id ? ' is-current' : ''}`}
             type="button"
             role="tab"
+            disabled={!enabledTabs.some((item) => item.id === id)}
             aria-selected={tab === id}
             tabIndex={tab === id ? 0 : -1}
             aria-controls="dbm-tab-content"
@@ -762,13 +810,14 @@ export function DbRepairPanel({
               const offset = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
               if (!offset && event.key !== 'Home' && event.key !== 'End') return;
               event.preventDefault();
+              const index = enabledTabs.findIndex((item) => item.id === id);
               const next =
                 event.key === 'Home'
                   ? 0
                   : event.key === 'End'
-                    ? maintenanceTabs.length - 1
-                    : (index + offset + maintenanceTabs.length) % maintenanceTabs.length;
-              const target = maintenanceTabs[next]!;
+                    ? enabledTabs.length - 1
+                    : (index + offset + enabledTabs.length) % enabledTabs.length;
+              const target = enabledTabs[next]!;
               setTab(target.id);
               ownerDocument.getElementById(`dbm-tab-${target.id}`)?.focus();
             }}
@@ -948,27 +997,20 @@ export function DbRepairPanel({
           />
         ) : null}
 
-        {tab === 'report' && !databases.length ? (
-          account?.diagnostic ? (
-            <section className="weq-dbm-callout">
-              <AlertTriangle size={16} aria-hidden />
-              <div>
-                <strong>{account.diagnostic.title}</strong>
-                <p>{account.diagnostic.message}</p>
-                {account.diagnostic.details.map((detail) => (
-                  <p key={detail}>{detail}</p>
-                ))}
-                {account.diagnostic.reportPath ? (
-                  <p className="weq-dbm-path">{account.diagnostic.reportPath}</p>
-                ) : null}
-              </div>
-            </section>
-          ) : (
-            <p>开始扫描后可在这里查看本轮报告。</p>
-          )
-        ) : null}
-        {tab === 'repair' && !repairing && !showFooter ? (
-          <p>报告中有可用的修复方案时，可从对应数据库打开。</p>
+        {tab === 'report' && !hasReportRows && diagnostic ? (
+          <section className="weq-dbm-callout">
+            <AlertTriangle size={16} aria-hidden />
+            <div>
+              <strong>{diagnostic.title}</strong>
+              <p>{diagnostic.message}</p>
+              {diagnostic.details.map((detail) => (
+                <p key={detail}>{detail}</p>
+              ))}
+              {diagnostic.reportPath ? (
+                <p className="weq-dbm-path">{diagnostic.reportPath}</p>
+              ) : null}
+            </div>
+          </section>
         ) : null}
         {showReportSummary ? (
           <section
@@ -1089,7 +1131,7 @@ export function DbRepairPanel({
                   前往补充检查
                 </button>
               ) : null}
-              {waiting && activeRepair ? (
+              {hasRepairPlan && activeRepair ? (
                 <button
                   className={`weq-set-btn${(needsLocation && !activeCanCheckQuick) || activeRow.repair?.nextAction === 'retry-space' ? '' : ' weq-set-btn-primary'}`}
                   type="button"
@@ -1109,7 +1151,7 @@ export function DbRepairPanel({
                         : '查看修复方案'}
                 </button>
               ) : null}
-              {activeRow.repair?.nextAction === 'retry-space' ? (
+              {hasRepairPlan && activeRow.repair?.nextAction === 'retry-space' ? (
                 <button
                   className="weq-set-btn weq-set-btn-primary"
                   type="button"

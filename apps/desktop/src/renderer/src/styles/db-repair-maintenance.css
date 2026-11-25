@@ -182,6 +182,11 @@ html[data-theme='dark'] .weq-dbm {
   box-shadow: 0 1px 2px color-mix(in srgb, var(--weq-fg-primary) 9%, transparent);
 }
 
+.weq-dbm-step:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .weq-dbm-step-dot {
   display: grid;
   flex: none;

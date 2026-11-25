@@ -408,6 +408,7 @@ function query<T>(get: (input: Input) => T) {
         data: get(input),
         error: null,
         isLoading: false,
+        isFetchedAfterMount: true,
         refetch: async () => {
           notify();
           return {};

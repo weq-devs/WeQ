@@ -62,6 +62,10 @@ try {
   const tab = (name) => page.getByRole('tab', { name, exact: true });
   const button = (name) => page.getByRole('button', { name, exact: true });
   await button('开始扫描').waitFor();
+  assert.equal(await tab('报告').isDisabled(), true);
+  assert.equal(await tab('修复').isDisabled(), true);
+  await tab('扫描').press('End');
+  assert.equal(await tab('扫描').getAttribute('aria-selected'), 'true');
   assert.equal(await page.evaluate(() => window.maintenanceQa.calls.scan.length), 0);
   const scanDatabases = page.getByRole('region', { name: '选择数据库' });
   await button('取消全选').click();
@@ -77,12 +81,11 @@ try {
   await button('开始扫描').click();
   await button('暂停扫描').waitFor();
   assert.equal(await page.getByRole('radiogroup', { name: '体检类型' }).count(), 0);
-  await tab('报告').click();
-  await tab('修复').click();
+  assert.equal(await tab('报告').isDisabled(), true);
+  assert.equal(await tab('修复').isDisabled(), true);
   await page.evaluate(() => window.maintenanceQa.complete());
-  assert.equal(await tab('修复').getAttribute('aria-selected'), 'true');
-  await tab('报告').click();
   await button('前往补充检查').waitFor();
+  assert.equal(await tab('报告').getAttribute('aria-selected'), 'true');
   await page.getByText('发现 1 个坏页，尚未定位', { exact: true }).first().waitFor();
   assert.equal(await page.getByRole('button', { name: '查看 unsupported.db 检查详情' }).count(), 0);
   await button('JSON').click();
@@ -170,6 +173,8 @@ try {
   await capture('repair-progress-narrow-dark');
   await button('停止修复').click();
   await page.waitForFunction(() => window.maintenanceQa.snapshot().locked === false);
+  assert.equal(await tab('修复').isDisabled(), true);
+  assert.equal(await tab('报告').getAttribute('aria-selected'), 'true');
   assert.deepEqual(
     await page.evaluate(() =>
       window.maintenanceQa.calls.repair.map((call) => call.methods['nt_msg.db']),
