@@ -129,14 +129,14 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     ],
   },
   {
-    id: 'qq',
-    label: 'QQ',
-    sections: ['credentials', 'qq-accounts', 'qq-storage', 'database-management', 'diagnostics'],
-  },
-  {
     id: 'services',
     label: '服务',
     sections: ['remote', 'mcp', 'onebot', 'sse', 'assistant'],
+  },
+  {
+    id: 'qq',
+    label: 'QQ',
+    sections: ['credentials', 'qq-accounts', 'qq-storage', 'database-management', 'diagnostics'],
   },
   {
     id: 'app',
