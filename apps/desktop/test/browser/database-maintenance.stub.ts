@@ -313,23 +313,20 @@ export const maintenanceQa = {
   },
   structure() {
     if (!live?.operation) return;
-    live.databases = names.map(regularRow);
+    live.databases = scopeNames.map(regularRow);
     live.state = 'checking';
-    live.operation.currentDb = names[0];
-    tracker = new DatabaseProgressTracker(
-      'checkup',
-      names[0]!,
-      Date.now,
-      live.databases[0]!.scanProgress,
-    );
-    live.databases[0]!.progress = tracker.update('checkup', {
+    const row = live.databases[0]!;
+    row.deepStatus = 'running';
+    live.operation.currentDb = row.dbName;
+    tracker = new DatabaseProgressTracker('checkup', row.dbName, Date.now, row.scanProgress);
+    row.progress = tracker.update('checkup', {
       step: 'integrity-pages',
       message: '检查页结构与引用',
       completed: 800,
       total: 2048,
       unit: 'pages',
     });
-    live.progress = live.databases[0]!.progress;
+    live.progress = row.progress;
     publish();
   },
   tableStructure() {
@@ -514,6 +511,7 @@ export const trpc = {
       const rows = live!.databases;
       live = { ...create('repair'), id: live!.id, databases: rows };
       live.operation!.totalDatabases = input.dbNames!.length;
+      live.operation!.databaseNames = input.dbNames;
       live.operation!.currentDb = input.dbNames![0];
       for (const row of rows)
         row.repair = input.dbNames!.includes(row.dbName)

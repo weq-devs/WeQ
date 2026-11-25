@@ -365,8 +365,7 @@ html[data-theme='dark'] .weq-dbm {
   white-space: nowrap;
 }
 
-.weq-dbm-hero-actions .weq-set-btn,
-.weq-dbm-scan-controls > .weq-set-btn {
+.weq-dbm-hero-actions .weq-set-btn {
   box-sizing: border-box;
   height: 38px;
   font-family: inherit;
@@ -581,11 +580,6 @@ html[data-theme='dark'] .weq-dbm {
   scroll-snap-align: start;
 }
 
-.weq-dbm-db-wrap {
-  position: relative;
-  height: 100%;
-}
-
 .weq-dbm-db {
   position: relative;
   display: flex;
@@ -601,14 +595,19 @@ html[data-theme='dark'] .weq-dbm {
   color: var(--weq-fg-secondary);
   font: inherit;
   text-align: left;
-  cursor: pointer;
   transition:
     border-color 140ms ease,
     background-color 140ms ease,
     transform 140ms ease;
 }
 
-.weq-dbm-db:hover {
+button.weq-dbm-db,
+.weq-dbm-db.is-selectable {
+  cursor: pointer;
+}
+
+button.weq-dbm-db:hover,
+.weq-dbm-db.is-selectable:hover {
   border-color: var(--weq-border-strong);
   transform: translateY(-1px);
 }
@@ -631,6 +630,10 @@ html[data-theme='dark'] .weq-dbm {
 
 .weq-dbm-db.is-selectable .weq-dbm-db-top {
   padding-right: 28px;
+}
+
+.weq-dbm-db.is-selectable {
+  min-height: 100px;
 }
 
 .weq-dbm-db-icon {
@@ -705,13 +708,8 @@ html[data-theme='dark'] .weq-dbm {
   cursor: pointer;
 }
 
-.weq-dbm-db-input:disabled {
-  cursor: default;
-}
-
-.weq-dbm-db-wrap:has(.weq-dbm-db-input:focus-visible) .weq-dbm-db {
+.weq-dbm-db:has(.weq-dbm-db-input:focus-visible) {
   outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
 }
 
 .weq-dbm-db-name {
@@ -1540,44 +1538,22 @@ button.weq-dbm-step.is-current {
   color: var(--weq-fg-primary);
 }
 
-.weq-dbm-scan-setup,
 .weq-dbm-plan {
   display: grid;
   gap: 14px;
 }
 
 .weq-dbm-scan-databases {
-  display: grid;
-  gap: 2px;
   min-width: 0;
   margin: 0;
-  padding: 6px 0;
+  padding: 0;
   border: 0;
 }
 
 .weq-dbm-scan-databases legend {
+  margin-bottom: 8px;
   padding: 0;
-  font-weight: 600;
-}
-
-.weq-dbm-scan-databases label {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  border: 1px solid var(--dbm-hair);
-  border-radius: 8px;
-  background: var(--dbm-surface);
-  cursor: pointer;
-}
-
-.weq-dbm-scan-databases label:has(input:checked) {
-  background: var(--dbm-tint);
-}
-
-.weq-dbm-scan-databases label:hover {
-  border-color: var(--weq-border-strong);
+  font-weight: 650;
 }
 
 .weq-dbm-progress-toolbar,
@@ -1599,11 +1575,6 @@ button.weq-dbm-step.is-current {
 .weq-dbm-plan-row {
   display: grid;
   gap: 9px;
-}
-
-.weq-dbm-scan-size {
-  color: var(--weq-fg-muted);
-  white-space: nowrap;
 }
 
 .weq-dbm-plan-select {

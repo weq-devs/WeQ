@@ -1,4 +1,3 @@
-import { observeCompactToolbar } from './CompactToolbar.shared';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
@@ -20,6 +19,7 @@ import {
   ShieldCheck,
   Settings2,
   Square,
+  Stethoscope,
   Trash2,
   UnlockKeyhole,
   Wrench,
@@ -483,7 +483,7 @@ export function DbRepairPanel({
   const repairing =
     live?.state === 'repairing' ||
     starting === 'repair' ||
-    (running && live?.operation?.kind === 'repair');
+    (live?.operation?.status === 'running' && live.operation.kind === 'repair');
   const ending = live?.state === 'ending';
   const locked = !!live?.locked && live.state !== 'ended';
   const waiting = live?.state === 'waiting' && !ending;
@@ -493,6 +493,7 @@ export function DbRepairPanel({
   const available = status.data?.databases.filter((row) => row.exists) ?? [];
   const scanNames = scanSelection ?? available.map((row) => row.dbName);
   const databases = view?.databases ?? [];
+  const operation = view?.operation;
   const bytesByName = useMemo(
     () => new Map(status.data?.databases.map((row) => [row.dbName, row.bytes]) ?? []),
     [status.data],
@@ -502,9 +503,10 @@ export function DbRepairPanel({
     databases.find((row) => row.dbName === view?.operation?.currentDb) ??
     databases.find(databaseMaintenanceRowAbnormal) ??
     databases[0];
-  const progressOwner = view?.operation?.currentDb
-    ? (databases.find((row) => row.dbName === view.operation?.currentDb) ?? activeRow)
-    : activeRow;
+  const progressOwner =
+    operation?.status === 'running'
+      ? databases.find((row) => row.dbName === operation.currentDb)
+      : activeRow;
   const progress = progressOwner?.progress ?? view?.progress;
   const plans = databases.flatMap((row) => {
     const method = databaseRepairRecommendation(row);
@@ -521,7 +523,6 @@ export function DbRepairPanel({
   const selectedReady = selected.filter((name) => readyNames.includes(name));
   const scannedCount = databases.filter((row) => row.scanStatus === 'completed').length;
   const abnormalCount = databases.filter((row) => databaseMaintenanceRowAbnormal(row)).length;
-  const operation = view?.operation;
   const needsCheckup =
     scanKind === 'checkup' &&
     databases.some(
@@ -629,6 +630,30 @@ export function DbRepairPanel({
       void act(() => exportReport.mutateAsync({ ...scope, reportId: reportIdToExport, format }));
   };
   const showProgress = (tab === 'scan' && scanRunning) || (tab === 'repair' && repairing);
+  const showLiveOperation = showProgress && operation?.status === 'running';
+  const showReportSummary =
+    tab === 'report' && waiting && !running && !!operation && databases.length > 0;
+  const showDatabaseStatus = tab === 'report' || showLiveOperation || (showScanSetup && locked);
+  const visibleDatabases =
+    tab === 'repair'
+      ? databases.filter((row) => operation?.databaseNames?.includes(row.dbName) ?? !!row.repair)
+      : databases;
+  const scanCoverage = `${scannedCount} / ${databases.length} 已扫描`;
+  const repairAvailability = readyNames.length ? ` · ${readyNames.length} 个可修复` : '';
+  const stopping = stop.isLoading || !!operation?.stopping;
+  const deepScan =
+    starting === 'checkup' || (operation?.status === 'running' && operation.kind === 'checkup');
+  const progressTitle = repairing
+    ? stopping
+      ? '正在停止修复'
+      : '正在修复数据库'
+    : stopping
+      ? '正在暂停扫描'
+      : live?.state === 'locking'
+        ? '正在锁定数据库'
+        : deepScan
+          ? '正在深度体检'
+          : '正在扫描数据库';
 
   return (
     <section className="weq-dbm" aria-label="数据库修复">
@@ -763,12 +788,23 @@ export function DbRepairPanel({
         ) : null}
 
         {showScanSetup ? (
-          <section className="weq-dbm-scan-setup" aria-label="扫描设置">
-            {paused ? <p role="status">扫描已暂停，已完成的检查会保留。</p> : null}
-            {status.data && !status.data.keyPresent && !status.data.error ? (
-              <p role="status">请先用 WeQ 打开一次这个账号，获取数据库密钥后再扫描。</p>
-            ) : null}
-            <div ref={observeCompactToolbar} className="weq-dbm-scan-controls">
+          <section className="weq-dbm-hero" aria-label="扫描设置">
+            <span className="weq-dbm-hero-icon" aria-hidden>
+              <Stethoscope size={22} strokeWidth={1.9} />
+            </span>
+            <div className="weq-dbm-hero-main" role="status">
+              <h2>{paused ? '扫描已暂停' : locked ? '继续检查本轮数据库' : '先扫描一次数据库'}</h2>
+              <p>
+                {status.data && !status.data.keyPresent && !status.data.error
+                  ? '请先用 WeQ 打开一次这个账号，获取数据库密钥后再扫描。'
+                  : paused
+                    ? '已完成的检查会保留，可切换体检类型后继续扫描。'
+                    : locked
+                      ? '继续使用本轮已选的数据库。'
+                      : '扫描以只读方式检查所选数据库，维护期间会暂停写入。'}
+              </p>
+            </div>
+            <div className="weq-dbm-hero-actions weq-dbm-scan-controls">
               <SegmentedControl
                 label="体检类型"
                 value={scanKind}
@@ -794,36 +830,38 @@ export function DbRepairPanel({
                     : '开始扫描'}
               </button>
             </div>
-            {!locked ? (
-              <fieldset className="weq-dbm-scan-databases">
-                <legend>数据库</legend>
-                {available.map((row) => (
-                  <label key={row.dbName}>
-                    <input
-                      type="checkbox"
-                      checked={scanNames.includes(row.dbName)}
-                      onChange={(event) =>
-                        setScanSelection(
-                          event.target.checked
-                            ? [...scanNames, row.dbName]
-                            : scanNames.filter((name) => name !== row.dbName),
-                        )
-                      }
-                    />
-                    <span>{row.dbName}</span>
-                    <span className="weq-dbm-scan-size">
-                      <NumericText>{formatBytesOrUnknown(row.bytes)}</NumericText>
-                    </span>
-                  </label>
-                ))}
-                {!available.length ? (
-                  <p>{status.isLoading ? '正在读取数据库列表…' : '没有可扫描的数据库。'}</p>
-                ) : null}
-              </fieldset>
-            ) : (
-              <p>{`本轮范围 ${namesText(databases.map((row) => row.dbName))}`}</p>
-            )}
           </section>
+        ) : null}
+
+        {showScanSetup && !locked ? (
+          <fieldset className="weq-dbm-scan-databases">
+            <legend>数据库</legend>
+            {available.length ? (
+              <ul className="weq-dbm-list">
+                {available.map((row) => (
+                  <li key={row.dbName}>
+                    <DatabaseCard
+                      dbName={row.dbName}
+                      bytes={row.bytes}
+                      selection={{
+                        checked: scanNames.includes(row.dbName),
+                        onChange: (checked) =>
+                          setScanSelection(
+                            checked
+                              ? [...scanNames, row.dbName]
+                              : scanNames.filter((name) => name !== row.dbName),
+                          ),
+                      }}
+                    />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className={status.isLoading ? 'weq-dbm-loading' : 'weq-dbm-empty'} role="status">
+                {status.isLoading ? '正在读取数据库列表…' : '没有可扫描的数据库。'}
+              </p>
+            )}
+          </fieldset>
         ) : null}
 
         {showProgress ? (
@@ -832,30 +870,28 @@ export function DbRepairPanel({
               <Loader2 size={22} className="weq-spin" />
             </span>
             <div className="weq-dbm-hero-main" role="status">
-              <h2>
-                {repairing
-                  ? '正在修复数据库'
-                  : live?.state === 'locking'
-                    ? '正在锁定数据库'
-                    : '正在检查数据库'}
-              </h2>
+              <h2>{progressTitle}</h2>
               <p>
-                {operation
-                  ? `${operation.completedDatabases} / ${operation.totalDatabases} 个数据库${operation.currentDb ? ` · ${operation.currentDb}` : ''}`
-                  : '正在准备'}
+                {operation?.status === 'running'
+                  ? `${operation.completedDatabases} / ${operation.totalDatabases} 个数据库完成${operation.currentDb ? ` · 当前 ${operation.currentDb}` : ''}`
+                  : '正在准备…'}
               </p>
             </div>
             <div className="weq-dbm-hero-actions">
               <button
                 type="button"
                 className="weq-set-btn"
-                disabled={
-                  stop.isLoading || !!operation?.stopping || operation?.status !== 'running'
-                }
+                disabled={stopping || operation?.status !== 'running'}
                 onClick={() => void pauseOrStop()}
               >
                 {repairing ? <Square size={13} /> : <Pause size={14} />}
-                {repairing ? '停止修复' : '暂停扫描'}
+                {stopping
+                  ? repairing
+                    ? '正在停止'
+                    : '正在暂停'
+                  : repairing
+                    ? '停止修复'
+                    : '暂停扫描'}
               </button>
             </div>
           </section>
@@ -898,22 +934,56 @@ export function DbRepairPanel({
         {tab === 'repair' && !repairing && !showFooter ? (
           <p>报告中有可用的修复方案时，可从对应数据库打开。</p>
         ) : null}
-        {tab === 'report' && databases.length > 0 ? (
+        {showReportSummary ? (
+          <section
+            className={`weq-dbm-hero${abnormalCount || operation.status === 'waiting' ? ' is-warn' : ''}`}
+            aria-label="本轮检查结论"
+          >
+            <span className="weq-dbm-hero-icon" aria-hidden>
+              {abnormalCount || operation.status === 'waiting' ? (
+                <AlertTriangle size={22} />
+              ) : (
+                <Database size={22} />
+              )}
+            </span>
+            <div className="weq-dbm-hero-main" role="status">
+              <h2>
+                {operation.kind === 'repair' && operation.status === 'waiting'
+                  ? '修复未完成，等待重试'
+                  : paused
+                    ? '扫描已暂停'
+                    : abnormalCount
+                      ? `${abnormalCount} 个数据库发现异常`
+                      : operation.status === 'completed' && scannedCount === databases.length
+                        ? '本轮检查完成'
+                        : '本轮检查未完成'}
+              </h2>
+              <p>
+                <NumericText>{`${scanCoverage}${repairAvailability}`}</NumericText>
+              </p>
+            </div>
+          </section>
+        ) : null}
+        {showDatabaseStatus && visibleDatabases.length > 0 ? (
           <section className="weq-dbm-dbs" aria-label="数据库列表">
             <div className="weq-dbm-dbs-head">
               <h2>数据库</h2>
-              <span className="weq-dbm-dbs-meta">
-                <NumericText>{`${scannedCount} / ${databases.length} 已扫描${abnormalCount ? ` · ${abnormalCount} 个异常` : ''}${readyNames.length ? ` · ${readyNames.length} 个可修复` : ''}`}</NumericText>
-              </span>
+              {!showReportSummary && !repairing ? (
+                <span className="weq-dbm-dbs-meta">
+                  <NumericText>{`${scanCoverage}${abnormalCount ? ` · ${abnormalCount} 个异常` : ''}${repairAvailability}`}</NumericText>
+                </span>
+              ) : null}
             </div>
             <ul className="weq-dbm-list">
-              {databases.map((row) => (
+              {visibleDatabases.map((row) => (
                 <li key={row.dbName}>
                   <DatabaseCard
                     row={row}
                     bytes={bytesByName.get(row.dbName)}
-                    current={activeRow?.dbName === row.dbName}
-                    onFocus={() => setFocused(row.dbName)}
+                    current={
+                      (tab === 'report' ? activeRow?.dbName : operation?.currentDb) === row.dbName
+                    }
+                    onFocus={tab === 'report' ? () => setFocused(row.dbName) : undefined}
                   />
                 </li>
               ))}
@@ -921,7 +991,7 @@ export function DbRepairPanel({
           </section>
         ) : null}
 
-        {(showProgress || tab === 'report') && activeProgress ? (
+        {(showLiveOperation || tab === 'report' || (tab === 'scan' && paused)) && activeProgress ? (
           <details className="weq-dbm-process" open={running || undefined}>
             <summary>
               <span className="weq-dbm-process-title">
@@ -945,7 +1015,7 @@ export function DbRepairPanel({
               />
             </div>
           </details>
-        ) : showProgress && operation ? (
+        ) : showLiveOperation ? (
           <p className="weq-dbm-operation" role="status">
             {operationLabels[operation.kind]} · {operationStates[operation.status]} ·{' '}
             {operation.completedDatabases} / {operation.totalDatabases} 个数据库
@@ -1424,25 +1494,31 @@ export function DbRepairPanel({
   );
 }
 
-function DatabaseCard({
-  row,
-  bytes,
-  current,
-  onFocus,
-}: {
-  row: DatabaseMaintenanceStatusRow;
+type DatabaseCardProps = {
   bytes: number | null | undefined;
-  current: boolean;
-  onFocus: () => void;
-}) {
-  const tone = rowTone(row);
+} & (
+  | {
+      dbName: string;
+      selection: { checked: boolean; onChange: (checked: boolean) => void };
+    }
+  | {
+      row: DatabaseMaintenanceStatusRow;
+      current: boolean;
+      onFocus?: () => void;
+    }
+);
+
+function DatabaseCard(props: DatabaseCardProps) {
+  const row = 'row' in props ? props.row : undefined;
+  const dbName = 'dbName' in props ? props.dbName : props.row.dbName;
+  const tone = row ? rowTone(row) : 'muted';
   const content = (
     <>
       <span className="weq-dbm-db-top">
         <span className="weq-dbm-db-icon" aria-hidden>
-          {row.scanStatus === 'running' ||
-          row.deepStatus === 'running' ||
-          row.repair?.status === 'running' ? (
+          {row?.scanStatus === 'running' ||
+          row?.deepStatus === 'running' ||
+          row?.repair?.status === 'running' ? (
             <Loader2 size={15} className="weq-spin" />
           ) : tone === 'warn' ? (
             <AlertTriangle size={15} strokeWidth={1.9} />
@@ -1452,43 +1528,65 @@ function DatabaseCard({
             <Database size={15} strokeWidth={1.9} />
           )}
         </span>
-        <Chip tone={tone}>{rowLabel(row)}</Chip>
+        {row ? <Chip tone={tone}>{rowLabel(row)}</Chip> : null}
       </span>
-      <span className="weq-dbm-db-name">{row.dbName}</span>
-      <span className="weq-dbm-db-note">{rowSummary(row)}</span>
+      <span className="weq-dbm-db-name">{dbName}</span>
+      {row ? <span className="weq-dbm-db-note">{rowSummary(row)}</span> : null}
       <span className="weq-dbm-db-foot">
         <span>
-          <NumericText>{formatBytesOrUnknown(bytes)}</NumericText>
+          <NumericText>{formatBytesOrUnknown(props.bytes)}</NumericText>
         </span>
-        {row.scan ? (
+        {row?.scan ? (
           <span>
             <NumericText>{`${row.scan.pageCount.toLocaleString('zh-CN')} 页`}</NumericText>
           </span>
         ) : null}
-        {row.scan?.badPageCount ? (
+        {row?.scan?.badPageCount ? (
           <span className="is-warn">
             <NumericText>{`${row.scan.badPageCount.toLocaleString('zh-CN')} 坏页`}</NumericText>
           </span>
         ) : null}
-        {row.deepStatus === 'partial' ||
-        (row.integrity?.ran && row.integrity.complete === false) ? (
+        {row?.deepStatus === 'partial' ||
+        (row?.integrity?.ran && row.integrity.complete === false) ? (
           <span className="is-warn">有未核验项</span>
         ) : null}
       </span>
     </>
   );
-  return (
-    <div className="weq-dbm-db-wrap">
-      <button
-        type="button"
-        className={`weq-dbm-db${current ? ' is-current' : ''}`}
-        data-tone={tone}
-        aria-label={`查看 ${row.dbName} 检查详情`}
-        aria-pressed={current}
-        onClick={onFocus}
-      >
+  if ('selection' in props) {
+    const { selection } = props;
+    return (
+      <label className={`weq-dbm-db is-selectable${selection.checked ? ' is-selected' : ''}`}>
         {content}
-      </button>
+        <input
+          type="checkbox"
+          className="weq-dbm-db-input"
+          aria-label={`扫描 ${dbName}`}
+          checked={selection.checked}
+          onChange={(event) => selection.onChange(event.target.checked)}
+          onFocus={({ currentTarget }) => {
+            if (currentTarget.matches(':focus-visible'))
+              currentTarget.labels?.[0]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+          }}
+        />
+      </label>
+    );
+  }
+  const className = `weq-dbm-db${props.current ? ' is-current' : ''}`;
+  return props.onFocus ? (
+    <button
+      type="button"
+      className={className}
+      data-tone={tone}
+      aria-label={`查看 ${dbName} 检查详情`}
+      aria-pressed={props.current}
+      onClick={props.onFocus}
+    >
+      {content}
+    </button>
+  ) : (
+    <div className={className} data-tone={tone} aria-current={props.current || undefined}>
+      {content}
     </div>
   );
 }
