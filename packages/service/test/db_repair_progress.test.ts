@@ -1,5 +1,10 @@
 import { expect, it } from 'vitest';
-import { DatabaseProgressTracker, databaseStepPercent } from '../src/account/db_repair/progress';
+import {
+  DatabaseProgressTracker,
+  databaseProgressDisplaySteps,
+  databaseStepPercent,
+  type DatabaseStepProgress,
+} from '../src/account/db_repair/progress';
 
 it('百分比仅来自真实分母，不把无总量字段数或零分母变为整体进度', () => {
   expect(databaseStepPercent({ step: 'pages', message: '', completed: 25, total: 40 })).toBe(62.5);
@@ -102,6 +107,70 @@ it('深度修复交替上报阶段摘要和累计字段数时，同一重建步�
       completed: 58_998_780,
     });
   }
+});
+
+it('旧主进程的重复重建计数只显示最新一行，并保留当前执行状态', () => {
+  const first: DatabaseStepProgress = {
+    phase: 'Repair',
+    step: 'recover-data',
+    message: '恢复表数据',
+    completed: 332_894_204,
+    unit: 'fields',
+    objectName: 'group_msg_table',
+    status: 'completed',
+    startedAt: 1000,
+    updatedAt: 1000,
+    finishedAt: 1100,
+  };
+  const latest = {
+    ...first,
+    completed: 333_688_828,
+    startedAt: 1200,
+    updatedAt: 1200,
+    finishedAt: 1300,
+  };
+  const summary: DatabaseStepProgress = {
+    phase: 'Repair',
+    step: 'Repair',
+    message: '正在恢复群聊表',
+    status: 'running',
+    startedAt: 1300,
+    updatedAt: 1300,
+  };
+  const progress = {
+    kind: 'repair' as const,
+    dbName: 'synthetic.db',
+    startedAt: 1000,
+    updatedAt: 1300,
+    status: 'running' as const,
+  };
+  for (const [status, stepStatus] of [
+    ['running', 'running'],
+    ['failed', 'failed'],
+    ['cancelled', 'skipped'],
+  ] as const) {
+    const finishedAt = status === 'running' ? undefined : 1400;
+    const current = { ...summary, status: stepStatus, finishedAt };
+    const steps = [first, latest, { ...current }];
+    expect(databaseProgressDisplaySteps({ ...progress, status, current, steps })).toEqual([
+      { ...latest, status: stepStatus, finishedAt },
+    ]);
+    expect(steps).toHaveLength(3);
+  }
+
+  const counting = { ...latest, status: 'running' as const, finishedAt: undefined };
+  expect(
+    databaseProgressDisplaySteps({ ...progress, current: counting, steps: [first, counting] }),
+  ).toEqual([counting]);
+
+  const verifying: DatabaseStepProgress = { ...summary, phase: 'Verify', step: 'Verify' };
+  expect(
+    databaseProgressDisplaySteps({
+      ...progress,
+      current: verifying,
+      steps: [first, latest, verifying],
+    }),
+  ).toEqual([latest, verifying]);
 });
 
 it('已跳过的步骤不会在任务结束时被改成已完成，历史保持有界', () => {

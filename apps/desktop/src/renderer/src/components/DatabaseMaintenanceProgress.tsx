@@ -9,6 +9,7 @@ import {
   Minus,
 } from 'lucide-react';
 import {
+  databaseProgressDisplaySteps,
   databaseStepPercent,
   type DatabaseTaskProgress,
   type DatabaseStepProgress,
@@ -156,11 +157,12 @@ export function DatabaseMaintenanceProgress({
       : batch.elapsedMs
     : (running ? Math.max(now, progress.updatedAt) : progress.updatedAt) - progress.startedAt;
   const currentKey = stageKey(progress.current, progress.kind);
+  const steps = databaseProgressDisplaySteps(progress);
   const detailedPhases = new Set(
-    progress.steps.filter((step) => step.step !== step.phase).map((step) => step.phase),
+    steps.filter((step) => step.step !== step.phase).map((step) => step.phase),
   );
   // 原生阶段起止回执不是额外工作步骤；保留带诊断、对象或计数的回执。
-  const visibleSteps = progress.steps.filter(
+  const visibleSteps = steps.filter(
     (step) =>
       progress.kind !== 'repair' ||
       !['Scan', 'Decrypt', 'Repair', 'Encrypt', 'Restore', 'Verify'].includes(step.phase) ||
@@ -190,7 +192,7 @@ export function DatabaseMaintenanceProgress({
       grouped && step.step.startsWith('integrity-records-') ? undefined : step.objectName;
     return (
       <div
-        key={`${step.phase}:${step.step}:${step.startedAt}`}
+        key={`${step.phase}:${step.step}:${step.step === 'recover-data' ? progress.startedAt : step.startedAt}`}
         className={`weq-db-progress-entry is-${step.status ?? 'running'}${step.outcome ? ` is-${step.outcome}` : ''}`}
         aria-current={executing ? 'step' : undefined}
       >
@@ -259,11 +261,11 @@ export function DatabaseMaintenanceProgress({
     );
   };
   const basePlan = stages[progress.kind];
-  const plan = progress.steps.some((step) => step.step === 'mapping')
+  const plan = steps.some((step) => step.step === 'mapping')
     ? [...basePlan.slice(0, 2), ['mapping', '归属分析'] as const, ...basePlan.slice(2)]
     : basePlan;
   const currentIndex = plan.findIndex(([key]) => key === currentKey);
-  const abnormal = progress.steps.filter((step) => step.outcome === 'abnormal').length;
+  const abnormal = steps.filter((step) => step.outcome === 'abnormal').length;
   return (
     <section
       className={`weq-db-progress${compact ? ' is-compact' : ''} is-${progress.status}`}

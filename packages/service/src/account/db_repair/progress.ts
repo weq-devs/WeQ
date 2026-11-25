@@ -27,6 +27,30 @@ export interface DatabaseTaskProgress {
   steps: DatabaseStepProgress[];
 }
 
+/** 兼容仍在运行的旧主进程和旧报告，其中每次重建计数都可能被记录为独立步骤。 */
+export function databaseProgressDisplaySteps(
+  progress: DatabaseTaskProgress,
+): DatabaseStepProgress[] {
+  const { kind, current, steps } = progress;
+  if (kind !== 'repair') return steps;
+  const isRecovery = (step: DatabaseStepProgress) =>
+    step.phase === 'Repair' && step.step === 'recover-data';
+  const latestIndex = steps.findLastIndex(isRecovery);
+  if (latestIndex < 0) return steps;
+  const currentIsSummary = current.phase === 'Repair' && current.step === 'Repair';
+  if (!currentIsSummary && steps.findIndex(isRecovery) === latestIndex) return steps;
+
+  return steps.flatMap((step, index) => {
+    if (currentIsSummary && index === steps.length - 1) return [];
+    if (!isRecovery(step)) return [step];
+    if (index !== latestIndex) return [];
+    // 旧进程可能在最后一次计数后只发阶段摘要，再以该摘要记录停止或失败。
+    return [
+      currentIsSummary ? { ...step, status: current.status, finishedAt: current.finishedAt } : step,
+    ];
+  });
+}
+
 /** 仅计算当前步骤的进度，不把页号、字段数或步骤数量当作整体百分比。 */
 export function databaseStepPercent(step: DatabaseWorkProgress): number | undefined {
   if (
