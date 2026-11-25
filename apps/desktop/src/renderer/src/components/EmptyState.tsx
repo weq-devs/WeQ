@@ -6,6 +6,7 @@ import '../styles/empty-state.css';
 export function EmptyState({
   title,
   body,
+  action,
   icon = <Inbox />,
   compact = false,
   variant = compact ? 'compact' : 'panel',
@@ -13,6 +14,7 @@ export function EmptyState({
 }: {
   title: ReactNode;
   body?: ReactNode;
+  action?: ReactNode;
   icon?: ReactNode;
   compact?: boolean;
   variant?: 'panel' | 'compact' | 'inline';
@@ -26,6 +28,7 @@ export function EmptyState({
       <div className="weq-empty-state-copy">
         <div className="weq-empty-state-title">{title}</div>
         {body ? <div className="weq-empty-state-body">{body}</div> : null}
+        {action ? <div className="weq-empty-state-action">{action}</div> : null}
       </div>
     </div>
   );
