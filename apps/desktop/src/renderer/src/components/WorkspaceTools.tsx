@@ -547,6 +547,11 @@ export function WorkspaceTools({
         </div>
         {!expanded ? (
           <>
+            <AnnouncementEntry
+              placement="workspace"
+              beforeOpen={closeWorkspace}
+              unreadCount={announcementBadge?.count ?? 0}
+            />
             <nav className="weq-workspace-actions" aria-label="内容工具">
               {items.map((item) => (
                 <button
@@ -563,11 +568,6 @@ export function WorkspaceTools({
                 </button>
               ))}
             </nav>
-            <AnnouncementEntry
-              placement="workspace"
-              beforeOpen={closeWorkspace}
-              unreadCount={announcementBadge?.count ?? 0}
-            />
             {footerControls}
           </>
         ) : null}

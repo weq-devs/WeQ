@@ -21,7 +21,7 @@
   padding: 4px 12px;
   text-align: left;
   border: 0;
-  border-bottom: 1px solid var(--weq-border-subtle);
+  border-top: 1px solid var(--weq-border-subtle);
   font-size: 13px;
 }
 
