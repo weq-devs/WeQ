@@ -357,8 +357,24 @@ test('一行入口按依赖、宿主、native、网络、启动顺序执行，�
   );
   assert.deepEqual(events, []);
   await writeJson(join(root, 'weq.dev.local.json'), { userDataDir: null });
-  await startDevelopment(hooks);
-  assert(!launch.args.some((arg) => arg.startsWith('--user-data-dir')));
+  const args = ['--enable-dress-tools'];
+  await startDevelopment({ ...hooks, args });
+  const [dress, picker] = launch.args;
+  assert.equal(dress, args[0]);
+  assert.match(picker, /^--weq-account-picker=[a-f\d-]+$/);
+  assert.equal(launch.args.length, 2);
+  await startDevelopment({ ...hooks, args });
+  assert.deepEqual(launch.args, [...args, picker]);
+  for (const explicit of [
+    '--user-data-dir=/custom',
+    '--weq-account-picker=12345678-0000-4000-8000-0123456789ab',
+    '--weq-account-instance=101:fixture',
+    '--weq-focus-account=101',
+    '--weq-desktop-service',
+  ]) {
+    await startDevelopment({ ...hooks, args: [...args, explicit] });
+    assert.deepEqual(launch.args, [...args, explicit]);
+  }
 });
 
 test('缓存启动仅报环境摘要与停止，native 回退及 prepare-only 不误称源码已就绪', async (t) => {

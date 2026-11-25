@@ -12,6 +12,8 @@ import { assertNativeUnused, nativePlatform, prepareNative } from './dev-native.
 import { runCommand, startupLog } from './dev-process.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+// 固定的 nil UUID 只用于开发入口，避免每次启动都创建一份 Electron 缓存。
+const developmentPickerArg = '--weq-account-picker=00000000-0000-0000-0000-000000000000';
 
 export async function withDevelopmentLock(root, task) {
   const release = await acquireProcessLock(join(root, '.weq-dev/running'));
@@ -73,11 +75,18 @@ export async function startDevelopment({
     return;
   }
   const launchArgs = args[0] === '--' ? args.slice(1) : [...args];
-  if (
-    config.userDataDir &&
-    !launchArgs.some((arg) => arg === '--user-data-dir' || arg.startsWith('--user-data-dir='))
-  )
-    launchArgs.push(`--user-data-dir=${config.userDataDir}`);
+  const hasProfile = launchArgs.some(
+    (arg) => arg === '--user-data-dir' || arg.startsWith('--user-data-dir='),
+  );
+  if (!hasProfile) {
+    if (config.userDataDir) launchArgs.push(`--user-data-dir=${config.userDataDir}`);
+    else if (
+      !launchArgs.some((arg) =>
+        /^(--weq-account-(instance|picker)=|--weq-focus-account=|--weq-desktop-service$)/.test(arg),
+      )
+    )
+      launchArgs.push(developmentPickerArg);
+  }
   log(
     `运行环境就绪${nativeResult?.fallback ? '（使用旧 native，本次源码改动未生效）' : ''}  耗时 ${((performance.now() - started) / 1000).toFixed(1)}s`,
   );
