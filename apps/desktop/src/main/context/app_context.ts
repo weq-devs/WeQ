@@ -2822,24 +2822,22 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             } satisfies RoamingCacheChange);
           },
           () => accountConfig.getRecord()?.homeDress?.fontId,
-          () => {
-            const font = userConfig.getSetting('composerFont');
-            return font.send && font.choice === 'qq';
-          },
+          () => userConfig.getSetting('defaultMessageFont') === 'account',
           () => accountConfig.getRecord()?.homeDress?.bubbleId,
           mediaDownload,
           (groupId, uploadFile) => groupInfo.assertCanSend(groupId, uploadFile),
           () => {
             const { choice } = userConfig.getSetting('composerFont');
-            return typeof choice === 'number' ? choice : dressInstall.read().activeFont;
+            const dress = userConfig.getSharedPreference('dress');
+            const itemId = typeof choice === 'number' ? choice : dress.activeFont;
+            return itemId !== undefined && dress.installedFonts?.includes(itemId)
+              ? itemId
+              : undefined;
           },
           () => {
-            const font = userConfig.getSetting('composerFont');
             return (
               developmentDressToolsEnabled() &&
-              font.send &&
-              font.choice !== 'qq' &&
-              font.choice !== 'plain'
+              userConfig.getSetting('composerFont').choice !== 'default'
             );
           },
           () => emojiService.listSystemFaces(),
@@ -3764,24 +3762,22 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             } satisfies RoamingCacheChange);
           },
           () => accountConfig.getRecord()?.homeDress?.fontId,
-          () => {
-            const font = userConfig.getSetting('composerFont');
-            return font.send && font.choice === 'qq';
-          },
+          () => userConfig.getSetting('defaultMessageFont') === 'account',
           () => accountConfig.getRecord()?.homeDress?.bubbleId,
           mediaDownload,
           (groupId, uploadFile) => groupInfo.assertCanSend(groupId, uploadFile),
           () => {
             const { choice } = userConfig.getSetting('composerFont');
-            return typeof choice === 'number' ? choice : dressInstall.read().activeFont;
+            const dress = userConfig.getSharedPreference('dress');
+            const itemId = typeof choice === 'number' ? choice : dress.activeFont;
+            return itemId !== undefined && dress.installedFonts?.includes(itemId)
+              ? itemId
+              : undefined;
           },
           () => {
-            const font = userConfig.getSetting('composerFont');
             return (
               developmentDressToolsEnabled() &&
-              font.send &&
-              font.choice !== 'qq' &&
-              font.choice !== 'plain'
+              userConfig.getSetting('composerFont').choice !== 'default'
             );
           },
           () => emojiService.listSystemFaces(),

@@ -7871,25 +7871,23 @@ function MainWorkspace(): ReactElement {
   function outgoingFontRequest(
     target: ReturnType<typeof sendTargetOf>,
     elements: readonly unknown[],
-  ): PreparedChatFont | 'account' | undefined {
+  ): NonNullable<PreparedChatFont> | 'configured' | undefined {
     if (!target || isDatalineUid(target.targetId) || !hasOutgoingText(elements)) return;
     const settings = utils.bootstrap.getSettings.getData();
-    const font = settings?.composerFont;
-    if (font && (!font.send || font.choice === 'plain')) return null;
-    const dress = utils.account.dressup.getState.getData();
-    if (font?.choice === 'qq' && dress?.own.fontId === 0) return null;
-    if (font && font.choice !== 'qq' && !developmentDressTools) return null;
     if (settings?.showMessageFont === false) return;
-    const itemId =
-      typeof font?.choice === 'number'
-        ? font.choice
-        : font?.choice === 'legacy-dress'
-          ? dress?.manifest.activeFont
-          : undefined;
-    if (itemId === undefined) return 'account';
-    return itemId > 0 && itemId <= 0xffff
-      ? { fontId: itemId, fontId2Raw: encodeSelectedDressFont(itemId) }
-      : null;
+    if (target.peerType === 'group' && developmentDressTools) {
+      const choice = settings?.composerFont?.choice;
+      if (typeof choice === 'number') {
+        const installed = utils.account.dressup.getState
+          .getData()
+          ?.manifest.fonts.some(({ itemId }) => itemId === choice);
+        if (installed && choice > 0 && choice <= 0xffff)
+          return { fontId: choice, fontId2Raw: encodeSelectedDressFont(choice) };
+        return 'configured';
+      }
+      if (choice === 'legacy-dress') return 'configured';
+    }
+    if (settings?.defaultMessageFont !== 'plain') return 'configured';
   }
 
   function outgoingFontDecoration(font: PreparedChatFont): Message['decoration'] {
@@ -7910,7 +7908,7 @@ function MainWorkspace(): ReactElement {
   ): Promise<PreparedChatFont> {
     if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
     const font =
-      request === 'account'
+      request === 'configured'
         ? await client.account.prepareChatFont.query({
             ...target,
             expectedAccountUin: user.identityValue,
@@ -7984,7 +7982,6 @@ function MainWorkspace(): ReactElement {
     const target = sendTargetOf(conversation);
     const fontRequest = outgoingFontRequest(target, render.elements);
     const expectedAccountConfigId = pinSession.binding?.expectedAccountConfigId;
-    if (fontRequest === null) submission.preparedChatFont = null;
     const preparingFont = Boolean(
       fontRequest && sendAccess.data?.qqOnline && sendAccess.data.attachEnabled,
     );
@@ -8139,7 +8136,6 @@ function MainWorkspace(): ReactElement {
         ? { body, elements: repeated.elements }
         : buildOptimisticRender({ body, locals: locals ?? [], superStickers: new Map() });
       const fontRequest = outgoingFontRequest(target, render.elements);
-      if (fontRequest === null) preparedChatFont = null;
       if (fontRequest)
         preparedChatFont = await prepareOutgoingFont(
           target,

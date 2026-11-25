@@ -30,6 +30,7 @@ export const SETTINGS_RESET_CARDS = [
   ['message-display', 'missing-messages', '历史消息补全'],
   ['message-content', 'message-content', '消息样式与预览'],
   ['contact-card', 'contact-card', '联系人名片'],
+  ['chat-interaction', 'message-send-font', '消息字体'],
   ['chat-interaction', 'quote-replies', '引用回复'],
   ['chat-interaction', 'emoji-shortcuts', '表情输入'],
   ['chat-interaction', 'typing', '隐藏正在输入状态'],

@@ -128,6 +128,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     showMsgDecoration: () => b.setShowMsgDecoration({ enabled: defaults.showMsgDecoration }),
     showMessageBubble: () => b.setShowMessageBubble({ enabled: defaults.showMessageBubble }),
     showMessageFont: () => b.setShowMessageFont({ enabled: defaults.showMessageFont }),
+    defaultMessageFont: () => b.setDefaultMessageFont({ font: defaults.defaultMessageFont }),
     renderTextMarkdown: () => b.setRenderTextMarkdown({ enabled: defaults.renderTextMarkdown }),
     linkPreview: () => b.setLinkPreview(defaults.linkPreview),
     chatImageCacheMiB: () => b.setChatImageCacheMiB({ miB: defaults.chatImageCacheMiB }),

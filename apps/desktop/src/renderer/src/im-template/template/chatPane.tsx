@@ -1035,12 +1035,9 @@ function ChatPaneContent({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [fontOpen, setFontOpen] = useState(false);
   const composerFontAvailable = Boolean(
-    conversation && composerVisible && !restrictedSource && !dataLine,
+    conversation?.type === 'group' && composerVisible && !restrictedSource,
   );
   const composerFont = useComposerFont(composerFontAvailable && tabActive, fontOpen);
-  const composerFontStyle = composerFont.family
-    ? { fontFamily: `"${composerFont.family}", var(--im-font-body, system-ui, sans-serif)` }
-    : undefined;
   const canInsertCustomEmoji = conversation?.type === 'group' || conversation?.type === 'direct';
   const [composerMenu, setComposerMenu] = useState<{
     kind: 'file';
@@ -2631,7 +2628,7 @@ function ChatPaneContent({
 
   useLayoutEffect(() => {
     if (tabActive && compactHeader && !voiceOpen) scheduleMobileComposerMeasureRef.current();
-  }, [composerFont.family, tabActive, compactHeader, voiceOpen]);
+  }, [tabActive, compactHeader, voiceOpen]);
 
   useLayoutEffect(() => {
     setVoiceComposer((current) => (current?.conversationId === conversationId ? current : null));
@@ -7767,7 +7764,7 @@ function ChatPaneContent({
               <ComposerQuoteBar quote={displayedQuote} onRemove={removeQuote} />
             </div>
           ) : null}
-          {fontOpen && !mobileComposerExpanded ? (
+          {composerFontAvailable && fontOpen && !mobileComposerExpanded ? (
             <ComposerFontPanel panelRef={fontPanelRef} font={composerFont} />
           ) : null}
           {emojiOpen && !mobileComposerExpanded ? (
@@ -7954,7 +7951,6 @@ function ChatPaneContent({
               'composer-editor',
               (pendingSuperEmoji || voicePanelActive || flashPanelInline) && 'composer-row-hidden',
             )}
-            style={composerFontStyle}
             role="textbox"
             aria-multiline="true"
             aria-label="消息"
@@ -8049,7 +8045,6 @@ function ChatPaneContent({
             <div
               ref={expandedComposerEditorRef}
               className={cn('composer-editor mobile-composer-expanded-editor')}
-              style={composerFontStyle}
               role="textbox"
               aria-multiline="true"
               aria-label="消息"
@@ -8188,7 +8183,9 @@ function ChatPaneContent({
                 />
               </div>
             </div>
-            {fontOpen ? <ComposerFontPanel panelRef={fontPanelRef} font={composerFont} /> : null}
+            {composerFontAvailable && fontOpen ? (
+              <ComposerFontPanel panelRef={fontPanelRef} font={composerFont} />
+            ) : null}
             {emojiOpen ? (
               <EmojiPanel
                 panelRef={emojiPanelRef}

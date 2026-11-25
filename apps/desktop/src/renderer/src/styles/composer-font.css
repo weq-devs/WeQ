@@ -1,5 +1,5 @@
 .composer-font-panel.emoji-panel {
-  grid-template-rows: auto minmax(0, 1fr) repeat(2, auto);
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .composer-font-option {
@@ -53,37 +53,6 @@
 .composer-font-option-label {
   display: grid;
   min-width: 0;
-}
-
-.composer-font-option-label small {
-  overflow: hidden;
-  color: var(--weq-fg-secondary);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.composer-font-controls {
-  display: grid;
-  min-height: 46px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border-top: 1px solid var(--weq-border-subtle);
-  font-size: 12px;
-}
-
-.composer-font-controls > div {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  white-space: nowrap;
-}
-
-.composer-font-controls .weq-set-toggle {
-  flex: none;
 }
 
 .composer-font-error {

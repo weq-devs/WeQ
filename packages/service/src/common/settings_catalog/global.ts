@@ -60,6 +60,7 @@ export const APP_SETTINGS_RESET_POLICY = {
   chatImageCacheMiB: 'preference',
   chatMessagePrewarmMiB: 'preference',
   composerFont: 'preference',
+  defaultMessageFont: 'preference',
   showGroupAssistantMessageCount: 'preference',
   externalChatpic: 'preference',
   externalRkey: 'api',

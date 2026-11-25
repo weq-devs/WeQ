@@ -542,7 +542,7 @@ describe('设置归位后的实际页面', () => {
           (node) => node.textContent,
         ),
       ).toEqual(['日期', '时间', '消息序号（seq）']);
-      act(() => tabs.find((tab) => tab.textContent === '消息输入与回复')!.click());
+      act(() => tabs.find((tab) => tab.textContent === '消息发送')!.click());
       expect(f.body().querySelector('[data-setting-id="typing-status"]')).not.toBeNull();
       expect(f.body().querySelector('[data-setting-id="read-sync"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="anti-recall"]')).toBeNull();
@@ -626,7 +626,8 @@ describe('设置归位后的实际页面', () => {
     }
   });
   it.each([
-    ['global', '默认发送正在输入状态', 'typing-status', '消息输入与回复'],
+    ['chat-interaction', '账号使用的字体', 'default-message-font', '消息发送'],
+    ['global', '默认发送正在输入状态', 'typing-status', '消息发送'],
     ['storage', '优先使用 CDN', 'prefer-cdn', '资源加载'],
     ['media', '允许使用外部安卓图片缓存', 'external-chatpic', '资源加载'],
     ['diagnostics', 'QQ 登录记录管理', 'qq-accounts', 'QQ 登录管理'],
@@ -652,7 +653,7 @@ describe('设置归位后的实际页面', () => {
     ['chat-messages', '语音消息自动转文字', 'auto-transcribe-voice', '消息显示'],
     ['chat-messages', '图片预览内存预算', 'chat-image-cache', '资源加载'],
     ['message-display', '完整消息预热内存预算', 'chat-message-prewarm', '资源加载'],
-    ['message-display', '触屏左滑引用', 'swipe-to-quote', '消息输入与回复'],
+    ['message-display', '触屏左滑引用', 'swipe-to-quote', '消息发送'],
     ['reply-suggestions', '常驻显示', 'intent-persistent-display', '意图感知'],
     ['reply-suggestions', '悬停显示', 'intent-hover-display', '意图感知'],
     ['intent-models', '意图模型资源', 'intent-engine', '意图感知'],

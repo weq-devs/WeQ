@@ -132,7 +132,7 @@ function mount() {
     render,
     toggle: (label: string) => {
       const page = ['群聊引用时自动 @ 对方', '按退格键移除引用'].includes(label)
-        ? '消息输入与回复'
+        ? '消息发送'
         : [
               '消息气泡',
               '消息字体',

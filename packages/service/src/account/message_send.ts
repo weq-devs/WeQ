@@ -256,7 +256,7 @@ export interface SendElementsParams {
   voiceTranscript?: string;
   /** 随这条消息一起带出的装扮；⚠️ 服务端不收，见 SendDress。缺省不带。 */
   dress?: SendDress;
-  /** 发送前已解析的字体快照；null 表示本次不带字体，避免预览与请求二次解析漂移。 */
+  /** 群聊的发送快照；null 表示本次按普通字体发送。私聊由服务端解析默认字体。 */
   preparedChatFont?: { fontId: number; fontId2Raw: number } | null;
 }
 
@@ -550,9 +550,7 @@ export class MessageSendService {
     /**
      * 「个性装扮」里选用的聊天字体 itemId（0 / 缺省 = 未选）。
      *
-     * 只有 {@link sendWithDressFont} 开启时才参与发送；届时它接管字体槽位，未选款
-     * 就不带字体，不回落到 `currentChatFontId`。**追加在末尾**：前面的位置参数已被
-     * 大量调用点按位使用，插在中间会静默错位。
+     * 只有群聊启用已添加字体时参与发送。选款缺失时使用默认字体设置。
      */
     private readonly activeDressFontId?: () => number | undefined,
     private readonly sendWithDressFont: () => boolean = () => false,
@@ -634,40 +632,25 @@ export class MessageSendService {
           targetId: temp.targetId,
         }
       : this.resolveTarget(params.targetId, params.peerType, false);
-    const fontId = this.resolveSendFontId();
-    const raw = fontId === undefined ? undefined : await this.fontWireForSend(fontId, target);
+    const font = this.resolveSendFont(target.scene);
+    const raw = font?.fontId2Raw ?? (font && (await this.currentFontWire(font.fontId, target)));
     if (this.resolvePid() !== pid) throw new Error('QQ 会话已变化，请重新发送。');
-    return fontId !== undefined && raw !== undefined ? { fontId, fontId2Raw: raw } : null;
+    return font && raw !== undefined ? { fontId: font.fontId, fontId2Raw: raw } : null;
   }
 
-  /**
-   * 本次发送使用的 tag 15 原值。
-   *
-   * 装扮字体不走历史回查：统一发 feeType=1 形态（见 {@link encodeSelectedDressFont}），同一款
-   * 每次发送的字节都一样，不随历史里那条消息带的高位变化。QQ 账号当前字体维持原行为
-   * —— 从历史里找原值，找不到就不带，不猜高位。
-   */
-  private async fontWireForSend(
-    fontId: number,
-    target: ResolvedSendTarget,
-  ): Promise<number | undefined> {
-    if (this.sendWithDressFontEnabled()) return encodeSelectedDressFont(fontId);
-    return this.currentFontWire(fontId, target);
+  /** 群聊选款直接编码，账号字体由调用方匹配历史原值。 */
+  private resolveSendFont(scene: SendScene): { fontId: number; fontId2Raw?: number } | undefined {
+    const selected = this.sendWithDressFontEnabled(scene)
+      ? this.readActiveDressFontId()
+      : undefined;
+    if (selected !== undefined)
+      return { fontId: selected, fontId2Raw: encodeSelectedDressFont(selected) };
+    const fontId = this.sendWithQqFont() ? this.readCurrentFontId() : undefined;
+    return fontId === undefined ? undefined : { fontId };
   }
 
-  /**
-   * 本次发送该带哪一款字体（`undefined` = 不带）。
-   *
-   * 装扮字体开关开启时它**接管**字体槽位：选中的款直接用，没选就按普通字体发，
-   * 不再回落到 QQ 账号字体 —— 用户关掉 QQ 字体、开了装扮字体却发不出预期的款时，
-   * 静默回落会让「发出去的到底是谁」变得不可预期。
-   */
-  private resolveSendFontId(): number | undefined {
-    if (this.sendWithDressFontEnabled()) return this.readActiveDressFontId();
-    return this.sendWithQqFont() ? this.readCurrentFontId() : undefined;
-  }
-
-  private sendWithDressFontEnabled(): boolean {
+  private sendWithDressFontEnabled(scene: SendScene): boolean {
+    if (scene !== 'group') return false;
     try {
       return this.sendWithDressFont();
     } catch {
@@ -1237,32 +1220,24 @@ export class MessageSendService {
       if (this.resolvePid() !== pid) throw new Error('账号或 QQ 运行时已改变，请重新发送');
     }
 
+    const groupFont = target.scene === 'group';
+    const prepared = groupFont ? params.preparedChatFont : undefined;
+    const dressFontControlsFont = this.sendWithDressFontEnabled(target.scene);
     const useFont =
       !device &&
-      (params.preparedChatFont !== undefined
-        ? params.preparedChatFont !== null
-        : this.sendWithQqFont() || this.sendWithDressFontEnabled());
+      (prepared !== undefined ? prepared !== null : this.sendWithQqFont() || dressFontControlsFont);
     const hasText = elements.some((element) => element.kind === 'text' || element.kind === 'at');
-    const prepared = params.preparedChatFont;
-    const currentFontId =
-      useFont && hasText
-        ? prepared !== undefined
-          ? prepared?.fontId
-          : this.resolveSendFontId()
-        : undefined;
-    const fontRaw =
-      currentFontId === undefined
-        ? undefined
-        : prepared !== undefined
-          ? prepared?.fontId2Raw
-          : await this.fontWireForSend(currentFontId, target);
-    // 装扮字体开关开启时明确「本次不带字体」也要走下面这条分支：否则会把调用方
-    // 给的 dress 原样透传，历史实验参数里的字体槽位可能漏进请求。
-    const dressFontControlsFont = this.sendWithDressFontEnabled();
+    const font = useFont && hasText ? (prepared ?? this.resolveSendFont(target.scene)) : undefined;
+    const currentFontId = font?.fontId;
+    const fontRaw = font?.fontId2Raw ?? (font && (await this.currentFontWire(font.fontId, target)));
     if (currentFontId !== undefined && this.resolvePid() !== pid)
       throw new Error('QQ 会话已变化，请重新发送。');
     const dress =
-      useFont && prepared === undefined && currentFontId === undefined && !dressFontControlsFont
+      groupFont &&
+      useFont &&
+      prepared === undefined &&
+      currentFontId === undefined &&
+      !dressFontControlsFont
         ? params.dress
         : {
             ...(params.dress?.bubbleId !== undefined ? { bubbleId: params.dress.bubbleId } : {}),

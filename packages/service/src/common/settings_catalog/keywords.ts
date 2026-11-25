@@ -95,7 +95,7 @@ export const SETTINGS_PAGE_ALIASES: Partial<Record<SettingsPageId, readonly stri
   'chat-messages': ['会话列表', '阅读与未读', '聊天消息', '未读设置'],
   'message-display': ['消息阅读', '消息区域', '阅读设置'],
   'message-content': ['内容显示', '个性装扮', '群消息发送者', '消息元数据'],
-  'chat-interaction': ['互动与防撤回'],
+  'chat-interaction': ['消息输入与回复', '互动与防撤回'],
   'call-recording': ['通话录音'],
   account: ['在线能力与授权', '在线授权', '账号在线能力'],
   'long-term-authorization': ['在线能力与授权'],

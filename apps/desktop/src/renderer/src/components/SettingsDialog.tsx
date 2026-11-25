@@ -34,6 +34,7 @@ import {
   Radio,
   Smile,
   Sun,
+  Type,
   X,
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
@@ -716,6 +717,13 @@ function AppearanceSection({
   const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
   const setShowScrollToBottomButton = trpc.bootstrap.setShowScrollToBottomButton.useMutation();
   const utils = trpc.useUtils();
+  const setDefaultMessageFont = trpc.bootstrap.setDefaultMessageFont.useMutation({
+    onSuccess: (defaultMessageFont) => {
+      utils.bootstrap.getSettings.setData(undefined, (data) =>
+        data ? { ...data, defaultMessageFont } : data,
+      );
+    },
+  });
   const [readingError, setReadingError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(false);
   const [linkPreview, setLinkPreviewDraft] = useState(
@@ -1005,6 +1013,28 @@ function AppearanceSection({
                 <MissingMessageSettings />
               </Card>
             </>
+          )}
+          {page === 'chat-interaction' && (
+            <Card resetId="message-send-font" icon={<Type size={15} />}>
+              <Row
+                settingId="default-message-font"
+                control={
+                  <SegmentedControl<'plain' | 'account'>
+                    label="默认使用的字体"
+                    value={settings.data?.defaultMessageFont ?? null}
+                    disabled={!settings.data || setDefaultMessageFont.isLoading}
+                    onChange={(font) => setDefaultMessageFont.mutate({ font })}
+                    options={[
+                      { value: 'plain', label: '普通字体' },
+                      { value: 'account', label: '账号使用的字体' },
+                    ]}
+                  />
+                }
+              />
+              {setDefaultMessageFont.error ? (
+                <p role="alert">{setDefaultMessageFont.error.message}</p>
+              ) : null}
+            </Card>
           )}
           {page === 'chat-interaction' && (
             <Card title="表情输入" icon={<Smile size={15} />} resetId="emoji-shortcuts">

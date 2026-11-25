@@ -18,7 +18,7 @@ export const SETTINGS_PAGE_LABELS = {
   'chat-messages': '会话列表',
   'message-display': '会话浏览',
   'message-content': '消息显示',
-  'chat-interaction': '消息输入与回复',
+  'chat-interaction': '消息发送',
   'anti-recall': '防撤回',
   'call-recording': '通话与录音',
   qzone: 'QQ 空间',
@@ -1063,6 +1063,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     label: '启用方式与行为',
     aliases: ['省流量模式', '低数据模式', '计费网络', '节省流量'],
     from: ['resource-loading', 'data-saver'],
+  },
+  {
+    id: 'default-message-font',
+    section: 'chat-interaction',
+    label: '默认使用的字体',
+    aliases: ['消息字体', '发送字体', '账号使用的字体', 'QQ 同款'],
+    from: ['chat-interaction'],
   },
   {
     id: 'typing-status',

@@ -779,7 +779,7 @@ describe('MessageSendService.sendText（离线集成）', () => {
       },
       () => current,
     );
-    const target = { peerType: 'c2c' as const, targetId: 'u_friend' };
+    const target = { peerType: 'group' as const, targetId: '12345' };
     const preparedChatFont = await svc.prepareChatFont(target);
     expect(preparedChatFont).toEqual({ fontId: 31001, fontId2Raw: 72057 });
     current = 32002;
@@ -791,6 +791,7 @@ describe('MessageSendService.sendText（离线集成）', () => {
     expect(elemsOf(native.calls[0]!.body)[0]).toEqual({
       generalFlags: {
         bubbleDiyTextId: 0,
+        flag16: 0,
         widgetId: 0,
         font: { ...fontWireFields, fontId2: 72057 },
       },
@@ -801,7 +802,10 @@ describe('MessageSendService.sendText（离线集成）', () => {
       elements: [{ kind: 'text', textContent: '明确不带字体' }],
       preparedChatFont: null,
     });
-    expect(elemsOf(native.calls[1]!.body)).toEqual([{ text: { str: '明确不带字体' } }]);
+    expect(elemsOf(native.calls[1]!.body)).toEqual([
+      ...defaultGroupDress,
+      { text: { str: '明确不带字体' } },
+    ]);
     expect(saved[1]!.decoration).toBeUndefined();
   });
 
@@ -1068,11 +1072,13 @@ describe('MessageSendService.sendText（离线集成）', () => {
   });
 
   describe('装扮字体发送', () => {
-    /** 末尾两个位置参数：装扮选用的字体、是否用它发送。 */
+    const group = { peerType: 'group' as const, targetId: '12345' };
+    const direct = { peerType: 'c2c' as const, targetId: 'u_friend' };
     function withDressFont(
       options: {
         activeFontId?: number | undefined;
         enabled?: boolean;
+        useAccountFont?: boolean;
         currentFontId?: number;
         fontSamples?: {
           senderUin: bigint;
@@ -1089,7 +1095,7 @@ describe('MessageSendService.sendText（离线集成）', () => {
         undefined, // marketFaceKey
         undefined, // retainSent
         () => options.currentFontId ?? 31001,
-        undefined, // sendWithQqFont（用默认 true）
+        () => options.useAccountFont ?? true,
         undefined, // currentChatBubbleId
         undefined, // mediaDownload
         undefined, // authorizeGroup
@@ -1102,17 +1108,18 @@ describe('MessageSendService.sendText（离线集成）', () => {
     it('开启后用装扮里选用的字体发送，不带 QQ 账号字体', async () => {
       // 历史里没有这款的原值 → 走 0x10000 | swap16 兜底编码。
       const { native, svc } = withDressFont({ activeFontId: 22045, fontSamples: [] });
-      await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '装扮字体' });
+      await svc.sendText({ ...group, text: '装扮字体' });
       expect(elemsOf(native.calls[0]!.body)[0]).toEqual({
         generalFlags: {
           bubbleDiyTextId: 0,
+          flag16: 0,
           widgetId: 0,
           font: { ...fontWireFields, fontId2: 0x10000 | 0x11d56 },
         },
       });
     });
 
-    it('开启但未选用字体时按普通字体发送，不回落到 QQ 账号字体', async () => {
+    it('群聊原选款缺失时，使用默认的账号字体', async () => {
       const saved: import('../src/account/gap_history').GapFetchedMessage[] = [];
       const native = fakeNative();
       const svc = new MessageSendService(
@@ -1131,17 +1138,20 @@ describe('MessageSendService.sendText（离线集成）', () => {
         () => 0,
         () => true,
       );
-      await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '普通字体' });
-      expect(elemsOf(native.calls[0]!.body)).toEqual([{ text: { str: '普通字体' } }]);
-      expect(saved[0]!.decoration).toBeUndefined();
+      await svc.sendText({ ...group, text: '默认字体' });
+      expect(elemsOf(native.calls[0]!.body)[0]).toMatchObject({
+        generalFlags: { font: { fontId2: 72057 } },
+      });
+      expect(saved[0]!.decoration?.fontId).toBe(31001);
     });
 
     it('关闭时回到 QQ 账号字体，装扮选择不参与发送', async () => {
       const { native, svc } = withDressFont({ activeFontId: 22045, enabled: false });
-      await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '账号字体' });
+      await svc.sendText({ ...group, text: '账号字体' });
       expect(elemsOf(native.calls[0]!.body)[0]).toEqual({
         generalFlags: {
           bubbleDiyTextId: 0,
+          flag16: 0,
           widgetId: 0,
           font: { ...fontWireFields, fontId2: 72057 },
         },
@@ -1156,10 +1166,11 @@ describe('MessageSendService.sendText（离线集成）', () => {
           { senderUin: 10001n, senderUid: 'u_me', decoration: { fontId2Raw: 0x01017684 } },
         ],
       });
-      await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '统一形态' });
+      await svc.sendText({ ...group, text: '统一形态' });
       expect(elemsOf(native.calls[0]!.body)[0]).toEqual({
         generalFlags: {
           bubbleDiyTextId: 0,
+          flag16: 0,
           widgetId: 0,
           font: { ...fontWireFields, fontId2: 0x10000 | 0x7684 },
         },
@@ -1167,9 +1178,12 @@ describe('MessageSendService.sendText（离线集成）', () => {
     });
 
     it('选用的 itemId 超出 16 位时不发送，避免截断成另一款', async () => {
-      const { native, svc } = withDressFont({ activeFontId: 0x10000 });
-      await svc.sendText({ peerType: 'c2c', targetId: 'u_friend', text: '超范围' });
-      expect(elemsOf(native.calls[0]!.body)).toEqual([{ text: { str: '超范围' } }]);
+      const { native, svc } = withDressFont({ activeFontId: 0x10000, useAccountFont: false });
+      await svc.sendText({ ...group, text: '超范围' });
+      expect(elemsOf(native.calls[0]!.body)).toEqual([
+        ...defaultGroupDress,
+        { text: { str: '超范围' } },
+      ]);
     });
 
     it('准备阶段与真实请求使用同一份装扮字体，本地回显跟着写', async () => {
@@ -1191,18 +1205,54 @@ describe('MessageSendService.sendText（离线集成）', () => {
         () => 22045,
         () => true,
       );
-      const target = { peerType: 'c2c' as const, targetId: 'u_friend' };
-      expect(await svc.prepareChatFont(target)).toEqual({
+      expect(await svc.prepareChatFont(group)).toEqual({
         fontId: 22045,
         fontId2Raw: 0x10000 | 0x11d56,
       });
       await svc.sendElements({
-        ...target,
+        ...group,
         elements: [{ kind: 'text', textContent: '预设字体' }],
-        preparedChatFont: await svc.prepareChatFont(target),
+        preparedChatFont: await svc.prepareChatFont(group),
       });
       expect(saved[0]!.decoration?.fontId).toBe(22045);
     });
+
+    it.each([
+      ['私聊', undefined],
+      ['群临时会话', '12345'],
+    ])('%s 使用 QQ 同款原值，群聊选款和旧客户端提交的字体都不能覆盖', async (_, tempGroupCode) => {
+      const { native, svc } = withDressFont({ activeFontId: 22045 });
+      const target = { ...direct, tempGroupCode };
+      expect(await svc.prepareChatFont(target)).toEqual({ fontId: 31001, fontId2Raw: 72057 });
+      await svc.sendElements({
+        ...target,
+        elements: [{ kind: 'text', textContent: '账号字体' }],
+        preparedChatFont: await svc.prepareChatFont(group),
+        dress: { fontId: 22045, fontId2Raw: 0x11d56, widgetId: 22 },
+      });
+      expect(elemsOf(native.calls[0]!.body)[0]).toMatchObject({
+        generalFlags: { widgetId: 22, font: { fontId1: 0, fontId2: 72057 } },
+      });
+    });
+
+    it.each([{ useAccountFont: false }, { fontSamples: [] }])(
+      '默认设为普通字体或账号原值缺失时私聊发普通字体，群聊选款仍优先',
+      async (options) => {
+        const { native, svc } = withDressFont({ activeFontId: 22045, ...options });
+        expect(await svc.prepareChatFont(direct)).toBeNull();
+        await svc.sendElements({
+          ...direct,
+          elements: [{ kind: 'text', textContent: '普通字体' }],
+          preparedChatFont: { fontId: 22045, fontId2Raw: 0x11d56 },
+          dress: { fontId2Raw: 0x11d56 },
+        });
+        expect(elemsOf(native.calls[0]!.body)).toEqual([{ text: { str: '普通字体' } }]);
+        await svc.sendText({ ...group, text: '装扮字体' });
+        expect(elemsOf(native.calls[1]!.body)[0]).toMatchObject({
+          generalFlags: { font: { fontId2: 0x11d56 } },
+        });
+      },
+    );
 
     it('纯表情消息不读取装扮字体', async () => {
       let reads = 0;
@@ -1225,8 +1275,7 @@ describe('MessageSendService.sendText（离线集成）', () => {
         () => true,
       );
       await svc.sendElements({
-        peerType: 'c2c',
-        targetId: 'u_friend',
+        ...group,
         elements: [{ kind: 'face', faceId: 14 }],
       });
       expect(reads).toBe(0);

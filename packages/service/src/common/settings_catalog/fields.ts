@@ -80,6 +80,7 @@ export const APP_SETTING_FIELDS = (
     ['message-content', 'showMsgDecoration', 'message-bubble', '消息装饰'],
     ['message-content', 'showMessageBubble', 'message-bubble', '消息气泡'],
     ['message-content', 'showMessageFont', 'message-font', '消息字体'],
+    ['message-send-font', 'defaultMessageFont', 'default-message-font', '默认使用的字体'],
     ['message-content', 'renderTextMarkdown', 'text-markdown', 'Markdown 文本'],
     ['message-content', 'linkPreview', 'link-preview', '链接预览'],
     ['chat-memory', 'chatImageCacheMiB', 'chat-image-cache', '图片预览内存预算'],

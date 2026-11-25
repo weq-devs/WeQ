@@ -1693,16 +1693,26 @@ export const bootstrapRouter = router({
   setComposerFont: procedure
     .input(
       z.object({
-        choice: z.union([z.enum(['plain', 'qq']), z.number().int().min(1).max(0xffff)]).optional(),
-        send: z.boolean().optional(),
-        preview: z.boolean().optional(),
+        choice: z.union([z.literal('default'), z.number().int().min(1).max(0xffff)]),
       }),
     )
     .mutation(({ input }) => {
-      if (typeof input.choice === 'number' && !developmentDressToolsEnabled())
-        throw new Error('当前未开启个性装扮功能');
-      return requireBootstrap().userConfig.setSettings({ composerFont: input }).composerFont;
+      const { userConfig } = requireBootstrap();
+      if (typeof input.choice === 'number') {
+        if (!developmentDressToolsEnabled()) throw new Error('当前未开启个性装扮功能');
+        if (!userConfig.getSharedPreference('dress').installedFonts?.includes(input.choice))
+          throw new Error('这款字体已移除，请重新选择。');
+      }
+      return userConfig.setSettings({ composerFont: input }).composerFont;
     }),
+
+  setDefaultMessageFont: procedure
+    .input(z.object({ font: z.enum(['plain', 'account']) }))
+    .mutation(
+      ({ input }) =>
+        requireBootstrap().userConfig.setSettings({ defaultMessageFont: input.font })
+          .defaultMessageFont,
+    ),
 
   setShowGroupAssistantMessageCount: procedure
     .input(z.object({ enabled: z.boolean() }))
