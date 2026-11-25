@@ -83,6 +83,7 @@ interface Session {
   lease?: DatabaseMaintenanceLease;
   abort?: AbortController;
   pending?: Promise<DatabaseMaintenanceSnapshot>;
+  scanQueue?: DbRepairTarget[][];
   lastSaved: number;
   lastPublished: number;
   publishTimer?: ReturnType<typeof setTimeout>;
@@ -177,7 +178,7 @@ export class DatabaseMaintenance {
     const session = this.sessions.get(keyFor(scope));
     const operation = session?.snapshot.operation;
     if (operation?.id === id && operation.status === 'running')
-      throw new Error('这份报告仍在更新，请暂停扫描或等待执行结束后再删除。');
+      throw new Error('这份报告仍在更新，请暂停体检或等待执行结束后再删除。');
     const queue = session?.unsavedReports;
     const pending = queue?.delete(id) ?? false;
     // 正在写的同一份报告先原子落盘，再删除，避免迟到的 rename 恢复已删除的报告。
@@ -196,9 +197,9 @@ export class DatabaseMaintenance {
       throw new Error('正在结束本次维护，请等待数据库解锁。');
     if (session?.pending) throw new Error('数据库维护任务正在执行，请先停止当前操作。');
     if (session?.lease?.signal?.aborted)
-      throw new Error('持续维护锁已中断，请先结束维护并重新扫描。');
+      throw new Error('持续维护锁已中断，请先结束维护并重新体检。');
     if (requestedNames && !session?.snapshot.locked)
-      throw new Error('本轮维护已结束，请刷新后开始扫描。');
+      throw new Error('本轮维护已结束，请刷新后开始体检。');
     const existing = session?.targets ?? [];
     const added = requestedNames
       ? targets.filter(
@@ -220,14 +221,16 @@ export class DatabaseMaintenance {
         (other) =>
           other !== session &&
           other.snapshot.state !== 'ended' &&
-          other.targets.some((target) => paths.has(target.dbPath)),
+          [...other.targets, ...(other.scanQueue?.flat() ?? [])].some((target) =>
+            paths.has(target.dbPath),
+          ),
       )
     )
       throw new Error(
         requestedNames ? '所选数据库正在另一个维护会话中使用。' : '此账号的数据源已经在维护中。',
       );
     if (!session || session.snapshot.state === 'ended') {
-      if (!targets.length) throw new Error('没有可扫描的数据库。');
+      if (!targets.length) throw new Error('没有可体检的数据库。');
       session = {
         snapshot: {
           ...scope,
@@ -247,42 +250,76 @@ export class DatabaseMaintenance {
     const current = session;
     const selected = requestedNames
       ? [...current.targets, ...added].filter((target) => requestedNames.includes(target.dbName))
-      : current.targets;
-    if (!selected.length) throw new Error('请选择要扫描的数据库。');
-    // 等待追加的锁期间，也要阻止其他维护会话抢占这些路径。
-    current.targets.push(...added);
+      : [...current.targets];
+    if (!selected.length) throw new Error('请选择要体检的数据库。');
+    current.scanQueue = [selected];
     this.begin(
       current,
       kind,
       selected.length,
       requestedNames ? selected.map((target) => target.dbName) : undefined,
     );
-    current.pending = this.scanSession(current, kind, selected, added).finally(() => {
+    current.pending = this.scanSession(current, kind, current.scanQueue).finally(() => {
+      current.scanQueue = undefined;
       current.pending = undefined;
     });
     return current.pending;
   }
 
+  appendScan(
+    scope: DatabaseMaintenanceScope,
+    operationId: string,
+    targets: DbRepairTarget[],
+    names: string[],
+  ): void {
+    const session = this.sessions.get(keyFor(scope));
+    const operation = session?.snapshot.operation;
+    const queue = session?.scanQueue;
+    if (
+      !session ||
+      !queue ||
+      session.ending ||
+      session.snapshot.maintenanceError ||
+      session.abort?.signal.aborted ||
+      operation?.id !== operationId ||
+      operation.status !== 'running'
+    )
+      throw new Error('本次体检已停止或完成，请重新选择要体检的数据库。');
+
+    const queued = queue.flat();
+    const batch = [...session.targets, ...targets].filter(
+      (target) =>
+        names.includes(target.dbName) &&
+        !queued.some((item) => item.dbName === target.dbName || item.dbPath === target.dbPath),
+    );
+    if (!batch.length) return;
+    if (
+      [...this.sessions.values()].some(
+        (other) =>
+          other !== session &&
+          other.snapshot.state !== 'ended' &&
+          [...other.targets, ...(other.scanQueue?.flat() ?? [])].some((target) =>
+            batch.some((item) => item.dbPath === target.dbPath),
+          ),
+      )
+    )
+      throw new Error('所选数据库正在另一个维护会话中使用。');
+
+    queue.push(batch);
+    operation.databaseNames = [...queued, ...batch].map(({ dbName }) => dbName);
+    operation.totalDatabases = operation.databaseNames.length;
+    this.publishStatus(session);
+  }
+
   private async scanSession(
     session: Session,
     kind: 'scan' | 'checkup',
-    selected: DbRepairTarget[],
-    added: DbRepairTarget[],
+    queue: DbRepairTarget[][],
   ): Promise<DatabaseMaintenanceSnapshot> {
     const snapshot = session.snapshot;
     const signal = session.abort!.signal;
     let executionFailure: string | undefined;
     try {
-      if (added.length) {
-        try {
-          await session.lease!.acquireMore!(added, signal);
-        } catch (error) {
-          session.targets.splice(-added.length);
-          throw error;
-        }
-        snapshot.databases.push(...added.map(pendingRow));
-        this.publish(session, true);
-      }
       if (!session.lease) {
         session.lease = await this.deps.acquire(session.targets, signal);
         snapshot.locked = true;
@@ -302,174 +339,25 @@ export class DatabaseMaintenance {
         lease.signal?.throwIfAborted();
         this.publish(session);
       }
-      snapshot.state = 'scanning';
-      for (const target of selected) {
+      // 体检期间可选择更多数据库。当前批次完成后为新增库加锁，再按当前类型检查。
+      for (const batch of queue) {
         signal.throwIfAborted();
-        const row = snapshot.databases.find((item) => item.dbName === target.dbName)!;
-        if (row.scanStatus === 'completed') {
-          if (row.repair?.status !== 'completed' && !this.hasSameSource(session, target)) {
-            executionFailure = '原库已发生变化。请结束维护并重新核对数据库。';
-            snapshot.maintenanceError = executionFailure;
-            break;
-          }
-          continue;
-        }
-        const tracker = this.tracker(session, row, 'scan');
-        row.scanStatus = 'running';
-        row.scanError = undefined;
-        this.tick(session, row, tracker, 'scan', { step: 'opening', message: '读取源库扫描信息' });
-        try {
-          const lockError = session.lease.errors?.[target.dbName];
-          if (lockError) throw new Error(lockError);
-          const identity = this.deps.sourceIdentity?.(target);
-          const scan = await this.deps.scan(target, signal, (tick) =>
-            this.tick(session, row, tracker, 'scan', tick),
-          );
-          signal.throwIfAborted();
-          if (identity !== this.deps.sourceIdentity?.(target))
-            throw new Error('扫描期间原库发生变化。');
-          if (identity !== undefined) session.sourceIdentities.set(target.dbName, identity);
-          row.scan = scan;
-          row.scanStatus = 'completed';
-          row.support = row.scan.plaintext
-            ? 'unsupported'
-            : row.scan.usedHmac && row.scan.badPages.length < row.scan.pageCount
-              ? 'supported'
-              : 'possible';
-          row.issues = [];
-          if (row.scan.sourceLayout === 'standard')
-            row.issues.push({
-              message: '发现旧版修复留下的标准页布局，本轮重建将迁回 QQ 页布局。',
-              support: row.support,
-            });
-          if (row.scan.plaintext)
-            row.issues.push({
-              diagnostic: false,
-              message: '此数据库为明文库，当前重建工具仅支持加密库。',
-              support: 'unsupported',
-            });
-          if (row.scan.usedHmac && row.scan.badPages.length === row.scan.pageCount)
-            row.issues.push({
-              message:
-                '全部页的签名都未通过；密钥或算法不匹配也会出现此结果，尚不能确认都是物理损坏。',
-              support: 'possible',
-            });
-          if (row.scan.badPages.length)
-            row.issues.push({
-              message: `发现 ${row.scan.badPages.length.toLocaleString('zh-CN')} 个坏页。`,
-              support: row.support,
-            });
-          if (row.scan.zeroPages.length)
-            row.issues.push({
-              diagnostic: false,
-              message: `发现 ${row.scan.zeroPages.length} 个全零页，需结合结构检查判断影响。`,
-              support: 'possible',
-            });
-          if (row.scan.trailingBytes)
-            row.issues.push({
-              message: `文件尾部有 ${row.scan.trailingBytes} 字节不足一页，重建不包含这部分字节。`,
-              support: 'possible',
-            });
-          row.progress = tracker.finish('completed');
-          row.scanProgress = row.progress;
-        } catch (error) {
-          row.scanStatus = signal.aborted ? 'pending' : 'failed';
-          row.scanError = errorText(error);
-          if (error instanceof DatabaseScanUnsupportedError) {
-            row.support = 'unsupported';
-            row.issues = [{ message: row.scanError, support: 'unsupported', diagnostic: false }];
-          }
-          row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
-          if (signal.aborted) throw error;
-        }
-        this.countCompleted(session);
-        this.publish(session, true);
-      }
-      if (kind === 'checkup' && !executionFailure) {
-        snapshot.state = 'checking';
-        for (const target of selected) {
-          signal.throwIfAborted();
-          const row = snapshot.databases.find((item) => item.dbName === target.dbName)!;
-          if (
-            row.scanStatus !== 'completed' ||
-            (row.deepStatus === 'completed' && !databaseNeedsPageLocation(row))
-          )
-            continue;
-          row.integrity = undefined;
-          row.issues = row.issues.filter((issue) => issue.stage !== 'deep');
-          const tracker = this.tracker(session, row, 'checkup');
-          row.deepStatus = 'running';
-          this.tick(session, row, tracker, 'checkup', {
-            step: 'integrity',
-            message: '检查数据库整体结构',
-          });
-          try {
-            if (row.scan && this.deps.locate && databaseNeedsPageLocation(row)) {
-              const location = await this.deps.locate(target, row.scan, signal, (tick) =>
-                this.tick(session, row, tracker, 'checkup', tick),
-              );
-              signal.throwIfAborted();
-              row.scan.affected = location.affected;
-              row.quickBudgetBytes = location.quickBudgetBytes;
-              row.locationChecked = true;
-              const located = row.scan.affected.reduce(
-                (sum, object) => sum + object.badPageCount,
-                0,
-              );
-              this.tick(session, row, tracker, 'checkup', {
-                step: 'mapping',
-                message: `已定位 ${located} / ${row.scan.badPages.length} 个坏页`,
-                status: 'completed',
-                outcome: located < row.scan.badPages.length ? 'unverified' : 'abnormal',
-              });
-            }
-            row.integrity = await this.deps.deep(
-              row.scan?.plaintext ? { ...target, key: '' } : target,
-              signal,
-              (tick) => this.tick(session, row, tracker, 'checkup', tick),
-            );
-            signal.throwIfAborted();
-            if (!this.hasSameSource(session, target)) {
-              executionFailure = '补充检查期间原库发生变化，请重新核对数据库。';
-              snapshot.maintenanceError = executionFailure;
-              row.deepStatus = 'failed';
-              break;
-            }
-            row.deepStatus = row.integrity.ran
-              ? row.integrity.complete === false
-                ? 'partial'
-                : 'completed'
-              : 'failed';
-            if (row.integrity.ran && row.integrity.complete === false)
-              row.issues.push({
-                stage: 'deep',
-                diagnostic: false,
-                support: 'possible',
-                message: `以下结构未完成核验，当前结果不能证明相关问题已修复：${row.integrity.unverifiedTables?.join('、') || 'QQ 专用虚拟表或整体结构检查'}`,
-              });
-            if (
-              (row.integrity.ran && !row.integrity.healthy) ||
-              (!row.integrity.ran && row.integrity.corrupt)
-            )
-              row.issues.push({
-                stage: 'deep',
-                message: `结构检查发现异常${row.integrity.ran && row.integrity.corruptedTables.length ? `：${row.integrity.corruptedTables.join('、')}` : ''}；重建可恢复仍能读取的数据。`,
-                support: row.support === 'unsupported' ? 'unsupported' : 'possible',
-              });
-            row.progress = tracker.finish(row.deepStatus === 'failed' ? 'failed' : 'completed');
-          } catch (error) {
-            row.deepStatus = signal.aborted ? 'cancelled' : 'failed';
-            row.integrity = { ran: false, error: errorText(error) };
-            row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
-            if (signal.aborted) throw error;
-          }
-          this.countCompleted(session);
+        const added = batch.filter((target) => !session.targets.includes(target));
+        if (added.length) {
+          if (!session.lease.acquireMore)
+            throw new Error('本轮无法追加数据库，请刷新维护状态后重试。');
+          await session.lease.acquireMore(added, signal);
+          session.targets.push(...added);
+          snapshot.databases.push(...added.map(pendingRow));
           this.publish(session, true);
         }
+        executionFailure = await this.checkDatabases(session, kind, batch, signal);
+        if (executionFailure) break;
       }
     } catch (error) {
       if (!signal.aborted) executionFailure = errorText(error);
     }
+    const selected = queue.flat();
     const failures = snapshot.databases.some(
       (row) =>
         selected.some((target) => target.dbName === row.dbName) &&
@@ -477,7 +365,7 @@ export class DatabaseMaintenance {
     );
     const lost = session.lease?.signal?.aborted;
     if (lost) {
-      executionFailure = '持续维护锁已中断，本次结果不能继续用于修复，请主动重新开始扫描。';
+      executionFailure = '持续维护锁已中断，本次结果不能继续用于修复，请主动重新开始体检。';
       await session.lease!.release();
       session.lease = undefined;
       snapshot.locked = false;
@@ -490,7 +378,7 @@ export class DatabaseMaintenance {
         session.lease = undefined;
         snapshot.locked = false;
       } catch (error) {
-        snapshot.maintenanceError = `扫描已停止，但释放维护锁失败，请重试结束维护：${errorText(error)}`;
+        snapshot.maintenanceError = `体检已暂停，但释放维护锁失败，请重试结束维护：${errorText(error)}`;
       }
     }
     this.finish(
@@ -512,6 +400,179 @@ export class DatabaseMaintenance {
     return structuredClone(snapshot);
   }
 
+  private async checkDatabases(
+    session: Session,
+    kind: 'scan' | 'checkup',
+    selected: DbRepairTarget[],
+    signal: AbortSignal,
+  ): Promise<string | undefined> {
+    const snapshot = session.snapshot;
+    let executionFailure: string | undefined;
+    snapshot.state = 'scanning';
+    for (const target of selected) {
+      signal.throwIfAborted();
+      const row = snapshot.databases.find((item) => item.dbName === target.dbName)!;
+      if (row.scanStatus === 'completed') {
+        if (row.repair?.status !== 'completed' && !this.hasSameSource(session, target)) {
+          executionFailure = '原库已发生变化。请结束维护并重新核对数据库。';
+          snapshot.maintenanceError = executionFailure;
+          break;
+        }
+        continue;
+      }
+      const tracker = this.tracker(session, row, 'scan');
+      row.scanStatus = 'running';
+      row.scanError = undefined;
+      this.tick(session, row, tracker, 'scan', { step: 'opening', message: '读取源库信息' });
+      try {
+        const lockError = session.lease!.errors?.[target.dbName];
+        if (lockError) throw new Error(lockError);
+        const identity = this.deps.sourceIdentity?.(target);
+        const scan = await this.deps.scan(target, signal, (tick) =>
+          this.tick(session, row, tracker, 'scan', tick),
+        );
+        signal.throwIfAborted();
+        if (identity !== this.deps.sourceIdentity?.(target))
+          throw new Error('体检期间原库发生变化。');
+        if (identity !== undefined) session.sourceIdentities.set(target.dbName, identity);
+        row.scan = scan;
+        row.scanStatus = 'completed';
+        row.support = row.scan.plaintext
+          ? 'unsupported'
+          : row.scan.usedHmac && row.scan.badPages.length < row.scan.pageCount
+            ? 'supported'
+            : 'possible';
+        row.issues = [];
+        if (row.scan.sourceLayout === 'standard')
+          row.issues.push({
+            message: '发现旧版修复留下的标准页布局，本轮重建将迁回 QQ 页布局。',
+            support: row.support,
+          });
+        if (row.scan.plaintext)
+          row.issues.push({
+            diagnostic: false,
+            message: '此数据库为明文库，当前重建工具仅支持加密库。',
+            support: 'unsupported',
+          });
+        if (row.scan.usedHmac && row.scan.badPages.length === row.scan.pageCount)
+          row.issues.push({
+            message:
+              '全部页的签名都未通过；密钥或算法不匹配也会出现此结果，尚不能确认都是物理损坏。',
+            support: 'possible',
+          });
+        if (row.scan.badPages.length)
+          row.issues.push({
+            message: `发现 ${row.scan.badPages.length.toLocaleString('zh-CN')} 个坏页。`,
+            support: row.support,
+          });
+        if (row.scan.zeroPages.length)
+          row.issues.push({
+            diagnostic: false,
+            message: `发现 ${row.scan.zeroPages.length} 个全零页，需结合结构检查判断影响。`,
+            support: 'possible',
+          });
+        if (row.scan.trailingBytes)
+          row.issues.push({
+            message: `文件尾部有 ${row.scan.trailingBytes} 字节不足一页，重建不包含这部分字节。`,
+            support: 'possible',
+          });
+        row.progress = tracker.finish('completed');
+        row.scanProgress = row.progress;
+      } catch (error) {
+        row.scanStatus = signal.aborted ? 'pending' : 'failed';
+        row.scanError = errorText(error);
+        if (error instanceof DatabaseScanUnsupportedError) {
+          row.support = 'unsupported';
+          row.issues = [{ message: row.scanError, support: 'unsupported', diagnostic: false }];
+        }
+        row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
+        if (signal.aborted) throw error;
+      }
+      this.countCompleted(session);
+      this.publish(session, true);
+    }
+    if (kind === 'checkup' && !executionFailure) {
+      snapshot.state = 'checking';
+      for (const target of selected) {
+        signal.throwIfAborted();
+        const row = snapshot.databases.find((item) => item.dbName === target.dbName)!;
+        if (
+          row.scanStatus !== 'completed' ||
+          (row.deepStatus === 'completed' && !databaseNeedsPageLocation(row))
+        )
+          continue;
+        row.integrity = undefined;
+        row.issues = row.issues.filter((issue) => issue.stage !== 'deep');
+        const tracker = this.tracker(session, row, 'checkup');
+        row.deepStatus = 'running';
+        this.tick(session, row, tracker, 'checkup', {
+          step: 'integrity',
+          message: '检查数据库整体结构',
+        });
+        try {
+          if (row.scan && this.deps.locate && databaseNeedsPageLocation(row)) {
+            const location = await this.deps.locate(target, row.scan, signal, (tick) =>
+              this.tick(session, row, tracker, 'checkup', tick),
+            );
+            signal.throwIfAborted();
+            row.scan.affected = location.affected;
+            row.quickBudgetBytes = location.quickBudgetBytes;
+            row.locationChecked = true;
+            const located = row.scan.affected.reduce((sum, object) => sum + object.badPageCount, 0);
+            this.tick(session, row, tracker, 'checkup', {
+              step: 'mapping',
+              message: `已定位 ${located} / ${row.scan.badPages.length} 个坏页`,
+              status: 'completed',
+              outcome: located < row.scan.badPages.length ? 'unverified' : 'abnormal',
+            });
+          }
+          row.integrity = await this.deps.deep(
+            row.scan?.plaintext ? { ...target, key: '' } : target,
+            signal,
+            (tick) => this.tick(session, row, tracker, 'checkup', tick),
+          );
+          signal.throwIfAborted();
+          if (!this.hasSameSource(session, target)) {
+            executionFailure = '补充检查期间原库发生变化，请重新核对数据库。';
+            snapshot.maintenanceError = executionFailure;
+            row.deepStatus = 'failed';
+            break;
+          }
+          row.deepStatus = row.integrity.ran
+            ? row.integrity.complete === false
+              ? 'partial'
+              : 'completed'
+            : 'failed';
+          if (row.integrity.ran && row.integrity.complete === false)
+            row.issues.push({
+              stage: 'deep',
+              diagnostic: false,
+              support: 'possible',
+              message: `以下结构未完成核验，当前结果不能证明相关问题已修复：${row.integrity.unverifiedTables?.join('、') || 'QQ 专用虚拟表或整体结构检查'}`,
+            });
+          if (
+            (row.integrity.ran && !row.integrity.healthy) ||
+            (!row.integrity.ran && row.integrity.corrupt)
+          )
+            row.issues.push({
+              stage: 'deep',
+              message: `结构检查发现异常${row.integrity.ran && row.integrity.corruptedTables.length ? `：${row.integrity.corruptedTables.join('、')}` : ''}；重建可恢复仍能读取的数据。`,
+              support: row.support === 'unsupported' ? 'unsupported' : 'possible',
+            });
+          row.progress = tracker.finish(row.deepStatus === 'failed' ? 'failed' : 'completed');
+        } catch (error) {
+          row.deepStatus = signal.aborted ? 'cancelled' : 'failed';
+          row.integrity = { ran: false, error: errorText(error) };
+          row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
+          if (signal.aborted) throw error;
+        }
+        this.countCompleted(session);
+        this.publish(session, true);
+      }
+    }
+    return executionFailure;
+  }
+
   repair(
     scope: DatabaseMaintenanceScope,
     names: string[],
@@ -519,19 +580,19 @@ export class DatabaseMaintenance {
   ): Promise<DatabaseMaintenanceSnapshot> {
     const session = this.sessions.get(keyFor(scope));
     if (!session?.lease || session.snapshot.state === 'ended')
-      throw new Error('请先开始扫描并保留维护锁，再修复数据库。');
+      throw new Error('请先开始体检并保留维护锁，再修复数据库。');
     if (session.ending || session.snapshot.state === 'ending')
       throw new Error('正在结束本次维护，不能开始修复。');
     if (session.lease.signal?.aborted)
-      throw new Error('持续维护锁已中断，请先结束维护并重新扫描。');
-    if (session.pending) throw new Error('请先停止当前扫描或体检，保留扫描结果后再修复。');
+      throw new Error('持续维护锁已中断，请先结束维护并重新体检。');
+    if (session.pending) throw new Error('请先暂停当前体检，再修复已有结果的数据库。');
     const selected = [...new Set(names)];
     if (!selected.length) throw new Error('请勾选需要修复的数据库。');
     const methods = Object.create(null) as Record<string, DatabaseRepairMethod>;
     for (const name of selected) {
       const row = session.snapshot.databases.find((item) => item.dbName === name);
       if (row?.scanStatus !== 'completed' || !row.scan)
-        throw new Error(`${name} 尚无完整扫描结果，不能修复。`);
+        throw new Error(`${name} 尚无完整的页检查结果，不能修复。`);
       if (!databaseReadyForRepair(row)) throw new Error(`${name} 当前不支持修复。`);
       const recommended = databaseRepairRecommendation(row);
       const method = options.methods?.[name] ?? recommended ?? 'deep';
@@ -575,7 +636,7 @@ export class DatabaseMaintenance {
         const target = session.targets.find((item) => item.dbName === name)!;
         try {
           if (!this.hasSameSource(session, target))
-            throw new DbRepairError('changed-during-repair', '原库与扫描时不同，请重新核对原库。');
+            throw new DbRepairError('changed-during-repair', '原库与体检时不同，请重新核对原库。');
           if (method === 'quick' && !row.quickBudgetBytes)
             await this.checkQuickRepair(session, row, target, tracker, signal);
           const record = await this.deps.repair(
@@ -792,7 +853,7 @@ export class DatabaseMaintenance {
     session.snapshot.locked = false;
     session.snapshot.state = 'ended';
     session.snapshot.maintenanceError =
-      '持续维护锁已中断，本次结果不能继续用于修复，请主动重新开始扫描。';
+      '持续维护锁已中断，本次结果不能继续用于修复，请主动重新开始体检。';
     this.publish(session);
   }
   private begin(
@@ -820,7 +881,7 @@ export class DatabaseMaintenance {
         kind === 'repair'
           ? '准备修复所选数据库'
           : session.lease
-            ? '复用账号维护锁和已有扫描结果'
+            ? '复用账号维护锁和已有体检结果'
             : '锁定账号全部目标数据库',
     });
     this.publish(session, true);

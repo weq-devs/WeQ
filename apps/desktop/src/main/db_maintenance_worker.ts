@@ -88,7 +88,7 @@ async function main() {
     const layout = probeDbLayout(request.target.dbPath);
     if (request.kind === 'scan' && layout.fileBytes < layout.headerOffset + 4096)
       throw new DatabaseScanUnsupportedError(
-        '此文件没有完整的数据库数据页，当前不支持重建；未能执行常规扫描。',
+        '此文件没有完整的数据库数据页，当前不支持重建；未能执行快速体检。',
       );
     if (request.kind === 'scan') {
       const scan = await nt.scanBadPages(
@@ -102,7 +102,7 @@ async function main() {
       );
       progress({
         step: 'pages',
-        message: scan.usedHmac ? '页扫描完成' : '此数据库没有可校验的页签名',
+        message: scan.usedHmac ? '页签名检查完成' : '此数据库没有可校验的页签名',
         completed: scan.usedHmac ? scan.pageCount : 0,
         total: scan.pageCount,
         unit: 'pages',

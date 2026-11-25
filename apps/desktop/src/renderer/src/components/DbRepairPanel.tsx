@@ -22,6 +22,7 @@ import {
   Loader2,
   LockKeyhole,
   Pause,
+  Play,
   RefreshCw,
   RotateCcw,
   ScanLine,
@@ -87,7 +88,7 @@ function rowLabel(row: DatabaseMaintenanceStatusRow) {
   if (row.deepStatus === 'failed') return '深度体检未完成';
   if (row.deepStatus === 'cancelled') return '深度体检已停止';
   if (row.deepStatus === 'completed') return '深度体检完成';
-  return { pending: '尚未扫描', running: '扫描中', completed: '扫描完成', failed: '扫描未完成' }[
+  return { pending: '尚未体检', running: '体检中', completed: '体检完成', failed: '体检未完成' }[
     row.scanStatus
   ];
 }
@@ -110,18 +111,18 @@ function rowTone(row: DatabaseMaintenanceStatusRow): Tone {
 function rowSummary(row: DatabaseMaintenanceStatusRow): string {
   if (row.repair?.status === 'running') return '正在修复这个数据库。';
   if (row.repair?.status === 'failed') return '修复没有完成，原因见问题明细。';
-  if (row.repair?.status === 'waiting') return '已保留扫描结果，处理问题后可重试。';
+  if (row.repair?.status === 'waiting') return '已保留体检结果，处理问题后可重试。';
   if (row.repair?.status === 'cancelled') return '本轮修复已停止，这个库没有提交替换。';
   if (row.repair?.status === 'completed')
     return row.repair.verification?.healthy === false
       ? '产物已替换，复核发现结构异常。详情见下方。'
       : '已替换数据库并完成结构复核。';
-  if (row.scanStatus === 'pending') return '还没扫描这个数据库。';
+  if (row.scanStatus === 'pending') return '这个数据库还未体检。';
   if (row.scanStatus === 'running') {
     const current = row.progress?.current;
     return current?.message ? `${current.message}…` : '正在检查页签名。';
   }
-  if (row.scanStatus === 'failed') return '扫描没有完成，暂时没有可用结论。';
+  if (row.scanStatus === 'failed') return '体检没有完成，暂时没有可用结论。';
   if (row.scan?.plaintext) return '明文数据库，当前重建工具不支持处理它。';
   if (row.scan?.badPageCount) {
     const count = row.scan.badPageCount.toLocaleString('zh-CN');
@@ -130,11 +131,11 @@ function rowSummary(row: DatabaseMaintenanceStatusRow): string {
       return `发现 ${count} 个坏页，${row.locationChecked ? '未能确认归属' : '尚未定位'}`;
     return `发现 ${count} 个坏页，已定位 ${located.toLocaleString('zh-CN')} 个`;
   }
-  if (row.deepStatus === 'running') return '正在做结构体检，页扫描结果已经保留。';
+  if (row.deepStatus === 'running') return '正在做结构体检，页签名检查结果已经保留。';
   if (row.deepStatus === 'partial')
-    return '深度体检部分完成，常规扫描结果可用；结构检查还有未核验的部分。';
-  if (row.deepStatus === 'failed') return '深度体检没有跑完，常规扫描结果仍然保留。';
-  if (row.deepStatus === 'cancelled') return '深度体检已停止，常规扫描结果仍然保留。';
+    return '深度体检部分完成，快速体检结果可用；结构检查还有未核验的部分。';
+  if (row.deepStatus === 'failed') return '深度体检没有跑完，快速体检结果仍然保留。';
+  if (row.deepStatus === 'cancelled') return '深度体检已停止，快速体检结果仍然保留。';
   if (row.integrity?.ran && !row.integrity.healthy) return '结构检查发现异常，可以尝试重建修复。';
   if (row.integrity?.ran && row.integrity.complete === false)
     return '已检查的结构部分没有发现异常，但仍有未核验项，不能认定整库正常。';
@@ -157,8 +158,8 @@ function Chip({ tone, children }: { tone: Tone; children: ReactNode }) {
 }
 
 const maintenanceTabs = [
-  { id: 'scan', label: '扫描', Icon: Database },
-  { id: 'report', label: '报告', Icon: History },
+  { id: 'scan', label: '体检', Icon: Database },
+  { id: 'report', label: '体检报告', Icon: History },
   { id: 'repair', label: '修复', Icon: Wrench },
 ] as const;
 type MaintenanceTab = (typeof maintenanceTabs)[number]['id'];
@@ -193,6 +194,8 @@ export function DbRepairPanel({
     account?.dbName ? [account.dbName] : undefined,
   );
   const [nextScanSelection, setNextScanSelection] = useState<string[]>();
+  const [choosingAdditional, setChoosingAdditional] = useState(false);
+  const [additionalNames, setAdditionalNames] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [deepChoices, setDeepChoices] = useState<string[]>([]);
   const [backupChoices, setBackupChoices] = useState<Record<string, boolean>>({});
@@ -238,6 +241,7 @@ export function DbRepairPanel({
   );
   const cache = trpc.dbRepair.cacheLocation.useQuery(undefined);
   const scan = trpc.dbRepair.scanAccount.useMutation();
+  const appendScan = trpc.dbRepair.appendScan.useMutation();
   const repair = trpc.dbRepair.repairSelected.useMutation();
   const stop = trpc.dbRepair.stopMaintenance.useMutation();
   const end = trpc.dbRepair.endMaintenance.useMutation();
@@ -254,6 +258,7 @@ export function DbRepairPanel({
       // 当前窗口内的修复结果和异常仍可查看。重新打开时从历史报告查看已结束的维护。
       const hasResult =
         snapshot.operation?.kind === 'repair' ||
+        snapshot.operation?.status === 'cancelled' ||
         snapshot.operation?.error ||
         snapshot.maintenanceError ||
         snapshot.reportError;
@@ -306,7 +311,10 @@ export function DbRepairPanel({
   }, [live]);
   useEffect(() => {
     const kind = live?.operation?.kind;
-    if (kind === 'scan' || kind === 'checkup') setScanKind(kind);
+    if (kind === 'scan' || kind === 'checkup') {
+      setScanKind(kind);
+      setNextScanSelection(undefined);
+    }
   }, [live?.operation?.id, live?.operation?.kind]);
   useEffect(() => {
     const sub = client.dbRepair.onMaintenance.subscribe(undefined, {
@@ -369,11 +377,12 @@ export function DbRepairPanel({
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   };
-  const startScan = (kind: 'scan' | 'checkup', dbNames: string[]) =>
+  const startScan = (kind: 'scan' | 'checkup', dbNames: string[], resume = false) =>
     act(async () => {
       if (!dbNames.length) return;
       window.electron?.ipcRenderer.send('db-repair:scope', scope);
-      setTab('scan');
+      if (!resume) setTab('scan');
+      setChoosingAdditional(false);
       setReportId(undefined);
       setReportScope(scope);
       setLegacyId(undefined);
@@ -398,7 +407,7 @@ export function DbRepairPanel({
           .getState()
           .confirm(
             '解除数据库占用？',
-            '放弃本次扫描结果并释放此账号全部目标数据库的维护锁。历史报告继续保留；下次修复需要主动重新扫描。',
+            '放弃本次体检结果并释放此账号全部目标数据库的维护锁。历史报告继续保留；下次修复需要主动重新体检。',
             {
               okLabel: '放弃结果并解除占用',
               cancelLabel: '继续维护',
@@ -516,7 +525,10 @@ export function DbRepairPanel({
   const locked = !!live?.locked && live.state !== 'ended';
   const waiting = live?.state === 'waiting' && !ending;
   const paused =
-    waiting && live?.operation?.kind !== 'repair' && live?.operation?.status === 'cancelled';
+    !running &&
+    !ending &&
+    live?.operation?.kind !== 'repair' &&
+    live?.operation?.status === 'cancelled';
   const scanRunning = running && !repairing;
   const available = status.data?.databases.filter((row) => row.exists) ?? [];
   const databases = view?.databases ?? [];
@@ -536,15 +548,26 @@ export function DbRepairPanel({
       ? pendingQuickScan
       : pendingDeepScan;
   const candidateNames = scanCandidates.map((row) => row.dbName);
-  const scanSelectionForAction = locked
-    ? (nextScanSelection ?? candidateNames.filter((name) => maintainedRows.has(name)))
-    : scanSelection;
+  const operation = view?.operation;
+  const operationNames = operation?.databaseNames ?? databases.map(({ dbName }) => dbName);
+  const scanSelectionForAction = paused
+    ? (nextScanSelection ??
+      (scanKind === operation?.kind
+        ? operationNames
+        : [...maintainedRows.keys(), ...operationNames]))
+    : locked
+      ? (nextScanSelection ?? candidateNames.filter((name) => maintainedRows.has(name)))
+      : scanSelection;
   const scanNames = scanSelectionForAction
     ? candidateNames.filter((name) => scanSelectionForAction.includes(name))
     : candidateNames;
-  const allScanSelected = scanNames.length === candidateNames.length;
-  const setScanCandidates = locked ? setNextScanSelection : setScanSelection;
-  const operation = view?.operation;
+  const setScanCandidates = locked || paused ? setNextScanSelection : setScanSelection;
+  const runningScanCandidates = scanCandidates.filter(
+    ({ dbName }) => !operationNames.includes(dbName),
+  );
+  const namesToAppend = runningScanCandidates
+    .map(({ dbName }) => dbName)
+    .filter((name) => additionalNames.includes(name));
   const additionalScanKind =
     locked && pendingDeepScan.length
       ? operation?.kind === 'scan' && pendingQuickScan.length
@@ -564,7 +587,7 @@ export function DbRepairPanel({
     operation?.status === 'running'
       ? databases.find((row) => row.dbName === operation.currentDb)
       : activeRow;
-  const progress = progressOwner?.progress ?? view?.progress;
+  const progress = paused ? view?.progress : (progressOwner?.progress ?? view?.progress);
   const plans = databases.flatMap((row) => {
     const recommended = databaseRepairRecommendation(row);
     if (!recommended) return [];
@@ -589,16 +612,14 @@ export function DbRepairPanel({
   const scannedCount = databases.filter((row) => row.scanStatus === 'completed').length;
   const abnormalCount = databases.filter((row) => databaseMaintenanceRowAbnormal(row)).length;
   const scanAction = !locked
-    ? '开始扫描'
+    ? '开始体检'
     : !scanCandidates.length
-      ? '扫描已完成'
-      : paused
-        ? '继续扫描'
-        : scanNames.some((name) => !maintainedRows.has(name)) || !scanNames.length
-          ? '追加扫描'
-          : scanKind === 'checkup'
-            ? '开始补充检查'
-            : '继续扫描';
+      ? '体检已完成'
+      : scanNames.some((name) => !maintainedRows.has(name)) || !scanNames.length
+        ? '追加体检'
+        : scanKind === 'checkup'
+          ? '开始补充检查'
+          : '继续体检';
   const canEndMaintenance = locked && waiting && !running;
   const maintenanceLabel = ending
     ? '正在解锁'
@@ -606,7 +627,7 @@ export function DbRepairPanel({
       ? '修复中'
       : scanRunning
         ? locked
-          ? '扫描中'
+          ? '体检中'
           : '准备中'
         : locked
           ? '维护中'
@@ -618,7 +639,12 @@ export function DbRepairPanel({
       databases.some((row) => row.scanStatus === 'failed') ||
       !!(operation && operation.status !== 'running' && operation.status !== 'cancelled'));
   const hasReport = hasReportRows || !!diagnostic;
-  const hasRepairPlan = waiting && !running && readyNames.length > 0;
+  const hasRepairPlan = waiting && !running && !stop.isLoading && readyNames.length > 0;
+  const repairUnavailable = hasRepairPlan
+    ? undefined
+    : operation?.status === 'completed' && !abnormalCount
+      ? '本轮体检未发现需要修复的问题。'
+      : '当前结果没有可用的修复方案。';
   const enabledTabs = maintenanceTabs.filter(({ id }) =>
     id === 'report' ? hasReport : id === 'repair' ? repairing || hasRepairPlan : true,
   );
@@ -628,7 +654,7 @@ export function DbRepairPanel({
       ? 'report'
       : 'scan';
   const showFooter = tab === 'repair' && hasRepairPlan;
-  const showScanSetup = tab === 'scan' && !scanRunning && !repairing && !ending;
+  const showScanSetup = tab === 'scan' && !scanRunning && !paused && !repairing && !ending;
   const selectedBackups = selectedReady.filter((name) => backups[name]).length;
   const hasDeep = selectedReady.some((name) => methods[name] === 'deep');
   const needsSourceRecheck =
@@ -717,11 +743,13 @@ export function DbRepairPanel({
     if (reportIdToExport)
       void act(() => exportReport.mutateAsync({ ...scope, reportId: reportIdToExport, format }));
   };
-  const showProgress = (tab === 'scan' && scanRunning) || (tab === 'repair' && repairing);
+  const showProgress =
+    ((tab === 'scan' || tab === 'report') && (scanRunning || paused)) ||
+    (tab === 'repair' && repairing);
   const showLiveOperation = showProgress && operation?.status === 'running';
   const showReportSummary =
-    tab === 'report' && waiting && !running && !!operation && databases.length > 0;
-  const showDatabaseStatus = tab === 'report' || showLiveOperation;
+    tab === 'report' && waiting && !running && !paused && !!operation && databases.length > 0;
+  const showDatabaseStatus = tab === 'report' || showLiveOperation || (showProgress && paused);
   const visibleDatabases =
     tab === 'report'
       ? databases
@@ -729,9 +757,29 @@ export function DbRepairPanel({
           (row) =>
             operation?.databaseNames?.includes(row.dbName) ?? (tab !== 'repair' || !!row.repair),
         );
-  const scanCoverage = `${scannedCount} / ${databases.length} 已扫描`;
+  const scanCoverage = `${scannedCount} / ${databases.length} 已完成页检查`;
   const repairAvailability = readyNames.length ? ` · ${readyNames.length} 个可修复` : '';
   const stopping = stop.isLoading || !!operation?.stopping;
+  const canAppend = paused
+    ? scanCandidates.length > 0
+    : scanRunning &&
+      !stopping &&
+      operation?.status === 'running' &&
+      runningScanCandidates.length > 0;
+  const scanModeControl = (
+    <SegmentedControl
+      label="体检类型"
+      value={scanKind}
+      options={[
+        { value: 'scan', label: '快速体检' },
+        { value: 'checkup', label: '深度体检' },
+      ]}
+      onChange={(kind) => {
+        setScanKind(kind);
+        setNextScanSelection(undefined);
+      }}
+    />
+  );
   const deepScan =
     starting === 'checkup' || (operation?.status === 'running' && operation.kind === 'checkup');
   const progressTitle = repairing
@@ -739,12 +787,12 @@ export function DbRepairPanel({
       ? '正在停止修复'
       : '正在修复数据库'
     : stopping
-      ? '正在暂停扫描'
+      ? '正在暂停体检'
       : live?.state === 'locking'
         ? '正在锁定数据库'
         : deepScan
           ? '正在深度体检'
-          : '正在扫描数据库';
+          : '正在快速体检';
 
   return (
     <section className="weq-dbm" aria-label="数据库修复">
@@ -899,7 +947,7 @@ export function DbRepairPanel({
 
         {showScanSetup ? (
           <div className="weq-dbm-scan-setup">
-            <section className="weq-dbm-scan-controls" aria-label="扫描设置">
+            <section className="weq-dbm-scan-controls" aria-label="体检设置">
               <button
                 className="weq-set-btn weq-set-btn-primary weq-dbm-scan-start"
                 type="button"
@@ -909,118 +957,139 @@ export function DbRepairPanel({
                 <ScanLine size={30} strokeWidth={1.6} aria-hidden />
                 {scanAction}
               </button>
-              <SegmentedControl
-                label="体检类型"
-                value={scanKind}
-                options={[
-                  { value: 'scan', label: '快速体检' },
-                  { value: 'checkup', label: '深度体检' },
-                ]}
-                onChange={(kind) => {
-                  setScanKind(kind);
-                  setNextScanSelection(undefined);
-                }}
-              />
+              {scanModeControl}
               <p aria-live="polite">
                 {scanKind === 'scan'
-                  ? '逐页扫描数据库，找出可能损坏的页。'
+                  ? '逐页签名检查数据库，找出可能损坏的页。'
                   : '进一步检查数据库结构和索引，尝试定位坏页影响的范围，耗时更长。'}
               </p>
               <p role="status">
                 {status.data && !status.data.keyPresent && !status.data.error
-                  ? '请先用 WeQ 打开一次这个账号，获取数据库密钥后再扫描。'
-                  : paused
-                    ? '扫描已暂停，已完成的检查会保留。'
-                    : locked
-                      ? '已完成的检查会保留。'
-                      : available.length && !scanNames.length
-                        ? '请在下方至少选择一个数据库。'
-                        : '扫描只读取所选数据库，维护期间会暂停写入。'}
+                  ? '请先用 WeQ 打开一次这个账号，获取数据库密钥后再开始体检。'
+                  : locked
+                    ? '已完成的检查会保留。'
+                    : available.length && !scanNames.length
+                      ? '请在下方至少选择一个数据库。'
+                      : '体检只读取所选数据库，维护期间会暂停写入。'}
               </p>
             </section>
 
-            <section className="weq-dbm-scan-databases" aria-label="选择数据库">
-              <div className="weq-dbm-dbs-head">
-                <h2>数据库</h2>
-                {scanCandidates.length ? (
-                  <div className="weq-dbm-dbs-tools">
-                    <span className="weq-dbm-selected">
-                      <NumericText>{`已选 ${scanNames.length} / ${scanCandidates.length}`}</NumericText>
-                    </span>
-                    <button
-                      type="button"
-                      className="weq-dbm-text-btn"
-                      onClick={() => setScanCandidates(allScanSelected ? [] : candidateNames)}
-                    >
-                      {allScanSelected ? '取消全选' : '全选'}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-              {scanCandidates.length ? (
-                <ul className="weq-dbm-list">
-                  {scanCandidates.map((row) => (
-                    <li key={row.dbName}>
-                      <DatabaseCard
-                        dbName={row.dbName}
-                        bytes={row.bytes}
-                        selection={{
-                          checked: scanNames.includes(row.dbName),
-                          onChange: (checked) =>
-                            setScanCandidates(
-                              checked
-                                ? [...scanNames, row.dbName]
-                                : scanNames.filter((name) => name !== row.dbName),
-                            ),
-                        }}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className={status.isLoading ? 'weq-dbm-loading' : 'weq-dbm-empty'} role="status">
-                  {status.isLoading
-                    ? '正在读取数据库列表…'
-                    : locked
-                      ? `没有待${scanKind === 'checkup' ? '深度体检' : '快速体检'}的数据库。`
-                      : '没有可扫描的数据库。'}
-                </p>
-              )}
-            </section>
+            <ScanDatabaseSelection
+              candidates={scanCandidates}
+              selected={scanNames}
+              onChange={setScanCandidates}
+              emptyMessage={
+                status.isLoading
+                  ? '正在读取数据库列表…'
+                  : locked
+                    ? `没有待${scanKind === 'checkup' ? '深度体检' : '快速体检'}的数据库。`
+                    : '没有可体检的数据库。'
+              }
+            />
           </div>
         ) : null}
 
         {showProgress ? (
-          <section className="weq-dbm-hero is-run" aria-label="维护进度">
+          <section className={`weq-dbm-hero${paused ? '' : ' is-run'}`} aria-label="维护进度">
             <span className="weq-dbm-hero-icon" aria-hidden>
-              <Loader2 size={22} className="weq-spin" />
+              {paused ? <Pause size={22} /> : <Loader2 size={22} className="weq-spin" />}
             </span>
             <div className="weq-dbm-hero-main" role="status">
-              <h2>{progressTitle}</h2>
+              <h2>{paused ? '体检已暂停' : progressTitle}</h2>
               <p>
-                {operation?.status === 'running'
+                {operation
                   ? `${operation.completedDatabases} / ${operation.totalDatabases} 个数据库完成${operation.currentDb ? ` · 当前 ${operation.currentDb}` : ''}`
                   : '正在准备…'}
+                {paused && locked ? ' · 已完成的检查会保留' : ''}
               </p>
             </div>
             <div className="weq-dbm-hero-actions">
-              <button
-                type="button"
-                className="weq-set-btn"
-                disabled={stopping || operation?.status !== 'running'}
-                onClick={() => void pauseOrStop()}
-              >
-                {repairing ? <Square size={13} /> : <Pause size={14} />}
-                {stopping
-                  ? repairing
-                    ? '正在停止'
-                    : '正在暂停'
-                  : repairing
-                    ? '停止修复'
-                    : '暂停扫描'}
-              </button>
+              {paused ? (
+                <>
+                  <button
+                    className="weq-set-btn weq-set-btn-primary"
+                    type="button"
+                    disabled={!canScan || stopping || !scanNames.length}
+                    onClick={() => void startScan(scanKind, scanNames, true)}
+                  >
+                    <Play size={14} aria-hidden />
+                    继续体检
+                  </button>
+                  {hasRepairPlan ? (
+                    <button className="weq-set-btn" type="button" onClick={() => setTab('repair')}>
+                      <Wrench size={14} aria-hidden />
+                      前往修复
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="weq-set-btn"
+                  disabled={stopping || operation?.status !== 'running'}
+                  onClick={() => void pauseOrStop()}
+                >
+                  {repairing ? <Square size={13} /> : <Pause size={14} />}
+                  {stopping
+                    ? repairing
+                      ? '正在停止'
+                      : '正在暂停'
+                    : repairing
+                      ? '停止修复'
+                      : '暂停体检'}
+                </button>
+              )}
+              {canAppend ? (
+                <button
+                  className="weq-set-btn"
+                  type="button"
+                  aria-expanded={choosingAdditional}
+                  onClick={() => {
+                    setChoosingAdditional(!choosingAdditional);
+                    setAdditionalNames([]);
+                  }}
+                >
+                  <ScanLine size={14} aria-hidden />
+                  追加体检
+                </button>
+              ) : null}
+              {paused && canExportCurrent ? (
+                <ReportExportMenu disabled={exportReport.isLoading} onExport={onExportCurrent} />
+              ) : null}
             </div>
           </section>
+        ) : null}
+        {showProgress && paused ? (
+          <div className="weq-dbm-paused-controls">{scanModeControl}</div>
+        ) : null}
+        {showProgress && canAppend && choosingAdditional ? (
+          <ScanDatabaseSelection
+            candidates={paused ? scanCandidates : runningScanCandidates}
+            selected={paused ? scanNames : namesToAppend}
+            onChange={paused ? setScanCandidates : setAdditionalNames}
+            emptyMessage="没有可追加体检的数据库。"
+            action={
+              paused ? undefined : (
+                <button
+                  className="weq-set-btn weq-set-btn-primary"
+                  type="button"
+                  disabled={appendScan.isLoading || !namesToAppend.length}
+                  onClick={() =>
+                    void act(async () => {
+                      await appendScan.mutateAsync({
+                        ...scope,
+                        operationId: operation!.id,
+                        dbNames: namesToAppend,
+                      });
+                      setChoosingAdditional(false);
+                    })
+                  }
+                >
+                  加入本轮体检
+                </button>
+              )
+            }
+          />
         ) : null}
         {tab === 'scan' && repairing ? (
           <p role="status">修复正在继续，可切换到「修复」查看进度。</p>
@@ -1069,13 +1138,11 @@ export function DbRepairPanel({
               <h2>
                 {operation.kind === 'repair' && operation.status === 'waiting'
                   ? '修复未完成，等待重试'
-                  : paused
-                    ? '扫描已暂停'
-                    : abnormalCount
-                      ? `${abnormalCount} 个数据库发现异常`
-                      : operation.status === 'completed' && scannedCount === databases.length
-                        ? '本轮检查完成'
-                        : '本轮检查未完成'}
+                  : abnormalCount
+                    ? `${abnormalCount} 个数据库发现异常`
+                    : operation.status === 'completed' && scannedCount === databases.length
+                      ? '本轮检查完成'
+                      : '本轮检查未完成'}
               </h2>
               <p>
                 <NumericText>{`${scanCoverage}${repairAvailability}`}</NumericText>
@@ -1085,8 +1152,11 @@ export function DbRepairPanel({
               <button
                 className={`weq-set-btn${hasRepairPlan && abnormalCount ? ' weq-set-btn-primary' : ''}`}
                 type="button"
-                disabled={!hasRepairPlan}
-                onClick={() => setTab('repair')}
+                aria-disabled={!hasRepairPlan || undefined}
+                title={repairUnavailable}
+                onClick={() => {
+                  if (hasRepairPlan) setTab('repair');
+                }}
               >
                 <Wrench size={14} aria-hidden />
                 进入修复
@@ -1102,7 +1172,7 @@ export function DbRepairPanel({
                   }}
                 >
                   <ScanLine size={14} aria-hidden />
-                  追加扫描
+                  追加体检
                 </button>
               ) : null}
               {canExportCurrent ? (
@@ -1115,13 +1185,14 @@ export function DbRepairPanel({
           <section className="weq-dbm-dbs" aria-label="数据库列表">
             <div className="weq-dbm-dbs-head">
               <h2>数据库</h2>
-              {tab === 'report' && !showReportSummary && !repairing ? (
+              {tab === 'report' && !showReportSummary && !repairing && !paused ? (
                 <span className="weq-dbm-dbs-meta">
                   <NumericText>{`${scanCoverage}${abnormalCount ? ` · ${abnormalCount} 个异常` : ''}${repairAvailability}`}</NumericText>
                 </span>
               ) : null}
               {tab === 'report' &&
               !showReportSummary &&
+              !paused &&
               (needsSourceRecheck || canExportCurrent) ? (
                 <div className="weq-dbm-dbs-tools">
                   {needsSourceRecheck ? (
@@ -1162,12 +1233,12 @@ export function DbRepairPanel({
           </section>
         ) : null}
 
-        {(showLiveOperation || tab === 'report' || (tab === 'scan' && paused)) && activeProgress ? (
-          <details className="weq-dbm-process" open={running || undefined}>
+        {(showLiveOperation || tab === 'report' || (showProgress && paused)) && activeProgress ? (
+          <details className="weq-dbm-process" open={running || paused || undefined}>
             <summary>
               <span className="weq-dbm-process-title">
                 {running ? <Loader2 size={14} className="weq-spin" /> : <History size={14} />}
-                {running ? '执行进度' : '本次执行过程'}
+                {running || paused ? '执行进度' : '本次执行过程'}
               </span>
               {!running && operation ? (
                 <span className="weq-dbm-process-hint">
@@ -1356,7 +1427,7 @@ export function DbRepairPanel({
                       <span>
                         <strong>预留空间不足时仍尝试修复</strong>
                         <em>
-                          仍需满足预计写入空间；后续空间不足时保留扫描结果，腾出空间后可重试。
+                          仍需满足预计写入空间；后续空间不足时保留体检结果，腾出空间后可重试。
                         </em>
                       </span>
                     </label>
@@ -1623,6 +1694,67 @@ type DatabaseCardProps = {
     }
 );
 
+function ScanDatabaseSelection({
+  candidates,
+  selected,
+  onChange,
+  emptyMessage,
+  action,
+}: {
+  candidates: { dbName: string; bytes: number | null }[];
+  selected: string[];
+  onChange: (names: string[]) => void;
+  emptyMessage: string;
+  action?: ReactNode;
+}) {
+  const allSelected = selected.length === candidates.length;
+  return (
+    <section className="weq-dbm-scan-databases" aria-label="选择数据库">
+      <div className="weq-dbm-dbs-head">
+        <h2>数据库</h2>
+        {candidates.length ? (
+          <div className="weq-dbm-dbs-tools">
+            <span className="weq-dbm-selected">
+              <NumericText>{`已选 ${selected.length} / ${candidates.length}`}</NumericText>
+            </span>
+            <button
+              type="button"
+              className="weq-dbm-text-btn"
+              onClick={() => onChange(allSelected ? [] : candidates.map(({ dbName }) => dbName))}
+            >
+              {allSelected ? '取消全选' : '全选'}
+            </button>
+            {action}
+          </div>
+        ) : null}
+      </div>
+      {candidates.length ? (
+        <ul className="weq-dbm-list">
+          {candidates.map(({ dbName, bytes }) => (
+            <li key={dbName}>
+              <DatabaseCard
+                dbName={dbName}
+                bytes={bytes}
+                selection={{
+                  checked: selected.includes(dbName),
+                  onChange: (checked) =>
+                    onChange(
+                      checked ? [...selected, dbName] : selected.filter((name) => name !== dbName),
+                    ),
+                }}
+              />
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="weq-dbm-empty" role="status">
+          {emptyMessage}
+        </p>
+      )}
+    </section>
+  );
+}
+
 function DatabaseCard(props: DatabaseCardProps) {
   const row = 'row' in props ? props.row : undefined;
   const dbName = 'dbName' in props ? props.dbName : props.row.dbName;
@@ -1683,7 +1815,7 @@ function DatabaseCard(props: DatabaseCardProps) {
         <input
           type="checkbox"
           className="weq-dbm-db-input"
-          aria-label={`扫描 ${dbName}`}
+          aria-label={`体检 ${dbName}`}
           aria-describedby={purpose ? purposeId : undefined}
           checked={selection.checked}
           onChange={(event) => selection.onChange(event.target.checked)}
@@ -1969,7 +2101,7 @@ function RepairStorageWarning({
         </strong>
       </div>
       <p>
-        请清理磁盘或更改备份与修复工作区位置。空间不足时会保留维护锁和扫描结果，返回查看结果后可重试。
+        请清理磁盘或更改备份与修复工作区位置。空间不足时会保留维护锁和体检结果，返回查看结果后可重试。
       </p>
       <dl>
         <div>
@@ -2284,7 +2416,7 @@ function LegacyReport({
       ) : null}
       <p className="weq-dbm-note">
         <Info size={14} aria-hidden />
-        旧报告没有记录逐项支持情况，也没有本次维护的扫描与复核过程。只能查看结果和导出。
+        旧报告没有记录逐项支持情况，也没有本次维护的体检与复核过程。只能查看结果和导出。
       </p>
     </>
   );

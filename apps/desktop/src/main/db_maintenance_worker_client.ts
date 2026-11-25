@@ -88,7 +88,7 @@ export async function runDatabaseMaintenanceWorker(
     request.kind === 'scan' &&
     (!('dbPath' in result) || result.dbPath !== request.target.dbPath || !('pageCount' in result))
   )
-    throw new Error('源库扫描结果无效。');
+    throw new Error('源库页检查结果无效。');
   if (
     request.kind === 'layout' &&
     (!('dbPath' in result) || result.dbPath !== request.dbPath || !('needsMigration' in result))

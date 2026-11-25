@@ -370,6 +370,18 @@ html[data-theme='dark'] .weq-dbm {
   gap: 10px;
 }
 
+.weq-dbm-hero-actions .weq-set-btn[aria-disabled='true'] {
+  background: var(--muted);
+  color: var(--muted-foreground);
+  border-color: var(--weq-border-subtle);
+  cursor: not-allowed;
+}
+
+.weq-dbm-paused-controls {
+  display: flex;
+  justify-content: flex-start;
+}
+
 .weq-dbm-body > .weq-dbm-scan-setup {
   display: flex;
   flex: 1 0 auto;

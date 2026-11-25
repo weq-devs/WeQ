@@ -243,7 +243,7 @@ export const databaseMaintenance = new DatabaseMaintenance({
       !nt.protectDatabaseMaintenanceProduct ||
       !nt.setDatabaseMaintenanceWriteBarrier
     )
-      throw new Error('当前原生组件不支持持续维护锁，请更新原生组件后再开始扫描。');
+      throw new Error('当前原生组件不支持持续维护锁，请更新原生组件后再开始体检。');
     const id = randomUUID();
     const setWriteBarrier = nt.setDatabaseMaintenanceWriteBarrier.bind(nt);
     const workers = new Map<string, DatabaseMaintenanceLock>();
@@ -479,6 +479,20 @@ export const dbRepairRouter = router({
           current?.locked ? input.dbNames : undefined,
         ),
       );
+    }),
+  appendScan: procedure
+    .input(
+      accountRef.extend({
+        operationId: z.string().min(1),
+        dbNames: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .mutation(({ input }) => {
+      const current = databaseMaintenance.status(input);
+      const targets = [...new Set(input.dbNames)]
+        .filter((name) => !current?.databases.some((row) => row.dbName === name))
+        .map((name) => service.resolveTarget(input.uin, name));
+      databaseMaintenance.appendScan(input, input.operationId, targets, input.dbNames);
     }),
   repairSelected: procedure
     .input(

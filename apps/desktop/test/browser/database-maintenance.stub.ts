@@ -13,6 +13,7 @@ type Input = {
   configId?: string;
   kind?: 'scan' | 'checkup';
   dbNames?: string[];
+  operationId?: string;
   methods?: Record<string, 'quick' | 'deep'>;
   reportId?: string;
   recordId?: string;
@@ -36,6 +37,7 @@ let freeBytes = 10_000_000_000;
 let resolveRun: ((value: unknown) => void) | undefined;
 const calls = {
   scan: [] as Input[],
+  append: [] as Input[],
   repair: [] as Input[],
   stop: 0,
   end: 0,
@@ -145,12 +147,16 @@ function finish(status: 'completed' | 'cancelled' = 'completed') {
   } else {
     if (status === 'completed') {
       const targets = live.operation.databaseNames ?? scopeNames;
-      live.databases = live.databases.map((row, index) =>
-        targets.includes(row.dbName) ? regularRow(row.dbName, index) : row,
+      scopeNames = [...new Set([...scopeNames, ...targets])];
+      live.databases = scopeNames.map((name) =>
+        targets.includes(name)
+          ? regularRow(name, names.indexOf(name))
+          : live!.databases.find((row) => row.dbName === name)!,
       );
       if (live.operation.kind === 'checkup') {
-        for (const [index, row] of live.databases.entries()) {
+        for (const row of live.databases) {
           if (!targets.includes(row.dbName)) continue;
+          const index = names.indexOf(row.dbName);
           row.deepStatus = 'completed';
           if (index === 0) {
             row.locationChecked = true;
@@ -185,9 +191,12 @@ function finish(status: 'completed' | 'cancelled' = 'completed') {
           detail: '异常表：group_msg_table',
         });
       }
-    } else
-      for (const row of live.databases)
+    } else {
+      for (const row of live.databases) {
         if (row.scanStatus === 'running') row.scanStatus = 'pending';
+        if (row.deepStatus === 'running') row.deepStatus = 'cancelled';
+      }
+    }
     const empty =
       status === 'cancelled' && !live.databases.some((row) => row.scanStatus === 'completed');
     live.state = empty ? 'ended' : 'waiting';
@@ -202,9 +211,12 @@ function finish(status: 'completed' | 'cancelled' = 'completed') {
   live.operation.status = status;
   live.operation.finishedAt = live.operation.startedAt + 17_000;
   live.operation.elapsedMs = 17_000;
-  live.operation.completedDatabases = live.databases.filter((row) =>
-    repair ? row.repair?.status === 'completed' : row.scanStatus === 'completed',
-  ).length;
+  const { databaseNames, kind } = live.operation;
+  live.operation.completedDatabases = live.databases.filter((row) => {
+    if (databaseNames && !databaseNames.includes(row.dbName)) return false;
+    if (repair) return row.repair?.status === 'completed';
+    return kind === 'checkup' ? row.deepStatus === 'completed' : row.scanStatus === 'completed';
+  }).length;
   live.operation.currentDb = undefined;
   if (
     repair ||
@@ -231,6 +243,7 @@ export const maintenanceQa = {
     cache = '/synthetic/cache';
     freeBytes = 10_000_000_000;
     calls.scan.length = 0;
+    calls.append.length = 0;
     calls.repair.length = 0;
     calls.export.length = 0;
     calls.delete.length = 0;
@@ -273,8 +286,8 @@ export const maintenanceQa = {
       completed: 42,
       total: 100,
       unit: 'pages',
-      badPages: 3,
-      outcome: 'abnormal',
+      badPages: row.dbName === names[0] ? 3 : 0,
+      outcome: row.dbName === names[0] ? 'abnormal' : 'normal',
     });
     live.progress = row.progress;
     publish();
@@ -517,6 +530,17 @@ export const trpc = {
       return new Promise((resolve) => {
         resolveRun = resolve;
       });
+    }),
+    appendScan: mutation(async (input) => {
+      calls.append.push(input);
+      const operation = live?.operation;
+      if (!operation || operation.id !== input.operationId || operation.status !== 'running')
+        throw new Error('本次体检已停止或完成。');
+      operation.databaseNames = [
+        ...new Set([...(operation.databaseNames ?? []), ...input.dbNames!]),
+      ];
+      operation.totalDatabases = operation.databaseNames.length;
+      publish();
     }),
     repairSelected: mutation(async (input) => {
       calls.repair.push(input);

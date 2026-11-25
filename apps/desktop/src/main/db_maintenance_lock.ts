@@ -52,7 +52,7 @@ export class DatabaseMaintenanceLock {
     this.closed = new Promise((done) => {
       this.child.once('close', () => {
         this.exited = true;
-        const error = new Error('持续维护锁进程已退出，本次扫描结果不能继续用于修复。');
+        const error = new Error('持续维护锁进程已退出，本次体检结果不能继续用于修复。');
         for (const request of this.requests.values()) {
           clearTimeout(request.timer);
           request.reject(error);

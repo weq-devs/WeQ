@@ -85,13 +85,13 @@ it('打开修复和 StrictMode 重挂载均不启动检查或修复', async () =
   await mount();
   expect(maintenanceQa.calls.scan).toEqual([]);
   expect(maintenanceQa.calls.repair).toEqual([]);
-  expect(button('开始扫描').disabled).toBe(false);
+  expect(button('开始体检').disabled).toBe(false);
   expect(button('深度体检').disabled).toBe(false);
 });
 
-it('扫描时不可切换模式，暂停后保留就绪库，切换深度体检后按当前来源继续', async () => {
+it('体检时不可切换模式，暂停后保留就绪库，切换深度体检后按当前来源继续', async () => {
   await mount();
-  await act(async () => button('开始扫描').click());
+  await act(async () => button('开始体检').click());
   expect(maintenanceQa.calls.scan).toEqual([
     {
       uin: account.uin,
@@ -102,14 +102,14 @@ it('扫描时不可切换模式，暂停后保留就绪库，切换深度体检�
   ]);
   expect(host.querySelector('[role="radiogroup"]')).toBeNull();
   await act(async () => maintenanceQa.completeFirst());
-  await act(async () => button('暂停扫描').click());
+  await act(async () => button('暂停体检').click());
   expect(maintenanceQa.calls.stop).toBe(1);
   expect(maintenanceQa.calls.end).toBe(0);
   expect(maintenanceQa.snapshot()?.databases[0]?.scanStatus).toBe('completed');
-  expect(button('继续扫描').disabled).toBe(false);
+  expect(button('继续体检').disabled).toBe(false);
   expect(button('深度体检').disabled).toBe(false);
   await act(async () => button('深度体检').click());
-  await act(async () => button('继续扫描').click());
+  await act(async () => button('继续体检').click());
   expect(maintenanceQa.calls.scan[1]).toEqual({
     uin: account.uin,
     configId: account.configId,
@@ -122,12 +122,12 @@ it('扫描选择只列未完成当前等级的库，补充深度体检只提交�
   maintenanceQa.ready();
   await mount();
   const choiceToScan = (name: string) =>
-    host.querySelector<HTMLInputElement>(`input[aria-label="扫描 ${name}"]`);
-  await act(async () => button('扫描').click());
+    host.querySelector<HTMLInputElement>(`input[aria-label="体检 ${name}"]`);
+  await act(async () => button('体检').click());
   expect(choiceToScan('nt_msg.db')).toBeNull();
-  expect(button('扫描已完成').disabled).toBe(true);
-  await act(async () => button('报告').click());
-  await act(async () => button('追加扫描').click());
+  expect(button('体检已完成').disabled).toBe(true);
+  await act(async () => button('体检报告').click());
+  await act(async () => button('追加体检').click());
   expect(button('深度体检').getAttribute('aria-checked')).toBe('true');
   expect(choiceToScan('nt_msg.db')?.checked).toBe(true);
   await act(async () => choiceToScan('profile.db')!.click());
@@ -143,30 +143,30 @@ it('扫描选择只列未完成当前等级的库，补充深度体检只提交�
     },
   ]);
   await act(async () => maintenanceQa.complete());
-  await act(async () => button('扫描').click());
+  await act(async () => button('体检').click());
   expect(choiceToScan('nt_msg.db')).toBeNull();
   expect(choiceToScan('profile.db')).not.toBeNull();
   await act(async () => button('快速体检').click());
   expect(choiceToScan('profile.db')).toBeNull();
 });
 
-it('扫描完成后可在原扫描页选中其他库，追加扫描不结束维护', async () => {
+it('体检完成后可在原扫描页选中其他库，追加体检不结束维护', async () => {
   await mount();
   const choiceToScan = (name: string) =>
-    host.querySelector<HTMLInputElement>(`input[aria-label="扫描 ${name}"]`)!;
+    host.querySelector<HTMLInputElement>(`input[aria-label="体检 ${name}"]`)!;
   await act(async () => choiceToScan('profile.db').click());
   await act(async () => choiceToScan('unsupported.db').click());
-  await act(async () => button('开始扫描').click());
+  await act(async () => button('开始体检').click());
   await act(async () => maintenanceQa.complete());
-  await act(async () => button('扫描').click());
+  await act(async () => button('体检').click());
   await act(async () => button('深度体检').click());
-  await act(async () => button('报告').click());
-  await act(async () => button('追加扫描').click());
+  await act(async () => button('体检报告').click());
+  await act(async () => button('追加体检').click());
   expect(button('快速体检').getAttribute('aria-checked')).toBe('true');
-  expect(host.querySelector('input[aria-label="扫描 nt_msg.db"]')).toBeNull();
-  expect(button('追加扫描').disabled).toBe(true);
+  expect(host.querySelector('input[aria-label="体检 nt_msg.db"]')).toBeNull();
+  expect(button('追加体检').disabled).toBe(true);
   await act(async () => choiceToScan('profile.db').click());
-  await act(async () => button('追加扫描').click());
+  await act(async () => button('追加体检').click());
   expect(maintenanceQa.calls.end).toBe(0);
   expect(maintenanceQa.calls.scan[1]).toMatchObject({ dbNames: ['profile.db'] });
   expect(maintenanceQa.snapshot()?.databases[0]?.scanStatus).toBe('completed');
@@ -175,7 +175,7 @@ it('扫描完成后可在原扫描页选中其他库，追加扫描不结束维�
 it('界面卸载不取消扫描、不删除已有结果或结束维护', async () => {
   await mount();
   await act(async () => button('深度体检').click());
-  await act(async () => button('开始扫描').click());
+  await act(async () => button('开始体检').click());
   await act(async () => root!.unmount());
   root = null;
   expect(maintenanceQa.calls.scan).toHaveLength(1);
@@ -188,7 +188,7 @@ it('报告可查看健康数据库，修复只选择本轮有方案的数据库'
   await mount();
   expect(
     [...host.querySelectorAll('button')].map((item) => item.textContent?.trim()),
-  ).not.toContain('追加扫描');
+  ).not.toContain('追加体检');
   await act(async () => iconButton('查看 profile.db 检查详情').click());
   expect(host.querySelector('[aria-label="profile.db检查结果"]')).not.toBeNull();
   await act(async () => button('进入修复').click());
@@ -206,14 +206,14 @@ it('报告可查看健康数据库，修复只选择本轮有方案的数据库'
   expect(maintenanceQa.calls.stop).toBe(1);
   expect(maintenanceQa.snapshot()?.locked).toBe(false);
   expect(button('修复', host).disabled).toBe(true);
-  expect(button('报告', host).getAttribute('aria-selected')).toBe('true');
+  expect(button('体检报告', host).getAttribute('aria-selected')).toBe('true');
 
   await act(async () => root!.unmount());
   root = createRoot(host);
   await mount();
-  expect(button('报告', host).disabled).toBe(true);
+  expect(button('体检报告', host).disabled).toBe(true);
   expect(button('修复', host).disabled).toBe(true);
-  expect(button('开始扫描').disabled).toBe(false);
+  expect(button('开始体检').disabled).toBe(false);
   await act(async () => iconButton('历史报告与恢复').click());
   expect(button('查看结果')).toBeDefined();
 });
@@ -222,7 +222,7 @@ it('空间不足和持锁等待不阻止改缓存位置，开始修复后禁止�
   maintenanceQa.lowSpace();
   await mount();
   await act(async () => button('深度体检').click());
-  await act(async () => button('开始扫描').click());
+  await act(async () => button('开始体检').click());
   await act(async () => iconButton('数据库修复设置').click());
   expect(button('更改位置').disabled).toBe(false);
   await act(async () => button('更改位置').click());
@@ -307,10 +307,10 @@ it('跨数据源查看报告不切换正在维护的账号，返回当前结果�
   expect(maintenanceQa.calls.scan).toHaveLength(0);
 });
 
-it('放弃扫描结果必须明确确认，取消继续持锁，确认后仍能查看历史结果', async () => {
+it('放弃体检结果必须明确确认，取消继续持锁，确认后仍能查看历史结果', async () => {
   maintenanceQa.ready();
   await mount();
-  await act(async () => button('扫描').click());
+  await act(async () => button('体检').click());
   const release = iconButton('维护中，解除占用');
   await act(async () => release.click());
   await confirm(false);
@@ -319,9 +319,9 @@ it('放弃扫描结果必须明确确认，取消继续持锁，确认后仍能�
   await act(async () => release.click());
   await confirm(true);
   expect(maintenanceQa.calls.end).toBe(1);
-  expect(button('报告', host).disabled).toBe(true);
+  expect(button('体检报告', host).disabled).toBe(true);
   expect(button('修复', host).disabled).toBe(true);
-  expect(button('扫描', host).getAttribute('aria-selected')).toBe('true');
+  expect(button('体检', host).getAttribute('aria-selected')).toBe('true');
   await act(async () => iconButton('历史报告与恢复').click());
   expect(button('查看结果')).toBeDefined();
   await act(async () => button('查看结果').click());

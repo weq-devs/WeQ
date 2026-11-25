@@ -24,12 +24,12 @@ import '../styles/database-maintenance-progress.css';
 
 const stages = {
   scan: [
-    ['prepare', '准备扫描'],
-    ['pages', '页扫描'],
+    ['prepare', '准备体检'],
+    ['pages', '页签名检查'],
   ],
   checkup: [
-    ['prepare', '准备扫描'],
-    ['pages', '页扫描'],
+    ['prepare', '准备体检'],
+    ['pages', '页签名检查'],
     ['integrity', '结构体检'],
   ],
   repair: [
@@ -275,7 +275,7 @@ export function DatabaseMaintenanceProgress({
       ) : null}
       <ol
         className="weq-db-progress-timeline"
-        aria-label={`${{ scan: '扫描', checkup: '体检', repair: '修复' }[progress.kind]}阶段`}
+        aria-label={`${{ scan: '快速体检', checkup: '深度体检', repair: '修复' }[progress.kind]}阶段`}
       >
         {plan.map(([key, title], index) => {
           const steps = visibleSteps.filter((step) => stageKey(step, progress.kind) === key);
