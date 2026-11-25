@@ -39,7 +39,7 @@ function button(
   parent: ParentNode = document.querySelector('[role="dialog"]') ?? document.body,
 ) {
   const found = [...parent.querySelectorAll('button')].find(
-    (item) => item.textContent?.trim() === name,
+    (item) => item.getAttribute('aria-label') === name || item.textContent?.trim() === name,
   );
   if (!found) throw new Error(`按钮不存在：${name}`);
   return found;
@@ -206,7 +206,11 @@ it('报告可查看健康数据库，修复只选择本轮有方案的数据库'
   expect(maintenanceQa.calls.stop).toBe(1);
   expect(maintenanceQa.snapshot()?.locked).toBe(false);
   expect(button('修复', host).disabled).toBe(true);
-  expect(button('体检报告', host).getAttribute('aria-selected')).toBe('true');
+  expect(button('修复结果', host).getAttribute('aria-selected')).toBe('true');
+  expect(host.querySelector('[aria-label="nt_msg.db修复结果"]')).not.toBeNull();
+  expect(host.querySelector('[aria-label="查看 profile.db 修复详情"]')).toBeNull();
+  await act(async () => button('体检报告', host).click());
+  expect(iconButton('查看 profile.db 检查详情')).toBeDefined();
 
   await act(async () => root!.unmount());
   root = createRoot(host);
@@ -231,6 +235,8 @@ it('空间不足和持锁等待不阻止改缓存位置，开始修复后禁止�
   expect(button('使用默认位置').disabled).toBe(false);
   await act(async () => iconButton('数据库修复设置').click());
   await act(async () => button('进入修复').click());
+  expect(button('开始修复').disabled).toBe(true);
+  await act(async () => maintenanceQa.lowSpace(10_000_000_000));
   await act(async () => button('开始修复').click());
   await confirm(true);
   await act(async () => iconButton('数据库修复设置').click());
@@ -255,16 +261,16 @@ it('等待修复时，空间告警只跟随当前勾选的数据库', async () =
       },
     ],
   };
-  const warning = () => host.querySelector('[role="alert"][aria-label="磁盘空间警告"]');
   await mount();
   await act(async () => button('修复').click());
-  expect(warning()).not.toBeNull();
+  const warning = () => button('开始修复').textContent?.includes('磁盘空间不足');
+  expect(warning()).toBe(true);
   await act(async () => choice('nt_msg.db').click());
-  expect(warning()).toBeNull();
+  expect(warning()).toBe(false);
   await act(async () => choice('profile.db').click());
-  expect(warning()).toBeNull();
+  expect(warning()).toBe(false);
   await act(async () => choice('nt_msg.db').click());
-  expect(warning()).not.toBeNull();
+  expect(warning()).toBe(true);
 });
 
 it('查看历史结果与三种导出都不重新体检，导出仍指向原报告', async () => {
@@ -328,50 +334,51 @@ it('放弃体检结果必须明确确认，取消继续持锁，确认后仍能�
   expect(maintenanceQa.calls.scan).toHaveLength(0);
 });
 
-it('建议余量确认不沿用到取消后重新打开的修复', async () => {
+it('仅建议余量不足时要求继续确认，取消确认会清除勾选', async () => {
   maintenanceQa.ready('checkup');
   await mount();
   await act(async () => button('修复').click());
-  const input = [...host.querySelectorAll('label')]
-    .find((label) => label.textContent?.includes('预留空间不足时仍尝试修复'))!
-    .querySelector('input')!;
-  await act(async () => input.click());
+  const lowSpaceOption = () =>
+    [...host.querySelectorAll('label')]
+      .find((label) => label.textContent?.includes('仍尝试修复'))
+      ?.querySelector('input');
+  expect(lowSpaceOption()).toBeUndefined();
+  await act(async () => maintenanceQa.lowSpace(1_100_000));
+  expect(button('开始修复').disabled).toBe(true);
+  await act(async () => lowSpaceOption()!.click());
   await act(async () => button('开始修复').click());
   await confirm(false);
-  expect(input.checked).toBe(false);
+  expect(lowSpaceOption()?.checked).toBe(false);
+  expect(button('开始修复').disabled).toBe(true);
+  await act(async () => lowSpaceOption()!.click());
   await act(async () => button('开始修复').click());
   await confirm(true);
-  expect(maintenanceQa.calls.repair[0]?.allowLowSpace).toBe(false);
+  expect(maintenanceQa.calls.repair[0]?.allowLowSpace).toBe(true);
 });
 
-it('修复选项内部点击不关闭，外部点击关闭但保留选项，Esc 仍可关闭', async () => {
-  maintenanceQa.ready('checkup');
+it('统一使用深度修复和备份，切到快速修复时将不支持的库置灰', async () => {
+  maintenanceQa.ready('checkup', { secondIssue: true });
   await mount();
   await act(async () => button('修复').click());
-  const summary = [...host.querySelectorAll('summary')].find((item) =>
-    item.textContent?.includes('修复选项'),
-  )!;
-  const options = summary.parentElement as HTMLDetailsElement;
-  const input = options.querySelector<HTMLInputElement>('input')!;
-  await act(async () => summary.click());
-  expect(options.open).toBe(true);
-  await act(async () => {
-    input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    input.click();
+  expect(button('深度修复').getAttribute('aria-checked')).toBe('true');
+  expect(choice('profile.db').checked).toBe(true);
+  await act(async () => button('快速修复').click());
+  expect(choice('profile.db').disabled).toBe(true);
+  expect(choice('profile.db').labels?.[0]?.textContent).toContain('不符合快速修复条件');
+  await act(async () => button('深度修复').click());
+  expect(choice('profile.db').checked).toBe(true);
+  const backup = [...host.querySelectorAll('label')]
+    .find((label) => label.textContent?.trim() === '保留备份')!
+    .querySelector('input')!;
+  expect(backup.checked).toBe(true);
+  await act(async () => backup.click());
+  await act(async () => button('开始修复').click());
+  await confirm(true);
+  expect(maintenanceQa.calls.repair[0]).toMatchObject({
+    dbNames: ['nt_msg.db', 'profile.db'],
+    methods: { 'nt_msg.db': 'deep', 'profile.db': 'deep' },
+    backups: { 'nt_msg.db': false, 'profile.db': false },
   });
-  expect(options.open).toBe(true);
-  expect(input.checked).toBe(true);
-  await act(async () => {
-    host.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-  });
-  expect(options.open).toBe(false);
-  await act(async () => summary.click());
-  expect(options.open).toBe(true);
-  expect(input.checked).toBe(true);
-  await act(async () => {
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-  });
-  expect(options.open).toBe(false);
 });
 
 it('历史报告独立打开，删除需确认且不会结束维护或重扫', async () => {

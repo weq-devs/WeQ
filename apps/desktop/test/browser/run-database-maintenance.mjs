@@ -116,10 +116,10 @@ try {
   await capture('report-unlocated-narrow');
   await page.setViewportSize({ width: 1060, height: 780 });
   await summary.getByRole('button', { name: '进入修复' }).click();
-  await page.getByRole('heading', { name: 'nt_msg.db · 快速修复' }).waitFor();
-  await page.getByRole('checkbox', { name: '使用深度修复' }).check();
-  await page.getByRole('heading', { name: 'nt_msg.db · 深度修复' }).waitFor();
-  await page.getByRole('checkbox', { name: '使用深度修复' }).uncheck();
+  await page.getByRole('radio', { name: '深度修复', checked: true }).waitFor();
+  await page.getByRole('radio', { name: '快速修复' }).click();
+  assert.equal(await page.getByRole('checkbox', { name: '修复 nt_msg.db' }).isChecked(), true);
+  await page.getByRole('radio', { name: '深度修复' }).click();
   await tab('体检').click();
   await button('追加体检').waitFor();
   await capture('scan-after-completion-desktop');
@@ -188,21 +188,30 @@ try {
   await settingsPane.getByText('/synthetic/cache', { exact: true }).waitFor();
   await settingsPane.getByRole('button', { name: '关闭', exact: true }).click();
   await button('进入修复').click();
-  await page.getByRole('heading', { name: 'nt_msg.db · 快速修复' }).waitFor();
+  await page.getByRole('radio', { name: '快速修复' }).click();
+  assert.equal(await page.getByRole('checkbox', { name: '保留备份' }).isChecked(), false);
   await capture('quick-plan-desktop');
   await button('开始修复').click();
   await page.getByRole('dialog').getByRole('button', { name: '开始修复' }).click();
   await button('停止修复').waitFor();
-  await tab('体检').click();
   await page.evaluate(() => window.maintenanceQa.failQuick());
-  await summary.getByRole('button', { name: '进入修复' }).click();
-  await page.getByRole('heading', { name: 'nt_msg.db · 深度修复' }).waitFor();
+  const repairSummary = page.getByRole('region', { name: '本次修复结论' });
+  await repairSummary.getByRole('button', { name: '继续修复' }).waitFor();
+  assert.equal(await tab('修复结果').getAttribute('aria-selected'), 'true');
+  await capture('repair-waiting-desktop');
+  await repairSummary.getByRole('button', { name: '继续修复' }).click();
+  await page.getByRole('radio', { name: '深度修复', checked: true }).waitFor();
+  assert.equal(await page.getByRole('checkbox', { name: '保留备份' }).isChecked(), true);
   await page.setViewportSize({ width: 680, height: 780 });
   await page.evaluate(() => {
     window.maintenanceQa.theme.getState().setPreference('dark');
     window.maintenanceQa.theme.getState().setAccent('#91d7ad');
   });
   await capture('deep-plan-narrow-dark');
+  await page.evaluate(() => window.maintenanceQa.lowSpace(1_100_000));
+  await page.getByRole('checkbox', { name: '仍尝试修复' }).waitFor();
+  await capture('repair-space-narrow-dark');
+  await page.evaluate(() => window.maintenanceQa.lowSpace(10_000_000_000));
   await button('开始修复').click();
   await page.getByRole('dialog').getByRole('button', { name: '开始修复' }).click();
   await button('停止修复').waitFor();
@@ -212,15 +221,25 @@ try {
   await button('停止修复').click();
   await page.waitForFunction(() => window.maintenanceQa.snapshot().locked === false);
   assert.equal(await tab('修复').isDisabled(), true);
-  assert.equal(await tab('体检报告').getAttribute('aria-selected'), 'true');
-  await page
-    .getByRole('region', { name: '数据库列表' })
-    .getByRole('button', { name: '导出报告' })
-    .click();
+  assert.equal(await tab('修复结果').getAttribute('aria-selected'), 'true');
+  assert.equal(await repairSummary.getByRole('button', { name: '继续修复' }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: '查看 profile.db 修复详情' }).count(), 0);
+  await capture('repair-result-narrow-dark');
+  await repairSummary.getByRole('button', { name: '导出报告' }).click();
   await exportMenu.getByRole('menuitem', { name: 'JSON' }).click();
+  const exportedRepairId = await page.evaluate(
+    () => window.maintenanceQa.calls.export.at(-1)?.reportId,
+  );
   assert.equal(
-    await page.evaluate(() => window.maintenanceQa.calls.export.at(-1)?.reportId),
+    exportedRepairId,
     await page.evaluate(() => window.maintenanceQa.snapshot().operation.id),
+  );
+  await tab('体检报告').click();
+  await summary.getByRole('button', { name: '导出报告' }).click();
+  await exportMenu.getByRole('menuitem', { name: 'JSON' }).click();
+  assert.notEqual(
+    await page.evaluate(() => window.maintenanceQa.calls.export.at(-1)?.reportId),
+    exportedRepairId,
   );
   assert.deepEqual(
     await page.evaluate(() =>
