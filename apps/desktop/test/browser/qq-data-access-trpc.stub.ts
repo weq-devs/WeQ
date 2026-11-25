@@ -13,7 +13,7 @@ const proxy = (path = ''): unknown =>
           : path.endsWith('probeOnline')
             ? { count: null, runningCount: 1 }
             : path.endsWith('getSettings')
-              ? { restrictedModeBannerEnabled: false }
+              ? { autoAttachQq: true, restrictedModeBannerEnabled: false }
               : path.endsWith('sipEnabled')
                 ? false
                 : path.endsWith('listAccounts') || path.endsWith('listAccountConfigs')

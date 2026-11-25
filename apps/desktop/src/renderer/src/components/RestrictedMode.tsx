@@ -40,9 +40,16 @@ import { ipc, QQ_STATUS_DETAILS_ID } from './RestrictedMode.shared';
 
 const NOTICE_KEY = 'restricted-mode';
 
-function nextOnlineStep(reasons: Restriction[], awaitingAuthorization: boolean, entering: boolean) {
+function nextOnlineStep(
+  reasons: Restriction[],
+  awaitingAuthorization: boolean,
+  entering: boolean,
+  showOnline: boolean,
+) {
+  const dataAccess = reasons.find((reason) => reason.code === 'data-access');
+  if (dataAccess) return dataAccess;
+  if (!showOnline) return awaitingAuthorization ? 'authorization' : undefined;
   const prerequisite =
-    reasons.find((reason) => reason.code === 'data-access') ??
     reasons.find((reason) => reason.code === 'disabled') ??
     reasons.find((reason) => reason.code === 'offline');
   if (prerequisite) return prerequisite;
@@ -106,27 +113,32 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
   const awaitingAuthorization = requests.length > 0;
   const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, { enabled: false });
   const proxy = useQqProxyStatus(false, access);
-  const onlineStep = nextOnlineStep(reasons, awaitingAuthorization, entering);
+  const onlineEnabled = settings.data?.autoAttachQq === true;
+  const onlineStep = nextOnlineStep(reasons, awaitingAuthorization, entering, onlineEnabled);
   const onlineAttention = Boolean(onlineStep);
-  const proxyConnecting = proxy.needsAttention && !proxy.isError && proxy.current?.connecting;
+  const proxyAttention = onlineEnabled && proxy.needsAttention;
+  const proxyConnecting = proxyAttention && !proxy.isError && proxy.current?.connecting;
+  const proxyWaiting = proxyAttention && proxy.waiting;
   const inProgress =
-    onlineStep === 'entering' || (!onlineAttention && Boolean(proxy.waiting || proxyConnecting));
+    onlineStep === 'entering' || (!onlineAttention && Boolean(proxyWaiting || proxyConnecting));
   const title =
     onlineStep === 'authorization'
       ? '待提权'
       : onlineStep === 'entering'
         ? '正在启用 QQ 在线能力'
         : onlineAttention
-          ? '在线能力受限'
+          ? onlineStep?.code === 'data-access'
+            ? onlineStep.title
+            : '在线能力受限'
           : proxy.isError
             ? 'QQ 代理状态待确认'
             : proxyConnecting
               ? QQ_PROXY_CONNECTING
-              : proxy.waiting
+              : proxyWaiting
                 ? QQ_PROXY_WAITING
                 : 'QQ 代理未连接';
   const visible =
-    settings.data?.qqStatusIndicatorEnabled !== false && (onlineAttention || proxy.needsAttention);
+    settings.data?.qqStatusIndicatorEnabled !== false && (onlineAttention || proxyAttention);
   if (!visible && !persistent) return null;
   return (
     <button
@@ -254,9 +266,6 @@ export function RestrictedModeHost() {
   const awaitingAuthorization = requests.length > 0;
   const authorizationIssue = reasons.some((reason) => reason.code === 'authorization');
   const entering = enteringSince !== null && !awaitingAuthorization && !authorizationIssue;
-  const onlineStep = nextOnlineStep(reasons, awaitingAuthorization, entering);
-  const reason = typeof onlineStep === 'object' ? onlineStep : undefined;
-  const authorizationRequest = onlineStep === 'authorization' ? requests[0] : undefined;
   const previousUin = useRef(uin);
   const panel = useRef<HTMLElement>(null);
   const previous = useRef('');
@@ -278,6 +287,19 @@ export function RestrictedModeHost() {
     staleTime: 0,
     refetchOnWindowFocus: true,
   });
+  const onlineEnabled = globalSettings.data?.autoAttachQq === true;
+  const onlineDisabled = globalSettings.data?.autoAttachQq === false;
+  const onlineStep = nextOnlineStep(
+    reasons,
+    awaitingAuthorization,
+    entering,
+    onlineEnabled || settingsSection === 'online',
+  );
+  const reason = typeof onlineStep === 'object' ? onlineStep : undefined;
+  const authorizationRequest = onlineStep === 'authorization' ? requests[0] : undefined;
+  useEffect(() => {
+    if (onlineDisabled) useRestrictedMode.getState().endEntering();
+  }, [onlineDisabled]);
   const runtimeNotice = globalSettings.data?.notificationEvents?.runtime;
   const passiveNotice = runtimeNotice
     ? runtimeNotice.banner || runtimeNotice.system
@@ -320,7 +342,7 @@ export function RestrictedModeHost() {
   const accessSource = access.data?.source;
   const accessMatches = !accessSource || accessSource.expectedAccountUin === uin;
   const proxyStatus = useQqProxyStatus(
-    active && (open || globalSettings.data?.qqStatusIndicatorEnabled !== false),
+    active && (open || (onlineEnabled && globalSettings.data?.qqStatusIndicatorEnabled !== false)),
     access,
   );
   const proxy = active && accessMatches ? proxyStatus.current : undefined;
@@ -461,8 +483,8 @@ export function RestrictedModeHost() {
         next.unshift(...disk);
       }
     }
-    if (dataAccess.isError && !next.some((reason) => reason.code === 'checking'))
-      next.push({ code: 'checking', title: '数据读取状态检查失败', guidance: '稍后会自动再试。' });
+    if (dataAccess.isError && !next.some((reason) => reason.code === 'data-access'))
+      next.unshift(...dataAccessRestriction('error'));
     useRestrictedMode.getState().setReasons(next, sourceKey);
   }, [
     active,
@@ -490,6 +512,7 @@ export function RestrictedModeHost() {
   useEffect(() => {
     if (!active) return;
     const blocked =
+      onlineDisabled ||
       !accessMatches ||
       !access.data?.qqOnline ||
       !access.data.attachEnabled ||
@@ -509,6 +532,7 @@ export function RestrictedModeHost() {
       useRestrictedMode.getState().endEntering();
   }, [
     active,
+    onlineDisabled,
     accessMatches,
     access.data,
     access.isError,
@@ -529,7 +553,8 @@ export function RestrictedModeHost() {
     ...(requests.length ? ['authorization'] : []),
     ...(entering ? ['entering'] : []),
   ].join(',');
-  const showProxy = !onlineStep && (proxyAttention || settingsSection === 'proxy');
+  const showProxy =
+    !onlineStep && ((onlineEnabled && proxyAttention) || settingsSection === 'proxy');
   const showOnline = Boolean(onlineStep) || (!showProxy && settingsSection === 'online');
   const showDetails = open && (showOnline || showProxy);
   useEffect(() => {
@@ -538,13 +563,23 @@ export function RestrictedModeHost() {
   const layer = useOverlayLayer(showDetails);
   useEffect(() => {
     if (reasonSource !== sourceKey) return;
+    // 能力查询可能早于共享设置刷新。主动启用则会在凭据查询追上前先进入流程。
+    if (
+      onlineDisabled ||
+      (!enteringManually && reasons.some((reason) => reason.code === 'disabled'))
+    ) {
+      previous.current = '';
+      fullModeSeen.current = false;
+      recoveryPending.current = false;
+      notificationToast.resolve(NOTICE_KEY);
+      return;
+    }
     const manualNotice = enteringManually || recoveryPending.current;
     const activeNotice = manualNotice && (entering || awaitingAuthorization);
     if (!activeNotice && !passiveNotice) notificationToast.resolve(NOTICE_KEY);
     if (enteringManually) recoveryPending.current = true;
     // 启动自动尝试只更新标题栏；确认正常运行后才提醒降级，手动启用单独回执。
-    const notify =
-      manualNotice || (fullModeSeen.current && passiveNotice && !globalSettings.isLoading);
+    const notify = manualNotice || (onlineEnabled && fullModeSeen.current && passiveNotice);
     const noticeSignature = `${signature}:${enteringManually}`;
     if (signature && noticeSignature !== previous.current && notify) {
       const toast = notificationToast;
@@ -584,7 +619,7 @@ export function RestrictedModeHost() {
     if (signature && !enteringManually && !entering && !awaitingAuthorization && !fullModeConfirmed)
       recoveryPending.current = false;
     if (!signature) {
-      if (fullModeConfirmed) fullModeSeen.current = true;
+      if (onlineEnabled && fullModeConfirmed) fullModeSeen.current = true;
       notificationToast.resolve(NOTICE_KEY);
       if (recoveryPending.current && fullModeConfirmed) {
         notificationToast.push({ tone: 'success', title: '已启用 QQ 在线能力' });
@@ -619,7 +654,8 @@ export function RestrictedModeHost() {
     enteringManually,
     awaitingAuthorization,
     passiveNotice,
-    globalSettings.isLoading,
+    onlineEnabled,
+    onlineDisabled,
     reasonSource,
     sourceKey,
     signerDegraded,
@@ -723,7 +759,11 @@ export function RestrictedModeHost() {
         ]);
       }
       if (!current()) return;
-      if (enable && source && !dataBlocked) await client.account.requestFullMode.mutate(source);
+      if (enable && source && !dataBlocked) {
+        await client.account.requestFullMode.mutate(source);
+        if (!current()) return;
+        if (onlineDisabled) await globalSettings.refetch();
+      }
       if (!current()) return;
       if (
         active &&
@@ -919,8 +959,7 @@ export function RestrictedModeHost() {
               {onlineStep === 'entering' && <p role="status">正在启用 QQ 在线能力，请稍候。</p>}
               {reason && (
                 <>
-                  {reason.code === 'data-access' ||
-                  (reason.code === 'checking' && dataAccess.isError) ? (
+                  {reason.code === 'data-access' ? (
                     <QqDataAccessNotice showRetry={false} checked={dataRetried} />
                   ) : (
                     <div className="weq-restricted-reason">
