@@ -64,6 +64,46 @@ it('旧组件的阶段结束消息不会抹掉已知计数，失败和停止冻�
   expect(tracker.update('late', { step: 'late', message: '迟到回调' })).toBe(failed);
 });
 
+it('深度修复交替上报阶段摘要和累计字段数时，同一重建步骤持续更新', () => {
+  for (const end of ['Verify', 'cancelled', 'failed'] as const) {
+    let now = 1000;
+    const tracker = new DatabaseProgressTracker('repair', 'synthetic.db', () => now);
+    tracker.update('Repair', { step: 'Repair', message: '开始重建' });
+    const first = tracker.update('Repair', {
+      step: 'recover-data',
+      message: '恢复表数据',
+      objectName: 'group_msg_table',
+      completed: 58_617_852,
+      unit: 'fields',
+    });
+    now += 500;
+    const summary = tracker.update('Repair', { step: 'Repair', message: '正在恢复群聊表' });
+    expect(summary.current.status).toBe('running');
+    const counted = tracker.update('Repair', {
+      step: 'recover-data',
+      message: '恢复表数据',
+      objectName: 'c2c_msg_table',
+      completed: 58_998_780,
+      unit: 'fields',
+    });
+    expect(counted.steps.filter((step) => step.step === 'recover-data')).toEqual([counted.current]);
+    expect(counted.current).toMatchObject({
+      status: 'running',
+      objectName: 'c2c_msg_table',
+      completed: 58_998_780,
+      startedAt: first.current.startedAt,
+    });
+    const result =
+      end === 'Verify'
+        ? tracker.update('Verify', { step: 'Verify', message: '检查产物' })
+        : tracker.finish(end);
+    expect(result?.steps.find((step) => step.step === 'recover-data')).toMatchObject({
+      status: { Verify: 'completed', cancelled: 'skipped', failed: 'failed' }[end],
+      completed: 58_998_780,
+    });
+  }
+});
+
 it('已跳过的步骤不会在任务结束时被改成已完成，历史保持有界', () => {
   const tracker = new DatabaseProgressTracker('checkup', 'synthetic.db');
   for (let index = 0; index < 100; index++)

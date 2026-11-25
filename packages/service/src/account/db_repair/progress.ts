@@ -75,6 +75,17 @@ export class DatabaseProgressTracker {
           }
         : work;
     if (this.snapshot && this.snapshot.status !== 'running') return this.snapshot;
+    // 深度修复交替上报原生阶段摘要与 recover-data 的累计计数。
+    // 同阶段摘要不能结束正在恢复的数据步骤。
+    if (
+      this.kind === 'repair' &&
+      phase === 'Repair' &&
+      tick.step === phase &&
+      tick.status === undefined &&
+      this.snapshot?.current.phase === phase &&
+      this.snapshot.current.step === 'recover-data'
+    )
+      return this.snapshot;
     const at = this.now();
     const old = this.snapshot;
     // 整体结构检查包住多个原生子阶段，最终结果回填原行，不新增一个同名步骤。

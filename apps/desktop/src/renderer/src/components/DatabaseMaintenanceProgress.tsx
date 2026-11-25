@@ -69,7 +69,8 @@ function countText(step: DatabaseStepProgress): string | undefined {
     (
       { pages: '页', tables: '张表', fields: '个字段', records: '条记录' } as Record<string, string>
     )[step.unit ?? ''] ?? '';
-  return `${count(step.completed)}${step.total === undefined ? '' : ` / ${count(step.total)}`}${suffix ? ` ${suffix}` : ''}`;
+  const prefix = step.step === 'recover-data' && step.unit === 'fields' ? '累计 ' : '';
+  return `${prefix}${count(step.completed)}${step.total === undefined ? '' : ` / ${count(step.total)}`}${suffix ? ` ${suffix}` : ''}`;
 }
 function attention(step: DatabaseStepProgress): boolean {
   return (
@@ -185,6 +186,8 @@ export function DatabaseMaintenanceProgress({
         : undefined;
     const state =
       connectionError && executing ? '连接中断' : label(step, progress.status === 'cancelled');
+    const objectName =
+      grouped && step.step.startsWith('integrity-records-') ? undefined : step.objectName;
     return (
       <div
         key={`${step.phase}:${step.step}:${step.startedAt}`}
@@ -194,14 +197,28 @@ export function DatabaseMaintenanceProgress({
         <div className="weq-db-progress-entry-body">
           {!sharedHeading ? (
             <div className="weq-db-progress-step">
-              <span role={executing ? 'status' : undefined}>{step.message}</span>
+              <span className="weq-db-progress-step-heading">
+                <span role={executing ? 'status' : undefined}>
+                  {step.step === 'recover-data' ? '恢复表数据' : step.message}
+                </span>
+                {objectName ? (
+                  <span className="weq-db-progress-object" title={objectName}>
+                    {objectName}
+                  </span>
+                ) : null}
+                {count ? (
+                  <span className="weq-db-progress-count">
+                    <NumericText>{count}</NumericText>
+                  </span>
+                ) : null}
+              </span>
               <strong>
                 <NumericText>{state}</NumericText>
               </strong>
             </div>
           ) : null}
-          {step.objectName && !(grouped && step.step.startsWith('integrity-records-')) ? (
-            <p className="weq-db-progress-object">{step.objectName}</p>
+          {sharedHeading && objectName ? (
+            <p className="weq-db-progress-object">{objectName}</p>
           ) : null}
           {step.detail ? <p className="weq-db-progress-detail">{step.detail}</p> : null}
           {isCurrent && (executing || percent !== undefined) ? (
@@ -212,9 +229,9 @@ export function DatabaseMaintenanceProgress({
               valueText={count ?? state}
             />
           ) : null}
-          {count || step.badPages !== undefined || step.zeroPages || rate ? (
+          {(sharedHeading && count) || step.badPages !== undefined || step.zeroPages || rate ? (
             <div className="weq-db-progress-readouts">
-              {count ? (
+              {sharedHeading && count ? (
                 <span>
                   <NumericText>{count}</NumericText>
                 </span>
@@ -291,7 +308,8 @@ export function DatabaseMaintenanceProgress({
           const active = running && currentKey === key;
           const needsAttention = steps.some(attention);
           const pending = !steps.length;
-          const sharedHeading = steps.length === 1 && groups.length === 0;
+          const sharedHeading =
+            steps.length === 1 && groups.length === 0 && steps[0]?.step !== 'recover-data';
           const open = active || needsAttention || (expanded[key] ?? false);
           const Icon = active ? Loader2 : needsAttention ? AlertTriangle : pending ? Circle : Check;
           return (
