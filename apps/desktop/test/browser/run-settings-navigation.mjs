@@ -306,10 +306,36 @@ try {
     }
   }
   const remotePage = await browser.newPage({ userAgent: 'WeQRemote/settings-consolidation-qa' });
+  remotePage.setDefaultTimeout(8000);
   remotePage.on('pageerror', (error) => errors.push(error.message));
   await remotePage.route('**/*', (route) =>
     new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
   );
+  const portrait = { width: 390, height: 844 };
+  const landscape = { width: 844, height: 390 };
+  await remotePage.setViewportSize(portrait);
+  await remotePage.goto(
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/settings-navigation.html?default=1`,
+  );
+  const defaultDetail = remotePage.locator('[data-settings-page="account"]');
+  const backToSettings = remotePage.getByRole('button', { name: '返回设置', exact: true });
+  await settingsNav(remotePage).waitFor();
+  await defaultDetail.waitFor({ state: 'hidden' });
+  await remotePage.setViewportSize(landscape);
+  await defaultDetail.waitFor();
+  await remotePage.setViewportSize(portrait);
+  await backToSettings.waitFor();
+  await defaultDetail.waitFor();
+  await backToSettings.click();
+  await settingsNav(remotePage).getByRole('button', { name: '消息显示', exact: true }).click();
+  const messageDisplay = remotePage.getByRole('group', { name: '消息元数据', exact: true });
+  await messageDisplay.waitFor();
+  await remotePage.setViewportSize(landscape);
+  await settingsNav(remotePage).waitFor();
+  await messageDisplay.waitFor();
+  await remotePage.setViewportSize(portrait);
+  await backToSettings.waitFor();
+  await messageDisplay.waitFor();
   for (const width of [1180, 390]) {
     await remotePage.setViewportSize({ width, height: 844 });
     await remotePage.goto(
@@ -331,7 +357,7 @@ try {
   }
   await remotePage.close();
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ cases, remoteCases: 2, errors }));
+  console.log(JSON.stringify({ cases, remoteCases: 3, errors }));
 } finally {
   await browser?.close();
   await server.close();

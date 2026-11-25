@@ -41,7 +41,13 @@ function Fixture() {
             {open && (
               <SettingsDialog
                 open
-                initialSection={location.search === '?display=1' ? 'message-content' : 'onebot'}
+                initialSection={
+                  location.search === '?default=1'
+                    ? undefined
+                    : location.search === '?display=1'
+                      ? 'message-content'
+                      : 'onebot'
+                }
                 onClose={() => setOpen(false)}
                 navigationGuard={navigation.guard}
                 onOpenMaintenance={(tool) => launchedTools.push(tool)}

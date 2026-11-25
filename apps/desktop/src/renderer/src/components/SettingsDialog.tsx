@@ -413,6 +413,11 @@ function SettingsContent({
   }, [open, initialSection, searchTarget, target]);
 
   useEffect(() => {
+    // 多栏始终显示当前详情，回到单栏时继续显示同一页。
+    if (open && !closing && !singleColumn && !mobileDetailOpen) setMobileDetailOpen(true);
+  }, [open, closing, singleColumn, mobileDetailOpen]);
+
+  useEffect(() => {
     if (open && (!singleColumn || !mobileDetailOpen)) {
       nav
         ?.querySelector<HTMLElement>('.weq-settings-nav-item.is-active')
