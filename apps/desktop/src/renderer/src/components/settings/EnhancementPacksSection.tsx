@@ -20,10 +20,14 @@ import {
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
+import { useDownloadPage } from '../../hooks/useDownloadPage';
 import { useReadUpdateBanner } from '../../hooks/useReadUpdateBanner';
 import { useAppDialog } from '../../lib/dialogUtils';
 import type { EnhancementPackId } from '../../../../shared/enhancement_manifest';
-import { canPrepareEnhancement } from '../../../../shared/enhancement_actions';
+import {
+  canPrepareEnhancement,
+  type EnhancementBatchAction,
+} from '../../../../shared/enhancement_actions';
 import { Card, QueryError, SectionHeader, Row, Toggle } from './controls';
 import { SettingsNavigateContext } from './controls.shared';
 import { LoadingIndicator } from '../LoadingIndicator';
@@ -45,6 +49,7 @@ const BATCH_ACTIONS = [
 
 export function EnhancementPacksSection() {
   const active = useTabActive();
+  const downloadPage = useDownloadPage(active);
   const dialog = useAppDialog();
   const navigate = useContext(SettingsNavigateContext);
   const utils = trpc.useUtils();
@@ -100,7 +105,9 @@ export function EnhancementPacksSection() {
       await refresh();
     }
   }
-  const preparePack = (id: EnhancementPackId) => prepare.mutateAsync({ ids: [id] });
+  const preparePacks = async (ids: EnhancementPackId[], mode?: EnhancementBatchAction) =>
+    prepare.mutateAsync({ ids, ...(mode ? { mode } : {}), pageId: await downloadPage() });
+  const preparePack = (id: EnhancementPackId) => preparePacks([id]);
   async function erase(id: EnhancementPackId) {
     const pack = packs.find((entry) => entry.id === id)!;
     const cancelling = pack.busy || pack.downloadTask?.status === 'paused';
@@ -164,7 +171,7 @@ export function EnhancementPacksSection() {
                   key={mode}
                   className="weq-set-btn"
                   disabled={prepare.isLoading}
-                  onClick={() => void act(() => prepare.mutateAsync({ ids, mode }))}
+                  onClick={() => void act(() => preparePacks(ids, mode))}
                 >
                   <BatchIcon size={14} aria-hidden />
                   {label}

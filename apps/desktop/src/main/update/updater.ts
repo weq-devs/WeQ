@@ -28,7 +28,12 @@ import {
 } from '@weq/service/transfer-policy';
 import { refreshTransferPolicy, hostDataSaver } from '../data_saver';
 import { backgroundTasks } from '../background_tasks';
-import { downloadTaskReceipt, downloadTaskSnapshot } from '../download_task_receipt';
+import {
+  downloadTaskReceipt,
+  downloadTaskSnapshot,
+  isPendingDownload,
+} from '../download_task_receipt';
+import { holdDownloadOnPage } from '../download_page';
 import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '@weq/service/update-settings';
 import { UpdateCheckScheduler } from './scheduler';
 import { existsSync } from 'node:fs';
@@ -239,10 +244,14 @@ function emitDownloadTask() {
 function backgroundDownload(id: string) {
   const saved = lastDownload;
   const task = getDownloadTask();
-  if (task?.id !== id || saved?.id !== id) throw new Error('更新下载已改变，请刷新');
-  if (!task.foreground) return;
+  if (task?.id !== id || saved?.id !== id || !task.foreground || !isPendingDownload(task.status))
+    return;
   const updated = { ...saved, foreground: false };
-  downloadStore?.replace({ current: updated }, true);
+  try {
+    downloadStore?.replace({ current: updated }, true);
+  } catch (error) {
+    console.warn('[更新] 任务记录保存失败', error);
+  }
   lastDownload = updated;
   backgroundTasks.setForeground(id, false);
   emitDownloadTask();
@@ -268,7 +277,7 @@ function restoreUpdateTask() {
     {
       ...task,
       ...updatePresentation(version),
-      foreground: false,
+      foreground: Boolean(saved.foreground) && !isPendingDownload(saved.status),
       status,
       statusLabel: status === 'paused' ? '等待继续' : undefined,
       note: installed
@@ -415,7 +424,11 @@ function assertDownloadAvailable() {
   if (packageManaged()) throw new Error(managedUpdateHint(true) ?? '当前安装不支持自动更新。');
 }
 
-export async function startDownload(resumeId?: string, foreground?: boolean): Promise<void> {
+export async function startDownload(
+  resumeId?: string,
+  foreground?: boolean,
+  pageId?: string,
+): Promise<void> {
   assertDownloadAvailable();
   if (downloading || installing) return;
   const saved = lastDownload;
@@ -443,6 +456,11 @@ export async function startDownload(resumeId?: string, foreground?: boolean): Pr
   downloaded = false;
   lastProgress = undefined;
   clearInstallTaskActions();
+  if (pageId) {
+    foreground =
+      (!reuse || Boolean(savedTask.foreground)) &&
+      holdDownloadOnPage(pageId, 'software-update', () => backgroundDownload(taskId));
+  }
   const taskId = reuse
     ? saved.id
     : backgroundTasks.start({ ...updatePresentation(version), foreground });
@@ -746,7 +764,7 @@ export function installUpdateActions(
     supported: true,
     check: checkForUpdate,
     assertDownloadAvailable,
-    startDownload: (foreground) => startDownload(undefined, foreground),
+    startDownload: (foreground, pageId) => startDownload(undefined, foreground, pageId),
     getDownloadTask,
     backgroundDownload,
     forgetDownloadTask,

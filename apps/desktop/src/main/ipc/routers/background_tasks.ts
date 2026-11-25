@@ -6,6 +6,7 @@ import { hideAnalysisReportTask, restoreAnalysisReportTasks } from './analysis_r
 import { getAppContext } from '../../context/app_context';
 import { removeCalendarTask, restoreCalendarTasks } from './conversation_calendar';
 import { getUpdateActions } from '../../update/state';
+import { watchDownloadPage } from '../../download_page';
 import { forgetEnhancementTask } from '../../enhancements/tasks';
 import { forgetRecordedTask, restoreRecordedTasks } from '../../account_task_receipts';
 import { retryRecordedClone } from './account';
@@ -14,6 +15,7 @@ const scope = z.object({ uin: z.string(), configId: z.string().optional() }).nul
 const ref = z.object({ id: z.string().uuid(), scope });
 
 export const backgroundTasksRouter = router({
+  onDownloadPage: procedure.subscription(watchDownloadPage),
   list: procedure.input(scope).query(async ({ input }) => {
     if (input?.configId) {
       restoreRecordedTasks(input, retryRecordedClone);

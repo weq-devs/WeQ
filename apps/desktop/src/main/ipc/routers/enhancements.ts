@@ -102,6 +102,7 @@ export const enhancementProcedures = {
     .input(
       selection.extend({
         foreground: z.boolean().optional(),
+        pageId: z.string().uuid().optional(),
         mode: z.enum(['download', 'update']).optional(),
       }),
     )
@@ -113,7 +114,10 @@ export const enhancementProcedures = {
   backgroundEnhancementPack: procedure
     .input(z.object({ id: packId, taskId: z.string().uuid() }))
     .mutation(({ input }) => {
-      backgroundEnhancementDownload(requireBootstrap().enhancements.packs, input.id, input.taskId);
+      const packs = requireBootstrap().enhancements.packs;
+      if (enhancementDownloadTask(packs, input.id)?.id !== input.taskId)
+        throw new Error('增强包下载已改变，请刷新');
+      backgroundEnhancementDownload(packs, input.id, input.taskId);
       return true;
     }),
   deleteEnhancementPack: procedure.input(z.object({ id: packId })).mutation(async ({ input }) => {

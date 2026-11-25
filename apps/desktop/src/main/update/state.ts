@@ -135,7 +135,7 @@ export interface UpdateActions {
   setPrerelease(enabled: boolean): void;
   check(force: boolean): Promise<UpdateState>;
   assertDownloadAvailable?(): void;
-  startDownload(foreground?: boolean): Promise<void>;
+  startDownload(foreground?: boolean, pageId?: string): Promise<void>;
   getDownloadTask?(): UpdateDownloadTask | null;
   backgroundDownload?(id: string): void;
   forgetDownloadTask?(id: string): boolean;

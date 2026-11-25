@@ -23,6 +23,7 @@ import {
   parseEnhancementCatalogForHost,
 } from '../src/shared/enhancement_release';
 import { backgroundTasks } from '../src/main/background_tasks';
+import { watchDownloadPage } from '../src/main/download_page';
 import {
   enhancementDownloadTask,
   forgetEnhancementTask,
@@ -485,7 +486,7 @@ it('关闭自动安装时启动核对已有资源，不生成增强包已就绪�
   expect(backgroundTasks.snapshot()).toEqual([]);
 });
 
-it('增强包原位进度和任务列表从启动起共用一条记录', async () => {
+it('从后台开始准备的增强包保留任务和首次安装时间', async () => {
   const f = await fixture(false);
   const directory = join(f.root, 'enhancements');
   restoreEnhancementTasks(f.packs, directory);
@@ -518,6 +519,54 @@ it('增强包原位进度和任务列表从启动起共用一条记录', async (
   );
   expect(JSON.parse(await readFile(path, 'utf8')).dress.installedAt).toEqual(expect.any(Number));
 });
+
+it.each([false, true])(
+  '增强包尚未完成时离开页面才进入任务列表（中途离开：%s）',
+  async (leavesEarly) => {
+    const f = await fixture(false);
+    const directory = join(f.root, 'enhancements');
+    restoreEnhancementTasks(f.packs, directory);
+    const gate = Promise.withResolvers<void>();
+    const ensure = f.ensure.getMockImplementation()!;
+    f.ensure.mockImplementationOnce(async () => {
+      await gate.promise;
+      return ensure();
+    });
+    let pageId: string | undefined;
+    const page = watchDownloadPage().subscribe({
+      next: (id) => {
+        pageId = id;
+      },
+    });
+    try {
+      await startEnhancementDownloads(f.packs, ['dress'], { pageId });
+      const task = enhancementDownloadTask(f.packs, 'dress');
+      expect(task).toMatchObject({ status: 'running', foreground: true });
+      if (leavesEarly) {
+        page.unsubscribe();
+        expect(enhancementDownloadTask(f.packs, 'dress')).toMatchObject({
+          id: task?.id,
+          foreground: false,
+        });
+      }
+      gate.resolve();
+      await f.packs.wait();
+      await vi.waitFor(() =>
+        expect(enhancementDownloadTask(f.packs, 'dress')).toMatchObject({ status: 'completed' }),
+      );
+      page.unsubscribe();
+      backgroundTasks.remove(task!.id);
+      const restarted = await fixture(false, f.root);
+      restoreEnhancementTasks(restarted.packs, directory);
+      expect(backgroundTasks.snapshot()).toMatchObject([
+        { id: task?.id, status: 'completed', foreground: !leavesEarly },
+      ]);
+    } finally {
+      gate.resolve();
+      page.unsubscribe();
+    }
+  },
+);
 
 it('重启找回暂停的增强包，自动安装只检查，手动继续才接回原任务', async () => {
   const first = await fixture();

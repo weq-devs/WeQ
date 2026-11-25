@@ -492,7 +492,7 @@ describe.each(['win32', 'linux'])('更新安装动作（%s）', (platform) => {
   });
 });
 
-it('设置入口只建一个任务；重启后需核验同一版本才能再次提供安装', async () => {
+it('中途离开设置保留同一次下载；重启后需核验同一版本才能再次提供安装', async () => {
   Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
   const root = await mkdtemp(join(tmpdir(), 'weq-update-task-'));
   const options = { dataRoot: root, get: () => false, set: () => {} };
@@ -508,12 +508,19 @@ it('设置入口只建一个任务；重启后需核验同一版本才能再次�
       return finish();
     });
     const caller = updateRouter.createCaller({});
-    await caller.download();
-    await caller.download();
+    const { watchDownloadPage } = await import('../src/main/download_page');
+    let pageId: string | undefined;
+    const page = watchDownloadPage().subscribe({
+      next: (id) => {
+        pageId = id;
+      },
+    });
+    await caller.download({ pageId });
+    await caller.download({ pageId });
     await vi.waitFor(() => expect(fixture.downloadUpdate).toHaveBeenCalledOnce());
     expect(registry.snapshot()).toHaveLength(1);
     const id = registry.snapshot()[0]!.id;
-    expect(registry.snapshot()[0]?.foreground).not.toBe(true);
+    expect(registry.snapshot()[0]?.foreground).toBe(true);
     expect(registry.snapshot()[0]?.actions).toContainEqual({ id: 'pause', label: '暂停' });
     const liveActions = (await import('../src/main/update/state')).getUpdateActions();
     expect(liveActions.getDownloadTask?.()).toMatchObject({
@@ -521,6 +528,8 @@ it('设置入口只建一个任务；重启后需核验同一版本才能再次�
       status: 'running',
     });
     expect(fixture.downloadUpdate).toHaveBeenCalledOnce();
+    page.unsubscribe();
+    expect(registry.snapshot()[0]).toMatchObject({ id, foreground: false });
     release.resolve();
     await vi.waitFor(() => expect(registry.snapshot()[0]?.status).toBe('completed'));
 
@@ -562,6 +571,67 @@ it('设置入口只建一个任务；重启后需核验同一版本才能再次�
     await rm(root, { force: true, recursive: true });
   }
 }, 20_000);
+
+it('软件更新在页面内下载完成，离开和重启均不加入任务列表', async () => {
+  Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+  const root = await mkdtemp(join(tmpdir(), 'weq-update-task-'));
+  const options = { dataRoot: root, get: () => false, set: () => {} };
+  try {
+    const { updater } = await ready();
+    updater.installUpdateActions(options);
+    const { watchDownloadPage } = await import('../src/main/download_page');
+    const { updateRouter } = await import('../src/main/ipc/routers/update');
+    const caller = updateRouter.createCaller({});
+    const registry = (await import('../src/main/background_tasks')).backgroundTasks;
+    let pageId: string | undefined;
+    const page = watchDownloadPage().subscribe({
+      next: (id) => {
+        pageId = id;
+      },
+    });
+    try {
+      await caller.download({ pageId });
+      await vi.waitFor(() => expect(registry.snapshot()[0]?.status).toBe('completed'));
+    } finally {
+      page.unsubscribe();
+    }
+    expect(registry.snapshot()[0]).toMatchObject({
+      foreground: true,
+      actions: [{ id: 'install' }],
+    });
+    vi.resetModules();
+    const restarted = await ready();
+    restarted.updater.installUpdateActions(options);
+    const restored = (await import('../src/main/background_tasks')).backgroundTasks;
+    expect(restored.snapshot()[0]).toMatchObject({ foreground: true, status: 'paused' });
+    const { watchDownloadPage: watchReopenedPage } = await import('../src/main/download_page');
+    const { updateRouter: restartedRouter } = await import('../src/main/ipc/routers/update');
+    const reopened = watchReopenedPage().subscribe({
+      next: (id) => {
+        pageId = id;
+      },
+    });
+    const finish = fixture.downloadUpdate.getMockImplementation()!;
+    const release = Promise.withResolvers<void>();
+    fixture.downloadUpdate.mockImplementationOnce(async () => {
+      await release.promise;
+      return finish();
+    });
+    try {
+      const { id } = restored.snapshot()[0]!;
+      await restartedRouter.createCaller({}).controlDownload({ id, action: 'continue', pageId });
+      expect(restored.snapshot()[0]).toMatchObject({ id, foreground: true, status: 'running' });
+      reopened.unsubscribe();
+      expect(restored.snapshot()[0]).toMatchObject({ id, foreground: false });
+    } finally {
+      reopened.unsubscribe();
+      release.resolve();
+      await vi.waitFor(() => expect(restored.snapshot()[0]?.status).toBe('completed'));
+    }
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
 
 describe('AUR 托管的副本', () => {
   it('拒绝应用内下载，直接给出包管理器指引', async () => {

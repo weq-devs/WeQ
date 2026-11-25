@@ -21,6 +21,7 @@ import { z } from 'zod/v3';
 import { isUpdateCheckInterval } from '@weq/service/update-settings';
 import { procedure, router } from '../trpc';
 import { backgroundTasks } from '../../background_tasks';
+import { holdDownloadOnPage } from '../../download_page';
 import {
   getUpdateActions,
   getUpdateState,
@@ -78,12 +79,16 @@ export const updateRouter = router({
    * event (so we swallow the rejection here).
    */
   download: desktop
-    .input(z.object({ foreground: z.boolean().optional() }).optional())
+    .input(
+      z
+        .object({ foreground: z.boolean().optional(), pageId: z.string().uuid().optional() })
+        .optional(),
+    )
     .mutation(({ input }): boolean => {
       const actions = getUpdateActions();
       if (!actions.supported) throw new Error('当前宿主不支持应用更新');
       actions.assertDownloadAvailable?.();
-      void actions.startDownload(input?.foreground).catch(() => {});
+      void actions.startDownload(input?.foreground, input?.pageId).catch(() => {});
       return true;
     }),
 
@@ -92,13 +97,22 @@ export const updateRouter = router({
       z.object({
         id: z.string().uuid(),
         action: z.enum(['pause', 'continue', 'retry', 'background']),
+        pageId: z.string().uuid().optional(),
       }),
     )
     .mutation(async ({ input }) => {
+      const { id, action, pageId } = input;
       const actions = getUpdateActions();
-      if (actions.getDownloadTask?.()?.id !== input.id) throw new Error('更新下载已改变，请刷新');
-      if (input.action === 'background') actions.backgroundDownload?.(input.id);
-      else await backgroundTasks.act(input.id, input.action);
+      const task = actions.getDownloadTask?.();
+      if (task?.id !== id) throw new Error('更新下载已改变，请刷新');
+      if (action === 'background') actions.backgroundDownload?.(id);
+      else {
+        await backgroundTasks.act(id, action);
+        if (task.foreground && (action === 'continue' || action === 'retry')) {
+          const handOff = () => actions.backgroundDownload?.(id);
+          if (!holdDownloadOnPage(pageId, 'software-update', handOff)) handOff();
+        }
+      }
       return true;
     }),
 

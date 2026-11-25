@@ -15,6 +15,7 @@ import { useDialog } from '../components/Dialog.shared';
 import { useTabActive } from '../components/RetainedTabs.shared';
 import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '@weq/service/update-settings';
 import type { UpdateDownloadTask } from '../../../main/update/state';
+import { useDownloadPage } from './useDownloadPage';
 
 type DownloadControl = 'pause' | 'continue' | 'retry';
 
@@ -88,6 +89,7 @@ function errMsg(e: unknown): string {
 export function useAppUpdate(showDownloadErrorInline = false): AppUpdate {
   const utils = trpc.useContext();
   const active = useTabActive();
+  const downloadPage = useDownloadPage(active);
   const showError = useDialog((s) => s.showError);
 
   const version = trpc.bootstrap.getVersionInfo.useQuery(undefined, {
@@ -267,13 +269,14 @@ export function useAppUpdate(showDownloadErrorInline = false): AppUpdate {
     setProgress({ percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 });
     setPhase('downloading');
     try {
-      await downloadMut.mutateAsync(undefined);
+      const pageId = await downloadPage();
+      await downloadMut.mutateAsync(pageId ? { pageId } : undefined);
     } catch (e) {
       setProgress(null);
       setPhase('error');
       showError('启动下载失败', errMsg(e));
     }
-  }, [downloadMut, showError]);
+  }, [downloadMut, downloadPage, showError]);
 
   const controlDownload = useCallback(
     async (action: DownloadControl) => {
@@ -281,7 +284,13 @@ export function useAppUpdate(showDownloadErrorInline = false): AppUpdate {
       controlling.current = true;
       setControllingDownload(true);
       try {
-        await client.update.controlDownload.mutate({ id: downloadTask.id, action });
+        const pageId =
+          downloadTask.foreground && action !== 'pause' ? await downloadPage() : undefined;
+        await client.update.controlDownload.mutate({
+          id: downloadTask.id,
+          action,
+          ...(pageId ? { pageId } : {}),
+        });
       } catch (error) {
         showError('更新下载操作失败', errMsg(error));
       } finally {
@@ -289,7 +298,7 @@ export function useAppUpdate(showDownloadErrorInline = false): AppUpdate {
         setControllingDownload(false);
       }
     },
-    [downloadTask, showError],
+    [downloadTask, downloadPage, showError],
   );
 
   const install = useCallback(async (): Promise<void> => {

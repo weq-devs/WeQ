@@ -8,22 +8,34 @@ import {
 } from '../../shared/enhancement_actions';
 import type { EnhancementPacks, PackOperation } from './packs';
 import { backgroundTasks, taskError } from '../background_tasks';
-import { downloadTaskReceipt, downloadTaskSnapshot } from '../download_task_receipt';
+import {
+  downloadTaskReceipt,
+  downloadTaskSnapshot,
+  isPendingDownload,
+} from '../download_task_receipt';
+import { holdDownloadOnPage } from '../download_page';
 
 interface PreparationTaskPort {
   list(): Promise<
     Array<{ id: EnhancementPackId; ready: boolean; operation?: PackOperation | null }>
   >;
   waitFor(id: EnhancementPackId): Promise<void>;
+  isPreparing?(id: EnhancementPackId): boolean;
   isRemoving?(id: EnhancementPackId): boolean;
   start?(ids: readonly EnhancementPackId[]): void;
   pause?(id: EnhancementPackId): void;
   resume?(id: EnhancementPackId): void;
 }
 const pending = new WeakMap<PreparationTaskPort, Map<EnhancementPackId, Promise<void>>>();
+interface PreparationIntent {
+  action: string;
+  foreground?: boolean;
+  pageId?: string;
+  automaticUpdate?: boolean;
+}
 const requestedActions = new WeakMap<
   PreparationTaskPort,
-  Map<EnhancementPackId, { action: string; foreground: boolean; automaticUpdate?: boolean }>
+  Map<EnhancementPackId, PreparationIntent>
 >();
 const taskIds = new WeakMap<PreparationTaskPort, Map<EnhancementPackId, string>>();
 const enhancementReceipt = downloadTaskReceipt.extend({
@@ -70,7 +82,7 @@ export function restoreEnhancementTasks(packs: EnhancementPacks, directory: stri
       {
         ...saved,
         ...presentation(saved.name, saved.action),
-        foreground: false,
+        foreground: Boolean(saved.foreground) && !isPendingDownload(saved.status),
         status,
         statusLabel: status === 'paused' ? '等待继续' : saved.statusLabel,
         note:
@@ -112,12 +124,21 @@ export function backgroundEnhancementDownload(
   taskId: string,
 ) {
   const task = enhancementDownloadTask(packs, id);
-  if (task?.id !== taskId) throw new Error('增强包下载已改变，请刷新');
-  if (!task.foreground) return;
+  if (
+    task?.id !== taskId ||
+    !task.foreground ||
+    !isPendingDownload(task.status) ||
+    packs.isPreparing?.(id) === false
+  )
+    return;
   const store = stores.get(packs);
   const saved = store?.data[id];
   if (store && saved?.id === taskId) {
-    store.replace({ ...store.data, [id]: { ...saved, foreground: false } }, true);
+    try {
+      store.replace({ ...store.data, [id]: { ...saved, foreground: false } }, true);
+    } catch (error) {
+      console.warn('[增强包] 任务记录保存失败', error);
+    }
   }
   backgroundTasks.setForeground(taskId, false);
 }
@@ -151,15 +172,16 @@ export async function startEnhancementDownloads(
   requested: readonly EnhancementPackId[],
   options: {
     foreground?: boolean;
+    pageId?: string;
     mode?: EnhancementBatchAction;
     automaticUpdate?: (pack: Awaited<ReturnType<EnhancementPacks['list']>>[number]) => boolean;
   } = {},
 ): Promise<void> {
-  const { foreground = false, mode, automaticUpdate } = options;
+  const { foreground = false, pageId, mode, automaticUpdate } = options;
   const previous = await packs.list();
   const ids = [...new Set(requested)].filter((id) => {
     const pack = previous.find((item) => item.id === id);
-    if (!pack || pack.busy) return false;
+    if (!pack || pack.busy || pending.get(packs)?.has(id) || packs.isPreparing(id)) return false;
     if (automaticUpdate) return automaticUpdate(pack);
     return (
       !mode ||
@@ -174,6 +196,7 @@ export async function startEnhancementDownloads(
         id,
         {
           foreground,
+          pageId,
           automaticUpdate: automaticUpdate ? true : undefined,
           action: !pack
             ? '准备增强包'
@@ -195,25 +218,16 @@ export async function startEnhancementDownloads(
   for (const id of ids) {
     const pack = previous.find((entry) => entry.id === id);
     if (pack)
-      void trackEnhancementPreparation(
-        packs,
-        id,
-        pack.name,
-        actions.get(id)?.action,
-        foreground,
-        actions.get(id)?.automaticUpdate,
-      ).catch(() => {});
+      void trackEnhancementPreparation(packs, id, pack.name, actions.get(id)).catch(() => {});
   }
 }
 
-/** 一次能力包准备只登记一个任务，组件阶段直接更新母任务，不再创建并列子任务。 */
+/** 一次能力包准备共用一条回执，交给后台后才在任务列表显示。 */
 export function trackEnhancementPreparation(
   packs: PreparationTaskPort,
   id: EnhancementPackId,
   name: string,
-  action = requestedActions.get(packs)?.get(id)?.action ?? '准备增强包',
-  foreground = requestedActions.get(packs)?.get(id)?.foreground,
-  automaticUpdate = requestedActions.get(packs)?.get(id)?.automaticUpdate,
+  intent = requestedActions.get(packs)?.get(id),
 ): Promise<void> {
   let tasks = pending.get(packs);
   if (!tasks) {
@@ -228,14 +242,24 @@ export function trackEnhancementPreparation(
     saved &&
     (saved.status === 'running' || saved.status === 'paused' || saved.status === 'failed') &&
     backgroundTasks.snapshot().some((entry) => entry.id === saved.id);
+  const action = useSaved ? saved.action : (intent?.action ?? '准备增强包');
+  const onPage =
+    (!useSaved || saved.foreground) &&
+    holdDownloadOnPage(intent?.pageId, `pack:${id}`, () => {
+      backgroundEnhancementDownload(packs, id, taskId);
+    });
+  const foreground = onPage || intent?.foreground;
   const taskId = useSaved
     ? saved.id
-    : backgroundTasks.start({ ...presentation(name, action), foreground, automaticUpdate });
+    : backgroundTasks.start({
+        ...presentation(name, action),
+        foreground,
+        automaticUpdate: intent?.automaticUpdate,
+      });
   const ids = taskIds.get(packs) ?? new Map<EnhancementPackId, string>();
   ids.set(id, taskId);
   taskIds.set(packs, ids);
   if (useSaved && foreground !== undefined) backgroundTasks.setForeground(taskId, foreground);
-  if (useSaved) action = saved.action;
   const persist = () => {
     const task = backgroundTasks.snapshot().find((entry) => entry.id === taskId);
     if (!task || !store) return;
@@ -338,7 +362,7 @@ export function trackEnhancementPreparation(
                 label: '重试',
                 run: () => {
                   packs.start?.([id]);
-                  void trackEnhancementPreparation(packs, id, name, action).catch(() => {});
+                  void trackEnhancementPreparation(packs, id, name, { action }).catch(() => {});
                 },
               },
             ]

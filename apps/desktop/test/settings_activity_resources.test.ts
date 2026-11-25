@@ -109,9 +109,11 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           });
         if (key === 'invalidate') return () => fixture.invalidate(path.join('.'));
         if (key === 'subscribe')
-          return (_input: unknown, options: { onData: (value: Progress) => void }) => {
-            const id = path.join('.') + ':' + fixture.listeners.size;
-            fixture.listeners.set(id, { path: path.join('.'), onData: options.onData });
+          return (_input: unknown, options: { onData: (value: Progress | string) => void }) => {
+            const name = path.join('.');
+            const id = `${name}:${fixture.listeners.size}`;
+            fixture.listeners.set(id, { path: name, onData: options.onData });
+            if (name === 'backgroundTasks.onDownloadPage') options.onData('download-page');
             return { unsubscribe: () => fixture.listeners.delete(id) };
           };
         return proxy([...path, String(key)]);
@@ -195,23 +197,27 @@ describe('增强设置与非活动页面资源', () => {
       expect(fixture.mutate).toHaveBeenLastCalledWith({
         ids: ['text', 'voice', 'intent', 'dress'],
         mode: 'download',
+        pageId: 'download-page',
       });
       const chosen = f.host.querySelector<HTMLButtonElement>('[aria-label="下载本地文字识别"]')!;
       expect(chosen.title).toContain('1.00 MiB');
       await act(async () => chosen.click());
-      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'], pageId: 'download-page' });
       expect(f.host.querySelector('progress')).toBeNull();
     } finally {
       f.dispose();
     }
   });
-  it('非活动管理页停止轮询，回来从宿主状态恢复进度；不订阅遗留下载流', () => {
+  it('非活动管理页交回下载页，停止轮询，回来从宿主状态恢复进度', () => {
     fixture.busy = true;
     const f = mount(h(EnhancementPacksSection));
     try {
       expect(f.host.querySelector('progress')?.value).toBe(50);
-      expect(fixture.listeners.size).toBe(0);
+      expect([...fixture.listeners.values()].map(({ path }) => path)).toEqual([
+        'backgroundTasks.onDownloadPage',
+      ]);
       f.render(false);
+      expect(fixture.listeners.size).toBe(0);
       expect(fixture.enabled.get('enhancementPacks')).toBe(false);
       fixture.busy = false;
       fixture.ready = true;
@@ -236,7 +242,9 @@ describe('增强设置与非活动页面资源', () => {
       )!;
       expect(action.disabled).toBe(false);
       await act(async () => action.click());
-      expect(fixture.mutate).toHaveBeenLastCalledWith(ready ? { id: 'text' } : { ids: ['text'] });
+      expect(fixture.mutate).toHaveBeenLastCalledWith(
+        ready ? { id: 'text' } : { ids: ['text'], pageId: 'download-page' },
+      );
       expect(f.host.textContent).not.toContain('全部检查');
     } finally {
       f.dispose();
@@ -293,6 +301,7 @@ describe('增强设置与非活动页面资源', () => {
         expect(fixture.mutate).toHaveBeenLastCalledWith({
           ids: ['text', 'voice', 'intent', 'dress'],
           mode: 'update',
+          pageId: 'download-page',
         });
       }
       const button = f.host.querySelector<HTMLButtonElement>(
@@ -300,7 +309,7 @@ describe('增强设置与非活动页面资源', () => {
       )!;
       expect(button.disabled).toBe(false);
       await act(async () => button.click());
-      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'], pageId: 'download-page' });
     } finally {
       f.dispose();
     }
@@ -363,7 +372,7 @@ describe('增强设置与非活动页面资源', () => {
       const repair = row.querySelector<HTMLButtonElement>('[aria-label="补齐本地文字识别"]')!;
       expect(repair.title).toContain('文字筛图模型');
       await act(async () => repair.click());
-      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'], pageId: 'download-page' });
     } finally {
       f.dispose();
     }
@@ -423,7 +432,7 @@ describe('增强设置与非活动页面资源', () => {
     const f = mount(h(Reader));
     try {
       expect(update.phase).toBe('available');
-      expect(fixture.listeners.size).toBe(2);
+      expect(fixture.listeners.size).toBe(3);
       f.render(false);
       expect(fixture.listeners.size).toBe(0);
       expect(Object.fromEntries(fixture.enabled)).toEqual({
