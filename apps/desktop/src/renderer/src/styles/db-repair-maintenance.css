@@ -385,10 +385,6 @@ html[data-theme='dark'] .weq-dbm {
   gap: 24px;
 }
 
-.weq-dbm-body > .weq-dbm-check-setup {
-  justify-content: space-between;
-}
-
 .weq-dbm-scan-controls {
   display: grid;
   justify-items: center;

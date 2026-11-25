@@ -1114,7 +1114,7 @@ export function DbRepairPanel({
         ) : null}
 
         {showScanSetup ? (
-          <div className="weq-dbm-scan-setup weq-dbm-check-setup">
+          <div className="weq-dbm-scan-setup">
             <section className="weq-dbm-scan-controls" aria-label="体检设置">
               <button
                 className="weq-set-btn weq-set-btn-primary weq-dbm-scan-start"
