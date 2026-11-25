@@ -130,6 +130,7 @@ import {
   guardDatabaseMaintenanceWindow,
 } from './db_maintenance_lifecycle';
 import { desktopApplicationMenu, macApplicationMenu } from './application_menu';
+import { publishDevelopmentWindow } from './development_window';
 import { createSystemTray } from './system_tray';
 import { registerEditUndoIpc, undoFocusedContent, redoFocusedContent } from './edit_undo';
 import { registerEditContextMenu } from './edit_context_menu';
@@ -360,9 +361,9 @@ function bindDesktopWindowSession(entry: AccountWindowState, windowSession: Sess
   };
 }
 
-async function openAccountWindow(target?: AccountInstanceTarget): Promise<void> {
-  if (isQuitting || !mainIpcHandler) return;
-  if (target && focusOpenAccount(target.uin)) return;
+async function openAccountWindow(target?: AccountInstanceTarget): Promise<boolean> {
+  if (isQuitting || !mainIpcHandler) return false;
+  if (target && focusOpenAccount(target.uin)) return true;
   const id = prepareAccountPicker();
   const { userData } = target
     ? instanceDirectories(defaultDataRoot, target.uin)
@@ -383,7 +384,7 @@ async function openAccountWindow(target?: AccountInstanceTarget): Promise<void> 
     }
     fs.mkdirSync(userData, { recursive: true, mode: 0o700 });
     accountWindows.set(runtime, entry);
-    await runtime.run(async () => {
+    return await runtime.run(async () => {
       entry.storage = new DesktopStorage(defaultDataRoot);
       setDesktopStorage(entry.storage);
       setAccountInstanceScope(entry.instances);
@@ -397,7 +398,7 @@ async function openAccountWindow(target?: AccountInstanceTarget): Promise<void> 
       );
       if (isQuitting) {
         await disposeAccountWindow(entry);
-        return;
+        return false;
       }
       const config = getAppContext().bootstrap?.userConfig;
       if (target && config)
@@ -409,7 +410,7 @@ async function openAccountWindow(target?: AccountInstanceTarget): Promise<void> 
             target.configId,
           ),
         );
-      lifecycle.open();
+      return lifecycle.open() !== null;
     });
   } catch (error) {
     await disposeAccountWindow(entry);
@@ -1123,7 +1124,9 @@ async function registerDesktopAccount(entry: AccountWindowState): Promise<void> 
       accountEventBus.on('closing', callback);
       return () => accountEventBus.off('closing', callback);
     },
-    launch: (configId) => openAccountWindow(savedAccountTarget(defaultDataRoot, configId)),
+    launch: async (configId) => {
+      await openAccountWindow(savedAccountTarget(defaultDataRoot, configId));
+    },
     assignedUin: entry.assignedUin,
     openHere: async (configId) => {
       const target = savedAccountTarget(defaultDataRoot, configId);
@@ -1524,6 +1527,17 @@ async function startDesktop(): Promise<void> {
     // 已有可见窗口时由 macOS 恢复窗口顺序，不让主窗口盖过工具窗口。
     if (!hasVisibleWindows) revealLastWindow();
   });
+
+  const developmentWindowPath = process.env.WEQ_DEV_WINDOW_ENDPOINT;
+  if (!app.isPackaged && developmentWindowPath && !isQuitting)
+    await publishDevelopmentWindow(developmentWindowPath, () => openAccountWindow()).then(
+      (close) => app.once('quit', close),
+      (error: unknown) =>
+        logger.warn('开发启动脚本无法请求新窗口', {
+          event: 'dev-window-control',
+          ...logErrorContext(error),
+        }),
+    );
 }
 
 const desktopReady = app

@@ -5,9 +5,11 @@ import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'no
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
+import { tsImport } from 'tsx/esm/api';
 import { commandOutput, pnpmCommand, runCommand } from './dev-process.mjs';
 import {
   dependencyState,
+  acquireProcessLock,
   exists,
   loadConfig,
   prepareDependencies,
@@ -17,7 +19,7 @@ import {
   readJson,
   writeJson,
 } from './dev-prepare.mjs';
-import { startDevelopment, withDevelopmentLock } from './dev.mjs';
+import { runDevelopment, startDevelopment } from './dev.mjs';
 import { formatConsoleHeader } from '../packages/service/src/common/console_header.mjs';
 
 const silent = () => {};
@@ -518,21 +520,85 @@ fs.writeFileSync(arg, JSON.stringify({ inputs: { 'entry.js': {} } }));
 
 test('开发锁拒绝同时启动并在失败后释放，可恢复已退出的已知进程锁', async (t) => {
   const root = await fixture(t);
-  await withDevelopmentLock(root, async () => {
-    await assert.rejects(
-      withDevelopmentLock(root, async () => {}),
-      /已在运行/,
-    );
-  });
+  const lock = join(root, '.weq-dev/running');
+  const release = await acquireProcessLock(lock);
+  try {
+    await assert.rejects(runDevelopment({ repo: root, args: ['--prepare-only'] }), /已在运行/);
+  } finally {
+    await release();
+  }
+  await writeJson(join(lock, 'owner.json'), { pid: 2147483647 });
   await assert.rejects(
-    withDevelopmentLock(root, async () => {
-      throw new Error('failed');
+    runDevelopment({
+      repo: root,
+      unused: () => {
+        throw new Error('failed');
+      },
     }),
     /failed/,
   );
-  assert.equal(await exists(join(root, '.weq-dev/running')), false);
-  await writeJson(join(root, '.weq-dev/running/owner.json'), { pid: 2147483647 });
-  await withDevelopmentLock(root, async () => {});
+  assert.equal(await exists(lock), false);
+});
+
+test('重复启动等候开发版就绪，每次请求只在当前会话新开一个窗口', {
+  timeout: 10_000,
+}, async (t) => {
+  const repo = await fixture(t);
+  const { publishDevelopmentWindow } = await tsImport(
+    '../apps/desktop/src/main/development_window.ts',
+    import.meta.url,
+  );
+  const launched = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  const waiting = Promise.withResolvers();
+  let prepares = 0;
+  const options = {
+    repo,
+    args: ['--', '--enable-dress-tools'],
+    unused: silent,
+    dependencies: () => {
+      prepares++;
+    },
+    electron: silent,
+    native: silent,
+    network: silent,
+    bot: silent,
+    log: silent,
+    launch: async (_args, env) => {
+      launched.resolve(env.WEQ_DEV_WINDOW_ENDPOINT);
+      await finish.promise;
+      return 0;
+    },
+  };
+  const first = runDevelopment(options);
+  let close;
+  let second;
+  try {
+    const endpointPath = await Promise.race([launched.promise, first]);
+    second = runDevelopment({ ...options, log: waiting.resolve });
+    // 等第二次运行实际进入等待，再发布开发版的控制地址。
+    await Promise.race([waiting.promise, second]);
+    assert.equal(await exists(endpointPath), false);
+    await assert.rejects(
+      runDevelopment({ ...options, args: ['--', '--user-data-dir=/other'] }),
+      /已在运行/,
+    );
+    let opened = 0;
+    close = await publishDevelopmentWindow(endpointPath, async () => {
+      opened++;
+      return true;
+    });
+    await second;
+    assert.equal(opened, 1);
+    await runDevelopment({ ...options, args: [] });
+    assert.equal(opened, 2);
+    assert.equal(prepares, 1);
+  } finally {
+    close?.();
+    finish.resolve();
+    await Promise.allSettled([first, second]);
+  }
+  await first;
 });
 
 test('启动日志与应用共用行头，分块中文、CR 进度和长行均有界输出', () => {
