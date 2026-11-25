@@ -8,6 +8,7 @@ import { mkdir } from 'node:fs/promises';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const platform = process.env.WEQ_TEST_PLATFORM ?? 'win32';
+const settingsOnly = process.argv.includes('--settings');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const server = await createServer({
   configFile: false,
@@ -46,11 +47,15 @@ try {
   await page.addInitScript((platform) => {
     window.windowCloseRequests = 0;
     window.windowControlRequests = [];
+    window.windowLayoutRequests = [];
     window.browserCloseRequests = 0;
     window.close = () => window.browserCloseRequests++;
     window.electron = {
       process: { platform },
       ipcRenderer: {
+        invoke: async (channel, layout) => {
+          if (channel === 'window:set-layout') window.windowLayoutRequests.push(layout);
+        },
         send: (channel) => {
           window.windowControlRequests.push(channel);
           if (channel === 'window-close') window.windowCloseRequests++;
@@ -81,14 +86,15 @@ try {
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/startup-layout.html`,
   );
-  for (const [width, height] of [
+  const viewports = [
     [440, 680],
     [440, 760],
     [1180, 800],
     [440, 480],
     [390, 760],
     [552, 852],
-  ]) {
+  ];
+  for (const [width, height] of settingsOnly ? [] : viewports) {
     await page.setViewportSize({ width, height });
     for (const theme of ['light', 'dark']) {
       await page.evaluate((theme) => window.startupQa.theme.getState().setPreference(theme), theme);
@@ -111,6 +117,10 @@ try {
         await page.evaluate(
           (status) =>
             window.startupQa.restricted.setState({
+              reasons:
+                status === 'restricted'
+                  ? [{ code: 'offline', title: 'QQ 不在线', guidance: '登录 QQ' }]
+                  : [],
               enteringSince: status === 'entering' ? Date.now() : null,
               requests:
                 status === 'authorization'
@@ -119,15 +129,15 @@ try {
             }),
           status,
         );
-        const indicator = page.locator('.weq-restricted-indicator');
-        assert.equal(
-          await indicator.textContent(),
-          status === 'restricted'
-            ? '在线能力受限'
-            : status === 'entering'
-              ? '正在启用 QQ 在线能力'
-              : '待提权',
-        );
+        const indicator = page.locator('.weq-restricted-indicator').filter({
+          hasText:
+            status === 'restricted'
+              ? '在线能力受限'
+              : status === 'entering'
+                ? '正在启用 QQ 在线能力'
+                : '待提权',
+        });
+        await indicator.waitFor();
         assert.equal(
           await indicator.evaluate((button) => button.scrollWidth > button.clientWidth + 1),
           false,
@@ -158,10 +168,13 @@ try {
         assert.equal(await page.evaluate(() => window.startupQa.restricted.getState().open), false);
       }
       await page.evaluate(() =>
-        window.startupQa.restricted.setState({ enteringSince: null, requests: [] }),
+        window.startupQa.restricted.setState({
+          reasons: [{ code: 'offline', title: 'QQ 不在线', guidance: '登录 QQ' }],
+          enteringSince: null,
+          requests: [],
+        }),
       );
-      const log = page.getByRole('button', { name: '打开日志目录', exact: true });
-      await log.click();
+      await page.locator('.weq-restricted-indicator').waitFor();
       await page.evaluate(() => {
         const store = window.startupQa.toast;
         store.setState({ toasts: [], leaving: [] });
@@ -170,53 +183,61 @@ try {
       const metrics = await page.evaluate(() => {
         const rect = (selector) =>
           document.querySelector(selector).getBoundingClientRect().toJSON();
-        const log = document.querySelector('.weq-shell-log-btn');
-        const box = log.getBoundingClientRect();
+        const settings = document.querySelector('.weq-shell-settings-btn');
+        const box = settings.getBoundingClientRect();
         return {
-          footer: rect('.weq-account-actions'),
+          accountTools: rect('.weq-account-section-tools'),
+          accountHeader: rect('.weq-account-section-head'),
           toast: rect('.weq-toast-host'),
           indicator: rect('.weq-restricted-indicator'),
-          log: box.toJSON(),
+          settings: box.toJSON(),
           heading: rect('.weq-account-heading'),
           actions: rect('.weq-shell-actions'),
           brand: rect('.weq-account-brand'),
           head: rect('.weq-account-head'),
+          headPadding: parseFloat(
+            getComputedStyle(document.querySelector('.weq-account-head')).paddingLeft,
+          ),
           headingDrag: getComputedStyle(
             document.querySelector('.weq-account-heading'),
           ).getPropertyValue('-webkit-app-region'),
-          drag: getComputedStyle(log).getPropertyValue('-webkit-app-region'),
-          hit: log.contains(
+          drag: getComputedStyle(settings).getPropertyValue('-webkit-app-region'),
+          hit: settings.contains(
             document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
           ),
           overflow: document.documentElement.scrollWidth > innerWidth,
-          opened: window.logDirOpened,
         };
       });
-      assert.equal(metrics.drag, 'no-drag', '日志按钮必须排除窗口拖动命中区');
-      assert.equal(metrics.hit, true, '日志按钮不能被页面遮挡');
-      assert(metrics.opened > 0, '日志按钮必须调用打开目录桥接');
+      assert.equal(metrics.drag, 'no-drag', '设置按钮必须排除窗口拖动命中区');
+      assert.equal(metrics.hit, true, '设置按钮不能被页面遮挡');
       assert.equal(metrics.overflow, false, '页面不能横向溢出');
-      assert(Math.abs(metrics.brand.left - metrics.head.left - 24) <= 1, 'WeQ 标识保持左对齐');
+      assert(
+        Math.abs(metrics.brand.left - metrics.head.left - metrics.headPadding) <= 1,
+        'WeQ 标识保持左对齐',
+      );
       assert(metrics.head.top <= 1, 'macOS 不保留额外灰色标题栏');
       assert.equal(metrics.headingDrag, 'drag', '标题和空白处必须能拖动窗口');
       assert(metrics.heading.width >= 100, '标题栏必须保留可用的拖动宽度');
       assert(metrics.heading.right <= metrics.actions.left, '工具栏不能覆盖拖动区');
       assert(
         Math.abs(
-          metrics.heading.y + metrics.heading.height / 2 - metrics.log.y - metrics.log.height / 2,
+          metrics.heading.y +
+            metrics.heading.height / 2 -
+            metrics.settings.y -
+            metrics.settings.height / 2,
         ) <= 1,
         '标题和工具按钮必须垂直居中',
       );
       assert(
-        metrics.indicator.right <= metrics.log.left &&
-          metrics.log.left - metrics.indicator.right <= 12,
+        metrics.indicator.right <= metrics.settings.left &&
+          metrics.settings.left - metrics.indicator.right <= 12,
         '受限状态紧邻右侧工具按钮',
       );
-      assert(Math.abs(height - metrics.footer.bottom - 12) <= 1, '账号管理操作栏靠底对齐');
       assert(
-        metrics.toast.bottom <= metrics.footer.top - 4,
-        '桌面窄窗口通知不能压在账号管理操作栏上',
+        metrics.accountTools.right <= metrics.accountHeader.right,
+        '账号管理操作留在列表标题栏',
       );
+      assert(metrics.toast.top >= metrics.accountTools.bottom, '桌面横幅不能压住账号管理操作');
       if (process.env.WEQ_STARTUP_ARTIFACTS) {
         await mkdir(process.env.WEQ_STARTUP_ARTIFACTS, { recursive: true });
         await page.screenshot({
@@ -231,8 +252,6 @@ try {
         window.startupQa.toast.setState({ toasts: [], leaving: [] });
       });
       await page.locator('.weq-restricted-indicator').waitFor({ state: 'detached' });
-      const footer = await page.locator('.weq-account-actions').boundingBox();
-      assert(Math.abs(height - footer.y - footer.height - 12) <= 1, 'QQ 在线能力操作栏同样靠底');
       if (process.env.WEQ_STARTUP_ARTIFACTS) {
         await page.screenshot({
           path: resolve(
@@ -248,37 +267,76 @@ try {
       );
     }
   }
-  await page.evaluate(() => {
-    const list = document.querySelector('.weq-account-list');
-    const item = list.firstElementChild;
-    for (let i = 0; i < 20; i++) list.append(item.cloneNode(true));
-  });
-  assert(
-    await page
-      .locator('.weq-account-list')
-      .evaluate((list) => list.scrollHeight > list.clientHeight),
-    '账号较多时列表滚动',
-  );
-  const footer = await page.locator('.weq-account-actions').boundingBox();
-  assert(
-    Math.abs(page.viewportSize().height - footer.y - footer.height - 12) <= 1,
-    '长列表不能挤掉底部操作栏',
-  );
-  await page.evaluate(() => {
-    window.startupQa.toast
-      .getState()
-      .push({ title: '合成 Web 通知', durationKind: 'long', ttl: 0 });
-  });
-  await page.locator('.weq-toast-host').evaluate((host) => host.classList.add('is-web'));
-  assert.equal(
-    await page.locator('.weq-toast-host').evaluate((host) => getComputedStyle(host).bottom),
-    '76px',
-    'Web 手机端仍保留底栏避让',
-  );
-  for (const surface of ['main', 'loading']) {
+  {
+    await page.setViewportSize({ width: 440, height: 680 });
+    const settings = page.getByRole('button', { name: '设置', exact: true });
+    await settings.click();
+    await page.waitForFunction(() => window.windowLayoutRequests.includes('chat'));
+    const nav = page.getByRole('navigation', { name: '设置页面' });
+    await nav.getByRole('button', { name: '凭据管理' }).click();
+    await page.getByText('打开账号后可用。', { exact: true }).waitFor();
+    await nav.waitFor({ state: 'hidden' });
+    await page.getByRole('button', { name: '返回设置' }).click();
+    await nav.waitFor();
+    await page.setViewportSize({ width: 1180, height: 760 });
+    await nav.getByRole('button', { name: '凭据管理' }).click();
+    await page.getByText('打开账号后可用。', { exact: true }).waitFor();
+    await nav.getByRole('button', { name: 'QQ 数据库管理' }).click();
+    assert(await page.getByRole('button', { name: '打开数据库浏览' }).isDisabled());
+    await nav.getByRole('button', { name: '日志与性能' }).click();
+    await page.getByRole('button', { name: '打开应用日志文件夹' }).click();
+    assert.equal(await page.evaluate(() => window.logDirOpened), 1);
+    const closeSettings = page.getByRole('button', { name: '关闭设置' });
+    const heading = await nav.getByRole('heading', { name: '设置', exact: true }).boundingBox();
+    const closeButton = await closeSettings.boundingBox();
+    assert(
+      Math.abs(heading.y + heading.height / 2 - closeButton.y - closeButton.height / 2) <= 1,
+      `关闭按钮与设置标题垂直居中：标题 ${heading.y}/${heading.height}，按钮 ${closeButton.y}/${closeButton.height}`,
+    );
+    await closeSettings.click();
+    await page.waitForFunction(() =>
+      document.activeElement?.classList.contains('weq-shell-settings-btn'),
+    );
+    assert.deepEqual(await page.evaluate(() => window.windowLayoutRequests.slice(-3)), [
+      'settings',
+      'chat',
+      'home',
+    ]);
+    await page.setViewportSize({ width: 552, height: 852 });
+  }
+  if (!settingsOnly) {
+    await page.evaluate(() => {
+      const list = document.querySelector('.weq-account-list');
+      const item = list.firstElementChild;
+      for (let i = 0; i < 20; i++) list.append(item.cloneNode(true));
+    });
+    assert(
+      await page
+        .locator('.weq-account-list')
+        .evaluate((list) => list.scrollHeight > list.clientHeight),
+      '账号较多时列表滚动',
+    );
+    await page.getByRole('button', { name: '添加本机 QQ 账号', exact: true }).waitFor();
+    await page.evaluate(() => {
+      window.startupQa.toast
+        .getState()
+        .push({ title: '合成 Web 通知', durationKind: 'long', ttl: 0 });
+    });
+    await page.locator('.weq-toast-host').evaluate((host) => host.classList.add('is-web'));
+    assert.equal(
+      await page.locator('.weq-toast-host').evaluate((host) => getComputedStyle(host).bottom),
+      '76px',
+      'Web 手机端仍保留底栏避让',
+    );
+  }
+  for (const surface of settingsOnly ? ['loading'] : ['main', 'loading']) {
     await page.goto(
       `http://127.0.0.1:${server.httpServer.address().port}/test/browser/startup-layout.html?surface=${surface}`,
     );
+    if (surface === 'loading') {
+      await page.getByRole('button', { name: '打开日志目录', exact: true }).click();
+      assert.equal(await page.evaluate(() => window.logDirOpened), 1);
+    }
     if (surface === 'main') {
       assert.equal(
         await page.locator('.app-title-bar-actions button').count(),
@@ -299,7 +357,7 @@ try {
         '主标题栏不再为红绿灯预留左侧空间',
       );
     }
-    for (const width of [800, 1180]) {
+    for (const width of settingsOnly ? [] : [800, 1180]) {
       await page.setViewportSize({ width, height: 800 });
       for (const theme of ['light', 'dark']) {
         await page.evaluate(
@@ -310,6 +368,10 @@ try {
           await page.evaluate(
             (status) =>
               window.startupQa.restricted.setState({
+                reasons:
+                  status === 'restricted'
+                    ? [{ code: 'offline', title: 'QQ 不在线', guidance: '登录 QQ' }]
+                    : [],
                 enteringSince: status === 'entering' ? Date.now() : null,
                 requests:
                   status === 'authorization'
@@ -337,7 +399,7 @@ try {
               ...document.querySelectorAll(
                 surface === 'main' ? '.app-title-bar button' : '.weq-startup-titlebar button',
               ),
-            ];
+            ].filter((button) => button.getClientRects().length > 0);
             return {
               drag: getComputedStyle(drag).getPropertyValue('-webkit-app-region'),
               width: box.width,
@@ -380,7 +442,9 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log(
-    `通过 ${platform} 账号页、启动页与主标题栏的深浅主题检查：关闭 IPC、按钮居中、拖动区隔离、三种受限状态点击、底部操作栏及横幅。`,
+    settingsOnly
+      ? `通过 ${platform} 登录页设置、返回与日志入口检查。`
+      : `通过 ${platform} 账号页、启动页与主标题栏的深浅主题检查：设置入口、关闭 IPC、按钮居中、拖动区隔离、三种受限状态点击、账号操作及横幅。`,
   );
 } finally {
   await browser?.close();
