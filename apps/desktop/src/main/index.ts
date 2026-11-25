@@ -182,6 +182,7 @@ import {
   prepareAccountPicker,
   prepareInstanceAccount,
 } from './account_instances';
+import { prepareMacAccountWindowSession } from './account_window_session';
 import { accountStorageMigrationPath, migrateAccountStorage } from './account_storage_migration';
 import { DesktopStorage, setDesktopStorage } from './desktop_storage';
 import { registerAccountWorker, savedAccountTarget } from './desktop_services/accounts';
@@ -387,11 +388,19 @@ async function openAccountWindow(target?: AccountInstanceTarget): Promise<boolea
     }
     fs.mkdirSync(userData, { recursive: true, mode: 0o700 });
     accountWindows.set(runtime, entry);
+    const sessionPath =
+      process.platform === 'darwin'
+        ? await prepareMacAccountWindowSession(app.getPath('sessionData'), userData)
+        : userData;
+    if (isQuitting || entry.closing) {
+      await disposeAccountWindow(entry);
+      return false;
+    }
     return await runtime.run(async () => {
       entry.storage = new DesktopStorage(defaultDataRoot);
       setDesktopStorage(entry.storage);
       setAccountInstanceScope(entry.instances);
-      bindDesktopWindowSession(entry, session.fromPath(userData));
+      bindDesktopWindowSession(entry, session.fromPath(sessionPath));
       initAppContext(defaultDataRoot, defaultDataRoot);
       getAppContext().bootstrap?.linkPreview.setScreenshotHook(screenshotPage);
       accountEventBus.on('closing', () => electronHost.setApplicationBadge?.(0));
