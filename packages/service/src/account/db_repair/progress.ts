@@ -1,6 +1,8 @@
 import type { DatabaseProgress } from '@weq/native';
 
 export type DatabaseWorkProgress = DatabaseProgress & {
+  /** 深度修复没有步骤总量时，供重建进度条使用的产物大小比例。 */
+  rebuildPercent?: number;
   /** 结构体检中，当前索引所属的表。旧报告可能没有此字段。 */
   tableName?: string;
   status?: 'running' | 'completed' | 'incomplete' | 'failed' | 'skipped';

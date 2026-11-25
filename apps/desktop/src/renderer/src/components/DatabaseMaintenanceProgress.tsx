@@ -180,6 +180,8 @@ export function DatabaseMaintenanceProgress({
     const isCurrent = step === currentStep;
     const executing = isCurrent && running && step.status === 'running';
     const percent = databaseStepPercent(step);
+    const rebuildPercent = percent === undefined ? step.rebuildPercent : undefined;
+    const barValue = percent ?? rebuildPercent;
     const count = countText(step);
     const rate =
       executing &&
@@ -225,12 +227,12 @@ export function DatabaseMaintenanceProgress({
             <p className="weq-db-progress-object">{objectName}</p>
           ) : null}
           {step.detail ? <p className="weq-db-progress-detail">{step.detail}</p> : null}
-          {isCurrent && (executing || percent !== undefined) ? (
+          {isCurrent && (executing || barValue !== undefined) ? (
             <TaskProgressBar
-              value={percent}
+              value={barValue}
               status={connectionError ? 'paused' : progress.status}
               label="当前步骤进度"
-              valueText={count ?? state}
+              valueText={rebuildPercent === undefined ? (count ?? state) : undefined}
             />
           ) : null}
           {(sharedHeading && count) || step.badPages !== undefined || step.zeroPages || rate ? (

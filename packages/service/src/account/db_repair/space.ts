@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { freeBytesAt } from './files';
 
 export interface RepairDiskSpace {
@@ -25,10 +25,12 @@ export interface RepairStorageStatus {
 export function repairWorkingBytes(path: string): {
   allocated: number;
   rebuilt: number;
+  streamingProduct: number;
   sourcePresent: boolean;
 } {
   let allocated = 0;
   let rebuilt = 0;
+  let streamingProduct = 0;
   let sourcePresent = false;
   try {
     for (const entry of readdirSync(path, { withFileTypes: true })) {
@@ -37,18 +39,22 @@ export function repairWorkingBytes(path: string): {
         const child = repairWorkingBytes(full);
         allocated += child.allocated;
         rebuilt += child.rebuilt;
+        streamingProduct += child.streamingProduct;
         sourcePresent ||= child.sourcePresent;
       } else if (entry.isFile()) {
         const stat = statSync(full);
         allocated += typeof stat.blocks === 'number' ? stat.blocks * 512 : stat.size;
         if (entry.name.endsWith('-rebuilt.db')) rebuilt += stat.size;
+        // 流式重建写入私有产物目录的主库，发布前文件名为 database。
+        if (entry.name === 'database' && basename(path).startsWith('.nt-helper-export-'))
+          streamingProduct += stat.size;
         if (entry.name.endsWith('-source.db')) sourcePresent = true;
       }
     }
   } catch {
     // 文件可能刚被原生重建删除；下一个进度或定时采样会重新统计。
   }
-  return { allocated, rebuilt, sourcePresent };
+  return { allocated, rebuilt, streamingProduct, sourcePresent };
 }
 
 /** 未创建的子目录按最近的现有父目录探测，不为预检落盘。 */

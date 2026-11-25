@@ -120,6 +120,7 @@ interface HarnessOptions {
   appVersion?: string;
   scratchDir?: DbRepairDeps['scratchDir'];
   storageOptimized?: DbRepairDeps['storageOptimized'];
+  storageStreaming?: DbRepairDeps['storageStreaming'];
   diskSpace?: DbRepairDeps['diskSpace'];
 }
 
@@ -181,6 +182,7 @@ function createHarness(options: HarnessOptions = {}) {
   const deps: DbRepairDeps = {
     scratchDir: options.scratchDir,
     storageOptimized: options.storageOptimized,
+    storageStreaming: options.storageStreaming,
     diskSpace: options.diskSpace,
     cacheDir: (...segments) => join(cacheRoot, ...segments),
     resolveAccount: () => {
@@ -354,6 +356,60 @@ describe('DbRepairService.repair 成功路径', () => {
     expect(args.outPath.startsWith(h.dbDir)).toBe(true);
     expect(dirname(args.workDir)).toBe(h.paths().workDir);
     expect(args.key).toBe('test-key');
+  });
+
+  it.each([false, true])('重建进度随主产物增长更新（流式重建 %s）', async (streaming) => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const h = createHarness({
+        storageStreaming: () => streaming,
+        recover: async (options, progress) => {
+          const outputDirectory = streaming
+            ? join(dirname(options.outPath), '.nt-helper-export-fixture')
+            : options.workDir;
+          mkdirSync(outputDirectory, { recursive: true });
+          const output = join(outputDirectory, streaming ? 'database' : 'fixture-rebuilt.db');
+          const headerBytes = streaming ? 1024 : 0;
+          writeFileSync(output, Buffer.alloc(headerBytes + 4 * 4096));
+          writeFileSync(`${output}-wal`, Buffer.alloc(20 * 4096));
+          const tick = { phase: 'Repair', percent: 40, message: '正在重建' };
+          progress({
+            ...tick,
+            detail: {
+              step: 'recover-data',
+              message: '恢复表数据',
+              completed: 9000,
+              unit: 'fields',
+              objectName: 'group_msg_table',
+            },
+          });
+          progress(tick);
+          // 原生组件暂停推送字段计数时，仍从在写的主库读取进度。
+          writeFileSync(output, Buffer.alloc(headerBytes + 8 * 4096));
+          await vi.advanceTimersByTimeAsync(1000);
+          writeFileSync(output, Buffer.alloc(headerBytes + 18 * 4096));
+          await vi.advanceTimersByTimeAsync(1000);
+          writeFileSync(output, Buffer.alloc(headerBytes + 10 * 4096));
+          await vi.advanceTimersByTimeAsync(1000);
+          writeFileSync(options.outPath, repairedBytes());
+          progress({ phase: 'Verify', percent: 100, message: '检查修复产物' });
+          return makeReport();
+        },
+      });
+      await h.repair({ uin: REF, dbName: 'nt_msg.db', backup: false }, collect(h.progress));
+      const rebuilding = h.progress.filter((tick) => tick.phase === 'Repair');
+      expect(rebuilding.map((tick) => tick.detail?.rebuildPercent)).toEqual([25, 25, 50, 99, 99]);
+      expect(rebuilding.at(-1)?.detail).toMatchObject({
+        step: 'recover-data',
+        completed: 9000,
+        objectName: 'group_msg_table',
+      });
+      expect(
+        h.progress.find((tick) => tick.phase === 'Verify')?.detail?.rebuildPercent,
+      ).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('backup: false 时不落备份（记录里如实写 null）', async () => {

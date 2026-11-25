@@ -8,7 +8,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('步骤在同一时间线展示一次，无分母时使用不定进度，失败保留步骤和数量', async () => {
+it('步骤在同一时间线展示一次，重建进度优先使用步骤计数，失败保留步骤和数量', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -38,7 +38,7 @@ it('步骤在同一时间线展示一次，无分母时使用不定进度，失�
     expect(host.querySelector('details')?.open).toBe(true);
     await render(
       tracker.update('Repair', {
-        step: 'data',
+        step: 'recover-data',
         message: '恢复表数据',
         completed: 9000,
         unit: 'fields',
@@ -48,11 +48,29 @@ it('步骤在同一时间线展示一次，无分母时使用不定进度，失�
     expect(host.textContent).toContain('处理中');
     expect(host.textContent).toContain('9,000 个字段');
     expect(host.querySelector('progress')?.hasAttribute('value')).toBe(false);
+    await render(
+      tracker.update('Repair', {
+        step: 'recover-data',
+        message: '恢复表数据',
+        rebuildPercent: 36.5,
+      }),
+    );
+    expect(host.querySelector('progress')?.getAttribute('value')).toBe('36.5');
+    expect(host.textContent).toContain('处理中');
+    expect(host.textContent).toContain('9,000 个字段');
+    await render(
+      tracker.update('Repair', {
+        step: 'recover-data',
+        message: '恢复表数据',
+        total: 45_000,
+      }),
+    );
+    expect(host.querySelector('progress')?.getAttribute('value')).toBe('20');
     await render(tracker.finish('failed')!);
     expect(host.querySelector('.weq-db-progress-timeline .is-failed')).not.toBeNull();
     expect(host.textContent).toContain('未完成');
-    expect(host.textContent).toContain('9,000 个字段');
-    await render(tracker.update('Repair', { step: 'data', message: '恢复表数据' }), true);
+    expect(host.textContent).toContain('9,000 / 45,000 个字段');
+    await render(tracker.update('Repair', { step: 'recover-data', message: '恢复表数据' }), true);
     expect(host.getElementsByClassName('weq-db-progress-warning')[0]?.textContent).toContain(
       '进度连接中断',
     );

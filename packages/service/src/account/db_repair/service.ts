@@ -612,11 +612,25 @@ export class DbRepairService {
     let latest: DbRepairProgress = { phase: 'backup', percent: 0, message: '准备重建' };
     let lastSpaceCheck = 0;
     let storage = initialStorage;
+    let rebuildPercent: number | undefined;
+    const { pageCount, pageSize, headerOffset } = request.sourceScan;
+    const sourcePageBytes = pageCount * pageSize;
     const checkSpace = () => {
       lastSpaceCheck = Date.now();
       if (quick) return;
       const working = repairWorkingBytes(join(paths.workDir, stamp));
-      const productBytes = repairWorkingBytes(productDirectory).allocated;
+      const productWorking = repairWorkingBytes(productDirectory);
+      const productBytes = productWorking.allocated;
+      if (latest.phase === 'Repair' && sourcePageBytes > 0) {
+        const rebuiltBytes = preflight.storageStreaming
+          ? productWorking.streamingProduct - headerOffset
+          : working.rebuilt;
+        if (rebuiltBytes > 0)
+          rebuildPercent = Math.min(
+            99,
+            Math.max(rebuildPercent ?? 0, (rebuiltBytes / sourcePageBytes) * 100),
+          );
+      }
       // 文件释放与 IPC 进度可能先后到达，不把刚被删除的输入再次计入未来写入。
       let budgetPhase = latest.phase.toLowerCase();
       if (
@@ -677,12 +691,24 @@ export class DbRepairService {
           ),
         );
     };
+    const publishProgress = () => {
+      const progress = { ...latest, storage };
+      if (latest.phase === 'Repair' && rebuildPercent !== undefined) {
+        const detail = latest.detail ?? { step: latest.phase, message: latest.message };
+        progress.detail = { ...detail, rebuildPercent };
+      }
+      guardedEmit(progress);
+    };
     const emit = (progress: DbRepairProgress, interrupt = true) => {
       if (!committing && interrupt) request.signal?.throwIfAborted();
       const phaseChanged = latest.phase !== progress.phase;
-      latest = progress;
+      // 阶段摘要和字段计数交替到达。保留计数，让空间采样也能更新同一行进度条。
+      latest =
+        !phaseChanged && !progress.detail && latest.detail?.step === 'recover-data'
+          ? { ...progress, detail: latest.detail }
+          : progress;
       if (!committing && (phaseChanged || Date.now() - lastSpaceCheck >= 1000)) checkSpace();
-      guardedEmit({ ...progress, storage });
+      publishProgress();
       if (!committing && interrupt) spaceAbort.signal.throwIfAborted();
     };
     let spaceTimer: ReturnType<typeof setInterval> | undefined;
@@ -815,7 +841,7 @@ export class DbRepairService {
       // 原生工作在子进程中；即使某个步骤不再发进度，也继续观测文件增长与可用空间。
       spaceTimer = setInterval(() => {
         checkSpace();
-        guardedEmit({ ...latest, storage });
+        publishProgress();
       }, 1000);
       try {
         recovered = await this.deps.recover(
@@ -1729,7 +1755,7 @@ function isDirectory(path: string): boolean {
   }
 }
 
-/** 保留旧回调的单调 percent 契约；界面只使用 detail 的真实步骤计数。 */
+/** 保留旧回调的单调 percent 契约；界面使用 detail 的步骤进度。 */
 function progressGuard(
   onProgress: (progress: DbRepairProgress) => void,
 ): (progress: DbRepairProgress) => void {
