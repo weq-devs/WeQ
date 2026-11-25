@@ -1,12 +1,15 @@
 import { Smartphone, X } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { notificationInlineText } from '../../../shared/notification_copy';
+import type { RemoteAccountAccessRequest } from '../../../shared/remote_account_switch';
 import { notificationSource } from '../lib/notificationNavigation.shared';
 import { IS_WEB } from '../lib/target.shared';
+import { useAppLock } from '../state/lock';
 import { trpc } from '../trpc/client';
 import { Modal } from './Dialog';
 import { useDialog } from './Dialog.shared';
 import { NumericText } from './NumericText';
+import { RemoteDeviceDetails } from './RemoteDeviceDetails';
 import { useRemotePairingReview } from './RemoteRequests.shared';
 import { useToastApi } from './Toast.shared';
 import type { RemoteStatus } from './settings/RemotePanel';
@@ -26,6 +29,7 @@ function DesktopRemoteRequests() {
     retry: false,
   });
   const current = useDialog((state) => state.current);
+  const locked = useAppLock((state) => state.locked);
   const reviewId = useRemotePairingReview((state) => state.id);
   const pending = data?.pending;
   const request = pending?.find(({ id }) => id === reviewId) ?? pending?.[0];
@@ -49,9 +53,109 @@ function DesktopRemoteRequests() {
       notificationToast.resolve(key);
     };
   }, [requestId, requestName, notificationToast]);
-  return request ? (
-    <RemotePairingDialog key={request.id} request={request} open={!current} refresh={refetch} />
+  const access = data?.accountRequests?.[0];
+  if (request)
+    return (
+      <RemotePairingDialog key={request.id} request={request} open={!current} refresh={refetch} />
+    );
+  return access && !locked ? (
+    <RemoteAccountAccessDialog key={access.id} request={access} open={!current} refresh={refetch} />
   ) : null;
+}
+
+function RemoteAccountAccessDialog({
+  request,
+  open,
+  refresh,
+}: {
+  request: RemoteAccountAccessRequest;
+  open: boolean;
+  refresh: () => Promise<unknown>;
+}) {
+  const { id, account, device } = request;
+  const titleId = useId();
+  const decide = trpc.remote.decideAccountAccess.useMutation();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(approve: boolean) {
+    if (busy || useAppLock.getState().locked) return;
+    setBusy(true);
+    setError('');
+    try {
+      await decide.mutateAsync({ id, approve });
+    } catch (issue) {
+      setError(issue instanceof Error ? issue.message : '未能处理账号访问申请，请重试。');
+    } finally {
+      await refresh();
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      centered
+      focusContainerOnOpen
+      dismissOnOutside={false}
+      onClose={busy ? undefined : () => void submit(false)}
+      labelledBy={titleId}
+      width={368}
+      className="weq-message-modal"
+    >
+      <div className="weq-dialog weq-dialog-info">
+        <div className="weq-dialog-head">
+          <span className="weq-dialog-icon">
+            <Smartphone size={20} aria-hidden />
+          </span>
+          <h3 id={titleId} className="weq-dialog-title">
+            账号访问申请
+          </h3>
+          <button
+            type="button"
+            className="weq-dialog-x"
+            aria-label="关闭"
+            disabled={busy}
+            onClick={() => void submit(false)}
+          >
+            <X size={16} aria-hidden />
+          </button>
+        </div>
+        <div className="weq-dialog-body weq-remote-access-body">
+          <p>
+            是否允许 <strong>{device.name}</strong> 访问 <strong>{account.displayName}</strong>（
+            <NumericText>{account.uin}</NumericText>
+            {account.static ? ' · 静态备份' : null}）？
+          </p>
+          <RemoteDeviceDetails device={device} />
+          {error && (
+            <p className="weq-remote-error" role="alert">
+              {error}
+            </p>
+          )}
+        </div>
+        <div className="weq-dialog-foot">
+          <button
+            type="button"
+            className="weq-action-soft"
+            disabled={busy}
+            onClick={() => void submit(false)}
+          >
+            拒绝
+          </button>
+          <button
+            type="button"
+            className="weq-action-primary"
+            data-weq-dialog-confirm
+            disabled={busy}
+            onClick={() => void submit(true)}
+          >
+            允许访问
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 function RemotePairingDialog({

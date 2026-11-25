@@ -2,6 +2,11 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { z } from 'zod/v3';
 import type { RemoteObservation } from './device';
 import type { RemoteDeviceInfo, RemoteConnectionInfo } from '../../shared/remote_device';
+import type {
+  RemoteAccountAccessRequest,
+  RemoteAccountAccessResult,
+  RemoteAccountSummary,
+} from '../../shared/remote_account_switch';
 
 export const INVITATION_TTL = 120_000;
 export const CLAIM_TTL = 120_000;
@@ -46,6 +51,10 @@ export interface Claim {
 export class RemotePairing {
   private invitation: { secret: string; expiresAt: number } | null = null;
   private claims = new Map<string, Claim>();
+  private accountRequests = new Map<
+    string,
+    RemoteAccountAccessRequest & { expiresAt: number; state: 'pending' | 'approved' | 'denied' }
+  >();
   private watchers = new Map<string, Set<() => void>>();
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private activityDirty = false;
@@ -57,6 +66,7 @@ export class RemotePairing {
 
   restore(claims: Claim[], save: (claims: (Claim & { approvedAt: number })[]) => void): void {
     this.claims = new Map(claims.map((claim) => [claim.id, claim]));
+    this.accountRequests.clear();
     this.save = save;
   }
 
@@ -95,6 +105,9 @@ export class RemotePairing {
   private prune(): void {
     for (const [id, claim] of this.claims) {
       if (claim.approvedAt === null && claim.expiresAt <= this.now()) this.claims.delete(id);
+    }
+    for (const [id, request] of this.accountRequests) {
+      if (request.expiresAt <= this.now()) this.accountRequests.delete(id);
     }
     if (this.invitation && this.invitation.expiresAt <= this.now()) this.invitation = null;
   }
@@ -175,6 +188,7 @@ export class RemotePairing {
       if (previous) this.claims.set(id, previous);
       throw error;
     }
+    this.accountRequests.delete(id);
     this.invalidateWeb(id);
   }
 
@@ -187,6 +201,16 @@ export class RemotePairing {
     const claim = this.claims.get(id);
     if (!claim || claim.approvedAt === null || claim.scope !== 'web:access')
       throw new Error('此设备没有有效的 WeQ 网页授权。');
+    this.saveAccountConfigIds(claim, ids);
+    const request = this.accountRequests.get(id);
+    if (request?.state === 'pending' && ids.includes(request.account.configId)) {
+      request.state = 'approved';
+      request.expiresAt = this.now() + CLAIM_TTL;
+    }
+    this.invalidateWeb(id);
+  }
+
+  private saveAccountConfigIds(claim: Claim, ids: string[]): void {
     const previous = claim.accountConfigIds;
     claim.accountConfigIds = [...new Set(ids)];
     try {
@@ -195,16 +219,75 @@ export class RemotePairing {
       claim.accountConfigIds = previous;
       throw error;
     }
-    this.invalidateWeb(id);
   }
 
-  accountConfigIds(token: string): readonly string[] {
+  private webClaim(token: string): Claim | undefined {
     const hash = tokenHash(token);
-    const claim = [...this.claims.values()].find(
+    return [...this.claims.values()].find(
       (item) =>
         item.approvedAt !== null && item.scope === 'web:access' && equalHash(item.tokenHash, hash),
     );
-    return claim?.accountConfigIds ?? [];
+  }
+
+  accountConfigIds(token: string): readonly string[] {
+    return this.webClaim(token)?.accountConfigIds ?? [];
+  }
+
+  requestAccountAccess(token: string, account: RemoteAccountSummary): RemoteAccountAccessResult {
+    this.prune();
+    const claim = this.webClaim(token);
+    if (!claim) throw new Error('此设备没有有效的 WeQ 网页授权。');
+    if (claim.accountConfigIds?.includes(account.configId)) return { state: 'approved' };
+    const pending = this.accountRequests.get(claim.id);
+    if (pending?.state === 'pending') {
+      if (pending.account.configId === account.configId)
+        return { state: 'pending', id: pending.id };
+      throw new Error('此设备已有账号申请，电脑处理后可再次申请。');
+    }
+    const { id: deviceId, name, lastSeenAt, deviceInfo, lastConnection } = claim;
+    const id = randomUUID();
+    this.accountRequests.set(deviceId, {
+      id,
+      account,
+      device: { id: deviceId, name, lastSeenAt, deviceInfo, lastConnection },
+      state: 'pending',
+      expiresAt: this.now() + CLAIM_TTL,
+    });
+    this.onRequest?.();
+    return { state: 'pending', id };
+  }
+
+  pollAccountAccess(token: string, id: string): RemoteAccountAccessResult {
+    this.prune();
+    const claim = this.webClaim(token);
+    if (!claim) return { state: 'expired' };
+    const request = this.accountRequests.get(claim.id);
+    if (!request || request.id !== id) return { state: 'expired' };
+    if (claim.accountConfigIds?.includes(request.account.configId)) return { state: 'approved' };
+    if (request.state === 'pending') return { state: 'pending', id };
+    return { state: request.state === 'denied' ? 'denied' : 'expired' };
+  }
+
+  decideAccountAccess(
+    id: string,
+    approve: boolean,
+    isCurrent: (account: RemoteAccountSummary) => boolean,
+  ): void {
+    this.prune();
+    const request = [...this.accountRequests.values()].find((item) => item.id === id);
+    const claim = request && this.claims.get(request.device.id);
+    if (request?.state !== 'pending' || claim?.approvedAt == null || claim.scope !== 'web:access')
+      throw new Error('账号访问申请已失效。');
+    if (approve) {
+      if (!isCurrent(request.account)) throw new Error('账号数据源已经变化。');
+      const current = claim.accountConfigIds ?? [];
+      if (!current.includes(request.account.configId)) {
+        // 只增加权限，已打开的账号路由无需断开。
+        this.saveAccountConfigIds(claim, [...current, request.account.configId]);
+      }
+    }
+    request.state = approve ? 'approved' : 'denied';
+    request.expiresAt = this.now() + CLAIM_TTL;
   }
 
   poll(id: string, token: string) {
@@ -231,23 +314,13 @@ export class RemotePairing {
   }
 
   canAccessWeb(token: string, observation?: RemoteObservation): boolean {
-    const hash = tokenHash(token);
-    const claim = [...this.claims.values()].find(
-      (claim) =>
-        claim.approvedAt !== null &&
-        claim.scope === 'web:access' &&
-        equalHash(claim.tokenHash, hash),
-    );
+    const claim = this.webClaim(token);
     if (claim && observation) this.touch(claim, observation);
     return !!claim;
   }
 
   watchWeb(token: string, onRevoke: () => void): () => void {
-    const hash = tokenHash(token);
-    const claim = [...this.claims.values()].find(
-      (item) =>
-        item.approvedAt !== null && item.scope === 'web:access' && equalHash(item.tokenHash, hash),
-    );
+    const claim = this.webClaim(token);
     if (!claim) {
       onRevoke();
       return () => {};
@@ -268,6 +341,9 @@ export class RemotePairing {
       pending: [...this.claims.values()]
         .filter((c) => c.approvedAt === null)
         .map(({ id, name, code, expiresAt, scope }) => ({ id, name, code, expiresAt, scope })),
+      accountRequests: [...this.accountRequests.values()]
+        .filter((request) => request.state === 'pending')
+        .map(({ id, account, device }) => ({ id, account, device })),
       devices: [...this.claims.values()]
         .filter((c) => c.approvedAt !== null)
         .map(
@@ -304,6 +380,7 @@ export class RemotePairing {
     this.saveTimer = null;
     this.flushActivity();
     this.cancelInvitation();
+    this.accountRequests.clear();
     for (const listeners of this.watchers.values()) for (const notify of listeners) notify();
     this.watchers.clear();
   }

@@ -3,9 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { RemoteRequests } from '../src/renderer/src/components/RemoteRequests';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import type { RemoteAccountAccessRequest } from '../src/shared/remote_account_switch';
 
 const fixture = vi.hoisted(() => ({
   pending: [] as { id: string; name: string; code: string; scope: string }[],
+  accountRequests: [] as RemoteAccountAccessRequest[],
   accountData: {
     currentConfigId: 'live-101',
     accounts: [
@@ -15,6 +17,7 @@ const fixture = vi.hoisted(() => ({
     ],
   },
   decide: vi.fn(),
+  decideAccountAccess: vi.fn(),
   refetch: vi.fn(),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
@@ -22,12 +25,16 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
     remote: {
       status: {
-        useQuery: () => ({ data: { pending: fixture.pending }, refetch: fixture.refetch }),
+        useQuery: () => ({
+          data: { pending: fixture.pending, accountRequests: fixture.accountRequests },
+          refetch: fixture.refetch,
+        }),
       },
       pairingAccounts: {
         useQuery: () => ({ data: fixture.accountData, isFetchedAfterMount: true }),
       },
       decide: { useMutation: () => ({ mutateAsync: fixture.decide }) },
+      decideAccountAccess: { useMutation: () => ({ mutateAsync: fixture.decideAccountAccess }) },
     },
   },
 }));
@@ -37,6 +44,7 @@ let root: ReturnType<typeof createRoot>;
 beforeEach(() => {
   vi.clearAllMocks();
   useDialog.getState().close();
+  fixture.accountRequests = [];
   fixture.pending = [
     { id: 'fixture-request', name: '测试手机', code: '123456', scope: 'web:access' },
   ];
@@ -92,4 +100,44 @@ it('不覆盖已有确认窗，关闭后再呈现连接请求', async () => {
   await act(async () => reject.click());
   expect(fixture.decide).toHaveBeenCalledOnce();
   expect(fixture.decide).toHaveBeenCalledWith({ id: 'fixture-request', approve: false });
+});
+
+it('账号访问弹窗展示申请的设备及具体数据源，展开详情后仅批准这条申请', async () => {
+  fixture.pending = [];
+  fixture.accountRequests = [
+    {
+      id: 'access-request',
+      account: fixture.accountData.accounts[0]!,
+      device: {
+        id: 'device-1',
+        name: '测试平板',
+        lastSeenAt: null,
+        deviceInfo: {
+          platform: 'ios',
+          model: 'iPad1,1',
+          osVersion: '17.0',
+          appVersion: '1.2.3',
+          appBuild: '5',
+        },
+      },
+    },
+  ];
+  await act(async () => root.render(createElement(RemoteRequests)));
+  const dialog = visibleDialog()!;
+  expect(dialog.textContent).toContain('是否允许 测试平板 访问 备份账号');
+  expect(dialog.textContent).toContain('静态备份');
+  const details = dialog.querySelector('details')!;
+  expect(details.open).toBe(false);
+  await act(async () => details.querySelector('summary')!.click());
+  expect(details.open).toBe(true);
+  expect(details.textContent).toContain('iPad1,1');
+  expect(fixture.decideAccountAccess).not.toHaveBeenCalled();
+  await act(async () =>
+    dialog.querySelector<HTMLButtonElement>('[data-weq-dialog-confirm]')!.click(),
+  );
+  expect(fixture.decideAccountAccess).toHaveBeenCalledOnce();
+  expect(fixture.decideAccountAccess).toHaveBeenCalledWith({
+    id: 'access-request',
+    approve: true,
+  });
 });

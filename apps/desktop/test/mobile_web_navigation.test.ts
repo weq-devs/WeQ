@@ -10,6 +10,9 @@ import { ProfileNavigationContext } from '../src/renderer/src/lib/profileNavigat
 import { AnnouncementUnread } from '../src/renderer/src/lib/announcementPresentation';
 import { useUpdateStore } from '../src/renderer/src/state/update';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
+import { DialogHost } from '../src/renderer/src/components/Dialog';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import { REMOTE_ACCOUNT_ACCESS } from '../src/shared/remote_account_switch';
 const { onlineStatusQuery, remote } = vi.hoisted(() => ({
   onlineStatusQuery: vi.fn(),
   remote: { enabled: false },
@@ -82,7 +85,10 @@ beforeEach(() => {
   root = createQueryRoot(host);
 });
 afterEach(async () => {
-  await act(async () => root.unmount());
+  await act(async () => {
+    root.unmount();
+    useDialog.getState().close();
+  });
   host.remove();
   remote.enabled = false;
   vi.unstubAllGlobals();
@@ -149,6 +155,64 @@ it('Remote 取消账号切换时不导航，保留更多页和滚动位置', asy
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(host.querySelector('[aria-label="更多功能"]')).toBe(more);
     expect(more.scrollTop).toBe(73);
+    expect(go).not.toHaveBeenCalled();
+  } finally {
+    go.mockRestore();
+  }
+});
+
+it('Remote 未授权账号点击后先询问，批准后留在列表并更新账号状态', async () => {
+  remote.enabled = true;
+  stubNarrowViewport();
+  let approved = false;
+  const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+    if (options?.method === 'HEAD') return new Response(null, { status: 204 });
+    if (url === REMOTE_ACCOUNT_ACCESS && options?.method === 'POST')
+      return Response.json({ state: 'pending', id: 'request-1' });
+    if (url === `${REMOTE_ACCOUNT_ACCESS}?id=request-1`) {
+      approved = true;
+      return Response.json({ state: 'approved' });
+    }
+    return Response.json([
+      {
+        configId: 'target',
+        displayName: '另一个账号',
+        uin: '10002',
+        authorized: approved,
+        online: approved ? true : null,
+      },
+    ]);
+  });
+  vi.stubGlobal('fetch', fetch);
+  const go = vi.spyOn(location, 'assign');
+  const button = (label: string) =>
+    [...document.querySelectorAll('button')].find((item) => item.textContent?.includes(label));
+  try {
+    await act(async () =>
+      root.render(
+        createElement(
+          'div',
+          null,
+          createElement(MobileWebNavigation, props),
+          createElement(DialogHost),
+        ),
+      ),
+    );
+    await openMore();
+    await act(async () => vi.waitFor(() => expect(button('切换账号')).toBeDefined()));
+    await act(async () => button('切换账号')!.click());
+    await act(async () => vi.waitFor(() => expect(button('未授权')).toBeDefined()));
+    await act(async () => button('未授权')!.click());
+    expect(fetch.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+    await act(async () => button('取消')!.click());
+    expect(fetch.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+    await act(async () => button('未授权')!.click());
+    await act(async () => button('发送申请')!.click());
+    expect(
+      fetch.mock.calls.find(([, options]) => options?.method === 'POST')?.[1]?.body?.toString(),
+    ).toBe('configId=target');
+    await act(async () => vi.waitFor(() => expect(approved).toBe(true), { timeout: 3500 }));
+    await act(async () => vi.waitFor(() => expect(button('WeQ 在线')).toBeDefined()));
     expect(go).not.toHaveBeenCalled();
   } finally {
     go.mockRestore();

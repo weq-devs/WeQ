@@ -11,10 +11,18 @@ import { attachWsHandler, createTrpcHandler } from './trpc_adapter';
 import { DevelopmentWebProxy } from './development';
 import type { ResolveGroupVideo } from './group_video';
 import { preparedStartupDocument } from './startup_assets';
+import type {
+  RemoteAccountAccessResult,
+  RemoteAccountSummary,
+} from '../../shared/remote_account_switch';
 
 export type WebAuth = Pick<AuthGate, 'login' | 'logout' | 'isAuthed' | 'watchSession'> & {
   remoteClient?: boolean;
   accountIds?: (request: IncomingMessage) => readonly string[];
+  accountAccess?: {
+    request: (request: IncomingMessage, account: RemoteAccountSummary) => RemoteAccountAccessResult;
+    poll: (request: IncomingMessage, id: string) => RemoteAccountAccessResult;
+  };
   identityKey?: (request: IncomingMessage) => string | null;
   accountScoped?: boolean;
 };

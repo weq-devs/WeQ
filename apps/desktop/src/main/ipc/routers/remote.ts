@@ -5,6 +5,7 @@ import { remoteRuntime } from '../../remote/runtime';
 import { getAppContext } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import {
+  remoteAccountAccessDecisionInput,
   remoteInviteInput,
   remoteConnectionMode,
   remotePairingDecisionInput,
@@ -100,6 +101,11 @@ export const remoteRouter = router({
         remoteRuntime.pairing.revoke(input.id),
       ),
     ),
+  decideAccountAccess: local.input(remoteAccountAccessDecisionInput).mutation(({ input }) =>
+    desktopServiceCommand('remote.decideAccountAccess', input, () => {
+      throw new Error('账号访问申请已失效。');
+    }),
+  ),
   accounts: local.query(() => savedRemoteAccounts()),
   pairingAccounts: local.query(async () => {
     const accounts = await savedRemoteAccounts();

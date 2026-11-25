@@ -20,6 +20,7 @@ import type { WebAuth } from '../web/application';
 import { RemoteRuntime } from '../remote/runtime';
 import { RemoteWebGateway } from '../remote/web_gateway';
 import {
+  remoteAccountAccessDecisionInput,
   remoteConnectionMode,
   remoteInviteInput,
   remotePairingDecisionInput,
@@ -140,6 +141,19 @@ export async function runDesktopServices(options: {
       }
       case 'remote.revoke':
         return remote.pairing.revoke(z.string().uuid().parse(input));
+      case 'remote.decideAccountAccess': {
+        const { id, approve } = remoteAccountAccessDecisionInput.parse(input);
+        return remote.pairing.decideAccountAccess(id, approve, (requested) =>
+          accounts
+            .list()
+            .some(
+              ({ configId, uin, static: isStatic }) =>
+                configId === requested.configId &&
+                uin === requested.uin &&
+                isStatic === requested.static,
+            ),
+        );
+      }
       case 'remote.accountConfigIds': {
         const { id, configIds } = z
           .object({

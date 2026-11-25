@@ -45,6 +45,57 @@ describe('远程配对的会话授权', () => {
     expect(pairing.poll(request.id, token)).toBeNull();
   });
 
+  it('账号申请只绑定原设备和数据源，重复申请合并，失败不写入授权', () => {
+    let now = 1000;
+    const old = 'live-101';
+    const target = { configId: 'backup-101', displayName: '备份', uin: '101', static: true };
+    const other = 'b'.repeat(64);
+    const pairing = new RemotePairing(() => now);
+    let failSave = false;
+    pairing.restore([], () => {
+      if (failSave) throw new Error('写入失败');
+    });
+    const addDevice = (secret: string, name: string) => {
+      const request = pairing.claim({
+        invitation: pairing.invite().secret,
+        name,
+        tokenHash: tokenHash(secret),
+        scope: 'web:access',
+      });
+      pairing.decide(request.id, true, [old]);
+      return request.id;
+    };
+    const device = addDevice(token, '测试设备');
+    const otherDevice = addDevice(other, '另一部设备');
+    const requested = pairing.requestAccountAccess(token, target);
+    if (requested.state !== 'pending') throw new Error('Expected pending request');
+    expect(pairing.requestAccountAccess(token, target)).toEqual(requested);
+    expect(pairing.snapshot().accountRequests).toMatchObject([
+      { id: requested.id, account: target, device: { id: device, name: '测试设备' } },
+    ]);
+    expect(pairing.pollAccountAccess(other, requested.id)).toEqual({ state: 'expired' });
+    expect(() => pairing.decideAccountAccess(requested.id, true, () => false)).toThrow(
+      '数据源已经变化',
+    );
+    failSave = true;
+    expect(() => pairing.decideAccountAccess(requested.id, true, () => true)).toThrow('写入失败');
+    expect(pairing.accountConfigIds(token)).toEqual([old]);
+    expect(pairing.pollAccountAccess(token, requested.id)).toEqual(requested);
+    failSave = false;
+    pairing.decideAccountAccess(requested.id, false, () => true);
+    expect(pairing.pollAccountAccess(token, requested.id)).toEqual({ state: 'denied' });
+    const next = pairing.requestAccountAccess(token, target);
+    if (next.state !== 'pending') throw new Error('Expected pending request');
+    now += CLAIM_TTL;
+    expect(() => pairing.decideAccountAccess(next.id, true, () => true)).toThrow('申请已失效');
+    const revoked = pairing.requestAccountAccess(other, target);
+    if (revoked.state !== 'pending') throw new Error('Expected pending request');
+    pairing.revoke(otherDevice);
+    expect(() => pairing.decideAccountAccess(revoked.id, true, () => true)).toThrow('申请已失效');
+    expect(pairing.accountConfigIds(token)).toEqual([old]);
+    expect(pairing.accountConfigIds(other)).toEqual([]);
+  });
+
   it('邀请只使用一次且不接受错误凭证', () => {
     const pairing = new RemotePairing();
     const invitation = pairing.invite().secret;

@@ -1,6 +1,5 @@
 import { NumericText } from '../NumericText';
-import { eventTimeFormatter, formatRelativeTime } from '@weq/time';
-import { TimeLabel } from '../TimeLabel';
+import { RemoteDeviceDetails, RemoteDeviceTime } from '../RemoteDeviceDetails';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTabActive } from '../RetainedTabs.shared';
 import {
@@ -30,20 +29,6 @@ import {
   type RemoteDeviceInfo,
   type RemoteConnectionInfo,
 } from '../../../../shared/remote_device';
-
-const deviceTime = eventTimeFormatter;
-
-function DeviceTime({ value, now }: { value: number | null; now?: number }) {
-  if (value === null || !Number.isFinite(value) || Math.abs(value) > 8.64e15)
-    return <span>暂无记录</span>;
-  const full = deviceTime.format(value);
-  const text = now === undefined ? full : formatRelativeTime(value, now, 1);
-  return (
-    <TimeLabel value={value} precision="millisecond">
-      {text}
-    </TimeLabel>
-  );
-}
 
 const TAILSCALE_KEY_HINT = [
   '通过 Tailscale 跨网络连接',
@@ -464,10 +449,10 @@ export function RemotePanel({
                   <span>{device.scope === 'web:access' ? 'WeQ Web 访问' : '仅在线状态'}</span>
                   <div className="weq-remote-device-times">
                     <span>
-                      最近访问 <DeviceTime value={device.lastSeenAt} now={now} />
+                      最近访问 <RemoteDeviceTime value={device.lastSeenAt} now={now} />
                     </span>
                     <span>
-                      配对时间 <DeviceTime value={device.approvedAt} />
+                      配对时间 <RemoteDeviceTime value={device.approvedAt} />
                     </span>
                   </div>
                   {device.scope === 'web:access' && onAccountAccess && (
@@ -521,62 +506,7 @@ export function RemotePanel({
                       })}
                     </details>
                   )}
-                  <details className="weq-remote-device-details">
-                    <summary>
-                      <ChevronRight size={14} />
-                      设备详情
-                    </summary>
-                    <dl>
-                      <div>
-                        <dt>设备型号</dt>
-                        <dd>{device.deviceInfo?.model ?? '未上报'}</dd>
-                      </div>
-                      <div>
-                        <dt>系统版本</dt>
-                        <dd>
-                          {device.deviceInfo ? (
-                            <NumericText>{`${device.deviceInfo.platform === 'ios' ? 'iOS / iPadOS' : 'Android'} ${device.deviceInfo.osVersion}`}</NumericText>
-                          ) : (
-                            '未上报'
-                          )}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Remote 版本</dt>
-                        <dd>
-                          {device.deviceInfo ? (
-                            <NumericText>{`${device.deviceInfo.appVersion} (${device.deviceInfo.appBuild})`}</NumericText>
-                          ) : (
-                            '未上报'
-                          )}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>最近连接 IP</dt>
-                        <dd>{device.lastConnection?.ip ?? '暂无记录'}</dd>
-                      </div>
-                      <div>
-                        <dt>连接方式</dt>
-                        <dd>
-                          {device.lastConnection
-                            ? { lan: '局域网', tailscale: 'Tailscale', unknown: '未知网络' }[
-                                device.lastConnection.route
-                              ]
-                            : '暂无记录'}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>最近访问</dt>
-                        <dd>
-                          <DeviceTime value={device.lastSeenAt} />
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>设备标识</dt>
-                        <dd>{device.id}</dd>
-                      </div>
-                    </dl>
-                  </details>
+                  <RemoteDeviceDetails device={device} />
                 </div>
                 <button
                   data-danger="outline"

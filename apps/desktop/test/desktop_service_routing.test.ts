@@ -30,6 +30,7 @@ import {
 } from '../src/main/desktop_services/accounts';
 import {
   LAST_REMOTE_ACCOUNT_KEY,
+  REMOTE_ACCOUNT_ACCESS,
   REMOTE_ACCOUNT_ENTRY,
   REMOTE_WORKSPACE_KEY,
 } from '../src/shared/remote_account_switch';
@@ -441,12 +442,46 @@ it('Remote 在线入口先选账号，再加载一份带首屏资源的网页', 
     await malformed.text();
 
     pairing.setAccountConfigIds(claim.id, ['101']);
-    const single = await resume();
-    expect(new URL(single.url).pathname).toMatch(/^\/_weq\/account\/101\//);
-    expect(await single.text()).toBe(shell);
+    const single = await get('/_weq/accounts?resume=1');
+    const accountPath = single.headers.get('location')!;
+    expect(accountPath).toMatch(/^\/_weq\/account\/101\//);
     const revoked = await resume({ [LAST_REMOTE_ACCOUNT_KEY]: '202' });
     expect(new URL(revoked.url).pathname).toBe('/_weq/accounts');
-    expect(await revoked.text()).not.toContain('/assets/entry.js');
+    const revokedPicker = await revoked.text();
+    expect(revokedPicker).not.toContain('/assets/entry.js');
+    expect(revokedPicker).toContain('data-request-account="202"');
+    expect(revokedPicker).toContain('未授权');
+
+    const switchPath = `${accountPath}_weq/switch-account`;
+    const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+    expect((await fetch(base + switchPath, { method: 'HEAD', headers })).status).toBe(204);
+    const list = async () => (await fetch(base + switchPath, { headers })).json();
+    expect(await list()).toMatchObject([
+      { configId: '101', authorized: true, online: false },
+      { configId: '202', authorized: false, online: null, avatarUrl: null },
+    ]);
+    const post = (path: string, origin?: string) =>
+      fetch(base + path, {
+        method: 'POST',
+        headers: { ...headers, ...(origin ? { Origin: origin } : {}) },
+        body: new URLSearchParams({ configId: '202' }),
+        redirect: 'manual',
+      });
+    expect((await post(`${accountPath}_weq/select-account`)).status).toBe(409);
+    expect((await post(REMOTE_ACCOUNT_ACCESS, 'http://different.invalid')).status).toBe(403);
+    expect(pairing.snapshot().accountRequests).toEqual([]);
+    const request = await (await post(REMOTE_ACCOUNT_ACCESS)).json();
+    expect(request).toMatchObject({ state: 'pending', id: expect.any(String) });
+    const accessPath = `${REMOTE_ACCOUNT_ACCESS}?id=${request.id}`;
+    expect(await (await get(accessPath)).json()).toEqual(request);
+    expect((await post(`${accountPath}_weq/select-account`)).status).toBe(409);
+    pairing.decideAccountAccess(request.id, true, (account) => account.configId === '202');
+    expect(await (await get(accessPath)).json()).toEqual({ state: 'approved' });
+    expect(await list()).toMatchObject([
+      { configId: '101', authorized: true },
+      { configId: '202', authorized: true },
+    ]);
+    expect((await post(`${accountPath}_weq/select-account`)).status).toBe(200);
     expect(await (await get('/')).text()).toContain('测试离线入口');
   } finally {
     stopPrivate(server);
@@ -536,8 +571,8 @@ it('远程页面只打开已授权账号，选择失败和服务重启后可重�
     const choices = await fetch(switchPath, { headers: { accept: 'application/json' } });
     expect(choices.headers.get('cache-control')).toBe('no-store');
     expect(await choices.json()).toMatchObject([
-      { configId: '101', online: false },
       { configId: '202', online: true, avatarUrl: '/_weq/account-avatar?configId=202' },
+      { configId: '101', online: false },
       { configId: '303', online: false },
     ]);
     const changeAccount = (configId: string, accept = 'text/html') =>

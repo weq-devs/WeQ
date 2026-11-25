@@ -28,6 +28,10 @@ export class RemoteWebGateway {
     this.application = createApplication({
       remoteClient: true,
       accountIds: (req) => pairing.accountConfigIds(webCredential(req)),
+      accountAccess: {
+        request: (req, account) => pairing.requestAccountAccess(webCredential(req), account),
+        poll: (req, id) => pairing.pollAccountAccess(webCredential(req), id),
+      },
       identityKey: (req) => webCredential(req),
       login: async () => false,
       logout: () => {},
