@@ -1,3 +1,4 @@
+import { isHistoryCapacityMiB } from '../common/settings_catalog/history';
 import type { AccountConfig } from '../account/user_config';
 import { DEFAULT_APP_SETTINGS, MAX_LOG_RETENTION_DAYS, type AppSettings } from './user_config';
 import { isToastDuration } from '../common/toast_settings';
@@ -449,6 +450,8 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     number(input.autoLockMinutes, 'settings.autoLockMinutes', 0, 120);
   if (input.logRetentionDays !== undefined)
     number(input.logRetentionDays, 'settings.logRetentionDays', 0, MAX_LOG_RETENTION_DAYS);
+  if (input.logCapacityMiB !== undefined && !isHistoryCapacityMiB(input.logCapacityMiB))
+    throw new Error('settings.logCapacityMiB 无效');
   if (input.databaseReadConcurrency !== undefined)
     number(input.databaseReadConcurrency, 'settings.databaseReadConcurrency', 1, 8);
   if (input.appLock !== undefined) {

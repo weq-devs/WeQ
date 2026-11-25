@@ -1763,10 +1763,11 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     }
   }
 
-  // 日志保留清理：启动时先按用户设置的保留天数清一轮旧日志，之后每 6 小时兜底一次
-  // （常驻托盘的应用可能几周不重启，而日志是按天切文件的）。0 = 永久保留。
   // 定时器是 unref 的，不阻止进程退出，因此这里不需要持有 stop 句柄。
-  startLogRetention(() => userConfig.getSetting('logRetentionDays'));
+  startLogRetention(() => ({
+    logRetentionDays: userConfig.getSetting('logRetentionDays'),
+    logCapacityMiB: userConfig.getSetting('logCapacityMiB'),
+  }));
 
   // macOS 启动时跳过未知目标的预热，待 QQ 在线能力确认运行中 QQ 后再加载同一份模块。
   // 否则先载安装旧版、再载热更新版，会重复注册 Objective-C 类并刷满原生警告。

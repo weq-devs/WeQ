@@ -17,6 +17,8 @@ const fixture = new URLSearchParams(location.search).get('state');
 let cleared = false;
 let revision = 0;
 let logDays = 7;
+let logCapacityMiB = 0;
+let logHistoryFiles = 2;
 let databaseReadConcurrency = 4;
 let debug = false;
 const listeners = new Set<() => void>();
@@ -48,6 +50,8 @@ export const qa = {
   clearCount: 0,
   detailIds: [] as number[],
   logReads: 0,
+  logChanges: [] as unknown[],
+  logClears: 0,
   storageBytes: 42_000,
   historyAgeDays: 40 / 1440,
   databaseReadChanges: [] as number[],
@@ -155,6 +159,8 @@ export const trpc = {
       },
     },
     help: {
+      logStorage: { invalidate: async () => notify() },
+      listLogFiles: { invalidate: async () => notify() },
       getNativeDebugLog: {
         setData: () => {
           notify();
@@ -175,7 +181,7 @@ export const trpc = {
       useQuery: (_input: unknown, options: object) =>
         useFixtureQuery(
           'settings',
-          { logRetentionDays: logDays, databaseReadConcurrency },
+          { logRetentionDays: logDays, logCapacityMiB, databaseReadConcurrency },
           options,
         ),
     },
@@ -188,12 +194,32 @@ export const trpc = {
     },
     setLogRetentionDays: {
       useMutation: () =>
-        useFixtureMutation((input: { days: number }) => {
+        useFixtureMutation((input: { days: number; capacityMiB: number }) => {
           logDays = input.days;
+          logCapacityMiB = input.capacityMiB;
+          qa.logChanges.push(input);
+          return { removed: 0, failed: 0 };
         }),
     },
   },
   help: {
+    logStorage: {
+      useQuery: (_input: unknown, options: object) =>
+        useFixtureQuery(
+          'logStorage',
+          { bytes: logText.length, files: 1 + logHistoryFiles, historyFiles: logHistoryFiles },
+          options,
+        ),
+    },
+    clearLogHistory: {
+      useMutation: () =>
+        useFixtureMutation(() => {
+          qa.logClears++;
+          const removed = logHistoryFiles;
+          logHistoryFiles = 0;
+          return { removed, failed: 0 };
+        }),
+    },
     getNativeDebugLog: {
       useQuery: (_input: unknown, options: object) =>
         useFixtureQuery('debug', { enabled: debug, available: true }, options),
@@ -221,6 +247,7 @@ export const trpc = {
     },
   },
   performanceMonitor: {
+    openFolder: { useMutation: () => useFixtureMutation(() => undefined) },
     status: {
       useQuery: (_input: unknown, options: object) =>
         useFixtureQuery(
@@ -310,19 +337,30 @@ export const trpc = {
   },
 };
 export const client = {
+  bootstrap: {
+    previewLogRetention: {
+      query: async (input: { days: number; capacityMiB: number }) => ({
+        bytes: logText.length,
+        expiredFiles: input.days === 1 ? logHistoryFiles : 0,
+        capacityFiles: 0,
+      }),
+    },
+  },
   performanceMonitor: {
     previewPrune: {
       query: async (input: { retentionDays: number; capacityMiB: number }) => {
-        const expiredRecords = !cleared && qa.historyAgeDays > input.retentionDays ? 12 : 0;
-        const capacityBudgetBytes = input.capacityMiB * 1048576 * 0.9;
-        const capacityExceeded = !cleared && qa.storageBytes > capacityBudgetBytes;
+        const expiredRecords =
+          !cleared && input.retentionDays > 0 && qa.historyAgeDays > input.retentionDays ? 12 : 0;
+        const capacityBudgetBytes = input.capacityMiB ? input.capacityMiB * 1048576 * 0.9 : null;
+        const capacityExceeded =
+          !cleared && capacityBudgetBytes !== null && qa.storageBytes > capacityBudgetBytes;
         return {
           ...input,
           bytes: qa.storageBytes,
           records: cleared ? 0 : 80,
           oldest: cleared ? null : now - qa.historyAgeDays * 86400_000,
           newest: now,
-          cutoff: Date.now() - input.retentionDays * 86400_000,
+          cutoff: input.retentionDays ? Date.now() - input.retentionDays * 86400_000 : null,
           expiredRecords,
           capacityBudgetBytes,
           capacityExceeded,

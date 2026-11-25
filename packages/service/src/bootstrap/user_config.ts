@@ -16,6 +16,7 @@
  * track those files — TTL / pruning belongs in whoever wrote them.
  */
 
+import { isHistoryCapacityMiB, type HistoryCapacityMiB } from '../common/settings_catalog/history';
 import {
   normalizeNotificationEvents,
   mergeNotificationEventOverrides,
@@ -1019,6 +1020,8 @@ export interface AppSettings {
    * 文件名里的日期（包括 WeQ 的 `.log.gz` 历史分段）。
    */
   logRetentionDays: number;
+  /** WeQ 应用日志容量上限，0 表示不限容量。 */
+  logCapacityMiB: HistoryCapacityMiB;
   /** 同一数据库的并行只读上限；宿主级设置，所有账号和客户端共用。 */
   databaseReadConcurrency: number;
   /** App-wide online Qzone page request budget, shared across accounts and exports. */
@@ -1350,6 +1353,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   suppressDbDamageReminder: false,
   defaultExportDir: null,
   logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
+  logCapacityMiB: 0,
   databaseReadConcurrency: DEFAULT_DATABASE_READ_CONCURRENCY,
   qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
   qzonePublicRefreshCooldownMinutes: DEFAULT_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,
@@ -2274,6 +2278,7 @@ export class UserConfigService {
       suppressDbDamageReminder: s?.suppressDbDamageReminder ?? d.suppressDbDamageReminder,
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
       logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
+      logCapacityMiB: isHistoryCapacityMiB(s?.logCapacityMiB) ? s.logCapacityMiB : d.logCapacityMiB,
       databaseReadConcurrency: normalizeDatabaseReadConcurrency(s?.databaseReadConcurrency),
       qzonePagination: normalizeQzonePagination(s?.qzonePagination),
       qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(
@@ -2502,6 +2507,9 @@ export class UserConfigService {
         patch.defaultExportDir !== undefined ? patch.defaultExportDir : current.defaultExportDir,
       logRetentionDays:
         normalizeLogRetentionDays(patch.logRetentionDays) ?? current.logRetentionDays,
+      logCapacityMiB: isHistoryCapacityMiB(patch.logCapacityMiB)
+        ? patch.logCapacityMiB
+        : current.logCapacityMiB,
       databaseReadConcurrency: normalizeDatabaseReadConcurrency(
         patch.databaseReadConcurrency,
         current.databaseReadConcurrency,

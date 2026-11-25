@@ -1,3 +1,4 @@
+import { isHistoryCapacityMiB } from '../common/settings_catalog/history';
 import { Worker } from 'node:worker_threads';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -29,9 +30,9 @@ export function normalizeMonitorSettings(value: unknown): MonitorSettings {
     row?.version !== 1 ||
     !['off', 'light', 'full'].includes(row.mode ?? '') ||
     !Number.isInteger(row.retentionDays) ||
-    row.retentionDays! < 1 ||
+    row.retentionDays! < 0 ||
     row.retentionDays! > 365 ||
-    ![64, 128, 256, 512].includes(row.capacityMiB ?? 0) ||
+    !isHistoryCapacityMiB(row.capacityMiB) ||
     (row.fullUntil !== null &&
       (typeof row.fullUntil !== 'number' || !Number.isFinite(row.fullUntil) || row.fullUntil < 0))
   )
@@ -94,10 +95,13 @@ export class PerformanceMonitor {
   ) {
     this.ready = this.initialize();
   }
+  get historyDirectory() {
+    return join(this.root, 'performance-monitor');
+  }
   private startWorker() {
     const worker = new Worker(`(${performanceWorker.toString()})(require)`, {
       eval: true,
-      workerData: { path: join(this.root, 'performance-monitor', 'history.sqlite') },
+      workerData: { path: join(this.historyDirectory, 'history.sqlite') },
     });
     this.worker = worker;
     worker.on('message', (reply: { id: number; value: unknown; error?: string }) => {

@@ -38,6 +38,7 @@ const DEVICE_FIELDS = [
   'appLock',
   'callDisableP2P',
   'logRetentionDays',
+  'logCapacityMiB',
 ] as const;
 const DEVICE_PATHS = ['defaultExportDir', 'exportSaveMode'] as const;
 export const BACKUP_HOST_PATHS = [

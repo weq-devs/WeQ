@@ -61,7 +61,11 @@ export {
 } from './common/credential_repair';
 export type { OnlineCredentialIssue } from './common/credential_repair';
 
-export { UserConfigService, DEFAULT_APP_SETTINGS } from './bootstrap/user_config';
+export {
+  UserConfigService,
+  DEFAULT_APP_SETTINGS,
+  MAX_LOG_RETENTION_DAYS,
+} from './bootstrap/user_config';
 export type {
   UserConfig,
   AutoEnterTarget,
@@ -1271,6 +1275,7 @@ export {
   pruneExpiredLogs,
 } from './common/logger';
 export {
+  isHistoricalWeqLog,
   logFileSource,
   readLogFileChunk,
   readLogFileInfo,

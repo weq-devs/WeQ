@@ -32,6 +32,7 @@ const server = await createServer({
     fs: { allow: [resolve(root, '../..')] },
   },
 });
+const settingsOnly = process.argv.includes('--settings-only');
 let browser;
 try {
   await server.listen();
@@ -100,11 +101,24 @@ try {
       });
     assert.equal(spacing.formGap, spacing.gap);
     assert.ok(spacing.spaces.every((gap) => gap >= spacing.gap - 1));
-    assert.equal(await page.getByLabel('日志保留时长').textContent(), '7 天');
+    assert.equal(await page.getByLabel('应用日志保存时长').textContent(), '7 天');
     assert.equal(
-      await page.getByLabel('日志保留时长').evaluate((el) => el.getBoundingClientRect().width),
+      await page.getByLabel('应用日志保存时长').evaluate((el) => el.getBoundingClientRect().width),
       160,
     );
+    await choose(page, '应用日志保存时长', '自定义');
+    const customDays = page.getByRole('spinbutton', { name: '应用日志保存时长（天）' });
+    await customDays.fill('1');
+    await customDays.press('Enter');
+    await page.getByText('保存时长改为 1 天，将删除 2 份过期日志。').waitFor();
+    await page.getByRole('button', { name: '取消', exact: true }).click();
+    assert.equal(await customDays.inputValue(), '7');
+    assert.equal(await page.evaluate(() => window.performanceQa.logChanges.length), 0);
+    await choose(page, '应用日志容量上限', '1 GiB');
+    await page.waitForFunction(() => window.performanceQa.logChanges.at(-1)?.capacityMiB === 1024);
+    await page.getByRole('button', { name: '清空应用日志历史', exact: true }).click();
+    await page.getByRole('button', { name: '清空历史', exact: true }).click();
+    await page.waitForFunction(() => window.performanceQa.logClears === 1);
     await page.getByRole('radio', { name: '关闭', exact: true }).click();
     await page.waitForFunction(() => window.performanceQa.changes.length === 1);
     await page.getByRole('radio', { name: '完整记录', exact: true }).click();
@@ -113,27 +127,27 @@ try {
       await page.evaluate(() => window.performanceQa.changes[1].fullDurationMinutes),
       60,
     );
-    await choose(page, '保存时长', '30 天');
+    await choose(page, '性能记录保存时长', '30 天');
     await page.waitForFunction(() => window.performanceQa.changes.length === 3);
     assert.equal(await page.evaluate(() => window.performanceQa.changes[2].retentionDays), 30);
     assert.equal(
       await page.evaluate(() => window.performanceQa.changes[2].fullDurationMinutes),
       undefined,
     );
-    await choose(page, '保存时长', '7 天');
+    await choose(page, '性能记录保存时长', '7 天');
     await page.waitForFunction(() => window.performanceQa.changes.length === 4);
     assert.equal(await page.getByRole('button', { name: '保存并删除', exact: true }).count(), 0);
     await page.evaluate(() => {
       window.performanceQa.historyAgeDays = 5;
     });
-    await choose(page, '保存时长', '3 天');
+    await choose(page, '性能记录保存时长', '3 天');
     await page.getByRole('button', { name: '保存并删除', exact: true }).waitFor();
-    await page.getByText('当前性能历史占用', { exact: false }).waitFor();
+    await page.getByText('当前性能记录占用', { exact: false }).waitFor();
     await page.getByText('之前的 12 条记录', { exact: false }).waitFor();
     await page.getByRole('button', { name: '取消', exact: true }).click();
     assert.equal(await page.evaluate(() => window.performanceQa.changes.length), 4);
-    assert.equal(await page.getByLabel('保存时长', { exact: true }).textContent(), '7 天');
-    await choose(page, '保存时长', '3 天');
+    assert.equal(await page.getByLabel('性能记录保存时长', { exact: true }).textContent(), '7 天');
+    await choose(page, '性能记录保存时长', '3 天');
     await page.getByRole('button', { name: '保存并删除', exact: true }).click();
     await page.waitForFunction(() => window.performanceQa.changes.length === 5);
     assert.equal(await page.evaluate(() => window.performanceQa.changes.at(-1).confirmPrune), true);
@@ -141,21 +155,30 @@ try {
       window.performanceQa.storageBytes = 70 * 1048576;
       window.performanceQa.historyAgeDays = 1;
     });
-    await choose(page, '容量上限', '64 MiB');
-    await page.getByText('当前性能历史占用 70 MiB', { exact: false }).waitFor();
+    await choose(page, '性能记录容量上限', '64 MiB');
+    await page.getByText('当前性能记录占用 70 MiB', { exact: false }).waitFor();
     await page.getByText('容量上限设为 64 MiB', { exact: false }).waitFor();
     await page.getByText('实际回收目标为 57.6 MiB', { exact: false }).waitFor();
     await page.getByRole('button', { name: '取消', exact: true }).click();
-    assert.equal(await page.getByLabel('容量上限', { exact: true }).textContent(), '128 MiB');
+    assert.equal(
+      await page.getByLabel('性能记录容量上限', { exact: true }).textContent(),
+      '128 MiB',
+    );
     await page.evaluate(() => {
       window.performanceQa.storageBytes = 42_000;
     });
-    await choose(page, '容量上限', '64 MiB');
+    await choose(page, '性能记录容量上限', '64 MiB');
     await page.waitForFunction(() => window.performanceQa.changes.length === 6);
     assert.equal(
       await page.evaluate(() => window.performanceQa.changes.at(-1).confirmPrune),
       false,
     );
+    await choose(page, '性能记录保存时长', '不限时长');
+    await page.waitForFunction(() => window.performanceQa.changes.at(-1)?.retentionDays === 0);
+    await choose(page, '性能记录容量上限', '1 GiB');
+    await page.waitForFunction(() => window.performanceQa.changes.at(-1)?.capacityMiB === 1024);
+    await choose(page, '性能记录容量上限', '不限容量');
+    await page.waitForFunction(() => window.performanceQa.changes.at(-1)?.capacityMiB === 0);
     if (output)
       await page.screenshot({ path: resolve(output, host + '-settings.png'), fullPage: true });
     for (const width of [390, 320]) {
@@ -174,6 +197,7 @@ try {
         });
     }
     await page.setViewportSize({ width: 1180, height: 900 });
+    if (settingsOnly) continue;
     await page.evaluate(() => {
       document.documentElement.dataset.theme = 'light';
     });
@@ -398,11 +422,11 @@ try {
     assert.equal(logs.isClosed(), false);
     await logs.close();
     await page.evaluate(() => window.performanceQa.setActive(true));
-    await page.getByRole('button', { name: '清空性能历史' }).click();
+    await page.getByRole('button', { name: '清空性能记录历史' }).click();
     await page.getByRole('button', { name: '清空历史', exact: true }).click();
-    await page.getByText('历史已清空', { exact: true }).waitFor();
+    await page.getByText('性能记录历史已清空', { exact: true }).waitFor();
   }
-  for (const state of ['empty', 'error']) {
+  for (const state of settingsOnly ? [] : ['empty', 'error']) {
     await page.goto(url + '?state=' + state);
     const [monitor] = await Promise.all([
       page.waitForEvent('popup'),
@@ -417,7 +441,9 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log(
-    '日志与性能：配置分离、两个小型独立窗口、自动保存、现场保留、独立文档可见性、导出清空、五种尺寸的光标对齐及浅深主题通过',
+    settingsOnly
+      ? '日志与性能：保存策略、清理确认与窄屏设置布局通过'
+      : '日志与性能：配置分离、两个小型独立窗口、自动保存、现场保留、独立文档可见性、导出清空、五种尺寸的光标对齐及浅深主题通过',
   );
 } finally {
   await browser?.close();

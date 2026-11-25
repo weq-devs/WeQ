@@ -1,5 +1,6 @@
 import { z } from 'zod/v3';
 import { getPerformanceMonitor } from '@weq/service/performance';
+import { isHistoryCapacityMiB, type HistoryCapacityMiB } from '@weq/service/settings-catalog';
 import { getHost } from '@weq/service';
 import { basename } from 'node:path';
 import { procedure, router } from '../trpc';
@@ -17,13 +18,20 @@ const range = z
   .refine((value) => value.to > value.from, '结束时间须晚于开始时间');
 const config = z.object({
   mode: z.enum(['off', 'light', 'full']),
-  retentionDays: z.number().int().min(1).max(365),
-  capacityMiB: z.union([z.literal(64), z.literal(128), z.literal(256), z.literal(512)]),
+  retentionDays: z.number().int().min(0).max(365),
+  capacityMiB: z.custom<HistoryCapacityMiB>(isHistoryCapacityMiB),
   fullDurationMinutes: z.union([z.literal(15), z.literal(60), z.literal(240), z.null()]).optional(),
   confirmPrune: z.boolean().default(false),
 });
 export const performanceMonitorRouter = router({
   status: procedure.query(() => getPerformanceMonitor().status()),
+  openFolder: procedure.mutation(async () => {
+    const host = getHost();
+    if (!host.canReveal) throw new Error('请在桌面端打开性能记录文件夹');
+    const monitor = getPerformanceMonitor();
+    await monitor.ready;
+    await host.revealPath(monitor.historyDirectory);
+  }),
   previewPrune: procedure
     .input(config.pick({ retentionDays: true, capacityMiB: true }))
     .query(({ input }) => getPerformanceMonitor().previewPrune(input)),

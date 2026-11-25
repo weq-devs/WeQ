@@ -11,6 +11,7 @@ const computerProcedures = new Set([
   'bootstrap.clearStorageData',
   'bootstrap.clearWeqCache',
   'bootstrap.setLogRetentionDays',
+  'help.clearLogHistory',
   'bootstrap.revealStorageItem',
   'bootstrap.pickCallRecordingDir',
   'bootstrap.pickDefaultExportDir',
@@ -51,6 +52,7 @@ const computerProcedures = new Set([
   'wonderfulTools.loginAccountDelete',
   'wonderfulTools.loginAccountRotateGuid',
   'help.openFolder',
+  'performanceMonitor.openFolder',
   'exportViewer.scan',
   'exportViewer.scanProgress',
   'exportViewer.revealMedia',
@@ -99,6 +101,9 @@ const computerSettingIds = new Set([
   'mcp-install',
   'update-check-interval',
   'update-prerelease',
+  'log-retention',
+  'log-capacity',
+  'log-storage',
 ]);
 
 const computerResetCards = new Set([
@@ -121,8 +126,6 @@ const computerSettingItems = new Set([
   '同时录电脑声音',
   '保存位置',
   '记录 UDP 流量',
-  '日志保留时长',
-  '日志文件夹',
 ]);
 
 /** Remote 不提供的维护工具（MaintenanceTool id）；DataMaintenanceSection 只是转出这份清单。 */

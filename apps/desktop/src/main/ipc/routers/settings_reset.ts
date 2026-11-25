@@ -140,6 +140,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     preferCdn: () => b.setPreferCdn({ enabled: defaults.preferCdn }),
     preferRemoteCdn: () => b.setPreferCdn({ enabled: defaults.preferRemoteCdn, remote: true }),
     logRetentionDays: () => b.setLogRetentionDays({ days: defaults.logRetentionDays }),
+    logCapacityMiB: () => b.setLogRetentionDays({ capacityMiB: defaults.logCapacityMiB }),
     databaseReadConcurrency: () =>
       b.setDatabaseReadConcurrency({ concurrency: defaults.databaseReadConcurrency }),
     webServiceAutoStart: () => r.setWebAutoStart({ enabled: defaults.webServiceAutoStart }),

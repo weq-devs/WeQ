@@ -68,6 +68,7 @@ export const APP_SETTINGS_RESET_POLICY = {
   suppressDbDamageReminder: 'preference',
   defaultExportDir: 'directory',
   logRetentionDays: 'preference',
+  logCapacityMiB: 'preference',
   databaseReadConcurrency: 'preference',
   qzonePagination: 'preference',
   qzonePublicRefreshCooldownMinutes: 'preference',

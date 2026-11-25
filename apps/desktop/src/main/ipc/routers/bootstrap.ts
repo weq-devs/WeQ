@@ -12,7 +12,8 @@
  * underlying `AsyncIterable<KeyEvent>` converted to an `observable`.
  * superjson moves `bigint`s through unscathed.
  */
-import { OperationError, developmentDressToolsEnabled } from '@weq/service';
+import { OperationError, developmentDressToolsEnabled, MAX_LOG_RETENTION_DAYS } from '@weq/service';
+import { isHistoryCapacityMiB, type HistoryCapacityMiB } from '@weq/service/settings-catalog';
 import { measureDatabaseStartup } from '@weq/db';
 
 import { observable } from '@trpc/server/observable';
@@ -100,7 +101,7 @@ import {
   rescanSigner as rescanSignerImpl,
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
-import { runLogRetentionSweep } from '../../log_retention';
+import { planLogRetention, runLogRetentionSweep } from '../../log_retention';
 import { takePendingConversationJump, takePendingGroupJump } from '../../group_keyword_bus';
 import {
   accountSwitchSubscriberClosed,
@@ -1488,18 +1489,40 @@ export const bootstrapRouter = router({
       return owner.setTypingStatusHidden(input.hidden);
     }),
 
-  /**
-   * 日志保留天数（设置 → 日志 → 日志保留时长）。0 = 永久保留。
-   *
-   * 写入后立即按新阈值清一轮：用户调小天数就是为了**马上**腾出空间，等到下一次
-   * 启动或后台定时（最长 6 小时）才生效会让人以为没生效。
-   */
+  previewLogRetention: procedure
+    .input(
+      z.object({
+        days: z.number().int().min(0).max(MAX_LOG_RETENTION_DAYS),
+        capacityMiB: z.custom<HistoryCapacityMiB>(isHistoryCapacityMiB),
+      }),
+    )
+    .query(
+      ({ input }) =>
+        planLogRetention({
+          logRetentionDays: input.days,
+          logCapacityMiB: input.capacityMiB,
+        }).preview,
+    ),
+
   setLogRetentionDays: procedure
-    .input(z.object({ days: z.number().int().min(0).max(365) }))
+    .input(
+      z.object({
+        days: z.number().int().min(0).max(MAX_LOG_RETENTION_DAYS).optional(),
+        capacityMiB: z.custom<HistoryCapacityMiB>(isHistoryCapacityMiB).optional(),
+        confirmPrune: z.boolean().optional(),
+      }),
+    )
     .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ logRetentionDays: input.days });
-      runLogRetentionSweep(input.days);
-      return true;
+      const config = requireBootstrap().userConfig;
+      const policy = {
+        logRetentionDays: input.days ?? config.getSetting('logRetentionDays'),
+        logCapacityMiB: input.capacityMiB ?? config.getSetting('logCapacityMiB'),
+      };
+      const plan = planLogRetention(policy);
+      if (plan.targets.size && input.confirmPrune === false)
+        throw new Error('当前日志会被新保存策略删除，请重新确认后保存');
+      config.setSettings(policy);
+      return runLogRetentionSweep(policy, plan);
     }),
 
   setDatabaseReadConcurrency: procedure

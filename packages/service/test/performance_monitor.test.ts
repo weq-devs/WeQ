@@ -144,7 +144,7 @@ describe('宿主性能监视', () => {
   it('设置严格校验；缺失不冒充有效设置', () => {
     expect(normalizeMonitorSettings(DEFAULT_MONITOR_SETTINGS)).toEqual(DEFAULT_MONITOR_SETTINGS);
     for (const patch of [
-      { retentionDays: 0 },
+      { retentionDays: -1 },
       { retentionDays: 366 },
       { capacityMiB: 1 },
       { fullUntil: NaN },
@@ -413,11 +413,20 @@ describe('性能历史 Worker', () => {
       event: 'startup',
     }));
     await request('batch', { records, settings: DEFAULT_MONITOR_SETTINGS });
-    const next = { ...DEFAULT_MONITOR_SETTINGS, retentionDays: 3 };
+    const unlimited = { ...DEFAULT_MONITOR_SETTINGS, retentionDays: 0 };
+    expect(await request('prune-preview', { settings: unlimited })).toMatchObject({
+      cutoff: null,
+      expiredRecords: 0,
+    });
+    await request('configure', { settings: unlimited, confirmPrune: false });
+    expect((await request<{ records: number }>('status')).records).toBe(2);
+    await request('configure', { settings: DEFAULT_MONITOR_SETTINGS });
+    const next = { ...DEFAULT_MONITOR_SETTINGS, retentionDays: 3, capacityMiB: 0 };
     const preview = await request<MonitorPrunePreview>('prune-preview', { settings: next });
     expect(preview).toMatchObject({
       records: 2,
       expiredRecords: 1,
+      capacityBudgetBytes: null,
       capacityExceeded: false,
       needsPrune: true,
     });
@@ -440,7 +449,7 @@ describe('性能历史 Worker', () => {
     const request = await worker(),
       now = Date.now();
     const settings = { ...DEFAULT_MONITOR_SETTINGS, capacityMiB: 4 };
-    const next = { ...settings, capacityMiB: 0.25 };
+    const next = { ...settings, capacityMiB: 0.25, retentionDays: 0 };
     await request('configure', { settings });
     expect(
       (await request<MonitorPrunePreview>('prune-preview', { settings: next })).needsPrune,

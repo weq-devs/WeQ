@@ -1,3 +1,4 @@
+import { isHistoryCapacityMiB } from '../common/settings_catalog/history';
 import { isRecord } from '../common/client_preferences';
 import type { MonitorSettings } from '../performance/types';
 import { parseWeqBackupJson, type WeqBackupBundle } from './backup_bundle';
@@ -67,9 +68,8 @@ export function validateBackupHost(value: unknown): asserts value is WeqBackupHo
     (!fields(perf, ['version', 'mode', 'retentionDays', 'capacityMiB', 'fullUntil']) ||
       perf.version !== 1 ||
       !['off', 'light', 'full'].includes(String(perf.mode)) ||
-      !integer(perf.retentionDays, 1, 365) ||
-      typeof perf.capacityMiB !== 'number' ||
-      ![64, 128, 256, 512].includes(perf.capacityMiB) ||
+      !integer(perf.retentionDays, 0, 365) ||
+      !isHistoryCapacityMiB(perf.capacityMiB) ||
       (perf.fullUntil !== null && !integer(perf.fullUntil, 0, Number.MAX_SAFE_INTEGER)))
   )
     invalid();

@@ -1,9 +1,13 @@
+import type { HistoryCapacityMiB } from '../common/settings_catalog/history';
+
 export type MonitorMode = 'off' | 'light' | 'full';
 export interface MonitorSettings {
   version: 1;
   mode: MonitorMode;
+  /** 0 表示不按时间清理，仍按容量设置清理。 */
   retentionDays: number;
-  capacityMiB: 64 | 128 | 256 | 512;
+  /** 0 表示不限容量。 */
+  capacityMiB: HistoryCapacityMiB;
   fullUntil: number | null;
 }
 export const DEFAULT_MONITOR_SETTINGS: MonitorSettings = {
@@ -92,10 +96,10 @@ export interface MonitorStorageStatus {
   records: number;
 }
 export interface MonitorPrunePreview extends MonitorStorageStatus {
-  cutoff: number;
+  cutoff: number | null;
   retentionDays: number;
   capacityMiB: MonitorSettings['capacityMiB'];
-  capacityBudgetBytes: number;
+  capacityBudgetBytes: number | null;
   expiredRecords: number;
   capacityExceeded: boolean;
   needsPrune: boolean;

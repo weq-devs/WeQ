@@ -18,7 +18,6 @@ import {
   openSync,
   readFileSync,
   readSync,
-  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -29,7 +28,6 @@ import {
   flushFileLogger,
   getActiveLogPath,
   getHost,
-  getLogDir,
   getLogger,
   logFileSource,
   readLogFileChunk,
@@ -39,12 +37,12 @@ import {
   scanLogFiles,
   type LogFileEntry,
 } from '@weq/service';
-import { getNativeLogRoot } from '@weq/native';
 import { resolveResource } from '../../resource';
 import { getAppContext } from '../../context/app_context';
 import { getBackupContext } from '../../context/backup_context';
 import { qqSyncStatus } from '../../qq_sync/runtime';
 import { procedure, router } from '../trpc';
+import { appLogStorage, clearAppLogHistory, logRootKey, logRoots } from '../../log_retention';
 
 const logger = getLogger().child({ scope: 'help-router' });
 
@@ -59,37 +57,6 @@ async function feedbackEnvironment(): Promise<string> {
     await qqSyncStatus(boot.qqSyncRoot);
   }
   return runtimeDiagnosticsMarkdown();
-}
-
-function logRootKey(path: string): string {
-  let canonical = path;
-  try {
-    canonical = realpathSync.native(path);
-  } catch {
-    // 日志目录可在首次写入时才创建。
-  }
-  return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
-}
-
-/** 归一化日志目录集合（WeQ 与原生可能指向同一目录；Windows 路径大小写不敏感）。 */
-function logRoots(): string[] {
-  const seen = new Set<string>();
-  const roots: string[] = [];
-  const add = (p: string | null): void => {
-    if (!p) return;
-    const abs = resolve(p);
-    const k = logRootKey(abs);
-    if (seen.has(k)) return;
-    seen.add(k);
-    roots.push(abs);
-  };
-  add(getLogDir());
-  try {
-    add(getNativeLogRoot());
-  } catch {
-    // native root 解析失败时忽略
-  }
-  return roots;
 }
 
 /** 路径必须落在日志根目录内（防任意读盘）。 */
@@ -184,6 +151,9 @@ export const helpRouter = router({
   feedbackEnvironment: procedure.query(feedbackEnvironment),
 
   // ── 日志查看 ─────────────────────────────────────────────────────────────
+
+  logStorage: procedure.query(appLogStorage),
+  clearLogHistory: procedure.input(z.literal(true)).mutation(clearAppLogHistory),
 
   /** 日志文件与实际记录的时间区间。逐个读取，避免一次打开全部归档。 */
   listLogFiles: procedure.query(async () => {

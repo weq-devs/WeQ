@@ -1,87 +1,162 @@
-/**
- * 日志保留清理（设置 → 日志 → 日志保留时长）。
- *
- * 清理 WeQ 的明文分段、压缩归档和原生组件日志，过期日期以文件名为准。
- *
- * 触发点三处：
- *   1. 应用启动 —— 上次退出到今天之间攒下的旧日志一次清掉；
- *   2. 后台定时 —— 常驻托盘的应用可能几周不重启，而日志是按天的；
- *   3. 设置改动 —— 用户调小保留天数后立刻生效，不用等下一轮。
- *
- * 清理失败永远不抛给调用方：日志清理是家务，不能影响启动或设置保存。
- */
-
+import { realpathSync, unlinkSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
 import {
   archiveHistoricalLogs,
+  getActiveLogPath,
   getLogDir,
   getLogger,
+  isHistoricalWeqLog,
   logErrorContext,
-  pruneExpiredLogs,
+  logFileSource,
+  planExpiredLogs,
+  scanLogFiles,
+  type AppSettings,
+  type LogFileEntry,
 } from '@weq/service';
 import { getNativeLogRoot } from '@weq/native';
 
 const logger = getLogger().child({ scope: 'log-retention' });
+const MIB = 1024 * 1024;
+const AGE_SWEEP_MS = 6 * 60 * 60 * 1000;
 
-/** 后台兜底清理的间隔——日志按天切分，6 小时足够把「跨零点」的不确定性磨平。 */
-const SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+type LogPolicy = Pick<AppSettings, 'logRetentionDays' | 'logCapacityMiB'>;
 
-/** WeQ 自身日志目录 + 原生日志目录（拿不到的去重后忽略）。 */
-function logDirs(): string[] {
-  const dirs: string[] = [];
-  const weqDir = getLogDir();
-  if (weqDir) dirs.push(weqDir);
+export function logRootKey(path: string): string {
+  let canonical = resolve(path);
   try {
-    const nativeDir = getNativeLogRoot();
-    // 两处可能指向同一个目录（web 部署下 WEQ_LOG_DIR 就是这么设的）。
-    if (nativeDir && nativeDir !== weqDir) dirs.push(nativeDir);
+    canonical = realpathSync.native(canonical);
   } catch {
-    // 原生组件尚未初始化时忽略——下次启动/下一轮再清。
+    // 日志目录可在首次写入时才创建。
   }
-  return dirs;
+  return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
 }
 
-/**
- * 先清过期文件，再归档仍需保留的历史 WeQ 日志。永久保留时只归档。
- * 返回被删掉的文件名（跨目录合并，仅供日志记录）。
- */
-export function runLogRetentionSweep(retentionDays: number): string[] {
-  const removed: string[] = [];
-  if (Number.isFinite(retentionDays) && retentionDays > 0) {
-    for (const dir of logDirs()) removed.push(...pruneExpiredLogs(dir, retentionDays));
+export function logRoots(appDir = getLogDir()): string[] {
+  const roots = new Map<string, string>();
+  if (appDir) roots.set(logRootKey(appDir), resolve(appDir));
+  try {
+    const nativeDir = resolve(getNativeLogRoot());
+    const key = logRootKey(nativeDir);
+    if (!roots.has(key)) roots.set(key, nativeDir);
+  } catch {
+    // 原生组件尚未初始化时，下次再查找。
   }
-  archiveHistoricalLogs();
-  if (removed.length > 0) {
-    logger.info('pruned expired log files', {
-      event: 'log-prune',
-      retentionDays,
-      removedCount: removed.length,
-      // 只记前若干个名字，避免一次清理几百个文件时日志自己膨胀。
-      files: removed.slice(0, 50),
-    });
-  }
-  return removed;
+  return [...roots.values()];
 }
 
-/**
- * 启动时清一轮，并挂上后台定时器；`readRetentionDays` 每次 tick 现读，这样用户在
- * 设置页改了保留天数，下一轮自动按新值走（改动后的即时清理见 bootstrap 的
- * `setLogRetentionDays`）。
- *
- * 返回的 stop 函数用于取消定时器（`unref` 已保证它不会阻止进程退出）。
- */
-export function startLogRetention(readRetentionDays: () => number): () => void {
-  const sweep = (): void => {
+function isClosedWeqLog(file: LogFileEntry, now: Date): boolean {
+  // gzip 已完成封段。其他实例仍在写入的明文分段及旧版当天日志继续保留。
+  return file.archived || isHistoricalWeqLog(basename(file.path), now.toISOString().slice(0, 10));
+}
+
+function appLogFiles(entries: LogFileEntry[], now = new Date()) {
+  const files = entries.filter((file) => file.kind === 'weq');
+  const history = files.filter((file) => isClosedWeqLog(file, now));
+  return {
+    history,
+    bytes: files.reduce((total, file) => total + file.size, 0),
+    files: files.length,
+    historyFiles: history.length,
+  };
+}
+
+export function appLogStorage() {
+  const dir = getLogDir();
+  const { bytes, files, historyFiles } = appLogFiles(dir ? scanLogFiles(dir) : []);
+  return { bytes, files, historyFiles };
+}
+
+export function planLogRetention(policy: LogPolicy, now = new Date()) {
+  const rawAppDir = getLogDir();
+  const appDir = rawAppDir ? resolve(rawAppDir) : null;
+  const appEntries = appDir ? scanLogFiles(appDir) : [];
+  const app = appLogFiles(appEntries, now);
+  const active = getActiveLogPath();
+  const expired = (policy.logRetentionDays > 0 ? logRoots(appDir) : []).flatMap((dir) => {
+    const candidates = (dir === appDir ? appEntries : scanLogFiles(dir)).filter(
+      (file) => file.path !== active && (file.kind !== 'weq' || isClosedWeqLog(file, now)),
+    );
+    const names = new Set(
+      planExpiredLogs(
+        candidates.map(({ name, mtime }) => ({ name, mtimeMs: mtime })),
+        policy.logRetentionDays,
+        now,
+      ),
+    );
+    return candidates.filter(({ name }) => names.has(name));
+  });
+  const targets = new Set(expired.map(logFileSource));
+  const capacityBytes = policy.logCapacityMiB * MIB;
+  let remaining = app.history.reduce(
+    (bytes, file) => (targets.has(logFileSource(file)) ? bytes - file.size : bytes),
+    app.bytes,
+  );
+  let capacityFiles = 0;
+  for (const file of app.history.sort(
+    (a, b) => a.mtime - b.mtime || a.name.localeCompare(b.name),
+  )) {
+    if (!capacityBytes || remaining <= capacityBytes) break;
+    const path = logFileSource(file);
+    if (targets.has(path)) continue;
+    targets.add(path);
+    remaining -= file.size;
+    capacityFiles++;
+  }
+  return {
+    targets,
+    preview: {
+      bytes: app.bytes,
+      expiredFiles: expired.length,
+      capacityFiles,
+    },
+  };
+}
+
+function removeLogs(paths: Iterable<string>) {
+  let removed = 0;
+  let failed = 0;
+  for (const path of paths) {
     try {
-      runLogRetentionSweep(readRetentionDays());
+      unlinkSync(path);
+      removed++;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') failed++;
+    }
+  }
+  return { removed, failed };
+}
+
+export function clearAppLogHistory() {
+  const dir = getLogDir();
+  const { history } = appLogFiles(dir ? scanLogFiles(dir) : []);
+  return removeLogs(history.map(logFileSource));
+}
+
+export function runLogRetentionSweep(policy: LogPolicy, plan = planLogRetention(policy)) {
+  const result = removeLogs(plan.targets);
+  archiveHistoricalLogs();
+  if (result.removed || result.failed)
+    logger.info('pruned log files', { event: 'log-prune', ...result });
+  return result;
+}
+
+export function startLogRetention(readPolicy: () => LogPolicy): () => void {
+  let lastSweep = 0;
+  function sweep() {
+    try {
+      const policy = readPolicy();
+      if (!policy.logCapacityMiB && Date.now() - lastSweep < AGE_SWEEP_MS) return;
+      lastSweep = Date.now();
+      runLogRetentionSweep(policy);
     } catch (error) {
       logger.warn('log retention sweep failed', {
         event: 'log-prune-failed',
         ...logErrorContext(error),
       });
     }
-  };
+  }
   sweep();
-  const timer = setInterval(sweep, SWEEP_INTERVAL_MS);
+  const timer = setInterval(sweep, 60_000);
   timer.unref();
   return () => clearInterval(timer);
 }

@@ -6,6 +6,7 @@ export * from './navigation';
 export { SETTINGS_PAGE_ALIASES } from './keywords';
 export * from './fields';
 export * from './global';
+export * from './history';
 
 /** 公开目录不包含当前值；MCP、搜索和文档均从这里枚举设置身份。 */
 export const SETTINGS_CATALOG = SETTINGS_ITEM_TARGETS.map((item) => ({

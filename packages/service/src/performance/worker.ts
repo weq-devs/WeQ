@@ -56,17 +56,23 @@ export function performanceWorker(load: NodeJS.Require) {
     db.exec(
       'PRAGMA wal_checkpoint(TRUNCATE); PRAGMA incremental_vacuum(2048); PRAGMA wal_checkpoint(TRUNCATE);',
     );
-  const capacityBudget = (settings: Settings) => settings.capacityMiB * 1024 * 1024 * 0.9;
+  const capacityBudget = (settings: Settings) =>
+    settings.capacityMiB === 0 ? null : settings.capacityMiB * 1024 * 1024 * 0.9;
+  const retentionCutoff = (settings: Settings) =>
+    settings.retentionDays === 0 ? null : Date.now() - settings.retentionDays * 86400_000;
+  const countExpired = (cutoff: number | null) =>
+    cutoff === null
+      ? 0
+      : Number(db.prepare('SELECT COUNT(*) n FROM records WHERE at<?').get(cutoff)!.n);
   function previewPrune(settings: Settings): import('./types').MonitorPrunePreview {
-    // 与删除前的非破坏性回收相同，不把 WAL 或空闲页误判成需要删除记录。
-    reclaim();
-    const storage = status();
-    const cutoff = Date.now() - settings.retentionDays * 86400_000;
-    const expiredRecords = Number(
-      db.prepare('SELECT COUNT(*) n FROM records WHERE at<?').get(cutoff)!.n,
-    );
     const capacityBudgetBytes = capacityBudget(settings);
-    const capacityExceeded = storage.records > 0 && storage.bytes > capacityBudgetBytes;
+    // 与删除前的非破坏性回收相同，不把 WAL 或空闲页误判成需要删除记录。
+    if (capacityBudgetBytes !== null) reclaim();
+    const storage = status();
+    const cutoff = retentionCutoff(settings);
+    const expiredRecords = countExpired(cutoff);
+    const capacityExceeded =
+      capacityBudgetBytes !== null && storage.records > 0 && storage.bytes > capacityBudgetBytes;
     return {
       ...storage,
       cutoff,
@@ -79,16 +85,15 @@ export function performanceWorker(load: NodeJS.Require) {
     };
   }
   async function prune(settings: Settings, confirmed = true) {
-    const cutoff = Date.now() - settings.retentionDays * 86400_000;
+    const cutoff = retentionCutoff(settings);
     // 留出 WAL 和下一批写入空间；按实际文件大小回收，不只限制逻辑内容量。
     const budget = capacityBudget(settings);
+    if (cutoff === null && budget === null) return 0;
     let removed = 0;
     for (;;) {
-      const expired = Number(
-        db.prepare('SELECT COUNT(*) n FROM records WHERE at<?').get(cutoff)!.n,
-      );
-      reclaim();
-      if (!expired && bytes() <= budget) break;
+      const expired = countExpired(cutoff);
+      if (budget !== null) reclaim();
+      if (!expired && (budget === null || bytes() <= budget)) break;
       if (!confirmed && Number(db.prepare('SELECT COUNT(*) n FROM records').get()!.n) > 0)
         throw new Error('当前性能历史会被新保存策略删除，请重新确认后保存');
       const result = expired
@@ -109,7 +114,8 @@ export function performanceWorker(load: NodeJS.Require) {
       }
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
-    db.exec('PRAGMA wal_checkpoint(TRUNCATE); PRAGMA incremental_vacuum;');
+    if (removed || budget !== null)
+      db.exec('PRAGMA wal_checkpoint(TRUNCATE); PRAGMA incremental_vacuum;');
     return removed;
   }
   async function dispatch(method: string, input: Record<string, unknown>): Promise<unknown> {

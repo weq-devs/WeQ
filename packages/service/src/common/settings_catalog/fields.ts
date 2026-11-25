@@ -105,7 +105,8 @@ export const APP_SETTING_FIELDS = (
     ],
     ['cdn', 'preferCdn', 'prefer-cdn', '优先 CDN'],
     ['cdn', 'preferRemoteCdn', 'prefer-remote-cdn', 'Remote 缺少资源时优先直取'],
-    ['logs', 'logRetentionDays', 'log-retention', '日志保留天数'],
+    ['logs', 'logRetentionDays', 'log-retention', '应用日志保存时长'],
+    ['logs', 'logCapacityMiB', 'log-capacity', '应用日志容量上限'],
     ['database-read', 'databaseReadConcurrency', 'database-read-concurrency', '数据库读取并发上限'],
     ['web', 'webServiceAutoStart', 'web-autostart', 'Web 服务自动启动'],
   ] as const satisfies readonly (readonly [
