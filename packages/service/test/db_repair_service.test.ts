@@ -951,8 +951,14 @@ describe('DbRepairService.resolveTarget', () => {
 
   it('布局检测只看文件，不要求密钥 / 算法', () => {
     const h = createHarness({ credentials: null });
+    const wrapped = Buffer.alloc(1024 + 4096);
+    wrapped.write('SQLite header 3\0');
+    wrapped.writeUInt16LE(4, 16);
+    writeFileSync(h.dbPath, wrapped);
     const probe = h.service.probeLayout(REF, 'nt_msg.db');
     expect(probe.dbPath).toBe(h.dbPath);
+    expect(probe.headerOffset).toBe(1024);
+    expect(probe.pageCount).toBe(1);
     expect(probe.layout).toBe('unknown');
   });
 

@@ -13,6 +13,12 @@ async function main() {
     if (Buffer.byteLength(input) > 64 * 1024 * 1024) throw new Error('数据库维护请求过大。');
   }
   const request = JSON.parse(input) as DatabaseMaintenanceWorkerRequest;
+  if (request.kind === 'layout') {
+    // Independent process: a raw descriptor close must not release SQLite's locks in WeQ.
+    const result = probeDbLayout(request.dbPath);
+    process.stdout.write(`${JSON.stringify({ type: 'result', result })}\n`, () => process.exit(0));
+    return;
+  }
   process.chdir(dirname(resolveNtHelperPath()));
   const { ntHelper: nt } = loadNative();
   const progress = (value: unknown) =>

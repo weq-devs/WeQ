@@ -48,6 +48,10 @@ export interface DbLayoutProbe {
 
 /** 从文件头判断 QQ 自定义头长度（与 offset VFS / scanBadPages 同一套判定）。 */
 export function detectHeaderOffset(header: Buffer): number {
+  if (header.length >= 18 && header.subarray(0, 16).equals(Buffer.from('SQLite header 3\0'))) {
+    const size = header.readUInt16LE(16) * 256;
+    if (size >= 512 && size <= 0x1000000) return size;
+  }
   const magic = header.subarray(32, 40);
   return magic.equals(Buffer.from('QQ_NT DB')) || magic.equals(Buffer.from('Guild DB')) ? 1024 : 0;
 }

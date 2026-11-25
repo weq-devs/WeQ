@@ -8,7 +8,6 @@
 import { constants as fsConstants, mkdirSync } from 'node:fs';
 import { copyFile, link, lstat, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { basename, extname, join, resolve } from 'node:path';
-import { Worker } from 'node:worker_threads';
 import { type AccountSession, algoFor } from '@weq/account';
 import {
   resolveNtHelperPath,
@@ -18,6 +17,7 @@ import {
   type NtHelperBinding,
 } from '@weq/native';
 import type { Platform } from '@weq/platform';
+import { runOwnedChild } from '../common/owned_child';
 
 export type DbDecryptMode = DatabaseDecryptMode;
 
@@ -140,7 +140,7 @@ export class DbDecryptService {
           stagingDir = await mkdtemp(join(opts.outputDir, '.weq-decrypt-'));
           const staged = join(stagingDir, basename(outPath));
           if (isPlainSqliteDb(item.dbPath)) {
-            await copyFile(item.dbPath, staged);
+            await exportInChild(item.dbPath, staged, { method: 'copy' }, opts.signal);
           } else {
             const guild = isGuildDb(item.dbPath);
             const login = isLoginDb(item.dbPath);
@@ -155,7 +155,17 @@ export class DbDecryptService {
                 : algoFor(this.session.context, item.dbPath);
             if (login && !algo) throw new Error('login.db 密钥不正确，无法解密');
             opts.signal?.throwIfAborted();
-            await decryptOneInWorker(ntHelperPath, item.dbPath, staged, key, algo, opts.mode);
+            await exportInChild(
+              item.dbPath,
+              staged,
+              {
+                ntHelperPath,
+                key,
+                algo,
+                method: selectDatabaseDecryptMethod(item.dbPath, opts.mode),
+              },
+              opts.signal,
+            );
           }
           opts.signal?.throwIfAborted();
           // 排他发布：两个并发导出即使都通过了存在性检查，也只会有一个成功。
@@ -213,53 +223,52 @@ async function listDbFiles(dir: string): Promise<AccountDbFile[]> {
   return files;
 }
 
-/** Decrypt one database in a worker thread.  Both modes write a stock-layout
- * plaintext database, which any SQLite tooling can open directly. */
-function decryptOneInWorker(
-  ntHelperPath: string,
+/** Raw SQLite byte reads belong in a process with no live database handles. */
+async function exportInChild(
   dbPath: string,
   outPath: string,
-  key: string,
-  algo: DatabaseAlgorithms | undefined,
-  mode: DbDecryptMode,
+  operation:
+    | { method: 'copy' }
+    | {
+        method: ReturnType<typeof selectDatabaseDecryptMethod>;
+        ntHelperPath: string;
+        key: string;
+        algo: DatabaseAlgorithms | undefined;
+      },
+  signal?: AbortSignal,
 ): Promise<void> {
-  const code = `
-    const { parentPort, workerData } = require('node:worker_threads');
+  const script = `
+    const { readFileSync, copyFileSync } = require('node:fs');
+    const { dirname } = require('node:path');
     try {
-      const nt = require(workerData.ntHelperPath);
-      if (typeof nt.getInitStatus === 'function' && nt.getInitStatus() !== 0) {
-        throw new Error('nt_helper initialization failed in decrypt worker');
+      const { method, dbPath, outPath, ntHelperPath, key, algo } =
+        JSON.parse(readFileSync(0, 'utf8'));
+      if (method === 'copy') {
+        copyFileSync(dbPath, outPath);
+      } else {
+        process.chdir(dirname(ntHelperPath));
+        const nt = require(ntHelperPath);
+        if (typeof nt.getInitStatus === 'function' && nt.getInitStatus() !== 0) {
+          throw new Error('nt_helper initialization failed in decrypt worker');
+        }
+        nt[method](dbPath, outPath, key, algo);
       }
-      nt[workerData.method](workerData.dbPath, workerData.outPath, workerData.key, workerData.algo);
-      parentPort.postMessage({ ok: true });
-    } catch (e) {
-      parentPort.postMessage({ ok: false, error: e && e.message ? e.message : String(e) });
+    } catch (error) {
+      process.stderr.write(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
     }
   `;
-
-  return new Promise((resolvePromise, reject) => {
-    // Worker threads share Electron's process/allocator: moving an oversized
-    // fast decrypt off the main thread does not prevent a fatal native OOM.
-    const method = selectDatabaseDecryptMethod(dbPath, mode);
-    let settled = false;
-    const settle = (fn: () => void): void => {
-      if (settled) return;
-      settled = true;
-      fn();
-    };
-    const worker = new Worker(code, {
-      eval: true,
-      workerData: { ntHelperPath, dbPath, outPath, key, algo, method },
-    });
-    worker.once('message', (msg: { ok?: boolean; error?: string }) => {
-      if (msg?.ok) settle(resolvePromise);
-      else settle(() => reject(new Error(msg?.error || 'decrypt worker failed')));
-    });
-    worker.once('error', (err) => settle(() => reject(err)));
-    worker.once('exit', (code) => {
-      if (code !== 0) settle(() => reject(new Error(`decrypt worker exited with code ${code}`)));
-    });
+  const result = await runOwnedChild(process.execPath, ['-e', script], {
+    input: JSON.stringify({ dbPath, outPath, ...operation }),
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    signal,
+    timeoutMs: 24 * 60 * 60_000,
+    killAfterMs: 2_000,
   });
+  if (result.code !== 0)
+    throw new Error(
+      result.stderr.trim() || `decrypt worker exited with ${result.signal ?? result.code}`,
+    );
 }
 
 function outputPath(outputDir: string, nameOrPath: string, sourcePath: string): string {

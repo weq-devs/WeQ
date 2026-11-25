@@ -322,7 +322,7 @@ export class DbRepairService {
    * 布局检测只需要读文件；把路径解析从 {@link resolveTarget} 拆出来后，检测不会因为
    * 账号还没登录 / 没解出密钥而失效。`dbName` 来自渲染层，所以这里同样要挡住路径穿越。
    */
-  private resolveDatabasePath(
+  resolveDatabasePath(
     uin: string,
     dbName: string,
   ): { info: DbRepairAccountInfo; dbDir: string; dbPath: string } {

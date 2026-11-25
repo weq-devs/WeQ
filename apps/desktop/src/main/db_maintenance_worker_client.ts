@@ -4,21 +4,32 @@ import { resolveNtHelperPath, type RecoverReport, type RecoverProgress } from '@
 import {
   runOwnedChild,
   type BadPageScanReport,
+  type DatabasePageLocation,
   type DbRepairCheckupIntegrity,
+  type DbRepairLayoutProbe,
   type DatabaseWorkProgress,
 } from '@weq/service';
 import { resolveChildWorkerPath } from './worker_path';
 import type { DatabaseMaintenanceWorkerRequest } from './db_maintenance_worker_types';
 import { DatabaseScanUnsupportedError } from '@weq/service/db-checkup';
 
+type DatabaseMaintenanceWorkerResult =
+  | BadPageScanReport
+  | DatabasePageLocation
+  | BadPageScanReport
+  | DatabasePageLocation['affected']
+  | DbRepairCheckupIntegrity
+  | RecoverReport
+  | DbRepairLayoutProbe;
+
 export async function runDatabaseMaintenanceWorker(
   request: DatabaseMaintenanceWorkerRequest,
-  signal: AbortSignal,
-  onProgress: (progress: DatabaseWorkProgress | RecoverProgress) => void,
+  signal: AbortSignal | undefined,
+  onProgress: (progress: DatabaseWorkProgress | RecoverProgress) => void = () => {},
   options: { workerPath?: string; nativeRoot?: string; executable?: string } = {},
-): Promise<BadPageScanReport | DbRepairCheckupIntegrity | RecoverReport> {
+): Promise<DatabaseMaintenanceWorkerResult> {
   let pending = '';
-  let result: BadPageScanReport | DbRepairCheckupIntegrity | RecoverReport | undefined;
+  let result: DatabaseMaintenanceWorkerResult | undefined;
   let error: string | undefined;
   let code: string | undefined;
   const consume = (line: string) => {
@@ -31,6 +42,7 @@ export async function runDatabaseMaintenanceWorker(
       code = event.code;
     }
   };
+  const rawRead = request.kind === 'layout';
   const done = await runOwnedChild(
     options.executable ?? process.execPath,
     [
@@ -44,10 +56,12 @@ export async function runDatabaseMaintenanceWorker(
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: '1',
-        WEQ_NATIVE_DIR: options.nativeRoot ?? dirname(dirname(dirname(resolveNtHelperPath()))),
+        ...(!rawRead && {
+          WEQ_NATIVE_DIR: options.nativeRoot ?? dirname(dirname(dirname(resolveNtHelperPath()))),
+        }),
       },
-      timeoutMs: 24 * 60 * 60_000,
-      maxOutputBytes: 64 * 1024 * 1024,
+      timeoutMs: rawRead ? 15_000 : 24 * 60 * 60_000,
+      maxOutputBytes: rawRead ? 64 * 1024 : 64 * 1024 * 1024,
       onStdout: (text) => {
         pending += text;
         for (let newline = pending.indexOf('\n'); newline >= 0; newline = pending.indexOf('\n')) {
@@ -69,6 +83,12 @@ export async function runDatabaseMaintenanceWorker(
     (!('dbPath' in result) || result.dbPath !== request.target.dbPath || !('pageCount' in result))
   )
     throw new Error('源库扫描结果无效。');
+  if (
+    request.kind === 'layout' &&
+    (!('dbPath' in result) || result.dbPath !== request.dbPath || !('needsMigration' in result))
+  )
+    throw new Error('源库布局检测结果无效。');
+  if (request.kind === 'locate' && !('affected' in result)) throw new Error('坏页归属结果无效。');
   if (request.kind === 'deep' && !('ran' in result)) throw new Error('结构体检结果无效。');
   if (
     request.kind === 'repair' &&

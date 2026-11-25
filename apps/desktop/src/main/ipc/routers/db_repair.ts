@@ -456,9 +456,12 @@ export const dbRepairRouter = router({
         return { dbName: name, cachePath, space, phase: 'preparing' };
       }),
     ),
-  detectLayout: procedure
-    .input(targetRef)
-    .query(({ input }) => service.probeLayout(input.uin, input.dbName)),
+  detectLayout: procedure.input(targetRef).query(async ({ input }) => {
+    const { dbPath } = service.resolveDatabasePath(input.uin, input.dbName);
+    const result = await runDatabaseMaintenanceWorker({ kind: 'layout', dbPath }, undefined);
+    if (!('needsMigration' in result)) throw new Error('源库布局检测结果无效。');
+    return result;
+  }),
   cacheLocation: procedure.query(() => ({
     override: requireBootstrap().userConfig.getDbRepairCacheDir(),
   })),

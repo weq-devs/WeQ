@@ -1,7 +1,6 @@
-import { open } from 'node:fs/promises';
 import { connect, type Socket } from 'node:net';
 import type { SessionMaterial, KeyScanResult, KeyScanProgress } from '@weq/native';
-import { CredentialRepairRequiredError, getLogger } from '@weq/service';
+import { CredentialRepairRequiredError, getLogger, runOwnedChild } from '@weq/service';
 import {
   AUTHORIZATION_INTERFACE,
   AUTHORIZATION_PROTOCOL,
@@ -271,6 +270,37 @@ export async function tryLongTermAttach(
     connection.close();
   }
 }
+/** Sample the encrypted first page without closing any of WeQ's SQLite locks. */
+async function readKeySample(dbPath: string): Promise<string> {
+  const script = `
+    const { readFileSync, openSync, readSync, closeSync } = require('node:fs');
+    const dbPath = JSON.parse(readFileSync(0, 'utf8'));
+    const file = openSync(dbPath, 'r');
+    const sample = Buffer.alloc(5120);
+    try {
+      let position = 0;
+      while (position < sample.length) {
+        const bytesRead = readSync(file, sample, position, sample.length - position, position);
+        if (!bytesRead) throw new Error('数据库头不足 5120 字节，无法扫描密钥');
+        position += bytesRead;
+      }
+    } finally {
+      closeSync(file);
+    }
+    process.stdout.write(sample.toString('base64'));
+  `;
+  const result = await runOwnedChild(process.execPath, ['-e', script], {
+    input: JSON.stringify(dbPath),
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    maxOutputBytes: 64 * 1024,
+    timeoutMs: 15_000,
+    killAfterMs: 2_000,
+  });
+  if (result.code !== 0 || Buffer.from(result.stdout, 'base64').length !== 5120)
+    throw new Error(result.stderr.trim() || '数据库头样本无效。');
+  return result.stdout;
+}
+
 export async function tryLongTermKeyScan(
   dbPath: string,
   pid: number,
@@ -279,20 +309,9 @@ export async function tryLongTermKeyScan(
   const connection = await connectLongTermAuthorization();
   if (!connection) return null;
   try {
-    const file = await open(dbPath, 'r');
-    const sample = Buffer.alloc(5120);
-    try {
-      let position = 0;
-      while (position < sample.length) {
-        const { bytesRead } = await file.read(sample, position, sample.length - position, position);
-        if (!bytesRead) throw new Error('数据库头不足 5120 字节，无法扫描密钥');
-        position += bytesRead;
-      }
-    } finally {
-      await file.close();
-    }
+    const databaseSample = await readKeySample(dbPath);
     return await connection.request<KeyScanResult>(
-      { op: 'key-scan', pid, databaseSample: sample.toString('base64') },
+      { op: 'key-scan', pid, databaseSample },
       10 * 60_000,
       progress,
     );
