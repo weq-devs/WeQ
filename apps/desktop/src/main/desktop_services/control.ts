@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 import { writeFileAtomic } from '@weq/service';
 import { z } from 'zod/v3';
+import { lockOwnerFile } from '../account_instances';
 
 export const PRIVATE_TOKEN_HEADER = 'x-weq-desktop-service';
 export const PRIVATE_WEB_ROUTE_HEADER = 'x-weq-desktop-web-route';
@@ -15,13 +16,6 @@ const endpointSchema = z.object({
 });
 
 export type ServiceEndpoint = z.infer<typeof endpointSchema>;
-
-export const desktopServiceGeneration = z.number().int().positive().nullable();
-
-export function currentDesktopServiceGeneration(): number | null {
-  if (process.env.WEQ_DEV_RESTART_MANAGED !== '1') return null;
-  return desktopServiceGeneration.safeParse(Number(process.env.WEQ_DEV_STARTED_AT)).data ?? null;
-}
 
 export function newServiceToken(): string {
   return randomBytes(32).toString('hex');
@@ -117,32 +111,49 @@ export async function callControl<T>(
 
 export class DesktopServiceRegistry {
   readonly root: string;
+  private readonly runtime: string;
 
   constructor(dataRoot: string) {
     this.root = join(dataRoot, 'desktop-services');
+    // 旧服务只读取父目录，否则升级后会把新窗口误认成自己的，无法自动退出。
+    this.runtime = join(this.root, 'runtime');
   }
 
   private path(id: string): string {
-    return join(this.root, `${id}.json`);
+    return join(this.runtime, `${id}.json`);
+  }
+
+  async claimHost(): Promise<(() => void) | null> {
+    await mkdir(this.runtime, { recursive: true, mode: 0o700 });
+    const lock = lockOwnerFile(join(this.runtime, 'host.sqlite'));
+    return lock ? () => lock.close() : null;
   }
 
   async publish(id: string, endpoint: ServiceEndpoint): Promise<() => Promise<void>> {
-    await mkdir(this.root, { recursive: true, mode: 0o700 });
+    await mkdir(this.runtime, { recursive: true, mode: 0o700 });
     const path = this.path(id);
     await writeFileAtomic(path, JSON.stringify(endpoint));
     return () => unlink(path).catch(() => undefined);
   }
 
-  async endpoint(id: string): Promise<ServiceEndpoint | null> {
+  private async readEndpoint(path: string): Promise<ServiceEndpoint | null> {
     try {
-      return endpointSchema.parse(JSON.parse(await readFile(this.path(id), 'utf8')));
+      return endpointSchema.parse(JSON.parse(await readFile(path, 'utf8')));
     } catch {
       return null;
     }
   }
 
+  endpoint(id: string): Promise<ServiceEndpoint | null> {
+    return this.readEndpoint(this.path(id));
+  }
+
+  legacyService(): Promise<ServiceEndpoint | null> {
+    return this.readEndpoint(join(this.root, 'service.json'));
+  }
+
   async participants(): Promise<ServiceEndpoint[]> {
-    const entries = await readdir(this.root).catch(() => []);
+    const entries = await readdir(this.runtime).catch(() => []);
     const endpoints = await Promise.all(
       entries.flatMap((entry) => {
         const pid = Number(/^window-(\d+)\.json$/.exec(entry)?.[1]);
@@ -151,7 +162,7 @@ export class DesktopServiceRegistry {
           process.kill(pid, 0);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
-            void unlink(join(this.root, entry)).catch(() => undefined);
+            void unlink(join(this.runtime, entry)).catch(() => undefined);
             return [];
           }
         }
@@ -162,46 +173,32 @@ export class DesktopServiceRegistry {
   }
 }
 
+export async function desktopServiceIsRunning(
+  endpoint: ServiceEndpoint,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const deadline = AbortSignal.any([signal, AbortSignal.timeout(1000)]);
+  return callControl(endpoint, 'ping', undefined, deadline).then(
+    (result) => result === true,
+    () => false,
+  );
+}
+
 export async function connectDesktopService(
   registry: Pick<DesktopServiceRegistry, 'endpoint'>,
-  launch: () => Promise<void>,
-  generation: number | null,
+  startHost: ((signal: AbortSignal) => Promise<ServiceEndpoint | null>) | undefined,
+  signal: AbortSignal,
 ): Promise<ServiceEndpoint> {
-  let retiring: string | undefined;
-  let launchAt = 0;
-  const stop = AbortSignal.timeout(10_000);
-  const deadline = () => AbortSignal.any([stop, AbortSignal.timeout(1000)]);
-  for (let attempt = 0; !stop.aborted; attempt++) {
+  // 升级时允许上一版服务在最后一个旧窗口退出后完成原有的空闲退出。
+  const deadline = AbortSignal.any([signal, AbortSignal.timeout(25_000)]);
+  while (!deadline.aborted) {
     const endpoint = await registry.endpoint('service');
-    if (endpoint) {
-      const peer = await callControl<unknown>(
-        endpoint,
-        'service.generation',
-        undefined,
-        deadline(),
-      ).then(
-        (value) => desktopServiceGeneration.safeParse(value).data,
-        () => undefined,
-      );
-      if (peer !== undefined) {
-        if (generation === null || peer === null || peer >= generation) return endpoint;
-        if (retiring !== endpoint.token) {
-          await callControl(endpoint, 'service.retire', generation, deadline());
-          retiring = endpoint.token;
-        }
-        await pause(150);
-        continue;
-      }
-      if (await callControl(endpoint, 'ping', undefined, deadline()).catch(() => false)) {
-        throw new Error('旧版 WeQ 桌面服务仍在运行；请完整退出 WeQ 后重新打开。');
-      }
-    }
-    // 旧服务可能先注销端点，再释放 Electron 单实例锁。
-    if (attempt >= launchAt) {
-      await launch();
-      launchAt = retiring ? attempt + 15 : Infinity;
-    }
-    await pause(150);
+    if (endpoint && (await desktopServiceIsRunning(endpoint, deadline))) return endpoint;
+    if (deadline.aborted) break;
+    const hosted = await startHost?.(deadline);
+    if (hosted) return hosted;
+    await pause(250, undefined, { signal: deadline }).catch(() => undefined);
   }
+  signal.throwIfAborted();
   throw new Error('WeQ 桌面服务未就绪。');
 }

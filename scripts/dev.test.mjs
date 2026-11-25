@@ -370,7 +370,6 @@ test('一行入口按依赖、宿主、native、网络、启动顺序执行，�
     '--weq-account-picker=12345678-0000-4000-8000-0123456789ab',
     '--weq-account-instance=101:fixture',
     '--weq-focus-account=101',
-    '--weq-desktop-service',
   ]) {
     await startDevelopment({ ...hooks, args: [...args, explicit] });
     assert.deepEqual(launch.args, [...args, explicit]);

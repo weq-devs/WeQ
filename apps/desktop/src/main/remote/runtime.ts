@@ -359,6 +359,11 @@ export class RemoteRuntime {
     this.state = { state: 'offline' };
   }
 
+  async shutdown(): Promise<void> {
+    this.stop();
+    await Promise.all([this.closing, this.tailscaleClosing]);
+  }
+
   async invite(input?: z.infer<typeof remoteInviteInput>) {
     const bootstrap = remoteInviteInput.parse(input);
     const direct = !bootstrap || !('authKey' in bootstrap);

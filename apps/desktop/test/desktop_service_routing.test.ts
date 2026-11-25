@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { UserConfigService } from '@weq/service';
 import { expect, it, vi } from 'vitest';
 import { DesktopWebEntry } from '../src/main/desktop_services/web_entry';
 import { createRemoteServer } from '../src/main/remote/http';
@@ -17,12 +18,15 @@ import { DesktopMcpGateway, mcpCredentialId } from '../src/main/desktop_services
 import { McpGrants } from '../src/main/desktop_services/mcp_grants';
 import {
   connectDesktopService,
+  desktopServiceIsRunning,
+  DesktopServiceRegistry,
   listenPrivate,
   openControl,
   PRIVATE_TOKEN_HEADER,
   sendJson,
   stopPrivate,
 } from '../src/main/desktop_services/control';
+import { connectDesktopServices, desktopWebStatus } from '../src/main/desktop_services/host';
 import {
   PRIVATE_ACCOUNT_HEADER,
   type DesktopAccountRoutes,
@@ -89,57 +93,55 @@ async function fixture(
   return { routes, open, find, windows, stale, toolCalls, close: () => stopPrivate(tcp) };
 }
 
-it('开发重载交接旧桌面服务，旧窗口不会取代新进程', async () => {
-  let running = 1;
-  let current: Awaited<ReturnType<typeof openControl>> | undefined;
-  const retire = vi.fn((next: unknown) => {
-    expect(next).toBe(2);
-    setImmediate(() => {
-      current?.close();
-      current = undefined;
-    });
+it('桌面宿主等待旧服务退出，多个窗口复用宿主，退出后释放服务与所有权', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-desktop-host-'));
+  const registry = new DesktopServiceRegistry(root);
+  const legacyPing = vi.fn(() => {
+    setImmediate(() => legacy.close());
     return true;
   });
-  const serve = () =>
-    openControl((method, input) => {
-      if (method === 'service.generation') return running;
-      if (method === 'service.retire') return retire(input);
-      return true;
-    });
-  current = await serve();
-  const old = current.endpoint;
-  const registry = { endpoint: async () => current?.endpoint ?? null };
-  const launch = vi.fn(async () => {
-    running = 2;
-    current = await serve();
+  const legacy = await openControl(legacyPing);
+  mkdirSync(registry.root, { recursive: true });
+  writeFileSync(join(registry.root, 'service.json'), JSON.stringify(legacy.endpoint));
+  const config = new UserConfigService({ appDataRoot: () => root }, true);
+  const stop = connectDesktopServices(registry, {
+    dataRoot: root,
+    config,
+    publicDir: root,
+    remoteDirectory: join(root, 'remote-network'),
+    remoteHelper: join(root, 'helper'),
   });
+  const signal = AbortSignal.timeout(3000);
   try {
-    expect(await connectDesktopService(registry, launch, 1)).toEqual(old);
-    expect(launch).not.toHaveBeenCalled();
-    const updated = await connectDesktopService(registry, launch, 2);
-    expect(updated).not.toEqual(old);
-    expect(await connectDesktopService(registry, launch, 1)).toEqual(updated);
-    expect(retire).toHaveBeenCalledTimes(1);
-    expect(launch).toHaveBeenCalledTimes(1);
+    const [main, window] = await Promise.all([
+      desktopWebStatus(),
+      connectDesktopService(registry, undefined, signal),
+    ]);
+    expect(legacyPing).toHaveBeenCalledWith('ping', undefined);
+    expect(main).toMatchObject({ available: true, enabled: false });
+    expect(window).toEqual(await registry.endpoint('service'));
+    expect(window.token).not.toBe(legacy.endpoint.token);
+    expect(await registry.claimHost()).toBeNull();
+    await stop();
+    expect(await registry.endpoint('service')).toBeNull();
+    expect(await desktopServiceIsRunning(window, signal)).toBe(false);
+    const release = await registry.claimHost();
+    expect(release).not.toBeNull();
+    release?.();
   } finally {
-    current?.close();
+    legacy.close();
+    await stop();
+    rmSync(root, { force: true, recursive: true });
   }
 });
 
-it('只返回 ping 的旧桌面服务不算就绪，也不会重复启动争抢实例锁', async () => {
-  const legacy = await openControl((method) => {
-    if (method === 'ping') return true;
-    throw new Error('未知 WeQ 服务命令。');
-  });
-  const launch = vi.fn(async () => {});
-  try {
-    await expect(
-      connectDesktopService({ endpoint: async () => legacy.endpoint }, launch, 1),
-    ).rejects.toThrow();
-    expect(launch).not.toHaveBeenCalled();
-  } finally {
-    legacy.close();
-  }
+it('账号窗口退出可以取消对尚未启动的主进程的等待', async () => {
+  const controller = new AbortController();
+  const lookup = vi.fn(async () => null);
+  const pending = connectDesktopService({ endpoint: lookup }, undefined, controller.signal);
+  controller.abort();
+  await expect(pending).rejects.toThrow(expect.objectContaining({ name: 'AbortError' }));
+  expect(lookup).toHaveBeenCalledTimes(1);
 });
 
 it('同一 Web 登录中的两个标签页可以分别读 A、B，退出 A 只释放 A', async () => {
@@ -214,6 +216,9 @@ it('MCP 会话独立切号，旧下载票据随原会话切号失效', async () 
     expect(old.uin).toBe('101');
     expect((await call(b, 'get_self_profile')).uin).toBe('202');
     expect((await fetch(base + old.downloadPath, { headers })).status).toBe(200);
+    worker.stale.add('101');
+    expect((await a.callTool({ name: 'get_self_profile' })).isError).toBe(true);
+    expect((await call(b, 'get_self_profile')).uin).toBe('202');
     await call(a, 'switch_account', { configId: '202' });
     expect((await fetch(base + old.downloadPath, { headers })).status).toBe(404);
     expect((await call(b, 'get_self_profile')).uin).toBe('202');
@@ -608,6 +613,9 @@ it('远程页面只打开已授权账号，选择失败和服务重启后可重�
     expect(closedAccount.status).toBe(409);
     expect(closedAccount.headers.get('x-weq-account-selection')).toBe('required');
     expect((await fetch(snapshotPath, { method: 'POST' })).status).toBe(401);
+    expect(await (await fetch(`${base}${destination}trpc/startup.snapshot`)).json()).toEqual({
+      uin: '101',
+    });
     worker.stale.delete('202');
     entry.close();
     entry = createEntry();

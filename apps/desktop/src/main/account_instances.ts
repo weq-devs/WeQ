@@ -122,14 +122,14 @@ export function prepareInstanceAccount(root: string, target: AccountInstanceTarg
 function lockAccount(root: string, uin: string, probe = false): DatabaseSync | null {
   const directory = instanceRoot(root, uin);
   if (!probe) mkdirSync(directory, { recursive: true, mode: 0o700 });
-  return lockOwnerFile(join(directory, 'owner.sqlite'), probe);
+  return lockOwnerFile(join(directory, 'owner.sqlite'), probe ? 0 : 100);
 }
 
-function lockOwnerFile(path: string, probe: boolean): DatabaseSync | null {
+export function lockOwnerFile(path: string, waitMs = 0): DatabaseSync | null {
   const db = new nodeSqlite.DatabaseSync(path);
   try {
     // SQLite 的跨进程文件锁会在进程崩溃后由系统释放，无需根据 PID 清理锁文件。
-    db.exec(probe ? 'BEGIN IMMEDIATE' : 'PRAGMA busy_timeout = 100; BEGIN IMMEDIATE');
+    db.exec(`PRAGMA busy_timeout = ${waitMs}; BEGIN IMMEDIATE`);
     return db;
   } catch (error) {
     db.close();
@@ -140,7 +140,7 @@ function lockOwnerFile(path: string, probe: boolean): DatabaseSync | null {
 
 export function ownerFileIsLocked(path: string): boolean {
   if (!existsSync(path)) return false;
-  const probe = lockOwnerFile(path, true);
+  const probe = lockOwnerFile(path);
   probe?.close();
   return probe === null;
 }
@@ -154,9 +154,13 @@ export function developmentStartupConfigId(
   pickerId: string | undefined,
   target: AutoEnterTarget | null | undefined,
 ): string | undefined {
-  if (pickerId !== DEVELOPMENT_PICKER_ID || !target || accountIsRunning(root, target.uin))
+  if (!isDevelopmentPicker(pickerId) || !target || accountIsRunning(root, target.uin))
     return undefined;
   return target.configId;
+}
+
+export function isDevelopmentPicker(pickerId: string | undefined): boolean {
+  return pickerId === DEVELOPMENT_PICKER_ID;
 }
 
 function pickerOwnerPath(root: string, uin: string): string {

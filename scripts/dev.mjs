@@ -82,7 +82,7 @@ export async function startDevelopment({
     if (config.userDataDir) launchArgs.push(`--user-data-dir=${config.userDataDir}`);
     else if (
       !launchArgs.some((arg) =>
-        /^(--weq-account-(instance|picker)=|--weq-focus-account=|--weq-desktop-service$)/.test(arg),
+        /^(--weq-account-(instance|picker)=|--weq-focus-account=)/.test(arg),
       )
     )
       launchArgs.push(developmentPickerArg);
