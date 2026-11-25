@@ -58,7 +58,7 @@ export function AppRail({
   mailBadgeCount?: number;
   mailBadgePending?: boolean;
   showTools?: boolean;
-  footerContent?: ReactNode | ((settingsButton: ReactNode) => ReactNode);
+  footerContent?: ReactNode;
   hideAvatar?: boolean;
   activeRailItem?: 'settings' | 'dressup';
 }) {
@@ -88,6 +88,7 @@ export function AppRail({
       )}
       aria-current={activeView === 'settings' ? 'page' : undefined}
       aria-label={APP_NAVIGATION.settings.label}
+      aria-description={settingsBadge?.description}
       onPointerEnter={() => preloadWorkspace(APP_NAVIGATION.settings.workspace)}
       onFocus={() => preloadWorkspace(APP_NAVIGATION.settings.workspace)}
       onClick={() => {
@@ -282,14 +283,8 @@ export function AppRail({
         </nav>
       </div>
       <div className={cn('rail-footer')}>
-        {typeof footerContent === 'function' ? (
-          footerContent(settingsButton())
-        ) : (
-          <>
-            {settingsButton()}
-            {footerContent}
-          </>
-        )}
+        {settingsButton()}
+        {footerContent}
       </div>
     </aside>
   );

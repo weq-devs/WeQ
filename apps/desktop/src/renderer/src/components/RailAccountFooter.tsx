@@ -18,6 +18,8 @@ import { OverlayLayer } from './OverlayLayer';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   LockKeyhole,
+  Eye,
+  EyeOff,
   LogOut,
   Moon,
   Sun,
@@ -33,6 +35,7 @@ import { trpc, client } from '../trpc/client';
 import { leaveAccountForBootstrap } from '../lib/leaveAccount';
 import { switchAccount, type SwitchTarget } from '../lib/switchAccount';
 import { useAppLock } from '../state/lock';
+import { usePrivacyStore } from '../state/privacy';
 import { useThemeStore } from '../state/theme';
 import { confirmMailAccountLeave } from '../state/mailDraft';
 import {
@@ -79,17 +82,17 @@ export function RailAccountFooter({
   currentUin,
   currentName,
   currentAvatarUrl,
-  settingsButton,
   children,
 }: {
   currentUin: string;
   currentName: string;
   currentAvatarUrl?: string | null;
-  settingsButton?: ReactNode;
   children?: ReactNode | ((controls: ReactNode) => ReactNode);
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
   const lock = useAppLock((s) => s.lock);
+  const privacyEnabled = usePrivacyStore((s) => s.enabled);
+  const togglePrivacy = usePrivacyStore((s) => s.toggle);
   const remote = useRemoteClient();
   // 菜单与设置共用主题状态；快捷切换固定为浅/深色，跟随系统仍在设置里选择。
   const resolvedTheme = useThemeStore((s) => s.resolved);
@@ -362,7 +365,16 @@ export function RailAccountFooter({
 
   const controls = (
     <div className="weq-workspace-controls" aria-label="应用控制">
-      {settingsButton}
+      <button
+        type="button"
+        className="weq-workspace-control"
+        title={privacyEnabled ? '关闭隐私模式' : '开启隐私模式'}
+        aria-label="隐私模式"
+        aria-pressed={privacyEnabled}
+        onClick={togglePrivacy}
+      >
+        {privacyEnabled ? <EyeOff size={18} aria-hidden /> : <Eye size={18} aria-hidden />}
+      </button>
       {typeof children === 'function' ? null : children}
       {!IS_WEB || remote ? (
         <button

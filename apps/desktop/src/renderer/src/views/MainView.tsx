@@ -316,7 +316,7 @@ import { useDressSkin } from '../hooks/useDressSkin';
 import { injectFontCss } from '../lib/msgDecorationStyle';
 import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
 import { RailAccountFooter } from '../components/RailAccountFooter';
-import { WorkspaceMenuButton, WorkspaceSettingsButton } from '../components/WorkspaceMenuButton';
+import { WorkspaceMenuButton } from '../components/WorkspaceMenuButton';
 import { WorkspaceTools } from '../components/WorkspaceTools';
 import { useSettingsNavigation } from '../hooks/useSettingsNavigation';
 import type { SectionId as SettingsDialogSectionId } from '../components/SettingsDialog';
@@ -10870,7 +10870,7 @@ function MainWorkspace(): ReactElement {
             mailBadgeCount={mailBadge.count}
             mailBadgePending={mailBadge.pending}
             showTools={false}
-            railFooterContent={() => <WorkspaceMenuButton />}
+            railFooterContent={<WorkspaceMenuButton />}
             friendNoticeCount={unreadMarkers.requests ? friendNoticeCount : 0}
             groupNoticeCount={unreadMarkers.requests ? groupNoticeCount : 0}
             onViewChange={(view) =>
@@ -10899,6 +10899,7 @@ function MainWorkspace(): ReactElement {
               })
             }
             onOpenSettings={() => {
+              useWorkspaceMenu.getState().close();
               setDressUpOpen(false);
               setMaintenanceTool(null);
               setSettingsSection(undefined);
@@ -11652,16 +11653,6 @@ function MainWorkspace(): ReactElement {
             currentUin={user.identityValue}
             currentName={user.displayName}
             currentAvatarUrl={user.avatarUrl}
-            settingsButton={
-              <WorkspaceSettingsButton
-                onClick={() => {
-                  setDressUpOpen(false);
-                  setMaintenanceTool(null);
-                  setSettingsSection(undefined);
-                  setSettingsOpen(true);
-                }}
-              />
-            }
           >
             {(controls) => (
               <WorkspaceTools

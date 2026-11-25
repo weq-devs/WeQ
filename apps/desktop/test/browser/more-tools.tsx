@@ -128,7 +128,7 @@ function Fixture() {
         onOpenGroupNotices={noop}
         onContactTabChange={noop}
         onSidebarWidthChange={noop}
-        railFooterContent={() => <WorkspaceMenuButton />}
+        railFooterContent={<WorkspaceMenuButton />}
         sidebarContent={null}
         mainContent={
           <WorkspaceContent>

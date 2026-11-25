@@ -177,6 +177,11 @@
   height: 32px;
 }
 
+.weq-workspace-controls > .weq-workspace-control[aria-pressed='true'] {
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
 .weq-workspace-controls .weq-rail-account-avatar {
   width: 38px;
   height: 38px;

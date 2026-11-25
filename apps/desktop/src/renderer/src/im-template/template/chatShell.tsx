@@ -85,7 +85,7 @@ export function ChatShell({
   mailBadgeCount?: number;
   mailBadgePending?: boolean;
   showTools?: boolean;
-  railFooterContent?: ReactNode | ((settingsButton: ReactNode) => ReactNode);
+  railFooterContent?: ReactNode;
   friendNoticeCount: number;
   groupNoticeCount: number;
   /** 搜索框下方的浮层（统一搜索下拉 / 最近搜索）。 */
