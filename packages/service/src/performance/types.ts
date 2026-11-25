@@ -1,4 +1,7 @@
-import type { HistoryCapacityMiB } from '../common/settings_catalog/history';
+import {
+  DEFAULT_HISTORY_CAPACITY_MIB,
+  type HistoryCapacityMiB,
+} from '../common/settings_catalog/history';
 
 export type MonitorMode = 'off' | 'light' | 'full';
 export interface MonitorSettings {
@@ -14,7 +17,7 @@ export const DEFAULT_MONITOR_SETTINGS: MonitorSettings = {
   version: 1,
   mode: 'light',
   retentionDays: 7,
-  capacityMiB: 128,
+  capacityMiB: DEFAULT_HISTORY_CAPACITY_MIB,
   fullUntil: null,
 };
 export const MONITOR_METRICS = [

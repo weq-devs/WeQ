@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
-import { ArrowUpRight, Database, FolderOpen, ScrollText, Trash2 } from 'lucide-react';
+import { ArrowUpRight, FolderOpen, ScrollText, Trash2 } from 'lucide-react';
 import {
-  HISTORY_CAPACITY_OPTIONS,
+  DEFAULT_HISTORY_CAPACITY_MIB,
   historyCapacityLabel,
   type HistoryCapacityMiB,
 } from '@weq/service/settings-catalog';
@@ -15,8 +15,7 @@ import { useRemoteClient } from '../../lib/remoteClient';
 import { useDialog } from '../Dialog.shared';
 import { Card, Row, QueryError } from './controls';
 import { NativeDebugLogSetting } from './NativeDebugLogSetting';
-import { RetentionDaysPicker } from './RetentionDaysPicker';
-import { IconPicker } from '../ui/iconPicker';
+import { RetentionCapacityPicker, RetentionDaysPicker } from './HistoryRetentionPicker';
 import { AutoSave } from './AutoSave';
 import '../../styles/log-performance.css';
 
@@ -44,7 +43,7 @@ export function LogFileSettings() {
   const confirmedPolicy = useRef<LogPolicy | null>(null);
   const saved: LogPolicy = {
     days: settings.data?.logRetentionDays ?? 7,
-    capacityMiB: settings.data?.logCapacityMiB ?? 0,
+    capacityMiB: settings.data?.logCapacityMiB ?? DEFAULT_HISTORY_CAPACITY_MIB,
   };
   const value = draft ?? saved;
   const busy = checking || mutation.isLoading || clear.isLoading;
@@ -160,7 +159,7 @@ export function LogFileSettings() {
             control={
               <RetentionDaysPicker
                 label="应用日志保存时长"
-                days={settings.data ? value.days : undefined}
+                value={settings.data ? value.days : undefined}
                 disabled={!settings.data || busy}
                 onChange={(days) => void edit({ days })}
               />
@@ -171,16 +170,11 @@ export function LogFileSettings() {
             label="容量上限"
             desc="超出容量上限时，从最旧的应用日志开始清理。"
             control={
-              <IconPicker
-                ariaLabel="应用日志容量上限"
-                triggerIcon={<Database size={14} />}
-                placeholder="正在读取…"
-                value={settings.data ? String(value.capacityMiB) : ''}
+              <RetentionCapacityPicker
+                label="应用日志容量上限"
+                value={settings.data ? value.capacityMiB : undefined}
                 disabled={!settings.data || busy}
-                onChange={(capacityMiB) =>
-                  void edit({ capacityMiB: Number(capacityMiB) as LogPolicy['capacityMiB'] })
-                }
-                options={HISTORY_CAPACITY_OPTIONS}
+                onChange={(capacityMiB) => void edit({ capacityMiB })}
               />
             }
           />

@@ -10,14 +10,14 @@ let settings: MonitorSettings = {
   version: 1,
   mode: 'light',
   retentionDays: 7,
-  capacityMiB: 128,
+  capacityMiB: 256,
   fullUntil: null,
 };
 const fixture = new URLSearchParams(location.search).get('state');
 let cleared = false;
 let revision = 0;
 let logDays = 7;
-let logCapacityMiB = 0;
+let logCapacityMiB = 256;
 let logHistoryFiles = 2;
 let databaseReadConcurrency = 4;
 let debug = false;

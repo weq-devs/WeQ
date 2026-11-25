@@ -1,8 +1,16 @@
-export const HISTORY_CAPACITIES_MIB = [0, 64, 128, 256, 512, 1024] as const;
-export type HistoryCapacityMiB = (typeof HISTORY_CAPACITIES_MIB)[number];
+const capacityPresetsMiB = [64, 128, 256, 512, 1024];
+
+export const DEFAULT_HISTORY_CAPACITY_MIB = 256;
+export const MAX_HISTORY_CAPACITY_MIB = Math.floor(Number.MAX_SAFE_INTEGER / 1024 ** 2);
+export type HistoryCapacityMiB = number;
 
 export function isHistoryCapacityMiB(value: unknown): value is HistoryCapacityMiB {
-  return HISTORY_CAPACITIES_MIB.some((capacity) => capacity === value);
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= MAX_HISTORY_CAPACITY_MIB
+  );
 }
 
 export function historyCapacityLabel(capacity: HistoryCapacityMiB): string {
@@ -11,7 +19,7 @@ export function historyCapacityLabel(capacity: HistoryCapacityMiB): string {
   return `${capacity} MiB`;
 }
 
-export const HISTORY_CAPACITY_OPTIONS = HISTORY_CAPACITIES_MIB.map((capacity) => ({
+export const HISTORY_CAPACITY_OPTIONS = capacityPresetsMiB.map((capacity) => ({
   value: String(capacity),
   label: historyCapacityLabel(capacity),
 }));

@@ -55,6 +55,16 @@ try {
     await target.getByRole('button', { name: label, exact: true }).click();
     await target.getByRole('option', { name: value, exact: true }).click();
   };
+  const setCustomCapacity = async (label, amount) => {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    const lastOption = page.getByRole('option').last();
+    await lastOption.waitFor();
+    assert.equal(await lastOption.textContent(), '不限容量');
+    await page.getByRole('option', { name: '自定义', exact: true }).click();
+    const field = page.getByRole('spinbutton', { name: `${label}（MiB）` });
+    await field.fill(String(amount));
+    await field.press('Enter');
+  };
   const assertCursorAlignment = async (monitor) => {
     const svg = monitor.locator('.weq-perf-chart svg').first();
     const target = await svg
@@ -114,6 +124,12 @@ try {
     await page.getByRole('button', { name: '取消', exact: true }).click();
     assert.equal(await customDays.inputValue(), '7');
     assert.equal(await page.evaluate(() => window.performanceQa.logChanges.length), 0);
+    assert.equal(
+      await page.getByLabel('应用日志容量上限', { exact: true }).textContent(),
+      '256 MiB',
+    );
+    await setCustomCapacity('应用日志容量上限', 1536);
+    await page.waitForFunction(() => window.performanceQa.logChanges.at(-1)?.capacityMiB === 1536);
     await choose(page, '应用日志容量上限', '1 GiB');
     await page.waitForFunction(() => window.performanceQa.logChanges.at(-1)?.capacityMiB === 1024);
     await page.getByRole('button', { name: '清空应用日志历史', exact: true }).click();
@@ -162,7 +178,7 @@ try {
     await page.getByRole('button', { name: '取消', exact: true }).click();
     assert.equal(
       await page.getByLabel('性能记录容量上限', { exact: true }).textContent(),
-      '128 MiB',
+      '256 MiB',
     );
     await page.evaluate(() => {
       window.performanceQa.storageBytes = 42_000;
@@ -177,6 +193,8 @@ try {
     await page.waitForFunction(() => window.performanceQa.changes.at(-1)?.retentionDays === 0);
     await choose(page, '性能记录容量上限', '1 GiB');
     await page.waitForFunction(() => window.performanceQa.changes.at(-1)?.capacityMiB === 1024);
+    await setCustomCapacity('性能记录容量上限', 1536);
+    await page.waitForFunction(() => window.performanceQa.changes.at(-1)?.capacityMiB === 1536);
     await choose(page, '性能记录容量上限', '不限容量');
     await page.waitForFunction(() => window.performanceQa.changes.at(-1)?.capacityMiB === 0);
     if (output)

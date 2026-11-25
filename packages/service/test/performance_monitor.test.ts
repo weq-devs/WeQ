@@ -146,7 +146,8 @@ describe('宿主性能监视', () => {
     for (const patch of [
       { retentionDays: -1 },
       { retentionDays: 366 },
-      { capacityMiB: 1 },
+      { capacityMiB: 1.5 },
+      { capacityMiB: -1 },
       { fullUntil: NaN },
       { mode: 'debug' },
       { version: 2 },
@@ -159,6 +160,7 @@ describe('宿主性能监视', () => {
     });
     const { service, source } = await monitor();
     expect(service.settings).toEqual(DEFAULT_MONITOR_SETTINGS);
+    expect(service.settings.capacityMiB).toBe(256);
     await vi.advanceTimersByTimeAsync(1);
     await service.flush();
     const history = await service.history({
@@ -167,7 +169,7 @@ describe('宿主性能监视', () => {
       buckets: 100,
     });
     expect(history.points).toHaveLength(1);
-    await service.configure({ ...DEFAULT_MONITOR_SETTINGS, mode: 'off' });
+    await service.configure({ ...DEFAULT_MONITOR_SETTINGS, mode: 'off', capacityMiB: 1536 });
     const count = vi.mocked(source.collect).mock.calls.length;
     await vi.advanceTimersByTimeAsync(120_000);
     expect(source.collect).toHaveBeenCalledTimes(count);
@@ -179,7 +181,7 @@ describe('宿主性能监视', () => {
     const restored = new PerformanceMonitor(path, collector());
     monitors.push(restored);
     await restored.ready;
-    expect(restored.settings.mode).toBe('off');
+    expect(restored.settings).toMatchObject({ mode: 'off', capacityMiB: 1536 });
     expect((await restored.status()).records).toBeGreaterThan(0);
   });
   it('完整档到期回轻量；重启恢复剩余截止时间', async () => {

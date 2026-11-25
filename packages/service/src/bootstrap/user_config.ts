@@ -16,7 +16,11 @@
  * track those files — TTL / pruning belongs in whoever wrote them.
  */
 
-import { isHistoryCapacityMiB, type HistoryCapacityMiB } from '../common/settings_catalog/history';
+import {
+  DEFAULT_HISTORY_CAPACITY_MIB,
+  isHistoryCapacityMiB,
+  type HistoryCapacityMiB,
+} from '../common/settings_catalog/history';
 import {
   normalizeNotificationEvents,
   mergeNotificationEventOverrides,
@@ -1353,7 +1357,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   suppressDbDamageReminder: false,
   defaultExportDir: null,
   logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
-  logCapacityMiB: 0,
+  logCapacityMiB: DEFAULT_HISTORY_CAPACITY_MIB,
   databaseReadConcurrency: DEFAULT_DATABASE_READ_CONCURRENCY,
   qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
   qzonePublicRefreshCooldownMinutes: DEFAULT_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,

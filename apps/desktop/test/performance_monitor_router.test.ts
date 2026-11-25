@@ -46,8 +46,8 @@ it('降低保存策略但没有实际删除时不要求确认，公开容量与�
   await expect(
     first.configure({ mode: 'full', retentionDays: -1, capacityMiB: 64 }),
   ).rejects.toThrow();
-  await first.configure({ mode: 'light', retentionDays: 0, capacityMiB: 1024 });
-  expect((await second.status()).settings).toMatchObject({ retentionDays: 0, capacityMiB: 1024 });
+  await first.configure({ mode: 'light', retentionDays: 0, capacityMiB: 1536 });
+  expect((await second.status()).settings).toMatchObject({ retentionDays: 0, capacityMiB: 1536 });
   await first.configure({ mode: 'light', retentionDays: 0, capacityMiB: 0 });
   expect((await second.status()).settings.capacityMiB).toBe(0);
 });

@@ -451,7 +451,7 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
   if (input.logRetentionDays !== undefined)
     number(input.logRetentionDays, 'settings.logRetentionDays', 0, MAX_LOG_RETENTION_DAYS);
   if (input.logCapacityMiB !== undefined && !isHistoryCapacityMiB(input.logCapacityMiB))
-    throw new Error('settings.logCapacityMiB 无效');
+    fail('settings.logCapacityMiB');
   if (input.databaseReadConcurrency !== undefined)
     number(input.databaseReadConcurrency, 'settings.databaseReadConcurrency', 1, 8);
   if (input.appLock !== undefined) {

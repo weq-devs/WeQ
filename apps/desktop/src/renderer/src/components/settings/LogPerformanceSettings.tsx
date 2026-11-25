@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import { Activity, ArrowUpRight, Clock3, Database, FolderOpen, Trash2 } from 'lucide-react';
+import { Activity, ArrowUpRight, Clock3, FolderOpen, Trash2 } from 'lucide-react';
 import type { MonitorMode, MonitorSettings } from '@weq/service/performance';
 import { preciseTimeFormatter } from '@weq/time';
 import { trpc, client } from '../../trpc/client';
 import { useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import { useLogPerformanceWindow } from '../../state/logPerformanceWindow';
 import { DesktopOnly } from '../../lib/target';
-import { HISTORY_CAPACITY_OPTIONS } from '@weq/service/settings-catalog';
+import { DEFAULT_HISTORY_CAPACITY_MIB } from '@weq/service/settings-catalog';
 import { historySize, performancePruneMessage } from '../../lib/performanceRetention';
 import { useDialog } from '../Dialog.shared';
 import { SegmentedControl } from '../SegmentedControl';
 import { IconPicker } from '../ui/iconPicker';
 import { AutoSave } from './AutoSave';
 import { LogFileSettings } from './LogFileSettings';
-import { RetentionDaysPicker } from './RetentionDaysPicker';
+import { RetentionCapacityPicker, RetentionDaysPicker } from './HistoryRetentionPicker';
 import { Card, QueryError, Row, SectionHeader } from './controls';
 import '../../styles/log-performance.css';
 
@@ -55,7 +55,7 @@ export default function LogPerformanceSettings() {
   const saved: RecordingDraft = {
     mode: settings?.mode ?? 'light',
     days: settings?.retentionDays ?? 7,
-    capacity: settings?.capacityMiB ?? 128,
+    capacity: settings?.capacityMiB ?? DEFAULT_HISTORY_CAPACITY_MIB,
     duration: savedDuration,
   };
   const value = draft ?? saved;
@@ -208,7 +208,7 @@ export default function LogPerformanceSettings() {
             control={
               <RetentionDaysPicker
                 label="性能记录保存时长"
-                days={settings ? value.days : undefined}
+                value={settings ? value.days : undefined}
                 disabled={!settings || busy}
                 onChange={(days) => void edit({ days })}
               />
@@ -219,15 +219,11 @@ export default function LogPerformanceSettings() {
             label="容量上限"
             desc="超出容量上限时，从最旧的性能记录开始清理。"
             control={
-              <IconPicker
-                ariaLabel="性能记录容量上限"
-                triggerIcon={<Database size={14} />}
-                value={String(value.capacity)}
+              <RetentionCapacityPicker
+                label="性能记录容量上限"
+                value={settings ? value.capacity : undefined}
                 disabled={!settings || busy}
-                onChange={(capacity) =>
-                  void edit({ capacity: Number(capacity) as MonitorSettings['capacityMiB'] })
-                }
-                options={HISTORY_CAPACITY_OPTIONS}
+                onChange={(capacity) => void edit({ capacity })}
               />
             }
           />
