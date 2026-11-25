@@ -7,6 +7,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -173,6 +174,7 @@ export function ChatRecordsModal({
   const [messages, setMessages] = useState<ConversationRecordHit[]>([]);
   const [msgLoading, setMsgLoading] = useState(() => !localSource && hasSearch);
   const [msgLoadingMore, setMsgLoadingMore] = useState(false);
+  const [atResultsEnd, setAtResultsEnd] = useState(false);
   const [msgTotal, setMsgTotal] = useState(0);
   const [msgLimited, setMsgLimited] = useState(false);
   const msgRunRef = useRef<{ controller: AbortController; loadingMore: boolean } | null>(null);
@@ -342,6 +344,7 @@ export function ChatRecordsModal({
   // Fetch messages for the selected conversation.
   useEffect(() => {
     setMsgLoadingMore(false);
+    setAtResultsEnd(false);
     setMsgLimited(false);
     setMsgError('');
     setScannedDay('');
@@ -439,24 +442,26 @@ export function ChatRecordsModal({
       });
   }, [messages.length, msgLoading, localSource, queryMessages]);
 
-  // Infinite scroll for the message list.
+  // 提前续页与显示底部进度使用不同的距离。
   const onMsgScroll = useCallback(() => {
     const el = msgScrollRef.current;
+    if (!el?.clientHeight) return;
+    const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (fixed && !localSource) setAtResultsEnd(el.scrollTop > 0 && remaining <= 1);
     if (
       !hasSearch ||
-      !el?.clientHeight ||
       msgLoading ||
       msgLoadingMore ||
       msgError ||
+      remaining > 120 ||
       (fixed ? !browseHasMore : messages.length >= msgTotal)
     )
       return;
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 120) {
-      void loadMoreMessages();
-    }
+    void loadMoreMessages();
   }, [
     hasSearch,
     loadMoreMessages,
+    localSource,
     msgLoading,
     msgLoadingMore,
     msgError,
@@ -541,7 +546,12 @@ export function ChatRecordsModal({
   const convKey = isGroup ? selected.targetUid : '';
   const browseRecords = fixed && !localSource;
   const searchingRecords = browseRecords && (refreshing || msgLoading || msgLoadingMore);
-  const progress = scannedDay ? `已查到 ${scannedDay}` : '';
+  const showSearchProgress = browseRecords && !refreshing && msgLoadingMore && atResultsEnd;
+  useLayoutEffect(() => {
+    const el = msgScrollRef.current;
+    // 底栏出现会缩短滚动视口，保持最后一条已加载结果可见。
+    if (showSearchProgress && el) el.scrollTop = el.scrollHeight;
+  }, [showSearchProgress, suspended]);
   const galleryMessages = useMemo(
     () =>
       messages.map((message) => ({
@@ -785,7 +795,11 @@ export function ChatRecordsModal({
                 >
                   <ReplyJumpContext.Provider value={jumpToReply}>
                     {!hasSearch ? null : refreshing || msgLoading ? (
-                      browseRecords ? null : (
+                      browseRecords ? (
+                        <div className="weq-record-notice" role="status">
+                          <LoadingIndicator>正在搜索聊天记录…</LoadingIndicator>
+                        </div>
+                      ) : (
                         <SearchListSkeleton rows={4} />
                       )
                     ) : messages.length === 0 ? (
@@ -950,19 +964,13 @@ export function ChatRecordsModal({
               </ConvContext.Provider>
             </ForwardKindContext.Provider>
           </div>
-          {hasSearch && (searchingRecords || (browseRecords && progress)) ? (
+          {showSearchProgress ? (
             <div className="weq-record-progress" role="status">
-              {searchingRecords ? (
-                <LoadingIndicator>
-                  <NumericText>
-                    {progress ? `正在搜索，${progress}` : '正在搜索聊天记录…'}
-                  </NumericText>
-                </LoadingIndicator>
-              ) : (
-                <span>
-                  <NumericText>{progress}</NumericText>
-                </span>
-              )}
+              <LoadingIndicator>
+                <NumericText>
+                  {scannedDay ? `正在搜索，已查到 ${scannedDay}` : '正在搜索更多聊天记录…'}
+                </NumericText>
+              </LoadingIndicator>
             </div>
           ) : null}
         </div>
