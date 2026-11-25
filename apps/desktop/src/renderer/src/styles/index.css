@@ -628,11 +628,9 @@ html body.weq-tool-window {
     border: 1px solid rgba(0, 153, 255, 0.24);
   }
 
-  .weq-icon-button:hover,
-  .weq-action-primary:hover,
-  .weq-action-soft:hover,
-  .weq-danger-button:hover {
-    transform: translateY(-1px);
+  /* 悬停反馈留在原位，避免滚动区和面板边缘裁掉按钮。 */
+  .weq-action-primary:hover:not(:disabled) {
+    background: color-mix(in srgb, #0099ff 88%, #000000);
   }
 
   .weq-action-soft:hover,
@@ -2474,13 +2472,11 @@ html[data-theme='dark'] .weq-mface-detail-nav {
     border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
     background: linear-gradient(150deg, rgba(255, 255, 255, 0.72), rgba(245, 251, 255, 0.5));
     transition:
-      transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
       border-color 160ms ease,
       box-shadow 160ms ease,
       background-color 160ms ease;
   }
   .weq-entry-card:hover:not(:disabled) {
-    transform: translateY(-3px);
     border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
     box-shadow: 0 18px 34px -22px rgba(7, 31, 61, 0.4);
   }
@@ -4978,13 +4974,11 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   cursor: pointer;
   transition:
     border-color 0.12s ease,
-    background 0.12s ease,
-    transform 0.12s ease;
+    background 0.12s ease;
 }
 
 .weq-settings-preset-card:hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 28%, transparent);
-  transform: translateY(-1px);
 }
 
 .weq-settings-preset-card.is-active {
@@ -5000,7 +4994,6 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 
 .weq-settings-preset-card.is-locked:hover {
   border-color: rgba(0, 0, 0, 0.08);
-  transform: none;
 }
 
 .weq-settings-preset-card strong {
@@ -7530,14 +7523,11 @@ html[data-theme='dark'] .weq-set-mirror b {
   border-radius: 7px;
   background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
   cursor: zoom-in;
-  transition:
-    border-color 140ms ease,
-    transform 140ms ease;
+  transition: border-color 140ms ease;
 }
 
 .weq-profile-photo:hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
-  transform: translateY(-1px);
 }
 
 .weq-profile-photo img {
@@ -7833,19 +7823,10 @@ html[data-theme='dark'] .weq-profile-member .avatar {
   touch-action: manipulation;
   overflow: visible;
   -webkit-app-region: no-drag;
-  transition: transform 130ms ease;
-}
-
-.message-avatar-button:hover {
-  transform: translateY(-1px);
 }
 
 .message-avatar-button:hover .avatar {
   opacity: 0.85;
-}
-
-.message-avatar-button:active {
-  transform: none;
 }
 
 /* 自己的头像没有资料卡点击，但同样要能右键弹「@他 / 戳一戳」，所以用一层不改变
@@ -14071,23 +14052,16 @@ html[data-theme='dark'] .weq-provider-modal {
   border: 1px solid color-mix(in srgb, var(--weq-accent-solid) 60%, black 6%);
   border-radius: 6px;
   cursor: pointer;
-  transition:
-    transform 0.12s ease,
-    filter 0.12s ease;
+  transition: filter 0.12s ease;
 }
 .weq-msglist-restore:hover {
-  transform: translateY(-1px);
   filter: brightness(1.05);
-}
-.weq-msglist-restore:active {
-  transform: translateY(0);
 }
 .weq-msglist-restore:disabled {
   cursor: default;
   color: var(--weq-fg-muted);
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-subtle);
-  transform: none;
   filter: none;
 }
 
@@ -14148,13 +14122,10 @@ html[data-theme='dark'] .weq-provider-modal {
   border-radius: 7px;
   background: transparent;
   cursor: pointer;
-  transition:
-    background 0.12s ease,
-    transform 0.12s ease;
+  transition: background 0.12s ease;
 }
 .weq-face-cell:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
-  transform: scale(1.06);
 }
 .weq-face-empty {
   padding: 1.6rem 0;
@@ -15323,14 +15294,12 @@ html[data-theme='dark'] .weq-asst-select-pop {
   cursor: pointer;
   transition:
     border-color 0.15s ease,
-    background 0.15s ease,
-    transform 0.15s ease;
+    background 0.15s ease;
 }
 
 .weq-asst-preset:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, var(--weq-border-subtle));
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
-  transform: translateY(-1px);
 }
 
 .weq-asst-preset:disabled {
@@ -15435,23 +15404,16 @@ html[data-theme='dark'] .message-line.is-deleted .message-bubble {
   border-radius: 6px;
   cursor: pointer;
   pointer-events: auto;
-  transition:
-    transform 0.12s ease,
-    filter 0.12s ease;
+  transition: filter 0.12s ease;
 }
 .message-line.is-deleted .weq-msg-restore:hover {
-  transform: translateY(-1px);
   filter: brightness(1.05);
-}
-.message-line.is-deleted .weq-msg-restore:active {
-  transform: translateY(0);
 }
 .message-line.is-deleted .weq-msg-restore:disabled {
   cursor: default;
   color: var(--weq-fg-muted);
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-subtle);
-  transform: none;
   filter: none;
 }
 
@@ -17989,14 +17951,12 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   transition:
     border-color 150ms ease,
     background-color 150ms ease,
-    transform 150ms ease,
     box-shadow 150ms ease;
 }
 
 .weq-qzal-album-card:hover {
   border-color: var(--weq-border-strong);
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-surface));
-  transform: translateY(-1px);
   box-shadow: 0 18px 34px -26px color-mix(in srgb, var(--weq-accent-effective) 42%, black);
 }
 
@@ -18134,13 +18094,11 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
   transition:
     border-color 150ms ease,
-    transform 150ms ease,
     box-shadow 150ms ease;
 }
 
 .weq-qzal-media-card:hover {
   border-color: var(--weq-border-strong);
-  transform: translateY(-1px);
   box-shadow: 0 14px 28px -22px color-mix(in srgb, var(--weq-accent-effective) 40%, black);
 }
 
@@ -18313,11 +18271,11 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   cursor: pointer;
   transition:
     opacity 150ms ease,
-    transform 150ms ease;
+    background-color 150ms ease;
 }
 
 .weq-qzal-download:hover:not(:disabled) {
-  transform: translateY(-1px);
+  background: var(--weq-accent-solid-hover, var(--weq-accent-solid));
 }
 
 .weq-qzal-download:disabled {
@@ -18470,7 +18428,6 @@ html.weq-theme-ripple::view-transition-new(root) {
     filter 0.14s ease;
 }
 .weq-redbag-card.is-clickable:hover {
-  transform: translateY(-1px);
   filter: brightness(1.03);
 }
 .weq-redbag-card.is-clickable:active {

@@ -35,14 +35,12 @@
   cursor: pointer;
   transition:
     border-color 0.16s ease,
-    box-shadow 0.16s ease,
-    transform 0.16s ease;
+    box-shadow 0.16s ease;
 }
 
 .weq-redpack-wall-card:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, var(--weq-border-subtle));
   box-shadow: var(--weq-shadow-soft);
-  transform: translateY(-1px);
 }
 
 .weq-redpack-wall-card:disabled {
@@ -176,9 +174,5 @@ html[data-theme='dark'] .weq-redpack-wall-media {
 @media (prefers-reduced-motion: reduce) {
   .weq-redpack-wall-skel {
     animation: none;
-  }
-
-  .weq-redpack-wall-card:hover:not(:disabled) {
-    transform: none;
   }
 }

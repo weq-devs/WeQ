@@ -785,7 +785,7 @@ button.composer-single-thumb {
   transition:
     background 130ms ease,
     color 130ms ease,
-    transform 130ms ease;
+    filter 130ms ease;
 }
 
 .voice-btn.ghost {
@@ -818,7 +818,6 @@ button.composer-single-thumb {
 
 .voice-btn.primary:hover:not(:disabled) {
   filter: brightness(1.06);
-  transform: translateY(-1px);
 }
 
 .voice-btn:disabled {
@@ -1105,7 +1104,7 @@ button.composer-single-thumb {
   transition:
     background 130ms ease,
     color 130ms ease,
-    transform 130ms ease;
+    filter 130ms ease;
 }
 
 .link-card-btn.ghost {
@@ -1127,7 +1126,6 @@ button.composer-single-thumb {
 
 .link-card-btn.primary:hover:not(:disabled) {
   filter: brightness(1.06);
-  transform: translateY(-1px);
 }
 
 .link-card-btn.primary:disabled {
@@ -1459,7 +1457,7 @@ html[data-theme='dark'] .link-card-preview-card {
   transition:
     background 130ms ease,
     color 130ms ease,
-    transform 130ms ease;
+    filter 130ms ease;
 }
 
 .ai-voice-btn.primary {
@@ -1471,7 +1469,6 @@ html[data-theme='dark'] .link-card-preview-card {
 
 .ai-voice-btn.primary:hover:not(:disabled) {
   filter: brightness(1.06);
-  transform: translateY(-1px);
 }
 
 .ai-voice-btn.primary:disabled {
@@ -1778,8 +1775,7 @@ html[data-theme='dark'] .link-card-preview-card {
   cursor: pointer;
   transition:
     background 120ms ease,
-    border-color 120ms ease,
-    transform 120ms ease;
+    border-color 120ms ease;
 }
 
 .bounce-cell img {
@@ -1794,7 +1790,6 @@ html[data-theme='dark'] .link-card-preview-card {
 
 .bounce-cell:hover {
   background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 9%, transparent);
-  transform: translateY(-1px);
 }
 
 .bounce-cell.is-active {
@@ -1827,7 +1822,7 @@ html[data-theme='dark'] .link-card-preview-card {
   transition:
     background 130ms ease,
     color 130ms ease,
-    transform 130ms ease;
+    filter 130ms ease;
 }
 
 :is(.bounce-btn, .poke-btn).primary {
@@ -1839,7 +1834,6 @@ html[data-theme='dark'] .link-card-preview-card {
 
 :is(.bounce-btn, .poke-btn).primary:hover:not(:disabled) {
   filter: brightness(1.06);
-  transform: translateY(-1px);
 }
 
 :is(.bounce-btn, .poke-btn).primary:disabled {
@@ -2648,9 +2642,7 @@ html[data-theme='dark'] .poke-combo-btn:not(:where(.is-active, :hover)) {
   font-family: inherit;
   font-size: 12.5px;
   cursor: pointer;
-  transition:
-    filter 130ms ease,
-    transform 130ms ease;
+  transition: filter 130ms ease;
 }
 
 .redpacket-btn.primary {
@@ -2662,7 +2654,6 @@ html[data-theme='dark'] .poke-combo-btn:not(:where(.is-active, :hover)) {
 
 .redpacket-btn.primary:hover:not(:disabled) {
   filter: brightness(1.06);
-  transform: translateY(-1px);
 }
 
 .redpacket-btn:disabled {

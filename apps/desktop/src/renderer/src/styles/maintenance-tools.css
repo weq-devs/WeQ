@@ -230,14 +230,12 @@
   background: #fbfbfc;
   cursor: pointer;
   transition:
-    transform 0.15s,
     box-shadow 0.15s,
     border-color 0.15s,
     background 0.15s,
     opacity 0.15s;
 }
 .weq-wtools-card:hover:not(:disabled) {
-  transform: translateY(-1px);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
 }
 .weq-wtools-card:disabled {

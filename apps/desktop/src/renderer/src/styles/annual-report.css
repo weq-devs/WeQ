@@ -1092,14 +1092,12 @@ html[data-theme='dark'] .weq-report-root {
   cursor: pointer;
   transition:
     color 260ms ease,
-    border-color 260ms ease,
-    transform 320ms var(--rp-ease-drop);
+    border-color 260ms ease;
 }
 
 .weq-end-take-btn:hover:not(:disabled) {
   color: var(--rp-accent);
   border-bottom-color: var(--rp-accent);
-  transform: translateY(-3px);
 }
 
 .weq-end-take-btn:disabled {
@@ -1534,11 +1532,11 @@ html[data-theme='dark'] .weq-report-root {
   cursor: pointer;
   transition:
     opacity 180ms ease,
-    transform 220ms var(--rp-ease-drop);
+    filter 220ms var(--rp-ease-drop);
 }
 
 .weq-qzshare-send:hover:not(:disabled) {
-  transform: translateY(-1px);
+  filter: brightness(1.08);
 }
 
 .weq-qzshare-send:disabled {
@@ -7049,14 +7047,12 @@ html[data-theme='dark'] .weq-report-root {
   cursor: pointer;
   transition:
     border-color 240ms ease,
-    background-color 240ms ease,
-    transform 240ms var(--rp-ease-drop);
+    background-color 240ms ease;
 }
 
 .weq-mt-switch:hover {
   border-color: color-mix(in srgb, var(--rp-mt) 46%, transparent);
   background: color-mix(in srgb, var(--rp-mt) 6%, transparent);
-  transform: translateY(-2px);
 }
 
 .weq-mt-switch:focus-visible {

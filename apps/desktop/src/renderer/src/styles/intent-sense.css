@@ -380,17 +380,11 @@ html[data-theme='dark'] .weq-intent-popover {
   cursor: pointer;
   transition:
     background 260ms cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 120ms ease-out,
-    transform 120ms ease-out;
+    box-shadow 120ms ease-out;
 }
 
 .weq-affinity-pill:hover:not(:disabled) {
   box-shadow: var(--weq-shadow-soft);
-  transform: translateY(-1px);
-}
-
-.weq-affinity-pill:active {
-  transform: translateY(0);
 }
 
 /* 尚无情绪评分时保留画像入口，不沿用评分胶囊的白色前景。 */
@@ -917,14 +911,11 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition:
-    transform 120ms ease-out,
-    box-shadow 120ms ease-out;
+  transition: box-shadow 120ms ease-out;
 }
 
 .weq-int-download-btn:hover:not(:disabled) {
   box-shadow: 0 2px 8px color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 40%, transparent);
-  transform: translateY(-1px);
 }
 
 .weq-int-download-btn:disabled {

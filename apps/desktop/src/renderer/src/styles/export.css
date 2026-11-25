@@ -1480,8 +1480,7 @@ html[data-weq-input='touch'] .weq-exp-dialog-close {
   transition:
     border-color 150ms ease,
     background 150ms ease,
-    box-shadow 150ms ease,
-    transform 120ms ease;
+    box-shadow 150ms ease;
 }
 
 /* 卡片背景 = 进度条：主题色自左向右填充，右缘为平滑正弦波浪（竖向流动）。 */
@@ -1590,7 +1589,6 @@ html[data-theme='dark'] .weq-exp-card-skeleton {
 
 .weq-exp-card:hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
-  transform: translateY(-1px);
 }
 
 /* 边框颜色 = 任务状态（不再放独立状态图标）。 */

@@ -121,14 +121,12 @@
   transition:
     border-color 150ms ease,
     background-color 150ms ease,
-    transform 150ms ease,
     box-shadow 150ms ease;
 }
 
 .group-album-card:hover {
   border-color: var(--weq-border-strong);
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-surface));
-  transform: translateY(-1px);
   box-shadow: 0 18px 34px -24px color-mix(in srgb, var(--weq-accent-effective) 38%, black);
 }
 
@@ -370,13 +368,11 @@
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-elevated));
   cursor: zoom-in;
   transition:
-    transform 150ms ease,
     border-color 150ms ease,
     box-shadow 150ms ease;
 }
 
 .group-album-media-card:hover {
-  transform: translateY(-1px);
   border-color: var(--weq-border-strong);
   box-shadow: 0 16px 30px -24px color-mix(in srgb, var(--weq-accent-effective) 42%, black);
 }

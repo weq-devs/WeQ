@@ -247,14 +247,12 @@ html[data-theme='dark'] .weq-gift-dialog {
   cursor: pointer;
   overflow: hidden;
   transition:
-    transform 0.16s ease,
     border-color 0.16s ease,
     box-shadow 0.16s ease;
 }
 
 .weq-gift-card:hover,
 .weq-gift-card:focus-visible {
-  transform: translateY(-2px);
   border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, var(--weq-border-subtle));
   box-shadow: var(--weq-shadow-soft);
   outline: none;

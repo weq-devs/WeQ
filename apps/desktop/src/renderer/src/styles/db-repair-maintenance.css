@@ -672,8 +672,7 @@ html[data-theme] .weq-dbm .weq-dbm-scan-controls > .weq-segmented > button {
   text-align: left;
   transition:
     border-color 140ms ease,
-    background-color 140ms ease,
-    transform 140ms ease;
+    background-color 140ms ease;
 }
 
 button.weq-dbm-db,
@@ -684,7 +683,6 @@ button.weq-dbm-db,
 button.weq-dbm-db:hover,
 .weq-dbm-db.is-selectable:hover {
   border-color: var(--weq-border-strong);
-  transform: translateY(-1px);
 }
 
 .weq-dbm-db.is-current {
@@ -1448,10 +1446,6 @@ button.weq-dbm-db:hover,
   .weq-dbm-chevron {
     transition: none;
   }
-
-  .weq-dbm-db:hover {
-    transform: none;
-  }
 }
 
 /* 可交互的维护标签沿用原流程条的视觉。 */
@@ -1525,7 +1519,6 @@ button.weq-dbm-step.is-current {
   border-color: var(--dbm-hair);
   background: var(--dbm-tint);
   cursor: default;
-  transform: none;
 }
 
 .weq-dbm-db:has(.weq-dbm-db-input:disabled) .weq-dbm-db-name {

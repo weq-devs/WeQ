@@ -3082,15 +3082,13 @@ html[data-theme='dark'] .weq-related-stage {
   transition:
     border-color 130ms ease,
     background-color 130ms ease,
-    box-shadow 130ms ease,
-    transform 130ms ease;
+    box-shadow 130ms ease;
 }
 
 .weq-mpack-card:hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
   background: #ffffff;
   box-shadow: 0 12px 28px -18px color-mix(in srgb, var(--weq-accent-effective) 70%, transparent);
-  transform: translateY(-1px);
 }
 
 .weq-mpack-cover {
@@ -4715,13 +4713,11 @@ html[data-theme='dark'] .weq-filerow-name {
   transition:
     border-color 130ms ease,
     background-color 130ms ease,
-    transform 130ms ease,
     box-shadow 130ms ease;
 }
 .weq-clean-mode:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
-  transform: translateY(-1px);
 }
 .weq-clean-mode:disabled {
   opacity: 0.5;

@@ -60,11 +60,6 @@
   line-height: 1;
   border-radius: 14px;
   cursor: pointer;
-  transition: transform 0.16s ease;
-}
-
-.weq-profile-avatar-gallery:hover {
-  transform: translateY(-1px);
 }
 
 .weq-profile-avatar-gallery:focus-visible {
