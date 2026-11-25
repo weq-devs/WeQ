@@ -140,12 +140,14 @@ export class ReleaseFeed {
     await this.load();
     if (!force && this.checkedAt && Date.now() - this.checkedAt < 5 * 60_000)
       return this.index ?? null;
-    const deadline = Date.now() + 20000;
-    const sources = orderSources(
-      downloadSources(
-        `https://github.com/${this.repository}/releases/download/${this.feedTag}/${FEED_ASSET}`,
-      ),
+    const now = Date.now();
+    const deadline = now + 20000;
+    const feedUrl = new URL(
+      `https://github.com/${this.repository}/releases/download/${this.feedTag}/${FEED_ASSET}`,
     );
+    // 统一资源索引在同一标签下替换附件，旧重定向仍可能指向上一版签名索引。
+    if (this.feedTag === RESOURCE_FEED_TAG) feedUrl.searchParams.set('check', String(now));
+    const sources = orderSources(downloadSources(feedUrl.href));
     for (let at = 0; at < sources.length && Date.now() < deadline; at += 3) {
       const requests: AbortController[] = [];
       let missingOrigin = false;
