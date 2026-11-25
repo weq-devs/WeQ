@@ -457,6 +457,12 @@ it('报告可查看健康数据库，修复只选择本轮有方案的数据库'
   ]);
   expect(button('停止修复').disabled).toBe(false);
   await act(async () => button('停止修复').click());
+  expect(maintenanceQa.calls.stop).toBe(0);
+  await confirm(false);
+  expect(maintenanceQa.calls.stop).toBe(0);
+  expect(maintenanceQa.snapshot()?.operation?.status).toBe('running');
+  await act(async () => button('停止修复').click());
+  await confirm(true);
   expect(maintenanceQa.calls.stop).toBe(1);
   expect(maintenanceQa.snapshot()?.locked).toBe(false);
   expect(tab('开始修复').disabled).toBe(true);

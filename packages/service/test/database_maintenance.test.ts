@@ -743,7 +743,7 @@ it('停止修复中断临时重建、不启动后续库，保留已经成功的�
   const h = fixture();
   const scan = h.scan.getMockImplementation()!;
   h.scan.mockImplementation(async (...args) => ({ ...(await scan(...args)), plaintext: false }));
-  await h.maintenance.scan(scope, h.targets, 'scan');
+  const checkup = await h.maintenance.scan(scope, h.targets, 'scan');
   let entered!: () => void;
   const started = new Promise<void>((resolve) => {
     entered = resolve;
@@ -761,7 +761,9 @@ it('停止修复中断临时重建、不启动后续库，保留已经成功的�
   );
   const run = h.maintenance.repair(scope, ['msg.db', 'profile.db', 'unsupported.db']);
   await started;
-  await h.maintenance.stop(scope);
+  expect(await h.maintenance.stop(scope, checkup.operation!.id)).toBeNull();
+  expect(h.maintenance.current(scope)?.operation?.stopping).toBeFalsy();
+  await h.maintenance.stop(scope, h.maintenance.current(scope)!.operation!.id);
   const result = await run;
   expect(h.repair).toHaveBeenCalledTimes(2);
   expect(result.operation?.status).toBe('cancelled');

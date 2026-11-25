@@ -1032,7 +1032,19 @@ export function DbRepairPanel({
     });
   const pauseOrStop = () =>
     act(async () => {
-      const result = await stop.mutateAsync(scope);
+      const operationId = operation?.kind === 'repair' ? operation.id : undefined;
+      if (
+        operationId &&
+        !(await useDialog
+          .getState()
+          .confirm(
+            '停止本轮修复？',
+            '将中断尚未提交的重建，并跳过后续数据库。已修复成功的数据库和本轮报告会保留。',
+            { okLabel: '停止修复', cancelLabel: '继续修复', danger: 'outline', ownerDocument },
+          ))
+      )
+        return;
+      const result = await stop.mutateAsync(operationId ? { ...scope, operationId } : scope);
       if (result) updateLive(result);
       await refresh();
     });

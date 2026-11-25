@@ -996,9 +996,12 @@ export class DatabaseMaintenance {
     }
   }
 
-  async stop(scope: DatabaseMaintenanceScope): Promise<DatabaseMaintenanceSnapshot | null> {
+  async stop(
+    scope: DatabaseMaintenanceScope,
+    operationId?: string,
+  ): Promise<DatabaseMaintenanceSnapshot | null> {
     const session = this.sessions.get(keyFor(scope));
-    if (!session) return null;
+    if (!session || (operationId && session.snapshot.operation?.id !== operationId)) return null;
     session.endDecision?.dismiss();
     if (session.pending) {
       session.snapshot.operation!.stopping = true;

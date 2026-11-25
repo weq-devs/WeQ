@@ -542,10 +542,12 @@ export const dbRepairRouter = router({
         closedAccountDuringRun = false;
       }
     }),
-  stopMaintenance: procedure.input(accountRef).mutation(async ({ input }) => {
-    const snapshot = await databaseMaintenance.stop(input);
-    return snapshot ? summarizeDatabaseMaintenance(snapshot) : null;
-  }),
+  stopMaintenance: procedure
+    .input(accountRef.extend({ operationId: z.string().min(1).optional() }))
+    .mutation(async ({ input }) => {
+      const snapshot = await databaseMaintenance.stop(input, input.operationId);
+      return snapshot ? summarizeDatabaseMaintenance(snapshot) : null;
+    }),
   prepareEndMaintenance: procedure
     .input(accountRef.extend({ sessionId: z.string().min(1) }))
     .subscription(({ input }) =>
