@@ -98,7 +98,10 @@ import {
   registerWindowControlsPreference,
 } from './window_controls_events';
 import { installWindowControls } from './window_controls';
-import { createMainWindowLifecycle } from './main_window_lifecycle';
+import {
+  createMainWindowLifecycle,
+  shouldRevealMainWindowOnActivation,
+} from './main_window_lifecycle';
 import { registerMainWindowReveal, revealMainWindow } from './main_window_lifecycle_instance';
 import {
   AUTOSTART_ARG,
@@ -1524,8 +1527,8 @@ async function startDesktop(): Promise<void> {
   if (!developmentProfile) startAutomaticUpdateChecks();
 
   app.on('activate', (_event, hasVisibleWindows) => {
-    // 已有可见窗口时由 macOS 恢复窗口顺序，不让主窗口盖过工具窗口。
-    if (!hasVisibleWindows) revealLastWindow();
+    const mainWindows = [...accountWindows.keys()].map((runtime) => runtime.run(getMainWindow));
+    if (shouldRevealMainWindowOnActivation(hasVisibleWindows, mainWindows)) revealLastWindow();
   });
 
   const developmentWindowPath = process.env.WEQ_DEV_WINDOW_ENDPOINT;
