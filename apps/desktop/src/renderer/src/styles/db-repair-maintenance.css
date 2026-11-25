@@ -394,6 +394,10 @@ html[data-theme='dark'] .weq-dbm {
   text-align: center;
 }
 
+.weq-dbm-scan-controls.is-scan {
+  margin-block: auto;
+}
+
 .weq-dbm .weq-set-btn.weq-dbm-scan-start {
   --weq-control-radius: 50%;
   position: relative;

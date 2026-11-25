@@ -70,19 +70,24 @@ try {
   assert.equal(await page.evaluate(() => window.maintenanceQa.calls.scan.length), 0);
   const scanDatabases = page.getByRole('region', { name: '选择数据库' });
   const displayedDatabases = page.getByRole('region', { name: '数据库列表' });
-  const assertSetupSpacing = async () => {
-    const { topGap, bottomGap } = await scanDatabases.evaluate((list) => {
-      const setup = list.parentElement.getBoundingClientRect();
+  const assertScanLayout = async () => {
+    const { aboveControls, belowControls, belowList } = await scanDatabases.evaluate((list) => {
+      const setup = list.parentElement;
+      const setupBounds = setup.getBoundingClientRect();
       const controls = list.previousElementSibling.getBoundingClientRect();
+      const listBounds = list.getBoundingClientRect();
       return {
-        topGap: controls.top - setup.top,
-        bottomGap: setup.bottom - list.getBoundingClientRect().bottom,
+        aboveControls: controls.top - setupBounds.top,
+        belowControls:
+          listBounds.top - controls.bottom - parseFloat(getComputedStyle(setup).rowGap),
+        belowList: setupBounds.bottom - listBounds.bottom,
       };
     });
     assert.ok(
-      topGap > 0 && Math.abs(topGap - bottomGap) < 1,
-      `设置页上下留白为 ${topGap}px 和 ${bottomGap}px`,
+      aboveControls > 0 && Math.abs(aboveControls - belowControls) < 1,
+      '开始体检操作区应在选库区上方居中',
     );
+    assert.ok(Math.abs(belowList) < 1, `选库区离底部 ${belowList}px`);
   };
   await button('取消全选').click();
   assert.equal(await scanDatabases.getByRole('checkbox', { checked: true }).count(), 0);
@@ -94,7 +99,7 @@ try {
   );
   await page.getByRole('checkbox', { name: /unsupported.db/ }).uncheck();
   await capture('scan-desktop');
-  await assertSetupSpacing();
+  await assertScanLayout();
   await button('开始体检').click();
   await button('暂停体检').waitFor();
   assert.equal(await tab('体检进度与结果').getAttribute('aria-selected'), 'true');
@@ -134,7 +139,6 @@ try {
   await page.setViewportSize({ width: 1060, height: 780 });
   await summary.getByRole('button', { name: '进入修复' }).click();
   await page.getByRole('radio', { name: '深度修复', checked: true }).waitFor();
-  await assertSetupSpacing();
   await page.getByRole('radio', { name: '快速修复' }).click();
   assert.equal(await page.getByRole('checkbox', { name: '修复 nt_msg.db' }).isChecked(), true);
   await page.getByRole('radio', { name: '深度修复' }).click();
@@ -149,7 +153,7 @@ try {
   assert.equal(await queuedDeep.count(), 1);
   await queuedDeep.getByText('等待深度体检', { exact: true }).waitFor();
   await queuedDeep.getByText('快速体检完成 · 发现 1 个坏页，尚未定位').waitFor();
-  await assertSetupSpacing();
+  await assertScanLayout();
   await button('开始补充检查').click();
   await button('暂停体检').waitFor();
   assert.equal(await tab('体检进度与结果').getAttribute('aria-selected'), 'true');
@@ -285,7 +289,7 @@ try {
   await button('继续体检').click();
   await button('追加体检').click();
   assert.equal(await tab('开始体检').getAttribute('aria-selected'), 'true');
-  await assertSetupSpacing();
+  await assertScanLayout();
   await page.getByRole('checkbox', { name: '体检 unsupported.db' }).check();
   await button('加入本轮体检').click();
   await displayedDatabases
