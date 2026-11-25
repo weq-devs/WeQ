@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { DbRepairPanel } from '../src/renderer/src/components/DbRepairPanel';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
-import { maintenanceQa } from './browser/database-maintenance.stub';
+import { maintenanceQa, trpc } from './browser/database-maintenance.stub';
 
 vi.mock(
   '../src/renderer/src/trpc/client',
@@ -217,6 +217,72 @@ it('体检完成后可在原扫描页选中其他库，追加体检不结束维�
   expect(maintenanceQa.calls.end).toBe(0);
   expect(maintenanceQa.calls.scan[1]).toMatchObject({ dbNames: ['profile.db'] });
   expect(maintenanceQa.snapshot()?.databases[0]?.scanStatus).toBe('completed');
+});
+
+it('当前批次在追加选库期间完成时，保留所选数据库供追加体检', async () => {
+  await mount();
+  const choiceToScan = (name: string) =>
+    host.querySelector<HTMLInputElement>(`input[aria-label="体检 ${name}"]`);
+  await act(async () => choiceToScan('profile.db')!.click());
+  await act(async () => choiceToScan('unsupported.db')!.click());
+  await act(async () => button('开始体检').click());
+  await act(async () => button('追加体检').click());
+  expect(choiceToScan('nt_msg.db')).toBeNull();
+  await act(async () => choiceToScan('profile.db')!.click());
+  expect(button('加入本轮体检').disabled).toBe(false);
+
+  await act(async () => maintenanceQa.complete());
+  expect(choiceToScan('profile.db')?.checked).toBe(true);
+  await act(async () => button('追加体检').click());
+  expect(maintenanceQa.calls.scan[1]).toMatchObject({ kind: 'scan', dbNames: ['profile.db'] });
+  expect(maintenanceQa.calls.end).toBe(0);
+  expect(maintenanceQa.snapshot()?.databases[0]?.scanStatus).toBe('completed');
+});
+
+it('等待首条进度时可选择追加库，确认后加入正在运行的同一轮体检', async () => {
+  const begin = Promise.withResolvers<void>();
+  const scanAccount = trpc.dbRepair.scanAccount.useMutation();
+  const delayedScan = vi.spyOn(trpc.dbRepair.scanAccount, 'useMutation').mockReturnValue({
+    ...scanAccount,
+    async mutateAsync(input) {
+      await begin.promise;
+      return scanAccount.mutateAsync(input);
+    },
+  });
+  try {
+    await mount();
+    const choiceToScan = (name: string) =>
+      host.querySelector<HTMLInputElement>(`input[aria-label="体检 ${name}"]`);
+    await act(async () => choiceToScan('profile.db')!.click());
+    await act(async () => choiceToScan('unsupported.db')!.click());
+    await act(async () => button('深度体检').click());
+    await act(async () => button('开始体检').click());
+    await act(async () => button('追加体检').click());
+    expect(choiceToScan('nt_msg.db')).toBeNull();
+    await act(async () => choiceToScan('profile.db')!.click());
+    expect(button('加入本轮体检').disabled).toBe(true);
+
+    await act(async () => begin.resolve());
+    const operationId = maintenanceQa.snapshot()?.operation?.id;
+    expect(button('深度体检').disabled).toBe(true);
+    expect(choiceToScan('profile.db')?.checked).toBe(true);
+    await act(async () => button('加入本轮体检').click());
+    expect(maintenanceQa.calls.append).toEqual([
+      { uin: account.uin, configId: account.configId, operationId, dbNames: ['profile.db'] },
+    ]);
+    expect(maintenanceQa.calls.scan).toHaveLength(1);
+    expect(maintenanceQa.calls.stop).toBe(0);
+    expect(maintenanceQa.snapshot()?.operation).toMatchObject({
+      id: operationId,
+      kind: 'checkup',
+      status: 'running',
+      databaseNames: ['nt_msg.db', 'profile.db'],
+    });
+    expect(tab('体检进度与结果').getAttribute('aria-selected')).toBe('true');
+  } finally {
+    await act(async () => begin.resolve());
+    delayedScan.mockRestore();
+  }
 });
 
 it('界面卸载不取消扫描、不删除已有结果或结束维护', async () => {

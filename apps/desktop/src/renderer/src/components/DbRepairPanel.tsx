@@ -218,7 +218,7 @@ export function DbRepairPanel({
     account?.dbName ? [account.dbName] : undefined,
   );
   const [nextScanSelection, setNextScanSelection] = useState<string[]>();
-  const [additionalNames, setAdditionalNames] = useState<string[]>([]);
+  const [additionalNames, setAdditionalNames] = useState<string[]>();
   const [selected, setSelected] = useState<string[]>([]);
   const [repairMethod, setRepairMethod] = useState<DatabaseRepairMethod>('deep');
   const [backupChoices, setBackupChoices] = useState({ deep: true, quick: false });
@@ -400,7 +400,7 @@ export function DbRepairPanel({
       if (!dbNames.length) return;
       window.electron?.ipcRenderer.send('db-repair:scope', scope);
       setTab('report');
-      setAdditionalNames([]);
+      setAdditionalNames(undefined);
       setReportId(undefined);
       setReportScope(scope);
       setLegacyId(undefined);
@@ -605,7 +605,9 @@ export function DbRepairPanel({
         ? operationNames
         : [...maintainedRows.keys(), ...operationNames]))
     : locked
-      ? (nextScanSelection ?? candidateNames.filter((name) => maintainedRows.has(name)))
+      ? (nextScanSelection ??
+        additionalNames ??
+        candidateNames.filter((name) => maintainedRows.has(name)))
       : scanSelection;
   // 选库区的勾选只管理可见选项，续检仍带上隐藏的待检库。
   const scanNames = candidateNames.filter(
@@ -615,7 +617,7 @@ export function DbRepairPanel({
   const setScanCandidates = locked || paused ? setNextScanSelection : setScanSelection;
   const namesToAppend = setupCandidates
     .map(({ dbName }) => dbName)
-    .filter((name) => additionalNames.includes(name));
+    .filter((name) => additionalNames?.includes(name));
   const setupSelection = scanRunning
     ? namesToAppend
     : scanNames.filter((name) => !alreadyQueued.has(name));
@@ -899,9 +901,7 @@ export function DbRepairPanel({
     ? ` · ${repairCandidates.length} 个可修复`
     : '';
   const stopping = stop.isLoading || !!operation?.stopping;
-  const canAppend = paused
-    ? pendingDeepScan.length > 0
-    : scanRunning && !stopping && operation?.status === 'running' && setupCandidates.length > 0;
+  const canAppend = scanRunning && !stopping && !ending && setupCandidates.length > 0;
   const scanModeControl = (
     <SegmentedControl
       label="体检类型"
@@ -932,7 +932,7 @@ export function DbRepairPanel({
     operation && (!starting || operation.status === 'running')
       ? `${operation.completedDatabases} / ${operation.totalDatabases} 个数据库完成${operation.currentDb ? ` · 当前 ${operation.currentDb}` : ''}`
       : '正在准备…';
-  const appendButton = canAppend ? (
+  const appendButton = (paused ? pendingDeepScan.length > 0 : canAppend) ? (
     <button className="weq-set-btn" type="button" onClick={() => setTab('scan')}>
       <ScanLine size={14} aria-hidden />
       追加体检
@@ -957,9 +957,19 @@ export function DbRepairPanel({
   ) : null;
   const appendToScan = () =>
     act(async () => {
-      if (!operation || !namesToAppend.length) return;
-      await appendScan.mutateAsync({ ...scope, operationId: operation.id, dbNames: namesToAppend });
-      setAdditionalNames([]);
+      if (!activeScanKind || !operation || !namesToAppend.length) return;
+      try {
+        await appendScan.mutateAsync({
+          ...scope,
+          operationId: operation.id,
+          dbNames: namesToAppend,
+        });
+      } catch (cause) {
+        // 提交期间当前批次可能已结束，刷新状态后仍可使用原来的选择继续。
+        await utils.dbRepair.maintenance.invalidate(scope);
+        throw cause;
+      }
+      setAdditionalNames(undefined);
       setTab('report');
     });
 
@@ -1121,9 +1131,10 @@ export function DbRepairPanel({
                 className="weq-set-btn weq-set-btn-primary weq-dbm-scan-start"
                 type="button"
                 disabled={
-                  scanRunning
-                    ? !canAppend || appendScan.isLoading || !namesToAppend.length
-                    : !canScan || stopping || !scanNames.length
+                  appendScan.isLoading ||
+                  (scanRunning
+                    ? !canAppend || !activeScanKind || !namesToAppend.length
+                    : !canScan || stopping || !scanNames.length)
                 }
                 onClick={() => void (scanRunning ? appendToScan() : startScan(scanKind, scanNames))}
               >
@@ -1142,7 +1153,7 @@ export function DbRepairPanel({
               </p>
               <p role="status">
                 {scanRunning
-                  ? '追加的数据库将按本轮体检类型检查。'
+                  ? '当前批次完成后，按同一体检类型检查追加的数据库。'
                   : status.data && !status.data.keyPresent && !status.data.error
                     ? '请先用 WeQ 打开一次这个账号，获取数据库密钥后再开始体检。'
                     : paused && scanNames.length > setupSelection.length
