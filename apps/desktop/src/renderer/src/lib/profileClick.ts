@@ -85,8 +85,9 @@ export function activateProfile(
         const current = topSurface(document, false);
         return current !== previous ? current : undefined;
       };
-      const avatar =
-        !landscape ? profileAvatarAtClick(event.currentTarget, event.target) : undefined;
+      const avatar = !landscape
+        ? profileAvatarAtClick(event.currentTarget, event.target)
+        : undefined;
       captureSecondClick(
         view,
         document,
