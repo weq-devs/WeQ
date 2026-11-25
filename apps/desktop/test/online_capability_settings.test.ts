@@ -129,7 +129,7 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-function mount(page: 'account' | 'qq-proxy' | 'reminders' = 'account') {
+function mount(page: 'account' | 'reminders' = 'account') {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -162,7 +162,7 @@ it('关闭统一提示后，代理设置仍可打开共用详情并查看待同�
   mock.settings.qqClientSyncEnabled = true;
   mock.proxyStatus = waitingProxy();
   mock.access = { ...ready, qqOnline: false };
-  const f = mount('qq-proxy');
+  const f = mount();
   const card = f.host.querySelector<HTMLElement>('[data-setting-id="qq-proxy-connection"]')!;
   const syncCard = f.host
     .querySelector('[data-setting-id="qq-client-sync"]')!
@@ -196,6 +196,9 @@ it('关闭统一提示后，代理设置仍可打开共用详情并查看待同�
   mock.proxyStatus = { ...waitingProxy(), connected: true };
   f.render();
   expect(badge().textContent).toBe('已连接');
+  mock.settings.autoAttachQq = false;
+  f.render();
+  expect(badge().textContent).toBe('等待在线能力');
 
   const master = card.querySelector<HTMLButtonElement>(
     '[role="switch"][aria-label="启用 QQ 代理"]',

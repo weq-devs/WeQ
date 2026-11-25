@@ -1768,7 +1768,7 @@ function MainWorkspace(): ReactElement {
         ) {
           const target = {
             qqOnlineCapability: { section: 'account', settingId: 'auto-full-mode' },
-            qqProxyConnection: { section: 'qq-proxy', settingId: 'qq-proxy-connection' },
+            qqProxyConnection: { section: 'account', settingId: 'qq-proxy-connection' },
             longTermAuthorization: {
               section: 'long-term-authorization',
               settingId: 'long-term-authorization',

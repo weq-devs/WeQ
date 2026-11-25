@@ -32,8 +32,6 @@ export const SETTINGS_PAGE_LABELS = {
   'enhancement-packs': '增强包',
   recognition: '识别与转写',
   account: 'QQ 在线能力',
-  'qq-proxy': 'QQ 代理连接',
-  'qq-status-reminders': '状态提醒',
   'long-term-authorization': '长期授权',
   credentials: '凭据管理',
   'qq-accounts': 'QQ 登录管理',
@@ -59,6 +57,8 @@ export const SETTINGS_PAGE_LABELS = {
 export type SettingsPageId = keyof typeof SETTINGS_PAGE_LABELS;
 export type SectionId =
   | SettingsPageId
+  | 'qq-proxy'
+  | 'qq-status-reminders'
   | 'performance-monitor'
   | 'applock'
   | 'saving'
@@ -83,13 +83,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'capabilities',
     label: '能力',
-    sections: [
-      'account',
-      'qq-proxy',
-      'qq-status-reminders',
-      'long-term-authorization',
-      'enhancement-packs',
-    ],
+    sections: ['account', 'long-term-authorization', 'enhancement-packs'],
   },
   {
     id: 'chat',
@@ -754,8 +748,49 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['account'],
   },
   {
+    id: 'qq-debug-copy',
+    section: 'account',
+    label: 'QQ 调试副本',
+    aliases: ['SIP', '不关闭 SIP', '副本更新', '调试读取'],
+    from: ['account'],
+    desktopOnly: true,
+  },
+  {
+    id: 'qq-proxy-connection',
+    section: 'account',
+    label: '代理连接',
+    aliases: ['QQ 代理连接', '本机 QQ 同步', 'QQ 同步代理', '代理端口', '设置代理'],
+    from: ['account', 'qq-proxy'],
+  },
+  {
+    id: 'qq-sync-and-live',
+    section: 'account',
+    label: '同步与实时更新',
+    from: ['account', 'qq-proxy'],
+  },
+  {
+    id: 'qq-live-messages',
+    section: 'account',
+    label: '通过 QQ 代理加速实时更新',
+    aliases: ['通过 QQ 代理实时接收消息', '消息直推', '实时收信', '代理性能优化'],
+    from: ['account', 'qq-proxy'],
+  },
+  {
+    id: 'qq-client-sync',
+    section: 'account',
+    label: '自动同步本人消息与已读',
+    aliases: ['补投本人消息'],
+    from: ['account', 'qq-proxy'],
+  },
+  {
+    id: 'qq-status-reminders',
+    section: 'account',
+    label: '状态提醒',
+    from: ['account', 'qq-status-reminders'],
+  },
+  {
     id: 'qq-status-indicator',
-    section: 'qq-status-reminders',
+    section: 'account',
     label: '显示 QQ 功能状态提示',
     aliases: [
       '在线能力受限时显示窗口提示',
@@ -772,39 +807,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'qq-online-notification',
-    section: 'qq-status-reminders',
+    section: 'account',
     label: '在线能力受限时通知',
     aliases: ['在线能力受限时横幅提醒', '受限横幅'],
     from: ['account', 'qq-status-reminders'],
-  },
-  {
-    id: 'qq-proxy-connection',
-    section: 'qq-proxy',
-    label: 'QQ 代理连接',
-    aliases: ['本机 QQ 同步', 'QQ 同步代理', '代理端口', '设置代理'],
-    from: ['account', 'qq-proxy'],
-  },
-  {
-    id: 'qq-live-messages',
-    section: 'qq-proxy',
-    label: '通过 QQ 代理加速实时更新',
-    aliases: ['通过 QQ 代理实时接收消息', '消息直推', '实时收信', '代理性能优化'],
-    from: ['account', 'qq-proxy'],
-  },
-  {
-    id: 'qq-client-sync',
-    section: 'qq-proxy',
-    label: '自动同步本人消息与已读',
-    aliases: ['补投本人消息'],
-    from: ['account', 'qq-proxy'],
-  },
-  {
-    id: 'qq-debug-copy',
-    section: 'account',
-    label: 'QQ 调试副本',
-    aliases: ['SIP', '不关闭 SIP', '副本更新', '调试读取'],
-    from: ['account'],
-    desktopOnly: true,
   },
   {
     id: 'long-term-authorization',
@@ -1209,6 +1215,8 @@ const SECTION_REDIRECTS: Partial<
   Record<SectionId, { section: SettingsPageId; settingId?: string }>
 > = {
   applock: { section: 'privacy', settingId: 'app-lock' },
+  'qq-proxy': { section: 'account', settingId: 'qq-proxy-connection' },
+  'qq-status-reminders': { section: 'account', settingId: 'qq-status-reminders' },
   'performance-monitor': { section: 'logs', settingId: 'performance-monitor' },
   home: { section: 'home', settingId: 'home-settings' },
   saving: { section: 'global' },

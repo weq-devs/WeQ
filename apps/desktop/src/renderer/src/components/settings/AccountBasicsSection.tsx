@@ -39,6 +39,7 @@ import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, SettingsStatusBadge, Toggle } from './controls';
 import { DatabaseReadSettings } from './DatabaseReadSettings';
 import { FullFunctionSetup } from './FullFunctionSetup';
+import { QqStatusReminderSettings } from './QqStatusReminderSettings';
 import { CopyButton } from '../CopyButton';
 import { useRestrictedMode } from '../../state/restrictedMode';
 import { useViewState } from '../../state/view';
@@ -127,7 +128,7 @@ export function AccountBasicsSection({
   heading = true,
   databaseKeyTools,
 }: {
-  page?: 'account' | 'qq-proxy' | 'credentials' | 'media' | 'listening';
+  page?: 'account' | 'credentials' | 'media' | 'listening';
   heading?: boolean;
   databaseKeyTools?: ReactNode;
 }): ReactElement {
@@ -163,9 +164,9 @@ export function AccountBasicsSection({
   const [qqSyncPortDraft, setQqSyncPortDraft] = useState<string | null>(null);
   const pushToast = useToast((state) => state.push);
   const qqSyncStatus = trpc.bootstrap.getQqClientSyncStatus.useQuery(undefined, {
-    enabled: active && page === 'qq-proxy',
+    enabled: active && page === 'account',
     staleTime: 0,
-    refetchInterval: active && page === 'qq-proxy' ? 5000 : false,
+    refetchInterval: active && page === 'account' ? 5000 : false,
   });
   const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, { enabled: false });
   const setQqProxyEnabled = trpc.bootstrap.setQqProxyEnabled.useMutation({
@@ -224,15 +225,17 @@ export function AccountBasicsSection({
       ? '检查中'
       : !proxyEnabled
         ? '已关闭'
-        : proxy.connected
-          ? '已连接'
-          : proxy.connecting
-            ? '正在确认连接'
-            : proxyWaiting
-              ? QQ_PROXY_WAITING
-              : proxy.running
-                ? '未连接'
-                : '代理未运行';
+        : settings.data?.autoAttachQq === false
+          ? '等待在线能力'
+          : proxy.connected
+            ? '已连接'
+            : proxy.connecting
+              ? '正在确认连接'
+              : proxyWaiting
+                ? QQ_PROXY_WAITING
+                : proxy.running
+                  ? '未连接'
+                  : '代理未运行';
   const proxyStatusError = qqSyncStatus.isError
     ? '无法读取代理状态。'
     : proxyEnabled && proxy && !proxy.running
@@ -574,39 +577,39 @@ export function AccountBasicsSection({
         </Card>
       )}
       {page === 'account' && (
-        <FullFunctionSetup
-          isMac={isMac}
-          enableSetting={
-            <Row
-              settingId="auto-full-mode"
-              desc="开启后，WeQ 会从已登录的 QQ 获取会话凭据。在线能力就绪时，WeQ 自动向 QQ 服务器上报已读位置。要把已读同步回本机 QQ，请使用「QQ 代理连接」。"
-              control={
-                <Toggle
-                  checked={autoAttach}
-                  disabled={settingsLoading || setAutoAttachQq.isLoading}
-                  onChange={(v) =>
-                    void persist(
-                      () => setAutoAttach(v),
-                      () => setAutoAttachQq.mutateAsync({ enabled: v }),
-                    )
-                  }
-                  label="启用 QQ 在线能力"
-                />
-              }
-            />
-          }
-        />
-      )}
-      {page === 'qq-proxy' && (
         <>
+          <FullFunctionSetup
+            isMac={isMac}
+            enableSetting={
+              <Row
+                settingId="auto-full-mode"
+                desc="开启后，WeQ 会从已登录的 QQ 获取会话凭据。在线能力就绪时，WeQ 自动向 QQ 服务器上报已读位置。要把已读同步回本机 QQ，请在下方「同步与实时更新」开启同步。"
+                control={
+                  <Toggle
+                    checked={autoAttach}
+                    disabled={settingsLoading || setAutoAttachQq.isLoading}
+                    onChange={(v) =>
+                      void persist(
+                        () => setAutoAttach(v),
+                        () => setAutoAttachQq.mutateAsync({ enabled: v }),
+                      )
+                    }
+                    label="启用 QQ 在线能力"
+                  />
+                }
+              />
+            }
+          />
           <Card
             settingId="qq-proxy-connection"
             title="代理连接"
             titleBadge={
               <SettingsStatusBadge
                 label={proxyStatusText}
-                tone={proxyStatusError ? 'warning' : proxy?.connected ? 'ready' : 'neutral'}
-                loading={proxyWaiting}
+                tone={
+                  proxyStatusError ? 'warning' : proxyStatusText === '已连接' ? 'ready' : 'neutral'
+                }
+                loading={proxyStatusText === QQ_PROXY_WAITING}
                 details={{
                   label: `QQ 代理连接：${proxyStatusText}，查看详情`,
                   open: active && proxyDetailsOpen,
@@ -678,7 +681,12 @@ export function AccountBasicsSection({
               </p>
             )}
           </Card>
-          <Card title="同步与实时更新" icon={<RefreshCw size={15} strokeWidth={1.8} />}>
+          <Card
+            settingId="qq-sync-and-live"
+            title="同步与实时更新"
+            icon={<RefreshCw size={15} strokeWidth={1.8} />}
+            desc="使用代理同步或加速实时更新时，需要当前账号的 QQ 在线能力就绪。"
+          >
             <Row
               settingId="qq-client-sync"
               desc="把 WeQ 发送的本人消息和已向 QQ 服务器成功上报的已读位置，同步回本机 QQ。"
@@ -720,6 +728,7 @@ export function AccountBasicsSection({
               }
             />
           </Card>
+          <QqStatusReminderSettings />
         </>
       )}
       {/* 外部安卓图片缓存（放最下面，带引导文案） */}

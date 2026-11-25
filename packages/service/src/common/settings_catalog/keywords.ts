@@ -98,7 +98,6 @@ export const SETTINGS_PAGE_ALIASES: Partial<Record<SettingsPageId, readonly stri
   'chat-interaction': ['互动与防撤回'],
   'call-recording': ['通话录音'],
   account: ['在线能力与授权', '在线授权', '账号在线能力'],
-  'qq-proxy': ['在线能力与授权'],
   'long-term-authorization': ['在线能力与授权'],
   accounts: ['账号管理'],
   credentials: ['账号凭据'],

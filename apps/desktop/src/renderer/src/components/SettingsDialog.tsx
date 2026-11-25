@@ -45,7 +45,6 @@ import { CallRecordingSection, CallUdpTraceSettings } from './settings/CallRecor
 import { MailSettingsSection } from './settings/MailSettingsSection';
 import { PrivacySection } from './settings/PrivacySection';
 import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
-import { QqStatusReminderSettings } from './settings/QqStatusReminderSettings';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
 import { LongTermAuthorizationSection } from './settings/LongTermAuthorizationSection';
 import { ComponentAppearance } from './settings/ComponentAppearance';
@@ -169,8 +168,6 @@ const SETTINGS_PAGE_RENDERERS: Record<
   ),
   'model-usage': () => <ModelUsageSection />,
   account: () => <AccountBasicsSection />,
-  'qq-proxy': () => <AccountBasicsSection page="qq-proxy" />,
-  'qq-status-reminders': () => <QqStatusReminderSettings />,
   'long-term-authorization': () => (
     <div className="weq-set">
       <SectionHeader

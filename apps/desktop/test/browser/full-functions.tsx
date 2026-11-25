@@ -1,5 +1,4 @@
 import { createRoot } from 'react-dom/client';
-import { QqStatusReminderSettings } from '../../src/renderer/src/components/settings/QqStatusReminderSettings';
 import { AccountBasicsSection } from '../../src/renderer/src/components/settings/AccountBasicsSection';
 import { LongTermAuthorizationSection } from '../../src/renderer/src/components/settings/LongTermAuthorizationSection';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
@@ -36,8 +35,6 @@ createRoot(document.getElementById('root')!).render(
         <main className="weq-settings-dialog full-functions-fixture">
           <div className="weq-set">
             <AccountBasicsSection heading={false} />
-            <AccountBasicsSection page="qq-proxy" heading={false} />
-            <QqStatusReminderSettings />
             <LongTermAuthorizationSection />
           </div>
         </main>

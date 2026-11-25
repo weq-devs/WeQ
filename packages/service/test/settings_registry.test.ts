@@ -63,6 +63,15 @@ describe('设置统一注册表', () => {
       true,
     );
     expect(listSettings({ query: '  深色模式  ' }).map((item) => item.id)).toContain('theme-mode');
+    expect(listSettings({ page: 'qq-proxy' }).map(({ id, page }) => [id, page])).toEqual([
+      ['qq-proxy-connection', 'account'],
+      ['qq-live-messages', 'account'],
+      ['qq-client-sync', 'account'],
+    ]);
+    expect(listSettings({ page: 'qq-status-reminders' }).map(({ id }) => id)).toEqual([
+      'qq-status-indicator',
+      'qq-online-notification',
+    ]);
     expect(listSettings({ query: '不存在的设置字段' })).toEqual([]);
     expect(() => listSettings({ page: 'not-a-page' })).toThrow('未知设置页面');
     for (const item of listSettings()) {

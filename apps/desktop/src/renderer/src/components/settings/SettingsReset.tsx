@@ -13,7 +13,7 @@ import {
   type SettingsResetCardId,
 } from '../../../../shared/settings_reset';
 import { SettingsResetContext, type ResetSave } from './resetContext';
-import { SETTINGS_PAGE_LABELS } from './navigation';
+import { SETTINGS_PAGE_LABELS, settingsSectionFor } from './navigation';
 import '../../styles/settings-reset.css';
 import { acceptPreferences, settlePreferenceWrites } from '../../lib/clientPreferences';
 import { describeSettingsReset, formatResetValue } from '../../lib/settingsResetPreview';
@@ -204,7 +204,7 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
   const label = dialog?.target.card
     ? SETTINGS_RESET_CARDS.find(([, card]) => card === dialog.target.card)?.[2]
     : dialog
-      ? SETTINGS_PAGE_LABELS[dialog.target.page]
+      ? SETTINGS_PAGE_LABELS[settingsSectionFor(dialog.target.page)]
       : '本页';
   return (
     <SettingsResetContext.Provider

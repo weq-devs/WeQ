@@ -27,7 +27,6 @@ export function RestrictedQqAction({
   allowSwitch = true,
   hasCurrentAccount = true,
   currentAccountPid,
-  proxySetup = false,
   children,
 }: {
   needsQq: boolean;
@@ -38,7 +37,6 @@ export function RestrictedQqAction({
   allowSwitch?: boolean;
   hasCurrentAccount?: boolean;
   currentAccountPid?: number | null;
-  proxySetup?: boolean;
   children?: ReactNode;
 }) {
   const [pending, setPending] = useState<QqDebugCopyPhase | null>(null);
@@ -137,7 +135,6 @@ export function RestrictedQqAction({
               : '请在 QQ 调试副本中登录当前账号，登录后 WeQ 会自动更新状态。'}
         </p>
       )}
-      {needsLogin && proxySetup && <p>登录前，请按下方「QQ 代理连接」的步骤配置代理。</p>}
       {needsQq && signedInToCopy && (
         <p>当前账号已登录 QQ 调试副本。请保持登录，WeQ 会继续读取在线凭据，也可手动重试。</p>
       )}

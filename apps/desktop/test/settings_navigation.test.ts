@@ -50,11 +50,9 @@ describe('设置的两级导航', () => {
       settingId: 'weq-assistant-default-model',
     });
   });
-  it('在线能力、代理连接和长期授权归能力，旧名称仍可查找', () => {
+  it('代理和提醒归 QQ 在线能力，长期授权保留独立入口', () => {
     expect(settingsGroupFor('account').sections).toEqual([
       'account',
-      'qq-proxy',
-      'qq-status-reminders',
       'long-term-authorization',
       'enhancement-packs',
     ]);
@@ -67,11 +65,21 @@ describe('设置的两级导航', () => {
         .filter((entry) => entry.id.startsWith('settings.page.'))
         .map((entry) => entry.target),
     ).toEqual(
-      ['account', 'qq-proxy', 'long-term-authorization'].map((section) => ({
+      ['account', 'long-term-authorization'].map((section) => ({
         kind: 'setting',
         section,
       })),
     );
+  });
+  it.each([
+    ['qq-proxy', 'QQ 代理连接', 'qq-proxy-connection'],
+    ['qq-status-reminders', '状态提醒', 'qq-status-reminders'],
+  ] as const)('旧页面 %s 和搜索仍可定位对应卡片', (section, keyword, settingId) => {
+    expect(resolveSettingsTarget({ section })).toMatchObject({ section: 'account', settingId });
+    expect(searchAppEntries(keyword)[0]).toMatchObject({
+      path: '设置 / 能力 / QQ 在线能力',
+      target: { kind: 'setting', section: 'account', settingId },
+    });
   });
   it.each([
     ['使用仿 Windows 窗口按钮', 'windows-style-controls', 'appearance', '外观与布局'],

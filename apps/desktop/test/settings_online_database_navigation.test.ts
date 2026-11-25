@@ -35,9 +35,16 @@ it.each(['realtime', 'database-read'] as const)('旧账号页单组恢复 %s 仍
   ]);
 });
 
-it('在线能力与代理各自恢复本页，旧代理单组恢复仍可用', () => {
-  expect(resetCards({ page: 'account' }).map(([, card]) => card)).toEqual(['attach']);
+it('在线能力页恢复涵盖代理和提醒，旧入口仍限于各自范围', () => {
+  expect(resetCards({ page: 'account' }).map(([, card]) => card)).toEqual([
+    'attach',
+    'qq-client-sync',
+    'qq-status-reminders',
+  ]);
   const proxyCards = resetCards({ page: 'qq-proxy' });
   expect(proxyCards.map(([, card]) => card)).toEqual(['qq-client-sync']);
   expect(resetCards({ page: 'account', card: 'qq-client-sync' })).toEqual(proxyCards);
+  expect(resetCards({ page: 'qq-status-reminders' }).map(([, card]) => card)).toEqual([
+    'qq-status-reminders',
+  ]);
 });

@@ -30,7 +30,6 @@ export function SettingsNotificationSource({
   const inherited = useContext(NotificationSourceContext);
   const binding = [
     'account',
-    'qq-proxy',
     'credentials',
     'qq-accounts',
     'diagnostics',

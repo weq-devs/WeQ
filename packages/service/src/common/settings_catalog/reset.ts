@@ -68,8 +68,8 @@ export const SETTINGS_RESET_CARDS = [
   ['enhancement-packs', 'enhancement-updates', '增强包自动更新'],
   ['database-management', 'realtime', '监听与读取'],
   ['account', 'attach', 'QQ 在线能力'],
-  ['qq-proxy', 'qq-client-sync', 'QQ 代理连接'],
-  ['qq-status-reminders', 'qq-status-reminders', '状态提醒'],
+  ['account', 'qq-client-sync', '代理连接'],
+  ['account', 'qq-status-reminders', '状态提醒'],
   ['accounts', 'auto-enter', '现有配置'],
   ['resource-loading', 'external-chatpic', '外部安卓图片缓存'],
   ['resource-loading', 'cdn', '加载来源'],
@@ -93,7 +93,7 @@ export const SETTINGS_RESET_CARDS = [
 export type SettingsResetCardId = (typeof SETTINGS_RESET_CARDS)[number][1];
 export type SettingsResetPageId = (typeof SETTINGS_RESET_CARDS)[number][0];
 export type SettingsResetTarget = {
-  page: SettingsResetPageId | 'credentials';
+  page: SettingsResetPageId | 'credentials' | 'qq-proxy' | 'qq-status-reminders';
   card?: SettingsResetCardId;
 };
 export interface SettingsResetItem {
@@ -137,18 +137,27 @@ const previousResetPages: Partial<Record<SettingsResetCardId, SettingsPageId>> =
   'call-trace': 'call-recording',
   rkey: 'credentials',
   'data-saver': 'resource-loading',
-  'qq-client-sync': 'account',
   realtime: 'account',
   'database-read': 'account',
 };
 
 export function resetCards(target: SettingsResetTarget) {
+  // 旧的页面恢复入口仍仅恢复当时页面上的设置。
+  const previousCard =
+    target.page === 'qq-proxy'
+      ? 'qq-client-sync'
+      : target.page === 'qq-status-reminders'
+        ? 'qq-status-reminders'
+        : undefined;
+  const card = target.card ?? previousCard;
   const currentPage =
-    target.card && previousResetPages[target.card] === target.page
-      ? SETTINGS_RESET_CARDS.find(([, card]) => card === target.card)?.[0]
-      : target.page;
+    previousCard && card === previousCard
+      ? 'account'
+      : card && previousResetPages[card] === target.page
+        ? SETTINGS_RESET_CARDS.find(([, id]) => id === card)?.[0]
+        : target.page;
   const cards = SETTINGS_RESET_CARDS.filter(
-    ([page, card]) => page === currentPage && (!target.card || card === target.card),
+    ([page, id]) => page === currentPage && (!card || id === card),
   );
   if (!cards.length) throw new Error('未知的设置恢复范围');
   return cards;

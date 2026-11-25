@@ -25,13 +25,24 @@ export function settingDefinition(id: string) {
   return entry;
 }
 
+const previousPageItems: Readonly<Record<string, readonly string[]>> = {
+  'qq-proxy': ['qq-proxy-connection', 'qq-live-messages', 'qq-client-sync'],
+  'qq-status-reminders': ['qq-status-indicator', 'qq-online-notification'],
+};
+
 export function listSettings(options: { page?: string; query?: string } = {}) {
-  if (options.page && !Object.hasOwn(SETTINGS_PAGE_LABELS, options.page))
+  const previousItems =
+    options.page && Object.hasOwn(previousPageItems, options.page)
+      ? previousPageItems[options.page]
+      : undefined;
+  if (options.page && !previousItems && !Object.hasOwn(SETTINGS_PAGE_LABELS, options.page))
     throw new Error(`未知设置页面：${options.page}`);
   const query = options.query?.trim().toLocaleLowerCase();
   return SETTINGS_CATALOG.filter(
     (item) =>
-      (!options.page || item.section === options.page) &&
+      (previousItems
+        ? previousItems.includes(item.id)
+        : !options.page || item.section === options.page) &&
       (!query ||
         [item.id, item.label, ...item.aliases, ...item.path].some((text) =>
           text.toLocaleLowerCase().includes(query),

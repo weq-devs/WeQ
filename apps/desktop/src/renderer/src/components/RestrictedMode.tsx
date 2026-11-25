@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   KeyRound,
   LoaderCircle,
@@ -24,6 +24,7 @@ import {
   restrictionReasons,
   startupRestrictionReasons,
   dataAccessRestriction,
+  type Restriction,
 } from '../lib/restrictedMode';
 import { IS_MAC } from '../lib/target.shared';
 import { QqDataAccessNotice } from '../views/bootstrap/QqDataAccessNotice';
@@ -38,6 +39,17 @@ import '../styles/restricted-mode.css';
 import { ipc, QQ_STATUS_DETAILS_ID } from './RestrictedMode.shared';
 
 const NOTICE_KEY = 'restricted-mode';
+
+function nextOnlineStep(reasons: Restriction[], awaitingAuthorization: boolean, entering: boolean) {
+  const prerequisite =
+    reasons.find((reason) => reason.code === 'data-access') ??
+    reasons.find((reason) => reason.code === 'disabled') ??
+    reasons.find((reason) => reason.code === 'offline');
+  if (prerequisite) return prerequisite;
+  if (awaitingAuthorization) return 'authorization';
+  if (entering) return 'entering';
+  return reasons[0];
+}
 
 /** 保留主进程的 token、取消与超时语义，只将授权入口改为非阻塞详情。 */
 function useAuthorizationBridge() {
@@ -94,17 +106,15 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
   const awaitingAuthorization = requests.length > 0;
   const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, { enabled: false });
   const proxy = useQqProxyStatus(false, access);
-  const onlineAttention = Boolean(reasons.length || requests.length || entering);
+  const onlineStep = nextOnlineStep(reasons, awaitingAuthorization, entering);
+  const onlineAttention = Boolean(onlineStep);
   const proxyConnecting = proxy.needsAttention && !proxy.isError && proxy.current?.connecting;
-  const both = onlineAttention && proxy.needsAttention && !proxy.waiting;
-  const inProgress = Boolean(
-    (entering && !both) || (!onlineAttention && (proxy.waiting || proxyConnecting)),
-  );
-  const title = both
-    ? 'QQ 功能受限'
-    : awaitingAuthorization
+  const inProgress =
+    onlineStep === 'entering' || (!onlineAttention && Boolean(proxy.waiting || proxyConnecting));
+  const title =
+    onlineStep === 'authorization'
       ? '待提权'
-      : entering
+      : onlineStep === 'entering'
         ? '正在启用 QQ 在线能力'
         : onlineAttention
           ? '在线能力受限'
@@ -134,7 +144,7 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
       tabIndex={visible ? undefined : -1}
       onClick={() => useRestrictedMode.getState().setOpen(!open)}
     >
-      {awaitingAuthorization ? (
+      {onlineStep === 'authorization' ? (
         <KeyRound size={15} aria-hidden />
       ) : inProgress ? (
         <LoaderCircle size={15} className="weq-restricted-progress-icon" aria-hidden />
@@ -151,12 +161,10 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
 export function AuthorizationForm({
   request,
   onOpenLongTermAuthorization,
-  actions,
   showLongTermAuthorization = true,
 }: {
   request: AuthorizationRequest;
   onOpenLongTermAuthorization?: () => void;
-  actions?: ReactNode;
   showLongTermAuthorization?: boolean;
 }) {
   const [password, setPassword] = useState('');
@@ -225,7 +233,6 @@ export function AuthorizationForm({
             }}
           />
         )}
-        {actions}
       </div>
     </form>
   );
@@ -247,6 +254,9 @@ export function RestrictedModeHost() {
   const awaitingAuthorization = requests.length > 0;
   const authorizationIssue = reasons.some((reason) => reason.code === 'authorization');
   const entering = enteringSince !== null && !awaitingAuthorization && !authorizationIssue;
+  const onlineStep = nextOnlineStep(reasons, awaitingAuthorization, entering);
+  const reason = typeof onlineStep === 'object' ? onlineStep : undefined;
+  const authorizationRequest = onlineStep === 'authorization' ? requests[0] : undefined;
   const previousUin = useRef(uin);
   const panel = useRef<HTMLElement>(null);
   const previous = useRef('');
@@ -358,9 +368,10 @@ export function RestrictedModeHost() {
   const showDebugCopy =
     IS_MAC &&
     sip.data === true &&
-    reasons.some((reason) => ['sip', 'offline', 'disabled', 'credentials'].includes(reason.code));
-  const offline = reasons.some((reason) => reason.code === 'offline');
-  const sipLimited = reasons.some((reason) => reason.code === 'sip');
+    reason !== undefined &&
+    ['sip', 'offline', 'credentials'].includes(reason.code);
+  const offline = reason?.code === 'offline';
+  const sipLimited = reason?.code === 'sip';
   const currentAccountPid =
     accessMatches && !access.isError && access.data?.qqOnline ? access.data.qqPid : null;
   // 副本入口负责后台刷新，此处只订阅同一份进程快照来合并代理与在线能力的操作。
@@ -368,8 +379,7 @@ export function RestrictedModeHost() {
   const signedInToCopy =
     currentAccountPid != null && debugCopy.data?.runningPids.includes(currentAccountPid);
   const needsDebugQq = offline || (sipLimited && !signedInToCopy);
-  const checkQqProcess =
-    open && offline && !showDebugCopy && !canConfigureProxy && !awaitingAuthorization;
+  const checkQqProcess = open && offline && !showDebugCopy && !canConfigureProxy;
   const qqProcess = trpc.bootstrap.getQqProcessState.useQuery(undefined, {
     enabled: checkQqProcess,
     staleTime: 0,
@@ -519,8 +529,8 @@ export function RestrictedModeHost() {
     ...(requests.length ? ['authorization'] : []),
     ...(entering ? ['entering'] : []),
   ].join(',');
-  const showOnline = Boolean(signature) || settingsSection === 'online';
-  const showProxy = proxyAttention || settingsSection === 'proxy';
+  const showProxy = !onlineStep && (proxyAttention || settingsSection === 'proxy');
+  const showOnline = Boolean(onlineStep) || (!showProxy && settingsSection === 'online');
   const showDetails = open && (showOnline || showProxy);
   useEffect(() => {
     if (open && !showOnline && !showProxy) useRestrictedMode.getState().setOpen(false);
@@ -695,7 +705,7 @@ export function RestrictedModeHost() {
     const current = () => operation.current === id && currentSource.current === binding;
     setBusy(true);
     setError('');
-    if (active && !reasons.some((reason) => reason.code === 'data-access'))
+    if (active && (!enable || access.data?.qqOnline) && reason?.code !== 'data-access')
       useRestrictedMode.getState().beginEntering();
     try {
       const disk = IS_MAC ? await dataAccess.refetch() : null;
@@ -719,7 +729,8 @@ export function RestrictedModeHost() {
         active &&
         !dataBlocked &&
         accessMatches &&
-        (enable || (access.data?.qqOnline && access.data.attachEnabled))
+        access.data?.qqOnline &&
+        (enable || access.data.attachEnabled)
       ) {
         const refreshed = await client.account.refreshRkeys.mutate(source);
         if (!current()) return;
@@ -743,17 +754,8 @@ export function RestrictedModeHost() {
     if (active) setLoginRequested(sourceKey);
     await (active ? access.refetch() : online.refetch());
   }
-  const canRetryCredentials =
-    accessMatches &&
-    reasons.some((reason) => reason.code === 'credentials') &&
-    !reasons.some((reason) => reason.code === 'data-access');
-  const onlineLimited = reasons.some(
-    (reason) => reason.code !== 'data-access' && reason.code !== 'checking',
-  );
-  const sharedDebugLaunch =
-    canConfigureProxy && showDebugCopy && needsDebugQq && !awaitingAuthorization;
-  const sharedProxyLaunch =
-    canConfigureProxy && offline && !showDebugCopy && !awaitingAuthorization;
+  const canRetryCredentials = accessMatches && reason?.code === 'credentials';
+  const proxyLogin = offline && canConfigureProxy && proxy;
   const proxyImpact = [
     proxy?.uses?.sync && '本人消息与已读同步',
     proxy?.uses?.liveMessages && '代理实时更新',
@@ -765,7 +767,7 @@ export function RestrictedModeHost() {
 
   function refreshProxyAndOnline() {
     void proxyStatus.refetch();
-    if (sharedProxyLaunch) void (active ? access.refetch() : online.refetch());
+    if (offline) void (active ? access.refetch() : online.refetch());
   }
 
   const onlineSettings = settingsSection !== 'online' && active && (
@@ -785,78 +787,79 @@ export function RestrictedModeHost() {
   const proxySettings = settingsSection !== 'proxy' && (
     <QqProxySettingsLink beforeNavigate={closeDetails}>代理设置</QqProxySettingsLink>
   );
-  const actions =
-    showDebugCopy && !awaitingAuthorization ? (
-      <RestrictedQqAction
-        key={sourceKey}
-        needsQq={offline || sipLimited}
-        hasCurrentAccount={active}
-        currentAccountPid={currentAccountPid}
-        proxySetup={sharedDebugLaunch}
-        busy={busy || entering}
-        onOpened={async () => {
-          if (sharedDebugLaunch) void proxyStatus.refetch();
-          await afterDebugQqOpened();
-        }}
-        allowSwitch={!canConfigureProxy || needsDebugQq}
-        onEnable={() => refresh(true)}
-        onRetryCredentials={canRetryCredentials || sipLimited ? () => refresh() : undefined}
-      >
-        {onlineSettings}
-      </RestrictedQqAction>
-    ) : (
-      <>
-        {authorizationIssue && (
-          <LongTermAuthorizationLink
-            beforeNavigate={() => useRestrictedMode.getState().setOpen(false)}
-          />
-        )}
-        {!showDebugCopy && offline && !sharedProxyLaunch && !awaitingAuthorization && (
-          <button
-            type="button"
-            className="weq-set-btn weq-set-btn-primary"
-            disabled={busy || launching}
-            aria-busy={launching}
-            onClick={() => void startQq()}
-          >
-            {launching ? (
-              <LoaderCircle size={14} className="weq-restricted-progress-icon" />
-            ) : (
-              <Play size={14} />
-            )}
-            {launching
-              ? '正在打开 QQ'
-              : qqRunning
-                ? active
-                  ? '登录当前账号'
-                  : '打开 QQ 登录窗口'
-                : '打开 QQ'}
-          </button>
-        )}
-        {canRetryCredentials && (
-          <button
-            type="button"
-            className="weq-set-btn"
-            disabled={busy || launching}
-            onClick={() => void refresh()}
-          >
-            <RefreshCw size={14} />
-            {busy ? '正在获取凭据' : '重试获取在线凭据'}
-          </button>
-        )}
-        {!awaitingAuthorization && reasons.some((r) => r.code === 'disabled') && (
-          <button
-            type="button"
-            className={offline ? 'weq-set-btn' : 'weq-set-btn weq-set-btn-primary'}
-            disabled={busy || launching}
-            onClick={() => void refresh(true)}
-          >
-            <KeyRound size={14} />
-            启用 QQ 在线能力
-          </button>
-        )}
-      </>
-    );
+  const actions = showDebugCopy ? (
+    <RestrictedQqAction
+      key={sourceKey}
+      needsQq={offline || sipLimited}
+      hasCurrentAccount={active}
+      currentAccountPid={currentAccountPid}
+      busy={busy || entering}
+      onOpened={async () => {
+        if (proxyLogin) void proxyStatus.refetch();
+        await afterDebugQqOpened();
+      }}
+      allowSwitch={!canConfigureProxy || needsDebugQq}
+      onEnable={() => refresh(true)}
+      onRetryCredentials={canRetryCredentials || sipLimited ? () => refresh() : undefined}
+    >
+      {onlineSettings}
+    </RestrictedQqAction>
+  ) : proxyLogin ? (
+    <QqProxyRecovery key={sourceKey} onLaunch={refreshProxyAndOnline} needsCurrentLogin>
+      {onlineSettings}
+    </QqProxyRecovery>
+  ) : (
+    <div className="weq-restricted-actions">
+      {reason?.code === 'authorization' && (
+        <LongTermAuthorizationLink beforeNavigate={closeDetails} />
+      )}
+      {offline && (
+        <button
+          type="button"
+          className="weq-set-btn weq-set-btn-primary"
+          disabled={busy || launching}
+          aria-busy={launching}
+          onClick={() => void startQq()}
+        >
+          {launching ? (
+            <LoaderCircle size={14} className="weq-restricted-progress-icon" />
+          ) : (
+            <Play size={14} />
+          )}
+          {launching
+            ? '正在打开 QQ'
+            : qqRunning
+              ? active
+                ? '登录当前账号'
+                : '打开 QQ 登录窗口'
+              : '打开 QQ'}
+        </button>
+      )}
+      {canRetryCredentials && (
+        <button
+          type="button"
+          className="weq-set-btn"
+          disabled={busy || launching}
+          onClick={() => void refresh()}
+        >
+          <RefreshCw size={14} />
+          {busy ? '正在获取凭据' : '重试获取在线凭据'}
+        </button>
+      )}
+      {reason?.code === 'disabled' && (
+        <button
+          type="button"
+          className="weq-set-btn weq-set-btn-primary"
+          disabled={busy || launching}
+          onClick={() => void refresh(true)}
+        >
+          <KeyRound size={14} />
+          启用 QQ 在线能力
+        </button>
+      )}
+      {onlineSettings}
+    </div>
+  );
   const proxyLabel = proxyStatus.isError
     ? 'QQ 代理状态待确认'
     : !proxy
@@ -904,7 +907,7 @@ export function RestrictedModeHost() {
               <h3>
                 <Zap size={15} aria-hidden /> QQ 在线能力
               </h3>
-              {!signature && (
+              {!onlineStep && (
                 <p role="status">
                   {fullModeConfirmed
                     ? '当前账号的 QQ 在线能力已就绪。'
@@ -913,54 +916,29 @@ export function RestrictedModeHost() {
                       : '打开 QQ 账号后，WeQ 会检查该账号的在线能力。'}
                 </p>
               )}
-              {entering && <p role="status">正在启用 QQ 在线能力，请稍候。</p>}
-              {onlineLimited && active && !entering && !diskBlocked && (
-                <p>当前账号暂时无法发送消息、拉取漫游消息或使用其他 QQ 在线功能。</p>
+              {onlineStep === 'entering' && <p role="status">正在启用 QQ 在线能力，请稍候。</p>}
+              {reason && (
+                <>
+                  {reason.code === 'data-access' ||
+                  (reason.code === 'checking' && dataAccess.isError) ? (
+                    <QqDataAccessNotice showRetry={false} checked={dataRetried} />
+                  ) : (
+                    <div className="weq-restricted-reason">
+                      <h4>{reason.title}</h4>
+                      {!(showDebugCopy && (offline || sipLimited)) && <p>{reason.guidance}</p>}
+                    </div>
+                  )}
+                  {proxyLogin && <p>{qqProxySetupGuide(proxyLogin.port)}</p>}
+                  {error && <p role="alert">{error}</p>}
+                  {actions}
+                </>
               )}
-              {reasons
-                .filter(
-                  (reason) =>
-                    reason.code !== 'data-access' &&
-                    (!(awaitingAuthorization || entering) || reason.code !== 'credentials'),
-                )
-                .map((reason) => (
-                  <div className="weq-restricted-reason" key={reason.code}>
-                    <h4>{reason.title}</h4>
-                    {!(
-                      showDebugCopy &&
-                      !awaitingAuthorization &&
-                      (reason.code === 'offline' || reason.code === 'sip')
-                    ) && (
-                      <p>
-                        {showDebugCopy && needsDebugQq && reason.code === 'disabled'
-                          ? '登录后，可在此启用 QQ 在线能力。'
-                          : reason.guidance}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              <QqDataAccessNotice showRetry={false} checked={dataRetried} />
-              {requests.map((request, index) => (
+              {authorizationRequest && (
                 <AuthorizationForm
-                  key={`${request.kind}:${request.token}`}
-                  request={request}
-                  showLongTermAuthorization={
-                    index === requests.findLastIndex((item) => !item.title.includes('长期授权'))
-                  }
-                  actions={index === requests.length - 1 ? actions : undefined}
+                  key={`${authorizationRequest.kind}:${authorizationRequest.token}`}
+                  request={authorizationRequest}
                 />
-              ))}
-              {signature && error && <p role="alert">{error}</p>}
-              {signature &&
-                !awaitingAuthorization &&
-                (showDebugCopy ? (
-                  actions
-                ) : (
-                  <div className="weq-restricted-actions">
-                    {actions}
-                    {onlineSettings}
-                  </div>
-                ))}
+              )}
             </section>
           )}
           {showProxy && (
@@ -985,11 +963,11 @@ export function RestrictedModeHost() {
                   {canConfigureProxy && <p>{qqProxySetupGuide(proxy.port)}</p>}
                 </>
               ) : null}
-              {canConfigureProxy && !sharedDebugLaunch ? (
+              {canConfigureProxy ? (
                 <QqProxyRecovery
                   key={sourceKey}
                   onLaunch={refreshProxyAndOnline}
-                  needsCurrentLogin={offline}
+                  needsCurrentLogin={false}
                 >
                   {proxySettings}
                 </QqProxyRecovery>

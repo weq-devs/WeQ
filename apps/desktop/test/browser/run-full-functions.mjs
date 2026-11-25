@@ -132,6 +132,9 @@ try {
     'setAutoAttachQq',
     'setQqStatusIndicatorEnabled',
   ]);
+  const proxyCard = page.locator('[data-setting-id="qq-proxy-connection"]');
+  await proxyCard.getByText('等待在线能力', { exact: true }).waitFor();
+  await auto.click();
   for (const [id, label] of [
     ['qq-proxy-connection', '已连接'],
     ['long-term-authorization', '已授权'],
@@ -142,11 +145,11 @@ try {
     window.fullFunctionsQa.setOnlineFixture({ qqOnline: false });
     window.fullFunctionsQa.setProxyFixture({ connected: false });
   });
-  const unified = page.getByRole('button', { name: 'QQ 功能受限', exact: true });
+  const unified = page.getByRole('button', { name: '在线能力受限', exact: true });
   await unified.click();
   assert.equal(await page.locator('.weq-restricted-indicator').count(), 1);
   await restrictedDetails.getByRole('region', { name: 'QQ 在线能力' }).waitFor();
-  await restrictedDetails.getByRole('region', { name: 'QQ 代理连接' }).waitFor();
+  assert.equal(await restrictedDetails.getByRole('region', { name: 'QQ 代理连接' }).count(), 0);
   assert.equal(
     await restrictedDetails.getByRole('button', { name: '打开 QQ', exact: true }).count(),
     1,
@@ -197,7 +200,7 @@ try {
   for (const [id, title] of [
     ['full-feature-routes', '在线能力'],
     ['auto-full-mode', '在线能力'],
-    ['qq-status-indicator', 'QQ 功能状态'],
+    ['qq-status-indicator', '状态提醒'],
     ['qq-client-sync', '同步与实时更新'],
     ['qq-live-messages', '同步与实时更新'],
   ])
