@@ -358,7 +358,7 @@ html[data-theme='dark'] .weq-dbm {
   position: relative;
   flex-direction: column;
   gap: 8px;
-  width: clamp(104px, 16vh, 124px);
+  width: clamp(112px, 18vh, 140px);
   aspect-ratio: 1;
   padding: 8px;
   border-radius: var(--weq-control-radius);
