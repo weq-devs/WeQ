@@ -720,7 +720,7 @@ export function DbRepairPanel({
           : '准备中'
         : locked
           ? '维护中'
-          : '已结束';
+          : undefined;
   const canScan = !!(status.data?.keyPresent && !status.data.error && maintenanceIdle);
   const hasReportRows =
     checkRows.length > 0 &&
@@ -1088,7 +1088,7 @@ export function DbRepairPanel({
                 解除占用
               </span>
             </button>
-          ) : locked || running || operation ? (
+          ) : maintenanceLabel ? (
             <span className="weq-dbm-state" title={maintenanceLabel} aria-label={maintenanceLabel}>
               {locked ? (
                 <LockKeyhole size={12} strokeWidth={2} aria-hidden />
