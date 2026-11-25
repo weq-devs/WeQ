@@ -16,10 +16,17 @@ import { useClosingContent } from './useClosingContent';
  */
 
 const WATCH_MS = 100;
+const SAFETY_MS = 3000;
 const ROW_SELECTOR = TIMELINE_MESSAGE_SELECTOR;
 type FadeRef = RefObject<Animation | undefined>;
 
-type Watch = { scope: string | undefined; ids: Set<string>; timer?: ReturnType<typeof setTimeout> };
+type Watch = {
+  scope: string | undefined;
+  ids: Set<string>;
+  timer?: ReturnType<typeof setTimeout>;
+  /** 兜底：正文迟迟不落位（加载失败或行被部分替换）时也要把画面放回来。 */
+  safety?: ReturnType<typeof setTimeout>;
+};
 
 function rowIds(scroll: HTMLElement | null): Set<string> {
   const ids = new Set<string>();
@@ -74,6 +81,7 @@ export function useConversationSwitchVeil({
   loading: boolean;
 }): { veil: boolean; leaving: boolean } {
   const watch = useRef<Watch>({ scope, ids: new Set() });
+  const veiledRef = useRef(false);
   const contentFade = useRef<Animation | undefined>(undefined);
   const [veiled, setVeiled] = useState(false);
 
@@ -87,16 +95,26 @@ export function useConversationSwitchVeil({
     const current = watch.current;
     if (current.scope !== scope) return;
     cancelContentFade(contentFade);
+    veiledRef.current = false;
     setVeiled(false);
     if (rowsReplaced(scrollRef.current, current.ids)) return;
     current.timer = setTimeout(() => {
       if (watch.current !== current) return;
+      veiledRef.current = true;
       setVeiled(true);
       slideContent(scrollRef.current, contentFade, 1, 0, true);
+      current.safety = setTimeout(() => {
+        if (watch.current !== current || !veiledRef.current) return;
+        veiledRef.current = false;
+        setVeiled(false);
+        slideContent(scrollRef.current, contentFade, 0, 1, false);
+      }, SAFETY_MS);
     }, WATCH_MS);
     return () => {
       if (current.timer) clearTimeout(current.timer);
+      if (current.safety) clearTimeout(current.safety);
       current.timer = undefined;
+      current.safety = undefined;
     };
   }, [scope, scrollRef]);
 
@@ -110,7 +128,12 @@ export function useConversationSwitchVeil({
       clearTimeout(current.timer);
       current.timer = undefined;
     }
+    if (current.safety) {
+      clearTimeout(current.safety);
+      current.safety = undefined;
+    }
     if (veiled) {
+      veiledRef.current = false;
       setVeiled(false);
       slideContent(scrollRef.current, contentFade, 0, 1, false);
     } else {
