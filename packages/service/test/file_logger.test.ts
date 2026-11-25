@@ -12,8 +12,13 @@ import {
   scanLogFiles,
   utcLogDay,
 } from '../src/common/log_files';
-import { flushFileLogger, initLogger } from '../src/common/logger';
+import { flushFileLogger, getLogger, initLogger } from '../src/common/logger';
 import { RequestLogBatch } from '../src/common/request_log_batch';
+import {
+  initRuntimeLogging,
+  runtimeDiagnosticsMarkdown,
+  updateRuntimeDiagnostics,
+} from '../src/common/runtime_diagnostics';
 
 const dirs: string[] = [];
 function tmp(): string {
@@ -78,6 +83,62 @@ it('归档冲突不覆盖也不删明文，旧版多段 gzip 直接回读', asyn
   rmSync(file);
   expect(scanLogFiles(dir)).toMatchObject([{ path: file, archived: true }]);
   expect(await readLogFileChunk(file, -7, 7)).toMatchObject({ text: 'second\n', size: 13 });
+});
+
+it('日志大小轮转、跨日和退出时的新分段都带各自的环境摘要', async () => {
+  const dir = tmp();
+  const yesterday = utcLogDay(new Date(Date.now() - 86_400_000));
+  const today = utcLogDay();
+  let environment = 'initial\n';
+  const writer = new LogFileWriter(dir, 20, () => environment);
+  writer.record('first\n', `${yesterday}T23:59:59.000Z`, false);
+  await writer.flush();
+  environment = 'ready\n';
+  writer.record('second\n', `${today}T00:00:00.001Z`, false);
+  writer.record('third log\n', `${today}T00:00:00.002Z`, false);
+  await writer.flush();
+  writer.prepareExit();
+  writer.record('shutdown\n', `${today}T00:00:00.003Z`, false);
+  writer.flushOnExit();
+  await writer.waitForArchives();
+
+  const files = scanLogFiles(dir).sort((a, b) => a.name.localeCompare(b.name));
+  const contents = await Promise.all(
+    files.map(async ({ path }) => (await readLogFileChunk(path, 0, 100)).text),
+  );
+  expect(contents).toEqual([
+    'initial\nfirst\n',
+    'ready\nsecond\n',
+    'ready\nthird log\n',
+    'ready\nshutdown\n',
+  ]);
+});
+
+it('原生助手加载失败时写出环境摘要和错误，反馈复用同一份环境', async () => {
+  const dir = tmp();
+  const build = { commit: 'a'.repeat(40), builtAt: '2026-11-25T02:00:00.000Z' };
+  initRuntimeLogging(dir, { version: '2.8.0', mode: 'development', host: 'desktop', build });
+  updateRuntimeDiagnostics('ntHelper', { state: 'expired', build: null });
+  getLogger().error('原生助手加载失败', { event: 'native-load-failed', status: 1 });
+  await flushFileLogger();
+  const [file] = scanLogFiles(join(dir, 'logs'));
+  const { text } = await readLogFileChunk(file!.path, 0, 16 * 1024);
+  const rows = text
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  expect(rows[0]?.context).toMatchObject({
+    event: 'runtime-environment',
+    version: '2.8.0',
+    build,
+    platform: process.platform,
+    arch: process.arch,
+    osVersion: expect.any(String),
+    node: process.versions.node,
+    ntHelper: { state: 'expired', build: null },
+  });
+  expect(rows.some((row) => row.context.event === 'native-load-failed')).toBe(true);
+  expect(runtimeDiagnosticsMarkdown()).toContain(build.commit);
 });
 
 it('日志时间范围来自真实写入记录，压缩与明文共用同一分段路径', async () => {

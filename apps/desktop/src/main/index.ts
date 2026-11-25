@@ -136,6 +136,8 @@ import {
   getLogDir,
   getLogger,
   configureDevelopmentLogging,
+  initRuntimeLogging,
+  logErrorContext,
   hasPendingWeqBackupRestore,
   UserConfigService,
   setHost,
@@ -953,6 +955,7 @@ function createWindow(
 
 // Electron 锁按窗口的数据目录隔离，普通重复启动由主进程打开账号选择窗口。
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
+declare const __WEQ_BUILD_REVISION__: { commit: string | null; builtAt: string } | undefined;
 if (!hasSingleInstanceLock) {
   app.quit();
 } else {
@@ -977,15 +980,22 @@ if (!hasSingleInstanceLock) {
   });
 }
 
-void app.whenReady().then(async () => {
+async function startDesktop(): Promise<void> {
+  if (!hasSingleInstanceLock) return;
+  const mode = app.isPackaged ? 'production' : 'development';
+  initRuntimeLogging(defaultDataRoot, {
+    version: app.getVersion(),
+    build: typeof __WEQ_BUILD_REVISION__ === 'undefined' ? undefined : __WEQ_BUILD_REVISION__,
+    mode,
+    host: serviceProcess ? 'desktop-service' : 'desktop',
+  });
   logger.info('WeQ 启动', {
     event: 'startup',
     version: app.getVersion(),
-    mode: app.isPackaged ? 'production' : 'development',
+    mode,
     platform: process.platform,
     arch: process.arch,
   });
-  if (!hasSingleInstanceLock) return;
   const publicDir = app.isPackaged
     ? join(process.resourcesPath, 'remote-web')
     : join(app.getAppPath(), '../web/dist/public');
@@ -1014,7 +1024,11 @@ void app.whenReady().then(async () => {
       });
       app.once('will-quit', stopServices);
     } catch (error) {
-      logger.error('桌面服务启动失败', { error: String(error) });
+      logger.error('桌面服务启动失败', {
+        event: 'startup-service-failed',
+        ...logErrorContext(error),
+      });
+      await flushFileLogger();
       app.exit(1);
     }
     return;
@@ -1037,6 +1051,10 @@ void app.whenReady().then(async () => {
     }
     setDesktopStorage(storage);
   } catch (error) {
+    logger.error('无法打开 WeQ 数据', {
+      event: 'startup-storage-failed',
+      ...logErrorContext(error),
+    });
     dialog.showErrorBox('无法打开 WeQ 数据', String(error));
     app.quit();
     return;
@@ -1417,7 +1435,17 @@ void app.whenReady().then(async () => {
     // 已有可见窗口时由 macOS 恢复窗口顺序，不让主窗口盖过工具窗口。
     if (!hasVisibleWindows) openMainWindow();
   });
-});
+}
+
+void app
+  .whenReady()
+  .then(startDesktop)
+  .catch(async (error: unknown) => {
+    logger.error('WeQ 启动失败', { event: 'startup-desktop-failed', ...logErrorContext(error) });
+    await flushFileLogger();
+    dialog.showErrorBox('WeQ 启动失败', String(error));
+    app.quit();
+  });
 
 app.on('window-all-closed', () => {
   // With the tray keeping the process alive, closing the window normally hides

@@ -215,7 +215,13 @@ export function readNativeBuildInfo(opts: LoadNativeOptions = {}): NativeBuildIn
  */
 export type NativeLoadResult =
   | { ok: true; bundle: NativeBundle }
-  | { ok: false; status: InitStatus | null; kind: 'expired' | 'damaged'; message: string };
+  | {
+      ok: false;
+      status: InitStatus | null;
+      kind: 'expired' | 'damaged';
+      message: string;
+      error: unknown;
+    };
 
 export function loadNativeSafe(opts: LoadNativeOptions = {}): NativeLoadResult {
   try {
@@ -227,7 +233,7 @@ export function loadNativeSafe(opts: LoadNativeOptions = {}): NativeLoadResult {
     // 失败会在 UI 里弹窗，但日志里也必须留下分类结论 —— 以前只有底层 throw
     // 的原始 message，没有 expired/damaged 的判定。
     logToFile('[loadNativeSafe] load failed', { kind, status, message });
-    return { ok: false, status, kind, message };
+    return { ok: false, status, kind, message, error: e };
   }
 }
 

@@ -9,7 +9,7 @@
  */
 
 import { NumericText } from './NumericText';
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import {
   Bug,
   CircleAlert,
@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import remarkGfm from 'remark-gfm';
-import { trpc, client } from '../trpc/client';
+import { client } from '../trpc/client';
 import { Modal } from './Dialog';
 import { useDialog } from './Dialog.shared';
 import { useToast } from './Toast.shared';
@@ -41,6 +41,18 @@ import '../styles/group-bug.css';
 
 const REMARK_PLUGINS = [remarkGfm];
 const PLUGINS = { code: shikiCodeHighlighter };
+const DEFAULT_TEMPLATE = [
+  '- [x] 我反馈的是一个 bug（feature 意见请删除本模板）',
+  '- [ ] 我知道错误的原因',
+  '- [ ] 我愿意 PR 修复',
+  '',
+  '## 错误的功能描述',
+  '<在这里描述发生了什么，附上报错文本 / 日志 / 截图>',
+  '',
+  '## 预期的功能描述',
+  '<在这里描述期望的行为>',
+  '',
+].join('\n');
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -71,53 +83,18 @@ export function GroupBugDialog({
   const pushToast = useToast((s) => s.push);
   const showError = useDialog((s) => s.showError);
   const resolvedTheme = useThemeStore((s) => s.resolved);
-  const version = trpc.bootstrap.getVersionInfo.useQuery(undefined, {
-    refetchOnWindowFocus: false,
-    staleTime: Infinity,
-  });
 
   /** 路径选择：新 bug / 已有 issue·PR。 */
   const [mode, setMode] = useState<'new' | 'existing'>('new');
 
   // ── 路径 1：新 bug ─────────────────────────────────────────────
   const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+  const [body, setBody] = useState(DEFAULT_TEMPLATE);
   const [preview, setPreview] = useState(false);
   const [submittingFlash, setSubmittingFlash] = useState(false);
 
-  const appVersion = version.data?.app ?? '';
-
-  /** GitHub 式模板（与设置页反馈一致，精简版）。 */
-  const buildTemplate = useCallback((): string => {
-    return [
-      '- [x] 我反馈的是一个 bug（feature 意见请删除本模板）',
-      '- [ ] 我知道错误的原因',
-      '- [ ] 我愿意 PR 修复',
-      '',
-      '## 系统版本',
-      '<操作系统 + 版本>',
-      '',
-      '## weq 版本',
-      appVersion || '<设置 → 全局设置 显示的版本号>',
-      '',
-      '## 错误的功能描述',
-      '<在这里描述发生了什么，附上报错文本 / 日志 / 截图>',
-      '',
-      '## 预期的功能描述',
-      '<在这里描述期望的行为>',
-      '',
-    ].join('\n');
-  }, [appVersion]);
-
-  // 首次进入自动填入模板（等版本信息就绪后）。
-  useEffect(() => {
-    if (body) return;
-    if (version.isLoading) return;
-    setBody(buildTemplate());
-  }, [buildTemplate, body, version.isLoading]);
-
   const resetTemplate = (): void => {
-    setBody(buildTemplate());
+    setBody(DEFAULT_TEMPLATE);
     pushToast({
       tone: 'info',
       title: '已填入反馈模板',
@@ -379,7 +356,7 @@ export function GroupBugDialog({
             <div className="weq-group-bug-send-row">
               <p className="weq-group-bug-hint">
                 <MessageCircle size={12} aria-hidden />
-                正文与两份最新日志将打包成闪传文件发送，消息先到、文件后台上传。
+                正文、运行环境和近期日志将打包发送。消息先到，文件在后台上传。
               </p>
               <button
                 type="button"

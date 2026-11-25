@@ -157,7 +157,7 @@ class FileLogger implements Logger {
 
 const rootLogger = new FileLogger();
 
-export function initLogger(baseDir: string): Logger {
+export function initLogger(baseDir: string, segmentEnvironment?: () => LoggerContext): Logger {
   const dir = join(baseDir, 'logs');
   try {
     mkdirSync(dir, { recursive: true });
@@ -172,7 +172,16 @@ export function initLogger(baseDir: string): Logger {
   }
   if (writer?.dir !== dir) {
     void flushFileLogger();
-    writer = new LogFileWriter(dir);
+    writer = new LogFileWriter(dir, undefined, (ts) =>
+      segmentEnvironment
+        ? JSON.stringify({
+            ts,
+            level: 'info',
+            message: 'WeQ 运行环境',
+            context: { scope: 'startup', event: 'runtime-environment', ...segmentEnvironment() },
+          }) + EOL
+        : '',
+    );
     requestDetails = process.env.WEQ_LOG_REQUEST_DETAILS === '1';
     if (!rolloverTimer) rolloverTimer = setInterval(() => void writer?.flush(), 60_000).unref();
   }
@@ -198,10 +207,12 @@ export function archiveHistoricalLogs(): void {
 
 export function logErrorContext(error: unknown): Record<string, unknown> {
   if (error instanceof Error) {
+    const code = 'code' in error ? error.code : undefined;
     return {
       errorName: error.name,
       errorMessage: error.message,
       errorStack: error.stack,
+      ...(typeof code === 'string' || typeof code === 'number' ? { errorCode: code } : {}),
     };
   }
   return { errorValue: String(error) };

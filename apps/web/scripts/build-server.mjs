@@ -15,6 +15,7 @@ import { build } from 'esbuild';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildRevision } from '../../../scripts/build-revision.mjs';
 import { currentTarget, LABELS, nativeRel } from './platform.mjs';
 import { readRuntimeSource, runtimeManifest } from './runtime-deps.mjs';
 import {
@@ -98,6 +99,7 @@ const shared = {
     __filename: '__weqFilename',
     __dirname: '__weqDirnameValue',
     __WEQ_VERSION__: JSON.stringify(version),
+    __WEQ_BUILD_REVISION__: JSON.stringify(buildRevision(repoRoot)),
   },
   logLevel: 'info',
 };

@@ -35,15 +35,31 @@ import {
   readLogFileChunk,
   readLogFileInfo,
   readLogFileRange,
+  runtimeDiagnosticsMarkdown,
   scanLogFiles,
   type LogFileEntry,
 } from '@weq/service';
 import { getNativeLogRoot } from '@weq/native';
 import { resolveResource } from '../../resource';
 import { getAppContext } from '../../context/app_context';
+import { getBackupContext } from '../../context/backup_context';
+import { qqSyncStatus } from '../../qq_sync/runtime';
 import { procedure, router } from '../trpc';
 
 const logger = getLogger().child({ scope: 'help-router' });
+
+async function feedbackEnvironment(): Promise<string> {
+  const boot = getAppContext().bootstrap;
+  if (boot) {
+    try {
+      boot.globalConfig.describeInstall();
+    } catch (error) {
+      logger.debug('读取反馈的 QQ 安装信息失败', { error: String(error) });
+    }
+    await qqSyncStatus(boot.qqSyncRoot);
+  }
+  return runtimeDiagnosticsMarkdown();
+}
 
 function logRootKey(path: string): string {
   let canonical = path;
@@ -165,6 +181,8 @@ export function disableNativeDebugLog(): void {
 }
 
 export const helpRouter = router({
+  feedbackEnvironment: procedure.query(feedbackEnvironment),
+
   // ── 日志查看 ─────────────────────────────────────────────────────────────
 
   /** 日志文件与实际记录的时间区间。逐个读取，避免一次打开全部归档。 */
@@ -344,9 +362,10 @@ export const helpRouter = router({
   submitGithubIssue: procedure
     .input(z.object({ title: z.string().min(1).max(200), body: z.string().min(1) }))
     .mutation(async ({ input }): Promise<{ ok: boolean; url?: string; error?: string }> => {
+      const environment = await feedbackEnvironment();
       await flushFileLogger();
       const logs = latestLogs();
-      const parts: string[] = [input.body.trim()];
+      const parts = [input.body.trim(), environment].filter(Boolean);
       const [weqTail, ntTail] = await Promise.all([
         tailText(logs.weq, 150 * 1024),
         tailText(logs.ntHelper, 150 * 1024),
@@ -434,10 +453,10 @@ export async function bundleFeedbackFiles(input: { title: string; body: string }
   files?: string[];
   errors?: string[];
 }> {
+  const environment = await feedbackEnvironment();
   await flushFileLogger();
-  const boot = getAppContext().bootstrap;
-  if (!boot) return { ok: false, errors: ['原生组件未就绪'] };
-  const cacheBase = boot.userConfig.cacheBaseDir();
+  const startup = getBackupContext();
+  const cacheBase = startup.config?.cacheBaseDir() ?? startup.cacheRoot;
   const folder = join(cacheBase, `feedback-${stampParts().ts}`);
   const errors: string[] = [];
   const files: string[] = [];
@@ -447,10 +466,10 @@ export async function bundleFeedbackFiles(input: { title: string; body: string }
     throw new Error(`无法创建反馈目录：${e instanceof Error ? e.message : String(e)}`);
   }
 
-  const md = `# ${input.title}\n\n${input.body.trim()}\n`;
+  const sections = [`# ${input.title}`, input.body.trim(), environment].filter(Boolean);
   try {
     const mdPath = join(folder, 'issue.md');
-    writeFileSync(mdPath, md, 'utf8');
+    writeFileSync(mdPath, `${sections.join('\n\n')}\n`, 'utf8');
     files.push(mdPath);
   } catch (e) {
     errors.push(`写入 issue.md 失败：${e instanceof Error ? e.message : String(e)}`);

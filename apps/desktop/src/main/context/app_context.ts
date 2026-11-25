@@ -23,7 +23,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { AccountQqSync } from '../qq_sync/account';
 import { GroupReactionWatch } from '../qq_sync/group_reaction_watch';
 import { coalesceLiveDbWatch, createLiveMessageObservers } from '../qq_sync/live_db_watch';
-import { ensureQqSyncProxy, isQqSyncProxyEnabled } from '../qq_sync/runtime';
+import { ensureQqSyncProxy, isQqSyncProxyEnabled, qqSyncStatus } from '../qq_sync/runtime';
 import { readAccountQqSync } from '../qq_sync/preferences';
 import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
@@ -47,7 +47,7 @@ import { resolveBackupLocation, backupResourceRoots } from '../static_backup';
 import { VipBadgeService } from '../vip_badge';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { loadNativeSafe } from '@weq/native';
+import { loadNativeSafe, readNativeBuildInfo, type NativeBuildInfo } from '@weq/native';
 import {
   AnnualReportIndexDb,
   GroupNotifyStatus,
@@ -212,7 +212,7 @@ import {
   waitForUnreadWrites,
   formatDbHealthFailures,
   writeDbHealthReport,
-  initLogger,
+  updateRuntimeDiagnostics,
   getLogger,
   logRequest,
   getLogDir,
@@ -1638,13 +1638,21 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     return cached;
   }
   configureNativeDressResources();
+  const nativeStartedAt = performance.now();
   const result = loadNativeSafe();
+  const durationMs = Math.round(performance.now() - nativeStartedAt);
   if (!result.ok) {
+    updateRuntimeDiagnostics('ntHelper', {
+      state: result.kind,
+      build: result.status === null ? null : readNativeBuildInfo(),
+    });
     getLogger().error('原生助手加载失败', {
       scope: 'startup',
       event: 'native-load-failed',
       kind: result.kind,
       status: result.status,
+      durationMs,
+      ...logErrorContext(result.error),
       errorMessage: result.message,
     });
     cached = unavailableContext(
@@ -1671,17 +1679,18 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
   // SQLite 的保留页现在是按文件（per-Pager）设置的，同一个进程可以同时打开
   // QQ 库、标准库和解密产物，不再需要拆子进程。
   const bundle = result.bundle;
-  let nativeBuild: unknown = 'unknown';
+  let nativeBuild: NativeBuildInfo | null = null;
   try {
-    nativeBuild = bundle.ntHelper.getBuildInfo?.() ?? 'unknown';
+    nativeBuild = bundle.ntHelper.getBuildInfo?.() ?? null;
   } catch {
     /* 旧助手不一定提供构建信息。 */
   }
+  updateRuntimeDiagnostics('ntHelper', { state: 'ready', build: nativeBuild });
   getLogger().info('原生助手已就绪', {
     scope: 'startup',
     event: 'native-ready',
-    nativeVersion: 'unknown',
     nativeBuild,
+    durationMs,
   });
 
   const nativePlatform =
@@ -1692,7 +1701,6 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         : createWin32Platform(bundle, () => readDataRootOverride(), getQqProtocolExe);
   const platform: Platform = { ...nativePlatform, appDataRoot: () => files.root };
   const qqSyncRoot = hostRoot ?? files.root;
-  initLogger(platform.appDataRoot());
   const logger = getLogger().child({ scope: 'app-context' });
   logger.info('initializing app context', {
     event: 'init-app-context',
@@ -1700,10 +1708,17 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     logDir: getLogDir(),
   });
   const userConfig = files.config;
-  if (isQqSyncProxyEnabled(qqSyncRoot))
-    void ensureQqSyncProxy(qqSyncRoot).catch((error) =>
-      getLogger().warn('QQ 同步代理启动失败', { error: String(error) }),
-    );
+  if (isQqSyncProxyEnabled(qqSyncRoot)) {
+    void logRequest('qq-sync', 'qqSync.startProxy', 'operation', async () => {
+      try {
+        await ensureQqSyncProxy(qqSyncRoot);
+      } finally {
+        await qqSyncStatus(qqSyncRoot);
+      }
+    }).catch(() => undefined);
+  } else {
+    void qqSyncStatus(qqSyncRoot);
+  }
   // 词云 / 常用语的分词优先用 QQ 自带结巴词典，读不到时用随包的
   // resources/jieba（进程级单例）。账号无关、非关键路径，fire-and-forget 即可。
   void warmJiebaDict([platform.jiebaDictDir(), resolveResource('jieba')]);
@@ -1967,6 +1982,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       // Online account: resources resolve against the local install as always.
       this.resourcePlatform = platform;
       this.accountIsStatic = false;
+      updateRuntimeDiagnostics('dataSource', 'local-qq');
       this.accountIsAndroidBackup = false;
       const accountConfig = new AccountConfigService(session, platform.appDataRoot(), userConfig);
       // Per-account export cache: tasks + outputs must NOT leak across accounts.
@@ -2977,6 +2993,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
 
       logger.info('opened account session', {
         event: 'open-account-success',
+        dataSource: 'local-qq',
         durationMs: Math.round(performance.now() - openedAt),
         accountUin: session.context.uin,
         dataDir: metadata.dataDir ?? null,
@@ -3140,6 +3157,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       this.resourcePlatform = staticPlatform;
       this.accountIsStatic = true;
       this.accountIsAndroidBackup = options.mobile ?? false;
+      const dataSource = this.accountIsAndroidBackup ? 'mobile-backup' : 'desktop-backup';
+      updateRuntimeDiagnostics('dataSource', dataSource);
 
       // A same-account QQ may be running even though our databases came from
       // elsewhere. The monitor (started at the end) records its pid, so this
@@ -3863,6 +3882,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       });
       logger.info('opened static account session', {
         event: 'open-static-account-success',
+        dataSource,
         durationMs: Math.round(performance.now() - openedAt),
         accountUin: session.context.uin,
         dirPath,
@@ -3997,6 +4017,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       this.resourcePlatform = null;
       this.accountIsStatic = false;
       this.accountIsAndroidBackup = false;
+      updateRuntimeDiagnostics('dataSource', 'none');
       // 宽容服务跟着账号一起走：留着它会让设置页继续显示、甚至改写刚刚关掉的那个账号的
       // 配置，而下一个账号（尤其静态账号）会误用到它（见 `createDbTolerance`）。
       this.dbTolerance = null;

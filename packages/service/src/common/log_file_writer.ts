@@ -46,6 +46,7 @@ export class LogFileWriter {
   constructor(
     readonly dir: string,
     private readonly segmentBytes = LOG_SEGMENT_BYTES,
+    private readonly segmentHeader: (ts: string) => string = () => '',
   ) {}
 
   get activePath(): string | null {
@@ -56,7 +57,7 @@ export class LogFileWriter {
     if (this.queuedBytes >= PENDING_BYTES) {
       if (important) {
         // 慢盘积压到上限时优先保留告警，不与在途批次写同一个段。
-        this.writeSync(this.segment(ts).path, line);
+        this.writeSync(this.segment(ts).path, this.segmentHeader(ts) + line);
       } else {
         this.dropped++;
       }
@@ -124,7 +125,9 @@ export class LogFileWriter {
       this.seal();
     this.active ??= this.segment(first.ts);
     const segment = this.active;
-    const limit = Math.min(BATCH_BYTES, this.segmentBytes - segment.bytes);
+    const header = segment.bytes === 0 ? this.segmentHeader(first.ts) : '';
+    const headerBytes = Buffer.byteLength(header);
+    const limit = Math.min(BATCH_BYTES, this.segmentBytes - segment.bytes - headerBytes);
     let bytes = 0;
     let count = 0;
     for (const record of this.pending) {
@@ -132,14 +135,16 @@ export class LogFileWriter {
       bytes += record.bytes;
       count++;
     }
-    segment.bytes += bytes;
+    segment.bytes += headerBytes + bytes;
     this.queuedBytes -= bytes;
     return {
       segment,
-      text: this.pending
-        .splice(0, count)
-        .map((record) => record.line)
-        .join(''),
+      text:
+        header +
+        this.pending
+          .splice(0, count)
+          .map((record) => record.line)
+          .join(''),
     };
   }
 

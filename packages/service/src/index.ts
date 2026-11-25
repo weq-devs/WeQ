@@ -1280,6 +1280,11 @@ export {
 export type { LogFileEntry, LogFileKind } from './common/log_files';
 export type { LogFileCandidate } from './common/logger';
 export { configureConsoleLogger, flushConsoleLogger } from './common/logger';
+export {
+  initRuntimeLogging,
+  runtimeDiagnosticsMarkdown,
+  updateRuntimeDiagnostics,
+} from './common/runtime_diagnostics';
 export { withLogOperation, currentOperationId } from './common/operation_log';
 export { configureDevelopmentLogging } from './common/development_logging';
 export { logRequest, logTransportError } from './common/request_log';
