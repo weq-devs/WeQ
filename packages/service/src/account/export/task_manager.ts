@@ -750,6 +750,13 @@ export interface MediaDeps {
   gapHistory?: Pick<GapHistoryService, 'findMediaElement'>;
 }
 
+function foregroundOutputPending(task: ExportTask): boolean {
+  return (
+    task.foregroundBrowserOutput ??
+    (!task.save || task.save.status === 'pending' || task.save.status === 'saving')
+  );
+}
+
 export class ExportTaskManager extends EventEmitter {
   private journals = new Map<string, MessageJournal>();
   private resourceMetadata = new Map<string, Map<string, ResourceDirectoryEntry>>();
@@ -885,6 +892,8 @@ export class ExportTaskManager extends EventEmitter {
           };
         }
         t.networkOverride = false;
+        const incomplete =
+          t.status === 'running' || t.status === 'pending' || t.status === 'paused';
         if (t.status === 'running' || t.status === 'pending') {
           t.status = 'paused'; // crashed or queued tasks require explicit continuation
         }
@@ -895,9 +904,7 @@ export class ExportTaskManager extends EventEmitter {
         // 进程退出后没有原页接管未结束的保存。
         if (
           t.foreground &&
-          (t.status === 'paused' ||
-            t.status === 'failed' ||
-            (t.status === 'completed' && (t.foregroundBrowserOutput ?? t.save?.status !== 'saved')))
+          (incomplete || (t.status === 'completed' && foregroundOutputPending(t)))
         )
           t.foreground = false;
         if (!Array.isArray(t.stages)) t.stages = []; // back-compat with pre-stages tasks
@@ -1384,7 +1391,8 @@ export class ExportTaskManager extends EventEmitter {
     if (
       unfinishedOnly &&
       (task.status === 'cancelled' ||
-        (task.status === 'completed' && task.save?.status === 'saved'))
+        task.status === 'failed' ||
+        (task.status === 'completed' && !foregroundOutputPending(task)))
     )
       return false;
     const updatedAt = task.updatedAt;

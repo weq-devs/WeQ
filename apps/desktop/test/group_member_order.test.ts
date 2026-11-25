@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { GroupMember } from '@weq/db';
 import type { AccountServices } from '../src/main/context/app_context';
-import { listOrderedGroupMembers } from '../src/main/context/group_member_order';
+import {
+  listOrderedGroupMembers,
+  startGroupMemberOrderTask,
+} from '../src/main/context/group_member_order';
+import { backgroundTasks } from '../src/main/background_tasks';
+import { watchTaskPage } from '../src/main/task_page';
 
 const member = (uid: string, card: string, memberLevel: number, adminFlag = 0): GroupMember => ({
   groupCode: 12345n,
@@ -90,4 +95,39 @@ describe('群成员列表排序', () => {
     expect(matches.total).toBe(5);
     expect(matches.members[0]?.member.uid).toBe('u_1');
   });
+});
+
+it.each([false, true])('补取排序资料结束前离开才显示任务（中途离开：%s）', async (leavesEarly) => {
+  const gate = Promise.withResolvers<GroupMember[]>();
+  const source = {
+    groupInfo: { listMembersInGroup: () => gate.promise },
+    contactDirectory: { cache: { rowsFor: async () => ({}) } },
+  } as unknown as AccountServices;
+  let pageId: string | undefined;
+  const page = watchTaskPage().subscribe({
+    next: (id) => {
+      pageId = id;
+    },
+  });
+  const id = startGroupMemberOrderTask(
+    source,
+    { uin: '10001', configId: 'synthetic' },
+    '12345',
+    'level',
+    () => {},
+    pageId,
+  );
+  const task = () => backgroundTasks.snapshot().find((row) => row.id === id);
+  try {
+    expect(task()).toMatchObject({ status: 'running', foreground: true });
+    if (leavesEarly) page.unsubscribe();
+    gate.resolve([]);
+    await vi.waitFor(() => expect(task()?.status).toBe('completed'));
+    page.unsubscribe();
+    expect(task()?.foreground).toBe(!leavesEarly);
+  } finally {
+    gate.resolve([]);
+    page.unsubscribe();
+    backgroundTasks.remove(id);
+  }
 });

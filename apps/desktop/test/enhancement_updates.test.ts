@@ -23,7 +23,7 @@ import {
   parseEnhancementCatalogForHost,
 } from '../src/shared/enhancement_release';
 import { backgroundTasks } from '../src/main/background_tasks';
-import { watchDownloadPage } from '../src/main/download_page';
+import { watchTaskPage } from '../src/main/task_page';
 import {
   enhancementDownloadTask,
   forgetEnhancementTask,
@@ -533,7 +533,7 @@ it.each([false, true])(
       return ensure();
     });
     let pageId: string | undefined;
-    const page = watchDownloadPage().subscribe({
+    const page = watchTaskPage().subscribe({
       next: (id) => {
         pageId = id;
       },

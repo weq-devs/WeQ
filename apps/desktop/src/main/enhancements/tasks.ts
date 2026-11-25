@@ -13,7 +13,7 @@ import {
   downloadTaskSnapshot,
   isPendingDownload,
 } from '../download_task_receipt';
-import { holdDownloadOnPage } from '../download_page';
+import { holdTaskOnPage } from '../task_page';
 
 interface PreparationTaskPort {
   list(): Promise<
@@ -245,7 +245,7 @@ export function trackEnhancementPreparation(
   const action = useSaved ? saved.action : (intent?.action ?? '准备增强包');
   const onPage =
     (!useSaved || saved.foreground) &&
-    holdDownloadOnPage(intent?.pageId, `pack:${id}`, () => {
+    holdTaskOnPage(intent?.pageId, `pack:${id}`, () => {
       backgroundEnhancementDownload(packs, id, taskId);
     });
   const foreground = onPage || intent?.foreground;

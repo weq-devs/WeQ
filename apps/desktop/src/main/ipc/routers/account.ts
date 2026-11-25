@@ -5137,6 +5137,7 @@ export const accountRouter = router({
       exportAccountBindingInput.required().extend({
         groupCode: z.string().regex(/^[1-9]\d{0,9}$/),
         sort: z.enum(GROUP_MEMBER_ONLINE_SORTS),
+        pageId: z.string().uuid().optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -5156,6 +5157,7 @@ export const accountRouter = router({
         input.groupCode,
         input.sort,
         checkAccount,
+        input.pageId,
       );
     }),
 

@@ -58,6 +58,7 @@ import { client, trpc } from '../../trpc/client';
 import { useMultiSelection, type MultiSelectionItemProps } from '../../hooks/useMultiSelection';
 import { fmtBytes } from './CacheShared.shared';
 import { useTabActive } from '../../components/RetainedTabs.shared';
+import { useTaskPage } from '../../hooks/useTaskPage';
 import { useDraftProtection } from '../../lib/draftClose';
 import type { ResourceManagementSnapshot } from './resourceManagement';
 import { TaskProgressBar } from '../../components/tasks/TaskProgressBar';
@@ -200,6 +201,7 @@ export function ResourceCleanupDialog({
 }): ReactElement | null {
   const utils = trpc.useUtils();
   const active = useTabActive();
+  const taskPage = useTaskPage(open && active, snapshot?.source.expectedAccountConfigId);
   const activeRef = useRef(active);
   activeRef.current = active;
   const [localTargets, setTargets] = useState<CleanupTargetStat[]>([]);
@@ -372,6 +374,7 @@ export function ResourceCleanupDialog({
       const res = await client.account.resourceCleanup.cleanup.mutate({
         ...source,
         instructions: chosen.instructions,
+        pageId: await taskPage(),
       });
       if (run === runRef.current) {
         setResult({ receipt: res, targets: [...targets] });

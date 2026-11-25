@@ -34,6 +34,14 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   client: {
+    backgroundTasks: {
+      onTaskPage: {
+        subscribe: (_: unknown, handler: { onData(id: string): void }) => {
+          handler.onData('resource-cleanup-page');
+          return { unsubscribe() {} };
+        },
+      },
+    },
     account: {
       mediaResource: { analyzeTree: { query: f.analyze } },
       resourceCleanup: { listTargets: { query: f.list }, cleanup: { mutate: f.cleanup } },
@@ -216,6 +224,7 @@ it('全部清理仍需确认短语，只提交一次白名单 ID，完成后共�
   expect(f.cleanup).toHaveBeenCalledOnce();
   expect(f.cleanup).toHaveBeenCalledWith({
     ...source,
+    pageId: 'resource-cleanup-page',
     instructions: targets.map((target) => ({ id: target.id, variant: 'all' })),
   });
   expect(f.analyze).toHaveBeenCalledTimes(16);

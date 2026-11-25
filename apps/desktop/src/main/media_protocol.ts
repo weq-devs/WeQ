@@ -677,13 +677,35 @@ export async function resolveChatImageFile(
     signal,
     reportActivity: Boolean(transfer?.success && transfer.data && q.get('autoOriginal') !== '1'),
   };
+  const page = transferIdInput.safeParse(q.get('pageId') ?? undefined);
   const downloaded =
     transfer?.success && transfer.data
-      ? await observeDownload(services, transfer.data, (update) =>
-          services.mediaDownload.download(token, opts, (received, total) =>
-            update({ phase: 'download', received, total }),
-          ),
-        )
+      ? await observeDownload(services, transfer.data, (update, setResume) => {
+          let paused = false;
+          const pageId = opts.reportActivity && page.success ? page.data : undefined;
+          return services.mediaDownload.download(
+            token,
+            {
+              ...opts,
+              activity: pageId
+                ? {
+                    pageId,
+                    onState(state, resume) {
+                      paused = state.paused;
+                      setResume(resume);
+                      update({
+                        phase: 'download',
+                        received: state.received,
+                        total: state.total,
+                        paused,
+                      });
+                    },
+                  }
+                : undefined,
+            },
+            (received, total) => update({ phase: 'download', received, total, paused }),
+          );
+        })
       : await services.mediaDownload.download(token, opts);
   check();
   return { path: downloaded, variant: 'downloaded' as const };
@@ -700,6 +722,7 @@ export function resolveOcrChatImageFile(
   q.set('v', 'original');
   q.delete('preview');
   q.delete('transferId');
+  q.delete('pageId');
   q.delete('intent');
   q.delete('localOnly');
   q.delete('autoOriginal');

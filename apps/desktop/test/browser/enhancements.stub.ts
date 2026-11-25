@@ -78,7 +78,7 @@ const proxy = (path = ''): unknown =>
     get(_target, key) {
       if (key === 'subscribe')
         return (_input: unknown, handler: { onData: (data: unknown) => void }) => {
-          if (path === 'backgroundTasks.onDownloadPage') handler.onData('download-page');
+          if (path === 'backgroundTasks.onTaskPage') handler.onData('download-page');
           if (path === 'bootstrap.onEnhancementUpdates')
             handler.onData([
               { id: 'text', name: names[0], contentVersion: 'a'.repeat(64) },

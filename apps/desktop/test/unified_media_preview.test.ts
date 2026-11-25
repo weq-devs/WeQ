@@ -29,7 +29,9 @@ const mocks = vi.hoisted(() => ({
   bound: false,
   configId: 'fixture-a',
   exportVideos: vi.fn(async (_input: unknown) => 'task'),
+  continueOriginal: vi.fn(async (_input: unknown) => true),
 }));
+const previewPageId = '104dd157-10fd-4c62-9eea-b66f283e8b37';
 vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   useExportSavePolicy: () => ({
     binding: mocks.bound
@@ -42,9 +44,18 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
+    backgroundTasks: {
+      onTaskPage: {
+        subscribe: (_: unknown, handler: { onData(id: string): void }) => {
+          handler.onData('104dd157-10fd-4c62-9eea-b66f283e8b37');
+          return { unsubscribe() {} };
+        },
+      },
+    },
     account: {
       mediaPreviewPage: { query: mocks.page },
       qzone: { exportVideos: { mutate: mocks.exportVideos } },
+      transfers: { continuePreviewDownload: { mutate: mocks.continueOriginal } },
     },
   },
   trpc: {
@@ -153,7 +164,16 @@ it('空间视频从所点封面预览，可切换相邻媒体，导出只提交�
 it('聊天灯箱命中本地原图时不显示下载，缺失时可从缩略图查看原图并重试', async () => {
   const pic = { type: 'pic', data: { fileToken: 'fixture', fileSize: 197453 } };
   const chat = galleryMedia([{ msgId: '4', sendTime: 1, elements: [pic, pic] }]);
-  act(() => root.render(h(MediaPreview, { items: chat, onClose: vi.fn() })));
+  const transfers = new TransferActivity();
+  act(() =>
+    root.render(
+      h(
+        TransferActivityContext.Provider,
+        { value: transfers },
+        h(MediaPreview, { items: chat, onClose: vi.fn() }),
+      ),
+    ),
+  );
   const request = () => new URL(document.querySelector('img')!.src).searchParams;
   const fail = () => act(() => document.querySelector('img')!.dispatchEvent(new Event('error')));
   const viewOriginal = () =>
@@ -168,9 +188,18 @@ it('聊天灯箱命中本地原图时不显示下载，缺失时可从缩略图�
   load();
   expect(request().get('preview')).toBe('1');
   expect(viewOriginal()?.textContent).toBe('查看原图（0.19 MiB）');
-  act(() => viewOriginal()!.click());
+  await act(async () => viewOriginal()!.click());
   const pending = () => document.querySelectorAll('img')[1]!;
   expect(new URL(pending().src).searchParams.get('v')).toBe('original');
+  expect(new URL(pending().src).searchParams.get('pageId')).toBe(previewPageId);
+  const id = new URL(pending().src).searchParams.get('transferId')!;
+  act(() => transfers.replace([{ id, direction: 'download', phase: 'download', paused: true }]));
+  expect(document.body.textContent).toContain('原图下载已暂停');
+  const resume = [...document.querySelectorAll('button')].find(
+    (item) => item.textContent === '继续下载',
+  );
+  await act(async () => resume!.click());
+  expect(mocks.continueOriginal).toHaveBeenLastCalledWith({ id });
   expect(new URL(pending().src).searchParams.has('localOnly')).toBe(false);
   expect(request().get('preview')).toBe('1');
   const unreadable = pending();
@@ -179,7 +208,7 @@ it('聊天灯箱命中本地原图时不显示下载，缺失时可从缩略图�
   };
   await act(async () => unreadable.dispatchEvent(new Event('load')));
   expect(request().get('preview')).toBe('1');
-  act(() => viewOriginal()!.click());
+  await act(async () => viewOriginal()!.click());
   const original = pending();
   original.decode = async () => {};
   await act(async () => original.dispatchEvent(new Event('load')));

@@ -21,7 +21,7 @@ import { z } from 'zod/v3';
 import { isUpdateCheckInterval } from '@weq/service/update-settings';
 import { procedure, router } from '../trpc';
 import { backgroundTasks } from '../../background_tasks';
-import { holdDownloadOnPage } from '../../download_page';
+import { holdTaskOnPage } from '../../task_page';
 import {
   getUpdateActions,
   getUpdateState,
@@ -110,7 +110,7 @@ export const updateRouter = router({
         await backgroundTasks.act(id, action);
         if (task.foreground && (action === 'continue' || action === 'retry')) {
           const handOff = () => actions.backgroundDownload?.(id);
-          if (!holdDownloadOnPage(pageId, 'software-update', handOff)) handOff();
+          if (!holdTaskOnPage(pageId, 'software-update', handOff)) handOff();
         }
       }
       return true;

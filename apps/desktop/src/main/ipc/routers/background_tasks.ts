@@ -6,7 +6,7 @@ import { hideAnalysisReportTask, restoreAnalysisReportTasks } from './analysis_r
 import { getAppContext } from '../../context/app_context';
 import { removeCalendarTask, restoreCalendarTasks } from './conversation_calendar';
 import { getUpdateActions } from '../../update/state';
-import { watchDownloadPage } from '../../download_page';
+import { watchTaskPage } from '../../task_page';
 import { forgetEnhancementTask } from '../../enhancements/tasks';
 import { forgetRecordedTask, restoreRecordedTasks } from '../../account_task_receipts';
 import { retryRecordedClone } from './account';
@@ -15,7 +15,7 @@ const scope = z.object({ uin: z.string(), configId: z.string().optional() }).nul
 const ref = z.object({ id: z.string().uuid(), scope });
 
 export const backgroundTasksRouter = router({
-  onDownloadPage: procedure.subscription(watchDownloadPage),
+  onTaskPage: procedure.subscription(watchTaskPage),
   list: procedure.input(scope).query(async ({ input }) => {
     if (input?.configId) {
       restoreRecordedTasks(input, retryRecordedClone);
@@ -31,6 +31,12 @@ export const backgroundTasksRouter = router({
       .map(
         ({ details: _details, logs: _logs, contactFailures: _contactFailures, ...task }) => task,
       );
+  }),
+  status: procedure.input(ref).query(({ input }) => {
+    const task = backgroundTasks.snapshot().find((task) => task.id === input.id);
+    if (!task || !backgroundTaskVisible(task, input.scope)) return null;
+    const { status, statusLabel, note } = task;
+    return { status, statusLabel, note };
   }),
   details: procedure.input(ref.extend({ updatedAt: z.number() })).query(({ input }) => {
     const task = backgroundTasks.snapshot().find((task) => task.id === input.id);

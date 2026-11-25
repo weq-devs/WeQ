@@ -49,7 +49,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   },
   client: {
     backgroundTasks: {
-      onDownloadPage: {
+      onTaskPage: {
         subscribe: (_input: unknown, callbacks: { onData(id: string): void }) => {
           callbacks.onData('download-page');
           return { unsubscribe: fixture.leaveDownloadPage };

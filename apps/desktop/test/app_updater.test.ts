@@ -508,9 +508,9 @@ it('中途离开设置保留同一次下载；重启后需核验同一版本才�
       return finish();
     });
     const caller = updateRouter.createCaller({});
-    const { watchDownloadPage } = await import('../src/main/download_page');
+    const { watchTaskPage } = await import('../src/main/task_page');
     let pageId: string | undefined;
-    const page = watchDownloadPage().subscribe({
+    const page = watchTaskPage().subscribe({
       next: (id) => {
         pageId = id;
       },
@@ -579,12 +579,12 @@ it('软件更新在页面内下载完成，离开和重启均不加入任务列�
   try {
     const { updater } = await ready();
     updater.installUpdateActions(options);
-    const { watchDownloadPage } = await import('../src/main/download_page');
+    const { watchTaskPage } = await import('../src/main/task_page');
     const { updateRouter } = await import('../src/main/ipc/routers/update');
     const caller = updateRouter.createCaller({});
     const registry = (await import('../src/main/background_tasks')).backgroundTasks;
     let pageId: string | undefined;
-    const page = watchDownloadPage().subscribe({
+    const page = watchTaskPage().subscribe({
       next: (id) => {
         pageId = id;
       },
@@ -604,7 +604,7 @@ it('软件更新在页面内下载完成，离开和重启均不加入任务列�
     restarted.updater.installUpdateActions(options);
     const restored = (await import('../src/main/background_tasks')).backgroundTasks;
     expect(restored.snapshot()[0]).toMatchObject({ foreground: true, status: 'paused' });
-    const { watchDownloadPage: watchReopenedPage } = await import('../src/main/download_page');
+    const { watchTaskPage: watchReopenedPage } = await import('../src/main/task_page');
     const { updateRouter: restartedRouter } = await import('../src/main/ipc/routers/update');
     const reopened = watchReopenedPage().subscribe({
       next: (id) => {

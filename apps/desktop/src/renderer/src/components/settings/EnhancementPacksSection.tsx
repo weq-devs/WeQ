@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
-import { useDownloadPage } from '../../hooks/useDownloadPage';
+import { useTaskPage } from '../../hooks/useTaskPage';
 import { useReadUpdateBanner } from '../../hooks/useReadUpdateBanner';
 import { useAppDialog } from '../../lib/dialogUtils';
 import type { EnhancementPackId } from '../../../../shared/enhancement_manifest';
@@ -49,7 +49,7 @@ const BATCH_ACTIONS = [
 
 export function EnhancementPacksSection() {
   const active = useTabActive();
-  const downloadPage = useDownloadPage(active);
+  const downloadPage = useTaskPage(active);
   const dialog = useAppDialog();
   const navigate = useContext(SettingsNavigateContext);
   const utils = trpc.useUtils();

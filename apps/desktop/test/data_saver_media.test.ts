@@ -8,6 +8,10 @@ import { handleMediaRequest, resolveOcrChatImageFile } from '../src/main/media_p
 import { setupImageWorker } from './support/image-worker';
 import { updateTransferPolicy } from '@weq/service/transfer-policy';
 import { UNKNOWN_NETWORK } from '@weq/service/data-saver';
+import { ManagedDownload, transferActivity } from '@weq/service/managed-download';
+import { backgroundTasks } from '../src/main/background_tasks';
+import { startTransferPolicy } from '../src/main/data_saver';
+import { watchTaskPage } from '../src/main/task_page';
 setupImageWorker();
 const state = vi.hoisted(() => ({
   source: null as string | null,
@@ -98,10 +102,11 @@ it('OCR 仅在开启补取且省流量未生效时自动请求原图', async () 
   expect((await resolveOcrChatImageFile(query, true)).path).toBe('/fetched/original.png');
   expect(state.download).toHaveBeenCalledOnce();
 });
-it('灯箱自动取原图只保留原位进度，手动取原图仍允许创建传输任务', async () => {
+it('灯箱自动取图只显示原位进度，手动取图传递页面和下载控制', async () => {
+  const pageId = crypto.randomUUID();
   const url = `weq-media://pic?token=token&v=original&intent=interactive&transferId=${crypto.randomUUID()}`;
   await handleMediaRequest(new Request(`${url}&autoOriginal=1`));
-  await handleMediaRequest(new Request(url));
+  await handleMediaRequest(new Request(`${url}&pageId=${pageId}`));
   expect(state.download).toHaveBeenNthCalledWith(
     1,
     'token',
@@ -111,10 +116,49 @@ it('灯箱自动取原图只保留原位进度，手动取原图仍允许创建�
   expect(state.download).toHaveBeenNthCalledWith(
     2,
     'token',
-    expect.objectContaining({ reportActivity: true }),
+    expect.objectContaining({
+      reportActivity: true,
+      activity: { pageId, onState: expect.any(Function) },
+    }),
     expect.any(Function),
   );
 });
+it.each([false, true])(
+  '原图传输仅在未完成离开灯箱时进入任务列表（中途离开：%s）',
+  (leavesEarly) => {
+    startTransferPolicy();
+    let pageId: string | undefined;
+    const page = watchTaskPage().subscribe({
+      next: (id) => {
+        pageId = id;
+      },
+    });
+    const transfer = new ManagedDownload({ activityPageId: pageId });
+    const id = crypto.randomUUID();
+    const activity = {
+      id,
+      name: id,
+      transfer,
+      paused: true,
+      reasons: ['network'],
+      received: 10,
+      total: 100,
+    };
+    const task = () => backgroundTasks.snapshot().find((row) => row.name === id);
+    try {
+      transferActivity.emit('state', activity);
+      expect(task()).toMatchObject({ status: 'paused', foreground: true });
+      if (leavesEarly) page.unsubscribe();
+      transferActivity.emit('state', { ...activity, done: true, paused: false, received: 100 });
+      page.unsubscribe();
+      expect(task()).toMatchObject({ status: 'completed', foreground: !leavesEarly });
+    } finally {
+      page.unsubscribe();
+      const finished = task();
+      if (finished) backgroundTasks.remove(finished.id);
+    }
+  },
+);
 it('宿主已有原图时自动响应真实小图，原图点击才传原始内容', async () => {
   const root = await mkdtemp(join(tmpdir(), 'weq-data-saver-media-'));
   roots.push(root);

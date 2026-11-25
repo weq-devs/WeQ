@@ -7,6 +7,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { AccountServices } from '../src/main/context/app_context';
 import { ContactDirectoryRuntime } from '../src/main/context/contact_metrics';
 import { backgroundTasks } from '../src/main/background_tasks';
+import { watchTaskPage } from '../src/main/task_page';
 import { createContactMetricsRouter } from '../src/main/ipc/routers/contact_metrics';
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -221,7 +222,7 @@ it('重算失败不标为完成，重试只重算而不重复拉取已成功名�
   expect(runtime.status().relationGraphRevision).toBe(1);
 });
 
-it('成员读取达到100%仍等待计算，轻量状态在计算成功后才发布新版本和完成状态', async () => {
+it.each([false, true])('群交集在重算期间仍保留原位进度（中途离开：%s）', async (leavesEarly) => {
   const { runtime, services } = await setup();
   let release!: () => void;
   services.groupInfo.getRelationGraph.mockImplementationOnce(
@@ -229,7 +230,14 @@ it('成员读取达到100%仍等待计算，轻量状态在计算成功后才发
   );
   const caller = createContactMetricsRouter(() => runtime).createCaller({});
   const binding = { expectedAccountUin: '99999', expectedAccountConfigId: 'synthetic' };
-  const id = await caller.rebuild({ ...binding, target: 'groupMembers', foreground: true });
+  let pageId: string | undefined;
+  const page = watchTaskPage().subscribe({
+    next: (id) => {
+      pageId = id;
+    },
+  });
+  cleanup.push(async () => page.unsubscribe());
+  const id = await caller.rebuild({ ...binding, target: 'groupMembers', pageId });
   await vi.waitFor(() => expect(release).toBeDefined());
   const snapshot = vi.spyOn(runtime.cache, 'snapshot');
   expect(await caller.status(binding)).toMatchObject({
@@ -241,9 +249,15 @@ it('成员读取达到100%仍等待计算，轻量状态在计算成功后才发
   });
   expect(snapshot).not.toHaveBeenCalled();
   expect(backgroundTasks.snapshot().find((task) => task.id === id)?.status).toBe('running');
-  await caller.backgroundRefresh({ ...binding, taskId: id! });
-  expect(await caller.status(binding)).toMatchObject({ taskId: id, foreground: false });
+  if (leavesEarly) {
+    page.unsubscribe();
+    expect(await caller.status(binding)).toMatchObject({ taskId: id, foreground: false });
+  }
   release();
   await vi.waitFor(() => expect(runtime.status().progress.status).toBe('completed'));
-  expect(await caller.status(binding)).toMatchObject({ relationGraphRevision: 1 });
+  page.unsubscribe();
+  expect(await caller.status(binding)).toMatchObject({
+    relationGraphRevision: 1,
+    foreground: !leavesEarly,
+  });
 });

@@ -12,6 +12,7 @@ export interface TransferProgress {
   phase: TransferPhase;
   received?: number;
   total?: number;
+  paused?: boolean;
   processed?: number;
   items?: number;
 }

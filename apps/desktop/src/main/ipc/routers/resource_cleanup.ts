@@ -12,24 +12,34 @@ import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { backgroundTasks, taskError } from '../../background_tasks';
 import { recordAccountTask } from '../../account_task_receipts';
+import { holdTaskOnPage } from '../../task_page';
 import {
   resourceSourceInput,
   requireResourceSource,
   assertResourceSource,
 } from './resource_source';
 
-const runs = new WeakMap<
-  AccountServices,
-  {
-    id: string;
-    save: ReturnType<typeof recordAccountTask>;
-    total: number;
-    processed: number;
-    failed: number;
-    current?: string;
-  }
->();
+interface CleanupRun {
+  id: string;
+  save: ReturnType<typeof recordAccountTask>;
+  total: number;
+  processed: number;
+  failed: number;
+  current?: string;
+}
+const runs = new WeakMap<AccountServices, CleanupRun>();
 const taskOf = (id: string) => backgroundTasks.snapshot().find((task) => task.id === id);
+
+function handOffCleanup(run: CleanupRun) {
+  const task = taskOf(run.id);
+  if (!task?.foreground || task.status !== 'running') return;
+  backgroundTasks.setForeground(task.id, false);
+  try {
+    run.save();
+  } catch (error) {
+    console.warn('[资源清理] 回执保存失败', error);
+  }
+}
 
 export const resourceCleanupRouter = router({
   status: procedure.input(resourceSourceInput.optional()).query(({ input }) => {
@@ -66,15 +76,7 @@ export const resourceCleanupRouter = router({
       if (input.action === 'stop') {
         if (task.status === 'running' && task.actions.some((action) => action.id === 'stop'))
           await backgroundTasks.act(task.id, 'stop');
-      } else if (task.foreground) {
-        backgroundTasks.setForeground(task.id, false);
-        try {
-          run.save();
-        } catch (error) {
-          backgroundTasks.setForeground(task.id, true);
-          throw error;
-        }
-      }
+      } else handOffCleanup(run);
       return true;
     }),
 
@@ -95,6 +97,7 @@ export const resourceCleanupRouter = router({
     .input(
       resourceSourceInput.extend({
         foreground: z.boolean().optional(),
+        pageId: z.string().uuid().optional(),
         instructions: z.array(
           z.object({
             id: z.string().min(1),
@@ -120,12 +123,16 @@ export const resourceCleanupRouter = router({
         uin: services.accountConfig.getRecord()!.uin,
         configId: services.accountConfig.getRecord()?.configId,
       };
+      const foreground =
+        holdTaskOnPage(input.pageId, `resource-cleanup:${scope.configId ?? scope.uin}`, () =>
+          handOffCleanup(run),
+        ) || input.foreground;
       const id = backgroundTasks.start({
         kind: 'resource',
         name: '清理本地资源',
         display: { action: '清理本地资源' },
         scope,
-        foreground: input.foreground,
+        foreground,
       });
       const save = recordAccountTask(id, scope);
       const stop = new AbortController();
@@ -133,13 +140,12 @@ export const resourceCleanupRouter = router({
       const selected = [
         ...new Set(input.instructions.map((item) => `${item.id} · ${item.variant}`)),
       ];
-      const run = {
+      const run: CleanupRun = {
         id,
         save,
         total: selected.length,
         processed: 0,
         failed: 0,
-        current: undefined as string | undefined,
       };
       runs.set(services, run);
       const completed = new Set<string>();

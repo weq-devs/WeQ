@@ -15,7 +15,7 @@ import { useDialog } from '../components/Dialog.shared';
 import { useTabActive } from '../components/RetainedTabs.shared';
 import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '@weq/service/update-settings';
 import type { UpdateDownloadTask } from '../../../main/update/state';
-import { useDownloadPage } from './useDownloadPage';
+import { useTaskPage } from './useTaskPage';
 
 type DownloadControl = 'pause' | 'continue' | 'retry';
 
@@ -89,7 +89,7 @@ function errMsg(e: unknown): string {
 export function useAppUpdate(showDownloadErrorInline = false): AppUpdate {
   const utils = trpc.useContext();
   const active = useTabActive();
-  const downloadPage = useDownloadPage(active);
+  const downloadPage = useTaskPage(active);
   const showError = useDialog((s) => s.showError);
 
   const version = trpc.bootstrap.getVersionInfo.useQuery(undefined, {

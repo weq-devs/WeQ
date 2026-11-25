@@ -26,7 +26,11 @@ import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs } from './user_config';
 import { getLogger, logErrorContext } from '../common/logger';
 import { scopedNetworkAllowed } from '../common/network_scope';
-import { ManagedDownload, TransferDeferredError } from '../common/managed_download';
+import {
+  ManagedDownload,
+  TransferDeferredError,
+  type DownloadState,
+} from '../common/managed_download';
 
 const MEDIA_HOST = 'https://multimedia.nt.qq.com.cn';
 const DOWNLOAD_BASE = `${MEDIA_HOST}/download`;
@@ -62,6 +66,10 @@ export interface DownloadOptions {
   originalUrl?: string;
   /** 仅用户明确请求查看原图时，可在任务列表继续被策略暂停的传输。 */
   reportActivity?: boolean;
+  activity?: {
+    pageId: string;
+    onState(state: DownloadState, resume?: () => void): void;
+  };
   /** 取消这个调用方，最后一个调用方离开时才停止共享下载。 */
   signal?: AbortSignal;
 }
@@ -364,6 +372,7 @@ export class MediaDownloadService {
         onProgress,
         signal,
         opts.reportActivity,
+        opts.activity,
       );
     let bytes: number | null = null;
     for (const candidate of urls) {
@@ -459,6 +468,7 @@ async function tryFetch(
   onProgress: MediaProgress,
   signal: AbortSignal,
   reportActivity = false,
+  activity?: DownloadOptions['activity'],
 ): Promise<number | null> {
   const check = () => {
     signal.throwIfAborted();
@@ -468,8 +478,12 @@ async function tryFetch(
   try {
     check();
     await mkdir(dirname(cachePath), { recursive: true });
-    await new ManagedDownload({
+    const transfer = new ManagedDownload({
       name: reportActivity ? '下载聊天媒体' : undefined,
+      activityPageId: activity?.pageId,
+      state:
+        activity &&
+        ((state) => activity.onState(state, state.paused ? () => transfer.continue() : undefined)),
       deferOnPolicyPause: !reportActivity,
       signal,
       maxAttempts: 4,
@@ -500,7 +514,8 @@ async function tryFetch(
         }
         bytes = size;
       },
-    }).file(url, cachePath, {}, (received, total) => {
+    });
+    await transfer.file(url, cachePath, {}, (received, total) => {
       check();
       onProgress(received, total);
     });

@@ -851,7 +851,7 @@ export function QqFile({
     size = num(data, 'fileSize'),
     token = str(data, 'fileToken');
   const previewPath = !msgId && !fwd?.fwdResId ? str(data, 'localPath') : '';
-  const mediaSave = useMediaSave({ waitForCompletion: true });
+  const mediaSave = useMediaSave({ foreground: true, ownerKey: `${active}:${conv}:${msgId}` });
   const chatFile = {
     kind: 'chat-file' as const,
     msgId: fwd && !/^\d+$/.test(msgId) ? '0' : msgId,
@@ -903,7 +903,11 @@ export function QqFile({
   const transfer = useTransferProgress(active ? mediaTransferTarget(source) : undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ action: 'open' | 'save'; message: string } | null>(null);
-  const progress = transfer ?? (busy && !opensFile ? { phase: 'preparing' as const } : undefined);
+  const saveRecord = mediaSave.recordFor(source);
+  const paused = !busy && saveRecord?.status === 'paused';
+  const progress = paused
+    ? undefined
+    : (transfer ?? (busy && !opensFile ? { phase: 'preparing' as const } : undefined));
   const downloading = Boolean(progress);
   const percent = progress ? transferPercent(progress) : undefined;
   const transferring = Boolean(transfer);
@@ -942,7 +946,7 @@ export function QqFile({
         }
         if (!hasMessage && !previewPath) throw new Error('文件定位信息不足');
         action = 'save';
-        const result = await mediaSave.run(source);
+        const result = await mediaSave.run(source, paused ? saveRecord.taskId : undefined);
         if (result.error) setError({ action, message: result.error });
         else if (result.taskId && !result.cancelled && checkLocal) await refetchLocations();
       } catch (e) {
@@ -997,6 +1001,8 @@ export function QqFile({
               <span className="qq-media-file-status">
                 <Loader2 size={11} strokeWidth={2} className="weq-spin" aria-hidden /> {busyLabel}
               </span>
+            ) : paused ? (
+              '下载已暂停'
             ) : error ? (
               `${error.action === 'open' ? '打开' : '保存'}失败：${error.message}`
             ) : (
@@ -1008,14 +1014,38 @@ export function QqFile({
       {hasDownloadAction ? (
         <div
           className="qq-file-action"
+          data-paused={paused || undefined}
           onClick={(event) => event.stopPropagation()}
           onMouseDown={(event) => event.stopPropagation()}
         >
           {progress ? (
             <FileDownloadRing
               progress={progress}
-              onCancel={mediaSave.downloading ? () => void mediaSave.cancel() : undefined}
+              onCancel={mediaSave.isBusy(source) ? () => void mediaSave.cancel(source) : undefined}
             />
+          ) : paused ? (
+            <>
+              <button
+                type="button"
+                className="icon-button"
+                title="继续下载"
+                aria-label="继续下载"
+                onClick={() => onClick(true)}
+                onKeyDown={mediaKeyDown}
+              >
+                <Play size={15} aria-hidden />
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                title="停止本次下载"
+                aria-label="停止本次下载"
+                onClick={() => void mediaSave.cancel(source)}
+                onKeyDown={mediaKeyDown}
+              >
+                <X size={15} aria-hidden />
+              </button>
+            </>
           ) : showSave ? (
             <button
               type="button"

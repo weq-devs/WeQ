@@ -33,7 +33,7 @@ import {
   downloadTaskSnapshot,
   isPendingDownload,
 } from '../download_task_receipt';
-import { holdDownloadOnPage } from '../download_page';
+import { holdTaskOnPage } from '../task_page';
 import { DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES } from '@weq/service/update-settings';
 import { UpdateCheckScheduler } from './scheduler';
 import { existsSync } from 'node:fs';
@@ -459,7 +459,7 @@ export async function startDownload(
   if (pageId) {
     foreground =
       (!reuse || Boolean(savedTask.foreground)) &&
-      holdDownloadOnPage(pageId, 'software-update', () => backgroundDownload(taskId));
+      holdTaskOnPage(pageId, 'software-update', () => backgroundDownload(taskId));
   }
   const taskId = reuse
     ? saved.id

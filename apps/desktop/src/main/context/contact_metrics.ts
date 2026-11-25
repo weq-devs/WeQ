@@ -1,6 +1,7 @@
 import { eventTimeFormatter } from '@weq/time';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { holdTaskOnPage } from '../task_page';
 import { z } from 'zod/v3';
 import {
   ContactMetricsService,
@@ -404,7 +405,8 @@ export class ContactDirectoryRuntime {
     const saved = this.refreshStore.data.task;
     if (!saved) return;
     const status = saved.status === 'running' ? 'paused' : saved.status;
-    this.refresh = { ...saved, status, foreground: false };
+    const foreground = saved.foreground && saved.status !== 'running' && saved.status !== 'paused';
+    this.refresh = { ...saved, status, foreground };
     this.completed = new Set(saved.done);
     this.taskId = saved.id;
     this.target = saved.options.target;
@@ -428,6 +430,7 @@ export class ContactDirectoryRuntime {
         id: saved.id,
         kind: 'contacts',
         scope: this.scope,
+        foreground,
         startedAt: saved.startedAt,
         updatedAt: saved.updatedAt,
         status,
@@ -464,16 +467,47 @@ export class ContactDirectoryRuntime {
     this.assertCurrent();
     if (refresh?.id !== id || refresh.options.target !== 'groupMembers')
       throw new Error('群成员更新批次已改变，请刷新');
-    if (!refresh.foreground) return;
+    await this.handOffRefresh(id);
+  }
+
+  async controlGroupMemberRefresh(id: string, action: string, pageId?: string) {
+    this.assertCurrent();
+    const refresh = this.refresh;
+    if (refresh?.id !== id || refresh.options.target !== 'groupMembers')
+      throw new Error('群成员更新批次已改变，请刷新');
+    await backgroundTasks.act(id, action);
+    if (
+      this.refresh === refresh &&
+      refresh.foreground &&
+      (action === 'resume' || action === 'retry')
+    ) {
+      if (!this.holdRefreshOnPage(pageId, () => this.handOffRefresh(id)))
+        await this.handOffRefresh(id);
+    }
+  }
+
+  private holdRefreshOnPage(pageId: string | undefined, handOff: () => Promise<void>) {
+    return holdTaskOnPage(pageId, `group-refresh:${this.scope.configId ?? this.scope.uin}`, () => {
+      void handOff();
+    });
+  }
+
+  private async handOffRefresh(id: string) {
+    const refresh = this.refresh;
+    if (
+      refresh?.id !== id ||
+      !refresh.foreground ||
+      (refresh.status !== 'running' && refresh.status !== 'paused')
+    )
+      return;
     refresh.foreground = false;
+    backgroundTasks.setForeground(id, false);
+    this.cache.emit('changed');
     try {
       await this.persistRefresh();
     } catch (error) {
-      refresh.foreground = true;
-      throw error;
+      this.refreshStorageError(error);
     }
-    backgroundTasks.setForeground(id, false);
-    this.cache.emit('changed');
   }
 
   private saveRefreshSoon() {
@@ -933,6 +967,7 @@ export class ContactDirectoryRuntime {
     range: 'all' | 'older24h' = 'all',
     target: 'metrics' | 'groupMembers' = 'metrics',
     foreground = false,
+    pageId?: string,
   ) {
     if (this.disposed || !this.current()) throw new Error('账号已切换');
     if (
@@ -945,7 +980,9 @@ export class ContactDirectoryRuntime {
       return this.taskId;
     }
     const options = { missingOnly, fields, range, target };
-    const showInPage = target === 'groupMembers' && foreground;
+    const showInPage =
+      target === 'groupMembers' &&
+      (this.holdRefreshOnPage(pageId, () => this.handOffRefresh(id)) || foreground);
     this.target = target;
     this.needsRebuild = true;
     this.completed = new Set();

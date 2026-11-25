@@ -113,7 +113,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             const name = path.join('.');
             const id = `${name}:${fixture.listeners.size}`;
             fixture.listeners.set(id, { path: name, onData: options.onData });
-            if (name === 'backgroundTasks.onDownloadPage') options.onData('download-page');
+            if (name === 'backgroundTasks.onTaskPage') options.onData('download-page');
             return { unsubscribe: () => fixture.listeners.delete(id) };
           };
         return proxy([...path, String(key)]);
@@ -214,7 +214,7 @@ describe('增强设置与非活动页面资源', () => {
     try {
       expect(f.host.querySelector('progress')?.value).toBe(50);
       expect([...fixture.listeners.values()].map(({ path }) => path)).toEqual([
-        'backgroundTasks.onDownloadPage',
+        'backgroundTasks.onTaskPage',
       ]);
       f.render(false);
       expect(fixture.listeners.size).toBe(0);

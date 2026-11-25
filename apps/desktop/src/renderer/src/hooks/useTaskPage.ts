@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { client } from '../trpc/client';
 
-export function useDownloadPage(active: boolean) {
+export function useTaskPage(active: boolean, source?: string) {
   const page = useRef<(() => Promise<string | undefined>) | undefined>(undefined);
   useEffect(() => {
     if (!active) return;
     let pageId: string | undefined;
     const ready = Promise.withResolvers<void>();
-    // 页面订阅失联时，下载仍可通过普通请求发起。
+    // 页面订阅失联时，操作仍可通过普通请求发起。
     const timeout = window.setTimeout(ready.resolve, 1000);
     const settle = () => {
       window.clearTimeout(timeout);
@@ -17,7 +17,7 @@ export function useDownloadPage(active: boolean) {
       await ready.promise;
       return pageId;
     };
-    const subscription = client.backgroundTasks.onDownloadPage.subscribe(undefined, {
+    const subscription = client.backgroundTasks.onTaskPage.subscribe(undefined, {
       onData: (id) => {
         pageId = id;
         settle();
@@ -33,6 +33,6 @@ export function useDownloadPage(active: boolean) {
       settle();
       subscription.unsubscribe();
     };
-  }, [active]);
+  }, [active, source]);
   return useCallback(() => page.current?.(), []);
 }

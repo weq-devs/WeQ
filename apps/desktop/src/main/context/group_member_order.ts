@@ -3,6 +3,7 @@ import { formatUnixTime } from '@weq/time';
 import { profileTimeSeconds } from '@weqbot/protocol/profile-values';
 import type { GroupMember } from '@weq/db';
 import type { ContactMetricRows } from '@weq/service';
+import { holdTaskOnPage } from '../task_page';
 import {
   GROUP_MEMBER_SORTS,
   compareGroupMemberValues,
@@ -244,6 +245,7 @@ export function startGroupMemberOrderTask(
   groupCode: string,
   sort: GroupMemberOnlineSort,
   checkAccount: () => void,
+  pageId?: string,
 ) {
   const directory = services.contactDirectory;
   if (!directory) throw new Error('好友/群信息缓存尚未就绪');
@@ -252,10 +254,14 @@ export function startGroupMemberOrderTask(
   const key = `${groupCode}:${sort}`;
   const running = tasks.get(key);
   if (running) return running;
+  const foreground = holdTaskOnPage(pageId, `member-sort:${scope.configId}:${key}`, () => {
+    if (tasks.get(key) === taskId) backgroundTasks.setForeground(taskId, false);
+  });
   const taskId = backgroundTasks.start({
     name: `读取群 ${groupCode} 成员的${GROUP_MEMBER_SORTS[sort]}`,
     kind: 'contacts',
     scope,
+    foreground,
     statusLabel: '读取成员名单',
   });
   tasks.set(key, taskId);

@@ -4,6 +4,7 @@ import type { AppRouter } from '../../../../shared/router';
 import { useCallback, useEffect, useMemo, useState, type ComponentProps } from 'react';
 import { create } from 'zustand';
 import { useGroupReadScope, previewMemberView } from '../../hooks/useGroupProfile';
+import { useTaskPage } from '../../hooks/useTaskPage';
 import { GroupInfoPanel } from '../../im-template/template/groupInfoPanel';
 import type { GroupMember } from '../../im-template/template/types';
 import { displayUserName } from '../../im-template/template/user';
@@ -90,6 +91,7 @@ function ScopedGroupRosterPanel({
     !props.closing &&
     Boolean(binding) &&
     !conversation.generated;
+  const taskPage = useTaskPage(enabled && isGroupMemberOnlineSort(sort), sort);
   const query = useInfiniteQuery({
     ...PROFILE_QUERY_OPTIONS,
     queryKey: [
@@ -119,28 +121,26 @@ function ScopedGroupRosterPanel({
     },
     refetchInterval: (data) => (data?.pages[0]?.preparing ? 500 : false),
   });
-  const tasks = useQuery({
+  const status = useQuery({
     queryKey: ['group-member-order-task', key, startedTask?.id],
     queryFn: () =>
-      client.backgroundTasks.list.query({
-        uin: binding!.expectedAccountUin,
-        configId: binding!.expectedAccountConfigId,
+      client.backgroundTasks.status.query({
+        id: startedTask!.id,
+        scope: { uin: binding!.expectedAccountUin, configId: binding!.expectedAccountConfigId },
       }),
-    enabled: enabled && Boolean(startedTask),
-    refetchInterval: (data) => {
-      const task = data?.find((row) => row.id === startedTask?.id);
-      return !task || task.status === 'running' ? 1000 : false;
-    },
+    enabled: enabled && startedTask?.sort === sort,
+    refetchInterval: (task) => (task?.status === 'running' ? 1000 : false),
   });
-  const task = tasks.data?.find((row) => row.id === startedTask?.id);
+  const task = status.data;
   const fill = useMutation({
-    mutationFn: (input: FillInput) => client.account.fillGroupMemberSort.mutate(input),
+    mutationFn: async (input: FillInput) =>
+      client.account.fillGroupMemberSort.mutate({ ...input, pageId: await taskPage() }),
   });
   const usingTask = startedTask?.sort === sort;
   const fillError = fill.variables?.sort === sort ? fill.error : null;
   const fillErrorMessage =
     fillError instanceof Error ? fillError.message : fillError ? '补取成员资料失败' : undefined;
-  const taskRunning = Boolean(usingTask && (!task || task.status === 'running'));
+  const taskRunning = usingTask && (status.isLoading || task?.status === 'running');
   const taskFinished = Boolean(task && task.status !== 'running');
   const { refetch } = query;
   useEffect(() => {
@@ -266,7 +266,9 @@ function ScopedGroupRosterPanel({
           !conversation.generated && binding && isGroupMemberOnlineSort(sort)
             ? {
                 running: taskRunning || fill.isLoading,
-                message: fillErrorMessage ?? (usingTask && !taskRunning ? task?.note : undefined),
+                message:
+                  fillErrorMessage ??
+                  (usingTask ? (taskRunning ? task?.statusLabel : task?.note) : undefined),
                 failed: Boolean(fillError || (usingTask && task?.status === 'failed')),
                 start: () => {
                   fill.mutate(

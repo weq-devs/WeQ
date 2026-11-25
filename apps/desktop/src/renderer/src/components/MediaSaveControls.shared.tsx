@@ -46,11 +46,9 @@ type MediaSaveRecord = {
 type MediaSaveOwner = { released: boolean; tasks: Map<string, MediaSaveRecord> };
 
 export function useMediaSave({
-  waitForCompletion = false,
   foreground = false,
   ownerKey,
 }: {
-  waitForCompletion?: boolean;
   foreground?: boolean;
   ownerKey?: string;
 } = {}) {
@@ -92,7 +90,12 @@ export function useMediaSave({
         if (pending.current?.owner === owner) pending.current.controller.abort();
         if (!foreground || !expectedUin || !expectedConfig) return;
         for (const task of owner.tasks.values()) {
-          if (task.status === 'downloaded' || (task.status === 'saved' && !IS_WEB)) continue;
+          if (
+            task.status === 'failed' ||
+            task.status === 'downloaded' ||
+            (task.status === 'saved' && !IS_WEB)
+          )
+            continue;
           void client.account.mediaSave.background
             .mutate({
               expectedAccountUin: expectedUin,
@@ -211,9 +214,9 @@ export function useMediaSave({
       if (!op.taskId || !current()) return { taskId: op.taskId, cancelled: true };
       if (foreground) record(op.key, { taskId: op.taskId, status: 'running' });
       else notifyTaskCreated(op.taskId, IS_WEB ? '正在准备媒体下载' : '正在保存媒体');
-      if (!IS_WEB && !waitForCompletion && !foreground) return { taskId: op.taskId };
+      if (!IS_WEB && !foreground) return { taskId: op.taskId };
       const deadline = Date.now() + 15 * 60_000;
-      while (current() && Date.now() < deadline) {
+      while (current() && (foreground || Date.now() < deadline)) {
         const receipt = await client.account.getExportOutputReceipt.query({
           ...op.expected,
           taskId: op.taskId,
@@ -232,6 +235,10 @@ export function useMediaSave({
         }
         if (receipt.status === 'completed') {
           if (!IS_WEB) {
+            if (receipt.save?.status === 'pending' || receipt.save?.status === 'saving') {
+              await pause(op.controller.signal);
+              continue;
+            }
             if (foreground && receipt.save?.status && receipt.save.status !== 'saved')
               throw new Error(receipt.save.error ?? '未能保存到所选位置');
             record(op.key, { taskId: op.taskId, status: 'saved' });
@@ -257,10 +264,6 @@ export function useMediaSave({
           return { taskId: op.taskId };
         }
         await pause(op.controller.signal);
-      }
-      if (current() && foreground) {
-        await client.account.mediaSave.background.mutate({ ...op.expected, taskId: op.taskId });
-        record(op.key, undefined);
       }
       if (current())
         push({

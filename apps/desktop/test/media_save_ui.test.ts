@@ -43,6 +43,7 @@ const state = vi.hoisted(() => ({
     async (_input: unknown): Promise<{ url: string } | null> => ({ url: '/_download/fixture' }),
   ),
   cancel: vi.fn(async (_input: unknown) => true),
+  resume: vi.fn(async (_input: unknown) => true),
   background: vi.fn(async (_input: unknown) => true),
   openSaved: vi.fn(async (_input: unknown) => true),
   toast: vi.fn(),
@@ -148,6 +149,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       listGroupFiles: { query: state.files },
       startGroupFileExport: { mutate: state.exportFiles },
       mediaSave: {
+        resume: { mutate: state.resume },
         save: { mutate: state.save },
         cancel: { mutate: state.cancel },
         background: { mutate: state.background },
@@ -253,6 +255,7 @@ beforeEach(() => {
   state.receipt.mockReset().mockResolvedValue({ status: 'completed', error: undefined });
   state.download.mockClear();
   state.cancel.mockClear();
+  state.resume.mockClear();
   state.background.mockClear();
   state.openSaved.mockClear();
   state.toast.mockClear();
@@ -542,9 +545,32 @@ it('没有本地记录的文件卡片仍走公共保存策略', async () => {
   await click(view.host, '保存文件');
   expect(state.save.mock.calls[0]![0]).toMatchObject({
     source: { kind: 'chat-file', msgId: '41', token: 'token', conv: '123', name: 'report.txt' },
+    foreground: true,
   });
   expect(view.host.querySelector('.qq-media-file-open button')).toBeNull();
   expect(view.host.querySelector('.qq-media-file-name')?.getAttribute('title')).toBe('report.txt');
+});
+it('聊天文件下载暂停后在原卡片继续，完成后离开不生成后台任务', async () => {
+  state.receipt.mockResolvedValueOnce({ status: 'paused', error: undefined });
+  const view = await mount(
+    h(QqFile, {
+      data: { fileName: 'report.txt', fileToken: 'token' },
+      sendTimeMs: 1,
+      msgId: '41',
+      conv: '123',
+    }),
+  );
+  await click(view.host, '保存文件');
+  expect(view.host.textContent).toContain('下载已暂停');
+  await click(view.host, '继续下载');
+  expect(state.resume).toHaveBeenCalledWith({
+    expectedAccountUin: '10001',
+    expectedAccountConfigId: 'source-a',
+    taskId: 'media-task',
+  });
+  view.close();
+  expect(state.accepted).not.toHaveBeenCalled();
+  expect(state.background).not.toHaveBeenCalled();
 });
 it('文件任务受理及进度结束后保持原位反馈，相邻同名文件不受进度或位置刷新影响', async () => {
   const receipt = Promise.withResolvers<Awaited<ReturnType<typeof state.receipt>>>();
@@ -578,7 +604,7 @@ it('文件任务受理及进度结束后保持原位反馈，相邻同名文件�
   capture(view.host, 'file-download-idle.html');
 
   await click(card, '保存文件');
-  expect(state.accepted).toHaveBeenCalledOnce();
+  expect(state.accepted).not.toHaveBeenCalled();
   expect(progress()).not.toBeNull();
   capture(view.host, 'file-download-accepted.html');
   const target = mediaTransferTarget({
