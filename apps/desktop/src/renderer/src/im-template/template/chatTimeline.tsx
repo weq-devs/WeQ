@@ -19,7 +19,6 @@ import { messageTimelineSpacing, type MessageGroupPosition } from './chatTimelin
 import { timelineViewport, TIMELINE_MESSAGE_SELECTOR } from '../../lib/timelineViewport';
 import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
 import { allowsLayoutMotion, RowLayoutMotion, visibleLayoutRows } from '../../lib/layoutMotion';
-import { surfaceMotionTiming } from '../../lib/surfaceMotion';
 import { MessageLayoutContext } from '../../lib/messageLayout';
 
 export type TimelineVisibility = {
@@ -84,15 +83,6 @@ type DetailLayout = {
 class ChatTimelineTransition extends Component<ChatTimelineProps> {
   private readonly motion = new RowLayoutMotion();
   private detailLayout?: DetailLayout;
-  private switchFrame?: Animation;
-  /**
-   * 切换会话后等待「目标会话正文」落位的标记。
-   *
-   * `ids` 是切换前消息区里已有的消息 id：模板层换会话时会先用新会话的上下文重投影旧窗口
-   * 数据（正文和 `conversationId` 都会变），所以只能看 DOM 里真正出现了哪些消息，
-   * 不能拿消息字段判断。超时自动放弃，避免空会话把标记一直挂着、误伤之后的新消息。
-   */
-  private pendingSwitch?: { scope: string; ids: Set<string>; timer: ReturnType<typeof setTimeout> };
 
   private queueDetails(
     layout: Omit<DetailLayout, 'changes' | 'animateLayout'>,
@@ -109,71 +99,6 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
     const changed = pending.changes.get(key) ?? new Set<string>();
     for (const selector of selectors) changed.add(selector);
     pending.changes.set(key, changed);
-  }
-
-  /**
-   * 切会话的「内容落位」：消息区整块换成新会话的正文后，从略低的不透明度 + 4px 下位上浮。
-   *
-   * 为什么不在 scope 变化的那一刻播：切换瞬间消息区里还挂着上一个会话的正文（窗口数据
-   * 换 key 要等查询回来才提交），那时淡入的是旧内容，真正的新内容反而硬切进来，
-   * 看起来就像「闪了一下」。这里等到出现属于目标会话的消息再播。
-   */
-  private settleConversation() {
-    const { active, scope, scrollRef } = this.props;
-    const pending = this.pendingSwitch;
-    if (!pending || pending.scope !== scope || !active) return;
-    const scroll = scrollRef.current;
-    if (!scroll) return;
-    if (!this.hasFreshRows(scroll, pending.ids)) return;
-    this.clearPendingSwitch();
-    if (!allowsLayoutMotion(scroll)) return;
-    // 连点/连续键切换时上一段还在播：让它继续淡完，别把不透明度重新拉回去闪一下。
-    if (this.switchFrame?.playState === 'running') return;
-    this.switchFrame = scroll.animate(
-      [
-        { opacity: 0.45, transform: 'translateY(4px)' },
-        { opacity: 1, transform: 'none' },
-      ],
-      { duration: surfaceMotionTiming.settle, easing: surfaceMotionTiming.easing },
-    );
-    void this.switchFrame.finished.catch(() => {});
-  }
-
-  /**
-   * 消息区里渲染出来的消息是否**全部**换成了切换前没有的（新会话的正文已经落位）。
-   *
-   * 用「全部」而不是「出现一条」：切换期间如果旧会话恰好来了一条新消息，那一条也是新 id，
-   * 但它不代表新会话的正文到了，不能拿来做落位信号。
-   */
-  private hasFreshRows(scroll: HTMLElement, previousIds: Set<string>) {
-    const rows = scroll.querySelectorAll<HTMLElement>(TIMELINE_MESSAGE_SELECTOR);
-    if (!rows.length) return false;
-    for (const element of rows) {
-      const id = element.dataset.messageId;
-      if (!id || previousIds.has(id)) return false;
-    }
-    return true;
-  }
-
-  private clearPendingSwitch() {
-    if (this.pendingSwitch) clearTimeout(this.pendingSwitch.timer);
-    this.pendingSwitch = undefined;
-  }
-
-  /** 在 DOM 被替换前记下当前消息 id，切换后据此判断新正文是否已经落位。 */
-  private beginPendingSwitch(scope: string) {
-    this.clearPendingSwitch();
-    const scroll = this.props.scrollRef.current;
-    if (!this.props.active || !scroll) return;
-    const ids = new Set<string>();
-    for (const element of scroll.querySelectorAll<HTMLElement>(TIMELINE_MESSAGE_SELECTOR)) {
-      const id = element.dataset.messageId;
-      if (id) ids.add(id);
-    }
-    const timer = setTimeout(() => {
-      this.pendingSwitch = undefined;
-    }, 3000);
-    this.pendingSwitch = { scope, ids, timer };
   }
 
   private captureDetails = (element: HTMLElement, selectors: string[], animateLayout: boolean) => {
@@ -286,8 +211,6 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
   }
 
   override getSnapshotBeforeUpdate(previous: ChatTimelineProps) {
-    // 必须在 DOM 被替换前读：切换后消息区会先挂着旧窗口的正文，之后才换成新会话的。
-    if (this.props.scope !== previous.scope) this.beginPendingSwitch(this.props.scope);
     const {
       active,
       scope,
@@ -390,12 +313,6 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
     const { active, scope, loading, live, jumpRevision, messages, scrollRef, unreadBoundary } =
       this.props;
     const scroll = scrollRef.current;
-    if (scope !== previous.scope) {
-      this.switchFrame?.cancel();
-      this.switchFrame = undefined;
-    }
-    // 正文落位通常伴随 messages/loading 变化；只在内容真的变了时查一次 DOM。
-    if (messages !== previous.messages || loading !== previous.loading) this.settleConversation();
     if (
       !active ||
       scope !== previous.scope ||
@@ -585,9 +502,6 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
 
   override componentWillUnmount() {
     this.motion.stop();
-    this.switchFrame?.cancel();
-    this.switchFrame = undefined;
-    this.clearPendingSwitch();
     this.detailLayout = undefined;
   }
 

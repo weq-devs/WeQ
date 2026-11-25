@@ -838,6 +838,14 @@ html body.weq-tool-window {
     opacity: 1;
   }
 }
+@keyframes weq-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
 @keyframes weq-pop-in {
   from {
     opacity: 0;

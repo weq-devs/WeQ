@@ -1594,6 +1594,11 @@ function ChatPaneContent({
     () => messages.filter((message) => !isTimelineMessageHidden(message.id)),
     [messages, isTimelineMessageHidden],
   );
+  // 切会话时消息窗口会被同步清空，等首屏回来才换成新正文。以前这段是「空白 →
+  // 内容一下子铺满」；现在先铺一层骨架，正文落位后让它淡出，两者交叉过渡。
+  const skeletonActive = Boolean(loading) && visibleMessages.length === 0;
+  const skeletonLayer = useClosingContent(skeletonActive ? true : null, conversation?.id);
+  const skeletonLeaving = Boolean(skeletonLayer) && !skeletonActive;
   const mediaGalleryMessages = useMemo(
     () =>
       visibleMessages.map((message) => ({
@@ -6767,12 +6772,9 @@ function ChatPaneContent({
                 <div className="weq-message-marquee" aria-hidden style={marquee.box} />
               ) : null}
               {loading && visibleMessages.length === 0 ? (
-                <>
-                  <span className="sr-only" role="status">
-                    正在加载消息
-                  </span>
-                  <ChatMessagesSkeleton />
-                </>
+                <span className="sr-only" role="status">
+                  正在加载消息
+                </span>
               ) : visibleMessages.length === 0 && !loadingNewer && !loadError ? (
                 (emptyTimeline ?? (
                   <EmptyState
@@ -7003,6 +7005,11 @@ function ChatPaneContent({
         </ChatTimeline>
         {messageImage.portal}
       </IntentSenseProvider>
+      {skeletonLayer ? (
+        <div className={cn('weq-chat-skeleton-layer', skeletonLeaving && 'is-leaving')} aria-hidden>
+          <ChatMessagesSkeleton delayMs={0} />
+        </div>
+      ) : null}
       {loadingOlder ? (
         <div className="weq-conversation-loading is-older" role="status">
           加载更早消息…

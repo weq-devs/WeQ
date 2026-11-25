@@ -4123,6 +4123,39 @@ html[data-theme='dark'] .chat-empty-logo {
   padding: 4px 2px 14px;
 }
 
+/* 切会话的骨架层：铺在消息区上方（网格第 2 行，与 .weq-conversation-loading 同一套定位），
+ * 骨架贴底排布，和正文出现的位置对齐；正文落位后整层淡出，形成交叉过渡，
+ * 而不是「先空白，再一下子铺满」。 */
+.weq-chat-skeleton-layer {
+  position: absolute;
+  grid-area: 2 / 1;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 26px 18px 20px 20px;
+  overflow: hidden;
+  pointer-events: none;
+  animation: weq-fade-in 120ms ease-out both;
+}
+
+.weq-chat-skeleton-layer.is-leaving {
+  animation: weq-fade-out 180ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-chat-skeleton-layer,
+  .weq-chat-skeleton-layer.is-leaving {
+    animation: none;
+  }
+
+  /* 减少动态效果时不留残影：正文一到就把骨架撤掉。 */
+  .weq-chat-skeleton-layer.is-leaving {
+    opacity: 0;
+  }
+}
+
 .chat-skeleton-time {
   align-self: center;
   width: 110px;
