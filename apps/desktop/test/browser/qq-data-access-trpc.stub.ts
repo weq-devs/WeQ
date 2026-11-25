@@ -1,3 +1,17 @@
+import { DEFAULT_NOTIFICATION_EVENTS } from '@weq/service/notification-settings';
+
+const install = {
+  qqExePath: '/fixture/QQ.app',
+  wrapperNodePath: '/fixture/wrapper.node',
+  loginDbPath: '/fixture/login.db',
+  tencentFilesRoot: '/fixture/QQ',
+  version: '合成版本',
+  userDataPath: '/fixture/QQ',
+  hasQqExe: true,
+  hasWrapper: true,
+  hasUserData: true,
+  hasLoginDb: true,
+};
 const access = {
   status: 'denied',
   applicationPath: '/Applications/WeQ 测试应用.app',
@@ -8,33 +22,40 @@ const proxy = (path = ''): unknown =>
   new Proxy(() => proxy(path), {
     get: (_target, key) => {
       const data = () =>
-        path.endsWith('qqDataAccess')
-          ? access
-          : path.endsWith('probeOnline')
-            ? { count: null, runningCount: 1 }
-            : path.endsWith('getSettings')
-              ? { autoAttachQq: true, restrictedModeBannerEnabled: false }
-              : path.endsWith('sipEnabled')
-                ? false
-                : path.endsWith('listAccounts') || path.endsWith('listAccountConfigs')
-                  ? path.endsWith('listAccountConfigs')
-                    ? [
-                        {
-                          configId: 'fixture-live',
-                          uin: '10001',
-                          displayName: '合成账号',
-                          dbKey: '0123456789abcdef',
-                          dataDir: '/fixture/QQ/nt_qq_fixture',
-                          lastLoginAt: 0,
-                        },
-                      ]
-                    : []
-                  : null;
+        path.endsWith('describeInstall')
+          ? install
+          : path.endsWith('qqDataAccess')
+            ? access
+            : path.endsWith('probeOnline')
+              ? { count: null, runningCount: 1 }
+              : path.endsWith('getSettings')
+                ? {
+                    autoAttachQq: true,
+                    restrictedModeBannerEnabled: false,
+                    notificationEvents: DEFAULT_NOTIFICATION_EVENTS,
+                  }
+                : path.endsWith('sipEnabled')
+                  ? false
+                  : path.endsWith('listAccounts') || path.endsWith('listAccountConfigs')
+                    ? path.endsWith('listAccountConfigs')
+                      ? [
+                          {
+                            configId: 'fixture-live',
+                            uin: '10001',
+                            displayName: '合成账号',
+                            dbKey: '0123456789abcdef',
+                            dataDir: '/fixture/QQ/nt_qq_fixture',
+                            lastLoginAt: 0,
+                          },
+                        ]
+                      : []
+                    : null;
       if (key === 'useQuery')
         return () => ({
           data: data(),
           isLoading: false,
           isFetching: false,
+          isSuccess: true,
           refetch: async () => ({ data: data() }),
         });
       if (key === 'mutate' && path.endsWith('openQqDataAccessSettings'))

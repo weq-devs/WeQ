@@ -1,6 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { BootstrapShell } from '../../src/renderer/src/views/BootstrapView';
-import { SelectScreen } from '../../src/renderer/src/views/bootstrap/SelectScreen';
+import { BootstrapShell, BootstrapView } from '../../src/renderer/src/views/BootstrapView';
 import { ToastHost } from '../../src/renderer/src/components/Toast';
 import { useToast } from '../../src/renderer/src/components/Toast.shared';
 import { useRestrictedMode } from '../../src/renderer/src/state/restrictedMode';
@@ -40,22 +39,7 @@ createRoot(document.getElementById('root')!).render(
         <div />
       </BootstrapShell>
     ) : (
-      <BootstrapShell showWindowActions={false}>
-        <SelectScreen
-          install={{
-            qqExePath: '/fixture/QQ.app',
-            wrapperNodePath: '/fixture/wrapper.node',
-            loginDbPath: '/fixture/login.db',
-            tencentFilesRoot: '/fixture/QQ',
-            version: '合成版本',
-            userDataPath: '/fixture/QQ',
-            hasQqExe: true,
-            hasWrapper: true,
-            hasUserData: true,
-            hasLoginDb: true,
-          }}
-        />
-      </BootstrapShell>
+      <BootstrapView />
     )}
     <ToastHost />
   </>,

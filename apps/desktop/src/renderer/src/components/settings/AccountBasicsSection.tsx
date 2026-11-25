@@ -16,7 +16,7 @@ import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
  * settings mutation we refetch so a reopen reflects what was persisted.
  */
 
-import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import {
   ChevronDown,
   Copy,
@@ -37,6 +37,7 @@ import { useTabActive } from '../RetainedTabs.shared';
 import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, SettingsStatusBadge, Toggle } from './controls';
+import { BeforeLoginSettingsContext } from './controls.shared';
 import { DatabaseReadSettings } from './DatabaseReadSettings';
 import { FullFunctionSetup } from './FullFunctionSetup';
 import { QqStatusReminderSettings } from './QqStatusReminderSettings';
@@ -134,6 +135,7 @@ export function AccountBasicsSection({
 }): ReactElement {
   const active = useTabActive();
   const uin = useViewState((state) => (state.view === 'main' ? state.openedUin : null));
+  const beforeLogin = useContext(BeforeLoginSettingsContext);
   const proxyDetailsOpen = useRestrictedMode((state) => state.settingsSection === 'proxy');
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
@@ -685,7 +687,11 @@ export function AccountBasicsSection({
             settingId="qq-sync-and-live"
             title="同步与实时更新"
             icon={<RefreshCw size={15} strokeWidth={1.8} />}
-            desc="使用代理同步或加速实时更新时，需要当前账号的 QQ 在线能力就绪。"
+            desc={
+              beforeLogin
+                ? '打开在线账号后可用。'
+                : '使用代理同步或加速实时更新时，需要当前账号的 QQ 在线能力就绪。'
+            }
           >
             <Row
               settingId="qq-client-sync"
@@ -694,6 +700,7 @@ export function AccountBasicsSection({
                 <Toggle
                   checked={settings.data?.qqClientSyncEnabled ?? false}
                   disabled={
+                    beforeLogin ||
                     !proxyEnabled ||
                     setQqProxyEnabled.isPending ||
                     settingsLoading ||
@@ -717,6 +724,7 @@ export function AccountBasicsSection({
                 <Toggle
                   checked={settings.data?.qqLiveMessagesEnabled ?? false}
                   disabled={
+                    beforeLogin ||
                     !proxyEnabled ||
                     setQqProxyEnabled.isPending ||
                     settingsLoading ||

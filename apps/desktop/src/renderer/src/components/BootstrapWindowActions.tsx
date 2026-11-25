@@ -1,4 +1,4 @@
-import { FolderOpen, X } from 'lucide-react';
+import { FolderOpen, Settings, X } from 'lucide-react';
 import { DesktopOnly } from '../lib/target';
 import { shellBridge } from '../lib/target.shared';
 import { useDialog } from './Dialog.shared';
@@ -7,12 +7,7 @@ import { useToast } from './Toast.shared';
 import { AnnouncementEntry } from './AnnouncementCenter';
 import '../styles/startup-shell.css';
 
-/** 账号页与启动状态页共用窗口操作，关闭行为交给主进程统一处理。 */
-export function BootstrapWindowActions({
-  showAnnouncements = false,
-}: {
-  showAnnouncements?: boolean;
-}) {
+export function StartupLogButton({ iconOnly = false }: { iconOnly?: boolean }) {
   const pushToast = useToast((s) => s.push);
   const showError = useDialog((s) => s.showError);
 
@@ -34,21 +29,49 @@ export function BootstrapWindowActions({
       })
       .catch((e) => showError('打开日志目录失败', e instanceof Error ? e.message : String(e)));
   };
+  return (
+    <button
+      type="button"
+      className={iconOnly ? 'weq-shell-log-btn' : 'weq-set-btn'}
+      onClick={openLogDir}
+      title="打开日志目录"
+      aria-label="打开日志目录"
+    >
+      <FolderOpen size={16} strokeWidth={1.7} aria-hidden />
+      {iconOnly ? null : '打开日志目录'}
+    </button>
+  );
+}
 
+/** 账号页与启动状态页共用窗口操作，关闭行为交给主进程统一处理。 */
+export function BootstrapWindowActions({
+  showAnnouncements = false,
+  onOpenSettings,
+  settingsDisabled = false,
+}: {
+  showAnnouncements?: boolean;
+  onOpenSettings?: () => void;
+  settingsDisabled?: boolean;
+}) {
   return (
     <div className="weq-shell-actions">
       {showAnnouncements && <AnnouncementEntry placement="startup" />}
       <RestrictedModeIndicator />
       <DesktopOnly>
-        <button
-          type="button"
-          className="weq-shell-log-btn"
-          onClick={openLogDir}
-          title="打开日志目录"
-          aria-label="打开日志目录"
-        >
-          <FolderOpen size={16} strokeWidth={1.7} />
-        </button>
+        {onOpenSettings ? (
+          <button
+            type="button"
+            className="weq-shell-settings-btn"
+            onClick={onOpenSettings}
+            disabled={settingsDisabled}
+            title="设置"
+            aria-label="设置"
+          >
+            <Settings size={16} strokeWidth={1.7} aria-hidden />
+          </button>
+        ) : (
+          <StartupLogButton iconOnly />
+        )}
         <button
           type="button"
           className="weq-shell-close-btn"

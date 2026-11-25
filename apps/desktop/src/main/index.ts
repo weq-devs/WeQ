@@ -517,9 +517,16 @@ function registerWindowLayoutIpc(): void {
         'configId' in scope && typeof scope.configId === 'string' ? scope.configId : undefined,
     });
   });
-  accountIpc.handle('window:set-layout', (event, layout: WindowLayout) => {
+  accountIpc.handle('window:set-layout', (event, layout: WindowLayout | 'settings') => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win || (layout !== 'home' && layout !== 'chat')) return;
+    if (!win) return;
+    const area = screen.getDisplayMatching(win.getBounds()).workArea;
+    if (layout === 'settings') {
+      // 设置借用主界面尺寸，保留登录窗口及其原生装饰。
+      applyWindowLayout(win, 'chat', area);
+      return true;
+    }
+    if (layout !== 'home' && layout !== 'chat') return;
     // Linux 无运行时装饰开关，仅在账号页/工作区切换时重建，保留后台账号会话。
     // 设置过程中不重载渲染层，以免丢掉未保存的编辑和已打开的工具窗。
     if (
@@ -541,7 +548,7 @@ function registerWindowLayoutIpc(): void {
     }
     windowLayouts.set(win, layout);
     updateMainWindowControls(win, layout);
-    applyWindowLayout(win, layout, screen.getDisplayMatching(win.getBounds()).workArea);
+    applyWindowLayout(win, layout, area);
   });
 
   accountIpc.on('window-minimize', (event) => {

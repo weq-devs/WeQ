@@ -27,7 +27,13 @@ import type { UiAccount } from './types';
 import logoUrl from '@resources/brand/logo.png';
 import '../../styles/bootstrap-select.css';
 
-export function SelectScreen({ install }: { install: GlobalInstallInfo }): ReactElement {
+export function SelectScreen({
+  install,
+  onOpenSettings,
+}: {
+  install: GlobalInstallInfo;
+  onOpenSettings?: () => void;
+}): ReactElement {
   const remote = useRemoteClient();
   const mode = useViewState((s) => s.selectMode);
   const enterSelect = useViewState((s) => s.enterSelect);
@@ -185,7 +191,11 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
           </div>
           <h1 id="account-page-title">打开账号</h1>
         </div>
-        <BootstrapWindowActions showAnnouncements />
+        <BootstrapWindowActions
+          showAnnouncements
+          onOpenSettings={onOpenSettings}
+          settingsDisabled={busy}
+        />
       </header>
       <div className="weq-account-content">
         <section

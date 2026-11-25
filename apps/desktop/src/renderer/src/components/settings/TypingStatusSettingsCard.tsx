@@ -9,7 +9,7 @@
  */
 
 import { NumericText } from '../NumericText';
-import { useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useState } from 'react';
 import { Keyboard, Pencil, Save } from 'lucide-react';
 import { classifyChatType } from '@weq/codec';
 import { useTypingStatusSettings } from '../../hooks/useTypingStatusSettings';
@@ -20,6 +20,7 @@ import { PageShell } from '../PageShell';
 import { useAppLock } from '../../state/lock';
 import { trpc } from '../../trpc/client';
 import { Card, Row, QueryError } from './controls';
+import { BeforeLoginSettingsContext } from './controls.shared';
 import { ConversationPicker } from '../../views/export/ConversationPicker';
 import { convAvatarUrl, fmtCount, type PickItem } from '../../views/export/types';
 import { cn } from '../../im-template/template/classNames';
@@ -61,12 +62,15 @@ export function TypingStatusSettingsCard() {
   const preferences = useTypingStatusSettings();
   const { query, disabled } = preferences;
   const active = useTabActive();
+  const beforeLogin = useContext(BeforeLoginSettingsContext);
   const locked = useAppLock((state) => state.locked);
-  const account = trpc.account.getAccountConfig.useQuery(undefined, { enabled: active });
+  const account = trpc.account.getAccountConfig.useQuery(undefined, {
+    enabled: active && !beforeLogin,
+  });
   const mode: TypingMode = query.data?.mode ?? 'off';
 
-  const accountUin = account.data?.uin;
-  const accountConfigId = account.data?.configId;
+  const accountUin = beforeLogin ? undefined : account.data?.uin;
+  const accountConfigId = beforeLogin ? undefined : account.data?.configId;
   const sourceKey = JSON.stringify([accountUin, accountConfigId]);
   const [editorSource, setEditorSource] = useState<string | null>(null);
   const editing = editorSource === sourceKey && active && !locked && mode === 'selected';

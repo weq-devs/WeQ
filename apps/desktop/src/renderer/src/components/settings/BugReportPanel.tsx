@@ -11,7 +11,7 @@
  *   3. 打包到缓存目录的新建文件夹 + 打开目录 + QQ 深链接
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { z } from 'zod/v3';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
@@ -45,6 +45,7 @@ import { useThemeStore } from '../../state/theme';
 import bugBanner from '@resources/brand/bug_banner.png';
 import bugBannerDark from '@resources/brand/bug_banner_2.png';
 import { Card, CheckPill, SectionHeader } from './controls';
+import { BeforeLoginSettingsContext, OPEN_ACCOUNT_SETTINGS_HINT } from './controls.shared';
 import '../../styles/help-markdown.css';
 import { SegmentedControl } from '../SegmentedControl';
 
@@ -130,6 +131,7 @@ export function BugReportPanel(): ReactElement {
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
   const resolvedTheme = useThemeStore((s) => s.resolved);
+  const beforeLogin = useContext(BeforeLoginSettingsContext);
 
   const environment = trpc.help.feedbackEnvironment.useQuery(undefined, {
     enabled: active,
@@ -141,7 +143,7 @@ export function BugReportPanel(): ReactElement {
     refetchOnMount: 'always',
   });
   const databases = trpc.account.dbExplorer.listDatabases.useQuery(undefined, {
-    enabled: active,
+    enabled: active && !beforeLogin,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -427,21 +429,23 @@ export function BugReportPanel(): ReactElement {
             <IconPicker
               width="100%"
               maxHeight={220}
-              disabled={databases.isLoading || hexBusy}
+              disabled={beforeLogin || databases.isLoading || hexBusy}
               triggerIcon={<Database size={13} aria-hidden />}
               ariaLabel="选择当前账号的数据库"
               placeholder={
-                databases.isLoading
-                  ? '正在读取当前账号数据库…'
-                  : databases.isError
-                    ? '需要先打开账号'
-                    : (databases.data?.length ?? 0) === 0
-                      ? '当前账号暂无数据库'
-                      : '选择当前账号的数据库'
+                beforeLogin
+                  ? OPEN_ACCOUNT_SETTINGS_HINT
+                  : databases.isLoading
+                    ? '正在读取当前账号数据库…'
+                    : databases.isError
+                      ? '需要先打开账号'
+                      : (databases.data?.length ?? 0) === 0
+                        ? '当前账号暂无数据库'
+                        : '选择当前账号的数据库'
               }
               value={hexdump?.path ?? ''}
               onChange={(v) => void loadHexdump(v)}
-              options={(databases.data ?? []).map((db) => ({
+              options={(beforeLogin ? [] : (databases.data ?? [])).map((db) => ({
                 value: db.path,
                 label: db.name,
                 detail: fmtBytes(db.bytes),

@@ -18,6 +18,8 @@ import type { ReactElement } from 'react';
 import { Download, Gauge, Loader2, RefreshCw, RotateCw, ShieldAlert, Terminal } from 'lucide-react';
 import { Modal } from './Dialog';
 import { useAppUpdate } from '../hooks/useAppUpdate';
+import { DesktopOnly } from '../lib/target';
+import { StartupLogButton } from './BootstrapWindowActions';
 
 function fmtBytes(bytes: number): string {
   if (!bytes) return '0 MB';
@@ -234,11 +236,16 @@ export function NativeExpiredDialog({
               请在终端运行 <code>paru -Syu</code> 更新后重新打开 WeQ。
             </p>
           ) : null}
-          {onBackup ? (
-            <button type="button" className="weq-set-btn" onClick={onBackup}>
-              备份与恢复
-            </button>
-          ) : null}
+          <div className="weq-set-btn-group">
+            {onBackup ? (
+              <button type="button" className="weq-set-btn" onClick={onBackup}>
+                备份与恢复
+              </button>
+            ) : null}
+            <DesktopOnly>
+              <StartupLogButton />
+            </DesktopOnly>
+          </div>
         </div>
       </div>
     </Modal>

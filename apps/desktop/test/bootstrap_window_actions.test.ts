@@ -5,7 +5,13 @@ import { BootstrapWindowActions } from '../src/renderer/src/components/Bootstrap
 import { useRestrictedMode } from '../src/renderer/src/state/restrictedMode';
 
 vi.mock('../src/renderer/src/trpc/client', () => ({
-  trpc: { bootstrap: { getSettings: { useQuery: () => ({ data: {} }) } } },
+  trpc: {
+    bootstrap: {
+      getSettings: { useQuery: () => ({ data: { autoAttachQq: true } }) },
+      getQqClientSyncStatus: { useQuery: () => ({}) },
+    },
+    account: { getGroupAlbumAccessState: { useQuery: () => ({}) } },
+  },
   client: {},
 }));
 

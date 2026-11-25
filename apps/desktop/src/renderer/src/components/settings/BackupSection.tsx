@@ -1,6 +1,6 @@
 import { NumericText } from '../NumericText';
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { TRPCClientError } from '@trpc/client';
 import { ArchiveRestore, Download, RefreshCw, RotateCcw, Upload, X } from 'lucide-react';
 import type { WeqBackupPart, WeqBackupSummary, WeqDefaultsChoice } from '@weq/service';
@@ -11,6 +11,7 @@ import { BackupDisclosure, BackupExportOptions } from './BackupExportOptions';
 import { backupClientId } from '../../lib/backupClientRestore';
 import { useToast } from '../Toast.shared';
 import { Card, SectionHeader } from './controls';
+import { BeforeLoginSettingsContext } from './controls.shared';
 import { useTabActive } from '../RetainedTabs.shared';
 import { Modal } from '../Dialog';
 import { settlePreferenceWrites } from '../../lib/clientPreferences';
@@ -95,6 +96,7 @@ function Summary({ value }: { value: WeqBackupSummary }) {
 
 export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   const active = useTabActive();
+  const beforeLogin = useContext(BeforeLoginSettingsContext);
   const activity = useRef(active);
   activity.current = active;
   const document = useRenderDocument();
@@ -363,12 +365,14 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
     setConfirm(null);
     if (defaultsFailed.current) window.location.reload();
   }
-  const importBlocked = Boolean(busy || !inventory || pending || result?.clientPending);
+  const importBlocked =
+    beforeLogin || Boolean(busy || !inventory || pending || result?.clientPending);
   return (
     <div className="weq-set weq-backup" aria-busy={Boolean(busy)}>
       <SectionHeader
         page="backup"
         title="配置备份与恢复"
+        desc={beforeLogin ? '打开账号后可导入备份、应用恢复或恢复全局默认设置。' : undefined}
         actions={
           (!inventory && error) || pending || result?.clientPending ? (
             <button
@@ -417,7 +421,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                 <button
                   type="button"
                   className="weq-set-btn"
-                  disabled={Boolean(busy)}
+                  disabled={beforeLogin || Boolean(busy)}
                   onClick={() => openConfirmation('claim')}
                 >
                   改在此设备恢复
@@ -531,7 +535,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               <button
                 type="button"
                 className="weq-set-btn weq-set-btn-primary"
-                disabled={Boolean(busy)}
+                disabled={beforeLogin || Boolean(busy)}
                 onClick={() => openConfirmation('apply')}
               >
                 <RefreshCw size={14} />

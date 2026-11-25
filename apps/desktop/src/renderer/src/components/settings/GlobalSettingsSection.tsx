@@ -46,7 +46,7 @@ import { LoadingIndicator } from '../LoadingIndicator';
 import { useViewState } from '../../state/view';
 import { QqAvatar } from '../QqAvatar';
 import { Card, CheckPill, Row, SectionHeader, Toggle } from './controls';
-import { SettingsNavigateContext } from './controls.shared';
+import { BeforeLoginSettingsContext, SettingsNavigateContext } from './controls.shared';
 import { useTabActive } from '../RetainedTabs.shared';
 import { ToastSettingsCard } from './ToastSettingsCard';
 import { NotificationEventSettings } from './NotificationEventSettings';
@@ -88,6 +88,7 @@ export function GlobalSettingsSection({
 }): ReactElement {
   const navigate = useContext(SettingsNavigateContext);
   const active = useTabActive();
+  const beforeLogin = useContext(BeforeLoginSettingsContext);
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
   const pushToast = useToast((s) => s.push);
@@ -111,7 +112,7 @@ export function GlobalSettingsSection({
   // 「当前账号」要按 configId 认：同一个 QQ 号可能同时有在线账号和静态账号，
   // 只比 uin 会给两条记录都打上「当前账号」。
   const currentConfig = trpc.account.getAccountConfig.useQuery(undefined, {
-    enabled: active && section === 'accounts',
+    enabled: active && section === 'accounts' && !beforeLogin,
     refetchOnWindowFocus: false,
     staleTime: 0,
   });
@@ -488,9 +489,11 @@ export function GlobalSettingsSection({
               {accountList.map((acc) => {
                 const isAutoEnter = autoEnterTarget?.configId === acc.configId;
                 const currentConfigId = currentConfig.data?.configId ?? null;
-                const isCurrent = currentConfigId
-                  ? acc.configId === currentConfigId
-                  : !!openedUin && acc.uin === openedUin;
+                const isCurrent =
+                  !beforeLogin &&
+                  (currentConfigId
+                    ? acc.configId === currentConfigId
+                    : !!openedUin && acc.uin === openedUin);
                 return (
                   <div key={acc.configId} className="weq-set-account-item">
                     <QqAvatar uin={acc.uin} size={40} className="weq-set-account-avatar" />

@@ -12,6 +12,9 @@ import '../../styles/settings-controls.css';
 
 export const SettingsScopeContext = createContext<SettingsScope | null>(null);
 
+export const BeforeLoginSettingsContext = createContext(false);
+export const OPEN_ACCOUNT_SETTINGS_HINT = '打开账号后可用。';
+
 /**
  * 卡片 head 右侧的状态位。`AutoSave` 有槽位时把校验和保存错误
  * 放进卡片标题行，避免它挤在行描述的位置上被当成人话说明。

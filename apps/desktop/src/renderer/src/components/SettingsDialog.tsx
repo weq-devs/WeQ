@@ -7,6 +7,7 @@
 import { ReminderDot } from './ReminderBadge';
 import {
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -35,6 +36,7 @@ import {
   Smile,
   Sun,
   Type,
+  UserRound,
   X,
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
@@ -52,6 +54,7 @@ import { ComponentAppearance } from './settings/ComponentAppearance';
 import { WindowAppearanceCard } from './settings/WindowAppearanceCard';
 import { DesktopOnly } from '../lib/target';
 import { SegmentedControl } from './SegmentedControl';
+import { EmptyState } from './EmptyState';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
@@ -78,7 +81,12 @@ import { SlashEmojiSettings } from './settings/SlashEmojiSettings';
 import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
 import { MessageDisplayOptions } from './settings/MessageDisplayOptions';
 import { Card, Row, SectionHeader, Toggle } from './settings/controls';
-import { SettingsNavigateContext, SettingsScopeContext } from './settings/controls.shared';
+import {
+  BeforeLoginSettingsContext,
+  OPEN_ACCOUNT_SETTINGS_HINT,
+  SettingsNavigateContext,
+  SettingsScopeContext,
+} from './settings/controls.shared';
 import { trpc } from '../trpc/client';
 import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
 import { AntiRecallDialog } from './AntiRecallDialog';
@@ -90,6 +98,7 @@ import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
 import '../styles/settings-navigation.css';
+import '../styles/mobile-web.css';
 import '../styles/app-search.css';
 import type { SettingsSearchTarget } from './settings/searchTarget';
 import { RetainedTabs, TabActivity } from './RetainedTabs';
@@ -238,6 +247,12 @@ const SETTINGS_PAGE_RENDERERS: Record<
 };
 
 const DEFAULT_SETTINGS_PAGE = SETTINGS_GROUPS[0]!.sections[0]!;
+const ACCOUNT_ONLY_PAGE_DETAILS: Partial<Record<SettingsPageId, string>> = {
+  credentials: '打开 QQ 账号后，可以查看和管理该账号的数据库密钥与会话密钥。',
+  'qq-storage': '打开本机的 QQ 账号后，可以查看缓存占用、浏览和清理资源。',
+  'model-usage': '打开 QQ 账号后，可以查看该账号和应用全局的模型请求、用量与请求记录。',
+  onebot: '打开 QQ 账号后，可以为该账号配置 OneBot 连接，并查看服务状态。',
+};
 
 /** Quick-pick accent presets. First entry is the WeQ default blue. */
 const ACCENT_PRESETS = [
@@ -255,24 +270,28 @@ const ACCENT_PRESETS = [
 export function SettingsDialog(props: Parameters<typeof SettingsContent>[0]): ReactElement {
   return (
     <PageSnapshotsFallback scope="bootstrap-settings">
-      <SettingsContent {...props} />
+      <BeforeLoginSettingsContext.Provider value={props.beforeLogin ?? false}>
+        <SettingsContent {...props} />
+      </BeforeLoginSettingsContext.Provider>
     </PageSnapshotsFallback>
   );
 }
 
 function SettingsContent({
   open,
+  beforeLogin = false,
   onClose,
   initialSection,
   searchTarget,
-  onOpenMaintenance,
-  onOpenRecalls,
+  onOpenMaintenance = () => {},
+  onOpenRecalls = () => {},
   recallDetails,
   onCloseRecalls,
   isCurrentSource,
   navigationGuard,
 }: {
   open: boolean;
+  beforeLogin?: boolean;
   onClose: () => void;
   /**
    * 打开时先落到哪一屏。每次 `open` 从 false 变 true 都会重新应用 ——
@@ -280,8 +299,8 @@ function SettingsContent({
    */
   initialSection?: SectionId;
   searchTarget?: SettingsSearchTarget | null;
-  onOpenMaintenance: (tool: MaintenanceTool) => void;
-  onOpenRecalls: (kind: 'c2c' | 'group', conv: string) => void;
+  onOpenMaintenance?: (tool: MaintenanceTool) => void;
+  onOpenRecalls?: (kind: 'c2c' | 'group', conv: string) => void;
   recallDetails?: ReactNode;
   onCloseRecalls?: () => void;
   isCurrentSource?: () => boolean;
@@ -315,6 +334,7 @@ function SettingsContent({
   const [nav, setNav] = useState<HTMLElement | null>(null);
   const [mobileDetailOpen, setMobileDetailOpen] = useState(Boolean(initialSection || searchTarget));
   const activePage = remote && !remoteSettingAvailable(activeId) ? DEFAULT_SETTINGS_PAGE : activeId;
+  const accountOnlyDetail = beforeLogin ? ACCOUNT_ONLY_PAGE_DETAILS[activePage] : undefined;
   const snapshots = usePageSnapshotReset('workspace:main:设置');
   const activeKey = usePageSnapshotKey('settings:active');
   useEffect(() => {
@@ -462,12 +482,14 @@ function SettingsContent({
           <header className="weq-mobile-settings-header">
             <button
               type="button"
-              aria-label={mobileDetailOpen ? '返回设置' : '返回'}
-              title={mobileDetailOpen ? '返回设置' : '返回'}
+              aria-label={mobileDetailOpen ? '返回设置' : beforeLogin ? '关闭设置' : '返回'}
+              title={mobileDetailOpen ? '返回设置' : beforeLogin ? '关闭设置' : '返回'}
               onClick={() =>
                 mobileDetailOpen
                   ? requestNavigation(() => setMobileDetailOpen(false))
-                  : mobileBack() || requestNavigation(onClose)
+                  : beforeLogin
+                    ? requestClose()
+                    : mobileBack() || requestNavigation(onClose)
               }
             >
               <ArrowLeft size={22} />
@@ -475,7 +497,20 @@ function SettingsContent({
             <strong>设置</strong>
           </header>
           <nav ref={setNav} className="weq-settings-nav" aria-label="设置页面">
-            <h2 className="weq-settings-nav-title">设置</h2>
+            <div className="weq-settings-nav-heading">
+              <h2 className="weq-settings-nav-title">设置</h2>
+              {beforeLogin && !singleColumn && (
+                <button
+                  type="button"
+                  className="weq-set-iconbtn weq-bootstrap-settings-close"
+                  aria-label="关闭设置"
+                  title="关闭设置"
+                  onClick={requestClose}
+                >
+                  <X size={18} aria-hidden />
+                </button>
+              )}
+            </div>
             <div className="weq-settings-nav-groups">
               {SETTINGS_GROUPS.map(({ id, label, sections }) => {
                 const pages = remote
@@ -545,7 +580,31 @@ function SettingsContent({
                             });
                           }}
                         >
-                          {activePage === 'anti-recall' ? (
+                          {accountOnlyDetail ? (
+                            <div className="weq-set">
+                              <SectionHeader
+                                title={SETTINGS_PAGE_LABELS[activePage]}
+                                page={activePage}
+                                pageReset={false}
+                              />
+                              <Card>
+                                <EmptyState
+                                  icon={<UserRound />}
+                                  title="先打开 QQ 账号"
+                                  body={accountOnlyDetail}
+                                  action={
+                                    <button
+                                      type="button"
+                                      className="weq-set-btn weq-set-btn-primary"
+                                      onClick={requestClose}
+                                    >
+                                      返回账号列表
+                                    </button>
+                                  }
+                                />
+                              </Card>
+                            </div>
+                          ) : activePage === 'anti-recall' ? (
                             <>
                               {SETTINGS_PAGE_RENDERERS[activePage](onOpenMaintenance)}
                               <SettingsScopeContext.Provider value={null}>
@@ -656,6 +715,7 @@ function DiagnosticsSettingsSection({
   onOpen: (tool: MaintenanceTool) => void;
 }): ReactElement {
   const remote = useRemoteClient();
+  const beforeLogin = useContext(BeforeLoginSettingsContext);
   return (
     <div className="weq-set">
       <SectionHeader title="QQ 高级工具" page="diagnostics" pageReset={!remote} />
@@ -667,6 +727,8 @@ function DiagnosticsSettingsSection({
             type="button"
             className="weq-set-btn weq-set-btn-soft"
             data-setting-id="qqnt-capture"
+            disabled={beforeLogin}
+            title={beforeLogin ? OPEN_ACCOUNT_SETTINGS_HINT : undefined}
             onClick={() => onOpen('capture')}
           >
             打开抓包
