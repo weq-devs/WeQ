@@ -41,9 +41,9 @@ import { DatabaseReadSettings } from './DatabaseReadSettings';
 import { FullFunctionSetup } from './FullFunctionSetup';
 import { CopyButton } from '../CopyButton';
 import { useRestrictedMode } from '../../state/restrictedMode';
+import { useViewState } from '../../state/view';
 import { QQ_STATUS_DETAILS_ID } from '../RestrictedMode.shared';
-import { useQqProxyWaiting } from '../QqProxyConnection';
-import { QQ_PROXY_WAITING, qqProxySetupGuide } from '../QqProxyConnection.shared';
+import { isQqProxyWaiting, QQ_PROXY_WAITING, qqProxySetupGuide } from '../QqProxyConnection.shared';
 import { formatExpiry } from './AccountBasicsSection.shared';
 import { SETTINGS_PAGE_LABELS } from './navigation';
 
@@ -132,6 +132,7 @@ export function AccountBasicsSection({
   databaseKeyTools?: ReactNode;
 }): ReactElement {
   const active = useTabActive();
+  const uin = useViewState((state) => (state.view === 'main' ? state.openedUin : null));
   const proxyDetailsOpen = useRestrictedMode((state) => state.settingsSection === 'proxy');
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
@@ -166,6 +167,7 @@ export function AccountBasicsSection({
     staleTime: 0,
     refetchInterval: active && page === 'qq-proxy' ? 5000 : false,
   });
+  const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, { enabled: false });
   const setQqProxyEnabled = trpc.bootstrap.setQqProxyEnabled.useMutation({
     onSuccess: async () => {
       await qqSyncStatus.refetch();
@@ -199,10 +201,8 @@ export function AccountBasicsSection({
     onError: (error) => showError('更改 QQ 代理端口失败', error.message),
   });
   const proxy = qqSyncStatus.data;
-  const proxyWaiting = useQqProxyWaiting(
-    qqSyncStatus.isError ? undefined : proxy,
-    active && page === 'qq-proxy',
-  );
+  const proxyWaiting =
+    !qqSyncStatus.isError && !access.isError && isQqProxyWaiting(proxy, access.data, uin);
   const proxyEnabled = proxy?.enabled === true;
   const qqSyncPort = proxy?.port;
   const toggleQqProxy = async (enabled: boolean) => {

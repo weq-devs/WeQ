@@ -1,9 +1,12 @@
 import { useContext, type ReactNode } from 'react';
 import { LoaderCircle, Play, RefreshCw, Settings } from 'lucide-react';
 import { requestOpenSettings } from '../lib/callSettingsBridge';
+import type { OnlineAccess } from '../lib/restrictedMode';
 import { useViewState } from '../state/view';
 import { trpc } from '../trpc/client';
+import { isQqProxyWaiting } from './QqProxyConnection.shared';
 import { QQ_DEBUG_COPY_SWITCH_GUIDE } from './RestrictedQqAction.shared';
+import { useTabActive } from './RetainedTabs.shared';
 import { SettingsNavigateContext } from './settings/controls.shared';
 import '../styles/restricted-mode.css';
 
@@ -40,8 +43,14 @@ export function QqProxyRecovery({
   needsCurrentLogin: boolean;
   children?: ReactNode;
 }) {
-  // 代理详情已在等待连接时轮询进程状态，操作按钮复用同一结果。
-  const qqProcess = useQqProcessState(false);
+  const active = useTabActive();
+  const qqProcess = trpc.bootstrap.getQqProcessState.useQuery(undefined, {
+    enabled: active,
+    staleTime: 0,
+    refetchInterval: active ? 3000 : false,
+    refetchOnWindowFocus: true,
+    retry: false,
+  });
   const running = !qqProcess.isError && qqProcess.data?.running === true;
   const canRestart = running && !needsCurrentLogin && qqProcess.data?.canRestart === true;
   const refresh = () => {
@@ -110,29 +119,7 @@ export function QqProxyRecovery({
   );
 }
 
-function useQqProcessState(poll: boolean) {
-  return trpc.bootstrap.getQqProcessState.useQuery(undefined, {
-    enabled: poll,
-    staleTime: 0,
-    refetchInterval: poll ? 3000 : false,
-    refetchOnWindowFocus: true,
-    retry: false,
-  });
-}
-
-export function useQqProxyWaiting(
-  proxy:
-    | { enabled: boolean; running: boolean; connected: boolean; connecting: boolean }
-    | undefined,
-  poll: boolean,
-) {
-  const waitingForRequest =
-    proxy?.enabled === true && proxy.running && !proxy.connected && !proxy.connecting;
-  const qqProcess = useQqProcessState(poll && waitingForRequest);
-  return waitingForRequest && !qqProcess.isError && qqProcess.data?.running === true;
-}
-
-export function useQqProxyStatus(poll: boolean, sourceConfigId?: string) {
+export function useQqProxyStatus(poll: boolean, access: { data?: OnlineAccess; isError: boolean }) {
   const uin = useViewState((state) => (state.view === 'main' ? state.openedUin : null));
   const enabled = poll && Boolean(uin);
   const query = trpc.bootstrap.getQqClientSyncStatus.useQuery(undefined, {
@@ -141,6 +128,9 @@ export function useQqProxyStatus(poll: boolean, sourceConfigId?: string) {
     refetchInterval: enabled ? 5000 : false,
   });
   const data = query.data;
+  const source = access.data?.source;
+  const sourceConfigId =
+    source?.expectedAccountUin === uin ? source.expectedAccountConfigId : undefined;
   const current =
     uin && data?.accountUin === uin && (!sourceConfigId || data.accountConfigId === sourceConfigId)
       ? data
@@ -148,9 +138,10 @@ export function useQqProxyStatus(poll: boolean, sourceConfigId?: string) {
   const needsAttention = Boolean(
     current?.enabled && current.connectionExpected && !current.connected,
   );
-  const waiting = useQqProxyWaiting(
-    needsAttention && !query.isError ? current : undefined,
-    enabled,
-  );
+  const waiting =
+    needsAttention &&
+    !query.isError &&
+    !access.isError &&
+    isQqProxyWaiting(current, access.data, uin);
   return { current, needsAttention, waiting, isError: query.isError, refetch: query.refetch };
 }

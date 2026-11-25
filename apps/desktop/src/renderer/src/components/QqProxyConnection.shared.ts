@@ -1,5 +1,36 @@
+import type { OnlineAccess } from '../lib/restrictedMode';
+
 export const QQ_PROXY_CONNECTING = '正在确认 QQ 代理连接';
 export const QQ_PROXY_WAITING = '正在等待 QQ 代理连接';
+
+export function isQqProxyWaiting(
+  proxy:
+    | {
+        accountUin: string | null;
+        accountConfigId: string | null;
+        enabled: boolean;
+        running: boolean;
+        connected: boolean;
+        connecting: boolean;
+      }
+    | undefined,
+  access: OnlineAccess | undefined,
+  uin: string | null,
+): boolean {
+  const source = access?.source;
+  return (
+    proxy?.enabled === true &&
+    proxy.running &&
+    !proxy.connected &&
+    !proxy.connecting &&
+    uin !== null &&
+    proxy.accountUin === uin &&
+    access?.qqOnline === true &&
+    (!source ||
+      (source.expectedAccountUin === uin &&
+        source.expectedAccountConfigId === proxy.accountConfigId))
+  );
+}
 
 export function qqProxySetupGuide(port?: number): string {
   const portHint = port === undefined ? 'WeQ 显示的代理端口' : String(port);

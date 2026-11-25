@@ -22,6 +22,7 @@ function waitingProxy() {
   return {
     enabled: true,
     accountUin: '10001',
+    accountConfigId: '10001',
     connectionExpected: true,
     connected: false,
     connecting: false,
@@ -38,7 +39,6 @@ const mock = vi.hoisted(() => ({
     qqClientSyncEnabled: false,
   },
   proxyStatus: undefined as ReturnType<typeof waitingProxy> | undefined,
-  qqRunning: false,
   access: undefined as OnlineAccess | undefined,
   failed: false,
   queryOptions: vi.fn(),
@@ -65,9 +65,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                     ? mock.access
                     : method === 'getQqClientSyncStatus'
                       ? mock.proxyStatus
-                      : method === 'getQqProcessState'
-                        ? { running: mock.qqRunning }
-                        : undefined,
+                      : undefined,
               isError: method === 'getGroupAlbumAccessState' && mock.failed,
               isLoading: false,
               refetch: async () => ({ data: mock.settings }),
@@ -108,7 +106,6 @@ beforeEach(() => {
     qqClientSyncEnabled: false,
   };
   mock.proxyStatus = undefined;
-  mock.qqRunning = false;
   mock.access = { ...ready };
   mock.failed = false;
   mock.queryOptions.mockClear();
@@ -119,7 +116,7 @@ beforeEach(() => {
   mock.saveProxyEnabled.mockReset().mockImplementation(({ enabled }) => {
     mock.proxyStatus = { ...waitingProxy(), enabled, running: enabled };
   });
-  useViewState.setState({ openedUin: '10001' });
+  useViewState.setState({ view: 'main', openedUin: '10001' });
   useRestrictedMode.setState({
     requests: [],
     reasons: [],
@@ -164,6 +161,7 @@ it('关闭统一提示后，代理设置仍可打开共用详情并查看待同�
   mock.settings.qqStatusIndicatorEnabled = false;
   mock.settings.qqClientSyncEnabled = true;
   mock.proxyStatus = waitingProxy();
+  mock.access = { ...ready, qqOnline: false };
   const f = mount('qq-proxy');
   const card = f.host.querySelector<HTMLElement>('[data-setting-id="qq-proxy-connection"]')!;
   const syncCard = f.host
@@ -171,7 +169,17 @@ it('关闭统一提示后，代理设置仍可打开共用详情并查看待同�
     .closest('.weq-set-card')!;
   const badge = () => card.querySelector<HTMLButtonElement>('button[aria-label^="QQ 代理连接："]')!;
   expect(badge().textContent).toBe('未连接');
-  mock.qqRunning = true;
+  mock.access = {
+    ...ready,
+    source: { expectedAccountUin: '10001', expectedAccountConfigId: 'other' },
+  };
+  f.render();
+  expect(badge().textContent).toBe('未连接');
+
+  mock.access = {
+    ...ready,
+    source: { expectedAccountUin: '10001', expectedAccountConfigId: '10001' },
+  };
   f.render();
   expect(badge().textContent).toBe('正在等待 QQ 代理连接');
   expect(badge().getAttribute('aria-busy')).toBe('true');

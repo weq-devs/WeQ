@@ -91,13 +91,8 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
     useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0) &&
     !authorizationIssue;
   const awaitingAuthorization = requests.length > 0;
-  const uin = useViewState((state) => state.openedUin);
   const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, { enabled: false });
-  const source = access.data?.source;
-  const proxy = useQqProxyStatus(
-    false,
-    source?.expectedAccountUin === uin ? source.expectedAccountConfigId : undefined,
-  );
+  const proxy = useQqProxyStatus(false, access);
   const onlineAttention = Boolean(reasons.length || requests.length || entering);
   const proxyConnecting = proxy.needsAttention && !proxy.isError && proxy.current?.connecting;
   const both = onlineAttention && proxy.needsAttention && !proxy.waiting;
@@ -315,7 +310,7 @@ export function RestrictedModeHost() {
   const accessMatches = !accessSource || accessSource.expectedAccountUin === uin;
   const proxyStatus = useQqProxyStatus(
     active && (open || globalSettings.data?.qqStatusIndicatorEnabled !== false),
-    accessMatches ? accessSource?.expectedAccountConfigId : undefined,
+    access,
   );
   const proxy = active && accessMatches ? proxyStatus.current : undefined;
   const proxyAttention = Boolean(proxy && proxyStatus.needsAttention);
