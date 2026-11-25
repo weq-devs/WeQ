@@ -19,7 +19,10 @@
 }
 .weq-account-item.is-selected {
   border-color: var(--weq-accent-ink);
-  background: var(--weq-list-selected-background);
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, var(--weq-bg-surface));
+}
+html[data-theme='dark'] .weq-account-item.is-selected {
+  background: color-mix(in srgb, var(--weq-accent-effective) 22%, var(--weq-bg-surface));
 }
 .weq-account-select {
   display: flex;
@@ -71,41 +74,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.weq-account-check {
-  flex-shrink: 0;
-  margin-top: 2px;
-  color: var(--weq-accent-ink);
-}
-.weq-account-item .weq-account-more {
-  flex-shrink: 0;
-  width: 30px;
-  height: 30px;
-  margin: 9px 6px 0 0;
-  border: none;
-  background: transparent;
-}
 .weq-account-select:disabled {
   cursor: default;
 }
 .weq-account-list button:focus-visible {
   outline: 2px solid var(--weq-accent-ink);
   outline-offset: -2px;
-}
-html .weq-startup-account-context-layer[tabindex] > .weq-acct-ctx-menu {
-  background: var(--weq-bg-surface);
-  border-color: var(--weq-border-strong);
-  box-shadow: var(--weq-shadow-card);
-}
-html .weq-startup-account-context-layer .weq-acct-ctx-menu button {
-  color: var(--weq-list-alert-ink);
-}
-.weq-startup-account-context-layer button:focus-visible {
-  outline: 2px solid var(--weq-accent-ink);
-  outline-offset: -2px;
-}
-html[data-theme='dark'] .weq-account-item.is-selected {
-  background: var(--weq-list-selected-background);
-}
-html[data-theme='dark'] .weq-startup-account-context-layer[tabindex] > .weq-acct-ctx-menu {
-  background: var(--weq-bg-elevated);
 }

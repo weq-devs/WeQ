@@ -1,10 +1,10 @@
-import { TimeLabel } from '../../components/TimeLabel';
-/** 常驻账号列表；配置操作既能点按，也保留右键入口。 */
+/** 常驻账号列表，已保存账号可通过右键菜单移除。 */
 
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
-import { Check, Database, Laptop, MoreHorizontal, Smartphone, Trash2 } from 'lucide-react';
-import { OverlayLayer } from '../../components/OverlayLayer';
+import { Database, Laptop, Smartphone, Trash2 } from 'lucide-react';
+import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { QqAvatar } from '../../components/QqAvatar';
+import { TimeLabel } from '../../components/TimeLabel';
 import { formatConversationTimestamp } from '../../lib/conversationTime';
 import type { UiAccount } from './types';
 import '../../styles/startup-account.css';
@@ -23,7 +23,7 @@ export function AccountSelector({
   onDeleteAccount?: (acc: UiAccount) => void;
   disabled?: boolean;
 }): ReactElement {
-  const [menu, setMenu] = useState<{ acc: UiAccount; anchor: HTMLElement } | null>(null);
+  const [menu, setMenu] = useState<{ acc: UiAccount; x: number; y: number } | null>(null);
   const close = useCallback(() => setMenu(null), []);
   useEffect(() => {
     if (!menu) return;
@@ -38,6 +38,7 @@ export function AccountSelector({
     <>
       <ul className="weq-account-list" aria-label="账号列表">
         {accounts.map((acc) => {
+          const canRemove = Boolean(onDeleteAccount && acc.configId);
           const Icon = acc.mobile ? Smartphone : acc.static ? Database : Laptop;
           const openedAt = new Date(acc.lastLoginAt ?? 0);
           const lastOpened = Number.isFinite(openedAt.getTime())
@@ -53,13 +54,28 @@ export function AccountSelector({
                 className="weq-account-select"
                 disabled={disabled}
                 aria-pressed={selected?.key === acc.key}
+                aria-haspopup={canRemove ? 'menu' : undefined}
+                aria-expanded={canRemove ? menu?.acc.key === acc.key : undefined}
+                data-weq-touch-context={canRemove ? '' : undefined}
                 title={`${acc.name} · ${acc.uin}${acc.sourceDir ? `\n${acc.sourceDir}` : ''}`}
                 onClick={() => onSelect(acc)}
                 onContextMenu={
-                  onDeleteAccount && acc.configId && !disabled
+                  canRemove && !disabled
                     ? (event) => {
                         event.preventDefault();
-                        setMenu({ acc, anchor: event.currentTarget });
+                        event.currentTarget.focus({ preventScroll: true });
+                        setMenu({ acc, x: event.clientX, y: event.clientY });
+                      }
+                    : undefined
+                }
+                onKeyDown={
+                  canRemove && !disabled
+                    ? (event) => {
+                        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                          return;
+                        event.preventDefault();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setMenu({ acc, x: rect.left, y: rect.bottom });
                       }
                     : undefined
                 }
@@ -84,52 +100,27 @@ export function AccountSelector({
                     </span>
                   )}
                 </span>
-                {selected?.key === acc.key && (
-                  <Check className="weq-account-check" size={16} aria-hidden />
-                )}
               </button>
-              {onDeleteAccount && acc.configId && (
-                <button
-                  type="button"
-                  className="weq-account-more weq-icon-button"
-                  title={`账号操作：${acc.name}`}
-                  aria-label={`账号操作：${acc.name}`}
-                  aria-haspopup="menu"
-                  aria-expanded={menu?.acc.key === acc.key}
-                  disabled={disabled}
-                  onClick={(event) =>
-                    setMenu(menu?.acc.key === acc.key ? null : { acc, anchor: event.currentTarget })
-                  }
-                >
-                  <MoreHorizontal size={17} aria-hidden />
-                </button>
-              )}
             </li>
           );
         })}
       </ul>
       {menu && (
-        <OverlayLayer
-          presentation="popover"
-          anchor={menu.anchor}
-          className="weq-startup-account-context-layer"
+        <ConversationActionsMenu
+          x={menu.x}
+          y={menu.y}
+          label="账号操作"
+          compact
           onClose={close}
-        >
-          <div className="weq-acct-ctx-menu" role="menu" aria-label="账号操作">
-            <button
-              data-danger="outline"
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                onDeleteAccount?.(menu.acc);
-                close();
-              }}
-            >
-              <Trash2 size={15} aria-hidden />
-              <span>移除已保存配置</span>
-            </button>
-          </div>
-        </OverlayLayer>
+          actions={[
+            {
+              label: '移除此账号',
+              icon: <Trash2 size={14} aria-hidden />,
+              danger: 'outline',
+              action: () => onDeleteAccount?.(menu.acc),
+            },
+          ]}
+        />
       )}
     </>
   );

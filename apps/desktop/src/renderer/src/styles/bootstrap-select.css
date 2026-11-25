@@ -229,20 +229,6 @@ html[data-theme] .weq-select .weq-bignum-v.is-accent {
   background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
 }
 
-html[data-theme] body:has(.weq-select) > .weq-acct-ctx-menu {
-  background: var(--weq-bg-elevated);
-  border-color: var(--weq-border-strong);
-  box-shadow: var(--weq-shadow-card);
-}
-
-html[data-theme] body:has(.weq-select) > .weq-acct-ctx-menu button {
-  color: color-mix(in srgb, var(--destructive) 80%, var(--weq-fg-primary));
-}
-
-html[data-theme] body:has(.weq-select) > .weq-acct-ctx-menu button:hover {
-  background: color-mix(in srgb, var(--destructive) 10%, transparent);
-}
-
 .weq-select .weq-static-input,
 .weq-select .weq-auto-enter input:not(:checked) {
   color: var(--weq-fg-primary);
@@ -360,8 +346,7 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
 
 @media (prefers-reduced-motion: reduce) {
   html[data-theme] .weq-select,
-  html[data-theme] .weq-select *,
-  html[data-theme] body:has(.weq-select) > .weq-acct-ctx-menu {
+  html[data-theme] .weq-select * {
     animation: none;
     transition: none;
   }

@@ -32,6 +32,17 @@
   font-size: 13px;
   cursor: pointer;
 }
+.weq-overlay-layer.weq-conversation-actions-layer[tabindex]
+  > .weq-conversation-actions-menu.is-compact {
+  min-width: 0;
+  padding: 3px;
+}
+.weq-conversation-actions-menu.is-compact button {
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
 .weq-conversation-actions-menu button > svg {
   flex: none;
 }

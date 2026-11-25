@@ -35,6 +35,7 @@ export function ConversationActionsMenu({
   onClose,
   label = '会话操作',
   portalTarget,
+  compact = false,
   dropdown = false,
   target,
 }: {
@@ -44,6 +45,7 @@ export function ConversationActionsMenu({
   onClose: () => void;
   label?: string;
   portalTarget?: Element | null;
+  compact?: boolean;
   /** 右对齐到触发器，在指定的一侧留出可滚动空间。 */
   dropdown?: boolean | 'above';
   /** 需要明确操作对象时展示，内含按钮沿用菜单键盘导航。 */
@@ -162,7 +164,7 @@ export function ConversationActionsMenu({
         ref={ref}
         role="menu"
         aria-label={label}
-        className={`weq-conversation-actions-menu${dropdown === true ? ' is-header-dropdown' : ''}`}
+        className={`weq-conversation-actions-menu${compact ? ' is-compact' : ''}${dropdown === true ? ' is-header-dropdown' : ''}`}
         style={{ left: x, top: y }}
         onContextMenu={(event) => event.preventDefault()}
         onMouseDown={(event) => event.stopPropagation()}
