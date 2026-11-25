@@ -239,8 +239,13 @@ try {
   });
   await capture('deep-plan-narrow-dark');
   await page.evaluate(() => window.maintenanceQa.lowSpace(1_100_000));
-  await page.getByRole('checkbox', { name: '仍尝试修复' }).waitFor();
+  await button('开始修复').getByText('磁盘空间偏低').waitFor();
   await capture('repair-space-narrow-dark');
+  await button('开始修复').click();
+  const lowSpaceDialog = page.getByRole('dialog', { name: '磁盘空间偏低，仍要修复？' });
+  await lowSpaceDialog.getByRole('button', { name: '仍尝试修复' }).waitFor();
+  await capture('repair-space-confirm-narrow-dark');
+  await lowSpaceDialog.getByRole('button', { name: '继续查看' }).click();
   await page.evaluate(() => window.maintenanceQa.lowSpace(10_000_000_000));
   await button('开始修复').click();
   await page.getByRole('dialog').getByRole('button', { name: '开始修复' }).click();

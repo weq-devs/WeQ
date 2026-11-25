@@ -586,7 +586,7 @@ it('放弃体检结果必须明确确认，取消继续持锁，确认后仍能�
   maintenanceQa.ready();
   await mount();
   await act(async () => tab('开始体检').click());
-  const release = iconButton('维护中，解除占用');
+  const release = iconButton('维护中，结束维护');
   await act(async () => release.click());
   await confirm(false);
   expect(maintenanceQa.calls.end).toBe(0);
@@ -603,23 +603,19 @@ it('放弃体检结果必须明确确认，取消继续持锁，确认后仍能�
   expect(maintenanceQa.calls.scan).toHaveLength(0);
 });
 
-it('仅建议余量不足时要求继续确认，取消确认会清除勾选', async () => {
+it('磁盘空间偏低时点击开始修复直接确认，取消后不启动', async () => {
   maintenanceQa.ready('checkup');
   await mount();
   await act(async () => tab('开始修复').click());
-  const lowSpaceOption = () =>
-    [...host.querySelectorAll('label')]
-      .find((label) => label.textContent?.includes('仍尝试修复'))
-      ?.querySelector('input');
-  expect(lowSpaceOption()).toBeUndefined();
   await act(async () => maintenanceQa.lowSpace(1_100_000));
-  expect(button('磁盘空间偏低').disabled).toBe(true);
-  await act(async () => lowSpaceOption()!.click());
+  expect(button('开始修复').disabled).toBe(false);
   await act(async () => button('开始修复').click());
+  expect(useDialog.getState().current).toMatchObject({
+    title: '磁盘空间偏低，仍要修复？',
+    confirm: { okLabel: '仍尝试修复' },
+  });
   await confirm(false);
-  expect(lowSpaceOption()?.checked).toBe(false);
-  expect(button('磁盘空间偏低').disabled).toBe(true);
-  await act(async () => lowSpaceOption()!.click());
+  expect(maintenanceQa.calls.repair).toHaveLength(0);
   await act(async () => button('开始修复').click());
   await confirm(true);
   expect(maintenanceQa.calls.repair[0]?.allowLowSpace).toBe(true);

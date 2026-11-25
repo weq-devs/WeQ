@@ -235,7 +235,6 @@ export function DbRepairPanel({
   const [recentRepair, setRecentRepair] = useState<DatabaseMaintenanceStatus>();
   const [resultFocused, setResultFocused] = useState<string>();
   const spaceEstimateId = useId();
-  const [allowLowSpace, setAllowLowSpace] = useState(false);
   const [starting, setStarting] = useState<
     | {
         kind: ScanKind;
@@ -436,7 +435,6 @@ export function DbRepairPanel({
       }
       const request = { kind, dbNames, previousOperationId: operation?.id, resuming: paused };
       setStarting(request);
-      setAllowLowSpace(false);
       try {
         updateLive(await scan.mutateAsync({ ...scope, kind, dbNames }));
         await refresh();
@@ -511,24 +509,27 @@ export function DbRepairPanel({
   };
   const startRepair = () =>
     act(async () => {
+      if (repairStartBlocked) return;
       const names = selectedReady;
-      if (!names.length) return;
       const detail =
         repairMethod === 'quick'
           ? '将先核验快速修复条件，通过后修复并保留消息记录。'
           : '将抢救可读记录并重建数据库，损坏的记录可能无法恢复。';
-      if (
-        !(await useDialog
-          .getState()
-          .confirm('修复所选数据库？', `${detail}修复可以停止，已修复的库会保留结果。`, {
-            okLabel: '开始修复',
+      const spaceWarning = canUseLowSpace
+        ? '可用空间低于建议值。若中途空间不足，当前数据库的重建可能中断。'
+        : '';
+      const confirmed = await useDialog
+        .getState()
+        .confirm(
+          canUseLowSpace ? '磁盘空间偏低，仍要修复？' : '修复所选数据库？',
+          `${spaceWarning}${detail}修复可以停止，已修复的库会保留结果。`,
+          {
+            okLabel: canUseLowSpace ? '仍尝试修复' : '开始修复',
             cancelLabel: '继续查看',
             ownerDocument,
-          }))
-      ) {
-        setAllowLowSpace(false);
-        return;
-      }
+          },
+        );
+      if (!confirmed) return;
       setReportId(undefined);
       setReportScope(scope);
       setLegacyId(undefined);
@@ -540,7 +541,7 @@ export function DbRepairPanel({
           dbNames: names,
           methods,
           backups,
-          allowLowSpace: canUseLowSpace && allowLowSpace,
+          allowLowSpace: canUseLowSpace,
         });
         updateLive(result.snapshot);
         if (result.closedAccount)
@@ -552,7 +553,6 @@ export function DbRepairPanel({
         await refresh();
       } finally {
         setStarting(null);
-        setAllowLowSpace(false);
       }
     });
   const restore = (recordId: string) =>
@@ -849,7 +849,7 @@ export function DbRepairPanel({
       ? '正在结束维护'
       : starting
         ? '正在准备修复'
-        : spaceError || insufficientSpace || (canUseLowSpace && !allowLowSpace)
+        : spaceError || insufficientSpace
           ? spaceStatus
           : undefined;
   const repairStartLabel = repairStartBlocked ?? '开始修复';
@@ -901,7 +901,6 @@ export function DbRepairPanel({
       ...previous.filter((name) => !availableRepairNames.includes(name)),
       ...names,
     ]);
-    setAllowLowSpace(false);
   };
   const closeReport = () => {
     setReportId(undefined);
@@ -911,7 +910,6 @@ export function DbRepairPanel({
   const changeCache = () =>
     act(async () => {
       await pickCache.mutateAsync();
-      setAllowLowSpace(false);
       await cache.refetch();
       await utils.dbRepair.preflight.invalidate();
       await utils.dbRepair.repairStorage.invalidate();
@@ -1635,10 +1633,7 @@ export function DbRepairPanel({
                   { value: 'quick', label: '快速修复' },
                   { value: 'deep', label: '深度修复' },
                 ]}
-                onChange={(method) => {
-                  setRepairMethod(method);
-                  setAllowLowSpace(false);
-                }}
+                onChange={setRepairMethod}
               />
               <p>
                 {repairMethod === 'quick'
@@ -1652,21 +1647,10 @@ export function DbRepairPanel({
                   onChange={(event) => {
                     const checked = event.target.checked;
                     setBackupChoices((choices) => ({ ...choices, [repairMethod]: checked }));
-                    setAllowLowSpace(false);
                   }}
                 />
                 保留备份
               </label>
-              {canUseLowSpace ? (
-                <label className="weq-dbm-repair-option">
-                  <input
-                    type="checkbox"
-                    checked={allowLowSpace}
-                    onChange={(event) => setAllowLowSpace(event.target.checked)}
-                  />
-                  仍尝试修复
-                </label>
-              ) : null}
               {spaceStatus ? (
                 <div className="weq-dbm-repair-space-actions">
                   {spaceError ? <p role="alert">{spaceError}</p> : null}
@@ -1793,7 +1777,6 @@ export function DbRepairPanel({
                         onClick={() =>
                           void act(async () => {
                             await resetCache.mutateAsync();
-                            setAllowLowSpace(false);
                             await cache.refetch();
                             await utils.dbRepair.preflight.invalidate();
                             await utils.dbRepair.repairStorage.invalidate();

@@ -1529,10 +1529,6 @@ button.weq-dbm-step.is-current {
   line-height: 1.3;
 }
 
-.weq-dbm-repair-estimate .weq-dbm-space-title {
-  font-size: 13px;
-}
-
 .weq-dbm-repair-option {
   display: inline-flex;
   align-items: center;
