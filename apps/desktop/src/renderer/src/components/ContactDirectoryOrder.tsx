@@ -22,6 +22,7 @@ export function ContactDirectoryOrder({
 }) {
   const { grouping, sort, descending } = order.preferences;
   const defaults = accountOrderDefaults[kind];
+  const groupingHighlighted = grouping !== 'none' && grouping !== defaults.grouping;
   const sortChanged = sort !== defaults.sort || descending !== defaults.descending;
   return (
     <>
@@ -41,7 +42,7 @@ export function ContactDirectoryOrder({
             className="weq-set-btn weq-directory-menu-button"
             aria-label="分组依据"
             triggerLabel="分组"
-            data-active={grouping !== 'none' && grouping !== 'qq' ? '' : undefined}
+            data-active={groupingHighlighted ? '' : undefined}
             disabled={!active}
             value={grouping}
             onChange={(event) => order.change({ grouping: event.target.value })}
