@@ -883,6 +883,36 @@ it('暂停时保留已排队的库和深度检查，续检时才为尚未开始�
   expect(h.deep.mock.calls.map(([target]) => target.dbName)).toEqual([first.dbName]);
 });
 
+it('结束已暂停的维护后重新开始快速体检，不继承前一轮排队的深度体检', async () => {
+  const h = fixture();
+  const first = h.targets[0]!;
+  const selected = h.targets[1]!;
+  const entered = Promise.withResolvers<void>();
+  const scan = h.scan.getMockImplementation()!;
+  h.scan.mockImplementationOnce(scan).mockImplementationOnce(async (_target, signal) => {
+    entered.resolve();
+    return new Promise((_resolve, reject) =>
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+    );
+  });
+  const run = h.maintenance.scan(scope, [first, selected], 'scan');
+  await entered.promise;
+  const operationId = h.maintenance.current(scope)!.operation!.id;
+  h.maintenance.appendScan(scope, operationId, [], [selected.dbName], 'checkup');
+  await h.maintenance.stop(scope);
+  const paused = await run;
+  expect(paused.operation?.databaseScanKinds).toEqual({ [selected.dbName]: 'checkup' });
+  await h.maintenance.end(scope);
+
+  const restarted = await h.maintenance.scan(scope, [selected], 'scan');
+  expect(restarted.id).not.toBe(paused.id);
+  expect(restarted.operation).toMatchObject({ kind: 'scan', status: 'completed' });
+  expect(restarted.operation?.databaseScanKinds).toBeUndefined();
+  expect(restarted.databases.map(({ dbName }) => dbName)).toEqual([selected.dbName]);
+  expect(restarted.databases[0]?.scanStatus).toBe('completed');
+  expect(h.deep).not.toHaveBeenCalled();
+});
+
 it('有效页扫描发现尚未定位的坏页时，仍可直接选择深度修复', async () => {
   const h = fixture();
   const base = h.scan.getMockImplementation()!;

@@ -208,11 +208,6 @@ export class DatabaseMaintenance {
       throw new Error('持续维护锁已中断，请先结束维护并重新体检。');
     if (requestedNames && !session?.snapshot.locked)
       throw new Error('本轮维护已结束，请刷新后开始体检。');
-    const previousOperation = session?.snapshot.operation;
-    const resumeKinds =
-      previousOperation?.status === 'cancelled' && previousOperation.kind === kind
-        ? previousOperation.databaseScanKinds
-        : undefined;
     const existing = session?.targets ?? [];
     const added = requestedNames
       ? targets.filter(
@@ -263,6 +258,11 @@ export class DatabaseMaintenance {
       ? [...current.targets, ...added].filter((target) => requestedNames.includes(target.dbName))
       : [...current.targets];
     if (!selected.length) throw new Error('请选择要体检的数据库。');
+    const previousOperation = current.snapshot.operation;
+    const resumeKinds =
+      previousOperation?.status === 'cancelled' && previousOperation.kind === kind
+        ? previousOperation.databaseScanKinds
+        : undefined;
     const otherKind = kind === 'scan' ? 'checkup' : 'scan';
     const otherTargets = selected.filter(({ dbName }) => resumeKinds?.[dbName] === otherKind);
     const firstBatch = selected.filter(({ dbName }) => resumeKinds?.[dbName] !== otherKind);
