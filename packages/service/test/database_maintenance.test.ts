@@ -49,7 +49,7 @@ function fixture() {
       headerOffset: 1024,
       fileSize: 9216,
       scannedAt: 1,
-      affected: [],
+      affected: [{ name: 'msg', pagetype: 'leaf', badPageCount: 1, samplePages: [2] }],
     }),
   );
   const release = vi.fn();
@@ -70,16 +70,35 @@ function fixture() {
       corruptedTables: ['broken'],
     }),
   );
+  const locate = vi.fn(async (_target: DbRepairTarget, _scan: BadPageScanReport) => ({
+    affected: [] as BadPageScanReport['affected'],
+    quickBudgetBytes: undefined as number | undefined,
+  }));
   const changed = vi.fn();
+  const sourceIdentity = vi.fn(() => 'original');
   const maintenance = new DatabaseMaintenance({
+    sourceIdentity,
     acquire: vi.fn(async () => ({ id: 'held-lock', release, signal: lease.signal })),
     scan,
+    locate,
     deep,
     repair,
     reports: () => reports,
     changed,
   });
-  return { maintenance, targets, scan, deep, repair, release, reports, lease, changed };
+  return {
+    maintenance,
+    sourceIdentity,
+    targets,
+    scan,
+    locate,
+    deep,
+    repair,
+    release,
+    reports,
+    lease,
+    changed,
+  };
 }
 const scope = { uin: '10001', configId: 'source-a' };
 
@@ -631,3 +650,61 @@ it.each([false, true])(
     expect(() => h.maintenance.repair(scope, ['msg.db'])).toThrow('扫描');
   },
 );
+
+it('补充检查保留初始范围，复用页扫描，快速失败后只为尚未修复的库启动深度修复', async () => {
+  const h = fixture();
+  const base = h.scan.getMockImplementation()!;
+  h.scan.mockImplementation((...args) =>
+    base(...args).then((value) => ({ ...value, affected: [] })),
+  );
+  h.locate.mockResolvedValue({
+    affected: [{ name: '空闲叶页', pagetype: 'freelist-leaf', badPageCount: 1, samplePages: [2] }],
+    quickBudgetBytes: 32 * 1024 * 1024,
+  });
+  const initial = await h.maintenance.scan(scope, h.targets.slice(0, 2), 'scan');
+  expect(initial.databases.map((row) => row.dbName)).toEqual(['msg.db', 'profile.db']);
+  expect(() => h.maintenance.repair(scope, ['msg.db'])).toThrow('不支持修复');
+  await h.maintenance.scan(scope, h.targets, 'checkup');
+  expect(h.scan).toHaveBeenCalledTimes(2);
+  expect(h.locate).toHaveBeenCalledTimes(2);
+  h.repair.mockImplementationOnce(async () => ({ id: 'done' }) as DbRepairRecord);
+  const failure = new DbRepairError('verify-failed', '复核失败');
+  failure.sourceUnchanged = true;
+  h.repair.mockRejectedValueOnce(failure);
+  const waiting = await h.maintenance.repair(scope, ['msg.db', 'profile.db']);
+  expect(waiting).toMatchObject({ id: initial.id, locked: true });
+  expect(waiting.databases[0]?.repair).toMatchObject({ status: 'completed', method: 'quick' });
+  expect(waiting.databases[1]?.repair).toMatchObject({
+    status: 'waiting',
+    method: 'quick',
+    nextAction: 'view-deep',
+  });
+  expect(() =>
+    h.maintenance.repair(scope, ['profile.db'], { methods: { 'profile.db': 'quick' } }),
+  ).toThrow('快速修复方案');
+  const done = await h.maintenance.repair(scope, ['profile.db'], {
+    methods: { 'profile.db': 'deep' },
+  });
+  expect(done.databases[1]?.repair).toMatchObject({ status: 'completed', method: 'deep' });
+  expect(h.repair.mock.calls.map(([target]) => target.dbName)).toEqual([
+    'msg.db',
+    'profile.db',
+    'profile.db',
+  ]);
+  expect(h.release).toHaveBeenCalledOnce();
+});
+
+it('原库变化后停止修复批次并要求核对，旧扫描不能继续提交', async () => {
+  const h = fixture();
+  await h.maintenance.scan(scope, h.targets, 'scan');
+  h.sourceIdentity.mockReturnValue('changed');
+  const result = await h.maintenance.repair(scope, ['msg.db', 'profile.db']);
+  expect(result).toMatchObject({ state: 'ended', locked: false, operation: { status: 'failed' } });
+  expect(result.databases[0]?.repair).toMatchObject({
+    status: 'failed',
+    nextAction: 'check-source',
+  });
+  expect(result.databases[1]?.repair?.status).toBe('cancelled');
+  expect(h.repair).not.toHaveBeenCalled();
+  expect(() => h.maintenance.repair(scope, ['msg.db'])).toThrow('扫描');
+});

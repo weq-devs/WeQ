@@ -182,6 +182,7 @@ export interface DbRepairPreflight extends DbRepairTarget {
   space: import('./space').RepairSpaceBudget[];
   cachePath: string;
   storageOptimized: boolean;
+  storageStreaming: boolean;
   readiness: DbRepairReadiness;
   /** 全部持有者（探测失败时为空数组）。 */
   holders: DbRepairLockHolder[];
@@ -236,6 +237,7 @@ export interface DbRepairRecord extends DbRepairAccountRef {
   state: DbRepairRecordState;
   /** 任务类型；旧记录没有这个字段，按 `repair` 处理。 */
   kind?: DbRepairRecordKind;
+  method?: import('./maintenance_types').DatabaseRepairMethod;
   /** 失败/中止原因（`applied` 时为空）。 */
   error?: string;
   /** 备份文件绝对路径；没做备份时为 `null`。 */

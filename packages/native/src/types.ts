@@ -1162,6 +1162,30 @@ export interface NtHelperBinding {
   setDatabaseMaintenanceWriteBarrier?(id: string, paths: string[], enabled: boolean): void;
   /** 1 = 提前释放明文源库并直接写带头产物；旧模块没有该方法。 */
   databaseRepairStorageVersion?(): number;
+  recoverDatabaseStreaming?(
+    options: RecoverOptions,
+    onProgress?: (error: Error | null, progress: RecoverProgress) => void,
+  ): Promise<RecoverReport>;
+  locateDatabaseBadPages?(
+    dbPath: string,
+    key: string,
+    algo: DatabaseAlgorithms,
+    pages: number[],
+  ): Promise<{ name: string; pagetype: string; badPageCount: number; samplePages: number[] }[]>;
+  inspectDatabaseQuickPages?(
+    dbPath: string,
+    key: string,
+    algo: DatabaseAlgorithms,
+    pages: number[],
+    references: string[],
+  ): Promise<{ freeLeaves: number[]; backupMatches: number[] }>;
+  cloneDatabaseRepairBackup?(source: string, target: string): Promise<void>;
+  probeDatabaseCloneBudget?(directory: string): Promise<number>;
+  repairDatabaseQuick?(
+    options: RecoverOptions,
+    references: string[],
+    onProgress?: (error: Error | null, progress: RecoverProgress) => void,
+  ): Promise<RecoverReport>;
   /**
    * 消费同一维护锁内的 sourceScan，产出新库：解密（不校验页 HMAC，
    * 所以坏页也能救回大部分 cell）→ SQLite 官方 `recover` 重建 → 用 QQ 的参数

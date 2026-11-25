@@ -33,6 +33,7 @@ import {
 } from './files';
 import { DEFAULT_BACKUP_KEEP, DbRepairHistory } from './history';
 import { probeDbLayout, type DbLayoutProbe } from './layout_migration';
+import type { DatabaseRepairMethod } from './maintenance_types';
 import { classifyLock, type DbRepairLockClassification, type DbRepairLockProbe } from './lock';
 import {
   dbRepairPaths,
@@ -44,6 +45,8 @@ import {
 import { renderDbRepairReportMarkdown } from './report';
 import {
   repairSpaceBudget,
+  quickRepairSpaceBudget,
+  repairDiskSpace,
   repairWorkingBytes,
   type RepairDiskSpace,
   type RepairStorageStatus,
@@ -141,6 +144,7 @@ export interface DbRepairDeps {
   /** 仅重定向备份和明文临时件，历史索引与报告保持原位。 */
   scratchDir?(): string | null;
   storageOptimized?(): boolean;
+  storageStreaming?(): boolean;
   diskSpace?(path: string): RepairDiskSpace;
   /** 由 uin 解析账号的库目录与密钥；解析不了（没配置）返回 `null`。 */
   resolveAccount(uin: string): DbRepairAccountInfo | null;
@@ -149,7 +153,11 @@ export interface DbRepairDeps {
     options: DbRepairRecoverOptions,
     onProgress: (progress: DbRepairProgress) => void,
     signal?: AbortSignal,
+    method?: DatabaseRepairMethod,
+    streaming?: boolean,
+    references?: string[],
   ): Promise<DbRepairRecoverReport>;
+  cloneBackup?(source: string, target: string, signal?: AbortSignal): Promise<void>;
   protectProduct?(maintenanceId: string, dbPath: string, product: string): void | Promise<void>;
   /**
    * 把源库未合并的 WAL 合并回主文件（`PRAGMA wal_checkpoint(TRUNCATE)`，带密钥的写连接；
@@ -225,6 +233,9 @@ export interface DbRepairRequest {
    */
   layoutMigration?: boolean;
   sourceScan?: BadPageScanReport;
+  method?: DatabaseRepairMethod;
+  quickBudgetBytes?: number;
+  references?: string[];
   /** 当前账号维护锁标识，替换前将锁转接到临时产物。 */
   maintenanceId?: string;
   signal?: AbortSignal;
@@ -346,23 +357,47 @@ export class DbRepairService {
    * `unknown-lock` 不阻断（探测失败 ≠ 没锁）：真正的把关在替换前那道复核。
    * `self-hold`（只有 WeQ 自己拿着句柄）同样不阻断 —— 见 {@link classifyLock}。
    */
-  preflight(uin: string, dbName: string, backup = true, maintenanceId?: string): DbRepairPreflight {
-    this.assertScratchAvailable();
+  preflight(
+    uin: string,
+    dbName: string,
+    backup = true,
+    maintenanceId?: string,
+    quickBudgetBytes?: number,
+  ): DbRepairPreflight {
     const target = this.resolveTarget(uin, dbName);
     const lock = this.classifyLock(target.dbPath, uin);
     const dbBytes = fileBytes(target.dbPath) ?? 0;
     const paths = this.paths(uin);
     const walBytes = pendingWalBytes(target.dbPath);
     const storageOptimized = this.deps.storageOptimized?.() === true;
-    const space = repairSpaceBudget({
-      sourceDir: target.dbDir,
-      cacheDir: dirname(paths.workDir),
-      dbBytes,
-      walBytes,
-      backup: backup && !this.reusableBackup(target, maintenanceId),
-      optimized: storageOptimized,
-      probe: this.deps.diskSpace,
-    });
+    const storageStreaming = this.deps.storageStreaming?.() === true;
+    const makeBackup = backup && !this.reusableBackup(target, maintenanceId);
+    if (!quickBudgetBytes || makeBackup) this.assertScratchAvailable();
+    if (quickBudgetBytes && makeBackup) {
+      const probe = this.deps.diskSpace ?? repairDiskSpace;
+      const sourceVolume = probe(target.dbDir).volume;
+      if (
+        !sourceVolume ||
+        sourceVolume !== probe(dirname(paths.workDir)).volume ||
+        !this.deps.cloneBackup
+      )
+        throw new DbRepairError(
+          'blocked',
+          '快速修复的备份需要能克隆的同卷工作区。请将工作区改到原库所在卷，或取消快速修复的备份。',
+        );
+    }
+    const space = quickBudgetBytes
+      ? quickRepairSpaceBudget(target.dbDir, quickBudgetBytes, this.deps.diskSpace)
+      : repairSpaceBudget({
+          sourceDir: target.dbDir,
+          cacheDir: dirname(paths.workDir),
+          dbBytes,
+          walBytes,
+          backup: makeBackup,
+          optimized: storageOptimized,
+          streaming: storageStreaming,
+          probe: this.deps.diskSpace,
+        });
     return {
       ...target,
       readiness: lock.readiness,
@@ -374,6 +409,7 @@ export class DbRepairService {
       space,
       cachePath: dirname(paths.workDir),
       storageOptimized,
+      storageStreaming,
       freeBytes: freeBytesAt(target.dbDir),
       requiredBytes: space.reduce((sum, item) => sum + item.requiredBytes, 0),
       recommendedBytes: space.reduce((sum, item) => sum + item.recommendedBytes, 0),
@@ -464,6 +500,12 @@ export class DbRepairService {
       );
     }
     request.signal?.throwIfAborted();
+    const quick = request.method === 'quick';
+    if (
+      quick &&
+      (!request.maintenanceId || !request.quickBudgetBytes || request.quickBudgetBytes <= 0)
+    )
+      throw new DbRepairError('recover-failed', '请先取得本轮快速修复方案。');
     const layoutMigration =
       request.layoutMigration === true || request.sourceScan.sourceLayout === 'standard';
     const retryBackup =
@@ -473,6 +515,7 @@ export class DbRepairService {
       request.dbName,
       request.backup !== false,
       request.maintenanceId,
+      quick ? request.quickBudgetBytes : undefined,
     );
     const initialStorage: RepairStorageStatus = {
       cachePath: preflight.cachePath,
@@ -546,11 +589,13 @@ export class DbRepairService {
     let storage = initialStorage;
     const checkSpace = () => {
       lastSpaceCheck = Date.now();
+      if (quick) return;
       const working = repairWorkingBytes(join(paths.workDir, stamp));
       const productBytes = repairWorkingBytes(productDirectory).allocated;
       // 文件释放与 IPC 进度可能先后到达，不把刚被删除的输入再次计入未来写入。
       let budgetPhase = latest.phase.toLowerCase();
       if (
+        !preflight.storageStreaming &&
         preflight.storageOptimized &&
         budgetPhase === 'repair' &&
         working.rebuilt > 0 &&
@@ -558,6 +603,7 @@ export class DbRepairService {
       )
         budgetPhase = 'encrypt';
       if (
+        !preflight.storageStreaming &&
         preflight.storageOptimized &&
         budgetPhase === 'encrypt' &&
         working.rebuilt === 0 &&
@@ -574,6 +620,7 @@ export class DbRepairService {
           walBytes: preflight.pendingWalBytes,
           backup: request.backup !== false,
           optimized: preflight.storageOptimized,
+          streaming: preflight.storageStreaming,
           probe: this.deps.diskSpace,
           current: {
             phase: budgetPhase,
@@ -648,8 +695,15 @@ export class DbRepairService {
     let walMerged = false;
     try {
       mkdirSync(productDirectory, { mode: 0o700 });
+      if (!quick && preflight.storageStreaming)
+        mkdirSync(join(paths.workDir, stamp), { recursive: true, mode: 0o700 });
 
       // 先合并 WAL（如果有）：必须在**备份之前**做，备份里才含最后那批改动。
+      if (quick && pendingWal > 0)
+        throw new DbRepairError(
+          'changed-during-repair',
+          '发现新的预写日志，请核对原库状态后重新扫描。',
+        );
       if (pendingWal > 0) emit({ phase: 'wal', percent: 0, message: '合并预写日志' });
       walMerged = request.maintenanceId ? true : await this.mergePendingWal(target, pendingWal);
 
@@ -694,23 +748,31 @@ export class DbRepairService {
         backup = retryBackup;
         before = { bytes: backup.bytes, sha256: backup.sha256 };
       } else {
-        const fingerprint = await backupFileAndHash(
-          target.dbPath,
-          paths.backupFile(stamp, target.dbName),
-          (completed, total) =>
-            emit({
-              phase: 'backup',
-              percent: 0,
+        const destination = paths.backupFile(stamp, target.dbName);
+        const onBackupProgress = (completed: number, total: number) =>
+          emit({
+            phase: 'backup',
+            percent: 0,
+            message: '备份并校验数据库',
+            detail: {
+              step: 'backup',
               message: '备份并校验数据库',
-              detail: {
-                step: 'backup',
-                message: '备份并校验数据库',
-                completed,
-                total,
-                unit: 'bytes',
-              },
-            }),
-        );
+              completed,
+              total,
+              unit: 'bytes',
+            },
+          });
+        let fingerprint: Awaited<ReturnType<typeof fingerprintFile>>;
+        if (quick) {
+          mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
+          try {
+            await this.deps.cloneBackup!(target.dbPath, destination, recoverSignal);
+            fingerprint = await fingerprintFile(destination, onBackupProgress);
+          } catch (error) {
+            removeDirQuietly(dirname(destination));
+            throw error;
+          }
+        } else fingerprint = await backupFileAndHash(target.dbPath, destination, onBackupProgress);
         backup = this.writeBackup(target, paths, stamp, fingerprint);
         before = { bytes: backup.bytes, sha256: backup.sha256 };
         if (request.maintenanceId)
@@ -748,6 +810,9 @@ export class DbRepairService {
           },
           (progress) => emit(progress, false),
           recoverSignal,
+          request.method,
+          !quick && preflight.storageStreaming,
+          request.references,
         );
         spaceAbort.signal.throwIfAborted();
       } finally {
@@ -757,7 +822,11 @@ export class DbRepairService {
       request.signal?.throwIfAborted();
 
       // 已知不合格的产物不进入替换，也不为此触发原库还原。
-      if (!recovered.verification.healthy || recovered.verification.badPages.length > 0) {
+      if (
+        !recovered.verification.healthy ||
+        recovered.verification.badPages.length > 0 ||
+        (quick && recovered.verification.complete !== true)
+      ) {
         verification = recovered.verification;
         throw new DbRepairError(
           'verify-failed',
@@ -779,22 +848,23 @@ export class DbRepairService {
       }
 
       // ── 保险：修复期间源库被写过就中止（源库一个字节没动） ──
-      const current = request.maintenanceId
-        ? before
-        : await fingerprintFile(target.dbPath, (completed, total) =>
-            emit({
-              phase: 'source-check',
-              percent: 100,
-              message: '替换前核对源库指纹',
-              detail: {
-                step: 'source-check',
+      const current =
+        request.maintenanceId && !quick
+          ? before
+          : await fingerprintFile(target.dbPath, (completed, total) =>
+              emit({
+                phase: 'source-check',
+                percent: 100,
                 message: '替换前核对源库指纹',
-                completed,
-                total,
-                unit: 'bytes',
-              },
-            }),
-          );
+                detail: {
+                  step: 'source-check',
+                  message: '替换前核对源库指纹',
+                  completed,
+                  total,
+                  unit: 'bytes',
+                },
+              }),
+            );
       if (current.sha256 !== before.sha256) {
         throw new DbRepairError(
           'changed-during-repair',
@@ -906,6 +976,7 @@ export class DbRepairService {
         pendingWalBytes: pendingWal,
         walMerged,
         layoutMigration,
+        method: request.method,
         durationMs: Date.now() - startMs,
         startedAt,
       });
@@ -939,6 +1010,7 @@ export class DbRepairService {
           pendingWalBytes: pendingWal,
           walMerged,
           layoutMigration,
+          method: request.method,
           durationMs: Date.now() - startMs,
           startedAt,
         });
@@ -957,11 +1029,13 @@ export class DbRepairService {
       if (cause instanceof DbRepairError) throw cause;
       const failure = new DbRepairError(classified.code, classified.message);
       if (
-        /ENOSPC|SQLITE_FULL|database or disk is full|no space left|磁盘.*不足/i.test(
+        /ENOSPC|SQLITE_FULL|database or disk is full|no space left|not enough space|os error 112|磁盘.*不足/i.test(
           classified.message,
         )
       ) {
-        failure.storage = { ...storage, warning: 'insufficient-space' };
+        const shortage = new DbRepairError('insufficient-space', classified.message);
+        shortage.storage = { ...storage, warning: 'insufficient-space' };
+        throw shortage;
       }
       throw failure;
     } finally {
@@ -1365,6 +1439,7 @@ export class DbRepairService {
       pendingWalBytes: number;
       walMerged: boolean;
       layoutMigration: boolean;
+      method?: DatabaseRepairMethod;
     },
   ): DbRepairRecord {
     const { target, recovered } = input;
@@ -1388,6 +1463,7 @@ export class DbRepairService {
       pageSize: recovered?.pageSize ?? null,
       headerOffset: recovered?.headerOffset ?? null,
       kind: input.layoutMigration ? 'layout-migration' : 'repair',
+      method: input.method,
       strictPages: recovered?.strictPages ?? false,
       sourcePages: recovered?.sourcePages ?? null,
       outputPages: recovered?.outputPages ?? null,

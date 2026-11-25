@@ -62,6 +62,22 @@ export function repairDiskSpace(path: string): RepairDiskSpace {
   }
 }
 
+/** 快速修复只在原库卷写入有限的页和克隆元数据。 */
+export function quickRepairSpaceBudget(
+  sourceDir: string,
+  bytes: number,
+  probe: (path: string) => RepairDiskSpace = repairDiskSpace,
+): RepairSpaceBudget[] {
+  return [
+    {
+      paths: [sourceDir],
+      freeBytes: probe(sourceDir).freeBytes,
+      requiredBytes: bytes,
+      recommendedBytes: bytes,
+    },
+  ];
+}
+
 /** 按阶段取同卷峰值；不预支 CoW 节省，也不假设重建库一定缩小。 */
 export function repairSpaceBudget(options: {
   sourceDir: string;
@@ -70,6 +86,7 @@ export function repairSpaceBudget(options: {
   walBytes: number;
   backup: boolean;
   optimized: boolean;
+  streaming?: boolean;
   probe?: (path: string) => RepairDiskSpace;
   /** 进行中只预算后续阶段，减去本次已经写入的临时件，不重复扣除原库或已有备份。 */
   current?: {
@@ -97,7 +114,20 @@ export function repairSpaceBudget(options: {
     ],
     [backup + (options.optimized ? 0 : size), size + options.walBytes],
   ];
-  if (current) {
+  if (options.streaming) {
+    // 按需解密直接写加密产物。工作区保留索引排序与恢复状态余量。
+    stages = [[backup + size, size + options.walBytes]];
+    if (current) {
+      stages = ['restore', 'verify', 'source-check', 'swapping'].includes(phase ?? '')
+        ? [[0, 0]]
+        : [
+            [
+              Math.max(0, backup + size - current.cacheBytes),
+              Math.max(0, size + options.walBytes - current.productBytes),
+            ],
+          ];
+    }
+  } else if (current) {
     if (phase === 'encrypt') {
       stages = options.optimized
         ? [

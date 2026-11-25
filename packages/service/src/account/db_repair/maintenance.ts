@@ -10,6 +10,10 @@ import type {
 import { DbRepairError } from './service';
 import {
   databaseReadyForRepair,
+  databaseNeedsPageLocation,
+  databaseRepairRecommendation,
+  type DatabasePageLocation,
+  type DatabaseRepairMethod,
   summarizeDatabaseMaintenance,
   type DatabaseMaintenanceRow,
   type DatabaseMaintenanceScope,
@@ -27,12 +31,19 @@ export interface DatabaseMaintenanceLease {
   signal?: AbortSignal;
 }
 export interface DatabaseMaintenanceDeps {
+  sourceIdentity?(target: DbRepairTarget): string;
   acquire(targets: DbRepairTarget[], signal: AbortSignal): Promise<DatabaseMaintenanceLease>;
   scan(
     target: DbRepairTarget,
     signal: AbortSignal,
     progress: (tick: DatabaseWorkProgress) => void,
   ): Promise<BadPageScanReport>;
+  locate?(
+    target: DbRepairTarget,
+    scan: BadPageScanReport,
+    signal: AbortSignal,
+    progress: (tick: DatabaseWorkProgress) => void,
+  ): Promise<DatabasePageLocation>;
   deep(
     target: DbRepairTarget,
     signal: AbortSignal,
@@ -48,14 +59,24 @@ export interface DatabaseMaintenanceDeps {
       strictPages?: boolean;
       allowLowSpace?: boolean;
       maintenanceId?: string;
+      method?: DatabaseRepairMethod;
+      quickBudgetBytes?: number;
     },
   ): Promise<DbRepairRecord>;
   reports(scope: DatabaseMaintenanceScope): DatabaseMaintenanceReports;
   changed?(snapshot: DatabaseMaintenanceStatus): void;
 }
+interface RepairBatchOptions {
+  backup?: boolean;
+  backups?: Record<string, boolean>;
+  strictPages?: boolean;
+  allowLowSpace?: boolean;
+  methods?: Record<string, DatabaseRepairMethod>;
+}
 interface Session {
   snapshot: DatabaseMaintenanceSnapshot;
   targets: DbRepairTarget[];
+  sourceIdentities: Map<string, string>;
   lease?: DatabaseMaintenanceLease;
   abort?: AbortController;
   pending?: Promise<DatabaseMaintenanceSnapshot>;
@@ -191,6 +212,7 @@ export class DatabaseMaintenance {
           })),
         },
         targets,
+        sourceIdentities: new Map(),
         lastSaved: 0,
         lastPublished: 0,
         unsavedReports: session?.unsavedReports ?? new Map(),
@@ -236,7 +258,14 @@ export class DatabaseMaintenance {
       for (const target of session.targets) {
         signal.throwIfAborted();
         const row = snapshot.databases.find((item) => item.dbName === target.dbName)!;
-        if (row.scanStatus === 'completed') continue;
+        if (row.scanStatus === 'completed') {
+          if (row.repair?.status !== 'completed' && !this.hasSameSource(session, target)) {
+            executionFailure = '原库已发生变化。请结束维护并重新核对数据库。';
+            snapshot.maintenanceError = executionFailure;
+            break;
+          }
+          continue;
+        }
         const tracker = this.tracker(session, row, 'scan');
         row.scanStatus = 'running';
         row.scanError = undefined;
@@ -244,10 +273,15 @@ export class DatabaseMaintenance {
         try {
           const lockError = session.lease.errors?.[target.dbName];
           if (lockError) throw new Error(lockError);
-          row.scan = await this.deps.scan(target, signal, (tick) =>
+          const identity = this.deps.sourceIdentity?.(target);
+          const scan = await this.deps.scan(target, signal, (tick) =>
             this.tick(session, row, tracker, 'scan', tick),
           );
           signal.throwIfAborted();
+          if (identity !== this.deps.sourceIdentity?.(target))
+            throw new Error('扫描期间原库发生变化。');
+          if (identity !== undefined) session.sourceIdentities.set(target.dbName, identity);
+          row.scan = scan;
           row.scanStatus = 'completed';
           row.support = row.scan.plaintext
             ? 'unsupported'
@@ -274,7 +308,7 @@ export class DatabaseMaintenance {
             });
           if (row.scan.badPages.length)
             row.issues.push({
-              message: `发现 ${row.scan.badPages.length} 个页签名异常；可重建可读取的内容，坏页内容无法保证完整。`,
+              message: `发现 ${row.scan.badPages.length.toLocaleString('zh-CN')} 个坏页。`,
               support: row.support,
             });
           if (row.scan.zeroPages.length)
@@ -303,12 +337,16 @@ export class DatabaseMaintenance {
         this.countCompleted(session);
         this.publish(session, true);
       }
-      if (kind === 'checkup') {
+      if (kind === 'checkup' && !executionFailure) {
         snapshot.state = 'checking';
         for (const target of session.targets) {
           signal.throwIfAborted();
           const row = snapshot.databases.find((item) => item.dbName === target.dbName)!;
-          if (row.scanStatus !== 'completed' || row.deepStatus === 'completed') continue;
+          if (
+            row.scanStatus !== 'completed' ||
+            (row.deepStatus === 'completed' && !databaseNeedsPageLocation(row))
+          )
+            continue;
           row.integrity = undefined;
           row.issues = row.issues.filter((issue) => issue.stage !== 'deep');
           const tracker = this.tracker(session, row, 'checkup');
@@ -318,12 +356,37 @@ export class DatabaseMaintenance {
             message: '检查数据库整体结构',
           });
           try {
+            if (row.scan && this.deps.locate && databaseNeedsPageLocation(row)) {
+              const location = await this.deps.locate(target, row.scan, signal, (tick) =>
+                this.tick(session, row, tracker, 'checkup', tick),
+              );
+              signal.throwIfAborted();
+              row.scan.affected = location.affected;
+              row.quickBudgetBytes = location.quickBudgetBytes;
+              row.locationChecked = true;
+              const located = row.scan.affected.reduce(
+                (sum, object) => sum + object.badPageCount,
+                0,
+              );
+              this.tick(session, row, tracker, 'checkup', {
+                step: 'mapping',
+                message: `已定位 ${located} / ${row.scan.badPages.length} 个坏页`,
+                status: 'completed',
+                outcome: located < row.scan.badPages.length ? 'unverified' : 'abnormal',
+              });
+            }
             row.integrity = await this.deps.deep(
               row.scan?.plaintext ? { ...target, key: '' } : target,
               signal,
               (tick) => this.tick(session, row, tracker, 'checkup', tick),
             );
             signal.throwIfAborted();
+            if (!this.hasSameSource(session, target)) {
+              executionFailure = '补充检查期间原库发生变化，请重新核对数据库。';
+              snapshot.maintenanceError = executionFailure;
+              row.deepStatus = 'failed';
+              break;
+            }
             row.deepStatus = row.integrity.ran
               ? row.integrity.complete === false
                 ? 'partial'
@@ -370,8 +433,8 @@ export class DatabaseMaintenance {
       session.lease = undefined;
       snapshot.locked = false;
     } else if (
-      signal.aborted &&
-      !snapshot.databases.some((row) => row.scanStatus === 'completed')
+      (snapshot.maintenanceError && executionFailure) ||
+      (signal.aborted && !snapshot.databases.some((row) => row.scanStatus === 'completed'))
     ) {
       try {
         await session.lease?.release();
@@ -403,7 +466,7 @@ export class DatabaseMaintenance {
   repair(
     scope: DatabaseMaintenanceScope,
     names: string[],
-    options: { backup?: boolean; strictPages?: boolean; allowLowSpace?: boolean } = {},
+    options: RepairBatchOptions = {},
   ): Promise<DatabaseMaintenanceSnapshot> {
     const session = this.sessions.get(keyFor(scope));
     if (!session?.lease || session.snapshot.state === 'ended')
@@ -415,11 +478,17 @@ export class DatabaseMaintenance {
     if (session.pending) throw new Error('请先停止当前扫描或体检，保留扫描结果后再修复。');
     const selected = [...new Set(names)];
     if (!selected.length) throw new Error('请勾选需要修复的数据库。');
+    const methods = Object.create(null) as Record<string, DatabaseRepairMethod>;
     for (const name of selected) {
       const row = session.snapshot.databases.find((item) => item.dbName === name);
       if (row?.scanStatus !== 'completed' || !row.scan)
         throw new Error(`${name} 尚无完整扫描结果，不能修复。`);
       if (!databaseReadyForRepair(row)) throw new Error(`${name} 当前不支持修复。`);
+      const recommended = databaseRepairRecommendation(row);
+      const method = options.methods?.[name] ?? recommended ?? 'deep';
+      if (method === 'quick' && recommended !== 'quick')
+        throw new Error(`${name} 当前没有可用的快速修复方案。`);
+      methods[name] = method;
     }
     this.begin(session, 'repair', selected.length);
     session.snapshot.operation!.databaseNames = selected;
@@ -429,7 +498,7 @@ export class DatabaseMaintenance {
         row.repair = selected.includes(row.dbName) ? { status: 'pending' } : undefined;
     }
     const current = session;
-    current.pending = this.repairSession(current, selected, options).finally(() => {
+    current.pending = this.repairSession(current, selected, { ...options, methods }).finally(() => {
       current.pending = undefined;
     });
     return current.pending;
@@ -438,7 +507,7 @@ export class DatabaseMaintenance {
   private async repairSession(
     session: Session,
     selected: string[],
-    options: { backup?: boolean; strictPages?: boolean; allowLowSpace?: boolean },
+    options: RepairBatchOptions,
   ): Promise<DatabaseMaintenanceSnapshot> {
     const snapshot = session.snapshot;
     const signal = session.abort!.signal;
@@ -452,9 +521,12 @@ export class DatabaseMaintenance {
           continue;
         }
         const tracker = this.tracker(session, row, 'repair');
-        row.repair = { status: 'running' };
+        const method = options.methods![name]!;
+        row.repair = { status: 'running', method };
+        const target = session.targets.find((item) => item.dbName === name)!;
         try {
-          const target = session.targets.find((item) => item.dbName === name)!;
+          if (!this.hasSameSource(session, target))
+            throw new DbRepairError('changed-during-repair', '原库与扫描时不同，请重新核对原库。');
           const record = await this.deps.repair(
             target,
             row.scan!,
@@ -470,19 +542,38 @@ export class DatabaseMaintenance {
                 tick.detail ?? { step: tick.phase, message: tick.message },
               );
             },
-            { ...options, maintenanceId: session.lease!.id },
+            {
+              backup: options.backups?.[name] ?? (method === 'quick' ? false : options.backup),
+              strictPages: method === 'deep' && options.strictPages,
+              allowLowSpace: options.allowLowSpace,
+              maintenanceId: session.lease!.id,
+              method,
+              quickBudgetBytes: method === 'quick' ? row.quickBudgetBytes : undefined,
+            },
           );
-          row.repair = { status: 'completed', record };
+          row.repair = { status: 'completed', record, method };
           row.progress = tracker.finish('completed');
         } catch (error) {
           if (
             !signal.aborted &&
             !session.lease?.signal?.aborted &&
             error instanceof DbRepairError &&
-            error.sourceUnchanged
+            error.sourceUnchanged &&
+            this.hasSameSource(session, target)
           ) {
             waiting = true;
-            row.repair = { status: 'waiting', error: errorText(error) };
+            const space =
+              error.code === 'insufficient-space' ||
+              error.code === 'space-margin' ||
+              !!error.storage?.warning;
+            const canDeep =
+              method === 'quick' && !space && error.code !== 'blocked' && error.code !== 'busy';
+            row.repair = {
+              status: 'waiting',
+              method,
+              error: errorText(error),
+              nextAction: space ? 'retry-space' : canDeep ? 'view-deep' : 'retry',
+            };
             if (error.storage) snapshot.storage = error.storage;
             row.progress = tracker.finish('cancelled');
             for (const pending of snapshot.databases)
@@ -494,8 +585,20 @@ export class DatabaseMaintenance {
             this.countCompleted(session);
             break;
           }
-          row.repair = { status: signal.aborted ? 'cancelled' : 'failed', error: errorText(error) };
+          row.repair = {
+            status: signal.aborted ? 'cancelled' : 'failed',
+            method,
+            error: errorText(error),
+            nextAction: signal.aborted ? undefined : 'check-source',
+          };
           row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
+          if (!signal.aborted && error instanceof DbRepairError) {
+            for (const pending of snapshot.databases)
+              if (pending.repair?.status === 'pending')
+                pending.repair = { status: 'cancelled', error: '请先核对原库状态。' };
+            this.countCompleted(session);
+            break;
+          }
         }
         this.countCompleted(session);
         this.publish(session, true);
@@ -528,6 +631,14 @@ export class DatabaseMaintenance {
       await this.flushReports(session);
     }
     return structuredClone(snapshot);
+  }
+
+  private hasSameSource(session: Session, target: DbRepairTarget): boolean {
+    try {
+      return session.sourceIdentities.get(target.dbName) === this.deps.sourceIdentity?.(target);
+    } catch {
+      return false;
+    }
   }
 
   async stop(scope: DatabaseMaintenanceScope): Promise<DatabaseMaintenanceSnapshot | null> {

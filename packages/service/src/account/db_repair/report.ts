@@ -74,12 +74,15 @@ export function renderDbRepairReportMarkdown(
   if (record.kind === 'layout-migration') {
     lines.push('- 任务类型：**页布局迁移**（旧版误修复留下的 standard 布局 → QQ 布局）');
   }
+  if (record.method)
+    lines.push(`- 修复方式：${record.method === 'quick' ? '快速修复' : '深度修复'}`);
   lines.push(`- 状态：${STATE_LABEL[record.state]}`);
   if (record.error) lines.push(`- 原因：${record.error}`);
   lines.push(`- 耗时：${formatDuration(record.durationMs)}`);
-  lines.push(
-    `- 页模式：${record.strictPages ? '严格（坏页清零，丢弃坏页上的内容）' : '宽容（尽量保留可读内容，坏页内容未经完整性校验）'}`,
-  );
+  if (record.method !== 'quick')
+    lines.push(
+      `- 页模式：${record.strictPages ? '严格（坏页清零，丢弃坏页上的内容）' : '宽容（尽量保留可读内容，坏页内容未经完整性校验）'}`,
+    );
   lines.push(`- 修复前 sha256：\`${record.beforeSha}\``);
   lines.push(`- 修复后 sha256：${record.afterSha ? `\`${record.afterSha}\`` : '—'}`);
   lines.push(`- 体积：${formatBytes(record.beforeBytes)} → ${formatBytes(record.afterBytes)}`);
@@ -164,7 +167,12 @@ export function renderDbRepairReportMarkdown(
     lines.push(`- 已回滚时间：${formatLocalTime(record.restoredAt)}`);
   }
   lines.push('');
-  lines.push('## 必须知道的边界');
+  if (record.method === 'quick') {
+    lines.push('快速修复在同卷克隆上处理已核验的页，完成后复核页签名与结构。');
+    lines.push('');
+    return lines.join('\n');
+  }
+  lines.push('## 重建结果说明');
   lines.push('');
   lines.push(
     '1. **这是重建，不是打补丁**：产物是一份全新的库，页布局与原来不同（没有 freelist 空洞），所以页数 / 体积会变，这是正常的。',

@@ -23,6 +23,8 @@ export class DatabaseScanUnsupportedError extends Error {
 }
 export {
   databaseReadyForRepair,
+  databaseNeedsPageLocation,
+  databaseRepairRecommendation,
   verifiedDatabaseScans,
   summarizeDatabaseMaintenance,
   databaseRepairSupportLabel,
@@ -33,6 +35,8 @@ export {
 } from './maintenance_types';
 export type {
   DatabaseMaintenanceSnapshot,
+  DatabaseRepairMethod,
+  DatabasePageLocation,
   DatabaseMaintenanceReport,
   DatabaseMaintenanceRow,
   DatabaseMaintenanceStatus,

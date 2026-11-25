@@ -22,6 +22,7 @@ import {
   renderDbRepairReportMarkdown,
   resolveAccountDbDir,
   type BadPageScanReport,
+  type DatabasePageLocation,
   type DatabaseMaintenanceScope,
   type DbRepairAccountInfo,
   type DbRepairCheckupIntegrity,
@@ -30,6 +31,7 @@ import {
 } from '@weq/service';
 import {
   summarizeDatabaseMaintenance,
+  databaseRepairRecommendation,
   type DatabaseMaintenanceStatus,
 } from '@weq/service/db-checkup';
 import { writeFileAtomic } from '@weq/service/atomic-write';
@@ -102,6 +104,7 @@ function resolveAccountInfo(uin: string): DbRepairAccountInfo | null {
 const deps: DbRepairDeps = {
   cacheDir: (...segments) => requireBootstrap().userConfig.cacheDir(join(...segments)),
   scratchDir: () => requireBootstrap().userConfig.getDbRepairCacheDir(),
+  storageStreaming: () => !!requirePlatform().native.ntHelper.recoverDatabaseStreaming,
   storageOptimized: () =>
     (requirePlatform().native.ntHelper.databaseRepairStorageVersion?.() ?? 0) >= 1,
   resolveAccount: resolveAccountInfo,
@@ -139,11 +142,18 @@ const deps: DbRepairDeps = {
     platform.native.ntHelper.closeDb(path);
     ctx.services?.unreadInfo.invalidate();
   },
-  recover: async (options, progress, signal) => {
+  recover: async (options, progress, signal, method, streaming, references) => {
     if (!signal) throw new Error('修复必须由当前维护任务启动。');
-    return (await runDatabaseMaintenanceWorker({ kind: 'repair', options }, signal, (tick) => {
-      if ('phase' in tick) progress(tick);
-    })) as RecoverReport;
+    return (await runDatabaseMaintenanceWorker(
+      { kind: 'repair', options, method, streaming, references },
+      signal,
+      (tick) => {
+        if ('phase' in tick) progress(tick);
+      },
+    )) as RecoverReport;
+  },
+  cloneBackup: async (source, target, signal) => {
+    await runDatabaseMaintenanceWorker({ kind: 'clone-backup', source, target }, signal);
   },
   protectProduct: async (id, path, product) => {
     const worker = maintenanceLocks.get(id);
@@ -154,6 +164,21 @@ const deps: DbRepairDeps = {
     requirePlatform().native.ntHelper.checkDatabaseHealth(path, key, algo),
 };
 const service = new DbRepairService(deps);
+
+function backupReferencesFor(dbPath: string, uin: string): string[] {
+  const history = service.history(uin);
+  return [
+    ...new Set(
+      history
+        .list()
+        .flatMap((record) =>
+          record.dbPath === dbPath && record.backupPath && history.backupExists(record)
+            ? [record.backupPath]
+            : [],
+        ),
+    ),
+  ].slice(0, 3);
+}
 
 function historyRoot(scope: DatabaseMaintenanceScope) {
   const boot = requireBootstrap();
@@ -185,6 +210,27 @@ function historicalRecords(scope: DatabaseMaintenanceScope) {
 }
 
 export const databaseMaintenance = new DatabaseMaintenance({
+  sourceIdentity: ({ dbPath }) => {
+    const db = statSync(dbPath, { bigint: true });
+    const sidecar = (suffix: string) => {
+      try {
+        return statSync(`${dbPath}${suffix}`, { bigint: true }).size;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0n;
+        throw error;
+      }
+    };
+    const wal = sidecar('-wal');
+    return [
+      db.dev,
+      db.ino,
+      db.size,
+      db.mtimeNs,
+      db.ctimeNs,
+      wal > 32n ? wal : 0n,
+      sidecar('-journal'),
+    ].join(':');
+  },
   acquire: async (targets, signal) => {
     const nt = requirePlatform().native.ntHelper;
     if (
@@ -237,13 +283,29 @@ export const databaseMaintenance = new DatabaseMaintenance({
     (await runDatabaseMaintenanceWorker({ kind: 'scan', target }, signal, (tick) => {
       if ('step' in tick) progress(tick);
     })) as BadPageScanReport,
+  locate: async (target, scan, signal, progress) =>
+    (await runDatabaseMaintenanceWorker(
+      { kind: 'locate', target, scan, references: backupReferencesFor(target.dbPath, target.uin) },
+      signal,
+      (tick) => {
+        if ('step' in tick) progress(tick);
+      },
+    )) as DatabasePageLocation,
   deep: async (target, signal, progress) =>
     (await runDatabaseMaintenanceWorker({ kind: 'deep', target }, signal, (tick) => {
       if ('step' in tick) progress(tick);
     })) as DbRepairCheckupIntegrity,
   repair: (target, sourceScan, signal, progress, options) =>
     service.repair(
-      { uin: target.uin, dbName: target.dbName, sourceScan, signal, ...options },
+      {
+        uin: target.uin,
+        dbName: target.dbName,
+        sourceScan,
+        signal,
+        ...options,
+        references:
+          options.method === 'quick' ? backupReferencesFor(target.dbPath, target.uin) : undefined,
+      },
       progress,
     ),
   reports,
@@ -252,6 +314,11 @@ export const databaseMaintenance = new DatabaseMaintenance({
     progressBus.emit('maintenance', snapshot);
   },
 });
+function quickBudgetFor(scope: DatabaseMaintenanceScope, name: string) {
+  const row = databaseMaintenance.status(scope)?.databases.find((row) => row.dbName === name);
+  if (row && databaseRepairRecommendation(row) === 'quick') return row.quickBudgetBytes;
+  throw new Error('此数据库当前没有可用的快速修复方案。');
+}
 export const isDbRepairBusy = () => service.isBusy() || databaseMaintenance.active().length > 0;
 
 export interface DbRepairRecordSummary {
@@ -354,12 +421,23 @@ export const dbRepairRouter = router({
   }),
   maintenance: procedure.input(accountRef).query(({ input }) => databaseMaintenance.status(input)),
   scanAccount: procedure
-    .input(accountRef.extend({ kind: z.enum(['scan', 'checkup']) }))
+    .input(
+      accountRef.extend({
+        kind: z.enum(['scan', 'checkup']),
+        dbNames: z.array(z.string().min(1)).min(1).optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
       const info = service.accountInfo(input.uin);
-      const targets = rowsFor(input.uin, info.dbDir)
-        .filter((row) => row.exists)
-        .map((row) => service.resolveTarget(input.uin, row.dbName));
+      const names =
+        input.dbNames ??
+        rowsFor(input.uin, info.dbDir)
+          .filter((row) => row.exists)
+          .map((row) => row.dbName);
+      // 继续时由现有会话保留初次勾选的路径及对应的锁。
+      const targets = databaseMaintenance.status(input)?.locked
+        ? []
+        : [...new Set(names)].map((name) => service.resolveTarget(input.uin, name));
       return summarizeDatabaseMaintenance(
         await databaseMaintenance.scan(input, targets, input.kind),
       );
@@ -368,6 +446,8 @@ export const dbRepairRouter = router({
     .input(
       accountRef.extend({
         dbNames: z.array(z.string().min(1)).min(1),
+        methods: z.record(z.enum(['quick', 'deep'])).optional(),
+        backups: z.record(z.boolean()).optional(),
         backup: z.boolean().optional(),
         strictPages: z.boolean().optional(),
         allowLowSpace: z.boolean().optional(),
@@ -433,25 +513,39 @@ export const dbRepairRouter = router({
     }),
   ),
   preflight: procedure
-    .input(targetRef.extend({ backup: z.boolean().optional() }))
+    .input(
+      targetRef.extend({
+        backup: z.boolean().optional(),
+        method: z.enum(['quick', 'deep']).optional(),
+      }),
+    )
     .query(({ input }) => {
       const { key: _key, ...budget } = service.preflight(
         input.uin,
         input.dbName,
         input.backup,
         databaseMaintenance.leaseId(input),
+        input.method === 'quick' ? quickBudgetFor(input, input.dbName) : undefined,
       );
       return budget;
     }),
   repairStorage: procedure
-    .input(accountRef.extend({ dbNames: z.array(z.string()), backup: z.boolean() }))
+    .input(
+      accountRef.extend({
+        dbNames: z.array(z.string()),
+        backup: z.boolean().optional(),
+        backups: z.record(z.boolean()).optional(),
+        methods: z.record(z.enum(['quick', 'deep'])).optional(),
+      }),
+    )
     .query(({ input }) =>
       input.dbNames.map((name) => {
         const { cachePath, space } = service.preflight(
           input.uin,
           name,
-          input.backup,
+          input.backups?.[name] ?? (input.methods?.[name] === 'quick' ? false : input.backup),
           databaseMaintenance.leaseId(input),
+          input.methods?.[name] === 'quick' ? quickBudgetFor(input, name) : undefined,
         );
         return { dbName: name, cachePath, space, phase: 'preparing' };
       }),

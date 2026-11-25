@@ -34,8 +34,11 @@ async function mount(
     ),
   );
 }
-function button(name: string) {
-  const found = [...document.body.querySelectorAll('button')].find(
+function button(
+  name: string,
+  parent: ParentNode = document.querySelector('[role="dialog"]') ?? document.body,
+) {
+  const found = [...parent.querySelectorAll('button')].find(
     (item) => item.textContent?.trim() === name,
   );
   if (!found) throw new Error(`按钮不存在：${name}`);
@@ -90,14 +93,19 @@ it('扫描时不可切换模式，暂停后保留就绪库，切换深度体检�
   await mount();
   await act(async () => button('开始扫描').click());
   expect(maintenanceQa.calls.scan).toEqual([
-    { uin: account.uin, configId: account.configId, kind: 'scan' },
+    {
+      uin: account.uin,
+      configId: account.configId,
+      kind: 'scan',
+      dbNames: ['nt_msg.db', 'profile.db', 'unsupported.db'],
+    },
   ]);
-  expect(button('深度体检').disabled).toBe(true);
+  expect(host.querySelector('[role="radiogroup"]')).toBeNull();
   await act(async () => maintenanceQa.completeFirst());
   await act(async () => button('暂停扫描').click());
   expect(maintenanceQa.calls.stop).toBe(1);
   expect(maintenanceQa.calls.end).toBe(0);
-  expect(choice('nt_msg.db').disabled).toBe(false);
+  expect(maintenanceQa.snapshot()?.databases[0]?.scanStatus).toBe('completed');
   expect(button('继续扫描').disabled).toBe(false);
   expect(button('深度体检').disabled).toBe(false);
   await act(async () => button('深度体检').click());
@@ -106,6 +114,7 @@ it('扫描时不可切换模式，暂停后保留就绪库，切换深度体检�
     uin: account.uin,
     configId: account.configId,
     kind: 'checkup',
+    dbNames: undefined,
   });
 });
 
@@ -113,18 +122,24 @@ it('重新扫描需确认，取消保留结果和维护锁，确认后结束旧�
   maintenanceQa.ready();
   await mount();
   const previous = maintenanceQa.snapshot();
+  await act(async () => button('扫描').click());
   await act(async () => button('重新扫描').click());
   expect(maintenanceQa.calls.scan).toHaveLength(0);
   expect(maintenanceQa.calls.end).toBe(0);
   await confirm(false);
   expect(maintenanceQa.snapshot()).toBe(previous);
   expect(maintenanceQa.snapshot()?.locked).toBe(true);
-  expect(choice('nt_msg.db').checked).toBe(true);
+  expect(maintenanceQa.snapshot()?.databases[0]?.scanStatus).toBe('completed');
   await act(async () => button('重新扫描').click());
   await confirm(true);
   expect(maintenanceQa.calls.end).toBe(1);
   expect(maintenanceQa.calls.scan).toEqual([
-    { uin: account.uin, configId: account.configId, kind: 'scan' },
+    {
+      uin: account.uin,
+      configId: account.configId,
+      kind: 'scan',
+      dbNames: ['nt_msg.db', 'profile.db', 'unsupported.db'],
+    },
   ]);
   expect(maintenanceQa.snapshot()?.state).toBe('scanning');
 });
@@ -140,25 +155,22 @@ it('界面卸载不取消扫描、不删除已有结果或结束维护', async (
   expect(maintenanceQa.calls.end).toBe(0);
 });
 
-it('默认勾选支持修复的异常库，健康库可手选，不支持的库不能提交', async () => {
-  maintenanceQa.ready();
+it('报告可查看健康数据库，修复只选择本轮有方案的数据库', async () => {
+  maintenanceQa.ready('checkup');
   await mount();
-  expect(choice('nt_msg.db').checked).toBe(true);
-  expect(choice('profile.db').checked).toBe(false);
-  expect(choice('profile.db').disabled).toBe(false);
-  expect(host.querySelector('input[aria-label="修复 unsupported.db"]')).toBeNull();
   await act(async () => iconButton('查看 profile.db 检查详情').click());
   expect(host.querySelector('[aria-label="profile.db检查结果"]')).not.toBeNull();
-  expect(choice('profile.db').checked).toBe(false);
   await act(async () => iconButton('查看 nt_msg.db 检查详情').click());
   expect(host.querySelector('[aria-label="nt_msg.db检查结果"]')).not.toBeNull();
+  await act(async () => button('查看修复方案').click());
   expect(choice('nt_msg.db').checked).toBe(true);
-  await act(async () => choice('profile.db').click());
-  await act(async () => button('修复所选数据库').click());
+  expect(host.querySelector('input[aria-label="修复 profile.db"]')).toBeNull();
+  expect(host.querySelector('input[aria-label="修复 unsupported.db"]')).toBeNull();
+  await act(async () => button('开始修复').click());
   expect(maintenanceQa.calls.repair).toHaveLength(0);
   await confirm(true);
   expect(maintenanceQa.calls.repair).toEqual([
-    expect.objectContaining({ dbNames: ['nt_msg.db', 'profile.db'], backup: true }),
+    expect.objectContaining({ dbNames: ['nt_msg.db'], backups: { 'nt_msg.db': true } }),
   ]);
   expect(button('停止修复').disabled).toBe(false);
   await act(async () => button('停止修复').click());
@@ -169,6 +181,7 @@ it('默认勾选支持修复的异常库，健康库可手选，不支持的库�
 it('空间不足和持锁等待不阻止改缓存位置，开始修复后禁止更改', async () => {
   maintenanceQa.lowSpace();
   await mount();
+  await act(async () => button('深度体检').click());
   await act(async () => button('开始扫描').click());
   await act(async () => iconButton('数据库修复设置').click());
   expect(button('更改位置').disabled).toBe(false);
@@ -176,14 +189,17 @@ it('空间不足和持锁等待不阻止改缓存位置，开始修复后禁止�
   expect(maintenanceQa.calls.pick).toBe(1);
   await act(async () => maintenanceQa.complete());
   expect(button('使用默认位置').disabled).toBe(false);
-  await act(async () => button('修复所选数据库').click());
+  await act(async () => iconButton('数据库修复设置').click());
+  await act(async () => button('查看修复方案').click());
+  await act(async () => button('开始修复').click());
   await confirm(true);
+  await act(async () => iconButton('数据库修复设置').click());
   expect(button('更改位置').disabled).toBe(true);
   expect(button('使用默认位置').disabled).toBe(true);
 });
 
 it('等待修复时，空间告警只跟随当前勾选的数据库', async () => {
-  maintenanceQa.ready();
+  maintenanceQa.ready('checkup', { secondIssue: true });
   maintenanceQa.lowSpace(500_000);
   maintenanceQa.snapshot()!.storage = {
     dbName: 'nt_msg.db',
@@ -201,6 +217,7 @@ it('等待修复时，空间告警只跟随当前勾选的数据库', async () =
   };
   const warning = () => host.querySelector('[role="alert"][aria-label="磁盘空间警告"]');
   await mount();
+  await act(async () => button('修复').click());
   expect(warning()).not.toBeNull();
   await act(async () => choice('nt_msg.db').click());
   expect(warning()).toBeNull();
@@ -267,23 +284,25 @@ it('放弃扫描结果必须明确确认，取消继续持锁，确认后仍能�
 });
 
 it('建议余量确认不沿用到取消后重新打开的修复', async () => {
-  maintenanceQa.ready();
+  maintenanceQa.ready('checkup');
   await mount();
+  await act(async () => button('修复').click());
   const input = [...host.querySelectorAll('label')]
     .find((label) => label.textContent?.includes('预留空间不足时仍尝试修复'))!
     .querySelector('input')!;
   await act(async () => input.click());
-  await act(async () => button('修复所选数据库').click());
+  await act(async () => button('开始修复').click());
   await confirm(false);
   expect(input.checked).toBe(false);
-  await act(async () => button('修复所选数据库').click());
+  await act(async () => button('开始修复').click());
   await confirm(true);
   expect(maintenanceQa.calls.repair[0]?.allowLowSpace).toBe(false);
 });
 
 it('修复选项内部点击不关闭，外部点击关闭但保留选项，Esc 仍可关闭', async () => {
-  maintenanceQa.ready();
+  maintenanceQa.ready('checkup');
   await mount();
+  await act(async () => button('修复').click());
   const summary = [...host.querySelectorAll('summary')].find((item) =>
     item.textContent?.includes('修复选项'),
   )!;
@@ -296,14 +315,14 @@ it('修复选项内部点击不关闭，外部点击关闭但保留选项，Esc 
     input.click();
   });
   expect(options.open).toBe(true);
-  expect(input.checked).toBe(false);
+  expect(input.checked).toBe(true);
   await act(async () => {
     host.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
   });
   expect(options.open).toBe(false);
   await act(async () => summary.click());
   expect(options.open).toBe(true);
-  expect(input.checked).toBe(false);
+  expect(input.checked).toBe(true);
   await act(async () => {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   });

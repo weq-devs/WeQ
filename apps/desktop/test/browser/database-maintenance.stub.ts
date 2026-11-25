@@ -13,6 +13,7 @@ type Input = {
   configId?: string;
   kind?: 'scan' | 'checkup';
   dbNames?: string[];
+  methods?: Record<string, 'quick' | 'deep'>;
   reportId?: string;
   recordId?: string;
   format?: string;
@@ -28,6 +29,7 @@ let live: DatabaseMaintenanceSnapshot | null = null;
 let liveStatus: DatabaseMaintenanceStatus | null = null;
 let tracker: DatabaseProgressTracker;
 let sequence = 0;
+let scopeNames = namesForFixture();
 let version = 0;
 let cache: string | null = '/synthetic/cache';
 let freeBytes = 10_000_000_000;
@@ -42,7 +44,10 @@ const calls = {
   export: [] as Input[],
   delete: [] as Input[],
 };
-const names = ['nt_msg.db', 'profile.db', 'unsupported.db'];
+function namesForFixture() {
+  return ['nt_msg.db', 'profile.db', 'unsupported.db'];
+}
+const names = namesForFixture();
 const notify = () => {
   version++;
   for (const listener of stores) listener();
@@ -61,7 +66,7 @@ function regularRow(dbName: string, index: number): DatabaseMaintenanceRow {
     total: 100,
     unit: 'pages',
     status: 'completed',
-    badPages: index === 0 ? 3 : 0,
+    badPages: index === 0 ? 1 : 0,
     outcome: index === 0 ? 'abnormal' : 'normal',
   });
   const done = progress.finish('completed');
@@ -71,7 +76,7 @@ function regularRow(dbName: string, index: number): DatabaseMaintenanceRow {
     support: index === 2 ? 'unsupported' : 'supported',
     issues:
       index === 0
-        ? [{ message: '发现 3 个坏页，可重建仍能读取的数据。', support: 'supported' }]
+        ? [{ message: '发现 1 个坏页。', support: 'supported' }]
         : index === 2
           ? [
               {
@@ -85,8 +90,8 @@ function regularRow(dbName: string, index: number): DatabaseMaintenanceRow {
       dbName,
       dbPath: `/synthetic/${dbName}`,
       pageSize: 4096,
-      pageCount: 100,
-      badPages: index === 0 ? [4, 8, 12] : [],
+      pageCount: index === 0 ? 4663100 : 100,
+      badPages: index === 0 ? [4663083] : [],
       zeroPages: [],
       usedHmac: index !== 2,
       plaintext: index === 2,
@@ -107,7 +112,7 @@ function create(kind: 'scan' | 'checkup' | 'repair' = 'scan'): DatabaseMaintenan
     configId: 'source',
     state: kind === 'repair' ? 'repairing' : 'scanning',
     locked: true,
-    databases: names.map((dbName) => ({
+    databases: scopeNames.map((dbName) => ({
       dbName,
       scanStatus: 'pending',
       support: 'possible',
@@ -120,8 +125,8 @@ function create(kind: 'scan' | 'checkup' | 'repair' = 'scan'): DatabaseMaintenan
       startedAt: Date.now() - 13_000,
       elapsedMs: 13_000,
       completedDatabases: 0,
-      totalDatabases: 3,
-      currentDb: names[0],
+      totalDatabases: scopeNames.length,
+      currentDb: scopeNames[0],
     },
   };
 }
@@ -139,10 +144,22 @@ function finish(status: 'completed' | 'cancelled' = 'completed') {
     live.locked = false;
   } else {
     if (status === 'completed') {
-      live.databases = names.map(regularRow);
+      live.databases = scopeNames.map(regularRow);
       if (live.operation.kind === 'checkup') {
         for (const [index, row] of live.databases.entries()) {
           row.deepStatus = 'completed';
+          if (index === 0) {
+            row.locationChecked = true;
+            row.quickBudgetBytes = 32 * 1024 * 1024;
+            row.scan!.affected = [
+              {
+                name: '空闲叶页',
+                pagetype: 'freelist-leaf',
+                badPageCount: 1,
+                samplePages: [4663083],
+              },
+            ];
+          }
           row.integrity = {
             ran: true,
             healthy: index !== 0,
@@ -206,6 +223,7 @@ export const maintenanceQa = {
     liveStatus = null;
     saved.clear();
     sequence = 0;
+    scopeNames = namesForFixture();
     cache = '/synthetic/cache';
     freeBytes = 10_000_000_000;
     calls.scan.length = 0;
@@ -216,10 +234,16 @@ export const maintenanceQa = {
     notify();
   },
   snapshot: () => live,
-  ready() {
-    live = create();
+  ready(kind: 'scan' | 'checkup' = 'scan', options: { secondIssue?: boolean } = {}) {
+    live = create(kind);
     tracker = new DatabaseProgressTracker('scan', names[0]!);
     finish();
+    if (kind === 'checkup') {
+      live.databases[0]!.quickBudgetBytes = undefined;
+      if (options.secondIssue)
+        live.databases[1]!.issues.push({ message: '测试用结构异常', support: 'supported' });
+      publish();
+    }
   },
   archive(target?: { uin: string; configId?: string }) {
     if (!live?.operation) return;
@@ -252,6 +276,22 @@ export const maintenanceQa = {
     publish();
   },
   complete: () => finish(),
+  failQuick() {
+    if (!live?.operation || !resolveRun) return;
+    live.state = 'waiting';
+    live.operation.status = 'waiting';
+    const row = live.databases.find((item) => item.dbName === live?.operation?.currentDb)!;
+    row.repair = {
+      status: 'waiting',
+      method: 'quick',
+      nextAction: 'view-deep',
+      error: '快速修复产物未通过复核，原数据库保持不变。',
+    };
+    retain();
+    publish();
+    resolveRun({ snapshot: summarizeDatabaseMaintenance(live), closedAccount: false });
+    resolveRun = undefined;
+  },
   completeFirst() {
     if (!live) return;
     live.databases[0] = regularRow(names[0]!, 0);
@@ -458,7 +498,11 @@ export const trpc = {
     }),
     scanAccount: mutation(async (input) => {
       calls.scan.push(input);
+      if (input.dbNames) scopeNames = input.dbNames;
+      const previous = live?.locked ? live.databases : undefined;
       live = create(input.kind);
+      if (previous) live.databases = previous;
+      live.operation!.currentDb = scopeNames[0];
       tracker = new DatabaseProgressTracker('scan', names[0]!);
       maintenanceQa.pages();
       return new Promise((resolve) => {
@@ -468,7 +512,7 @@ export const trpc = {
     repairSelected: mutation(async (input) => {
       calls.repair.push(input);
       const rows = live!.databases;
-      live = { ...create('repair'), databases: rows };
+      live = { ...create('repair'), id: live!.id, databases: rows };
       live.operation!.totalDatabases = input.dbNames!.length;
       live.operation!.currentDb = input.dbNames![0];
       for (const row of rows)

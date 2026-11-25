@@ -3,6 +3,13 @@ import type { DbRepairCheckupIntegrity } from './checkup';
 import type { DatabaseTaskProgress } from './progress';
 import type { DbRepairRecord } from './types';
 
+export type DatabaseRepairMethod = 'quick' | 'deep';
+export type DatabaseRepairNextAction = 'retry-space' | 'view-deep' | 'retry' | 'check-source';
+export interface DatabasePageLocation {
+  affected: BadPageScanReport['affected'];
+  quickBudgetBytes?: number;
+}
+
 export type DatabaseRepairSupport = 'supported' | 'possible' | 'unsupported';
 export interface DatabaseMaintenanceIssue {
   message: string;
@@ -19,6 +26,8 @@ export interface DatabaseMaintenanceRow {
   scanStatus: 'pending' | 'running' | 'completed' | 'failed';
   scan?: BadPageScanReport;
   scanError?: string;
+  locationChecked?: boolean;
+  quickBudgetBytes?: number;
   integrity?: DbRepairCheckupIntegrity;
   deepStatus?: 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
   support: DatabaseRepairSupport;
@@ -28,6 +37,8 @@ export interface DatabaseMaintenanceRow {
   repair?: {
     status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'waiting';
     record?: DbRepairRecord;
+    method?: DatabaseRepairMethod;
+    nextAction?: DatabaseRepairNextAction;
     error?: string;
   };
 }
@@ -67,6 +78,7 @@ export interface DatabaseMaintenanceStatusRow
   scan?: Pick<BadPageScanReport, 'dbPath' | 'pageCount' | 'plaintext' | 'usedHmac'> & {
     badPageCount: number;
     zeroPageCount: number;
+    affected?: BadPageScanReport['affected'];
   };
   repair?: Omit<NonNullable<DatabaseMaintenanceRow['repair']>, 'record'> & {
     verification?: {
@@ -95,9 +107,12 @@ export function summarizeDatabaseMaintenance(
           usedHmac: scan.usedHmac,
           badPageCount: scan.badPages.length,
           zeroPageCount: scan.zeroPages.length,
+          affected: scan.affected,
         },
         repair: repair && {
           status: repair.status,
+          method: repair.method,
+          nextAction: repair.nextAction,
           error: repair.error,
           verification: verification
             ? {
@@ -129,16 +144,34 @@ export function verifiedDatabaseScans(snapshot: DatabaseMaintenanceStatus) {
 export function databaseReadyForRepair(
   row: Pick<
     DatabaseMaintenanceRow | DatabaseMaintenanceStatusRow,
-    'scanStatus' | 'scan' | 'support' | 'repair'
+    'scanStatus' | 'scan' | 'support' | 'repair' | 'locationChecked'
   >,
 ): boolean {
   return (
     row.scanStatus === 'completed' &&
     !!row.scan &&
     row.support !== 'unsupported' &&
+    !databaseNeedsPageLocation(row) &&
     row.repair?.status !== 'completed'
   );
 }
+export function databaseRepairRecommendation(
+  row: DatabaseMaintenanceStatusRow | DatabaseMaintenanceRow,
+): DatabaseRepairMethod | undefined {
+  if (!databaseReadyForRepair(row) || !databaseMaintenanceRowAbnormal(row)) return undefined;
+  return row.quickBudgetBytes && row.repair?.nextAction !== 'view-deep' ? 'quick' : 'deep';
+}
+
+export function databaseNeedsPageLocation(
+  row: Pick<DatabaseMaintenanceRow | DatabaseMaintenanceStatusRow, 'scan' | 'locationChecked'>,
+): boolean {
+  const scan = row.scan;
+  if (!scan || row.locationChecked) return false;
+  const bad = 'badPages' in scan ? scan.badPages.length : scan.badPageCount;
+  const located = scan.affected?.reduce((count, object) => count + object.badPageCount, 0) ?? 0;
+  return located < bad;
+}
+
 export const databaseRepairSupportLabel: Record<DatabaseRepairSupport, string> = {
   supported: 'WeQ 支持修复',
   possible: '可能支持修复',

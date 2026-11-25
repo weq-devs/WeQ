@@ -1448,6 +1448,8 @@ export type {
   DatabaseMaintenanceSnapshot,
   DatabaseMaintenanceReport,
   DatabaseMaintenanceScope,
+  DatabaseRepairMethod,
+  DatabasePageLocation,
   DatabaseMaintenanceRow,
   DatabaseMaintenanceOperation,
 } from './account/db_repair/maintenance_types';

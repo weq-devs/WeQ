@@ -123,6 +123,24 @@ describe('分卷峰值预算', () => {
       ),
     ).toBe(true);
   });
+  it('流式重建分卷计算工作文件和同卷产物，继续时扣除已经写入的字节', () => {
+    const probe = (path: string) => ({ volume: path, freeBytes: size * 4 });
+    const before = repairSpaceBudget({ ...base, streaming: true, probe });
+    expect(before.map((volume) => volume.requiredBytes)).toEqual([size * 2, size]);
+    const during = repairSpaceBudget({
+      ...base,
+      streaming: true,
+      probe,
+      current: {
+        phase: 'Repair',
+        cacheBytes: size / 4,
+        productBytes: size / 2,
+        rebuiltBytes: 0,
+        backupRemainingBytes: 0,
+      },
+    });
+    expect(during.map((volume) => volume.requiredBytes)).toEqual([size * 0.75, size / 2]);
+  });
   it('尚未创建的缓存子目录只读探测现有父卷', () => {
     const { root } = fixture();
     const path = join(root, 'missing', 'work');

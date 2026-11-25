@@ -17,7 +17,6 @@ type DatabaseMaintenanceWorkerResult =
   | BadPageScanReport
   | DatabasePageLocation
   | BadPageScanReport
-  | DatabasePageLocation['affected']
   | DbRepairCheckupIntegrity
   | RecoverReport
   | DbRepairLayoutProbe;
@@ -56,6 +55,13 @@ export async function runDatabaseMaintenanceWorker(
       env: {
         ...process.env,
         ELECTRON_RUN_AS_NODE: '1',
+        ...(request.kind === 'repair' &&
+          request.streaming && {
+            SQLITE_TMPDIR: request.options.workDir,
+            TMPDIR: request.options.workDir,
+            TEMP: request.options.workDir,
+            TMP: request.options.workDir,
+          }),
         ...(!rawRead && {
           WEQ_NATIVE_DIR: options.nativeRoot ?? dirname(dirname(dirname(resolveNtHelperPath()))),
         }),
@@ -89,6 +95,8 @@ export async function runDatabaseMaintenanceWorker(
   )
     throw new Error('源库布局检测结果无效。');
   if (request.kind === 'locate' && !('affected' in result)) throw new Error('坏页归属结果无效。');
+  if (request.kind === 'clone-backup' && !('cloned' in result && result.cloned === true))
+    throw new Error('同卷备份结果无效。');
   if (request.kind === 'deep' && !('ran' in result)) throw new Error('结构体检结果无效。');
   if (
     request.kind === 'repair' &&

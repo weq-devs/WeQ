@@ -129,12 +129,16 @@ export async function mapBadPagesToObjects(
   algo: DatabaseAlgorithms,
   badPages: number[],
 ): Promise<AffectedObject[]> {
-  if (badPages.length === 0) return [];
+  if (badPages.length === 0 || badPages.length > 4096) return [];
   const bad = new Set(badPages);
   try {
+    const pages = [...bad].filter((page) => Number.isSafeInteger(page) && page > 0);
+    if (!pages.length) return [];
+    // 过滤在 SQLite 内完成，避免把数百万正常页通过 N-API 传回 JS。
+    const pageFilter = pages.join(',');
     const rows = await nt.executeSqlWithKey(
       dbPath,
-      'SELECT name, pagetype, pageno FROM dbstat',
+      `SELECT name, pagetype, pageno FROM dbstat WHERE pageno IN (${pageFilter})`,
       key,
       algo,
     );

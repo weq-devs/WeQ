@@ -1,8 +1,7 @@
 /**
  * 数据库修复窗口。
  *
- * 页面回答三个问题，顺序就是阅读顺序：现在处于哪一步（流程条）、
- * 整体是什么状态（状态卡）、每个库具体怎样（库卡片与详情）。
+ * 扫描、报告和修复各自使用独立标签页，维护状态保留在顶栏。
  * 修复是批处理动作，所以主按钮固定在底栏，不随列表滚走。
  *
  * 颜色全部来自主题 token：强调色只负责「当前/选中/可操作」，
@@ -366,7 +365,8 @@ html[data-theme='dark'] .weq-dbm {
   white-space: nowrap;
 }
 
-.weq-dbm-hero-actions .weq-set-btn {
+.weq-dbm-hero-actions .weq-set-btn,
+.weq-dbm-scan-controls > .weq-set-btn {
   box-sizing: border-box;
   height: 38px;
   font-family: inherit;
@@ -1520,4 +1520,105 @@ html[data-theme='dark'] .weq-dbm {
   .weq-dbm-db:hover {
     transform: none;
   }
+}
+
+/* 可交互的维护标签沿用原流程条的视觉。 */
+button.weq-dbm-step {
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+button.weq-dbm-step:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+}
+
+button.weq-dbm-step.is-current {
+  background: var(--dbm-surface);
+  color: var(--weq-fg-primary);
+}
+
+.weq-dbm-scan-setup,
+.weq-dbm-plan {
+  display: grid;
+  gap: 14px;
+}
+
+.weq-dbm-scan-databases {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 0;
+  border: 0;
+}
+
+.weq-dbm-scan-databases legend {
+  padding: 0;
+  font-weight: 600;
+}
+
+.weq-dbm-scan-databases label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--dbm-hair);
+  border-radius: 8px;
+  background: var(--dbm-surface);
+  cursor: pointer;
+}
+
+.weq-dbm-scan-databases label:has(input:checked) {
+  background: var(--dbm-tint);
+}
+
+.weq-dbm-scan-databases label:hover {
+  border-color: var(--weq-border-strong);
+}
+
+.weq-dbm-progress-toolbar,
+.weq-dbm-report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.weq-dbm-progress-toolbar > strong {
+  margin-right: auto;
+}
+
+.weq-dbm-report-actions .weq-dbm-export {
+  margin-left: auto;
+}
+
+.weq-dbm-plan-row {
+  display: grid;
+  gap: 9px;
+}
+
+.weq-dbm-scan-size {
+  color: var(--weq-fg-muted);
+  white-space: nowrap;
+}
+
+.weq-dbm-plan-select {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.weq-dbm-budget > span {
+  display: grid;
+  gap: 2px;
+}
+
+.weq-dbm-plan-row h2 {
+  font-size: 13px;
 }

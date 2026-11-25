@@ -1,7 +1,15 @@
 import type { RecoverOptions } from '@weq/native';
-import type { DbRepairTarget } from '@weq/service';
+import type { BadPageScanReport, DatabaseRepairMethod, DbRepairTarget } from '@weq/service';
 
 export type DatabaseMaintenanceWorkerRequest =
   | { kind: 'scan' | 'deep'; target: DbRepairTarget }
-  | { kind: 'repair'; options: RecoverOptions }
+  | { kind: 'locate'; target: DbRepairTarget; scan: BadPageScanReport; references: string[] }
+  | { kind: 'clone-backup'; source: string; target: string }
+  | {
+      kind: 'repair';
+      options: RecoverOptions;
+      method?: DatabaseRepairMethod;
+      streaming?: boolean;
+      references?: string[];
+    }
   | { kind: 'layout'; dbPath: string };
