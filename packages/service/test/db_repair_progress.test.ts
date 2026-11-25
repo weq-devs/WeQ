@@ -206,6 +206,39 @@ it('已跳过的步骤不会在任务结束时被改成已完成，历史保持�
   expect(end?.current.status).toBe('skipped');
 });
 
+it('修复的两轮逐表检查不会挤掉前序阶段，保留各自的最近明细和早期异常', () => {
+  const tracker = new DatabaseProgressTracker('repair', 'synthetic.db');
+  tracker.update('backup', { step: 'backup-file', message: '备份原库' });
+  tracker.update('Decrypt', { step: 'decrypt', message: '解密源数据库' });
+  tracker.update('Repair', { step: 'recover-data', message: '恢复表数据' });
+  tracker.update('Restore', {
+    step: 'output-integrity-index-abnormal',
+    message: '索引检查发现异常',
+    outcome: 'abnormal',
+  });
+  for (let index = 0; index < 100; index++) {
+    tracker.update('Restore', { step: `output-integrity-records-${index}`, message: '检查产物' });
+  }
+  tracker.update('swapping', { step: 'swap', message: '替换数据库' });
+  for (let index = 0; index < 100; index++) {
+    tracker.update('final-check', { step: `integrity-index-${index}`, message: '复核索引' });
+  }
+  const steps = tracker.finish('completed')?.steps.map((step) => step.step) ?? [];
+  expect(steps.slice(0, 4)).toEqual([
+    'backup-file',
+    'decrypt',
+    'recover-data',
+    'output-integrity-index-abnormal',
+  ]);
+  expect(steps).toContain('output-integrity-records-99');
+  expect(steps).toContain('swap');
+  expect(steps.at(-1)).toBe('integrity-index-99');
+  expect(steps).not.toContain('output-integrity-records-0');
+  expect(steps).not.toContain('integrity-index-0');
+  expect(steps.filter((step) => step.startsWith('output-integrity-records-'))).toHaveLength(63);
+  expect(steps.filter((step) => step.startsWith('integrity-index-'))).toHaveLength(64);
+});
+
 it('体检切换到异常定位不把未扫完的页标成完成，结构检查持续显示异常', () => {
   const tracker = new DatabaseProgressTracker('checkup', 'synthetic.db');
   tracker.update('checkup', { step: 'integrity', message: '检查数据库整体结构' });

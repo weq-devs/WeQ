@@ -45,7 +45,7 @@
   background: var(--weq-border-subtle);
 }
 .weq-db-progress-stage > details > summary,
-.weq-db-progress-table > summary {
+.weq-db-progress-substeps > summary {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -96,19 +96,19 @@
 .weq-db-progress-stage .weq-db-progress-entry::before {
   display: none;
 }
-.weq-db-progress-table {
+.weq-db-progress-substeps {
   margin: 4px 0 0 36px;
 }
-.weq-db-progress-table > summary {
+.weq-db-progress-substeps > summary {
   gap: 8px;
   min-height: 32px;
   padding: 4px 6px;
   border-radius: 4px;
 }
-.weq-db-progress-table > summary:hover {
+.weq-db-progress-substeps > summary:hover {
   background: var(--weq-bg-surface);
 }
-.weq-db-progress-table .weq-db-progress-entry {
+.weq-db-progress-substeps .weq-db-progress-entry {
   padding: 6px 6px 8px 26px;
 }
 .weq-db-progress-batch {

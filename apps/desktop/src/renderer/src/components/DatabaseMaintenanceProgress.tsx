@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import {
   databaseProgressDisplaySteps,
+  databaseRepairCheckGroup,
   databaseStepPercent,
   type DatabaseTaskProgress,
   type DatabaseStepProgress,
@@ -153,7 +154,11 @@ export function DatabaseMaintenanceProgress({
   actions?: ReactNode;
 }) {
   const [now, setNow] = useState(Date.now);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [disclosure, setDisclosure] = useState<{
+    run: string;
+    stages: Record<string, boolean>;
+  }>();
+  const run = `${progress.kind}:${progress.dbName}:${progress.startedAt}`;
   const running = progress.status === 'running';
   const timing = batch ? batch.status === 'running' : running;
   useEffect(() => {
@@ -324,34 +329,45 @@ export function DatabaseMaintenanceProgress({
           if (!steps.length && (!running || index <= currentIndex)) return null;
           const { standalone, groups } =
             key === 'integrity' ? groupIntegritySteps(steps) : { standalone: steps, groups: [] };
+          const completedChecks = new Set(
+            key === 'output' || key === 'verify'
+              ? steps.filter(
+                  (step) =>
+                    step.status === 'completed' &&
+                    !attention(step) &&
+                    !step.detail &&
+                    databaseRepairCheckGroup(step),
+                )
+              : [],
+          );
           const active = running && currentKey === key;
           const needsAttention = steps.some(attention);
           const pending = !steps.length;
           const sharedHeading =
-            steps.length === 1 && groups.length === 0 && steps[0]?.step !== 'recover-data';
-          const open = active || needsAttention || (expanded[key] ?? false);
+            steps.length === 1 &&
+            groups.length === 0 &&
+            completedChecks.size === 0 &&
+            steps[0]?.step !== 'recover-data';
+          const open =
+            (disclosure?.run === run ? disclosure.stages[key] : undefined) ??
+            (active || needsAttention);
           const Icon = active ? Loader2 : needsAttention ? AlertTriangle : pending ? Circle : Check;
           return (
             <li
               key={key}
               className={`weq-db-progress-stage${active ? ' is-current' : ''}${pending ? ' is-pending' : ''}`}
             >
-              <details
-                open={open}
-                onToggle={(event) => {
-                  if (active || needsAttention) {
-                    event.currentTarget.open = true;
-                    return;
-                  }
-                  const value = event.currentTarget.open;
-                  setExpanded((old) => (old[key] === value ? old : { ...old, [key]: value }));
-                }}
-              >
+              <details open={open}>
                 <summary
                   aria-disabled={pending || undefined}
                   tabIndex={pending ? -1 : undefined}
                   onClick={(event) => {
-                    if (pending) event.preventDefault();
+                    event.preventDefault();
+                    if (pending) return;
+                    setDisclosure((old) => ({
+                      run,
+                      stages: { ...(old?.run === run ? old.stages : undefined), [key]: !open },
+                    }));
                   }}
                 >
                   <span className="weq-db-progress-node" aria-hidden>
@@ -368,7 +384,9 @@ export function DatabaseMaintenanceProgress({
                           ? '连接中断'
                           : label(steps[0]!, progress.status === 'cancelled')
                         : active
-                          ? '进行中'
+                          ? needsAttention && !open
+                            ? '进行中 · 需查看'
+                            : '进行中'
                           : pending
                             ? '待开始'
                             : needsAttention
@@ -380,7 +398,18 @@ export function DatabaseMaintenanceProgress({
                     <ChevronRight className="weq-db-progress-chevron" size={14} aria-hidden />
                   ) : null}
                 </summary>
-                {standalone.map((step) => renderStep(step, sharedHeading))}
+                {standalone.map((step) =>
+                  completedChecks.has(step) ? null : renderStep(step, sharedHeading),
+                )}
+                {completedChecks.size ? (
+                  <details key={run} className="weq-db-progress-substeps">
+                    <summary>
+                      <ChevronRight className="weq-db-progress-chevron" size={14} aria-hidden />
+                      <span>最近完成的表与索引检查</span>
+                    </summary>
+                    {[...completedChecks].map((step) => renderStep(step, false))}
+                  </details>
+                ) : null}
                 {groups.map(([groupKey, group]) => {
                   const active =
                     running &&
@@ -390,7 +419,7 @@ export function DatabaseMaintenanceProgress({
                   return (
                     <details
                       key={groupKey}
-                      className="weq-db-progress-table"
+                      className="weq-db-progress-substeps"
                       open={active || needsAttention || undefined}
                     >
                       <summary>

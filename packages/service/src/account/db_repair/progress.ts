@@ -69,6 +69,14 @@ function finalIntegrityStep(step: DatabaseStepProgress): boolean {
   return step.phase === 'final-check' && step.step.startsWith('integrity-');
 }
 
+export function databaseRepairCheckGroup(
+  step: DatabaseStepProgress,
+): 'output' | 'final-check' | undefined {
+  if (!/^(?:output-)?integrity-(?:records|index)-/.test(step.step)) return undefined;
+  if (step.phase === 'final-check') return 'final-check';
+  if (step.phase === 'Restore' || step.phase === 'Verify') return 'output';
+}
+
 function closeCheckupStep(step: DatabaseStepProgress, at: number): DatabaseStepProgress {
   if (step.status !== 'running') return step;
   const incomplete = databaseStepPercent(step) !== undefined && step.completed! < step.total!;
@@ -189,15 +197,24 @@ export class DatabaseProgressTracker {
       const index = steps.findIndex((step) => step.step === 'integrity');
       if (index >= 0) steps[index] = { ...steps[index]!, outcome: 'abnormal' };
     }
-    const retained = steps.filter(
-      (step, index) =>
-        index >= steps.length - 63 ||
-        step.status === 'failed' ||
-        step.status === 'incomplete' ||
-        step.outcome === 'abnormal' ||
-        step.status === 'skipped' ||
-        step.outcome === 'unverified',
-    );
+    // 两轮结构检查的逐项明细各自保留，避免挤掉先前的解密、重建等步骤。
+    const remaining = { main: 63, output: 63, 'final-check': 63 };
+    const retained = steps
+      .toReversed()
+      .filter((step) => {
+        const group = (this.kind === 'repair' && databaseRepairCheckGroup(step)) || 'main';
+        const withinLimit = remaining[group] > 0;
+        remaining[group] -= 1;
+        return (
+          withinLimit ||
+          step.status === 'failed' ||
+          step.status === 'incomplete' ||
+          step.outcome === 'abnormal' ||
+          step.status === 'skipped' ||
+          step.outcome === 'unverified'
+        );
+      })
+      .reverse();
     const summary = steps.find((step) => step.step === 'integrity');
     if (this.kind === 'checkup' && summary && !retained.includes(summary)) retained[0] = summary;
     this.snapshot = {
