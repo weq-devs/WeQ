@@ -337,21 +337,28 @@ describe('分级恢复默认', () => {
     await caller().restore({ page: 'remote', source: null });
     expect(state.remote).toEqual({ enabled: false, tailscaleEnabled: false });
   });
-  it('QQ 在线能力卡片恢复右上角标记，不改变独立通知偏好', async () => {
-    state.settings.restrictedModeIndicatorEnabled = false;
-    state.settings.restrictedModeBannerEnabled = false;
-    const preview = await caller().preview({ page: 'account', card: 'attach' });
+  it('只在状态提醒页恢复统一提示和在线通知方式', async () => {
+    state.settings.qqStatusIndicatorEnabled = false;
+    state.settings.notificationEvents.runtime = { banner: false, system: true };
+    const input = { page: 'qq-status-reminders', card: 'qq-status-reminders' } as const;
+    const account = await caller().preview({ page: 'account', card: 'attach' });
+    expect(account.items.some((item) => item.id.includes('Indicator'))).toBe(false);
+    const preview = await caller().preview(input);
     expect(preview.items).toContainEqual(
       expect.objectContaining({
-        id: 'attach:restrictedModeIndicatorEnabled',
+        id: 'qq-status-reminders:qqStatusIndicatorEnabled',
         current: false,
         defaultValue: true,
       }),
     );
-    await caller().restore({ page: 'account', card: 'attach', source: null });
-    expect(state.calls).toContainEqual(['setRestrictedModeIndicatorEnabled', { enabled: true }]);
-    expect(state.calls.some(([name]) => name === 'resetNotificationEvents')).toBe(false);
-    expect(state.settings.restrictedModeBannerEnabled).toBe(false);
+    await caller().restore({ ...input, source: null });
+    expect(state.calls).toEqual([
+      ['setQqStatusIndicatorEnabled', { enabled: true }],
+      [
+        'setNotificationEvents',
+        { events: ['runtime'], channels: DEFAULT_APP_SETTINGS.notificationEvents.runtime },
+      ],
+    ]);
   });
   it('所有登记的全局恢复字段均有真实适配器，不依赖设置控件是否挂载', async () => {
     const api = settingsResetRouter.createCaller({ authorize: () => {} });

@@ -2,8 +2,7 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AccountBasicsSection } from '../src/renderer/src/components/settings/AccountBasicsSection';
-import { QqProxyIndicator } from '../src/renderer/src/components/QqProxyConnection';
-import { onOpenSettingsRequest } from '../src/renderer/src/lib/callSettingsBridge';
+import { QqStatusReminderSettings } from '../src/renderer/src/components/settings/QqStatusReminderSettings';
 import { useRestrictedMode } from '../src/renderer/src/state/restrictedMode';
 import { useViewState } from '../src/renderer/src/state/view';
 import type { OnlineAccess } from '../src/renderer/src/lib/restrictedMode';
@@ -35,20 +34,15 @@ function waitingProxy() {
 const mock = vi.hoisted(() => ({
   settings: {
     autoAttachQq: true,
-    restrictedModeIndicatorEnabled: true,
-    qqProxyIndicatorEnabled: true,
+    qqStatusIndicatorEnabled: true,
     qqClientSyncEnabled: false,
   },
   proxyStatus: undefined as ReturnType<typeof waitingProxy> | undefined,
-  qqRunning: null as boolean | null,
   access: undefined as OnlineAccess | undefined,
   failed: false,
   queryOptions: vi.fn(),
   save: vi.fn(),
   saveProxyEnabled: vi.fn(),
-  saveProxyIndicator: vi.fn(),
-  launchQq: vi.fn(),
-  restartQq: vi.fn(),
   error: vi.fn(),
 }));
 vi.mock('../src/renderer/src/components/settings/LongTermAuthorizationSection', () => ({
@@ -70,13 +64,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                     ? mock.access
                     : method === 'getQqClientSyncStatus'
                       ? mock.proxyStatus
-                      : method === 'getQqProcessState'
-                        ? {
-                            running: mock.qqRunning,
-                            canRestart: mock.qqRunning === true,
-                            switchingToDebugCopy: mock.qqRunning === true,
-                          }
-                        : undefined,
+                      : undefined,
               isError: method === 'getGroupAlbumAccessState' && mock.failed,
               isLoading: false,
               refetch: async () => ({ data: mock.settings }),
@@ -90,10 +78,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               const method = path.at(-1);
               if (input && 'enabled' in input) {
                 if (method === 'setQqProxyEnabled') mock.saveProxyEnabled(input);
-                if (method === 'setQqProxyIndicatorEnabled') mock.saveProxyIndicator(input);
               }
-              if (method === 'launchQq') mock.launchQq(input);
-              if (method === 'restartQq') mock.restartQq();
               void options?.onSuccess?.();
               void options?.onSettled?.();
             },
@@ -116,35 +101,34 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   mock.settings = {
     autoAttachQq: true,
-    restrictedModeIndicatorEnabled: true,
-    qqProxyIndicatorEnabled: true,
+    qqStatusIndicatorEnabled: true,
     qqClientSyncEnabled: false,
   };
   mock.proxyStatus = undefined;
-  mock.qqRunning = null;
   mock.access = { ...ready };
   mock.failed = false;
   mock.queryOptions.mockClear();
   mock.save.mockReset().mockImplementation(async ({ enabled }: { enabled: boolean }) => {
-    mock.settings = { ...mock.settings, restrictedModeIndicatorEnabled: enabled };
+    mock.settings = { ...mock.settings, qqStatusIndicatorEnabled: enabled };
   });
   mock.error.mockClear();
-  mock.launchQq.mockClear();
-  mock.restartQq.mockClear();
   mock.saveProxyEnabled.mockReset().mockImplementation(({ enabled }) => {
     mock.proxyStatus = { ...waitingProxy(), enabled, running: enabled };
   });
-  mock.saveProxyIndicator.mockReset().mockImplementation(({ enabled }) => {
-    mock.settings.qqProxyIndicatorEnabled = enabled;
-  });
   useViewState.setState({ openedUin: '10001' });
-  useRestrictedMode.setState({ requests: [], reasons: [], enteringSince: null, open: false });
+  useRestrictedMode.setState({
+    requests: [],
+    reasons: [],
+    enteringSince: null,
+    open: false,
+    settingsSection: null,
+  });
 });
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-function mount(showProxyIndicator = false) {
+function mount(page: 'account' | 'qq-proxy' | 'reminders' = 'account') {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -154,8 +138,7 @@ function mount(showProxyIndicator = false) {
         h(
           'div',
           null,
-          h(AccountBasicsSection, { page: showProxyIndicator ? 'qq-proxy' : 'account' }),
-          showProxyIndicator && h(QqProxyIndicator),
+          page === 'reminders' ? h(QqStatusReminderSettings) : h(AccountBasicsSection, { page }),
         ),
       ),
     );
@@ -173,94 +156,31 @@ function mount(showProxyIndicator = false) {
       )!,
   };
 }
-it('代理断开提示使用当前账号，指向代理卡片，关闭提示后仍可查看等待任务', async () => {
+it('关闭统一提示后，代理设置仍可打开共用详情并查看待同步任务', async () => {
+  mock.settings.qqStatusIndicatorEnabled = false;
   mock.settings.qqClientSyncEnabled = true;
   mock.proxyStatus = waitingProxy();
-  mock.qqRunning = true;
-  const f = mount(true);
-  const indicator = () =>
-    f.host.querySelector<HTMLButtonElement>('button[aria-label="QQ 代理未连接"]');
+  const f = mount('qq-proxy');
   const card = f.host.querySelector<HTMLElement>('[data-setting-id="qq-proxy-connection"]')!;
   const syncCard = f.host
     .querySelector('[data-setting-id="qq-client-sync"]')!
     .closest('.weq-set-card')!;
-  const indicatorRow = f.host.querySelector('[data-setting-id="qq-proxy-indicator"]')!;
-  const status = () => card.querySelector('.weq-set-card-head [role="status"]')?.textContent;
-  expect(status()).toBe('等待 QQ 连接');
+  const badge = () => card.querySelector<HTMLButtonElement>('button[aria-label^="QQ 代理连接："]')!;
+  expect(badge().textContent).toBe('等待 QQ 连接');
   expect(syncCard.textContent).toContain('待同步 7 项');
-  act(() => indicator()?.click());
-  const panel = document.querySelector<HTMLElement>('.weq-restricted-panel')!;
+  act(() => badge().click());
+  expect(useRestrictedMode.getState().settingsSection).toBe('proxy');
+  act(() => badge().click());
+  expect(useRestrictedMode.getState().open).toBe(false);
+
   mock.proxyStatus = { ...waitingProxy(), connecting: true };
   f.render();
-  const progress = f.host.querySelector<HTMLButtonElement>(
-    'button[aria-label="正在确认 QQ 代理连接"]',
-  );
-  expect(progress?.getAttribute('aria-busy')).toBe('true');
-  expect(panel.querySelector('h2')?.textContent).toBe('正在确认 QQ 代理连接');
-  expect(status()).toBe('正在确认连接');
+  expect(badge().textContent).toBe('正在确认连接');
   expect(syncCard.textContent).toContain('待同步 7 项');
-  mock.proxyStatus = waitingProxy();
+  mock.proxyStatus = { ...waitingProxy(), connected: true };
   f.render();
-  const action = (surface: HTMLElement, label: string) =>
-    [...surface.querySelectorAll('button')].find((button) => button.textContent === label);
-  for (const surface of [panel, card]) {
-    expect(action(surface, '登录其他账号')).toBeDefined();
-    expect(action(surface, '重新启动 QQ')).toBeDefined();
-    expect(action(surface, '打开 QQ')).toBeUndefined();
-    expect(surface.textContent).toContain('再打开调试副本');
-  }
-  act(() => action(panel, '登录其他账号')!.click());
-  expect(mock.launchQq).toHaveBeenLastCalledWith({ newInstance: true });
-  expect(mock.restartQq).not.toHaveBeenCalled();
-  act(() => action(panel, '重新启动 QQ')!.click());
-  expect(mock.restartQq).toHaveBeenCalledOnce();
-  expect(mock.launchQq).toHaveBeenCalledOnce();
-  mock.qqRunning = null;
-  f.render();
-  expect(action(panel, '打开 QQ')).toBeDefined();
-  mock.qqRunning = false;
-  f.render();
-  expect(action(card, '打开 QQ')).toBeDefined();
-  act(() => action(panel, '打开 QQ')!.click());
-  expect(mock.launchQq).toHaveBeenLastCalledWith({ newInstance: false });
-  const openSettings = vi.fn();
-  const unsubscribe = onOpenSettingsRequest(openSettings);
-  try {
-    act(() =>
-      [...panel.querySelectorAll('button')].find((b) => b.textContent === '代理设置')?.click(),
-    );
-    expect(openSettings).toHaveBeenCalledWith('qqProxyConnection');
-    expect(panel.isConnected).toBe(false);
-  } finally {
-    unsubscribe();
-  }
+  expect(badge().textContent).toBe('已连接');
 
-  for (const proxy of [
-    { ...waitingProxy(), accountUin: 'other' },
-    { ...waitingProxy(), connected: true },
-    { ...waitingProxy(), connectionExpected: false },
-  ]) {
-    mock.proxyStatus = proxy;
-    f.render();
-    expect(indicator()).toBeNull();
-    if (proxy.connected) expect(status()).toBe('已连接');
-  }
-  mock.proxyStatus = waitingProxy();
-  f.render();
-  expect(indicator()).not.toBeNull();
-  await act(async () => {
-    indicatorRow.querySelector<HTMLButtonElement>('[role="switch"]')!.click();
-  });
-  f.render();
-  expect(mock.saveProxyIndicator).toHaveBeenCalledWith({ enabled: false });
-  expect(indicator()).toBeNull();
-  expect(status()).toBe('等待 QQ 连接');
-  expect(syncCard.textContent).toContain('待同步 7 项');
-  expect(mock.settings.restrictedModeIndicatorEnabled).toBe(true);
-  expect(mock.settings.qqClientSyncEnabled).toBe(true);
-
-  mock.settings.qqProxyIndicatorEnabled = true;
-  f.render();
   const master = card.querySelector<HTMLButtonElement>(
     '[role="switch"][aria-label="启用 QQ 代理"]',
   )!;
@@ -268,9 +188,8 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   f.render();
   expect(mock.saveProxyEnabled).toHaveBeenCalledWith({ enabled: false });
   expect(master.getAttribute('aria-checked')).toBe('false');
-  expect(status()).toBe('已关闭');
+  expect(badge().textContent).toBe('已关闭');
   expect(syncCard.textContent).toContain('待同步 7 项');
-  expect(indicator()).toBeNull();
   expect(mock.settings.qqClientSyncEnabled).toBe(true);
 });
 it.each([
@@ -315,12 +234,10 @@ it('未打开账号时显示原因，也不发起账号能力查询', () => {
   expect(f.badge().textContent).toBe('未打开账号');
   expect(mock.queryOptions).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
 });
-it('右上角标记开关位于通知之前，默认开启，保存失败还原且不修改自动策略', async () => {
-  const f = mount();
+it('状态提醒页一个开关同时控制窗口提示，保存失败还原', async () => {
+  const f = mount('reminders');
   const toggle = () =>
-    f.host.querySelector<HTMLButtonElement>(
-      '[role="switch"][aria-label="在线能力受限时显示窗口提示"]',
-    )!;
+    f.host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="显示 QQ 功能状态提示"]')!;
   expect(toggle().getAttribute('aria-checked')).toBe('true');
   const row = toggle().closest('.weq-set-row')!;
   expect(row.nextElementSibling?.textContent).toContain('在线能力受限时通知');

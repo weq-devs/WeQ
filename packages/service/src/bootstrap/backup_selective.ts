@@ -207,6 +207,13 @@ export function selectiveSettingFields(sections: WeqBackupSection[]) {
     includeApiKeys: true,
     includeServiceTokens: true,
   });
+  if (sections.includes('preferences')) {
+    // 旧选择性备份仍可恢复；导出只写合并后的窗口提示字段。
+    Object.assign(template.app, {
+      restrictedModeIndicatorEnabled: true,
+      qqProxyIndicatorEnabled: true,
+    });
+  }
   const strictGroups = new Set([
     'sharedPreferences',
     'sharedPreferences.client',

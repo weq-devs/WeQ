@@ -33,6 +33,7 @@ export const SETTINGS_PAGE_LABELS = {
   recognition: '识别与转写',
   account: 'QQ 在线能力',
   'qq-proxy': 'QQ 代理连接',
+  'qq-status-reminders': '状态提醒',
   'long-term-authorization': '长期授权',
   credentials: '凭据管理',
   'qq-accounts': 'QQ 登录管理',
@@ -82,7 +83,13 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'capabilities',
     label: '能力',
-    sections: ['account', 'qq-proxy', 'long-term-authorization', 'enhancement-packs'],
+    sections: [
+      'account',
+      'qq-proxy',
+      'qq-status-reminders',
+      'long-term-authorization',
+      'enhancement-packs',
+    ],
   },
   {
     id: 'chat',
@@ -747,16 +754,28 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['account'],
   },
   {
-    id: 'restricted-mode-indicator',
-    section: 'account',
-    label: '在线能力受限时显示窗口提示',
+    id: 'qq-status-indicator',
+    section: 'qq-status-reminders',
+    label: '显示 QQ 功能状态提示',
     aliases: [
+      '在线能力受限时显示窗口提示',
       '在线能力受限标记',
       '标题栏在线能力受限',
       '受限状态显示',
       '在线能力受限时在窗口右上角显示',
+      'QQ 代理未连接时显示窗口提示',
+      'QQ 代理未连接',
+      '标题栏 QQ 代理',
+      'QQ 代理未连接时在窗口右上角显示',
     ],
-    from: ['account'],
+    from: ['account', 'qq-proxy', 'qq-status-reminders'],
+  },
+  {
+    id: 'qq-online-notification',
+    section: 'qq-status-reminders',
+    label: '在线能力受限时通知',
+    aliases: ['在线能力受限时横幅提醒', '受限横幅'],
+    from: ['account', 'qq-status-reminders'],
   },
   {
     id: 'qq-proxy-connection',
@@ -770,13 +789,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     section: 'qq-proxy',
     label: '通过 QQ 代理加速实时更新',
     aliases: ['通过 QQ 代理实时接收消息', '消息直推', '实时收信', '代理性能优化'],
-    from: ['account', 'qq-proxy'],
-  },
-  {
-    id: 'qq-proxy-indicator',
-    section: 'qq-proxy',
-    label: 'QQ 代理未连接时显示窗口提示',
-    aliases: ['QQ 代理未连接', '标题栏 QQ 代理', 'QQ 代理未连接时在窗口右上角显示'],
     from: ['account', 'qq-proxy'],
   },
   {
@@ -1026,8 +1038,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     id: 'restricted-mode-banner',
     section: 'global',
     label: '功能受限或运行异常',
-    aliases: ['在线能力受限时通知', '在线能力受限时横幅提醒'],
-    from: ['account', 'global'],
+    from: ['global'],
   },
   {
     id: 'anti-recall',
@@ -1229,7 +1240,12 @@ export function resolveSettingsTarget(target: SettingsTarget): ResolvedSettingsT
       ['关联资源目录', '关联本机媒体目录'].includes(target.item ?? ''))
   )
     return { section: 'resource-loading' };
-  const targetId = target.settingId === 'message-decoration' ? 'message-bubble' : target.settingId;
+  const targetId =
+    target.settingId === 'restricted-mode-indicator' || target.settingId === 'qq-proxy-indicator'
+      ? 'qq-status-indicator'
+      : target.settingId === 'message-decoration'
+        ? 'message-bubble'
+        : target.settingId;
   const redirect = targetId
     ? SETTINGS_ITEM_TARGETS.find((entry) => entry.id === targetId)
     : SETTINGS_ITEM_TARGETS.find(

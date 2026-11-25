@@ -94,7 +94,7 @@ try {
   await auto.click();
   assert.equal(await auto.getAttribute('aria-checked'), 'false');
   const indicator = page.getByRole('switch', {
-    name: '在线能力受限时显示窗口提示',
+    name: '显示 QQ 功能状态提示',
     exact: true,
   });
   assert.equal(await indicator.getAttribute('aria-checked'), 'true');
@@ -122,7 +122,7 @@ try {
     .getByRole('button', { name: 'QQ 在线能力：在线能力受限，查看详情', exact: true })
     .waitFor();
   await status.click();
-  const restrictedDetails = page.getByRole('dialog', { name: '在线能力受限', exact: true });
+  const restrictedDetails = page.getByRole('dialog', { name: 'QQ 功能状态', exact: true });
   await restrictedDetails.getByText('会话凭据不完整').waitFor();
   await page.keyboard.press('Escape');
   await restrictedDetails.waitFor({ state: 'detached' });
@@ -130,17 +130,45 @@ try {
   await page.getByRole('combobox', { name: '功能受限或运行异常通知方式' }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.fullFunctionsQa.saves), [
     'setAutoAttachQq',
-    'setRestrictedModeIndicatorEnabled',
+    'setQqStatusIndicatorEnabled',
   ]);
   for (const [id, label] of [
     ['qq-proxy-connection', '已连接'],
     ['long-term-authorization', '已授权'],
   ])
-    await page
-      .locator(`[data-setting-id="${id}"]`)
-      .getByRole('status')
-      .getByText(label, { exact: true })
-      .waitFor();
+    await page.locator(`[data-setting-id="${id}"]`).getByText(label, { exact: true }).waitFor();
+  await indicator.click();
+  await page.evaluate(() => {
+    window.fullFunctionsQa.setOnlineFixture({ qqOnline: false });
+    window.fullFunctionsQa.setProxyFixture({ connected: false });
+  });
+  const unified = page.getByRole('button', { name: 'QQ 功能受限', exact: true });
+  await unified.click();
+  assert.equal(await page.locator('.weq-restricted-indicator').count(), 1);
+  await restrictedDetails.getByRole('region', { name: 'QQ 在线能力' }).waitFor();
+  await restrictedDetails.getByRole('region', { name: 'QQ 代理连接' }).waitFor();
+  assert.equal(
+    await restrictedDetails.getByRole('button', { name: '打开 QQ', exact: true }).count(),
+    1,
+  );
+  assert.equal(
+    await restrictedDetails.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      return rect.right <= innerWidth && rect.bottom <= innerHeight;
+    }),
+    true,
+  );
+  if (output) {
+    await mkdir(output, { recursive: true });
+    await restrictedDetails.screenshot({ path: resolve(output, 'qq-function-status.png') });
+  }
+  await page.keyboard.press('Escape');
+  await restrictedDetails.waitFor({ state: 'detached' });
+  assert.equal(await unified.evaluate((node) => node === document.activeElement), true);
+  await page.evaluate(() => {
+    window.fullFunctionsQa.setOnlineFixture({ qqOnline: true, hasUid: true });
+    window.fullFunctionsQa.setProxyFixture({ connected: true });
+  });
   for (const style of ['classic', 'retro', 'qqnt']) {
     await page.evaluate(
       (style) => window.fullFunctionsQa.theme.getState().setComponentStyle(style),
@@ -169,10 +197,9 @@ try {
   for (const [id, title] of [
     ['full-feature-routes', '在线能力'],
     ['auto-full-mode', '在线能力'],
-    ['restricted-mode-indicator', '状态提醒'],
+    ['qq-status-indicator', 'QQ 功能状态'],
     ['qq-client-sync', '同步与实时更新'],
     ['qq-live-messages', '同步与实时更新'],
-    ['qq-proxy-indicator', '状态提醒'],
   ])
     assert.equal(
       await page

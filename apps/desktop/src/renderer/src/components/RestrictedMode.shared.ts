@@ -1,7 +1,7 @@
 import { useRestrictedMode, type AuthorizationRequest } from '../state/restrictedMode';
 import '../styles/restricted-mode.css';
 
-export const QQ_ONLINE_DETAILS_ID = 'qq-online-capability-details';
+export const QQ_STATUS_DETAILS_ID = 'qq-function-status-details';
 
 export function ipc() {
   return window.electron?.ipcRenderer;

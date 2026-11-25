@@ -71,28 +71,24 @@ describe('QQ 秀分钟缓存配置', () => {
 });
 
 describe('聊天阅读偏好', () => {
-  it.each(['restrictedModeIndicatorEnabled', 'qqProxyIndicatorEnabled'] as const)(
-    '%s 默认开启，独立持久化并支持备份与恢复',
-    (indicator) => {
-      const f = fixture({ settings: { restrictedModeBannerEnabled: false } });
-      expect(f.open().getSettings()[indicator]).toBe(true);
-      f.service.setSettings({ [indicator]: false });
-      f.service.setSettings({ restrictedModeBannerEnabled: true });
-      expect(f.open().getSettings()).toMatchObject({
-        [indicator]: false,
-        restrictedModeBannerEnabled: true,
-      });
-      const snapshot = snapshotWeqSettings(f.open().getSettings());
-      expect(snapshot[indicator]).toBe(false);
-      expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
-      const { [indicator]: _indicator, ...legacy } = snapshot;
-      expect(() => validateWeqAppSettings(legacy)).not.toThrow();
-      expect(() => validateWeqAppSettings({ [indicator]: 'false' })).toThrow();
-      const restored = fixture();
-      restored.service.setSettings(snapshot);
-      expect(restored.open().getSettings()[indicator]).toBe(false);
-    },
-  );
+  it.each([
+    [{}, true],
+    [{ restrictedModeIndicatorEnabled: false }, false],
+    [{ restrictedModeIndicatorEnabled: true, qqProxyIndicatorEnabled: false }, false],
+    [{ restrictedModeIndicatorEnabled: false, qqStatusIndicatorEnabled: true }, true],
+  ])('窗口提示合并旧偏好，已保存的新值优先：%j', (settings, expected) => {
+    const f = fixture({ settings });
+    expect(f.open().getSettings().qqStatusIndicatorEnabled).toBe(expected);
+    f.service.setSettings({ restrictedModeBannerEnabled: false });
+    expect(f.open().getSettings().qqStatusIndicatorEnabled).toBe(expected);
+    f.service.setSettings({ qqStatusIndicatorEnabled: !expected });
+    const snapshot = snapshotWeqSettings(f.open().getSettings());
+    expect(snapshot.qqStatusIndicatorEnabled).toBe(!expected);
+    expect(snapshot).not.toHaveProperty('restrictedModeIndicatorEnabled');
+    expect(snapshot).not.toHaveProperty('qqProxyIndicatorEnabled');
+    expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
+    expect(() => validateWeqAppSettings({ qqStatusIndicatorEnabled: 'false' })).toThrow();
+  });
   it('受限横幅默认开启，旧配置兼容，持久化与备份恢复保留独立偏好', () => {
     const f = fixture();
     expect(f.open().getSettings().restrictedModeBannerEnabled).toBe(true);

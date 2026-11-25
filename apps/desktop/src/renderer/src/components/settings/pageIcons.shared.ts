@@ -55,6 +55,7 @@ export const SETTINGS_PAGE_ICONS = {
   privacy: EyeOff,
   account: PlugZap,
   'qq-proxy': Network,
+  'qq-status-reminders': Bell,
   'long-term-authorization': ShieldEllipsis,
   accounts: UsersRound,
   'call-recording': PhoneCall,

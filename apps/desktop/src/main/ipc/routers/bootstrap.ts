@@ -1062,10 +1062,10 @@ export const bootstrapRouter = router({
   /** 各窗口与 Web 客户端读取同一宿主的有效运行态。 */
   getFullModeState: procedure.query(() => ({ allowed: fullModeAllowed(getAppContext()) })),
 
-  setRestrictedModeIndicatorEnabled: procedure
+  setQqStatusIndicatorEnabled: procedure
     .input(z.object({ enabled: z.boolean() }).strict())
     .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ restrictedModeIndicatorEnabled: input.enabled });
+      requireBootstrap().userConfig.setSettings({ qqStatusIndicatorEnabled: input.enabled });
       return true;
     }),
 
@@ -1091,18 +1091,19 @@ export const bootstrapRouter = router({
     const ctx = getAppContext();
     const { qqSyncRoot, userConfig } = requireBootstrap();
     const accountUin = ctx.account ? String(ctx.account.context.uin) : null;
+    const accountConfigId = ctx.services?.accountConfig.getRecord()?.configId ?? null;
     const liveAccount = accountUin !== null && !ctx.accountIsStatic;
     const sync = ctx.services?.qqClientSync;
     const protection = ctx.services?.antiRecall.protection();
     const preferences = readAccountQqSync(ctx);
     const status = await qqSyncStatus(qqSyncRoot);
+    const uses = {
+      sync: preferences.enabled,
+      liveMessages: preferences.liveMessages && userConfig.getSetting('realtimeEnabled'),
+      antiRecall: protection?.enabled === true && protection.method !== 'database',
+    };
     const connectionExpected =
-      status.enabled &&
-      liveAccount &&
-      Boolean(sync) &&
-      (preferences.enabled ||
-        (preferences.liveMessages && userConfig.getSetting('realtimeEnabled')) ||
-        (protection?.enabled === true && protection.method !== 'database'));
+      status.enabled && liveAccount && Boolean(sync) && Object.values(uses).some(Boolean);
     const connected = status.running && liveAccount && status.accounts.includes(accountUin);
     const connecting =
       status.running &&
@@ -1113,6 +1114,8 @@ export const bootstrapRouter = router({
     return {
       ...status,
       accountUin,
+      accountConfigId,
+      uses,
       connectionExpected,
       connected,
       connecting,
@@ -1142,13 +1145,6 @@ export const bootstrapRouter = router({
         liveMessages: input.enabled,
       });
       services.qqClientSync?.refreshLive();
-      return true;
-    }),
-
-  setQqProxyIndicatorEnabled: procedure
-    .input(z.object({ enabled: z.boolean() }).strict())
-    .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ qqProxyIndicatorEnabled: input.enabled });
       return true;
     }),
 

@@ -59,26 +59,39 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--destructive);
   font-size: 14px;
   font-weight: 600;
   margin: 0;
-}
-.weq-restricted-panel:is(.is-entering, .is-status) h2 {
-  color: var(--weq-fg-primary);
-}
-.weq-restricted-panel.is-status [role='status'] {
-  margin-bottom: 0;
 }
 .weq-restricted-body {
   padding: 16px;
   overflow: auto;
   min-height: 0;
 }
-.weq-restricted-panel h3 {
+.weq-restricted-panel :is(h3, h4) {
   margin: 0 0 6px;
   font-size: 13px;
   font-weight: 600;
+}
+.weq-qq-status-section + .weq-qq-status-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-qq-status-section > h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.weq-qq-status-section > [role='status'] > svg {
+  margin-inline-end: 6px;
+  vertical-align: text-bottom;
+}
+.weq-qq-status-section > :last-child {
+  margin-bottom: 0;
+}
+.weq-qq-status-section > .weq-restricted-actions + .weq-restricted-actions {
+  margin-top: 8px;
 }
 .weq-restricted-panel p {
   margin: 0 0 12px;

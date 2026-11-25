@@ -1,7 +1,7 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { AccountBasicsSection } from '../src/renderer/src/components/settings/AccountBasicsSection';
+import { QqStatusReminderSettings } from '../src/renderer/src/components/settings/QqStatusReminderSettings';
 import {
   normalizeNotificationEvents,
   type NotificationEvents,
@@ -43,7 +43,7 @@ function mount() {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  act(() => root.render(createElement(AccountBasicsSection)));
+  act(() => root.render(createElement(QqStatusReminderSettings)));
   return {
     host,
     close: () => {

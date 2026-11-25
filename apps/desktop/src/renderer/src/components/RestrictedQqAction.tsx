@@ -24,12 +24,14 @@ export function RestrictedQqAction({
   onOpened,
   onEnable,
   onRetryCredentials,
+  allowSwitch = true,
 }: {
   needsQq: boolean;
   busy: boolean;
   onOpened: () => Promise<void>;
   onEnable: () => Promise<void>;
   onRetryCredentials?: () => Promise<void>;
+  allowSwitch?: boolean;
 }) {
   const [pending, setPending] = useState<QqDebugCopyPhase | null>(null);
   const status = trpc.bootstrap.qqDebugCopyStatus.useQuery(undefined, {
@@ -52,7 +54,7 @@ export function RestrictedQqAction({
   }, []);
   const data = status.data;
   const running = Boolean(data?.runningPids.length);
-  const canSwitch = Boolean(data?.sourceRunningPids?.length);
+  const canSwitch = allowSwitch && Boolean(data?.sourceRunningPids?.length);
   const opensQq = canSwitch || needsQq;
   const copyWorking = Boolean(pending || (data && data.phase !== 'idle'));
   const working = copyWorking || (!opensQq && busy);
@@ -141,7 +143,7 @@ export function RestrictedQqAction({
           <Settings size={14} />
           副本设置
         </button>
-        {running && !canSwitch && (
+        {running && allowSwitch && !canSwitch && (
           <button
             type="button"
             className="weq-set-btn"

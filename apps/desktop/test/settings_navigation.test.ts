@@ -54,6 +54,7 @@ describe('设置的两级导航', () => {
     expect(settingsGroupFor('account').sections).toEqual([
       'account',
       'qq-proxy',
+      'qq-status-reminders',
       'long-term-authorization',
       'enhancement-packs',
     ]);

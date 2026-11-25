@@ -302,6 +302,8 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     home,
     contactCard,
     qqShowCacheDays,
+    restrictedModeIndicatorEnabled,
+    qqProxyIndicatorEnabled,
     updateCheckIntervalMinutes,
     quitConfirmSuppressed,
     reportReadEnabled,
@@ -324,6 +326,10 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
   )
     fail('settings.updateCheckIntervalMinutes');
   if (qqShowCacheDays !== undefined) number(qqShowCacheDays, 'settings.qqShowCacheDays', 1, 365);
+  if (restrictedModeIndicatorEnabled !== undefined)
+    shape(restrictedModeIndicatorEnabled, true, 'settings.restrictedModeIndicatorEnabled');
+  if (qqProxyIndicatorEnabled !== undefined)
+    shape(qqProxyIndicatorEnabled, true, 'settings.qqProxyIndicatorEnabled');
   if (sendWithQqFont !== undefined) shape(sendWithQqFont, true, 'settings.sendWithQqFont');
   if (sendWithDressFont !== undefined) shape(sendWithDressFont, true, 'settings.sendWithDressFont');
   if (composerFont !== undefined) {

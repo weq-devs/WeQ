@@ -319,6 +319,25 @@ it('恢复部分备份保留本机偏好并清除退役的已读上报设置', (
   expect(restored.settings).not.toHaveProperty('manualReadReportEnabled');
 });
 
+it.each([undefined, ['preferences'] as const])('旧窗口提示备份合并为统一开关：%j', (sections) => {
+  const f = fixture();
+  const archive = buildWeqBackup(
+    [
+      file('settings/app.json', {
+        restrictedModeIndicatorEnabled: true,
+        qqProxyIndicatorEnabled: false,
+      }),
+    ],
+    undefined,
+    sections ? [...sections] : undefined,
+  );
+  stageWeqBackupRestore(f.root, archive, { parts: ['settings'], conflict: 'overwrite' });
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  const { settings } = read(join(f.root, 'config.json'));
+  expect(settings).toHaveProperty('qqStatusIndicatorEnabled', false);
+  expect(settings).not.toHaveProperty('restrictedModeIndicatorEnabled');
+  expect(settings).not.toHaveProperty('qqProxyIndicatorEnabled');
+});
 it('完整默认快照仍重置新增与旧字段，不影响 API、原始目录或锁密钥', () => {
   const f = fixture();
   write(join(f.root, 'config.json'), {

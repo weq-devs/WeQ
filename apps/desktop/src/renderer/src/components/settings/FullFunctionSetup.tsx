@@ -4,7 +4,7 @@ import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { IS_WEB } from '../../lib/target.shared';
 import { QqDebugCopyDialog } from '../QqDebugCopyDialog';
-import { QQ_ONLINE_DETAILS_ID } from '../RestrictedMode.shared';
+import { QQ_STATUS_DETAILS_ID } from '../RestrictedMode.shared';
 import { Card, SettingsStatusBadge } from './controls';
 import { useViewState } from '../../state/view';
 import { useRestrictedMode } from '../../state/restrictedMode';
@@ -27,7 +27,7 @@ function OnlineCapabilityStatus() {
   const authorizationIssue = useRestrictedMode((state) =>
     state.reasons.some((reason) => reason.code === 'authorization'),
   );
-  const open = useRestrictedMode((state) => state.open);
+  const open = useRestrictedMode((state) => state.settingsSection === 'online');
   const access = trpc.account.getGroupAlbumAccessState.useQuery(
     undefined,
     useQQAutoRefresh(Boolean(uin)),
@@ -49,11 +49,13 @@ function OnlineCapabilityStatus() {
               : restrictionReasons({ access: currentAccess }).length
                 ? '在线能力受限'
                 : '已就绪';
-  if (label === '已就绪') return <SettingsStatusBadge label={label} tone="ready" />;
+  if (label === '已就绪' && !open) return <SettingsStatusBadge label={label} tone="ready" />;
   const tone =
     label === '在线能力受限' || label === '等待授权' || label === '状态待确认'
       ? 'warning'
-      : 'neutral';
+      : label === '已就绪'
+        ? 'ready'
+        : 'neutral';
   return (
     <SettingsStatusBadge
       label={label}
@@ -61,8 +63,8 @@ function OnlineCapabilityStatus() {
       details={{
         label: `QQ 在线能力：${label}，查看详情`,
         open,
-        controls: open ? QQ_ONLINE_DETAILS_ID : undefined,
-        onClick: () => useRestrictedMode.getState().setOpen(!open, 'settings'),
+        controls: open ? QQ_STATUS_DETAILS_ID : undefined,
+        onClick: () => useRestrictedMode.getState().setOpen(!open, 'online'),
       }}
     />
   );

@@ -131,10 +131,8 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       b.setQzonePublicRefreshCooldown({ minutes: defaults.qzonePublicRefreshCooldownMinutes }),
     realtimeEnabled: () => b.setRealtimeEnabled({ enabled: defaults.realtimeEnabled }),
     autoAttachQq: () => b.setAutoAttachQq({ enabled: defaults.autoAttachQq }),
-    restrictedModeIndicatorEnabled: () =>
-      b.setRestrictedModeIndicatorEnabled({ enabled: defaults.restrictedModeIndicatorEnabled }),
-    qqProxyIndicatorEnabled: () =>
-      b.setQqProxyIndicatorEnabled({ enabled: defaults.qqProxyIndicatorEnabled }),
+    qqStatusIndicatorEnabled: () =>
+      b.setQqStatusIndicatorEnabled({ enabled: defaults.qqStatusIndicatorEnabled }),
     preferCdn: () => b.setPreferCdn({ enabled: defaults.preferCdn }),
     preferRemoteCdn: () => b.setPreferCdn({ enabled: defaults.preferRemoteCdn, remote: true }),
     logRetentionDays: () => b.setLogRetentionDays({ days: defaults.logRetentionDays }),
@@ -189,6 +187,10 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   if (!ctx.authorize)
     bind('startup-system:autostart', undefined, false, () => b.setAutostart({ enabled: false }));
 
+  const runtimeNotification = defaults.notificationEvents.runtime;
+  bind('qq-status-reminders:runtime', current.notificationEvents.runtime, runtimeNotification, () =>
+    b.setNotificationEvents({ events: ['runtime'], channels: runtimeNotification }),
+  );
   if (selected.has('qq-client-sync')) {
     bind('qq-client-sync:proxy', isQqSyncProxyEnabled(boot.qqSyncRoot), false, () =>
       b.setQqProxyEnabled({ enabled: false }),

@@ -830,6 +830,24 @@ function legacyComposerFont(
   return {};
 }
 
+const LEGACY_QQ_STATUS_INDICATORS = [
+  'restrictedModeIndicatorEnabled',
+  'qqProxyIndicatorEnabled',
+] as const;
+type LegacyQqStatusIndicators = Partial<
+  Record<(typeof LEGACY_QQ_STATUS_INDICATORS)[number], boolean>
+>;
+
+/** 任一窗口提示曾被关闭时，合并后继续隐藏，直到用户主动打开。 */
+export function qqStatusIndicatorPreference(
+  settings?: Record<string, unknown>,
+): boolean | undefined {
+  if (typeof settings?.qqStatusIndicatorEnabled === 'boolean')
+    return settings.qqStatusIndicatorEnabled;
+  const legacy = LEGACY_QQ_STATUS_INDICATORS.map((key) => settings?.[key]);
+  return legacy.some((value) => typeof value === 'boolean') ? !legacy.includes(false) : undefined;
+}
+
 export interface AppSettings {
   sharedPreferences: SharedPreferences;
   contactCard: import('../common/contact_card').ContactCardSettings;
@@ -855,8 +873,8 @@ export interface AppSettings {
    * 登录时的数据库密钥提取仍独立于此策略。
    */
   autoAttachQq: boolean;
-  /** 在线能力受限时在窗口右上角显示状态入口，默认开启。 */
-  restrictedModeIndicatorEnabled: boolean;
+  /** 当前账号在线能力或代理需要关注时显示窗口提示。 */
+  qqStatusIndicatorEnabled: boolean;
   /** 进入受限状态的被动横幅；不隐藏真实授权请求或主动错误。 */
   restrictedModeBannerEnabled: boolean;
   /** 仅桌面客户端启动时启用本机 Web 服务；默认关闭。 */
@@ -868,8 +886,6 @@ export interface AppSettings {
   /** 通过本机代理同步本人消息及已读到 QQ。 */
   qqClientSyncEnabled: boolean;
   qqLiveMessagesEnabled: boolean;
-  /** 需要 QQ 代理而当前账号未连接时，在窗口右上角显示状态入口。 */
-  qqProxyIndicatorEnabled: boolean;
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁（仍可在左栏手动上锁）。
    * 解锁方式见 {@link AppLockConfig.method}，无绕过入口。
@@ -1266,13 +1282,12 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
   restrictedModeBannerEnabled: true,
-  restrictedModeIndicatorEnabled: true,
+  qqStatusIndicatorEnabled: true,
   webServiceAutoStart: false,
   showWindowOnAutostart: false,
   startupPage: 'home',
   qqClientSyncEnabled: false,
   qqLiveMessagesEnabled: false,
-  qqProxyIndicatorEnabled: true,
   autoLockMinutes: 0,
   appLock: { enabled: false, method: 'totp' },
   modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
@@ -1359,7 +1374,7 @@ export interface UserConfig {
   /** 登录页退出后仅跳过下一次启动，不改变自动进入偏好。 */
   skipAutoEnterOnce?: boolean;
   tencentFilesRootOverride?: string | null;
-  settings?: DeepPartial<AppSettings> & LegacyComposerFontSettings;
+  settings?: DeepPartial<AppSettings> & LegacyComposerFontSettings & LegacyQqStatusIndicators;
   composerMarketPacks?: import('../account/emoji').MarketPackDetail[];
   hiddenComposerMarketPackIds?: string[];
   cacheDirOverride?: string | null;
@@ -2189,7 +2204,7 @@ export class UserConfigService {
           ? s.exportSaveMode
           : d.exportSaveMode,
       autoAttachQq,
-      restrictedModeIndicatorEnabled: s?.restrictedModeIndicatorEnabled !== false,
+      qqStatusIndicatorEnabled: qqStatusIndicatorPreference(s) ?? d.qqStatusIndicatorEnabled,
       restrictedModeBannerEnabled: s?.restrictedModeBannerEnabled !== false,
       webServiceAutoStart: s?.webServiceAutoStart === true,
       showWindowOnAutostart: s?.showWindowOnAutostart === true,
@@ -2199,7 +2214,6 @@ export class UserConfigService {
           : d.startupPage,
       qqClientSyncEnabled: s?.qqClientSyncEnabled ?? d.qqClientSyncEnabled,
       qqLiveMessagesEnabled: s?.qqLiveMessagesEnabled ?? d.qqLiveMessagesEnabled,
-      qqProxyIndicatorEnabled: s?.qqProxyIndicatorEnabled !== false,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       appLock: {
         enabled: s?.appLock?.enabled ?? d.appLock.enabled,
@@ -2397,8 +2411,7 @@ export class UserConfigService {
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
-      restrictedModeIndicatorEnabled:
-        patch.restrictedModeIndicatorEnabled ?? current.restrictedModeIndicatorEnabled,
+      qqStatusIndicatorEnabled: patch.qqStatusIndicatorEnabled ?? current.qqStatusIndicatorEnabled,
       restrictedModeBannerEnabled:
         patch.restrictedModeBannerEnabled ?? current.restrictedModeBannerEnabled,
       webServiceAutoStart: patch.webServiceAutoStart ?? current.webServiceAutoStart,
@@ -2406,7 +2419,6 @@ export class UserConfigService {
       startupPage: patch.startupPage ?? current.startupPage,
       qqClientSyncEnabled: patch.qqClientSyncEnabled ?? current.qqClientSyncEnabled,
       qqLiveMessagesEnabled: patch.qqLiveMessagesEnabled ?? current.qqLiveMessagesEnabled,
-      qqProxyIndicatorEnabled: patch.qqProxyIndicatorEnabled ?? current.qqProxyIndicatorEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       appLock: {
         enabled: patch.appLock?.enabled ?? current.appLock.enabled,

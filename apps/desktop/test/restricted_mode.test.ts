@@ -17,6 +17,12 @@ import { ToastHost } from '../src/renderer/src/components/Toast';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { DialogHost } from '../src/renderer/src/components/Dialog';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import {
+  normalizeNotificationEvents,
+  type NotificationEvents,
+} from '@weq/service/notification-settings';
+import { activateNotificationClick } from '../src/renderer/src/lib/notificationSystemClick';
+import { useNotificationPolicy } from '../src/renderer/src/lib/notificationPolicy';
 import { onOpenSettingsRequest } from '../src/renderer/src/lib/callSettingsBridge';
 import type { QqDataAccess } from '../src/main/qq_data_access';
 import type { QqDebugCopyStatus } from '../src/shared/qq_debug_copy';
@@ -36,6 +42,27 @@ const mock = vi.hoisted(() => ({
   updatedAt: 0,
   failed: false,
   sip: null as boolean | null,
+  proxy: undefined as
+    | undefined
+    | {
+        enabled: boolean;
+        accountUin: string;
+        accountConfigId: string;
+        running: boolean;
+        port: number;
+        error: string;
+        uses: { sync: boolean; liveMessages: boolean; antiRecall: boolean };
+        connectionExpected: boolean;
+        connecting: boolean;
+        connected: boolean;
+      },
+  proxyFailed: false,
+  notificationEvents: undefined as NotificationEvents | undefined,
+  notify: vi.fn(),
+  proxyRefetch: vi.fn(),
+  proxyLaunch: vi.fn(),
+  proxyRestart: vi.fn(),
+  qqRunning: false,
   onlineCount: 1 as number | null,
   runningCount: null as number | null,
   dataAccess: { status: 'unsupported', applicationPath: '', issues: [] } as QqDataAccess,
@@ -67,6 +94,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     bootstrap: {
       launchQq: { mutate: mock.launchQq },
+      notifyConfiguredEvent: { mutate: mock.notify },
       qqDebugCopyAction: { mutate: mock.debugAction },
       openQqDataAccessSettings: { mutate: mock.openSettings },
     },
@@ -97,6 +125,37 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     },
     bootstrap: {
+      getQqClientSyncStatus: {
+        useQuery: () => ({
+          data: mock.proxy,
+          isError: mock.proxyFailed,
+          refetch: mock.proxyRefetch,
+        }),
+      },
+      getQqProcessState: {
+        useQuery: () => ({
+          data: { running: mock.qqRunning, canRestart: mock.qqRunning },
+          refetch: mock.refetch,
+        }),
+      },
+      launchQq: {
+        useMutation: (options: { onSettled: () => void }) => ({
+          reset: () => {},
+          mutate: (input: unknown) => {
+            mock.proxyLaunch(input);
+            options.onSettled();
+          },
+        }),
+      },
+      restartQq: {
+        useMutation: (options: { onSettled: () => void }) => ({
+          reset: () => {},
+          mutate: () => {
+            mock.proxyRestart();
+            options.onSettled();
+          },
+        }),
+      },
       qqDebugCopyStatus: {
         useQuery: () => ({
           data: {
@@ -127,7 +186,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         useQuery: () => ({
           data: {
             restrictedModeBannerEnabled: mock.banner,
-            restrictedModeIndicatorEnabled: mock.indicator,
+            qqStatusIndicatorEnabled: mock.indicator,
+            notificationEvents: mock.notificationEvents,
           },
           isLoading: mock.settingsLoading,
         }),
@@ -257,6 +317,15 @@ beforeEach(() => {
   mock.updatedAt = Date.now();
   mock.failed = false;
   mock.sip = null;
+  mock.proxy = undefined;
+  mock.proxyFailed = false;
+  mock.notificationEvents = undefined;
+  mock.notify.mockReset().mockResolvedValue(false);
+  useNotificationPolicy.getState().setEvents(normalizeNotificationEvents(undefined));
+  mock.proxyRefetch.mockClear();
+  mock.proxyLaunch.mockClear();
+  mock.proxyRestart.mockClear();
+  mock.qqRunning = false;
   mock.onlineCount = 1;
   mock.runningCount = null;
   mock.dataAccess = { status: 'unsupported', applicationPath: '', issues: [] };
@@ -286,6 +355,7 @@ beforeEach(() => {
     reasonSource: null,
     requests: [],
     open: false,
+    settingsSection: null,
     enteringSince: null,
     enteringManually: false,
   });
@@ -330,6 +400,134 @@ function fixture(showToasts = false, showDialogs = false, persistent = false) {
 function event(channel: string, payload: unknown) {
   act(() => mock.listeners.get(channel)?.({}, payload));
 }
+
+function disconnectedProxy() {
+  return {
+    enabled: true,
+    accountUin: '10001',
+    accountConfigId: '10001',
+    running: true,
+    port: 19082,
+    error: '',
+    uses: { sync: true, liveMessages: false, antiRecall: false },
+    connectionExpected: true,
+    connecting: false,
+    connected: false,
+  };
+}
+
+it('两项受限共用提示、面板和打开 QQ 操作，恢复其中一项时继续显示另一项', () => {
+  mock.access = { ...ready, qqOnline: false };
+  mock.proxy = disconnectedProxy();
+  const f = fixture();
+  const indicators = () => f.host.querySelectorAll<HTMLButtonElement>('.weq-restricted-indicator');
+  expect(indicators()).toHaveLength(1);
+  expect(indicators()[0]?.textContent).toBe('QQ 功能受限');
+  act(() => indicators()[0]?.click());
+  const panel = f.host.querySelector<HTMLElement>('[role="dialog"]')!;
+  const online = () => panel.querySelector('[aria-label="QQ 在线能力"]');
+  const proxy = () => panel.querySelector('[aria-label="QQ 代理连接"]');
+  expect(online()?.textContent).toContain('QQ 不在线');
+  expect(proxy()?.textContent).toContain('本人消息与已读同步');
+  expect(proxy()?.textContent).not.toContain('代理防撤回');
+  expect(proxy()?.textContent).toContain('19082');
+  const launch = [...panel.querySelectorAll('button')].filter(
+    (button) => button.textContent === '打开 QQ',
+  );
+  expect(launch).toHaveLength(1);
+  act(() => launch[0]?.click());
+  expect(mock.launchQq).not.toHaveBeenCalled();
+  expect(mock.proxyLaunch).toHaveBeenCalledWith({ newInstance: false });
+  expect(mock.proxyRefetch).toHaveBeenCalledOnce();
+  expect(mock.refetch).toHaveBeenCalled();
+
+  mock.access = { ...ready };
+  mock.proxy = { ...disconnectedProxy(), connecting: true };
+  f.render();
+  expect(online()).toBeNull();
+  expect(proxy()?.textContent).toContain('正在确认 QQ 代理连接');
+  expect(indicators()[0]?.getAttribute('aria-busy')).toBe('true');
+  expect(panel.isConnected).toBe(true);
+  expect(proxy()?.textContent).not.toContain('19082');
+
+  mock.proxyFailed = true;
+  f.render();
+  expect(proxy()?.textContent).toContain('QQ 代理状态待确认');
+  expect(panel.isConnected).toBe(true);
+  mock.proxyFailed = false;
+  mock.proxy = { ...disconnectedProxy(), connected: true };
+  f.render();
+  expect(indicators()).toHaveLength(0);
+  expect(panel.isConnected).toBe(false);
+});
+
+it('两项都需要调试副本时，共用副本启动操作并分别刷新', async () => {
+  mock.sip = true;
+  mock.access = { ...ready, qqOnline: false };
+  mock.proxy = disconnectedProxy();
+  const f = fixture();
+  act(() => f.host.querySelector<HTMLButtonElement>('.weq-restricted-indicator')?.click());
+  const panel = f.host.querySelector<HTMLElement>('[role="dialog"]')!;
+  const labels = [...panel.querySelectorAll('button')].map((button) => button.textContent);
+  expect(labels).toContain('准备并打开 QQ');
+  expect(labels).not.toContain('打开 QQ');
+  await act(async () =>
+    panel.querySelector<HTMLButtonElement>('.weq-restricted-qq button')?.click(),
+  );
+  expect(mock.debugAction).toHaveBeenCalledWith({ action: 'open' });
+  expect(mock.proxyLaunch).not.toHaveBeenCalled();
+  expect(mock.proxyRefetch).toHaveBeenCalledOnce();
+});
+
+it('仅系统通知时仍可在在线能力降级后打开共用面板', async () => {
+  mock.banner = false;
+  mock.notify.mockResolvedValueOnce(true);
+  mock.notificationEvents = normalizeNotificationEvents({
+    runtime: { banner: false, system: true },
+  });
+  useNotificationPolicy.getState().setEvents(mock.notificationEvents);
+  const f = fixture(true);
+  mock.access = { ...ready, qqOnline: false };
+  await act(async () => f.render());
+  expect(mock.notify).toHaveBeenCalledWith(
+    expect.objectContaining({ event: 'runtime', title: 'QQ 在线能力受限' }),
+  );
+  expect(f.host.querySelector('.weq-toast')).toBeNull();
+  const [{ clickId }] = mock.notify.mock.calls[0]!;
+  await act(async () => activateNotificationClick(clickId));
+  expect(f.host.querySelector('[role="dialog"]')?.textContent).toContain('QQ 功能状态');
+});
+it('代理设置入口可在统一提示关闭时打开面板，并在连接恢复后查看结果', () => {
+  mock.indicator = false;
+  mock.proxy = disconnectedProxy();
+  mock.qqRunning = true;
+  const f = fixture();
+  expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
+  act(() => useRestrictedMode.getState().setOpen(true, 'proxy'));
+  const panel = f.host.querySelector<HTMLElement>('[role="dialog"]')!;
+  const button = (label: string) =>
+    [...panel.querySelectorAll('button')].find((item) => item.textContent === label)!;
+  act(() => button('登录其他账号').click());
+  expect(mock.proxyLaunch).toHaveBeenCalledWith({ newInstance: true });
+  expect(mock.proxyRestart).not.toHaveBeenCalled();
+  act(() => button('重新启动 QQ').click());
+  expect(mock.proxyRestart).toHaveBeenCalledOnce();
+  mock.proxy = { ...disconnectedProxy(), connected: true };
+  f.render();
+  expect(panel.textContent).toContain('已连接');
+  expect(panel.isConnected).toBe(true);
+  act(() => useViewState.setState({ openedUin: '20002' }));
+  expect(panel.isConnected).toBe(false);
+});
+
+it.each([{ accountUin: '20002' }, { connectionExpected: false }, { enabled: false }])(
+  '其他账号或未使用代理时不显示窗口提示：%j',
+  (update) => {
+    mock.proxy = { ...disconnectedProxy(), ...update };
+    const f = fixture();
+    expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
+  },
+);
 
 it.each([false, true])(
   '右上角标记可隐藏并重新开启，不影响受限通知与详情：常驻 %s',
@@ -1089,7 +1287,7 @@ describe('非阻塞提权入口', () => {
       expect(f.host.querySelector('.weq-restricted-indicator')?.getAttribute('aria-busy')).toBe(
         'false',
       );
-      expect(f.host.querySelector('[role="dialog"] h2')?.textContent).toBe('待提权');
+      expect(f.host.querySelector('[role="dialog"]')?.textContent).toContain('待提权');
       expect(f.host.textContent).toContain('管理员密码');
       expect(f.host.textContent).not.toContain('正在启用 QQ 在线能力');
       expect(f.host.querySelector('[role="status"]')).toBeNull();

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import {
   KeyRound,
   LoaderCircle,
+  Network,
   Play,
   RefreshCw,
   Settings,
@@ -11,6 +12,8 @@ import {
 } from 'lucide-react';
 import { LongTermAuthorizationLink } from './LongTermAuthorizationLink';
 import { RestrictedQqAction } from './RestrictedQqAction';
+import { QqProxyRecovery, QqProxySettingsLink, useQqProxyStatus } from './QqProxyConnection';
+import { QQ_PROXY_CONNECTING, qqProxySetupGuide } from './QqProxyConnection.shared';
 import { client, trpc } from '../trpc/client';
 import {
   restrictionReasons,
@@ -27,7 +30,7 @@ import { useOverlayLayer } from '../lib/overlayStack';
 import { topSurface } from '../lib/surfaceEscape';
 import { requestOpenSettings } from '../lib/callSettingsBridge';
 import '../styles/restricted-mode.css';
-import { ipc, QQ_ONLINE_DETAILS_ID } from './RestrictedMode.shared';
+import { ipc, QQ_STATUS_DETAILS_ID } from './RestrictedMode.shared';
 
 const NOTICE_KEY = 'restricted-mode';
 
@@ -84,24 +87,46 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
     useRestrictedMode((s) => s.enteringSince !== null && s.requests.length === 0) &&
     !authorizationIssue;
   const awaitingAuthorization = requests.length > 0;
-  const title = awaitingAuthorization
-    ? '待提权'
-    : entering
-      ? '正在启用 QQ 在线能力'
-      : '在线能力受限';
+  const uin = useViewState((state) => state.openedUin);
+  const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, { enabled: false });
+  const source = access.data?.source;
+  const proxy = useQqProxyStatus(
+    false,
+    source?.expectedAccountUin === uin ? source.expectedAccountConfigId : undefined,
+  );
+  const onlineAttention = Boolean(reasons.length || requests.length || entering);
+  const proxyConnecting = proxy.needsAttention && !proxy.isError && proxy.current?.connecting;
+  const both = onlineAttention && proxy.needsAttention;
+  const inProgress = Boolean(
+    (entering && !proxy.needsAttention) || (!onlineAttention && proxyConnecting),
+  );
+  const title = both
+    ? 'QQ 功能受限'
+    : awaitingAuthorization
+      ? '待提权'
+      : entering
+        ? '正在启用 QQ 在线能力'
+        : onlineAttention
+          ? '在线能力受限'
+          : proxy.isError
+            ? 'QQ 代理状态待确认'
+            : proxyConnecting
+              ? QQ_PROXY_CONNECTING
+              : 'QQ 代理未连接';
   const visible =
-    settings.data?.restrictedModeIndicatorEnabled !== false &&
-    Boolean(reasons.length || requests.length || entering);
+    settings.data?.qqStatusIndicatorEnabled !== false && (onlineAttention || proxy.needsAttention);
   if (!visible && !persistent) return null;
   return (
     <button
       type="button"
-      className={`weq-restricted-indicator${entering ? ' is-entering' : ''}`}
+      className={`weq-restricted-indicator${inProgress ? ' is-entering' : ''}`}
       data-restricted-mode-trigger
       title={title}
+      aria-label={title}
+      aria-controls={open ? QQ_STATUS_DETAILS_ID : undefined}
       aria-haspopup="dialog"
-      aria-expanded={open}
-      aria-busy={entering}
+      aria-expanded={visible && open}
+      aria-busy={inProgress}
       aria-hidden={!visible || undefined}
       disabled={!visible}
       tabIndex={visible ? undefined : -1}
@@ -109,8 +134,10 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
     >
       {awaitingAuthorization ? (
         <KeyRound size={15} aria-hidden />
-      ) : entering ? (
+      ) : inProgress ? (
         <LoaderCircle size={15} className="weq-restricted-progress-icon" aria-hidden />
+      ) : !onlineAttention ? (
+        <Network size={15} aria-hidden />
       ) : (
         <ShieldAlert size={15} aria-hidden />
       )}
@@ -212,7 +239,7 @@ export function RestrictedModeHost() {
   const reasonSource = useRestrictedMode((s) => s.reasonSource);
   const requests = useRestrictedMode((s) => s.requests);
   const open = useRestrictedMode((s) => s.open);
-  const openedFromSettings = useRestrictedMode((s) => s.openedFromSettings);
+  const settingsSection = useRestrictedMode((s) => s.settingsSection);
   const enteringSince = useRestrictedMode((s) => s.enteringSince);
   const enteringManually = useRestrictedMode((s) => s.enteringManually);
   const awaitingAuthorization = requests.length > 0;
@@ -239,7 +266,10 @@ export function RestrictedModeHost() {
     staleTime: 0,
     refetchOnWindowFocus: true,
   });
-  const passiveBanner = globalSettings.data?.restrictedModeBannerEnabled !== false;
+  const runtimeNotice = globalSettings.data?.notificationEvents?.runtime;
+  const passiveNotice = runtimeNotice
+    ? runtimeNotice.banner || runtimeNotice.system
+    : globalSettings.data?.restrictedModeBannerEnabled !== false;
   const checkInterval = open ? 2000 : 5000;
   useEffect(() => {
     if (!active) return;
@@ -277,6 +307,15 @@ export function RestrictedModeHost() {
   const signerWarned = useRef(false);
   const accessSource = access.data?.source;
   const accessMatches = !accessSource || accessSource.expectedAccountUin === uin;
+  const proxyStatus = useQqProxyStatus(
+    active && (open || globalSettings.data?.qqStatusIndicatorEnabled !== false),
+    accessMatches ? accessSource?.expectedAccountConfigId : undefined,
+  );
+  const proxy = active && accessMatches ? proxyStatus.current : undefined;
+  const proxyAttention = Boolean(proxy && proxyStatus.needsAttention);
+  const proxyConnecting = proxyAttention && !proxyStatus.isError && proxy?.connecting === true;
+  const canConfigureProxy =
+    proxyAttention && !proxyStatus.isError && proxy?.running === true && !proxyConnecting;
   const sourceKey = JSON.stringify([
     active,
     uin,
@@ -459,17 +498,22 @@ export function RestrictedModeHost() {
     ...(requests.length ? ['authorization'] : []),
     ...(entering ? ['entering'] : []),
   ].join(',');
-  const showDetails = open && (openedFromSettings || Boolean(signature));
+  const showOnline = Boolean(signature) || settingsSection === 'online';
+  const showProxy = proxyAttention || settingsSection === 'proxy';
+  const showDetails = open && (showOnline || showProxy);
+  useEffect(() => {
+    if (open && !showOnline && !showProxy) useRestrictedMode.getState().setOpen(false);
+  }, [open, showOnline, showProxy]);
   const layer = useOverlayLayer(showDetails);
   useEffect(() => {
     if (reasonSource !== sourceKey) return;
     const manualNotice = enteringManually || recoveryPending.current;
     const activeNotice = manualNotice && (entering || awaitingAuthorization);
-    if (!activeNotice && !passiveBanner) notificationToast.resolve(NOTICE_KEY);
+    if (!activeNotice && !passiveNotice) notificationToast.resolve(NOTICE_KEY);
     if (enteringManually) recoveryPending.current = true;
     // 启动自动尝试只更新标题栏；确认正常运行后才提醒降级，手动启用单独回执。
     const notify =
-      manualNotice || (fullModeSeen.current && passiveBanner && !globalSettings.isLoading);
+      manualNotice || (fullModeSeen.current && passiveNotice && !globalSettings.isLoading);
     const noticeSignature = `${signature}:${enteringManually}`;
     if (signature && noticeSignature !== previous.current && notify) {
       const toast = notificationToast;
@@ -495,14 +539,12 @@ export function RestrictedModeHost() {
             ? '查看授权请求'
             : entering
               ? '查看启用进度'
-              : '查看「在线能力受限」详情',
+              : '查看 QQ 功能状态',
           run: () => {
-            if (
-              useRestrictedMode.getState().reasons.length ||
-              useRestrictedMode.getState().requests.length ||
-              useRestrictedMode.getState().enteringSince !== null
-            )
-              useRestrictedMode.getState().setOpen(true);
+            if (currentSource.current !== sourceKey) return;
+            const state = useRestrictedMode.getState();
+            if (state.reasons.length || state.requests.length || state.enteringSince !== null)
+              state.setOpen(true);
           },
         },
       };
@@ -512,8 +554,6 @@ export function RestrictedModeHost() {
       recoveryPending.current = false;
     if (!signature) {
       if (fullModeConfirmed) fullModeSeen.current = true;
-      if (!useRestrictedMode.getState().openedFromSettings)
-        useRestrictedMode.getState().setOpen(false);
       notificationToast.resolve(NOTICE_KEY);
       if (recoveryPending.current && fullModeConfirmed) {
         notificationToast.push({ tone: 'success', title: '已启用 QQ 在线能力' });
@@ -547,7 +587,7 @@ export function RestrictedModeHost() {
     entering,
     enteringManually,
     awaitingAuthorization,
-    passiveBanner,
+    passiveNotice,
     globalSettings.isLoading,
     reasonSource,
     sourceKey,
@@ -586,7 +626,7 @@ export function RestrictedModeHost() {
         event.target instanceof Element &&
         !panel.current?.contains(event.target) &&
         !event.target.closest(
-          `[data-restricted-mode-trigger], [aria-controls="${QQ_ONLINE_DETAILS_ID}"], .weq-toast`,
+          `[data-restricted-mode-trigger], [aria-controls="${QQ_STATUS_DETAILS_ID}"], .weq-toast`,
         )
       )
         useRestrictedMode.getState().setOpen(false);
@@ -685,13 +725,39 @@ export function RestrictedModeHost() {
     accessMatches &&
     reasons.some((reason) => reason.code === 'credentials') &&
     !reasons.some((reason) => reason.code === 'data-access');
+  const onlineLimited = reasons.some(
+    (reason) => reason.code !== 'data-access' && reason.code !== 'checking',
+  );
+  const offline = reasons.some((reason) => reason.code === 'offline');
+  const sharedDebugLaunch =
+    canConfigureProxy && showDebugCopy && needsDebugQq && !awaitingAuthorization;
+  const sharedProxyLaunch =
+    canConfigureProxy && offline && !showDebugCopy && !awaitingAuthorization;
+  const proxyImpact = [
+    proxy?.uses?.sync && '本人消息与已读同步',
+    proxy?.uses?.liveMessages && '代理实时更新',
+    proxy?.uses?.antiRecall && '代理防撤回',
+  ]
+    .filter(Boolean)
+    .join('、');
+  const closeDetails = () => useRestrictedMode.getState().setOpen(false);
+
+  function refreshProxyAndOnline() {
+    void proxyStatus.refetch();
+    if (sharedProxyLaunch) void (active ? access.refetch() : online.refetch());
+  }
+
   const actions =
     showDebugCopy && !awaitingAuthorization ? (
       <RestrictedQqAction
         key={sourceKey}
         needsQq={needsDebugQq}
         busy={busy || entering}
-        onOpened={afterDebugQqOpened}
+        onOpened={async () => {
+          if (sharedDebugLaunch) void proxyStatus.refetch();
+          await afterDebugQqOpened();
+        }}
+        allowSwitch={!canConfigureProxy || needsDebugQq}
         onEnable={() => refresh(true)}
         onRetryCredentials={canRetryCredentials ? () => refresh() : undefined}
       />
@@ -702,7 +768,7 @@ export function RestrictedModeHost() {
             beforeNavigate={() => useRestrictedMode.getState().setOpen(false)}
           />
         )}
-        {!showDebugCopy && reasons.some((reason) => reason.code === 'offline') && (
+        {!showDebugCopy && offline && !sharedProxyLaunch && !awaitingAuthorization && (
           <button
             type="button"
             className="weq-set-btn weq-set-btn-primary"
@@ -729,10 +795,10 @@ export function RestrictedModeHost() {
             {busy ? '正在获取凭据' : '重试获取在线凭据'}
           </button>
         )}
-        {reasons.some((r) => r.code === 'disabled') && (
+        {!awaitingAuthorization && reasons.some((r) => r.code === 'disabled') && (
           <button
             type="button"
-            className="weq-set-btn weq-set-btn-primary"
+            className={offline ? 'weq-set-btn' : 'weq-set-btn weq-set-btn-primary'}
             disabled={busy || launching}
             onClick={() => void refresh(true)}
           >
@@ -742,105 +808,148 @@ export function RestrictedModeHost() {
         )}
       </>
     );
+  const proxyLabel = proxyStatus.isError
+    ? 'QQ 代理状态待确认'
+    : !proxy
+      ? '正在检查 QQ 代理连接'
+      : proxy.connected
+        ? '已连接'
+        : !proxy.enabled
+          ? '已关闭'
+          : !proxy.connectionExpected
+            ? '当前账号无需连接代理'
+            : proxyConnecting
+              ? QQ_PROXY_CONNECTING
+              : proxy.running
+                ? 'QQ 代理未连接'
+                : 'QQ 代理未运行';
+
   return (
-    <>
-      {showDetails && (
-        <section
-          id={QQ_ONLINE_DETAILS_ID}
-          ref={panel}
-          role="dialog"
-          aria-modal="false"
-          aria-labelledby={titleId}
-          className={`weq-restricted-panel${!signature ? ' is-status' : entering ? ' is-entering' : ''}`}
-          style={{ zIndex: layer }}
-        >
-          <header>
-            <h2 id={titleId}>
-              {!signature ? (
-                <Zap size={18} aria-hidden />
-              ) : awaitingAuthorization ? (
-                <KeyRound size={18} />
-              ) : entering ? (
-                <LoaderCircle size={18} className="weq-restricted-progress-icon" />
-              ) : (
-                <ShieldAlert size={18} />
+    showDetails && (
+      <section
+        id={QQ_STATUS_DETAILS_ID}
+        ref={panel}
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby={titleId}
+        className="weq-restricted-panel"
+        style={{ zIndex: layer }}
+      >
+        <header>
+          <h2 id={titleId}>QQ 功能状态</h2>
+          <button
+            type="button"
+            className="weq-set-iconbtn"
+            title="关闭详情"
+            aria-label="关闭详情"
+            onClick={closeDetails}
+          >
+            <X size={16} aria-hidden />
+          </button>
+        </header>
+        <div className="weq-restricted-body">
+          {showOnline && (
+            <section aria-label="QQ 在线能力" className="weq-qq-status-section">
+              <h3>
+                <Zap size={15} aria-hidden /> QQ 在线能力
+              </h3>
+              {!signature && (
+                <p role="status">
+                  {fullModeConfirmed
+                    ? '当前账号的 QQ 在线能力已就绪。'
+                    : active
+                      ? '正在检查当前账号的 QQ 在线能力。'
+                      : '打开 QQ 账号后，WeQ 会检查该账号的在线能力。'}
+                </p>
               )}
-              {!signature
-                ? 'QQ 在线能力'
-                : awaitingAuthorization
-                  ? '待提权'
-                  : entering
-                    ? '正在启用 QQ 在线能力'
-                    : '在线能力受限'}
-            </h2>
-            <button
-              type="button"
-              className="weq-set-iconbtn"
-              title="关闭详情"
-              aria-label="关闭详情"
-              onClick={() => useRestrictedMode.getState().setOpen(false)}
-            >
-              <X size={16} />
-            </button>
-          </header>
-          <div className="weq-restricted-body">
-            {!signature && (
-              <p role="status">
-                {fullModeConfirmed
-                  ? '当前账号的 QQ 在线能力已就绪。'
-                  : active
-                    ? '正在检查当前账号的 QQ 在线能力。'
-                    : '打开 QQ 账号后，WeQ 会检查该账号的在线能力。'}
-              </p>
-            )}
-            {entering && <p role="status">正在准备在线会话，请稍候。</p>}
-            {reasons
-              .filter(
-                (reason) =>
-                  reason.code !== 'data-access' &&
-                  (!showDebugCopy || reason.code !== 'disabled' || !needsDebugQq) &&
-                  (!awaitingAuthorization || reason.code !== 'credentials'),
-              )
-              .map((reason) => (
-                <div className="weq-restricted-reason" key={reason.code}>
-                  <h3>{reason.title}</h3>
-                  <p>{reason.guidance}</p>
-                </div>
+              {entering && <p role="status">正在启用 QQ 在线能力，请稍候。</p>}
+              {onlineLimited && active && !entering && !diskBlocked && (
+                <p>当前账号暂时无法发送消息、拉取漫游消息或使用其他 QQ 在线功能。</p>
+              )}
+              {reasons
+                .filter(
+                  (reason) =>
+                    reason.code !== 'data-access' &&
+                    (!showDebugCopy || reason.code !== 'disabled' || !needsDebugQq) &&
+                    (!(awaitingAuthorization || entering) || reason.code !== 'credentials'),
+                )
+                .map((reason) => (
+                  <div className="weq-restricted-reason" key={reason.code}>
+                    <h4>{reason.title}</h4>
+                    <p>{reason.guidance}</p>
+                  </div>
+                ))}
+              <QqDataAccessNotice showRetry={false} checked={dataRetried} />
+              {requests.map((request, index) => (
+                <AuthorizationForm
+                  key={`${request.kind}:${request.token}`}
+                  request={request}
+                  showLongTermAuthorization={
+                    index === requests.findLastIndex((item) => !item.title.includes('长期授权'))
+                  }
+                  actions={index === requests.length - 1 ? actions : undefined}
+                />
               ))}
-            <QqDataAccessNotice showRetry={false} checked={dataRetried} />
-            {requests.map((request, index) => (
-              <AuthorizationForm
-                key={`${request.kind}:${request.token}`}
-                request={request}
-                showLongTermAuthorization={
-                  index === requests.findLastIndex((item) => !item.title.includes('长期授权'))
-                }
-                actions={index === requests.length - 1 ? actions : undefined}
-              />
-            ))}
-            {signature && error && <p role="alert">{error}</p>}
-            {signature && !awaitingAuthorization && (
-              <div className="weq-restricted-actions">
-                {actions}
-                {!openedFromSettings && active && (
-                  <button
-                    type="button"
-                    className="weq-set-btn"
-                    disabled={busy || launching || entering}
-                    onClick={() => {
-                      useRestrictedMode.getState().setOpen(false);
-                      requestOpenSettings('qqOnlineCapability');
-                    }}
-                  >
-                    <Settings size={14} aria-hidden />
-                    在线能力设置
-                  </button>
+              {signature && error && <p role="alert">{error}</p>}
+              {signature && !awaitingAuthorization && (
+                <>
+                  {sharedDebugLaunch && (
+                    <p>请先按下方「QQ 代理连接」的步骤配置，再登录当前账号。</p>
+                  )}
+                  <div className="weq-restricted-actions">
+                    {actions}
+                    {settingsSection !== 'online' && active && (
+                      <button
+                        type="button"
+                        className="weq-set-btn"
+                        disabled={busy || launching || entering}
+                        onClick={() => {
+                          closeDetails();
+                          requestOpenSettings('qqOnlineCapability');
+                        }}
+                      >
+                        <Settings size={14} aria-hidden />
+                        在线能力设置
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </section>
+          )}
+          {showProxy && (
+            <section aria-label="QQ 代理连接" className="weq-qq-status-section">
+              <h3>
+                <Network size={15} aria-hidden /> QQ 代理连接
+              </h3>
+              <p role="status">
+                {proxyConnecting && (
+                  <LoaderCircle size={13} className="weq-restricted-progress-icon" aria-hidden />
                 )}
-              </div>
-            )}
-          </div>
-        </section>
-      )}
-    </>
+                {proxyLabel}
+              </p>
+              {proxyAttention && proxyImpact && <p>暂时无法使用{proxyImpact}。</p>}
+              {proxyStatus.isError ? (
+                <p role="alert">暂时无法确认代理连接，稍后会自动再试。</p>
+              ) : proxyAttention && proxy && !proxyConnecting ? (
+                <>
+                  {proxy.error && <p role="alert">{proxy.error}</p>}
+                  {!proxy.running && !proxy.error && <p role="alert">本机代理尚未启动。</p>}
+                  {canConfigureProxy && <p>{qqProxySetupGuide(proxy.port)}</p>}
+                </>
+              ) : null}
+              {canConfigureProxy && !sharedDebugLaunch && (
+                <QqProxyRecovery key={sourceKey} onLaunch={refreshProxyAndOnline} />
+              )}
+              {settingsSection !== 'proxy' && (
+                <div className="weq-restricted-actions">
+                  <QqProxySettingsLink beforeNavigate={closeDetails}>代理设置</QqProxySettingsLink>
+                </div>
+              )}
+            </section>
+          )}
+        </div>
+      </section>
+    )
   );
 }

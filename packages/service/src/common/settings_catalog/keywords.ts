@@ -44,7 +44,6 @@ export const SETTINGS_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   'unlock-method': ['Touch ID', 'Windows Hello', '验证器'],
   'auto-enter-account': ['自动进入账号'],
   'realtime-enabled': ['自动刷新消息'],
-  'restricted-mode-banner': ['受限横幅'],
   'anti-recall': ['anti-recall'],
   'qzone-pagination': ['空间翻页频率'],
   'prefer-cdn': ['下载加速'],

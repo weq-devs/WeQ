@@ -7,10 +7,30 @@ const listeners = new Set<() => void>();
 let settings = {
   realtimeEnabled: true,
   autoAttachQq: true,
-  restrictedModeIndicatorEnabled: true,
+  qqStatusIndicatorEnabled: true,
   databaseReadConcurrency: 4,
   notificationEvents: normalizeNotificationEvents(undefined),
 };
+let proxyStatus = {
+  accountUin: '10001',
+  accountConfigId: 'synthetic',
+  enabled: true,
+  connected: true,
+  connectionExpected: true,
+  connecting: false,
+  running: true,
+  port: 19081,
+  error: '',
+  uses: { sync: true, liveMessages: false, antiRecall: false },
+};
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+export function setProxyFixture(patch: Partial<typeof proxyStatus>) {
+  proxyStatus = { ...proxyStatus, ...patch };
+  for (const listener of listeners) listener();
+}
 export const saves: string[] = [];
 const bootstrap = new Proxy(Reflect.get(baseTrpc as object, 'bootstrap'), {
   get(target, key) {
@@ -19,7 +39,7 @@ const bootstrap = new Proxy(Reflect.get(baseTrpc as object, 'bootstrap'), {
     if (key === 'getQqClientSyncStatus')
       return {
         useQuery: () => ({
-          data: { enabled: true, connected: true, running: true, port: 19081 },
+          data: useSyncExternalStore(subscribe, () => proxyStatus),
         }),
       };
     if (key === 'systemInfo')
@@ -35,25 +55,18 @@ const bootstrap = new Proxy(Reflect.get(baseTrpc as object, 'bootstrap'), {
     if (key === 'getSettings')
       return {
         useQuery: () => ({
-          data: useSyncExternalStore(
-            (listener) => {
-              listeners.add(listener);
-              return () => listeners.delete(listener);
-            },
-            () => settings,
-          ),
+          data: useSyncExternalStore(subscribe, () => settings),
           refetch: async () => ({ data: settings }),
         }),
       };
-    if (key === 'setAutoAttachQq' || key === 'setRestrictedModeIndicatorEnabled')
+    if (key === 'setAutoAttachQq' || key === 'setQqStatusIndicatorEnabled')
       return {
         useMutation: () => ({
           mutateAsync: async ({ enabled }: { enabled: boolean }) => {
             saves.push(String(key));
             settings = {
               ...settings,
-              [key === 'setAutoAttachQq' ? 'autoAttachQq' : 'restrictedModeIndicatorEnabled']:
-                enabled,
+              [key === 'setAutoAttachQq' ? 'autoAttachQq' : 'qqStatusIndicatorEnabled']: enabled,
             };
             for (const listener of listeners) listener();
           },

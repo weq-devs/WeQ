@@ -58,7 +58,7 @@ import {
   isWeqBackgroundName,
   type WeqAccountSettingFile,
 } from '../common/backup_account_paths';
-import { DEFAULT_APP_SETTINGS } from './user_config';
+import { DEFAULT_APP_SETTINGS, qqStatusIndicatorPreference } from './user_config';
 import type { AccountConfig } from '../account/user_config';
 import { validateWeqClientSettings } from '../common/backup_client';
 import {
@@ -700,6 +700,12 @@ function configPlan(
   let settings = record(current.settings) ? structuredClone(current.settings) : {};
   if (app) {
     const imported = parseWeqBackupJson(app.data) as Record<string, unknown>;
+    for (const row of [settings, imported]) {
+      const indicator = qqStatusIndicatorPreference(row);
+      if (indicator !== undefined) row.qqStatusIndicatorEnabled = indicator;
+      delete row.restrictedModeIndicatorEnabled;
+      delete row.qqProxyIndicatorEnabled;
+    }
     if (selective) {
       const directories = [
         [imported, 'defaultExportDir'],

@@ -215,7 +215,7 @@ describe('设置归位后的实际页面', () => {
     const titles = () =>
       [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent);
     try {
-      expect(titles()).toEqual(['在线能力', '状态提醒']);
+      expect(titles()).toEqual(['在线能力']);
       expect(f.body().querySelector('h3')?.textContent).toBe('QQ 在线能力');
       const overview = f.body().querySelector('[data-setting-id="full-features"]')!;
       const routes = f.body().querySelector('[data-setting-id="full-feature-routes"]')!;
@@ -253,14 +253,16 @@ describe('设置归位后的实际页面', () => {
         expect(
           nodes[i - 1]!.compareDocumentPosition(nodes[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
         ).not.toBe(0);
-      expect(f.body().textContent).toContain('在线能力受限时通知');
-      expect(
-        f.body().querySelector('[data-setting-id="restricted-mode-indicator"]'),
-      ).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="qq-status-indicator"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="database-read-concurrency"]')).toBeNull();
       f.render('qq-proxy');
-      expect(titles()).toEqual(['代理连接', '同步与实时更新', '状态提醒']);
+      expect(titles()).toEqual(['代理连接', '同步与实时更新']);
       expect(f.body().querySelector('[aria-label="启用 QQ 代理"]')).not.toBeNull();
+      f.render('qq-status-reminders');
+      expect(titles()).toEqual(['QQ 功能状态']);
+      expect(f.body().querySelectorAll('[role="switch"]')).toHaveLength(1);
+      expect(f.body().querySelector('[data-setting-id="qq-status-indicator"]')).not.toBeNull();
+      expect(f.body().textContent).toContain('在线能力受限时通知');
       f.render('long-term-authorization');
       expect(titles()).toEqual(['长期授权']);
       expect(f.body().querySelector('[aria-label="恢复本页默认设置"]')).toBeNull();
@@ -272,7 +274,7 @@ describe('设置归位后的实际页面', () => {
       expect(titles()).toEqual(['数据库浏览', '监听与读取', '数据库检查与修复']);
       conditional.platform = 'linux';
       f.render('account');
-      expect(titles()).toEqual(['在线能力', '状态提醒']);
+      expect(titles()).toEqual(['在线能力']);
       expect(f.body().querySelector('[data-setting-id="qq-debug-copy"]')).toBeNull();
       expect(f.body().textContent).not.toContain('SIP');
       expect(f.body().querySelector('[data-setting-id="full-features"]')).not.toBeNull();
@@ -308,9 +310,10 @@ describe('设置归位后的实际页面', () => {
     ['qq-proxy-connection', 'qq-proxy'],
     ['qq-client-sync', 'qq-proxy'],
     ['auto-full-mode', 'account'],
-    ['restricted-mode-indicator', 'account'],
+    ['restricted-mode-indicator', 'qq-status-reminders', 'qq-status-indicator'],
+    ['qq-proxy-indicator', 'qq-status-reminders', 'qq-status-indicator'],
     ['restricted-mode-banner', 'global'],
-  ])('旧在线能力与授权入口 %s 定位到 %s', async (settingId, page) => {
+  ])('旧在线能力与授权入口 %s 定位到 %s', async (settingId, page, id = settingId) => {
     conditional.platform = 'darwin';
     const f = mount('account');
     try {
@@ -318,7 +321,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().getAttribute('data-settings-page')).toBe(page);
       expect(
         f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
-      ).toBe(settingId);
+      ).toBe(id);
     } finally {
       f.close();
     }
