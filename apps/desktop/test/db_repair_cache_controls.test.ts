@@ -98,6 +98,8 @@ it('打开修复和 StrictMode 重挂载均不启动检查或修复', async () =
 
 it('体检时不可切换模式，暂停后保留就绪库，切换深度体检后按当前来源继续', async () => {
   await mount();
+  const choiceToScan = (name: string) =>
+    host.querySelector<HTMLInputElement>(`input[aria-label="体检 ${name}"]`);
   await act(async () => button('开始体检').click());
   expect(tab('体检进度与结果').getAttribute('aria-selected')).toBe('true');
   expect(maintenanceQa.calls.scan).toEqual([
@@ -120,7 +122,12 @@ it('体检时不可切换模式，暂停后保留就绪库，切换深度体检�
     [...host.querySelectorAll('li')].filter((item) => item.textContent?.includes('profile.db'));
   expect(profileCard()[0]?.textContent).toContain('等待快速体检');
   await act(async () => button('追加体检').click());
+  expect(choiceToScan('nt_msg.db')).toBeNull();
+  expect(choiceToScan('profile.db')).toBeNull();
+  expect(choiceToScan('unsupported.db')).toBeNull();
+  expect(button('继续体检').disabled).toBe(false);
   await act(async () => button('深度体检').click());
+  expect(choiceToScan('profile.db')?.checked).toBe(true);
   expect(profileCard()).toHaveLength(1);
   expect(profileCard()[0]?.textContent).toContain('等待深度体检');
   expect(profileCard()[0]?.textContent).not.toContain('等待快速体检');
@@ -132,6 +139,29 @@ it('体检时不可切换模式，暂停后保留就绪库，切换深度体检�
     kind: 'checkup',
     dbNames: ['nt_msg.db', 'profile.db', 'unsupported.db'],
   });
+});
+
+it('排队深度体检的库在两种选库列表中都隐藏，取消全选仍可继续原队列', async () => {
+  await mount();
+  const choiceToScan = (name: string) =>
+    host.querySelector<HTMLInputElement>(`input[aria-label="体检 ${name}"]`);
+  await act(async () => button('深度体检').click());
+  await act(async () => choiceToScan('profile.db')!.click());
+  await act(async () => choiceToScan('unsupported.db')!.click());
+  await act(async () => button('开始体检').click());
+  await act(async () => button('暂停体检').click());
+  expect(maintenanceQa.snapshot()?.locked).toBe(false);
+  await act(async () => button('追加体检').click());
+  expect(choiceToScan('nt_msg.db')).toBeNull();
+  expect(choiceToScan('profile.db')).not.toBeNull();
+  await act(async () => button('快速体检').click());
+  expect(choiceToScan('nt_msg.db')).toBeNull();
+  expect(choiceToScan('profile.db')).not.toBeNull();
+  await act(async () => button('深度体检').click());
+  await act(async () => button('全选').click());
+  await act(async () => button('取消全选').click());
+  await act(async () => button('继续体检').click());
+  expect(maintenanceQa.calls.scan[1]).toMatchObject({ kind: 'checkup', dbNames: ['nt_msg.db'] });
 });
 
 it('扫描选择只列未完成当前等级的库，补充深度体检只提交所选库', async () => {
