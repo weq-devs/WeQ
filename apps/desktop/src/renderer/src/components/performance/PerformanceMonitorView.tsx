@@ -1,6 +1,6 @@
 import { FormSelect } from '../FormSelect';
 import { NumericText } from '../NumericText';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { formatDateTimeInput, parseDateTimeInput } from '@weq/time';
 import type { MonitorMetric, MonitorPoint } from '@weq/service/performance';
 import {
@@ -33,7 +33,7 @@ export default function PerformanceMonitorView() {
   const owner = ownerDocument.defaultView ?? window;
   const plots = useRef<HTMLDivElement>(null);
   const toolbarAnchor = useRef<HTMLButtonElement | null>(null);
-  const [size, setSize] = useState({ width: 900, height: 560 });
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   const [live, setLive] = useState(true);
   const [hours, setHours] = useState(1);
   const [range, setRange] = useState(() => ({ from: Date.now() - 3600_000, to: Date.now() }));
@@ -54,7 +54,7 @@ export default function PerformanceMonitorView() {
   const [message, setMessage] = useState('');
   const [customFrom, setCustomFrom] = useState(() => dateInput(Date.now() - 3600_000));
   const [customTo, setCustomTo] = useState(() => dateInput(Date.now()));
-  const buckets = Math.max(32, Math.min(1200, Math.ceil(size.width / 128) * 64));
+  const buckets = Math.max(32, Math.min(1200, Math.ceil((size?.width ?? 0) / 128) * 64));
   const status = trpc.performanceMonitor.status.useQuery(undefined, {
     enabled: activity.enabled,
     refetchInterval: activity.enabled ? 10_000 : false,
@@ -63,7 +63,7 @@ export default function PerformanceMonitorView() {
   const history = trpc.performanceMonitor.history.useQuery(
     { ...range, buckets, processGroup: processGroup || undefined, aggregate: true },
     {
-      enabled: activity.enabled,
+      enabled: activity.enabled && size !== null,
       // 实时范围每轮都是新 key，离开后不保留重叠的整份历史。
       cacheTime: 0,
       // 刷新只替换数据，不卸载图表；仍由零缓存时长释放旧查询。
@@ -80,18 +80,25 @@ export default function PerformanceMonitorView() {
     },
   );
   const exportHistory = trpc.performanceMonitor.export.useMutation();
-  useEffect(() => {
-    if (!activity.enabled || !plots.current) return;
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry)
-        setSize({
-          width: Math.max(220, Math.round(entry.contentRect.width)),
-          height: Math.round(entry.contentRect.height),
-        });
-    });
-    observer.observe(plots.current);
+  useLayoutEffect(() => {
+    const element = plots.current;
+    if (!activity.enabled || !element) return;
+    const measure = () => {
+      const { clientWidth, clientHeight } = element;
+      if (clientWidth === 0 || clientHeight === 0) return;
+      const width = Math.max(220, clientWidth);
+      setSize((current) =>
+        current?.width === width && current.height === clientHeight
+          ? current
+          : { width, height: clientHeight },
+      );
+    };
+    // 首帧按实际宽度绘图，窗口暂时没有布局时保留上次有效尺寸。
+    measure();
+    const observer = new owner.ResizeObserver(measure);
+    observer.observe(element);
     return () => observer.disconnect();
-  }, [activity.enabled]);
+  }, [activity.enabled, owner]);
   useEffect(() => {
     if (!history.data) return;
     const discovered =
@@ -318,7 +325,7 @@ export default function PerformanceMonitorView() {
                   <RotateCcw size={16} />
                 </button>
               </div>
-            ) : history.isLoading ? (
+            ) : history.isLoading || !size ? (
               <div role="status" className="weq-perf-empty">
                 正在读取历史…
               </div>
