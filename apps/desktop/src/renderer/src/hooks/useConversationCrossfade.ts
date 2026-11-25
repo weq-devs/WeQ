@@ -118,9 +118,15 @@ export function useConversationCrossfade({
   content: unknown;
 }): void {
   const pending = useRef<Pending | undefined>(undefined);
+  const mounted = useRef(false);
 
   // 换会话：记下当前正文的消息 id，超过观察窗还没换新正文就拍快照备用。
+  // 首次挂载不算切换（打开会话时正文本来就是一次性地出现），跳过。
   useLayoutEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
     const current: Pending = { scope, ids: rowIds(scrollRef.current) };
     pending.current = current;
     current.timer = setTimeout(() => {
