@@ -53,57 +53,60 @@ export function QqProxyRecovery({
     refetchOnWindowFocus: true,
     retry: false,
   });
-  const running = qqProcess.isError ? null : (qqProcess.data?.running ?? null);
-  const canRestart = running === true && qqProcess.data?.canRestart === true;
+  const running = !qqProcess.isError && qqProcess.data?.running === true;
+  const canRestart = running && qqProcess.data?.canRestart === true;
   const refresh = () => {
     void qqProcess.refetch();
     onLaunch();
   };
   const launch = trpc.bootstrap.launchQq.useMutation({ onSettled: refresh });
   const restart = trpc.bootstrap.restartQq.useMutation({ onSettled: refresh });
-  const restarting = restart.isLoading || qqProcess.data?.restarting === true;
-  const busy = qqProcess.isInitialLoading || launch.isLoading || restarting;
+  const opening = qqProcess.isInitialLoading || launch.isLoading;
+  const restarting =
+    !launch.isLoading && (restart.isLoading || qqProcess.data?.restarting === true);
+  const busy = opening || restarting;
   const failure = restart.error ?? launch.error;
-  const label = restarting
-    ? '正在重新启动 QQ'
-    : launch.isLoading
-      ? '正在打开 QQ'
-      : canRestart
-        ? '重新启动 QQ'
-        : '打开 QQ';
-  const Icon = canRestart ? RefreshCw : Play;
   return (
     <>
       {canRestart && qqProcess.data?.switchingToDebugCopy && (
         <p className="weq-set-note">{QQ_DEBUG_COPY_SWITCH_GUIDE}</p>
       )}
-      {running === true && !canRestart && (
-        <p className="weq-set-note">请退出 QQ，重新打开后在登录窗口配置代理。</p>
-      )}
       {failure && <p role="alert">{failure.message}</p>}
       <div className="weq-restricted-actions">
-        {(running !== true || canRestart || restarting) && (
+        <button
+          type="button"
+          className="weq-set-btn weq-set-btn-primary"
+          onClick={() => {
+            restart.reset();
+            launch.mutate({ newInstance: running });
+          }}
+          disabled={busy}
+          aria-busy={opening}
+        >
+          {opening ? (
+            <LoaderCircle size={14} className="weq-restricted-progress-icon" aria-hidden />
+          ) : (
+            <Play size={14} aria-hidden />
+          )}
+          {launch.isLoading ? '正在打开 QQ' : running ? '登录其他账号' : '打开 QQ'}
+        </button>
+        {(canRestart || restarting) && (
           <button
             type="button"
-            className="weq-set-btn weq-set-btn-primary"
+            className="weq-set-btn"
             onClick={() => {
-              if (canRestart) {
-                launch.reset();
-                restart.mutate();
-              } else {
-                restart.reset();
-                launch.mutate();
-              }
+              launch.reset();
+              restart.mutate();
             }}
-            disabled={busy}
-            aria-busy={busy}
+            disabled={busy || !canRestart}
+            aria-busy={restarting}
           >
-            {busy ? (
+            {restarting ? (
               <LoaderCircle size={14} className="weq-restricted-progress-icon" aria-hidden />
             ) : (
-              <Icon size={14} aria-hidden />
+              <RefreshCw size={14} aria-hidden />
             )}
-            {label}
+            {restarting ? '正在重新启动 QQ' : '重新启动 QQ'}
           </button>
         )}
         {beforeOpenSettings && (

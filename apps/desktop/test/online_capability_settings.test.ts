@@ -86,11 +86,13 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           return (options?: { onSuccess?: () => unknown; onSettled?: () => unknown }) => ({
             mutateAsync: mock.save,
             reset: () => {},
-            mutate: (input?: { enabled: boolean }) => {
+            mutate: (input?: { enabled: boolean } | { newInstance: boolean }) => {
               const method = path.at(-1);
-              if (method === 'setQqProxyEnabled' && input) mock.saveProxyEnabled(input);
-              if (method === 'setQqProxyIndicatorEnabled' && input) mock.saveProxyIndicator(input);
-              if (method === 'launchQq') mock.launchQq();
+              if (input && 'enabled' in input) {
+                if (method === 'setQqProxyEnabled') mock.saveProxyEnabled(input);
+                if (method === 'setQqProxyIndicatorEnabled') mock.saveProxyIndicator(input);
+              }
+              if (method === 'launchQq') mock.launchQq(input);
               if (method === 'restartQq') mock.restartQq();
               void options?.onSuccess?.();
               void options?.onSettled?.();
@@ -202,13 +204,17 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   const action = (surface: HTMLElement, label: string) =>
     [...surface.querySelectorAll('button')].find((button) => button.textContent === label);
   for (const surface of [panel, card]) {
+    expect(action(surface, '登录其他账号')).toBeDefined();
     expect(action(surface, '重新启动 QQ')).toBeDefined();
     expect(action(surface, '打开 QQ')).toBeUndefined();
     expect(surface.textContent).toContain('再打开调试副本');
   }
+  act(() => action(panel, '登录其他账号')!.click());
+  expect(mock.launchQq).toHaveBeenLastCalledWith({ newInstance: true });
+  expect(mock.restartQq).not.toHaveBeenCalled();
   act(() => action(panel, '重新启动 QQ')!.click());
   expect(mock.restartQq).toHaveBeenCalledOnce();
-  expect(mock.launchQq).not.toHaveBeenCalled();
+  expect(mock.launchQq).toHaveBeenCalledOnce();
   mock.qqRunning = null;
   f.render();
   expect(action(panel, '打开 QQ')).toBeDefined();
@@ -216,7 +222,7 @@ it('代理断开提示使用当前账号，指向代理卡片，关闭提示后�
   f.render();
   expect(action(card, '打开 QQ')).toBeDefined();
   act(() => action(panel, '打开 QQ')!.click());
-  expect(mock.launchQq).toHaveBeenCalledOnce();
+  expect(mock.launchQq).toHaveBeenLastCalledWith({ newInstance: false });
   const openSettings = vi.fn();
   const unsubscribe = onOpenSettingsRequest(openSettings);
   try {

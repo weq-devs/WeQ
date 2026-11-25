@@ -57,6 +57,23 @@ it('未配置副本时，打开 QQ 沿用宿主安装', async () => {
   expect(mock.perform).not.toHaveBeenCalled();
 });
 
+it('登录其他账号打开新副本，普通打开仍会唤起现有副本', async () => {
+  mock.runningPids = [51];
+  const caller = bootstrapRouter.createCaller({});
+  await caller.launchQq();
+  expect(mock.perform).toHaveBeenLastCalledWith('activate');
+  await caller.launchQq({ newInstance: true });
+  expect(mock.perform).toHaveBeenLastCalledWith('open');
+  expect(mock.restart).not.toHaveBeenCalled();
+});
+
+it('未配置副本时，向宿主上的 QQ 请求打开新实例', async () => {
+  mock.configured = false;
+  await bootstrapRouter.createCaller({}).launchQq({ newInstance: true });
+  expect(mock.launch).toHaveBeenCalledWith({ kind: 'darwin' }, true);
+  expect(mock.perform).not.toHaveBeenCalled();
+});
+
 it('普通 QQ 运行时通过副本管理器切换', async () => {
   mock.sourceRunningPids = [51];
   const caller = bootstrapRouter.createCaller({});

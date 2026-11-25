@@ -600,15 +600,18 @@ export const bootstrapRouter = router({
   }),
 
   /** 启动宿主上已安装的 QQ，不自动登录或更改在线功能设置。 */
-  launchQq: procedure.mutation(async () => {
-    if (qqRestartInProgress()) throw new Error('正在重新启动 QQ，请稍候。');
-    const platform = requirePlatform();
-    if (platform.kind === 'darwin' && (await qqDebugCopy.isConfigured())) {
-      const status = await qqDebugCopy.status();
-      await qqDebugCopy.perform(status.runningPids.length ? 'activate' : 'open');
-    } else await launchQq(platform);
-    return true;
-  }),
+  launchQq: procedure
+    .input(z.object({ newInstance: z.boolean() }).optional())
+    .mutation(async ({ input }) => {
+      if (qqRestartInProgress()) throw new Error('正在重新启动 QQ，请稍候。');
+      const platform = requirePlatform();
+      const newInstance = input?.newInstance ?? false;
+      if (platform.kind === 'darwin' && (await qqDebugCopy.isConfigured())) {
+        const activate = !newInstance && (await qqDebugCopy.status()).runningPids.length > 0;
+        await qqDebugCopy.perform(activate ? 'activate' : 'open');
+      } else await launchQq(platform, newInstance);
+      return true;
+    }),
 
   restartQq: procedure.mutation(async () => {
     if (qqRestartInProgress()) throw new Error('正在重新启动 QQ，请稍候。');
