@@ -163,9 +163,9 @@ const repairConclusion: Record<DatabaseMaintenanceOperation['status'], string> =
 };
 
 const maintenanceTabs = [
-  { id: 'scan', label: '体检', Icon: Database },
-  { id: 'report', label: '体检报告', Icon: History },
-  { id: 'repair', label: '修复', Icon: Wrench },
+  { id: 'scan', label: '开始体检', Icon: Database },
+  { id: 'report', label: '体检结果', Icon: History },
+  { id: 'repair', label: '开始修复', Icon: Wrench },
   { id: 'result', label: '修复结果', Icon: CheckCircle2 },
 ] as const;
 type MaintenanceTab = (typeof maintenanceTabs)[number]['id'];
@@ -1184,7 +1184,7 @@ export function DbRepairPanel({
           />
         ) : null}
         {tab === 'scan' && repairing ? (
-          <p role="status">修复正在继续，可切换到「修复」查看进度。</p>
+          <p role="status">修复正在继续，可切换到「开始修复」查看进度。</p>
         ) : null}
         {tab === 'repair' && repairing && live?.storage ? (
           <RepairStorageWarning storage={live.storage} />

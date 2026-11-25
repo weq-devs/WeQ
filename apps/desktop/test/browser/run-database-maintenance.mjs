@@ -63,10 +63,10 @@ try {
   const button = (name) => page.getByRole('button', { name, exact: true });
   const release = button('维护中，解除占用');
   await button('开始体检').waitFor();
-  assert.equal(await tab('体检报告').isDisabled(), true);
-  assert.equal(await tab('修复').isDisabled(), true);
-  await tab('体检').press('End');
-  assert.equal(await tab('体检').getAttribute('aria-selected'), 'true');
+  assert.equal(await tab('体检结果').isDisabled(), true);
+  assert.equal(await tab('开始修复').isDisabled(), true);
+  await tab('开始体检').press('End');
+  assert.equal(await tab('开始体检').getAttribute('aria-selected'), 'true');
   assert.equal(await page.evaluate(() => window.maintenanceQa.calls.scan.length), 0);
   const scanDatabases = page.getByRole('region', { name: '选择数据库' });
   await button('取消全选').click();
@@ -82,8 +82,8 @@ try {
   await button('开始体检').click();
   await button('暂停体检').waitFor();
   assert.equal(await page.getByRole('radiogroup', { name: '体检类型' }).count(), 0);
-  assert.equal(await tab('体检报告').isDisabled(), true);
-  assert.equal(await tab('修复').isDisabled(), true);
+  assert.equal(await tab('体检结果').isDisabled(), true);
+  assert.equal(await tab('开始修复').isDisabled(), true);
   assert.equal(await release.count(), 0);
   await page.evaluate(() => window.maintenanceQa.complete());
   const summary = page.getByRole('region', { name: '本轮检查结论' });
@@ -97,7 +97,7 @@ try {
   const releaseDialog = page.getByRole('dialog', { name: '解除数据库占用？' });
   await releaseDialog.getByRole('button', { name: '继续维护' }).click();
   assert.equal(await page.evaluate(() => window.maintenanceQa.snapshot().locked), true);
-  assert.equal(await tab('体检报告').getAttribute('aria-selected'), 'true');
+  assert.equal(await tab('体检结果').getAttribute('aria-selected'), 'true');
   await page.getByText('发现 1 个坏页，尚未定位', { exact: true }).first().waitFor();
   assert.equal(await page.getByRole('button', { name: '查看 unsupported.db 检查详情' }).count(), 0);
   const exportButton = summary.getByRole('button', { name: '导出报告' });
@@ -120,10 +120,10 @@ try {
   await page.getByRole('radio', { name: '快速修复' }).click();
   assert.equal(await page.getByRole('checkbox', { name: '修复 nt_msg.db' }).isChecked(), true);
   await page.getByRole('radio', { name: '深度修复' }).click();
-  await tab('体检').click();
+  await tab('开始体检').click();
   await button('追加体检').waitFor();
   await capture('scan-after-completion-desktop');
-  await tab('体检报告').click();
+  await tab('体检结果').click();
   await summary.getByRole('button', { name: '追加体检' }).click();
   await page.getByRole('radio', { name: '深度体检' }).click();
   await page.getByRole('checkbox', { name: '体检 profile.db' }).uncheck();
@@ -144,10 +144,10 @@ try {
   await completedTable.locator('..').focus();
   await page.keyboard.press('Enter');
   await completedIndex.waitFor();
-  await tab('体检报告').click();
+  await tab('体检结果').click();
   await button('暂停体检').click();
   await page.getByRole('heading', { name: '体检已暂停' }).waitFor();
-  assert.equal(await tab('体检报告').getAttribute('aria-selected'), 'true');
+  assert.equal(await tab('体检结果').getAttribute('aria-selected'), 'true');
   const resumeBounds = await button('继续体检').boundingBox();
   const repairBounds = await button('前往修复').boundingBox();
   assert.ok(resumeBounds && repairBounds && resumeBounds.x < repairBounds.x);
@@ -161,11 +161,11 @@ try {
   await button('暂停体检').waitFor();
   await page.evaluate(() => window.maintenanceQa.complete());
   await button('进入修复').waitFor();
-  assert.equal(await tab('体检报告').getAttribute('aria-selected'), 'true');
+  assert.equal(await tab('体检结果').getAttribute('aria-selected'), 'true');
   await page.getByText('空闲叶页 · 页 4,663,083', { exact: true }).waitFor();
   await summary.getByRole('button', { name: '追加体检' }).click();
   await page.getByRole('radio', { checked: true, name: '深度体检' }).waitFor();
-  await tab('体检报告').click();
+  await tab('体检结果').click();
   assert.deepEqual(
     await page.evaluate(() =>
       window.maintenanceQa.calls.scan.map(({ kind, dbNames }) => [kind, dbNames]),
@@ -220,7 +220,7 @@ try {
   await capture('repair-progress-narrow-dark');
   await button('停止修复').click();
   await page.waitForFunction(() => window.maintenanceQa.snapshot().locked === false);
-  assert.equal(await tab('修复').isDisabled(), true);
+  assert.equal(await tab('开始修复').isDisabled(), true);
   assert.equal(await tab('修复结果').getAttribute('aria-selected'), 'true');
   assert.equal(await repairSummary.getByRole('button', { name: '继续修复' }).count(), 0);
   assert.equal(await page.getByRole('button', { name: '查看 profile.db 修复详情' }).count(), 0);
@@ -234,7 +234,7 @@ try {
     exportedRepairId,
     await page.evaluate(() => window.maintenanceQa.snapshot().operation.id),
   );
-  await tab('体检报告').click();
+  await tab('体检结果').click();
   await summary.getByRole('button', { name: '导出报告' }).click();
   await exportMenu.getByRole('menuitem', { name: 'JSON' }).click();
   assert.notEqual(
