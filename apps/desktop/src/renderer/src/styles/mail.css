@@ -606,6 +606,16 @@ html[data-theme='dark'] .weq-mail-workspace {
   color: var(--weq-fg-primary);
   margin: 0;
 }
+.weq-mail-connection p {
+  max-width: 40ch;
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.weq-mail-workspace .weq-empty-state-action > button {
+  border-color: var(--weq-border-subtle);
+}
 .weq-mail-error {
   display: flex;
   align-items: flex-start;

@@ -353,16 +353,6 @@
   align-self: flex-start;
 }
 
-.weq-workspace-empty {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 20px;
-  color: var(--weq-fg-secondary);
-  font-size: 13px;
-}
-
 .weq-settings-update-mark {
   margin-left: 8px;
 }

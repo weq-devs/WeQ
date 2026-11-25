@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { z } from 'zod/v3';
 import { usePageState } from '../PageSnapshots.shared';
-import { BarChart3, FolderOpen, Layers, Trash2 } from 'lucide-react';
+import { BarChart3, FolderOpen, HardDrive, Layers, Trash2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
 import { RetainedTabs, TabActivity } from '../RetainedTabs';
 import { useTabActive } from '../RetainedTabs.shared';
 import { SegmentedControl } from '../SegmentedControl';
 import { Card, SectionHeader, QueryError } from './controls';
+import { EmptyState } from '../EmptyState';
 import { PanelLoading } from '../LoadingIndicator';
 import { CacheView } from '../../views/cache/CacheView';
 import { ResourceAnalyticsDialog } from '../../views/cache/ResourceAnalyticsDialog';
@@ -45,9 +46,13 @@ export function ResourceManagementSection() {
         />
       ) : null}
       {account.data?.static ? (
-        <p role="status" className="weq-resource-status">
-          静态账号不提供本机 QQ 资源维护，这些目录不属于导入的数据库快照。
-        </p>
+        <Card>
+          <EmptyState
+            icon={<HardDrive />}
+            title="该备份没有关联的 QQ 资源目录"
+            body="导入的数据库快照可以用来查看聊天记录。要浏览或清理 QQ 缓存，请打开本机的 QQ 账号。"
+          />
+        </Card>
       ) : source ? (
         <TabActivity active={active && !account.error}>
           <ResourceManagementBody

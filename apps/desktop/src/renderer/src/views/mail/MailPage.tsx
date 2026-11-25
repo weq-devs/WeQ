@@ -4,6 +4,7 @@ import { NumericText } from '../../components/NumericText';
 import { formatDateTime } from '@weq/time';
 import { TimeLabel } from '../../components/TimeLabel';
 import { ReminderDot } from '../../components/ReminderBadge';
+import { EmptyState } from '../../components/EmptyState';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   preferenceValue,
@@ -34,6 +35,7 @@ import {
   Reply,
   ReplyAll,
   Search,
+  SearchX,
   Send,
   Settings,
   Star,
@@ -220,6 +222,7 @@ export function MailPage({
     [composeDirty, setComposeDirty] = useState(false);
   const [revision, setRevision] = useState(0),
     [error, setError] = useState('');
+  const [failedListRequest, setFailedListRequest] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
   const download = useRef<AbortController | null>(null),
     mounted = useRef(true),
@@ -236,6 +239,8 @@ export function MailPage({
   } | null>(null);
   composeVisible.current = showCompose;
   const ready = status.state === 'ready';
+  const listRequestKey = JSON.stringify([folderId, pageNumber, unreadOnly, keyword, revision]);
+  const listFailed = failedListRequest === listRequestKey;
   const multi = useMultiSelection({
     ids: mailIds,
     selected: checkedIds,
@@ -358,14 +363,14 @@ export function MailPage({
   useEffect(() => {
     if (!ready) loadedList.current = null;
     if (!ready || !activity.enabled) return;
-    const key = JSON.stringify([folderId, pageNumber, unreadOnly, keyword, revision]);
-    if (loadedList.current?.api === api && loadedList.current.key === key) {
+    if (loadedList.current?.api === api && loadedList.current.key === listRequestKey) {
       setLoading(false);
       return;
     }
     const controller = new AbortController(),
       sequence = ++loadSequence.current;
     setLoading(true);
+    setFailedListRequest(null);
     setError('');
     void readWithRetry(
       () =>
@@ -377,7 +382,7 @@ export function MailPage({
     )
       .then((value) => {
         if (!controller.signal.aborted && sequence === loadSequence.current) {
-          loadedList.current = { api, key };
+          loadedList.current = { api, key: listRequestKey };
           setPage(value);
           const ids = new Set(value.items.map((item) => item.id));
           setChecked((current) => current.filter((id) => ids.has(id)));
@@ -386,8 +391,10 @@ export function MailPage({
         }
       })
       .catch((error) => {
-        if (!controller.signal.aborted && sequence === loadSequence.current)
+        if (!controller.signal.aborted && sequence === loadSequence.current) {
+          setFailedListRequest(listRequestKey);
           setError(mailError(error));
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted && sequence === loadSequence.current) setLoading(false);
@@ -402,7 +409,7 @@ export function MailPage({
     pageNumber,
     unreadOnly,
     keyword,
-    revision,
+    listRequestKey,
   ]);
   useEffect(() => {
     if (!ready) loadedFolders.current = null;
@@ -762,6 +769,9 @@ export function MailPage({
                 ? '邮箱连接失败'
                 : '邮箱未连接'}
           </h2>
+          {status.state !== 'connecting' ? (
+            <p>连接当前 QQ 账号的邮箱后，可以收发邮件、搜索历史邮件和查看附件。</p>
+          ) : null}
           <button
             type="button"
             className="weq-mail-primary"
@@ -917,8 +927,8 @@ export function MailPage({
             </div>
             <div {...multi.rootProps} className="weq-mail-rows" aria-busy={loading}>
               {loading && !page.items.length ? (
-                <div className="weq-mail-empty">
-                  <LoaderCircle size={24} className="weq-mail-spin" />
+                <div className="weq-mail-empty" role="status">
+                  <LoaderCircle size={24} className="weq-mail-spin" aria-hidden />
                   <span>正在加载邮件</span>
                 </div>
               ) : page.items.length ? (
@@ -976,11 +986,61 @@ export function MailPage({
                     </button>
                   </article>
                 ))
+              ) : listFailed ? (
+                <EmptyState
+                  compact
+                  icon={<AlertCircle />}
+                  title="邮件列表读取失败"
+                  action={
+                    <button
+                      type="button"
+                      className="weq-set-btn"
+                      onClick={() => setRevision((value) => value + 1)}
+                    >
+                      重新读取列表
+                    </button>
+                  }
+                />
+              ) : pageNumber > 0 ? (
+                <EmptyState
+                  compact
+                  icon={<Inbox />}
+                  title="这一页没有邮件"
+                  action={
+                    <button type="button" className="weq-set-btn" onClick={() => setPageNumber(0)}>
+                      返回第一页
+                    </button>
+                  }
+                />
+              ) : keyword || unreadOnly ? (
+                <EmptyState
+                  compact
+                  icon={<SearchX />}
+                  title={keyword ? '没有找到邮件' : '没有未读邮件'}
+                  body={keyword ? '可以换个关键词搜索，或清除筛选查看当前文件夹。' : undefined}
+                  action={
+                    <button
+                      type="button"
+                      className="weq-set-btn"
+                      onClick={() => {
+                        setQuery('');
+                        setKeyword('');
+                        setUnreadOnly(false);
+                        setPageNumber(0);
+                        clearChecked();
+                      }}
+                    >
+                      清除筛选
+                    </button>
+                  }
+                />
               ) : (
-                <div className="weq-mail-empty">
-                  <Inbox size={30} />
-                  <span>{keyword ? '没有找到邮件' : unreadOnly ? '没有未读邮件' : '没有邮件'}</span>
-                </div>
+                <EmptyState
+                  compact
+                  icon={<Inbox />}
+                  title="这个文件夹还没有邮件"
+                  body="可以切换文件夹，查看其他邮件。"
+                />
               )}
             </div>
             <footer className="weq-mail-pagination">
@@ -1142,8 +1202,8 @@ export function MailPage({
                 ) : null}
               </div>
               {reading ? (
-                <div className="weq-mail-empty">
-                  <LoaderCircle size={24} className="weq-mail-spin" />
+                <div className="weq-mail-empty" role="status">
+                  <LoaderCircle size={24} className="weq-mail-spin" aria-hidden />
                   <span>正在读取邮件</span>
                 </div>
               ) : detail ? (
@@ -1257,11 +1317,26 @@ export function MailPage({
                     </div>
                   ) : null}
                 </>
+              ) : selectedId ? (
+                <EmptyState
+                  icon={<AlertCircle />}
+                  title="邮件正文未能打开"
+                  action={
+                    <button
+                      type="button"
+                      className="weq-set-btn"
+                      onClick={() => setSearchReadRevision((value) => value + 1)}
+                    >
+                      重新读取正文
+                    </button>
+                  }
+                />
               ) : (
-                <div className="weq-mail-empty">
-                  <MailOpen size={36} />
-                  <span>未选择邮件</span>
-                </div>
+                <EmptyState
+                  icon={<MailOpen />}
+                  title="选择一封邮件"
+                  body="从列表打开邮件，即可阅读正文和查看附件。"
+                />
               )}
             </section>
           </div>

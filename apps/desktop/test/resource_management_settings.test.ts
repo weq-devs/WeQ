@@ -247,7 +247,7 @@ it('离开正在清理的页面后不重复提交，完成时更新原资源概�
 it('静态账号不挂载任何扫描或清理能力', async () => {
   f.static = true;
   const page = await mount();
-  expect(page.host.textContent).toContain('静态账号不提供');
+  expect(page.host.textContent).toContain('该备份没有关联的 QQ 资源目录');
   expect(f.analyze).not.toHaveBeenCalled();
   expect(f.list).not.toHaveBeenCalled();
   expect(f.cleanup).not.toHaveBeenCalled();

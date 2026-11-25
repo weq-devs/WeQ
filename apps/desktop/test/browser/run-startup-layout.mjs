@@ -280,11 +280,10 @@ try {
     await page.getByRole('button', { name: '返回设置' }).click();
     await nav.waitFor();
     await page.setViewportSize({ width: 1180, height: 760 });
-    await nav.getByRole('button', { name: '凭据管理' }).click();
-    await returnToAccounts.click();
-    await page.getByRole('heading', { name: '打开账号', exact: true }).waitFor();
-    await settings.click();
-    await nav.waitFor();
+    for (const name of ['QQ 资源管理', 'API 用量', 'OneBot']) {
+      await nav.getByRole('button', { name, exact: true }).click();
+      await returnToAccounts.waitFor();
+    }
     await nav.getByRole('button', { name: 'QQ 数据库管理' }).click();
     assert(await page.getByRole('button', { name: '打开数据库浏览' }).isDisabled());
     await nav.getByRole('button', { name: '日志与性能' }).click();
@@ -306,6 +305,10 @@ try {
       'chat',
       'home',
     ]);
+    await settings.click();
+    await nav.getByRole('button', { name: '凭据管理' }).click();
+    await returnToAccounts.click();
+    await page.getByRole('heading', { name: '打开账号', exact: true }).waitFor();
     await page.setViewportSize({ width: 552, height: 852 });
   }
   if (!settingsOnly) {
