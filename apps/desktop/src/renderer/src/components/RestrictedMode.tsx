@@ -363,13 +363,31 @@ export function RestrictedModeHost() {
     IS_MAC &&
     sip.data === true &&
     reasons.some((reason) => ['sip', 'offline', 'disabled', 'credentials'].includes(reason.code));
-  const needsDebugQq = reasons.some((reason) => reason.code === 'sip' || reason.code === 'offline');
+  const offline = reasons.some((reason) => reason.code === 'offline');
+  const sipLimited = reasons.some((reason) => reason.code === 'sip');
+  const currentAccountPid =
+    accessMatches && !access.isError && access.data?.qqOnline ? access.data.qqPid : null;
+  // 副本入口负责后台刷新，此处只订阅同一份进程快照来合并代理与在线能力的操作。
+  const debugCopy = trpc.bootstrap.qqDebugCopyStatus.useQuery(undefined, { enabled: false });
+  const signedInToCopy =
+    currentAccountPid != null && debugCopy.data?.runningPids.includes(currentAccountPid);
+  const needsDebugQq = offline || (sipLimited && !signedInToCopy);
+  const checkQqProcess =
+    open && offline && !showDebugCopy && !canConfigureProxy && !awaitingAuthorization;
+  const qqProcess = trpc.bootstrap.getQqProcessState.useQuery(undefined, {
+    enabled: checkQqProcess,
+    staleTime: 0,
+    refetchInterval: checkQqProcess ? 3000 : false,
+    retry: false,
+  });
+  const qqRunning = !qqProcess.isError && qqProcess.data?.running === true;
   useEffect(() => {
     if (
       loginRequested !== sourceKey ||
       !active ||
       !accessMatches ||
       !access.data?.qqOnline ||
+      !signedInToCopy ||
       busy ||
       requests.length
     )
@@ -383,6 +401,7 @@ export function RestrictedModeHost() {
     accessMatches,
     access.data?.qqOnline,
     access.data?.attachEnabled,
+    signedInToCopy,
     busy,
     requests.length,
   ]);
@@ -654,7 +673,8 @@ export function RestrictedModeHost() {
     setLaunching(true);
     setError('');
     try {
-      await client.bootstrap.launchQq.mutate();
+      if (qqRunning) await client.bootstrap.launchQq.mutate({ newInstance: true });
+      else await client.bootstrap.launchQq.mutate();
       if (!current()) return;
       await (active ? access.refetch() : online.refetch());
     } catch (e) {
@@ -734,7 +754,6 @@ export function RestrictedModeHost() {
   const onlineLimited = reasons.some(
     (reason) => reason.code !== 'data-access' && reason.code !== 'checking',
   );
-  const offline = reasons.some((reason) => reason.code === 'offline');
   const sharedDebugLaunch =
     canConfigureProxy && showDebugCopy && needsDebugQq && !awaitingAuthorization;
   const sharedProxyLaunch =
@@ -753,11 +772,31 @@ export function RestrictedModeHost() {
     if (sharedProxyLaunch) void (active ? access.refetch() : online.refetch());
   }
 
+  const onlineSettings = settingsSection !== 'online' && active && (
+    <button
+      type="button"
+      className="weq-set-btn"
+      disabled={busy || launching || entering}
+      onClick={() => {
+        closeDetails();
+        requestOpenSettings('qqOnlineCapability');
+      }}
+    >
+      <Settings size={14} aria-hidden />
+      在线能力设置
+    </button>
+  );
+  const proxySettings = settingsSection !== 'proxy' && (
+    <QqProxySettingsLink beforeNavigate={closeDetails}>代理设置</QqProxySettingsLink>
+  );
   const actions =
     showDebugCopy && !awaitingAuthorization ? (
       <RestrictedQqAction
         key={sourceKey}
-        needsQq={needsDebugQq}
+        needsQq={offline || sipLimited}
+        hasCurrentAccount={active}
+        currentAccountPid={currentAccountPid}
+        proxySetup={sharedDebugLaunch}
         busy={busy || entering}
         onOpened={async () => {
           if (sharedDebugLaunch) void proxyStatus.refetch();
@@ -765,8 +804,10 @@ export function RestrictedModeHost() {
         }}
         allowSwitch={!canConfigureProxy || needsDebugQq}
         onEnable={() => refresh(true)}
-        onRetryCredentials={canRetryCredentials ? () => refresh() : undefined}
-      />
+        onRetryCredentials={canRetryCredentials || sipLimited ? () => refresh() : undefined}
+      >
+        {onlineSettings}
+      </RestrictedQqAction>
     ) : (
       <>
         {authorizationIssue && (
@@ -787,7 +828,13 @@ export function RestrictedModeHost() {
             ) : (
               <Play size={14} />
             )}
-            {launching ? '正在打开 QQ' : '打开 QQ'}
+            {launching
+              ? '正在打开 QQ'
+              : qqRunning
+                ? active
+                  ? '登录当前账号'
+                  : '打开 QQ 登录窗口'
+                : '打开 QQ'}
           </button>
         )}
         {canRetryCredentials && (
@@ -878,13 +925,22 @@ export function RestrictedModeHost() {
                 .filter(
                   (reason) =>
                     reason.code !== 'data-access' &&
-                    (!showDebugCopy || reason.code !== 'disabled' || !needsDebugQq) &&
                     (!(awaitingAuthorization || entering) || reason.code !== 'credentials'),
                 )
                 .map((reason) => (
                   <div className="weq-restricted-reason" key={reason.code}>
                     <h4>{reason.title}</h4>
-                    <p>{reason.guidance}</p>
+                    {!(
+                      showDebugCopy &&
+                      !awaitingAuthorization &&
+                      (reason.code === 'offline' || reason.code === 'sip')
+                    ) && (
+                      <p>
+                        {showDebugCopy && needsDebugQq && reason.code === 'disabled'
+                          ? '登录后，可在此启用 QQ 在线能力。'
+                          : reason.guidance}
+                      </p>
+                    )}
                   </div>
                 ))}
               <QqDataAccessNotice showRetry={false} checked={dataRetried} />
@@ -899,30 +955,16 @@ export function RestrictedModeHost() {
                 />
               ))}
               {signature && error && <p role="alert">{error}</p>}
-              {signature && !awaitingAuthorization && (
-                <>
-                  {sharedDebugLaunch && (
-                    <p>请先按下方「QQ 代理连接」的步骤配置，再登录当前账号。</p>
-                  )}
+              {signature &&
+                !awaitingAuthorization &&
+                (showDebugCopy ? (
+                  actions
+                ) : (
                   <div className="weq-restricted-actions">
                     {actions}
-                    {settingsSection !== 'online' && active && (
-                      <button
-                        type="button"
-                        className="weq-set-btn"
-                        disabled={busy || launching || entering}
-                        onClick={() => {
-                          closeDetails();
-                          requestOpenSettings('qqOnlineCapability');
-                        }}
-                      >
-                        <Settings size={14} aria-hidden />
-                        在线能力设置
-                      </button>
-                    )}
+                    {onlineSettings}
                   </div>
-                </>
-              )}
+                ))}
             </section>
           )}
           {showProxy && (
@@ -946,13 +988,16 @@ export function RestrictedModeHost() {
                   {canConfigureProxy && <p>{qqProxySetupGuide(proxy.port)}</p>}
                 </>
               ) : null}
-              {canConfigureProxy && !sharedDebugLaunch && (
-                <QqProxyRecovery key={sourceKey} onLaunch={refreshProxyAndOnline} />
-              )}
-              {settingsSection !== 'proxy' && (
-                <div className="weq-restricted-actions">
-                  <QqProxySettingsLink beforeNavigate={closeDetails}>代理设置</QqProxySettingsLink>
-                </div>
+              {canConfigureProxy && !sharedDebugLaunch ? (
+                <QqProxyRecovery
+                  key={sourceKey}
+                  onLaunch={refreshProxyAndOnline}
+                  needsCurrentLogin={offline}
+                >
+                  {proxySettings}
+                </QqProxyRecovery>
+              ) : (
+                proxySettings && <div className="weq-restricted-actions">{proxySettings}</div>
               )}
             </section>
           )}

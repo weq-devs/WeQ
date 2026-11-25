@@ -1,6 +1,7 @@
 export interface OnlineAccess {
   source?: { expectedAccountUin: string; expectedAccountConfigId: string };
   qqOnline: boolean;
+  qqPid?: number | null;
   attachEnabled: boolean;
   hasA2: boolean;
   hasD2: boolean;
@@ -38,14 +39,15 @@ export function dataAccessRestriction(status?: string): Restriction[] {
   ];
 }
 
-function offlineRestriction(sipEnabled?: boolean | null): Restriction {
+function offlineRestriction(sipEnabled?: boolean | null, hasCurrentAccount = true): Restriction {
+  const account = hasCurrentAccount ? '当前账号' : '要使用的 QQ 账号';
   return {
     code: 'offline',
-    title: 'QQ 不在线',
+    title: hasCurrentAccount ? '当前账号未登录 QQ' : 'QQ 不在线',
     guidance:
       sipEnabled === true
-        ? '请在 QQ 调试副本中登录当前账号，登录后会自动继续。'
-        : '请在本机 QQ 登录当前账号，登录后会自动重新检查。',
+        ? `请在 QQ 调试副本中登录${account}，登录后会自动重新检查。`
+        : `请在本机 QQ 登录${account}，登录后会自动重新检查。`,
   };
 }
 
@@ -66,7 +68,7 @@ export function startupRestrictionReasons(input: {
         : '暂时无法读取 QQ 的登录状态，稍后会自动再试。',
     });
   } else if (input.probe?.count === 0) {
-    reasons.push(offlineRestriction(input.sipEnabled));
+    reasons.push(offlineRestriction(input.sipEnabled, false));
   }
   return reasons;
 }

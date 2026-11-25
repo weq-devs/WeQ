@@ -90,9 +90,6 @@
 .weq-qq-status-section > :last-child {
   margin-bottom: 0;
 }
-.weq-qq-status-section > .weq-restricted-actions + .weq-restricted-actions {
-  margin-top: 8px;
-}
 .weq-restricted-panel p {
   margin: 0 0 12px;
   font-size: 12px;
@@ -130,10 +127,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-.weq-restricted-qq {
-  width: 100%;
-  min-width: 0;
 }
 .weq-restricted-actions > button {
   max-width: 100%;

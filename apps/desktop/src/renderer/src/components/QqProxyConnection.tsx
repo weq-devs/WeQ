@@ -1,4 +1,4 @@
-import { useContext } from 'react';
+import { useContext, type ReactNode } from 'react';
 import { LoaderCircle, Play, RefreshCw, Settings } from 'lucide-react';
 import { requestOpenSettings } from '../lib/callSettingsBridge';
 import { useViewState } from '../state/view';
@@ -31,11 +31,19 @@ export function QqProxySettingsLink({
   );
 }
 
-export function QqProxyRecovery({ onLaunch }: { onLaunch: () => void }) {
+export function QqProxyRecovery({
+  onLaunch,
+  needsCurrentLogin,
+  children,
+}: {
+  onLaunch: () => void;
+  needsCurrentLogin: boolean;
+  children?: ReactNode;
+}) {
   // 代理详情已在等待连接时轮询进程状态，操作按钮复用同一结果。
   const qqProcess = useQqProcessState(false);
   const running = !qqProcess.isError && qqProcess.data?.running === true;
-  const canRestart = running && qqProcess.data?.canRestart === true;
+  const canRestart = running && !needsCurrentLogin && qqProcess.data?.canRestart === true;
   const refresh = () => {
     void qqProcess.refetch();
     onLaunch();
@@ -69,7 +77,13 @@ export function QqProxyRecovery({ onLaunch }: { onLaunch: () => void }) {
           ) : (
             <Play size={14} aria-hidden />
           )}
-          {launch.isLoading ? '正在打开 QQ' : running ? '登录其他账号' : '打开 QQ'}
+          {launch.isLoading
+            ? '正在打开 QQ'
+            : running
+              ? needsCurrentLogin
+                ? '登录当前账号'
+                : '打开 QQ 登录窗口'
+              : '打开 QQ'}
         </button>
         {(canRestart || restarting) && (
           <button
@@ -90,6 +104,7 @@ export function QqProxyRecovery({ onLaunch }: { onLaunch: () => void }) {
             {restarting ? '正在重新启动 QQ' : '重新启动 QQ'}
           </button>
         )}
+        {children}
       </div>
     </>
   );

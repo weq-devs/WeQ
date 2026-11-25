@@ -184,6 +184,12 @@ function currentLiveAccountUin(): string | null {
   return account && !accountIsStatic ? String(account.context.uin) : null;
 }
 
+function currentLiveAccountPid(): number | null {
+  const { accountIsStatic, services } = getAppContext();
+  const record = services?.accountConfig.getRecord();
+  return !accountIsStatic && record?.qqOnline ? (record.qqPid ?? null) : null;
+}
+
 /** Result of the QQ data-directory picker. */
 export interface PickRootResult {
   /** True when a directory was picked and persisted. */
@@ -582,18 +588,18 @@ export const bootstrapRouter = router({
     const platform = requirePlatform();
     if (platform.kind === 'darwin' && (await qqDebugCopy.isConfigured())) {
       const { phase, runningPids, sourceRunningPids } = await qqDebugCopy.status();
-      const switchingToDebugCopy = sourceRunningPids.length > 0;
-      const running = switchingToDebugCopy || runningPids.length > 0;
+      const pid = currentLiveAccountPid();
+      const switchingToDebugCopy =
+        runningPids.length === 0 && sourceRunningPids.length === 1 && sourceRunningPids[0] === pid;
       return {
-        running,
-        canRestart: running,
+        running: sourceRunningPids.length > 0 || runningPids.length > 0,
+        canRestart: switchingToDebugCopy || (pid !== null && runningPids.includes(pid)),
         switchingToDebugCopy,
         restarting: qqRestartInProgress() || phase !== 'idle',
       };
     }
     const count = await runningQqCount(platform.kind);
-    const uin = currentLiveAccountUin();
-    const canRestart = count !== null ? count > 0 : Boolean(uin && platform.resolveQqPid(uin));
+    const canRestart = currentLiveAccountPid() !== null && count !== 0;
     const running =
       count !== null ? count > 0 : canRestart || (platform.launcherCount() ?? 0) > 0 || null;
     return { running, canRestart, switchingToDebugCopy: false, restarting: qqRestartInProgress() };
@@ -618,12 +624,26 @@ export const bootstrapRouter = router({
     const platform = requirePlatform();
     const uin = currentLiveAccountUin();
     if (platform.kind === 'darwin' && (await qqDebugCopy.isConfigured())) {
-      const status = await qqDebugCopy.status();
-      if (status.sourceRunningPids.length) await qqDebugCopy.perform('switch');
-      else if (status.runningPids.length) {
+      const { runningPids, sourceRunningPids } = await qqDebugCopy.status();
+      const pid = uin
+        ? await (platform.resolveQqPidAsync?.(uin) ?? platform.resolveQqPid(uin))
+        : null;
+      if (pid === null) throw new Error('尚未检测到当前账号登录 QQ，请先登录。');
+      if (runningPids.includes(pid)) {
         await restartQq({ ...platform, qqExePath: () => qqDebugCopy.executablePath }, uin);
-      } else await qqDebugCopy.perform('open');
-    } else await restartQq(platform, uin);
+      } else if (
+        runningPids.length === 0 &&
+        sourceRunningPids.length === 1 &&
+        sourceRunningPids[0] === pid
+      ) {
+        await qqDebugCopy.perform('switch', pid);
+      } else {
+        throw new Error('当前 QQ 进程状态已变化，请重新检查或打开 QQ 登录窗口。');
+      }
+    } else {
+      if (!currentLiveAccountPid()) throw new Error('尚未检测到当前账号登录 QQ，请先登录。');
+      await restartQq(platform, uin);
+    }
     return true;
   }),
 
@@ -661,8 +681,25 @@ export const bootstrapRouter = router({
 
   qqDebugCopyStatus: procedure.query(() => requireDebugCopyDesktop().status()),
   qqDebugCopyAction: procedure
-    .input(z.object({ action: z.enum(QQ_DEBUG_COPY_ACTIONS) }))
-    .mutation(({ input }) => requireDebugCopyDesktop().perform(input.action)),
+    .input(
+      z.object({
+        action: z.enum(QQ_DEBUG_COPY_ACTIONS),
+        expectedSourcePid: z.number().int().positive().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const manager = requireDebugCopyDesktop();
+      if (input.action !== 'switch' || input.expectedSourcePid === undefined)
+        return manager.perform(input.action);
+      const uin = currentLiveAccountUin();
+      const platform = requirePlatform();
+      const pid = uin
+        ? await (platform.resolveQqPidAsync?.(uin) ?? platform.resolveQqPid(uin))
+        : null;
+      if (pid !== input.expectedSourcePid)
+        throw new Error('当前账号的 QQ 登录状态已变化，请重新检查。');
+      return manager.perform('switch', pid);
+    }),
   qqDebugCopyPermission: procedure
     .input(z.object({ action: z.enum(QQ_DEBUG_COPY_PERMISSION_ACTIONS) }))
     .mutation(async ({ input }) => {

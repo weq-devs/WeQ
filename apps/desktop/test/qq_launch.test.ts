@@ -148,10 +148,13 @@ describe('重新启动 QQ', () => {
     }
   });
 
-  it('存在多个实例且无法归属时，不结束任何进程', async () => {
+  it.each([
+    [` 1234 ${normal}\n`, '没有找到可重新启动的 QQ 进程'],
+    [` 1234 ${normal}\n 2345 ${debug}\n`, '检测到多个 QQ 实例'],
+  ])('当前账号的进程无法确认时，不结束任何进程（%s）', async (processes, message) => {
     const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
     f.execFile.mockImplementation((_command, _args, _options, callback) =>
-      callback(null, ` 1234 ${normal}\n 2345 ${debug}\n`),
+      callback(null, processes),
     );
     try {
       await expect(
@@ -160,7 +163,7 @@ describe('重新启动 QQ', () => {
           '10001',
           debug,
         ),
-      ).rejects.toThrow('检测到多个 QQ 实例');
+      ).rejects.toThrow(message);
       expect(kill).not.toHaveBeenCalled();
       expect(f.execFile).toHaveBeenCalledTimes(1);
     } finally {

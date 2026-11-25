@@ -65,7 +65,7 @@ export async function restartQq(
       const candidates = new Set([exe, debugExecutable].filter((path): path is string => !!path));
       const processes = await macQqProcesses(candidates);
       const accountPid = uin ? platform.resolveQqPid(uin) : null;
-      const target = accountPid
+      const target = uin
         ? processes.find(({ pid }) => pid === accountPid)
         : processes.length === 1
           ? processes[0]

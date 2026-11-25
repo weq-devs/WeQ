@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { KeyRound, LoaderCircle, Play, RefreshCw, Settings } from 'lucide-react';
 import { client, trpc } from '../trpc/client';
 import { QqDebugCopyDialog } from './QqDebugCopyDialog';
@@ -25,6 +25,10 @@ export function RestrictedQqAction({
   onEnable,
   onRetryCredentials,
   allowSwitch = true,
+  hasCurrentAccount = true,
+  currentAccountPid,
+  proxySetup = false,
+  children,
 }: {
   needsQq: boolean;
   busy: boolean;
@@ -32,6 +36,10 @@ export function RestrictedQqAction({
   onEnable: () => Promise<void>;
   onRetryCredentials?: () => Promise<void>;
   allowSwitch?: boolean;
+  hasCurrentAccount?: boolean;
+  currentAccountPid?: number | null;
+  proxySetup?: boolean;
+  children?: ReactNode;
 }) {
   const [pending, setPending] = useState<QqDebugCopyPhase | null>(null);
   const status = trpc.bootstrap.qqDebugCopyStatus.useQuery(undefined, {
@@ -54,8 +62,17 @@ export function RestrictedQqAction({
   }, []);
   const data = status.data;
   const running = Boolean(data?.runningPids.length);
-  const canSwitch = allowSwitch && Boolean(data?.sourceRunningPids?.length);
-  const opensQq = canSwitch || needsQq;
+  const signedInToCopy = currentAccountPid != null && data?.runningPids.includes(currentAccountPid);
+  const signedInToOriginal =
+    currentAccountPid != null && data?.sourceRunningPids.includes(currentAccountPid);
+  const needsLogin = needsQq && !signedInToCopy;
+  const canSwitch =
+    allowSwitch &&
+    (needsLogin || Boolean(onRetryCredentials)) &&
+    !running &&
+    signedInToOriginal &&
+    data?.sourceRunningPids.length === 1;
+  const opensQq = canSwitch || needsLogin;
   const copyWorking = Boolean(pending || (data && data.phase !== 'idle'));
   const working = copyWorking || (!opensQq && busy);
   const prepare = data?.state === 'missing' || data?.state === 'invalid';
@@ -67,7 +84,7 @@ export function RestrictedQqAction({
       : '正在启用 QQ 在线能力'
     : canSwitch
       ? '重新启动 QQ'
-      : !needsQq
+      : !opensQq
         ? onRetryCredentials
           ? '重试获取在线凭据'
           : '启用 QQ 在线能力'
@@ -76,7 +93,9 @@ export function RestrictedQqAction({
           : data?.state === 'invalid'
             ? '修复并打开 QQ'
             : running
-              ? '登录其他账号'
+              ? hasCurrentAccount
+                ? '登录当前账号'
+                : '打开 QQ 登录窗口'
               : '打开 QQ';
   async function run(action: 'open' | 'activate' | 'switch' = 'open') {
     if (locked.current || copyWorking || (action === 'open' && working)) return;
@@ -84,9 +103,13 @@ export function RestrictedQqAction({
     setPending('checking');
     setError('');
     try {
-      if (!needsQq && action === 'open') await (onRetryCredentials ?? onEnable)();
+      if (!opensQq && action === 'open') await (onRetryCredentials ?? onEnable)();
       else {
-        await client.bootstrap.qqDebugCopyAction.mutate({ action });
+        await client.bootstrap.qqDebugCopyAction.mutate(
+          action === 'switch' && currentAccountPid != null
+            ? { action, expectedSourcePid: currentAccountPid }
+            : { action },
+        );
         if (!mounted.current) return;
         setPending('launching');
         if (action !== 'activate') {
@@ -104,8 +127,20 @@ export function RestrictedQqAction({
     }
   }
   return (
-    <div className="weq-restricted-qq">
-      {waiting && needsQq && <p role="status">请在 QQ 中完成登录，登录后会自动更新状态。</p>}
+    <>
+      {needsLogin && (
+        <p role={waiting ? 'status' : undefined}>
+          {!hasCurrentAccount
+            ? '请在 QQ 调试副本中登录要使用的 QQ 账号。'
+            : signedInToOriginal
+              ? '当前账号已登录普通 QQ。请在 QQ 调试副本中登录同一账号。'
+              : '请在 QQ 调试副本中登录当前账号，登录后 WeQ 会自动更新状态。'}
+        </p>
+      )}
+      {needsLogin && proxySetup && <p>登录前，请按下方「QQ 代理连接」的步骤配置代理。</p>}
+      {needsQq && signedInToCopy && (
+        <p>当前账号已登录 QQ 调试副本。请保持登录，WeQ 会继续读取在线凭据，也可手动重试。</p>
+      )}
       {canSwitch && <p>{QQ_DEBUG_COPY_SWITCH_GUIDE}</p>}
       {opensQq && data?.state === 'unmanaged' && (
         <p role="alert">副本位置已被其他应用占用，请在副本设置中查看。</p>
@@ -116,7 +151,7 @@ export function RestrictedQqAction({
       {opensQq && prepare && !data.sourceVersion && (
         <p role="alert">尚未检测到 QQ 安装。安装后此处会自动更新。</p>
       )}
-      {needsQq && data && !data.readerReady && (
+      {(needsQq || canSwitch) && data && !data.readerReady && (
         <p role="alert">当前 WeQ 构建缺少调试权限，请使用带调试权限的桌面构建。</p>
       )}
       {(error || status.error) && <p role="alert">{error || status.error?.message}</p>}
@@ -132,7 +167,7 @@ export function RestrictedQqAction({
             <LoaderCircle size={14} className="weq-restricted-progress-icon" />
           ) : canSwitch ? (
             <RefreshCw size={14} />
-          ) : needsQq ? (
+          ) : needsLogin ? (
             <Play size={14} />
           ) : (
             <KeyRound size={14} />
@@ -143,7 +178,7 @@ export function RestrictedQqAction({
           <Settings size={14} />
           副本设置
         </button>
-        {running && allowSwitch && !canSwitch && (
+        {running && allowSwitch && (
           <button
             type="button"
             className="weq-set-btn"
@@ -154,8 +189,9 @@ export function RestrictedQqAction({
             打开已有 QQ 窗口
           </button>
         )}
+        {children}
       </div>
       {settingsOpen && <QqDebugCopyDialog onClose={() => setSettingsOpen(false)} />}
-    </div>
+    </>
   );
 }
