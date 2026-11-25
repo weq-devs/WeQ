@@ -95,6 +95,7 @@ import {
   AUTOSTART_ARG,
   installStartupWindowReveal,
   isAutostartLaunch,
+  MANUAL_RESTART_ARG,
   shouldShowStartupWindow,
 } from './startup_window';
 import {
@@ -350,7 +351,7 @@ async function openAccountPicker(): Promise<void> {
   await launchAccountProcess(accountPickerArg(prepareAccountPicker()));
 }
 
-function openPickerFromMenu(): void {
+function requestAccountPicker(): void {
   void openAccountPicker().catch((error) => {
     logger.error('failed to open an account selection window', { error: String(error) });
     dialog.showErrorBox('无法新建窗口', String(error));
@@ -386,7 +387,7 @@ function buildTray(): void {
     tray = createSystemTray({
       locale: app.getPreferredSystemLanguages()[0] ?? app.getLocale(),
       openMainWindow,
-      newWindow: openPickerFromMenu,
+      newWindow: requestAccountPicker,
       restart: restartFromMenu,
       quit: () => app.quit(),
       title: instanceName,
@@ -950,7 +951,7 @@ function createWindow(
   return win;
 }
 
-// 独立账号有各自的 Electron 锁目录，重复启动交给已运行的对应进程。
+// Electron 锁按窗口的数据目录隔离，普通重复启动由主进程打开账号选择窗口。
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
@@ -960,11 +961,19 @@ if (!hasSingleInstanceLock) {
     if (serviceProcess) return;
     const focus = focusAccountTarget(argv);
     if (focus && !accountInstances.owns(focus)) return;
-    if (
-      !argv.includes(AUTOSTART_ARG) ||
-      (mainIpcHandler && getAppContext().bootstrap?.userConfig.getSettings().showWindowOnAutostart)
-    )
+    if (argv.includes(AUTOSTART_ARG)) {
+      if (
+        mainIpcHandler &&
+        getAppContext().bootstrap?.userConfig.getSettings().showWindowOnAutostart
+      )
+        openMainWindow();
+      return;
+    }
+    if (focus || isIndependentInstance || argv.includes(MANUAL_RESTART_ARG)) {
       openMainWindow();
+      return;
+    }
+    if (!isQuitting) requestAccountPicker();
   });
 }
 
@@ -1386,13 +1395,13 @@ void app.whenReady().then(async () => {
   const menu =
     process.platform === 'darwin'
       ? macApplicationMenu(
-          openPickerFromMenu,
+          requestAccountPicker,
           restartFromMenu,
           locale,
           undoFocusedContent,
           redoFocusedContent,
         )
-      : desktopApplicationMenu(openPickerFromMenu, locale);
+      : desktopApplicationMenu(requestAccountPicker, locale);
   const help =
     process.platform === 'darwin'
       ? undefined
