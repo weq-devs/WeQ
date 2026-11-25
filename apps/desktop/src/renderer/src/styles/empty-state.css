@@ -92,3 +92,15 @@
 html[data-theme='dark'] .weq-empty-state-icon {
   color: color-mix(in srgb, var(--weq-accent-effective) 32%, var(--weq-fg-secondary));
 }
+
+/* 空态是「内容突然变空」的结果，淡入让状态切换不像是渲染出错。
+   节点随空态出现而重建，动画因此只在真正出现时跑一次。 */
+.weq-empty-state {
+  animation: weq-fade-in var(--weq-motion-enter) var(--weq-motion-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-empty-state {
+    animation: none;
+  }
+}

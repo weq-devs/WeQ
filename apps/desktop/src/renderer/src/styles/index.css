@@ -980,6 +980,104 @@ html[data-theme='dark'] .weq-shimmer-block {
   transform: translateX(-50%);
   animation: weq-pop-center 170ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+
+/* ---- 界面级转场：整页、侧栏页、灯箱、应用内浮窗、列表行 ----
+ *
+ * 上面的 `weq-anim-*` 只覆盖「元素」——弹窗卡片、菜单、Toast。整块界面（设置页、
+ * 群资料侧栏、图片灯箱、转发浮窗、邮件行）此前是直接出现或直接替换，这里补上统一的
+ * 进场节奏。数值与 `lib/surfaceMotion.ts` 的 `surfaceMotionTiming` 一致，改一处同步另一处。
+ *
+ * 全部只动 opacity / transform（合成层属性），不参与布局；`to` 帧回到 `transform: none`，
+ * 因此动画结束后不会给 `position: fixed` 的后代留下新的包含块。
+ */
+:root {
+  --weq-motion-switch: 120ms;
+  --weq-motion-enter: 160ms;
+  --weq-motion-page: 220ms;
+  --weq-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes weq-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes weq-sidecar-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes weq-lightbox-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes weq-lightbox-stage-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes weq-window-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes weq-list-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes weq-tooltip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 灯箱：遮罩淡入 + 舞台轻微放大。关闭仍是即时（媒体预览的卸载由调用方掌握）。 */
+.weq-lightbox-layer {
+  animation: weq-lightbox-in var(--weq-motion-enter) ease-out both;
+}
+.weq-lightbox-stage {
+  animation: weq-lightbox-stage-in var(--weq-motion-page) var(--weq-motion-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-lightbox-layer,
+  .weq-lightbox-stage {
+    animation: none;
+  }
+}
 .weq-splash-logo {
   animation: weq-float 2.6s ease-in-out infinite;
 }
@@ -14472,6 +14570,14 @@ html[data-theme='dark'] .weq-provider-modal {
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
+  /* 收藏按页拉取，新到的一页整批淡入。 */
+  animation: weq-list-item-in var(--weq-motion-enter) var(--weq-motion-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-col-card {
+    animation: none;
+  }
 }
 .weq-col-card:hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);

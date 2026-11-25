@@ -309,6 +309,15 @@ button.weq-qzn-home-stat .weq-qzn-home-stat-label {
 .weq-qzn-feed-rows {
   position: relative;
   overflow-anchor: none;
+  /* 动态是虚拟列表，逐行动效会跟着滚动反复触发；只在首屏数据到位、容器重建时
+     整块淡入一次，且只动 opacity，不干扰行高测量。 */
+  animation: weq-fade-in var(--weq-motion-enter) var(--weq-motion-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-qzn-feed-rows {
+    animation: none;
+  }
 }
 .weq-qzn-feed-rows > .weq-reference-item {
   position: absolute;

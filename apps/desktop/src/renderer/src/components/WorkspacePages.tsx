@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
+import { fadeInSurface } from '../lib/surfaceMotion';
 import { TabActivity } from './RetainedTabs';
 import { PageSnapshotScope } from './PageSnapshots';
 import { PageScrollSnapshot } from './PageScrollSnapshot';
@@ -103,16 +104,30 @@ export function WorkspaceContent({ children }: { children: ReactNode }) {
   const sidecars =
     context?.pages.filter((page) => !page.suspended && page.placement === 'sidecar') ?? [];
   const mainOpen = mainPages.some((page) => page.id === context?.active);
+  const base = useRef<HTMLDivElement>(null);
+  const sidecar = useRef<HTMLElement>(null);
+  const previous = useRef({ mainOpen, sidecarOpen: sidecars.length > 0 });
+  // 页面关闭时底层内容立刻回到视野；页面本身已经卸载，没法做退场，改为让「回到底层」
+  // 这一下也走同一条淡入，进出两端才对称。侧栏收起后同理。
+  useLayoutEffect(() => {
+    const state = { mainOpen, sidecarOpen: sidecars.length > 0 };
+    const before = previous.current;
+    previous.current = state;
+    if (!before.mainOpen && state.mainOpen) return;
+    if (before.mainOpen && !state.mainOpen) fadeInSurface(base.current, { from: 0.9 });
+    if (before.sidecarOpen && !state.sidecarOpen) fadeInSurface(sidecar.current, { from: 0.9 });
+  }, [mainOpen, sidecars.length]);
   return (
     <div className="weq-workspace-content">
       <div className="weq-workspace-split">
         <div className="weq-workspace-primary">
           <div className="weq-workspace-page-host" ref={context?.setHost} hidden={!mainOpen} />
-          <div id="workspace-base-page" className="weq-workspace-base" hidden={mainOpen}>
+          <div id="workspace-base-page" ref={base} className="weq-workspace-base" hidden={mainOpen}>
             <TabActivity active={!mainOpen}>{children}</TabActivity>
           </div>
         </div>
         <aside
+          ref={sidecar}
           className="weq-workspace-sidecar"
           hidden={!sidecars.length || mainOpen}
           aria-label="会话附属内容"

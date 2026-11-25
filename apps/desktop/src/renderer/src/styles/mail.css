@@ -271,6 +271,7 @@ html[data-theme='dark'] .weq-mail-workspace {
   padding: 13px 10px 12px 14px;
   border-bottom: 1px solid var(--weq-border-subtle);
   min-height: 98px;
+  transition: background-color 120ms ease-out;
 }
 .weq-mail-row > input {
   margin-top: 4px !important;
@@ -1002,5 +1003,17 @@ html[data-privacy] .weq-mail-text-editor {
   /* 顶栏「更新于」在 320 会挤掉发送入口；列表头的同步状态仍在（窄屏列表无独立入口时隐藏）。 */
   .weq-mail-sync-state-compact {
     display: none;
+  }
+}
+
+/* 邮件按页加载，新到的一页整批淡入；列表本身不重建，翻页时只动新增行。 */
+.weq-mail-row {
+  animation: weq-list-item-in var(--weq-motion-enter) var(--weq-motion-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-mail-row {
+    animation: none;
+    transition: none;
   }
 }

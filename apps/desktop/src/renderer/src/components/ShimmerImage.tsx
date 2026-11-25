@@ -272,7 +272,7 @@ export function ShimmerImage({
         // 暂停和换源使用独立节点，旧请求（含移除 src）的迟到事件不能触发当前回退。
         key={JSON.stringify(enabled ? [src, rest.srcSet, request.policyKey, showingBlob] : null)}
         ref={setImage}
-        className={className}
+        className={className ? `weq-shimmer-image ${className}` : 'weq-shimmer-image'}
         alt={alt}
         aria-hidden={!enabled || !loaded ? true : undefined}
         onLoad={(event) => {

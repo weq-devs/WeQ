@@ -273,6 +273,16 @@ html[data-theme] .weq-workspace-page :is(.weq-settings-nav-item, .weq-wtools-nav
   border-radius: 6px;
   color: var(--weq-fg-secondary);
   font-size: 13px;
+  /* 左侧导航的选中态和悬停底色渐变，翻页时不再硬切。 */
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-theme] .weq-workspace-page :is(.weq-settings-nav-item, .weq-wtools-nav-item) {
+    transition: none;
+  }
 }
 html[data-theme] .weq-workspace-page :is(.weq-settings-nav-item, .weq-wtools-nav-item):hover {
   background: var(--weq-page-hover);

@@ -19,6 +19,7 @@ import { messageTimelineSpacing, type MessageGroupPosition } from './chatTimelin
 import { timelineViewport, TIMELINE_MESSAGE_SELECTOR } from '../../lib/timelineViewport';
 import { restoreReadingPosition } from '../../lib/conversationReadingPosition';
 import { allowsLayoutMotion, RowLayoutMotion, visibleLayoutRows } from '../../lib/layoutMotion';
+import { surfaceMotionTiming } from '../../lib/surfaceMotion';
 import { MessageLayoutContext } from '../../lib/messageLayout';
 
 export type TimelineVisibility = {
@@ -83,6 +84,7 @@ type DetailLayout = {
 class ChatTimelineTransition extends Component<ChatTimelineProps> {
   private readonly motion = new RowLayoutMotion();
   private detailLayout?: DetailLayout;
+  private switchFrame?: Animation;
 
   private queueDetails(
     layout: Omit<DetailLayout, 'changes' | 'animateLayout'>,
@@ -99,6 +101,20 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
     const changed = pending.changes.get(key) ?? new Set<string>();
     for (const selector of selectors) changed.add(selector);
     pending.changes.set(key, changed);
+  }
+
+  /**
+   * 切会话：消息区和滚动位置整块换掉，外层节点不动，所以用 WAAPI 补一次最短淡入。
+   * 只动 opacity，不影响虚拟列表测量与阅读位置恢复；连续快速切会话时取消上一次。
+   */
+  private playSwitchFrame(scroll: HTMLElement) {
+    this.switchFrame?.cancel();
+    const animation = scroll.animate([{ opacity: 0.8 }, { opacity: 1 }], {
+      duration: surfaceMotionTiming.switch,
+      easing: 'ease-out',
+    });
+    this.switchFrame = animation;
+    void animation.finished.catch(() => {});
   }
 
   private captureDetails = (element: HTMLElement, selectors: string[], animateLayout: boolean) => {
@@ -321,6 +337,9 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
       (scroll && !allowsLayoutMotion(scroll))
     )
       this.motion.stop();
+    // 会话/账号切换后消息区整块换内容；在读码里补一次淡入，让切换有落点。
+    if (scroll && active && previous.active && scope !== previous.scope)
+      this.playSwitchFrame(scroll);
     if (!snapshot || !scroll) return;
     const viewport = timelineViewport(scroll);
     const mounted = new Map<string, HTMLElement>();
@@ -502,6 +521,8 @@ class ChatTimelineTransition extends Component<ChatTimelineProps> {
 
   override componentWillUnmount() {
     this.motion.stop();
+    this.switchFrame?.cancel();
+    this.switchFrame = undefined;
     this.detailLayout = undefined;
   }
 

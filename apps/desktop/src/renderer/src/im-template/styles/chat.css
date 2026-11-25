@@ -2786,6 +2786,18 @@ html[data-theme='dark'] .chat-empty-logo {
   min-height: 320px;
 }
 
+/* 分析面板先出骨架屏、数据到位后原地换成正文。骨架屏和空态自带动效，
+ * 这里只让真正的内容进场，读起来像「骨架落位后内容浮上来」。 */
+:is(.ga-body, .ba-body, .ma-body) > :not(.ga-skeleton, .weq-empty-state) {
+  animation: weq-fade-in var(--weq-motion-enter) var(--weq-motion-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.ga-body, .ba-body, .ma-body) > :not(.ga-skeleton, .weq-empty-state) {
+    animation: none;
+  }
+}
+
 /*
  * 单页合并版：hero（群头像 + 口径）→ 四个概览数 → 发言排行 / 活跃时段（含每日热力图）
  * / 词云三段。原先的四屏导航（菜单 → 排行 / 时段 / 词云 / 成员）已拆掉，成员级分析见

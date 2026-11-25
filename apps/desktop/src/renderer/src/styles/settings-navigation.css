@@ -59,6 +59,17 @@ html[data-theme='dark'] .weq-settings-dialog .weq-settings-nav-item.is-active {
   min-height: 0;
 }
 
+/* 设置内页切换：RetainedTabs 换 key 会重建页面节点，动画因此只在换页时跑一次。 */
+.weq-settings-page {
+  animation: weq-page-in var(--weq-motion-enter) var(--weq-motion-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-settings-page {
+    animation: none;
+  }
+}
+
 .weq-settings-pages {
   overflow: hidden;
 }

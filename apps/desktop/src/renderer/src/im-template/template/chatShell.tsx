@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { useRef, type CSSProperties, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { useMobileWebLayout, useMobileWebViewport } from '../../hooks/useMobileWebViewport';
 import { TitleBarSearch } from '../../components/TitleBarSearch';
 import {
@@ -8,6 +8,7 @@ import {
   useWorkspaceSidecarOpen,
   useWorkspaceMobilePage,
 } from '../../components/WorkspacePages.shared';
+import { fadeInSurface } from '../../lib/surfaceMotion';
 import { cn } from './classNames';
 import { AppRail } from './rail';
 import { SidebarHeader, SidebarResizeHandle } from './sidebar';
@@ -119,12 +120,23 @@ export function ChatShell({
   const pageOpen = useWorkspacePageOpen();
   const mobilePage = useWorkspaceMobilePage();
   const root = useRef<HTMLDivElement>(null);
+  const sidebarBodyRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
   const singleColumn = useMobileWebLayout();
   const sharedShell = IS_WEB || singleColumn;
   useMobileWebViewport(root, sharedShell);
   const mainPageOpen = useWorkspaceMainPageOpen();
   const sidecarOpen = useWorkspaceSidecarOpen();
   const sidebarHidden = settingsOpen || mainPageOpen || (view === 'messages' && sidecarOpen);
+  // 主视图切换会把侧栏正文和主区内容一起换掉，但外层节点不变，CSS 动画不会重放；
+  // 这里在提交后补一次 120ms 淡入，让「整块换页」有方向感又不拖慢操作。
+  const previousView = useRef(view);
+  useLayoutEffect(() => {
+    if (previousView.current === view) return;
+    previousView.current = view;
+    fadeInSurface(mainRef.current);
+    fadeInSurface(sidebarBodyRef.current);
+  }, [view]);
   const shellStyle = {
     '--sidebar-width': `${sidebarHidden ? 0 : sidebarWidth}px`,
   } as CSSProperties;
@@ -249,14 +261,17 @@ export function ChatShell({
           )}
         >
           {renderSidebarHeader(view)}
-          <div className={cn('sidebar-body', view === 'agentlab' && 'is-agentlab-sidebar')}>
+          <div
+            ref={sidebarBodyRef}
+            className={cn('sidebar-body', view === 'agentlab' && 'is-agentlab-sidebar')}
+          >
             {sidebarContent}
           </div>
         </aside>
         {!sidebarHidden && (
           <SidebarResizeHandle width={sidebarWidth} onWidthChange={onSidebarWidthChange} />
         )}
-        <main className={cn('chat-main', (mainOpen || pageOpen) && 'chat-main-open')}>
+        <main ref={mainRef} className={cn('chat-main', (mainOpen || pageOpen) && 'chat-main-open')}>
           {mainContent}
         </main>
       </div>
