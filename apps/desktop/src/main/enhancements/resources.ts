@@ -30,7 +30,6 @@ import {
 import { EnhancementPacks, type EnhancementComponent } from './packs';
 import { createModelComponent } from './model_component';
 import { createMarketEmojiComponent } from './market_emoji_component';
-import { releaseContentVersion } from './release_catalog';
 import { EnhancementUpdateController } from './updates';
 import { configureReleaseFeeds } from '../update/release_feed';
 import { restoreEnhancementTasks, trackEnhancementPreparation } from './tasks';
@@ -388,26 +387,7 @@ export function createEnhancementResources(
       select: (entry) => {
         if (entry.type !== 'engine' || entry.artifact.kind !== kind)
           throw new Error('引擎组件不匹配');
-        const active = engines.directory(kind);
-        const installed = engines.installedArtifact(kind);
-        const unchanged =
-          installed &&
-          releaseContentVersion([{ type: 'engine', artifact: installed }]) ===
-            releaseContentVersion([entry]);
-        stagedEngines.set(
-          kind,
-          unchanged ||
-            active?.endsWith(entry.artifact.id) ||
-            (engines.state(kind).ready &&
-              !engines.state(kind).managed &&
-              entry.artifact.id === engines.artifact(kind)?.id)
-            ? engines
-            : new EnhancementEngineStore(
-                root,
-                { schemaVersion: 1, target, engines: [entry.artifact] },
-                { stagingOnly: true },
-              ),
-        );
+        stagedEngines.set(kind, engines.candidateFor(entry.artifact));
       },
       state: () => {
         const active = original.state();

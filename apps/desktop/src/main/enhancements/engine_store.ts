@@ -28,6 +28,7 @@ import {
   type EnhancementEngineKind,
   type EnhancementEngineManifest,
 } from '../../shared/enhancement_manifest';
+import { releaseContentVersion } from './release_catalog';
 
 const execute = promisify(execFile);
 
@@ -124,7 +125,7 @@ export class EnhancementEngineStore {
   >();
 
   constructor(
-    appDataRoot: string,
+    private readonly appDataRoot: string,
     public manifest: EnhancementEngineManifest | null,
     private readonly options: {
       target?: string;
@@ -162,8 +163,32 @@ export class EnhancementEngineStore {
   installedId(kind: EnhancementEngineKind) {
     return this.discover(kind)?.receipt.artifact.id ?? null;
   }
-  installedArtifact(kind: EnhancementEngineKind) {
-    return this.discover(kind)?.receipt.artifact;
+  candidateFor(artifact: EnhancementEngineArtifact): EnhancementEngineStore {
+    const { kind } = artifact;
+    const installed = this.discover(kind)?.receipt.artifact;
+    if (installed) {
+      if (
+        installed.id === artifact.id ||
+        releaseContentVersion([{ type: 'engine', artifact: installed }]) ===
+          releaseContentVersion([{ type: 'engine', artifact }])
+      )
+        return this;
+    } else if (
+      artifact.compatibility === enhancementEngineCompatibility(kind) &&
+      this.developmentDirectory(kind)
+    ) {
+      return this;
+    }
+    return new EnhancementEngineStore(
+      this.appDataRoot,
+      { schemaVersion: 1, target: this.target, engines: [artifact] },
+      {
+        target: this.target,
+        fetcher: this.options.fetcher,
+        probe: this.options.probe,
+        stagingOnly: true,
+      },
+    );
   }
   restoreInstalled(kind: EnhancementEngineKind, id: string): void {
     if (!/^[a-zA-Z0-9._-]+$/.test(id)) throw new Error('引擎安装记录无效');

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EnhancementEngineStore } from '../src/main/enhancements/engine_store';
 import {
   enhancementEngineCompatibility,
+  ENHANCEMENT_ENGINE_RECIPES,
   parseEnhancementEngineManifest,
   type EnhancementEngineManifest,
 } from '../src/shared/enhancement_manifest';
@@ -72,12 +73,7 @@ async function fixture() {
 describe('增强引擎分发与就绪状态', () => {
   it('已校验的候选不能被业务或重启后的发现过程提前接管，只有显式切换才生效', async () => {
     const f = await fixture();
-    const candidate = new EnhancementEngineStore(f.root, f.manifest, {
-      target: f.manifest.target,
-      fetcher: f.fetcher,
-      probe: f.probe,
-      stagingOnly: true,
-    });
+    const candidate = f.store.candidateFor(f.manifest.engines[0]!);
     await candidate.ensure('onnx');
     expect(candidate.directory('onnx')).not.toBeNull();
     expect(f.store.directory('onnx')).toBeNull();
@@ -90,6 +86,38 @@ describe('增强引擎分发与就绪状态', () => {
     expect(f.store.directory('onnx')).toBe(candidate.directory('onnx'));
     undo();
     expect(f.store.directory('onnx')).toBeNull();
+  });
+  it('重启后仍复用符合配方的开发引擎，依赖版本变化时再准备发布包', async () => {
+    const f = await fixture();
+    const artifact = f.manifest.engines[0]!;
+    const developmentDirectory = join(f.root, 'desktop');
+    for (const [name, version] of Object.entries(ENHANCEMENT_ENGINE_RECIPES.onnx.packages)) {
+      const directory = join(developmentDirectory, 'node_modules', name);
+      await mkdir(directory, { recursive: true });
+      await writeFile(join(directory, 'package.json'), JSON.stringify({ version }));
+    }
+    const options = {
+      target: f.manifest.target,
+      fetcher: f.fetcher,
+      probe: f.probe,
+      developmentDirectory,
+    };
+    const before = new EnhancementEngineStore(f.root, f.manifest, options);
+    await expect(before.candidateFor(artifact).ensure('onnx')).resolves.toBe(developmentDirectory);
+    const restarted = new EnhancementEngineStore(f.root, null, options);
+    const candidate = restarted.candidateFor(artifact);
+    expect(candidate).toBe(restarted);
+    expect(candidate.state('onnx')).toMatchObject({ ready: true, downloadBytes: 0 });
+    await expect(candidate.ensure('onnx')).resolves.toBe(developmentDirectory);
+    expect(f.fetcher).not.toHaveBeenCalled();
+
+    await writeFile(
+      join(developmentDirectory, 'node_modules/onnxruntime-node/package.json'),
+      JSON.stringify({ version: '0.0.0' }),
+    );
+    const packaged = restarted.candidateFor(artifact);
+    expect(packaged).not.toBe(restarted);
+    expect(packaged.state('onnx').downloadBytes).toBe(artifact.downloadBytes);
   });
   it('去重并发请求，校验后实际加载，动态库别名只占一份空间且重启不重下', async () => {
     const f = await fixture();
