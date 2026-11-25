@@ -35,3 +35,4 @@ export type { ElevatedResult } from './linux/install';
 export { isOnPrivateFuseMount } from './linux/fuse_mounts';
 export * from './types';
 export { resolveAppidFromMajorAsync } from './client_metadata';
+export { convertNativeFont } from './font';

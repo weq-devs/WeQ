@@ -26,6 +26,7 @@ import {
   type CaptureStatsWire,
 } from './capture_protocol';
 import { startElevatedCaptureWorker, type ElevatedCaptureWorker } from './capture_elevation';
+import { claimDirectCapture, ownsDirectCapture, stopDirectCapture } from './capture_ownership';
 import { PcapngStream, synthesizeIpPacket } from './udp_capture_format';
 
 const logger = getLogger().child({ scope: 'udp-capture' });
@@ -166,8 +167,12 @@ export async function startUdpCapture(
     };
 
     try {
+      if (!captureDirectory) throw new Error('UDP 抓包目录尚未配置');
+      const dir = captureDirectory;
+      await mkdir(dir, { recursive: true });
       let session: CaptureSessionWire;
       if (support.elevated) {
+        claimDirectCapture(pid, 'udp');
         // 本进程已有权限（Windows 管理员 / root）：直接抓。
         session = await platform.native.ntHelper.startCapture(pid, options);
       } else {
@@ -181,9 +186,6 @@ export async function startUdpCapture(
           transport: 'udp',
         });
       }
-      if (!captureDirectory) throw new Error('UDP 抓包目录尚未配置');
-      const dir = captureDirectory;
-      await mkdir(dir, { recursive: true });
       const path = join(dir, `${new Date().toISOString().replace(/[:.]/g, '-')}_pid-${pid}.pcapng`);
       const writer = new PcapngStream(
         createWriteStream(path, { flags: 'wx' }),
@@ -193,7 +195,7 @@ export async function startUdpCapture(
       activeCaptureFiles.set(pid, sessionId);
       return { pid, sessionId, elevated: !support.elevated, session };
     } catch (error) {
-      sessionIds.delete(pid);
+      await releaseSession(pid);
       throw error;
     }
   });
@@ -220,6 +222,7 @@ export async function takeUdpDatagrams(
       maxFrames: DEFAULT_UDP_MAX_FRAMES,
     });
   } else {
+    if (!ownsDirectCapture(pid, 'udp')) throw new Error('抓包会话已结束或被替换');
     const nativeBatch = await requirePlatform().native.ntHelper.takeFrames(pid, {
       cursor: opts.cursor,
       maxFrames: DEFAULT_UDP_MAX_FRAMES,
@@ -232,8 +235,8 @@ export async function takeUdpDatagrams(
       kernelLost: nativeBatch.kernelLost,
     };
   }
-  const sessionId = activeCaptureFiles.get(pid);
-  const captureFile = sessionId ? captureFiles.get(sessionId) : undefined;
+  if (sessionIds.get(pid) !== current) throw new Error('抓包会话已结束或被替换');
+  const captureFile = captureFiles.get(current);
   if (captureFile) {
     for (const frame of batch.frames) {
       const udp = frame.udp;
@@ -289,12 +292,14 @@ async function releaseSession(pid: number): Promise<CaptureStatsWire | null> {
       elevated.dispose();
     }
   }
-  try {
-    return await requirePlatform().native.ntHelper.stopCapture(pid);
-  } catch (error) {
-    logger.warn('UDP 抓包停止失败', { error: String(error) });
-    return null;
-  }
+  return stopDirectCapture(pid, 'udp', async () => {
+    try {
+      return await requirePlatform().native.ntHelper.stopCapture(pid);
+    } catch (error) {
+      logger.warn('UDP 抓包停止失败', { error: String(error) });
+      return null;
+    }
+  });
 }
 
 /** 停止 UDP 抓包并释放会话（幂等）。 */

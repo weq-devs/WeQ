@@ -80,6 +80,20 @@ describe('SourceMsgSearchDb', () => {
     expect(query).toHaveBeenCalledOnce();
   });
 
+  it('一次读取校验版本、列与 FTS，另一次检查索引覆盖', async () => {
+    const f = fixture();
+    const query = vi.fn<SourceSearchQuery>((target, sql, params) =>
+      f.nt.executeSql(target.dbPath, sql, params),
+    );
+    search = new SourceMsgSearchDb({ nt: f.nt, dbPath: f.path, tableName: TABLE, query });
+    await search.sync();
+    expect(search.accelerated).toBe(true);
+    expect(query).toHaveBeenCalledTimes(2);
+    query.mockClear();
+    await search.sync();
+    expect(query).toHaveBeenCalledOnce();
+  });
+
   it('文件候选用一条探测保留相同首页，精确分页仍返回完整计数', async () => {
     const f = fixture();
     await f.search.sync();

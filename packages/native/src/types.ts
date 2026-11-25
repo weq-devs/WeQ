@@ -1164,8 +1164,8 @@ export interface NtHelperBinding {
     key: string,
     algo: DatabaseAlgorithms,
     firstPage: number,
-    onProgress: (error: Error | null, progress: DatabaseProgress) => void,
-    onCheckpoint: (error: Error | null, checkpoint: BadPageScanCheckpoint) => void,
+    onProgress?: (error: Error | null, progress: DatabaseProgress) => void,
+    onCheckpoint?: (error: Error | null, checkpoint: BadPageScanCheckpoint) => void,
   ): Promise<BadPageScanResult>;
   /**
    * 列出当前被 L3（整表放弃）隔离的表。进程内状态，条目有存活时间（默认 300 秒）。
@@ -1424,6 +1424,11 @@ export interface NtHelperBinding {
    * 早于该开关的 nt_helper 会忽略第三个参数（只做转换），所以调用方不必探测版本。
    */
   convertFont(inputPath: string, outputPath: string, options?: ConvertFontOptions): string;
+  convertFontAsync?(
+    inputPath: string,
+    outputPath: string,
+    options?: ConvertFontOptions,
+  ): Promise<string>;
 
   /**
    * 字体转换链的版本号（nt_helper 的 `FONT_PIPELINE_VERSION`）。

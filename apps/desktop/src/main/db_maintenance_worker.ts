@@ -49,15 +49,11 @@ async function main() {
     if (!quickOnly) progress({ step: 'mapping', message: '定位坏页所属表与索引' });
     const assess = nt.assessDatabaseQuickRepair;
     const assessment = assess
-      ? await assess(dbPath, key, algo, scan, scan.sourceLayout ?? 'qq', request.references).catch(
-          () => undefined,
-        )
+      ? await assess(dbPath, key, algo, scan, scan.sourceLayout ?? 'qq', request.references)
       : undefined;
     const evidence = assess
       ? assessment?.evidence
-      : await nt
-          .inspectDatabaseQuickPages?.(dbPath, key, algo, scan.badPages, request.references)
-          .catch(() => undefined);
+      : await nt.inspectDatabaseQuickPages?.(dbPath, key, algo, scan.badPages, request.references);
     const candidates = [
       { name: '空闲叶页', pagetype: 'freelist-leaf', pages: evidence?.freeLeaves ?? [] },
       { name: '已核验的备份页', pagetype: 'backup-page', pages: evidence?.backupMatches ?? [] },

@@ -122,69 +122,80 @@ export class SourceMsgSearchDb {
   private async probe(): Promise<void> {
     const generation = this.generation;
     const identity = this.fileIdentity();
-    const version = Number((await this.query('PRAGMA schema_version', [], 'validation'))[0]?.[0]);
     if (
       this.ready &&
       identity === this.identity &&
-      version === this.schema &&
-      Date.now() < this.coverageRetryAt
+      Date.now() < this.coverageRetryAt &&
+      Number((await this.query('PRAGMA schema_version', [], 'validation'))[0]?.[0]) === this.schema
     )
       return;
+
     this.ready = false;
     this.tokenizer = null;
     this.indexedReadVerified = false;
     this.coverageRetryAt = Number.POSITIVE_INFINITY;
     if (this.identity && identity !== this.identity && !this.override) this.qq.close();
-    const caps = await this.query(
-      "SELECT weq_trigram_contains('CAFÉ','café'),weq_trigram_contains('a  b','a b')",
-      [],
+
+    // 版本、列定义和 FTS 声明来自同一个 SQLite 快照，只启动一次读取进程。
+    const info = await this.query(
+      `SELECT v.schema_version,
+         weq_trigram_contains('CAFÉ','café'), weq_trigram_contains('a  b','a b'),
+         (SELECT sql FROM sqlite_master WHERE name=?), c.name, c.type, c.pk
+       FROM pragma_schema_version v LEFT JOIN pragma_table_info(?) c ON 1 ORDER BY c.cid`,
+      [`${this.table}_fts`, this.table],
       'validation',
     );
-    if (Number(caps[0]?.[0]) !== 1 || Number(caps[0]?.[1]) !== 0)
-      throw new Error('native 搜索能力不可用');
-    const info = await this.query(`PRAGMA table_info(${this.table})`, [], 'validation');
-    const names = new Set(info.map((row) => toStr(row[1])));
+    const [schema, folded, collapsed, ddl] = info[0] ?? [];
+    const version = Number(schema);
+    if (Number(folded) !== 1 || Number(collapsed) !== 0) throw new Error('native 搜索能力不可用');
+    const names = new Set(info.map((row) => toStr(row[4])));
     if (REQUIRED.some((name) => !names.has(name))) throw new Error('搜索内容表结构不兼容');
-    const keys = info.filter((row) => Number(row[5]) > 0);
+    const keys = info.filter((row) => Number(row[6]) > 0);
     if (
       keys.length !== 1 ||
-      toStr(keys[0]?.[1]) !== '41700' ||
-      toStr(keys[0]?.[2]).toUpperCase() !== 'INTEGER'
+      toStr(keys[0]?.[4]) !== '41700' ||
+      toStr(keys[0]?.[5]).toUpperCase() !== 'INTEGER'
     )
       throw new Error('搜索内容表主键不兼容');
-    const ddl = await this.query(
-      'SELECT sql FROM sqlite_master WHERE name=?',
-      [`${this.table}_fts`],
-      'validation',
-    );
-    const contract = sourceFtsContract(toStr(ddl[0]?.[0]), this.table);
+
+    let afterVersion = version;
+    const contract = sourceFtsContract(toStr(ddl), this.table);
     let tokenizer = contract?.tokenizer ?? null;
     if (contract?.columns.some((name) => !names.has(name))) tokenizer = null;
     if (tokenizer === 'pinyin0') {
-      const signature = await this.query('SELECT weq_qq_pinyin0_query_version()', [], 'validation');
+      const signature = await this.query(
+        'SELECT weq_qq_pinyin0_query_version(), schema_version FROM pragma_schema_version',
+        [],
+        'validation',
+      );
+      afterVersion = Number(signature[0]?.[1]);
       if (toStr(signature[0]?.[0]) !== 'qq-char0-ascii-query-v1') tokenizer = null;
     }
-    if (tokenizer) {
+    if (tokenizer && version === afterVersion) {
+      let missing: SqlRow[] | undefined;
       try {
-        const missing = await this.query(
-          `SELECT COUNT(*) FROM ${this.table} c
-          LEFT JOIN ${this.table}_fts_docsize d ON d.id=c."41700"
-          WHERE d.id IS NULL AND (length(c."41701")>0 OR length(c."41702")>0)`,
+        missing = await this.query(
+          `SELECT (
+             SELECT COUNT(*) FROM ${this.table} c
+             LEFT JOIN ${this.table}_fts_docsize d ON d.id=c."41700"
+             WHERE d.id IS NULL AND (length(c."41701")>0 OR length(c."41702")>0)
+           ), schema_version FROM pragma_schema_version`,
           [],
           'validation',
         );
-        if (Number(missing[0]?.[0]) !== 0) {
-          tokenizer = null;
-          this.coverageRetryAt = Date.now() + 5 * 60000;
-        }
       } catch {
+        // 核验查询不可用时仍要复核 schema，避免接纳已经换表的来源。
+      }
+      afterVersion = Number(
+        missing
+          ? missing[0]?.[1]
+          : (await this.query('PRAGMA schema_version', [], 'validation'))[0]?.[0],
+      );
+      if (Number(missing?.[0]?.[0]) !== 0) {
         tokenizer = null;
         this.coverageRetryAt = Date.now() + 5 * 60000;
       }
     }
-    const afterVersion = Number(
-      (await this.query('PRAGMA schema_version', [], 'validation'))[0]?.[0],
-    );
     if (
       this.closed ||
       generation !== this.generation ||

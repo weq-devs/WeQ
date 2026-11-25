@@ -31,7 +31,12 @@ import {
   type CaptureStatsWire,
 } from './capture_protocol';
 import { startElevatedCaptureWorker, type ElevatedCaptureWorker } from './capture_elevation';
-import { CaptureOwnership } from './capture_ownership';
+import {
+  CaptureOwnership,
+  claimDirectCapture,
+  ownsDirectCapture,
+  stopDirectCapture,
+} from './capture_ownership';
 import { connectLongTermAuthorization } from './authorization/client';
 import { requireCaptureProcessScope } from './capture_process_scope';
 
@@ -256,7 +261,9 @@ export async function startAccountCapture(
       request,
       pid,
       async () => {
+        await stopCaptureBackend(pid);
         if (support.elevated || (process.platform === 'win32' && !persistentAvailable)) {
+          claimDirectCapture(pid, 'account');
           const session = await platform.native.ntHelper.startCapture(pid, {
             iface: opts.iface,
             port: opts.port,
@@ -302,6 +309,7 @@ export async function takeAccountFrames(
         waitMs: opts.waitMs,
       });
     }
+    if (!ownsDirectCapture(pid, 'account')) throw new Error('抓包会话已结束或被替换');
     const platform = requirePlatform();
     const batch = await platform.native.ntHelper.takeFrames(pid, {
       cursor: opts.cursor,
@@ -336,10 +344,11 @@ async function stopCaptureBackend(pid: number): Promise<CaptureStatsWire | null>
       elevated.dispose();
     }
   }
-  const platform = requirePlatform();
-  try {
-    return await platform.native.ntHelper.stopCapture(pid);
-  } catch {
-    return null;
-  }
+  return stopDirectCapture(pid, 'account', async () => {
+    try {
+      return await requirePlatform().native.ntHelper.stopCapture(pid);
+    } catch {
+      return null;
+    }
+  });
 }

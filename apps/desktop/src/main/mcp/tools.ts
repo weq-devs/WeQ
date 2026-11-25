@@ -1,3 +1,4 @@
+import { convertNativeFont } from '@weq/native';
 import * as timeFormat from '@weq/time';
 /**
  * Transport-agnostic tool registry.
@@ -5443,7 +5444,7 @@ export const AI_TOOLS: AiTool[] = [
       outputPath: z.string().min(1).describe('输出 TTF 的绝对路径'),
     }),
     run: async ({ inputPath, outputPath }) => {
-      const message = ntHelper().convertFont(inputPath.trim(), outputPath.trim());
+      const message = await convertNativeFont(ntHelper(), inputPath.trim(), outputPath.trim());
       return { ok: true, inputPath, outputPath, message };
     },
   }),

@@ -94,3 +94,30 @@ export class CaptureOwnership {
     });
   }
 }
+
+type DirectCaptureKind = 'account' | 'udp';
+const directOwners = new Map<number, DirectCaptureKind>();
+
+/** 原生进程内只有一份按 PID 索引的会话。调用方负责串行化同一入口的启停。 */
+export function claimDirectCapture(pid: number, kind: DirectCaptureKind): void {
+  const owner = directOwners.get(pid);
+  if (owner && owner !== kind) throw new Error('该进程已有另一种抓包会话，请先停止后再试');
+  directOwners.set(pid, kind);
+}
+
+export function ownsDirectCapture(pid: number, kind: DirectCaptureKind): boolean {
+  return directOwners.get(pid) === kind;
+}
+
+export async function stopDirectCapture<T>(
+  pid: number,
+  kind: DirectCaptureKind,
+  stop: () => Promise<T>,
+): Promise<T | null> {
+  if (!ownsDirectCapture(pid, kind)) return null;
+  try {
+    return await stop();
+  } finally {
+    directOwners.delete(pid);
+  }
+}

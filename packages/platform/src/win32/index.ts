@@ -79,25 +79,18 @@ export function createWin32Platform(
     const p = getProtocolExe();
     return p && existsSync(p) ? p : null;
   };
-  /**
-   * Resolve an account's hosting QQ pid from its `nt_msg.db` open handles
-   * (Restart Manager) — the one and only "which instance is this account on?"
-   * probe. The RM holder list can contain non-QQ processes (WeQ itself reads
-   * the DB), so it is filtered by process name.
-   *
-   * Returns null both when the account is not signed in (the probe ran and
-   * found no QQ holder) and when the probe itself couldn't run (no
-   * `nt_msg.db`, permission denied, cross-session). There is deliberately no
-   * port-probe fallback: it was slower and known to report stale pids.
-   */
-  const resolveQqPid = (uin: string): number | null => {
+  // The account's database must be held by QQ itself.
+  const probeQqPid = (uin: string): number | null => {
     const dbPath = findNtMsgDb(uin, undefined, override());
-    if (!dbPath) return null;
+    if (!dbPath) throw new Error('找不到该账号的 QQ 消息数据库');
+    const probe = native.ntHelper.probeDbLock(dbPath);
+    if (!probe.success) throw new Error(probe.msg || '无法检查 QQ 消息数据库的占用状态');
+    return probe.holders.find((holder) => isQqProcessName(holder.name))?.pid ?? null;
+  };
+
+  const resolveQqPid = (uin: string): number | null => {
     try {
-      const probe = native.ntHelper.probeDbLock(dbPath);
-      if (!probe.success) return null;
-      const holder = probe.holders.find((h) => isQqProcessName(h.name));
-      return holder ? holder.pid : null;
+      return probeQqPid(uin);
     } catch {
       return null;
     }
@@ -165,7 +158,8 @@ export function createWin32Platform(
       const root = p ? join(dirname(p), '..', '..', '..', '..') : findQqInstallRoot();
       return readLauncherCount(root);
     },
-    resolveQqPid: (uin: string) => resolveQqPid(uin),
+    resolveQqPid,
+    resolveQqPidAsync: async (uin) => probeQqPid(uin),
     // SIP 是 macOS 的东西；Windows 上读内存只要管理员权限。
     sipEnabled: () => null,
   };
