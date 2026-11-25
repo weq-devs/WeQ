@@ -1,29 +1,25 @@
 .weq-density-calendar {
   --weq-calendar-border: var(--weq-border-subtle);
-  --weq-calendar-density-color: color-mix(
-    in srgb,
-    var(--weq-accent-effective) 55%,
-    var(--weq-bg-surface)
-  );
-  --weq-calendar-density-lightness: 0.65;
-  --weq-calendar-selection: oklch(var(--weq-calendar-selection-lightness) 0.13 308);
-  --weq-calendar-selection-lightness: 0.61;
+  --weq-calendar-density-color: var(--weq-accent-effective);
+  --weq-calendar-paint-boost: 0%;
+  --weq-calendar-ink-lightness-limit: 1;
+  --weq-calendar-selection: oklch(0.65 0.13 308);
   min-width: 0;
   color: var(--weq-fg-primary);
 }
 html[data-theme='dark'] .weq-density-calendar {
   --weq-calendar-border: var(--weq-border-strong);
-  --weq-calendar-density-lightness: 0.56;
-  --weq-calendar-selection-lightness: 0.73;
+  --weq-calendar-paint-boost: 6%;
+  --weq-calendar-ink-lightness-limit: 0.69;
 }
 @supports (color: oklch(from red l c calc(h + 115))) {
   .weq-density-calendar {
-    /* 固定最深一档的亮度，保留主题色的色相，并让日期文字保持可读。 */
     --weq-calendar-density-color: oklch(
-      from var(--weq-accent-effective) var(--weq-calendar-density-lightness) min(c, 0.14) h
+      from var(--weq-accent-effective) min(l, var(--weq-calendar-ink-lightness-limit)) c h
     );
     --weq-calendar-selection: oklch(
-      from var(--weq-accent-effective) var(--weq-calendar-selection-lightness) 0.13 calc(h + 115)
+      from var(--weq-accent-effective) min(l, var(--weq-calendar-ink-lightness-limit)) max(c, 0.08)
+        calc(h + 115)
     );
   }
 }
@@ -105,51 +101,60 @@ html[data-theme='dark'] .weq-density-calendar {
   min-height: 13px;
   max-width: 100%;
   overflow: hidden;
-  color: color-mix(in srgb, currentColor 93%, transparent);
   font-size: 10px;
   line-height: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .weq-density-calendar-grid > button:not([data-density='0']) {
+  --weq-calendar-paint: calc(
+    var(--weq-calendar-density) +
+    min(var(--weq-calendar-paint-boost), var(--weq-calendar-density) * 0.5)
+  );
+  border-color: color-mix(
+    in srgb,
+    var(--weq-calendar-density-color) calc(var(--weq-calendar-paint) + 8%),
+    var(--weq-calendar-border)
+  );
   background: color-mix(
-    in oklab,
-    var(--weq-calendar-density-color) var(--weq-calendar-density),
-    var(--weq-bg-surface)
+    in srgb,
+    var(--weq-calendar-density-color) var(--weq-calendar-paint),
+    transparent
   );
 }
 .weq-density-calendar-grid [data-density='1'] {
-  --weq-calendar-density: 12%;
+  --weq-calendar-density: 4%;
 }
 .weq-density-calendar-grid [data-density='2'] {
-  --weq-calendar-density: 24%;
+  --weq-calendar-density: 8%;
 }
 .weq-density-calendar-grid [data-density='3'] {
-  --weq-calendar-density: 36%;
+  /* 与导航选中态采用同一份主题色用量。 */
+  --weq-calendar-density: 12%;
 }
 .weq-density-calendar-grid [data-density='4'] {
-  --weq-calendar-density: 49%;
+  --weq-calendar-density: 19%;
 }
 .weq-density-calendar-grid [data-density='5'] {
-  --weq-calendar-density: 61%;
+  --weq-calendar-density: 27%;
 }
 .weq-density-calendar-grid [data-density='6'] {
-  --weq-calendar-density: 73%;
+  --weq-calendar-density: 34%;
 }
 .weq-density-calendar-grid [data-density='7'] {
-  --weq-calendar-density: 86%;
+  --weq-calendar-density: 41%;
 }
 .weq-density-calendar-grid > button.is-range {
-  border-color: color-mix(in srgb, var(--weq-calendar-selection) 40%, transparent);
+  border-color: color-mix(in srgb, var(--weq-calendar-selection) 38%, transparent);
   background: color-mix(
-    in oklab,
-    var(--weq-calendar-selection) calc(19% + var(--weq-calendar-density) * 0.23),
-    var(--weq-bg-surface)
+    in srgb,
+    var(--weq-calendar-selection) calc(12% + var(--weq-calendar-density) * 0.36),
+    transparent
   );
 }
 .weq-density-calendar-grid > button.is-selected {
-  border-color: var(--weq-calendar-selection);
-  background: color-mix(in oklab, var(--weq-calendar-selection) 52%, var(--weq-bg-surface));
+  border-color: color-mix(in srgb, var(--weq-calendar-selection) 78%, var(--weq-bg-surface));
+  background: color-mix(in srgb, var(--weq-calendar-selection) 32%, transparent);
   font-weight: 700;
 }
 .weq-density-calendar-grid > button:hover:not(:disabled) {
