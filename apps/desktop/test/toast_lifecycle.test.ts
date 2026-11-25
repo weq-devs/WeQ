@@ -80,6 +80,23 @@ describe('状态横幅的生命周期', () => {
     expect(useToast.getState()).toBe(state);
   });
 
+  it('手动关闭同一进度后，后续进度不会取消退场或重新插入，结果和下一轮照常显示', async () => {
+    const host = mount();
+    const store = useToast.getState();
+    const progress = { key: 'operation', loading: true, system: false } as const;
+    act(() => store.push({ ...progress, title: '开始处理' }));
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="关闭"]')!.click());
+    act(() => store.push({ ...progress, title: '继续处理' }));
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(useToast.getState().toasts).toHaveLength(0);
+    act(() => store.push({ ...progress, title: '仍在处理' }));
+    expect(useToast.getState().toasts).toHaveLength(0);
+    act(() => store.push({ ...progress, loading: false, title: '处理完成' }));
+    expect(useToast.getState().toasts[0]?.event).toBe('taskComplete');
+    act(() => store.push({ ...progress, title: '下一轮开始' }));
+    expect(useToast.getState().toasts[0]?.title).toBe('下一轮开始');
+  });
+
   it('退场期间同一问题再次出现时取消旧退场，下一阶段从头计时', async () => {
     const host = mount();
     let id = 0;

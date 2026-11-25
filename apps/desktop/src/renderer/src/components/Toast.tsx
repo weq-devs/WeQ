@@ -331,7 +331,7 @@ function ToastRow({ toast, hidePreview }: { toast: Toast; hidePreview: boolean }
               <button
                 type="button"
                 className="weq-toast-action"
-                onClick={() => dismiss(toast.id)}
+                onClick={() => dismiss(toast.id, 'manual')}
                 aria-label="关闭"
                 title="关闭"
               >

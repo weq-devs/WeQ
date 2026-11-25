@@ -7,14 +7,13 @@ import {
   type DatabaseMaintenanceStatus,
 } from '@weq/service/db-checkup';
 import type { AccountForcedClosedEvent } from '../src/main/context/app_context';
+import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { useDatabaseMaintenanceNotifications } from '../src/renderer/src/hooks/useDatabaseMaintenanceNotifications';
 
 const fixture = vi.hoisted(() => ({
   receive: undefined as ((snapshot: DatabaseMaintenanceStatus) => void) | undefined,
   health: undefined as ((event: AccountForcedClosedEvent) => void) | undefined,
-  toasts: [] as { id: number; key: string }[],
   focused: false,
-  push: vi.fn(),
   unsubscribe: vi.fn(),
 }));
 const receive = (snapshot: DatabaseMaintenanceSnapshot) =>
@@ -39,23 +38,8 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
 }));
-vi.mock('../src/renderer/src/components/Toast.shared', () => ({
-  useToastApi: () => ({ push: fixture.push }),
-  useToast: {
-    getState: () => ({
-      toasts: fixture.toasts,
-      remove: (id: number) => {
-        fixture.toasts = fixture.toasts.filter((toast) => toast.id !== id);
-      },
-      resolve: (key: string) => {
-        fixture.toasts = fixture.toasts.filter((toast) => toast.key !== key);
-      },
-    }),
-  },
-}));
-
 afterEach(() => {
-  fixture.toasts = [];
+  useToast.setState({ toasts: [], leaving: [], seq: 0 });
   fixture.receive = undefined;
   fixture.health = undefined;
   fixture.focused = false;
@@ -63,7 +47,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('修复窗口失焦才推送进度，聚焦立即移除，聚焦时完成不补发；其他横幅不受影响', () => {
+it('修复进度在手动关闭后保持隐藏，聚焦后再次失焦立即恢复，聚焦时完成不补发', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const popup = new EventTarget();
   const target = Object.assign(popup, {
@@ -92,34 +76,49 @@ it('修复窗口失焦才推送进度，聚焦立即移除，聚焦时完成不�
       completedDatabases: 0,
     },
   };
+  const toast = useToast.getState();
+  const banners = () => useToast.getState().toasts;
+  const progressKey = 'database-maintenance-progress:focus-test';
   try {
     act(() => root.render(createElement(Observer)));
+    const other = toast.push({ title: '其他通知', system: false });
     receive(snapshot);
-    expect(fixture.push).toHaveBeenLastCalledWith(
-      expect.objectContaining({ event: 'progress', loading: true }),
-    );
-    fixture.toasts = [
-      { id: 1, key: 'database-maintenance-progress:focus-test' },
-      { id: 2, key: 'other-operation' },
-    ];
+    expect(banners()[1]).toMatchObject({ event: 'progress', loading: true });
+    const progressId = banners()[1]!.id;
+    toast.dismiss(progressId, 'manual');
+    toast.remove(progressId);
+    const next = { ...snapshot, operation: { ...snapshot.operation!, completedDatabases: 1 } };
+    receive(next);
+    expect(banners().map(({ id }) => id)).toEqual([other]);
     fixture.focused = true;
     popup.dispatchEvent(new Event('focus'));
-    expect(fixture.toasts).toEqual([{ id: 2, key: 'other-operation' }]);
-    const calls = fixture.push.mock.calls.length;
-    receive(snapshot);
+    expect(banners().map(({ id }) => id)).toEqual([other]);
+    fixture.focused = false;
+    popup.dispatchEvent(new Event('blur'));
+    expect(banners()[1]).toMatchObject({ key: progressKey, summary: '1 / 1 个数据库已完成' });
+    fixture.focused = true;
+    popup.dispatchEvent(new Event('focus'));
+    expect(banners().map(({ id }) => id)).toEqual([other]);
     const completed = {
       ...snapshot,
       state: 'ended' as const,
       operation: { ...snapshot.operation!, status: 'completed' as const },
     };
     receive(completed);
-    expect(fixture.push).toHaveBeenCalledTimes(calls);
     fixture.focused = false;
+    popup.dispatchEvent(new Event('blur'));
     receive(completed);
-    expect(fixture.push).toHaveBeenCalledTimes(calls);
-    receive({ ...snapshot, operation: { ...snapshot.operation!, id: 'next-operation' } });
-    expect(fixture.push).toHaveBeenCalledTimes(calls + 1);
+    expect(banners().map(({ id }) => id)).toEqual([other]);
+    const restarted = { ...snapshot, operation: { ...snapshot.operation!, id: 'next-operation' } };
+    receive(restarted);
+    expect(banners()[1]?.key).toBe(progressKey);
+    const restartedId = banners()[1]!.id;
+    toast.dismiss(restartedId, 'manual');
+    toast.remove(restartedId);
+    receive({ ...completed, operation: { ...restarted.operation, status: 'completed' } });
+    expect(banners()[1]).toMatchObject({ event: 'taskComplete', loading: false });
   } finally {
+    toast.resolve(progressKey);
     act(() => root.unmount());
     expect(fixture.unsubscribe).toHaveBeenCalledOnce();
   }
@@ -187,19 +186,17 @@ it('后台仅提醒已确认的损坏，深度体检只收起同源同库的横�
   };
   try {
     act(() => root.render(createElement(Observer)));
+    const toast = useToast.getState();
     fixture.health!({ ...event, kind: 'check-error' });
-    expect(fixture.push).not.toHaveBeenCalled();
+    expect(useToast.getState().toasts).toHaveLength(0);
     fixture.health!(event);
-    const notice = fixture.push.mock.calls[0]?.[0];
+    const notice = useToast.getState().toasts[0]!;
     expect(notice).toMatchObject({ event: 'databaseDamage' });
-    fixture.toasts = [
-      { id: 1, key: notice.key },
-      { id: 2, key: 'other-database' },
-    ];
+    toast.push({ key: 'other-database', title: '其他数据库', system: false });
     receive({ ...snapshot, configId: 'backup' });
-    expect(fixture.toasts.map(({ id }) => id)).toEqual([1, 2]);
+    expect(useToast.getState().leaving).toEqual([]);
     receive(snapshot);
-    expect(fixture.toasts.map(({ id }) => id)).toEqual([2]);
+    expect(useToast.getState().leaving).toEqual([notice.id]);
   } finally {
     act(() => root.unmount());
   }

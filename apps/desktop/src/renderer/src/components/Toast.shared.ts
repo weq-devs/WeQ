@@ -142,9 +142,9 @@ interface ToastStore {
    * id 已经不在栈里（被关掉/已过期）时静默忽略。
    */
   update(id: number, patch: ToastPatch): void;
-  /** 触发退场动画（自动过期 / 点击关闭） */
-  dismiss(id: number): void;
-  /** 对应问题已解决，不受失败通知停留时长或悬停暂停影响。 */
+  /** 触发退场动画。手动关闭后，同一操作的后续进度保持隐藏。 */
+  dismiss(id: number, reason?: 'manual'): void;
+  /** 结束当前提示并清除手动关闭记忆，不受停留时长或悬停暂停影响。 */
   resolve(key: string): void;
   dismissReadMessages(
     binding: MessageBannerBinding,
@@ -186,6 +186,9 @@ function defaultDurationKind(
   if (tone === 'info' && ttl === 0) return 'long';
   return tone === 'warning' || tone === 'error' ? 'failure' : 'success';
 }
+
+// 退场动画结束后仍保留关闭状态，直到当前进度结束或来源重新允许提示。
+const manuallyDismissedProgress = new Map<string, number>();
 
 const toastStore = create<ToastStore>((set, get) => ({
   durations: { ...DEFAULT_TOAST_DURATIONS },
@@ -232,20 +235,26 @@ const toastStore = create<ToastStore>((set, get) => ({
     const actualTitle = title ?? message ?? '';
     const actualDetail = detail ?? (title != null ? message : undefined);
     const kind = durationKind ?? defaultDurationKind(tone, ttl, event);
+    const dismissedId = key === undefined ? undefined : manuallyDismissedProgress.get(key);
+    const actualEvent =
+      event ??
+      (loading
+        ? 'progress'
+        : existing?.event === 'progress' || dismissedId !== undefined
+          ? kind === 'failure'
+            ? 'taskFailure'
+            : 'taskComplete'
+          : kind === 'failure'
+            ? 'failure'
+            : 'success');
+    if (key !== undefined && dismissedId !== undefined) {
+      if (actualEvent === 'progress') return dismissedId;
+      manuallyDismissedProgress.delete(key);
+    }
     const toast: Toast = {
       id,
       taskId: taskId ?? (source?.target.kind === 'task' ? source.target.id : undefined),
-      event:
-        event ??
-        (loading
-          ? 'progress'
-          : existing?.event === 'progress'
-            ? kind === 'failure'
-              ? 'taskFailure'
-              : 'taskComplete'
-            : kind === 'failure'
-              ? 'failure'
-              : 'success'),
+      event: actualEvent,
       key,
       tone,
       occurredAt: Date.now(),
@@ -351,11 +360,21 @@ const toastStore = create<ToastStore>((set, get) => ({
       }),
     });
   },
-  dismiss(id) {
-    if (get().leaving.includes(id)) return;
-    set({ leaving: [...get().leaving, id] });
+  dismiss(id, reason) {
+    const { leaving, toasts } = get();
+    if (leaving.includes(id)) return;
+    if (reason === 'manual') {
+      const toast = toasts.find((item) => item.id === id);
+      if (toast?.event === 'progress' && toast.key !== undefined) {
+        manuallyDismissedProgress.set(toast.key, id);
+        if (manuallyDismissedProgress.size > 1024)
+          manuallyDismissedProgress.delete(manuallyDismissedProgress.keys().next().value!);
+      }
+    }
+    set({ leaving: [...leaving, id] });
   },
   resolve(key) {
+    manuallyDismissedProgress.delete(key);
     const state = get();
     const ids = state.toasts
       .filter((toast) => toast.key === key && !state.leaving.includes(toast.id))
