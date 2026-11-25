@@ -645,6 +645,10 @@ describe('分级恢复默认', () => {
     expect(state.calls).toEqual([]);
   });
   it('应用图标、导航、菜单和联系人角标按新归属恢复默认', async () => {
+    state.settings.sharedPreferences.client = {
+      showContactNavigationBadge: false,
+      showContactRequestBadge: false,
+    };
     const global = await caller().preview({ page: 'global' });
     expect(global.items.map((item) => item.id)).toContain('notification-events:notificationEvents');
     expect(global.items.map((item) => item.id)).toContain('application-badge:application-badge');
@@ -673,6 +677,7 @@ describe('分级恢复默认', () => {
     expect(navigation.items.map((item) => item.id)).toEqual(
       expect.arrayContaining([
         'navigation-badges:showMessageUnreadBadge',
+        'navigation-badges:showContactNavigationBadge',
         'navigation-badges:unread',
         'menu-badges:showSoftwareUpdateBadge',
       ]),
@@ -687,6 +692,11 @@ describe('分级恢复默认', () => {
       'contact-badges:showContactUnreadCount',
       'contact-badges:showContactRequestBadge',
     ]);
+    await caller().restore({ page: 'main-navigation', source: null });
+    expect(state.settings.sharedPreferences.client).toMatchObject({
+      showContactNavigationBadge: true,
+      showContactRequestBadge: false,
+    });
   });
   it('只读预览不写入，卡片恢复不影响同页其他配置或连接凭据', async () => {
     state.settings.qzonePagination = { windowSeconds: 30, maxPages: 12 };

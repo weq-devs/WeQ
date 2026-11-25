@@ -10832,7 +10832,9 @@ function MainWorkspace(): ReactElement {
                 ? messageBadgeCount
                 : 0
             }
-            contactBadgeCount={unreadMarkers.requests ? friendNoticeCount + groupNoticeCount : 0}
+            contactBadgeCount={
+              unreadMarkers.contactNavigation ? friendNoticeCount + groupNoticeCount : 0
+            }
             onMessageBadgeClick={reselectMessages}
             messageBadgeActionLabel={canLocateUnreadInView ? '定位未读会话' : '返回常规视图'}
             mailBadgeCount={mailBadge.count}

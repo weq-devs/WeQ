@@ -34,7 +34,6 @@ describe('设置重构的规范目标与旧入口分流', () => {
       '通用',
       '外观',
       '聊天',
-      '更多',
       'AI',
       '服务',
       'QQ',
@@ -60,6 +59,15 @@ describe('设置重构的规范目标与旧入口分流', () => {
       'weq-storage',
       'accounts',
       'backup',
+    ]);
+    expect(settingsGroupFor('qzone').sections).toEqual([
+      'qzone',
+      'mail',
+      'credentials',
+      'qq-accounts',
+      'qq-storage',
+      'database-management',
+      'diagnostics',
     ]);
     const sections = SETTINGS_GROUPS.flatMap((group) => group.sections);
     expect(sections).toHaveLength(Object.keys(SETTINGS_PAGE_LABELS).length);

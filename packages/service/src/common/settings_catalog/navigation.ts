@@ -4,6 +4,7 @@ import { CONTACT_CARD_FIELDS, CONTACT_GROUP_FIELDS } from '../contact_card';
 import { NOTIFICATION_EVENTS, NOTIFICATION_LABELS } from '../notification_settings';
 import {
   AGGREGATE_BADGE_SETTINGS,
+  CONTACT_NAVIGATION_BADGE_SETTING,
   CONTACT_REQUEST_BADGE_SETTING,
   CONTACT_UNREAD_COUNT_LABEL,
   MENU_BADGE_SETTINGS,
@@ -118,11 +119,6 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     ],
   },
   {
-    id: 'more',
-    label: '更多',
-    sections: ['qzone', 'mail'],
-  },
-  {
     id: 'ai',
     label: 'AI',
     sections: [
@@ -142,7 +138,15 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'qq',
     label: 'QQ',
-    sections: ['credentials', 'qq-accounts', 'qq-storage', 'database-management', 'diagnostics'],
+    sections: [
+      'qzone',
+      'mail',
+      'credentials',
+      'qq-accounts',
+      'qq-storage',
+      'database-management',
+      'diagnostics',
+    ],
   },
   {
     id: 'app',
@@ -930,6 +934,13 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       'global',
       'notification-badges',
     ],
+  },
+  {
+    id: CONTACT_NAVIGATION_BADGE_SETTING[1],
+    label: CONTACT_NAVIGATION_BADGE_SETTING[2],
+    aliases: ['联系人红点'],
+    section: 'main-navigation',
+    from: ['main-navigation'],
   },
   {
     id: 'contact-unread-count',

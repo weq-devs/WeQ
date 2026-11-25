@@ -3,6 +3,7 @@ import type { IntentSenseConfig } from '../../account/intent_sense';
 import { INTENT_TUNING, type IntentTuningKey } from '../intent_context';
 import {
   AGGREGATE_BADGE_SETTINGS,
+  CONTACT_NAVIGATION_BADGE_SETTING,
   CONTACT_REQUEST_BADGE_SETTING,
   CONTACT_UNREAD_COUNT_LABEL,
   MENU_BADGE_SETTINGS,
@@ -174,6 +175,7 @@ export const CLIENT_SETTING_FIELDS = (
     ['emoji-shortcuts', 'slashEmojiEnabled', 'slash-emoji-input', '斜杠表情快捷输入'],
     ['emoji-shortcuts', 'slashEmojiAutoReplace', 'slash-emoji-auto-replace', '无需回车即自动替换'],
     ['application-badge', 'applicationBadge', 'application-unread-badge', '应用图标未读角标'],
+    ['navigation-badges', ...CONTACT_NAVIGATION_BADGE_SETTING],
     ['contact-badges', ...CONTACT_REQUEST_BADGE_SETTING],
     ...MENU_BADGE_SETTINGS.map(([key, id, label]) => ['menu-badges', key, id, label] as const),
     [

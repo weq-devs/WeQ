@@ -38,6 +38,7 @@ export const preferenceDefaults = {
   messageNotifications: false,
   applicationBadge: true,
   showMessageUnreadBadge: true,
+  showContactNavigationBadge: true,
   showInteractionBadge: false,
   showContactUnreadCount: false,
   showGroupAssistantMessageCount: false,
@@ -119,6 +120,11 @@ export const AGGREGATE_BADGE_SETTINGS = [
   ['assistant', 'showAssistantAggregateBadge', 'assistant-aggregate-badge', 'WeQ 助手会话'],
 ] as const satisfies readonly (readonly [string, PreferenceKey, string, string])[];
 export const CONTACT_UNREAD_COUNT_LABEL = '好友与群聊未读消息数';
+export const CONTACT_NAVIGATION_BADGE_SETTING = [
+  'showContactNavigationBadge',
+  'contact-navigation-badge',
+  '联系人导航未读角标',
+] as const satisfies readonly [PreferenceKey, string, string];
 export const CONTACT_REQUEST_BADGE_SETTING = [
   'showContactRequestBadge',
   'contact-request-badge',

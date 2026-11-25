@@ -1,6 +1,7 @@
 import { BellDot, Menu, PanelLeft } from 'lucide-react';
 import {
   AGGREGATE_BADGE_SETTINGS,
+  CONTACT_NAVIGATION_BADGE_SETTING,
   CONTACT_REQUEST_BADGE_SETTING,
   CONTACT_UNREAD_COUNT_LABEL,
   MENU_BADGE_SETTINGS,
@@ -57,7 +58,7 @@ export function ContactAppearanceSettings() {
           name={name}
           settingId={settingId}
           label={label}
-          desc="在联系人导航及好友通知、群通知入口显示未读角标。"
+          desc="在联系人页的好友通知和群通知入口显示未读角标。"
           fallback={true}
         />
         <BadgeSettingRow
@@ -73,6 +74,7 @@ export function ContactAppearanceSettings() {
 }
 
 export function MainNavigationSettings() {
+  const [name, settingId, label] = CONTACT_NAVIGATION_BADGE_SETTING;
   return (
     <div className="weq-set">
       <SectionHeader title={SETTINGS_PAGE_LABELS['main-navigation']} page="main-navigation" />
@@ -82,6 +84,12 @@ export function MainNavigationSettings() {
           settingId="message-unread-badge"
           label="消息导航未读角标"
           fallback={true}
+        />
+        <BadgeSettingRow
+          name={name}
+          settingId={settingId}
+          label={label}
+          desc="将联系人页的好友通知和群通知角标汇总到主导航。"
         />
         <MailNotificationSettings kind="unread" />
       </Card>

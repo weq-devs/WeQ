@@ -645,6 +645,7 @@ describe('设置归位后的实际页面', () => {
     ['maintenance', '密钥扫描', 'key-scan', '凭据管理'],
     ['maintenance', '其它设备密钥', 'other-device-key', '凭据管理'],
     ['message-display', '显示消息汇总红点', 'message-unread-badge', '主导航'],
+    ['main-navigation', '联系人导航未读角标', 'contact-navigation-badge', '主导航'],
     ['notification-badges', '应用图标未读角标', 'application-unread-badge', '通知与提醒'],
     ['notification-badges', '好友与群通知未读角标', 'contact-request-badge', '联系人'],
     ['chat-messages', '纯文本消息自动渲染为 Markdown', 'text-markdown', '消息显示'],

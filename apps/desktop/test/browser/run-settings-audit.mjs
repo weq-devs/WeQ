@@ -258,7 +258,7 @@ try {
     const mobile = [];
     for (const [group, section, id] of [
       ['外观', '主题与布局', 'appearance'],
-      ['更多', 'QQ 邮箱', 'mail'],
+      ['QQ', 'QQ 邮箱', 'mail'],
       ['外观', '联系人名片', 'contact-card'],
       ['聊天', '消息显示', 'message-content'],
       ['应用', '配置备份与恢复', 'backup'],

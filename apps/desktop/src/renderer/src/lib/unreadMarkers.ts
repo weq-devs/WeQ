@@ -24,8 +24,10 @@ export function useUnreadMarkers() {
       ),
     ),
   );
+  const requests = preferenceValue('showContactRequestBadge');
   return {
-    requests: preferenceValue('showContactRequestBadge'),
+    requests,
+    contactNavigation: requests && preferenceValue('showContactNavigationBadge'),
     running: preferenceValue('showTaskRunningBadge'),
     tasks: preferenceValue('showTaskResultBadge'),
     important: preferenceValue('showImportantMessageMarkers'),
