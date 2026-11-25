@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemberProfileCard } from '../../src/renderer/src/components/MemberProfileCard';
 import { ContactProfileDialog } from '../../src/renderer/src/im-template/template/profilePanes';
+import { Avatar } from '../../src/renderer/src/im-template/template/primitives';
 import { ContactCardSettings } from '../../src/renderer/src/components/settings/ContactCardSettings';
 import {
   ContactWorkspaceNavigationContext,
@@ -287,7 +288,7 @@ function Fixture() {
                               })
                             }
                           >
-                            林
+                            <Avatar name="林同学" />
                           </button>
                         ) : null}
                         {grayTip ? (

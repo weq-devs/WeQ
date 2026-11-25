@@ -91,6 +91,7 @@ if (process.argv.includes('--gestures')) {
         );
         await page.goto(url);
         const avatar = page.getByRole('button', { name: '群友头像' });
+        const face = avatar.locator('.avatar');
         const card = page.getByRole('dialog', { name: '用户资料' });
         const cardVisual = page.locator('[aria-label="用户资料"]');
         await avatar.waitFor();
@@ -139,12 +140,25 @@ if (process.argv.includes('--gestures')) {
         await cardVisual.first().waitFor({ state: 'detached' });
 
         await tapAvatar(2);
+        assert.ok(await face.evaluate((node) => node.getAnimations().length > 0));
         await card.waitFor({ state: 'hidden', timeout: 5000 });
         assert.deepEqual(await actions(), ['fixture.poke']);
         const { x, y, width, height } = await avatar.boundingBox();
         await page.mouse.dblclick(x + width / 2, y + height / 2);
         await card.waitFor({ state: 'hidden' });
         assert.deepEqual(await actions(), ['fixture.poke', 'fixture.poke']);
+        await cardVisual.first().waitFor({ state: 'detached' });
+        await page.mouse.click(x + width / 2, y + height / 2);
+        await waitForOpenCard();
+        await page.mouse.down();
+        assert.ok(await face.evaluate((node) => node.getAnimations().length > 0));
+        await page.mouse.move(x + width + 10, y + height / 2);
+        await page.mouse.up();
+        assert.equal(await face.evaluate((node) => node.getAnimations().length), 0);
+        assert.equal(await card.count(), 1);
+        assert.deepEqual(await actions(), ['fixture.poke', 'fixture.poke']);
+        await page.keyboard.press('Escape');
+        await cardVisual.first().waitFor({ state: 'detached' });
         await avatar.press('Enter');
         await waitForOpenCard();
         assert.deepEqual(await actions(), ['fixture.poke', 'fixture.poke']);
@@ -164,6 +178,20 @@ if (process.argv.includes('--gestures')) {
         await card.waitFor();
         await page.keyboard.press('Escape');
         assert.equal(await cardVisual.count(), 0);
+        await page.setViewportSize({ width: 390, height: 844 });
+        const priorActions = await actions();
+        const faceSize = () => face.evaluate((node) => [node.offsetWidth, node.offsetHeight]);
+        const size = await faceSize();
+        await tapAvatar(2);
+        const feedback = await face.evaluate((node) => {
+          const { width, height } = node.getBoundingClientRect();
+          return {
+            size: [Math.round(width), Math.round(height)],
+            outline: getComputedStyle(node).outlineStyle,
+          };
+        });
+        assert.deepEqual(feedback, { size, outline: 'solid' });
+        assert.deepEqual(await actions(), [...priorActions, 'fixture.poke']);
         assert.deepEqual(errors, []);
         console.log(`${engine.name()}: profile gestures and fades passed`);
       } finally {

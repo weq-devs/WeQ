@@ -1,5 +1,6 @@
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
-import { dismissProfileCard } from './profileCardMotion';
+import { dismissProfileCard, previewProfileCardDismissal } from './profileCardMotion';
+import { POKE_PRESS_MS, pressProfileAvatar, profileAvatarAtClick } from './profilePokeMotion';
 import { topSurface } from './surfaceEscape';
 
 const PROFILE_DOUBLE_CLICK_MS = 300;
@@ -80,13 +81,38 @@ export function activateProfile(
     const action = landscape ? shortcut.landscape : shortcut.portrait;
     if (action && (pointer === 'touch' || (pointer === 'mouse' && event.detail === 1))) {
       const previous = !landscape ? topSurface(document, false) : undefined;
-      captureSecondClick(view, document, event, pointer, () => {
-        if (!landscape) {
-          const current = topSurface(document, false);
-          if (current && current !== previous) dismissProfileCard(current);
-        }
-        action();
-      });
+      const newCard = () => {
+        const current = topSurface(document, false);
+        return current !== previous ? current : undefined;
+      };
+      const avatar =
+        !landscape ? profileAvatarAtClick(event.currentTarget, event.target) : undefined;
+      captureSecondClick(
+        view,
+        document,
+        event,
+        pointer,
+        () => {
+          const current = !landscape ? newCard() : undefined;
+          if (current) dismissProfileCard(current);
+          action();
+        },
+        avatar
+          ? () => {
+              if (!avatar.isConnected) return;
+              const reducedMotion = view.matchMedia('(prefers-reduced-motion: reduce)').matches;
+              const finishAvatar = pressProfileAvatar(avatar, reducedMotion);
+              const current = !reducedMotion ? newCard() : undefined;
+              const fade = current
+                ? previewProfileCardDismissal(current, POKE_PRESS_MS, PROFILE_DOUBLE_CLICK_MS)
+                : undefined;
+              return (confirmed) => {
+                if (!confirmed) fade?.cancel();
+                finishAvatar(confirmed);
+              };
+            }
+          : undefined,
+      );
     }
   }
   openProfile();
@@ -99,6 +125,7 @@ function captureSecondClick(
   first: ReactMouseEvent,
   pointer: 'mouse' | 'touch',
   action: () => void,
+  onPress?: () => ((confirmed: boolean) => void) | undefined,
 ) {
   const x = first.clientX;
   const y = first.clientY;
@@ -114,11 +141,17 @@ function captureSecondClick(
   const capture = { capture: true, signal: listeners.signal };
   let timer = view.setTimeout(cancel, PROFILE_DOUBLE_CLICK_MS);
   let pressed: PointerEvent | undefined;
+  let finishPress: ((confirmed: boolean) => void) | undefined;
 
-  function cancel() {
+  function stopListening() {
     view.clearTimeout(timer);
     listeners.abort();
     pendingClicks.delete(document);
+  }
+
+  function cancel() {
+    stopListening();
+    finishPress?.(false);
   }
 
   pendingClicks.set(document, cancel);
@@ -139,6 +172,7 @@ function captureSecondClick(
       pressed = event;
       view.clearTimeout(timer);
       timer = view.setTimeout(cancel, PROFILE_DOUBLE_CLICK_MS);
+      finishPress = onPress?.();
       // 早于浮层的外部按下处理，保留这次手势的原生 click。
       event.stopImmediatePropagation();
     },
@@ -147,7 +181,6 @@ function captureSecondClick(
   view.addEventListener(
     'click',
     (event) => {
-      cancel();
       if (
         !pressed ||
         event.timeStamp - pressed.timeStamp > PROFILE_DOUBLE_CLICK_MS ||
@@ -155,10 +188,14 @@ function captureSecondClick(
         !plainPrimaryClick(event) ||
         clickPointer(event, document, view) !== pointer ||
         !nearFirst(event)
-      )
+      ) {
+        cancel();
         return;
+      }
+      stopListening();
       event.preventDefault();
       event.stopImmediatePropagation();
+      finishPress?.(true);
       action();
     },
     capture,

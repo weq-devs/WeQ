@@ -6,6 +6,26 @@ export function dismissProfileCard(element: HTMLElement) {
   closers.get(element)?.();
 }
 
+/** 提前开始淡出。松手确认前仍保留名片，取消时可恢复。 */
+export function previewProfileCardDismissal(
+  element: HTMLElement,
+  pressMs: number,
+  timeout: number,
+) {
+  const view = element.ownerDocument.defaultView;
+  if (!closers.has(element) || !view) return;
+  const opacity = Number(view.getComputedStyle(element).opacity);
+  const fadedOpacity = opacity * 0.65;
+  return element.animate(
+    [
+      { opacity, easing: 'ease-out' },
+      { opacity: fadedOpacity, offset: pressMs / timeout },
+      { opacity: fadedOpacity },
+    ],
+    timeout,
+  );
+}
+
 export function useProfileCardMotion(ref: RefObject<HTMLElement | null>, close?: () => void) {
   useLayoutEffect(() => {
     const element = ref.current;
