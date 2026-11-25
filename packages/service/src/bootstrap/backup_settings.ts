@@ -1,5 +1,8 @@
 import { isHistoryCapacityMiB } from '../common/settings_catalog/history';
-import { MAX_DATABASE_CHECKUP_CONCURRENCY } from '../account/db_repair/maintenance_types';
+import {
+  MAX_DATABASE_CHECKUP_CONCURRENCY,
+  isDatabaseRepairBackupMode,
+} from '../account/db_repair/maintenance_types';
 import type { AccountConfig } from '../account/user_config';
 import { DEFAULT_APP_SETTINGS, MAX_LOG_RETENTION_DAYS, type AppSettings } from './user_config';
 import { isToastDuration } from '../common/toast_settings';
@@ -477,6 +480,11 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
       1,
       MAX_DATABASE_CHECKUP_CONCURRENCY,
     );
+  if (
+    input.databaseRepairBackupMode !== undefined &&
+    !isDatabaseRepairBackupMode(input.databaseRepairBackupMode)
+  )
+    fail('settings.databaseRepairBackupMode');
   if (input.appLock !== undefined) {
     const lock = record(input.appLock, 'settings.appLock');
     if (lock.method !== undefined && lock.method !== 'totp' && lock.method !== 'system')

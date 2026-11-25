@@ -39,6 +39,7 @@ import {
   databaseReadyForRepair,
   databaseNeedsPageLocation,
   databaseRepairRecommendation,
+  type DatabaseRepairBackupMode,
   type DatabaseRepairMethod,
   databaseRepairSupportLabel,
   databaseMaintenanceRowAbnormal,
@@ -230,7 +231,6 @@ export function DbRepairPanel({
   const [appendKind, setAppendKind] = useState<ScanKind>();
   const [selected, setSelected] = useState<string[]>([]);
   const [repairMethod, setRepairMethod] = useState<DatabaseRepairMethod>('deep');
-  const [backupChoices, setBackupChoices] = useState({ deep: true, quick: false });
   const [recentCheck, setRecentCheck] = useState<DatabaseMaintenanceStatus>();
   const [recentRepair, setRecentRepair] = useState<DatabaseMaintenanceStatus>();
   const [resultFocused, setResultFocused] = useState<string>();
@@ -283,6 +283,8 @@ export function DbRepairPanel({
     { enabled: !!legacyId, retry: false },
   );
   const cache = trpc.dbRepair.cacheLocation.useQuery(undefined);
+  const repairBackupMode = trpc.dbRepair.repairBackupMode.useQuery(undefined, { retry: false });
+  const setRepairBackupMode = trpc.dbRepair.setRepairBackupMode.useMutation();
   const checkupSettings = trpc.dbRepair.checkupSettings.useQuery(undefined, {
     enabled: surface === 'settings',
   });
@@ -381,7 +383,6 @@ export function DbRepairPanel({
       touched.current.clear();
       setSelected([]);
       setRepairMethod('deep');
-      setBackupChoices({ deep: true, quick: false });
       setNextScanSelection(undefined);
     }
     const defaults = live.databases
@@ -748,12 +749,15 @@ export function DbRepairPanel({
     .filter(({ disabledReason }) => !disabledReason)
     .map(({ dbName }) => dbName);
   const selectedReady = availableRepairNames.filter((name) => selected.includes(name));
-  const keepBackup = backupChoices[repairMethod];
+  const backupMode = repairBackupMode.data;
+  const keepBackup = backupMode === 'all' || (backupMode === 'deep' && repairMethod === 'deep');
   const methods = Object.fromEntries(selectedReady.map((name) => [name, repairMethod]));
   const backups = Object.fromEntries(selectedReady.map((name) => [name, keepBackup]));
-  const namesWithBudget = selectedReady.filter(
-    (name) => repairMethod === 'deep' || !!maintainedRows.get(name)?.quickBudgetBytes,
-  );
+  const namesWithBudget = backupMode
+    ? selectedReady.filter(
+        (name) => repairMethod === 'deep' || !!maintainedRows.get(name)?.quickBudgetBytes,
+      )
+    : [];
   const scannedCount = checkRows.filter((row) => row.scanStatus === 'completed').length;
   const abnormalCount = checkRows.filter(databaseMaintenanceRowAbnormal).length;
   const scanAction = !locked
@@ -834,7 +838,7 @@ export function DbRepairPanel({
       ({ freeBytes, recommendedBytes }) => freeBytes !== null && freeBytes < recommendedBytes,
     );
   const spaceTotal = space?.reduce((sum, { requiredBytes }) => sum + requiredBytes, 0);
-  const spacePending = selectedReady.length > namesWithBudget.length;
+  const spacePending = !!backupMode && selectedReady.length > namesWithBudget.length;
   const spaceError = namesWithBudget.length ? repairStorage.error?.message : undefined;
   const spaceStatus = spaceError
     ? '空间无法估算'
@@ -849,14 +853,22 @@ export function DbRepairPanel({
       ? '正在结束维护'
       : starting
         ? '正在准备修复'
-        : spaceError || insufficientSpace
-          ? spaceStatus
-          : undefined;
+        : !backupMode
+          ? repairBackupMode.error
+            ? '无法读取备份设置'
+            : '正在读取备份设置'
+          : spaceError || insufficientSpace
+            ? spaceStatus
+            : undefined;
   const repairStartLabel = repairStartBlocked ?? '开始修复';
-  const tightVolume = space?.find(
+  const tightVolumes = space?.filter(
     ({ freeBytes, requiredBytes, recommendedBytes }) =>
       freeBytes !== null && freeBytes < (insufficientSpace ? requiredBytes : recommendedBytes),
   );
+  const tightVolume = tightVolumes?.[0];
+  const workspacePath = repairStorage.data?.[0]?.cachePath;
+  const workspaceNeedsSpace =
+    workspacePath && tightVolumes?.some(({ paths }) => paths.includes(workspacePath));
   const spaceDeficit =
     tightVolume?.freeBytes == null
       ? undefined
@@ -913,6 +925,23 @@ export function DbRepairPanel({
       await cache.refetch();
       await utils.dbRepair.preflight.invalidate();
       await utils.dbRepair.repairStorage.invalidate();
+    });
+  const changeRepairBackupMode = (mode: DatabaseRepairBackupMode) =>
+    act(async () => {
+      if (mode === backupMode) return;
+      if (
+        mode === 'off' &&
+        !(await useDialog
+          .getState()
+          .confirm('关闭修复备份？', '关闭后，新修复将不再生成备份。已有备份仍可用于恢复。', {
+            okLabel: '关闭备份',
+            cancelLabel: '取消',
+            ownerDocument,
+          }))
+      )
+        return;
+      await setRepairBackupMode.mutateAsync({ mode });
+      await repairBackupMode.refetch();
     });
   const closeSurface = () => {
     setSurface(null);
@@ -1640,40 +1669,29 @@ export function DbRepairPanel({
                   ? '在克隆副本上修复坏页，通过复核后再替换原库。'
                   : '抢救可读记录并重建数据库。'}
               </p>
-              <label className="weq-dbm-repair-option">
-                <input
-                  type="checkbox"
-                  checked={keepBackup}
-                  onChange={(event) => {
-                    const checked = event.target.checked;
-                    setBackupChoices((choices) => ({ ...choices, [repairMethod]: checked }));
-                  }}
-                />
-                保留备份
-              </label>
               {spaceStatus ? (
                 <div className="weq-dbm-repair-space-actions">
                   {spaceError ? <p role="alert">{spaceError}</p> : null}
                   {tightVolume && !spaceError ? (
                     <p title={tightVolume.paths.join('、')}>
-                      {repairVolumeLabel(tightVolume.paths, repairStorage.data?.[0]?.cachePath)}
+                      {repairVolumeLabel(tightVolume.paths, workspacePath)}
                       {insufficientSpace ? ' · 腾出空间后可开始修复。' : ' · 可用空间低于建议值。'}
                     </p>
                   ) : null}
-                  <button
-                    type="button"
-                    className="weq-dbm-text-btn"
-                    onClick={() => void changeCache()}
-                  >
-                    更改工作区位置
-                  </button>
-                  <button
-                    type="button"
-                    className="weq-dbm-text-btn"
-                    onClick={() => void repairStorage.refetch()}
-                  >
-                    刷新空间
-                  </button>
+                  {spaceError || workspaceNeedsSpace ? (
+                    <p>
+                      {!spaceError && '可'}
+                      <button
+                        type="button"
+                        className="weq-dbm-text-btn"
+                        disabled={pickCache.isLoading}
+                        onClick={() => void changeCache()}
+                      >
+                        更改工作区位置
+                      </button>
+                      {!spaceError && '到空间更大的磁盘。'}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
             </section>
@@ -1744,6 +1762,26 @@ export function DbRepairPanel({
                     {checkupSettings.error ? (
                       <p className="weq-dbm-alert" role="alert">
                         {checkupSettings.error.message}
+                      </p>
+                    ) : null}
+                  </section>
+                  <section className="weq-dbm-backup-setting">
+                    <h3>修复前备份</h3>
+                    <SegmentedControl<DatabaseRepairBackupMode>
+                      label="修复前备份"
+                      value={backupMode ?? null}
+                      disabled={!backupMode || repairing || setRepairBackupMode.isLoading}
+                      options={[
+                        { value: 'off', label: '关闭' },
+                        { value: 'deep', label: '仅深度修复' },
+                        { value: 'all', label: '开启' },
+                      ]}
+                      onChange={(mode) => void changeRepairBackupMode(mode)}
+                    />
+                    {backupMode === 'all' ? <p>快速修复的备份须与原数据库位于同一磁盘。</p> : null}
+                    {repairBackupMode.error ? (
+                      <p className="weq-dbm-alert" role="alert">
+                        {repairBackupMode.error.message}
                       </p>
                     ) : null}
                   </section>

@@ -30,6 +30,7 @@ import {
   type DbRepairRecord,
 } from '@weq/service';
 import {
+  DATABASE_REPAIR_BACKUP_MODES,
   MAX_DATABASE_CHECKUP_CONCURRENCY,
   summarizeDatabaseMaintenance,
   databaseRepairRecommendation,
@@ -637,6 +638,14 @@ export const dbRepairRouter = router({
   cacheLocation: procedure.query(() => ({
     override: requireBootstrap().userConfig.getDbRepairCacheDir(),
   })),
+  repairBackupMode: procedure.query(() =>
+    requireBootstrap().userConfig.getSetting('databaseRepairBackupMode'),
+  ),
+  setRepairBackupMode: procedure
+    .input(z.object({ mode: z.enum(DATABASE_REPAIR_BACKUP_MODES) }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ databaseRepairBackupMode: input.mode });
+    }),
   checkupSettings: procedure.query(() => ({
     concurrency: requireBootstrap().userConfig.getSetting('databaseCheckupConcurrency'),
   })),

@@ -19,6 +19,13 @@ export function normalizeDatabaseCheckupConcurrency(
 }
 
 export type DatabaseRepairMethod = 'quick' | 'deep';
+export const DATABASE_REPAIR_BACKUP_MODES = ['off', 'deep', 'all'] as const;
+export type DatabaseRepairBackupMode = (typeof DATABASE_REPAIR_BACKUP_MODES)[number];
+
+export function isDatabaseRepairBackupMode(value: unknown): value is DatabaseRepairBackupMode {
+  return DATABASE_REPAIR_BACKUP_MODES.some((mode) => mode === value);
+}
+
 export type DatabaseRepairNextAction = 'retry-space' | 'view-deep' | 'retry' | 'check-source';
 export interface DatabasePageLocation {
   affected: BadPageScanReport['affected'];

@@ -69,7 +69,9 @@ import {
 import type { ExportFormat } from '../account/export/types';
 import {
   DEFAULT_DATABASE_CHECKUP_CONCURRENCY,
+  isDatabaseRepairBackupMode,
   normalizeDatabaseCheckupConcurrency,
+  type DatabaseRepairBackupMode,
 } from '../account/db_repair/maintenance_types';
 import {
   DEFAULT_CHAT_IMAGE_CACHE_MIB,
@@ -1046,6 +1048,8 @@ export interface AppSettings {
   databaseReadConcurrency: number;
   /** 同一轮维护同时体检的数据库数量上限。 */
   databaseCheckupConcurrency: number;
+  /** 数据库修复前保留备份的范围。 */
+  databaseRepairBackupMode: DatabaseRepairBackupMode;
   /** App-wide online Qzone page request budget, shared across accounts and exports. */
   qzonePagination: QzonePaginationSettings;
   /** 空友爱看自动换首页的冷却分钟数；0 表示每次进入都刷新。 */
@@ -1378,6 +1382,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   logCapacityMiB: DEFAULT_HISTORY_CAPACITY_MIB,
   databaseReadConcurrency: DEFAULT_DATABASE_READ_CONCURRENCY,
   databaseCheckupConcurrency: DEFAULT_DATABASE_CHECKUP_CONCURRENCY,
+  databaseRepairBackupMode: 'deep',
   qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
   qzonePublicRefreshCooldownMinutes: DEFAULT_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,
   qzoneForwardQuotePrevious: false,
@@ -2314,6 +2319,9 @@ export class UserConfigService {
       databaseCheckupConcurrency: normalizeDatabaseCheckupConcurrency(
         s?.databaseCheckupConcurrency,
       ),
+      databaseRepairBackupMode: isDatabaseRepairBackupMode(s?.databaseRepairBackupMode)
+        ? s.databaseRepairBackupMode
+        : d.databaseRepairBackupMode,
       qzonePagination: normalizeQzonePagination(s?.qzonePagination),
       qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(
         s?.qzonePublicRefreshCooldownMinutes,
@@ -2553,6 +2561,9 @@ export class UserConfigService {
         patch.databaseCheckupConcurrency,
         current.databaseCheckupConcurrency,
       ),
+      databaseRepairBackupMode: isDatabaseRepairBackupMode(patch.databaseRepairBackupMode)
+        ? patch.databaseRepairBackupMode
+        : current.databaseRepairBackupMode,
       qzonePagination: normalizeQzonePagination(patch.qzonePagination, current.qzonePagination),
       qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(
         patch.qzonePublicRefreshCooldownMinutes,

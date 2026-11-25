@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { DatabaseProgressTracker } from '@weq/service/db-progress';
 import {
   summarizeDatabaseMaintenance,
+  type DatabaseRepairBackupMode,
   type DatabaseMaintenanceStatus,
   type DatabaseMaintenanceSnapshot,
   type DatabaseMaintenanceReport,
@@ -10,6 +11,7 @@ import {
 
 type Input = {
   concurrency?: number;
+  mode?: DatabaseRepairBackupMode;
   uin?: string;
   configId?: string;
   kind?: 'scan' | 'checkup';
@@ -21,6 +23,7 @@ type Input = {
   format?: string;
   allowLowSpace?: boolean;
   backup?: boolean;
+  backups?: Record<string, boolean>;
   strictPages?: boolean;
 };
 type Listener = { onData(value: DatabaseMaintenanceStatus): void; onError?(error: Error): void };
@@ -35,6 +38,7 @@ let scopeNames = namesForFixture();
 let version = 0;
 let cache: string | null = '/synthetic/cache';
 let checkupConcurrency = 2;
+let repairBackupMode: DatabaseRepairBackupMode = 'deep';
 let freeBytes = 10_000_000_000;
 let resolveRun: ((value: unknown) => void) | undefined;
 const calls = {
@@ -248,6 +252,7 @@ export const maintenanceQa = {
     scopeNames = namesForFixture();
     cache = '/synthetic/cache';
     checkupConcurrency = 2;
+    repairBackupMode = 'deep';
     freeBytes = 10_000_000_000;
     calls.scan.length = 0;
     calls.append.length = 0;
@@ -480,6 +485,11 @@ export const trpc = {
     history: query(() => []),
     legacyReport: query(() => null),
     cacheLocation: query(() => ({ override: cache })),
+    repairBackupMode: query(() => repairBackupMode),
+    setRepairBackupMode: mutation(async ({ mode }) => {
+      repairBackupMode = mode!;
+      notify();
+    }),
     checkupSettings: query(() => ({ concurrency: checkupConcurrency })),
     setCheckupConcurrency: mutation(async ({ concurrency }) => {
       checkupConcurrency = concurrency!;

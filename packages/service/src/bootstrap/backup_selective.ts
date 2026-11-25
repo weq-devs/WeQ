@@ -33,6 +33,7 @@ const DEVICE_FIELDS = [
   'realtimeEnabled',
   'databaseReadConcurrency',
   'databaseCheckupConcurrency',
+  'databaseRepairBackupMode',
   'chatImageCacheMiB',
   'chatMessagePrewarmMiB',
   'autoLockMinutes',

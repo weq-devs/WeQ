@@ -71,6 +71,7 @@ export const APP_SETTINGS_RESET_POLICY = {
   logCapacityMiB: 'preference',
   databaseReadConcurrency: 'preference',
   databaseCheckupConcurrency: 'preference',
+  databaseRepairBackupMode: 'preference',
   qzonePagination: 'preference',
   qzonePublicRefreshCooldownMinutes: 'preference',
   qzoneForwardQuotePrevious: 'preference',

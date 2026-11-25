@@ -37,6 +37,16 @@ it('数据库体检并行数有默认值，保存后重开仍生效，非法值�
   expect(() => validateWeqAppSettings({ databaseCheckupConcurrency: 1.5 })).toThrow();
 });
 
+it('数据库修复默认只在深度修复时备份，保存后重开仍生效，备份拒绝非法值', () => {
+  const f = configFixture();
+  expect(f.service.getSetting('databaseRepairBackupMode')).toBe('deep');
+  f.service.setSettings({ databaseRepairBackupMode: 'off' });
+  const saved = f.open().getSettings();
+  expect(saved.databaseRepairBackupMode).toBe('off');
+  expect(snapshotWeqSettings(saved)).toMatchObject({ databaseRepairBackupMode: 'off' });
+  expect(() => validateWeqAppSettings({ databaseRepairBackupMode: 'invalid' })).toThrow();
+});
+
 describe('自动检查更新频率', () => {
   it('旧配置默认 60 分钟，正数不设上限并随备份保留', () => {
     const f = configFixture();

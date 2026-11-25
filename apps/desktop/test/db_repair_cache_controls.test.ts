@@ -621,7 +621,7 @@ it('磁盘空间偏低时点击开始修复直接确认，取消后不启动', a
   expect(maintenanceQa.calls.repair[0]?.allowLowSpace).toBe(true);
 });
 
-it('统一使用深度修复和备份，切到快速修复时将不支持的库置灰', async () => {
+it('修复设置统一保存备份方式，关闭时需确认，快速修复仍只选支持的库', async () => {
   maintenanceQa.ready('checkup', { secondIssue: true });
   await mount();
   await act(async () => tab('开始修复').click());
@@ -632,11 +632,18 @@ it('统一使用深度修复和备份，切到快速修复时将不支持的库�
   expect(choice('profile.db').labels?.[0]?.textContent).toContain('不符合快速修复条件');
   await act(async () => button('深度修复').click());
   expect(choice('profile.db').checked).toBe(true);
-  const backup = [...host.querySelectorAll('label')]
-    .find((label) => label.textContent?.trim() === '保留备份')!
-    .querySelector('input')!;
-  expect(backup.checked).toBe(true);
-  await act(async () => backup.click());
+  await act(async () => iconButton('数据库修复设置').click());
+  const backup = document.querySelector('[role="radiogroup"][aria-label="修复前备份"]')!;
+  expect(button('仅深度修复', backup).getAttribute('aria-checked')).toBe('true');
+  await act(async () => button('关闭', backup).click());
+  await confirm(false);
+  expect(button('仅深度修复', backup).getAttribute('aria-checked')).toBe('true');
+  await act(async () => button('开启', backup).click());
+  expect(button('开启', backup).getAttribute('aria-checked')).toBe('true');
+  await act(async () => button('关闭', backup).click());
+  await confirm(true);
+  expect(button('关闭', backup).getAttribute('aria-checked')).toBe('true');
+  await act(async () => iconButton('关闭').click());
   await act(async () => button('开始修复').click());
   await confirm(true);
   expect(maintenanceQa.calls.repair[0]).toMatchObject({

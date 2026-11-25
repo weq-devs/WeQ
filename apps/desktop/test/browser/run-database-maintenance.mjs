@@ -215,14 +215,19 @@ try {
   await button('数据库修复设置').click();
   const settingsPane = page.getByRole('dialog', { name: '数据库修复设置' });
   await settingsPane.getByText('/synthetic/cache', { exact: true }).waitFor();
+  await settingsPane.getByRole('radio', { name: '仅深度修复', checked: true }).waitFor();
+  await capture('repair-backup-settings-desktop');
   await settingsPane.getByRole('button', { name: '关闭', exact: true }).click();
   await button('进入修复').click();
   await page.getByRole('radio', { name: '快速修复' }).click();
-  assert.equal(await page.getByRole('checkbox', { name: '保留备份' }).isChecked(), false);
   await capture('quick-plan-desktop');
   await button('开始修复').click();
   await page.getByRole('dialog').getByRole('button', { name: '开始修复' }).click();
   await button('停止修复').waitFor();
+  assert.equal(
+    await page.evaluate(() => window.maintenanceQa.calls.repair[0].backups['nt_msg.db']),
+    false,
+  );
   assert.equal(await tab('修复进度与结果').getAttribute('aria-selected'), 'true');
   await page.evaluate(() => window.maintenanceQa.failQuick());
   const repairSummary = page.getByRole('region', { name: '本次修复结论' });
@@ -231,7 +236,6 @@ try {
   await capture('repair-waiting-desktop');
   await repairSummary.getByRole('button', { name: '继续修复' }).click();
   await page.getByRole('radio', { name: '深度修复', checked: true }).waitFor();
-  assert.equal(await page.getByRole('checkbox', { name: '保留备份' }).isChecked(), true);
   await page.setViewportSize({ width: 680, height: 780 });
   await page.evaluate(() => {
     window.maintenanceQa.theme.getState().setPreference('dark');
@@ -250,6 +254,10 @@ try {
   await button('开始修复').click();
   await page.getByRole('dialog').getByRole('button', { name: '开始修复' }).click();
   await button('停止修复').waitFor();
+  assert.equal(
+    await page.evaluate(() => window.maintenanceQa.calls.repair[1].backups['nt_msg.db']),
+    true,
+  );
   await page.evaluate(() => window.maintenanceQa.repair());
   await page.getByText('恢复表数据', { exact: true }).waitFor();
   await capture('repair-progress-narrow-dark');

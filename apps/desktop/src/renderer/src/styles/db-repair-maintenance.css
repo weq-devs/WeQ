@@ -1148,7 +1148,8 @@ button.weq-dbm-db:hover,
   height: 30px;
 }
 
-.weq-dbm-checkup-setting {
+.weq-dbm-checkup-setting,
+.weq-dbm-backup-setting {
   display: grid;
   gap: 6px;
   padding: 8px 0 4px;
@@ -1162,7 +1163,8 @@ button.weq-dbm-db:hover,
   font-size: 13px;
 }
 
-.weq-dbm-checkup-setting p:not(.weq-dbm-alert) {
+.weq-dbm-checkup-setting p:not(.weq-dbm-alert),
+.weq-dbm-backup-setting p:not(.weq-dbm-alert) {
   margin: 0;
   color: var(--weq-fg-secondary);
   font-size: 12px;
@@ -1174,10 +1176,15 @@ button.weq-dbm-db:hover,
   padding: 8px 0 4px;
 }
 
-.weq-dbm-cache h3 {
+.weq-dbm-cache h3,
+.weq-dbm-backup-setting h3 {
   margin: 0;
   font-size: 13px;
   font-weight: 600;
+}
+
+.weq-dbm-backup-setting .weq-segmented {
+  justify-self: start;
 }
 
 .weq-dbm-cache p {
@@ -1529,29 +1536,15 @@ button.weq-dbm-step.is-current {
   line-height: 1.3;
 }
 
-.weq-dbm-repair-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
-}
-
-.weq-dbm-repair-option input {
-  accent-color: var(--weq-accent-effective);
-}
-
 .weq-dbm-repair-space-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
+  display: grid;
+  gap: 4px;
   color: var(--weq-fg-secondary);
   font-size: 12px;
 }
 
-.weq-dbm-repair-space-actions > p {
-  flex: 0 0 100%;
+.weq-dbm-repair-space-actions .weq-dbm-text-btn {
+  font-size: inherit;
 }
 
 .weq-dbm-repair-space-actions > p[role='alert'] {
