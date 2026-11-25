@@ -42,7 +42,8 @@ import { FullFunctionSetup } from './FullFunctionSetup';
 import { CopyButton } from '../CopyButton';
 import { useRestrictedMode } from '../../state/restrictedMode';
 import { QQ_STATUS_DETAILS_ID } from '../RestrictedMode.shared';
-import { qqProxySetupGuide } from '../QqProxyConnection.shared';
+import { useQqProxyWaiting } from '../QqProxyConnection';
+import { QQ_PROXY_WAITING, qqProxySetupGuide } from '../QqProxyConnection.shared';
 import { formatExpiry } from './AccountBasicsSection.shared';
 import { SETTINGS_PAGE_LABELS } from './navigation';
 
@@ -198,6 +199,10 @@ export function AccountBasicsSection({
     onError: (error) => showError('更改 QQ 代理端口失败', error.message),
   });
   const proxy = qqSyncStatus.data;
+  const proxyWaiting = useQqProxyWaiting(
+    qqSyncStatus.isError ? undefined : proxy,
+    active && page === 'qq-proxy',
+  );
   const proxyEnabled = proxy?.enabled === true;
   const qqSyncPort = proxy?.port;
   const toggleQqProxy = async (enabled: boolean) => {
@@ -223,9 +228,11 @@ export function AccountBasicsSection({
           ? '已连接'
           : proxy.connecting
             ? '正在确认连接'
-            : proxy.running
-              ? '等待 QQ 连接'
-              : '代理未运行';
+            : proxyWaiting
+              ? QQ_PROXY_WAITING
+              : proxy.running
+                ? '未连接'
+                : '代理未运行';
   const proxyStatusError = qqSyncStatus.isError
     ? '无法读取代理状态。'
     : proxyEnabled && proxy && !proxy.running
@@ -599,6 +606,7 @@ export function AccountBasicsSection({
               <SettingsStatusBadge
                 label={proxyStatusText}
                 tone={proxyStatusError ? 'warning' : proxy?.connected ? 'ready' : 'neutral'}
+                loading={proxyWaiting}
                 details={{
                   label: `QQ 代理连接：${proxyStatusText}，查看详情`,
                   open: active && proxyDetailsOpen,

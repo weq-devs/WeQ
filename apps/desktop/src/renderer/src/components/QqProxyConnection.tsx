@@ -4,7 +4,6 @@ import { requestOpenSettings } from '../lib/callSettingsBridge';
 import { useViewState } from '../state/view';
 import { trpc } from '../trpc/client';
 import { QQ_DEBUG_COPY_SWITCH_GUIDE } from './RestrictedQqAction.shared';
-import { useTabActive } from './RetainedTabs.shared';
 import { SettingsNavigateContext } from './settings/controls.shared';
 import '../styles/restricted-mode.css';
 
@@ -33,14 +32,8 @@ export function QqProxySettingsLink({
 }
 
 export function QqProxyRecovery({ onLaunch }: { onLaunch: () => void }) {
-  const active = useTabActive();
-  const qqProcess = trpc.bootstrap.getQqProcessState.useQuery(undefined, {
-    enabled: active,
-    staleTime: 0,
-    refetchInterval: active ? 3000 : false,
-    refetchOnWindowFocus: true,
-    retry: false,
-  });
+  // 代理详情已在等待连接时轮询进程状态，操作按钮复用同一结果。
+  const qqProcess = useQqProcessState(false);
   const running = !qqProcess.isError && qqProcess.data?.running === true;
   const canRestart = running && qqProcess.data?.canRestart === true;
   const refresh = () => {
@@ -102,6 +95,28 @@ export function QqProxyRecovery({ onLaunch }: { onLaunch: () => void }) {
   );
 }
 
+function useQqProcessState(poll: boolean) {
+  return trpc.bootstrap.getQqProcessState.useQuery(undefined, {
+    enabled: poll,
+    staleTime: 0,
+    refetchInterval: poll ? 3000 : false,
+    refetchOnWindowFocus: true,
+    retry: false,
+  });
+}
+
+export function useQqProxyWaiting(
+  proxy:
+    | { enabled: boolean; running: boolean; connected: boolean; connecting: boolean }
+    | undefined,
+  poll: boolean,
+) {
+  const waitingForRequest =
+    proxy?.enabled === true && proxy.running && !proxy.connected && !proxy.connecting;
+  const qqProcess = useQqProcessState(poll && waitingForRequest);
+  return waitingForRequest && !qqProcess.isError && qqProcess.data?.running === true;
+}
+
 export function useQqProxyStatus(poll: boolean, sourceConfigId?: string) {
   const uin = useViewState((state) => (state.view === 'main' ? state.openedUin : null));
   const enabled = poll && Boolean(uin);
@@ -118,5 +133,9 @@ export function useQqProxyStatus(poll: boolean, sourceConfigId?: string) {
   const needsAttention = Boolean(
     current?.enabled && current.connectionExpected && !current.connected,
   );
-  return { current, needsAttention, isError: query.isError, refetch: query.refetch };
+  const waiting = useQqProxyWaiting(
+    needsAttention && !query.isError ? current : undefined,
+    enabled,
+  );
+  return { current, needsAttention, waiting, isError: query.isError, refetch: query.refetch };
 }

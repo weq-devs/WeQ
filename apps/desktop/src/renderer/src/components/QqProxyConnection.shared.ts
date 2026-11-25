@@ -1,4 +1,5 @@
 export const QQ_PROXY_CONNECTING = '正在确认 QQ 代理连接';
+export const QQ_PROXY_WAITING = '正在等待 QQ 代理连接';
 
 export function qqProxySetupGuide(port?: number): string {
   const portHint = port === undefined ? 'WeQ 显示的代理端口' : String(port);

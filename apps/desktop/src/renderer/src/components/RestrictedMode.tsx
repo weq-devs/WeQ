@@ -13,7 +13,11 @@ import {
 import { LongTermAuthorizationLink } from './LongTermAuthorizationLink';
 import { RestrictedQqAction } from './RestrictedQqAction';
 import { QqProxyRecovery, QqProxySettingsLink, useQqProxyStatus } from './QqProxyConnection';
-import { QQ_PROXY_CONNECTING, qqProxySetupGuide } from './QqProxyConnection.shared';
+import {
+  QQ_PROXY_CONNECTING,
+  QQ_PROXY_WAITING,
+  qqProxySetupGuide,
+} from './QqProxyConnection.shared';
 import { client, trpc } from '../trpc/client';
 import {
   restrictionReasons,
@@ -96,9 +100,9 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
   );
   const onlineAttention = Boolean(reasons.length || requests.length || entering);
   const proxyConnecting = proxy.needsAttention && !proxy.isError && proxy.current?.connecting;
-  const both = onlineAttention && proxy.needsAttention;
+  const both = onlineAttention && proxy.needsAttention && !proxy.waiting;
   const inProgress = Boolean(
-    (entering && !proxy.needsAttention) || (!onlineAttention && proxyConnecting),
+    (entering && !both) || (!onlineAttention && (proxy.waiting || proxyConnecting)),
   );
   const title = both
     ? 'QQ 功能受限'
@@ -112,7 +116,9 @@ export function RestrictedModeIndicator({ persistent = false }: { persistent?: b
             ? 'QQ 代理状态待确认'
             : proxyConnecting
               ? QQ_PROXY_CONNECTING
-              : 'QQ 代理未连接';
+              : proxy.waiting
+                ? QQ_PROXY_WAITING
+                : 'QQ 代理未连接';
   const visible =
     settings.data?.qqStatusIndicatorEnabled !== false && (onlineAttention || proxy.needsAttention);
   if (!visible && !persistent) return null;
@@ -820,9 +826,11 @@ export function RestrictedModeHost() {
             ? '当前账号无需连接代理'
             : proxyConnecting
               ? QQ_PROXY_CONNECTING
-              : proxy.running
-                ? 'QQ 代理未连接'
-                : 'QQ 代理未运行';
+              : proxyStatus.waiting
+                ? QQ_PROXY_WAITING
+                : proxy.running
+                  ? 'QQ 代理未连接'
+                  : 'QQ 代理未运行';
 
   return (
     showDetails && (
@@ -923,7 +931,7 @@ export function RestrictedModeHost() {
                 <Network size={15} aria-hidden /> QQ 代理连接
               </h3>
               <p role="status">
-                {proxyConnecting && (
+                {(proxyConnecting || proxyStatus.waiting) && (
                   <LoaderCircle size={13} className="weq-restricted-progress-icon" aria-hidden />
                 )}
                 {proxyLabel}

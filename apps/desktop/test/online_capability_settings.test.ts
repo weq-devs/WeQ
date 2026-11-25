@@ -38,6 +38,7 @@ const mock = vi.hoisted(() => ({
     qqClientSyncEnabled: false,
   },
   proxyStatus: undefined as ReturnType<typeof waitingProxy> | undefined,
+  qqRunning: false,
   access: undefined as OnlineAccess | undefined,
   failed: false,
   queryOptions: vi.fn(),
@@ -64,7 +65,9 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                     ? mock.access
                     : method === 'getQqClientSyncStatus'
                       ? mock.proxyStatus
-                      : undefined,
+                      : method === 'getQqProcessState'
+                        ? { running: mock.qqRunning }
+                        : undefined,
               isError: method === 'getGroupAlbumAccessState' && mock.failed,
               isLoading: false,
               refetch: async () => ({ data: mock.settings }),
@@ -105,6 +108,7 @@ beforeEach(() => {
     qqClientSyncEnabled: false,
   };
   mock.proxyStatus = undefined;
+  mock.qqRunning = false;
   mock.access = { ...ready };
   mock.failed = false;
   mock.queryOptions.mockClear();
@@ -166,7 +170,11 @@ it('关闭统一提示后，代理设置仍可打开共用详情并查看待同�
     .querySelector('[data-setting-id="qq-client-sync"]')!
     .closest('.weq-set-card')!;
   const badge = () => card.querySelector<HTMLButtonElement>('button[aria-label^="QQ 代理连接："]')!;
-  expect(badge().textContent).toBe('等待 QQ 连接');
+  expect(badge().textContent).toBe('未连接');
+  mock.qqRunning = true;
+  f.render();
+  expect(badge().textContent).toBe('正在等待 QQ 代理连接');
+  expect(badge().getAttribute('aria-busy')).toBe('true');
   expect(syncCard.textContent).toContain('待同步 7 项');
   act(() => badge().click());
   expect(useRestrictedMode.getState().settingsSection).toBe('proxy');

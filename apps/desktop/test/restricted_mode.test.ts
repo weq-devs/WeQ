@@ -442,6 +442,19 @@ it('两项受限共用提示、面板和打开 QQ 操作，恢复其中一项时
   expect(mock.refetch).toHaveBeenCalled();
 
   mock.access = { ...ready };
+  mock.qqRunning = true;
+  f.render();
+  expect(indicators()[0]?.textContent).toBe('正在等待 QQ 代理连接');
+  expect(indicators()[0]?.getAttribute('aria-busy')).toBe('true');
+  expect(proxy()?.querySelector('[role="status"]')?.textContent).toBe('正在等待 QQ 代理连接');
+  expect(proxy()?.textContent).toContain('19082');
+
+  mock.qqRunning = false;
+  f.render();
+  expect(indicators()[0]?.textContent).toBe('QQ 代理未连接');
+  expect(indicators()[0]?.getAttribute('aria-busy')).toBe('false');
+
+  mock.qqRunning = true;
   mock.proxy = { ...disconnectedProxy(), connecting: true };
   f.render();
   expect(online()).toBeNull();
