@@ -1,6 +1,7 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { RotateCcw, Loader2 } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { Modal } from '../Dialog';
+import { LoadingIndicator } from '../LoadingIndicator';
 import { SegmentedControl } from '../SegmentedControl';
 import { client, trpc } from '../../trpc/client';
 import {
@@ -232,8 +233,7 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
             <div className="weq-dialog-body">
               {busy ? (
                 <p role="status">
-                  <Loader2 className="weq-spin" size={14} />
-                  正在处理…
+                  <LoadingIndicator>正在处理…</LoadingIndicator>
                 </p>
               ) : null}
               <div className="weq-settings-reset-items">

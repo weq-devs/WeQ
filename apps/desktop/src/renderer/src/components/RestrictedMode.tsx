@@ -11,6 +11,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { LongTermAuthorizationLink } from './LongTermAuthorizationLink';
+import { LoadingIndicator } from './LoadingIndicator';
 import { RestrictedQqAction } from './RestrictedQqAction';
 import { QqProxyRecovery, QqProxySettingsLink, useQqProxyStatus } from './QqProxyConnection';
 import {
@@ -968,10 +969,11 @@ export function RestrictedModeHost() {
                 <Network size={15} aria-hidden /> QQ 代理连接
               </h3>
               <p role="status">
-                {(proxyConnecting || proxyStatus.waiting) && (
-                  <LoaderCircle size={13} className="weq-restricted-progress-icon" aria-hidden />
+                {proxyConnecting || proxyStatus.waiting ? (
+                  <LoadingIndicator>{proxyLabel}</LoadingIndicator>
+                ) : (
+                  proxyLabel
                 )}
-                {proxyLabel}
               </p>
               {proxyAttention && proxyImpact && <p>暂时无法使用{proxyImpact}。</p>}
               {proxyStatus.isError ? (

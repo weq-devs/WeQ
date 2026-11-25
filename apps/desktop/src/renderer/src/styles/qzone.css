@@ -855,7 +855,9 @@ button.weq-qzn-home-stat .weq-qzn-home-stat-label {
   object-fit: contain;
 }
 
-.weq-qzn-actions > span {
+.weq-qzn-actions > :is(button, span),
+.weq-qzn-actions :where(.weq-qzn-like-hover) > button,
+.weq-qzn-public-composer > div > :where(button) {
   display: inline-flex;
   align-items: center;
   justify-content: center;

@@ -2,6 +2,7 @@ import { ToolbarLabel } from '../components/CompactToolbar';
 import { observeCompactToolbar } from '../components/CompactToolbar.shared';
 import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
+import { LoadingIndicator } from '../components/LoadingIndicator';
 import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -434,8 +435,7 @@ export function ExportViewer({
             <FolderScanStatus count={scanCount} unit="个导出" />
           ) : (
             <span role="status">
-              <Loader2 size={15} className="weq-spin" aria-hidden />
-              正在读取…
+              <LoadingIndicator>正在读取…</LoadingIndicator>
             </span>
           )
         ) : null}

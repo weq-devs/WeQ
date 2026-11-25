@@ -83,10 +83,6 @@
   align-items: center;
   gap: 6px;
 }
-.weq-qq-status-section > [role='status'] > svg {
-  margin-inline-end: 6px;
-  vertical-align: text-bottom;
-}
 .weq-qq-status-section > :last-child {
   margin-bottom: 0;
 }
