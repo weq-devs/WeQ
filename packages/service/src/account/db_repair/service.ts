@@ -697,7 +697,11 @@ export class DbRepairService {
     };
     const publishProgress = () => {
       const progress = { ...latest, storage };
-      if (latest.phase === 'Repair' && rebuildPercent !== undefined) {
+      if (
+        latest.phase === 'Repair' &&
+        latest.detail?.step !== 'recover-finalize' &&
+        rebuildPercent !== undefined
+      ) {
         const detail = latest.detail ?? { step: latest.phase, message: latest.message };
         progress.detail = { ...detail, rebuildPercent };
       }
@@ -710,9 +714,11 @@ export class DbRepairService {
         updateRebuildPercent(progress.rebuiltBytes);
       }
       const phaseChanged = latest.phase !== progress.phase;
-      // 阶段摘要和字段计数交替到达。保留计数，让空间采样也能更新同一行进度条。
+      // 同一重建阶段的摘要与空间采样应保留正在执行的具体步骤。
       latest =
-        !phaseChanged && !progress.detail && latest.detail?.step === 'recover-data'
+        !phaseChanged &&
+        !progress.detail &&
+        (latest.detail?.step === 'recover-data' || latest.detail?.step === 'recover-finalize')
           ? { ...progress, detail: latest.detail }
           : progress;
       if (!committing && (phaseChanged || Date.now() - lastSpaceCheck >= 1000)) checkSpace();

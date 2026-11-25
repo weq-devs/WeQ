@@ -391,6 +391,12 @@ describe('DbRepairService.repair 成功路径', () => {
           await vi.advanceTimersByTimeAsync(1000);
           writeFileSync(output, Buffer.alloc(headerBytes + 10 * 4096));
           await vi.advanceTimersByTimeAsync(1000);
+          progress({
+            ...tick,
+            detail: { step: 'recover-finalize', message: '正在查找可恢复的数据' },
+          });
+          await vi.advanceTimersByTimeAsync(1000);
+          progress(tick);
           writeFileSync(options.outPath, repairedBytes());
           progress({ phase: 'Verify', percent: 100, message: '检查修复产物' });
           return makeReport();
@@ -398,12 +404,23 @@ describe('DbRepairService.repair 成功路径', () => {
       });
       await h.repair({ uin: REF, dbName: 'nt_msg.db', backup: false }, collect(h.progress));
       const rebuilding = h.progress.filter((tick) => tick.phase === 'Repair');
-      expect(rebuilding.map((tick) => tick.detail?.rebuildPercent)).toEqual([25, 25, 50, 99, 99]);
-      expect(rebuilding.at(-1)?.detail).toMatchObject({
+      const tableRecovery = rebuilding.slice(0, 5);
+      expect(tableRecovery.map((tick) => tick.detail?.rebuildPercent)).toEqual([
+        25, 25, 50, 99, 99,
+      ]);
+      expect(tableRecovery.at(-1)?.detail).toMatchObject({
         step: 'recover-data',
         completed: 9000,
         objectName: 'group_msg_table',
       });
+      const finalizing = rebuilding.slice(5);
+      expect(finalizing).toHaveLength(3);
+      for (const tick of finalizing) {
+        expect(tick.detail?.step).toBe('recover-finalize');
+        expect(tick.detail?.rebuildPercent).toBeUndefined();
+        expect(tick.detail?.completed).toBeUndefined();
+        expect(tick.detail?.objectName).toBeUndefined();
+      }
       expect(
         h.progress.find((tick) => tick.phase === 'Verify')?.detail?.rebuildPercent,
       ).toBeUndefined();
