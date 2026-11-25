@@ -90,6 +90,14 @@ html[data-theme='dark'] .weq-settings-dialog :is(.weq-set-card, .weq-settings-ap
   box-shadow: none;
 }
 
+.weq-settings-dialog .weq-set-card-title {
+  font-size: 14px;
+}
+
+.weq-settings-dialog .weq-set-card-icon > svg.lucide {
+  stroke-width: 1.8;
+}
+
 html[data-theme] .weq-settings-dialog .weq-settings-appearance-head {
   align-items: center;
   gap: 16px;
@@ -302,7 +310,6 @@ html[data-theme] .weq-set-chk:disabled .weq-set-chk-box::after {
   border-color: var(--weq-field-disabled-fg);
 }
 
-/* 卡片标题区：标题 + 一句说明，说明与页头 desc 同字号同颜色。 */
 .weq-set-card-heading {
   display: grid;
   gap: 4px;

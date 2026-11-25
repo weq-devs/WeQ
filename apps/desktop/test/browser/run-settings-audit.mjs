@@ -231,8 +231,8 @@ try {
         layoutProblems.push(`${where} 卡片内边距 ${card.padding} ≠ 14 16 14 16`);
       if (card.gap !== 10) layoutProblems.push(`${where} 卡片内间距 ${card.gap}px ≠ 10px`);
     }
-    if (page.metrics.cardTitle && page.metrics.cardTitle.fontSize !== 13)
-      layoutProblems.push(`${where} 卡片标题字号 ${page.metrics.cardTitle.fontSize}px ≠ 13px`);
+    if (page.metrics.cardTitle && page.metrics.cardTitle.fontSize !== 14)
+      layoutProblems.push(`${where} 卡片标题字号 ${page.metrics.cardTitle.fontSize}px ≠ 14px`);
     if (page.metrics.rowLabel && page.metrics.rowLabel.fontSize !== 14)
       layoutProblems.push(`${where} 行 label 字号 ${page.metrics.rowLabel.fontSize}px ≠ 14px`);
     if (page.metrics.rowDesc && page.metrics.rowDesc.fontSize !== 12)

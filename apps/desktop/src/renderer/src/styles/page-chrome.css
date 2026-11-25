@@ -289,7 +289,9 @@ html[data-theme] .weq-workspace-page .weq-set-title {
   font-size: 16px;
   line-height: 24px;
 }
-html[data-theme] .weq-workspace-page :is(.weq-set-desc, .weq-settings-section p) {
+html[data-theme]
+  .weq-workspace-page
+  :is(.weq-set-desc, .weq-settings-section p:where(:not(.weq-set-card-desc))) {
   color: var(--weq-fg-secondary);
   font-size: 13px;
 }

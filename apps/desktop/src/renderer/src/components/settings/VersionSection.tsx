@@ -110,7 +110,7 @@ export function VersionSection(): ReactElement {
         <div className="weq-set-hero">
           <Boxes size={28} strokeWidth={1.6} aria-hidden style={{ flexShrink: 0 }} />
           <div className="weq-set-hero-info">
-            <span className="weq-set-hero-name">nt_helper.node</span>
+            <span className="weq-set-row-label">nt_helper.node</span>
             <span className="weq-set-hero-sub">
               <NumericText>
                 {native.isLoading

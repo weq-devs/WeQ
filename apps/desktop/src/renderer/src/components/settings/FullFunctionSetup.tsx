@@ -91,9 +91,7 @@ export function FullFunctionSetup({
       >
         {enableSetting}
         <section className="weq-full-function-section" data-setting-id="full-feature-routes">
-          <h4 className="weq-full-function-section-title">
-            {isMac ? '启用方式（macOS）' : '启用方式'}
-          </h4>
+          <h4 className="weq-set-subheading">{isMac ? '启用方式（macOS）' : '启用方式'}</h4>
           {isMac && <p className="weq-set-note">以下两条路线任选其一，不需要同时配置。</p>}
           {isMac ? (
             <>

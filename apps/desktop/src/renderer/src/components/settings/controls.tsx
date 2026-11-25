@@ -93,12 +93,14 @@ export function SectionHeader({
   return (
     <header className="weq-set-head">
       <div className="weq-set-head-title">
-        {headingIcon ? (
-          <span className="weq-set-head-icon" aria-hidden>
-            {headingIcon}
-          </span>
-        ) : null}
-        <h3 className={`weq-set-title${titleClassName ? ` ${titleClassName}` : ''}`}>{title}</h3>
+        <div className="weq-set-head-label">
+          {headingIcon ? (
+            <span className="weq-set-head-icon" aria-hidden>
+              {headingIcon}
+            </span>
+          ) : null}
+          <h3 className={`weq-set-title${titleClassName ? ` ${titleClassName}` : ''}`}>{title}</h3>
+        </div>
         <SettingsScopeBadge />
         {badge ? <span className="weq-set-badge">{badge}</span> : null}
       </div>
@@ -132,7 +134,7 @@ export function Card({
   settingId?: string;
   title?: string;
   titleBadge?: ReactNode;
-  /** 卡片标题下的一句说明，与页头 `SectionHeader` 的 desc 同一套字号/颜色。 */
+  /** 卡片标题下的一句说明。 */
   desc?: ReactNode;
   /** 标题前的图标（lucide 组件或资源图），与设置页各分区的视觉语言保持一致。 */
   icon?: ReactNode;

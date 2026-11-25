@@ -309,6 +309,11 @@ html[data-component-style='retro'][data-theme]
   box-shadow: var(--weq-retro-well);
 }
 
+html[data-component-style='retro'][data-theme] .weq-style-option[aria-checked='true'] {
+  border-color: var(--weq-accent-ink);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-elevated));
+}
+
 html[data-component-style='retro'][data-theme]
   body
   :is(

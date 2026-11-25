@@ -5222,7 +5222,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   color: #1f1f1f;
 }
 
-.weq-settings-section p {
+.weq-settings-section p:where(:not(.weq-set-card-desc)) {
   margin: 0;
   color: #525252;
   font-size: 14px;
@@ -5258,6 +5258,13 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   display: flex;
   align-items: center;
   gap: 9px;
+}
+
+.weq-set-head-label {
+  display: flex;
+  align-items: center;
+  gap: inherit;
+  min-width: 0;
 }
 
 .weq-set-head-icon {
@@ -5310,6 +5317,14 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   font-size: 13px;
   font-weight: 600;
   color: var(--weq-fg-primary);
+}
+
+.weq-set-subheading {
+  margin: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.55;
 }
 
 .weq-set-card-icon {
@@ -6594,7 +6609,7 @@ html[data-theme='dark'] .weq-settings-nav-item.is-active {
   color: #8cc4ff;
 }
 
-html[data-theme='dark'] .weq-settings-section p,
+html[data-theme='dark'] .weq-settings-section p:where(:not(.weq-set-card-desc)),
 html[data-theme='dark'] .weq-set-desc,
 html[data-theme='dark'] .weq-set-row-desc,
 html[data-theme='dark'] .weq-set-hero-sub,

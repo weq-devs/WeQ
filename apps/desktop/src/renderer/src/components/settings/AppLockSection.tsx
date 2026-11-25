@@ -201,7 +201,7 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
           </p>
         ) : null}
         <div className="weq-applock-settings-group" data-setting-id="unlock-method">
-          <div className="weq-set-card-title">解锁方式</div>
+          <div className="weq-set-subheading">解锁方式</div>
           <div className="weq-applock-methods" role="radiogroup" aria-label="解锁方式">
             <button
               type="button"
@@ -250,7 +250,7 @@ export function AppLockSection({ heading = true }: { heading?: boolean }): React
         {method === 'totp' ? (
           <div className="weq-applock-settings-group">
             <div className="weq-set-card-head">
-              <div className="weq-set-card-title">WeQ 验证器</div>
+              <div className="weq-set-subheading">WeQ 验证器</div>
               {totpConfigured ? (
                 <span className="weq-applock-bound-badge">
                   <Check size={12} strokeWidth={2.4} aria-hidden />

@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { BellRing } from 'lucide-react';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { trpc } from '../../trpc/client';
 import { useDialog } from '../Dialog.shared';
@@ -28,7 +29,12 @@ export function QqStatusReminderSettings() {
   }
 
   return (
-    <Card title="状态提醒" settingId="qq-status-reminders" resetId="qq-status-reminders">
+    <Card
+      title="状态提醒"
+      icon={<BellRing size={15} strokeWidth={1.8} />}
+      settingId="qq-status-reminders"
+      resetId="qq-status-reminders"
+    >
       <Row
         settingId="qq-status-indicator"
         desc="QQ 在线能力或代理连接需要关注时，在窗口右上角显示一个提示。"
