@@ -13,13 +13,12 @@ import {
   Loader2,
   LockKeyhole,
   Pause,
-  Play,
   RefreshCw,
   RotateCcw,
+  ScanLine,
   ShieldCheck,
   Settings2,
   Square,
-  Stethoscope,
   Trash2,
   UnlockKeyhole,
   Wrench,
@@ -491,7 +490,11 @@ export function DbRepairPanel({
     waiting && live?.operation?.kind !== 'repair' && live?.operation?.status === 'cancelled';
   const scanRunning = running && !repairing;
   const available = status.data?.databases.filter((row) => row.exists) ?? [];
-  const scanNames = scanSelection ?? available.map((row) => row.dbName);
+  const availableNames = available.map((row) => row.dbName);
+  const scanNames = scanSelection
+    ? availableNames.filter((name) => scanSelection.includes(name))
+    : availableNames;
+  const allScanSelected = scanNames.length === availableNames.length;
   const databases = view?.databases ?? [];
   const operation = view?.operation;
   const bytesByName = useMemo(
@@ -532,6 +535,13 @@ export function DbRepairPanel({
     );
   const restartScan =
     locked && !paused && !needsCheckup && databases.every((row) => row.scanStatus === 'completed');
+  const scanAction = restartScan
+    ? '重新扫描'
+    : !locked
+      ? '开始扫描'
+      : needsCheckup && !paused
+        ? '开始补充检查'
+        : '继续扫描';
   const maintenanceLabel = ending
     ? '正在解锁'
     : repairing
@@ -788,23 +798,17 @@ export function DbRepairPanel({
         ) : null}
 
         {showScanSetup ? (
-          <section className="weq-dbm-hero" aria-label="扫描设置">
-            <span className="weq-dbm-hero-icon" aria-hidden>
-              <Stethoscope size={22} strokeWidth={1.9} />
-            </span>
-            <div className="weq-dbm-hero-main" role="status">
-              <h2>{paused ? '扫描已暂停' : locked ? '继续检查本轮数据库' : '先扫描一次数据库'}</h2>
-              <p>
-                {status.data && !status.data.keyPresent && !status.data.error
-                  ? '请先用 WeQ 打开一次这个账号，获取数据库密钥后再扫描。'
-                  : paused
-                    ? '已完成的检查会保留，可切换体检类型后继续扫描。'
-                    : locked
-                      ? '继续使用本轮已选的数据库。'
-                      : '扫描以只读方式检查所选数据库，维护期间会暂停写入。'}
-              </p>
-            </div>
-            <div className="weq-dbm-hero-actions weq-dbm-scan-controls">
+          <div className={`weq-dbm-scan-setup${locked ? '' : ' has-selection'}`}>
+            <section className="weq-dbm-scan-controls" aria-label="扫描设置">
+              <button
+                className="weq-set-btn weq-set-btn-primary weq-dbm-scan-start"
+                type="button"
+                disabled={!canScan || (!locked && !scanNames.length)}
+                onClick={() => void startScan(scanKind)}
+              >
+                <ScanLine size={30} strokeWidth={1.6} aria-hidden />
+                {scanAction}
+              </button>
               <SegmentedControl
                 label="体检类型"
                 value={scanKind}
@@ -814,54 +818,69 @@ export function DbRepairPanel({
                 ]}
                 onChange={setScanKind}
               />
-              <button
-                className="weq-set-btn weq-set-btn-primary"
-                type="button"
-                disabled={!canScan || (!locked && !scanNames.length)}
-                onClick={() => void startScan(scanKind)}
-              >
-                <Play size={14} />
-                {restartScan
-                  ? '重新扫描'
-                  : locked
-                    ? needsCheckup && !paused
-                      ? '开始补充检查'
-                      : '继续扫描'
-                    : '开始扫描'}
-              </button>
-            </div>
-          </section>
-        ) : null}
-
-        {showScanSetup && !locked ? (
-          <fieldset className="weq-dbm-scan-databases">
-            <legend>数据库</legend>
-            {available.length ? (
-              <ul className="weq-dbm-list">
-                {available.map((row) => (
-                  <li key={row.dbName}>
-                    <DatabaseCard
-                      dbName={row.dbName}
-                      bytes={row.bytes}
-                      selection={{
-                        checked: scanNames.includes(row.dbName),
-                        onChange: (checked) =>
-                          setScanSelection(
-                            checked
-                              ? [...scanNames, row.dbName]
-                              : scanNames.filter((name) => name !== row.dbName),
-                          ),
-                      }}
-                    />
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className={status.isLoading ? 'weq-dbm-loading' : 'weq-dbm-empty'} role="status">
-                {status.isLoading ? '正在读取数据库列表…' : '没有可扫描的数据库。'}
+              <p role="status">
+                {status.data && !status.data.keyPresent && !status.data.error
+                  ? '请先用 WeQ 打开一次这个账号，获取数据库密钥后再扫描。'
+                  : paused
+                    ? '扫描已暂停，已完成的检查会保留。'
+                    : locked
+                      ? '继续使用本轮已选的数据库。'
+                      : available.length && !scanNames.length
+                        ? '请在下方至少选择一个数据库。'
+                        : '扫描只读取所选数据库，维护期间会暂停写入。'}
               </p>
-            )}
-          </fieldset>
+            </section>
+
+            {!locked ? (
+              <section className="weq-dbm-scan-databases" aria-label="选择数据库">
+                <div className="weq-dbm-dbs-head">
+                  <h2>数据库</h2>
+                  {available.length ? (
+                    <div className="weq-dbm-dbs-tools">
+                      <span className="weq-dbm-selected">
+                        <NumericText>{`已选 ${scanNames.length} / ${available.length}`}</NumericText>
+                      </span>
+                      <button
+                        type="button"
+                        className="weq-dbm-text-btn"
+                        onClick={() => setScanSelection(allScanSelected ? [] : availableNames)}
+                      >
+                        {allScanSelected ? '取消全选' : '全选'}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                {available.length ? (
+                  <ul className="weq-dbm-list">
+                    {available.map((row) => (
+                      <li key={row.dbName}>
+                        <DatabaseCard
+                          dbName={row.dbName}
+                          bytes={row.bytes}
+                          selection={{
+                            checked: scanNames.includes(row.dbName),
+                            onChange: (checked) =>
+                              setScanSelection(
+                                checked
+                                  ? [...scanNames, row.dbName]
+                                  : scanNames.filter((name) => name !== row.dbName),
+                              ),
+                          }}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p
+                    className={status.isLoading ? 'weq-dbm-loading' : 'weq-dbm-empty'}
+                    role="status"
+                  >
+                    {status.isLoading ? '正在读取数据库列表…' : '没有可扫描的数据库。'}
+                  </p>
+                )}
+              </section>
+            ) : null}
+          </div>
         ) : null}
 
         {showProgress ? (

@@ -63,10 +63,15 @@ try {
   const button = (name) => page.getByRole('button', { name, exact: true });
   await button('开始扫描').waitFor();
   assert.equal(await page.evaluate(() => window.maintenanceQa.calls.scan.length), 0);
-  const mode = await page.getByRole('radio', { checked: true }).boundingBox();
-  const start = await button('开始扫描').boundingBox();
-  assert.ok(Math.abs(mode.height - start.height) <= 1, '模式与按钮等高');
-  assert.ok(Math.abs(mode.y - start.y) <= 1, '模式与按钮垂直对齐');
+  const scanDatabases = page.getByRole('region', { name: '选择数据库' });
+  await button('取消全选').click();
+  assert.equal(await scanDatabases.getByRole('checkbox', { checked: true }).count(), 0);
+  assert.equal(await button('开始扫描').isDisabled(), true);
+  await button('全选').click();
+  assert.equal(
+    await scanDatabases.getByRole('checkbox', { checked: true }).count(),
+    await scanDatabases.getByRole('checkbox').count(),
+  );
   await page.getByRole('checkbox', { name: /unsupported.db/ }).uncheck();
   await capture('scan-desktop');
   await button('开始扫描').click();
@@ -164,7 +169,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    '数据库维护：扫描模式与暂停、等高与间距、历史与设置浮层、导出、持锁等待、修复和代表布局通过。',
+    '数据库维护：全选和取消全选、扫描模式与暂停、历史与设置浮层、导出、持锁等待、修复和代表布局通过。',
   );
 } finally {
   await browser?.close();

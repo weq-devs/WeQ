@@ -336,33 +336,84 @@ html[data-theme='dark'] .weq-dbm {
   gap: 10px;
 }
 
-.weq-dbm-scan-controls {
+.weq-dbm-body > .weq-dbm-scan-setup.has-selection {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
+  flex: 1 0 auto;
+  flex-direction: column;
+  justify-content: space-evenly;
+  gap: 24px;
+}
+
+.weq-dbm-scan-controls {
+  display: grid;
+  justify-items: center;
+  gap: 13px;
   min-width: 0;
+  padding-block: 16px 8px;
+  text-align: center;
 }
 
-.weq-dbm-scan-controls > .weq-segmented {
-  box-sizing: border-box;
+.weq-dbm .weq-set-btn.weq-dbm-scan-start {
+  --weq-control-radius: 50%;
+  position: relative;
+  flex-direction: column;
+  gap: 8px;
+  width: clamp(104px, 16vh, 124px);
+  aspect-ratio: 1;
+  padding: 8px;
+  border-radius: var(--weq-control-radius);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.weq-dbm-scan-start::before {
+  position: absolute;
+  inset: -7px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
+  border-radius: inherit;
+  pointer-events: none;
+  content: '';
+}
+
+.weq-dbm-scan-start:disabled::before {
+  border-color: var(--dbm-hair);
+}
+
+/* 扫描页的模式选项共用一个圆条外形。 */
+html[data-theme] .weq-dbm .weq-dbm-scan-controls > .weq-segmented {
+  --weq-control-radius: 999px;
+  --weq-control-border-width: 0px;
+  --weq-control-shadow: none;
+  width: 154px;
   flex-wrap: nowrap;
-  height: 46px;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: var(--weq-control-radius);
+  background: color-mix(in srgb, var(--weq-fg-primary) 7%, transparent);
+  box-shadow: none;
 }
 
-.weq-dbm-scan-controls > .weq-segmented > button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  height: 38px;
-  min-height: 0;
-  padding: 6px 12px;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 18px;
-  white-space: nowrap;
+html[data-theme] .weq-dbm .weq-dbm-scan-controls > .weq-segmented > button {
+  --weq-control-radius: 0px;
+  flex: 1 1 0;
+  padding-inline: 5px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.weq-dbm .weq-dbm-scan-controls > .weq-segmented > button:focus-visible {
+  outline-color: currentColor;
+  outline-offset: -2px;
+}
+
+.weq-dbm-scan-controls > p {
+  max-width: 48ch;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.65;
 }
 
 .weq-dbm-hero-actions .weq-set-btn {
@@ -1545,15 +1596,11 @@ button.weq-dbm-step.is-current {
 
 .weq-dbm-scan-databases {
   min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
 }
 
-.weq-dbm-scan-databases legend {
-  margin-bottom: 8px;
-  padding: 0;
-  font-weight: 650;
+.weq-dbm-scan-databases .weq-dbm-list > li {
+  flex-grow: 1;
+  max-width: 280px;
 }
 
 .weq-dbm-progress-toolbar,
