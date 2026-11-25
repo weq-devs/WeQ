@@ -331,17 +331,29 @@ it('更多精简重复功能，QQ 资料仍从顶栏头像进入', async () => {
     bottom: 40,
   } as DOMRect);
   await click('查看我的名片');
-  expect(onOpenProfile).toHaveBeenLastCalledWith(props.user, { x: 68, y: 40 });
+  expect(onOpenProfile).toHaveBeenLastCalledWith(
+    props.user,
+    { x: 68, y: 40, trigger: avatar },
+    undefined,
+  );
   await act(async () =>
     avatar.dispatchEvent(
       new MouseEvent('click', { bubbles: true, detail: 1, clientX: 48, clientY: 24 }),
     ),
   );
-  expect(onOpenProfile).toHaveBeenLastCalledWith(props.user, { x: 48, y: 24 });
+  expect(onOpenProfile).toHaveBeenLastCalledWith(
+    props.user,
+    { x: 48, y: 24, trigger: avatar },
+    undefined,
+  );
   const nextUser = { ...props.user, identityValue: '10002' };
   await act(async () => render(nextUser));
   await click('查看我的名片');
-  expect(onOpenProfile).toHaveBeenLastCalledWith(nextUser, { x: 68, y: 40 });
+  expect(onOpenProfile).toHaveBeenLastCalledWith(
+    nextUser,
+    { x: 68, y: 40, trigger: avatar },
+    undefined,
+  );
   expect(host.querySelector('[role="dialog"]')).toBeNull();
   expect(props.onOpenSettings).not.toHaveBeenCalled();
   expect(host.querySelector('.weq-mobile-actions-toggle')).toBeNull();

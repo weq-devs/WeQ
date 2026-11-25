@@ -38,6 +38,7 @@ import {
   ShieldEllipsis,
   ShieldCheck,
   TextCursorInput,
+  Users,
   UsersRound,
 } from 'lucide-react';
 import { FEATURE_ICONS, MAINTENANCE_TOOL_ICONS } from '../../lib/featureIcons.shared';
@@ -55,7 +56,7 @@ export const SETTINGS_PAGE_ICONS = {
   privacy: EyeOff,
   account: PlugZap,
   'long-term-authorization': ShieldEllipsis,
-  accounts: UsersRound,
+  accounts: Users,
   'call-recording': PhoneCall,
   qzone: FEATURE_ICONS.qzone,
   mail: FEATURE_ICONS.mail,

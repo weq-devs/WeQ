@@ -89,6 +89,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     }),
     account: {
+      getGroupAlbumAccessState: { useQuery: () => ({ data: undefined }) },
       // 顶栏会员徽标与资料编辑无关，这里让它不渲染。
       getSelfProfile: { useQuery: () => ({ data: null }) },
       dressup: { peerStats: { useQuery: () => ({ data: null }) } },
@@ -574,7 +575,8 @@ describe('个人资料编辑入口', () => {
     act(() => avatar.click());
     expect(state.navigate).toHaveBeenCalledWith(
       expect.objectContaining({ identityValue: '10001', displayName: '自己' }),
-      { x: 68, y: 40 },
+      { x: 68, y: 40, trigger: avatar },
+      undefined,
     );
     expect(f.host.querySelector('[role="dialog"]')).toBeNull();
     act(() =>
@@ -584,7 +586,8 @@ describe('个人资料编辑入口', () => {
     );
     expect(state.navigate).toHaveBeenLastCalledWith(
       expect.objectContaining({ identityValue: '10001' }),
-      { x: 48, y: 24 },
+      { x: 48, y: 24, trigger: avatar },
+      undefined,
     );
     f.user.identityValue = '10002';
     f.render();
@@ -592,6 +595,7 @@ describe('个人资料编辑入口', () => {
     expect(state.navigate).toHaveBeenLastCalledWith(
       expect.objectContaining({ identityValue: '10002' }),
       expect.any(Object),
+      undefined,
     );
     expect(f.host.querySelector('[role="dialog"]')).toBeNull();
     expect(state.mutate).not.toHaveBeenCalled();

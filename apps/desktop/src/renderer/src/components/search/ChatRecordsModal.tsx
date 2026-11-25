@@ -20,7 +20,8 @@ import { RecordSenderAvatar, RecordSenderPicker, type RecordSender } from './Rec
 import { RecordMediaResults } from './RecordMediaResults';
 import { useRecordContextMenu } from './useRecordContextMenu';
 import { daySeconds, pickCalendarRange } from '../../lib/messageCalendar';
-import { recordDay, groupRecordDays, RecordDayHeading } from './recordDays';
+import { RecordDayHeading } from './recordDays';
+import { recordDay, groupRecordDays } from './recordDays.shared';
 import { matchesConversationRecordType } from '@weq/service/message-filter';
 import { Modal } from '../Dialog';
 import { LoadingIndicator } from '../LoadingIndicator';

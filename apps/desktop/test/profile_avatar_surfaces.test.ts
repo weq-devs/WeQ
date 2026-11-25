@@ -145,6 +145,7 @@ function click(host: HTMLElement) {
       new MouseEvent('click', { bubbles: true, detail: 1, clientX: 40, clientY: 60 }),
     ),
   );
+  return button;
 }
 
 function captureLayout(host: HTMLElement, name: string) {
@@ -200,7 +201,7 @@ describe('跨页面头像名片', () => {
     act(() => button.click());
     expect(f.open).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'u_peer' }),
-      { x: 42, y: 52 },
+      { x: 42, y: 52, trigger: button },
       group,
     );
     expect(parent).not.toHaveBeenCalled();
@@ -215,11 +216,11 @@ describe('跨页面头像名片', () => {
         onClose: vi.fn(),
       }),
     );
-    click(f.host);
+    const trigger = click(f.host);
     captureLayout(f.host, 'left-members');
     expect(f.open).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'u_peer' }),
-      { x: 40, y: 60 },
+      { x: 40, y: 60, trigger },
       group,
     );
   });
@@ -241,14 +242,14 @@ describe('跨页面头像名片', () => {
         onClose: vi.fn(),
       }),
     );
-    click(f.host);
+    const trigger = click(f.host);
     captureLayout(f.host, 'announcements');
     expect(f.open).toHaveBeenCalledWith(
       expect.objectContaining({
         id: identity.startsWith('u_') ? identity : '',
         identityValue: identity,
       }),
-      { x: 40, y: 60 },
+      { x: 40, y: 60, trigger },
       group,
     );
   });
@@ -284,10 +285,10 @@ describe('跨页面头像名片', () => {
     const f = fixture(h(CollectionDialog, { open: true, embedded: true, onClose: vi.fn() }));
     await act(async () => {});
     captureLayout(f.host, 'collections');
-    click(f.host);
+    const trigger = click(f.host);
     expect(f.open).toHaveBeenCalledWith(
       expect.objectContaining({ id: '', identityValue: '10002' }),
-      { x: 40, y: 60 },
+      { x: 40, y: 60, trigger },
       undefined,
     );
     expect(f.host.textContent).not.toContain('收藏详情');

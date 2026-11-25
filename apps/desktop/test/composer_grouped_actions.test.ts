@@ -103,7 +103,7 @@ function choose(label: string) {
 }
 
 it('输入框工具栏共用桌面端按钮列表，位置只保留一个入口且可再次点击收起', async () => {
-  const { host } = await mount();
+  const { host } = await mount(true);
   const toolbar = host.querySelector('.composer-tools')!;
   expect([...toolbar.querySelectorAll('button')].map((button) => button.title)).toEqual([
     '表情',

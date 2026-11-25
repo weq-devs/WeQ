@@ -13,7 +13,8 @@ import {
 import { LongTermAuthorizationLink } from './LongTermAuthorizationLink';
 import { LoadingIndicator } from './LoadingIndicator';
 import { RestrictedQqAction } from './RestrictedQqAction';
-import { QqProxyRecovery, QqProxySettingsLink, useQqProxyStatus } from './QqProxyConnection';
+import { QqProxyRecovery, QqProxySettingsLink } from './QqProxyConnection';
+import { useQqProxyStatus } from '../hooks/useQqProxyStatus';
 import {
   QQ_PROXY_CONNECTING,
   QQ_PROXY_WAITING,

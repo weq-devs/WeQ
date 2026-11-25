@@ -1044,14 +1044,16 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       label,
       aliases,
       section: chatMessagePageFor(id),
-      from: [
-        'message-display',
-        'message-content',
-        'chat-messages',
-        'chat-interaction',
-        'global',
-        'notification-badges',
-      ],
+      from: (
+        [
+          'message-display',
+          'message-content',
+          'chat-messages',
+          'chat-interaction',
+          'global',
+          'notification-badges',
+        ] as const
+      ).filter((section) => id !== 'message-font' || section !== 'chat-interaction'),
     }),
   ),
   {

@@ -7,7 +7,7 @@ import {
   cloneChatConversation,
   cloneChatMessages,
 } from '../src/renderer/src/views/agentlab/cloneChatAdapter';
-import { changeInput, chooseFormOption } from './support/form-controls';
+import { changeInput } from './support/form-controls';
 import { usePreviews } from '../src/renderer/src/components/mediaPreviewStore.shared';
 
 const nativeReads = vi.hoisted(() => vi.fn());
@@ -43,20 +43,20 @@ it('会话搜索没有条件时不查历史，清空关键词会清除结果并�
   );
   try {
     await act(async () => root.render(nativeRecords('')));
-    const input = document.querySelector<HTMLInputElement>('.weq-search-more-input')!;
-    const results = document.querySelector<HTMLElement>('.weq-chatrecords-body')!;
+    const input = document.querySelector<HTMLInputElement>('[aria-label="搜索本会话"]')!;
+    const results = () => document.querySelector<HTMLElement>('.weq-chatrecords-body');
     await act(async () => changeInput(input, '  '));
-    expect(results.textContent).toBe('');
+    expect(results()).toBeNull();
     expect(browse).not.toHaveBeenCalled();
 
     await act(async () => changeInput(input, '合成'));
     expect(browse.mock.lastCall?.[0]).toMatchObject({ filter: { keyword: '合成' } });
-    expect(results.querySelector('[role="status"]')).not.toBeNull();
+    expect(results()?.querySelector('[role="status"]')).not.toBeNull();
 
     await act(async () => changeInput(input, ''));
     expect(browse.mock.lastCall?.[1].signal.aborted).toBe(true);
     await act(async () => pending.resolve({ items: [], cursor: null, hasMore: false }));
-    expect(results.textContent).toBe('');
+    expect(results()).toBeNull();
     expect(browse).toHaveBeenCalledOnce();
   } finally {
     act(() => root.unmount());
@@ -173,25 +173,23 @@ it('克隆输入关键词后分页显示本地匹配消息，不查询原生 QQ 
         }),
       ),
     );
-    const input = document.querySelector<HTMLInputElement>('.weq-search-more-input')!;
-    const results = document.querySelector<HTMLElement>('.weq-chatrecords-msgs')!;
-    expect(results.textContent).toBe('');
+    const input = document.querySelector<HTMLInputElement>('[aria-label="搜索本会话"]')!;
+    const results = () => document.querySelector<HTMLElement>('.weq-chatrecords-msgs');
+    expect(results()).toBeNull();
     await act(async () => changeInput(input, '合成'));
     expect(document.querySelectorAll('.weq-chatrecords-msg')).toHaveLength(30);
-    expect(document.querySelector<HTMLSelectElement>('[aria-label="消息类型"]')?.disabled).toBe(
-      true,
-    );
-    Object.defineProperties(results, {
+    const list = results()!;
+    Object.defineProperties(list, {
       clientHeight: { value: 300 },
       scrollHeight: {
-        get: () => (results.querySelectorAll('.weq-chatrecords-msg').length / 30) * 1000,
+        get: () => (list.querySelectorAll('.weq-chatrecords-msg').length / 30) * 1000,
       },
     });
-    results.scrollTop = 700;
-    act(() => results.dispatchEvent(new Event('scroll')));
+    list.scrollTop = 700;
+    act(() => list.dispatchEvent(new Event('scroll')));
     expect(document.querySelectorAll('.weq-chatrecords-msg')).toHaveLength(60);
     await act(async () => changeInput(input, ''));
-    expect(results.textContent).toBe('');
+    expect(results()).toBeNull();
     expect(nativeReads).not.toHaveBeenCalled();
   } finally {
     act(() => root.unmount());
@@ -199,7 +197,7 @@ it('克隆输入关键词后分页显示本地匹配消息，不查询原生 QQ 
   }
 });
 
-it('会话搜索自动越过空批次，按北京时间显示扫描日期，查完才显示无结果', async () => {
+it('会话首次搜索自动越过空批次，查完才显示无结果', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const root = createRoot(document.createElement('div'));
   const cursor = { time: Date.parse('2026-11-18T16:30:00Z') / 1000, rowId: '500' };
@@ -214,7 +212,10 @@ it('会话搜索自动越过空批次，按北京时间显示扫描日期，查�
   try {
     await act(async () => root.render(nativeRecords()));
     expect(browse.mock.calls.map(([input]) => input.cursor)).toEqual([undefined, cursor]);
-    expect(document.body.textContent).toContain('已查到 2026-11-19');
+    expect(document.querySelector('.weq-record-notice[role="status"]')?.textContent).toContain(
+      '正在搜索聊天记录',
+    );
+    expect(document.querySelector('.weq-record-progress')).toBeNull();
     expect(document.body.textContent).not.toContain('没有找到相关消息');
 
     await act(async () => second.resolve({ items: [], cursor: null, hasMore: false }));
@@ -256,7 +257,7 @@ it('换关键词时中止旧搜索，迟到的空批次不会继续分页', asyn
   );
   try {
     await act(async () => root.render(nativeRecords()));
-    const input = document.querySelector<HTMLInputElement>('.weq-search-more-input')!;
+    const input = document.querySelector<HTMLInputElement>('[aria-label="搜索本会话"]')!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
         input,
@@ -295,9 +296,22 @@ function nativeRecords(initialKeyword = '合成') {
   });
 }
 
+async function jumpFromRecord(record: HTMLElement) {
+  await act(async () =>
+    record.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+  );
+  await act(async () =>
+    [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find((button) => button.textContent?.includes('定位原消息'))!
+      .click(),
+  );
+}
+
 it('跳到原消息后重新打开搜索，恢复筛选、已加载页及滚动位置', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const cursor = { time: 1794528000, rowId: '2' };
+  const scannedTime = Date.parse('2026-11-18T16:30:00Z') / 1000;
+  const nextCursor = { time: scannedTime, rowId: '1' };
   const item = (id: string) => ({
     msgId: id,
     msgSeq: id,
@@ -307,11 +321,17 @@ it('跳到原消息后重新打开搜索，恢复筛选、已加载页及滚动�
     sendTime: '1794528000',
     content: `记录 ${id}`,
   });
-  const browse = vi.fn(async (input: { cursor?: typeof cursor }) => ({
-    items: input.cursor ? [item('1')] : [item('2')],
-    cursor: input.cursor ? null : cursor,
-    hasMore: !input.cursor,
-  }));
+  const nextPage = Promise.withResolvers<{
+    items: ReturnType<typeof item>[];
+    cursor: null;
+    hasMore: false;
+  }>();
+  const browse = vi.fn(async (input: { cursor?: typeof cursor }) => {
+    if (!input.cursor) return { items: [item('2')], cursor, hasMore: true };
+    if (input.cursor.rowId === cursor.rowId)
+      return { items: [], cursor: nextCursor, hasMore: true, scannedTime };
+    return nextPage.promise;
+  });
   const jump = vi.fn();
   nativeReads.mockImplementation((path: string, input: { cursor?: typeof cursor }) =>
     path === 'account.browseConversation' ? browse(input) : undefined,
@@ -335,31 +355,39 @@ it('跳到原消息后重新打开搜索，恢复筛选、已加载页及滚动�
   const host = document.createElement('div');
   document.body.append(host);
   const page = createRoot(host);
-  const input = () => document.querySelector<HTMLInputElement>('.weq-search-more-input')!;
-  const category = () => document.querySelector<HTMLButtonElement>('[aria-label="消息类型"]')!;
+  const input = () => document.querySelector<HTMLInputElement>('[aria-label="搜索本会话"]')!;
+  const category = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>('[aria-label="消息类型"] button')].find(
+      (button) => button.textContent === label,
+    )!;
   const results = () => document.querySelector<HTMLDivElement>('.weq-chatrecords-msgs')!;
   try {
     await act(async () => page.render(h(Fixture)));
     await act(async () => changeInput(input(), '站点'));
-    await act(async () => chooseFormOption(category(), 'link'));
+    await act(async () => category('链接/卡片').click());
     Object.defineProperties(results(), {
       clientHeight: { value: 300 },
       scrollHeight: { value: 1000 },
     });
     results().scrollTop = 700;
     await act(async () => results().dispatchEvent(new Event('scroll')));
-    expect(results().textContent).toContain('记录 1');
+    expect(document.querySelector('.weq-record-progress')?.textContent).toContain(
+      '已查到 2026-11-19',
+    );
     expect(browse.mock.lastCall?.[0]).toMatchObject({
-      filter: { category: 'link', keyword: '站点' },
-      cursor,
+      filter: { recordType: 'linkCard', keyword: '站点' },
+      cursor: nextCursor,
     });
+    await act(async () => nextPage.resolve({ items: [item('1')], cursor: null, hasMore: false }));
+    expect(results().textContent).toContain('记录 1');
+    results().scrollTop = 700;
     const queries = browse.mock.calls.length;
-    act(() => results().querySelector<HTMLButtonElement>('.weq-chatrecords-msg')!.click());
+    await jumpFromRecord(results().querySelector<HTMLElement>('.weq-chatrecords-msg')!);
     expect(jump).toHaveBeenCalledWith(expect.objectContaining({ msgId: '2', targetUid: '12345' }));
     expect(results()).toBeNull();
     await act(async () => host.querySelector<HTMLButtonElement>('#reopen')!.click());
     expect(input().value).toBe('站点');
-    expect(category().dataset.value).toBe('link');
+    expect(category('链接/卡片').getAttribute('aria-current')).toBe('page');
     expect(results().textContent).toContain('记录 1');
     expect(results().scrollTop).toBe(700);
     expect(browse).toHaveBeenCalledTimes(queries);
@@ -369,76 +397,65 @@ it('跳到原消息后重新打开搜索，恢复筛选、已加载页及滚动�
   }
 });
 
-it('共享媒体使用原筛选分页，缩略图预览与定位原消息分别操作', async () => {
+it('图片/视频按统一类型查询，可预览并用右键定位原消息；文件仍按消息显示', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const root = createRoot(document.createElement('div'));
-  const { props } = nativeRecords();
+  const { props } = nativeRecords('');
   const jump = vi.fn();
-  const item = (category: string) => ({
+  const item = (recordType: string) => ({
     msgId: '4',
     msgSeq: '4',
     senderUid: 'u_peer',
     senderUin: '20001',
     senderName: '成员',
     sendTime: '1794528000',
-    content: `${category} 正文`,
-    elements: [
-      {
-        type: category === 'image' ? 'pic' : category,
-        data: {
-          fileName: category === 'video' ? 'preview.webm' : `fixture-${category}`,
-          fileToken: 'media-token',
-        },
-      },
-      ...(category === 'video' ? [{ type: 'pic', data: { fileName: '同消息配图.jpg' } }] : []),
-    ],
+    content: '合成附件',
+    elements:
+      recordType === 'media'
+        ? [
+            { type: 'pic', data: { fileName: 'fixture-image.jpg', fileToken: 'image-token' } },
+            { type: 'video', data: { fileName: 'preview.webm', fileToken: 'video-token' } },
+          ]
+        : [{ type: 'file', data: { fileName: 'fixture-file.txt', fileToken: 'file-token' } }],
   });
-  nativeReads.mockImplementation((path: string, input: { filter: { category: string } }) =>
-    path === 'account.browseConversation'
-      ? { items: [item(input.filter.category)], cursor: null, hasMore: false }
-      : undefined,
+  const browse = vi.fn((input: { filter: { recordType: string } }) => ({
+    items: [item(input.filter.recordType)],
+    cursor: null,
+    hasMore: false,
+  }));
+  nativeReads.mockImplementation((path: string, input: { filter: { recordType: string } }) =>
+    path === 'account.browseConversation' ? browse(input) : undefined,
   );
-  const labeled = (label: string) =>
-    document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
+  const tab = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>('[aria-label="消息类型"] button')].find(
+      (button) => button.textContent === label,
+    )!;
   try {
-    await act(async () =>
-      root.render(
-        h(ChatRecordsModal, {
-          ...props,
-          initialKeyword: '',
-          sharedMedia: true,
-          onJumpMessage: jump,
-        }),
-      ),
-    );
-    const buttons = [
-      ...document.querySelectorAll<HTMLButtonElement>('.weq-record-media-categories button'),
+    await act(async () => root.render(h(ChatRecordsModal, { ...props, onJumpMessage: jump })));
+    expect(browse).not.toHaveBeenCalled();
+    await act(async () => tab('图片/视频').click());
+    const previews = [
+      ...document.querySelectorAll<HTMLButtonElement>('button.weq-record-media-thumbnail'),
     ];
-    expect(buttons.map((button) => button.textContent)).toEqual(['图片', '视频', '文件']);
-    await act(async () => labeled('查看图片：fixture-image').click());
-    expect(usePreviews.getState().sessions.get(document)?.items[0]?.kind).toBe('image');
-    expect(jump).not.toHaveBeenCalled();
-
-    await act(async () => buttons[1]!.click());
-    await act(async () => labeled('查看视频：preview.webm').click());
+    expect(previews.map((button) => button.getAttribute('aria-label'))).toEqual([
+      'fixture-image.jpg',
+      'preview.webm',
+    ]);
+    await act(async () => previews[0]!.click());
     expect(
       usePreviews
         .getState()
         .sessions.get(document)
         ?.items.map(({ kind }) => kind),
-    ).toEqual(['video']);
+    ).toEqual(['image', 'video']);
     expect(jump).not.toHaveBeenCalled();
-    await act(async () => labeled('定位原消息：preview.webm').click());
+    await jumpFromRecord(previews[1]!);
     expect(jump).toHaveBeenCalledWith(expect.objectContaining({ msgId: '4', msgSeq: '4' }));
 
-    await act(async () => buttons[2]!.click());
+    await act(async () => tab('文件').click());
     expect(document.querySelector('.weq-record-media-grid')).toBeNull();
     expect(document.querySelector('.weq-chatrecords-msg')).not.toBeNull();
-    expect(
-      nativeReads.mock.calls
-        .filter(([path]) => path === 'account.browseConversation')
-        .map(([, input]) => input.filter.category),
-    ).toEqual(['image', 'video', 'file']);
+    expect(browse.mock.calls.map(([input]) => input.filter.recordType)).toEqual(['media', 'file']);
   } finally {
     act(() => root.unmount());
   }
@@ -457,7 +474,10 @@ it('发送者可选群昵称、备注或号码，使用身份筛选并保留账�
   );
   try {
     await act(async () => root.render(h(ChatRecordsModal, { ...props, accountBinding: binding })));
-    const input = document.querySelector<HTMLInputElement>('[aria-label="发送者"]')!;
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('button[aria-label="全部发送者"]')!.click(),
+    );
+    const input = document.querySelector<HTMLInputElement>('[aria-label="查找发送者"]')!;
     await act(async () => changeInput(input, '昵称样本'));
     await act(async () => vi.advanceTimersByTime(180));
     expect(nativeReads).toHaveBeenCalledWith(
@@ -469,8 +489,8 @@ it('发送者可选群昵称、备注或号码，使用身份筛选并保留账�
       }),
       expect.anything(),
     );
-    const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((element) =>
-      element.textContent?.includes('昵称样本'),
+    const option = [...document.querySelectorAll<HTMLElement>('[role="checkbox"]')].find(
+      (element) => element.textContent?.includes('群名片'),
     )!;
     expect(nativeReads.mock.calls.some(([path]) => path === 'account.browseConversation')).toBe(
       false,
@@ -480,7 +500,7 @@ it('发送者可选群昵称、备注或号码，使用身份筛选并保留账�
       'account.browseConversation',
       expect.objectContaining({
         ...binding,
-        filter: expect.objectContaining({ sender: '20001' }),
+        filter: expect.objectContaining({ senders: ['20001'] }),
       }),
       expect.anything(),
     );

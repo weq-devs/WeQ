@@ -96,7 +96,7 @@ it('收发两个方向的昵称打开同一个好友名片', async () => {
     );
     expect(f.open).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: 'u_alice', identityValue: '10002' }),
-      { x: 40, y: 60 },
+      { x: 40, y: 60, trigger: f.person() },
       undefined,
     );
   }
@@ -115,7 +115,7 @@ it('方向与时间不触发名片，键盘点击按昵称边缘定位', async (
   act(() => f.person()!.click());
   expect(f.open).toHaveBeenCalledWith(
     expect.objectContaining({ id: 'u_alice' }),
-    { x: 60, y: 35 },
+    { x: 60, y: 35, trigger: f.person() },
     undefined,
   );
 });

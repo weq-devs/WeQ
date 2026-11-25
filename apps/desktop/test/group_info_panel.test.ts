@@ -255,7 +255,7 @@ describe('群资料面板', () => {
       ),
     );
     expect(open).not.toHaveBeenCalled();
-    expect(nextOpen).toHaveBeenLastCalledWith(members[0], { x: 10, y: 20 });
+    expect(nextOpen).toHaveBeenLastCalledWith(members[0], { x: 10, y: 20, trigger: rows()[0] });
     act(() => rows()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
     expect(menu.mock.calls.at(-1)?.[1]).toBe(members[0]);
     const updated = members.map((member, index) =>

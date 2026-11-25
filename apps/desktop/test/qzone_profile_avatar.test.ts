@@ -91,7 +91,8 @@ it.each([
         ),
       ),
     );
-    for (const button of host.querySelectorAll('button')) {
+    const buttons = [...host.querySelectorAll('button')];
+    for (const button of buttons) {
       const click = new MouseEvent('click', {
         bubbles: true,
         cancelable: true,
@@ -107,7 +108,11 @@ it.each([
     expect(parent).not.toHaveBeenCalled();
     if (profileExpected) {
       expect(profile).toHaveBeenCalledTimes(5);
-      expect(profile).toHaveBeenLastCalledWith('10002', '合成好友', { x: 12, y: 34 });
+      expect(profile).toHaveBeenLastCalledWith('10002', '合成好友', {
+        x: 12,
+        y: 34,
+        trigger: buttons.at(-1),
+      });
       expect(space).not.toHaveBeenCalled();
     } else {
       expect(space).toHaveBeenCalledTimes(5);
@@ -122,7 +127,11 @@ it.each([
     vi.spyOn(button, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 20, 100, 26));
     if (profileExpected) {
       act(() => button.click());
-      expect(profile).toHaveBeenLastCalledWith('10002', '合成好友', { x: 110, y: 46 });
+      expect(profile).toHaveBeenLastCalledWith('10002', '合成好友', {
+        x: 110,
+        y: 46,
+        trigger: button,
+      });
     }
     act(() =>
       root.render(

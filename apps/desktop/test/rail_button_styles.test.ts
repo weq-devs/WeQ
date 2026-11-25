@@ -47,7 +47,7 @@ describe('左栏统一按钮', () => {
               onOpenAntiRecall: noop,
               onOpenDbRepair: noop,
               onOpenQzoneAlbum: noop,
-              footerContent: () => h(WorkspaceMenuButton),
+              footerContent: h(WorkspaceMenuButton),
             }),
           ),
         ),

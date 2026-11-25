@@ -173,7 +173,7 @@ describe('语音消息转换入口', () => {
     expect(
       resolveSettingsTarget({ section: 'chat-messages', settingId: 'auto-transcribe-voice' }),
     ).toMatchObject({ section: 'message-content', item: '语音消息自动转文字' });
-    expect(settingsGroupFor('chat-messages').label).toBe('聊天');
+    expect(settingsGroupFor('message-content').label).toBe('聊天');
     act(() =>
       root.render(
         h(

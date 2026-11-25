@@ -67,6 +67,7 @@ function slideContent(
     easing: fill ? 'ease-out' : surfaceMotionTiming.easing,
     fill: fill ? 'forwards' : undefined,
   });
+  void fade.current.finished.catch(() => {});
 }
 
 export function useConversationSwitchVeil({

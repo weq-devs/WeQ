@@ -373,10 +373,10 @@ it('空间标签、主人和作者随名称偏好与补全更新，说说仍用�
       '[data-qzone-tid="a"] .weq-qzn-post-head button',
     );
     act(() => buttons[0]!.click());
-    expect(profile).toHaveBeenCalledWith('10002', '合成空间', { x: 0, y: 0 });
+    expect(profile).toHaveBeenCalledWith('10002', '合成空间', { x: 0, y: 0, trigger: buttons[0] });
     profile.mockClear();
     act(() => buttons[1]!.click());
-    expect(profile).toHaveBeenCalledWith('10002', '合成空间', { x: 0, y: 0 });
+    expect(profile).toHaveBeenCalledWith('10002', '合成空间', { x: 0, y: 0, trigger: buttons[1] });
     f.render(view('好友备注', 'nickname'));
     expect(tab()).toBe('合成空间 的空间');
     expect(owner()).toBe('合成空间');
