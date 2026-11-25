@@ -21,10 +21,10 @@ import {
 } from '@weq/service/conversation-calendar';
 import {
   getAppContext,
-  accountEventBus,
   accountRuntimeCacheRoot,
   type AccountServices,
 } from '../../context/app_context';
+import { onAccountClosing } from '../../context/account_runtime';
 import { procedure, router } from '../trpc';
 import { exportAccountBindingInput } from './export_save';
 import { c2cMsgToWire, groupMsgToWire, type ChatMsgWire } from '../serde';
@@ -136,7 +136,7 @@ function runJob(value: Entry, day = value.day, retry = false) {
     value.job.controller.signal,
   );
 }
-accountEventBus.on('closing', (session: AccountSession | null) => {
+onAccountClosing((session: AccountSession | null) => {
   if (session) {
     for (const value of sessions.get(session)?.values() ?? []) {
       retire(value);

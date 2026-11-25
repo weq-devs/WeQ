@@ -3633,16 +3633,16 @@ export const bootstrapRouter = router({
     const config = requireBootstrap().userConfig;
     if (!getHost().startupReadOnly) {
       // 正常启动已由主进程调度；文件恢复曾失败时，在恢复成功后补上未开始的任务。
-      void desktopStartupAccount.start(() =>
+      void desktopStartupAccount().start(() =>
         openStartupAccount(config, bootstrapRouter.createCaller({}), process.platform === 'darwin'),
       );
     }
-    return desktopStartupAccount.attach(config.getStartupPage());
+    return desktopStartupAccount().attach(config.getStartupPage());
   }),
 
   /** 等待后台启动任务后接回实际账号，Web 同时连接也不能重复开库。 */
   currentAccount: procedure.query(async () => {
-    await desktopStartupAccount.wait();
+    await desktopStartupAccount().wait();
     const account = getAppContext().account;
     return account ? { uin: String(account.context.uin) } : null;
   }),

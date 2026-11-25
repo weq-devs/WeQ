@@ -579,8 +579,8 @@ function assistantRuntime(binding: {
   assistant.bindRuntime(
     (event) => assistantBus.emit('step', { ...event, accountConfigId }),
     (id, controller) => {
-      if (controller) activeAssistantRuns.set(id, controller);
-      else activeAssistantRuns.delete(id);
+      if (controller) activeAssistantRuns().set(id, controller);
+      else activeAssistantRuns().delete(id);
     },
   );
   return assistant;
@@ -2877,7 +2877,7 @@ export const accountRouter = router({
       const runId = randomUUID();
       // 每轮任务挂一个 AbortController，供 abortAssistantRun 按 runId 掐断（用户点「停止」）。
       const ac = new AbortController();
-      activeAssistantRuns.set(runId, ac);
+      activeAssistantRuns().set(runId, ac);
       void assistant
         .chat(
           input.sessionId,
@@ -2894,7 +2894,7 @@ export const accountRouter = router({
         )
         .catch(() => {})
         .finally(() => {
-          activeAssistantRuns.delete(runId);
+          activeAssistantRuns().delete(runId);
           state.announceDrafts();
         });
       return { runId };
@@ -2904,7 +2904,7 @@ export const accountRouter = router({
   abortAssistantRun: procedure
     .input(z.object({ runId: z.string().min(1) }))
     .mutation(({ input }) => {
-      activeAssistantRuns.get(input.runId)?.abort();
+      activeAssistantRuns().get(input.runId)?.abort();
       return true;
     }),
 
@@ -2933,7 +2933,7 @@ export const accountRouter = router({
       const accountConfigId = services.accountConfig.getRecord()?.configId;
       const runId = randomUUID();
       const ac = new AbortController();
-      activeAssistantRuns.set(runId, ac);
+      activeAssistantRuns().set(runId, ac);
       void assistant
         .resumeAssistantRun(
           input.sessionId,
@@ -2947,7 +2947,7 @@ export const accountRouter = router({
           ac.signal,
         )
         .catch(() => {})
-        .finally(() => activeAssistantRuns.delete(runId));
+        .finally(() => activeAssistantRuns().delete(runId));
       return { runId };
     }),
 

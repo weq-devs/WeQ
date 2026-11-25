@@ -184,6 +184,7 @@ export class AccountInstanceBusy extends Error {
 export class AccountInstances implements AccountInstanceScope {
   private readonly locks = new Map<string, DatabaseSync>();
   private pending: Promise<unknown> = Promise.resolve();
+  private closing = false;
 
   constructor(
     private readonly root: string,
@@ -193,6 +194,10 @@ export class AccountInstances implements AccountInstanceScope {
 
   owns(uin: string): boolean {
     return this.locks.has(uin);
+  }
+
+  stopOpening(): void {
+    this.closing = true;
   }
 
   dispose(): void {
@@ -221,6 +226,7 @@ export class AccountInstances implements AccountInstanceScope {
     opened: () => string | undefined,
   ): Promise<T> {
     const result = this.pending.then(async () => {
+      if (uin && this.closing) throw new Error('账号窗口正在关闭。');
       if (uin && this.assignedUin && uin !== this.assignedUin)
         throw new Error('此窗口已绑定一个 QQ 账号，请在独立窗口打开其它账号。');
       if (uin) this.claim(uin);

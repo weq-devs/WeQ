@@ -7,14 +7,16 @@
  * 拿一个函数走 —— 与 `main_window.ts` 的窗口登记表同一个思路。
  */
 
+import { accountRuntimeState } from './context/account_runtime';
+
 interface Revealable {
   open(options?: { show?: boolean }): unknown;
 }
 
-let lifecycle: Revealable | null = null;
+const state = accountRuntimeState(() => ({ lifecycle: null as Revealable | null }));
 
 export function registerMainWindowReveal(target: Revealable): void {
-  lifecycle = target;
+  state().lifecycle = target;
 }
 
 /**
@@ -24,6 +26,7 @@ export function registerMainWindowReveal(target: Revealable): void {
  * 调用方据此判断「唤起」到底做没做成。
  */
 export function revealMainWindow(): boolean {
+  const { lifecycle } = state();
   if (!lifecycle) return false;
   lifecycle.open({ show: true });
   return true;

@@ -1,5 +1,6 @@
 import type { UserConfigService } from '@weq/service';
 import type { appRouter } from './ipc/router';
+import { accountRuntimeState } from './context/account_runtime';
 
 type StartupPage = ReturnType<UserConfigService['getStartupPage']>;
 type BootstrapCaller = ReturnType<typeof appRouter.createCaller>['bootstrap'];
@@ -46,7 +47,7 @@ export class StartupAccount {
   }
 }
 
-export const desktopStartupAccount = new StartupAccount();
+export const desktopStartupAccount = accountRuntimeState(() => new StartupAccount());
 
 /** 仅在本轮自动进入尚未结束且目标仍有效时提前使用工作区尺寸。 */
 export function startupWindowLayout(

@@ -1,4 +1,5 @@
-import { app, ipcMain } from 'electron';
+import { accountIpc } from '../window_account_runtime';
+import { app } from 'electron';
 import { dirname, join } from 'node:path';
 import { resolveNtHelperPath } from '@weq/native';
 import { getMainWindow } from '../main_window';
@@ -24,7 +25,7 @@ export function registerLongTermAuthorizationIpc(): void {
     allowDevelopment: !app.isPackaged,
   });
   for (const operation of ['status', 'install', 'remove'] as const) {
-    ipcMain.handle(`authorization:${operation}`, (event, expectedDevelopment?: unknown) => {
+    accountIpc.handle(`authorization:${operation}`, (event, expectedDevelopment?: unknown) => {
       const window = getMainWindow();
       if (
         !window ||

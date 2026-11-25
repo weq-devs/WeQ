@@ -7,16 +7,28 @@
  * routes. This file is the desktop-only shim that binds them to custom schemes.
  */
 
-import { ipcMain, protocol, type WebContents } from 'electron';
+import { accountIpc } from './window_account_runtime';
+import type { Session, WebContents } from 'electron';
+import type { AccountRuntime } from './context/account_runtime';
 import { MEDIA_SCHEME, handleMediaRequest } from './media_protocol';
 import { AVATAR_SCHEME, handleAvatarRequest } from './avatar_protocol';
 import { RESOURCE_SCHEME, handleResourceRequest } from './resource_protocol';
 
-export function registerMediaProtocol(): void {
-  protocol.handle(MEDIA_SCHEME, handleMediaRequest);
+export function registerAccountProtocols(session: Session, runtime: AccountRuntime): () => void {
+  session.protocol.handle(MEDIA_SCHEME, runtime.bind(handleMediaRequest));
+  session.protocol.handle(AVATAR_SCHEME, runtime.bind(handleAvatarRequest));
+  session.protocol.handle(RESOURCE_SCHEME, runtime.bind(handleResourceRequest));
+  return () => {
+    session.protocol.unhandle(MEDIA_SCHEME);
+    session.protocol.unhandle(AVATAR_SCHEME);
+    session.protocol.unhandle(RESOURCE_SCHEME);
+  };
+}
+
+export function registerMediaThumbnailIpc(): void {
   // Electron 的 protocol.handle 不会把 Chromium 断连传到 Request.signal。
   const thumbnails = new WeakMap<WebContents, Map<string, AbortController>>();
-  ipcMain.handle('media:thumbnail', async ({ sender }, id: string, url: string) => {
+  accountIpc.handle('media:thumbnail', async ({ sender }, id: string, url: string) => {
     if (typeof id !== 'string' || typeof url !== 'string') return null;
     const parsed = URL.parse(url);
     if (
@@ -49,15 +61,7 @@ export function registerMediaProtocol(): void {
       active.delete(id);
     }
   });
-  ipcMain.on('media:cancel-thumbnail', ({ sender }, id: string) => {
+  accountIpc.on('media:cancel-thumbnail', ({ sender }, id: string) => {
     thumbnails.get(sender)?.get(id)?.abort();
   });
-}
-
-export function registerAvatarProtocol(): void {
-  protocol.handle(AVATAR_SCHEME, handleAvatarRequest);
-}
-
-export function registerResourceProtocol(): void {
-  protocol.handle(RESOURCE_SCHEME, handleResourceRequest);
 }

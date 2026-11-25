@@ -4,6 +4,7 @@
  * before any router runs.
  */
 
+import { type AccountRuntime, currentAccountRuntime } from './context/account_runtime';
 import { app, dialog, shell, nativeImage, Notification } from 'electron';
 import { makeSolidPng } from '@weqbot/protocol';
 import { applicationBadgeBitmap } from '../shared/message_notifications';
@@ -24,6 +25,7 @@ import { appImageRelaunchCommand } from './linux_window_backend';
 let startup: AppAutostart | null = null;
 let applicationRestart: AbortController | undefined;
 const messageNotifications = new Set<Notification>();
+const accountBadges = new Map<AccountRuntime, number>();
 
 export function cancelApplicationRestart(): void {
   applicationRestart?.abort();
@@ -182,7 +184,14 @@ function desktopStorageRoots(): StorageRoot[] {
 
 export const electronHost: HostBridge = {
   setApplicationBadge(count) {
-    if (process.platform !== 'win32') return app.setBadgeCount(count);
+    if (process.platform !== 'win32') {
+      const owner = currentAccountRuntime();
+      if (count > 0) accountBadges.set(owner, count);
+      else accountBadges.delete(owner);
+      return app.setBadgeCount(
+        [...accountBadges.values()].reduce((total, value) => total + value, 0),
+      );
+    }
     const window = getMainWindow();
     if (!window || window.isDestroyed()) return false;
     const red = nativeImage
@@ -210,10 +219,13 @@ export const electronHost: HostBridge = {
       messageNotifications.delete(notification);
       console.warn('[message-notifications] 系统未展示通知', error);
     });
-    notification.on('click', () => {
-      electronHost.showMainWindow?.();
-      onClick();
-    });
+    notification.on(
+      'click',
+      currentAccountRuntime().bind(() => {
+        electronHost.showMainWindow?.();
+        onClick();
+      }),
+    );
     notification.show();
     while (messageNotifications.size > 20) {
       const first = messageNotifications.values().next().value!;

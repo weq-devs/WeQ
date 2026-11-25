@@ -40,6 +40,7 @@ import {
   clearVerifiedDbDamage,
   closeSalvageConnections,
   getAppContext,
+  visitOpenAccounts,
   requireBootstrap,
   requirePlatform,
 } from '../../context/app_context';
@@ -130,21 +131,20 @@ const deps: DbRepairDeps = {
   },
   selfPid: () => process.pid,
   releaseHandles: (uin, path, keepReadOnly) => {
-    const ctx = getAppContext();
-    const platform = ctx.platform;
+    const platform = getAppContext().platform;
     if (!platform) return;
-    if (
-      !keepReadOnly &&
-      ctx.account?.context.uin === uin &&
-      dirname(ctx.account.msgDbPath) === dirname(path)
-    ) {
-      closeSalvageConnections(ctx);
-      void ctx.clearAccount();
-      closedAccountDuringRun = true;
-    }
+    visitOpenAccounts((ctx) => {
+      if (ctx.account?.context.uin !== uin || dirname(ctx.account.msgDbPath) !== dirname(path))
+        return;
+      if (!keepReadOnly) {
+        closeSalvageConnections(ctx);
+        void ctx.clearAccount();
+        closedAccountDuringRun = true;
+      }
+      ctx.services?.unreadInfo.invalidate();
+    });
     platform.native.ntHelper.closeSalvageDb(path);
     platform.native.ntHelper.closeDb(path);
-    ctx.services?.unreadInfo.invalidate();
   },
   recover: async (options, progress, signal, method, streaming, references) => {
     if (!signal) throw new Error('修复必须由当前维护任务启动。');

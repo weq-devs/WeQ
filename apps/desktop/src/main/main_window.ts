@@ -7,13 +7,14 @@
  */
 
 import type { BrowserWindow } from 'electron';
+import { accountRuntimeState } from './context/account_runtime';
 
-let mainWindow: BrowserWindow | null = null;
+const state = accountRuntimeState(() => ({ window: null as BrowserWindow | null }));
 
 export function setMainWindow(win: BrowserWindow | null): void {
-  mainWindow = win;
+  state().window = win;
 }
 
 export function getMainWindow(): BrowserWindow | null {
-  return mainWindow;
+  return state().window;
 }

@@ -156,7 +156,7 @@ export class DesktopServiceRegistry {
     const entries = await readdir(this.runtime).catch(() => []);
     const endpoints = await Promise.all(
       entries.flatMap((entry) => {
-        const pid = Number(/^window-(\d+)\.json$/.exec(entry)?.[1]);
+        const pid = Number(/^window-(\d+)(?:-[0-9a-f-]{36})?\.json$/.exec(entry)?.[1]);
         if (!Number.isSafeInteger(pid) || pid <= 1) return [];
         try {
           process.kill(pid, 0);

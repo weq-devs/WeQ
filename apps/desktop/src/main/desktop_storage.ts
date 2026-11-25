@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { accountRuntimeState } from './context/account_runtime';
 
 const storageSqlite = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 
@@ -83,12 +84,13 @@ export class DesktopStorage {
   }
 }
 
-let storage: DesktopStorage | undefined;
+const state = accountRuntimeState(() => ({ storage: undefined as DesktopStorage | undefined }));
 
 export function setDesktopStorage(value: DesktopStorage): void {
-  storage = value;
+  state().storage = value;
 }
 
 export function maintainDesktopStorage<T>(operation: () => Promise<T>): Promise<T> {
+  const { storage } = state();
   return storage ? storage.maintain(operation) : operation();
 }

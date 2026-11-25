@@ -33,6 +33,44 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(root, { force: true, recursive: true }));
 
+it('同一主进程的另一个窗口打开时，备份恢复仍不能独占共享数据', async () => {
+  const first = new DesktopStorage(root);
+  const second = new DesktopStorage(root);
+  try {
+    await expect(first.maintain(async () => 'restored')).rejects.toThrow('其他 WeQ 窗口');
+  } finally {
+    second.close();
+  }
+  try {
+    await expect(first.maintain(async () => 'restored')).resolves.toBe('restored');
+  } finally {
+    first.close();
+  }
+});
+
+it('账号窗口开始关闭后，排队中的打开请求不能重新获得账号锁', async () => {
+  const instance = new AccountInstances(root);
+  try {
+    const opening = instance.run(
+      '101',
+      async () => {},
+      () => '101',
+    );
+    instance.stopOpening();
+    await expect(opening).rejects.toThrow('账号窗口正在关闭');
+    expect(accountIsRunning(root, '101')).toBe(false);
+    await expect(
+      instance.run(
+        null,
+        async () => 'closed',
+        () => undefined,
+      ),
+    ).resolves.toBe('closed');
+  } finally {
+    instance.dispose();
+  }
+});
+
 it('不同 Electron 实例从同一份账号配置打开数据源', () => {
   const target = { uin: '101', configId: '101_fixture' };
   const mainAccounts = join(root, 'config', 'accounts');

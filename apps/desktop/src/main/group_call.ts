@@ -28,15 +28,17 @@ interface ActiveGroupCall {
   session: GroupCallSession | undefined;
 }
 
-let active: ActiveGroupCall | undefined;
+const groupCalls = accountRuntimeState(() => ({
+  active: undefined as ActiveGroupCall | undefined,
+}));
 const logger = getLogger().child({ scope: 'group-call' });
 
 export function hasGroupCall(): boolean {
-  return active !== undefined;
+  return groupCalls().active !== undefined;
 }
 
 export function currentGroupCall(id: string) {
-  const call = active;
+  const { active: call } = groupCalls();
   if (!call || call.id !== id || getAppContext().account !== call.account) return undefined;
   return call;
 }
@@ -48,7 +50,8 @@ export async function startGroupCall(input: {
   media: 'audio' | 'video';
 }) {
   requireAttachEnabled();
-  if (active) throw new Error('当前已有通话，请先挂断');
+  const state = groupCalls();
+  if (state.active) throw new Error('当前已有通话，请先挂断');
   const { account, platform, services, bootstrap } = getAppContext();
   if (!account || !platform || !services || !bootstrap || !account.selfUid)
     throw new Error('账号未就绪');
@@ -64,13 +67,13 @@ export async function startGroupCall(input: {
     account,
     session: undefined,
   };
-  active = call;
+  state.active = call;
   const nt = platform.native.ntHelper;
   let connection: number | undefined;
   let trace: CallUdpTrace | null = null;
   const abort = new AbortController();
   let released = false;
-  const release = async () => {
+  const release = currentAccountRuntime().bind(async () => {
     if (released) return;
     released = true;
     accountEventBus.off('closing', closeOnAccountChange);
@@ -89,9 +92,9 @@ export async function startGroupCall(input: {
     } catch (error) {
       logger.warn('群通话资源释放失败', { error: String(error) });
     } finally {
-      if (active === call) active = undefined;
+      if (state.active === call) state.active = undefined;
     }
-  };
+  });
   const closeOnAccountChange = () => {
     abort.abort();
     void call.session?.hangup().catch(() => {});
@@ -288,3 +291,4 @@ function groupTransport(trace: CallUdpTrace | null): GroupCallTransport {
     },
   };
 }
+import { accountRuntimeState, currentAccountRuntime } from './context/account_runtime';

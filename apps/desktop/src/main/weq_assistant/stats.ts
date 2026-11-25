@@ -15,6 +15,7 @@
  * 首次没缓存时页面回落到「生成中」占位（见 stats_page.ts）。
  */
 
+import { accountRuntimeState } from '../context/account_runtime';
 import { join } from 'node:path';
 import {
   readJsonFile,
@@ -42,16 +43,16 @@ export interface WeqStatsReport {
 
 // ── 内存快照 ──────────────────────────────────────────────────────────────
 
-let current: WeqStatsReport | null = null;
+const state = accountRuntimeState(() => ({ current: null as WeqStatsReport | null }));
 
 /** 当前统计快照（渲染 `/p/stats` 与 `/cover/stats` 时读它）。 */
 export function getWeqStats(): WeqStatsReport | null {
-  return current;
+  return state().current;
 }
 
 /** 设置内存快照（app_context 算完 / 启动读盘后调用）。传 null 清空（如切账号）。 */
 export function setWeqStats(next: WeqStatsReport | null): void {
-  current = next;
+  state().current = next;
 }
 
 // ── 落盘缓存 ──────────────────────────────────────────────────────────────

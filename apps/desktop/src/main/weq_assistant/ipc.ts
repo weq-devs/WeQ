@@ -9,9 +9,9 @@
  * is a no-op when the assistant toggle is off (docroot dir absent → skip).
  */
 
+import { accountIpc } from '../window_account_runtime';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { ipcMain } from 'electron';
 import { setWeqTheme } from './theme';
 import { publishWeqAssistantDocroot } from './publish';
 import { requireBootstrap } from '../context/app_context';
@@ -42,7 +42,7 @@ export function scheduleDocrootRepublish(): void {
  * startup even before the assistant is enabled.
  */
 export function registerWeqAssistantIpc(): void {
-  ipcMain.handle(
+  accountIpc.handle(
     'weqAssistant:set-theme',
     (_event, theme?: { accent?: string; mode?: 'light' | 'dark' }) => {
       setWeqTheme(theme);

@@ -28,8 +28,17 @@ import {
 } from '../src/main/desktop_services/control';
 import { connectDesktopServices, desktopWebStatus } from '../src/main/desktop_services/host';
 import {
+  AccountRuntime,
+  accountRuntimeEvents,
+  currentAccountRuntime,
+} from '../src/main/context/account_runtime';
+import { observable } from '@trpc/server/observable';
+import { procedure, router } from '../src/main/ipc/trpc';
+import type { WebCore } from '../src/main/web/application';
+import {
   PRIVATE_ACCOUNT_HEADER,
-  type DesktopAccountRoutes,
+  DesktopAccountRoutes,
+  registerAccountWorker,
   type RoutedAccount,
 } from '../src/main/desktop_services/accounts';
 import {
@@ -142,6 +151,102 @@ it('账号窗口退出可以取消对尚未启动的主进程的等待', async (
   controller.abort();
   await expect(pending).rejects.toThrow(expect.objectContaining({ name: 'AbortError' }));
   expect(lookup).toHaveBeenCalledTimes(1);
+});
+
+it('窗口 IPC 的异步查询和晚挂载订阅始终留在发送窗口的账号中', async () => {
+  const a = new AccountRuntime();
+  const b = new AccountRuntime();
+  const labels = new Map([
+    [a, 'A'],
+    [b, 'B'],
+  ]);
+  const events = accountRuntimeEvents();
+  const calls = router({
+    read: procedure.query(async () => {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      return labels.get(currentAccountRuntime());
+    }),
+    watch: procedure.subscription(() =>
+      observable<string>((observer) => {
+        const receive = (msg: string) => observer.next(msg);
+        events.on('message', receive);
+        return () => events.off('message', receive);
+      }),
+    ),
+  });
+  const left = calls.createCaller({ accountRuntime: a });
+  const right = calls.createCaller({ accountRuntime: b });
+  expect(await Promise.all([left.read(), right.read()])).toEqual(['A', 'B']);
+  const inboxA = vi.fn();
+  const inboxB = vi.fn();
+  const subscriptionA = (await left.watch()).subscribe({ next: inboxA });
+  const subscriptionB = (await right.watch()).subscribe({ next: inboxB });
+  try {
+    a.run(() => events.emit('message', 'only A'));
+    expect(inboxA).toHaveBeenCalledWith('only A');
+    expect(inboxB).not.toHaveBeenCalled();
+    subscriptionA.unsubscribe();
+    expect(a.run(() => events.listenerCount('message'))).toBe(0);
+    b.run(() => events.emit('message', 'still B'));
+    expect(inboxB).toHaveBeenCalledWith('still B');
+  } finally {
+    subscriptionA.unsubscribe();
+    subscriptionB.unsubscribe();
+  }
+});
+
+it('同一主进程的账号窗口各自注册，关闭 A 后 B 的地址和上下文仍可用', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-account-windows-'));
+  const registry = new DesktopServiceRegistry(root);
+  const routes = new DesktopAccountRoutes(root, registry);
+  const scopes = new Map<AccountRuntime, string>();
+  const core = {
+    entry: () => ({
+      handle: (_request: unknown, response: Parameters<typeof sendJson>[0]) => {
+        sendJson(response, 200, { account: scopes.get(currentAccountRuntime()) });
+      },
+      attach: () => {},
+      close: () => {},
+    }),
+  } as unknown as WebCore;
+  const register = (configId: string) => {
+    const runtime = new AccountRuntime();
+    scopes.set(runtime, configId);
+    const session = {};
+    return runtime.run(() =>
+      registerAccountWorker({
+        registry,
+        core,
+        currentAccount: () => ({ configId, uin: configId, session }),
+        watchClosing: () => () => {},
+        launch: async () => {},
+        openHere: async () => {},
+        reveal: () => {},
+      }),
+    );
+  };
+  const stop = await Promise.all([register('101'), register('202')]);
+  const read = async ({ account, remote }: RoutedAccount) => {
+    const response = await fetch(`http://127.0.0.1:${remote.port}/`, {
+      headers: {
+        [PRIVATE_TOKEN_HEADER]: remote.token,
+        [PRIVATE_ACCOUNT_HEADER]: account.generation,
+      },
+    });
+    return response.json();
+  };
+  try {
+    const a = (await routes.find('101'))!;
+    const b = (await routes.find('202'))!;
+    expect(await Promise.all([read(a), read(b)])).toEqual([{ account: '101' }, { account: '202' }]);
+    stop.shift()?.();
+    expect(await routes.find('101')).toBeUndefined();
+    expect((await routes.find('202'))?.remote).toEqual(b.remote);
+    expect(await read(b)).toEqual({ account: '202' });
+  } finally {
+    for (const close of stop) close();
+    rmSync(root, { force: true, recursive: true });
+  }
 });
 
 it('同一 Web 登录中的两个标签页可以分别读 A、B，退出 A 只释放 A', async () => {

@@ -1,3 +1,9 @@
+import {
+  accountIpc,
+  accountRuntimeFor,
+  accountSession,
+  bindAccountSession,
+} from './window_account_runtime';
 import { controlCompositionWindow } from './composition_window';
 import { flushConversationCalendarResults } from './ipc/routers/conversation_calendar';
 import { applicationToolPopupOptions, createToolWindowRegistry } from './tool_window';
@@ -21,13 +27,14 @@ import {
   clipboard,
   ClipboardItem,
   dialog,
-  ipcMain,
   Menu,
   nativeImage,
   net,
   protocol,
   shell,
   screen,
+  session,
+  type Session,
   type Tray,
   type IpcMainEvent,
 } from 'electron';
@@ -40,12 +47,18 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   initAppContext,
+  disposeAppContext,
   requirePlatform,
   setGroupKeywordNotifier,
   setIntentSenseLocalEngine,
   setRecallNotifier,
   setMailNotifier,
 } from './context/app_context';
+import {
+  AccountRuntime,
+  currentAccountRuntime,
+  primaryAccountRuntime,
+} from './context/account_runtime';
 import { migrateStaticAccountIdentity } from './static_account_identity_migration';
 import { getIntentSenseLocalEngine } from './intent_sense/bridge';
 import { probeQqProtocolHandler } from './context/qq_protocol';
@@ -56,11 +69,7 @@ import { resolveResource } from './resource';
 import { RESOURCE_PRIVILEGED_SCHEME } from './resource_protocol';
 import { AVATAR_PRIVILEGED_SCHEME } from './avatar_protocol';
 import { MEDIA_PRIVILEGED_SCHEME } from './media_protocol';
-import {
-  registerResourceProtocol,
-  registerAvatarProtocol,
-  registerMediaProtocol,
-} from './protocol_register';
+import { registerAccountProtocols, registerMediaThumbnailIpc } from './protocol_register';
 import { registerUdpCaptureStorage } from './udp_capture_register';
 import { getAppContext, accountEventBus } from './context/app_context';
 import { electronAnnouncementFetch, installDesktopNetwork } from './network';
@@ -90,7 +99,7 @@ import {
 } from './window_controls_events';
 import { installWindowControls } from './window_controls';
 import { createMainWindowLifecycle } from './main_window_lifecycle';
-import { registerMainWindowReveal } from './main_window_lifecycle_instance';
+import { registerMainWindowReveal, revealMainWindow } from './main_window_lifecycle_instance';
 import {
   AUTOSTART_ARG,
   installStartupWindowReveal,
@@ -157,22 +166,17 @@ import { guardStorageCleanupStartup } from './storage_cleanup';
 import { weqAppDataRoot } from '@weq/platform';
 import {
   AccountInstances,
-  AccountInstanceBusy,
   accountIsRunning,
-  accountPickerArg,
   accountPickerDirectories,
-  accountPickerOwner,
   accountPickerTarget,
   developmentStartupConfigId,
-  focusAccountArg,
   focusAccountTarget,
-  instanceArg,
   instanceDirectories,
+  type AccountInstanceTarget,
   instanceTarget,
   isDevelopmentPicker,
   prepareAccountPicker,
   prepareInstanceAccount,
-  accountLaunchArgs,
 } from './account_instances';
 import { accountStorageMigrationPath, migrateAccountStorage } from './account_storage_migration';
 import { DesktopStorage, setDesktopStorage } from './desktop_storage';
@@ -208,62 +212,42 @@ const defaultElectronDataRoot = app.getPath('userData');
 const serviceRegistry = new DesktopServiceRegistry(defaultDataRoot);
 const accountTarget = instanceTarget(process.argv);
 const pickerId = accountPickerTarget(process.argv);
-let startupConfigId = accountTarget?.configId;
 const focusTarget = focusAccountTarget(process.argv);
-const pickerDirectories = pickerId
-  ? accountPickerDirectories(defaultDataRoot, pickerId)
-  : undefined;
-const accountDirectories = accountTarget
-  ? instanceDirectories(defaultDataRoot, accountTarget.uin)
-  : pickerDirectories;
-const isIndependentInstance = Boolean(accountDirectories);
-const canHostDesktopServices =
-  !isIndependentInstance || (!app.isPackaged && isDevelopmentPicker(pickerId));
-if (accountDirectories) {
-  fs.mkdirSync(accountDirectories.userData, { recursive: true, mode: 0o700 });
-  app.setPath('userData', accountDirectories.userData);
-  app.setPath('sessionData', accountDirectories.userData);
+const developmentProfile = !app.isPackaged && isDevelopmentPicker(pickerId);
+if (developmentProfile && pickerId) {
+  const { userData } = accountPickerDirectories(defaultDataRoot, pickerId);
+  fs.mkdirSync(userData, { recursive: true, mode: 0o700 });
+  app.setPath('userData', userData);
+  app.setPath('sessionData', userData);
 }
-const accountInstances = new AccountInstances(
-  defaultDataRoot,
-  accountTarget?.uin,
-  accountTarget ? undefined : pickerId,
-);
-let instanceName: string | undefined;
-let stopDesktopServices: (() => Promise<void>) | undefined;
 
-function launchAccountProcess(...instanceArgs: string[]): Promise<void> {
-  const args = accountLaunchArgs(process.argv).filter((value) => value !== AUTOSTART_ARG);
-  const appImage = process.platform === 'linux' ? process.env.APPIMAGE : undefined;
-  const env = { ...process.env };
-  if (appImage) {
-    // 新实例有自己的 AppImage 挂载，父实例退出后资源仍可读取。
-    for (const key of [
-      'APPIMAGE',
-      'APPDIR',
-      'ARGV0',
-      'OWD',
-      'LD_LIBRARY_PATH',
-      'GSETTINGS_SCHEMA_DIR',
-      'CHROME_DESKTOP',
-      'EGL_PLATFORM',
-      'FC_FONTATIONS',
-    ])
-      delete env[key];
-  }
-  const child = spawn(appImage || process.execPath, [...args, ...instanceArgs], {
-    detached: true,
-    stdio: 'ignore',
-    env,
-  });
-  return new Promise((resolve, reject) => {
-    child.once('error', reject);
-    child.once('spawn', () => {
-      child.unref();
-      resolve();
-    });
-  });
+interface AccountWindowState {
+  runtime: AccountRuntime;
+  instances: AccountInstances;
+  profile: string;
+  assignedUin?: string;
+  startupConfigId?: string;
+  title?: string;
+  session?: Session;
+  storage?: DesktopStorage;
+  stopWorker?: () => void;
+  stopProtocols?: () => void;
+  closing?: boolean;
 }
+
+const primaryWindow: AccountWindowState = {
+  runtime: primaryAccountRuntime,
+  instances: new AccountInstances(defaultDataRoot, accountTarget?.uin, pickerId),
+  profile: app.getPath('userData'),
+  assignedUin: accountTarget?.uin,
+  startupConfigId: accountTarget?.configId,
+};
+const accountWindows = new Map<AccountRuntime, AccountWindowState>([
+  [primaryAccountRuntime, primaryWindow],
+]);
+const windowState = () => accountWindows.get(currentAccountRuntime()) ?? primaryWindow;
+let lastWindowRuntime = primaryAccountRuntime;
+let stopDesktopServices: (() => Promise<void>) | undefined;
 
 // Privileged-scheme registration must happen before app `ready`, and Electron
 // honors only ONE `registerSchemesAsPrivileged` call — register every custom
@@ -325,28 +309,132 @@ registerWindowControlsPreference(
   () => getAppContext().bootstrap?.userConfig.getSettings().windowsStyleControls ?? false,
 );
 
-const mainWindowLifecycle = createMainWindowLifecycle({
-  canOpen: () => mainIpcHandler !== null && !isQuitting,
-  getWindow: getMainWindow,
-  setWindow: setMainWindow,
-  createWindow,
-  attachWindow: (win) => mainIpcHandler?.attachWindow(win),
-});
-
-// 外部 MCP 的切号请求由渲染层执行，得先把窗口叫回来（见 account_switch_bus）。
-registerMainWindowReveal(mainWindowLifecycle);
+function registerWindowLifecycle(runtime: AccountRuntime) {
+  const lifecycle = createMainWindowLifecycle({
+    canOpen: () => mainIpcHandler !== null && !isQuitting,
+    getWindow: runtime.bind(getMainWindow),
+    setWindow: runtime.bind(setMainWindow),
+    createWindow,
+    attachWindow: (win) => mainIpcHandler?.attachWindow(win),
+  });
+  const scoped = { open: runtime.bind(lifecycle.open) };
+  runtime.run(() => registerMainWindowReveal(scoped));
+  return scoped;
+}
+const mainWindowLifecycle = registerWindowLifecycle(primaryAccountRuntime);
 
 function openMainWindow(): void {
   mainWindowRequested = true;
-  mainWindowLifecycle.open();
+  revealMainWindow();
 }
 
-async function openAccountPicker(): Promise<void> {
-  await launchAccountProcess(accountPickerArg(prepareAccountPicker()));
+function revealLastWindow(): void {
+  lastWindowRuntime.run(openMainWindow);
+}
+
+function hasOtherAccountWindow(runtime: AccountRuntime): boolean {
+  return [...accountWindows.keys()].some((other) => {
+    if (other === runtime) return false;
+    const window = other.run(getMainWindow);
+    return window && !window.isDestroyed();
+  });
+}
+
+function focusOpenAccount(uin: string): boolean {
+  for (const entry of accountWindows.values()) {
+    if (entry.closing || !entry.instances.owns(uin)) continue;
+    entry.runtime.run(openMainWindow);
+    return true;
+  }
+  return false;
+}
+
+function bindDesktopWindowSession(entry: AccountWindowState, windowSession: Session): void {
+  entry.session = windowSession;
+  const unbind = bindAccountSession(windowSession, entry.runtime);
+  const unregisterProtocols = registerAccountProtocols(windowSession, entry.runtime);
+  installCallDisplayMediaHandler(windowSession);
+  entry.stopProtocols = () => {
+    unregisterProtocols();
+    unbind();
+  };
+}
+
+async function openAccountWindow(target?: AccountInstanceTarget): Promise<void> {
+  if (isQuitting || !mainIpcHandler) return;
+  if (target && focusOpenAccount(target.uin)) return;
+  const id = prepareAccountPicker();
+  const { userData } = target
+    ? instanceDirectories(defaultDataRoot, target.uin)
+    : accountPickerDirectories(defaultDataRoot, id);
+  const runtime = new AccountRuntime();
+  const entry: AccountWindowState = {
+    runtime,
+    profile: userData,
+    instances: new AccountInstances(defaultDataRoot, target?.uin, target ? undefined : id),
+    assignedUin: target?.uin,
+    startupConfigId: target?.configId,
+  };
+  try {
+    if (target) {
+      const record = prepareInstanceAccount(defaultDataRoot, target);
+      entry.instances.claim(target.uin);
+      entry.title = `WeQ · ${record.displayName || record.uin}`;
+    }
+    fs.mkdirSync(userData, { recursive: true, mode: 0o700 });
+    accountWindows.set(runtime, entry);
+    await runtime.run(async () => {
+      entry.storage = new DesktopStorage(defaultDataRoot);
+      setDesktopStorage(entry.storage);
+      setAccountInstanceScope(entry.instances);
+      bindDesktopWindowSession(entry, session.fromPath(userData));
+      initAppContext(defaultDataRoot, defaultDataRoot);
+      getAppContext().bootstrap?.linkPreview.setScreenshotHook(screenshotPage);
+      accountEventBus.on('closing', () => electronHost.setApplicationBadge?.(0));
+      const lifecycle = registerWindowLifecycle(runtime);
+      await registerDesktopAccount(entry).catch((error: unknown) =>
+        logger.warn('桌面账号服务初始化失败', { error: String(error) }),
+      );
+      if (isQuitting) {
+        await disposeAccountWindow(entry);
+        return;
+      }
+      const config = getAppContext().bootstrap?.userConfig;
+      if (target && config)
+        void desktopStartupAccount().start(() =>
+          openStartupAccount(
+            config,
+            appRouter.createCaller({}).bootstrap,
+            process.platform === 'darwin',
+            target.configId,
+          ),
+        );
+      lifecycle.open();
+    });
+  } catch (error) {
+    await disposeAccountWindow(entry);
+    throw error;
+  }
+}
+
+async function disposeAccountWindow(entry: AccountWindowState): Promise<void> {
+  if (entry.closing) return;
+  entry.closing = true;
+  entry.instances.stopOpening();
+  entry.stopWorker?.();
+  entry.stopProtocols?.();
+  try {
+    await entry.runtime.run(disposeAppContext);
+  } finally {
+    entry.storage?.close();
+    entry.instances.dispose();
+    accountWindows.delete(entry.runtime);
+    if (lastWindowRuntime === entry.runtime) lastWindowRuntime = primaryAccountRuntime;
+  }
 }
 
 function requestAccountPicker(): void {
-  void openAccountPicker().catch((error) => {
+  void openAccountWindow().catch((error) => {
     logger.error('failed to open an account selection window', { error: String(error) });
     dialog.showErrorBox('无法新建窗口', String(error));
   });
@@ -380,11 +468,10 @@ function buildTray(): void {
   try {
     tray = createSystemTray({
       locale: app.getPreferredSystemLanguages()[0] ?? app.getLocale(),
-      openMainWindow,
+      openMainWindow: revealLastWindow,
       newWindow: requestAccountPicker,
       restart: restartFromMenu,
       quit: () => app.quit(),
-      title: instanceName,
     });
     logger.info('system tray created', { event: 'tray-create' });
   } catch (e) {
@@ -397,18 +484,18 @@ function buildTray(): void {
 
 function registerWindowLayoutIpc(): void {
   registerWindowChromeIpc((win) => windowStyles.get(win) ?? 'windows');
-  ipcMain.handle('window:get-controls', (event) => {
+  accountIpc.handle('window:get-controls', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     return win ? (windowStyles.get(win) ?? 'windows') : 'windows';
   });
-  ipcMain.on('composition:control', (event, action: unknown) => {
+  accountIpc.on('composition:control', (event, action: unknown) => {
     const child = compositionWindows.get(event.sender.id);
     if (child) controlCompositionWindow(child, action);
   });
-  ipcMain.on('tool-window:focus', (event, name: unknown) => {
+  accountIpc.on('tool-window:focus', (event, name: unknown) => {
     toolWindows.focus(event.sender.id, name);
   });
-  ipcMain.on('db-repair:scope', (event, scope: unknown) => {
+  accountIpc.on('db-repair:scope', (event, scope: unknown) => {
     if (!scope || typeof scope !== 'object' || !('uin' in scope) || typeof scope.uin !== 'string')
       return;
     repairWindowScopes.set(event.sender.id, {
@@ -417,7 +504,7 @@ function registerWindowLayoutIpc(): void {
         'configId' in scope && typeof scope.configId === 'string' ? scope.configId : undefined,
     });
   });
-  ipcMain.handle('window:set-layout', (event, layout: WindowLayout) => {
+  accountIpc.handle('window:set-layout', (event, layout: WindowLayout) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || (layout !== 'home' && layout !== 'chat')) return;
     // Linux 无运行时装饰开关，仅在账号页/工作区切换时重建，保留后台账号会话。
@@ -444,11 +531,11 @@ function registerWindowLayoutIpc(): void {
     applyWindowLayout(win, layout, screen.getDisplayMatching(win.getBounds()).workArea);
   });
 
-  ipcMain.on('window-minimize', (event) => {
+  accountIpc.on('window-minimize', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
 
-  ipcMain.on('window-maximize', (event) => {
+  accountIpc.on('window-maximize', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return;
     if (win.isMaximized()) {
@@ -458,13 +545,13 @@ function registerWindowLayoutIpc(): void {
     }
   });
 
-  ipcMain.on('window-close', (event) => {
+  accountIpc.on('window-close', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.close();
   });
 
   // Reply from the renderer's 关闭确认框 (only sent when behavior === 'ask').
   //   'tray' → hide to tray; 'quit' → real quit; 'cancel' → do nothing.
-  ipcMain.on('window:respond-close', (_event, action: 'tray' | 'quit' | 'cancel') => {
+  accountIpc.on('window:respond-close', (_event, action: 'tray' | 'quit' | 'cancel') => {
     if (action === 'tray') {
       getMainWindow()?.hide();
     } else if (action === 'quit') {
@@ -480,7 +567,7 @@ function registerWindowLayoutIpc(): void {
  * was found and revealed.
  */
 function registerMediaIpc(): void {
-  ipcMain.handle(
+  accountIpc.handle(
     'media:reveal',
     async (_event, input: { t: number; name: string; type: 'video' | 'file' | 'pic' | 'ptt' }) => {
       const services = getAppContext().services;
@@ -498,7 +585,7 @@ function registerMediaIpc(): void {
     },
   );
 
-  ipcMain.handle('file:reveal', async (_event, msgId: string) => {
+  accountIpc.handle('file:reveal', async (_event, msgId: string) => {
     const services = getAppContext().services;
     if (!services) return { success: false, error: 'Session closed' };
 
@@ -524,7 +611,7 @@ function registerMediaIpc(): void {
   });
 
   // 兼容旧入口；资源解析与保存只走公共单文件任务。
-  ipcMain.handle(
+  accountIpc.handle(
     'file:download',
     async (
       _event,
@@ -587,7 +674,7 @@ async function writeImageToClipboard(image: Electron.NativeImage): Promise<void>
  * 这里如实拒掉，让前端给一句人话提示。
  */
 function registerMediaExportIpc(): void {
-  ipcMain.handle(
+  accountIpc.handle(
     'media:export',
     async (
       _event,
@@ -620,7 +707,7 @@ function registerMediaExportIpc(): void {
           });
           return taskId ? { ok: true, taskId } : { ok: false, canceled: true };
         }
-        const response = await net.fetch(url);
+        const response = await (accountSession()?.fetch(url) ?? net.fetch(url));
         if (!response.ok) return { ok: false, error: `读取图片失败（HTTP ${response.status}）` };
         const bytes = Buffer.from(await response.arrayBuffer());
         if (!bytes.length) return { ok: false, error: '读到的图片是空的' };
@@ -636,7 +723,7 @@ function registerMediaExportIpc(): void {
 }
 
 function registerLogIpc(): void {
-  ipcMain.handle('logs:open-dir', async () => {
+  accountIpc.handle('logs:open-dir', async () => {
     const dir = getLogDir();
     if (!dir) {
       logger.warn('log directory requested before logger init', {
@@ -660,7 +747,7 @@ function registerLogIpc(): void {
    * 刻意**不**转发 `console` 全量：主进程 `console-message` 会把整个渲染层的
    * 噪声（React 警告、第三方库日志）都灌进文件。调用方显式调用才记。
    */
-  ipcMain.on('logs:renderer', (_event, payload: unknown) => {
+  accountIpc.on('logs:renderer', (_event, payload: unknown) => {
     if (!payload || typeof payload !== 'object') return;
     const record = payload as { level?: unknown; message?: unknown; context?: unknown };
     if (typeof record.message !== 'string' || record.message.length > 2000) return;
@@ -677,11 +764,11 @@ function registerLogIpc(): void {
 }
 
 function registerSystemAuthIpc(): void {
-  ipcMain.handle('systemAuth:getStatus', async () => {
+  accountIpc.handle('systemAuth:getStatus', async () => {
     return systemAuthService.resolveStatus();
   });
 
-  ipcMain.handle('systemAuth:verify', async (event, reason?: string) => {
+  accountIpc.handle('systemAuth:verify', async (event, reason?: string) => {
     const targetWin = BrowserWindow.fromWebContents(event.sender) ?? undefined;
     return systemAuthService.verify(reason, targetWin);
   });
@@ -689,23 +776,23 @@ function registerSystemAuthIpc(): void {
 
 /** WeQ 验证器（应用锁 TOTP）。密钥只在主进程持有，渲染层仅拿到状态 / 校验结果。 */
 function registerTotpIpc(): void {
-  ipcMain.handle('totp:getStatus', async () => {
+  accountIpc.handle('totp:getStatus', async () => {
     return totpAuthService.getStatus();
   });
 
-  ipcMain.handle('totp:generate-setup', async () => {
+  accountIpc.handle('totp:generate-setup', async () => {
     return totpAuthService.generateSetup();
   });
 
-  ipcMain.handle('totp:cancel-setup', async () => {
+  accountIpc.handle('totp:cancel-setup', async () => {
     return totpAuthService.cancelSetup();
   });
 
-  ipcMain.handle('totp:verify', async (_event, code: unknown) => {
+  accountIpc.handle('totp:verify', async (_event, code: unknown) => {
     return totpAuthService.verify(code);
   });
 
-  ipcMain.handle('totp:remove', async () => {
+  accountIpc.handle('totp:remove', async () => {
     return totpAuthService.remove();
   });
 }
@@ -716,7 +803,7 @@ function registerTotpIpc(): void {
  * 效果，故截图天然与隐私模式联动。截完即可粘贴到聊天 / 文档，暂不落盘。
  */
 function registerCaptureIpc(): void {
-  ipcMain.handle('capture:window', async (event) => {
+  accountIpc.handle('capture:window', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return { ok: false, error: '找不到目标窗口' };
     try {
@@ -741,11 +828,13 @@ function createWindow(
   showInitially = true,
   layout: WindowLayout = startupWindowLayout(
     Boolean(getAppContext().account),
-    desktopStartupAccount.pending,
+    desktopStartupAccount().pending,
     getAppContext().bootstrap?.userConfig,
-    startupConfigId,
+    windowState().startupConfigId,
   ),
 ): BrowserWindow {
+  const entry = windowState();
+  const { runtime } = entry;
   const icon = resolveWindowIcon();
   const controls = requestedControls(layout);
   // On tiling Wayland WMs (Hyprland/sway) new toplevels tile by default. Ask
@@ -757,13 +846,14 @@ function createWindow(
     ...WINDOW_LAYOUTS[layout],
     useContentSize: true,
     show: false,
-    title: instanceName ?? 'WeQ Desktop',
+    title: entry.title ?? 'WeQ Desktop',
     autoHideMenuBar: true,
     backgroundColor: '#f0f0f0',
     titleBarStyle: process.platform === 'linux' && controls === 'native' ? 'default' : 'hidden',
     ...floatingWindowTypeOption(),
     ...(icon ? { icon } : {}),
     webPreferences: {
+      session: entry.session,
       preload: join(moduleDir, '../preload/index.mjs'),
       sandbox: false,
       contextIsolation: true,
@@ -772,7 +862,10 @@ function createWindow(
       webviewTag: true,
     },
   });
-  if (instanceName) win.on('page-title-updated', (event) => event.preventDefault());
+  if (entry.title) win.on('page-title-updated', (event) => event.preventDefault());
+  win.on('focus', () => {
+    lastWindowRuntime = runtime;
+  });
   windowLayouts.set(win, layout);
   applyWindowLayout(win, layout, screen.getDisplayMatching(win.getBounds()).workArea);
   windowStyles.set(win, controls);
@@ -816,12 +909,26 @@ function createWindow(
     if (isMainFrame && code !== -3) recovery.failed();
   });
   const recoveryId = win.webContents.id;
-  win.once('closed', () => {
-    toolWindows.clear(recoveryId);
-    repairWindowScopes.delete(recoveryId);
-    rendererRecoveries.delete(recoveryId);
-    recovery.dispose();
-  });
+  win.once(
+    'closed',
+    runtime.bind(() => {
+      toolWindows.clear(recoveryId);
+      repairWindowScopes.delete(recoveryId);
+      rendererRecoveries.delete(recoveryId);
+      recovery.dispose();
+      if (!isQuitting && getMainWindow() === win) {
+        const cleanup =
+          entry === primaryWindow
+            ? desktopStartupAccount()
+                .wait()
+                .then(() => getAppContext().clearAccount(true))
+            : disposeAccountWindow(entry);
+        void cleanup.catch((error: unknown) =>
+          logger.warn('账号窗口退出清理失败', { error: String(error) }),
+        );
+      }
+    }),
+  );
 
   installStartupWindowReveal(win, showInitially);
 
@@ -829,33 +936,37 @@ function createWindow(
   //   'quit' → quit the app on every platform;
   //   'tray' → hide to the system tray, keep the process alive;
   //   'ask'  → ask the renderer to show the 关闭确认框 (default, first time).
-  win.on('close', (e) => {
-    if (isQuitting || win !== getMainWindow()) return;
-    if (recovery.needsRecovery()) {
+  win.on(
+    'close',
+    runtime.bind((e) => {
+      if (isQuitting || win !== getMainWindow()) return;
+      if (recovery.needsRecovery()) {
+        e.preventDefault();
+        recovery.request();
+        return;
+      }
+      const behavior = resolveCloseBehavior();
+      if (behavior === 'quit') {
+        if (hasOtherAccountWindow(runtime)) return;
+        e.preventDefault();
+        app.quit();
+        return;
+      }
       e.preventDefault();
-      recovery.request();
-      return;
-    }
-    const behavior = resolveCloseBehavior();
-    if (behavior === 'quit') {
-      e.preventDefault();
-      app.quit();
-      return;
-    }
-    e.preventDefault();
-    if (behavior === 'tray' && tray) {
-      win.hide();
-      return;
-    }
-    // 'ask' — or 'tray' but the tray failed to build → fall back to asking.
-    // 有后台服务在跑时一并带上名单：完全退出会让这些服务停止，用户在
-    // 「关窗」这个模糊动作上需要知道代价；真正的退出动作（Dock / Cmd+Q /
-    // 托盘「退出 WeQ」）不经过这里，直接退出。
-    win.webContents.send('window:confirm-close', {
-      canMinimizeToTray: Boolean(tray),
-      services: backgroundServicesRunning().map((service) => service.label),
-    });
-  });
+      if (behavior === 'tray' && tray) {
+        win.hide();
+        return;
+      }
+      // 'ask' — or 'tray' but the tray failed to build → fall back to asking.
+      // 有后台服务在跑时一并带上名单：完全退出会让这些服务停止，用户在
+      // 「关窗」这个模糊动作上需要知道代价；真正的退出动作（Dock / Cmd+Q /
+      // 托盘「退出 WeQ」）不经过这里，直接退出。
+      win.webContents.send('window:confirm-close', {
+        canMinimizeToTray: Boolean(tray),
+        services: backgroundServicesRunning().map((service) => service.label),
+      });
+    }),
+  );
 
   win.webContents.setWindowOpenHandler(({ url, frameName }) => {
     if (isMessageImageWindow(url, frameName)) return allowMessageImageWindow(win);
@@ -864,78 +975,82 @@ function createWindow(
     shell.openExternal(url);
     return { action: 'deny' };
   });
-  win.webContents.on('did-create-window', (child, details) => {
-    if (isMessageImageWindow(details.url, details.frameName)) {
-      registerMessageImageWindow(win, child);
-      return;
-    }
-    const options = applicationToolPopupOptions(details.url, details.frameName);
-    if (!options) return;
-    labelPerformanceWindow(child, options.title ?? '应用工具窗口');
-    const composition = details.frameName === 'weq-compose';
-    if (!composition) installWindowControls(child, details.options.frame === false);
-    const owner = win.webContents.id;
-    toolWindows.register(owner, details.frameName, child);
-    if (details.frameName === 'weq-db-repair')
-      guardDatabaseMaintenanceWindow(child, {
-        quitting: () => isQuitting,
-        current: () => {
-          const scope = repairWindowScopes.get(owner);
-          return scope ? databaseMaintenance.current(scope) : null;
-        },
-        confirmEnd: async () =>
-          (
-            await dialog.showMessageBox(child, {
-              type: 'question',
-              title: '结束数据库维护？',
-              message: '此账号的数据库仍在维护中。',
-              detail:
-                '放弃本次扫描结果并关闭窗口，将停止检查、释放全部目标数据库的维护锁。历史报告继续保留。',
-              buttons: ['继续维护', '放弃并关闭'],
-              defaultId: 1,
-              cancelId: 0,
-              noLink: true,
-            })
-          ).response === 1,
-        end: (snapshot) => databaseMaintenance.end(snapshot),
-        failed: (error) => {
-          void dialog.showMessageBox(child, {
-            type: 'error',
-            title: '无法结束数据库维护',
-            message: String(error),
-          });
-        },
+  win.webContents.on(
+    'did-create-window',
+    runtime.bind((child, details) => {
+      if (isMessageImageWindow(details.url, details.frameName)) {
+        registerMessageImageWindow(win, child);
+        return;
+      }
+      const options = applicationToolPopupOptions(details.url, details.frameName);
+      if (!options) return;
+      labelPerformanceWindow(child, options.title ?? '应用工具窗口');
+      const composition = details.frameName === 'weq-compose';
+      if (!composition) installWindowControls(child, details.options.frame === false);
+      const owner = win.webContents.id;
+      toolWindows.register(owner, details.frameName, child);
+      if (details.frameName === 'weq-db-repair')
+        guardDatabaseMaintenanceWindow(child, {
+          quitting: () => isQuitting,
+          current: () => {
+            const scope = repairWindowScopes.get(owner);
+            return scope ? databaseMaintenance.current(scope) : null;
+          },
+          confirmEnd: async () =>
+            (
+              await dialog.showMessageBox(child, {
+                type: 'question',
+                title: '结束数据库维护？',
+                message: '此账号的数据库仍在维护中。',
+                detail:
+                  '放弃本次扫描结果并关闭窗口，将停止检查、释放全部目标数据库的维护锁。历史报告继续保留。',
+                buttons: ['继续维护', '放弃并关闭'],
+                defaultId: 1,
+                cancelId: 0,
+                noLink: true,
+              })
+            ).response === 1,
+          end: (snapshot) => databaseMaintenance.end(snapshot),
+          failed: (error) => {
+            void dialog.showMessageBox(child, {
+              type: 'error',
+              title: '无法结束数据库维护',
+              message: String(error),
+            });
+          },
+        });
+      if (composition) compositionWindows.set(owner, child);
+      const reportState = () => {
+        if (!win.isDestroyed() && !child.isDestroyed())
+          win.webContents.send('composition:state', { maximized: child.isMaximized() });
+      };
+      if (composition) {
+        const nativeControls = details.options.frame !== false;
+        child.webContents.on('dom-ready', () => {
+          void child.webContents
+            .executeJavaScript(
+              `document.documentElement.toggleAttribute('data-native-window-controls', ${nativeControls})`,
+            )
+            .catch(() => undefined);
+        });
+        child.on('maximize', reportState);
+        child.on('unmaximize', reportState);
+        reportState();
+      }
+      child.on('closed', () => {
+        if (composition && compositionWindows.get(owner) === child)
+          compositionWindows.delete(owner);
       });
-    if (composition) compositionWindows.set(owner, child);
-    const reportState = () => {
-      if (!win.isDestroyed() && !child.isDestroyed())
-        win.webContents.send('composition:state', { maximized: child.isMaximized() });
-    };
-    if (composition) {
-      const nativeControls = details.options.frame !== false;
-      child.webContents.on('dom-ready', () => {
-        void child.webContents
-          .executeJavaScript(
-            `document.documentElement.toggleAttribute('data-native-window-controls', ${nativeControls})`,
-          )
-          .catch(() => undefined);
+      child.webContents.setWindowOpenHandler(({ url }) => {
+        void shell.openExternal(url);
+        return { action: 'deny' };
       });
-      child.on('maximize', reportState);
-      child.on('unmaximize', reportState);
-      reportState();
-    }
-    child.on('closed', () => {
-      if (composition && compositionWindows.get(owner) === child) compositionWindows.delete(owner);
-    });
-    child.webContents.setWindowOpenHandler(({ url }) => {
-      void shell.openExternal(url);
-      return { action: 'deny' };
-    });
-    child.webContents.on('will-navigate', (event, url) => {
-      event.preventDefault();
-      if (url !== 'about:blank') void shell.openExternal(url);
-    });
-  });
+      child.webContents.on('will-navigate', (event, url) => {
+        event.preventDefault();
+        if (url !== 'about:blank') void shell.openExternal(url);
+      });
+    }),
+  );
 
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -945,7 +1060,7 @@ function createWindow(
   return win;
 }
 
-// Electron 锁按窗口的数据目录隔离，普通重复启动由主进程打开账号选择窗口。
+// 每个桌面应用只持有一个 Electron 单实例锁，账号窗口共享这一宿主。
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 declare const __WEQ_BUILD_REVISION__: { commit: string | null; builtAt: string } | undefined;
 if (!hasSingleInstanceLock) {
@@ -953,22 +1068,81 @@ if (!hasSingleInstanceLock) {
 } else {
   if (!focusTarget) guardStorageCleanupStartup();
   app.on('second-instance', (_event, argv) => {
-    const focus = focusAccountTarget(argv);
-    if (focus && !accountInstances.owns(focus)) return;
-    if (argv.includes(AUTOSTART_ARG)) {
-      if (
-        mainIpcHandler &&
-        getAppContext().bootstrap?.userConfig.getSettings().showWindowOnAutostart
-      )
-        openMainWindow();
-      return;
-    }
-    if (focus || isIndependentInstance || argv.includes(MANUAL_RESTART_ARG)) {
-      openMainWindow();
-      return;
-    }
-    if (!isQuitting) requestAccountPicker();
+    void desktopReady
+      .then(async () => {
+        if (isQuitting) return;
+        const focus = focusAccountTarget(argv);
+        if (focus) {
+          focusOpenAccount(focus);
+          return;
+        }
+        if (argv.includes(AUTOSTART_ARG)) {
+          if (getAppContext().bootstrap?.userConfig.getSettings().showWindowOnAutostart)
+            revealLastWindow();
+          return;
+        }
+        if (argv.includes(MANUAL_RESTART_ARG)) {
+          revealLastWindow();
+          return;
+        }
+        await openAccountWindow(instanceTarget(argv));
+      })
+      .catch((error: unknown) => dialog.showErrorBox('无法打开账号窗口', String(error)));
   });
+}
+
+const publicDir = app.isPackaged
+  ? join(process.resourcesPath, 'remote-web')
+  : join(app.getAppPath(), '../web/dist/public');
+const developmentUrl = is.dev ? process.env.WEQ_DEV_WEB_URL : undefined;
+
+async function registerDesktopAccount(entry: AccountWindowState): Promise<void> {
+  const config = getAppContext().bootstrap?.userConfig;
+  if (!config) return;
+  const core = new WebCore({
+    developmentUrl,
+    publicDir,
+    exportDir: join(entry.profile, 'web-exports'),
+    renderer: electronHost,
+    version: app.getVersion(),
+    router: appRouter,
+    groupVideoSession: (id) => currentGroupCall(id)?.session,
+  });
+  if (!core.assetsInstalled) return;
+  const stop = await registerAccountWorker({
+    registry: serviceRegistry,
+    core,
+    currentAccount: () => {
+      const { account, services } = getAppContext();
+      const configId = services?.accountConfig.getConfigId();
+      return account && configId
+        ? { session: account, uin: String(account.context.uin), configId }
+        : null;
+    },
+    watchClosing: (callback) => {
+      accountEventBus.on('closing', callback);
+      return () => accountEventBus.off('closing', callback);
+    },
+    launch: (configId) => openAccountWindow(savedAccountTarget(defaultDataRoot, configId)),
+    assignedUin: entry.assignedUin,
+    openHere: async (configId) => {
+      const target = savedAccountTarget(defaultDataRoot, configId);
+      if (entry.assignedUin !== target.uin || getAppContext().account)
+        throw new Error('此窗口已打开账号或所属账号已变化。');
+      const result = await openStartupAccount(
+        config,
+        appRouter.createCaller({}).bootstrap,
+        process.platform === 'darwin',
+        configId,
+      );
+      if (!result.opened) throw new Error(result.error ?? '请在账号窗口完成登录。');
+      openMainWindow();
+      getMainWindow()?.webContents.reload();
+    },
+    reveal: openMainWindow,
+  });
+  if (isQuitting || entry.closing) stop();
+  else entry.stopWorker = stop;
 }
 
 async function startDesktop(): Promise<void> {
@@ -987,10 +1161,6 @@ async function startDesktop(): Promise<void> {
     platform: process.platform,
     arch: process.arch,
   });
-  const publicDir = app.isPackaged
-    ? join(process.resourcesPath, 'remote-web')
-    : join(app.getAppPath(), '../web/dist/public');
-  const developmentUrl = is.dev ? process.env.WEQ_DEV_WEB_URL : undefined;
   const remoteHelper =
     process.env.WEQ_REMOTE_HELPER ??
     join(
@@ -1005,7 +1175,7 @@ async function startDesktop(): Promise<void> {
   }
   try {
     const storage = new DesktopStorage(defaultDataRoot);
-    app.once('quit', () => storage.close());
+    primaryWindow.storage = storage;
     const migrate = !fs.existsSync(accountStorageMigrationPath(defaultDataRoot));
     if (migrate || hasPendingWeqBackupRestore(defaultDataRoot)) {
       storage.initialize(() => {
@@ -1027,28 +1197,17 @@ async function startDesktop(): Promise<void> {
   }
   if (accountTarget) {
     try {
-      accountInstances.claim(accountTarget.uin);
       const record = prepareInstanceAccount(defaultDataRoot, accountTarget);
-      instanceName = `WeQ · ${record.displayName || record.uin}`;
+      primaryWindow.instances.claim(accountTarget.uin);
+      primaryWindow.title = `WeQ · ${record.displayName || record.uin}`;
     } catch (error) {
-      if (error instanceof AccountInstanceBusy) {
-        const owner = accountPickerOwner(defaultDataRoot, accountTarget.uin);
-        const focusArgs = owner
-          ? [accountPickerArg(owner), focusAccountArg(accountTarget.uin)]
-          : [focusAccountArg(accountTarget.uin)];
-        await launchAccountProcess(...focusArgs).catch((reason: unknown) =>
-          dialog.showErrorBox('无法唤出账号窗口', String(reason)),
-        );
-      } else {
-        dialog.showErrorBox('无法打开账号窗口', String(error));
-      }
-      app.exit(0);
+      dialog.showErrorBox('无法打开账号窗口', String(error));
+      app.quit();
       return;
     }
   }
-  setAccountInstanceScope(accountInstances);
+  setAccountInstanceScope(primaryWindow.instances);
   const autostart =
-    !isIndependentInstance &&
     app.isPackaged &&
     isAutostartLaunch(
       process.argv,
@@ -1068,7 +1227,7 @@ async function startDesktop(): Promise<void> {
   // Order matters: AppContext (loads native + platform) before IPC handler.
   // The host bridge must be installed before any router runs.
   setHost(
-    isIndependentInstance
+    developmentProfile
       ? {
           ...electronHost,
           canAutostart: false,
@@ -1087,7 +1246,7 @@ async function startDesktop(): Promise<void> {
   );
   app.once('will-quit', stopNetwork);
   accountEventBus.on('closing', () => electronHost.setApplicationBadge?.(0));
-  if (!isIndependentInstance)
+  if (!developmentProfile)
     await migrateLegacyAutostart().catch((error: unknown) => {
       logger.warn('legacy daemon migration failed', {
         event: 'legacy-daemon-migration-failed',
@@ -1135,7 +1294,7 @@ async function startDesktop(): Promise<void> {
   userConfig?.getStartupPage();
   // 旧版安卓备份的 uin 是从资料库猜的，可能猜错；纠正它会连带改 configId，
   // 所以必须在账号打开之前、且在任何按 id 建目录的服务之前跑完。
-  if (userConfig && !isIndependentInstance) {
+  if (userConfig && !developmentProfile) {
     await migrateStaticAccountIdentity(requirePlatform(), userConfig).catch((error: unknown) => {
       logger.warn('static account identity migration failed', {
         event: 'static-account-identity-migration-failed',
@@ -1154,74 +1313,20 @@ async function startDesktop(): Promise<void> {
       });
   }
   if (userConfig && !isQuitting) {
-    const webCore = new WebCore({
-      developmentUrl,
+    stopDesktopServices = connectDesktopServices(serviceRegistry, {
+      dataRoot: defaultDataRoot,
+      config: userConfig,
       publicDir,
-      exportDir: join(app.getPath('userData'), 'web-exports'),
-      renderer: electronHost,
-      version: app.getVersion(),
-      router: appRouter,
-      groupVideoSession: (id) => currentGroupCall(id)?.session,
+      developmentUrl,
+      remoteDirectory: join(defaultElectronDataRoot, 'remote-network'),
+      remoteHelper,
     });
-    stopDesktopServices = connectDesktopServices(
-      serviceRegistry,
-      canHostDesktopServices
-        ? {
-            dataRoot: defaultDataRoot,
-            config: userConfig,
-            publicDir,
-            developmentUrl,
-            remoteDirectory: join(defaultElectronDataRoot, 'remote-network'),
-            remoteHelper,
-          }
-        : undefined,
+    void registerDesktopAccount(primaryWindow).catch((error: unknown) =>
+      logger.warn('桌面账号服务初始化失败', { error: String(error) }),
     );
-    if (webCore.assetsInstalled) {
-      void registerAccountWorker({
-        registry: serviceRegistry,
-        core: webCore,
-        currentAccount: () => {
-          const { account, services } = getAppContext();
-          const configId = services?.accountConfig.getConfigId();
-          return account && configId
-            ? { session: account, uin: String(account.context.uin), configId }
-            : null;
-        },
-        watchClosing: (callback) => {
-          accountEventBus.on('closing', callback);
-          return () => {
-            accountEventBus.off('closing', callback);
-          };
-        },
-        launch: (configId) =>
-          launchAccountProcess(instanceArg(savedAccountTarget(defaultDataRoot, configId))),
-        assignedUin: accountTarget?.uin,
-        openHere: async (configId) => {
-          const target = savedAccountTarget(defaultDataRoot, configId);
-          if (accountTarget?.uin !== target.uin || getAppContext().account)
-            throw new Error('此窗口已打开账号或所属账号已变化。');
-          const result = await openStartupAccount(
-            userConfig,
-            appRouter.createCaller({}).bootstrap,
-            process.platform === 'darwin',
-            configId,
-          );
-          if (!result.opened) throw new Error(result.error ?? '请在账号窗口完成登录。');
-          openMainWindow();
-          getMainWindow()?.webContents.reload();
-        },
-        reveal: openMainWindow,
-      })
-        .then((stopWorker) => {
-          if (isQuitting) stopWorker();
-          else app.once('will-quit', stopWorker);
-        })
-        .catch((error: unknown) => logger.warn('桌面账号服务初始化失败', { error: String(error) }));
-    }
-    if (canHostDesktopServices)
-      void desktopWebStatus().catch((error: unknown) =>
-        logger.warn('桌面服务自动启动失败', { error: String(error) }),
-      );
+    void desktopWebStatus().catch((error: unknown) =>
+      logger.warn('桌面服务自动启动失败', { error: String(error) }),
+    );
   }
   const logDirectory = getLogDir();
   if (logDirectory) {
@@ -1244,7 +1349,7 @@ async function startDesktop(): Promise<void> {
       const pending = files.result?.hostPending
         ? files.result
         : weqBackupRestoreStatus(files.root).result;
-      if (pending?.hostPending && !isIndependentInstance)
+      if (pending?.hostPending && !developmentProfile)
         void applyRestoredHostPreferences(files.root, pending, true).catch((error: unknown) =>
           logger.warn('应用备份中的本机设置失败', { error: String(error) }),
         );
@@ -1262,12 +1367,9 @@ async function startDesktop(): Promise<void> {
   // 意图感知本地引擎（Laya ONNX worker）的宿主控制面。
   setIntentSenseLocalEngine(getIntentSenseLocalEngine());
 
-  registerResourceProtocol();
-  registerAvatarProtocol();
-  registerMediaProtocol();
+  bindDesktopWindowSession(primaryWindow, session.defaultSession);
+  registerMediaThumbnailIpc();
   registerUdpCaptureStorage();
-  // 放行通话窗口的屏幕共享与 Windows／macOS 系统音频。
-  installCallDisplayMediaHandler();
   registerWindowLayoutIpc();
   registerMediaIpc();
   registerMediaExportIpc();
@@ -1301,14 +1403,15 @@ async function startDesktop(): Promise<void> {
     )
       throw new Error('账号窗口操作只在 WeQ 主窗口可用。');
   };
-  ipcMain.handle('account-instances:list', (event): AccountInstanceInfo[] => {
+  accountIpc.handle('account-instances:list', (event): AccountInstanceInfo[] => {
     assertAccountMenuSender(event);
     const running = new Map<string, boolean>();
     return Array.from(visibleAccountConfigs().values(), (record) => {
       if (!running.has(record.uin))
         running.set(
           record.uin,
-          !accountInstances.owns(record.uin) && accountIsRunning(defaultDataRoot, record.uin),
+          !windowState().instances.owns(record.uin) &&
+            accountIsRunning(defaultDataRoot, record.uin),
         );
       const { configId, uin, displayName, avatarUrl, static: isStatic, mobile } = record;
       return {
@@ -1322,19 +1425,15 @@ async function startDesktop(): Promise<void> {
       };
     });
   });
-  ipcMain.handle('account-instances:open', async (event, configId: unknown) => {
+  accountIpc.handle('account-instances:open', async (event, configId: unknown) => {
     assertAccountMenuSender(event);
     const record = typeof configId === 'string' ? visibleAccountConfigs().get(configId) : undefined;
     if (!record) throw new Error('找不到此账号的已保存数据源。');
-    if (accountInstances.owns(record.uin)) {
-      openMainWindow();
-      return;
-    }
-    await launchAccountProcess(instanceArg(record));
+    await openAccountWindow(record);
   });
-  ipcMain.handle('account-instances:new-window', async (event) => {
+  accountIpc.handle('account-instances:new-window', async (event) => {
     assertAccountMenuSender(event);
-    await openAccountPicker();
+    await openAccountWindow();
   });
 
   app.on('browser-window-created', (_, win) => {
@@ -1364,25 +1463,30 @@ async function startDesktop(): Promise<void> {
     createContext: async ({ event }) => {
       // electron-trpc 实际使用 ipcMain.on，但类型误声明为 InvokeEvent。
       guardTrpcReply(event as IpcMainEvent);
-      return {};
+      return { accountRuntime: accountRuntimeFor(event.sender) };
     },
   });
   buildTray();
   // 开发窗口可使用共享的默认账号，保留主窗口的一次性跳过状态。
   if (pickerId && !app.isPackaged)
-    startupConfigId ??= developmentStartupConfigId(
+    primaryWindow.startupConfigId ??= developmentStartupConfigId(
       defaultDataRoot,
       pickerId,
       userConfig?.getAutoEnter(),
     );
   // 先安排后台任务，以同一启动目标确定窗口尺寸；不等待数据库打开。
-  if (userConfig && !getAppContext().nativeError && !isQuitting && (!pickerId || startupConfigId))
-    void desktopStartupAccount.start(() =>
+  if (
+    userConfig &&
+    !getAppContext().nativeError &&
+    !isQuitting &&
+    (!developmentProfile || primaryWindow.startupConfigId)
+  )
+    void desktopStartupAccount().start(() =>
       openStartupAccount(
         userConfig,
         appRouter.createCaller({}).bootstrap,
         process.platform === 'darwin',
-        startupConfigId,
+        primaryWindow.startupConfigId,
       ),
     );
   mainWindowLifecycle.open({
@@ -1414,15 +1518,15 @@ async function startDesktop(): Promise<void> {
   // Silent background update check (packaged builds only). Result is cached and
   // pushed to the renderer via the `update.onEvent` subscription → settings red
   // dot. Deferred so it never competes with first paint; failures are ignored.
-  if (!isIndependentInstance) startAutomaticUpdateChecks();
+  if (!developmentProfile) startAutomaticUpdateChecks();
 
   app.on('activate', (_event, hasVisibleWindows) => {
     // 已有可见窗口时由 macOS 恢复窗口顺序，不让主窗口盖过工具窗口。
-    if (!hasVisibleWindows) openMainWindow();
+    if (!hasVisibleWindows) revealLastWindow();
   });
 }
 
-void app
+const desktopReady = app
   .whenReady()
   .then(startDesktop)
   .catch(async (error: unknown) => {
@@ -1491,12 +1595,21 @@ if (hasSingleInstanceLock) {
     async () => {
       logger.info('app quit cleanup started', { event: 'app-quit-cleanup-start' });
       try {
+        const accountCleanup = [...accountWindows.keys()].map((runtime) =>
+          runtime.run(async () => {
+            const ctx = getAppContext();
+            await Promise.all([
+              flushConversationCalendarResults(),
+              ctx.services?.unreadInfo.dispose(),
+              disposeExternalMcp(),
+            ]);
+          }),
+        );
         await Promise.all([
-          flushConversationCalendarResults(),
+          ...accountCleanup,
           databaseCheckups.cancelAll(),
           databaseMaintenance.shutdown(),
           assistantResourceServer.shutdown(),
-          getAppContext().services?.unreadInfo.dispose(),
           stopDesktopServices?.(),
         ]);
       } finally {
@@ -1514,6 +1627,11 @@ if (hasSingleInstanceLock) {
 }
 
 app.on('quit', () => {
+  for (const entry of accountWindows.values()) {
+    entry.stopWorker?.();
+    entry.storage?.close();
+    entry.instances.dispose();
+  }
   void stopDesktopServices?.().catch((error: unknown) =>
     logger.warn('桌面服务退出失败', { error: String(error) }),
   );
@@ -1538,7 +1656,7 @@ app.on('will-quit', (event) => {
     try {
       const ctx = getAppContext();
       ctx.bootstrap?.enhancements.updates.stop();
-      if (!isIndependentInstance) ctx.bootstrap?.userConfig.setSkipAutoEnterOnce(!ctx.account);
+      if (!developmentProfile) ctx.bootstrap?.userConfig.setSkipAutoEnterOnce(!ctx.account);
     } catch (error) {
       logger.warn('failed to save login exit state', {
         event: 'login-exit-state-failed',
@@ -1546,14 +1664,17 @@ app.on('will-quit', (event) => {
       });
     }
   }
-  try {
-    getAppContext().services?.roamingBackfill.dispose();
-  } catch (error) {
-    logger.warn('failed to save roaming pause on quit', {
-      event: 'roaming-quit-checkpoint',
-      error: String(error),
+  for (const runtime of accountWindows.keys())
+    runtime.run(() => {
+      try {
+        getAppContext().services?.roamingBackfill.dispose();
+      } catch (error) {
+        logger.warn('failed to save roaming pause on quit', {
+          event: 'roaming-quit-checkpoint',
+          error: String(error),
+        });
+      }
     });
-  }
   if (tray) {
     try {
       tray.destroy();

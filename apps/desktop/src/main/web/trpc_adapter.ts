@@ -16,6 +16,7 @@ import { createHTTPHandler } from '@trpc/server/adapters/standalone';
 import { applyWSSHandler } from '@trpc/server/adapters/ws';
 import { TRPCError, type AnyRouter } from '@trpc/server';
 import type { HostBridge } from '@weq/service';
+import { currentAccountRuntime } from '../context/account_runtime';
 import { logTransportError } from '@weq/service';
 import { WebSocketServer } from 'ws';
 import type { AuthGate } from './auth';
@@ -30,11 +31,13 @@ export function createTrpcHandler(
   auth?: Pick<AuthGate, 'isAuthed'>,
   host?: HostBridge,
 ): (req: IncomingMessage, res: ServerResponse) => void {
+  const accountRuntime = currentAccountRuntime();
   const handler = createHTTPHandler({
     router,
     maxBodySize: HTTP_RPC_MAX_BODY_BYTES,
     onError: ({ error, path }) => logTransportError('trpc-http', path, error),
     createContext: ({ req }) => ({
+      accountRuntime,
       networkClientId:
         typeof req.headers['x-weq-client-id'] === 'string'
           ? req.headers['x-weq-client-id']
@@ -154,10 +157,11 @@ export function attachWsHandler(
   extraUpgrade?: (req: IncomingMessage, socket: Duplex, head: Buffer) => boolean,
   groupVideoSession?: ResolveGroupVideo,
 ): () => void {
+  const accountRuntime = currentAccountRuntime();
   const wss = new WebSocketServer({ noServer: true });
   const video = groupVideoSession && createGroupVideoWebUpgrade(auth, groupVideoSession);
 
-  const upgrade = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+  const upgrade = accountRuntime.bind((req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const path = (req.url ?? '').split('?')[0];
     if (path !== '/trpc-ws') {
       if (video?.upgrade(req, socket, head)) return;
@@ -175,7 +179,7 @@ export function attachWsHandler(
       ws.once('close', unwatch);
       wss.emit('connection', ws, req);
     });
-  };
+  });
   server.on('upgrade', upgrade);
 
   applyWSSHandler({
@@ -183,6 +187,7 @@ export function attachWsHandler(
     router,
     onError: ({ error, path }) => logTransportError('trpc-ws', path, error),
     createContext: ({ req }) => ({
+      accountRuntime,
       host,
       authorize: () => {
         if (!auth.isAuthed(req)) throw new TRPCError({ code: 'UNAUTHORIZED' });

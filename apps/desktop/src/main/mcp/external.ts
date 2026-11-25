@@ -18,6 +18,7 @@
  * node_modules at runtime (NOT bundled — keep them out of EXCLUDE_FROM_EXTERNAL).
  */
 
+import { accountRuntimeState } from '../context/account_runtime';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -410,13 +411,19 @@ export class ExternalMcpHub {
   }
 }
 
-// ── app-wide singleton (one active account at a time) ──────────────────────
+// 桌面账号有各自的连接池，异步任务还可以使用自己的冻结配置。
 
-let hubSingleton: ExternalMcpHub | null = null;
+const state = accountRuntimeState(() => ({ hub: null as ExternalMcpHub | null }));
 const taskHub = new AsyncLocalStorage<ExternalMcpHub>();
+
+function accountHub(): ExternalMcpHub {
+  const scope = state();
+  scope.hub ??= new ExternalMcpHub();
+  return scope.hub;
+}
+
 export function configureExternalMcp(raw: string | undefined): void {
-  if (!hubSingleton) hubSingleton = new ExternalMcpHub();
-  hubSingleton.configure(raw);
+  accountHub().configure(raw);
 }
 
 export async function withExternalMcpConfiguration<T>(
@@ -434,13 +441,10 @@ export async function withExternalMcpConfiguration<T>(
 
 /** The shared external-MCP hub, created on first use. */
 export function getExternalMcpHub(): ExternalMcpHub {
-  const current = taskHub.getStore();
-  if (current) return current;
-  if (!hubSingleton) hubSingleton = new ExternalMcpHub();
-  return hubSingleton;
+  return taskHub.getStore() ?? accountHub();
 }
 
 /** Close all external MCP connections (account switch / logout / app quit). */
 export async function disposeExternalMcp(): Promise<void> {
-  await hubSingleton?.dispose();
+  await state().hub?.dispose();
 }

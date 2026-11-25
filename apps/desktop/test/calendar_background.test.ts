@@ -1,3 +1,4 @@
+import { emitAccountClosing } from '../src/main/context/account_runtime';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   conversationCalendarRouter,
@@ -13,7 +14,6 @@ import { waitForCalendarWrites } from '@weq/service/conversation-calendar-store'
 const fixture = vi.hoisted(() => ({
   session: { context: { uin: 'fixture' }, msgDbPath: '/fixture/messages.db' },
   root: undefined as string | undefined,
-  closing: undefined as ((session: unknown) => void) | undefined,
   read: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => ({
@@ -26,11 +26,6 @@ vi.mock('../src/main/context/app_context', () => ({
     },
     platform: { native: { ntHelper: { executeSqlBudgeted: () => [] } } },
   }),
-  accountEventBus: {
-    on: (_name: string, handler: (session: unknown) => void) => {
-      fixture.closing = handler;
-    },
-  },
 }));
 vi.mock('@weq/service/conversation-calendar-sources', () => ({
   createCalendarSources: () => [{ kind: 'c2c', count: async () => 0, page: () => fixture.read() }],
@@ -63,7 +58,7 @@ it('后台任务重开先恢复原任务，打开详情不扫描，继续后才�
   const { taskId } = await caller.background({ ...binding, id });
   await vi.advanceTimersByTimeAsync(100);
   expect(fixture.read).toHaveBeenCalledOnce();
-  fixture.closing?.(fixture.session);
+  emitAccountClosing(fixture.session as never);
   firstRead.resolve({ rows: [], done: true });
   await waitForCalendarWrites();
   fixture.session = { ...fixture.session };
@@ -117,7 +112,7 @@ it('重启后从后台任务详情继续，关闭详情后仍完成余下统计'
   });
   const { taskId } = await caller.background({ ...binding, id: initial.id });
   await vi.advanceTimersByTimeAsync(100);
-  fixture.closing?.(fixture.session);
+  emitAccountClosing(fixture.session as never);
   firstRead.resolve({ rows: [], done: true });
   await waitForCalendarWrites();
   fixture.session = { ...fixture.session };
@@ -131,7 +126,7 @@ it('重启后从后台任务详情继续，关闭详情后仍完成余下统计'
 });
 
 afterEach(async () => {
-  fixture.closing?.(fixture.session);
+  emitAccountClosing(fixture.session as never);
   await waitForCalendarWrites();
   if (fixture.root) await rm(fixture.root, { recursive: true, force: true });
   fixture.root = undefined;
@@ -157,7 +152,7 @@ it('账号关闭保存后，新账号实例打开同一来源恢复结果，不�
   const first = await caller.start(input);
   await vi.runAllTimersAsync();
   await caller.stop({ ...binding, id: first.id });
-  fixture.closing?.(fixture.session);
+  emitAccountClosing(fixture.session as never);
   await waitForCalendarWrites();
   fixture.session = { ...fixture.session };
   const narrowed = await caller.start({ ...input, targets: [target] });
@@ -243,7 +238,7 @@ it('打开日历不注册任务，明确后台进行才注册一次；无需续�
   expect(backgroundTasks.snapshot()).toHaveLength(1);
   await vi.advanceTimersByTimeAsync(6000);
   expect(backgroundTasks.snapshot()[0]?.status).toBe('running');
-  fixture.closing?.(fixture.session);
+  emitAccountClosing(fixture.session as never);
   expect(backgroundTasks.snapshot()[0]?.status).toBe('cancelled');
   release({ rows: [], done: true });
   await vi.runAllTimersAsync();
