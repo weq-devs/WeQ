@@ -230,7 +230,7 @@ export function DbRepairPanel({
   const [additionalNames, setAdditionalNames] = useState<string[]>();
   const [appendKind, setAppendKind] = useState<ScanKind>();
   const [selected, setSelected] = useState<string[]>([]);
-  const [repairMethod, setRepairMethod] = useState<DatabaseRepairMethod>('deep');
+  const [repairMethodOverride, setRepairMethodOverride] = useState<DatabaseRepairMethod>();
   const [recentCheck, setRecentCheck] = useState<DatabaseMaintenanceStatus>();
   const [recentRepair, setRecentRepair] = useState<DatabaseMaintenanceStatus>();
   const [resultFocused, setResultFocused] = useState<string>();
@@ -382,7 +382,7 @@ export function DbRepairPanel({
       sessionId.current = live.id;
       touched.current.clear();
       setSelected([]);
-      setRepairMethod('deep');
+      setRepairMethodOverride(undefined);
       setNextScanSelection(undefined);
     }
     const defaults = live.databases
@@ -736,19 +736,35 @@ export function DbRepairPanel({
   const repairCandidates = databases.flatMap((row) => {
     const recommended = databaseRepairRecommendation(row);
     if (!recommended) return [];
+    const canQuickRepair = recommended === 'quick' || databaseCanCheckQuickRepair(row);
     let disabledReason: string | undefined;
-    if (repairMethod === 'quick' && recommended !== 'quick' && !databaseCanCheckQuickRepair(row)) {
+    if (repairMethodOverride === 'quick' && !canQuickRepair) {
       disabledReason =
         row.repair?.nextAction === 'view-deep'
           ? '快速修复未通过复核，请使用深度修复。'
           : '坏页或数据库结构不符合快速修复条件。';
     }
-    return [{ dbName: row.dbName, bytes: bytesByName.get(row.dbName) ?? null, disabledReason }];
+    return [
+      {
+        dbName: row.dbName,
+        bytes: bytesByName.get(row.dbName) ?? null,
+        canQuickRepair,
+        disabledReason,
+      },
+    ];
   });
   const availableRepairNames = repairCandidates
     .filter(({ disabledReason }) => !disabledReason)
     .map(({ dbName }) => dbName);
-  const selectedReady = availableRepairNames.filter((name) => selected.includes(name));
+  const selectedCandidates = repairCandidates.filter(
+    ({ dbName, disabledReason }) => !disabledReason && selected.includes(dbName),
+  );
+  const selectedReady = selectedCandidates.map(({ dbName }) => dbName);
+  const repairMethod =
+    repairMethodOverride ??
+    (selectedCandidates.length && selectedCandidates.every(({ canQuickRepair }) => canQuickRepair)
+      ? 'quick'
+      : 'deep');
   const backupMode = repairBackupMode.data;
   const keepBackup = backupMode === 'all' || (backupMode === 'deep' && repairMethod === 'deep');
   const methods = Object.fromEntries(selectedReady.map((name) => [name, repairMethod]));
@@ -1493,7 +1509,7 @@ export function DbRepairPanel({
                   className="weq-set-btn weq-set-btn-primary"
                   onClick={() => {
                     if (resultRows.some((row) => row.repair?.nextAction === 'view-deep')) {
-                      setRepairMethod('deep');
+                      setRepairMethodOverride('deep');
                     }
                     setTab('repair');
                   }}
@@ -1662,7 +1678,7 @@ export function DbRepairPanel({
                   { value: 'quick', label: '快速修复' },
                   { value: 'deep', label: '深度修复' },
                 ]}
-                onChange={setRepairMethod}
+                onChange={setRepairMethodOverride}
               />
               <p>
                 {repairMethod === 'quick'

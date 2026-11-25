@@ -622,9 +622,14 @@ it('磁盘空间偏低时点击开始修复直接确认，取消后不启动', a
 });
 
 it('修复设置统一保存备份方式，关闭时需确认，快速修复仍只选支持的库', async () => {
-  maintenanceQa.ready('checkup', { secondIssue: true });
+  maintenanceQa.ready('checkup', { secondIssue: true, quickSupported: true });
   await mount();
   await act(async () => tab('开始修复').click());
+  expect(button('深度修复').getAttribute('aria-checked')).toBe('true');
+  expect(choice('profile.db').checked).toBe(true);
+  await act(async () => choice('profile.db').click());
+  expect(button('快速修复').getAttribute('aria-checked')).toBe('true');
+  await act(async () => choice('profile.db').click());
   expect(button('深度修复').getAttribute('aria-checked')).toBe('true');
   expect(choice('profile.db').checked).toBe(true);
   await act(async () => button('快速修复').click());

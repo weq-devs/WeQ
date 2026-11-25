@@ -138,8 +138,7 @@ try {
   await capture('report-unlocated-narrow');
   await page.setViewportSize({ width: 1060, height: 780 });
   await summary.getByRole('button', { name: '进入修复' }).click();
-  await page.getByRole('radio', { name: '深度修复', checked: true }).waitFor();
-  await page.getByRole('radio', { name: '快速修复' }).click();
+  await page.getByRole('radio', { name: '快速修复', checked: true }).waitFor();
   assert.equal(await page.getByRole('checkbox', { name: '修复 nt_msg.db' }).isChecked(), true);
   await page.getByRole('radio', { name: '深度修复' }).click();
   await tab('开始体检').click();
@@ -219,6 +218,7 @@ try {
   await capture('repair-backup-settings-desktop');
   await settingsPane.getByRole('button', { name: '关闭', exact: true }).click();
   await button('进入修复').click();
+  await page.getByRole('radio', { name: '深度修复', checked: true }).waitFor();
   await page.getByRole('radio', { name: '快速修复' }).click();
   await capture('quick-plan-desktop');
   await button('开始修复').click();

@@ -263,12 +263,15 @@ export const maintenanceQa = {
     notify();
   },
   snapshot: () => live,
-  ready(kind: 'scan' | 'checkup' = 'scan', options: { secondIssue?: boolean } = {}) {
+  ready(
+    kind: 'scan' | 'checkup' = 'scan',
+    options: { secondIssue?: boolean; quickSupported?: boolean } = {},
+  ) {
     live = create(kind);
     tracker = new DatabaseProgressTracker('scan', names[0]!);
     finish();
     if (kind === 'checkup') {
-      live.databases[0]!.quickBudgetBytes = undefined;
+      if (!options.quickSupported) live.databases[0]!.quickBudgetBytes = undefined;
       if (options.secondIssue)
         live.databases[1]!.issues.push({ message: '测试用结构异常', support: 'supported' });
       publish();
