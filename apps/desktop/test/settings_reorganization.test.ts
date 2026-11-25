@@ -221,10 +221,6 @@ describe('设置归位后的实际页面', () => {
       const routes = f.body().querySelector('[data-setting-id="full-feature-routes"]')!;
       expect(overview).not.toBeNull();
       expect(overview.classList.contains('weq-set-card')).toBe(true);
-      expect(
-        overview.querySelector<HTMLDetailsElement>('.weq-full-function-comparison-details')?.open,
-      ).toBe(false);
-      expect(overview.querySelectorAll('.weq-full-function-comparison td strong')).toHaveLength(4);
       expect(overview.textContent).not.toContain('自动启用与提醒');
       expect(overview.querySelector('.weq-set-card-title .weq-set-card-icon svg')).not.toBeNull();
       expect(routes.closest('.weq-set-card')).toBe(overview);
@@ -234,10 +230,7 @@ describe('设置归位后的实际页面', () => {
       expect(overview.querySelector('[data-setting-id="long-term-authorization"]')).toBeNull();
       for (const label of ['QQ 调试副本路线', '原版 QQ 路线'])
         expect(routes.querySelector(`section[aria-label="${label}"]`)).not.toBeNull();
-      expect(overview.textContent).toContain('在线能力受限');
-      expect(overview.textContent).toContain('漫游消息');
       expect(overview.textContent).toContain('发送消息');
-      expect(overview.textContent).toContain('已有缓存和可用下载链路');
       expect(routes.textContent).toContain('QQ 调试副本');
       expect(routes.textContent).toContain('原版 QQ');
       expect(routes.textContent).toContain('无需关闭 SIP');

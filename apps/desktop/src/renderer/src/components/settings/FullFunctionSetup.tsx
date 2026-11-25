@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { ChevronDown, RefreshCw, Settings, Zap } from 'lucide-react';
+import { RefreshCw, Settings, Zap } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { IS_WEB } from '../../lib/target.shared';
@@ -10,15 +10,6 @@ import { useViewState } from '../../state/view';
 import { useRestrictedMode } from '../../state/restrictedMode';
 import { restrictionReasons } from '../../lib/restrictedMode';
 import '../../styles/settings-full-functions.css';
-
-const FEATURES = [
-  ['本地记录', '浏览、搜索、统计与导出', '保留全部本地能力', false],
-  ['实时监听', '监听本地数据库中的新消息、撤回与表情回应', '继续使用本地监听', false],
-  ['漫游消息', '无法主动拉取', '从 QQ 补充本地缺失的历史记录', true],
-  ['发送与互动', '无法执行在线操作', '发送消息、群操作与管理、按设置上报已读', true],
-  ['在线内容', '依赖 QQ 会话的内容暂不可用', '空间、群相册、收藏、邮箱与装扮等在线内容', true],
-  ['缺失媒体', '使用已有缓存和可用下载链路', '增加当前 QQ 会话的取票、链接更新与媒体补全', true],
-] as const;
 
 function OnlineCapabilityStatus() {
   const uin = useViewState((state) => state.openedUin);
@@ -99,36 +90,6 @@ export function FullFunctionSetup({
         resetId="attach"
       >
         {enableSetting}
-        <details className="weq-set-details weq-full-function-comparison-details">
-          <summary>
-            <ChevronDown size={13} aria-hidden />
-            QQ 在线能力对照
-          </summary>
-          <table className="weq-full-function-comparison" aria-label="QQ 在线能力对照">
-            <thead>
-              <tr>
-                <th scope="col">功能</th>
-                <th scope="col">在线能力受限</th>
-                <th scope="col">在线能力已就绪</th>
-              </tr>
-            </thead>
-            <tbody>
-              {FEATURES.map(([feature, restricted, full, highlight]) => (
-                <tr key={feature}>
-                  <th scope="row">{feature}</th>
-                  <td>{restricted}</td>
-                  <td>{highlight ? <strong>{full}</strong> : full}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="weq-set-note">
-            <span>
-              本地能力以数据库可读取为前提；在线能力受限不等于完全离线，已有媒体链接、外部 rKey
-              等可用下载方式仍会保留。在线操作需当前账号登录、凭据与在线会话就绪。
-            </span>
-          </p>
-        </details>
         <section className="weq-full-function-section" data-setting-id="full-feature-routes">
           <h4 className="weq-full-function-section-title">
             {isMac ? '启用方式（macOS）' : '启用方式'}
