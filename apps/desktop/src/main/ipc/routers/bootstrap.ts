@@ -840,14 +840,13 @@ export const bootstrapRouter = router({
     .input(z.object({ startup: z.boolean() }).optional())
     .query(({ input }) => {
       const config = requireBootstrap().userConfig;
-      if (getHost().startupReadOnly) return null;
-      return input?.startup ? config.getStartupAutoEnter() : config.getAutoEnter();
+      if (!input?.startup) return config.getAutoEnter();
+      return getHost().startupReadOnly ? null : config.getStartupAutoEnter();
     }),
 
   setAutoEnter: procedure
     .input(z.object({ uin: z.string(), dataDir: z.string().optional() }))
     .mutation(({ input }) => {
-      if (getHost().startupReadOnly) return false;
       const boot = requireBootstrap();
       const dataDir = input.dataDir ?? boot.globalConfig.accountDataDir(input.uin) ?? undefined;
       const configId = accountConfigId(input.uin, dataDir);
@@ -861,11 +860,17 @@ export const bootstrapRouter = router({
       return true;
     }),
 
-  clearAutoEnter: procedure.mutation(() => {
-    if (getHost().startupReadOnly) return false;
-    requireBootstrap().userConfig.clearAutoEnter();
-    return true;
-  }),
+  clearAutoEnter: procedure
+    .input(
+      z
+        .object({
+          configId: z.string().optional(),
+          uin: z.string(),
+          dataDir: z.string().optional(),
+        })
+        .optional(),
+    )
+    .mutation(({ input }) => requireBootstrap().userConfig.clearAutoEnter(input)),
 
   // ---- version (设置 → 版本) ----
 

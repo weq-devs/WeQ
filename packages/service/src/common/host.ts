@@ -36,7 +36,7 @@ export interface AppAutostartStatus {
 }
 
 export interface HostBridge {
-  /** 独立账号窗口读取主窗口的启动偏好。 */
+  /** 独立账号窗口不管理系统登录自启，也不自行调度默认账号的启动任务。 */
   readonly startupReadOnly?: boolean;
   /** 业务请求已绑定到桌面账号窗口。 */
   readonly accountScoped?: boolean;

@@ -2055,9 +2055,20 @@ export class UserConfigService {
     });
   }
 
-  clearAutoEnter(): void {
-    this.write({ autoEnter: null });
-    this.logger.info('cleared auto-enter target', { event: 'clear-auto-enter' });
+  clearAutoEnter(expected?: { configId?: string; uin: string; dataDir?: string }): boolean {
+    return this.updateShared(() => {
+      const current = this.getAutoEnter();
+      if (
+        expected &&
+        (current?.uin !== expected.uin ||
+          current.configId !== expected.configId ||
+          current.dataDir !== expected.dataDir)
+      )
+        return false;
+      this.write({ autoEnter: null });
+      this.logger.info('cleared auto-enter target', { event: 'clear-auto-enter' });
+      return true;
+    });
   }
 
   read(): UserConfig {

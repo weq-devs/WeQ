@@ -81,9 +81,8 @@ export function LoginPanel({
   const [status, setStatus] = useState('');
   const [autoChoice, setAutoChoice] = useState<{ key: string; value: boolean } | null>(null);
   const choiceKey = `${mode}:${selected?.key ?? ''}`;
-  const autoEnter =
-    !settings.data?.startupReadOnly &&
-    (autoChoice?.key === choiceKey ? autoChoice.value : sameTarget(autoTarget, selected));
+  const savedAutoEnter = sameTarget(autoTarget, selected);
+  const autoEnter = autoChoice?.key === choiceKey ? autoChoice.value : savedAutoEnter;
   const working = busy || disabled || autoAttach.isLoading;
   const [error, setError] = useState('');
   const [keyDetails, setKeyDetails] = useState(false);
@@ -296,6 +295,18 @@ export function LoginPanel({
 
   // ---- enter (test then open) ----
 
+  async function saveAutoEnterChoice(account: UiAccount): Promise<void> {
+    if (autoChoice?.key !== `${mode}:${account.key}`) return;
+    if (autoChoice.value) {
+      await client.bootstrap.setAutoEnter.mutate({
+        uin: account.uin,
+        ...(account.dataDir ? { dataDir: account.dataDir } : {}),
+      });
+    } else if (autoTarget && sameTarget(autoTarget, account)) {
+      await client.bootstrap.clearAutoEnter.mutate(autoTarget);
+    }
+  }
+
   async function enter(acc = selected, candidate = key, recover = true): Promise<void> {
     if (!acc) return;
     const selected = acc;
@@ -323,14 +334,7 @@ export function LoginPanel({
           ...(selected.mobile ? { mobile: true } : {}),
         });
         if (!alive.current) return;
-        if (autoEnter) {
-          await client.bootstrap.setAutoEnter.mutate({
-            uin: selected.uin,
-            ...(selected.dataDir ? { dataDir: selected.dataDir } : {}),
-          });
-        } else if (sameTarget(autoTarget, selected)) {
-          await client.bootstrap.clearAutoEnter.mutate();
-        }
+        await saveAutoEnterChoice(selected);
         onEntered(selected.uin);
       } catch (e) {
         if (!alive.current) return;
@@ -373,15 +377,7 @@ export function LoginPanel({
       });
       if (!alive.current) return;
 
-      if (autoEnter) {
-        await client.bootstrap.setAutoEnter.mutate({
-          uin: selected.uin,
-          ...(selected.dataDir ? { dataDir: selected.dataDir } : {}),
-        });
-      } else if (sameTarget(autoTarget, selected)) {
-        await client.bootstrap.clearAutoEnter.mutate();
-      }
-
+      await saveAutoEnterChoice(selected);
       onEntered(selected.uin);
       setKeyDetails(false);
     } catch (e) {
@@ -526,17 +522,17 @@ export function LoginPanel({
 
           {/* 开关复用设置页的 Toggle：启动页是用户第一眼，控件形态与设置页一致。 */}
           <div className="weq-login-options">
-            {!settings.data?.startupReadOnly && (
-              <div className="weq-login-option">
-                <span className="weq-login-option-label">下次打开自动进入该账号</span>
-                <Toggle
-                  checked={autoEnter}
-                  disabled={working}
-                  onChange={(next) => setAutoChoice({ key: choiceKey, value: next })}
-                  label="下次打开自动进入该账号"
-                />
-              </div>
-            )}
+            <div className="weq-login-option">
+              <span className="weq-login-option-label">下次打开自动进入该账号</span>
+              <Toggle
+                checked={autoEnter}
+                disabled={working}
+                onChange={(value) =>
+                  setAutoChoice(value === savedAutoEnter ? null : { key: choiceKey, value })
+                }
+                label="下次打开自动进入该账号"
+              />
+            </div>
             <div className="weq-login-option">
               <span className="weq-login-option-label" title={fullModeHint}>
                 启用 QQ 在线能力
