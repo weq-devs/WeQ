@@ -5,7 +5,6 @@ import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'no
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
-import { tsImport } from 'tsx/esm/api';
 import { commandOutput, pnpmCommand, runCommand } from './dev-process.mjs';
 import {
   dependencyState,
@@ -538,89 +537,6 @@ test('开发锁拒绝同时启动并在失败后释放，可恢复已退出的�
     /failed/,
   );
   assert.equal(await exists(lock), false);
-});
-
-test('已退出会话的窗口控制端点不会重建启动锁', async (t) => {
-  const repo = await fixture(t);
-  const lock = join(repo, '.weq-dev/running');
-  const { publishDevelopmentWindow } = await tsImport(
-    '../apps/desktop/src/main/development_window.ts',
-    import.meta.url,
-  );
-  const release = await acquireProcessLock(lock);
-  await release();
-  const endpoint = join(lock, 'window-previous.json');
-  await assert.rejects(
-    async () => {
-      const close = await publishDevelopmentWindow(endpoint, async () => true);
-      close();
-    },
-    { code: 'ENOENT' },
-  );
-  assert.equal(await exists(lock), false);
-  const releaseNext = await acquireProcessLock(lock);
-  await releaseNext();
-});
-
-test('重复启动等候开发版就绪，每次请求只在当前会话新开一个窗口', {
-  timeout: 10_000,
-}, async (t) => {
-  const repo = await fixture(t);
-  const { publishDevelopmentWindow } = await tsImport(
-    '../apps/desktop/src/main/development_window.ts',
-    import.meta.url,
-  );
-  const launched = Promise.withResolvers();
-  const finish = Promise.withResolvers();
-  const waiting = Promise.withResolvers();
-  let prepares = 0;
-  const options = {
-    repo,
-    args: ['--', '--enable-dress-tools'],
-    unused: silent,
-    dependencies: () => {
-      prepares++;
-    },
-    electron: silent,
-    native: silent,
-    network: silent,
-    bot: silent,
-    log: silent,
-    launch: async (_args, env) => {
-      launched.resolve(env.WEQ_DEV_WINDOW_ENDPOINT);
-      await finish.promise;
-      return 0;
-    },
-  };
-  const first = runDevelopment(options);
-  let close;
-  let second;
-  try {
-    const endpointPath = await Promise.race([launched.promise, first]);
-    second = runDevelopment({ ...options, log: waiting.resolve });
-    // 等第二次运行实际进入等待，再发布开发版的控制地址。
-    await Promise.race([waiting.promise, second]);
-    assert.equal(await exists(endpointPath), false);
-    await assert.rejects(
-      runDevelopment({ ...options, args: ['--', '--user-data-dir=/other'] }),
-      /已在运行/,
-    );
-    let opened = 0;
-    close = await publishDevelopmentWindow(endpointPath, async () => {
-      opened++;
-      return true;
-    });
-    await second;
-    assert.equal(opened, 1);
-    await runDevelopment({ ...options, args: [] });
-    assert.equal(opened, 2);
-    assert.equal(prepares, 1);
-  } finally {
-    close?.();
-    finish.resolve();
-    await Promise.allSettled([first, second]);
-  }
-  await first;
 });
 
 test('启动日志与应用共用行头，分块中文、CR 进度和长行均有界输出', () => {

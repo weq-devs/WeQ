@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import semver from 'semver';
-import { DRESS_INDEX_KINDS, type ModelEntry, type DressIndexManifest } from '@weq/service';
+import type { ModelEntry, DressIndexManifest } from '@weq/service';
+import { DRESS_INDEX_KINDS } from '@weq/service/dress-index-kinds';
 import {
   ENHANCEMENT_RUNTIME_BASELINE,
   ENHANCEMENT_RUNTIME,
@@ -57,7 +58,7 @@ export function releaseContentVersion(components: EnhancementReleaseComponent[])
         ? component.manifest.keyId
         : component.manifest.nativeCommit,
       component.manifest.format,
-      ['bubble', 'font', 'widget'].map((kind) => {
+      DRESS_INDEX_KINDS.map((kind) => {
         const part = component.manifest.parts[kind]!;
         return [part.asset, part.size, part.sha256];
       }),

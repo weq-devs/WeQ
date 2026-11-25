@@ -9,6 +9,8 @@ import { promisify } from 'node:util';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tsImport } from 'tsx/esm/api';
+import { acquireProcessLock, exists } from './dev-prepare.mjs';
+import { runDevelopment } from './dev.mjs';
 
 const { DEVELOPMENT_RELOAD_APPLY, DEVELOPMENT_RELOAD_STATUS } = await tsImport(
   '../apps/desktop/src/shared/development_reload.ts',
@@ -16,6 +18,11 @@ const { DEVELOPMENT_RELOAD_APPLY, DEVELOPMENT_RELOAD_STATUS } = await tsImport(
 );
 const { DEVELOPMENT_RESTART_EXIT_CODE } = await tsImport(
   '../apps/desktop/src/main/development_restart.ts',
+  import.meta.url,
+);
+
+const { publishDevelopmentWindow } = await tsImport(
+  '../apps/desktop/src/main/development_window.ts',
   import.meta.url,
 );
 
@@ -286,4 +293,82 @@ test('真实 electron-vite：菜单和开发更新都在原 Vite 会话中重启
   await writeFile(menuRestart, '0');
   assert.deepEqual(await closed, [0, null], output);
   assert.equal((await starts()).length, 3);
+});
+
+test('已退出会话的窗口控制端点不会重建启动锁', async (t) => {
+  const repo = await mkdtemp(join(tmpdir(), 'weq-dev-window-'));
+  t.after(() => rm(repo, { recursive: true, force: true }));
+  const lock = join(repo, '.weq-dev/running');
+  const release = await acquireProcessLock(lock);
+  await release();
+  const endpoint = join(lock, 'window-previous.json');
+  await assert.rejects(
+    async () => {
+      const close = await publishDevelopmentWindow(endpoint, async () => true);
+      close();
+    },
+    { code: 'ENOENT' },
+  );
+  assert.equal(await exists(lock), false);
+  const releaseNext = await acquireProcessLock(lock);
+  await releaseNext();
+});
+
+test('重复启动等候开发版就绪，每次请求只在当前会话新开一个窗口', {
+  timeout: 10_000,
+}, async (t) => {
+  const repo = await mkdtemp(join(tmpdir(), 'weq-dev-window-'));
+  t.after(() => rm(repo, { recursive: true, force: true }));
+  const launched = Promise.withResolvers();
+  const finish = Promise.withResolvers();
+  const waiting = Promise.withResolvers();
+  let prepares = 0;
+  const silent = () => {};
+  const options = {
+    repo,
+    args: ['--', '--enable-dress-tools'],
+    unused: silent,
+    dependencies: () => {
+      prepares++;
+    },
+    electron: silent,
+    native: silent,
+    network: silent,
+    bot: silent,
+    log: silent,
+    launch: async (_args, env) => {
+      launched.resolve(env.WEQ_DEV_WINDOW_ENDPOINT);
+      await finish.promise;
+      return 0;
+    },
+  };
+  const first = runDevelopment(options);
+  let close;
+  let second;
+  try {
+    const endpointPath = await Promise.race([launched.promise, first]);
+    second = runDevelopment({ ...options, log: waiting.resolve });
+    // 等第二次运行实际进入等待，再发布开发版的控制地址。
+    await Promise.race([waiting.promise, second]);
+    assert.equal(await exists(endpointPath), false);
+    await assert.rejects(
+      runDevelopment({ ...options, args: ['--', '--user-data-dir=/other'] }),
+      /已在运行/,
+    );
+    let opened = 0;
+    close = await publishDevelopmentWindow(endpointPath, async () => {
+      opened++;
+      return true;
+    });
+    await second;
+    assert.equal(opened, 1);
+    await runDevelopment({ ...options, args: [] });
+    assert.equal(opened, 2);
+    assert.equal(prepares, 1);
+  } finally {
+    close?.();
+    finish.resolve();
+    await Promise.allSettled([first, second]);
+  }
+  await first;
 });

@@ -13,6 +13,7 @@
     "./transfer-policy": "./src/common/transfer_policy.ts",
     "./managed-download": "./src/common/managed_download.ts",
     "./model-store": "./src/common/model_store.ts",
+    "./dress-index-kinds": "./src/common/dress_index_kinds.ts",
     "./atomic-write": "./src/common/atomic_write.ts",
     "./json-store": "./src/common/json_store.ts",
     "./export-checkpoint": "./src/account/export/checkpoint.ts",
