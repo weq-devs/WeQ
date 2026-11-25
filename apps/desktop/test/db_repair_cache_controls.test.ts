@@ -141,7 +141,7 @@ it('暂停后保留就绪库，切换深度体检后按当前来源继续', asyn
   });
 });
 
-it('等待暂停和续检响应时保留追加入口，续检开始后按实际队列显示', async () => {
+it('等待暂停和续检响应时可打开追加体检，状态切换后保留所选库与类型', async () => {
   const pause = Promise.withResolvers<void>();
   const resume = Promise.withResolvers<void>();
   const stop = trpc.dbRepair.stopMaintenance.useMutation();
@@ -166,32 +166,42 @@ it('等待暂停和续检响应时保留追加入口，续检开始后按实际�
   });
   try {
     await mount();
+    const additionalDatabase = () =>
+      host.querySelector<HTMLInputElement>('input[aria-label="体检 unsupported.db"]')!;
+    await act(async () => additionalDatabase().click());
     await act(async () => button('开始体检').click());
     await act(async () => maintenanceQa.completeFirst());
     const append = button('追加体检');
 
     await act(async () => button('暂停体检').click());
     expect(button('追加体检')).toBe(append);
-    expect(append.disabled).toBe(true);
-    await act(async () => pause.resolve());
-    expect(button('追加体检')).toBe(append);
-    expect(append.disabled).toBe(false);
-
     await act(async () => append.click());
+    expect(tab('开始体检').getAttribute('aria-selected')).toBe('true');
     await act(async () => button('深度体检').click());
+    await act(async () => additionalDatabase().click());
+    await act(async () => pause.resolve());
+    expect(button('深度体检').getAttribute('aria-checked')).toBe('true');
+    expect(additionalDatabase().checked).toBe(true);
+
+    await act(async () => additionalDatabase().click());
     await act(async () => tab('体检进度与结果').click());
     const pausedAppend = button('追加体检');
     await act(async () => button('继续体检').click());
     expect(button('追加体检')).toBe(pausedAppend);
-    expect(pausedAppend.disabled).toBe(true);
+    await act(async () => pausedAppend.click());
+    expect(tab('开始体检').getAttribute('aria-selected')).toBe('true');
+    await act(async () => additionalDatabase().click());
+    expect(button('加入本轮体检').disabled).toBe(true);
 
     await act(async () => resume.resolve());
-    expect(maintenanceQa.snapshot()?.operation).toMatchObject({
+    expect(additionalDatabase().checked).toBe(true);
+    await act(async () => button('加入本轮体检').click());
+    expect(maintenanceQa.calls.append).toHaveLength(1);
+    expect(maintenanceQa.calls.append[0]).toMatchObject({
+      operationId: maintenanceQa.snapshot()?.operation?.id,
       kind: 'checkup',
-      status: 'running',
-      databaseNames: ['nt_msg.db', 'profile.db', 'unsupported.db'],
+      dbNames: ['unsupported.db'],
     });
-    expect(pausedAppend.isConnected).toBe(false);
   } finally {
     await act(async () => {
       pause.resolve();

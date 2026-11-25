@@ -585,9 +585,7 @@ export function DbRepairPanel({
     queuedScanKind === 'scan' && !canAppendQuick && canAppendDeep
       ? 'checkup'
       : (queuedScanKind ?? scanKind);
-  const setupScanKind = paused
-    ? scanKind
-    : (appendKind ?? (scanRunning ? defaultAppendKind : scanKind));
+  const setupScanKind = appendKind ?? (scanRunning ? defaultAppendKind : scanKind);
   const scanCandidates =
     !locked && !scanRunning && !paused
       ? available
@@ -636,10 +634,11 @@ export function DbRepairPanel({
       progress: row.progress?.kind === 'repair' ? row.scanProgress : row.progress,
     }));
   const scanSelectionForAction = paused
-    ? (nextScanSelection ??
-      (setupScanKind === operation?.kind
-        ? operationNames
-        : [...maintainedRows.keys(), ...operationNames]))
+    ? (nextScanSelection ?? [
+        ...(setupScanKind === operation?.kind ? [] : maintainedRows.keys()),
+        ...operationNames,
+        ...(additionalNames ?? []),
+      ])
     : locked
       ? (nextScanSelection ??
         additionalNames ??
@@ -942,8 +941,7 @@ export function DbRepairPanel({
     : '';
   const stopping = stop.isLoading || !!operation?.stopping;
   const hasAppendCandidates = canAppendQuick || canAppendDeep;
-  const appendPending = stopping || !!startingScan?.resuming;
-  const canAppend = scanRunning && !appendPending && !ending && hasAppendCandidates;
+  const canSubmitAppend = !!(activeScanKind && !stopping && !ending && namesToAppend.length);
   const showAppendButton =
     !ending &&
     (paused
@@ -988,7 +986,6 @@ export function DbRepairPanel({
     <button
       className="weq-set-btn"
       type="button"
-      disabled={appendPending}
       onClick={() => {
         if (scanRunning && !additionalNames?.length) setAppendKind(defaultAppendKind);
         setTab('scan');
@@ -1177,9 +1174,7 @@ export function DbRepairPanel({
                 type="button"
                 disabled={
                   appendScan.isLoading ||
-                  (scanRunning
-                    ? !canAppend || !activeScanKind || !namesToAppend.length
-                    : !canScan || stopping || !scanNames.length)
+                  (scanRunning ? !canSubmitAppend : !canScan || stopping || !scanNames.length)
                 }
                 onClick={() =>
                   void (scanRunning ? appendToScan() : startScan(setupScanKind, scanNames))
