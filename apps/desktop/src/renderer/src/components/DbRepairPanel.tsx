@@ -228,9 +228,16 @@ export function DbRepairPanel({
   const [resultFocused, setResultFocused] = useState<string>();
   const spaceEstimateId = useId();
   const [allowLowSpace, setAllowLowSpace] = useState(false);
-  const [starting, setStarting] = useState<{ kind: ScanKind | 'repair'; dbNames: string[] } | null>(
-    null,
-  );
+  const [starting, setStarting] = useState<
+    | {
+        kind: ScanKind;
+        dbNames: string[];
+        previousOperationId: string | undefined;
+        resuming: boolean;
+      }
+    | { kind: 'repair'; dbNames: string[] }
+    | null
+  >(null);
   const [scanKind, setScanKind] = useState<ScanKind>('scan');
   const [surface, setSurface] = useState<'history' | 'settings' | null>(null);
   const [surfaceAnchor, setSurfaceAnchor] = useState<HTMLElement>();
@@ -412,13 +419,14 @@ export function DbRepairPanel({
         setLive(null);
         setFocused(account?.dbName);
       }
-      setStarting({ kind, dbNames });
+      const request = { kind, dbNames, previousOperationId: operation?.id, resuming: paused };
+      setStarting(request);
       setAllowLowSpace(false);
       try {
         updateLive(await scan.mutateAsync({ ...scope, kind, dbNames }));
         await refresh();
       } finally {
-        setStarting(null);
+        setStarting((current) => (current === request ? null : current));
       }
     });
   const endMaintenance = () =>
@@ -525,8 +533,16 @@ export function DbRepairPanel({
   const historicalRow =
     historicalView?.databases.find((row) => row.dbName === reportFocused) ??
     historicalView?.databases[0];
-  const busyStarting = starting !== null;
-  const running = live?.operation?.status === 'running' || busyStarting;
+  const operation = live?.operation;
+  // 收到新一轮状态后立即使用服务端状态，体检请求会等到整轮结束才返回。
+  const startingScan =
+    starting &&
+    starting.kind !== 'repair' &&
+    (!operation || operation.id === starting.previousOperationId)
+      ? starting
+      : null;
+  const busyStarting = !!startingScan || starting?.kind === 'repair';
+  const running = operation?.status === 'running' || busyStarting;
   const repairing =
     live?.state === 'repairing' ||
     starting?.kind === 'repair' ||
@@ -534,7 +550,6 @@ export function DbRepairPanel({
   const ending = live?.state === 'ending' || end.isLoading;
   const locked = !!live?.locked && live.state !== 'ended';
   const waiting = live?.state === 'waiting' && !ending;
-  const operation = live?.operation;
   const operationScanKind = operation?.kind !== 'repair' ? operation?.kind : undefined;
   const paused = !running && !ending && !!operationScanKind && operation?.status === 'cancelled';
   const scanRunning = running && !repairing;
@@ -543,11 +558,10 @@ export function DbRepairPanel({
   const maintainedRows = new Map(databases.map((row) => [row.dbName, row]));
   const operationNames = operation?.databaseNames ?? databases.map(({ dbName }) => dbName);
   const activeScanKind = operation?.status === 'running' ? operationScanKind : undefined;
-  const startingScanKind = starting?.kind !== 'repair' ? starting?.kind : undefined;
+  const startingScanKind = startingScan?.kind;
   const queuedScanKind =
     activeScanKind ?? startingScanKind ?? (paused ? operationScanKind : undefined);
-  const queuedScanNames =
-    activeScanKind || paused ? operationNames : startingScanKind ? (starting?.dbNames ?? []) : [];
+  const queuedScanNames = activeScanKind || paused ? operationNames : (startingScan?.dbNames ?? []);
   const queuedNamesSet = new Set(queuedScanNames);
   const queuedScanKinds = activeScanKind || paused ? operation?.databaseScanKinds : undefined;
   const queuedKindFor = (name: string) =>
@@ -694,7 +708,8 @@ export function DbRepairPanel({
         : setupScanKind === 'checkup'
           ? '开始补充检查'
           : '继续体检';
-  const canEndMaintenance = locked && waiting && !running;
+  const maintenanceIdle = !running && !starting && !ending;
+  const canEndMaintenance = locked && waiting && maintenanceIdle;
   const maintenanceLabel = ending
     ? '正在解锁'
     : repairing
@@ -706,7 +721,7 @@ export function DbRepairPanel({
         : locked
           ? '维护中'
           : '已结束';
-  const canScan = !!(status.data?.keyPresent && !status.data.error && !running && !ending);
+  const canScan = !!(status.data?.keyPresent && !status.data.error && maintenanceIdle);
   const hasReportRows =
     checkRows.length > 0 &&
     (scannedCount > 0 ||
@@ -718,7 +733,8 @@ export function DbRepairPanel({
       ));
   const hasReport = hasReportRows || scanRunning || paused || !!diagnostic;
   const hasResult = !!resultOperation && resultRows.length > 0;
-  const hasRepairPlan = waiting && !running && !stop.isLoading && repairCandidates.length > 0;
+  const hasRepairPlan =
+    waiting && maintenanceIdle && !stop.isLoading && repairCandidates.length > 0;
   const repairUnavailable = hasRepairPlan
     ? undefined
     : operation?.status === 'completed' && !abnormalCount
@@ -925,7 +941,14 @@ export function DbRepairPanel({
     ? ` · ${repairCandidates.length} 个可修复`
     : '';
   const stopping = stop.isLoading || !!operation?.stopping;
-  const canAppend = scanRunning && !stopping && !ending && (canAppendQuick || canAppendDeep);
+  const hasAppendCandidates = canAppendQuick || canAppendDeep;
+  const appendPending = stopping || !!startingScan?.resuming;
+  const canAppend = scanRunning && !appendPending && !ending && hasAppendCandidates;
+  const showAppendButton =
+    !ending &&
+    (paused
+      ? pendingDeepScan.length > 0
+      : scanRunning && (startingScan?.resuming || hasAppendCandidates));
   const scanModeControl = (
     <SegmentedControl
       label="体检类型"
@@ -958,13 +981,14 @@ export function DbRepairPanel({
           ? '正在深度体检'
           : '正在快速体检';
   const batchSummary =
-    operation && (!starting || operation.status === 'running')
+    operation && (!busyStarting || operation.status === 'running')
       ? `${operation.completedDatabases} / ${operation.totalDatabases} 个数据库完成${operation.currentDb ? ` · 当前 ${operation.currentDb}` : ''}`
       : '正在准备…';
-  const appendButton = (paused ? pendingDeepScan.length > 0 : canAppend) ? (
+  const appendButton = showAppendButton ? (
     <button
       className="weq-set-btn"
       type="button"
+      disabled={appendPending}
       onClick={() => {
         if (scanRunning && !additionalNames?.length) setAppendKind(defaultAppendKind);
         setTab('scan');
@@ -973,23 +997,6 @@ export function DbRepairPanel({
       <ScanLine size={14} aria-hidden />
       追加体检
     </button>
-  ) : null;
-  const pausedActions = paused ? (
-    <>
-      {hasRepairPlan ? (
-        <button className="weq-set-btn" type="button" onClick={() => setTab('repair')}>
-          <Wrench size={14} aria-hidden />
-          前往修复
-        </button>
-      ) : null}
-      {appendButton}
-      {canExportCurrent && operation ? (
-        <ReportExportMenu
-          disabled={exportReport.isLoading}
-          onExport={(format) => exportOperation(operation, format)}
-        />
-      ) : null}
-    </>
   ) : null;
   const appendToScan = () =>
     act(async () => {
@@ -1241,18 +1248,15 @@ export function DbRepairPanel({
             </div>
             <div className="weq-dbm-hero-actions">
               {paused ? (
-                <>
-                  <button
-                    className="weq-set-btn weq-set-btn-primary"
-                    type="button"
-                    disabled={!canScan || stopping || !scanNames.length}
-                    onClick={() => void startScan(setupScanKind, scanNames)}
-                  >
-                    <Play size={14} aria-hidden />
-                    继续体检
-                  </button>
-                  {pausedActions}
-                </>
+                <button
+                  className="weq-set-btn weq-set-btn-primary"
+                  type="button"
+                  disabled={!canScan || stopping || !scanNames.length}
+                  onClick={() => void startScan(setupScanKind, scanNames)}
+                >
+                  <Play size={14} aria-hidden />
+                  继续体检
+                </button>
               ) : (
                 <button
                   type="button"
@@ -1270,7 +1274,19 @@ export function DbRepairPanel({
                       : '暂停体检'}
                 </button>
               )}
-              {paused ? null : appendButton}
+              {paused && hasRepairPlan ? (
+                <button className="weq-set-btn" type="button" onClick={() => setTab('repair')}>
+                  <Wrench size={14} aria-hidden />
+                  前往修复
+                </button>
+              ) : null}
+              {appendButton}
+              {paused && canExportCurrent && operation ? (
+                <ReportExportMenu
+                  disabled={exportReport.isLoading}
+                  onExport={(format) => exportOperation(operation, format)}
+                />
+              ) : null}
             </div>
           </section>
         ) : null}

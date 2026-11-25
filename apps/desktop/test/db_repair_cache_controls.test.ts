@@ -141,6 +141,67 @@ it('暂停后保留就绪库，切换深度体检后按当前来源继续', asyn
   });
 });
 
+it('等待暂停和续检响应时保留追加入口，续检开始后按实际队列显示', async () => {
+  const pause = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  const stop = trpc.dbRepair.stopMaintenance.useMutation();
+  const scan = trpc.dbRepair.scanAccount.useMutation();
+  const delayedStop = vi.spyOn(trpc.dbRepair.stopMaintenance, 'useMutation').mockReturnValue({
+    ...stop,
+    async mutateAsync(input) {
+      const operation = maintenanceQa.snapshot()!.operation!;
+      operation.stopping = true;
+      maintenanceQa.pages();
+      await pause.promise;
+      operation.stopping = false;
+      return stop.mutateAsync(input);
+    },
+  });
+  const delayedResume = vi.spyOn(trpc.dbRepair.scanAccount, 'useMutation').mockReturnValue({
+    ...scan,
+    async mutateAsync(input) {
+      if (input.kind === 'checkup') await resume.promise;
+      return scan.mutateAsync(input);
+    },
+  });
+  try {
+    await mount();
+    await act(async () => button('开始体检').click());
+    await act(async () => maintenanceQa.completeFirst());
+    const append = button('追加体检');
+
+    await act(async () => button('暂停体检').click());
+    expect(button('追加体检')).toBe(append);
+    expect(append.disabled).toBe(true);
+    await act(async () => pause.resolve());
+    expect(button('追加体检')).toBe(append);
+    expect(append.disabled).toBe(false);
+
+    await act(async () => append.click());
+    await act(async () => button('深度体检').click());
+    await act(async () => tab('体检进度与结果').click());
+    const pausedAppend = button('追加体检');
+    await act(async () => button('继续体检').click());
+    expect(button('追加体检')).toBe(pausedAppend);
+    expect(pausedAppend.disabled).toBe(true);
+
+    await act(async () => resume.resolve());
+    expect(maintenanceQa.snapshot()?.operation).toMatchObject({
+      kind: 'checkup',
+      status: 'running',
+      databaseNames: ['nt_msg.db', 'profile.db', 'unsupported.db'],
+    });
+    expect(pausedAppend.isConnected).toBe(false);
+  } finally {
+    await act(async () => {
+      pause.resolve();
+      resume.resolve();
+    });
+    delayedStop.mockRestore();
+    delayedResume.mockRestore();
+  }
+});
+
 it('排队深度体检的库在两种选库列表中都隐藏，取消全选仍可继续原队列', async () => {
   await mount();
   const choiceToScan = (name: string) =>
