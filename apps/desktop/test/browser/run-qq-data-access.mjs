@@ -117,7 +117,7 @@ try {
   if (!(await page.getByRole('button', { name: '扫码登录其他账号', exact: true }).isDisabled()))
     throw new Error('读取受限时不能继续扫码取密钥');
   await page.getByRole('button', { name: '返回账号主页', exact: true }).click();
-  await page.getByRole('button', { name: '导入备份', exact: true }).click();
+  await page.getByRole('button', { name: '导入 QQ 备份', exact: true }).click();
   await page.locator('.weq-static-backup').waitFor();
   if (await page.locator('.weq-qq-data-access').count())
     throw new Error('备份入口不应被本机授权提示阻断');

@@ -1,7 +1,7 @@
 /** 常驻账号列表，已保存账号可通过右键菜单移除。 */
 
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
-import { Database, Laptop, Smartphone, Trash2 } from 'lucide-react';
+import { Database, Laptop, Smartphone, Stethoscope, Trash2 } from 'lucide-react';
 import { ConversationActionsMenu } from '../../components/ConversationActionsMenu';
 import { QqAvatar } from '../../components/QqAvatar';
 import { TimeLabel } from '../../components/TimeLabel';
@@ -15,12 +15,14 @@ export function AccountSelector({
   selected,
   onSelect,
   onDeleteAccount,
+  onDiagnose,
   disabled = false,
 }: {
   accounts: UiAccount[];
   selected: UiAccount | null;
   onSelect: (acc: UiAccount) => void;
   onDeleteAccount?: (acc: UiAccount) => void;
+  onDiagnose?: (acc: UiAccount) => void;
   disabled?: boolean;
 }): ReactElement {
   const [menu, setMenu] = useState<{ acc: UiAccount; x: number; y: number } | null>(null);
@@ -101,6 +103,18 @@ export function AccountSelector({
                   )}
                 </span>
               </button>
+              {onDiagnose && !acc.static && (
+                <button
+                  type="button"
+                  className="weq-icon-button weq-account-diagnostics-action"
+                  title="环境诊断"
+                  aria-label={`环境诊断：${acc.name}（${acc.uin}）`}
+                  disabled={disabled}
+                  onClick={() => onDiagnose(acc)}
+                >
+                  <Stethoscope size={15} aria-hidden />
+                </button>
+              )}
             </li>
           );
         })}

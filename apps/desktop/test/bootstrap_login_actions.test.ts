@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { AutoEnterTarget, KeyEvent } from '@weq/service';
 import { LoginPanel } from '../src/renderer/src/views/bootstrap/LoginPanel';
+import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import type { UiAccount } from '../src/renderer/src/views/bootstrap/types';
 
 const f = vi.hoisted(() => ({
@@ -74,6 +75,7 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 function Harness({
   mode,
@@ -85,21 +87,33 @@ function Harness({
   autoTarget?: AutoEnterTarget | null;
 }) {
   const [selected, setSelected] = useState<UiAccount | null>(empty ? null : accounts[0]!);
-  return h(LoginPanel, {
-    mode,
-    selected,
-    accounts: empty ? [] : accounts,
-    onSelect: setSelected,
-    autoTarget,
-    onEntered: entered,
-    onBusyChange: busy,
-  });
+  const [panelMode, setPanelMode] = useState(mode);
+  const [qrActionHost, setQrActionHost] = useState<HTMLDivElement | null>(null);
+  return [
+    h('div', { key: 'tools', ref: setQrActionHost }),
+    h(LoginPanel, {
+      key: 'login',
+      mode: panelMode,
+      selected,
+      accounts: empty ? [] : accounts,
+      onSelect: (account) => {
+        setSelected(account);
+        setPanelMode('new');
+      },
+      autoTarget,
+      onEntered: entered,
+      onBusyChange: busy,
+      qrActionHost,
+    }),
+  ];
 }
 async function mount(mode: 'new' | 'existing', empty = false, autoTarget?: AutoEnterTarget) {
   await act(async () => root.render(h(Harness, { mode, empty, autoTarget })));
 }
 async function click(label: string) {
-  const button = [...host.querySelectorAll('button')].find((item) => item.textContent === label);
+  const button = [...host.querySelectorAll('button')].find(
+    (item) => (item.getAttribute('aria-label') ?? item.textContent) === label,
+  );
   if (!button) throw new Error(`missing ${label}`);
   await act(async () => button.click());
 }
@@ -171,11 +185,15 @@ it('密钥失败先自动获取，只有获取失败才显示可编辑输入窗�
   expect(busy).toHaveBeenLastCalledWith(false);
 });
 it('没有历史账号也能发起匿名扫码；未发现对应本地库时不冒用其他账号', async () => {
+  const showError = vi.spyOn(useDialog.getState(), 'showError').mockImplementation(() => {});
   await mount('new', true);
   await click('扫码登录其他账号');
   expect(f.qr).toHaveBeenCalledWith(undefined);
   qrSuccess('99999');
-  expect(host.querySelector('[role=alert]')?.textContent).toContain('未发现扫码账号的本地记录');
+  expect(showError).toHaveBeenCalledWith(
+    '无法打开扫码账号',
+    expect.stringContaining('未发现扫码账号的本地记录'),
+  );
   expect(f.open).not.toHaveBeenCalled();
   expect(busy).toHaveBeenLastCalledWith(false);
 });
@@ -187,6 +205,14 @@ it('扫码选中另一个已发现账号时保留该账号的新密钥，不能�
   await click('打开账号');
   expect(f.test).toHaveBeenCalledWith({ uin: '10002', dbKey: 'abcdefghijklmnop' });
   expect(entered).toHaveBeenCalledWith('10002');
+});
+it('上方仍展示已保存账号时，扫码同号也会使用新获取的密钥', async () => {
+  await mount('existing');
+  await click('扫码登录其他账号');
+  expect(host.querySelector('.weq-open-identity h2')?.textContent).toBe(accounts[0]!.name);
+  qrSuccess('10001');
+  await click('打开账号');
+  expect(f.test).toHaveBeenLastCalledWith({ uin: '10001', dbKey: 'abcdefghijklmnop' });
 });
 it('取消扫码释放忙碌状态，旧订阅晚到回执不能改变密钥', async () => {
   await mount('new');

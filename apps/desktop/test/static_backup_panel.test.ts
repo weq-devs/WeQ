@@ -2,7 +2,6 @@ import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { StaticBackupPanel } from '../src/renderer/src/views/bootstrap/StaticBackupPanel';
-import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import type { BackupScanEvent } from '../src/main/static_backup';
 
 const f = vi.hoisted(() => ({
@@ -82,30 +81,42 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 async function click(text: string) {
-  const b = [...document.querySelectorAll('button')].find((b) => b.textContent === text);
-  if (!b) throw new Error(`missing: ${text}`);
-  await act(async () => b.click());
+  const button = [...host.querySelectorAll('button')].find(
+    (item) => (item.getAttribute('aria-label') ?? item.textContent) === text,
+  );
+  if (!button) throw new Error('missing: ' + text);
+  await act(async () => button.click());
 }
 async function mount() {
-  await act(async () => root.render(h(StaticBackupPanel, { onEntered: entered })));
-}
-it('多账号逐项展示身份、数据库和媒体，选择后只打开该目录与密钥', async () => {
-  await mount();
-  await click('浏览…');
-  const dialog = document.querySelector('[role=dialog]');
-  expect(dialog).not.toBeNull();
-  expect(host.querySelectorAll('input[type=radio]')).toHaveLength(0);
-  expect(dialog!.querySelectorAll('input[type=radio]')).toHaveLength(2);
-  expect(dialog!.textContent).toContain('合成账号12345');
-  expect(dialog!.textContent).toContain('合成账号67890');
-  expect(dialog!.textContent).toContain('3 个数据库');
-  expect(dialog!.textContent).toContain('含本地媒体');
-  expect(f.open).not.toHaveBeenCalled();
   await act(async () =>
-    dialog!.querySelectorAll<HTMLInputElement>('input[type=radio]')[1]!.click(),
+    root.render(
+      h(StaticBackupPanel, { heading: h('h2', null, '导入 QQ 备份'), onEntered: entered }),
+    ),
   );
-  await click('使用此目录');
-  expect(document.querySelector('[role=dialog]')).toBeNull();
+}
+function input(label: string) {
+  const fieldLabel = [...host.querySelectorAll('label')].find((item) => item.textContent === label);
+  return fieldLabel!.control as HTMLInputElement;
+}
+async function type(label: string, value: string) {
+  const field = input(label);
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value);
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+function radio(index: number) {
+  return host.querySelectorAll<HTMLInputElement>('input[type=radio]')[index]!;
+}
+it('多账号在主区域展示身份、数据库和媒体，只打开选中目录与其密钥', async () => {
+  await mount();
+  await click('浏览');
+  expect(host.textContent).toContain('合成账号12345');
+  expect(host.textContent).toContain('合成账号67890');
+  expect(host.textContent).toContain('3 个数据库');
+  expect(host.textContent).toContain('含本地媒体');
+  expect(f.open).not.toHaveBeenCalled();
+  await act(async () => radio(1).click());
   await click('进入');
   expect(f.open).toHaveBeenCalledWith({
     dirPath: candidate('67890').dirPath,
@@ -114,87 +125,80 @@ it('多账号逐项展示身份、数据库和媒体，选择后只打开该目�
   });
   expect(entered).toHaveBeenCalledWith('67890');
 });
-it('浅层无结果才确认递归，确认后继续同一个选择路径，不重开弹窗', async () => {
-  const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true);
-  f.scan.mockResolvedValueOnce({ candidates: [], truncated: false, unreadable: 0 });
+it('输入路径可直接扫描，递归无结果后可输入新路径或浏览', async () => {
+  const none = { candidates: [], truncated: false, unreadable: 0 };
+  f.scan.mockResolvedValueOnce(none).mockResolvedValueOnce(none);
   await mount();
-  await click('浏览…');
-  expect(confirm).toHaveBeenCalledOnce();
-  expect(f.scan).toHaveBeenNthCalledWith(2, { dirPath: '/synthetic', recursive: true });
+  await type('账号文件夹', ' /synthetic/带空格 文件夹 ');
+  await click('扫描');
+  expect(f.pick).not.toHaveBeenCalled();
+  expect(f.scan).toHaveBeenCalledOnce();
+  expect(f.scan).toHaveBeenCalledWith({
+    dirPath: '/synthetic/带空格 文件夹',
+    recursive: false,
+  });
+  await click('扫描子文件夹');
+  expect(f.scan).toHaveBeenNthCalledWith(2, {
+    dirPath: '/synthetic/带空格 文件夹',
+    recursive: true,
+  });
+  expect(input('账号文件夹').value).toBe('');
+  expect(host.textContent).toContain('未找到 QQ 备份');
+  await click('浏览');
   expect(f.pick).toHaveBeenCalledOnce();
 });
-it('取消递归不扫描；加密账号保留密钥验证入口', async () => {
-  vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(false);
+it('可以放弃递归并手动修改错误路径', async () => {
   f.scan.mockResolvedValueOnce({ candidates: [], truncated: false, unreadable: 0 });
   await mount();
-  await click('浏览…');
+  await click('浏览');
+  await click('重新选择');
   expect(f.scan).toHaveBeenCalledOnce();
-  f.scan.mockResolvedValueOnce({
-    candidates: [{ ...candidate('12345'), probe: { ok: true, needKey: true } }],
-    truncated: false,
-    unreadable: 0,
-  });
-  await click('浏览…');
-  expect(host.textContent).toContain('验证密钥');
-  await click('切换账号目录（1）');
-  expect(document.querySelector('[role=dialog]')!.textContent).toContain('加密账号（待验证）');
+  f.scan.mockRejectedValueOnce(new Error('文件夹不存在'));
+  await type('账号文件夹', '/invalid');
+  await click('扫描');
+  expect(input('账号文件夹').value).toBe('/invalid');
+  expect(host.textContent).toContain('文件夹不存在');
 });
-it('单项原生探测失败仍保留其它账号可选，不误进入失败项', async () => {
+it('单项原生探测失败仍可选其他备份，加密备份只在密钥验证成功后打开', async () => {
   f.scan.mockResolvedValueOnce({
     candidates: [
       { ...candidate('12345'), probe: { ok: false, error: '探测进程 SIGSEGV 已隔离' } },
-      candidate('67890'),
+      { ...candidate('67890'), probe: { ok: true, needKey: true } },
     ],
     truncated: false,
     unreadable: 0,
   });
+  f.test
+    .mockResolvedValueOnce({ ok: false, error: '密钥错误' })
+    .mockResolvedValueOnce(candidate('67890').probe);
   await mount();
-  await click('浏览…');
-  await act(async () =>
-    document.querySelectorAll<HTMLInputElement>('input[type=radio]')[0]!.click(),
-  );
-  await click('使用此目录');
+  await click('浏览');
   expect(host.textContent).toContain('SIGSEGV 已隔离');
   expect(f.open).not.toHaveBeenCalled();
-  await click('切换账号目录（2）');
-  await act(async () =>
-    document.querySelectorAll<HTMLInputElement>('input[type=radio]')[1]!.click(),
-  );
-  await click('使用此目录');
+  await act(async () => radio(1).click());
+  await type('数据库密钥', 'wrong-key');
+  await click('验证密钥');
+  expect(host.textContent).toContain('密钥错误');
+  await type('数据库密钥', 'key-67890');
+  await click('验证密钥');
+  expect(f.test).toHaveBeenLastCalledWith({
+    dirPath: candidate('67890').dirPath,
+    dbKey: 'key-67890',
+  });
   await click('进入');
   expect(entered).toHaveBeenCalledWith('67890');
 });
-it('弹窗切换是草稿，取消和 Escape 保留原目录；重新打开不重扫', async () => {
-  await mount();
-  await click('浏览…');
-  await click('使用此目录');
-  await click('切换账号目录（2）');
-  await act(async () =>
-    document.querySelectorAll<HTMLInputElement>('input[type=radio]')[1]!.click(),
-  );
-  await click('取消');
-  expect(host.querySelector<HTMLInputElement>('.weq-static-input')!.value).toBe(
-    candidate('12345').dirPath,
-  );
-  await click('切换账号目录（2）');
-  expect(document.querySelectorAll<HTMLInputElement>('input[type=radio]')[0]!.checked).toBe(true);
-  await act(async () =>
-    document.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
-    ),
-  );
-  expect(document.querySelector('[role=dialog]')).toBeNull();
-  expect(f.scan).toHaveBeenCalledOnce();
-});
-it('扫描未结束即展示已发现目录，未知大小不显示为零，后续更新不重置选择', async () => {
+it('扫描时逐项显示目录，后续统计与探测更新保留选择', async () => {
   f.scan.mockImplementationOnce(() => new Promise(() => {}));
   await mount();
-  await click('浏览…');
+  await click('浏览');
+  expect(host.textContent).toContain('扫描中');
+  await act(async () => f.event({ kind: 'candidate', candidate: candidate('12345') }));
   await act(async () =>
     f.event({
       kind: 'candidate',
       candidate: {
-        ...candidate('12345'),
+        ...candidate('67890'),
         databaseCount: null,
         databaseBytes: null,
         sizePending: true,
@@ -202,40 +206,28 @@ it('扫描未结束即展示已发现目录，未知大小不显示为零，后�
       },
     }),
   );
-  expect(document.querySelector('[role=dialog]')?.textContent).toContain('扫描中');
-  expect(document.querySelector('[role=dialog]')?.textContent).toContain('大小统计中');
-  expect(document.querySelector('[role=dialog]')?.textContent).not.toContain('0.0 MB');
-  expect(
-    [...document.querySelectorAll('button')].find((button) => button.textContent === '使用此目录')
-      ?.disabled,
-  ).toBe(true);
-  await act(async () => f.event({ kind: 'candidate', candidate: candidate('12345') }));
-  expect(document.querySelector('[role=dialog]')?.textContent).toContain('合成账号12345');
-  expect(document.querySelector<HTMLInputElement>('input[type=radio]')?.checked).toBe(true);
-  await click('使用此目录');
-  await click('进入');
-  expect(entered).toHaveBeenCalledWith('12345');
+  expect(host.textContent).toContain('大小统计中');
+  expect(host.textContent).not.toContain('0.0 MB');
+  await act(async () => radio(1).click());
   await act(async () => f.event({ kind: 'candidate', candidate: candidate('67890') }));
-  expect(document.querySelector('[role=dialog]')).toBeNull();
-  expect(host.querySelector<HTMLInputElement>('.weq-static-input')?.value).toBe(
-    candidate('12345').dirPath,
-  );
-});
-it('已有目录重新浏览其他文件夹后取消，原目录、身份和已验证密钥仍可打开', async () => {
-  await mount();
-  await click('浏览…');
-  await click('使用此目录');
-  f.scan.mockResolvedValueOnce({
-    candidates: [candidate('11111'), candidate('22222')],
-    truncated: false,
-    unreadable: 0,
-  });
-  await click('浏览…');
-  await click('取消');
+  expect(radio(1).checked).toBe(true);
   await click('进入');
-  expect(f.open).toHaveBeenCalledWith({
-    dirPath: candidate('12345').dirPath,
-    dbKey: 'key-12345',
-    preview: candidate('12345').probe.preview,
-  });
+  expect(entered).toHaveBeenCalledWith('67890');
+});
+it('重新浏览取消时保留结果，换文件夹时忽略旧扫描回执', async () => {
+  f.scan.mockImplementationOnce(() => new Promise(() => {}));
+  await mount();
+  await click('浏览');
+  const late = f.event;
+  await act(async () => late({ kind: 'candidate', candidate: candidate('11111') }));
+  f.pick.mockResolvedValueOnce(undefined);
+  await click('浏览其他文件夹');
+  expect(host.textContent).toContain('合成账号11111');
+  f.pick.mockResolvedValueOnce('/elsewhere');
+  await click('浏览其他文件夹');
+  await act(async () => late({ kind: 'candidate', candidate: candidate('22222') }));
+  expect(host.textContent).not.toContain('合成账号11111');
+  expect(host.textContent).not.toContain('合成账号22222');
+  expect(host.textContent).toContain('合成账号67890');
+  expect(f.scan).toHaveBeenLastCalledWith({ dirPath: '/elsewhere', recursive: false });
 });

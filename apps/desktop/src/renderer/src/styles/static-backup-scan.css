@@ -1,15 +1,52 @@
+.weq-account-workspace .weq-static-backup {
+  flex: 1;
+  gap: 4px;
+  overflow: hidden;
+}
+.weq-static-backup-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 3px 4px 4px;
+  overscroll-behavior: contain;
+}
+.weq-static-backup-body > * {
+  flex-shrink: 0;
+}
+.weq-backup-root-path {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-static-backup-body p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.weq-static-backup-body .weq-static-actions {
+  gap: 8px;
+}
 .weq-backup-candidates {
   margin: 0;
   padding: 0;
   border: 0;
   min-width: 0;
+  overflow-y: auto;
   color: var(--weq-fg-primary);
+}
+.weq-static-backup-body > .weq-backup-candidates {
+  flex-shrink: 1;
+  min-height: 76px;
 }
 .weq-backup-candidate {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 16px 12px;
+  padding: 10px 8px;
   border-bottom: 1px solid var(--weq-border-subtle);
   cursor: pointer;
 }
@@ -41,101 +78,11 @@
 html[data-theme='dark'] .weq-backup-candidate {
   border-color: var(--weq-border-strong);
 }
-.weq-modal.weq-backup-picker {
-  display: flex;
-  flex-direction: column;
-  width: min(720px, calc(100vw - 32px));
-  max-height: min(720px, calc(100dvh - 48px));
-  border-radius: 8px;
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-primary);
-}
-.weq-backup-picker-layer {
-  background: color-mix(in srgb, var(--background) 65%, transparent);
-}
-.weq-backup-picker .weq-backup-picker-head {
-  flex-shrink: 0;
-  margin: 0;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--weq-border-subtle);
-}
-.weq-backup-picker .weq-dialog-title {
-  margin: 0;
-  color: var(--weq-fg-primary);
-  font-size: 16px;
-}
-.weq-backup-picker .weq-dialog-x {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--weq-fg-secondary);
-}
-.weq-backup-picker .weq-dialog-x:hover {
-  background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
-}
-.weq-backup-picker-list {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  padding: 0 8px;
-}
-.weq-backup-picker .weq-backup-picker-foot {
-  flex-shrink: 0;
-  margin: 0;
-  padding: 12px 20px;
-  border-top: 1px solid var(--weq-border-subtle);
-  flex-wrap: wrap;
-}
-.weq-backup-picker .weq-action-soft {
-  color: var(--weq-fg-primary);
-  background: var(--weq-bg-surface);
-  border-color: var(--weq-border-strong);
-}
-.weq-backup-picker .weq-action-primary {
-  color: var(--weq-fg-primary);
-  background: color-mix(in srgb, var(--weq-accent-effective) 20%, var(--weq-bg-surface));
-  border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, var(--weq-border-strong));
-}
-.weq-backup-picker :is(.weq-action-primary, .weq-action-soft):hover:not(:disabled) {
-  background: color-mix(in srgb, var(--weq-accent-effective) 28%, var(--weq-bg-surface));
-  border-color: var(--weq-accent-effective);
-}
-.weq-backup-picker :is(button, input):focus-visible {
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
-}
 .weq-backup-candidate[data-selected='true'] {
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
 }
 .weq-backup-candidate-error {
   color: color-mix(in srgb, var(--destructive) 80%, var(--weq-fg-primary));
-  overflow-wrap: anywhere;
-}
-.weq-backup-picker-notice {
-  padding: 12px;
-  color: var(--weq-fg-secondary);
   font-size: 12px;
   overflow-wrap: anywhere;
-}
-.weq-backup-picker-trigger {
-  align-self: flex-start;
-}
-.weq-static-backup > .weq-static-error {
-  max-height: 160px;
-  overflow-y: auto;
-  overflow-wrap: anywhere;
-}
-html[data-theme='dark'] .weq-modal.weq-backup-picker {
-  background: var(--weq-bg-elevated);
-  border-color: var(--weq-border-strong);
-}
-html[data-theme='dark'] .weq-backup-picker-layer {
-  background: color-mix(in srgb, var(--background) 78%, transparent);
 }
