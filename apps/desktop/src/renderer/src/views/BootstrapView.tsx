@@ -132,7 +132,11 @@ export function BootstrapView(): ReactElement {
     refetchOnWindowFocus: false,
     retry: false,
   });
-  const requestedStartupPage = webSettings.data?.startupPage;
+  const requestedStartupPage = IS_WEB ? webSettings.data?.startupPage : desktopStartup.data?.page;
+  const startupPage =
+    requestedStartupPage === 'home' || requestedStartupPage === 'messages'
+      ? requestedStartupPage
+      : null;
 
   // 过期弹窗要显示构建/过期时间。注意这个 query 不看 nativeOk：构建过期时它照样能
   // 读出来（`readNativeBuildInfo` 绕过了初始化校验）。
@@ -213,11 +217,7 @@ export function BootstrapView(): ReactElement {
               advanceStartup('identity', progress.done / Math.max(1, progress.total));
             });
           }
-          const page = IS_WEB ? requestedStartupPage : desktopStartup.data?.page;
-          if (IS_WEB || page)
-            useViewState.setState({
-              startupPage: page === 'home' || page === 'messages' ? page : null,
-            });
+          useViewState.setState({ startupPage });
           setOpenedUin(uin);
           advanceStartup('workspace');
           goTo('main');
@@ -232,6 +232,7 @@ export function BootstrapView(): ReactElement {
       if (!IS_WEB) {
         // 后台已完成本轮自动进入；未打开或失败都回首页，不由界面再试一次。
         booted.current = true;
+        useViewState.setState({ startupPage });
         setHomeStage('home');
         if (desktopStartup.data?.error) showError('自动进入失败', desktopStartup.data.error);
         return;
@@ -240,12 +241,7 @@ export function BootstrapView(): ReactElement {
     if (!nativeOk || !autoTarget.isFetched || !configs.isFetched) return;
     if (IS_MAC && !dataAccess.isFetched) return;
     booted.current = true;
-    useViewState.setState({
-      startupPage:
-        requestedStartupPage === 'home' || requestedStartupPage === 'messages'
-          ? requestedStartupPage
-          : null,
-    });
+    useViewState.setState({ startupPage });
 
     const target = autoTarget.data ?? null;
     const cfg = target ? (configs.data ?? []).find((c) => c.configId === target.configId) : null;
@@ -328,7 +324,7 @@ export function BootstrapView(): ReactElement {
     currentAccount.data,
     autoTarget.isFetched,
     autoTarget.data,
-    requestedStartupPage,
+    startupPage,
     webSettings.isFetched,
     webSettings.isError,
     webSettings.error,

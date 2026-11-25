@@ -361,7 +361,7 @@ test('一行入口按依赖、宿主、native、网络、启动顺序执行，�
   await startDevelopment({ ...hooks, args });
   const [dress, picker] = launch.args;
   assert.equal(dress, args[0]);
-  assert.match(picker, /^--weq-account-picker=[a-f\d-]+$/);
+  assert.equal(picker, '--weq-account-picker=00000000-0000-0000-0000-000000000000');
   assert.equal(launch.args.length, 2);
   await startDevelopment({ ...hooks, args });
   assert.deepEqual(launch.args, [...args, picker]);

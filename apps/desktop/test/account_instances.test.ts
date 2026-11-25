@@ -13,6 +13,7 @@ import {
   accountPickerDirectories,
   accountPickerOwner,
   accountPickerTarget,
+  developmentStartupConfigId,
   instanceArg,
   instanceDirectories,
   instanceTarget,
@@ -96,6 +97,22 @@ it('不同账号可并行，关闭和打开失败只释放对应账号的锁', a
     async () => {},
     () => undefined,
   );
+});
+
+it('固定开发窗口自动打开空闲的默认账号，普通新窗口或账号已打开时手动选择', () => {
+  const developmentPickerId = '00000000-0000-0000-0000-000000000000';
+  const target = { uin: '101', configId: 'default-source' };
+  expect(developmentStartupConfigId(root, prepareAccountPicker(), target)).toBeUndefined();
+  expect(developmentStartupConfigId(root, developmentPickerId, null)).toBeUndefined();
+  expect(developmentStartupConfigId(root, developmentPickerId, target)).toBe(target.configId);
+  const existing = new AccountInstances(root);
+  try {
+    existing.claim(target.uin);
+    expect(developmentStartupConfigId(root, developmentPickerId, target)).toBeUndefined();
+  } finally {
+    existing.dispose();
+  }
+  expect(developmentStartupConfigId(root, developmentPickerId, target)).toBe(target.configId);
 });
 
 it('迁入选择窗口独有的账号与草稿，主窗口冲突原件保留', () => {

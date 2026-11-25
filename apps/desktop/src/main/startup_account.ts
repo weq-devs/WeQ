@@ -38,11 +38,11 @@ export class StartupAccount {
     return this.task ?? { opened: false, page: null, error: null };
   }
 
-  async attach(): Promise<StartupResult> {
+  async attach(page: StartupPage | null = null): Promise<StartupResult> {
     const result = await this.wait();
     if (this.attached) return { ...result, page: null, error: null };
     this.attached = true;
-    return result;
+    return { ...result, page: result.page ?? page };
   }
 }
 

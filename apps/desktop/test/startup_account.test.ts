@@ -94,10 +94,20 @@ it('后台失败可由首屏展示，重载不重试、不重复弹错', async (
     throw new Error('合成打开失败');
   });
   await startup.start(run);
-  expect(await startup.attach()).toMatchObject({ opened: false, error: '合成打开失败' });
-  expect(await startup.attach()).toMatchObject({ error: null });
+  expect(await startup.attach('messages')).toEqual({
+    opened: false,
+    page: 'messages',
+    error: '合成打开失败',
+  });
+  expect(await startup.attach('messages')).toMatchObject({ page: null, error: null });
   await startup.start(run);
   expect(run).toHaveBeenCalledOnce();
+});
+
+it('直接显示账号选择的窗口也能领到本轮启动页', async () => {
+  const startup = new StartupAccount();
+  expect(await startup.attach('home')).toEqual({ opened: false, page: 'home', error: null });
+  expect(await startup.attach('home')).toEqual({ opened: false, page: null, error: null });
 });
 
 it('独立 Web 宿主未安排桌面任务时可直接查询，不启动任何账号', async () => {

@@ -164,6 +164,7 @@ import {
   accountPickerDirectories,
   accountPickerOwner,
   accountPickerTarget,
+  developmentStartupConfigId,
   focusAccountArg,
   focusAccountTarget,
   instanceArg,
@@ -213,6 +214,7 @@ const serviceProcess = process.argv.includes(DESKTOP_SERVICE_ARG);
 const serviceRegistry = new DesktopServiceRegistry(defaultDataRoot);
 const accountTarget = instanceTarget(process.argv);
 const pickerId = accountPickerTarget(process.argv);
+let startupConfigId = accountTarget?.configId;
 const focusTarget = focusAccountTarget(process.argv);
 const pickerDirectories = pickerId
   ? accountPickerDirectories(defaultDataRoot, pickerId)
@@ -751,7 +753,7 @@ function createWindow(
     Boolean(getAppContext().account),
     desktopStartupAccount.pending,
     getAppContext().bootstrap?.userConfig,
-    accountTarget?.configId,
+    startupConfigId,
   ),
 ): BrowserWindow {
   const icon = resolveWindowIcon();
@@ -1390,14 +1392,21 @@ async function startDesktop(): Promise<void> {
     },
   });
   buildTray();
+  // 开发窗口可使用共享的默认账号，保留主窗口的一次性跳过状态。
+  if (pickerId && !app.isPackaged)
+    startupConfigId ??= developmentStartupConfigId(
+      defaultDataRoot,
+      pickerId,
+      userConfig?.getAutoEnter(),
+    );
   // 先安排后台任务，以同一启动目标确定窗口尺寸；不等待数据库打开。
-  if (userConfig && !getAppContext().nativeError && !isQuitting && (!pickerId || accountTarget))
+  if (userConfig && !getAppContext().nativeError && !isQuitting && (!pickerId || startupConfigId))
     void desktopStartupAccount.start(() =>
       openStartupAccount(
         userConfig,
         appRouter.createCaller({}).bootstrap,
         process.platform === 'darwin',
-        accountTarget?.configId,
+        startupConfigId,
       ),
     );
   mainWindowLifecycle.open({

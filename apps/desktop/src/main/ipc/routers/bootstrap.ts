@@ -3625,16 +3625,14 @@ export const bootstrapRouter = router({
 
   /** 仅桌面首屏领走启动页与失败信息，重载不重设栏目、不重复弹错。 */
   desktopStartup: procedure.query(async (): Promise<StartupResult> => {
-    if (getHost().startupReadOnly) return desktopStartupAccount.attach();
-    // 正常启动已由主进程调度；文件恢复曾失败时，在恢复成功后补上未开始的任务。
-    await desktopStartupAccount.start(() =>
-      openStartupAccount(
-        requireBootstrap().userConfig,
-        bootstrapRouter.createCaller({}),
-        process.platform === 'darwin',
-      ),
-    );
-    return desktopStartupAccount.attach();
+    const config = requireBootstrap().userConfig;
+    if (!getHost().startupReadOnly) {
+      // 正常启动已由主进程调度；文件恢复曾失败时，在恢复成功后补上未开始的任务。
+      void desktopStartupAccount.start(() =>
+        openStartupAccount(config, bootstrapRouter.createCaller({}), process.platform === 'darwin'),
+      );
+    }
+    return desktopStartupAccount.attach(config.getStartupPage());
   }),
 
   /** 等待后台启动任务后接回实际账号，Web 同时连接也不能重复开库。 */

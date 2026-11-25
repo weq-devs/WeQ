@@ -3,12 +3,14 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { type AccountConfig, writeFileAtomicSync } from '@weq/service';
+import { type AccountConfig, type AutoEnterTarget, writeFileAtomicSync } from '@weq/service';
 import type { AccountInstanceScope } from './account_instance_scope';
 
 const ACCOUNT_ARG = '--weq-account-instance=';
 const FOCUS_ARG = '--weq-focus-account=';
 const PICKER_ARG = '--weq-account-picker=';
+// scripts/dev.mjs 为默认开发窗口保留的固定 ID。
+const DEVELOPMENT_PICKER_ID = '00000000-0000-0000-0000-000000000000';
 const CONFIG_ID = /^[a-z\d][a-z\d_-]{0,127}$/i;
 const PICKER_ID = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/;
 // Vite 5 的内置模块表不识别 node:sqlite，交给 Electron/Node 运行时加载。
@@ -145,6 +147,16 @@ export function ownerFileIsLocked(path: string): boolean {
 
 export function accountIsRunning(root: string, uin: string): boolean {
   return ownerFileIsLocked(join(instanceRoot(root, uin), 'owner.sqlite'));
+}
+
+export function developmentStartupConfigId(
+  root: string,
+  pickerId: string | undefined,
+  target: AutoEnterTarget | null | undefined,
+): string | undefined {
+  if (pickerId !== DEVELOPMENT_PICKER_ID || !target || accountIsRunning(root, target.uin))
+    return undefined;
+  return target.configId;
 }
 
 function pickerOwnerPath(root: string, uin: string): string {
