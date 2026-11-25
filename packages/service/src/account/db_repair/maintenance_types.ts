@@ -51,6 +51,9 @@ export interface DatabaseMaintenanceOperation {
   elapsedMs: number;
   totalDatabases: number;
   databaseNames?: string[];
+  /** 记录与起始类型不同的体检，其他库沿用起始类型。 */
+  databaseScanKinds?: Record<string, 'scan' | 'checkup'>;
+  currentScanKind?: 'scan' | 'checkup';
   completedDatabases: number;
   failedDatabases?: number;
   currentDb?: string;
@@ -215,6 +218,11 @@ export const databaseMaintenanceKindLabel = {
   checkup: '深度体检',
   repair: '数据库修复',
 };
+export function databaseMaintenanceOperationLabel(operation: DatabaseMaintenanceOperation): string {
+  return operation.databaseScanKinds
+    ? '快速及深度体检'
+    : databaseMaintenanceKindLabel[operation.kind];
+}
 export const databaseMaintenanceStatusLabel: Record<
   DatabaseMaintenanceOperation['status'],
   string

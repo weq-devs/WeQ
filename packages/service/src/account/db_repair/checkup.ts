@@ -30,6 +30,7 @@ export {
   summarizeDatabaseMaintenance,
   databaseRepairSupportLabel,
   databaseMaintenanceKindLabel,
+  databaseMaintenanceOperationLabel,
   databaseMaintenanceStatusLabel,
   databaseRepairStatusLabel,
   databaseMaintenanceRowAbnormal,

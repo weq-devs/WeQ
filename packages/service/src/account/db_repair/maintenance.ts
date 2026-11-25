@@ -76,6 +76,10 @@ interface RepairBatchOptions {
   allowLowSpace?: boolean;
   methods?: Record<string, DatabaseRepairMethod>;
 }
+interface ScanBatch {
+  kind: 'scan' | 'checkup';
+  targets: DbRepairTarget[];
+}
 interface Session {
   snapshot: DatabaseMaintenanceSnapshot;
   targets: DbRepairTarget[];
@@ -83,7 +87,7 @@ interface Session {
   lease?: DatabaseMaintenanceLease;
   abort?: AbortController;
   pending?: Promise<DatabaseMaintenanceSnapshot>;
-  scanQueue?: DbRepairTarget[][];
+  scanQueue?: ScanBatch[];
   lastSaved: number;
   lastPublished: number;
   publishTimer?: ReturnType<typeof setTimeout>;
@@ -96,6 +100,10 @@ const keyFor = (scope: DatabaseMaintenanceScope) =>
   JSON.stringify([scope.uin, scope.configId ?? null]);
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const progressPublishIntervalMs = 1000;
+const queuedTargets = (session: Session) =>
+  session.scanQueue?.flatMap((batch) => batch.targets) ?? [];
+const requiredScanKind = (operation: DatabaseMaintenanceOperation, dbName: string) =>
+  operation.databaseScanKinds?.[dbName] ?? operation.kind;
 const pendingRow = ({ dbName }: DbRepairTarget): DatabaseMaintenanceRow => ({
   dbName,
   scanStatus: 'pending',
@@ -200,6 +208,11 @@ export class DatabaseMaintenance {
       throw new Error('持续维护锁已中断，请先结束维护并重新体检。');
     if (requestedNames && !session?.snapshot.locked)
       throw new Error('本轮维护已结束，请刷新后开始体检。');
+    const previousOperation = session?.snapshot.operation;
+    const resumeKinds =
+      previousOperation?.status === 'cancelled' && previousOperation.kind === kind
+        ? previousOperation.databaseScanKinds
+        : undefined;
     const existing = session?.targets ?? [];
     const added = requestedNames
       ? targets.filter(
@@ -221,9 +234,7 @@ export class DatabaseMaintenance {
         (other) =>
           other !== session &&
           other.snapshot.state !== 'ended' &&
-          [...other.targets, ...(other.scanQueue?.flat() ?? [])].some((target) =>
-            paths.has(target.dbPath),
-          ),
+          [...other.targets, ...queuedTargets(other)].some((target) => paths.has(target.dbPath)),
       )
     )
       throw new Error(
@@ -252,14 +263,22 @@ export class DatabaseMaintenance {
       ? [...current.targets, ...added].filter((target) => requestedNames.includes(target.dbName))
       : [...current.targets];
     if (!selected.length) throw new Error('请选择要体检的数据库。');
-    current.scanQueue = [selected];
+    const otherKind = kind === 'scan' ? 'checkup' : 'scan';
+    const otherTargets = selected.filter(({ dbName }) => resumeKinds?.[dbName] === otherKind);
+    const firstBatch = selected.filter(({ dbName }) => resumeKinds?.[dbName] !== otherKind);
+    current.scanQueue = [];
+    if (firstBatch.length) current.scanQueue.push({ kind, targets: firstBatch });
+    if (otherTargets.length) current.scanQueue.push({ kind: otherKind, targets: otherTargets });
     this.begin(
       current,
       kind,
       selected.length,
       requestedNames ? selected.map((target) => target.dbName) : undefined,
+      otherTargets.length
+        ? Object.fromEntries(otherTargets.map(({ dbName }) => [dbName, otherKind]))
+        : undefined,
     );
-    current.pending = this.scanSession(current, kind, current.scanQueue).finally(() => {
+    current.pending = this.scanSession(current, current.scanQueue).finally(() => {
       current.scanQueue = undefined;
       current.pending = undefined;
     });
@@ -271,6 +290,7 @@ export class DatabaseMaintenance {
     operationId: string,
     targets: DbRepairTarget[],
     names: string[],
+    kind?: 'scan' | 'checkup',
   ): void {
     const session = this.sessions.get(keyFor(scope));
     const operation = session?.snapshot.operation;
@@ -282,39 +302,58 @@ export class DatabaseMaintenance {
       session.snapshot.maintenanceError ||
       session.abort?.signal.aborted ||
       operation?.id !== operationId ||
+      operation.kind === 'repair' ||
       operation.status !== 'running'
     )
       throw new Error('本次体检已停止或完成，请重新选择要体检的数据库。');
 
-    const queued = queue.flat();
-    const batch = [...session.targets, ...targets].filter(
-      (target) =>
-        names.includes(target.dbName) &&
-        !queued.some((item) => item.dbName === target.dbName || item.dbPath === target.dbPath),
+    const batchKind = kind ?? operation.kind;
+    const queued = queuedTargets(session);
+    const knownTargets = new Map(
+      [...targets, ...queued, ...session.targets].map((target) => [target.dbName, target]),
     );
+    const batch: DbRepairTarget[] = [];
+    for (const name of new Set(names)) {
+      const target = knownTargets.get(name);
+      if (!target) continue;
+      const existing = queued.find((item) => item.dbName === name || item.dbPath === target.dbPath);
+      if (
+        existing &&
+        (batchKind === 'scan' || requiredScanKind(operation, existing.dbName) === 'checkup')
+      )
+        continue;
+      batch.push(existing ?? target);
+    }
     if (!batch.length) return;
     if (
       [...this.sessions.values()].some(
         (other) =>
           other !== session &&
           other.snapshot.state !== 'ended' &&
-          [...other.targets, ...(other.scanQueue?.flat() ?? [])].some((target) =>
+          [...other.targets, ...queuedTargets(other)].some((target) =>
             batch.some((item) => item.dbPath === target.dbPath),
           ),
       )
     )
       throw new Error('所选数据库正在另一个维护会话中使用。');
 
-    queue.push(batch);
-    operation.databaseNames = [...queued, ...batch].map(({ dbName }) => dbName);
+    queue.push({ kind: batchKind, targets: batch });
+    const batchNames = batch.map(({ dbName }) => dbName);
+    const scanKinds = { ...operation.databaseScanKinds };
+    for (const name of batchNames) {
+      if (batchKind === operation.kind) delete scanKinds[name];
+      else scanKinds[name] = batchKind;
+    }
+    operation.databaseScanKinds = Object.keys(scanKinds).length ? scanKinds : undefined;
+    operation.databaseNames = [...new Set([...queued.map(({ dbName }) => dbName), ...batchNames])];
     operation.totalDatabases = operation.databaseNames.length;
+    this.countCompleted(session);
     this.publishStatus(session);
   }
 
   private async scanSession(
     session: Session,
-    kind: 'scan' | 'checkup',
-    queue: DbRepairTarget[][],
+    queue: ScanBatch[],
   ): Promise<DatabaseMaintenanceSnapshot> {
     const snapshot = session.snapshot;
     const signal = session.abort!.signal;
@@ -339,10 +378,11 @@ export class DatabaseMaintenance {
         lease.signal?.throwIfAborted();
         this.publish(session);
       }
-      // 体检期间可选择更多数据库。当前批次完成后为新增库加锁，再按当前类型检查。
-      for (const batch of queue) {
+      // 当前批次完成后，为后续批次的新增库加锁。已持锁的库复用页检查结果。
+      for (const { kind, targets } of queue) {
         signal.throwIfAborted();
-        const added = batch.filter((target) => !session.targets.includes(target));
+        snapshot.operation!.currentScanKind = kind;
+        const added = targets.filter((target) => !session.targets.includes(target));
         if (added.length) {
           if (!session.lease.acquireMore)
             throw new Error('本轮无法追加数据库，请刷新维护状态后重试。');
@@ -351,17 +391,20 @@ export class DatabaseMaintenance {
           snapshot.databases.push(...added.map(pendingRow));
           this.publish(session, true);
         }
-        executionFailure = await this.checkDatabases(session, kind, batch, signal);
+        executionFailure = await this.checkDatabases(session, kind, targets, signal);
         if (executionFailure) break;
       }
     } catch (error) {
       if (!signal.aborted) executionFailure = errorText(error);
     }
-    const selected = queue.flat();
+    const operation = snapshot.operation!;
+    const selected = new Set(queuedTargets(session).map(({ dbName }) => dbName));
     const failures = snapshot.databases.some(
       (row) =>
-        selected.some((target) => target.dbName === row.dbName) &&
-        (row.scanStatus !== 'completed' || (kind === 'checkup' && row.deepStatus !== 'completed')),
+        selected.has(row.dbName) &&
+        (row.scanStatus !== 'completed' ||
+          (requiredScanKind(operation, row.dbName) === 'checkup' &&
+            row.deepStatus !== 'completed')),
     );
     const lost = session.lease?.signal?.aborted;
     if (lost) {
@@ -861,6 +904,7 @@ export class DatabaseMaintenance {
     kind: 'scan' | 'checkup' | 'repair',
     total: number,
     databaseNames?: string[],
+    databaseScanKinds?: DatabaseMaintenanceOperation['databaseScanKinds'],
   ) {
     session.abort = new AbortController();
     session.snapshot.storage = undefined;
@@ -872,6 +916,7 @@ export class DatabaseMaintenance {
       elapsedMs: 0,
       totalDatabases: total,
       ...(databaseNames ? { databaseNames } : {}),
+      ...(databaseScanKinds ? { databaseScanKinds } : {}),
       completedDatabases: 0,
     };
     session.preparation = new DatabaseProgressTracker(kind, '账号数据库');
@@ -927,14 +972,14 @@ export class DatabaseMaintenance {
     op.completedDatabases = rows.filter((row) =>
       op.kind === 'repair'
         ? row.repair?.status === 'completed'
-        : op.kind === 'checkup'
+        : requiredScanKind(op, row.dbName) === 'checkup'
           ? row.deepStatus === 'completed'
           : row.scanStatus === 'completed',
     ).length;
     op.failedDatabases = rows.filter((row) =>
       op.kind === 'repair'
         ? row.repair?.status === 'failed'
-        : op.kind === 'checkup'
+        : requiredScanKind(op, row.dbName) === 'checkup'
           ? row.deepStatus === 'failed' ||
             row.deepStatus === 'partial' ||
             row.scanStatus === 'failed'

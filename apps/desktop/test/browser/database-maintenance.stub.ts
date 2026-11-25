@@ -153,9 +153,11 @@ function finish(status: 'completed' | 'cancelled' = 'completed') {
           ? regularRow(name, names.indexOf(name))
           : live!.databases.find((row) => row.dbName === name)!,
       );
-      if (live.operation.kind === 'checkup') {
+      const { kind, databaseScanKinds } = live.operation;
+      const deepNames = targets.filter((name) => (databaseScanKinds?.[name] ?? kind) === 'checkup');
+      if (deepNames.length) {
         for (const row of live.databases) {
-          if (!targets.includes(row.dbName)) continue;
+          if (!deepNames.includes(row.dbName)) continue;
           const index = names.indexOf(row.dbName);
           row.deepStatus = 'completed';
           if (index === 0) {
@@ -211,11 +213,13 @@ function finish(status: 'completed' | 'cancelled' = 'completed') {
   live.operation.status = status;
   live.operation.finishedAt = live.operation.startedAt + 17_000;
   live.operation.elapsedMs = 17_000;
-  const { databaseNames, kind } = live.operation;
+  const { databaseNames, kind, databaseScanKinds } = live.operation;
   live.operation.completedDatabases = live.databases.filter((row) => {
     if (databaseNames && !databaseNames.includes(row.dbName)) return false;
     if (repair) return row.repair?.status === 'completed';
-    return kind === 'checkup' ? row.deepStatus === 'completed' : row.scanStatus === 'completed';
+    return (databaseScanKinds?.[row.dbName] ?? kind) === 'checkup'
+      ? row.deepStatus === 'completed'
+      : row.scanStatus === 'completed';
   }).length;
   live.operation.currentDb = undefined;
   if (
@@ -540,6 +544,15 @@ export const trpc = {
         ...new Set([...(operation.databaseNames ?? []), ...input.dbNames!]),
       ];
       operation.totalDatabases = operation.databaseNames.length;
+      const kind = input.kind ?? operation.kind;
+      if (kind !== 'repair') {
+        const scanKinds = { ...operation.databaseScanKinds };
+        for (const name of input.dbNames!) {
+          if (kind === operation.kind) delete scanKinds[name];
+          else scanKinds[name] = kind;
+        }
+        operation.databaseScanKinds = Object.keys(scanKinds).length ? scanKinds : undefined;
+      }
       publish();
     }),
     repairSelected: mutation(async (input) => {

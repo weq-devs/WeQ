@@ -485,6 +485,7 @@ export const dbRepairRouter = router({
       accountRef.extend({
         operationId: z.string().min(1),
         dbNames: z.array(z.string().min(1)).min(1),
+        kind: z.enum(['scan', 'checkup']).optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -492,7 +493,7 @@ export const dbRepairRouter = router({
       const targets = [...new Set(input.dbNames)]
         .filter((name) => !current?.databases.some((row) => row.dbName === name))
         .map((name) => service.resolveTarget(input.uin, name));
-      databaseMaintenance.appendScan(input, input.operationId, targets, input.dbNames);
+      databaseMaintenance.appendScan(input, input.operationId, targets, input.dbNames, input.kind);
     }),
   repairSelected: procedure
     .input(

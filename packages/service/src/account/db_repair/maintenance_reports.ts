@@ -7,7 +7,7 @@ import type { DatabaseMaintenanceReport } from './maintenance_types';
 import type { DbRepairRecord } from './types';
 import {
   databaseRepairSupportLabel,
-  databaseMaintenanceKindLabel,
+  databaseMaintenanceOperationLabel,
   databaseMaintenanceStatusLabel,
   databaseRepairStatusLabel,
 } from './maintenance_types';
@@ -192,7 +192,7 @@ export function renderDatabaseMaintenanceReport(
 ): string {
   if (format === 'json') return JSON.stringify(report, null, 2);
   const op = report.operation;
-  const title = `${databaseMaintenanceKindLabel[op.kind]}报告`;
+  const title = `${databaseMaintenanceOperationLabel(op)}报告`;
   const date = formatDateTime(op.startedAt);
   const lines = [
     `# ${title}`,

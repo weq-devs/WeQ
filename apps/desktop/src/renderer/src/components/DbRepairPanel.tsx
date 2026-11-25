@@ -42,7 +42,7 @@ import {
   type DatabaseRepairMethod,
   databaseRepairSupportLabel,
   databaseMaintenanceRowAbnormal,
-  databaseMaintenanceKindLabel as operationLabels,
+  databaseMaintenanceOperationLabel as operationLabel,
   databaseMaintenanceStatusLabel as operationStates,
   databaseRepairStatusLabel as repairStates,
   type DatabaseMaintenanceOperation,
@@ -219,6 +219,7 @@ export function DbRepairPanel({
   );
   const [nextScanSelection, setNextScanSelection] = useState<string[]>();
   const [additionalNames, setAdditionalNames] = useState<string[]>();
+  const [appendKind, setAppendKind] = useState<ScanKind>();
   const [selected, setSelected] = useState<string[]>([]);
   const [repairMethod, setRepairMethod] = useState<DatabaseRepairMethod>('deep');
   const [backupChoices, setBackupChoices] = useState({ deep: true, quick: false });
@@ -401,6 +402,8 @@ export function DbRepairPanel({
       window.electron?.ipcRenderer.send('db-repair:scope', scope);
       setTab('report');
       setAdditionalNames(undefined);
+      setAppendKind(undefined);
+      setScanKind(kind);
       setReportId(undefined);
       setReportScope(scope);
       setLegacyId(undefined);
@@ -540,14 +543,19 @@ export function DbRepairPanel({
   const maintainedRows = new Map(databases.map((row) => [row.dbName, row]));
   const operationNames = operation?.databaseNames ?? databases.map(({ dbName }) => dbName);
   const activeScanKind = operation?.status === 'running' ? operationScanKind : undefined;
-  const startingScan = starting?.kind !== 'repair' ? starting : null;
+  const startingScanKind = starting?.kind !== 'repair' ? starting?.kind : undefined;
   const queuedScanKind =
-    activeScanKind ?? startingScan?.kind ?? (paused ? operationScanKind : undefined);
-  const queuedScanNames = activeScanKind || paused ? operationNames : (startingScan?.dbNames ?? []);
-  const setupScanKind = scanRunning ? (queuedScanKind ?? scanKind) : scanKind;
-  const alreadyQueued = new Set(
-    queuedScanKind === 'checkup' || queuedScanKind === setupScanKind ? queuedScanNames : [],
-  );
+    activeScanKind ?? startingScanKind ?? (paused ? operationScanKind : undefined);
+  const queuedScanNames =
+    activeScanKind || paused ? operationNames : startingScanKind ? (starting?.dbNames ?? []) : [];
+  const queuedNamesSet = new Set(queuedScanNames);
+  const queuedScanKinds = activeScanKind || paused ? operation?.databaseScanKinds : undefined;
+  const queuedKindFor = (name: string) =>
+    queuedNamesSet.has(name) ? (queuedScanKinds?.[name] ?? queuedScanKind) : undefined;
+  const hasQueuedLevel = (name: string, kind: ScanKind) => {
+    const queuedKind = queuedKindFor(name);
+    return queuedKind === 'checkup' || queuedKind === kind;
+  };
   const pendingDeepScan = available.filter(({ dbName }) => {
     const row = maintainedRows.get(dbName);
     if (!row) return true;
@@ -557,14 +565,28 @@ export function DbRepairPanel({
   const pendingQuickScan = pendingDeepScan.filter(
     ({ dbName }) => maintainedRows.get(dbName)?.scanStatus !== 'completed',
   );
+  const canAppendQuick = pendingQuickScan.some(({ dbName }) => !hasQueuedLevel(dbName, 'scan'));
+  const canAppendDeep = pendingDeepScan.some(({ dbName }) => !hasQueuedLevel(dbName, 'checkup'));
+  const defaultAppendKind =
+    queuedScanKind === 'scan' && !canAppendQuick && canAppendDeep
+      ? 'checkup'
+      : (queuedScanKind ?? scanKind);
+  const setupScanKind = paused
+    ? scanKind
+    : (appendKind ?? (scanRunning ? defaultAppendKind : scanKind));
   const scanCandidates =
     !locked && !scanRunning && !paused
       ? available
       : setupScanKind === 'scan'
-        ? pendingQuickScan
+        ? pendingDeepScan.filter(
+            ({ dbName }) =>
+              maintainedRows.get(dbName)?.scanStatus !== 'completed' ||
+              (paused && queuedScanKinds?.[dbName] === 'checkup'),
+          )
         : pendingDeepScan;
   const candidateNames = scanCandidates.map((row) => row.dbName);
-  const setupCandidates = scanCandidates.filter(({ dbName }) => !alreadyQueued.has(dbName));
+  const alreadyQueued = (name: string) => hasQueuedLevel(name, setupScanKind);
+  const setupCandidates = scanCandidates.filter(({ dbName }) => !alreadyQueued(dbName));
   const cachedCheck = recentCheck?.id === live?.id ? recentCheck : undefined;
   const previousCheckId =
     operation?.kind === 'repair' && !cachedCheck
@@ -601,7 +623,7 @@ export function DbRepairPanel({
     }));
   const scanSelectionForAction = paused
     ? (nextScanSelection ??
-      (scanKind === operation?.kind
+      (setupScanKind === operation?.kind
         ? operationNames
         : [...maintainedRows.keys(), ...operationNames]))
     : locked
@@ -611,8 +633,7 @@ export function DbRepairPanel({
       : scanSelection;
   // 选库区的勾选只管理可见选项，续检仍带上隐藏的待检库。
   const scanNames = candidateNames.filter(
-    (name) =>
-      (paused && alreadyQueued.has(name)) || (scanSelectionForAction?.includes(name) ?? true),
+    (name) => (paused && alreadyQueued(name)) || (scanSelectionForAction?.includes(name) ?? true),
   );
   const setScanCandidates = locked || paused ? setNextScanSelection : setScanSelection;
   const namesToAppend = setupCandidates
@@ -620,7 +641,7 @@ export function DbRepairPanel({
     .filter((name) => additionalNames?.includes(name));
   const setupSelection = scanRunning
     ? namesToAppend
-    : scanNames.filter((name) => !alreadyQueued.has(name));
+    : scanNames.filter((name) => !alreadyQueued(name));
   const additionalScanKind =
     locked && pendingDeepScan.length
       ? operation?.kind === 'scan' && pendingQuickScan.length
@@ -670,7 +691,7 @@ export function DbRepairPanel({
       ? '体检已完成'
       : scanNames.some((name) => !maintainedRows.has(name)) || !scanNames.length
         ? '追加体检'
-        : scanKind === 'checkup'
+        : setupScanKind === 'checkup'
           ? '开始补充检查'
           : '继续体检';
   const canEndMaintenance = locked && waiting && !running;
@@ -850,11 +871,14 @@ export function DbRepairPanel({
   const showingReport = tab === 'report' || tab === 'result';
   const reportScanKind = checkOperation?.kind === 'repair' ? undefined : checkOperation?.kind;
   const queuedNames = scanRunning ? queuedScanNames : scanNames;
-  const waitingForScan = (name: string) =>
-    queuedNames.includes(name) &&
-    (!activeScanKind || isWaitingForScan(maintainedRows.get(name), activeScanKind))
-      ? setupScanKind
-      : undefined;
+  const waitingForScan = (name: string) => {
+    if (!queuedNames.includes(name)) return undefined;
+    const kind =
+      scanRunning || setupScanKind === operationScanKind
+        ? (queuedKindFor(name) ?? setupScanKind)
+        : setupScanKind;
+    return !activeScanKind || isWaitingForScan(maintainedRows.get(name), kind) ? kind : undefined;
+  };
   const repairNames =
     operation?.kind === 'repair' && operation.status === 'running'
       ? (operation.databaseNames ?? [])
@@ -901,22 +925,27 @@ export function DbRepairPanel({
     ? ` · ${repairCandidates.length} 个可修复`
     : '';
   const stopping = stop.isLoading || !!operation?.stopping;
-  const canAppend = scanRunning && !stopping && !ending && setupCandidates.length > 0;
+  const canAppend = scanRunning && !stopping && !ending && (canAppendQuick || canAppendDeep);
   const scanModeControl = (
     <SegmentedControl
       label="体检类型"
       value={setupScanKind}
-      disabled={scanRunning}
       options={[
         { value: 'scan', label: '快速体检' },
         { value: 'checkup', label: '深度体检' },
       ]}
-      onChange={setScanKind}
+      onChange={(kind) => {
+        if (scanRunning) setAppendKind(kind);
+        else {
+          setAppendKind(undefined);
+          setScanKind(kind);
+        }
+      }}
     />
   );
   const deepScan =
-    starting?.kind === 'checkup' ||
-    (operation?.status === 'running' && operation.kind === 'checkup');
+    (activeScanKind ? (operation?.currentScanKind ?? activeScanKind) : startingScanKind) ===
+    'checkup';
   const progressTitle = repairing
     ? stopping
       ? '正在停止修复'
@@ -933,7 +962,14 @@ export function DbRepairPanel({
       ? `${operation.completedDatabases} / ${operation.totalDatabases} 个数据库完成${operation.currentDb ? ` · 当前 ${operation.currentDb}` : ''}`
       : '正在准备…';
   const appendButton = (paused ? pendingDeepScan.length > 0 : canAppend) ? (
-    <button className="weq-set-btn" type="button" onClick={() => setTab('scan')}>
+    <button
+      className="weq-set-btn"
+      type="button"
+      onClick={() => {
+        if (scanRunning && !additionalNames?.length) setAppendKind(defaultAppendKind);
+        setTab('scan');
+      }}
+    >
       <ScanLine size={14} aria-hidden />
       追加体检
     </button>
@@ -963,6 +999,7 @@ export function DbRepairPanel({
           ...scope,
           operationId: operation.id,
           dbNames: namesToAppend,
+          kind: setupScanKind,
         });
       } catch (cause) {
         // 提交期间当前批次可能已结束，刷新状态后仍可使用原来的选择继续。
@@ -970,6 +1007,7 @@ export function DbRepairPanel({
         throw cause;
       }
       setAdditionalNames(undefined);
+      setAppendKind(undefined);
       setTab('report');
     });
 
@@ -1136,7 +1174,9 @@ export function DbRepairPanel({
                     ? !canAppend || !activeScanKind || !namesToAppend.length
                     : !canScan || stopping || !scanNames.length)
                 }
-                onClick={() => void (scanRunning ? appendToScan() : startScan(scanKind, scanNames))}
+                onClick={() =>
+                  void (scanRunning ? appendToScan() : startScan(setupScanKind, scanNames))
+                }
               >
                 {paused ? (
                   <Play size={30} strokeWidth={1.6} aria-hidden />
@@ -1153,11 +1193,11 @@ export function DbRepairPanel({
               </p>
               <p role="status">
                 {scanRunning
-                  ? '当前批次完成后，按同一体检类型检查追加的数据库。'
+                  ? '追加的体检会在当前批次完成后开始。'
                   : status.data && !status.data.keyPresent && !status.data.error
                     ? '请先用 WeQ 打开一次这个账号，获取数据库密钥后再开始体检。'
                     : paused && scanNames.length > setupSelection.length
-                      ? '继续体检时，已排队的数据库会按所选类型检查。'
+                      ? '继续体检时会一并检查已排队的数据库。'
                       : locked
                         ? '已完成的检查会保留。'
                         : available.length && !scanNames.length
@@ -1175,11 +1215,13 @@ export function DbRepairPanel({
               emptyMessage={
                 status.isLoading
                   ? '正在读取数据库列表…'
-                  : paused || scanRunning
-                    ? '没有可追加体检的数据库。'
-                    : locked
-                      ? `没有待${scanKind === 'checkup' ? '深度体检' : '快速体检'}的数据库。`
-                      : '没有可体检的数据库。'
+                  : scanRunning
+                    ? `没有可追加${setupScanKind === 'checkup' ? '深度体检' : '快速体检'}的数据库。`
+                    : paused
+                      ? '没有可追加体检的数据库。'
+                      : locked
+                        ? `没有待${setupScanKind === 'checkup' ? '深度体检' : '快速体检'}的数据库。`
+                        : '没有可体检的数据库。'
               }
             />
           </div>
@@ -1204,7 +1246,7 @@ export function DbRepairPanel({
                     className="weq-set-btn weq-set-btn-primary"
                     type="button"
                     disabled={!canScan || stopping || !scanNames.length}
-                    onClick={() => void startScan(scanKind, scanNames)}
+                    onClick={() => void startScan(setupScanKind, scanNames)}
                   >
                     <Play size={14} aria-hidden />
                     继续体检
@@ -1304,6 +1346,7 @@ export function DbRepairPanel({
                   type="button"
                   onClick={() => {
                     setScanKind(additionalScanKind);
+                    setAppendKind(undefined);
                     setNextScanSelection(undefined);
                     setTab('scan');
                   }}
@@ -1385,7 +1428,7 @@ export function DbRepairPanel({
                         : showProgress
                           ? waitingForScan(name)
                           : row?.scanStatus === 'pending'
-                            ? reportScanKind
+                            ? (checkOperation?.databaseScanKinds?.[name] ?? reportScanKind)
                             : undefined
                     }
                     current={(selectedDetail?.dbName ?? operation?.currentDb) === name}
@@ -1421,7 +1464,7 @@ export function DbRepairPanel({
               </span>
               {!processRunning && processOperation ? (
                 <span className="weq-dbm-process-hint">
-                  {`${operationLabels[processOperation.kind]} · ${operationStates[processOperation.status]} · ${processOperation.completedDatabases} / ${processOperation.totalDatabases} 个数据库`}
+                  {`${operationLabel(processOperation)} · ${operationStates[processOperation.status]} · ${processOperation.completedDatabases} / ${processOperation.totalDatabases} 个数据库`}
                 </span>
               ) : null}
               <ChevronDown size={14} className="weq-dbm-chevron" aria-hidden />
@@ -1440,7 +1483,7 @@ export function DbRepairPanel({
           </details>
         ) : showLiveOperation ? (
           <p className="weq-dbm-operation" role="status">
-            {operationLabels[operation.kind]} · {operationStates[operation.status]} ·{' '}
+            {operationLabel(operation)} · {operationStates[operation.status]} ·{' '}
             {operation.completedDatabases} / {operation.totalDatabases} 个数据库
             {operation.error ? `；${operation.error}` : ''}
           </p>
@@ -1699,7 +1742,7 @@ export function DbRepairPanel({
                         <Database size={15} />
                       </span>
                       <div className="weq-dbm-history-main">
-                        <strong>{operationLabels[item.operation.kind]}</strong>
+                        <strong>{operationLabel(item.operation)}</strong>
                         <span>
                           <TimeLabel value={item.operation.startedAt} /> ·{' '}
                           {operationStates[item.operation.status]} ·{' '}
@@ -2305,7 +2348,7 @@ function ReportView({
       </div>
       <header className="weq-dbm-report-head">
         <div>
-          <h2>{operationLabels[operation.kind]}报告</h2>
+          <h2>{operationLabel(operation)}报告</h2>
           <p>
             {view.uin}
             {view.configId ? ` · ${view.configId}` : ''} · <TimeLabel value={operation.startedAt} />
@@ -2366,7 +2409,7 @@ function ReportView({
                 bytes={bytesByName.get(row.dbName)}
                 waitingFor={
                   row.scanStatus === 'pending' && operation.kind !== 'repair'
-                    ? operation.kind
+                    ? (operation.databaseScanKinds?.[row.dbName] ?? operation.kind)
                     : undefined
                 }
                 current={activeRow?.dbName === row.dbName}
@@ -2384,7 +2427,7 @@ function ReportView({
               执行过程
             </span>
             <span className="weq-dbm-process-hint">
-              {operationLabels[operation.kind]} · {operationStates[operation.status]}
+              {operationLabel(operation)} · {operationStates[operation.status]}
             </span>
             <ChevronDown size={14} className="weq-dbm-chevron" aria-hidden />
           </summary>

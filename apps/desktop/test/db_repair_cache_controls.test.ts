@@ -96,7 +96,7 @@ it('打开修复和 StrictMode 重挂载均不启动检查或修复', async () =
   expect(button('深度体检').disabled).toBe(false);
 });
 
-it('体检时不可切换模式，暂停后保留就绪库，切换深度体检后按当前来源继续', async () => {
+it('暂停后保留就绪库，切换深度体检后按当前来源继续', async () => {
   await mount();
   const choiceToScan = (name: string) =>
     host.querySelector<HTMLInputElement>(`input[aria-label="体检 ${name}"]`);
@@ -264,11 +264,17 @@ it('等待首条进度时可选择追加库，确认后加入正在运行的同�
 
     await act(async () => begin.resolve());
     const operationId = maintenanceQa.snapshot()?.operation?.id;
-    expect(button('深度体检').disabled).toBe(true);
+    expect(button('深度体检').disabled).toBe(false);
     expect(choiceToScan('profile.db')?.checked).toBe(true);
     await act(async () => button('加入本轮体检').click());
     expect(maintenanceQa.calls.append).toEqual([
-      { uin: account.uin, configId: account.configId, operationId, dbNames: ['profile.db'] },
+      {
+        uin: account.uin,
+        configId: account.configId,
+        operationId,
+        dbNames: ['profile.db'],
+        kind: 'checkup',
+      },
     ]);
     expect(maintenanceQa.calls.scan).toHaveLength(1);
     expect(maintenanceQa.calls.stop).toBe(0);
@@ -283,6 +289,67 @@ it('等待首条进度时可选择追加库，确认后加入正在运行的同�
     await act(async () => begin.resolve());
     delayedScan.mockRestore();
   }
+});
+
+it('所有库都在快速体检队列时，可以给同一库追加深度体检', async () => {
+  await mount();
+  await act(async () => button('开始体检').click());
+  const operationId = maintenanceQa.snapshot()?.operation?.id;
+  await act(async () => button('追加体检').click());
+  expect(button('深度体检').getAttribute('aria-checked')).toBe('true');
+  expect(button('快速体检').disabled).toBe(false);
+  expect(button('深度体检').disabled).toBe(false);
+  await act(async () => button('快速体检').click());
+  expect(button('快速体检').getAttribute('aria-checked')).toBe('true');
+  expect(button('加入本轮体检').disabled).toBe(true);
+  await act(async () => button('深度体检').click());
+  const profile = host.querySelector<HTMLInputElement>('input[aria-label="体检 profile.db"]');
+  expect(profile?.checked).toBe(false);
+  await act(async () => profile!.click());
+  await act(async () => button('加入本轮体检').click());
+
+  expect(maintenanceQa.calls.append).toEqual([
+    {
+      uin: account.uin,
+      configId: account.configId,
+      operationId,
+      dbNames: ['profile.db'],
+      kind: 'checkup',
+    },
+  ]);
+  expect(maintenanceQa.calls.scan).toHaveLength(1);
+  expect(maintenanceQa.calls.stop).toBe(0);
+  expect(maintenanceQa.snapshot()?.operation).toMatchObject({
+    id: operationId,
+    status: 'running',
+    totalDatabases: 3,
+    databaseScanKinds: { 'profile.db': 'checkup' },
+  });
+  const card = [...host.querySelectorAll('li')].find((item) =>
+    item.textContent?.includes('profile.db'),
+  );
+  expect(card?.textContent).toContain('等待深度体检');
+});
+
+it('深度体检运行时可切换到快速体检并追加未排队的库', async () => {
+  await mount();
+  await act(async () => button('深度体检').click());
+  const profile = () => host.querySelector<HTMLInputElement>('input[aria-label="体检 profile.db"]');
+  await act(async () => profile()!.click());
+  await act(async () => button('开始体检').click());
+  await act(async () => button('追加体检').click());
+  await act(async () => button('快速体检').click());
+  expect(host.querySelector('input[aria-label="体检 nt_msg.db"]')).toBeNull();
+  await act(async () => profile()!.click());
+  await act(async () => button('加入本轮体检').click());
+  expect(maintenanceQa.calls.append).toEqual([
+    expect.objectContaining({ kind: 'scan', dbNames: ['profile.db'] }),
+  ]);
+  expect(maintenanceQa.calls.stop).toBe(0);
+  await act(async () => maintenanceQa.complete());
+  const result = maintenanceQa.snapshot()?.databases.find((row) => row.dbName === 'profile.db');
+  expect(result?.scanStatus).toBe('completed');
+  expect(result?.deepStatus).toBeUndefined();
 });
 
 it('界面卸载不取消扫描、不删除已有结果或结束维护', async () => {
