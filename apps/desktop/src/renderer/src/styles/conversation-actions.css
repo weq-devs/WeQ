@@ -322,23 +322,6 @@ html[data-theme='dark'] .weq-group-content-actions button {
   padding: 0;
 }
 :where(html[data-weq-layout='single'])
-  .chat-pane.has-compact-header
-  .chat-title
-  .weq-affinity-pill {
-  flex: none;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  justify-content: center;
-}
-:where(html[data-weq-layout='single'])
-  .chat-pane.has-compact-header
-  .chat-title
-  .weq-affinity-pill
-  span {
-  display: none;
-}
-:where(html[data-weq-layout='single'])
   .chat-pane.with-group-info.is-mobile-group-info-present
   > .group-info-panel:not([hidden]) {
   display: flex;

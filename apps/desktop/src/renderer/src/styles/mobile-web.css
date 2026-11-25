@@ -68,6 +68,13 @@
   color: var(--weq-fg-primary);
 }
 
+:where(html[data-weq-layout='single']) .weq-web-shell .chat-pane.has-compact-header > .chat-header {
+  --weq-window-base-left: 8px;
+  --weq-window-base-right: 8px;
+  column-gap: 4px;
+  padding-inline: 8px;
+}
+
 :where(html[data-weq-layout='single']) .weq-mobile-header {
   position: relative;
   z-index: 40;
@@ -334,7 +341,8 @@ html:where([data-weq-layout='single'])[data-component-style][data-theme]
 }
 
 :where(html[data-weq-layout='single']) .weq-web-shell .chat-status-mobile {
-  display: block;
+  display: flex;
+  align-items: center;
   max-width: 100%;
   min-width: 0;
   line-height: 16px;
@@ -345,23 +353,10 @@ html:where([data-weq-layout='single'])[data-component-style][data-theme]
 }
 
 :where(html[data-weq-layout='single']) .weq-web-shell .chat-status-mobile > span {
+  display: flex;
+  align-items: center;
   max-width: 100%;
-  vertical-align: top;
-}
-
-:where(html[data-weq-layout='single'])
-  .weq-web-shell
-  .chat-status-mobile
-  > span
-  > :not(:last-child) {
-  flex-shrink: 0;
-}
-
-:where(html[data-weq-layout='single']) .weq-web-shell .chat-status-mobile > span > span:last-child {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 :where(html[data-weq-layout='single']) .weq-web-shell .chat-header .chat-actions {

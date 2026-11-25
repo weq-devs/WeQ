@@ -91,6 +91,22 @@ export type ContactWorkspaceTarget =
       fileId?: string;
     };
 
+export function contactPortraitTarget(uid: string, name?: string): ContactWorkspaceTarget {
+  return {
+    kind: 'person',
+    tab: 'portrait',
+    contact: {
+      id: uid,
+      identityLabel: 'UID',
+      identityValue: uid,
+      username: uid,
+      displayName: name?.trim() || 'TA',
+      avatarUrl: null,
+      createdAt: new Date(0).toISOString(),
+    },
+  };
+}
+
 /** 小名片展开到联系人详情，不向好友或群目录写入临时对象。 */
 export const ContactWorkspaceNavigationContext = createContext<
   ((target: ContactWorkspaceTarget) => void) | null

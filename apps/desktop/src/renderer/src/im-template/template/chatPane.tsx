@@ -6336,13 +6336,11 @@ function ChatPaneContent({
     void action.onClick?.(composerActionContext);
   }
 
-  const headerAffinity =
-    intentSupported && conversation.type === 'direct' && !isBotConversation(conversation) ? (
-      <AffinityPill
-        peerUid={conversation.otherUser.id}
-        peerName={displayUserName(conversation.otherUser)}
-      />
-    ) : null;
+  const portraitPeer =
+    intentSupported && conversation.type === 'direct' && !isBotConversation(conversation)
+      ? conversation.otherUser
+      : null;
+  const headerTitle = chatHeaderTitle(conversation);
   function timelineMessageAppearance(message: Message, groupPosition?: MessageGroupPosition) {
     const translationResult =
       translation?.scope === translationScope && translation.id === message.id
@@ -6508,7 +6506,7 @@ function ChatPaneContent({
               <button
                 className={cn('chat-title-text', 'weq-conversation-title-profile')}
                 type="button"
-                title={conversation.type === 'group' ? '查看群名片' : '查看好友名片'}
+                title={`${headerTitle} · ${conversation.type === 'group' ? '查看群名片' : '查看好友名片'}`}
                 onClick={(event) => {
                   const trigger = event.currentTarget;
                   activateProfile(event, () => {
@@ -6532,12 +6530,12 @@ function ChatPaneContent({
                     </span>
                   </>
                 ) : (
-                  <span data-privacy-sensitive>{chatHeaderTitle(conversation)}</span>
+                  <span data-privacy-sensitive>{headerTitle}</span>
                 )}
               </button>
             ) : (
-              <span className={cn('chat-title-text')}>
-                <span data-privacy-sensitive>{chatHeaderTitle(conversation)}</span>
+              <span className="chat-title-text" title={headerTitle}>
+                <span data-privacy-sensitive>{headerTitle}</span>
               </span>
             )}
             {isBotConversation(conversation) && !conversation.generated ? (
@@ -6565,7 +6563,6 @@ function ChatPaneContent({
                 referrerPolicy="no-referrer"
               />
             ) : null}
-            {compactHeader ? headerAffinity : null}
           </>
         }
         status={
@@ -6604,7 +6601,9 @@ function ChatPaneContent({
         }
         actions={
           <>
-            {!compactHeader ? headerAffinity : null}
+            {!compactHeader && portraitPeer ? (
+              <AffinityPill peerUid={portraitPeer.id} peerName={displayUserName(portraitPeer)} />
+            ) : null}
             {conversation.type === 'group' || conversation.type === 'direct' ? (
               <ConversationMessageActions
                 conversation={conversation}
@@ -6629,6 +6628,7 @@ function ChatPaneContent({
                     : undefined
                 }
                 compact={compactHeader}
+                showPortrait={Boolean(portraitPeer && intentStatus.data?.profileEnabled)}
                 onSearch={onSearchChatRecords ? () => onSearchChatRecords(conversation) : undefined}
                 onMedia={
                   onSearchChatRecords && !restrictedSource && !readOnly
