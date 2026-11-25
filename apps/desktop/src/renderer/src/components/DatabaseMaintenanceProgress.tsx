@@ -194,12 +194,10 @@ export function DatabaseMaintenanceProgress({
     const barValue = percent ?? rebuildPercent;
     const count = countText(step);
     const rate =
-      executing &&
-      now - step.updatedAt < 5000 &&
-      step.rate &&
-      ['pages', 'bytes'].includes(step.unit ?? '')
+      executing && !connectionError && step.rate && ['pages', 'bytes'].includes(step.unit ?? '')
         ? `${step.unit === 'bytes' ? formatBytesOrUnknown(step.rate) : `${Math.round(step.rate).toLocaleString('zh-CN')} 页`}/秒`
         : undefined;
+    const rateLabel = now - step.updatedAt < 5000 ? '当前速度' : '最近速度';
     const state =
       connectionError && executing ? '连接中断' : label(step, progress.status === 'cancelled');
     const objectName =
@@ -268,7 +266,7 @@ export function DatabaseMaintenanceProgress({
               ) : null}
               {rate ? (
                 <span>
-                  <NumericText>{`当前速度 ${rate}`}</NumericText>
+                  <NumericText>{`${rateLabel} ${rate}`}</NumericText>
                 </span>
               ) : null}
             </div>

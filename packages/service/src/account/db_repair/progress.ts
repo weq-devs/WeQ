@@ -149,7 +149,7 @@ export class DatabaseProgressTracker {
       previous &&
       count !== undefined &&
       previous.completed !== undefined &&
-      count >= previous.completed &&
+      count > previous.completed &&
       delta >= 100
         ? ((count - previous.completed) * 1000) / delta
         : previous?.rate;

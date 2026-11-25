@@ -103,6 +103,55 @@ it('长步骤只显示一处任务耗时，不展示更新间隔或重复的步�
   }
 });
 
+it('页检查在两次有效采样之间保留最近速度，切换步骤后清除', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-17T04:00:00Z'));
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const tracker = new DatabaseProgressTracker('checkup', 'synthetic.db');
+  const render = async (progress: ReturnType<typeof tracker.update>) => {
+    await act(async () => root.render(h(DatabaseMaintenanceProgress, { progress })));
+  };
+  const scan = (completed: number) =>
+    tracker.update('checkup', {
+      step: 'integrity-pages',
+      message: '检查页结构与引用',
+      completed,
+      total: 1024,
+      unit: 'pages',
+    });
+  try {
+    await render(scan(0));
+    vi.setSystemTime(Date.now() + 500);
+    await render(scan(200));
+    expect(host.textContent).toContain('当前速度 400 页/秒');
+
+    await act(async () => vi.advanceTimersByTime(6000));
+    expect(host.textContent).toContain('最近速度 400 页/秒');
+
+    await render(scan(200));
+    expect(host.textContent).toContain('速度 400 页/秒');
+    await act(async () => vi.advanceTimersByTime(500));
+    await render(scan(300));
+    expect(host.textContent).toContain('当前速度 200 页/秒');
+
+    await render(
+      tracker.update('checkup', {
+        step: 'integrity-index-2',
+        message: '核对索引条目数量',
+        completed: 0,
+        total: 1024,
+        unit: 'pages',
+      }),
+    );
+    expect(host.textContent).not.toContain('页/秒');
+  } finally {
+    await act(async () => root.unmount());
+    vi.useRealTimers();
+  }
+});
+
 it('原生阶段回执让位于真实工作步骤，保留计数、异常和原始快照', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
