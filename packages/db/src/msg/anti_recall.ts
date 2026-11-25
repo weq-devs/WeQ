@@ -290,9 +290,9 @@ const RECALL_LOG_TABLE = 'weq_recall_log';
 /**
  * 撤回记录表 DDL。见 docs/anti-recall.md「记录表」。
  *
- * msgid 设为 PRIMARY KEY —— trigger 用 `INSERT OR IGNORE` 写入，QQ 撤回是**单事务
+ * msgid 设为 PRIMARY KEY —— trigger 按 msgid 去重，QQ 撤回是**单事务
  * 3 连击 UPDATE**（body 逐步 52→88→…），每击都命中 trigger，靠 msgid 主键天然去重，
- * 同一条被撤消息只留一行。recall_ts 用首次命中时刻。
+ * 同一条被撤消息只留一行。recall_ts 用首次记下的时刻，后续写入可以补齐撤回者。
  */
 const RECALL_LOG_DDL = `CREATE TABLE IF NOT EXISTS ${RECALL_LOG_TABLE} (
   msgid       INTEGER PRIMARY KEY,   -- 被撤消息 40001（去重键）
@@ -315,13 +315,14 @@ const RECALL_LOG_DDL = `CREATE TABLE IF NOT EXISTS ${RECALL_LOG_TABLE} (
  * 自撤时两者相等，所以旧代码误抽 c2a517 也“看起来对”；但管理员撤他人时 c2a517 恒
  * ==40020 → sameSender 恒 true → UI 误显示「对方撤回」。故必须抽 baa517。
  *
- * 抽取：tag(3B) + `+1` 跳过 len 字节(0x18=24) → uid 恒 24B。找不到(instr=0)取空串。
+ * 仅提取长度为 24B 的 UID。字段为空或截断时取空串，避免误读后续字段。
  * 真库覆盖率 100%（scan_recall_signature.ts：baa517 与 c2a517 均覆盖整个撤回集合）。
  */
+const REVOKE_UID_TAG_AT = `instr(NEW."40800", X'baa51718')`;
+const REVOKE_UID_BYTES = `substr(NEW."40800", ${REVOKE_UID_TAG_AT} + 4, 24)`;
 const REVOKE_UID_EXPR =
-  `CASE WHEN instr(NEW."40800", X'baa517') > 0` +
-  ` THEN CAST(substr(NEW."40800", instr(NEW."40800", X'baa517') + 4, 24) AS TEXT)` +
-  ` ELSE '' END`;
+  `CASE WHEN ${REVOKE_UID_TAG_AT} > 0 AND length(${REVOKE_UID_BYTES}) = 24` +
+  ` THEN CAST(${REVOKE_UID_BYTES} AS TEXT) ELSE '' END`;
 
 /**
  * SQL 判定：`alias`(OLD/NEW) 行的 40800 **首个 element 是灰条**（elementType=8）。
@@ -339,6 +340,16 @@ const REVOKE_UID_EXPR =
 function firstElemIsGrayTip(alias: 'OLD' | 'NEW'): string {
   const body = `${alias}."40800"`;
   return `(instr(${body}, X'd0fc15') > 0 AND substr(${body}, instr(${body}, X'd0fc15') + 3, 1) = X'08')`;
+}
+
+/** 撤回灰条是 45002=8、45003=1。只检查首元素，避免把后续元素的子类型算进去。 */
+function firstElemIsRecallTip(): string {
+  const body = 'NEW."40800"';
+  const afterElementType = `substr(${body}, instr(${body}, X'd0fc15') + 4)`;
+  const subTypeAt = `instr(${afterElementType}, X'd8fc15')`;
+  return `(${firstElemIsGrayTip('NEW')} AND ${subTypeAt} > 0
+    AND substr(${afterElementType}, ${subTypeAt} + 3, 1) = X'01'
+    AND instr(substr(${afterElementType}, 1, ${subTypeAt} - 1), X'd0fc15') = 0)`;
 }
 
 /**
@@ -364,10 +375,8 @@ function firstElemIsGrayTip(alias: 'OLD' | 'NEW'): string {
  * 真库量化：撤回召回 100%(漏判上界 0)，正常消息零结构性误伤（其它灰条走 INSERT 或
  * OLD 本就是灰条，均不满足「OLD 真消息 → NEW 灰条」）。
  *
- * ── 记录门槛：revokeUid 为空则不入库 ─────────────────────────────────────────
- * INSERT 用 `... SELECT ... WHERE <revokeUid> <> ''`：抽不到撤回者就**只拦不记**，
- * 避免把没有操作者的行记成假「管理员撤回」。RAISE 无条件执行（保原文优先，uid 可能
- * 后到）；记录是次要的，宁缺毋滥。收窄后 backfill 已不会 fire，此门是双保险。
+ * 有撤回者或明确是撤回子类型才记入日志。只有行类型翻转或通用灰条时继续保留原文，
+ * 等 QQ 写入足够信息再记；若先记下了撤回，后续写入也可以补齐撤回者。
  *
  * Returns `null` when, after rendering to storage-class-correct literals, no id
  * survives (e.g. a numeric table handed only non-numeric ids). An empty IN-list
@@ -397,13 +406,14 @@ WHEN OLD."40002" IS NEW."40002"${filterClause}
 BEGIN
   -- ① 记录一笔（无损保底：原文 blob + 谁发的 + 谁撤的 + seq + 时刻）。
   --    撤回是同一条消息的多次就地 UPDATE，每击都命中；msgid 是主键 + OR IGNORE →
-  --    同一条被撤消息只留一行。WHERE revoke_uid<>'' 是最后门槛：抽不到撤回者就只拦
-  --    不记，绝不写成假「管理员撤回」。WeQ JS 轮询这张表补插灰条。
-  INSERT OR IGNORE INTO ${RECALL_LOG_TABLE}
+  --    同一条被撤消息只留一行。已确认撤回但没有撤回者时，先留空。
+  INSERT INTO ${RECALL_LOG_TABLE}
     (msgid, conv, table_kind, sender_uid, revoke_uid, orig_seq, recall_ts, orig_body)
     SELECT OLD."40001", CAST(OLD."${spec.filterCol}" AS TEXT), '${spec.kind}',
            OLD."40020", ${REVOKE_UID_EXPR}, OLD."40003", strftime('%s','now'), OLD."40800"
-    WHERE ${REVOKE_UID_EXPR} <> '';
+    WHERE ${REVOKE_UID_EXPR} <> '' OR ${firstElemIsRecallTip()}
+    ON CONFLICT(msgid) DO UPDATE SET revoke_uid = excluded.revoke_uid
+    WHERE coalesce(${RECALL_LOG_TABLE}.revoke_uid, '') = '' AND excluded.revoke_uid <> '';
   -- ② 取消这次撤回的 UPDATE，原消息原地保留。
   --    ⚠️ 灰条补插绝不能在这里做「INSERT 同表」——已验证：QQ 单事务多击 UPDATE 下，
   --    RAISE(IGNORE) 会把同事务里补插的 INSERT 一起废掉（连记录表若与补插同体也会没）。

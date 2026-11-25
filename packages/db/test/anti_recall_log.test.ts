@@ -15,6 +15,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ProtoMsg } from '@weq/codec';
+import { MsgBody } from '@weq/codec/proto/msg/40800';
 import { AntiRecallDb } from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 
@@ -73,6 +75,50 @@ function insertRow(
 }
 
 describe('AntiRecallDb recall log (offline fixture)', () => {
+  it('确认撤回时先记录未知撤回者，随后补齐身份，普通灰条与未确认的写入不留记录', async () => {
+    createFixture(false);
+    const setup = fixtureDb(dbPath);
+    setup.exec(`CREATE TABLE group_msg_table (
+      "40001" INTEGER PRIMARY KEY, "40002" INTEGER, "40003" INTEGER, "40011" INTEGER,
+      "40012" INTEGER, "40020" TEXT, "40027" INTEGER, "40800" BLOB
+    )`);
+    const body = new ProtoMsg(MsgBody);
+    const original = body.encode({ elements: [{ elementType: 1, textContent: '原文' }] });
+    const insert = setup.prepare(
+      `INSERT INTO group_msg_table VALUES (?, 1, ?, 2, 1, 'u_sender', 777, ?)`,
+    );
+    for (const id of [10, 11, 12, 13]) insert.run(id, id + 1, original);
+    await db.reconcile([{ kind: 'group', id: '777' }]);
+
+    const sql = fixtureDb(dbPath);
+    const update = sql.prepare('UPDATE group_msg_table SET "40800" = ? WHERE "40001" = ?');
+    const unknown = body.encode({
+      elements: [
+        { elementType: 8, subType: 1, recallRevokeUid: '', recallDisplayText: '消息已撤回' },
+      ],
+    });
+    update.run(unknown, 10);
+    update.run(body.encode({ elements: [{ elementType: 8, subType: 4 }] }), 11);
+    update.run(body.encode({ elements: [{ elementType: 8 }, { elementType: 8, subType: 1 }] }), 12);
+    sql.prepare('UPDATE group_msg_table SET "40011" = 5, "40012" = 4 WHERE "40001" = 13').run();
+    expect(await db.listRecalls('group', '777')).toMatchObject([{ msgid: '10', revokeUid: '' }]);
+    const recallTs = (await db.listRecalls('group', '777'))[0]?.recallTs;
+    const originalBody = sql.prepare(
+      'SELECT "40800" AS body FROM group_msg_table WHERE "40001" = 10',
+    );
+    expect(originalBody.get()?.body).toEqual(original);
+
+    const revoker = `u_${'x'.repeat(22)}`;
+    update.run(
+      body.encode({ elements: [{ elementType: 8, subType: 1, recallRevokeUid: revoker }] }),
+      10,
+    );
+    update.run(unknown, 10);
+    expect(await db.listRecalls('group', '777')).toMatchObject([
+      { msgid: '10', revokeUid: revoker, recallTs },
+    ]);
+  });
+
   it('私聊与数据线标记合为一页查询，只探测一次表且保持会话和 ID 隔离', async () => {
     createFixture(true);
     const large = 7695126900078041334n;

@@ -70,11 +70,18 @@ export async function recallContent(directory: LocalDirectory, event: RecallNoti
     const profile = await directory.profile.getProfile(event.conv).catch(() => undefined);
     const name = notificationInlineText(profile?.remark || profile?.nick || '', 32) || '私聊';
     const who = event.senderUid === self ? '你' : '对方';
-    return { title: `${name} · 消息撤回`, body: `${who}撤回了一条消息` };
+    return {
+      title: `${name} · 消息撤回`,
+      body: event.revokeUid ? `${who}撤回了一条消息` : '一条消息已被撤回',
+    };
   }
   if (event.kind === 'dataline') return { title: '设备消息已撤回', body: '' };
 
-  const bySender = !event.revokeUid || event.revokeUid === event.senderUid;
+  if (!event.revokeUid) {
+    const group = await groupName(directory, event.conv);
+    return { title: `${notificationInlineText(group, 32)} · 消息撤回`, body: '一条消息已被撤回' };
+  }
+  const bySender = event.revokeUid === event.senderUid;
   const [group, senderName, operatorName] = await Promise.all([
     groupName(directory, event.conv),
     memberName(directory, event.conv, event.senderUid),

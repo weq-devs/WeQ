@@ -113,17 +113,17 @@ export function RecalledMessagesModal({
         const recall = (message as { recall?: RecallInfo }).recall;
         const revokerName = (message as { recallRevokerName?: string }).recallRevokerName;
         const senderLabel = mine ? '你' : displayUserName(sender);
-        const revokerLabel = !recall
+        const revokerLabel = !recall?.revokeUid
           ? '未知'
           : recall.sameSender
             ? senderLabel
             : revokerName?.trim() || '管理员';
-        const revokerKey = !recall
+        const revokerKey = !recall?.revokeUid
           ? 'unknown'
           : recall.sameSender
             ? `sender:${message.senderId}`
-            : `revoker:${recall.revokeUid || revokerLabel}`;
-        const recallLine = !recall
+            : `revoker:${recall.revokeUid}`;
+        const recallLine = !recall?.revokeUid
           ? '这条消息曾被撤回'
           : recall.sameSender
             ? `${revokerLabel} 撤回了自己的消息`

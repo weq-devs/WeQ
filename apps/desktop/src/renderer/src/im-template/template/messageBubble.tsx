@@ -266,7 +266,7 @@ function MessageBubbleBody({
   hideDeletedBadge?: boolean;
   /**
    * Recall reviser's display name — shown in the 撤回 tag when an admin recalled
-   * someone else's message (`recall.sameSender === false`). Resolved by the
+   * someone else's message with a known revoker. Resolved by the
    * parent from `message.recall.revokeUid`.
    */
   recallRevokerName?: string;
@@ -404,11 +404,13 @@ function MessageBubbleBody({
   ).recall;
   const recallText = !recall
     ? null
-    : recall.sameSender
-      ? mine
-        ? '你撤回了这条消息'
-        : '对方撤回了这条消息'
-      : `${recallRevokerName?.trim() || '管理员'} 撤回了这条消息`;
+    : !recall.revokeUid
+      ? '这条消息已被撤回'
+      : recall.sameSender
+        ? mine
+          ? '你撤回了这条消息'
+          : '对方撤回了这条消息'
+        : `${recallRevokerName?.trim() || '管理员'} 撤回了这条消息`;
   useEffect(
     () => setReeditArmed(false),
     [message.id, optimistic, optimisticRejected, recall?.recallTs],
