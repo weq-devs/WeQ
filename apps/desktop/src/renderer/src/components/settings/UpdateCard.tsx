@@ -23,6 +23,8 @@ import type { ReactElement } from 'react';
 import { useNumericSettingDraft } from './useNumericSettingDraft';
 import { isUpdateCheckInterval } from '@weq/service/update-settings';
 import { useAppUpdate } from '../../hooks/useAppUpdate';
+import { useReadUpdateBanner } from '../../hooks/useReadUpdateBanner';
+import { useTabActive } from '../RetainedTabs.shared';
 import { Card, Row, Toggle } from './controls';
 import { TaskProgressBar } from '../tasks/TaskProgressBar';
 import '../../styles/update-settings.css';
@@ -42,6 +44,7 @@ function fmtSpeed(bps: number): string {
 }
 
 export function UpdateCard(): ReactElement {
+  const active = useTabActive();
   const {
     intervalMinutes,
     intervalReady,
@@ -78,6 +81,7 @@ export function UpdateCard(): ReactElement {
     (phase === 'error' && downloadTask?.status === 'failed') ||
     phase === 'downloaded' ||
     phase === 'installing';
+  useReadUpdateBanner('weq-update', active && hasNew);
   const pct = progress ? Math.round(progress.percent) : 0;
   const canPause =
     phase === 'downloading' && downloadTask?.actions.some((action) => action.id === 'pause');

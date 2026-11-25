@@ -120,15 +120,37 @@ export function resourceCatalogFor(
   return catalog;
 }
 
+type EnhancementNotifications = {
+  candidates: Map<
+    EnhancementPackId,
+    { checkedAt: number; prerelease: boolean; notice?: EnhancementUpdateNotice }
+  >;
+  dismissed: Map<EnhancementPackId, string>;
+  listeners: Set<(notices: EnhancementUpdateNotice[]) => void>;
+  saving: Promise<void>;
+};
+const notificationsByPath = new Map<string, EnhancementNotifications>();
+
+function sharedNotifications(path: string): EnhancementNotifications {
+  const existing = notificationsByPath.get(path);
+  if (existing) return existing;
+  const created: EnhancementNotifications = {
+    candidates: new Map(),
+    dismissed: new Map(),
+    listeners: new Set(),
+    saving: Promise.resolve(),
+  };
+  notificationsByPath.set(path, created);
+  return created;
+}
+
 export class EnhancementUpdateController {
   private readonly states = new Map<EnhancementPackId, EnhancementCheckState>();
   private readonly latest = new Map<EnhancementPackId, EnhancementRelease>();
   private readonly checkedChannels = new Map<EnhancementPackId, boolean>();
-  private readonly notifiedVersions = new Map<EnhancementPackId, string>();
-  private notifications: EnhancementUpdateNotice[] = [];
-  private readonly notificationListeners = new Set<(notices: EnhancementUpdateNotice[]) => void>();
+  private readonly sharedNotices: EnhancementNotifications;
+  private readonly stopNotificationListeners = new Set<() => void>();
   private readonly checkListeners = new Set<() => void>();
-  private saving = Promise.resolve();
   private readonly scheduler: UpdateCheckScheduler;
   private readonly loaded: Promise<void>;
   private pending?: Promise<void>;
@@ -158,6 +180,7 @@ export class EnhancementUpdateController {
     },
   ) {
     this.path = join(config.appDataRoot(), 'enhancements/checks.json');
+    this.sharedNotices = sharedNotifications(this.path);
     this.scheduler = new UpdateCheckScheduler(() => this.check(ENHANCEMENT_PACK_IDS, true));
     this.loaded = readFile(this.path, 'utf8')
       .then((text) => {
@@ -183,7 +206,8 @@ export class EnhancementUpdateController {
             cached.notifiedVersions === undefined
               ? entry.contentVersion
               : cached.notifiedVersions?.[entry.id];
-          if (typeof notified === 'string') this.notifiedVersions.set(entry.id, notified);
+          if (typeof notified === 'string' && !this.sharedNotices.dismissed.has(entry.id))
+            this.sharedNotices.dismissed.set(entry.id, notified);
         }
         for (const id of ENHANCEMENT_PACK_IDS) {
           this.states.set(
@@ -300,43 +324,81 @@ export class EnhancementUpdateController {
     };
   }
   subscribeNotifications(listener: (notices: EnhancementUpdateNotice[]) => void) {
-    this.notificationListeners.add(listener);
+    this.sharedNotices.listeners.add(listener);
     listener(this.notifications);
-    return () => {
-      this.notificationListeners.delete(listener);
+    const stop = () => {
+      this.sharedNotices.listeners.delete(listener);
+      this.stopNotificationListeners.delete(stop);
     };
+    this.stopNotificationListeners.add(stop);
+    return stop;
   }
   async acknowledgeNotifications(
     notices: readonly Pick<EnhancementUpdateNotice, 'id' | 'contentVersion'>[],
   ) {
     await this.loaded;
-    for (const notice of notices)
-      if (
-        this.notifications.some(
-          (entry) => entry.id === notice.id && entry.contentVersion === notice.contentVersion,
-        )
-      )
-        this.notifiedVersions.set(notice.id, notice.contentVersion);
-    await this.save();
-    await this.refreshNotifications();
+    const pending = this.notifications;
+    let changed = false;
+    for (const { id, contentVersion } of notices) {
+      if (!pending.some((entry) => entry.id === id && entry.contentVersion === contentVersion))
+        continue;
+      this.sharedNotices.dismissed.set(id, contentVersion);
+      changed = true;
+    }
+    if (!changed) return;
+    this.emitNotifications();
+    await this.save(true);
   }
+
+  private get notifications() {
+    return ENHANCEMENT_PACK_IDS.flatMap((id) => {
+      const notice = this.sharedNotices.candidates.get(id)?.notice;
+      return notice && this.sharedNotices.dismissed.get(id) !== notice.contentVersion
+        ? [notice]
+        : [];
+    });
+  }
+
+  private emitNotifications() {
+    const notices = this.notifications;
+    for (const listener of this.sharedNotices.listeners) listener(notices);
+  }
+
   private async refreshNotifications() {
-    this.notifications = (await this.packs.list())
-      .filter(
-        (pack) =>
-          this.checkedForCurrentChannel(pack.id) &&
-          this.state(pack.id).phase === 'checked' &&
-          pack.installed &&
-          pack.updateAvailable &&
-          !pack.busy &&
-          !pack.blocker &&
-          !this.autoUpdates(pack.id) &&
-          pack.latestVersion &&
-          pack.latestVersion !== pack.installedVersion &&
-          this.notifiedVersions.get(pack.id) !== pack.latestVersion,
+    const prerelease = this.config.getSettings().updateCheckPrerelease;
+    for (const pack of await this.packs.list()) {
+      const { id, name, latestVersion } = pack;
+      const { phase, checkedAt = 0 } = this.state(id);
+      const current = this.sharedNotices.candidates.get(id);
+      const autoUpdate = this.autoUpdates(id);
+      if (
+        current &&
+        (autoUpdate ||
+          current.prerelease !== prerelease ||
+          (!pack.busy &&
+            (!pack.installed || pack.installedVersion === current.notice?.contentVersion)))
       )
-      .map((pack) => ({ id: pack.id, name: pack.name, contentVersion: pack.latestVersion! }));
-    for (const listener of this.notificationListeners) listener(this.notifications);
+        current.notice = undefined;
+      if (
+        !this.checkedForCurrentChannel(id) ||
+        phase !== 'checked' ||
+        (current?.prerelease === prerelease && checkedAt < current.checkedAt) ||
+        (pack.busy && current?.notice?.contentVersion === latestVersion && !autoUpdate)
+      )
+        continue;
+      const notice =
+        pack.installed &&
+        pack.updateAvailable &&
+        !pack.busy &&
+        !pack.blocker &&
+        !autoUpdate &&
+        latestVersion &&
+        latestVersion !== pack.installedVersion
+          ? { id, name, contentVersion: latestVersion }
+          : undefined;
+      this.sharedNotices.candidates.set(id, { checkedAt, prerelease, notice });
+    }
+    this.emitNotifications();
   }
   start() {
     if (this.stopSettings || this.abort.signal.aborted) return;
@@ -380,7 +442,7 @@ export class EnhancementUpdateController {
     this.stopSettled?.();
     this.stopSettled = undefined;
     this.stopSettings = undefined;
-    this.notificationListeners.clear();
+    for (const stop of this.stopNotificationListeners) stop();
     this.abort.abort();
   }
 
@@ -753,17 +815,27 @@ export class EnhancementUpdateController {
       }
     }
   }
-  private save() {
-    const text = JSON.stringify({
+  private save(receiptsOnly = false) {
+    const value = {
       states: Object.fromEntries(this.states),
-      notifiedVersions: Object.fromEntries(this.notifiedVersions),
       catalog: {
         schemaVersion: 1,
         target: this.target,
         packs: [...this.latest.values()],
       },
-    });
-    this.saving = this.saving.catch(() => {}).then(() => writeFileAtomic(this.path, text));
-    return this.saving;
+    };
+    this.sharedNotices.saving = this.sharedNotices.saving
+      .catch(() => {})
+      .then(async () => {
+        const current = receiptsOnly ? JSON.parse(await readFile(this.path, 'utf8')) : value;
+        await writeFileAtomic(
+          this.path,
+          JSON.stringify({
+            ...current,
+            notifiedVersions: Object.fromEntries(this.sharedNotices.dismissed),
+          }),
+        );
+      });
+    return this.sharedNotices.saving;
   }
 }

@@ -50,6 +50,7 @@ export interface ToastAction {
 }
 
 type MessageBannerBinding = NonNullable<NotificationSource['binding']>;
+export type ToastAccount = MessageBannerBinding;
 interface MessageBannerTarget {
   binding: MessageBannerBinding;
   chatType: 1 | 2;
@@ -60,6 +61,8 @@ interface MessageBannerTarget {
 
 export interface Toast {
   id: number;
+  appWide?: boolean;
+  onManualDismiss?: () => void;
   event: NotificationEvent;
   /** 任务身份独立于导航来源，专用进度可继续提供会话等快捷入口。 */
   taskId?: string;
@@ -107,6 +110,9 @@ export type ToastPatch = Partial<
 >;
 
 interface ToastStore {
+  /** 由主界面入口设置，null 表示当前在登录页或切号中。 */
+  account: ToastAccount | null | undefined;
+  setAccount(account: ToastAccount | null): void;
   durations: ToastDurations;
   setDurations(durations: Partial<ToastDurations>): void;
   toasts: Toast[];
@@ -115,6 +121,9 @@ interface ToastStore {
   seq: number;
   /** 推一条 toast；相同 key 原地替换，返回 id 供 `update` 推进状态。 */
   push(input: {
+    appWide?: boolean;
+    account?: ToastAccount;
+    onManualDismiss?: () => void;
     event?: NotificationEvent;
     taskId?: string;
     key?: string;
@@ -191,6 +200,28 @@ function defaultDurationKind(
 const manuallyDismissedProgress = new Map<string, number>();
 
 const toastStore = create<ToastStore>((set, get) => ({
+  account: undefined,
+  setAccount(account) {
+    const current = get();
+    const previous = current.account;
+    if (
+      previous === account ||
+      (previous &&
+        account &&
+        previous.expectedAccountUin === account.expectedAccountUin &&
+        previous.expectedAccountConfigId === account.expectedAccountConfigId)
+    )
+      return;
+    const toasts = current.toasts.filter(({ appWide }) => appWide);
+    const keptIds = new Set(toasts.map(({ id }) => id));
+    for (const [key, id] of manuallyDismissedProgress)
+      if (!keptIds.has(id)) manuallyDismissedProgress.delete(key);
+    set({
+      account: account ? { ...account } : null,
+      toasts,
+      leaving: current.leaving.filter((id) => keptIds.has(id)),
+    });
+  },
   durations: { ...DEFAULT_TOAST_DURATIONS },
   setDurations(input) {
     const durations = normalizeToastDurations(input);
@@ -211,6 +242,9 @@ const toastStore = create<ToastStore>((set, get) => ({
   leaving: [],
   seq: 0,
   push({
+    appWide,
+    account,
+    onManualDismiss,
     event,
     taskId,
     key,
@@ -229,6 +263,25 @@ const toastStore = create<ToastStore>((set, get) => ({
     system,
   }) {
     const state = get();
+    if (!appWide && state.account !== undefined) {
+      if (!state.account) return 0;
+      const current = state.account;
+      const targets = [
+        account,
+        source?.binding,
+        action?.source?.binding,
+        messageReadTarget?.binding,
+      ];
+      if (
+        targets.some(
+          (target) =>
+            target &&
+            (target.expectedAccountUin !== current.expectedAccountUin ||
+              target.expectedAccountConfigId !== current.expectedAccountConfigId),
+        )
+      )
+        return 0;
+    }
     const existing = key === undefined ? undefined : state.toasts.find((item) => item.key === key);
     const id = existing?.id ?? state.seq + 1;
     // 兼容旧调用点：只传一个内容时它就是标题；传了 title 时旧 message 变成详情
@@ -253,6 +306,8 @@ const toastStore = create<ToastStore>((set, get) => ({
     }
     const toast: Toast = {
       id,
+      appWide,
+      onManualDismiss,
       taskId: taskId ?? (source?.target.kind === 'task' ? source.target.id : undefined),
       event: actualEvent,
       key,
@@ -298,6 +353,9 @@ const toastStore = create<ToastStore>((set, get) => ({
         textOf(actualTitle),
         textOf(summary ?? actualDetail),
         source ? () => openNotificationSource(source) : action?.run,
+        appWide && key
+          ? JSON.stringify([key, textOf(actualTitle), textOf(summary)]).slice(0, 512)
+          : undefined,
       );
     set({
       seq: Math.max(state.seq, id),
@@ -362,16 +420,17 @@ const toastStore = create<ToastStore>((set, get) => ({
   },
   dismiss(id, reason) {
     const { leaving, toasts } = get();
-    if (leaving.includes(id)) return;
+    const toast = toasts.find((item) => item.id === id);
+    if (!toast || leaving.includes(id)) return;
     if (reason === 'manual') {
-      const toast = toasts.find((item) => item.id === id);
-      if (toast?.event === 'progress' && toast.key !== undefined) {
+      if (toast.event === 'progress' && toast.key !== undefined) {
         manuallyDismissedProgress.set(toast.key, id);
         if (manuallyDismissedProgress.size > 1024)
           manuallyDismissedProgress.delete(manuallyDismissedProgress.keys().next().value!);
       }
     }
     set({ leaving: [...leaving, id] });
+    if (reason === 'manual') toast.onManualDismiss?.();
   },
   resolve(key) {
     manuallyDismissedProgress.delete(key);
@@ -425,10 +484,23 @@ const toastStore = create<ToastStore>((set, get) => ({
 }));
 
 /** 来源绑定在发起操作的渲染闭包中，迟到结果不读取后来切换到的页面。 */
-export function sourceToastPush(source: NotificationSource): ToastStore['push'] {
-  return (input) =>
-    toastStore.getState().push({
+export function sourceToastPush(
+  source: NotificationSource,
+  account = toastStore.getState().account,
+): ToastStore['push'] {
+  return accountToastPush(account, source);
+}
+
+function accountToastPush(
+  account: ToastStore['account'],
+  source: NotificationSource | null,
+): ToastStore['push'] {
+  return (input) => {
+    const current = toastStore.getState();
+    if (!input.appWide && account !== undefined && account !== current.account) return 0;
+    return current.push({
       ...input,
+      account: input.account ?? source?.binding ?? undefined,
       source:
         input.source !== undefined
           ? input.source
@@ -438,13 +510,17 @@ export function sourceToastPush(source: NotificationSource): ToastStore['push'] 
               input.durationKind === 'failure' ||
               input.tone === 'error' ||
               input.tone === 'warning'
-            ? source
+            ? (source ?? undefined)
             : undefined,
     });
+  };
 }
 
-function scopedToastStore(source: NotificationSource): StoreApi<ToastStore> {
-  const push = sourceToastPush(source);
+function scopedToastStore(
+  account: ToastStore['account'],
+  source: NotificationSource | null,
+): StoreApi<ToastStore> {
+  const push = accountToastPush(account, source);
   let previous: ToastStore | undefined;
   let snapshot: ToastStore;
   const getState = () => {
@@ -464,7 +540,8 @@ export const useToast = Object.assign(function useToast<T = ToastStore>(
 ): T {
   const inherited = useContext(NotificationSourceContext);
   const source = origin === undefined ? inherited : origin;
-  const store = useMemo(() => (source ? scopedToastStore(source) : toastStore), [source]);
+  const account = toastStore((state) => state.account);
+  const store = useMemo(() => scopedToastStore(account, source), [account, source]);
   return useStore(store, selector);
 }, toastStore);
 
@@ -474,17 +551,18 @@ export function useToastApi(
 ): Pick<ToastStore, 'push' | 'update' | 'dismiss' | 'resolve' | 'remove' | 'setDurations'> {
   const inherited = useContext(NotificationSourceContext);
   const source = origin === undefined ? inherited : origin;
+  const account = toastStore((state) => state.account);
   return useMemo(() => {
     const { push, update, dismiss, resolve, remove, setDurations } = toastStore.getState();
     return {
-      push: source ? sourceToastPush(source) : push,
+      push: source || account !== undefined ? accountToastPush(account, source) : push,
       update,
       dismiss,
       resolve,
       remove,
       setDurations,
     };
-  }, [source]);
+  }, [account, source]);
 }
 
 /** 尽量把 ReactNode 还原成纯文本，用于复制（拿不到字符串时返回空串）。 */

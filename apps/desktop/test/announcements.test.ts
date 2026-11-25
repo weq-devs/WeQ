@@ -275,7 +275,7 @@ describe('宿主官方公告', () => {
     await Promise.all([account.refresh(), standalone.refresh()]);
     expect(await picker.list()).toMatchObject({ unread: 2, reminder: null });
     expect(await account.list()).toMatchObject({ unread: 2, reminder: null });
-    expect(await standalone.list()).toMatchObject({ unread: 3, reminder: important.id });
+    expect(await standalone.list()).toMatchObject({ unread: 3, reminder: { id: important.id } });
 
     const changed = vi.fn();
     const unsubscribe = account.subscribe(() => void account.list().then(changed));
@@ -292,7 +292,7 @@ describe('宿主官方公告', () => {
     expect(await standalone.list()).toMatchObject({ unread: 3 });
   });
 
-  it('同时打开的账号窗口只能领取一次重要公告横幅', async () => {
+  it('登录窗口和账号窗口同时获得横幅，一处关闭后两边收起且公告仍未读', async () => {
     origin = signed(1, [important]);
     const first = host('macos', '2.7.4', { dataRoot, sharedDataRoot: dataRoot }).instance;
     const second = host('macos', '2.7.4', {
@@ -300,46 +300,32 @@ describe('宿主官方公告', () => {
       sharedDataRoot: dataRoot,
     }).instance;
     await Promise.all([first.refresh(), second.refresh()]);
-    const claimed = await Promise.all([
-      first.claimBanner(important.id),
-      second.claimBanner(important.id),
-    ]);
-    expect(claimed.filter(Boolean)).toHaveLength(1);
-    const expired = claimed.find((lease) => lease !== null)!;
-    now += expired.leaseMs;
-    const replacement = await second.claimBanner(important.id);
-    expect(replacement).not.toBeNull();
-    await first.finishBanner(expired.token, true);
-    expect(await first.claimBanner(important.id)).toBeNull();
-    await second.finishBanner(replacement!.token, true);
+    expect(await first.list()).toMatchObject({ unread: 1, reminder: { id: important.id } });
+    expect(await second.list()).toMatchObject({ unread: 1, reminder: { id: important.id } });
+    const changed = vi.fn();
+    const stop = second.subscribe(changed);
+    await first.dismissBanner(important.id);
+    expect(await first.list()).toMatchObject({ unread: 1, reminder: null });
+    await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(2), { timeout: 2_500 });
     expect(await second.list()).toMatchObject({ unread: 1, reminder: null });
-    expect(await second.claimBanner(important.id)).toBeNull();
+    stop();
   });
 
-  it('只允许一个前台领取，放弃不消费，展示不读，截止后只剩历史', async () => {
+  it('已读、关闭与到期都收起横幅，关闭回执在重启后保留', async () => {
     const { instance } = host();
     const expiring = { ...important, id: 'other-important' };
     origin = signed(1, [important, expiring, regular]);
     await instance.refresh();
-    expect(await instance.claimBanner(regular.id)).toBeNull();
+    await instance.dismissBanner(regular.id);
+    expect(await instance.list()).toMatchObject({ unread: 3, reminder: { id: important.id } });
     enabled = false;
-    expect(await instance.claimBanner(important.id)).toBeNull();
+    expect(await instance.list()).toMatchObject({ reminder: null });
     enabled = true;
-    const claims = await Promise.all([
-      instance.claimBanner(important.id),
-      instance.claimBanner(important.id),
-    ]);
-    expect(claims.filter(Boolean)).toHaveLength(1);
-    await instance.finishBanner(claims[0]!.token, false);
-    const shown = await instance.claimBanner(important.id);
-    expect(shown).not.toBeNull();
-    await instance.finishBanner(shown!.token, true);
-    expect(await instance.claimBanner(important.id)).toBeNull();
+    await instance.dismissBanner(important.id);
     const restarted = host().instance;
-    expect(await restarted.claimBanner(important.id)).toBeNull();
-    expect(await restarted.list()).toMatchObject({ unread: 3, reminder: expiring.id });
+    expect(await restarted.list()).toMatchObject({ unread: 3, reminder: { id: expiring.id } });
+    expect(await instance.markRead([expiring.id])).toMatchObject({ unread: 2, reminder: null });
     now = Date.parse(remindUntil);
-    expect(await restarted.claimBanner(expiring.id)).toBeNull();
     expect(await restarted.list()).toMatchObject({ unread: 3, reminder: null });
   });
 });

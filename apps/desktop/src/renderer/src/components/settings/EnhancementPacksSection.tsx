@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
+import { useReadUpdateBanner } from '../../hooks/useReadUpdateBanner';
 import { useAppDialog } from '../../lib/dialogUtils';
 import type { EnhancementPackId } from '../../../../shared/enhancement_manifest';
 import { canPrepareEnhancement } from '../../../../shared/enhancement_actions';
@@ -64,6 +65,7 @@ export function EnhancementPacksSection() {
         ? 750
         : false,
   });
+  useReadUpdateBanner('enhancement-updates', active && Boolean(query.data));
   const [error, setError] = useState<string | null>(null);
   const prepare = trpc.bootstrap.prepareEnhancementPacks.useMutation();
   const remove = trpc.bootstrap.deleteEnhancementPack.useMutation();

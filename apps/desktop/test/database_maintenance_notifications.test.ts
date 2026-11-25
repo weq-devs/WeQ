@@ -1,6 +1,6 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   summarizeDatabaseMaintenance,
   type DatabaseMaintenanceSnapshot,
@@ -38,8 +38,11 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
 }));
+beforeEach(() => {
+  useToast.getState().setAccount({ expectedAccountUin: '10001', expectedAccountConfigId: 'live' });
+});
 afterEach(() => {
-  useToast.setState({ toasts: [], leaving: [], seq: 0 });
+  useToast.setState({ account: undefined, toasts: [], leaving: [], seq: 0 });
   fixture.receive = undefined;
   fixture.health = undefined;
   fixture.focused = false;
@@ -82,6 +85,9 @@ it('修复进度在手动关闭后保持隐藏，聚焦后再次失焦立即恢�
   try {
     act(() => root.render(createElement(Observer)));
     const other = toast.push({ title: '其他通知', system: false });
+    receive({ ...snapshot, uin: '10002', configId: 'live' });
+    receive({ ...snapshot, configId: 'backup' });
+    expect(banners().map(({ id }) => id)).toEqual([other]);
     receive(snapshot);
     expect(banners()[1]).toMatchObject({ event: 'progress', loading: true });
     const progressId = banners()[1]!.id;
@@ -188,6 +194,8 @@ it('后台仅提醒已确认的损坏，深度体检只收起同源同库的横�
     act(() => root.render(createElement(Observer)));
     const toast = useToast.getState();
     fixture.health!({ ...event, kind: 'check-error' });
+    fixture.health!({ ...event, uin: '10002' });
+    fixture.health!({ ...event, configId: 'backup' });
     expect(useToast.getState().toasts).toHaveLength(0);
     fixture.health!(event);
     const notice = useToast.getState().toasts[0]!;

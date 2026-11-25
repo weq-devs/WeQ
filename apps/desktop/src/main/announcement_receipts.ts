@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
@@ -48,12 +47,7 @@ async function legacyReceipts(dataRoot: string, sharedDataRoot: string) {
 export interface AnnouncementReceipts {
   get(id: string): { read: boolean; reminded: boolean };
   markRead(ids: readonly string[], feedIds: readonly string[]): boolean | Promise<boolean>;
-  claimBanner(id: string, now: number, expiresAt: number): string | null;
-  finishBanner(
-    token: string,
-    shown: boolean,
-    feedIds: readonly string[],
-  ): boolean | Promise<boolean>;
+  dismissBanner(id: string, feedIds: readonly string[]): boolean | Promise<boolean>;
   pollChanged?(): boolean;
   close?(): void;
 }
@@ -73,8 +67,6 @@ class LocalAnnouncementReceipts implements AnnouncementReceipts {
     const receipts = await readLegacyReceipt(path).catch(() => undefined);
     return new LocalAnnouncementReceipts(path, receipts ?? { read: [], reminded: [] });
   }
-
-  private lease?: { id: string; token: string; expiresAt: number };
 
   private constructor(
     private readonly path: string,
@@ -102,20 +94,9 @@ class LocalAnnouncementReceipts implements AnnouncementReceipts {
     return true;
   }
 
-  claimBanner(id: string, now: number, expiresAt: number) {
-    const receipt = this.get(id);
-    if ((this.lease && this.lease.expiresAt > now) || receipt.read || receipt.reminded) return null;
-    const token = randomUUID();
-    this.lease = { id, token, expiresAt };
-    return token;
-  }
-
-  async finishBanner(token: string, shown: boolean, feedIds: readonly string[]) {
-    const lease = this.lease;
-    if (lease?.token !== token) return false;
-    this.lease = undefined;
-    if (!shown) return false;
-    await this.save({ ...this.receipts, reminded: [...this.receipts.reminded, lease.id] }, feedIds);
+  async dismissBanner(id: string, feedIds: readonly string[]) {
+    if (this.receipts.read.includes(id) || this.receipts.reminded.includes(id)) return false;
+    await this.save({ ...this.receipts, reminded: [...this.receipts.reminded, id] }, feedIds);
     return true;
   }
 }
@@ -132,10 +113,6 @@ class SharedAnnouncementReceipts implements AnnouncementReceipts {
         PRAGMA busy_timeout = 500;
         CREATE TABLE IF NOT EXISTS receipt (
           id TEXT PRIMARY KEY, read INTEGER NOT NULL DEFAULT 0, reminded INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS banner_lease (
-          slot INTEGER PRIMARY KEY CHECK (slot = 1), id TEXT NOT NULL,
-          token TEXT NOT NULL, expires_at INTEGER NOT NULL
         );
       `);
       const store = new SharedAnnouncementReceipts(db);
@@ -219,33 +196,10 @@ class SharedAnnouncementReceipts implements AnnouncementReceipts {
     });
   }
 
-  claimBanner(id: string, now: number, expiresAt: number) {
+  dismissBanner(id: string) {
     return this.transaction(() => {
-      const receipt = this.get(id);
-      if (receipt.read || receipt.reminded) return null;
-      const token = randomUUID();
-      const result = this.db
-        .prepare(`
-        INSERT INTO banner_lease (slot, id, token, expires_at) VALUES (1, ?, ?, ?)
-        ON CONFLICT(slot) DO UPDATE SET
-          id = excluded.id, token = excluded.token, expires_at = excluded.expires_at
-        WHERE banner_lease.expires_at <= ?
-      `)
-        .run(id, token, expiresAt, now);
-      return result.changes ? token : null;
-    });
-  }
-
-  finishBanner(token: string, shown: boolean) {
-    return this.transaction(() => {
-      const pending = this.db
-        .prepare('DELETE FROM banner_lease WHERE token = ? RETURNING id')
-        .get(token);
-      return (
-        shown &&
-        typeof pending?.id === 'string' &&
-        Boolean(this.setReminded.run(pending.id).changes)
-      );
+      if (this.get(id).read) return false;
+      return Boolean(this.setReminded.run(id).changes);
     });
   }
 }

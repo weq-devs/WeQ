@@ -17,10 +17,14 @@ import { installDataSaver } from './lib/dataSaver';
 import { installMainWorkspacePreload } from './lib/mainWorkspaceLoader';
 import { isRemoteClient } from './lib/remoteClient';
 import { notifyRemoteReload } from './lib/remoteWebStartup';
+import { installAccountBannerRouting } from './lib/accountBanners';
 import {
   installDevelopmentReloadNotice,
   type DevelopmentReloadNoticeState,
 } from './lib/developmentReloadNotice';
+
+const stopAccountBanners = installAccountBannerRouting();
+import.meta.hot?.dispose(stopAccountBanners);
 
 if (import.meta.hot) {
   import.meta.hot.data.developmentReloadNotice ??= {};

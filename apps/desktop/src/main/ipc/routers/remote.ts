@@ -1,4 +1,5 @@
 import { TRPCError } from '@trpc/server';
+import { observable } from '@trpc/server/observable';
 import { z } from 'zod/v3';
 import { getHost } from '@weq/service';
 import { remoteRuntime } from '../../remote/runtime';
@@ -25,6 +26,9 @@ const local = procedure.use(({ ctx, next }) => {
   return next();
 });
 
+const dismissedPairingBanners = new Set<string>();
+const pairingBannerListeners = new Set<(ids: string[]) => void>();
+
 function savedRemoteAccounts() {
   return desktopServiceCommand<
     { configId: string; uin: string; displayName: string; static: boolean }[]
@@ -43,6 +47,22 @@ export const remoteRouter = router({
   status: local.query(() =>
     desktopServiceCommand('remote.status', undefined, () => remoteRuntime.status()),
   ),
+  pairingBannersChanged: local.subscription(() =>
+    observable<string[]>((emit) => {
+      const receive = (ids: string[]) => emit.next(ids);
+      pairingBannerListeners.add(receive);
+      receive([...dismissedPairingBanners]);
+      return () => pairingBannerListeners.delete(receive);
+    }),
+  ),
+  dismissPairingBanner: local.input(z.string().uuid()).mutation(({ input }) => {
+    if (dismissedPairingBanners.has(input)) return;
+    dismissedPairingBanners.add(input);
+    if (dismissedPairingBanners.size > 256)
+      dismissedPairingBanners.delete(dismissedPairingBanners.values().next().value!);
+    const ids = [...dismissedPairingBanners];
+    for (const receive of pairingBannerListeners) receive(ids);
+  }),
   setEnabled: local.input(z.object({ enabled: z.boolean() })).mutation(({ input }) =>
     desktopServiceCommand(
       'remote.enabled',

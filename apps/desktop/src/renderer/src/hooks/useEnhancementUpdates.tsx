@@ -6,80 +6,68 @@ import { useUpdateStore } from '../state/update';
 import type { EnhancementUpdateNotice } from '../../../shared/enhancement_release';
 
 const bannerKey = 'enhancement-updates';
+const openSettings = () => requestOpenSettings('enhancementPacks');
 
-function updateCopy(notices: Iterable<EnhancementUpdateNotice>) {
-  const names = Array.from(notices, ({ name }) => name).join('、');
-  return {
-    title: '增强包有可用更新',
-    summary: names,
-    detail: names.length > 35 ? names : undefined,
-  };
-}
-
-/** 一次检查的增强包共用一张提醒；其他确认框关闭后再显示，不抢占用户操作。 */
-export function useEnhancementUpdates() {
-  const shown = useRef(new Map<string, string>());
-  const pending = useRef(new Map<string, EnhancementUpdateNotice>());
+export function useEnhancementUpdates(open = openSettings) {
+  const pending = useRef<EnhancementUpdateNotice[]>([]);
   const utils = trpc.useUtils();
   const packages = trpc.bootstrap.enhancementPacks.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
   useEffect(() => {
     if (!packages.data) return;
-    const { packs, preferences } = packages.data;
+    const { packs } = packages.data;
     useUpdateStore.getState().setPacksAvailable(packs.some((pack) => pack.updateNeedsAttention));
-    let changed = false;
-    for (const pack of packs) {
-      const notice = pending.current.get(pack.id);
-      if (!notice) continue;
-      const applied =
-        pack.ready &&
-        !pack.updateAvailable &&
-        (pack.installedVersion === notice.contentVersion ||
-          (pack.latestVersion && pack.latestVersion === pack.installedVersion));
-      if (
-        (pack.autoUpdate && preferences.autoCheck) ||
-        (!pack.busy && (!pack.installed || applied))
-      ) {
-        pending.current.delete(pack.id);
-        changed = true;
-      }
-    }
-    if (!changed) return;
-    const toast = useToast.getState();
-    if (!pending.current.size) toast.resolve(bannerKey);
-    else {
-      const item = toast.toasts.find(({ key }) => key === bannerKey);
-      if (item) toast.update(item.id, updateCopy(pending.current.values()));
-    }
   }, [packages.data, packages.dataUpdatedAt]);
   useEffect(() => {
     const subscription = client.bootstrap.onEnhancementUpdates.subscribe(undefined, {
       onData: (notices) => {
-        const updates = notices.filter(
-          (notice) => shown.current.get(notice.id) !== notice.contentVersion,
-        );
-        if (!updates.length) return;
-        for (const notice of updates) {
-          shown.current.set(notice.id, notice.contentVersion);
-          pending.current.set(notice.id, notice);
+        const previous = pending.current;
+        if (
+          previous.length === notices.length &&
+          notices.every(
+            (notice, index) =>
+              previous[index]?.id === notice.id &&
+              previous[index]?.contentVersion === notice.contentVersion,
+          )
+        )
+          return;
+        pending.current = notices;
+        const toast = useToast.getState();
+        if (!notices.length) {
+          toast.resolve(bannerKey);
+          return;
         }
-        useToast.getState().push({
+        const names = notices.map(({ name }) => name).join('、');
+        const acknowledge = () => {
+          void client.bootstrap.acknowledgeEnhancementUpdates
+            .mutate(notices.map(({ id, contentVersion }) => ({ id, contentVersion })))
+            .catch((error: unknown) =>
+              console.error('[enhancements] notification acknowledgement failed', error),
+            );
+        };
+        toast.push({
+          appWide: true,
           event: 'update',
           key: bannerKey,
-          ...updateCopy(pending.current.values()),
-          action: { label: '前往增强包', run: () => requestOpenSettings('enhancementPacks') },
+          durationKind: 'long',
+          title: '增强包有可用更新',
+          summary: names,
+          detail: names.length > 35 ? names : undefined,
+          onManualDismiss: acknowledge,
+          action: {
+            label: '前往增强包',
+            run: () => {
+              acknowledge();
+              open();
+            },
+          },
         });
-        void client.bootstrap.acknowledgeEnhancementUpdates
-          .mutate(updates.map(({ id, contentVersion }) => ({ id, contentVersion })))
-          .catch((error: unknown) =>
-            console.error('[enhancements] notification acknowledgement failed', error),
-          );
       },
       onError: (error) => console.error('[enhancements] notification subscription error', error),
     });
     return () => subscription.unsubscribe();
-  }, []);
+  }, [open]);
   useEffect(() => {
     const refreshPacks = async () => {
       // 首次读取若仍在途，不能复用可能早于变更的旧请求。

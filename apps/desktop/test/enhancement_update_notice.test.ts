@@ -109,12 +109,14 @@ it('多个更新合并一条受控横幅，不再额外弹确认框，前往增�
     expect(listedNames(toast)).toContain('本地文字识别');
     expect(listedNames(toast)).toContain('本地语音转写');
     expect(useDialog.getState().current).toBeNull();
-    expect(fixture.acknowledge).toHaveBeenCalledOnce();
+    expect(fixture.acknowledge).not.toHaveBeenCalled();
     toast.action!.run();
     expect(open).toHaveBeenCalledWith('enhancementPacks');
     act(() => fixture.emit?.([...notices]));
     expect(useToast.getState().toasts).toHaveLength(1);
     expect(fixture.acknowledge).toHaveBeenCalledOnce();
+    act(() => fixture.emit?.([]));
+    expect(useToast.getState().leaving).toEqual([toast.id]);
   } finally {
     unmount();
     stop();
@@ -126,7 +128,7 @@ it('分批发现的更新原位合并，不丢失前一批名称，不产生多�
   try {
     act(() => fixture.emit?.([notices[0]!]));
     const id = useToast.getState().toasts[0]!.id;
-    act(() => fixture.emit?.([notices[1]!]));
+    act(() => fixture.emit?.(notices));
     const toast = useToast.getState().toasts[0]!;
     expect(toast.id).toBe(id);
     expect(useToast.getState().toasts).toHaveLength(1);
@@ -143,9 +145,13 @@ it('不替换正在操作的确认框，新内容版本仍可更新同一条通�
   try {
     act(() => fixture.emit?.(notices));
     expect(useDialog.getState().current).toBe(original);
-    expect(fixture.acknowledge).toHaveBeenCalledOnce();
+    expect(fixture.acknowledge).not.toHaveBeenCalled();
     act(() => fixture.emit?.([{ ...notices[0]!, contentVersion: 'c'.repeat(64) }]));
-    expect(fixture.acknowledge).toHaveBeenCalledTimes(2);
+    const banner = useToast.getState().toasts[0]!;
+    act(() => useToast.getState().dismiss(banner.id, 'manual'));
+    expect(fixture.acknowledge).toHaveBeenCalledWith([
+      { id: notices[0]!.id, contentVersion: 'c'.repeat(64) },
+    ]);
     expect(useToast.getState().toasts).toHaveLength(1);
   } finally {
     unmount();
@@ -180,6 +186,7 @@ it('安装确认前保留增强包提醒，安装一部分只移除对应项', (
       ],
     };
     render();
+    act(() => fixture.emit?.([second]));
     expect(listedNames(useToast.getState().toasts[0]!)).toBe(second.name);
     expect(useUpdateStore.getState().packsAvailable).toBe(true);
     fixture.packs = { packs: [pack(first, first.contentVersion), pack(second, 'legacy')] };
@@ -190,6 +197,7 @@ it('安装确认前保留增强包提醒，安装一部分只移除对应项', (
       packs: [pack(first, first.contentVersion), pack(second, second.contentVersion)],
     };
     render();
+    act(() => fixture.emit?.([]));
     expect(useToast.getState().leaving).toEqual([item!.id]);
     expect(useUpdateStore.getState().packsAvailable).toBe(false);
   } finally {
@@ -215,7 +223,6 @@ it('其他端安装完成不需要新的更新通知，刷新后收起红点和�
   });
   try {
     act(() => fixture.emit?.([notice]));
-    act(() => fixture.emit?.([]));
     const [item] = useToast.getState().toasts;
     expect(useUpdateStore.getState().packsAvailable).toBe(true);
     fixture.refetch.mockImplementation(async () => {
@@ -230,6 +237,7 @@ it('其他端安装完成不需要新的更新通知，刷新后收起红点和�
         ],
       };
       render();
+      fixture.emit?.([]);
     });
     await act(async () => fixture.emitState?.({ kind: 'resources', id: notice.id }));
     expect(useUpdateStore.getState().packsAvailable).toBe(false);

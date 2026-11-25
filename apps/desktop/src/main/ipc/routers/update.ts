@@ -24,7 +24,10 @@ import { backgroundTasks } from '../../background_tasks';
 import {
   getUpdateActions,
   getUpdateState,
+  dismissUpdateBanner,
+  subscribeUpdateBanner,
   updateBus,
+  type UpdateBanner,
   type UpdateEvent,
   type UpdateProgress,
   type UpdateState,
@@ -56,6 +59,15 @@ export const updateRouter = router({
   isSupported: procedure.query(
     ({ ctx }): boolean => !ctx.authorize && getUpdateActions().supported,
   ),
+  onBanner: procedure.subscription(() =>
+    observable<UpdateBanner | null>((emit) => subscribeUpdateBanner((banner) => emit.next(banner))),
+  ),
+  dismissBanner: desktop
+    .input(z.object({ kind: z.enum(['available', 'downloaded']), latest: z.string().max(80) }))
+    .mutation(({ input }) => {
+      dismissUpdateBanner(input);
+      return true;
+    }),
 
   /** Speed-test mirrors + compare versions. Rejects if no mirror is reachable. */
   check: desktop.mutation((): Promise<UpdateState> => getUpdateActions().check(true)),

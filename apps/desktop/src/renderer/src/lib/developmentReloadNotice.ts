@@ -1,6 +1,7 @@
 import { useToast } from '../components/Toast.shared';
 import {
   DEVELOPMENT_RELOAD_APPLY,
+  DEVELOPMENT_RELOAD_DISMISS,
   DEVELOPMENT_RELOAD_QUERY,
   DEVELOPMENT_RELOAD_STATUS,
   type DevelopmentReloadStatus,
@@ -33,12 +34,13 @@ export function installDevelopmentReloadNotice(
     state.status = status;
     state.applying = false;
     const toast = useToast.getState();
-    if (!status) {
+    if (!status || status.dismissed) {
       toast.resolve('development-reload');
       return;
     }
     const label = status.restart ? '重启应用' : '重载界面';
     const input = {
+      appWide: true,
       tone: 'info' as const,
       title: status.ready
         ? status.restart
@@ -48,6 +50,7 @@ export function installDevelopmentReloadNotice(
       durationKind: 'long' as const,
       ttl: 0,
       source: null,
+      onManualDismiss: () => channel.send(DEVELOPMENT_RELOAD_DISMISS, { id: status.id }),
       action: status.ready
         ? {
             label,

@@ -19,7 +19,6 @@ import { type AnnouncementReceipts, openAnnouncementReceipts } from './announcem
 
 const REFRESH_INTERVAL = 15 * 60_000;
 const OPEN_REFRESH_MAX_AGE = 60_000;
-const RESERVATION_TIME = 15_000;
 const RECEIPT_POLL_INTERVAL = 1_000;
 type FeedStatus = 'loading' | 'ready' | 'cached' | 'unavailable';
 const logger = getLogger().child({ scope: 'announcements' });
@@ -154,20 +153,30 @@ export class Announcements {
       .sort(
         (a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt) || a.id.localeCompare(b.id),
       );
-    let reminder: string | null = null;
-    const entries = matching.map((entry) => {
+    let reminder: { id: string; title: string; summary: string; remainingMs: number } | null = null;
+    const bannerEnabled = this.host.bannerEnabled();
+    const entries: Array<
+      Pick<OfficialAnnouncement, 'id' | 'title' | 'level' | 'publishedAt'> & { unread: boolean }
+    > = [];
+    for (const entry of matching) {
       const { id, title, level, publishedAt } = entry;
       const receipt = this.receipts?.get(id);
       if (
         !reminder &&
+        bannerEnabled &&
         receipt &&
         !receipt.read &&
         !receipt.reminded &&
         this.withinReminderPeriod(entry, now)
       )
-        reminder = id;
-      return { id, title, level, publishedAt, unread: !receipt?.read };
-    });
+        reminder = {
+          id,
+          title,
+          summary: notificationInlineText(entry.body, 140),
+          remainingMs: Date.parse(entry.remindUntil!) - now,
+        };
+      entries.push({ id, title, level, publishedAt, unread: !receipt?.read });
+    }
     return {
       status: this.status,
       entries,
@@ -302,29 +311,13 @@ export class Announcements {
     });
   }
 
-  claimBanner(id: string) {
+  dismissBanner(id: string) {
     return this.serialize(async () => {
       const entry = await this.detail(id);
-      const now = this.now();
-      if (!entry || !this.host.bannerEnabled() || !this.withinReminderPeriod(entry, now))
-        return null;
-      const token = this.receipts?.claimBanner(id, now, now + RESERVATION_TIME);
-      if (!token) return null;
-      return {
-        token,
-        title: entry.title,
-        summary: notificationInlineText(entry.body, 140),
-        remainingMs: Date.parse(entry.remindUntil!) - now,
-        leaseMs: RESERVATION_TIME,
-      };
-    });
-  }
-
-  finishBanner(token: string, shown: boolean) {
-    return this.serialize(async () => {
-      await this.loaded;
+      if (!entry || !this.withinReminderPeriod(entry, this.now())) return;
+      if (!this.receipts) throw new Error('公告提醒状态暂不可用');
       const feedIds = this.current?.feed.entries.map(({ id }) => id) ?? [];
-      if (await this.receipts?.finishBanner(token, shown, feedIds)) this.emit();
+      if (await this.receipts.dismissBanner(id, feedIds)) this.emit();
     });
   }
 }

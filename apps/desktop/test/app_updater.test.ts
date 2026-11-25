@@ -74,6 +74,38 @@ afterEach(() => {
   vi.useRealTimers();
   Object.defineProperty(process, 'platform', platformDescriptor);
 });
+
+it('账号和登录窗口接收同一更新，关闭共享，下载完成可再次提醒', async () => {
+  const { updateRouter } = await import('../src/main/ipc/routers/update');
+  const { updateBus } = await import('../src/main/update/state');
+  const account = updateRouter.createCaller({});
+  const login = updateRouter.createCaller({});
+  const first = vi.fn();
+  const second = vi.fn();
+  const active = (await account.onBanner()).subscribe({ next: first });
+  const available = { kind: 'available', latest: '1.1.0' } as const;
+  const downloaded = { ...available, kind: 'downloaded' } as const;
+  updateBus.emit('event', available);
+  const picker = (await login.onBanner()).subscribe({ next: second });
+  try {
+    expect(first).toHaveBeenLastCalledWith(available);
+    expect(second).toHaveBeenLastCalledWith(available);
+    await login.dismissBanner(available);
+    expect(first).toHaveBeenLastCalledWith(null);
+    expect(second).toHaveBeenLastCalledWith(null);
+    updateBus.emit('event', available);
+    expect(second).toHaveBeenLastCalledWith(null);
+    updateBus.emit('event', downloaded);
+    expect(first).toHaveBeenLastCalledWith(downloaded);
+    await login.dismissBanner(available);
+    expect(first).toHaveBeenLastCalledWith(downloaded);
+    await account.dismissBanner(downloaded);
+    expect(second).toHaveBeenLastCalledWith(null);
+  } finally {
+    picker.unsubscribe();
+    active.unsubscribe();
+  }
+});
 async function ready() {
   const {
     default: { autoUpdater },

@@ -87,7 +87,6 @@ import { z } from 'zod/v3';
 import { OverlayScrollbar } from '../components/OverlayScrollbar';
 import { trpc } from '../trpc/client';
 import { IS_WEB } from '../lib/target.shared';
-import { useUpdateStore } from '../state/update';
 import { isSingleColumnLayout } from '../lib/responsiveLayout';
 import {
   type InfiniteData,
@@ -171,7 +170,6 @@ import {
 } from '../lib/clientPreferences';
 import { useWebConnection } from '../state/webConnection';
 import { subscribeWorkspaceRecovery } from '../lib/connectionRecovery';
-import { useEnhancementUpdates } from '../hooks/useEnhancementUpdates';
 import { useNotificationPolicy } from '../lib/notificationPolicy';
 import { client } from '../trpc/client';
 import { useToast, sourceToastPush, type Toast } from '../components/Toast.shared';
@@ -1504,35 +1502,6 @@ function MainWorkspace(): ReactElement {
     dbRevisionRef,
     selectionRef,
   ]);
-
-  useEnhancementUpdates();
-
-  useEffect(() => {
-    const sub = client.update.onEvent.subscribe(undefined, {
-      onData(e) {
-        if (e.kind === 'availability') {
-          useUpdateStore.getState().setSoftwareAvailable(e.available);
-        } else if (e.kind === 'installing' || (e.kind === 'chosen' && !e.hasUpdate)) {
-          useToast.getState().resolve('weq-update');
-        } else if ((e.kind === 'available' || e.kind === 'downloaded') && e.latest) {
-          useToast.getState().push({
-            event: 'update',
-            key: 'weq-update',
-            title: e.kind === 'downloaded' ? `WeQ ${e.latest} 已下载` : `WeQ ${e.latest} 可更新`,
-            summary: e.kind === 'downloaded' ? '可以在「版本与更新」中安装' : undefined,
-            source: notificationSource({
-              kind: 'app',
-              target: { kind: 'setting', section: 'version' },
-            }),
-          });
-        }
-      },
-      onError(err) {
-        console.error('[update] onEvent subscription error', err);
-      },
-    });
-    return () => sub.unsubscribe();
-  }, []);
 
   const [conversationPrefs, setConversationPrefs] = useState<ConversationPreferences>({});
   useEffect(() => {

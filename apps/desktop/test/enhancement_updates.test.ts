@@ -822,8 +822,14 @@ it('增强包按内容版本提醒，已提醒版本在 WeQ 升级后不重复�
   const expected = [{ id: 'dress', name: '装扮', contentVersion: f.next.contentVersion }] as const;
   expect(notices).toHaveBeenLastCalledWith(expected);
   expect(backgroundTasks.snapshot()).toEqual([]);
-  await f.controller.acknowledgeNotifications(expected);
+  const secondWindow = await fixture(true, f.root);
+  const secondNotices = vi.fn();
+  const stopSecond = secondWindow.controller.subscribeNotifications(secondNotices);
+  expect(secondNotices).toHaveBeenLastCalledWith(expected);
+  await secondWindow.controller.acknowledgeNotifications(expected);
   expect(notices).toHaveBeenLastCalledWith([]);
+  expect(secondNotices).toHaveBeenLastCalledWith([]);
+  stopSecond();
   await f.controller.check(['dress'], true);
   expect(notices).toHaveBeenLastCalledWith([]);
   unsubscribe();

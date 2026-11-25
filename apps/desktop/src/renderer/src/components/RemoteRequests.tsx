@@ -2,16 +2,17 @@ import { Smartphone, X } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { notificationInlineText } from '../../../shared/notification_copy';
 import type { RemoteAccountAccessRequest } from '../../../shared/remote_account_switch';
-import { notificationSource } from '../lib/notificationNavigation.shared';
+import { notificationSource, openNotificationSource } from '../lib/notificationNavigation.shared';
 import { IS_WEB } from '../lib/target.shared';
 import { useAppLock } from '../state/lock';
-import { trpc } from '../trpc/client';
+import { useViewState } from '../state/view';
+import { client, trpc } from '../trpc/client';
 import { Modal } from './Dialog';
 import { useDialog } from './Dialog.shared';
 import { NumericText } from './NumericText';
 import { RemoteDeviceDetails } from './RemoteDeviceDetails';
 import { useRemotePairingReview } from './RemoteRequests.shared';
-import { useToastApi } from './Toast.shared';
+import { useToast } from './Toast.shared';
 import type { RemoteStatus } from './settings/RemotePanel';
 import '../styles/remote.css';
 
@@ -22,7 +23,7 @@ export function RemoteRequests() {
 }
 
 function DesktopRemoteRequests() {
-  const notificationToast = useToastApi();
+  const [dismissed, setDismissed] = useState<string[] | null>(null);
   const { data, refetch } = trpc.remote.status.useQuery(undefined, {
     refetchInterval: 1500,
     refetchIntervalInBackground: true,
@@ -35,24 +36,50 @@ function DesktopRemoteRequests() {
   const request = pending?.find(({ id }) => id === reviewId) ?? pending?.[0];
   const requestId = request?.id;
   const requestName = request?.name;
+  const showBanner = dismissed !== null && requestId && !dismissed.includes(requestId);
   useEffect(() => {
-    if (!requestId || requestName === undefined) return;
+    const subscription = client.remote.pairingBannersChanged.subscribe(undefined, {
+      onData: setDismissed,
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+  useEffect(() => {
+    if (!showBanner || !requestId || requestName === undefined) return;
     const key = `remote-request:${requestId}`;
-    notificationToast.push({
+    const toast = useToast.getState();
+    const acknowledge = () => {
+      void client.remote.dismissPairingBanner
+        .mutate(requestId)
+        .catch((error: unknown) => console.warn('[remote] 关闭提醒未同步', error));
+    };
+    toast.push({
+      appWide: true,
       event: 'request',
       key,
+      durationKind: 'long',
       title: `${notificationInlineText(requestName, 28) || '有一部手机'}请求连接 WeQ`,
       summary: '等待你确认是否允许连接',
-      source: notificationSource(
-        { kind: 'app', target: { kind: 'setting', section: 'remote' } },
-        '查看连接请求',
-        null,
-      ),
+      onManualDismiss: acknowledge,
+      action: {
+        label: '查看连接请求',
+        run: () => {
+          if (useViewState.getState().view === 'main')
+            openNotificationSource(
+              notificationSource(
+                { kind: 'app', target: { kind: 'setting', section: 'remote' } },
+                '查看连接请求',
+                null,
+              ),
+            );
+          useRemotePairingReview.setState({ id: requestId });
+          acknowledge();
+        },
+      },
     });
     return () => {
-      notificationToast.resolve(key);
+      toast.resolve(key);
     };
-  }, [requestId, requestName, notificationToast]);
+  }, [requestId, requestName, showBanner]);
   const access = data?.accountRequests?.[0];
   if (request)
     return (
