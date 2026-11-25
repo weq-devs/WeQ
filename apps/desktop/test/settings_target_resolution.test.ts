@@ -14,7 +14,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
     (section) => {
       for (const [settingId, item, page] of [
         ['message-system-notifications', '新消息系统通知', 'global'],
-        ['application-unread-badge', '应用图标未读角标', 'notification-badges'],
+        ['application-unread-badge', '应用图标未读角标', 'global'],
       ]) {
         expect(resolveSettingsTarget({ section, item })).toMatchObject({
           section: page,
@@ -28,10 +28,11 @@ describe('设置重构的规范目标与旧入口分流', () => {
     },
   );
 
-  it('九组按指定顺序展示，各设置页只出现一次', () => {
+  it('各设置组按指定顺序展示，各设置页只出现一次', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
       '能力',
       '通用',
+      '外观',
       '聊天',
       '更多',
       'AI',
@@ -42,12 +43,17 @@ describe('设置重构的规范目标与旧入口分流', () => {
     ]);
     expect(settingsGroupFor('startup').sections).toEqual([
       'startup',
-      'appearance',
-      'home',
       'global',
-      'notification-badges',
       'resource-loading',
       'data-saver',
+    ]);
+    expect(settingsGroupFor('appearance').sections).toEqual([
+      'appearance',
+      'home',
+      'main-navigation',
+      'chat-messages',
+      'contacts',
+      'contact-card',
     ]);
     expect(settingsGroupFor('privacy').sections).toEqual([
       'privacy',
@@ -87,6 +93,19 @@ describe('设置重构的规范目标与旧入口分流', () => {
       settingId: 'prefer-cdn',
     },
     { section: 'global', target: 'global' },
+    { section: 'notification-badges', target: 'main-navigation' },
+    {
+      section: 'notification-badges',
+      item: '好友与群通知未读角标',
+      target: 'contacts',
+      settingId: 'contact-request-badge',
+    },
+    {
+      section: 'notification-badges',
+      item: '常规视图未读角标',
+      target: 'chat-messages',
+      settingId: 'conversation-markers',
+    },
     {
       section: 'global',
       item: '默认发送正在输入状态',

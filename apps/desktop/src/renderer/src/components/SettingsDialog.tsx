@@ -120,8 +120,9 @@ import { SharedDisplayToggle } from './settings/SharedDisplayToggle';
 import { useEnhancementUpdateBadge } from '../lib/unreadMarkers';
 import {
   BadgeSettingRow,
+  ContactAppearanceSettings,
   ConversationListBadgeRows,
-  UnreadBadgeSettings,
+  MainNavigationSettings,
 } from './settings/UnreadBadgeSettings';
 import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSaveQueue';
 import { ContactCardSettings } from './settings/ContactCardSettings';
@@ -138,7 +139,8 @@ const SETTINGS_PAGE_RENDERERS: Record<
   appearance: () => <AppearanceSection page="appearance" />,
   home: () => <HomeSettingsSection />,
   global: () => <GlobalSettingsSection />,
-  'notification-badges': () => <UnreadBadgeSettings />,
+  'main-navigation': () => <MainNavigationSettings />,
+  contacts: () => <ContactAppearanceSettings />,
   privacy: () => <PrivacySection />,
   'chat-messages': () => <AppearanceSection page="chat-messages" />,
   'message-display': () => <AppearanceSection page="message-display" />,
@@ -294,13 +296,19 @@ function SettingsContent({
   );
   const [linkedTarget, setLinkedTarget] = useState<SettingsSearchTarget | null>(null);
   useEffect(() => setLinkedTarget(null), [initialSection, searchTarget]);
-  const [activeId, setActiveId] = usePageState<SettingsPageId>(
+  const [savedPage, setActiveId] = usePageState<SettingsPageId | 'notification-badges'>(
     'settings:active',
     () => target.section,
-    z.custom<SettingsPageId>(
-      (value) => typeof value === 'string' && Object.hasOwn(SETTINGS_PAGE_RENDERERS, value),
+    z.custom<SettingsPageId | 'notification-badges'>(
+      (value) =>
+        value === 'notification-badges' ||
+        (typeof value === 'string' && Object.hasOwn(SETTINGS_PAGE_RENDERERS, value)),
     ),
   );
+  const activeId =
+    savedPage === 'notification-badges'
+      ? resolveSettingsTarget({ section: savedPage }).section
+      : savedPage;
   const packUpdate = useEnhancementUpdateBadge();
   const locked = useAppLock((state) => state.locked);
   const singleColumn = useMobileWebLayout();

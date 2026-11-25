@@ -589,7 +589,7 @@ describe('设置二级页现场与活动生命周期', () => {
       });
       act(() =>
         [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]
-          .find((button) => button.textContent === '外观与布局')!
+          .find((button) => button.textContent === '主题与布局')!
           .click(),
       );
       const back = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')].find(

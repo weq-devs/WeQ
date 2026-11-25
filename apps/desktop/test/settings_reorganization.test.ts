@@ -478,9 +478,7 @@ describe('设置归位后的实际页面', () => {
     const f = mount('chat-messages');
     try {
       expect(f.body().querySelector('[role="tablist"]')).toBeNull();
-      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-        '会话列表',
-      );
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('消息');
       expect(f.body().querySelector('[data-setting-id="read-sync"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="clear-local-read-records"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="message-system-notifications"]')).toBeNull();
@@ -571,10 +569,8 @@ describe('设置归位后的实际页面', () => {
         f.body().querySelector('[data-search-highlight]')?.getAttribute('data-setting-id'),
       ).toBe('link-screenshot');
       const tabs = [...f.host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')];
-      act(() => tabs.find((tab) => tab.textContent === '会话列表')!.click());
-      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-        '会话列表',
-      );
+      act(() => tabs.find((tab) => tab.textContent === '消息')!.click());
+      expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe('消息');
       expect(f.body().querySelector('[data-setting-id="link-screenshot"]')).toBeNull();
       f.render('chat-messages', { ...target, revision: 2 });
       expect(
@@ -648,7 +644,9 @@ describe('设置归位后的实际页面', () => {
     ['maintenance', '导出明文数据库', 'database-export', 'QQ 数据库管理'],
     ['maintenance', '密钥扫描', 'key-scan', '凭据管理'],
     ['maintenance', '其它设备密钥', 'other-device-key', '凭据管理'],
-    ['message-display', '显示消息汇总红点', 'message-unread-badge', '未读角标'],
+    ['message-display', '显示消息汇总红点', 'message-unread-badge', '主导航'],
+    ['notification-badges', '应用图标未读角标', 'application-unread-badge', '通知与提醒'],
+    ['notification-badges', '好友与群通知未读角标', 'contact-request-badge', '联系人'],
     ['chat-messages', '纯文本消息自动渲染为 Markdown', 'text-markdown', '消息显示'],
     ['chat-messages', '语音消息自动转文字', 'auto-transcribe-voice', '消息显示'],
     ['chat-messages', '图片预览内存预算', 'chat-image-cache', '资源加载'],
@@ -738,7 +736,7 @@ describe('设置归位后的实际页面', () => {
       );
       f.render('appearance', { ...target, revision: 2 });
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-        '外观与布局',
+        '主题与布局',
       );
       expect(f.body().querySelector('[data-search-highlight]')?.textContent).toContain('主题模式');
     } finally {
@@ -965,7 +963,7 @@ describe('设置归位后的实际页面', () => {
     try {
       expect(f.body().querySelector('h3')?.textContent).toBe('通知与提醒');
       expect(f.body().querySelector('[data-setting-id="notification-events"]')).not.toBeNull();
-      expect(f.body().querySelector('[data-setting-id="notification-badges"]')).toBeNull();
+      expect(f.body().querySelector('[data-setting-id="application-unread-badge"]')).not.toBeNull();
       expect(f.body().querySelector('[data-setting-id="window-close-behavior"]')).toBeNull();
       expect(f.body().querySelector('[data-setting-id="windows-style-controls"]')).toBeNull();
       f.render('appearance');

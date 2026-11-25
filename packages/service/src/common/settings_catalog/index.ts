@@ -1,6 +1,7 @@
 import { SETTINGS_ITEM_TARGETS, settingsGroupFor, SETTINGS_PAGE_LABELS } from './navigation';
 import { SETTINGS_KEYWORDS } from './keywords';
 import { SETTINGS_FIELDS } from './fields';
+import { CONTACT_REQUEST_BADGE_SETTING, MENU_BADGE_SETTINGS } from '../client_preferences';
 
 export * from './navigation';
 export { SETTINGS_PAGE_ALIASES } from './keywords';
@@ -27,6 +28,14 @@ export function settingDefinition(id: string) {
 }
 
 const previousPageItems: Readonly<Record<string, readonly string[]>> = {
+  'notification-badges': [
+    'application-unread-badge',
+    'message-unread-badge',
+    'mail-unread-badge',
+    CONTACT_REQUEST_BADGE_SETTING[1],
+    'contact-unread-count',
+    ...MENU_BADGE_SETTINGS.map(([, id]) => id),
+  ],
   'qq-proxy': ['qq-proxy-connection', 'qq-live-messages', 'qq-client-sync'],
   'qq-status-reminders': ['qq-status-indicator', 'qq-online-notification'],
 };

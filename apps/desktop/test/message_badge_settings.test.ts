@@ -143,16 +143,18 @@ function mount() {
               '显示群成员头衔与身份',
             ].includes(label)
           ? '消息显示'
-          : ['在消息图标上显示红点', '在联系人界面显示未读消息数', '软件更新'].includes(label)
-            ? '未读角标'
-            : [
-                  '显示会话预览',
-                  '鼠标停留时保持会话位置',
-                  '会话互动红点',
-                  '群助手显示总消息数',
-                ].includes(label)
-              ? '会话列表'
-              : '会话浏览';
+          : ['在消息图标上显示红点', '软件更新'].includes(label)
+            ? '主导航'
+            : label === '在联系人界面显示未读消息数'
+              ? '联系人'
+              : [
+                    '显示会话预览',
+                    '鼠标停留时保持会话位置',
+                    '会话互动红点',
+                    '群助手显示总消息数',
+                  ].includes(label)
+                ? '消息'
+                : '会话浏览';
       act(() =>
         [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]
           .find((button) => button.textContent === page)!
@@ -216,20 +218,20 @@ const toggles = [
   ['向下浏览时显示「回到最新」按钮', 'showScrollToBottomButton', true],
 ] as const;
 
-it('未读角标页从会话列表按钮直达常规视图角标设置', () => {
+it('主导航直接配置消息角标，常规视图角标由消息页配置', () => {
   const f = mount();
   try {
     f.toggle('在消息图标上显示红点');
-    const page = f.host.querySelector('[data-settings-page="notification-badges"]:not([hidden])')!;
-    expect(page.querySelector('[role="switch"][aria-label="会话互动红点"]')).toBeNull();
-    const jump = [...page.querySelectorAll('button')].find(
-      (button) => button.textContent?.trim() === '前往设置',
+    const navigation = f.host.querySelector(
+      '[data-settings-page="main-navigation"]:not([hidden])',
     )!;
-    act(() => jump.click());
-    const target = f.host.querySelector('[data-settings-page="chat-messages"]:not([hidden])');
-    expect(
-      target?.querySelector('[data-setting-id="conversation-markers"] [aria-label="会话互动红点"]'),
-    ).toBeTruthy();
+    expect(navigation.querySelector('[aria-label="邮箱导航未读角标"]')).not.toBeNull();
+    expect(navigation.querySelector('[aria-label="会话互动红点"]')).toBeNull();
+    expect(navigation.textContent).not.toContain('前往设置');
+    const interaction = f.toggle('会话互动红点');
+    expect(interaction.closest('[data-settings-page]')?.getAttribute('data-settings-page')).toBe(
+      'chat-messages',
+    );
   } finally {
     f.close();
   }

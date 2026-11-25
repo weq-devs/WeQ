@@ -534,7 +534,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       );
     }
     const mail = sharedMailPreferences();
-    bind('notification-badges:unread', mail.showUnread, true, async () => {
+    bind('navigation-badges:unread', mail.showUnread, true, async () => {
       await shared.mail.patch({ showUnread: true });
     });
     bind('mail:unread', mail.showUnread, true, async () => {

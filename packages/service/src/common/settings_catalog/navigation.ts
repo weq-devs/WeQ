@@ -4,18 +4,20 @@ import { CONTACT_CARD_FIELDS, CONTACT_GROUP_FIELDS } from '../contact_card';
 import { NOTIFICATION_EVENTS, NOTIFICATION_LABELS } from '../notification_settings';
 import {
   AGGREGATE_BADGE_SETTINGS,
+  CONTACT_REQUEST_BADGE_SETTING,
   CONTACT_UNREAD_COUNT_LABEL,
-  ENTRY_BADGE_SETTINGS,
+  MENU_BADGE_SETTINGS,
 } from '../client_preferences';
 export const SETTINGS_PAGE_LABELS = {
   'contact-card': '联系人名片',
-  appearance: '外观与布局',
+  appearance: '主题与布局',
   global: '通知与提醒',
-  'notification-badges': '未读角标',
+  'main-navigation': '主导航',
+  contacts: '联系人',
   startup: '启动与退出',
   home: '主页',
   'weq-storage': 'WeQ 存储管理',
-  'chat-messages': '会话列表',
+  'chat-messages': '消息',
   'message-display': '会话浏览',
   'message-content': '消息显示',
   'chat-interaction': '消息发送',
@@ -57,6 +59,7 @@ export const SETTINGS_PAGE_LABELS = {
 export type SettingsPageId = keyof typeof SETTINGS_PAGE_LABELS;
 export type SectionId =
   | SettingsPageId
+  | 'notification-badges'
   | 'qq-proxy'
   | 'qq-status-reminders'
   | 'performance-monitor'
@@ -88,21 +91,24 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'general',
     label: '通用',
+    sections: ['startup', 'global', 'resource-loading', 'data-saver'],
+  },
+  {
+    id: 'appearance',
+    label: '外观',
     sections: [
-      'startup',
       'appearance',
       'home',
-      'global',
-      'notification-badges',
-      'resource-loading',
-      'data-saver',
+      'main-navigation',
+      'chat-messages',
+      'contacts',
+      'contact-card',
     ],
   },
   {
     id: 'chat',
     label: '聊天',
     sections: [
-      'chat-messages',
       'message-display',
       'message-content',
       'chat-interaction',
@@ -114,7 +120,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'more',
     label: '更多',
-    sections: ['contact-card', 'qzone', 'mail'],
+    sections: ['qzone', 'mail'],
   },
   {
     id: 'ai',
@@ -247,15 +253,34 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       from: ['global'],
     }),
   ),
-  ...ENTRY_BADGE_SETTINGS.map(
+  {
+    id: CONTACT_REQUEST_BADGE_SETTING[1],
+    section: 'contacts',
+    label: CONTACT_REQUEST_BADGE_SETTING[2],
+    from: [
+      'contacts',
+      'notification-badges',
+      'global',
+      'mail',
+      'chat-messages',
+      'agentlab',
+      'version',
+    ],
+  },
+  ...MENU_BADGE_SETTINGS.map(
     ([, id, label]): ItemRedirect => ({
       id,
-      section: 'notification-badges',
+      section: 'main-navigation',
       label,
-      from:
-        id === 'software-update-badge'
-          ? ['notification-badges', 'global', 'mail', 'chat-messages', 'agentlab']
-          : ['notification-badges', 'global', 'mail', 'chat-messages', 'agentlab', 'version'],
+      from: [
+        'main-navigation',
+        'notification-badges',
+        'global',
+        'mail',
+        'chat-messages',
+        'agentlab',
+        ...(id === 'software-update-badge' ? [] : (['version'] as const)),
+      ],
     }),
   ),
   {
@@ -731,10 +756,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'mail-unread-badge',
-    section: 'notification-badges',
+    section: 'main-navigation',
     label: '邮箱导航未读角标',
     aliases: ['显示未读邮件数', '在邮箱图标上显示红点', '邮箱红点'],
-    from: ['mail', 'global', 'notification-badges'],
+    from: ['mail', 'global', 'notification-badges', 'main-navigation'],
   },
   {
     id: 'mail-banner',
@@ -874,14 +899,14 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ...(
     [
       ['message-system-notifications', '普通私聊消息', '新消息系统通知', '消息弹窗提醒'],
-      ['application-unread-badge', '应用图标未读角标', 'Dock 任务栏 Badge'],
+      ['application-unread-badge', '应用图标未读角标', 'Dock 任务栏 Badge', '系统应用图标'],
     ] as const
   ).map(
     ([id, label, ...aliases]): ItemRedirect => ({
       id,
       label,
       aliases,
-      section: id === 'message-system-notifications' ? 'global' : 'notification-badges',
+      section: 'global',
       from: [
         'global',
         'message-display',
@@ -891,16 +916,38 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ],
     }),
   ),
+  {
+    id: 'message-unread-badge',
+    label: '消息导航未读角标',
+    aliases: ['消息图标红点', '显示消息汇总红点'],
+    section: 'main-navigation',
+    from: [
+      'main-navigation',
+      'message-display',
+      'message-content',
+      'chat-messages',
+      'chat-interaction',
+      'global',
+      'notification-badges',
+    ],
+  },
+  {
+    id: 'contact-unread-count',
+    label: CONTACT_UNREAD_COUNT_LABEL,
+    aliases: ['好友与群聊', '联系人列表未读消息数', '在联系人界面显示未读消息数'],
+    section: 'contacts',
+    from: [
+      'contacts',
+      'message-display',
+      'message-content',
+      'chat-messages',
+      'chat-interaction',
+      'global',
+      'notification-badges',
+    ],
+  },
   ...(
     [
-      ['message-unread-badge', '消息导航未读角标', '消息图标红点', '显示消息汇总红点'],
-      [
-        'contact-unread-count',
-        CONTACT_UNREAD_COUNT_LABEL,
-        '好友与群聊',
-        '联系人列表未读消息数',
-        '在联系人界面显示未读消息数',
-      ],
       ['all-conversations-include-hidden', '包含已隐藏会话', '全部会话隐藏范围'],
       ['all-conversations-include-deleted', '包含已删除会话', '全部会话删除范围'],
       ['read-first-unread', '打开会话时继续上次阅读', '定位到上次阅读的位置'],
@@ -996,10 +1043,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       id,
       label,
       aliases,
-      section:
-        id === 'message-unread-badge' || id === 'contact-unread-count'
-          ? 'notification-badges'
-          : chatMessagePageFor(id),
+      section: chatMessagePageFor(id),
       from: [
         'message-display',
         'message-content',
@@ -1127,13 +1171,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['database', 'database-repair', 'database-management', 'global'],
   },
   {
-    id: 'notification-badges',
-    section: 'notification-badges',
-    label: '未读角标',
-    aliases: ['红点与未读标记'],
-    from: ['global', 'chat-messages', 'notification-badges'],
-  },
-  {
     id: 'recall-notifications',
     section: 'global',
     label: '撤回提醒',
@@ -1257,6 +1294,7 @@ const SECTION_REDIRECTS: Partial<
   'qq-status-reminders': { section: 'account', settingId: 'qq-status-reminders' },
   'performance-monitor': { section: 'logs', settingId: 'performance-monitor' },
   home: { section: 'home', settingId: 'home-settings' },
+  'notification-badges': { section: 'main-navigation' },
   saving: { section: 'global' },
   storage: { section: 'weq-storage' },
   'anti-recall': { section: 'anti-recall', settingId: 'anti-recall' },
@@ -1279,6 +1317,12 @@ const SECTION_REDIRECTS: Partial<
 
 /** 页面和条目共用一个解析器；解析只定位，不打开工具或执行操作。 */
 export function resolveSettingsTarget(target: SettingsTarget): ResolvedSettingsTarget {
+  if (
+    target.settingId === 'notification-badges' ||
+    (['global', 'chat-messages', 'notification-badges'].includes(target.section) &&
+      ['未读角标', '红点与未读标记'].includes(target.item ?? ''))
+  )
+    return { section: 'main-navigation' };
   // 已移除的资源关联入口只回到资源加载页，不留下失效定位或操作入口。
   if (
     target.settingId === 'linked-resources' ||

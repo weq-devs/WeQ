@@ -141,19 +141,20 @@ try {
       if (width <= 760) await page.getByRole('button', { name: '返回设置', exact: true }).click();
       assert.deepEqual(await nav.getByRole('heading', { level: 3 }).allTextContents(), [
         '能力',
+        '通用',
+        '外观',
         '聊天',
         '更多',
         'AI',
-        'QQ',
-        '网络',
         '服务',
+        'QQ',
         '应用',
         '关于',
       ]);
       for (const [group, labels] of [
         ['能力', ['QQ 在线能力']],
         ['聊天', ['通话与录音', '识别与转写']],
-        ['更多', ['联系人名片']],
+        ['外观', ['主题与布局', '主页', '主导航', '消息', '联系人', '联系人名片']],
         ['关于', ['版本与更新', '常见问题', '反馈']],
       ]) {
         const list = nav.getByRole('list', { name: group, exact: true });

@@ -119,8 +119,12 @@ export const AGGREGATE_BADGE_SETTINGS = [
   ['assistant', 'showAssistantAggregateBadge', 'assistant-aggregate-badge', 'WeQ 助手会话'],
 ] as const satisfies readonly (readonly [string, PreferenceKey, string, string])[];
 export const CONTACT_UNREAD_COUNT_LABEL = '好友与群聊未读消息数';
-export const ENTRY_BADGE_SETTINGS = [
-  ['showContactRequestBadge', 'contact-request-badge', '好友与群通知未读角标'],
+export const CONTACT_REQUEST_BADGE_SETTING = [
+  'showContactRequestBadge',
+  'contact-request-badge',
+  '好友与群通知未读角标',
+] as const satisfies readonly [PreferenceKey, string, string];
+export const MENU_BADGE_SETTINGS = [
   ['showTaskRunningBadge', 'task-running-badge', '进行中任务'],
   ['showTaskResultBadge', 'task-result-badge', '已完成任务'],
   ['showSoftwareUpdateBadge', 'software-update-badge', '软件更新'],

@@ -57,7 +57,7 @@ describe('设置的两级导航', () => {
       'enhancement-packs',
     ]);
     expect(SETTINGS_PAGE_LABELS.startup).toBe('启动与退出');
-    expect(SETTINGS_PAGE_LABELS.appearance).toBe('外观与布局');
+    expect(SETTINGS_PAGE_LABELS.appearance).toBe('主题与布局');
     expect(SETTINGS_PAGE_LABELS.global).toBe('通知与提醒');
     expect(settingsSectionFor('home')).toBe('home');
     expect(
@@ -82,11 +82,11 @@ describe('设置的两级导航', () => {
     });
   });
   it.each([
-    ['使用仿 Windows 窗口按钮', 'windows-style-controls', 'appearance', '外观与布局'],
-    ['关闭按钮行为', 'window-close-behavior', 'startup', '启动与退出'],
-  ] as const)('%s 搜索与旧入口都定位新页面', (item, settingId, section, label) => {
+    ['使用仿 Windows 窗口按钮', 'windows-style-controls', 'appearance', '外观 / 主题与布局'],
+    ['关闭按钮行为', 'window-close-behavior', 'startup', '通用 / 启动与退出'],
+  ] as const)('%s 搜索与旧入口都定位新页面', (item, settingId, section, path) => {
     expect(searchAppEntries(item)[0]).toMatchObject({
-      path: `设置 / 通用 / ${label}`,
+      path: `设置 / ${path}`,
       target: { kind: 'setting', section, settingId },
     });
     expect(resolveSettingsTarget({ section: 'global', item })).toMatchObject({

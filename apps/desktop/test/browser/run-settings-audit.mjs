@@ -257,9 +257,9 @@ try {
     await shot(`390-${theme}-categories`);
     const mobile = [];
     for (const [group, section, id] of [
-      ['通用', '外观与布局', 'appearance'],
+      ['外观', '主题与布局', 'appearance'],
       ['更多', 'QQ 邮箱', 'mail'],
-      ['更多', '联系人名片', 'contact-card'],
+      ['外观', '联系人名片', 'contact-card'],
       ['聊天', '消息显示', 'message-content'],
       ['应用', '配置备份与恢复', 'backup'],
     ]) {
@@ -406,7 +406,7 @@ try {
     }));
   await page
     .locator('.weq-settings-nav')
-    .getByRole('button', { name: '会话列表', exact: true })
+    .getByRole('button', { name: '消息', exact: true })
     .click();
   await page.waitForTimeout(400);
   await page.getByRole('button', { name: '返回设置', exact: true }).click();

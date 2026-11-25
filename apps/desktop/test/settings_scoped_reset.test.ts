@@ -75,6 +75,7 @@ vi.mock('../src/main/context/app_context', () => ({
   closeSalvageConnections: vi.fn(),
   getAppContext: () => ({
     bootstrap: {
+      enhancements: { updates: { ready: async () => {} }, packs: { isPreparing: () => false } },
       userConfig: {
         getSettings: () => state.settings,
         setSettings: (patch: { modelResources: Partial<AppSettings['modelResources']> }) =>
@@ -643,10 +644,13 @@ describe('分级恢复默认', () => {
     ).rejects.toThrow('不属于当前范围');
     expect(state.calls).toEqual([]);
   });
-  it('通知与红点迁移后，旧功能页恢复不再修改通知偏好', async () => {
+  it('应用图标、导航、菜单和联系人角标按新归属恢复默认', async () => {
     const global = await caller().preview({ page: 'global' });
     expect(global.items.map((item) => item.id)).toContain('notification-events:notificationEvents');
-    expect(global.items.some((item) => item.id.startsWith('notification-badges:'))).toBe(false);
+    expect(global.items.map((item) => item.id)).toContain('application-badge:application-badge');
+    expect(global.items.some((item) => /^(navigation|menu|contact)-badges:/.test(item.id))).toBe(
+      false,
+    );
     expect(global.items.some((item) => item.id.startsWith('damage-reminder:'))).toBe(false);
     for (const page of [
       'mail',
@@ -659,23 +663,30 @@ describe('分级恢复默认', () => {
       const old = await caller().preview({ page });
       expect(
         old.items.some((item) =>
-          /^(notification-events|notification-badges|damage-reminder|recall-notifications|web-notifications):/.test(
+          /^(notification-events|application-badge|navigation-badges|menu-badges|contact-badges|damage-reminder|recall-notifications|web-notifications):/.test(
             item.id,
           ),
         ),
       ).toBe(false);
     }
-    const badges = await caller().preview({ page: 'notification-badges' });
-    expect(badges.items.map((item) => item.id)).toEqual(
+    const navigation = await caller().preview({ page: 'main-navigation' });
+    expect(navigation.items.map((item) => item.id)).toEqual(
       expect.arrayContaining([
-        'notification-badges:showMessageUnreadBadge',
-        'notification-badges:showContactUnreadCount',
-        'notification-badges:unread',
+        'navigation-badges:showMessageUnreadBadge',
+        'navigation-badges:unread',
+        'menu-badges:showSoftwareUpdateBadge',
       ]),
     );
-    expect(badges.items.every((item) => item.id.startsWith('notification-badges:'))).toBe(true);
-    expect(badges.items.some((item) => item.id.includes('reportRead'))).toBe(false);
-    expect(await caller().preview({ page: 'global', card: 'notification-badges' })).toEqual(badges);
+    expect(navigation.items.every((item) => /^(navigation|menu)-badges:/.test(item.id))).toBe(true);
+    const menu = await caller().preview({ page: 'main-navigation', card: 'menu-badges' });
+    expect(menu.items).toEqual(
+      navigation.items.filter((item) => item.id.startsWith('menu-badges:')),
+    );
+    const contacts = await caller().preview({ page: 'contacts' });
+    expect(contacts.items.map((item) => item.id)).toEqual([
+      'contact-badges:showContactUnreadCount',
+      'contact-badges:showContactRequestBadge',
+    ]);
   });
   it('只读预览不写入，卡片恢复不影响同页其他配置或连接凭据', async () => {
     state.settings.qzonePagination = { windowSeconds: 30, maxPages: 12 };

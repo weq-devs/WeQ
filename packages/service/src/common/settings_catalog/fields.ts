@@ -3,8 +3,9 @@ import type { IntentSenseConfig } from '../../account/intent_sense';
 import { INTENT_TUNING, type IntentTuningKey } from '../intent_context';
 import {
   AGGREGATE_BADGE_SETTINGS,
+  CONTACT_REQUEST_BADGE_SETTING,
   CONTACT_UNREAD_COUNT_LABEL,
-  ENTRY_BADGE_SETTINGS,
+  MENU_BADGE_SETTINGS,
   type PreferenceKey,
 } from '../client_preferences';
 import type { SettingsResetCardId } from './reset';
@@ -48,9 +49,9 @@ export const APP_SETTING_FIELDS = (
     ['window', 'windowCloseBehavior', 'window-close-behavior', '关闭窗口时'],
     ['window-appearance', 'windowsStyleControls', 'windows-style-controls', '仿 Windows 窗口按钮'],
     ['app-lock', 'autoLockMinutes', 'auto-lock', '自动锁定分钟'],
-    ['notification-badges', 'showMessageUnreadBadge', 'message-unread-badge', '消息导航未读角标'],
+    ['navigation-badges', 'showMessageUnreadBadge', 'message-unread-badge', '消息导航未读角标'],
     [
-      'notification-badges',
+      'contact-badges',
       'showContactUnreadCount',
       'contact-unread-count',
       CONTACT_UNREAD_COUNT_LABEL,
@@ -172,10 +173,9 @@ export const CLIENT_SETTING_FIELDS = (
     ['quote-replies', 'backspaceRemovesQuote', 'quote-backspace-remove', '按退格键移除引用'],
     ['emoji-shortcuts', 'slashEmojiEnabled', 'slash-emoji-input', '斜杠表情快捷输入'],
     ['emoji-shortcuts', 'slashEmojiAutoReplace', 'slash-emoji-auto-replace', '无需回车即自动替换'],
-    ['notification-badges', 'applicationBadge', 'application-unread-badge', '应用图标未读角标'],
-    ...ENTRY_BADGE_SETTINGS.map(
-      ([key, id, label]) => ['notification-badges', key, id, label] as const,
-    ),
+    ['application-badge', 'applicationBadge', 'application-unread-badge', '应用图标未读角标'],
+    ['contact-badges', ...CONTACT_REQUEST_BADGE_SETTING],
+    ...MENU_BADGE_SETTINGS.map(([key, id, label]) => ['menu-badges', key, id, label] as const),
     [
       'conversation-markers',
       'showInteractionBadge',
@@ -413,7 +413,7 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   field('update', 'prerelease', 'update-prerelease', '检查测试版', 'runtime', {
     desktopOnly: true,
   }),
-  field('notification-badges', 'unread', 'mail-unread-badge', '邮箱导航未读角标', 'runtime'),
+  field('navigation-badges', 'unread', 'mail-unread-badge', '邮箱导航未读角标', 'runtime'),
   field('mail', 'unread', 'mail-unread-badge', '邮箱导航未读角标', 'runtime'),
   field('mail', 'poll-interval', 'mail-poll-interval', '邮箱查询间隔', 'runtime'),
   ...SCOPED_NOTIFICATION_EVENTS.map((event) =>

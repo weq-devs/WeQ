@@ -15,7 +15,10 @@ export const SETTINGS_RESET_CARDS = [
   ['global', 'toast', '应用内横幅提醒'],
   ['global', 'notification-events', '事件通知'],
   ['global', 'notification-scopes', '事件提醒会话'],
-  ['notification-badges', 'notification-badges', '未读角标'],
+  ['global', 'application-badge', '系统应用图标'],
+  ['main-navigation', 'navigation-badges', '导航角标'],
+  ['main-navigation', 'menu-badges', '菜单'],
+  ['contacts', 'contact-badges', '未读显示'],
   ['global', 'recall-notifications', '撤回提醒'],
   ['privacy', 'privacy-mode', '隐私模式'],
   ['privacy', 'app-lock', '应用锁'],
@@ -137,7 +140,6 @@ export function planSettingsReset<
 }
 const previousResetPages: Partial<Record<SettingsResetCardId, SettingsPageId>> = {
   home: 'startup',
-  'notification-badges': 'global',
   'message-content': 'message-display',
   'recall-scope': 'chat-interaction',
   'call-trace': 'call-recording',

@@ -25,6 +25,7 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  AppWindow,
   Cloud,
   ChevronRight,
   FolderOpen,
@@ -57,6 +58,7 @@ import { groupStorageEntries, mergeStorageEntries } from '../../lib/storage-entr
 import '../../styles/storage-management.css';
 import { QqShowSettings } from './QqShowSettings';
 import { SharedDisplayToggle } from './SharedDisplayToggle';
+import { BadgeSettingRow } from './UnreadBadgeSettings';
 import { ChatImageCacheSettings, ChatMessagePrewarmSettings } from './ChatImageCacheSettings';
 
 function errMsg(e: unknown): string {
@@ -462,6 +464,14 @@ export function GlobalSettingsSection({
             target={notificationTarget}
           />
           <ToastSettingsCard />
+          <Card icon={<AppWindow size={15} strokeWidth={1.8} />} resetId="application-badge">
+            <BadgeSettingRow
+              name="applicationBadge"
+              settingId="application-unread-badge"
+              label="应用图标未读角标"
+              fallback
+            />
+          </Card>
           {IS_WEB && <WebNotificationsSection />}
         </>
       )}
