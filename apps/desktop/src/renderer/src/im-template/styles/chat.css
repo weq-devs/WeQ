@@ -4119,37 +4119,15 @@ html[data-theme='dark'] .chat-empty-logo {
   padding: 4px 2px 14px;
 }
 
-/* 切会话的骨架层：铺在消息区上方（网格第 2 行，与 .weq-conversation-loading 同一套定位），
- * 骨架贴底排布，和正文出现的位置对齐；正文落位后整层淡出，形成交叉过渡，
- * 而不是「先空白，再一下子铺满」。 */
-.weq-chat-skeleton-layer {
+/* 切会话的交叉过渡层：换正文的那一帧把旧正文的 DOM 快照铺在消息区上方淡出，
+ * 同时新正文淡入。位置与尺寸由 useConversationCrossfade 按消息区实际矩形写入，
+ * 底色与 .chat-main 相同，避免两层文字互相透出。 */
+.weq-chat-crossfade-layer {
   position: absolute;
-  grid-area: 2 / 1;
-  inset: 0;
   z-index: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  padding: 26px 18px 20px 20px;
   overflow: hidden;
   pointer-events: none;
-  animation: weq-fade-in 120ms ease-out both;
-}
-
-.weq-chat-skeleton-layer.is-leaving {
-  animation: weq-fade-out 180ms ease-out both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .weq-chat-skeleton-layer,
-  .weq-chat-skeleton-layer.is-leaving {
-    animation: none;
-  }
-
-  /* 减少动态效果时不留残影：正文一到就把骨架撤掉。 */
-  .weq-chat-skeleton-layer.is-leaving {
-    opacity: 0;
-  }
+  background: var(--chat-surface);
 }
 
 .chat-skeleton-time {

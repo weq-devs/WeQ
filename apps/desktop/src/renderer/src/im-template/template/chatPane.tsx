@@ -246,7 +246,7 @@ export type BubbleVideoSendPayload = {
 };
 import { ComposerQuoteBar, type ComposerQuote } from './composerQuote';
 import { useClosingContent } from '../../hooks/useClosingContent';
-import { useConversationSwitchVeil } from '../../hooks/useConversationSwitchVeil';
+import { useConversationCrossfade } from '../../hooks/useConversationCrossfade';
 import { composerQuoteToken, quoteBlockReason, quoteFromMessage } from './composerQuote.shared';
 import type { LocationCardPayload } from './locationCardPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
@@ -362,7 +362,7 @@ import { shouldShowMessageTime } from './messageTime.shared';
 import { MessageGapDivider, MessageLoadFailure } from './messageGap';
 import { isSeqBetween, messageGapCount } from './messageGap.shared';
 import { defaultConversationPreference } from './preferences';
-import { Avatar, ChatMessagesSkeleton, EmptyState } from './primitives';
+import { Avatar, EmptyState } from './primitives';
 import type {
   Conversation,
   ConversationPreference,
@@ -1866,13 +1866,11 @@ function ChatPaneContent({
     visibleMessages,
   });
 
-  // 切会话要等新会话首屏回来才换正文；慢的时候旧画面会僵在那儿，之后新内容一次性
-  // 铺满。这里在等待超过观察窗时淡出旧正文、铺骨架，正文落位后再淡回来。
-  const conversationSwitch = useConversationSwitchVeil({
+  // 切会话时正文要等新会话首屏回来才替换；替换那一帧用旧正文快照做交叉淡出淡入。
+  useConversationCrossfade({
     scope: conversation?.id,
     scrollRef: messageScrollRef,
-    hasMessages: visibleMessages.length > 0,
-    loading: Boolean(loading),
+    content: visibleMessages,
   });
   const canOpenImportant = conversation?.type === 'group' && !restrictedSource;
   function openImportantMessages() {
@@ -7010,14 +7008,6 @@ function ChatPaneContent({
         </ChatTimeline>
         {messageImage.portal}
       </IntentSenseProvider>
-      {conversationSwitch.veil ? (
-        <div
-          className={cn('weq-chat-skeleton-layer', conversationSwitch.leaving && 'is-leaving')}
-          aria-hidden
-        >
-          <ChatMessagesSkeleton delayMs={0} />
-        </div>
-      ) : null}
       {loadingOlder ? (
         <div className="weq-conversation-loading is-older" role="status">
           加载更早消息…
