@@ -124,7 +124,7 @@ import { getBackupContext, initBackupContext } from './context/backup_context';
 import { createDesktopCollector } from './performance_monitor';
 import { performanceDatabaseDetails } from './performance_database';
 import { databaseCheckups } from './db_checkup';
-import { databaseMaintenance } from './ipc/routers/db_repair';
+import { databaseMaintenance, waitForDatabaseRestore } from './ipc/routers/db_repair';
 import {
   guardDatabaseMaintenanceQuit,
   guardDatabaseMaintenanceWindow,
@@ -1560,6 +1560,7 @@ app.on('window-all-closed', () => {
 // A real quit is underway (tray「退出」/ Cmd+Q / Dock 菜单退出 / OS shutdown):
 guardDatabaseMaintenanceQuit(app, {
   repairing: () => databaseMaintenance.active().some((snapshot) => snapshot.state === 'repairing'),
+  restoring: waitForDatabaseRestore,
   confirmStop: async () => {
     const options = {
       type: 'question' as const,
@@ -1609,6 +1610,7 @@ if (hasSingleInstanceLock) {
     async () => {
       logger.info('app quit cleanup started', { event: 'app-quit-cleanup-start' });
       try {
+        await waitForDatabaseRestore();
         const accountCleanup = [...accountWindows.keys()].map((runtime) =>
           runtime.run(async () => {
             const ctx = getAppContext();

@@ -173,6 +173,29 @@ it('旧主进程的重复重建计数只显示最新一行，并保留当前执�
   ).toEqual([latest, verifying]);
 });
 
+it('替换后的结构复核保留未核验计数，撤销修复时保留已完成的原库校验', () => {
+  const tracker = new DatabaseProgressTracker('repair', 'synthetic.db');
+  tracker.update('final-check', {
+    step: 'integrity-pages',
+    message: '检查页结构与引用',
+    completed: 8,
+    total: 16,
+    unit: 'pages',
+  });
+  tracker.update('final-check', {
+    step: 'rollback-fingerprint',
+    message: '校验已恢复的原库',
+    completed: 1024,
+    total: 1024,
+    unit: 'bytes',
+    status: 'completed',
+  });
+  expect(tracker.finish('cancelled')?.steps.map((step) => step.status)).toEqual([
+    'incomplete',
+    'completed',
+  ]);
+});
+
 it('已跳过的步骤不会在任务结束时被改成已完成，历史保持有界', () => {
   const tracker = new DatabaseProgressTracker('checkup', 'synthetic.db');
   for (let index = 0; index < 100; index++)

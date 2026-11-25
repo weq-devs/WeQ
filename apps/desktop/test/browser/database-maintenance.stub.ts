@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { DatabaseProgressTracker } from '@weq/service/db-progress';
+import { DatabaseProgressTracker, type DatabaseWorkProgress } from '@weq/service/db-progress';
 import {
   summarizeDatabaseMaintenance,
   type DatabaseRepairBackupMode,
@@ -28,6 +28,8 @@ type Input = {
 };
 type Listener = { onData(value: DatabaseMaintenanceStatus): void; onError?(error: Error): void };
 const listeners = new Set<Listener>();
+type RestoreProgress = { dbName: string; step: DatabaseWorkProgress } | null;
+const restoreListeners = new Set<{ onData(value: RestoreProgress): void }>();
 const stores = new Set<() => void>();
 const saved = new Map<string, DatabaseMaintenanceReport>();
 let live: DatabaseMaintenanceSnapshot | null = null;
@@ -263,6 +265,24 @@ export const maintenanceQa = {
     notify();
   },
   snapshot: () => live,
+  restoreTick(completed: number | null) {
+    for (const listener of restoreListeners) {
+      listener.onData(
+        completed === null
+          ? null
+          : {
+              dbName: 'nt_msg.db',
+              step: {
+                step: 'restore-backup',
+                message: '读取并校验备份',
+                completed,
+                total: 1024,
+                unit: 'bytes',
+              },
+            },
+      );
+    }
+  },
   ready(
     kind: 'scan' | 'checkup' = 'scan',
     options: { secondIssue?: boolean; quickSupported?: boolean } = {},
@@ -624,6 +644,12 @@ export const trpc = {
 };
 export const client = {
   dbRepair: {
+    onRestoreProgress: {
+      subscribe: (_: unknown, listener: { onData(value: RestoreProgress): void }) => {
+        restoreListeners.add(listener);
+        return { unsubscribe: () => restoreListeners.delete(listener) };
+      },
+    },
     prepareEndMaintenance: {
       subscribe: (
         _: unknown,

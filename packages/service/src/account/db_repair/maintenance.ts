@@ -1064,7 +1064,22 @@ export class DatabaseMaintenance {
         const { row, error } = session.rollbackFailure;
         if (session.rollbackFailure !== previousFailure) throw error;
         session.lease?.signal?.throwIfAborted();
-        await error.retry();
+        const progress = new DatabaseProgressTracker('repair', row.dbName, Date.now, row.progress);
+        const operation = session.snapshot.operation!;
+        const currentDb = operation.currentDb;
+        operation.currentDb = row.dbName;
+        try {
+          await error.retry((tick) => {
+            if (tick.detail) this.tick(session, row, progress, tick.phase, tick.detail);
+          });
+          row.progress = progress.finish('completed');
+        } catch (error) {
+          row.progress = progress.finish('failed');
+          throw error;
+        } finally {
+          operation.currentDb = currentDb;
+          session.snapshot.progress = row.progress;
+        }
         session.rollbackFailure = undefined;
         row.repair = { ...row.repair!, error: '已恢复并校验修复前的数据库。' };
         session.snapshot.operation!.error = undefined;

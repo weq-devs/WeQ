@@ -15,7 +15,6 @@
 
 import {
   appendFileSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -25,11 +24,12 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { copyFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DatabaseAlgorithms } from '@weq/native';
+import type { DatabaseAlgorithms, DatabaseProgress } from '@weq/native';
 import {
   DbRepairError,
   DbRepairService,
@@ -48,15 +48,19 @@ vi.mock('node:fs', async (original) => {
   const fs = await original<typeof import('node:fs')>();
   return {
     ...fs,
-    copyFileSync: vi.fn(fs.copyFileSync),
     renameSync: vi.fn(fs.renameSync),
     rmSync: vi.fn(fs.rmSync),
   };
+});
+vi.mock('node:fs/promises', async (original) => {
+  const fs = await original<typeof import('node:fs/promises')>();
+  return { ...fs, copyFile: vi.fn(fs.copyFile) };
 });
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require('node:sqlite') as typeof import('node:sqlite');
 const realFs = require('node:fs') as typeof import('node:fs');
+const realFsPromises = require('node:fs/promises') as typeof import('node:fs/promises');
 
 const ALGO: DatabaseAlgorithms = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' };
 /** 服务只认 uin —— 目录与密钥由 `resolveAccount` 解析，测试里就是这个假账号。 */
@@ -71,7 +75,7 @@ function tmpDir(tag: string): string {
 }
 
 afterEach(() => {
-  vi.mocked(copyFileSync).mockReset().mockImplementation(realFs.copyFileSync);
+  vi.mocked(copyFile).mockReset().mockImplementation(realFsPromises.copyFile);
   vi.mocked(renameSync).mockReset().mockImplementation(realFs.renameSync);
   vi.mocked(rmSync).mockReset().mockImplementation(realFs.rmSync);
   for (const dir of tmpRoots) rmSync(dir, { recursive: true, force: true });
@@ -653,7 +657,7 @@ describe('修复空间与自定义缓存', () => {
     expect(paths.backupsDir.startsWith(scratch)).toBe(true);
     expect(paths.history).toBe(historyFile);
     expect(h.service.history(REF).find(old.id)?.backupPath).toBe(old.backupPath);
-    h.service.restore(REF, old.id, { force: true });
+    await h.service.restore(REF, old.id, { force: true });
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
   });
 
@@ -839,7 +843,14 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     const choice = Promise.withResolvers<void>();
     const rollback = new AbortController();
     const h = createHarness({
-      verify: async () => {
+      verify: async (_path, _key, _algo, progress) => {
+        progress({
+          step: 'integrity-pages',
+          message: '检查页结构与引用',
+          completed: 8,
+          total: 16,
+          unit: 'pages',
+        });
         entered.resolve();
         return { healthy: true, corruptedTables: [] };
       },
@@ -861,6 +872,10 @@ describe('DbRepairService.repair 中止 / 失败', () => {
       )
       .catch((error: unknown) => error);
     await entered.promise;
+    expect(h.progress.at(-1)).toMatchObject({
+      phase: 'final-check',
+      detail: { step: 'integrity-pages', completed: 8, total: 16, unit: 'pages' },
+    });
     expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
     if (failOnce)
       vi.mocked(renameSync).mockImplementationOnce(() => {
@@ -874,11 +889,19 @@ describe('DbRepairService.repair 中止 / 失败', () => {
       expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
       const work = readdirSync(h.dbDir).find((name) => name.startsWith('.nt_msg.db.weq-repair-'))!;
       expect(readFileSync(join(h.dbDir, work, 'original', 'nt_msg.db'))).toEqual(originalBytes());
-      await (error as DbRepairRollbackError).retry();
+      await (error as DbRepairRollbackError).retry(collect(h.progress));
     } else {
       expect(error).toMatchObject({ message: '已撤销本次数据库替换。' });
       expect(h.service.listRecords(REF)[0]).toMatchObject({ state: 'aborted', backupPath: null });
     }
+    expect(h.progress.at(-1)).toMatchObject({
+      detail: {
+        step: 'rollback-fingerprint',
+        completed: originalBytes().length,
+        total: originalBytes().length,
+        status: 'completed',
+      },
+    });
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
     expect(readdirSync(h.dbDir)).toEqual(['nt_msg.db']);
   });
@@ -1030,7 +1053,20 @@ describe('DbRepairService.restore', () => {
     const record = await repairOnce(h);
     expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
 
-    const rolled = h.service.restore(REF, record.id);
+    const ticks: DatabaseProgress[] = [];
+    const restoring = h.service.restore(REF, record.id, {
+      progress: (_dbName, tick) => {
+        expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
+        ticks.push(tick);
+      },
+    });
+    await expect(h.service.restore(REF, record.id)).rejects.toMatchObject({ code: 'busy' });
+    const rolled = await restoring;
+    const counts = ticks.flatMap((tick) =>
+      tick.completed === undefined ? [] : [[tick.completed, tick.total]],
+    );
+    expect(counts[0]).toEqual([0, originalBytes().length]);
+    expect(counts.at(-1)).toEqual([originalBytes().length, originalBytes().length]);
     expect(rolled.state).toBe('rolled-back');
     expect(rolled.restoredAt).toBeTruthy();
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
@@ -1049,7 +1085,7 @@ describe('DbRepairService.restore', () => {
       code: 'needs-confirm',
     });
 
-    const rolled = h.service.restore(REF, record.id, { force: true });
+    const rolled = await h.service.restore(REF, record.id, { force: true });
     expect(rolled.state).toBe('rolled-back');
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
   });
@@ -1107,11 +1143,11 @@ describe('DbRepairService.restore', () => {
       currentSha: record.afterSha,
       matchesAfter: false,
     });
-    expect(() => h.service.restore(REF, record.id)).toThrow(
-      expect.objectContaining({ code: 'needs-confirm' }),
-    );
+    await expect(h.service.restore(REF, record.id)).rejects.toMatchObject({
+      code: 'needs-confirm',
+    });
     assertTwoRows();
-    expect(h.service.restore(REF, record.id, { force: true }).state).toBe('rolled-back');
+    expect((await h.service.restore(REF, record.id, { force: true })).state).toBe('rolled-back');
     expect(existsSync(walPath)).toBe(false);
   });
 
@@ -1126,9 +1162,7 @@ describe('DbRepairService.restore', () => {
       damaged[0] = damaged[0]! ^ 1;
       writeFileSync(record.backupPath!, damaged);
     } else if (failure === '复制') {
-      vi.mocked(copyFileSync).mockImplementationOnce(() => {
-        throw full;
-      });
+      vi.mocked(copyFile).mockRejectedValueOnce(full);
     } else {
       vi.mocked(renameSync).mockImplementation((from, to) => {
         if (to === h.dbPath) {
@@ -1140,14 +1174,16 @@ describe('DbRepairService.restore', () => {
     }
 
     const restore = () => h.service.restore(REF, record.id, { force: true });
-    expect(restore).toThrow(failure === '校验' ? /校验值与修复记录不符/ : /volume full/);
+    await expect(restore()).rejects.toThrow(
+      failure === '校验' ? /校验值与修复记录不符/ : /volume full/,
+    );
     expect(readFileSync(shmPath)).toEqual(shm);
     expect(readdirSync(h.dbDir).filter((name) => name.includes('.weq-restore-'))).toEqual([]);
     expect(h.service.listRecords(REF)[0]?.state).toBe('applied');
     assertTwoRows();
     writeFileSync(record.backupPath!, backup);
     vi.mocked(renameSync).mockImplementation(realFs.renameSync);
-    expect(restore().state).toBe('rolled-back');
+    expect((await restore()).state).toBe('rolled-back');
   });
 
   it('备份被清理后回滚给出明确原因', async () => {
@@ -1324,7 +1360,7 @@ describe('未合并的 WAL（sidecar）', () => {
     writeFileSync(`${h.dbPath}-wal`, '');
     writeFileSync(`${h.dbPath}-shm`, Buffer.alloc(32768));
 
-    h.service.restore(REF, record.id);
+    await h.service.restore(REF, record.id);
 
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
     expect(existsSync(`${h.dbPath}-wal`)).toBe(false);

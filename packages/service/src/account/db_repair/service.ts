@@ -20,7 +20,7 @@ import {
   statSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { DatabaseAlgorithms, SingleBytePageCorrection } from '@weq/native';
+import type { DatabaseAlgorithms, DatabaseProgress, SingleBytePageCorrection } from '@weq/native';
 import type { BadPageScanReport } from '../bad_pages';
 import { writeFileAtomicSync } from '../../common/atomic_write';
 import { getHost } from '../../common/host';
@@ -114,7 +114,7 @@ export class DbRepairError extends Error {
 export class DbRepairRollbackError extends DbRepairError {
   constructor(
     message: string,
-    readonly retry: () => Promise<void>,
+    readonly retry: (progress?: (tick: DbRepairProgress) => void) => Promise<void>,
   ) {
     super('verify-failed', message);
   }
@@ -212,6 +212,7 @@ export interface DbRepairDeps {
     dbPath: string,
     key: string,
     algo: DatabaseAlgorithms,
+    progress: (tick: DatabaseProgress) => void,
   ): Promise<{
     healthy: boolean;
     corruptedTables: string[];
@@ -971,7 +972,7 @@ export class DbRepairService {
 
       let restoredOriginal = false;
       let protectedOriginal = !copiedOriginal;
-      const restoreOriginal = async () => {
+      const restoreOriginal = async (onProgress = emit) => {
         try {
           request.replacement?.leaseSignal?.throwIfAborted();
           if (!restoredOriginal) {
@@ -986,16 +987,31 @@ export class DbRepairService {
             restoredOriginal = true;
             this.deps.releaseHandles?.(uin, target.dbPath, true);
           }
-          const restored = await fingerprintFile(target.dbPath, () => {});
+          const progress = (completed: number, total: number, status?: 'completed') =>
+            onProgress({
+              phase: 'final-check',
+              percent: 100,
+              message: '校验已恢复的原库',
+              detail: {
+                step: 'rollback-fingerprint',
+                message: '校验已恢复的原库',
+                completed,
+                total,
+                unit: 'bytes',
+                status,
+              },
+            });
+          const restored = await fingerprintFile(target.dbPath, progress);
           if (restored.sha256 !== before.sha256 || restored.bytes !== before.bytes)
             throw new Error('恢复后的原库指纹与修复前不一致。');
+          progress(restored.bytes, restored.bytes, 'completed');
         } catch (error) {
           preserveOriginal = true;
           const path = restoredOriginal ? target.dbPath : original;
           throw new DbRepairRollbackError(
             `无法恢复并校验原库。原库文件保留在 ${path}。请从「维护中」重试。 ${error instanceof Error ? error.message : String(error)}`,
-            async () => {
-              await restoreOriginal();
+            async (progress) => {
+              await restoreOriginal(progress);
               removeDirQuietly(productDirectory);
             },
           );
@@ -1022,7 +1038,10 @@ export class DbRepairService {
         });
         request.replacement?.signal.throwIfAborted();
         emit({ phase: 'final-check', percent: 100, message: '复核替换后的数据库结构' });
-        verification = await this.verifyProduct(target, recovered);
+        verification = await this.verifyProduct(target, recovered, (detail) => {
+          if (request.replacement?.signal.aborted || detail.step === 'integrity') return;
+          emit({ phase: 'final-check', percent: 100, message: detail.message, detail });
+        });
         await request.replacement?.waitForDecision();
         request.replacement?.signal.throwIfAborted();
       } catch (error) {
@@ -1165,7 +1184,11 @@ export class DbRepairService {
    *
    * 主库与修复产物不一致，或仍有可能包含新数据的日志时，必须显式确认覆盖。
    */
-  restore(uin: string, recordId: string, options: { force?: boolean } = {}): DbRepairRecord {
+  async restore(
+    uin: string,
+    recordId: string,
+    options: { force?: boolean; progress?: (dbName: string, tick: DatabaseProgress) => void } = {},
+  ): Promise<DbRepairRecord> {
     if (this.running) {
       throw new DbRepairError('busy', '已有修复任务在进行中，请等它结束再回滚');
     }
@@ -1190,7 +1213,19 @@ export class DbRepairService {
       mkdirSync(stagingDir, { mode: 0o700 });
       const staged = join(stagingDir, 'verified-backup.db');
       try {
-        const fingerprint = backupFileAndHashSync(record.backupPath, staged);
+        options.progress?.(record.dbName, {
+          step: 'restore-backup',
+          message: '读取并校验备份',
+        });
+        const fingerprint = await backupFileAndHash(record.backupPath, staged, (completed, total) =>
+          options.progress?.(record.dbName, {
+            step: 'restore-backup',
+            message: '读取并校验备份',
+            completed,
+            total,
+            unit: 'bytes',
+          }),
+        );
         if (fingerprint.bytes !== record.beforeBytes || fingerprint.sha256 !== record.beforeSha) {
           throw new DbRepairError(
             'verify-failed',
@@ -1204,6 +1239,7 @@ export class DbRepairService {
         }
         const lock = this.checkRestoreLock(record.dbPath, uin);
         // 原子换入已经核对的文件；旧代日志只在替换成功后丢弃。
+        options.progress?.(record.dbName, { step: 'restore-install', message: '正在恢复数据库' });
         this.replaceRestoredDatabase(record.dbPath, stagingDir, staged, uin, lock, !!options.force);
       } finally {
         removeQuietly(staged);
@@ -1485,9 +1521,17 @@ export class DbRepairService {
   private async verifyProduct(
     target: DbRepairTarget,
     recovered: DbRepairRecoverReport,
+    progress: (tick: DatabaseProgress) => void,
   ): Promise<DbRepairRecoverVerification> {
     const verification: DbRepairRecoverVerification = { ...recovered.verification };
-    const extra = await this.deps.verify?.(target.dbPath, target.key, target.algo);
+    let checking = true;
+    const extra = await this.deps
+      .verify?.(target.dbPath, target.key, target.algo, (tick) => {
+        if (checking) progress(tick);
+      })
+      .finally(() => {
+        checking = false;
+      });
     if (!extra) return verification;
     const unverifiedTables = [
       ...new Set([...(verification.unverifiedTables ?? []), ...(extra.unverifiedTables ?? [])]),

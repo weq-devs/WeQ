@@ -326,6 +326,16 @@ try {
   await unavailable.hover();
   assert.equal(await unavailable.isDisabled(), true);
   await page.getByRole('tooltip').filter({ hasText: '本轮体检未发现需要修复的问题。' }).waitFor();
+  await page.reload();
+  await button('历史报告与恢复').click();
+  await page.evaluate(() => window.maintenanceQa.restoreTick(512));
+  const restoreProgress = historyPane.getByRole('progressbar', { name: '读取并校验备份' });
+  await restoreProgress.waitFor();
+  assert.equal(await restoreProgress.evaluate((element) => element.value), 50);
+  await historyPane.getByRole('button', { name: '关闭', exact: true }).click();
+  await page.getByRole('progressbar', { name: '读取并校验备份' }).waitFor();
+  await page.evaluate(() => window.maintenanceQa.restoreTick(null));
+  await page.getByRole('progressbar', { name: '读取并校验备份' }).waitFor({ state: 'hidden' });
   assert.deepEqual(errors, []);
   console.log('数据库维护：选择与追加体检、原地暂停、修复提示、报告导出、修复流程和代表布局通过。');
 } finally {

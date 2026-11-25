@@ -50,7 +50,11 @@ import {
   type DatabaseMaintenanceStatus,
   type DatabaseMaintenanceStatusRow,
 } from '@weq/service/db-checkup';
-import type { DatabaseTaskProgress } from '@weq/service/db-progress';
+import {
+  databaseStepPercent,
+  type DatabaseTaskProgress,
+  type DatabaseWorkProgress,
+} from '@weq/service/db-progress';
 import { NumericText } from './NumericText';
 import { TimeLabel } from './TimeLabel';
 import { client, trpc } from '../trpc/client';
@@ -60,6 +64,7 @@ import { Modal } from './Dialog';
 import { useDialog } from './Dialog.shared';
 import { QqAvatar } from './QqAvatar';
 import { DatabaseMaintenanceProgress } from './DatabaseMaintenanceProgress';
+import { TaskProgressBar } from './tasks/TaskProgressBar';
 import { ConversationActionsMenu } from './ConversationActionsMenu';
 import { FormSelect } from './FormSelect';
 import { SegmentedControl } from './SegmentedControl';
@@ -257,6 +262,10 @@ export function DbRepairPanel({
   const [diagnostic, setDiagnostic] = useState(account?.diagnostic);
   const [error, setError] = useState('');
   const [connectionError, setConnectionError] = useState(false);
+  const [backupRestore, setBackupRestore] = useState<{
+    dbName: string;
+    step: DatabaseWorkProgress;
+  } | null>(null);
   const touched = useRef(new Set<string>());
   const bodyRef = useRef<HTMLDivElement>(null);
   const lastOperation = useRef<string | undefined>(undefined);
@@ -381,6 +390,11 @@ export function DbRepairPanel({
     });
     return () => sub.unsubscribe();
   }, [scope, updateLive, utils]);
+  useEffect(() => {
+    setBackupRestore(null);
+    const sub = client.dbRepair.onRestoreProgress.subscribe(scope, { onData: setBackupRestore });
+    return () => sub.unsubscribe();
+  }, [scope]);
   useEffect(() => {
     if (!live) return;
     if (sessionId.current !== live.id) {
@@ -790,7 +804,7 @@ export function DbRepairPanel({
         : setupScanKind === 'checkup'
           ? '开始补充检查'
           : '继续体检';
-  const maintenanceIdle = !running && !starting && !ending;
+  const maintenanceIdle = !running && !starting && !ending && !backupRestore;
   const canScan = !!(status.data?.keyPresent && !status.data.error && maintenanceIdle);
   const hasReportRows =
     checkRows.length > 0 &&
@@ -1039,7 +1053,6 @@ export function DbRepairPanel({
       : tab === 'report'
         ? checkOperation
         : operation;
-  const processRunning = processOperation?.status === 'running';
   const progress =
     tab === 'result' && !repairing
       ? resultRow?.progress?.kind === 'repair'
@@ -1053,8 +1066,28 @@ export function DbRepairPanel({
           : (activeRow?.progress ?? (!focused ? check?.progress : undefined))
         : (databases.find((row) => row.dbName === operation?.currentDb)?.progress ??
           live?.progress);
+  const processRunning = processOperation?.status === 'running' || progress?.status === 'running';
   const activeProgress =
     progress && (progress.status === 'running' || progress.steps.length > 0) ? progress : undefined;
+  const restoreCount =
+    backupRestore?.step.completed !== undefined && backupRestore.step.total !== undefined
+      ? `${formatBytesOrUnknown(backupRestore.step.completed)} / ${formatBytesOrUnknown(backupRestore.step.total)}`
+      : undefined;
+  const restoreProgress = backupRestore ? (
+    <section className="weq-db-progress is-compact" aria-label="备份恢复进度">
+      <header className="weq-db-progress-heading">
+        <strong>{`${backupRestore.dbName} · ${backupRestore.step.message}`}</strong>
+        <span>
+          <NumericText>{restoreCount}</NumericText>
+        </span>
+      </header>
+      <TaskProgressBar
+        value={databaseStepPercent(backupRestore.step)}
+        label={backupRestore.step.message}
+        valueText={restoreCount}
+      />
+    </section>
+  ) : null;
   const scanCoverage = `${scannedCount} / ${checkRows.length} 已体检`;
   const repairAvailability = repairCandidates.length
     ? ` · ${repairCandidates.length} 个可修复`
@@ -1200,7 +1233,12 @@ export function DbRepairPanel({
               <NumericText>{scope.uin}</NumericText>
             </span>
           ) : null}
-          {locked || live?.state === 'locking' || live?.state === 'ending' ? (
+          {backupRestore ? (
+            <span className="weq-dbm-state" role="status">
+              <LockKeyhole size={12} strokeWidth={2} aria-hidden />
+              维护中
+            </span>
+          ) : locked || live?.state === 'locking' || live?.state === 'ending' ? (
             <button
               type="button"
               className="weq-dbm-state"
@@ -1261,6 +1299,7 @@ export function DbRepairPanel({
         role="tabpanel"
         aria-labelledby={`dbm-tab-${tab}`}
       >
+        {surface !== 'history' ? restoreProgress : null}
         {alerts.map((message) => (
           <p className="weq-dbm-alert" role="alert" key={message}>
             <AlertTriangle size={15} aria-hidden />
@@ -1884,6 +1923,7 @@ export function DbRepairPanel({
               </button>
             </header>
             <div className="weq-dbm-body" key={reportId ?? legacyId ?? ''}>
+              {restoreProgress}
               {error ? (
                 <p className="weq-dbm-alert" role="alert">
                   {error}
@@ -2016,7 +2056,7 @@ export function DbRepairPanel({
                           <button
                             type="button"
                             className="weq-set-btn weq-set-btn-sm"
-                            disabled={locked || running}
+                            disabled={locked || running || !!backupRestore}
                             onClick={() => void restore(record.id)}
                           >
                             <RotateCcw size={13} />
@@ -2029,7 +2069,7 @@ export function DbRepairPanel({
                           data-danger="outline"
                           title="删除修复记录"
                           aria-label="删除修复记录"
-                          disabled={locked || running || deleteRecord.isLoading}
+                          disabled={locked || running || !!backupRestore || deleteRecord.isLoading}
                           onClick={() => void removeReport(record.id, true, record.canRestore)}
                         >
                           <Trash2 size={14} />

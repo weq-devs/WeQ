@@ -165,7 +165,9 @@ export function DatabaseMaintenanceProgress({
   const visibleSteps = steps.filter(
     (step) =>
       progress.kind !== 'repair' ||
-      !['Scan', 'Decrypt', 'Repair', 'Encrypt', 'Restore', 'Verify'].includes(step.phase) ||
+      !['Scan', 'Decrypt', 'Repair', 'Encrypt', 'Restore', 'Verify', 'final-check'].includes(
+        step.phase,
+      ) ||
       step.step !== step.phase ||
       !detailedPhases.has(step.phase) ||
       attention(step) ||

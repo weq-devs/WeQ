@@ -11,12 +11,8 @@
  * "重新取产物"，与 salvage 链路同一套做法。
  */
 
-import type {
-  BadPageScanResult,
-  DatabaseAlgorithms,
-  DatabaseProgress,
-  SingleBytePageCorrection,
-} from '@weq/native';
+import type { BadPageScanResult, DatabaseAlgorithms, SingleBytePageCorrection } from '@weq/native';
+import type { DatabaseWorkProgress } from './progress';
 
 /** 一个账号 + 它的数据目录 —— 与 `accountConfigId(uin, dataDir)` 是同一套主键。 */
 export interface DbRepairAccountRef {
@@ -61,7 +57,7 @@ export interface DbRepairProgress {
   phase: DbRepairPhase | string;
   percent: number;
   message: string;
-  detail?: DatabaseProgress;
+  detail?: DatabaseWorkProgress;
   storage?: import('./space').RepairStorageStatus;
 }
 

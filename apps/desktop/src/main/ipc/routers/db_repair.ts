@@ -37,7 +37,7 @@ import {
   type DatabaseMaintenanceStatus,
 } from '@weq/service/db-checkup';
 import { writeFileAtomic } from '@weq/service/atomic-write';
-import type { RecoverReport } from '@weq/native';
+import type { DatabaseProgress, RecoverReport } from '@weq/native';
 import {
   clearVerifiedDbDamage,
   closeSalvageConnections,
@@ -64,6 +64,9 @@ const targetRef = accountRef.extend({ dbName: z.string().min(1) });
 const recordRef = accountRef.extend({ recordId: z.string().min(1) });
 const reportRef = accountRef.extend({ reportId: z.string().min(1) });
 const progressBus = new EventEmitter();
+type RestoreProgress = { dbName: string; step: DatabaseProgress };
+let restoreActivity: { scope: DatabaseMaintenanceScope; progress: RestoreProgress } | null = null;
+let pendingRestore: Promise<DbRepairRecord> | undefined;
 const maintenanceLocks = new Map<string, Map<string, DatabaseMaintenanceLock>>();
 let closedAccountDuringRun = false;
 
@@ -166,8 +169,10 @@ const deps: DbRepairDeps = {
     if (!worker) throw new Error('持续维护锁已经释放，不能替换数据库。');
     await worker.protect(path, product);
   },
-  verify: async (path, key, algo) =>
-    requirePlatform().native.ntHelper.checkDatabaseHealth(path, key, algo),
+  verify: async (path, key, algo, progress) =>
+    requirePlatform().native.ntHelper.checkDatabaseHealth(path, key, algo, (error, tick) => {
+      if (!error && tick) progress(tick);
+    }),
 };
 const service = new DbRepairService(deps);
 
@@ -360,6 +365,11 @@ function quickBudgetFor(scope: DatabaseMaintenanceScope, name: string) {
   throw new Error('此数据库当前没有可用的快速修复方案。');
 }
 export const isDbRepairBusy = () => service.isBusy() || databaseMaintenance.active().length > 0;
+export const waitForDatabaseRestore = () =>
+  pendingRestore?.then(
+    () => undefined,
+    () => undefined,
+  );
 
 export interface DbRepairRecordSummary {
   id: string;
@@ -426,6 +436,9 @@ function rowsFor(uin: string, dbDir: string) {
 function assertIdle() {
   if (isDbRepairBusy()) throw new Error('数据库正在维护中，请先结束维护。');
 }
+function assertNotRestoring() {
+  if (restoreActivity) throw new Error('数据库备份正在恢复，请等待完成。');
+}
 function assertCacheIdle() {
   if (
     service.isBusy() ||
@@ -468,6 +481,7 @@ export const dbRepairRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      assertNotRestoring();
       const info = service.accountInfo(input.uin);
       const current = databaseMaintenance.status(input);
       const names = current?.locked
@@ -515,6 +529,7 @@ export const dbRepairRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      assertNotRestoring();
       closedAccountDuringRun = false;
       try {
         return {
@@ -678,15 +693,39 @@ export const dbRepairRouter = router({
   backup: procedure
     .input(targetRef)
     .mutation(({ input }) => service.backup(input.uin, input.dbName)),
+  onRestoreProgress: procedure.input(accountRef).subscription(({ input }) =>
+    observable<RestoreProgress | null>((emit) => {
+      const publish = () =>
+        emit.next(
+          restoreActivity?.scope.uin === input.uin &&
+            restoreActivity.scope.configId === input.configId
+            ? restoreActivity.progress
+            : null,
+        );
+      progressBus.on('restore', publish);
+      publish();
+      return () => {
+        progressBus.off('restore', publish);
+      };
+    }),
+  ),
   restore: procedure
     .input(recordRef.extend({ force: z.boolean().optional() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       assertIdle();
       closedAccountDuringRun = false;
       try {
+        pendingRestore = service.restore(input.uin, input.recordId, {
+          force: input.force,
+          progress: (dbName, step) => {
+            restoreActivity = { scope: input, progress: { dbName, step } };
+            progressBus.emit('restore');
+          },
+        });
+        const record = await pendingRestore;
         return {
           ok: true as const,
-          record: service.restore(input.uin, input.recordId, { force: input.force }),
+          record,
           closedAccount: closedAccountDuringRun,
         };
       } catch (error) {
@@ -698,6 +737,9 @@ export const dbRepairRouter = router({
           closedAccount: closedAccountDuringRun,
         };
       } finally {
+        pendingRestore = undefined;
+        restoreActivity = null;
+        progressBus.emit('restore');
         closedAccountDuringRun = false;
       }
     }),

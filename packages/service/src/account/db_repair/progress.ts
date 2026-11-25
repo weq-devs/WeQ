@@ -63,6 +63,10 @@ export function databaseStepPercent(step: DatabaseWorkProgress): number | undefi
   return Math.min(100, Math.max(0, (step.completed! / step.total!) * 100));
 }
 
+function finalIntegrityStep(step: DatabaseStepProgress): boolean {
+  return step.phase === 'final-check' && step.step.startsWith('integrity-');
+}
+
 function closeCheckupStep(step: DatabaseStepProgress, at: number): DatabaseStepProgress {
   if (step.status !== 'running') return step;
   const incomplete = databaseStepPercent(step) !== undefined && step.completed! < step.total!;
@@ -165,6 +169,8 @@ export class DatabaseProgressTracker {
       if (this.kind === 'checkup') {
         if (last.step !== 'integrity' || !tick.step.startsWith('integrity-'))
           steps[steps.length - 1] = closeCheckupStep(last, at);
+      } else if (finalIntegrityStep(last)) {
+        steps[steps.length - 1] = closeCheckupStep(last, at);
       } else {
         steps[steps.length - 1] = {
           ...last,
@@ -210,17 +216,20 @@ export class DatabaseProgressTracker {
     if (!this.snapshot) return undefined;
     const at = this.now();
     const last =
-      this.kind === 'checkup' && status === 'completed'
+      status === 'completed' &&
+      (this.kind === 'checkup' || finalIntegrityStep(this.snapshot.current))
         ? closeCheckupStep(this.snapshot.current, at)
         : this.snapshot.current;
     const current = {
       ...last,
       status:
-        status === 'cancelled'
-          ? ('skipped' as const)
-          : status === 'completed' && last.status !== 'running'
-            ? last.status
-            : status,
+        last.step === 'rollback-fingerprint' && last.status === 'completed'
+          ? last.status
+          : status === 'cancelled'
+            ? ('skipped' as const)
+            : status === 'completed' && last.status !== 'running'
+              ? last.status
+              : status,
       finishedAt: at,
     };
     this.snapshot = {
