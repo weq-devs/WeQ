@@ -83,6 +83,7 @@ import {
   hasDesktopServices,
 } from '../../desktop_services/host';
 import { mcpCredentialId } from '../../desktop_services/mcp_gateway';
+import { mcpGrantInput } from '../../desktop_services/mcp_grants';
 import { assistantResourceServer } from '../../weq_assistant/server';
 import {
   installMcpAgents as installMcpAgentConfigs,
@@ -2181,18 +2182,10 @@ export const bootstrapRouter = router({
     }>('mcp.grants', undefined, () => ({ accounts: [], grants: [] }));
   }),
 
-  setMcpAccountGrant: procedure
-    .input(
-      z.object({
-        id: z.string().regex(/^[a-f0-9]{64}$/),
-        configIds: z.array(z.string()).max(256),
-        writeConfigIds: z.array(z.string()).max(256).optional(),
-      }),
-    )
-    .mutation(({ input, ctx }) => {
-      if (ctx.authorize || !hasDesktopServices()) throw new Error('请在桌面管理 MCP 授权。');
-      return desktopServiceCommand('mcp.grant', input, () => undefined);
-    }),
+  setMcpAccountGrant: procedure.input(mcpGrantInput).mutation(({ input, ctx }) => {
+    if (ctx.authorize || !hasDesktopServices()) throw new Error('请在桌面管理 MCP 授权。');
+    return desktopServiceCommand('mcp.grant', input, () => undefined);
+  }),
 
   createMcpAccountToken: procedure
     .input(z.object({ label: z.string().trim().min(1).max(64) }))

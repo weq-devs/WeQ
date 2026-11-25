@@ -15,7 +15,7 @@ import { RemoteWebGateway } from '../src/main/remote/web_gateway';
 import { createWebHost, lookupDownload } from '../src/main/web/host';
 import { withWebAccountRoute } from '../src/main/web/account_route';
 import { DesktopMcpGateway, mcpCredentialId } from '../src/main/desktop_services/mcp_gateway';
-import { McpGrants } from '../src/main/desktop_services/mcp_grants';
+import { McpGrants, mcpGrantInput } from '../src/main/desktop_services/mcp_grants';
 import {
   connectDesktopService,
   desktopServiceIsRunning,
@@ -386,9 +386,37 @@ it('旧 MCP 令牌保留读权限，移除账号时同步撤销操作权限', ()
     expect(grants.list(token)[0]).toMatchObject({ configIds: ['101', '202'], writeConfigIds: [] });
     grants.set(token, id, ['101', '202'], ['202']);
     expect(new McpGrants(root).list(token)[0]?.writeConfigIds).toEqual(['202']);
+    expect(mcpGrantInput.parse({ id, configIds: ['101', '202'] })).toEqual({
+      id,
+      configIds: ['101', '202'],
+    });
     grants.set(token, id, ['101']);
     grants.set(token, id, ['101', '202']);
     expect(new McpGrants(root).list(token)[0]?.writeConfigIds).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('MCP 单账号权限使用已保存的授权，降级和撤销时保留同一令牌下其他账号的权限', () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-mcp-grants-'));
+  const token = 'c'.repeat(64);
+  const id = mcpCredentialId(token);
+  try {
+    const grants = new McpGrants(root);
+    expect(grants.setAccountPermission(token, id, '101', 'operate')).toBe(true);
+    expect(grants.setAccountPermission(token, id, '202', 'operate')).toBe(true);
+    expect(grants.setAccountPermission(token, id, '101', 'read')).toBe(true);
+    expect(grants.setAccountPermission(token, id, '101', 'read')).toBe(false);
+    expect(new McpGrants(root).list(token)[0]).toMatchObject({
+      configIds: ['101', '202'],
+      writeConfigIds: ['202'],
+    });
+    expect(grants.setAccountPermission(token, id, '101', 'none')).toBe(true);
+    expect(new McpGrants(root).list(token)[0]).toMatchObject({
+      configIds: ['202'],
+      writeConfigIds: ['202'],
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

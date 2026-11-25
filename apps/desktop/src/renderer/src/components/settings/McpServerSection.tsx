@@ -18,7 +18,7 @@
  */
 
 import { NumericText } from '../NumericText';
-import { Fragment, useEffect, useId, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactElement } from 'react';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
 import {
@@ -46,6 +46,8 @@ import { useTabActive } from '../RetainedTabs.shared';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
+import { SegmentedControl } from '../SegmentedControl';
+import type { McpAccountPermission } from '../../../../main/desktop_services/mcp_grants';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
 import '../../styles/settings-services.css';
 
@@ -703,7 +705,7 @@ function McpAccountAccess({ active }: { active: boolean }) {
       <Card
         title="令牌可访问的账号"
         icon={<UserRoundCheck size={15} strokeWidth={1.8} />}
-        desc="为每个令牌勾选可访问的账号。修改后，相关客户端需重新连接。"
+        desc="为每个令牌设置各账号的权限。「读取和操作」还允许通过 MCP 发送消息和执行 QQ 在线操作。修改后，相关客户端需重新连接。"
       >
         {access.error ? (
           <QueryError
@@ -747,59 +749,41 @@ function McpAccountAccess({ active }: { active: boolean }) {
                   onDismiss={() => dismissToken(grant.id)}
                 />
               ) : null}
-              {accounts?.map((account) => (
-                <Fragment key={account.configId}>
+              {accounts?.map(({ configId, displayName, uin, static: isStatic }) => {
+                const canRead = grant.configIds.includes(configId);
+                const canOperate = !isStatic && grant.writeConfigIds?.includes(configId);
+                const permission = !canRead ? 'none' : canOperate ? 'operate' : 'read';
+                const accountDesc = `${uin}${isStatic ? ' · 静态备份' : ''}`;
+                return (
                   <Row
-                    label={account.displayName}
-                    desc={`${account.uin}${account.static ? ' · 静态备份' : ''}`}
+                    key={configId}
+                    label={displayName}
+                    desc={accountDesc}
                     control={
-                      <Toggle
-                        label={`允许${grant.label}访问${account.displayName}`}
-                        checked={grant.configIds.includes(account.configId)}
+                      <SegmentedControl<McpAccountPermission>
+                        label={`${grant.label} · ${displayName}（${accountDesc}）权限`}
+                        value={permission}
                         disabled={busy}
-                        onChange={(enabled) =>
+                        options={[
+                          { value: 'none', label: '不授权' },
+                          { value: 'read', label: '只读' },
+                          { value: 'operate', label: '读取和操作', hidden: isStatic },
+                        ]}
+                        onChange={(nextPermission) => {
+                          if (nextPermission === permission) return;
                           void act(() =>
                             client.bootstrap.setMcpAccountGrant.mutate({
                               id: grant.id,
-                              configIds: enabled
-                                ? [...grant.configIds, account.configId]
-                                : grant.configIds.filter(
-                                    (configId) => configId !== account.configId,
-                                  ),
+                              configId,
+                              permission: nextPermission,
                             }),
-                          )
-                        }
+                          );
+                        }}
                       />
                     }
                   />
-                  {!account.static && grant.configIds.includes(account.configId) ? (
-                    <Row
-                      label={`允许操作 ${account.displayName}`}
-                      desc="允许通过 MCP 发送消息或执行已登记的 QQ 在线操作。"
-                      control={
-                        <Toggle
-                          label={`允许${grant.label}操作${account.displayName}`}
-                          checked={grant.writeConfigIds?.includes(account.configId) ?? false}
-                          disabled={busy}
-                          onChange={(enabled) =>
-                            void act(() =>
-                              client.bootstrap.setMcpAccountGrant.mutate({
-                                id: grant.id,
-                                configIds: grant.configIds,
-                                writeConfigIds: enabled
-                                  ? [...(grant.writeConfigIds ?? []), account.configId]
-                                  : (grant.writeConfigIds ?? []).filter(
-                                      (id) => id !== account.configId,
-                                    ),
-                              }),
-                            )
-                          }
-                        />
-                      }
-                    />
-                  ) : null}
-                </Fragment>
-              ))}
+                );
+              })}
             </Card>
           );
         })}
@@ -923,7 +907,7 @@ function McpCreatedToken({
       {needsGrant && hasAccounts !== undefined ? (
         <p className="weq-set-note">
           {hasAccounts
-            ? '请在下方勾选此令牌可访问的账号。'
+            ? '请在下方设置此令牌的账号权限。'
             : '添加账号后，可在此为令牌设置访问权限。'}
         </p>
       ) : null}

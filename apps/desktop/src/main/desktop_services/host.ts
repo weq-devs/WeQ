@@ -26,7 +26,7 @@ import {
 } from '../../shared/remote_bootstrap';
 import { migrateRemoteDevices } from './remote_migration';
 import { DesktopMcpGateway, mcpCredentialId } from './mcp_gateway';
-import { McpGrants } from './mcp_grants';
+import { McpGrants, mcpGrantInput } from './mcp_grants';
 
 interface DesktopServiceOptions {
   dataRoot: string;
@@ -199,14 +199,20 @@ async function runDesktopServices(
         return configureMcp();
       }
       if (method === 'mcp.grant') {
-        const { id, configIds, writeConfigIds } = z
-          .object({
-            id: z.string(),
-            configIds: z.array(z.string()).max(256),
-            writeConfigIds: z.array(z.string()).max(256).optional(),
-          })
-          .parse(input);
+        const grant = mcpGrantInput.parse(input);
         const entries = accounts.list();
+        const token = config.getSettings().mcp.token;
+        if ('permission' in grant) {
+          const { id, configId, permission } = grant;
+          const account = entries.find((entry) => entry.configId === configId);
+          if (!account) throw new Error('账号数据源已经变化。');
+          if (account.static && permission === 'operate') throw new Error('静态备份只支持读取。');
+          if (mcpGrants.setAccountPermission(token, id, configId, permission)) {
+            mcp.invalidateCredential(id);
+          }
+          return;
+        }
+        const { id, configIds, writeConfigIds } = grant;
         const saved = new Set(entries.map((account) => account.configId));
         if (configIds.some((configId) => !saved.has(configId)))
           throw new Error('账号数据源已经变化。');
@@ -218,7 +224,7 @@ async function runDesktopServices(
           )
         )
           throw new Error('QQ 在线操作只可授权给令牌已勾选的在线账号。');
-        mcpGrants.set(config.getSettings().mcp.token, id, configIds, writeConfigIds);
+        mcpGrants.set(token, id, configIds, writeConfigIds);
         mcp.invalidateCredential(id);
         return;
       }

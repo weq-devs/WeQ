@@ -13,6 +13,23 @@ const grantSchema = z.object({
 });
 type McpGrant = z.infer<typeof grantSchema>;
 
+const mcpAccountPermission = z.enum(['none', 'read', 'operate']);
+export type McpAccountPermission = z.infer<typeof mcpAccountPermission>;
+export const mcpGrantInput = z.union([
+  grantSchema.pick({ id: true }).extend({
+    configId: z.string(),
+    permission: mcpAccountPermission,
+  }),
+  grantSchema.pick({ id: true, configIds: true, writeConfigIds: true }).partial({
+    writeConfigIds: true,
+  }),
+]);
+
+function setMembership(ids: string[], configId: string, enabled: boolean): string[] {
+  if (ids.includes(configId) === enabled) return ids;
+  return enabled ? [...ids, configId] : ids.filter((id) => id !== configId);
+}
+
 export class McpGrants {
   private readonly path: string;
   private grants: McpGrant[];
@@ -69,11 +86,29 @@ export class McpGrants {
   set(primary: string, id: string, configIds: string[], writeConfigIds?: string[]): void {
     const grant = this.list(primary).find((item) => item.id === id);
     if (!grant) throw new Error('此 MCP 令牌已失效。');
-    const writes = (writeConfigIds ?? grant.writeConfigIds).filter((configId) =>
-      configIds.includes(configId),
-    );
+    this.saveGrant(grant, configIds, writeConfigIds ?? grant.writeConfigIds);
+  }
+
+  setAccountPermission(
+    primary: string,
+    id: string,
+    configId: string,
+    permission: McpAccountPermission,
+  ): boolean {
+    const grant = this.list(primary).find((item) => item.id === id);
+    if (!grant) throw new Error('此 MCP 令牌已失效。');
+    const configIds = setMembership(grant.configIds, configId, permission !== 'none');
+    const writeConfigIds = setMembership(grant.writeConfigIds, configId, permission === 'operate');
+    if (configIds === grant.configIds && writeConfigIds === grant.writeConfigIds) return false;
+    this.saveGrant(grant, configIds, writeConfigIds);
+    return true;
+  }
+
+  private saveGrant(grant: McpGrant, configIds: string[], writeConfigIds: string[]): void {
+    if (configIds.length > 256) throw new Error('每个 MCP 令牌最多可授权 256 个账号数据源。');
+    const writes = writeConfigIds.filter((configId) => configIds.includes(configId));
     this.save([
-      ...this.grants.filter((item) => item.id !== id),
+      ...this.grants.filter((item) => item.id !== grant.id),
       { ...grant, configIds, writeConfigIds: writes },
     ]);
   }
