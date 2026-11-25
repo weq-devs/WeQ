@@ -913,14 +913,19 @@ export function DbRepairPanel({
                 label="体检类型"
                 value={scanKind}
                 options={[
-                  { value: 'scan', label: '快速体检', title: '检查数据库页签名' },
-                  { value: 'checkup', label: '深度体检', title: '定位坏页并检查数据库结构' },
+                  { value: 'scan', label: '快速体检' },
+                  { value: 'checkup', label: '深度体检' },
                 ]}
                 onChange={(kind) => {
                   setScanKind(kind);
                   setNextScanSelection(undefined);
                 }}
               />
+              <p aria-live="polite">
+                {scanKind === 'scan'
+                  ? '逐页扫描数据库，找出可能损坏的页。'
+                  : '进一步检查数据库结构和索引，尝试定位坏页影响的范围，耗时更长。'}
+              </p>
               <p role="status">
                 {status.data && !status.data.keyPresent && !status.data.error
                   ? '请先用 WeQ 打开一次这个账号，获取数据库密钥后再扫描。'
