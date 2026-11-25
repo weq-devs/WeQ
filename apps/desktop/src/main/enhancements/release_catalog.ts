@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import semver from 'semver';
-import type { ModelEntry, DressIndexManifest } from '@weq/service';
+import { DRESS_INDEX_KINDS, type ModelEntry, type DressIndexManifest } from '@weq/service';
 import {
   ENHANCEMENT_RUNTIME_BASELINE,
   ENHANCEMENT_RUNTIME,
@@ -14,6 +14,21 @@ import {
   type EnhancementReleaseComponent,
   type EnhancementCatalog,
 } from '../../shared/enhancement_release';
+
+export function releaseDownloadBytes(release: EnhancementRelease): number | null {
+  if (!release.components.length) return null;
+  return release.components.reduce((total, component) => {
+    if (component.type === 'engine') return total + component.artifact.downloadBytes;
+    if (component.type === 'model')
+      return total + component.files.reduce((sum, file) => sum + file.sizeBytes, 0);
+    if (component.type === 'dress')
+      return (
+        total +
+        DRESS_INDEX_KINDS.reduce((sum, kind) => sum + component.manifest.parts[kind]!.size, 0)
+      );
+    return total + component.asset.sizeBytes;
+  }, 0);
+}
 
 export function releaseContentVersion(components: EnhancementReleaseComponent[]): string {
   const identity = components.map((component) => {

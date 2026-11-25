@@ -42,11 +42,12 @@ const snapshot = () => {
     updateAvailable:
       ['update', 'partial', 'checking-update', 'checking-partial'].includes(state ?? '') &&
       id === 'text',
-    check: { phase: checking ? 'checking' : 'unchecked' },
+    check: { phase: checking ? 'checking' : state === 'update' ? 'checked' : 'unchecked' },
+    fullDownloadBytes: sizes[index]! * 1048576,
     sharedBytes: 0,
     downloadBytes:
       partial && id === 'text' ? 1048576 : downloaded.has(id) ? 0 : sizes[index]! * 1048576,
-    deleteBytes: sizes[index]! * 1048576,
+    deleteBytes: downloaded.has(id) ? sizes[index]! * 1048576 : 0,
     sizeOnDisk: downloaded.has(id) ? sizes[index]! * 1048576 : 0,
     operation:
       (state === 'busy' || state === 'retrying') && id === 'voice'

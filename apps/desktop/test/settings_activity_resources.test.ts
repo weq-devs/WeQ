@@ -68,9 +68,10 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               check: { phase: fixture.checkPhase, checkedAt: fixture.checkedAt },
               blocker: fixture.requiresWeqUpdate ? '需先更新 WeQ 至 v3.0.0' : null,
               requiresWeqUpdate: fixture.requiresWeqUpdate,
+              fullDownloadBytes: 2 * 1048576,
               downloadBytes: fixture.ready ? 0 : 1048576,
-              sizeOnDisk: fixture.ready ? 1048576 : 0,
-              sharedBytes: 0,
+              sizeOnDisk: fixture.ready || id === 'intent' ? 1048576 : 0,
+              sharedBytes: !fixture.ready && id === 'intent' ? 1048576 : 0,
               deleteBytes: fixture.ready ? 1048576 : 0,
               operation: fixture.busy
                 ? { phase: 'downloading', total: 1048576, received: 524288 }
@@ -177,13 +178,14 @@ describe('增强设置与非活动页面资源', () => {
       f.dispose();
     }
   });
-  it('管理页是两张卡片与四行列表，下载单包并将空间占用放在独立列', async () => {
+  it('管理页显示完整包下载大小并支持批量及单包下载', async () => {
     const f = mount(h(EnhancementPacksSection));
     try {
       expect(f.host.querySelectorAll('.weq-set-card')).toHaveLength(2);
       expect(f.host.querySelectorAll('.weq-enhancement-item')).toHaveLength(4);
-      expect(f.host.querySelectorAll('.weq-enhancement-size')).toHaveLength(4);
+      expect(f.host.textContent).toContain('本地文字识别（2.00 MiB）');
       expect(f.host.querySelectorAll('[role="switch"]')).toHaveLength(1);
+      expect(f.host.querySelector('[aria-label="删除本地意图与画像"]')).toBeNull();
       const batch = f.host.querySelector<HTMLButtonElement>(
         '.weq-enhancement-batch-actions button',
       )!;
@@ -195,6 +197,7 @@ describe('增强设置与非活动页面资源', () => {
         mode: 'download',
       });
       const chosen = f.host.querySelector<HTMLButtonElement>('[aria-label="下载本地文字识别"]')!;
+      expect(chosen.title).toContain('1.00 MiB');
       await act(async () => chosen.click());
       expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
       expect(f.host.querySelector('progress')).toBeNull();
@@ -214,7 +217,7 @@ describe('增强设置与非活动页面资源', () => {
       fixture.ready = true;
       f.render(true);
       expect(f.host.querySelector('progress')).toBeNull();
-      expect(f.host.textContent).toContain('1.00 MiB');
+      expect(f.host.textContent).toContain('本地文字识别（2.00 MiB）');
       expect(f.host.querySelectorAll('button[aria-label^="删除"]')).toHaveLength(4);
     } finally {
       f.dispose();

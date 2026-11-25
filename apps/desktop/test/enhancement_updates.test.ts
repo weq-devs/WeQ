@@ -863,7 +863,9 @@ it('另一端可在增强包安装、失败和删除后读取新状态，即使�
   const notifications = vi.fn();
   const stopNotifications = f.controller.subscribeNotifications(notifications);
   try {
-    expect(await snapshots[0]).toMatchObject({ packs: [{ installed: true }] });
+    expect(await snapshots[0]).toMatchObject({
+      packs: [{ installed: true, fullDownloadBytes: null }],
+    });
     await remote.setEnhancementUpdates({ autoCheck: false });
     expect(state).toHaveBeenLastCalledWith({ kind: 'preferences' });
     await remote.checkEnhancementUpdates({ ids: ['dress'] });
@@ -885,7 +887,15 @@ it('另一端可在增强包安装、失败和删除后读取新状态，即使�
     await remote.prepareEnhancementPacks({ ids: ['dress'] });
     await vi.waitFor(async () =>
       expect(await snapshots.at(-1)).toMatchObject({
-        packs: [{ ready: true, updateAvailable: false, installedVersion: f.next.contentVersion }],
+        packs: [
+          {
+            ready: true,
+            updateAvailable: false,
+            installedVersion: f.next.contentVersion,
+            fullDownloadBytes: 96,
+            downloadBytes: 0,
+          },
+        ],
       }),
     );
     await remote.deleteEnhancementPack({ id: 'dress' });

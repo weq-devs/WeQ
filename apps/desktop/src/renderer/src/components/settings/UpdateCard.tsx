@@ -149,7 +149,7 @@ export function UpdateCard(): ReactElement {
               {phase === 'uptodate' ? (
                 <CheckCircle2 size={14} strokeWidth={2} aria-hidden style={{ flexShrink: 0 }} />
               ) : null}
-              {label}
+              <span className={hasNew ? 'weq-set-status-accent' : undefined}>{label}</span>
             </span>
           ) : null}
           <span className="weq-set-row-desc">

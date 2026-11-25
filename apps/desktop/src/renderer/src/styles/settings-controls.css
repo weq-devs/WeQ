@@ -28,6 +28,11 @@ html[data-theme]
   gap: 8px;
 }
 
+.weq-set-status-accent {
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
+  font-weight: 500;
+}
+
 .weq-set-status-badge {
   display: inline-flex;
   align-items: center;

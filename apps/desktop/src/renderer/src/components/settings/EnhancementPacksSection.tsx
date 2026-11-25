@@ -199,13 +199,20 @@ export function EnhancementPacksSection() {
             const checkedAt = timeDate(pack.check?.checkedAt);
             const updatedAt = timeDate(pack.updatedAt);
             const installedAt = timeDate(pack.installedAt);
-            const checkedStatus = pack.updateAvailable
-              ? '有新版本'
-              : pack.blocker
-                ? null
-                : pack.installed
-                  ? '已是最新'
-                  : '可下载';
+            const checked = pack.check?.phase === 'checked';
+            const checkingStatus =
+              pack.check?.phase === 'waiting-network'
+                ? '等待网络允许检查'
+                : checking
+                  ? '正在检查更新'
+                  : null;
+            const availableStatus = pack.needsRepair
+              ? '待补齐'
+              : checked && pack.updateAvailable
+                ? '有新版本'
+                : checked && !pack.blocker && !pack.installed
+                  ? '可下载'
+                  : null;
             const percent = operation?.total
               ? Math.min(100, Math.max(0, (operation.received / operation.total) * 100))
               : task?.progress;
@@ -219,15 +226,9 @@ export function EnhancementPacksSection() {
                   : (operation?.note ?? '正在准备')
               : waiting
                 ? (task.statusLabel ?? '等待继续')
-                : pack.check?.phase === 'waiting-network'
-                  ? '等待网络允许检查'
-                  : checking
-                    ? '正在检查更新'
-                    : pack.needsRepair
-                      ? '待补齐'
-                      : pack.check?.phase === 'checked'
-                        ? checkedStatus
-                        : null;
+                : (checkingStatus ??
+                  availableStatus ??
+                  (checked && !pack.blocker ? '已是最新' : null));
             const issue =
               pack.blocker ??
               operation?.error ??
@@ -261,19 +262,19 @@ export function EnhancementPacksSection() {
                   <Icon size={18} strokeWidth={1.8} />
                 </span>
                 <div className="weq-enhancement-main">
-                  <span className="weq-enhancement-name">{pack.name}</span>
+                  <span className="weq-enhancement-name">
+                    {pack.name}
+                    <span
+                      className="weq-enhancement-size weq-number"
+                      title={`完整包下载大小\n本地占用 ${enhancementBytes(pack.sizeOnDisk)}${pack.sharedBytes ? `，含 ${enhancementBytes(pack.sharedBytes)} 共享资源` : ''}`}
+                    >
+                      {pack.fullDownloadBytes == null
+                        ? '（大小未知）'
+                        : `（${enhancementBytes(pack.fullDownloadBytes)}）`}
+                    </span>
+                  </span>
                   <span className="weq-enhancement-description">{pack.description}</span>
                 </div>
-                <span
-                  className="weq-enhancement-size weq-number"
-                  title={
-                    pack.sharedBytes
-                      ? `含 ${enhancementBytes(pack.sharedBytes)} 共享资源`
-                      : '空间占用'
-                  }
-                >
-                  {enhancementBytes(pack.sizeOnDisk)}
-                </span>
                 <div
                   className="weq-enhancement-actions"
                   role="group"
@@ -282,7 +283,7 @@ export function EnhancementPacksSection() {
                   {primaryLabel && (!pack.busy || canPause) ? (
                     <button
                       type="button"
-                      className="weq-set-btn weq-set-btn-soft weq-enhancement-prepare"
+                      className="weq-set-btn weq-set-btn-soft"
                       title={
                         waiting || canPause
                           ? `${primaryLabel}${pack.name}`
@@ -322,15 +323,11 @@ export function EnhancementPacksSection() {
                       <ClockArrowDown size={14} aria-hidden />
                     </button>
                   ) : null}
-                  {pack.busy ||
-                  waiting ||
-                  pack.downloaded ||
-                  pack.installed ||
-                  pack.sizeOnDisk > 0 ? (
+                  {pack.busy || waiting || pack.installed || pack.deleteBytes > 0 ? (
                     <button
                       data-danger="outline"
                       type="button"
-                      className="weq-set-btn weq-set-btn-soft weq-enhancement-delete"
+                      className="weq-set-btn weq-set-btn-soft"
                       title={`删除${pack.name}`}
                       aria-label={`删除${pack.name}`}
                       onClick={() => void erase(pack.id)}
@@ -360,7 +357,16 @@ export function EnhancementPacksSection() {
                 ) : null}
                 {(!pack.busy && !waiting && status) || checkedAt || pack.installed ? (
                   <div className="weq-enhancement-status" title={missing}>
-                    {!pack.busy && !waiting && status ? <span role="status">{status}</span> : null}
+                    {!pack.busy && !waiting && status ? (
+                      <span
+                        role="status"
+                        className={
+                          !checkingStatus && availableStatus ? 'weq-set-status-accent' : undefined
+                        }
+                      >
+                        {status}
+                      </span>
+                    ) : null}
                     {updatedAt ? (
                       <span>
                         上次更新 <TimeLabel value={updatedAt} />

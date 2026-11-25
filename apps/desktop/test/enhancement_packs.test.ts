@@ -235,8 +235,18 @@ it('仅有共享引擎或零散文件不算装过包，但仍统计所有实际�
   f.state.set('engine:onnx', { ready: true, sizeOnDisk: 20, downloadBytes: 0, identity: 'engine' });
   f.state.get('text-model')!.sizeOnDisk = 7;
   const [text, intent] = await f.packs.list();
-  expect(text).toMatchObject({ installed: false, needsRepair: false, sizeOnDisk: 27 });
-  expect(intent).toMatchObject({ installed: false, sizeOnDisk: 20 });
+  expect(text).toMatchObject({
+    installed: false,
+    needsRepair: false,
+    sizeOnDisk: 27,
+    deleteBytes: 27,
+  });
+  expect(intent).toMatchObject({
+    installed: false,
+    sizeOnDisk: 20,
+    sharedBytes: 20,
+    deleteBytes: 0,
+  });
 });
 
 it('旧回执在丢失组件后仍为已安装，明确删除优先于残留资源与旧回执', async () => {

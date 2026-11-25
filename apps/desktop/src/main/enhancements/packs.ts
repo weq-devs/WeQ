@@ -9,6 +9,7 @@ import {
 } from '../../shared/enhancement_release';
 import { TransferGate } from '@weq/service/data-saver';
 import { networkScope } from '@weq/service/network-scope';
+import { releaseDownloadBytes } from './release_catalog';
 
 export interface EnhancementComponentState {
   ready: boolean;
@@ -280,6 +281,7 @@ export class EnhancementPacks {
           (states.some((state) => state.updateAvailable || !state.ready) ||
             (!!version && !!selected && version !== selected.release.contentVersion)),
         blocker: selected?.blocker ?? states.find((state) => state.blocker)?.blocker ?? null,
+        fullDownloadBytes: selected ? releaseDownloadBytes(selected.release) : null,
         downloadBytes: states.reduce((sum, state) => sum + state.downloadBytes, 0),
         sizeOnDisk: displayedBytes.reduce((sum, bytes) => sum + bytes, 0),
         sharedBytes: displayedBytes.reduce(
