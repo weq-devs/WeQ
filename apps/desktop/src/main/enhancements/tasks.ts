@@ -53,6 +53,14 @@ export function restoreEnhancementTasks(packs: EnhancementPacks, directory: stri
     },
   );
   stores.set(packs, store);
+  packs.restoreInstallTimes(
+    ENHANCEMENT_PACK_IDS.flatMap((id) => {
+      const saved = store.data[id];
+      return saved?.status === 'completed' && saved.action === '安装增强包'
+        ? [[id, saved.updatedAt] as const]
+        : [];
+    }),
+  );
   for (const id of ENHANCEMENT_PACK_IDS) {
     if (!packs.isEnabled(id)) continue;
     const saved = store.data[id];

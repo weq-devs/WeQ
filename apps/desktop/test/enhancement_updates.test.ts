@@ -387,7 +387,12 @@ it('首次手动下载自动读取在线清单，关闭自动检查也不使用�
   await f.packs.wait();
   expect(f.fetcher).toHaveBeenCalled();
   expect(f.ensure).toHaveBeenCalledOnce();
-  expect((await f.packs.list())[0]?.installedVersion).toBe(f.next.contentVersion);
+  const [pack] = await f.packs.list();
+  expect(pack?.installedVersion).toBe(f.next.contentVersion);
+  expect(pack?.installedAt).toEqual(expect.any(Number));
+  expect(pack?.updatedAt).toBeUndefined();
+  const restarted = await fixture(false, f.root);
+  expect((await restarted.packs.list())[0]?.installedAt).toBe(pack?.installedAt);
 });
 
 it('首次没有在线清单且断网时不开始组件下载，重试可重新取清单', async () => {
@@ -482,6 +487,8 @@ it('关闭自动安装时启动核对已有资源，不生成增强包已就绪�
 
 it('增强包原位进度和任务列表从启动起共用一条记录', async () => {
   const f = await fixture(false);
+  const directory = join(f.root, 'enhancements');
+  restoreEnhancementTasks(f.packs, directory);
   f.packs.observePreparations((id, name) => {
     void trackEnhancementPreparation(f.packs, id, name).catch(() => {});
   });
@@ -499,6 +506,17 @@ it('增强包原位进度和任务列表从启动起共用一条记录', async (
   expect(backgroundTasks.snapshot()).toHaveLength(1);
   expect(backgroundTasks.snapshot()[0]?.foreground).toBe(false);
   expect(backgroundTasks.snapshot()[0]?.display).toEqual(tasks[0]?.display);
+  // 模拟首次安装已记入旧任务，但整包回执尚无独立安装时间。
+  const path = join(directory, 'ready.json');
+  const saved = JSON.parse(await readFile(path, 'utf8'));
+  delete saved.dress.installedAt;
+  await writeFile(path, JSON.stringify(saved));
+  const restarted = await fixture(false, f.root);
+  restoreEnhancementTasks(restarted.packs, directory);
+  expect((await restarted.packs.list())[0]?.installedAt).toBe(
+    backgroundTasks.snapshot()[0]?.updatedAt,
+  );
+  expect(JSON.parse(await readFile(path, 'utf8')).dress.installedAt).toEqual(expect.any(Number));
 });
 
 it('重启找回暂停的增强包，自动安装只检查，手动继续才接回原任务', async () => {

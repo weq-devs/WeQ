@@ -64,23 +64,20 @@ try {
         assert.equal(await page.locator('.weq-set-card').count(), 2);
         assert.equal(await page.locator('.weq-enhancement-item').count(), 4);
         assert.equal(await page.getByRole('button', { name: '恢复本页默认设置' }).count(), 1);
-        const buttons = await page
-          .locator(
-            '.weq-enhancement-actions :is(.weq-enhancement-prepare, .weq-enhancement-auto-update)',
-          )
-          .evaluateAll((nodes) =>
-            nodes.map((node) => {
-              const box = node.getBoundingClientRect();
-              return { width: box.width, height: box.height, text: node.textContent };
-            }),
-          );
+        const buttons = await page.locator('.weq-enhancement-actions button').evaluateAll((nodes) =>
+          nodes.map((node) => {
+            const box = node.getBoundingClientRect();
+            return { width: box.width, height: box.height, text: node.textContent };
+          }),
+        );
         assert.ok(
           buttons.every(
             (button) =>
+              Math.abs(button.width - button.height) <= 1 &&
               Math.abs(button.width - buttons[0].width) <= 1 &&
-              Math.abs(button.height - buttons[0].height) <= 1,
+              !button.text.trim(),
           ),
-          `下载和自动更新按钮必须同尺寸：${JSON.stringify({ width, theme, style, buttons })}`,
+          `单包操作使用等大的方形图标按钮：${JSON.stringify({ width, theme, style, buttons })}`,
         );
         assert.equal(await page.getByRole('switch').count(), 1);
         assert.equal(await page.locator('progress').count(), 0);
@@ -196,11 +193,11 @@ try {
     '全部更新',
     '全部检查',
   ]);
-  const autoUpdate = page.getByRole('button', { name: '本地文字识别自动更新', exact: true });
+  const autoUpdate = page.getByRole('button', { name: '本地文字识别自动安装更新', exact: true });
   await autoUpdate.click();
   await autoUpdate.and(page.getByRole('button', { pressed: true })).waitFor();
   assert.equal(
-    await page.getByRole('button', { name: '本地意图与画像自动更新', pressed: false }).count(),
+    await page.getByRole('button', { name: '本地意图与画像自动安装更新', pressed: false }).count(),
     1,
   );
   assert.equal(
@@ -223,7 +220,7 @@ try {
       await row.getByRole('button', { name: '补齐本地文字识别', exact: true }).count(),
       1,
     );
-    assert.equal(await row.locator('.weq-enhancement-status').textContent(), '待补齐');
+    assert.equal(await row.getByRole('status').textContent(), '待补齐');
     assert.match(
       await row.locator('.weq-enhancement-status').getAttribute('title'),
       /文字筛图模型/,

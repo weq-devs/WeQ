@@ -49,15 +49,15 @@
 }
 .weq-enhancement-actions {
   display: grid;
-  grid-template-columns: repeat(2, 76px) 30px;
+  grid-template-columns: repeat(3, 32px);
   justify-content: flex-end;
   gap: 6px;
 }
 .weq-set .weq-enhancement-actions > .weq-set-btn {
   grid-row: 1;
   width: 100%;
-  height: 30px;
-  min-width: 30px;
+  height: 32px;
+  min-width: 32px;
   padding: 0;
   justify-content: center;
 }
@@ -141,11 +141,5 @@ html[data-theme='dark'] .weq-enhancement-item .weq-set-btn:hover:not(:disabled) 
   }
   .weq-enhancement-actions {
     grid-column: 3;
-  }
-}
-@media (max-width: 390px) {
-  .weq-enhancement-size,
-  .weq-enhancement-actions {
-    grid-column: 2 / -1;
   }
 }

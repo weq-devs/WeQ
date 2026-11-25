@@ -4,7 +4,8 @@ import { timeDate } from '@weq/time';
 import {
   AudioLines,
   BrainCircuit,
-  Check,
+  CircleArrowUp,
+  ClockArrowDown,
   Download,
   Package,
   Palette,
@@ -15,6 +16,7 @@ import {
   Play,
   Settings2,
   Sticker,
+  Wrench,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
@@ -36,8 +38,8 @@ const ICONS = {
   'market-emoji': Sticker,
 };
 const BATCH_ACTIONS = [
-  { mode: 'download', label: '全部下载' },
-  { mode: 'update', label: '全部更新' },
+  { mode: 'download', label: '全部下载', icon: Download },
+  { mode: 'update', label: '全部更新', icon: CircleArrowUp },
 ] as const;
 
 export function EnhancementPacksSection() {
@@ -148,7 +150,7 @@ export function EnhancementPacksSection() {
         settingId="enhancement-management"
         action={
           <div className="weq-enhancement-batch-actions">
-            {BATCH_ACTIONS.map(({ mode, label }) => {
+            {BATCH_ACTIONS.map(({ mode, label, icon: BatchIcon }) => {
               const ids = packs
                 .filter((pack) =>
                   canPrepareEnhancement(pack, mode, pack.downloadTask?.status === 'paused'),
@@ -162,7 +164,7 @@ export function EnhancementPacksSection() {
                   disabled={prepare.isLoading}
                   onClick={() => void act(() => prepare.mutateAsync({ ids, mode }))}
                 >
-                  <Download size={14} aria-hidden />
+                  <BatchIcon size={14} aria-hidden />
                   {label}
                 </button>
               ) : null;
@@ -196,6 +198,14 @@ export function EnhancementPacksSection() {
               (check.isLoading && check.variables?.ids.includes(pack.id));
             const checkedAt = timeDate(pack.check?.checkedAt);
             const updatedAt = timeDate(pack.updatedAt);
+            const installedAt = timeDate(pack.installedAt);
+            const checkedStatus = pack.updateAvailable
+              ? '有新版本'
+              : pack.blocker
+                ? null
+                : pack.installed
+                  ? '已是最新'
+                  : '可下载';
             const percent = operation?.total
               ? Math.min(100, Math.max(0, (operation.received / operation.total) * 100))
               : task?.progress;
@@ -216,9 +226,7 @@ export function EnhancementPacksSection() {
                     : pack.needsRepair
                       ? '待补齐'
                       : pack.check?.phase === 'checked'
-                        ? pack.updateAvailable
-                          ? '有可用更新'
-                          : '已检查'
+                        ? checkedStatus
                         : null;
             const issue =
               pack.blocker ??
@@ -236,7 +244,13 @@ export function EnhancementPacksSection() {
                   ? '更新'
                   : null;
             const primaryLabel = waiting || canPause ? (paused ? '继续' : '暂停') : prepareLabel;
-            const PrimaryIcon = waiting || canPause ? (paused ? Play : Pause) : Download;
+            const PrimaryIcon = {
+              下载: Download,
+              更新: CircleArrowUp,
+              补齐: Wrench,
+              继续: Play,
+              暂停: Pause,
+            }[primaryLabel ?? '下载'];
             return (
               <li
                 className="weq-enhancement-item"
@@ -287,15 +301,14 @@ export function EnhancementPacksSection() {
                       }
                     >
                       <PrimaryIcon size={14} aria-hidden />
-                      {primaryLabel}
                     </button>
                   ) : null}
                   {pack.installed ? (
                     <button
                       type="button"
                       className="weq-set-btn weq-enhancement-auto-update"
-                      title={autoCheck ? '后台自动更新此增强包' : '开启全局自动检查后生效'}
-                      aria-label={`${pack.name}自动更新`}
+                      title="自动安装更新"
+                      aria-label={`${pack.name}自动安装更新`}
                       aria-pressed={pack.autoUpdate}
                       disabled={settings.isLoading}
                       onClick={() =>
@@ -306,12 +319,7 @@ export function EnhancementPacksSection() {
                         )
                       }
                     >
-                      {pack.autoUpdate ? (
-                        <Check size={14} aria-hidden />
-                      ) : (
-                        <RefreshCw size={14} aria-hidden />
-                      )}
-                      自动更新
+                      <ClockArrowDown size={14} aria-hidden />
                     </button>
                   ) : null}
                   {pack.busy ||
@@ -350,12 +358,16 @@ export function EnhancementPacksSection() {
                     ) : null}
                   </div>
                 ) : null}
-                {(!pack.busy && !waiting && status) || checkedAt || updatedAt ? (
+                {(!pack.busy && !waiting && status) || checkedAt || pack.installed ? (
                   <div className="weq-enhancement-status" title={missing}>
                     {!pack.busy && !waiting && status ? <span role="status">{status}</span> : null}
                     {updatedAt ? (
                       <span>
                         上次更新 <TimeLabel value={updatedAt} />
+                      </span>
+                    ) : pack.installed ? (
+                      <span>
+                        安装时间 {installedAt ? <TimeLabel value={installedAt} /> : '未记录'}
                       </span>
                     ) : null}
                     {checkedAt ? (

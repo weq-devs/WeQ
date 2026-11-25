@@ -23,6 +23,8 @@ const fixture = vi.hoisted(() => ({
   updateAvailable: false,
   checkPhase: 'unchecked' as 'unchecked' | 'checking' | 'waiting-network' | 'checked',
   checkedAt: undefined as number | undefined,
+  installedAt: undefined as number | undefined,
+  updatedAt: undefined as number | undefined,
   checkLoading: false,
   autoCheck: true,
   autoInstall: false,
@@ -57,6 +59,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               busy: fixture.busy,
               pausable: id !== 'dress',
               installed: fixture.ready,
+              installedAt: fixture.installedAt,
+              updatedAt: fixture.updatedAt,
               autoUpdate: id === 'text' && fixture.autoInstall,
               needsRepair: fixture.ready && fixture.partial,
               missingComponents: fixture.partial ? ['文字筛图模型'] : [],
@@ -129,6 +133,8 @@ beforeEach(() => {
   fixture.updateAvailable = false;
   fixture.checkPhase = 'unchecked';
   fixture.checkedAt = undefined;
+  fixture.installedAt = undefined;
+  fixture.updatedAt = undefined;
   fixture.checkLoading = false;
   fixture.autoCheck = true;
   fixture.autoInstall = false;
@@ -248,10 +254,19 @@ describe('增强设置与非活动页面资源', () => {
       fixture.checkLoading = false;
       fixture.checkPhase = 'checked';
       fixture.checkedAt = Date.parse('2026-11-19T08:03:31Z');
+      fixture.installedAt = Date.parse('2026-11-18T08:03:31Z');
       f.render(true);
-      expect(row.querySelector('[role="status"]')?.textContent).toBe('已检查');
+      expect(row.querySelector('[role="status"]')?.textContent).toBe('已是最新');
       expect(row.textContent).toContain('2026-11-19 16:03:31');
+      expect(row.textContent).toContain('安装时间 2026-11-18 16:03:31');
       expect(fixture.intervals.get('enhancementPacks')).toBe(false);
+      f.render(false);
+      fixture.updateAvailable = true;
+      fixture.updatedAt = Date.parse('2026-11-20T08:03:31Z');
+      f.render(true);
+      expect(row.querySelector('[role="status"]')?.textContent).toBe('有新版本');
+      expect(row.textContent).toContain('上次更新 2026-11-20 16:03:31');
+      expect(row.textContent).not.toContain('安装时间');
     } finally {
       f.dispose();
     }
@@ -364,7 +379,7 @@ describe('增强设置与非活动页面资源', () => {
       await f.render(true);
       expect(f.host.querySelector('[aria-label="自动安装增强包更新"]')).toBeNull();
       const toggle = f.host.querySelector<HTMLButtonElement>(
-        '[aria-label="本地文字识别自动更新"]',
+        '[aria-label="本地文字识别自动安装更新"]',
       )!;
       expect(toggle.getAttribute('aria-pressed')).toBe('true');
       await act(async () => toggle.click());
