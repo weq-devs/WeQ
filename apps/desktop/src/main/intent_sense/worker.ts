@@ -433,20 +433,21 @@ async function createLayaEngine(modelDir: string): Promise<CommonEngine> {
   const layaInstance = await createLaya(modelDir);
   return {
     async analyze(id, text, mine, context, pragmaticHint) {
-      const parts: string[] = [];
+      // Laya 保留输入的开头，先放待分析消息，再补提示和最近的上文。
+      const speaker = mine === true ? '我' : '对方';
+      const parts = [`当前待分析消息（${speaker}）：「${text}」`];
+      if (typeof pragmaticHint === 'string' && pragmaticHint.trim().length > 0) {
+        parts.push(`语境与网络用语提示：${pragmaticHint.trim()}`);
+      }
       if (Array.isArray(context) && context.length > 0) {
         const lines = context
           .filter((c) => c && typeof c.text === 'string' && c.text.trim().length > 0)
           .slice(-4)
+          .reverse()
           .map((c) => `${c.mine ? '我' : '对方'}：「${c.text!.trim().slice(0, 160)}」`);
         if (lines.length > 0) {
-          parts.push(`上文对话：\n${lines.join('\n')}`);
+          parts.push(`上文对话（由近到远）：\n${lines.join('\n')}`);
         }
-      }
-      const speaker = mine === true ? '我' : '对方';
-      parts.push(`当前待分析消息（${speaker}）：「${text}」`);
-      if (typeof pragmaticHint === 'string' && pragmaticHint.trim().length > 0) {
-        parts.push(`语境与网络用语提示：${pragmaticHint.trim()}`);
       }
       const state = parts.join('\n');
       const res = await layaInstance.systemOne(state, {
