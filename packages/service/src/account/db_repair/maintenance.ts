@@ -945,13 +945,16 @@ export class DatabaseMaintenance {
     if (!this.hasSameSource(session, target))
       throw new DbRepairError('changed-during-repair', '核验期间原库发生变化，请重新核对原库。');
     if (!result?.quickBudgetBytes) {
+      const failures = {
+        'scan-ineligible': '本次页检查结果超出快速修复范围。可以查看深度修复方案。',
+        'clone-unavailable': '已核验坏页，但无法在原库所在卷创建工作副本。可以查看深度修复方案。',
+        'page-evidence-missing': '未能找到可核验的内容来修复全部坏页。可以查看深度修复方案。',
+      };
       const error = new DbRepairError(
         'recover-failed',
         checkError
           ? `快速修复条件核验失败：${checkError}`
-          : result?.quickFailure === 'clone-unavailable'
-            ? '已核验坏页，但无法在原库所在卷创建工作副本。可以查看深度修复方案。'
-            : '未能找到可核验的内容来修复全部坏页。可以查看深度修复方案。',
+          : failures[result?.quickFailure ?? 'page-evidence-missing'],
       );
       error.sourceUnchanged = true;
       this.tick(session, row, tracker, 'preparing', {

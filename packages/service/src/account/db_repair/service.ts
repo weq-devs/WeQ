@@ -613,23 +613,27 @@ export class DbRepairService {
     let lastSpaceCheck = 0;
     let storage = initialStorage;
     let rebuildPercent: number | undefined;
+    let hasNativeRebuildProgress = false;
     const { pageCount, pageSize, headerOffset } = request.sourceScan;
     const sourcePageBytes = pageCount * pageSize;
+    const updateRebuildPercent = (rebuiltBytes: number) => {
+      if (sourcePageBytes > 0)
+        rebuildPercent = Math.min(
+          99,
+          Math.max(rebuildPercent ?? 0, (rebuiltBytes / sourcePageBytes) * 100),
+        );
+    };
     const checkSpace = () => {
       lastSpaceCheck = Date.now();
       if (quick) return;
       const working = repairWorkingBytes(join(paths.workDir, stamp));
       const productWorking = repairWorkingBytes(productDirectory);
       const productBytes = productWorking.allocated;
-      if (latest.phase === 'Repair' && sourcePageBytes > 0) {
+      if (latest.phase === 'Repair' && !hasNativeRebuildProgress) {
         const rebuiltBytes = preflight.storageStreaming
           ? productWorking.streamingProduct - headerOffset
           : working.rebuilt;
-        if (rebuiltBytes > 0)
-          rebuildPercent = Math.min(
-            99,
-            Math.max(rebuildPercent ?? 0, (rebuiltBytes / sourcePageBytes) * 100),
-          );
+        if (rebuiltBytes > 0) updateRebuildPercent(rebuiltBytes);
       }
       // 文件释放与 IPC 进度可能先后到达，不把刚被删除的输入再次计入未来写入。
       let budgetPhase = latest.phase.toLowerCase();
@@ -701,6 +705,10 @@ export class DbRepairService {
     };
     const emit = (progress: DbRepairProgress, interrupt = true) => {
       if (!committing && interrupt) request.signal?.throwIfAborted();
+      if (progress.phase === 'Repair' && progress.rebuiltBytes !== undefined) {
+        hasNativeRebuildProgress = true;
+        updateRebuildPercent(progress.rebuiltBytes);
+      }
       const phaseChanged = latest.phase !== progress.phase;
       // 阶段摘要和字段计数交替到达。保留计数，让空间采样也能更新同一行进度条。
       latest =

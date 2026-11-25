@@ -460,6 +460,20 @@ export interface SingleBytePageCorrection {
   replacementByte: number;
 }
 
+export interface QuickPageEvidence {
+  freeLeaves: number[];
+  backupMatches: number[];
+  singleByteCorrection?: SingleBytePageCorrection;
+}
+
+export type QuickRepairFailure = 'scan-ineligible' | 'page-evidence-missing' | 'clone-unavailable';
+
+export interface QuickRepairAssessment {
+  evidence?: QuickPageEvidence;
+  budgetBytes?: number;
+  failure?: QuickRepairFailure;
+}
+
 /** `recoverDatabase` 的入参。 */
 export interface RecoverOptions {
   /** 加密的 QQ 库路径（含 1024 字节自定义头）。**本函数不会修改它**。 */
@@ -506,6 +520,8 @@ export interface RecoverProgress {
   /** 给用户看的短句，例如"正在恢复 group_msg_table（第 1024/22454 页）"。 */
   message: string;
   detail?: DatabaseProgress;
+  /** 深度重建主产物的逻辑字节数，不含 QQ 文件头或日志。 */
+  rebuiltBytes?: number;
 }
 
 /** 原生数据库维护的真实工作量；total 缺省表示没有可靠分母。 */
@@ -1195,11 +1211,15 @@ export interface NtHelperBinding {
     algo: DatabaseAlgorithms,
     pages: number[],
     references: string[],
-  ): Promise<{
-    freeLeaves: number[];
-    backupMatches: number[];
-    singleByteCorrection?: SingleBytePageCorrection;
-  }>;
+  ): Promise<QuickPageEvidence>;
+  assessDatabaseQuickRepair?(
+    dbPath: string,
+    key: string,
+    algo: DatabaseAlgorithms,
+    scan: BadPageScanResult,
+    sourceLayout: 'qq' | 'standard',
+    references: string[],
+  ): Promise<QuickRepairAssessment>;
   cloneDatabaseRepairBackup?(source: string, target: string): Promise<void>;
   probeDatabaseCloneBudget?(directory: string): Promise<number>;
   repairDatabaseQuick?(

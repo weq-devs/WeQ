@@ -58,6 +58,7 @@ export interface DbRepairProgress {
   percent: number;
   message: string;
   detail?: DatabaseWorkProgress;
+  rebuiltBytes?: number;
   storage?: import('./space').RepairStorageStatus;
 }
 

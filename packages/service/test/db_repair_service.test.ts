@@ -412,6 +412,36 @@ describe('DbRepairService.repair 成功路径', () => {
     }
   });
 
+  it('优先展示原生写入量，主产物文件名和阶段摘要不影响重建进度', async () => {
+    const h = createHarness({
+      storageStreaming: () => true,
+      recover: async (options, progress) => {
+        const outputDirectory = join(dirname(options.outPath), '.nt-helper-export-fixture');
+        mkdirSync(outputDirectory, { recursive: true });
+        writeFileSync(join(outputDirectory, 'database'), Buffer.alloc(1024 + 16 * 4096));
+        const tick = { phase: 'Repair', percent: 40, message: '正在重建' };
+        progress({ ...tick, rebuiltBytes: 0 });
+        progress({
+          ...tick,
+          rebuiltBytes: 4 * 4096,
+          detail: { step: 'recover-data', message: '恢复表数据', completed: 9000, unit: 'fields' },
+        });
+        progress(tick);
+        progress({ ...tick, rebuiltBytes: 8 * 4096 });
+        writeFileSync(options.outPath, repairedBytes());
+        progress({ phase: 'Verify', percent: 100, message: '检查修复产物' });
+        return makeReport();
+      },
+    });
+    await h.repair({ uin: REF, dbName: 'nt_msg.db', backup: false }, collect(h.progress));
+    const rebuilding = h.progress.filter((tick) => tick.phase === 'Repair');
+    expect(rebuilding.map((tick) => tick.detail?.rebuildPercent)).toEqual([0, 25, 25, 50]);
+    expect(rebuilding.at(-1)?.detail?.completed).toBe(9000);
+    expect(
+      h.progress.find((tick) => tick.phase === 'Verify')?.detail?.rebuildPercent,
+    ).toBeUndefined();
+  });
+
   it('backup: false 时不落备份（记录里如实写 null）', async () => {
     const h = createHarness();
     const record = await h.repair(

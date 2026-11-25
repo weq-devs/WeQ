@@ -1,4 +1,4 @@
-import type { SingleBytePageCorrection } from '@weq/native';
+import type { QuickRepairFailure, SingleBytePageCorrection } from '@weq/native';
 import type { BadPageScanReport } from '../bad_pages';
 import type { DbRepairCheckupIntegrity } from './checkup';
 import type { DatabaseTaskProgress } from './progress';
@@ -32,7 +32,7 @@ export interface DatabasePageLocation {
   affected: BadPageScanReport['affected'];
   quickBudgetBytes?: number;
   singleByteCorrection?: SingleBytePageCorrection;
-  quickFailure?: 'page-evidence-missing' | 'clone-unavailable';
+  quickFailure?: QuickRepairFailure;
 }
 
 export type DatabaseRepairSupport = 'supported' | 'possible' | 'unsupported';
