@@ -1,6 +1,9 @@
-import { realpathSync, unlinkSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { lstatSync, realpathSync, unlinkSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
+import { TRPCError } from '@trpc/server';
 import {
+  DEFAULT_APP_SETTINGS,
   archiveHistoricalLogs,
   getActiveLogPath,
   getLogDir,
@@ -14,6 +17,7 @@ import {
   type LogFileEntry,
 } from '@weq/service';
 import { getNativeLogRoot } from '@weq/native';
+import type { LogPrunePreview } from '../shared/settings_reset';
 
 const logger = getLogger().child({ scope: 'log-retention' });
 const MIB = 1024 * 1024;
@@ -85,10 +89,10 @@ export function planLogRetention(policy: LogPolicy, now = new Date()) {
     );
     return candidates.filter(({ name }) => names.has(name));
   });
-  const targets = new Set(expired.map(logFileSource));
+  const identities = new Map(expired.map((file) => [logFileSource(file), file.identity]));
   const capacityBytes = policy.logCapacityMiB * MIB;
   let remaining = app.history.reduce(
-    (bytes, file) => (targets.has(logFileSource(file)) ? bytes - file.size : bytes),
+    (bytes, file) => (identities.has(logFileSource(file)) ? bytes - file.size : bytes),
     app.bytes,
   );
   let capacityFiles = 0;
@@ -97,13 +101,14 @@ export function planLogRetention(policy: LogPolicy, now = new Date()) {
   )) {
     if (!capacityBytes || remaining <= capacityBytes) break;
     const path = logFileSource(file);
-    if (targets.has(path)) continue;
-    targets.add(path);
+    if (identities.has(path)) continue;
+    identities.set(path, file.identity);
     remaining -= file.size;
     capacityFiles++;
   }
   return {
-    targets,
+    targets: new Set(identities.keys()),
+    identities,
     preview: {
       bytes: app.bytes,
       expiredFiles: expired.length,
@@ -112,11 +117,51 @@ export function planLogRetention(policy: LogPolicy, now = new Date()) {
   };
 }
 
-function removeLogs(paths: Iterable<string>) {
+export function planDefaultLogRetention(current: LogPolicy) {
+  const defaults = DEFAULT_APP_SETTINGS;
+  if (
+    current.logRetentionDays === defaults.logRetentionDays &&
+    current.logCapacityMiB === defaults.logCapacityMiB
+  )
+    return null;
+  return planLogRetention(defaults);
+}
+
+export function describeLogPrune(
+  plan: ReturnType<typeof planLogRetention> | null,
+): LogPrunePreview | null {
+  if (!plan?.targets.size) return null;
+  const { expiredFiles, capacityFiles } = plan.preview;
+  return {
+    expiredFiles,
+    capacityFiles,
+    confirmation: createHash('sha256')
+      .update(JSON.stringify([expiredFiles, capacityFiles, [...plan.identities].sort()]))
+      .digest('hex'),
+  };
+}
+
+export function assertLogPruneConfirmed(
+  plan: ReturnType<typeof planLogRetention> | null,
+  confirmation?: string | null,
+) {
+  if (describeLogPrune(plan)?.confirmation !== (confirmation ?? undefined))
+    throw new TRPCError({ code: 'CONFLICT', message: '预计删除的日志已变化，请重新确认。' });
+}
+
+function removeLogs(paths: Iterable<string>, identities?: ReadonlyMap<string, string>) {
   let removed = 0;
   let failed = 0;
   for (const path of paths) {
     try {
+      if (identities) {
+        const stat = lstatSync(path);
+        const identity = stat.ino ? `${stat.dev}:${stat.ino}` : path;
+        if (!stat.isFile() || identities.get(path) !== identity) {
+          failed++;
+          continue;
+        }
+      }
       unlinkSync(path);
       removed++;
     } catch (error) {
@@ -133,7 +178,7 @@ export function clearAppLogHistory() {
 }
 
 export function runLogRetentionSweep(policy: LogPolicy, plan = planLogRetention(policy)) {
-  const result = removeLogs(plan.targets);
+  const result = removeLogs(plan.targets, plan.identities);
   archiveHistoricalLogs();
   if (result.removed || result.failed)
     logger.info('pruned log files', { event: 'log-prune', ...result });

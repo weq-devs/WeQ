@@ -1,4 +1,6 @@
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { TRPCClientError } from '@trpc/client';
+import { SETTINGS_FIELDS } from '@weq/service/settings-catalog';
 import { RotateCcw } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { LoadingIndicator } from '../LoadingIndicator';
@@ -7,6 +9,8 @@ import { client, trpc } from '../../trpc/client';
 import {
   SETTINGS_RESET_CARDS,
   resetCards,
+  isLogPolicyResetItem,
+  settingsResetScopeLabel,
   type SettingsResetTarget,
   type SettingsResetItem,
   type SettingsResetResult,
@@ -16,7 +20,13 @@ import { SettingsResetContext, type ResetSave } from './resetContext';
 import { SETTINGS_PAGE_LABELS, settingsSectionFor } from './navigation';
 import '../../styles/settings-reset.css';
 import { acceptPreferences, settlePreferenceWrites } from '../../lib/clientPreferences';
-import { describeSettingsReset, formatResetValue } from '../../lib/settingsResetPreview';
+import {
+  describeLogPruneImpact,
+  describeSettingsReset,
+  formatResetValue,
+} from '../../lib/settingsResetPreview';
+import { IS_WEB } from '../../lib/target.shared';
+import { useRemoteClient } from '../../lib/remoteClient';
 
 const differs = (item: SettingsResetItem) =>
   JSON.stringify(item.current) !== JSON.stringify(item.defaultValue);
@@ -43,6 +53,7 @@ export function SettingsResetButton({ card }: { card?: SettingsResetCardId }) {
 
 export function SettingsResetProvider({ page, children }: { page: string; children: ReactNode }) {
   const utils = trpc.useUtils();
+  const remote = useRemoteClient();
   const queues = useRef(new Map<SettingsResetCardId, Set<ResetSave>>());
   const alive = useRef(true);
   useEffect(() => {
@@ -51,16 +62,22 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
       alive.current = false;
     };
   }, []);
-  const [dialog, setDialog] = useState<{
-    target: SettingsResetTarget;
-    source: string | null;
-    items: SettingsResetItem[];
-  } | null>(null);
+  const [dialog, setDialog] = useState<
+    | (Awaited<ReturnType<typeof client.settingsReset.preview.query>> & {
+        target: SettingsResetTarget;
+      })
+    | null
+  >(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [directories, setDirectories] = useState<string[]>([]);
   const [results, setResults] = useState<SettingsResetResult[]>([]);
+  const failed = results.filter((result) => !result.ok).map((result) => result.id);
+  const retriesLogPolicy = failed.some(isLogPolicyResetItem);
+  const logPrune = !failed.length || retriesLogPolicy ? dialog?.logPrune : null;
   const confirmButton = useRef<HTMLButtonElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const button = confirmButton.current;
     if (
@@ -69,9 +86,15 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
       !button.disabled &&
       button.ownerDocument.activeElement === button.closest('.weq-dialog-layer')
     )
-      button.focus();
-  }, [busy]);
-  const supported = SETTINGS_RESET_CARDS.some(([id]) => id === page);
+      (logPrune ? cancelButton.current : button)?.focus();
+  }, [busy, logPrune]);
+  const supported = SETTINGS_RESET_CARDS.some(
+    ([id, card]) =>
+      id === page &&
+      (!IS_WEB ||
+        remote ||
+        SETTINGS_FIELDS.some((field) => field.card === card && !field.desktopOnly)),
+  );
   if (!supported) return <>{children}</>;
   const saves = (card: SettingsResetCardId) => {
     let set = queues.current.get(card);
@@ -82,40 +105,52 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
     return set;
   };
   const open = async (target: SettingsResetTarget) => {
-    setDialog({ target, source: null, items: [] });
+    setDialog({ target, source: null, items: [], revision: '', logPrune: null });
     setBusy(true);
     setError('');
+    setNotice('');
     setDirectories([]);
     setResults([]);
     try {
       await settlePreferenceWrites();
       const preview = await client.settingsReset.preview.query(target);
       if (!alive.current) return;
-      setDialog({
-        target,
-        source: preview.source,
-        items: preview.items,
-      });
+      setDialog({ target, ...preview });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setBusy(false);
     }
   };
+  const refreshPreview = async (active: NonNullable<typeof dialog>) => {
+    const preview = await client.settingsReset.preview.query(active.target);
+    if (!alive.current) return;
+    setDialog({ target: active.target, ...preview });
+    if (preview.source !== active.source) {
+      setResults([]);
+      setDirectories([]);
+    } else {
+      setDirectories((before) =>
+        before.filter((id) => preview.items.some((item) => item.id === id)),
+      );
+    }
+  };
   const apply = async () => {
     if (!dialog || busy) return;
     const active = dialog;
-    const failed = results.filter((result) => !result.ok).map((result) => result.id);
     const retry = failed.length ? failed : undefined;
     const relevant = resetCards(active.target).flatMap(([, card]) => [...saves(card)]);
     setBusy(true);
     setError('');
+    setNotice('');
     try {
       await Promise.all(relevant.map((save) => save.suspend()));
       await settlePreferenceWrites();
       const completed = await client.settingsReset.restore.mutate({
         ...active.target,
         source: active.source,
+        revision: active.revision,
+        pruneConfirmation: logPrune?.confirmation,
         directories,
         retry,
       });
@@ -136,7 +171,9 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
         refresh.push(utils.account.getAssistantConfig.invalidate());
       if (cards.has('performance-recording'))
         refresh.push(utils.performanceMonitor.status.invalidate());
-      if (cards.has('logs')) refresh.push(utils.help.getNativeDebugLog.invalidate());
+      if (cards.has('logs')) {
+        refresh.push(utils.help.getNativeDebugLog.invalidate(), utils.help.logStorage.invalidate());
+      }
       if (cards.has('onebot')) refresh.push(utils.bootstrap.getOneBotStatus.invalidate());
       if (cards.has('qq-client-sync'))
         refresh.push(utils.bootstrap.getQqClientSyncStatus.invalidate());
@@ -188,8 +225,17 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
         });
       }
       if (completed.every((item) => item.ok)) setDialog(null);
+      else await refreshPreview(active);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      if (reason instanceof TRPCClientError && reason.data?.code === 'CONFLICT') {
+        try {
+          await refreshPreview(active);
+          setNotice(reason.message);
+        } catch (readError) {
+          setDialog({ ...active, items: [], revision: '', logPrune: null });
+          setError(readError instanceof Error ? readError.message : String(readError));
+        }
+      } else setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       relevant.forEach((save) => {
         save.release();
@@ -199,7 +245,12 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
   };
   const changed =
     dialog?.items.filter(
-      (item) => differs(item) && (!item.directory || directories.includes(item.id)),
+      (item) =>
+        (!failed.length ||
+          failed.includes(item.id) ||
+          (retriesLogPolicy && isLogPolicyResetItem(item.id))) &&
+        differs(item) &&
+        (!item.directory || directories.includes(item.id)),
     ) ?? [];
   const label = dialog?.target.card
     ? SETTINGS_RESET_CARDS.find(([, card]) => card === dialog.target.card)?.[2]
@@ -236,6 +287,7 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                   <LoadingIndicator>正在处理…</LoadingIndicator>
                 </p>
               ) : null}
+              {notice ? <p role="status">{notice}</p> : null}
               <div className="weq-settings-reset-items">
                 {dialog.items
                   .filter((item) => !item.directory)
@@ -243,7 +295,9 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                     <div key={item.id} className="weq-settings-reset-item">
                       <strong>
                         {item.label}
-                        {item.scope !== '全局' && <small>{item.scope}</small>}
+                        {item.scope !== '全局' && (
+                          <small>{settingsResetScopeLabel(item.scope)}</small>
+                        )}
                       </strong>
                       <dl className="weq-settings-reset-preview">
                         {describeSettingsReset(item).map((line) => (
@@ -298,6 +352,9 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                 <p>停用 QQ 代理前，请先在 QQ 的「网络设置」中恢复直连。</p>
               ) : null}
               {directories.length ? <p>仅更改目录设置，不迁移或删除已有文件。</p> : null}
+              {dialog.target.page === 'logs' ? <p>性能记录的保存时长和容量上限会保留。</p> : null}
+              {dialog.target.page === 'mail' ? <p>新邮件提醒可在「通知与提醒」恢复默认。</p> : null}
+              {logPrune ? <p>{describeLogPruneImpact(logPrune)}</p> : null}
               {!busy && !changed.length && !error ? <p>当前已是默认设置。</p> : null}
               {results.length ? (
                 <div role="status">
@@ -350,6 +407,7 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
               <button
                 type="button"
                 className="weq-set-btn weq-set-btn-soft"
+                ref={cancelButton}
                 disabled={busy}
                 onClick={() => setDialog(null)}
               >
@@ -369,7 +427,7 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                 type="button"
                 className="weq-set-btn"
                 data-danger="outline"
-                data-weq-dialog-confirm
+                data-weq-dialog-confirm={logPrune ? undefined : true}
                 ref={confirmButton}
                 disabled={
                   busy ||
@@ -378,7 +436,11 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                 }
                 onClick={() => void apply()}
               >
-                {results.some((item) => !item.ok) ? '重试失败项' : '确认恢复默认'}
+                {logPrune
+                  ? '恢复并删除'
+                  : results.some((item) => !item.ok)
+                    ? '重试失败项'
+                    : '确认恢复默认'}
               </button>
             </div>
           </div>

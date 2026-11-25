@@ -1,6 +1,7 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
+import { TRPCClientError } from '@trpc/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { BackupSection } from '../src/renderer/src/components/settings/BackupSection';
 import { backupApi } from '../src/renderer/src/components/settings/BackupSection.shared';
@@ -31,6 +32,8 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', new Storage());
   reset.preview.mockReset().mockResolvedValue({
     source: null,
+    revision: 'synthetic-revision',
+    logPrune: null,
     items: [
       {
         id: 'web:enabled',
@@ -68,6 +71,7 @@ function fixture() {
         hasApi: false,
         paths: [],
         connections: [],
+        logPrune: null,
       }),
     ),
     inventory: vi.fn(async () => ({
@@ -131,7 +135,13 @@ async function mount(api: typeof backupApi) {
   return { host, button, click };
 }
 async function mountReset(items?: SettingsResetItem[]) {
-  if (items) reset.preview.mockResolvedValue({ source: null, items });
+  if (items)
+    reset.preview.mockResolvedValue({
+      source: null,
+      items,
+      revision: 'synthetic-revision',
+      logPrune: null,
+    });
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -341,7 +351,7 @@ it('全局恢复读取及提交期间禁用取消和重复提交，提交失败�
   expect(ui.button('正在恢复…').disabled).toBe(true);
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
   expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-  await act(async () => finishRead({ hasApi: true, paths: [], connections: [] }));
+  await act(async () => finishRead({ hasApi: true, paths: [], connections: [], logPrune: null }));
   await act(async () =>
     document.querySelector<HTMLButtonElement>('[aria-label="清除 API 配置"]')!.click(),
   );
@@ -366,6 +376,7 @@ it('全局恢复的 API、服务与目录仅在显式选择后重置，重新打
     hasApi: true,
     paths: [{ id: 'defaultExportDir', label: '导出目录', value: '/synthetic/exports' }],
     connections: [{ id: 'webEnabled', label: 'Web 服务', value: '运行中' }],
+    logPrune: null,
   };
   const ui = await mount({ ...f.api, defaultsInfo: vi.fn(async () => info) });
   await ui.click('恢复全局默认设置');
@@ -466,6 +477,41 @@ it('读取恢复范围失败可重试，未读取成功时不能确认恢复', a
   expect(reset.preview).toHaveBeenLastCalledWith({ page: 'remote', card: undefined });
   await ui.click('取消');
   expect(reset.restore).not.toHaveBeenCalled();
+});
+
+it('范围变化后用新预览替换确认内容，再次点击才提交', async () => {
+  const initial = {
+    id: 'remote:enabled',
+    label: 'WeQ Remote',
+    scope: '全局',
+    current: true,
+    defaultValue: false,
+    stopsService: true,
+  } satisfies SettingsResetItem;
+  const added = { ...initial, id: 'web:enabled', label: '本机浏览器访问' };
+  reset.preview
+    .mockResolvedValueOnce({ source: null, items: [initial], revision: 'before', logPrune: null })
+    .mockResolvedValueOnce({
+      source: null,
+      items: [initial, added],
+      revision: 'after',
+      logPrune: null,
+    });
+  reset.restore.mockRejectedValueOnce(
+    TRPCClientError.from({
+      error: { code: -32009, message: '设置已变化', data: { code: 'CONFLICT' } },
+    }),
+  );
+  const ui = await mountReset();
+  await ui.click('恢复本页默认设置');
+  await ui.click('确认恢复默认');
+  expect(reset.restore).toHaveBeenCalledOnce();
+  const modal = document.querySelector('[role="dialog"]')!;
+  expect(modal.textContent).toContain('设置已变化');
+  expect(modal.textContent).toContain('本机浏览器访问');
+  await ui.click('确认恢复默认');
+  await ui.settled();
+  expect(reset.restore).toHaveBeenLastCalledWith(expect.objectContaining({ revision: 'after' }));
 });
 it('恢复默认使用居中模态确认，默认聚焦确认，取消仍不提交恢复', async () => {
   const ui = await mountReset();

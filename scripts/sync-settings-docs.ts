@@ -5,6 +5,7 @@ import {
   SETTINGS_PAGE_LABELS,
   listSettings,
 } from '../packages/service/src/common/settings_catalog';
+import { settingsResetScopeLabel } from '../packages/service/src/common/settings_catalog/reset';
 
 const target = fileURLToPath(new URL('../docs/guide/settings-reference.md', import.meta.url));
 const cell = (text: string) =>
@@ -32,7 +33,7 @@ for (const group of SETTINGS_GROUPS) {
     );
     for (const item of listSettings({ page })) {
       lines.push(
-        `| ${cell(item.label)} | \`${item.id}\` | ${cell(item.aliases.join('、'))} | ${cell(item.reset.map((field) => `${field.label}（${field.scope}${field.directory ? '，目录需选择' : ''}${field.stopsService ? '，可能停用服务' : ''}）`).join('；'))} |`,
+        `| ${cell(item.label)} | \`${item.id}\` | ${cell(item.aliases.join('、'))} | ${cell(item.reset.map((field) => `${field.label}（${settingsResetScopeLabel(field.scope)}${field.directory ? '，目录需选择' : ''}${field.stopsService ? '，可能停用服务' : ''}）`).join('；'))} |`,
       );
     }
   }

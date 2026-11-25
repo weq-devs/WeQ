@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -22,6 +22,15 @@ const context = vi.hoisted(() => ({
   closing: vi.fn(async () => {}),
   proxy: null as { enabled: boolean; port: number } | null,
   debug: false,
+  logDirectory: '',
+}));
+vi.mock('@weq/service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weq/service')>()),
+  getLogDir: () => context.logDirectory,
+}));
+vi.mock('@weq/native', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@weq/native')>()),
+  getNativeLogRoot: () => context.logDirectory,
 }));
 vi.mock('../src/main/qq_sync/runtime', () => ({
   qqSyncStatus: async () => ({ ...context.proxy }),
@@ -81,6 +90,7 @@ afterEach(() => {
   context.current = null;
   context.proxy = null;
   context.debug = false;
+  context.logDirectory = '';
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function fixture() {
@@ -110,6 +120,39 @@ function fixture() {
   const routes = router(backupProcedures);
   return { root, caller: routes.createCaller({}), routes, host };
 }
+it('全局恢复在日志删除范围变化后要求重新确认，确认后才设置默认策略并删除', async () => {
+  const f = fixture();
+  const config = context.current!.config!;
+  context.logDirectory = mkdtempSync(join(tmpdir(), 'weq-backup-log-reset-'));
+  roots.push(context.logDirectory);
+  config.setSettings({ logRetentionDays: 0, logCapacityMiB: 0 });
+  const first = join(context.logDirectory, '2020-01-01.log.gz');
+  const second = join(context.logDirectory, '2020-01-02.log.gz');
+  const mtime = new Date(Date.now() - 10 * 86_400_000);
+  writeFileSync(first, 'synthetic');
+  utimesSync(first, mtime, mtime);
+  const preview = (await f.caller.backupDefaultsInfo()).logPrune;
+  expect(preview).toMatchObject({ expiredFiles: 1, capacityFiles: 0 });
+  await expect(f.caller.backupDefaults()).rejects.toMatchObject({ code: 'CONFLICT' });
+  expect(context.closing).not.toHaveBeenCalled();
+  context.closing.mockImplementationOnce(async () => {
+    writeFileSync(second, 'synthetic');
+    utimesSync(second, mtime, mtime);
+  });
+  await expect(
+    f.caller.backupDefaults({ pruneConfirmation: preview?.confirmation }),
+  ).rejects.toMatchObject({ code: 'CONFLICT' });
+  expect(config.getSettings().logRetentionDays).toBe(0);
+  expect((await f.caller.backupStatus()).pending).toBeNull();
+  expect(existsSync(first) && existsSync(second)).toBe(true);
+  const reread = (await f.caller.backupDefaultsInfo()).logPrune;
+  expect(reread?.expiredFiles).toBe(2);
+  expect((await f.caller.backupDefaults({ pruneConfirmation: reread?.confirmation })).status).toBe(
+    'applied',
+  );
+  expect(config.getSettings()).toMatchObject({ logRetentionDays: 7, logCapacityMiB: 256 });
+  expect(existsSync(first) || existsSync(second)).toBe(false);
+});
 it('恢复默认 RPC 只返回必要确认信息，未选择的自启保持不变', async () => {
   const f = fixture();
   const tasks = backgroundTasks.snapshot();
@@ -235,6 +278,7 @@ it('真实备份 RPC 无 Native 可读取、导出、分片导入、预览并直
     hasApi: false,
     paths: [],
     connections: [],
+    logPrune: null,
   });
   expect(await f.caller.backupStartup()).toMatchObject({
     ok: true,

@@ -105,6 +105,11 @@ export interface SettingsResetItem {
   directory?: boolean;
   stopsService?: boolean;
 }
+
+export function settingsResetScopeLabel(scope: SettingsResetItem['scope']): string {
+  return scope === '此设备' ? '运行 WeQ 的电脑' : scope;
+}
+
 export interface SettingsResetResult {
   id: string;
   ok: boolean;

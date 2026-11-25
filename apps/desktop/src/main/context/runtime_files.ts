@@ -87,6 +87,7 @@ export function applyBackupLive(
   afterApply?: (result: NonNullable<ReturnType<typeof applyLiveBackupContext>>) => Promise<void>,
   refreshOnFailure = true,
   desktop = true,
+  beforeApply?: () => void,
 ) {
   return runtimeMaintenance.run(() =>
     maintainDesktopStorage(async () => {
@@ -99,6 +100,7 @@ export function applyBackupLive(
       try {
         await ctx.clearAccount(true);
         await assistantResourceServer.stop();
+        beforeApply?.();
         const result = applyLiveBackupContext();
         if (result.needsRecovery) blockRuntimeForBackupRecovery(result.error || '恢复回滚尚未完成');
         if (result.status !== 'applied') throw new Error(result.error || '恢复未应用');

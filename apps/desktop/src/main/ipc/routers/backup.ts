@@ -36,6 +36,12 @@ import { remoteRuntime } from '../../remote/runtime';
 import { disableNativeDebugLog } from './help';
 import { DEFAULT_QQ_SYNC_PORT } from '../../qq_sync/ipc';
 import { qqSyncStatus, setQqSyncPort, setQqSyncProxyEnabled } from '../../qq_sync/runtime';
+import {
+  assertLogPruneConfirmed,
+  describeLogPrune,
+  planDefaultLogRetention,
+  runLogRetentionSweep,
+} from '../../log_retention';
 
 const selection = z.object({
   parts: z.array(z.enum(WEQ_BACKUP_PARTS)).min(1).max(4),
@@ -191,11 +197,12 @@ export const backupProcedures = {
           clearApi: z.boolean().optional(),
           resetPaths: z.array(z.enum(WEQ_DEFAULTS_PATHS)).optional(),
           resetConnections: z.array(z.enum(WEQ_DEFAULTS_CONNECTIONS)).optional(),
+          pruneConfirmation: z.string().optional(),
         })
         .optional(),
     )
     .mutation(({ input, ctx }) => {
-      const { clientId, ...defaults } = input ?? {};
+      const { clientId, pruneConfirmation, ...defaults } = input ?? {};
       const selected = input?.resetConnections ?? [];
       if (
         ctx.authorize &&
@@ -213,10 +220,14 @@ export const backupProcedures = {
       )
         throw new Error('请在桌面端恢复本机连接与自启设置');
       let stagedId: string | undefined;
+      function confirmedLogPlan() {
+        const plan = planDefaultLogRetention(ready().config.getSettings());
+        assertLogPruneConfirmed(plan, pruneConfirmation);
+        return plan;
+      }
+      let logPlan: ReturnType<typeof confirmedLogPlan> = null;
       return applyBackupLive(
-        () => {
-          stagedId = ready().backups.stageDefaults(clientId, defaults).id;
-        },
+        confirmedLogPlan,
         async (result) => {
           const attempt = async (label: string, run: () => unknown) => {
             try {
@@ -227,6 +238,12 @@ export const backupProcedures = {
               );
             }
           };
+          const confirmed = logPlan;
+          if (confirmed?.targets.size)
+            await attempt('清理应用日志', () => {
+              const { failed } = runLogRetentionSweep(DEFAULT_APP_SETTINGS, confirmed);
+              if (failed) throw new Error(`${failed} 份日志未能删除`);
+            });
           if (selected.includes('systemAutostart'))
             await attempt('恢复系统登录自启', async () => {
               const host = getHost();
@@ -258,6 +275,11 @@ export const backupProcedures = {
           await attempt('保存恢复回执', () => recordWeqRestoreWarnings(ready().root, result));
         },
         false,
+        true,
+        () => {
+          logPlan = confirmedLogPlan();
+          stagedId = ready().backups.stageDefaults(clientId, defaults).id;
+        },
       ).catch((error: unknown) => {
         const files = getBackupContext();
         if (files.ok && stagedId) {
@@ -317,7 +339,11 @@ export const backupProcedures = {
           connections.push({ id: 'qqProxyPort', label: 'QQ 代理端口', value: String(proxy.port) });
       }
     }
-    return { ...boot.backups.defaultsInfo(), connections };
+    return {
+      ...boot.backups.defaultsInfo(),
+      connections,
+      logPrune: describeLogPrune(planDefaultLogRetention(settings)),
+    };
   }),
   backupApply: procedure.mutation(({ ctx }) =>
     applyBackupLive(undefined, undefined, true, !ctx.authorize),

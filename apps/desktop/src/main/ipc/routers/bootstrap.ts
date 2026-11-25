@@ -101,7 +101,11 @@ import {
   rescanSigner as rescanSignerImpl,
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
-import { planLogRetention, runLogRetentionSweep } from '../../log_retention';
+import {
+  assertLogPruneConfirmed,
+  planLogRetention,
+  runLogRetentionSweep,
+} from '../../log_retention';
 import { takePendingConversationJump, takePendingGroupJump } from '../../group_keyword_bus';
 import {
   accountSwitchSubscriberClosed,
@@ -1510,6 +1514,7 @@ export const bootstrapRouter = router({
         days: z.number().int().min(0).max(MAX_LOG_RETENTION_DAYS).optional(),
         capacityMiB: z.custom<HistoryCapacityMiB>(isHistoryCapacityMiB).optional(),
         confirmPrune: z.boolean().optional(),
+        pruneConfirmation: z.string().nullable().optional(),
       }),
     )
     .mutation(({ input }) => {
@@ -1519,6 +1524,8 @@ export const bootstrapRouter = router({
         logCapacityMiB: input.capacityMiB ?? config.getSetting('logCapacityMiB'),
       };
       const plan = planLogRetention(policy);
+      if (input.pruneConfirmation !== undefined)
+        assertLogPruneConfirmed(plan, input.pruneConfirmation);
       if (plan.targets.size && input.confirmPrune === false)
         throw new Error('当前日志会被新保存策略删除，请重新确认后保存');
       config.setSettings(policy);

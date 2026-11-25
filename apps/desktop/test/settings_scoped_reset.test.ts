@@ -25,6 +25,19 @@ const state = vi.hoisted(() => ({
   notifications: {} as Record<string, unknown>,
   nativeDebug: false,
   remote: { enabled: false, tailscaleEnabled: false },
+  autostart: { enabled: false, registered: false, requiresApproval: false },
+  logTargets: [] as string[],
+}));
+vi.mock('../src/main/log_retention', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/main/log_retention')>()),
+  planDefaultLogRetention: () =>
+    state.logTargets.length
+      ? {
+          targets: new Set(state.logTargets),
+          identities: new Map(state.logTargets.map((path) => [path, path])),
+          preview: { expiredFiles: state.logTargets.length, capacityFiles: 0, bytes: 0 },
+        }
+      : null,
 }));
 vi.mock('../src/main/qq_sync/runtime', () => ({
   isQqSyncProxyEnabled: () => state.proxyEnabled,
@@ -124,6 +137,7 @@ vi.mock('../src/main/ipc/routers/bootstrap', () => ({
                 qqClientSyncEnabled: state.qqSync.enabled,
                 qqLiveMessagesEnabled: state.qqSync.liveMessages,
               };
+            if (name === 'getAutostartStatus') return state.autostart;
             state.calls.push([name, input]);
             if (name === state.fail) throw new Error('合成写入失败');
             if (name === 'setQzonePagination')
@@ -137,6 +151,10 @@ vi.mock('../src/main/ipc/routers/bootstrap', () => ({
             if (name === 'setQqProxyEnabled') state.proxyEnabled = false;
             if (name === 'setQqClientSyncEnabled') state.qqSync.enabled = false;
             if (name === 'setQqLiveMessagesEnabled') state.qqSync.liveMessages = false;
+            if (name === 'setAutostart') {
+              state.autostart = { enabled: false, registered: false, requiresApproval: false };
+              return state.autostart;
+            }
             if (name === 'saveOneBotConfig') {
               state.settings.oneBotByUin.synthetic = (
                 input as { config: AppSettings['oneBotByUin'][string] }
@@ -204,9 +222,96 @@ beforeEach(() => {
   state.notifications = {};
   state.nativeDebug = false;
   state.remote = { enabled: false, tailscaleEnabled: false };
+  state.autostart = { enabled: false, registered: false, requiresApproval: false };
+  state.logTargets = [];
 });
-const caller = () => settingsResetRouter.createCaller({});
+const rawCaller = () => settingsResetRouter.createCaller({});
+const caller = () => {
+  const api = rawCaller();
+  return {
+    preview: api.preview,
+    restore: async ({
+      page,
+      card,
+      revision,
+      ...selection
+    }: Omit<Parameters<typeof api.restore>[0], 'revision'> & { revision?: string }) => {
+      const target = { page, ...(card ? { card } : {}) };
+      return api.restore({
+        ...target,
+        ...selection,
+        revision: revision ?? (await api.preview(target)).revision,
+      });
+    },
+  };
+};
 describe('分级恢复默认', () => {
+  it('应用日志的时长和容量一起恢复，只接受最新的删除确认', async () => {
+    const api = rawCaller();
+    const target = { page: 'logs' } as const;
+    state.settings.logRetentionDays = 0;
+    state.settings.logCapacityMiB = 0;
+    state.logTargets = ['synthetic-one'];
+    const preview = await api.preview(target);
+    expect(preview.logPrune).toMatchObject({ expiredFiles: 1, capacityFiles: 0 });
+    const input = { ...target, source: preview.source, revision: preview.revision };
+    await expect(api.restore(input)).rejects.toMatchObject({ code: 'CONFLICT' });
+    state.logTargets = ['synthetic-two'];
+    await expect(
+      api.restore({ ...input, pruneConfirmation: preview.logPrune?.confirmation }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(state.calls).toEqual([]);
+    const reread = await api.preview(target);
+    const confirmation = reread.logPrune?.confirmation;
+    expect(
+      await api.restore({ ...input, revision: reread.revision, pruneConfirmation: confirmation }),
+    ).toEqual([
+      { id: 'logs:logRetentionDays', ok: true },
+      { id: 'logs:logCapacityMiB', ok: true },
+    ]);
+    expect(state.calls).toEqual([
+      [
+        'setLogRetentionDays',
+        {
+          days: DEFAULT_APP_SETTINGS.logRetentionDays,
+          capacityMiB: DEFAULT_APP_SETTINGS.logCapacityMiB,
+          confirmPrune: true,
+          pruneConfirmation: confirmation,
+        },
+      ],
+    ]);
+  });
+  it('预览后新启用的 QQ 代理须重新确认才会停用', async () => {
+    const api = rawCaller();
+    const target = { page: 'account', card: 'qq-client-sync' } as const;
+    const preview = await api.preview(target);
+    state.proxyEnabled = true;
+    await expect(
+      api.restore({ ...target, source: preview.source, revision: preview.revision }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(state.proxyEnabled).toBe(true);
+    const reread = await api.preview(target);
+    expect(reread.items).toContainEqual(
+      expect.objectContaining({ id: 'qq-client-sync:proxy', current: true, stopsService: true }),
+    );
+    expect(
+      await api.restore({ ...target, source: reread.source, revision: reread.revision }),
+    ).toEqual([{ id: 'qq-client-sync:proxy', ok: true }]);
+    expect(state.proxyEnabled).toBe(false);
+  });
+  it('开机自启正在等待系统批准时可以取消已登记的登录项', async () => {
+    const api = rawCaller();
+    const target = { page: 'startup', card: 'startup-system' } as const;
+    state.autostart = { enabled: false, registered: true, requiresApproval: true };
+    const preview = await api.preview(target);
+    expect(preview.items).toContainEqual(
+      expect.objectContaining({ id: 'startup-system:autostart', current: 'requiresApproval' }),
+    );
+    expect(
+      await api.restore({ ...target, source: preview.source, revision: preview.revision }),
+    ).toEqual([{ id: 'startup-system:autostart', ok: true }]);
+    expect(state.autostart.registered).toBe(false);
+  });
   it('防撤回默认保护全部会话，恢复时替换已保存的范围', async () => {
     const recall = sharedSettingsRouter.createCaller({}).antiRecall;
     expect(await recall.getStatus()).toMatchObject({ enabled: false, mode: 'all' });

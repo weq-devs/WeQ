@@ -1,6 +1,7 @@
 import { NumericText } from '../NumericText';
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { TRPCClientError } from '@trpc/client';
 import { ArchiveRestore, Download, RefreshCw, RotateCcw, Upload, X } from 'lucide-react';
 import type { WeqBackupPart, WeqBackupSummary, WeqDefaultsChoice } from '@weq/service';
 import { snapshotWeqClientLayout, type WeqSelectiveBackup } from '@weq/service/backup-client';
@@ -16,6 +17,7 @@ import { settlePreferenceWrites } from '../../lib/clientPreferences';
 import { DefaultsOptions, type DefaultsInfo } from './DefaultsOptions';
 import { DEFAULTS_DESCRIPTION } from './DefaultsOptions.shared';
 import { useRenderDocument } from '../../lib/renderDocument';
+import { describeLogPruneImpact } from '../../lib/settingsResetPreview';
 import '../../styles/backup.css';
 import {
   backupApi,
@@ -122,9 +124,10 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   const defaultsFailed = useRef(false);
   useEffect(() => {
     if (!confirm || busy) return;
-    if (confirm === 'import') cancelButton.current?.focus();
+    if (confirm === 'import' || (confirm === 'defaults' && defaultsInfo?.logPrune))
+      cancelButton.current?.focus();
     else if (!confirmButton.current?.disabled) confirmButton.current?.focus();
-  }, [confirm, busy]);
+  }, [confirm, busy, defaultsInfo?.logPrune]);
   const toast = useToast((s) => s.push);
   const refresh = useCallback(async () => {
     if (!activity.current) return;
@@ -309,7 +312,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
         defaults: {
           title: '恢复全局默认设置？',
           message: '将关闭当前账号并刷新各端界面，无需重启 WeQ。请先保存正在编辑的内容。',
-          action: '确认恢复默认',
+          action: defaultsInfo?.logPrune ? '恢复并删除' : '确认恢复默认',
           progress: '正在恢复…',
         },
         apply: {
@@ -631,12 +634,18 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                 </>
               ) : null}
               {confirm === 'defaults' && defaultsInfo ? (
-                <DefaultsOptions
-                  info={defaultsInfo}
-                  choice={defaultsChoice}
-                  onChange={setDefaultsChoice}
-                  disabled={Boolean(busy)}
-                />
+                <>
+                  <DefaultsOptions
+                    info={defaultsInfo}
+                    choice={defaultsChoice}
+                    onChange={setDefaultsChoice}
+                    disabled={Boolean(busy)}
+                  />
+                  <p>性能记录的保存时长和容量上限会保留。</p>
+                  {defaultsInfo.logPrune ? (
+                    <p>{describeLogPruneImpact(defaultsInfo.logPrune)}</p>
+                  ) : null}
+                </>
               ) : null}
               {confirmation.message ? <p>{confirmation.message}</p> : null}
               {confirm === 'import' && preview?.warnings.length ? (
@@ -682,7 +691,11 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
               <button
                 type="button"
                 className="weq-action-primary"
-                data-weq-dialog-confirm={confirm === 'import' ? undefined : true}
+                data-weq-dialog-confirm={
+                  confirm === 'import' || (confirm === 'defaults' && defaultsInfo?.logPrune)
+                    ? undefined
+                    : true
+                }
                 ref={confirmButton}
                 data-danger={
                   confirm === 'defaults' || confirm === 'apply' || confirm === 'import'
@@ -724,10 +737,16 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                       });
                     } else if (confirm === 'defaults') {
                       await settlePreferenceWrites();
+                      const clientId = backupClientId(localStorage);
+                      const prune = defaultsInfo?.logPrune?.confirmation;
                       const restored = await api
-                        .defaults(backupClientId(localStorage), defaultsChoice)
-                        .catch((error: unknown) => {
+                        .defaults(clientId, defaultsChoice, ...(prune ? [prune] : []))
+                        .catch(async (error: unknown) => {
                           defaultsFailed.current = true;
+                          if (error instanceof TRPCClientError && error.data?.code === 'CONFLICT') {
+                            setDefaultsInfo(null);
+                            setDefaultsInfo(await api.defaultsInfo());
+                          }
                           throw error;
                         });
                       defaultsFailed.current = false;

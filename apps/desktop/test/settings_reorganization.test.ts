@@ -784,7 +784,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().querySelector('[role="tablist"]')).toBeNull();
       f.render('logs');
       expect(f.body().querySelector('h3')?.textContent).toBe('日志与性能');
-      expect(f.body().textContent).toContain('日志保留时长');
+      expect(f.body().querySelector('[aria-label="应用日志保存时长"]')).not.toBeNull();
       expect(f.body().textContent).toContain('打开日志查看');
       expect(f.body().textContent).not.toContain('合成日志查看器');
       f.render('performance-monitor');

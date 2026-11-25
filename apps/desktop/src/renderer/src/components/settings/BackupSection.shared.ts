@@ -16,8 +16,8 @@ export const backupApi = {
     client.bootstrap.backupPrepare.mutate({ sourceId, ...choice }),
   stage: (previewId: string) => client.bootstrap.backupStage.mutate({ previewId }),
   defaultsInfo: () => client.bootstrap.backupDefaultsInfo.query(),
-  defaults: (clientId: string, choice: WeqDefaultsChoice = {}) =>
-    client.bootstrap.backupDefaults.mutate({ clientId, ...choice }),
+  defaults: (clientId: string, choice: WeqDefaultsChoice = {}, pruneConfirmation?: string) =>
+    client.bootstrap.backupDefaults.mutate({ clientId, ...choice, pruneConfirmation }),
   dispose: (id: string) => client.bootstrap.backupDiscardPreview.mutate({ id }),
   cancel: () => client.bootstrap.backupCancel.mutate(),
   apply: () => client.bootstrap.backupApply.mutate(),
