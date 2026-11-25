@@ -2,7 +2,8 @@ import type { RecoverOptions } from '@weq/native';
 import type { BadPageScanReport, DatabaseRepairMethod, DbRepairTarget } from '@weq/service';
 
 export type DatabaseMaintenanceWorkerRequest =
-  | { kind: 'scan' | 'deep'; target: DbRepairTarget }
+  | { kind: 'scan'; target: DbRepairTarget; firstPage?: number }
+  | { kind: 'deep'; target: DbRepairTarget }
   | {
       kind: 'locate';
       target: DbRepairTarget;

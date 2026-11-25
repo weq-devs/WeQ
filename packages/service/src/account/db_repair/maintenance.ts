@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { BadPageScanCheckpoint } from '@weq/native';
 import type { BadPageScanReport } from '../bad_pages';
 import { DatabaseScanUnsupportedError, type DbRepairCheckupIntegrity } from './checkup';
 import { DatabaseProgressTracker, type DatabaseWorkProgress } from './progress';
@@ -39,6 +40,7 @@ export interface DatabaseMaintenanceDeps {
     target: DbRepairTarget,
     signal: AbortSignal,
     progress: (tick: DatabaseWorkProgress) => void,
+    resume?: { firstPage: number; onCheckpoint(checkpoint: BadPageScanCheckpoint): void },
   ): Promise<BadPageScanReport>;
   locate?(
     target: DbRepairTarget,
@@ -80,10 +82,17 @@ interface ScanBatch {
   kind: 'scan' | 'checkup';
   targets: DbRepairTarget[];
 }
+interface SavedPageScan {
+  identity: string;
+  nextPage: number;
+  badPages: number[];
+  zeroPages: number[];
+}
 interface Session {
   snapshot: DatabaseMaintenanceSnapshot;
   targets: DbRepairTarget[];
   sourceIdentities: Map<string, string>;
+  pageScans: Map<string, SavedPageScan>;
   lease?: DatabaseMaintenanceLease;
   abort?: AbortController;
   pending?: Promise<DatabaseMaintenanceSnapshot>;
@@ -247,6 +256,7 @@ export class DatabaseMaintenance {
         },
         targets: [...targets],
         sourceIdentities: new Map(),
+        pageScans: new Map(),
         lastSaved: 0,
         lastPublished: 0,
         unsavedReports: session?.unsavedReports ?? new Map(),
@@ -409,14 +419,10 @@ export class DatabaseMaintenance {
     const lost = session.lease?.signal?.aborted;
     if (lost) {
       executionFailure = '持续维护锁已中断，本次结果不能继续用于修复，请主动重新开始体检。';
-      await session.lease!.release();
-      session.lease = undefined;
-      snapshot.locked = false;
+      await this.releaseLease(session);
     } else if (snapshot.maintenanceError && executionFailure) {
       try {
-        await session.lease?.release();
-        session.lease = undefined;
-        snapshot.locked = false;
+        await this.releaseLease(session);
       } catch (error) {
         snapshot.maintenanceError = `释放维护锁失败，请重试结束维护：${errorText(error)}`;
       }
@@ -468,12 +474,19 @@ export class DatabaseMaintenance {
         const lockError = session.lease!.errors?.[target.dbName];
         if (lockError) throw new Error(lockError);
         const identity = this.deps.sourceIdentity?.(target);
-        const scan = await this.deps.scan(target, signal, (tick) =>
+        const saved = session.pageScans.get(target.dbName);
+        if (saved && identity !== saved.identity) {
+          executionFailure = '暂停期间原库发生变化，请重新开始体检。';
+          snapshot.maintenanceError = executionFailure;
+          throw new Error(executionFailure);
+        }
+        const scan = await this.scanPages(session, target, signal, identity, saved, (tick) =>
           this.tick(session, row, tracker, 'scan', tick),
         );
         signal.throwIfAborted();
         if (identity !== this.deps.sourceIdentity?.(target))
           throw new Error('体检期间原库发生变化。');
+        session.pageScans.delete(target.dbName);
         if (identity !== undefined) session.sourceIdentities.set(target.dbName, identity);
         row.scan = scan;
         row.scanStatus = 'completed';
@@ -527,9 +540,11 @@ export class DatabaseMaintenance {
         }
         row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
         if (signal.aborted) throw error;
+        session.pageScans.delete(target.dbName);
       }
       this.countCompleted(session);
       this.publish(session, true);
+      if (executionFailure) break;
     }
     if (kind === 'checkup' && !executionFailure) {
       snapshot.state = 'checking';
@@ -611,6 +626,52 @@ export class DatabaseMaintenance {
       }
     }
     return executionFailure;
+  }
+
+  private async scanPages(
+    session: Session,
+    target: DbRepairTarget,
+    signal: AbortSignal,
+    identity: string | undefined,
+    saved: SavedPageScan | undefined,
+    progress: (tick: DatabaseWorkProgress) => void,
+  ): Promise<BadPageScanReport> {
+    if (identity === undefined) return this.deps.scan(target, signal, progress);
+    const checkpoint = saved ?? { identity, nextPage: 1, badPages: [], zeroPages: [] };
+    const firstPage = checkpoint.nextPage;
+    const prefixBad = checkpoint.badPages.length;
+    const prefixZero = checkpoint.zeroPages.length;
+    const scan = await this.deps.scan(
+      target,
+      signal,
+      (tick) => {
+        if (firstPage > 1 && tick.step === 'pages') {
+          const badPages = prefixBad + (tick.badPages ?? 0);
+          progress({
+            ...tick,
+            badPages,
+            zeroPages: prefixZero + (tick.zeroPages ?? 0),
+            outcome: badPages > 0 ? 'abnormal' : tick.outcome,
+          });
+        } else progress(tick);
+      },
+      {
+        firstPage,
+        onCheckpoint: (batch) => {
+          if (batch.firstPage !== checkpoint.nextPage || batch.nextPage <= batch.firstPage) return;
+          checkpoint.badPages.push(...batch.badPages);
+          checkpoint.zeroPages.push(...batch.zeroPages);
+          checkpoint.nextPage = batch.nextPage;
+          session.pageScans.set(target.dbName, checkpoint);
+        },
+      },
+    );
+    if (firstPage === 1) return scan;
+    return {
+      ...scan,
+      badPages: checkpoint.badPages.slice(0, prefixBad).concat(scan.badPages),
+      zeroPages: checkpoint.zeroPages.slice(0, prefixZero).concat(scan.zeroPages),
+    };
   }
 
   repair(
@@ -774,9 +835,7 @@ export class DatabaseMaintenance {
         lost ? '持续维护锁进程意外退出，已停止后续修复；已经成功的库保持不变。' : undefined,
       );
       if (!waiting || signal.aborted || lost) {
-        await session.lease!.release();
-        session.lease = undefined;
-        snapshot.locked = false;
+        await this.releaseLease(session);
       }
       snapshot.state = session.lease ? 'waiting' : 'ended';
       this.publish(session, true);
@@ -868,9 +927,7 @@ export class DatabaseMaintenance {
       failure = error;
     }
     try {
-      await session.lease?.release();
-      session.lease = undefined;
-      session.snapshot.locked = false;
+      await this.releaseLease(session);
     } catch (error) {
       failure ??= error;
     } finally {
@@ -888,13 +945,17 @@ export class DatabaseMaintenance {
     await Promise.all([...this.sessions.values()].map((session) => this.flushReports(session)));
   }
   private async expireLease(session: Session): Promise<void> {
-    await session.lease?.release();
-    session.lease = undefined;
-    session.snapshot.locked = false;
+    await this.releaseLease(session);
     session.snapshot.state = 'ended';
     session.snapshot.maintenanceError =
       '持续维护锁已中断，本次结果不能继续用于修复，请主动重新开始体检。';
     this.publish(session);
+  }
+  private async releaseLease(session: Session): Promise<void> {
+    session.pageScans.clear();
+    await session.lease?.release();
+    session.lease = undefined;
+    session.snapshot.locked = false;
   }
   private begin(
     session: Session,

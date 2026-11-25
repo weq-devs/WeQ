@@ -1,6 +1,11 @@
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveNtHelperPath, type RecoverReport, type RecoverProgress } from '@weq/native';
+import {
+  resolveNtHelperPath,
+  type BadPageScanCheckpoint,
+  type RecoverReport,
+  type RecoverProgress,
+} from '@weq/native';
 import {
   runOwnedChild,
   type BadPageScanReport,
@@ -16,7 +21,6 @@ import { DatabaseScanUnsupportedError } from '@weq/service/db-checkup';
 type DatabaseMaintenanceWorkerResult =
   | BadPageScanReport
   | DatabasePageLocation
-  | BadPageScanReport
   | DbRepairCheckupIntegrity
   | RecoverReport
   | DbRepairLayoutProbe;
@@ -25,7 +29,12 @@ export async function runDatabaseMaintenanceWorker(
   request: DatabaseMaintenanceWorkerRequest,
   signal: AbortSignal | undefined,
   onProgress: (progress: DatabaseWorkProgress | RecoverProgress) => void = () => {},
-  options: { workerPath?: string; nativeRoot?: string; executable?: string } = {},
+  options: {
+    workerPath?: string;
+    nativeRoot?: string;
+    executable?: string;
+    onCheckpoint?: (checkpoint: BadPageScanCheckpoint) => void;
+  } = {},
 ): Promise<DatabaseMaintenanceWorkerResult> {
   let pending = '';
   let result: DatabaseMaintenanceWorkerResult | undefined;
@@ -35,6 +44,8 @@ export async function runDatabaseMaintenanceWorker(
     if (!line.trim()) return;
     const event = JSON.parse(line);
     if (event.type === 'progress') onProgress(event.progress);
+    else if (event.type === 'checkpoint' && request.kind === 'scan')
+      options.onCheckpoint?.(event.checkpoint);
     else if (event.type === 'result') result = event.result;
     else if (event.type === 'error') {
       error = event.error;

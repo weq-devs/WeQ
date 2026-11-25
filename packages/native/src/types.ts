@@ -1134,6 +1134,15 @@ export interface NtHelperBinding {
     algo: DatabaseAlgorithms,
     onProgress?: (error: Error | null, progress: DatabaseProgress) => void,
   ): Promise<BadPageScanResult>;
+  /** 返回从 firstPage 开始的扫描结果，并增量回报已完成的连续页区间。 */
+  scanBadPagesFrom?(
+    dbPath: string,
+    key: string,
+    algo: DatabaseAlgorithms,
+    firstPage: number,
+    onProgress: (error: Error | null, progress: DatabaseProgress) => void,
+    onCheckpoint: (error: Error | null, checkpoint: BadPageScanCheckpoint) => void,
+  ): Promise<BadPageScanResult>;
   /**
    * 列出当前被 L3（整表放弃）隔离的表。进程内状态，条目有存活时间（默认 300 秒）。
    */
@@ -1738,6 +1747,14 @@ export interface QuarantinedTable {
   since: number;
   /** 隔离时已连续失败次数。 */
   failures: number;
+}
+
+/** 已检查的连续页区间及本批新增的异常页，nextPage 不包含在本批内。 */
+export interface BadPageScanCheckpoint {
+  firstPage: number;
+  nextPage: number;
+  badPages: number[];
+  zeroPages: number[];
 }
 
 /** 坏页扫描（"坏页地图"）的结果。 */

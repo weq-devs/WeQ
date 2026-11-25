@@ -305,10 +305,15 @@ export const databaseMaintenance = new DatabaseMaintenance({
       },
     };
   },
-  scan: async (target, signal, progress) =>
-    (await runDatabaseMaintenanceWorker({ kind: 'scan', target }, signal, (tick) => {
-      if ('step' in tick) progress(tick);
-    })) as BadPageScanReport,
+  scan: async (target, signal, progress, resume) =>
+    (await runDatabaseMaintenanceWorker(
+      { kind: 'scan', target, firstPage: resume?.firstPage },
+      signal,
+      (tick) => {
+        if ('step' in tick) progress(tick);
+      },
+      { onCheckpoint: resume?.onCheckpoint },
+    )) as BadPageScanReport,
   locate: async (target, scan, signal, progress, quickOnly) =>
     (await runDatabaseMaintenanceWorker(
       {

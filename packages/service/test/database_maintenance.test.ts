@@ -2,7 +2,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { DatabaseMaintenance } from '../src/account/db_repair/maintenance';
+import {
+  DatabaseMaintenance,
+  type DatabaseMaintenanceDeps,
+} from '../src/account/db_repair/maintenance';
 import { DatabaseMaintenanceReports } from '../src/account/db_repair/maintenance_reports';
 import { renderDatabaseMaintenanceReport } from '../src/account/db_repair/maintenance_reports';
 import type { BadPageScanReport } from '../src/account/bad_pages';
@@ -36,6 +39,7 @@ function fixture() {
       target: DbRepairTarget,
       _signal: AbortSignal,
       _progress: (tick: DatabaseWorkProgress) => void,
+      _resume?: Parameters<DatabaseMaintenanceDeps['scan']>[3],
     ): Promise<BadPageScanReport> => ({
       dbName: target.dbName,
       dbPath: target.dbPath,
@@ -653,6 +657,72 @@ it('首库页检查未完成就暂停时保留锁，续检复用同一维护会�
   expect(h.scan).toHaveBeenCalledTimes(2);
   await h.maintenance.end(scope);
   expect(h.release).toHaveBeenCalledOnce();
+});
+
+it.each([false, true])('页检查从保存的位置续作，原库变化时拒绝复用（%s）', async (changed) => {
+  const h = fixture();
+  const target = h.targets[0]!;
+  const saved = Promise.withResolvers<void>();
+  const scan = h.scan.getMockImplementation()!;
+  h.scan.mockImplementationOnce(async (_target, signal, _progress, resume) => {
+    expect(resume?.firstPage).toBe(1);
+    resume?.onCheckpoint({ firstPage: 1, nextPage: 4, badPages: [2], zeroPages: [3] });
+    // 缺了页 4 的完整批次时，较晚的批次不能推进已连续扫过的位置。
+    resume?.onCheckpoint({ firstPage: 5, nextPage: 6, badPages: [5], zeroPages: [] });
+    saved.resolve();
+    return new Promise((_done, reject) =>
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true }),
+    );
+  });
+  const run = h.maintenance.scan(scope, [target], 'scan');
+  await saved.promise;
+  await h.maintenance.stop(scope);
+  const paused = await run;
+  expect(paused.databases[0]?.scan).toBeUndefined();
+  expect(await h.maintenance.reports(scope)).toEqual([]);
+
+  if (changed) h.sourceIdentity.mockReturnValue('different');
+  h.scan.mockImplementationOnce(async (...args) => {
+    const [, , progress, resume] = args;
+    expect(resume?.firstPage).toBe(4);
+    resume?.onCheckpoint({ firstPage: 4, nextPage: 6, badPages: [5], zeroPages: [4] });
+    progress({
+      step: 'pages',
+      message: '检查完成',
+      completed: 5,
+      total: 5,
+      badPages: 1,
+      zeroPages: 1,
+    });
+    return { ...(await scan(...args)), pageCount: 5, badPages: [5], zeroPages: [4] };
+  });
+  const resumed = await h.maintenance.scan(scope, [], 'scan', [target.dbName]);
+  if (changed) {
+    expect(h.scan).toHaveBeenCalledOnce();
+    expect(resumed).toMatchObject({
+      state: 'ended',
+      locked: false,
+      maintenanceError: '暂停期间原库发生变化，请重新开始体检。',
+    });
+    expect(resumed.databases[0]?.scan).toBeUndefined();
+    return;
+  }
+  expect(resumed).toMatchObject({
+    id: paused.id,
+    locked: true,
+    operation: { status: 'completed' },
+  });
+  expect(resumed.databases[0]?.scan).toMatchObject({
+    pageCount: 5,
+    badPages: [2, 5],
+    zeroPages: [3, 4],
+  });
+  expect(resumed.databases[0]?.scanProgress?.current).toMatchObject({
+    completed: 5,
+    badPages: 2,
+    zeroPages: 2,
+  });
+  expect(h.acquire).toHaveBeenCalledOnce();
 });
 
 it('补充检查保留初始范围，复用页扫描，快速失败后只为尚未修复的库启动深度修复', async () => {

@@ -1,5 +1,5 @@
 import { dirname } from 'node:path';
-import { loadNative, resolveNtHelperPath } from '@weq/native';
+import { loadNative, resolveNtHelperPath, type DatabaseProgress } from '@weq/native';
 import type { DatabaseMaintenanceWorkerRequest } from './db_maintenance_worker_types';
 import { mapBadPagesToObjects, probeDbLayout } from '@weq/service';
 import { inspectDatabase } from './db_checkup_core';
@@ -91,15 +91,28 @@ async function main() {
         '此文件没有完整的数据库数据页，当前不支持重建；未能执行快速体检。',
       );
     if (request.kind === 'scan') {
-      const scan = await nt.scanBadPages(
-        request.target.dbPath,
-        request.target.key,
-        request.target.algo,
-        (error, tick) => {
-          if (!error)
-            progress({ ...tick, ...((tick.badPages ?? 0) > 0 ? { outcome: 'abnormal' } : {}) });
-        },
-      );
+      const { dbPath, key, algo } = request.target;
+      const reportProgress = (error: Error | null, tick: DatabaseProgress) => {
+        if (!error)
+          progress({ ...tick, ...((tick.badPages ?? 0) > 0 ? { outcome: 'abnormal' } : {}) });
+      };
+      const firstPage = request.firstPage ?? 1;
+      if (firstPage > 1 && !nt.scanBadPagesFrom)
+        throw new Error('原生模块不支持从指定页继续体检。');
+      const scan =
+        request.firstPage !== undefined && nt.scanBadPagesFrom
+          ? await nt.scanBadPagesFrom(
+              dbPath,
+              key,
+              algo,
+              firstPage,
+              reportProgress,
+              (error, checkpoint) => {
+                if (!error)
+                  process.stdout.write(`${JSON.stringify({ type: 'checkpoint', checkpoint })}\n`);
+              },
+            )
+          : await nt.scanBadPages(dbPath, key, algo, reportProgress);
       progress({
         step: 'pages',
         message: scan.usedHmac ? '页签名检查完成' : '此数据库没有可校验的页签名',
