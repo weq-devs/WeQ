@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { Worker } from 'node:worker_threads';
 
-const require = createRequire(import.meta.url);
+const requireCodec = createRequire(import.meta.url);
 const idleMs = 15_000;
 // 复用随 Electron 或 Web 服务安装的 codec，归档里的 JS 与 WASM 仍由 Electron 读取。
 const playbackWorkerSource = `
@@ -37,7 +37,7 @@ function closeWorker(current: Worker, error?: Error): void {
 function startWorker(): Worker {
   const current = new Worker(playbackWorkerSource, {
     eval: true,
-    workerData: require.resolve('silk-wasm'),
+    workerData: requireCodec.resolve('silk-wasm'),
   });
   worker = current;
   current.on('error', (error) => closeWorker(current, error));
