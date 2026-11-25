@@ -386,34 +386,7 @@ html[data-theme='dark'] .weq-dbm {
 }
 
 .weq-dbm-body > .weq-dbm-check-setup {
-  flex: none;
-  justify-content: flex-start;
-}
-
-.weq-dbm-check-setup .weq-dbm-scan-controls {
-  min-height: 270px;
-  align-content: start;
-}
-
-.weq-dbm-scan-status h2 {
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.weq-dbm-scan-status p {
-  color: var(--weq-fg-secondary);
-  font-size: 12px;
-}
-
-.weq-dbm-scan-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-}
-
-.weq-dbm-scan-actions:empty {
-  display: none;
+  justify-content: space-between;
 }
 
 .weq-dbm-scan-controls {
@@ -1423,6 +1396,10 @@ button.weq-dbm-db:hover,
 }
 
 @media (max-width: 560px) {
+  .weq-dbm-step-text strong {
+    white-space: normal;
+  }
+
   .weq-dbm-title p {
     display: none;
   }

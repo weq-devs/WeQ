@@ -99,6 +99,7 @@ it('打开修复和 StrictMode 重挂载均不启动检查或修复', async () =
 it('体检时不可切换模式，暂停后保留就绪库，切换深度体检后按当前来源继续', async () => {
   await mount();
   await act(async () => button('开始体检').click());
+  expect(tab('体检进度与结果').getAttribute('aria-selected')).toBe('true');
   expect(maintenanceQa.calls.scan).toEqual([
     {
       uin: account.uin,
@@ -114,15 +115,17 @@ it('体检时不可切换模式，暂停后保留就绪库，切换深度体检�
   expect(maintenanceQa.calls.end).toBe(0);
   expect(maintenanceQa.snapshot()?.databases[0]?.scanStatus).toBe('completed');
   expect(button('继续体检').disabled).toBe(false);
-  expect(button('深度体检').disabled).toBe(false);
+  expect(host.querySelector('[role="radiogroup"]')).toBeNull();
   const profileCard = () =>
     [...host.querySelectorAll('li')].filter((item) => item.textContent?.includes('profile.db'));
   expect(profileCard()[0]?.textContent).toContain('等待快速体检');
+  await act(async () => button('追加体检').click());
   await act(async () => button('深度体检').click());
   expect(profileCard()).toHaveLength(1);
   expect(profileCard()[0]?.textContent).toContain('等待深度体检');
   expect(profileCard()[0]?.textContent).not.toContain('等待快速体检');
   await act(async () => button('继续体检').click());
+  expect(tab('体检进度与结果').getAttribute('aria-selected')).toBe('true');
   expect(maintenanceQa.calls.scan[1]).toEqual({
     uin: account.uin,
     configId: account.configId,
@@ -139,7 +142,7 @@ it('扫描选择只列未完成当前等级的库，补充深度体检只提交�
   await act(async () => tab('开始体检').click());
   expect(choiceToScan('nt_msg.db')).toBeNull();
   expect(button('体检已完成').disabled).toBe(true);
-  await act(async () => tab('体检结果').click());
+  await act(async () => tab('体检进度与结果').click());
   await act(async () => button('追加体检').click());
   expect(button('深度体检').getAttribute('aria-checked')).toBe('true');
   expect(choiceToScan('nt_msg.db')?.checked).toBe(true);
@@ -155,8 +158,9 @@ it('扫描选择只列未完成当前等级的库，补充深度体检只提交�
       dbNames: ['nt_msg.db'],
     },
   ]);
-  await act(async () => maintenanceQa.complete());
   await act(async () => tab('开始体检').click());
+  await act(async () => maintenanceQa.complete());
+  expect(tab('开始体检').getAttribute('aria-selected')).toBe('true');
   expect(choiceToScan('nt_msg.db')).toBeNull();
   expect(choiceToScan('profile.db')).not.toBeNull();
   await act(async () => button('快速体检').click());
@@ -173,7 +177,7 @@ it('体检完成后可在原扫描页选中其他库，追加体检不结束维�
   await act(async () => maintenanceQa.complete());
   await act(async () => tab('开始体检').click());
   await act(async () => button('深度体检').click());
-  await act(async () => tab('体检结果').click());
+  await act(async () => tab('体检进度与结果').click());
   await act(async () => button('追加体检').click());
   expect(button('快速体检').getAttribute('aria-checked')).toBe('true');
   expect(host.querySelector('input[aria-label="体检 nt_msg.db"]')).toBeNull();
@@ -211,6 +215,7 @@ it('报告可查看健康数据库，修复只选择本轮有方案的数据库'
   await act(async () => button('开始修复').click());
   expect(maintenanceQa.calls.repair).toHaveLength(0);
   await confirm(true);
+  expect(tab('修复进度与结果').getAttribute('aria-selected')).toBe('true');
   expect(maintenanceQa.calls.repair).toEqual([
     expect.objectContaining({ dbNames: ['nt_msg.db'], backups: { 'nt_msg.db': true } }),
   ]);
@@ -219,16 +224,16 @@ it('报告可查看健康数据库，修复只选择本轮有方案的数据库'
   expect(maintenanceQa.calls.stop).toBe(1);
   expect(maintenanceQa.snapshot()?.locked).toBe(false);
   expect(tab('开始修复').disabled).toBe(true);
-  expect(tab('修复结果').getAttribute('aria-selected')).toBe('true');
+  expect(tab('修复进度与结果').getAttribute('aria-selected')).toBe('true');
   expect(host.querySelector('[aria-label="nt_msg.db修复结果"]')).not.toBeNull();
   expect(host.querySelector('[aria-label="查看 profile.db 修复详情"]')).toBeNull();
-  await act(async () => tab('体检结果').click());
+  await act(async () => tab('体检进度与结果').click());
   expect(iconButton('查看 profile.db 检查详情')).toBeDefined();
 
   await act(async () => root!.unmount());
   root = createRoot(host);
   await mount();
-  expect(tab('体检结果').disabled).toBe(true);
+  expect(tab('体检进度与结果').disabled).toBe(true);
   expect(tab('开始修复').disabled).toBe(true);
   expect(button('开始体检').disabled).toBe(false);
   await act(async () => iconButton('历史报告与恢复').click());
@@ -338,7 +343,7 @@ it('放弃体检结果必须明确确认，取消继续持锁，确认后仍能�
   await act(async () => release.click());
   await confirm(true);
   expect(maintenanceQa.calls.end).toBe(1);
-  expect(tab('体检结果').disabled).toBe(true);
+  expect(tab('体检进度与结果').disabled).toBe(true);
   expect(tab('开始修复').disabled).toBe(true);
   expect(tab('开始体检').getAttribute('aria-selected')).toBe('true');
   await act(async () => iconButton('历史报告与恢复').click());
