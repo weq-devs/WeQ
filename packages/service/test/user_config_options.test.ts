@@ -106,17 +106,17 @@ describe('测试版更新偏好', () => {
 });
 
 describe('导出识别并发设置', () => {
-  it('全局 OCR 筛图默认开启，关闭后不改变模型，重开与备份保留', () => {
+  it('全局 OCR 筛图默认关闭，开启不改变模型，重开与备份保留', () => {
     const f = configFixture();
-    expect(f.service.getSettings().ocr.prefilterEnabled).toBe(true);
+    expect(f.service.getSettings().ocr.prefilterEnabled).toBe(false);
     f.service.setSettings({ modelResources: { filter: 'filter-model' } });
-    f.service.setSettings({ ocr: { prefilterEnabled: false } });
+    f.service.setSettings({ ocr: { prefilterEnabled: true } });
     f.service.setSettings({ ocr: { onlineConcurrency: 8 } });
     const settings = f.open().getSettings();
-    expect(settings.ocr.prefilterEnabled).toBe(false);
+    expect(settings.ocr.prefilterEnabled).toBe(true);
     expect(settings.modelResources.filter).toBe('filter-model');
     const backup = snapshotWeqSettings(settings);
-    expect(backup.ocr.prefilterEnabled).toBe(false);
+    expect(backup.ocr.prefilterEnabled).toBe(true);
     expect(() => validateWeqAppSettings(backup)).not.toThrow();
     expect(() => validateWeqAppSettings({ ocr: { prefilterEnabled: 'false' } })).toThrow(
       'settings.ocr.prefilterEnabled',

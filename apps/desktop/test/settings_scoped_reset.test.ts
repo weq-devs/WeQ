@@ -492,7 +492,7 @@ describe('分级恢复默认', () => {
       allConversationsIncludeHidden: true,
       allConversationsIncludeDeleted: true,
     };
-    state.settings.ocr.prefilterEnabled = false;
+    state.settings.ocr.prefilterEnabled = true;
     state.settings.ocr.autoDownloadOriginal = true;
     for (const page of ['chat-interaction', 'chat-messages', 'recognition'] as const)
       await caller().restore({ page, source: null });

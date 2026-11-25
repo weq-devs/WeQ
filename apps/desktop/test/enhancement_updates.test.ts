@@ -1,10 +1,10 @@
 // @vitest-environment node
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import type { Platform } from '@weq/platform';
-import { UserConfigService, VOICE_MODELS } from '@weq/service';
+import { getOcrModel, OCR_MODELS, UserConfigService, VOICE_MODELS } from '@weq/service';
 import { afterEach, expect, it, vi } from 'vitest';
 import { EnhancementUpdateController, resourceCatalogFor } from '../src/main/enhancements/updates';
 import type { ReleaseDescriptor, ReleaseIndex } from '@weq/network/release-metadata';
@@ -1292,6 +1292,74 @@ it('旧客户端先读取最低版本，即使新版同时增加未知模型和�
   expect(enhancementReleaseBlocker(catalog.packs[0]!, '2.7.0', nativeCommit)).toBe(
     '需先更新 WeQ 至 v3.0.0',
   );
+});
+it('旧文字识别发布清单仍可准备新版模型，沿用同一引擎和筛图', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-ocr-release-'));
+  roots.push(root);
+  const directory = join(root, 'enhancements');
+  await mkdir(directory);
+  const target = 'darwin-arm64';
+  const engine = {
+    type: 'engine' as const,
+    artifact: {
+      kind: 'onnx' as const,
+      id: 'old-onnx',
+      name: 'engine.tar.gz',
+      compatibility: enhancementEngineCompatibility('onnx'),
+      target,
+      url: 'https://example.invalid/engine.tar.gz',
+      sha256: sha('archive'),
+      downloadBytes: 32,
+      installedBytes: 8,
+      files: [{ path: 'node_modules/runtime/index.js', size: 8, sha256: sha('runtime') }],
+    },
+  };
+  const [recognition, filter] = OCR_MODELS.map(modelReleaseComponent);
+  const old = createRelease('text', [
+    engine,
+    modelReleaseComponent(getOcrModel('ppocr-v5-mobile')!),
+    filter!,
+  ]);
+  const upgraded = createRelease('text', [engine, recognition!, filter!]);
+  const catalog = (entry: typeof old) => ({ schemaVersion: 1, target, packs: [entry] });
+  expect(
+    parseEnhancementCatalogForHost(catalog(upgraded), '2.8.0-beta.1', target).packs[0],
+  ).toMatchObject({ components: upgraded.components });
+  expect(parseEnhancementCatalogForHost(catalog(upgraded), '2.7.5', target).packs[0]).toMatchObject(
+    { unavailable: '需先更新 WeQ 至 v2.8.0-beta.1', components: [] },
+  );
+  await writeFile(join(directory, 'checks.json'), JSON.stringify({ catalog: catalog(old) }));
+  const ids = ['engine:onnx', 'model:ppocr-v6-small', 'model:ppocr-v6-det-tiny'];
+  const select = vi.fn();
+  const packs = new EnhancementPacks(
+    [{ id: 'text', name: '文字识别', description: '', components: ids, validate: async () => {} }],
+    new Map(
+      ids.map((id) => [
+        id,
+        {
+          id,
+          state: () => ({ ready: false, sizeOnDisk: 0, downloadBytes: 0, identity: '' }),
+          select,
+          ensure: async () => {},
+          remove: async () => {},
+        },
+      ]),
+    ),
+    directory,
+  );
+  const config = new UserConfigService({ appDataRoot: () => root } as unknown as Platform);
+  const controller = new EnhancementUpdateController(packs, config, target, {
+    currentVersion: () => '2.8.0-beta.1',
+    nativeCommit: () => undefined,
+    legacyModels: OCR_MODELS,
+  });
+  controllers.push(controller);
+  await controller.ready();
+  expect(select.mock.calls.map(([component]) => component)).toEqual(upgraded.components);
+  expect((await packs.list())[0]).toMatchObject({
+    blocker: null,
+    latestVersion: upgraded.contentVersion,
+  });
 });
 it('Release 标签或下载源变化不改变内容版本', () => {
   const a = release('same');

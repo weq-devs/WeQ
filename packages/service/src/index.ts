@@ -1239,6 +1239,8 @@ export type {
 export {
   OcrModelService,
   OCR_MODELS,
+  DEFAULT_OCR_MODEL_ID,
+  LEGACY_OCR_MODEL_ID,
   ONNXRUNTIME_CPU_TARGETS,
   getOcrModel,
   localOcrBlocker,

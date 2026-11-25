@@ -13,6 +13,8 @@ import { z } from 'zod/v3';
 import {
   writeFileAtomic,
   parseDressIndexManifest,
+  DEFAULT_OCR_MODEL_ID,
+  LEGACY_OCR_MODEL_ID,
   type ModelEntry,
   type UserConfigService,
 } from '@weq/service';
@@ -37,7 +39,12 @@ import {
   type EnhancementRelease,
   type EnhancementUpdateNotice,
 } from '../../shared/enhancement_release';
-import { createEnhancementCatalog, createRelease, releaseContentVersion } from './release_catalog';
+import {
+  createEnhancementCatalog,
+  createRelease,
+  modelReleaseComponent,
+  releaseContentVersion,
+} from './release_catalog';
 import { enhancementTaskNeedsInput, startEnhancementDownloads } from './tasks';
 import type { EnhancementPacks, PackChange } from './packs';
 
@@ -211,6 +218,29 @@ export class EnhancementUpdateController {
     });
   }
   private apply(entry: EnhancementRelease) {
+    const defaultOcr = this.options.legacyModels?.find(
+      (model) => model.id === DEFAULT_OCR_MODEL_ID,
+    );
+    if (
+      entry.id === 'text' &&
+      !entry.unavailable &&
+      defaultOcr &&
+      entry.components.some(
+        (component) => component.type === 'model' && component.id === LEGACY_OCR_MODEL_ID,
+      )
+    ) {
+      // v5 发布清单仍提供固定的引擎和筛图。识别模型使用当前客户端自带的固定契约。
+      // 原发布描述仍按自己的内容身份验证和缓存，安装使用重新计算的内容身份。
+      entry = createRelease(
+        'text',
+        entry.components.map((component) =>
+          component.type === 'model' && component.id === LEGACY_OCR_MODEL_ID
+            ? modelReleaseComponent(defaultOcr)
+            : component,
+        ),
+        entry.minWeqVersion,
+      );
+    }
     if (
       entry.id === 'dress' &&
       this.options.localDress?.() &&

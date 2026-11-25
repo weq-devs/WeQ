@@ -1345,7 +1345,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   ocr: {
     modelId: '',
     filterModelId: '',
-    prefilterEnabled: true,
+    prefilterEnabled: false,
     autoDownloadOriginal: false,
     onlineConcurrency: 5,
   },

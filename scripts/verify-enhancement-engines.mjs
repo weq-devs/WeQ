@@ -183,36 +183,27 @@ try {
       });
     }
     if (runtime.onnx) {
-      const ocrRoot = join(modelsRoot, 'ppocr-v5-mobile');
-      await worker('ocrWorker', runtime.onnx, [
-        [
-          {
-            mode: 'ocr',
-            width: 64,
-            height: 64,
-            data: Buffer.alloc(64 * 64 * 3, 255),
-            det: join(ocrRoot, 'ch_PP-OCRv5_det_mobile.onnx'),
-            rec: join(ocrRoot, 'ch_PP-OCRv5_rec_mobile.onnx'),
-            cls: join(ocrRoot, 'ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx'),
-            dict: join(ocrRoot, 'ppocrv5_dict.txt'),
-            threads: 1,
-          },
-          'final',
-        ],
-      ]);
-      await worker('ocrWorker', runtime.onnx, [
-        [
-          {
-            mode: 'detect',
-            width: 64,
-            height: 64,
-            data: Buffer.alloc(64 * 64 * 3, 255),
-            det: join(modelsRoot, 'ppocr-v6-det-tiny/PP-OCRv6_det_tiny.onnx'),
-            threads: 1,
-          },
-          'final',
-        ],
-      ]);
+      const { OCR_MODELS } = await tsImport(
+        '../packages/service/src/common/ocr_models.ts',
+        import.meta.url,
+      );
+      for (const model of OCR_MODELS) {
+        await worker('ocrWorker', runtime.onnx, [
+          [
+            {
+              mode: model.kind === 'filter' ? 'detect' : 'ocr',
+              width: 64,
+              height: 64,
+              data: Buffer.alloc(64 * 64 * 3, 255),
+              ...Object.fromEntries(
+                model.files.map((file) => [file.key, join(modelsRoot, model.id, file.name)]),
+              ),
+              threads: 1,
+            },
+            'final',
+          ],
+        ]);
+      }
       console.log('[enhancements] OCR 与筛图：模型实际加载与推理通过');
       await worker('intentSenseWorker', runtime.onnx, [
         [{ type: 'load', modelDir: join(modelsRoot, 'laya-multilingual') }, 'ready'],

@@ -105,7 +105,7 @@ describe('OcrModelService', () => {
 
   it('stays undownloaded while a single file is missing', () => {
     const { service } = newService();
-    const id = 'ppocr-v5-mobile';
+    const id = 'ppocr-v6-small';
     materialize(service, id);
     const dir = service.resolveModelDir(id);
     rmSync(join(dir, getOcrModel(id)!.files[0]!.name));
@@ -114,9 +114,19 @@ describe('OcrModelService', () => {
 
   it('resolves paths under <appDataRoot>/models/<id> keyed by file role', () => {
     const { service, root } = newService();
-    const paths = service.resolveModelPaths('ppocr-v5-mobile');
-    expect(paths.det).toBe(join(root, 'models', 'ppocr-v5-mobile', 'ch_PP-OCRv5_det_mobile.onnx'));
-    expect(paths.dict).toBe(join(root, 'models', 'ppocr-v5-mobile', 'ppocrv5_dict.txt'));
+    const paths = service.resolveModelPaths('ppocr-v6-small');
+    expect(paths.det).toBe(join(root, 'models', 'ppocr-v6-small', 'PP-OCRv6_det_small.onnx'));
+    expect(paths.rec).toBe(join(root, 'models', 'ppocr-v6-small', 'PP-OCRv6_rec_small.onnx'));
+    expect(paths.dict).toBe(join(root, 'models', 'ppocr-v6-small', 'ppocrv6_dict.txt'));
+  });
+
+  it('升级下载完成前可以使用已安装的 v5，v6 就绪后使用新模型身份', () => {
+    const { service } = newService();
+    materialize(service, 'ppocr-v5-mobile');
+    const available = () => service.listByKind('ocr').filter((model) => model.downloaded);
+    expect(available().map((model) => model.id)).toEqual(['ppocr-v5-mobile']);
+    materialize(service, 'ppocr-v6-small');
+    expect(available().map((model) => model.id)).toEqual(['ppocr-v6-small']);
   });
 
   it('deletes a downloaded model and filters the registry by kind', () => {
@@ -127,7 +137,7 @@ describe('OcrModelService', () => {
     expect(service.deleteModel('does-not-exist')).toBe(false);
 
     expect(service.listByKind('filter').map((m) => m.id)).toEqual(['ppocr-v6-det-tiny']);
-    expect(service.listByKind('ocr').map((m) => m.id)).toEqual(['ppocr-v5-mobile']);
+    expect(service.listByKind('ocr').map((m) => m.id)).toEqual(['ppocr-v6-small']);
     expect(service.getModel('nope')).toBeUndefined();
     expect(service.getModelStatus('nope')).toBeUndefined();
   });

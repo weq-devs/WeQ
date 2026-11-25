@@ -168,7 +168,7 @@ export async function buildBotExport(input: BotExportInput): Promise<BotExportRe
     llmProviders: input.llmProviders,
     ttsProviders: input.ttsProviders,
     features: input.features,
-    images: input.images ?? { mode: 'vision', visionModel: null, prefilterEnabled: true },
+    images: input.images ?? { mode: 'vision', visionModel: null, prefilterEnabled: false },
     webui,
   };
   await writeFile(join(input.outDir, 'config.json'), JSON.stringify(config, null, 2), 'utf-8');

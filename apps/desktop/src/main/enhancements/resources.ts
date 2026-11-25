@@ -3,6 +3,9 @@ import { join } from 'node:path';
 import type { Platform } from '@weq/platform';
 import {
   DRESS_INDEX_KINDS,
+  OCR_MODELS,
+  DEFAULT_OCR_MODEL_ID,
+  LEGACY_OCR_MODEL_ID,
   getDressIndexStore,
   subscribeDressIndexResources,
   type ModelStore,
@@ -125,6 +128,7 @@ export function createEnhancementResources(
   }
 
   const layaDir = join(root, 'models/laya-multilingual');
+  const legacyOcr = createModelComponent(resources.ocrModels, LEGACY_OCR_MODEL_ID).component;
 
   const dress = getDressIndexStore(userConfig.cacheDir('dress_shared'));
   const inspected = Promise.resolve()
@@ -199,14 +203,11 @@ export function createEnhancementResources(
       {
         id: 'text',
         name: '本地文字识别',
-        description: '在本机识别图片文字，并跳过无文字图片。',
-        components: [
-          'engine:onnx',
-          ...resources.ocrModels.listModels().map((model) => `model:${model.id}`),
-        ],
+        description: '在本机识别图片文字，可选先筛除无文字图片。',
+        components: ['engine:onnx', ...OCR_MODELS.map((model) => `model:${model.id}`)],
         validate: async () => {
           return withValidation(async () => {
-            for (const model of resources.ocrModels.listModels()) {
+            for (const model of OCR_MODELS) {
               const paths = stagedModels.get(model.id)!.paths();
               const result = await runOcrEngine({
                 image: { width: 64, height: 64, data: Buffer.alloc(64 * 64 * 3, 255) },
@@ -282,7 +283,7 @@ export function createEnhancementResources(
   );
   const stagedModels = new Map<string, ReturnType<typeof createModelComponent>>();
   for (const [store, ids] of [
-    [resources.ocrModels, resources.ocrModels.listModels().map((model) => model.id)],
+    [resources.ocrModels, OCR_MODELS.map((model) => model.id)],
     [resources.voiceTranscribe, resources.voiceTranscribe.listModels().map((model) => model.id)],
     [layaBundleStore(layaDir), ['laya-multilingual']],
   ] as const) {
@@ -293,6 +294,22 @@ export function createEnhancementResources(
           : enhancementEngineBusy(id === 'sensevoice' ? 'sherpa' : 'onnx'),
       );
       const state = item.component.state;
+      if (id === DEFAULT_OCR_MODEL_ID) {
+        const inspect = item.component.inspect;
+        item.component.inspect = async () => {
+          await Promise.all([inspect?.(), legacyOcr.inspect?.()]);
+        };
+        item.component.state = () => {
+          const current = state();
+          const legacy = legacyOcr.state();
+          return {
+            ...current,
+            installed: current.installed || legacy.installed || legacy.ready,
+            sizeOnDisk: current.sizeOnDisk + legacy.sizeOnDisk,
+            activeBytes: (current.activeBytes ?? current.sizeOnDisk) + legacy.sizeOnDisk,
+          };
+        };
+      }
       if (id === 'laya-multilingual')
         item.component.state = () => ({
           ...state(),
@@ -364,6 +381,7 @@ export function createEnhancementResources(
       }
       item.component.remove = async () => {
         if (id === 'laya-multilingual') await getIntentEngine()?.stop();
+        if (id === DEFAULT_OCR_MODEL_ID) await legacyOcr.remove();
         await remove();
         if (id !== 'laya-multilingual') {
           const kind =
@@ -559,7 +577,13 @@ export function createEnhancementResources(
           }
           for (const model of resources.ocrModels
             .listModels()
-            .filter((model) => components.get(`model:${model.id}`)?.state().ready)) {
+            .filter(
+              (model) =>
+                (model.id === LEGACY_OCR_MODEL_ID
+                  ? legacyOcr
+                  : components.get(`model:${model.id}`)
+                )?.state().ready,
+            )) {
             const paths = resources.ocrModels.resolveModelPaths(model.id);
             const result = await runOcrEngine({
               image: { width: 64, height: 64, data: Buffer.alloc(64 * 64 * 3, 255) },
@@ -637,8 +661,15 @@ export function createEnhancementResources(
         Array.isArray((receipt as { components?: unknown }).components)
           ? (receipt as { components: Array<Record<string, unknown>> }).components
           : [];
-      for (const id of definition.components.filter((id) => id.startsWith('model:'))) {
-        const modelId = id.slice(6);
+      const modelIds = definition.components
+        .filter((id) => id.startsWith('model:'))
+        .map((id) => id.slice(6));
+      if (
+        definition.id === 'text' &&
+        snapshots.some((entry) => entry.type === 'model' && entry.id === LEGACY_OCR_MODEL_ID)
+      )
+        modelIds.push(LEGACY_OCR_MODEL_ID);
+      for (const modelId of modelIds) {
         const snapshot = snapshots.find((entry) => entry.type === 'model' && entry.id === modelId);
         const store =
           modelId === 'laya-multilingual'
@@ -678,9 +709,7 @@ export function createEnhancementResources(
     }
   }
   const legacyModels = [
-    ...resources.ocrModels
-      .listModels()
-      .map((model) => resources.ocrModels.registeredModel(model.id)!),
+    ...OCR_MODELS,
     ...resources.voiceTranscribe
       .listModels()
       .map((model) => resources.voiceTranscribe.registeredModel(model.id)!),

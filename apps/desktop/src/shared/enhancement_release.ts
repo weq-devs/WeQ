@@ -33,6 +33,7 @@ const file = z.object({
 });
 export const ENHANCEMENT_MODEL_IDS = [
   'ppocr-v5-mobile',
+  'ppocr-v6-small',
   'ppocr-v6-det-tiny',
   'sensevoice',
   'laya-multilingual',
@@ -232,6 +233,7 @@ export function parseEnhancementCatalog(input: unknown): EnhancementCatalog {
           throw new Error('模型文件重复');
         const required = {
           'ppocr-v5-mobile': ['det', 'rec', 'cls', 'dict'],
+          'ppocr-v6-small': ['det', 'rec', 'cls', 'dict'],
           'ppocr-v6-det-tiny': ['det'],
           sensevoice: ['model', 'tokens'],
           'laya-multilingual': [
@@ -246,7 +248,11 @@ export function parseEnhancementCatalog(input: unknown): EnhancementCatalog {
       }
     }
     const required = {
-      text: ['engine:onnx', 'model:ppocr-v5-mobile', 'model:ppocr-v6-det-tiny'],
+      text: [
+        'engine:onnx',
+        ids.has('model:ppocr-v6-small') ? 'model:ppocr-v6-small' : 'model:ppocr-v5-mobile',
+        'model:ppocr-v6-det-tiny',
+      ],
       voice: ['engine:sherpa', 'model:sensevoice'],
       intent: ['engine:onnx', 'model:laya-multilingual'],
       dress: ['dress:index'],

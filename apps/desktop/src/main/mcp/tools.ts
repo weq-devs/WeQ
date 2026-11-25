@@ -3166,7 +3166,7 @@ export const AI_TOOLS: AiTool[] = [
       const localEngine = localOcrBlocker();
       return {
         prefilterEnabled:
-          toolContext().bootstrap?.userConfig.getSettings().ocr.prefilterEnabled !== false,
+          toolContext().bootstrap?.userConfig.getSettings().ocr.prefilterEnabled === true,
         autoDownloadOriginal:
           toolContext().bootstrap?.userConfig.getSettings().ocr.autoDownloadOriginal === true,
         online: {
@@ -3437,7 +3437,7 @@ export const AI_TOOLS: AiTool[] = [
 
       // ── 3) 依次尝试，第一个成功的就是本次用的腿 ─────────────────────────
       const prefilter = await prefilterAutomaticOcr({
-        enabled: !refresh && ocrSettings?.prefilterEnabled !== false,
+        enabled: !refresh && ocrSettings?.prefilterEnabled === true,
         path: localPath,
         cache,
         cacheKey,

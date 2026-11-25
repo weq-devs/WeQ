@@ -32,6 +32,7 @@ beforeEach(() => {
     ocrLocalModelId: null,
     ocrFilterModelId: 'downloaded-filter',
     ocrLocalBlocker: null,
+    ocrPrefilterEnabled: true,
   });
   mocks.settings.mockResolvedValue({ ocr: { modelId: '', filterModelId: '' } });
   mocks.models.mockResolvedValue({
@@ -66,15 +67,8 @@ describe('导出 OCR 预检使用后台实际状态', () => {
 
   it('后台未找到可用模型时仍提示，不只看文件清单', async () => {
     mocks.access.mockResolvedValue({
-      qqOnline: true,
-      attachEnabled: true,
-      hasA2: true,
-      hasD2: true,
-      hasD2Key: true,
-      hasGuid: true,
+      ...(await mocks.access()),
       ocrFilterModelId: null,
-      ocrLocalModelId: null,
-      ocrLocalBlocker: null,
     });
     const confirm = vi.fn().mockResolvedValue(false);
     expect(await preflightOcrImages({ confirm } as unknown as AppDialogApi)).toBe(false);
@@ -83,14 +77,8 @@ describe('导出 OCR 预检使用后台实际状态', () => {
 
   it('引擎不可用时说明实际原因，不再要求重复下载', async () => {
     mocks.access.mockResolvedValue({
-      qqOnline: true,
-      attachEnabled: true,
-      hasA2: true,
-      hasD2: true,
-      hasD2Key: true,
-      hasGuid: true,
+      ...(await mocks.access()),
       ocrFilterModelId: null,
-      ocrLocalModelId: null,
       ocrLocalBlocker: '本机没有推理引擎',
     });
     const confirm = vi.fn().mockResolvedValue(true);
@@ -107,6 +95,7 @@ describe('导出 OCR 预检使用后台实际状态', () => {
     mocks.resources.mockResolvedValue({
       selected: { ocr: 'ocr', filter: 'filter' },
       engineBlocker: null,
+      ocrPrefilterEnabled: true,
       ocr: [
         { id: 'ocr', kind: 'ocr', downloaded: true, downloading: false },
         { id: 'filter', kind: 'filter', downloaded: true, downloading: false },

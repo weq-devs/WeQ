@@ -128,7 +128,7 @@ export function createEnhancementCatalog(
 ): EnhancementCatalog {
   const packs: EnhancementRelease[] = [];
   for (const [id, kind, ids] of [
-    ['text', 'onnx', ['ppocr-v5-mobile', 'ppocr-v6-det-tiny']],
+    ['text', 'onnx', ['ppocr-v6-small', 'ppocr-v6-det-tiny']],
     ['voice', 'sherpa', ['sensevoice']],
     ['intent', 'onnx', ['laya-multilingual']],
   ] as const) {

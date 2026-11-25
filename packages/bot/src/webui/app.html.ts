@@ -803,12 +803,12 @@ const JS = `
         '<button data-v="heuristic" class="' + (c.features.groupReplyMode === 'heuristic' ? 'active' : '') + '">启发式</button></div></div>' +
       '</div>';
 
-    var imageConfig = c.images || { mode: 'vision', prefilterEnabled: true };
+    var imageConfig = c.images || { mode: 'vision', prefilterEnabled: false };
     html += '<div class="section-h">图片处理</div><div class="card">' +
       '<div class="form-row"><label>图片处理偏好</label><select class="input" id="cfg-image-mode"><option value="ocr"' + (imageConfig.mode === 'ocr' ? ' selected' : '') + '>OCR</option><option value="vision"' + (imageConfig.mode !== 'ocr' ? ' selected' : '') + '>视觉模型</option></select></div>' +
       '<div class="form-row"><label>视觉服务商</label><select class="input" id="cfg-image-provider"><option value="" data-placeholder>未选择</option>' + c.llmProviders.map(function(p) { return '<option value="' + esc(p.id) + '"' + (imageConfig.visionModel && imageConfig.visionModel.providerId === p.id ? ' selected' : '') + '>' + esc(p.id) + '</option>'; }).join('') + '</select></div>' +
       '<div class="form-row"><label>视觉模型</label><input class="input" id="cfg-image-model" value="' + esc(imageConfig.visionModel ? imageConfig.visionModel.model : '') + '" /></div>' +
-      swRow('cfg-image-prefilter', 'OCR 前先筛图', '手动文字识别除外；筛图不可用时继续 OCR', imageConfig.prefilterEnabled !== false) +
+      swRow('cfg-image-prefilter', 'OCR 前先筛图', '手动文字识别除外；筛图不可用时继续 OCR', imageConfig.prefilterEnabled === true) +
       '<div id="image-model-resources"></div></div>';
 
     // ── LLM 服务商 ──
