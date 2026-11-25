@@ -69,6 +69,7 @@ try {
   assert.equal(await tab('开始体检').getAttribute('aria-selected'), 'true');
   assert.equal(await page.evaluate(() => window.maintenanceQa.calls.scan.length), 0);
   const scanDatabases = page.getByRole('region', { name: '选择数据库' });
+  const scanControls = page.getByRole('region', { name: '体检设置' });
   await button('取消全选').click();
   assert.equal(await scanDatabases.getByRole('checkbox', { checked: true }).count(), 0);
   assert.equal(await button('开始体检').isDisabled(), true);
@@ -79,8 +80,13 @@ try {
   );
   await page.getByRole('checkbox', { name: /unsupported.db/ }).uncheck();
   await capture('scan-desktop');
+  const scanButtonBounds = await scanControls
+    .getByRole('button', { name: '开始体检' })
+    .boundingBox();
   await button('开始体检').click();
-  await button('暂停体检').waitFor();
+  await scanControls.getByRole('button', { name: '暂停体检' }).waitFor();
+  assert.deepEqual(await button('暂停体检').boundingBox(), scanButtonBounds);
+  await scanDatabases.getByText('等待快速体检', { exact: true }).waitFor();
   assert.equal(await page.getByRole('radiogroup', { name: '体检类型' }).count(), 0);
   assert.equal(await tab('体检结果').isDisabled(), true);
   assert.equal(await tab('开始修复').isDisabled(), true);
@@ -127,8 +133,14 @@ try {
   await summary.getByRole('button', { name: '追加体检' }).click();
   await page.getByRole('radio', { name: '深度体检' }).click();
   await page.getByRole('checkbox', { name: '体检 profile.db' }).uncheck();
+  const queuedDeep = scanDatabases.getByRole('listitem').filter({ hasText: 'nt_msg.db' });
+  assert.equal(await queuedDeep.count(), 1);
+  await queuedDeep.getByText('等待深度体检', { exact: true }).waitFor();
+  await queuedDeep.getByText('快速体检完成 · 发现 1 个坏页，尚未定位').waitFor();
+  const appendBounds = await button('开始补充检查').boundingBox();
   await button('开始补充检查').click();
-  await button('暂停体检').waitFor();
+  await scanControls.getByRole('button', { name: '暂停体检' }).waitFor();
+  assert.deepEqual(await button('暂停体检').boundingBox(), appendBounds);
   await page.evaluate(() => window.maintenanceQa.structure());
   await page.getByText('检查页结构与引用', { exact: true }).waitFor();
   assert.equal(
@@ -153,9 +165,11 @@ try {
   assert.ok(resumeBounds && repairBounds && resumeBounds.x < repairBounds.x);
   assert.equal(await button('导出报告').isVisible(), true);
   await capture('checkup-paused-desktop');
+  assert.equal(await page.getByRole('radiogroup', { name: '体检类型' }).count(), 0);
+  await button('追加体检').click();
+  assert.equal(await tab('开始体检').getAttribute('aria-selected'), 'true');
   await page.getByRole('radio', { name: '快速体检', exact: true }).click();
   await page.getByRole('radio', { name: '深度体检', exact: true }).click();
-  await button('追加体检').click();
   await page.getByRole('checkbox', { name: '体检 profile.db' }).check();
   await button('继续体检').click();
   await button('暂停体检').waitFor();
@@ -260,6 +274,11 @@ try {
   await button('追加体检').click();
   await page.getByRole('checkbox', { name: '体检 unsupported.db' }).check();
   await button('加入本轮体检').click();
+  await scanDatabases
+    .getByRole('listitem')
+    .filter({ hasText: 'unsupported.db' })
+    .getByText('等待快速体检', { exact: true })
+    .waitFor();
   assert.deepEqual(
     await page.evaluate(() => window.maintenanceQa.calls.append.map(({ dbNames }) => dbNames)),
     [['unsupported.db']],

@@ -377,17 +377,43 @@ html[data-theme='dark'] .weq-dbm {
   cursor: not-allowed;
 }
 
-.weq-dbm-paused-controls {
-  display: flex;
-  justify-content: flex-start;
-}
-
 .weq-dbm-body > .weq-dbm-scan-setup {
   display: flex;
   flex: 1 0 auto;
   flex-direction: column;
   justify-content: space-evenly;
   gap: 24px;
+}
+
+.weq-dbm-body > .weq-dbm-check-setup {
+  flex: none;
+  justify-content: flex-start;
+}
+
+.weq-dbm-check-setup .weq-dbm-scan-controls {
+  min-height: 270px;
+  align-content: start;
+}
+
+.weq-dbm-scan-status h2 {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.weq-dbm-scan-status p {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-dbm-scan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.weq-dbm-scan-actions:empty {
+  display: none;
 }
 
 .weq-dbm-scan-controls {

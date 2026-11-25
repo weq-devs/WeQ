@@ -115,7 +115,13 @@ it('体检时不可切换模式，暂停后保留就绪库，切换深度体检�
   expect(maintenanceQa.snapshot()?.databases[0]?.scanStatus).toBe('completed');
   expect(button('继续体检').disabled).toBe(false);
   expect(button('深度体检').disabled).toBe(false);
+  const profileCard = () =>
+    [...host.querySelectorAll('li')].filter((item) => item.textContent?.includes('profile.db'));
+  expect(profileCard()[0]?.textContent).toContain('等待快速体检');
   await act(async () => button('深度体检').click());
+  expect(profileCard()).toHaveLength(1);
+  expect(profileCard()[0]?.textContent).toContain('等待深度体检');
+  expect(profileCard()[0]?.textContent).not.toContain('等待快速体检');
   await act(async () => button('继续体检').click());
   expect(maintenanceQa.calls.scan[1]).toEqual({
     uin: account.uin,
