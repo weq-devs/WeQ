@@ -15,6 +15,7 @@
  * 聊天背景与浮屏挂件一律离线可用(QQ 同款的直链 bootstrap 时已存进 config,浮屏挂件是 bundle 的)。
  */
 
+import { NumericText } from './NumericText';
 import { ToolbarLabel } from './CompactToolbar';
 import { observeCompactToolbar } from './CompactToolbar.shared';
 import {
@@ -1047,7 +1048,9 @@ export function DressUpDialog({
                     <details className="weq-dress-current-exceptions">
                       <summary>
                         <ChevronDown size={14} aria-hidden />
-                        {exceptions.length} 个会话单独设置
+                        <span>
+                          <NumericText>{`${exceptions.length} 个会话单独设置`}</NumericText>
+                        </span>
                       </summary>
                       <ul>
                         {exceptions.map((entry) => {

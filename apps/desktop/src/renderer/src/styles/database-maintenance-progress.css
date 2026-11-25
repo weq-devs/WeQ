@@ -16,7 +16,8 @@
   gap: 12px;
   min-width: 0;
 }
-.weq-db-progress-heading strong {
+.weq-db-progress-name {
+  font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 14px;
   overflow-wrap: anywhere;
 }

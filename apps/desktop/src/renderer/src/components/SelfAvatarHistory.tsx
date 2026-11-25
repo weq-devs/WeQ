@@ -151,7 +151,7 @@ export function AvatarHistoryDialog({
           {complete ? (
             <NumericText>{`共 ${items.length} 个头像`}</NumericText>
           ) : items.length ? (
-            `已加载 ${items.length} 个${activity.enabled && !query.error && !warning ? '，继续读取中' : ''}`
+            <NumericText>{`已加载 ${items.length} 个${activity.enabled && !query.error && !warning ? '，继续读取中' : ''}`}</NumericText>
           ) : query.isFetching ? (
             '读取中…'
           ) : !online ? (

@@ -179,7 +179,7 @@ export function TotpBindDialog({
             <li
               className={`weq-applock-bind-step${step === 'scan' ? ' is-active' : ''}${doneStep1 ? ' is-done' : ''}`}
             >
-              <span className="weq-applock-bind-step-num" aria-hidden>
+              <span className="weq-applock-bind-step-num weq-number" aria-hidden>
                 {doneStep1 ? <Check size={12} strokeWidth={2.6} /> : 1}
               </span>
               扫描二维码
@@ -188,7 +188,7 @@ export function TotpBindDialog({
             <li
               className={`weq-applock-bind-step${step === 'verify' ? ' is-active' : ''}${doneStep2 ? ' is-done' : ''}`}
             >
-              <span className="weq-applock-bind-step-num" aria-hidden>
+              <span className="weq-applock-bind-step-num weq-number" aria-hidden>
                 {doneStep2 ? <Check size={12} strokeWidth={2.6} /> : 2}
               </span>
               输入验证码

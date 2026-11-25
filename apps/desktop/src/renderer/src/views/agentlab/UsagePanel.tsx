@@ -405,9 +405,7 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
             {start === null ? (
               '暂无保留记录'
             ) : (
-              <>
-                {formatDateTime(start)} 至 {formatDateTime(d.range.until)}（北京时间）
-              </>
+              <NumericText>{`${formatDateTime(start)} 至 ${formatDateTime(d.range.until)}（北京时间）`}</NumericText>
             )}
           </p>
           <p>
@@ -428,7 +426,7 @@ export function UsageReport({ data: d }: { data: UsageStats }): ReactElement {
               <span className="weq-number weq-number-inherit">{ledger.retainedCalls}</span> /{' '}
               <span className="weq-number weq-number-inherit">{ledger.limit}</span> 条
               {ledger.firstRecordAt !== null ? (
-                <>，最早 {formatDateTime(ledger.firstRecordAt)}</>
+                <NumericText>{`，最早 ${formatDateTime(ledger.firstRecordAt)}`}</NumericText>
               ) : null}
               {ledger.atCapacity ? '。已达保留上限，可能已有更早记录被移出。' : '。'}
             </p>

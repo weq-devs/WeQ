@@ -688,7 +688,11 @@ function AlbumMediaView({
             <ToolbarLabel>相册</ToolbarLabel>
           </button>
         ) : null}
-        <span>{state.status === 'loading' && !items.length ? '正在读取' : countText}</span>
+        <span>
+          <NumericText>
+            {state.status === 'loading' && !items.length ? '正在读取' : countText}
+          </NumericText>
+        </span>
         <div className="group-album-toolbar-actions">
           <button
             type="button"

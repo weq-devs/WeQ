@@ -627,9 +627,9 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
                       : preview.summary.parts.some(({ part }) => part === 'settings')
                         ? '备份中的通用设置会应用，本机目录会保留。'
                         : '本机目录会保留。'}
-                    {preview.skipped.length
-                      ? `将跳过 ${preview.skipped.length} 项已有数据。`
-                      : null}
+                    {preview.skipped.length ? (
+                      <NumericText>{`将跳过 ${preview.skipped.length} 项已有数据。`}</NumericText>
+                    ) : null}
                   </p>
                 </>
               ) : null}

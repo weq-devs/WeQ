@@ -484,7 +484,9 @@ export function QuestionInteractions({
         onClick={() => setExpanded(!expanded)}
       >
         <MessageCircle size={15} />
-        {counts || '查看互动'}
+        <span>
+          <NumericText>{counts || '查看互动'}</NumericText>
+        </span>
       </button>
       {expanded ? <QuestionDetail input={input} item={item} online={online} /> : null}
     </div>

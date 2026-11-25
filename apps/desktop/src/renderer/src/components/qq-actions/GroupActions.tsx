@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { EmptyState } from '../EmptyState';
 import { useEffect, useState } from 'react';
 import {
@@ -365,17 +366,22 @@ function GroupTodosBody({
           >
             <strong>待办</strong>
             <span className="weq-todo-summary" aria-label="待办内容">
-              {latest
-                ? `${latest.completed ? '已完成 · ' : ''}${latest.text || `消息 ${latest.sequence}`}`
-                : hasRead
-                  ? '暂无待办'
-                  : reading
-                    ? '读取中…'
-                    : readError
-                      ? '读取失败'
-                      : localTodos.data === undefined
-                        ? '尚未读取'
-                        : '暂无待办'}
+              {latest ? (
+                <>
+                  {latest.completed ? '已完成 · ' : ''}
+                  {latest.text || <NumericText>{`消息 ${latest.sequence}`}</NumericText>}
+                </>
+              ) : hasRead ? (
+                '暂无待办'
+              ) : reading ? (
+                '读取中…'
+              ) : readError ? (
+                '读取失败'
+              ) : localTodos.data === undefined ? (
+                '尚未读取'
+              ) : (
+                '暂无待办'
+              )}
             </span>
             <ChevronRight size={14} aria-hidden />
           </button>
@@ -396,7 +402,7 @@ function GroupTodosBody({
             <header>
               <div>
                 <strong>群待办</strong>
-                <span>{groupName || groupId}</span>
+                <span>{groupName || <NumericText>{groupId}</NumericText>}</span>
               </div>
               <button
                 type="button"

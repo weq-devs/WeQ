@@ -3,7 +3,7 @@ import '../styles/message-selection-toolbar.css';
 
 export function MessageImageProgress({ percent }: { percent: number }) {
   return (
-    <span className="weq-message-image-progress" aria-hidden="true">
+    <span className="weq-message-image-progress weq-number" aria-hidden="true">
       {percent}%
     </span>
   );

@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { X } from 'lucide-react';
@@ -190,7 +191,7 @@ export function RemoteAccountSwitcher({
               <span className="weq-remote-account-name">
                 <strong>{account.displayName}</strong>
                 <small>
-                  {account.uin}
+                  <NumericText>{account.uin}</NumericText>
                   {account.static ? ' · 静态备份' : ''}
                 </small>
               </span>

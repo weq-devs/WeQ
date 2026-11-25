@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { useEffect, useState } from 'react';
 import { Modal } from './Dialog';
 import { useDialog } from './Dialog.shared';
@@ -122,7 +123,9 @@ function CacheDialog({ onClose }: { onClose: () => void }) {
               if (changed && validLimit && !busy) void saveLimit();
             }}
           >
-            <p>当前电脑的业务缓存已用 {(status.bytes / cacheMiB).toFixed(1)} MiB。</p>
+            <p>
+              <NumericText>{`当前电脑的业务缓存已用 ${(status.bytes / cacheMiB).toFixed(1)} MiB。`}</NumericText>
+            </p>
             <label>
               缓存上限（MiB）
               <input

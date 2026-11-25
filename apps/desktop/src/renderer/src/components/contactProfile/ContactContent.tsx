@@ -400,7 +400,7 @@ function ContactStats({
           {value.toLocaleString('zh-CN')}
         </ProfileLikeAction>
       ) : (
-        value.toLocaleString('zh-CN')
+        <NumericText>{value.toLocaleString('zh-CN')}</NumericText>
       )}
     </ContactRow>
   ) : (

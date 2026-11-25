@@ -26,6 +26,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { MessageMenuFeedbackContext } from '../../lib/messageMenuFeedback';
+import { NumericText } from '../../components/NumericText';
 import { MessageMenuButton } from '../../components/MessageMenuButton';
 import { MessageMenuContext } from '../../components/MessageMenuButton.shared';
 import { useToastApi } from '../../components/Toast.shared';
@@ -587,8 +588,16 @@ export function MessageContextMenu(props: Props) {
           </div>
           {hasMetadata ? (
             <p className="message-menu-metadata" id={metadataId} aria-hidden="true">
-              {time ? <span>{time}（北京时间）</span> : null}
-              {seq ? <span>seq {seq}</span> : null}
+              {time ? (
+                <span>
+                  <NumericText>{time}</NumericText>（北京时间）
+                </span>
+              ) : null}
+              {seq ? (
+                <span>
+                  seq <NumericText>{seq}</NumericText>
+                </span>
+              ) : null}
               {roaming ? (
                 <span>{message.sourceFormat === 'native' ? 'QQ 原生漫游' : 'WeQ 漫游缓存'}</span>
               ) : null}

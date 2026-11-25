@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { Fragment, useContext, useState, type ReactNode } from 'react';
 import {
   AtSign,
@@ -85,7 +86,9 @@ export function ContactCardSettings() {
         <Card
           title="全部字段"
           icon={<ListChecks size={15} strokeWidth={1.8} />}
-          desc={`共 ${allFields.length} 个字段，已显示 ${visibleCount} 个。`}
+          desc={
+            <NumericText>{`共 ${allFields.length} 个字段，已显示 ${visibleCount} 个。`}</NumericText>
+          }
           settingId="contact-card-all"
           action={
             <span className="weq-contact-toggle-all">

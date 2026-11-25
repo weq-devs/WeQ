@@ -195,7 +195,9 @@ export function DatabaseMaintenanceProgress({
           {!sharedHeading ? (
             <div className="weq-db-progress-step">
               <span role={executing ? 'status' : undefined}>{step.message}</span>
-              <strong>{state}</strong>
+              <strong>
+                <NumericText>{state}</NumericText>
+              </strong>
             </div>
           ) : null}
           {step.objectName && !(grouped && step.step.startsWith('integrity-records-')) ? (
@@ -251,7 +253,7 @@ export function DatabaseMaintenanceProgress({
       aria-label={`${progress.dbName}维护进度`}
     >
       <header className="weq-db-progress-heading">
-        <strong>{progress.dbName}</strong>
+        <strong className="weq-db-progress-name">{progress.dbName}</strong>
         <span>
           <NumericText>{`总耗时 ${duration(elapsed)}`}</NumericText>
         </span>
@@ -267,7 +269,11 @@ export function DatabaseMaintenanceProgress({
         </div>
       ) : null}
       {actions}
-      {abnormal ? <p className="weq-db-progress-warning">异常步骤 {abnormal}</p> : null}
+      {abnormal ? (
+        <p className="weq-db-progress-warning">
+          <NumericText>{`异常步骤 ${abnormal}`}</NumericText>
+        </p>
+      ) : null}
       {showBatchError && batch?.error ? (
         <p className="weq-db-progress-warning" role="alert">
           {batch.error}
@@ -319,17 +325,19 @@ export function DatabaseMaintenanceProgress({
                   </span>
                   <span>{sharedHeading ? steps[0]!.message : title}</span>
                   <strong>
-                    {sharedHeading
-                      ? connectionError && active
-                        ? '连接中断'
-                        : label(steps[0]!, progress.status === 'cancelled')
-                      : active
-                        ? '进行中'
-                        : pending
-                          ? '待开始'
-                          : needsAttention
-                            ? '需查看'
-                            : '已完成'}
+                    <NumericText>
+                      {sharedHeading
+                        ? connectionError && active
+                          ? '连接中断'
+                          : label(steps[0]!, progress.status === 'cancelled')
+                        : active
+                          ? '进行中'
+                          : pending
+                            ? '待开始'
+                            : needsAttention
+                              ? '需查看'
+                              : '已完成'}
+                    </NumericText>
                   </strong>
                   {!pending ? (
                     <ChevronRight className="weq-db-progress-chevron" size={14} aria-hidden />

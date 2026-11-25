@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { WeqBackupSection, WeqSelectiveBackup } from '@weq/service/backup-client';
@@ -156,7 +157,9 @@ export function BackupExportOptions({
       {enabled(id) ? (
         <details open={selection[key].length === 0 || undefined}>
           <BackupDisclosure>
-            {selection[key].length ? `已选 ${selection[key].length} 个数据来源` : '选择数据来源'}
+            <NumericText>
+              {selection[key].length ? `已选 ${selection[key].length} 个数据来源` : '选择数据来源'}
+            </NumericText>
           </BackupDisclosure>
           <AccountChoices
             accounts={accounts}
@@ -202,7 +205,7 @@ export function BackupExportOptions({
       {scoped('database', 'databaseConfigIds')}
       <details className="weq-backup-option">
         <BackupDisclosure>
-          本机设置与布局{deviceCount ? ` · 已选 ${deviceCount} 项` : ''}
+          本机设置与布局<NumericText>{deviceCount ? ` · 已选 ${deviceCount} 项` : ''}</NumericText>
         </BackupDisclosure>
         <div className="weq-backup-choice-details">
           <BackupOption {...toggle('layout')} />
@@ -213,7 +216,7 @@ export function BackupExportOptions({
       {scoped('drafts', 'draftConfigIds')}
       <details className="weq-backup-option">
         <BackupDisclosure>
-          助手与克隆数据{agentCount ? ` · 已选 ${agentCount} 项` : ''}
+          助手与克隆数据<NumericText>{agentCount ? ` · 已选 ${agentCount} 项` : ''}</NumericText>
         </BackupDisclosure>
         <div className="weq-backup-choice-details">
           <BackupOption

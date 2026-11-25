@@ -8,6 +8,7 @@
  * 私聊输入框不再有单会话开关按钮，添加 / 移除隐藏会话都在这里完成。
  */
 
+import { NumericText } from '../NumericText';
 import { useEffect, useMemo, useState } from 'react';
 import { Keyboard, Pencil, Save } from 'lucide-react';
 import { classifyChatType } from '@weq/codec';
@@ -190,9 +191,11 @@ export function TypingStatusSettingsCard() {
               label="隐藏正在输入状态的会话"
               indent
               desc={
-                !accountUin || !accountConfigId
-                  ? '当前没有打开的账号，暂时无法编辑隐藏会话。'
-                  : `已选择 ${savedIds.size} 个会话。`
+                !accountUin || !accountConfigId ? (
+                  '当前没有打开的账号，暂时无法编辑隐藏会话。'
+                ) : (
+                  <NumericText>{`已选择 ${savedIds.size} 个会话。`}</NumericText>
+                )
               }
               control={
                 <button

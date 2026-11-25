@@ -127,7 +127,7 @@ function rowTone(row: DatabaseMaintenanceStatusRow): Tone {
   if (row.deepStatus === 'completed' || row.deepStatus === 'partial') return 'ok';
   return row.scanStatus === 'completed' ? 'ok' : 'muted';
 }
-function rowSummary(row: DatabaseMaintenanceStatusRow): string {
+function rowSummary(row: DatabaseMaintenanceStatusRow): ReactNode {
   if (row.repair?.status === 'running') return '正在修复这个数据库。';
   if (row.repair?.status === 'failed') return '修复没有完成，原因见问题明细。';
   if (row.repair?.status === 'waiting') return '已保留体检结果，处理问题后可重试。';
@@ -146,9 +146,12 @@ function rowSummary(row: DatabaseMaintenanceStatusRow): string {
   if (row.scan?.badPageCount) {
     const count = row.scan.badPageCount.toLocaleString('zh-CN');
     const located = row.scan.affected?.reduce((sum, object) => sum + object.badPageCount, 0) ?? 0;
-    if (!located)
-      return `发现 ${count} 个坏页，${row.locationChecked ? '未能确认归属' : '尚未定位'}`;
-    return `发现 ${count} 个坏页，已定位 ${located.toLocaleString('zh-CN')} 个`;
+    const location = located
+      ? `已定位 ${located.toLocaleString('zh-CN')} 个`
+      : row.locationChecked
+        ? '未能确认归属'
+        : '尚未定位';
+    return <NumericText>{`发现 ${count} 个坏页，${location}`}</NumericText>;
   }
   if (row.deepStatus === 'running') return '正在做结构体检，页签名检查结果已经保留。';
   if (row.deepStatus === 'partial')
@@ -159,7 +162,8 @@ function rowSummary(row: DatabaseMaintenanceStatusRow): string {
   if (row.integrity?.ran && row.integrity.complete === false)
     return '已检查的结构部分没有发现异常，但仍有未核验项，不能认定整库正常。';
   const diagnostic = row.issues.filter((issue) => issue.diagnostic !== false);
-  if (diagnostic.length) return `发现 ${diagnostic.length} 项需要查看的问题。`;
+  if (diagnostic.length)
+    return <NumericText>{`发现 ${diagnostic.length} 项需要查看的问题。`}</NumericText>;
   if (row.scan) {
     if (!row.scan.usedHmac) return '此数据库没有可校验的加密页签名。';
     return '页签名检查没有发现坏页。';
@@ -979,9 +983,14 @@ export function DbRepairPanel({
           ? '正在深度体检'
           : '正在快速体检';
   const batchSummary =
-    operation && (!busyStarting || operation.status === 'running')
-      ? `${operation.completedDatabases} / ${operation.totalDatabases} 个数据库完成${operation.currentDb ? ` · 当前 ${operation.currentDb}` : ''}`
-      : '正在准备…';
+    operation && (!busyStarting || operation.status === 'running') ? (
+      <>
+        <NumericText>{`${operation.completedDatabases} / ${operation.totalDatabases} 个数据库完成`}</NumericText>
+        {operation.currentDb ? ` · 当前 ${operation.currentDb}` : ''}
+      </>
+    ) : (
+      '正在准备…'
+    );
   const appendButton = showAppendButton ? (
     <button
       className="weq-set-btn"
@@ -1065,7 +1074,7 @@ export function DbRepairPanel({
           ) : null}
           {account?.name !== scope.uin ? (
             <span className="weq-dbm-scope" title={scope.configId}>
-              {scope.uin}
+              <NumericText>{scope.uin}</NumericText>
             </span>
           ) : null}
           {canEndMaintenance ? (
@@ -1495,7 +1504,7 @@ export function DbRepairPanel({
         ) : showLiveOperation ? (
           <p className="weq-dbm-operation" role="status">
             {operationLabel(operation)} · {operationStates[operation.status]} ·{' '}
-            {operation.completedDatabases} / {operation.totalDatabases} 个数据库
+            <NumericText>{`${operation.completedDatabases} / ${operation.totalDatabases} 个数据库`}</NumericText>
             {operation.error ? `；${operation.error}` : ''}
           </p>
         ) : null}
@@ -1540,12 +1549,16 @@ export function DbRepairPanel({
                     {spacePending ? (
                       '开始后核算空间'
                     ) : spaceTotal !== undefined ? (
-                      <span>空间预算 {formatBytesOrUnknown(spaceTotal)}</span>
+                      <span>
+                        <NumericText>{`空间预算 ${formatBytesOrUnknown(spaceTotal)}`}</NumericText>
+                      </span>
                     ) : (
                       !spaceError && '正在估算空间…'
                     )}
                     {tightVolume && !spaceError ? (
-                      <span>可用 {formatBytesOrUnknown(tightVolume.freeBytes)}</span>
+                      <span>
+                        <NumericText>{`可用 ${formatBytesOrUnknown(tightVolume.freeBytes)}`}</NumericText>
+                      </span>
                     ) : null}
                   </span>
                 ) : null}
@@ -2171,7 +2184,9 @@ function DatabaseDetail({
               <Database size={13} aria-hidden />
               <span>
                 {object.name} · 页{' '}
-                {object.samplePages.map((page) => page.toLocaleString('zh-CN')).join('、')}
+                <NumericText>
+                  {object.samplePages.map((page) => page.toLocaleString('zh-CN')).join('、')}
+                </NumericText>
               </span>
             </li>
           ))}
@@ -2361,7 +2376,7 @@ function ReportView({
         <div>
           <h2>{operationLabel(operation)}报告</h2>
           <p>
-            {view.uin}
+            <NumericText>{view.uin}</NumericText>
             {view.configId ? ` · ${view.configId}` : ''} · <TimeLabel value={operation.startedAt} />
           </p>
         </div>

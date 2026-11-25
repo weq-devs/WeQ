@@ -1368,7 +1368,7 @@ export function CollectionDialog({
                   </div>
                   {mediaResults.map((result, index) => (
                     <div className="weq-col-media-result" key={result.id}>
-                      <span>{result.name || `附件 ${index + 1}`}</span>
+                      <span>{result.name || <NumericText>{`附件 ${index + 1}`}</NumericText>}</span>
                       {result.state === 'downloaded' ? (
                         <button
                           type="button"

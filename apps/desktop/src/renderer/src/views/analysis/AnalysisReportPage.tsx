@@ -1,3 +1,4 @@
+import { NumericText } from '../../components/NumericText';
 import { useId, useRef } from 'react';
 import { Modal } from '../../components/Dialog';
 import { useViewState } from '../../state/view';
@@ -52,7 +53,7 @@ export function AnalysisReportPage({
               <small>{request.period} · 年度报告</small>
             ) : request.kind === 'member' ? (
               <small>
-                {request.groupName}（{request.groupCode}）
+                {request.groupName}（<NumericText>{request.groupCode}</NumericText>）
               </small>
             ) : null}
           </span>

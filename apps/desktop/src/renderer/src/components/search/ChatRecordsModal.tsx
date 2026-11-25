@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { FormSelect, FormSuggestions } from '../FormSelect';
 import { EmptyState } from '../EmptyState';
 import { eventTimeFormatter } from '@weq/time';
@@ -702,10 +703,14 @@ export function ChatRecordsModal({
             <div className="weq-record-progress" role="status">
               {searchingRecords ? (
                 <LoadingIndicator>
-                  {progress ? `正在搜索，${progress}` : '正在搜索聊天记录…'}
+                  <NumericText>
+                    {progress ? `正在搜索，${progress}` : '正在搜索聊天记录…'}
+                  </NumericText>
                 </LoadingIndicator>
               ) : (
-                progress
+                <span>
+                  <NumericText>{progress}</NumericText>
+                </span>
               )}
             </div>
           ) : null}

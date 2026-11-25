@@ -712,7 +712,11 @@ export function GlobalSettingsSection({
                         <ChevronRight className="weq-storage-group-chevron" size={14} aria-hidden />
                         <span>
                           {label}
-                          {pickedCount > 0 && <small> · 已选 {pickedCount} 项</small>}
+                          {pickedCount > 0 ? (
+                            <small>
+                              <NumericText>{` · 已选 ${pickedCount} 项`}</NumericText>
+                            </small>
+                          ) : null}
                         </span>
                         <span className="weq-storage-group-size">
                           {incomplete ? '至少 ' : ''}
@@ -731,8 +735,9 @@ export function GlobalSettingsSection({
           <div className="weq-set-actions">
             {pickedCats.size > 0 && (
               <span className="weq-set-cache-total" role="status">
-                已选可清理 {formatBytes(cleanupBytes)}
-                {selectedUnavailable > 0 ? ` · ${selectedUnavailable} 项当前无法清理` : ''}
+                <NumericText>
+                  {`已选可清理 ${formatBytes(cleanupBytes)}${selectedUnavailable > 0 ? ` · ${selectedUnavailable} 项当前无法清理` : ''}`}
+                </NumericText>
               </span>
             )}
             <button

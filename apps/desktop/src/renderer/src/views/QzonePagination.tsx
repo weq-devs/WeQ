@@ -1,9 +1,9 @@
 import { ChevronDown, Loader2, RefreshCw } from 'lucide-react';
-import { useContext, useEffect, useEffectEvent, useRef } from 'react';
+import { useContext, useEffect, useEffectEvent, useRef, type ReactNode } from 'react';
 import { QzonePageContext } from './qzoneShared.shared';
 import '../styles/qzone-pagination.css';
 
-export function LoadingStatus({ text = '正在加载…' }: { text?: string }) {
+export function LoadingStatus({ text = '正在加载…' }: { text?: ReactNode }) {
   return (
     <p className="weq-qzn-loading" role="status">
       <Loader2 size={16} className="weq-spin" aria-hidden />
