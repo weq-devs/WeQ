@@ -2,17 +2,21 @@ import type { SqlRow, SqlValue } from '@weq/native';
 import type { QqDb } from '../qq_db';
 import { databaseRequestSignal, withDatabasePriority } from '../query_schedule';
 import { toBigint } from './util';
+import type { SourceMsgSearchDb, SourceSearchPartition } from './source_search';
 
 const SCAN_ROWS = 512;
 const DETAIL_ROWS = 64;
 
+export const ftsLikePattern = (keyword: string) => `%${keyword.replace(/[\\%_]/g, '\\$&')}%`;
+
 interface ContentSearch {
   table: 'buddy_msg_fts' | 'group_msg_fts';
   columns: string;
-  pattern: string;
+  keyword: string;
   poolSize: number;
   filenameOnly?: boolean;
-  partition?: { column: '40021' | '40027' | '40035'; value: SqlValue };
+  partition?: SourceSearchPartition;
+  index?: SourceMsgSearchDb;
 }
 interface Candidate {
   rowId: bigint;
@@ -34,11 +38,37 @@ export function searchFtsContent(qq: QqDb, input: ContentSearch): Promise<SqlRow
   return withDatabasePriority('background', () => search(qq, input), signal);
 }
 
+export async function searchFtsFilePreview(
+  keyword: string,
+  limit: number,
+  index?: SourceMsgSearchDb,
+): Promise<SqlRow[] | undefined> {
+  const rows = await index?.likeCandidates({
+    keyword,
+    limit: limit + 1,
+    fields: 'file',
+    order: 'time',
+  });
+  // 原查询只按时间排序。时间相同时保留原查询选出的文件及顺序。
+  if (rows?.some((row, i) => i > 0 && String(row[5]) === String(rows[i - 1]?.[5]))) return;
+  return rows;
+}
+
 async function search(
   qq: QqDb,
-  { table, columns, pattern, poolSize, filenameOnly, partition }: ContentSearch,
+  { table, columns, keyword, poolSize, filenameOnly, partition, index }: ContentSearch,
 ): Promise<SqlRow[]> {
   const signal = databaseRequestSignal();
+  const indexHits = await index?.likeCandidates({
+    keyword,
+    limit: poolSize,
+    fields: filenameOnly ? 'file' : 'both',
+    order: 'rowid',
+    partition,
+  });
+  signal?.throwIfAborted();
+  if (indexHits) return indexHits;
+  const pattern = ftsLikePattern(keyword);
   const needle = '(SELECT pattern FROM needle)';
   const file = `"41702" LIKE ${needle} ESCAPE '\\'`;
   const like = filenameOnly ? file : `("41701" LIKE ${needle} ESCAPE '\\' OR ${file})`;

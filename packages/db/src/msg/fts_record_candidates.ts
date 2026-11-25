@@ -2,6 +2,9 @@ import type { QqDb } from '../qq_db';
 import { toBigint } from './util';
 import type { BuddyMsgFtsHit } from './types';
 import type { SqlRow } from '@weq/native';
+import { databaseRequestSignal } from '../query_schedule';
+import type { SourceMsgSearchDb } from './source_search';
+import { ftsLikePattern } from './fts_content_search';
 
 export interface FtsRecordBounds {
   senderUid?: string;
@@ -15,12 +18,22 @@ export async function ftsRecordCandidates(
   table: 'buddy_msg_fts' | 'group_msg_fts',
   columns: string,
   toHit: (row: SqlRow) => BuddyMsgFtsHit,
-  pattern: string,
+  keyword: string,
   bounds: FtsRecordBounds,
   limit: number,
+  index?: SourceMsgSearchDb,
 ) {
+  const indexed = await index?.likeCandidates({
+    keyword,
+    limit,
+    fields: 'body',
+    order: 'msgId',
+    bounds,
+  });
+  databaseRequestSignal()?.throwIfAborted();
+  if (indexed) return indexed.map((row) => ({ ...toHit(row), partition: toBigint(row[8]) }));
   const where = [`"41701" LIKE ? ESCAPE '\\'`];
-  const values: Array<string | bigint> = [pattern];
+  const values: Array<string | bigint> = [ftsLikePattern(keyword)];
   if (bounds.senderUid) {
     where.push('"40020" = ?');
     values.push(bounds.senderUid);

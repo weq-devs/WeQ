@@ -5,6 +5,8 @@ import { databaseRequestSignal } from '../query_schedule';
 import type { BuddyMsgFtsHit } from './types';
 import { toBigint, toStr } from './util';
 import { sourceFtsContract, type SourceTokenizer } from './source_search_contract';
+import type { FtsRecordBounds } from './fts_record_candidates';
+import { ftsLikePattern } from './fts_content_search';
 
 export type SourceSearchTable = 'buddy_msg_fts' | 'group_msg_fts';
 export interface SourceSearchTarget {
@@ -41,9 +43,22 @@ const REQUIRED = [
   '40027',
 ];
 const phrase = (text: string) => `"${text.replaceAll('"', '""')}"`;
-const like = (text: string) => `%${text.replace(/[\\%_]/g, '\\$&')}%`;
 const nonAsciiCased = (text: string) =>
   text.codePointAt(0)! > 127 && text.toLowerCase() !== text.toUpperCase();
+
+export interface SourceSearchPartition {
+  column: '40021' | '40027' | '40035';
+  value: string | bigint;
+}
+
+interface LikeCandidates {
+  keyword: string;
+  limit: number;
+  fields: 'body' | 'file' | 'both';
+  order: 'rowid' | 'msgId' | 'time';
+  partition?: SourceSearchPartition;
+  bounds?: FtsRecordBounds;
+}
 
 /** 直接读取 QQ 的搜索库；不解密复制、不建库、不增量写入。 */
 export class SourceMsgSearchDb {
@@ -258,7 +273,7 @@ export class SourceMsgSearchDb {
         ? `weq_trigram_contains(${alias}."${column}",?)`
         : `${alias}."${column}" LIKE ? ESCAPE '\\'`,
     );
-    const args: SqlValue[] = columns.map(() => (long ? keyword : like(keyword)));
+    const args: SqlValue[] = columns.map(() => (long ? keyword : ftsLikePattern(keyword)));
     let from = `FROM ${this.table} c WHERE (${predicates.join(' OR ')})`;
     if (anchor) {
       const scope = `{${columns.map((column) => `"${column}"`).join(' ')}}`;
@@ -281,6 +296,84 @@ export class SourceMsgSearchDb {
       this.ready = false;
       throw new Error('搜索来源已变化，请重试');
     }
+  }
+
+  /** 以 MATCH 缩小文本比较范围，沿用调用方的 LIKE、过滤条件及候选排序。 */
+  async likeCandidates(options: LikeCandidates): Promise<SqlRow[] | undefined> {
+    try {
+      return await this.queryLikeCandidates(options);
+    } catch {
+      databaseRequestSignal()?.throwIfAborted();
+      this.abort.signal.throwIfAborted();
+    }
+  }
+
+  private async queryLikeCandidates({
+    keyword,
+    limit,
+    fields,
+    order,
+    partition,
+    bounds,
+  }: LikeCandidates) {
+    if (
+      !this.accelerated ||
+      !keyword.trim() ||
+      /[\p{Cs}\p{Cc}]/u.test(keyword.replace(/[\r\n\t]/g, ''))
+    )
+      return;
+    const generation = this.generation;
+    const anchor = await this.anchor(keyword);
+    if (!anchor) return;
+
+    const columns =
+      fields === 'body' ? ['41701'] : fields === 'file' ? ['41702'] : ['41701', '41702'];
+    const scope = `{${columns.map((column) => `"${column}"`).join(' ')}}`;
+    const match = columns.map((column) => `c."${column}" LIKE ? ESCAPE '\\'`).join(' OR ');
+    const where: string[] = [];
+    const args: SqlValue[] = [];
+    if (partition) {
+      where.push(`c."${partition.column}"=?`);
+      args.push(partition.value);
+    }
+    if (bounds?.senderUid) {
+      where.push('c."40020"=?');
+      args.push(bounds.senderUid);
+    }
+    if (bounds?.start !== undefined) {
+      where.push('c."40050">=?');
+      args.push(BigInt(bounds.start));
+    }
+    if (bounds?.end !== undefined) {
+      where.push('c."40050"<=?');
+      args.push(BigInt(bounds.end));
+    }
+    const filters = where.length ? `${where.join(' AND ')} AND ` : '';
+    const tie = `"${order === 'msgId' ? '40001' : '41700'}" ${order === 'time' ? 'ASC' : 'DESC'}`;
+    const table = this.table;
+    const virtual = `${table}_fts`;
+    // QQ 可能在校验后先写入内容表。补查无 docsize 的行，并在同一个 SQL 快照内去重。
+    const rows = await this.query(
+      `WITH candidates(id) AS MATERIALIZED (
+         SELECT rowid FROM ${virtual} WHERE ${virtual} MATCH ?
+         UNION
+         SELECT c.rowid FROM ${table} c WHERE ${filters}c.rowid NOT IN (SELECT id FROM ${virtual}_docsize)
+       )
+       SELECT p.*,v.schema_version FROM pragma_schema_version v LEFT JOIN (
+         SELECT ${CONTENT_FIELDS}, c."40027" AS partition
+         FROM candidates CROSS JOIN ${table} c ON c.rowid=candidates.id
+         WHERE ${filters}(${match}) ORDER BY c."40050" DESC,c.${tie} LIMIT ?
+       ) p ON 1 ORDER BY p."40050" DESC,p.${tie}`,
+      [
+        `${scope}:${anchor}`,
+        ...args,
+        ...args,
+        ...columns.map(() => ftsLikePattern(keyword)),
+        BigInt(limit),
+      ],
+    );
+    this.assertCurrent(rows, 10, generation);
+    return rows.filter((row) => row[8] !== null).map((row) => [...row.slice(0, 8), row[9]!]);
   }
   private async page(
     keyword: string,

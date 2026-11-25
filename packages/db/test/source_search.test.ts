@@ -2,7 +2,12 @@ import { mkdtempSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { SourceMsgSearchDb, withDatabasePriority, type SourceSearchQuery } from '@weq/db';
+import {
+  GroupMsgFtsDb,
+  SourceMsgSearchDb,
+  withDatabasePriority,
+  type SourceSearchQuery,
+} from '@weq/db';
 import { closeAllFixtureDbs, createSqliteStub, fixtureDb } from '@weq/testkit';
 import { sourceFtsContract } from '../src/msg/source_search_contract';
 
@@ -134,6 +139,61 @@ describe('SourceMsgSearchDb', () => {
     expect((await f.search.searchPartition(77n, '数据库')).total).toBe(2);
     f.db.exec(`INSERT INTO ${TABLE} VALUES(1,111,2,'group','sender',101,3,77,'数据库 live','')`);
     expect((await f.search.searchPartition(77n, '数据库')).total).toBe(3);
+  });
+  it('加速旧搜索入口并保留字面匹配、同时间顺序和校验后尚未索引的消息', async () => {
+    const f = fixture();
+    await f.search.sync();
+    const legacy = new GroupMsgFtsDb(f.nt, { dbPath: f.path });
+    // 小 rowid 也可能出现在校验后；发送者、时间和正文应在候选上限之前生效。
+    f.db.exec(`INSERT INTO ${TABLE} VALUES(2,901,2,'group','sender',100,3,77,'数据库 live','文件-会议%.pdf');
+      INSERT INTO ${TABLE} VALUES(4,902,2,'group','other',100,4,77,'数据库 live','文件-会议x.pdf');
+      INSERT INTO ${TABLE} VALUES(5,903,2,'group','sender',101,5,77,'数据库 live','文件-会议%.txt');`);
+    const execute = vi.spyOn(f.nt, 'executeSql');
+    const bounds = { start: 100, end: 100, senderUid: 'sender' };
+    expect(await legacy.searchInGroup('77', '数据库', 20, f.search)).toEqual(
+      await legacy.searchInGroup('77', '数据库', 20),
+    );
+    expect(await legacy.search('数据库', 20, f.search)).toEqual(await legacy.search('数据库', 20));
+    expect(await legacy.searchFiles('会议%', 20, f.search)).toEqual(
+      await legacy.searchFiles('会议%', 20),
+    );
+    const filtered = await legacy.searchRecordCandidates('数据库', bounds, 1, f.search);
+    expect(filtered).toEqual(await legacy.searchRecordCandidates('数据库', bounds, 1));
+    expect(filtered.map(({ msgId }) => msgId)).toEqual([901n]);
+    expect(
+      execute.mock.calls.filter(([, statement]) => statement.includes('MATCH ?')),
+    ).toHaveLength(4);
+    expect(await legacy.search('café', 20, f.search)).toEqual([]);
+    expect(await legacy.search('数据库', 20, f.search)).toContainEqual(
+      expect.objectContaining({ msgId: 903n }),
+    );
+  });
+  it('全文候选读取失败时退回原查询，取消时停止读取', async () => {
+    const f = fixture();
+    const controller = new AbortController();
+    let cancel = false;
+    const query: SourceSearchQuery = async (target, sql, params) => {
+      if (sql.includes('MATCH ?')) {
+        if (cancel) controller.abort();
+        throw new Error('合成全文索引读取失败');
+      }
+      return f.nt.executeSql(target.dbPath, sql, params);
+    };
+    search = new SourceMsgSearchDb({ nt: f.nt, dbPath: f.path, tableName: TABLE, query });
+    const current = search;
+    await current.sync();
+    const legacy = new GroupMsgFtsDb(f.nt, { dbPath: f.path });
+    expect(await legacy.search('数据库', 20, current)).toEqual(await legacy.search('数据库', 20));
+    cancel = true;
+    const execute = vi.spyOn(f.nt, 'executeSql');
+    await expect(
+      withDatabasePriority(
+        'background',
+        () => legacy.search('数据库', 20, current),
+        controller.signal,
+      ),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(execute).not.toHaveBeenCalled();
   });
   it('can enable acceleration after QQ catches up previously missing index rows without a schema change', async () => {
     const f = fixture(false);

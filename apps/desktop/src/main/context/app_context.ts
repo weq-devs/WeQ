@@ -2284,6 +2284,28 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         },
       });
       setProxyMessageReadSharing(session, () => qqClientSync.isLiveEnabled());
+      const unifiedSearch = new UnifiedSearchService(session, {
+        searchContent: (category, keyword, limit, offset) =>
+          searchAccountContent(
+            contentSearch,
+            guildDirect,
+            category,
+            keyword,
+            limit,
+            offset,
+            String(session.context.uin),
+          ),
+        searchCollections: (keyword, limit, offset) =>
+          collectionSvc.searchLocal(keyword, limit, offset),
+        generatedSources: () => generatedSources,
+        // 只读复用 QQ 搜索库；校验与交互查询在独立 worker 中运行。
+        dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
+        nt: platform.native.ntHelper,
+        sourceSearchQuery: createSourceSearchQuery(),
+        retireSearchIndex: createSearchIndexRetirement(
+          userConfig.cacheDir(join('search-index', exportConfigId)),
+        ),
+      });
       this.services = {
         qqClientSync,
         proxyReactions,
@@ -2393,29 +2415,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
           resolvePid: resolveOnlinePid,
         }),
         profile,
-        msgSearch: new MsgSearchService(session),
-        unifiedSearch: new UnifiedSearchService(session, {
-          searchContent: (category, keyword, limit, offset) =>
-            searchAccountContent(
-              contentSearch,
-              guildDirect,
-              category,
-              keyword,
-              limit,
-              offset,
-              String(session.context.uin),
-            ),
-          searchCollections: (keyword, limit, offset) =>
-            collectionSvc.searchLocal(keyword, limit, offset),
-          generatedSources: () => generatedSources,
-          // 只读复用 QQ 搜索库；校验与交互查询在独立 worker 中运行。
-          dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
-          nt: platform.native.ntHelper,
-          sourceSearchQuery: createSourceSearchQuery(),
-          retireSearchIndex: createSearchIndexRetirement(
-            userConfig.cacheDir(join('search-index', exportConfigId)),
-          ),
-        }),
+        msgSearch: new MsgSearchService(session, unifiedSearch),
+        unifiedSearch,
         onlineStatus: new OnlineStatusService(
           session,
           { nt: platform.native.ntHelper, resolvePid: resolveOnlinePid },
@@ -3303,6 +3304,28 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       );
       let generatedSources: GeneratedSearchSources | undefined;
       await dressInstall.prepareMessageRendering();
+      const unifiedSearch = new UnifiedSearchService(session, {
+        searchContent: (category, keyword, limit, offset) =>
+          searchAccountContent(
+            contentSearch,
+            guildDirect,
+            category,
+            keyword,
+            limit,
+            offset,
+            String(session.context.uin),
+          ),
+        searchCollections: (keyword, limit, offset) =>
+          collectionSvc.searchLocal(keyword, limit, offset),
+        generatedSources: () => generatedSources,
+        // 只读复用 QQ 搜索库；校验与交互查询在独立 worker 中运行。
+        dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
+        nt: platform.native.ntHelper,
+        sourceSearchQuery: createSourceSearchQuery(),
+        retireSearchIndex: createSearchIndexRetirement(
+          userConfig.cacheDir(join('search-index', exportConfigId)),
+        ),
+      });
       this.services = {
         msgs,
         roamingBackfill,
@@ -3366,29 +3389,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
           resolvePid: livePid,
         }),
         profile,
-        msgSearch: new MsgSearchService(session),
-        unifiedSearch: new UnifiedSearchService(session, {
-          searchContent: (category, keyword, limit, offset) =>
-            searchAccountContent(
-              contentSearch,
-              guildDirect,
-              category,
-              keyword,
-              limit,
-              offset,
-              String(session.context.uin),
-            ),
-          searchCollections: (keyword, limit, offset) =>
-            collectionSvc.searchLocal(keyword, limit, offset),
-          generatedSources: () => generatedSources,
-          // 只读复用 QQ 搜索库；校验与交互查询在独立 worker 中运行。
-          dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
-          nt: platform.native.ntHelper,
-          sourceSearchQuery: createSourceSearchQuery(),
-          retireSearchIndex: createSearchIndexRetirement(
-            userConfig.cacheDir(join('search-index', exportConfigId)),
-          ),
-        }),
+        msgSearch: new MsgSearchService(session, unifiedSearch),
+        unifiedSearch,
         onlineStatus: new OnlineStatusService(
           session,
           { nt: platform.native.ntHelper, resolvePid: livePid },

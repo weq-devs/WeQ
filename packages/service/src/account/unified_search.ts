@@ -311,6 +311,7 @@ export class UnifiedSearchService {
   private readonly buddyIndex?: SourceMsgSearchDb;
   private readonly groupIndex?: SourceMsgSearchDb;
   private indexSyncPromise: Promise<void> | null = null;
+  private showIndexSync = false;
   private lastIndexSyncAt = 0;
   private disposed = false;
   private readonly retirementAbort = new AbortController();
@@ -342,10 +343,16 @@ export class UnifiedSearchService {
     });
   }
 
+  messageIndex(source: FtsSource): SourceMsgSearchDb | undefined {
+    const index = source === 'group' ? this.groupIndex : this.buddyIndex;
+    if (index && !index.accelerated) void this.ensureIndexes(false);
+    return index;
+  }
+
   /** 兼容原状态枚举：building 表示校验源库，不再表示构建本地副本。 */
   get indexStatus(): 'disabled' | 'building' | 'ready' {
     if (!this.buddyIndex || !this.groupIndex) return 'disabled';
-    if (this.indexSyncPromise) return 'building';
+    if (this.showIndexSync) return 'building';
     return this.buddyIndex.ready || this.groupIndex.ready ? 'ready' : 'disabled';
   }
 
@@ -353,13 +360,17 @@ export class UnifiedSearchService {
    * Coalesced, throttled (≥30s apart) index sync. Never rejects — failures
    * leave the index disabled and every query falls back to the LIKE scans.
    */
-  ensureIndexes(): Promise<void> {
+  ensureIndexes(showProgress = true): Promise<void> {
     if (this.disposed) return Promise.resolve();
     if (!this.buddyIndex || !this.groupIndex) return Promise.resolve();
-    if (this.indexSyncPromise) return this.indexSyncPromise;
+    if (this.indexSyncPromise) {
+      this.showIndexSync ||= showProgress;
+      return this.indexSyncPromise;
+    }
     const now = Date.now();
     if (now - this.lastIndexSyncAt < 30_000) return Promise.resolve();
     this.lastIndexSyncAt = now;
+    this.showIndexSync = showProgress;
     this.indexSyncPromise = this.syncIndexes()
       .then(() => undefined)
       .catch((e) => {
@@ -367,6 +378,7 @@ export class UnifiedSearchService {
       })
       .finally(() => {
         this.indexSyncPromise = null;
+        this.showIndexSync = false;
       });
     return this.indexSyncPromise;
   }
@@ -1366,6 +1378,7 @@ export class UnifiedSearchService {
         keyword,
         bounds,
         FILTERED_RECORD_LIMIT + 1,
+        this.messageIndex(source),
       );
       const rows = candidates.slice(0, FILTERED_RECORD_LIMIT);
       const originalSource = source === 'group' ? this.session.groupMsgs : this.session.c2cMsgs;
@@ -1611,6 +1624,7 @@ export class UnifiedSearchService {
             FILE_SEARCH_CANDIDATE_LIMIT,
             0,
             true,
+            this.messageIndex('buddy'),
           ),
       this.groupIndex?.ready && [...keyword].length >= 3
         ? this.groupIndex.searchFiles(keyword, FILE_SEARCH_CANDIDATE_LIMIT, 0, true)
@@ -1619,6 +1633,7 @@ export class UnifiedSearchService {
             FILE_SEARCH_CANDIDATE_LIMIT,
             0,
             true,
+            this.messageIndex('group'),
           ),
     ]);
     this.maybeRetire('buddy');

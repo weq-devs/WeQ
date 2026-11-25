@@ -1,10 +1,8 @@
 /**
  * MsgSearchService — keyword search over an account's message history.
  *
- * Thin pass-through to `session.buddyMsgFts.search`, mirroring the
- * AccountSession → Db → (FTS) pipeline used by the other account services.
- * The underlying `buddy_msg_fts` table is QQ's own full-text-search index, so
- * results come back ranked best-match-first — no scoring done here.
+ * Shares the account's QQ FTS readers with unified search. The database
+ * accessors retain their candidate limits and relevance ranking.
  *
  * Returns the structured `BuddyMsgFtsHit[]`: `msgId` stays `bigint` to keep
  * 64-bit precision (the caller stringifies it at the IPC/JSON boundary);
@@ -13,26 +11,34 @@
 
 import type { AccountSession } from '@weq/account';
 import { type BuddyMsgFtsHit, type C2cPartition, withDatabaseSignal } from '@weq/db';
+import type { UnifiedSearchService } from './unified_search';
 
 function searchWithSignal<T>(signal: AbortSignal | undefined, read: () => Promise<T>): Promise<T> {
   return signal ? withDatabaseSignal(signal, read) : read();
 }
 
 export class MsgSearchService {
-  constructor(private readonly session: AccountSession) {}
+  constructor(
+    private readonly session: AccountSession,
+    private readonly indexes?: Pick<UnifiedSearchService, 'messageIndex'>,
+  ) {}
 
   /**
    * Find friend messages whose text or filename matches `keyword`.
    */
   searchBuddy(keyword: string, limit = 20, signal?: AbortSignal): Promise<BuddyMsgFtsHit[]> {
-    return searchWithSignal(signal, () => this.session.buddyMsgFts.search(keyword, limit));
+    return searchWithSignal(signal, () =>
+      this.session.buddyMsgFts.search(keyword, limit, this.indexes?.messageIndex('buddy')),
+    );
   }
 
   /**
    * Find group messages whose text or filename matches `keyword`.
    */
   searchGroup(keyword: string, limit = 20, signal?: AbortSignal): Promise<BuddyMsgFtsHit[]> {
-    return searchWithSignal(signal, () => this.session.groupMsgFts.search(keyword, limit));
+    return searchWithSignal(signal, () =>
+      this.session.groupMsgFts.search(keyword, limit, this.indexes?.messageIndex('group')),
+    );
   }
 
   /**
@@ -48,7 +54,12 @@ export class MsgSearchService {
     signal?: AbortSignal,
   ): Promise<BuddyMsgFtsHit[]> {
     return searchWithSignal(signal, () =>
-      this.session.buddyMsgFts.searchInConversation(this.c2cPartition(targetUid), keyword, limit),
+      this.session.buddyMsgFts.searchInConversation(
+        this.c2cPartition(targetUid),
+        keyword,
+        limit,
+        this.indexes?.messageIndex('buddy'),
+      ),
     );
   }
 
@@ -68,7 +79,12 @@ export class MsgSearchService {
     signal?: AbortSignal,
   ): Promise<BuddyMsgFtsHit[]> {
     return searchWithSignal(signal, () =>
-      this.session.groupMsgFts.searchInGroup(groupCode, keyword, limit),
+      this.session.groupMsgFts.searchInGroup(
+        groupCode,
+        keyword,
+        limit,
+        this.indexes?.messageIndex('group'),
+      ),
     );
   }
 
@@ -77,8 +93,8 @@ export class MsgSearchService {
    */
   async searchFiles(keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
     const [buddyFiles, groupFiles] = await Promise.all([
-      this.session.buddyMsgFts.searchFiles(keyword, limit),
-      this.session.groupMsgFts.searchFiles(keyword, limit),
+      this.session.buddyMsgFts.searchFiles(keyword, limit, this.indexes?.messageIndex('buddy')),
+      this.session.groupMsgFts.searchFiles(keyword, limit, this.indexes?.messageIndex('group')),
     ]);
 
     // Merge and re-sort by sendTime desc, then trim to limit
