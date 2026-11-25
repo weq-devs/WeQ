@@ -651,7 +651,10 @@ export function WorkspaceTools({
                 onGenerate={(report) => leave(() => onOpenAnalysis(report))}
               />
             ) : tool === 'analysis-reports' ? (
-              <AnalysisReportsTool onOpenReport={(report) => leave(() => onOpenAnalysis(report))} />
+              <AnalysisReportsTool
+                onOpenReport={(report) => leave(() => onOpenAnalysis(report))}
+                onStartAnalysis={() => setTool('analysis')}
+              />
             ) : null
           ) : null}
         </RetainedTabs>

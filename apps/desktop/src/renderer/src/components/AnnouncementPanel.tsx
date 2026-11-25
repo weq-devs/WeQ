@@ -1,6 +1,15 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { formatDate } from '@weq/time';
-import { ArrowLeft, ArrowRight, ChevronRight, ExternalLink, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  ArrowRight,
+  ChevronRight,
+  CloudOff,
+  ExternalLink,
+  FileQuestion,
+  Megaphone,
+  X,
+} from 'lucide-react';
 import { Streamdown } from 'streamdown';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
@@ -10,6 +19,8 @@ import { notificationSource, openNotificationSource } from '../lib/notificationN
 import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { trpc } from '../trpc/client';
 import { Modal } from './Dialog';
+import { EmptyState } from './EmptyState';
+import { LoadingIndicator } from './LoadingIndicator';
 import { useDialog } from './Dialog.shared';
 import { ReminderDot } from './ReminderBadge';
 import { TimeLabel } from './TimeLabel';
@@ -243,32 +254,38 @@ export default function AnnouncementPanel({
                 {visibleDetail.body}
               </Streamdown>
             </article>
+          ) : details.isLoading ? (
+            <div className="weq-announcement-placeholder" role="status">
+              <LoadingIndicator>正在读取公告…</LoadingIndicator>
+            </div>
+          ) : details.isError ? (
+            <div className="weq-announcement-placeholder">
+              <EmptyState
+                icon={<FileQuestion />}
+                title="无法读取这条公告"
+                body="网络或服务暂时不可用，可以稍后重试。"
+              />
+              <button type="button" className="weq-set-btn" onClick={() => void details.refetch()}>
+                重试
+              </button>
+            </div>
           ) : (
-            <p className="weq-announcement-empty" role="status">
-              {details.isError
-                ? '无法读取这条公告。'
-                : details.isLoading
-                  ? '正在读取公告…'
-                  : '这条公告已不可查看。'}
-              {details.isError && (
-                <button
-                  type="button"
-                  className="weq-set-btn"
-                  onClick={() => void details.refetch()}
-                >
-                  重试
-                </button>
-              )}
-            </p>
+            <div className="weq-announcement-placeholder">
+              <EmptyState
+                icon={<FileQuestion />}
+                title="这条公告已不可查看"
+                body="它可能已被撤下，或当前账号没有查看权限。"
+              />
+              <button type="button" className="weq-set-btn" onClick={() => visit(null)}>
+                返回公告列表
+              </button>
+            </div>
           )
         ) : (
           <>
-            {feedFailed && (
-              <p
-                className={hasEntries ? 'weq-announcement-status' : 'weq-announcement-empty'}
-                role="status"
-              >
-                {hasEntries ? '暂时无法获取最新公告，显示上次获取的内容。' : '暂时无法获取公告。'}
+            {feedFailed && hasEntries ? (
+              <p className="weq-announcement-status" role="status">
+                暂时无法获取最新公告，显示上次获取的内容。
                 <button
                   type="button"
                   className="weq-set-btn"
@@ -278,7 +295,24 @@ export default function AnnouncementPanel({
                   {refresh.isLoading ? '正在获取…' : '重试'}
                 </button>
               </p>
-            )}
+            ) : null}
+            {feedFailed && !hasEntries ? (
+              <div className="weq-announcement-placeholder">
+                <EmptyState
+                  icon={<CloudOff />}
+                  title="暂时无法获取公告"
+                  body="网络或服务暂时不可用，恢复后可以在这里重试。"
+                />
+                <button
+                  type="button"
+                  className="weq-set-btn"
+                  disabled={refresh.isLoading}
+                  onClick={() => refreshFeed(undefined)}
+                >
+                  {refresh.isLoading ? '正在获取…' : '重试'}
+                </button>
+              </div>
+            ) : null}
             {list?.entries.length ? (
               <ul className="weq-announcements-list">
                 {list.entries.map((entry) => (
@@ -305,11 +339,27 @@ export default function AnnouncementPanel({
                 ))}
               </ul>
             ) : !feedFailed ? (
-              <p className="weq-announcement-empty" role="status">
-                {!list || list.status === 'loading' || refresh.isLoading
-                  ? '正在获取公告…'
-                  : '暂无官方公告'}
-              </p>
+              !list || list.status === 'loading' || refresh.isLoading ? (
+                <div className="weq-announcement-placeholder" role="status">
+                  <LoadingIndicator>正在获取公告…</LoadingIndicator>
+                </div>
+              ) : (
+                <div className="weq-announcement-placeholder">
+                  <EmptyState
+                    icon={<Megaphone />}
+                    title="暂时没有公告"
+                    body="官方公告发布后会出现在这里；有更新时入口会亮起红点。"
+                  />
+                  <button
+                    type="button"
+                    className="weq-set-btn"
+                    disabled={refresh.isLoading}
+                    onClick={() => refreshFeed(undefined)}
+                  >
+                    刷新
+                  </button>
+                </div>
+              )
             ) : null}
           </>
         )}

@@ -1,0 +1,131 @@
+.weq-skel {
+  display: block;
+  flex: none;
+  background: linear-gradient(90deg, #eef1f4 25%, #e4e8ed 50%, #eef1f4 75%);
+  background-size: 200% 100%;
+  animation: weq-skel-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes weq-skel-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.weq-skel-db {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.weq-skel-db-tree {
+  display: grid;
+  flex: none;
+  gap: 12px;
+  align-content: start;
+  width: 210px;
+  padding: 14px 12px;
+  border-right: 1px solid var(--weq-border-subtle);
+  background: color-mix(in srgb, var(--background) 94%, var(--foreground));
+}
+
+.weq-skel-db-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  padding: 12px 14px;
+}
+
+.weq-skel-db-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.weq-skel-db-head,
+.weq-skel-db-row {
+  display: grid;
+  grid-template-columns: 70px 1.2fr 0.8fr 90px;
+  align-items: center;
+  gap: 14px;
+}
+
+.weq-skel-db-head {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-skel-db-row {
+  height: 37px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+
+.weq-skel-monitor {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.weq-skel-monitor-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--weq-border-subtle);
+  border-radius: 10px;
+  background: var(--background);
+}
+
+.weq-skel-monitor-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 110px;
+}
+
+.weq-skel-monitor-bar {
+  flex: 1;
+  min-width: 0;
+}
+
+.weq-skel-messages {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.weq-skel-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.weq-skel-message.is-other {
+  flex-direction: row-reverse;
+}
+
+.weq-skel-message-copy {
+  display: grid;
+  gap: 6px;
+  max-width: 62%;
+}
+
+.weq-skel-message.is-other .weq-skel-message-copy {
+  justify-items: end;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-skel {
+    animation: none;
+  }
+}
+
+html[data-theme='dark'] .weq-skel {
+  background: linear-gradient(90deg, #2a3037 25%, #333b44 50%, #2a3037 75%);
+  background-size: 200% 100%;
+}

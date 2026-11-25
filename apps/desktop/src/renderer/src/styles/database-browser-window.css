@@ -38,3 +38,18 @@
   gap: 12px;
   color: var(--weq-fg-secondary);
 }
+
+.weq-database-browser-empty {
+  display: flex;
+  flex: 1;
+  min-height: 240px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.weq-database-browser-empty .weq-empty-state {
+  flex: none;
+  min-height: 0;
+}

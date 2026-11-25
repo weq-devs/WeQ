@@ -224,3 +224,13 @@ html[data-theme='dark'] .weq-ev-sources > button[aria-pressed='true'] {
     padding: 6px;
   }
 }
+
+.weq-ev-empty .weq-empty-state {
+  flex: none;
+  min-height: 0;
+  padding: 16px;
+}
+
+.weq-ev-empty .weq-set-btn {
+  margin-top: 4px;
+}

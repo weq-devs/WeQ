@@ -28,6 +28,7 @@ import { APP_NAVIGATION } from '../lib/appNavigation';
 import {
   Bookmark,
   CheckCheck,
+  CircleAlert,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -45,6 +46,7 @@ import {
   Play,
   RefreshCw,
   Search,
+  SearchX,
   Save,
   Square,
   X,
@@ -60,6 +62,7 @@ import { collectionContentText } from './CollectionContent.shared';
 import { CollectionImage } from './CollectionImage';
 import { IS_WEB } from '../lib/target.shared';
 import { CollectionExportDialog } from '../views/export/CollectionExportDialog';
+import { EmptyState } from './EmptyState';
 import { useMultiSelection, type MultiSelectionItemProps } from '../hooks/useMultiSelection';
 import { useContentMultiSelect } from '../state/contentSelection.shared';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
@@ -1419,14 +1422,56 @@ export function CollectionDialog({
               <span>正在加载收藏…</span>
             </div>
           ) : error && items.length === 0 ? (
-            <div className="weq-collection-state is-error">{error}</div>
+            <div className="weq-collection-state is-error">
+              <EmptyState icon={<CircleAlert />} title="收藏读取失败" body={error} />
+              <button
+                type="button"
+                className="weq-set-btn"
+                disabled={loading}
+                onClick={() => setReload((value) => value + 1)}
+              >
+                <RefreshCw size={14} aria-hidden />
+                重试
+              </button>
+            </div>
           ) : filtered.length === 0 ? (
             <div className="weq-collection-state">
-              {items.length === 0
-                ? refreshing
-                  ? '正在同步收藏…'
-                  : '还没有任何收藏'
-                : '没有匹配的收藏'}
+              {items.length === 0 ? (
+                <>
+                  <EmptyState
+                    icon={refreshing ? <RefreshCw className="weq-spin" /> : <Bookmark />}
+                    title={refreshing ? '正在同步收藏…' : '还没有收藏'}
+                    body={
+                      refreshing
+                        ? '正在从 QQ 读取收藏内容，完成后会显示在这里。'
+                        : '在聊天里把想留的消息收藏起来，之后可以在这里统一查看。'
+                    }
+                  />
+                  {!refreshing ? (
+                    <button type="button" className="weq-set-btn" onClick={onClose}>
+                      去聊天里看看
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <EmptyState
+                    icon={<SearchX />}
+                    title="没有匹配的收藏"
+                    body="换个关键词或收藏类型再试试。"
+                  />
+                  <button
+                    type="button"
+                    className="weq-set-btn"
+                    onClick={() => {
+                      setQuery('');
+                      setKind('all');
+                    }}
+                  >
+                    清空筛选
+                  </button>
+                </>
+              )}
             </div>
           ) : (
             <div className="weq-collection-grid">

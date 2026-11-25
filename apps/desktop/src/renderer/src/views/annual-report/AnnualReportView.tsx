@@ -15,10 +15,12 @@ import {
   Maximize2,
   Minimize2,
   RefreshCw,
+  Sparkles,
 } from 'lucide-react';
 import type { ReportManifest } from '@weq/service';
 import { ALL_TIME_YEAR, reportEraLabel, reportPeriodLabel } from '@weq/service/report-time';
 import { client, trpc } from '../../trpc/client';
+import { EmptyState } from '../../components/EmptyState';
 import { AnnualReportStage } from './AnnualReportStage';
 import { AnnualReportEntry } from './AnnualReportEntry';
 import { renderReportPage } from './pageRegistry.shared';
@@ -582,9 +584,11 @@ function ReportDeckView({
   if ((manifestCurrent && candidatePages.length === 0) || (!entry && noOwnData)) {
     return (
       <div className="weq-report-root weq-report-empty">
-        <p>
-          {reportEraLabel(year)}没有可展示的卡片 —— 至少需要发出过一条私聊或群聊消息，报告才会出现。
-        </p>
+        <EmptyState
+          icon={<Sparkles />}
+          title={`${reportEraLabel(year)}还没有可讲的卡片`}
+          body="至少需要发出过一条私聊或群聊消息，年度报告才会出现。"
+        />
         <button type="button" onClick={entry ? backToEntry : onRetry}>
           {entry ? '换个年份' : '重新读取'}
         </button>

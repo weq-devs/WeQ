@@ -81,3 +81,13 @@ html[data-theme='dark'] .weq-col-search-status,
 html[data-theme='dark'] .weq-col-search-status > button {
   border-color: var(--weq-border-strong);
 }
+
+.weq-collection-state .weq-empty-state {
+  flex: none;
+  min-height: 0;
+  padding: 12px 16px;
+}
+
+.weq-collection-state .weq-set-btn {
+  flex: none;
+}

@@ -26,6 +26,7 @@ import {
   MessageCircle,
   RefreshCw,
   Send,
+  Sparkles,
   ThumbsUp,
   UserPlus,
   UserCheck,
@@ -467,8 +468,17 @@ function QzonePublicContent({
   if (!capabilities) return <LoadingStatus text="正在确认空友爱看入口…" />;
   if (!capabilities.available)
     return (
-      <div className="weq-qzn-timeline">
-        <p className="weq-qzn-status">当前账号还没有开通空友爱看入口，暂时只能浏览原有空间内容。</p>
+      <div className="weq-qzn-timeline weq-qzn-public-unavailable">
+        <EmptyState
+          icon={<Sparkles />}
+          title="这个入口还没开通"
+          body="当前账号暂未获得「空友爱看」入口，原有空间内容仍可正常浏览。"
+        />
+        {onSpace ? (
+          <button type="button" className="weq-set-btn" onClick={() => onSpace(selfUin)}>
+            浏览空间
+          </button>
+        ) : null}
       </div>
     );
 

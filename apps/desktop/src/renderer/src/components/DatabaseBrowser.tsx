@@ -1,3 +1,4 @@
+import { Database } from 'lucide-react';
 import { NumericText } from './NumericText';
 import { useEffect, useRef, useState } from 'react';
 import { trpc } from '../trpc/client';
@@ -5,6 +6,8 @@ import { useViewState } from '../state/view';
 import { useAccountSwitch } from '../state/accountSwitch';
 import { useTabActive } from './RetainedTabs.shared';
 import { QueryError } from './settings/controls';
+import { EmptyState } from './EmptyState';
+import { DatabaseBrowserSkeleton } from './PageSkeletons';
 import { DbExplorer } from '../views/cache/DbExplorer';
 import { ExportTool } from './lazyWorkspaces';
 import { ToolSurface } from './ToolSurface';
@@ -50,15 +53,11 @@ export default function DatabaseBrowser() {
           onRetry={() => void config.refetch()}
         />
       ) : null}
-      <div className="weq-database-browser-source" role="status">
-        {source ? (
+      {source ? (
+        <div className="weq-database-browser-source" role="status">
           <NumericText>{`当前账号：${source.expectedAccountUin}`}</NumericText>
-        ) : uin ? (
-          '正在读取账号…'
-        ) : (
-          '请先打开账号'
-        )}
-      </div>
+        </div>
+      ) : null}
       {source && !config.error ? (
         <DbExplorer
           key={identity}
@@ -68,7 +67,17 @@ export default function DatabaseBrowser() {
             setTarget(createDatabaseExportTarget(source, [database.path]));
           }}
         />
-      ) : null}
+      ) : config.error ? null : uin ? (
+        <DatabaseBrowserSkeleton />
+      ) : (
+        <div className="weq-database-browser-empty">
+          <EmptyState
+            icon={<Database />}
+            title="请先打开账号"
+            body="打开一个 QQ 账号后，才能浏览本地数据库。"
+          />
+        </div>
+      )}
       {active && target && databaseExportTargetMatches(target, source) ? (
         <ToolSurface title="导出明文数据库" presentation="modal" onClose={() => setTarget(null)}>
           {(requestClose) => (

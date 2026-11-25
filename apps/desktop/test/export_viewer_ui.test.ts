@@ -222,7 +222,7 @@ it('关闭撤销已打开来源', async () => {
   await click('打开文件夹');
   await click('关闭导出');
   expect(f.close).toHaveBeenCalledWith({ ids: [source.id] });
-  expect(host.textContent).toContain('尚未打开导出');
+  expect(host.textContent).toContain('还没有打开导出');
 });
 it('浅层空目录提示递归，确认后使用选择授权继续扫描', async () => {
   const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(true);
@@ -243,7 +243,7 @@ it('取消递归会释放选择授权而不替换原列表', async () => {
   await mount();
   await click('打开文件夹');
   expect(f.scan).toHaveBeenCalledWith({ token: 'recursive-token', recursive: false });
-  expect(host.textContent).toContain('尚未打开导出');
+  expect(host.textContent).toContain('还没有打开导出');
 });
 it('卸载后迟到的文件选择结果也会释放，不保留后台媒体能力', async () => {
   const result = { sources: [source], truncated: false };

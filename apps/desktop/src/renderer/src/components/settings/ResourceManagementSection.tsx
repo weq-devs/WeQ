@@ -8,6 +8,7 @@ import { RetainedTabs, TabActivity } from '../RetainedTabs';
 import { useTabActive } from '../RetainedTabs.shared';
 import { SegmentedControl } from '../SegmentedControl';
 import { Card, SectionHeader, QueryError } from './controls';
+import { PanelLoading } from '../LoadingIndicator';
 import { CacheView } from '../../views/cache/CacheView';
 import { ResourceAnalyticsDialog } from '../../views/cache/ResourceAnalyticsDialog';
 import { ResourceCleanupDialog } from '../../views/cache/ResourceCleanupDialog';
@@ -55,9 +56,7 @@ export function ResourceManagementSection() {
           />
         </TabActivity>
       ) : !account.error ? (
-        <p role="status" className="weq-resource-status">
-          正在读取当前账号与数据源…
-        </p>
+        <PanelLoading>正在读取当前账号与数据源…</PanelLoading>
       ) : null}
     </div>
   );

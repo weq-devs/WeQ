@@ -7793,3 +7793,26 @@ html[data-theme='dark'] .weq-report-root {
   --rp-serif: inherit !important;
   --rp-sans: inherit !important;
 }
+
+.weq-report-empty .weq-empty-state {
+  flex: none;
+  min-height: 0;
+  max-width: 44ch;
+  padding: 8px 0;
+  color: var(--rp-ink-muted);
+}
+
+.weq-report-empty .weq-empty-state-title {
+  color: var(--rp-ink);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+}
+
+.weq-report-empty .weq-empty-state-body {
+  color: var(--rp-ink-muted);
+  letter-spacing: 0.04em;
+}
+
+.weq-report-empty .weq-empty-state-icon {
+  color: #9a7a55;
+}

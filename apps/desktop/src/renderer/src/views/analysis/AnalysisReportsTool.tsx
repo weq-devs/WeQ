@@ -1,6 +1,8 @@
 import { FormSelect } from '../../components/FormSelect';
+import { EmptyState } from '../../components/EmptyState';
+import { LoadingIndicator } from '../../components/LoadingIndicator';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ContactRound, RefreshCw, Search, Trash2, UserRound, Users } from 'lucide-react';
+import { ContactRound, FileText, RefreshCw, Search, Trash2, UserRound, Users } from 'lucide-react';
 import { analysisPeriod } from '@weq/service/analysis-report';
 import type { AnalysisReportSummary } from '@weq/service';
 import { TimeLabel } from '../../components/TimeLabel';
@@ -31,8 +33,11 @@ function reportIdentity(request: AnalysisReportSummary['request']) {
 
 export function AnalysisReportsTool({
   onOpenReport,
+  onStartAnalysis,
 }: {
   onOpenReport: (request: AnalysisReportRequest) => void;
+  /** 空态里的「去分析」；没有入口时不显示这个按钮。 */
+  onStartAnalysis?: () => void;
 }) {
   const autoRefresh = useQQAutoRefresh(true, { onlineOnly: false });
   const config = trpc.account.getAccountConfig.useQuery(undefined, autoRefresh);
@@ -171,9 +176,9 @@ export function AnalysisReportsTool({
       ) : null}
       <div className="weq-analysis-reports-viewport" ref={viewport}>
         {loading && !query.data ? (
-          <p className="weq-analysis-reports-empty" role="status">
-            正在读取分析报告…
-          </p>
+          <div className="weq-analysis-reports-placeholder" role="status">
+            <LoadingIndicator>正在读取分析报告…</LoadingIndicator>
+          </div>
         ) : reports.length ? (
           <WindowedList
             items={reports}
@@ -272,9 +277,22 @@ export function AnalysisReportsTool({
             }}
           />
         ) : !loadError ? (
-          <p className="weq-analysis-reports-empty">
-            {query.data?.length ? '没有匹配的分析报告' : '暂无分析报告'}
-          </p>
+          <div className="weq-analysis-reports-placeholder">
+            <EmptyState
+              icon={query.data?.length ? <Search /> : <FileText />}
+              title={query.data?.length ? '没有匹配的分析报告' : '还没有分析报告'}
+              body={
+                query.data?.length
+                  ? '换个名称、号码、类型或状态再试试。'
+                  : '在「分析」里选择会话和时间范围生成报告，结果会保存在这里。'
+              }
+            />
+            {!query.data?.length && onStartAnalysis ? (
+              <button type="button" className="weq-set-btn" onClick={onStartAnalysis}>
+                去分析
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
       <footer className="weq-analysis-reports-footer">

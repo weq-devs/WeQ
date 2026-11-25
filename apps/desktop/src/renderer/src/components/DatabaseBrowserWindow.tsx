@@ -9,6 +9,7 @@ import { useAppLock } from '../state/lock';
 import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
 import { PageShell } from './PageShell';
+import { DatabaseBrowserSkeleton } from './PageSkeletons';
 import { HoverTooltip } from './HoverTooltip';
 import { NotificationSourceProvider } from '../lib/notificationNavigation';
 import { notificationSource } from '../lib/notificationNavigation.shared';
@@ -51,7 +52,7 @@ function BrowserWindow({ request }: { request: BrowserRequest }) {
           onClose={close}
           closeLabel="关闭数据库浏览"
         >
-          <Suspense fallback={<div role="status">正在加载数据库浏览…</div>}>
+          <Suspense fallback={<DatabaseBrowserSkeleton />}>
             <NotificationSourceProvider
               source={notificationSource(
                 { kind: 'local', open: () => useDatabaseBrowserWindow.getState().open() },

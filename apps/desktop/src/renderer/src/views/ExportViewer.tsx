@@ -3,6 +3,7 @@ import { observeCompactToolbar } from '../components/CompactToolbar.shared';
 import { NumericText } from '../components/NumericText';
 import { EmptyState } from '../components/EmptyState';
 import { LoadingIndicator } from '../components/LoadingIndicator';
+import { MessageListSkeleton } from '../components/PageSkeletons';
 import { eventTimeFormatter } from '@weq/time';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -488,8 +489,19 @@ export function ExportViewer({
       ) : null}
       {!sources.length ? (
         <div className="weq-ev-empty">
-          <FolderOpen size={36} />
-          <p>尚未打开导出</p>
+          <EmptyState
+            icon={<FolderOpen />}
+            title="还没有打开导出"
+            body="打开一个导出文件夹或归档，就能在这里查看会话和消息。"
+          />
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={picking}
+            onClick={() => void pick(false)}
+          >
+            {remote ? '上传归档' : '打开导出'}
+          </button>
         </div>
       ) : (
         <div className="weq-ev-layout">
@@ -606,7 +618,7 @@ export function ExportViewer({
             ) : null}
             <div className="weq-ev-messages" aria-busy={page.isFetching}>
               {!page.data && page.isFetching ? (
-                <p role="status">正在读取消息…</p>
+                <MessageListSkeleton />
               ) : page.data?.messages.length ? (
                 page.data.messages.map((m) => (
                   <Message
