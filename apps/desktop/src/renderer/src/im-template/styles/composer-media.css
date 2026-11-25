@@ -337,6 +337,7 @@ button.composer-single-thumb {
 }
 
 .voice-panel-body {
+  --voice-stage-slide: 230ms cubic-bezier(0.2, 0.75, 0.25, 1);
   --voice-wave-height: 44px;
   --voice-control-size: 64px;
   --voice-control-gutter: calc(var(--voice-control-size) + 12px);
@@ -384,7 +385,7 @@ button.composer-single-thumb {
   place-items: center;
   pointer-events: none;
   transform: translate(-50%, -50%);
-  transition: left 230ms cubic-bezier(0.2, 0.75, 0.25, 1);
+  transition: left var(--voice-stage-slide);
 }
 
 .voice-record-track.is-at-end {
@@ -400,13 +401,16 @@ button.composer-single-thumb {
   height: var(--voice-wave-height);
   color: var(--media-record);
   opacity: 0;
+  /* 从左向右铺开，波形前沿始终落在向右滑动的录音按钮后面。 */
+  clip-path: inset(0 100% 0 0);
   contain: layout paint;
   pointer-events: none;
   transform: translateY(-50%);
   transition:
-    top 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
-    left 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
-    right 230ms cubic-bezier(0.2, 0.75, 0.25, 1),
+    top var(--voice-stage-slide),
+    left var(--voice-stage-slide),
+    right var(--voice-stage-slide),
+    clip-path var(--voice-stage-slide),
     opacity 140ms ease;
 }
 
@@ -419,6 +423,7 @@ button.composer-single-thumb {
   )
   .voice-wave {
   opacity: 1;
+  clip-path: inset(0);
 }
 
 .voice-panel-body:is([data-wave-phase='paused'], [data-wave-phase='review']) .voice-wave {
