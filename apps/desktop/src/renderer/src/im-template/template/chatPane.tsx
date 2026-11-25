@@ -246,6 +246,7 @@ export type BubbleVideoSendPayload = {
 };
 import { ComposerQuoteBar, type ComposerQuote } from './composerQuote';
 import { useClosingContent } from '../../hooks/useClosingContent';
+import { useConversationSwitchVeil } from '../../hooks/useConversationSwitchVeil';
 import { composerQuoteToken, quoteBlockReason, quoteFromMessage } from './composerQuote.shared';
 import type { LocationCardPayload } from './locationCardPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
@@ -1594,11 +1595,6 @@ function ChatPaneContent({
     () => messages.filter((message) => !isTimelineMessageHidden(message.id)),
     [messages, isTimelineMessageHidden],
   );
-  // 切会话时消息窗口会被同步清空，等首屏回来才换成新正文。以前这段是「空白 →
-  // 内容一下子铺满」；现在先铺一层骨架，正文落位后让它淡出，两者交叉过渡。
-  const skeletonActive = Boolean(loading) && visibleMessages.length === 0;
-  const skeletonLayer = useClosingContent(skeletonActive ? true : null, conversation?.id);
-  const skeletonLeaving = Boolean(skeletonLayer) && !skeletonActive;
   const mediaGalleryMessages = useMemo(
     () =>
       visibleMessages.map((message) => ({
@@ -1868,6 +1864,15 @@ function ChatPaneContent({
     onConsumeUnreadDock,
     user,
     visibleMessages,
+  });
+
+  // 切会话要等新会话首屏回来才换正文；慢的时候旧画面会僵在那儿，之后新内容一次性
+  // 铺满。这里在等待超过观察窗时淡出旧正文、铺骨架，正文落位后再淡回来。
+  const conversationSwitch = useConversationSwitchVeil({
+    scope: conversation?.id,
+    scrollRef: messageScrollRef,
+    hasMessages: visibleMessages.length > 0,
+    loading: Boolean(loading),
   });
   const canOpenImportant = conversation?.type === 'group' && !restrictedSource;
   function openImportantMessages() {
@@ -7005,8 +7010,11 @@ function ChatPaneContent({
         </ChatTimeline>
         {messageImage.portal}
       </IntentSenseProvider>
-      {skeletonLayer ? (
-        <div className={cn('weq-chat-skeleton-layer', skeletonLeaving && 'is-leaving')} aria-hidden>
+      {conversationSwitch.veil ? (
+        <div
+          className={cn('weq-chat-skeleton-layer', conversationSwitch.leaving && 'is-leaving')}
+          aria-hidden
+        >
           <ChatMessagesSkeleton delayMs={0} />
         </div>
       ) : null}
