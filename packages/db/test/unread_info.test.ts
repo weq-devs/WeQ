@@ -98,12 +98,17 @@ describe('UnreadInfoDb.getUnreadInfo', () => {
       { chatType: 1, uid: 'u_missing' },
     ];
     const rows = await reader.getUnreadInfos([...targets, targets[0]!]);
-    expect(query).toHaveBeenCalledTimes(1);
+    expect(
+      query.mock.calls.filter(([, statement]) => statement.includes('WITH targets')),
+    ).toHaveLength(1);
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({ uid: GROUP, msgSeq: 1731, latestSeq: '1732' });
     expect(rows[0]?.highlights).toEqual((await db.getUnreadInfo(2, GROUP))?.highlights);
     expect(rows[1]).toMatchObject({ uid: 'u_missing', latestSeq: null, msgSeq: undefined });
+    query.mockClear();
+    expect(await reader.getUnreadInfos(targets)).toEqual(rows);
     expect(await reader.getUnreadInfos([])).toEqual([]);
+    expect(query).toHaveBeenCalledOnce();
   });
 
   it('大量会话分批读取，不超过 SQLite 参数上限，不混淆同 UID 的会话类型', async () => {
@@ -113,7 +118,9 @@ describe('UnreadInfoDb.getUnreadInfo', () => {
     const targets = Array.from({ length: 600 }, (_, i) => ({ chatType: 1, uid: `u_${i}` }));
     targets.push({ chatType: 1, uid: GROUP }, { chatType: 2, uid: GROUP });
     const rows = await new UnreadInfoDb(nt, { dbPath }).getUnreadInfos(targets);
-    expect(query).toHaveBeenCalledTimes(3);
+    expect(
+      query.mock.calls.filter(([, statement]) => statement.includes('WITH targets')),
+    ).toHaveLength(3);
     expect(rows).toHaveLength(targets.length);
     expect(rows.find((r) => r.uid === GROUP && r.chatType === 1)?.latestSeq).toBeNull();
     expect(rows.find((r) => r.uid === GROUP && r.chatType === 2)?.latestSeq).toBe('1732');

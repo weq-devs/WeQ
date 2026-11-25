@@ -1226,6 +1226,7 @@ function unreadInfoToWire(
     latestSeq: row.latestSeq,
     deviceLatest: row.deviceLatest,
     unreadCount: row.unreadCount,
+    ...(row.groupNotifyLevel !== undefined ? { groupNotifyLevel: row.groupNotifyLevel } : {}),
     readSeq: row.readSeq,
     readError: row.readError ?? false,
     msgSeq: row.msgSeq?.toString(),

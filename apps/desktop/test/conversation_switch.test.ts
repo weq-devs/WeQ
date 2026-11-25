@@ -87,6 +87,7 @@ const f = vi.hoisted(() => ({
   showMessageUnreadBadge: true,
   unreadMode: false,
   unreadCounts: {} as Record<string, number>,
+  unreadGroupNotifyLevels: {} as Record<string, number>,
   deletedResponse: [] as string[],
   hiddenDeletionResponse: [] as string[],
   deletedReply: undefined as (() => Promise<string[]>) | undefined,
@@ -103,7 +104,7 @@ const f = vi.hoisted(() => ({
     memberCount: number;
     maxMemberCount: number;
     customLabels: Array<{ content: string }>;
-    directory: { memberCount: number; role: 'member'; notifyLevel: number };
+    directory: { memberCount: number; role: 'member'; notifyLevel: number } | null;
   }>,
   searchGroups: [] as GroupSearchHit[],
   headEnabled: false,
@@ -345,6 +346,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 peer: `${target.chatType}_${target.uid}`,
                 msgSeq: '1',
                 latestSeq: '100',
+                groupNotifyLevel: f.unreadGroupNotifyLevels[target.uid],
                 ...(input.watermarksOnly
                   ? { countPending: true }
                   : { unreadCount: f.unreadCounts[target.uid] ?? 0 }),
@@ -574,6 +576,7 @@ afterEach(() => {
   f.commit = undefined;
   f.unreadMode = false;
   f.unreadCounts = {};
+  f.unreadGroupNotifyLevels = {};
   f.deletedResponse = [];
   f.hiddenDeletionResponse = [];
   f.deletedReply = undefined;
@@ -3049,6 +3052,78 @@ it('全目录一次获取共享结果，不在前端轮询精算，服务快照�
     expect(precise().at(-1)?.targets).toEqual([{ chatType: 2, uid: '10001' }]);
   } finally {
     act(() => root.unmount());
+    client.clear();
+    host.remove();
+  }
+});
+
+it('群未读先于列表分页到达时不点亮红点，后台只切换接收方式也会更新角标', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  f.unreadMode = true;
+  f.unreadCounts = { '10003': 126, '10004': 117 };
+  f.unreadGroupNotifyLevels = { '10003': 2, '10004': 4 };
+  f.groups = ['10003', '10004'].map((groupCode) => ({
+    groupCode,
+    groupName: groupCode,
+    remark: '',
+    memberCount: 1,
+    maxMemberCount: 100,
+    customLabels: [],
+    directory: groupCode === '10003' ? null : { memberCount: 1, role: 'member', notifyLevel: 1 },
+  }));
+  useViewState.getState().setOpenedUin('90001');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const badge = () =>
+    host.querySelector('[data-message-badge-count]')?.getAttribute('data-message-badge-count');
+  const refresh = (uids: string[]) =>
+    act(async () => {
+      f.unreadChanged!(uids.map((uid) => ({ chatType: 2, uid })));
+      await vi.advanceTimersByTimeAsync(10);
+    });
+  const rows = () => JSON.parse(host.querySelector('[data-previews]')!.textContent ?? '[]');
+  const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await act(async () => vi.advanceTimersByTimeAsync(200));
+    expect(badge()).toBe('0');
+
+    await refresh(['10003', '10004']);
+    expect(badge()).toBe('0');
+    expect(rows()).not.toContainEqual(expect.objectContaining({ id: '10003' }));
+    expect(rows()).toContainEqual(
+      expect.objectContaining({ id: 'merged:group-assistant', unreadCount: 126 }),
+    );
+    expect(rows()).toContainEqual(
+      expect.objectContaining({
+        id: '10004',
+        unreadCount: 117,
+        preference: expect.objectContaining({ muted: true }),
+      }),
+    );
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    expect(f.headEnabled).toBe(false);
+    f.unreadGroupNotifyLevels['10004'] = 1;
+    await refresh(['10004']);
+    expect(badge()).toBe('117');
+    f.unreadGroupNotifyLevels['10004'] = 4;
+    await refresh(['10004']);
+    expect(badge()).toBe('0');
+  } finally {
+    if (visibility) Object.defineProperty(document, 'visibilityState', visibility);
+    else Reflect.deleteProperty(document, 'visibilityState');
+    await act(async () => root.unmount());
     client.clear();
     host.remove();
   }

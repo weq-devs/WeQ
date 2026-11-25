@@ -119,6 +119,8 @@ export interface UnreadInfoTarget {
 
 export interface UnreadInfoSnapshot extends UnreadInfoResult {
   latestSeq: string | null;
+  /** 最近会话表 41220 的明确群消息接收方式。 */
+  groupNotifyLevel?: number;
   deviceLatest?: string;
   /** 正文发送者；灰条覆盖预览时不能直接使用小表 40020。 */
   latestSenderUid?: string;
@@ -157,20 +159,22 @@ const HAS_RECALL_UNREAD_INDEX = `EXISTS(SELECT 1 FROM sqlite_master
   WHERE type='index' AND name='${RECALL_UNREAD_INDEX}')`;
 const UNREAD_RECENT_TYPES = `(1,2,8,134,${TEMP_DIRECT_TYPES})`;
 const UNREAD_PEER = `(${RECENT_UNREAD_TYPE}) || '_' || r."40021"`;
-const UNREAD_RECORD = `SELECT NULL,NULL,u."48901",u."48902",NULL,NULL,NULL,NULL,NULL,NULL,NULL
+const UNREAD_RECORD = `SELECT NULL,NULL,u."48901",u."48902",NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL
   FROM msg_unread_info_table u`;
-const ALL_UNREAD_ROWS = `SELECT ${RECENT_UNREAD_TYPE}, r."40021", ${UNREAD_PEER}, NULL,
-    ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}
+const allUnreadRows = (notifyLevelColumn: string) =>
+  `SELECT ${RECENT_UNREAD_TYPE}, r."40021", ${UNREAD_PEER}, NULL,
+    ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}, ${notifyLevelColumn}
   FROM recent_contact_v3_table r WHERE ${RECENT_CHAT_TYPE} IN ${UNREAD_RECENT_TYPES}
   UNION ALL ${UNREAD_RECORD}`;
 
 // 私聊和群的同键行在 SQLite 内合并。设备双键还需要从 JS 判明真实设备身份。
-const JOINED_UNREAD_ROWS = `WITH recent(type, uid, peer, seq, sender, preview, msgid, part, rawType) AS MATERIALIZED (
-    SELECT ${RECENT_UNREAD_TYPE}, r."40021", ${UNREAD_PEER}, ${RECENT_UNREAD_COLUMNS}
+const joinedUnreadRows = (notifyLevelColumn: string) =>
+  `WITH recent(type, uid, peer, seq, sender, preview, msgid, part, rawType, notifyLevel) AS MATERIALIZED (
+    SELECT ${RECENT_UNREAD_TYPE}, r."40021", ${UNREAD_PEER}, ${RECENT_UNREAD_COLUMNS}, ${notifyLevelColumn}
     FROM recent_contact_v3_table r WHERE ${RECENT_CHAT_TYPE} IN ${UNREAD_RECENT_TYPES}
   )
   SELECT r.type,r.uid,r.peer,u."48902",r.seq,r.sender,r.preview,r.msgid,r.part,r.rawType,
-    ${HAS_RECALL_UNREAD_INDEX}
+    ${HAS_RECALL_UNREAD_INDEX},r.notifyLevel
   FROM recent r LEFT JOIN msg_unread_info_table u
     ON r.type IN (1,2) AND u."48901" = r.peer COLLATE BINARY
   UNION ALL ${UNREAD_RECORD}
@@ -314,13 +318,15 @@ export class UnreadInfoDb {
   /** 读取 QQ 已维护的阅读位置、减项及标志；灰条歧义只查最新序号。 */
   async getUnreadInfos(targets: UnreadInfoTarget[]): Promise<UnreadInfoSnapshot[]> {
     const unique = [...new Map(targets.map((t) => [`${t.chatType}_${t.uid}`, t])).values()];
+    if (!unique.length) return [];
+    const notifyLevelColumn = await this.groupNotifyLevelColumn();
     const result: UnreadInfoSnapshot[] = [];
     for (let offset = 0; offset < unique.length; offset += 256) {
       databaseRequestSignal()?.throwIfAborted();
       const batch = unique.slice(offset, offset + 256);
       const rows = await this.qq.query(
         `WITH targets(chatType, uid, storagePeer) AS (VALUES ${batch.map(() => '(?, ?, ?)').join(',')})
-         SELECT t.chatType, t.uid, CAST(t.chatType AS INTEGER) || '_' || t.uid, COALESCE(u."48902", old."48902"), ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}
+         SELECT t.chatType, t.uid, CAST(t.chatType AS INTEGER) || '_' || t.uid, COALESCE(u."48902", old."48902"), ${RECENT_UNREAD_COLUMNS}, ${HAS_RECALL_UNREAD_INDEX}, ${notifyLevelColumn}
          FROM targets t
          LEFT JOIN msg_unread_info_table u ON u."48901" = t.storagePeer
          LEFT JOIN msg_unread_info_table old ON old."48901" = (CAST(t.chatType AS INTEGER) || '_' || t.uid) AND old."48901" != t.storagePeer
@@ -344,9 +350,11 @@ export class UnreadInfoDb {
 
   /** 账号共享快照由两张小表驱动，包含没有最近会话行的未读记录。 */
   async getAllUnreadInfos(): Promise<UnreadInfoSnapshot[]> {
-    const rows = await measureMessageWork(this.qq.dbPath, 'unreadSmallTables', async () =>
-      this.qq.query((await this.hasUniqueUnreadPeer()) ? JOINED_UNREAD_ROWS : ALL_UNREAD_ROWS),
-    );
+    const rows = await measureMessageWork(this.qq.dbPath, 'unreadSmallTables', async () => {
+      const notifyLevelColumn = await this.groupNotifyLevelColumn();
+      const query = (await this.hasUniqueUnreadPeer()) ? joinedUnreadRows : allUnreadRows;
+      return this.qq.query(query(notifyLevelColumn));
+    });
     // 同一 SQL 快照分别返回小表行，再线性合并；避免缺行检测逐个重扫最近会话表。
     const mergeStarted = performance.now();
     const merged = new Map<string, SqlRow>();
@@ -370,6 +378,11 @@ export class UnreadInfoDb {
     const input = [...merged.values()];
     const snapshots = await this.decodeAndResolveSnapshots(input, performance.now() - mergeStarted);
     return snapshots.filter((row) => [1, 2, 8, 134].includes(row.chatType));
+  }
+
+  private async groupNotifyLevelColumn(): Promise<string> {
+    const columns = await this.qq.tableColumns('recent_contact_v3_table');
+    return columns.has('41220') ? 'r."41220"' : 'NULL';
   }
 
   private hasUniqueUnreadPeer(): Promise<boolean> {
@@ -459,12 +472,20 @@ export class UnreadInfoDb {
       const row = rows[index]!;
       const peer = String(row[2]);
       const split = peer.indexOf('_');
+      const chatType = row[0] == null ? Number(peer.slice(0, split)) : Number(row[0]);
+      const groupNotifyLevel = chatType === 2 ? Number(row[11]) : undefined;
       const identity = {
-        chatType: row[0] == null ? Number(peer.slice(0, split)) : Number(row[0]),
+        chatType,
         uid: row[1] == null ? peer.slice(split + 1) : String(row[1]),
         peer,
         latestSeq: row[4] == null ? null : String(row[4]),
         latestSenderUid: row[5] == null ? undefined : String(row[5]),
+        ...(groupNotifyLevel === 1 ||
+        groupNotifyLevel === 2 ||
+        groupNotifyLevel === 3 ||
+        groupNotifyLevel === 4
+          ? { groupNotifyLevel }
+          : {}),
       };
       try {
         const snapshot: UnreadInfoSnapshot = {

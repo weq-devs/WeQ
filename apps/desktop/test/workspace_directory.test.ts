@@ -77,6 +77,7 @@ async function fixture() {
     specialCareUnavailable: null,
     groupAssistantEntry: undefined,
     groupAssistantIds: new Set(),
+    groupNotifyLevels: new Map(),
     temporaryConversations: {},
     outgoingConversationPreviews: new Map(),
     unreadByConv: {},

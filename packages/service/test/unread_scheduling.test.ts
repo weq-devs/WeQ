@@ -533,6 +533,25 @@ it('密集文件通知只合并小表读取，未变会话不发布，变化会�
   expect(changed).toHaveBeenCalledOnce();
   expect((await f.query())[0]?.unreadCount).toBe(9);
 });
+it('群接收方式独立变化时按会话发布快照，即使未读数和水位未变', async () => {
+  vi.useFakeTimers();
+  const f = fixture();
+  expect((await f.query())[0]?.unreadCount).toBe(10);
+  const changed = vi.fn();
+  const stop = f.service.onCountsChanged(changed);
+  try {
+    for (const groupNotifyLevel of [1, 4, 2, 1]) {
+      changed.mockClear();
+      f.update([row({ groupNotifyLevel })]);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(changed).toHaveBeenCalledOnce();
+      expect(changed).toHaveBeenCalledWith([target]);
+      expect((await f.query())[0]).toMatchObject({ groupNotifyLevel, unreadCount: 10 });
+    }
+  } finally {
+    stop();
+  }
+});
 it('文件监听接管快捷刷新，定时任务低频对账，解除监听后恢复原周期', async () => {
   vi.useFakeTimers();
   const f = fixture();

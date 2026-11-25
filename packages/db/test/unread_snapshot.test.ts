@@ -383,7 +383,9 @@ it('小表直接交付本地水位、减项、标志及最新发送者，不需�
       decreasedSeqs: ['99', '102', '111'],
     });
     expect(
-      query.mock.calls.filter(([, statement]) => !statement.includes('pragma_index_list(')),
+      query.mock.calls.filter(
+        ([, statement]) => !/pragma_index_list\(|pragma_table_info\(/.test(statement),
+      ),
     ).toHaveLength(2);
     expect(
       query.mock.calls.every(

@@ -752,6 +752,12 @@ export function MainView(): ReactElement {
   );
 }
 
+type DirectoryUnread = {
+  counts: Record<string, number>;
+  groupNotifyLevels: ReadonlyMap<string, number>;
+};
+const EMPTY_DIRECTORY_UNREAD: DirectoryUnread = { counts: {}, groupNotifyLevels: new Map() };
+
 function MainWorkspace(): ReactElement {
   const transferActivity = useTransferActivity();
   const firstPageStreamReady = useWebConnection((state) => state.status === 'connected');
@@ -792,6 +798,9 @@ function MainWorkspace(): ReactElement {
         pinSession.binding.expectedAccountConfigId,
       ])
     : '';
+  const [directoryUnread, setDirectoryUnread] = useState<DirectoryUnread & { scope: string }>();
+  const { counts: unreadByConv, groupNotifyLevels } =
+    directoryUnread?.scope === messageScope ? directoryUnread : EMPTY_DIRECTORY_UNREAD;
   useEffect(() => {
     useWorkspaceMenu.setState({ taskFocusId: null });
   }, [messageScope]);
@@ -1061,9 +1070,13 @@ function MainWorkspace(): ReactElement {
     for (const group of (allGroups.data ?? []) as GroupDetailWire[]) {
       if (group.directory?.notifyLevel === 2) ids.add(group.groupCode);
     }
+    for (const [id, level] of groupNotifyLevels) {
+      if (level === 2) ids.add(id);
+      else ids.delete(id);
+    }
     const previous = previousGroupAssistantIds.current;
     return previous.size === ids.size && [...ids].every((id) => previous.has(id)) ? previous : ids;
-  }, [recentContactsData, allGroups.data]);
+  }, [recentContactsData, allGroups.data, groupNotifyLevels]);
   useLayoutEffect(() => {
     previousGroupAssistantIds.current = groupAssistantIds;
   }, [groupAssistantIds]);
@@ -2770,9 +2783,6 @@ function MainWorkspace(): ReactElement {
   }, []);
 
   const { statuses: onlineStatusByUid } = useContactOnlineStatuses(buddies.data, contactsPageOpen);
-  // Unread count per conversation id (latest msgSeq - last read seq). Filled
-  // asynchronously after the recent-contact list loads / refreshes.
-  const [unreadByConv, setUnreadByConv] = useState<Record<string, number>>({});
   const unreadUpdateGuardRef = useRef(createUnreadUpdateGuard());
   const unreadRefreshStateRef = useRef(createUnreadRefreshState());
   const manualReadPendingRef = useRef(new Set<string>());
@@ -2961,6 +2971,7 @@ function MainWorkspace(): ReactElement {
     specialCareUnavailable,
     groupAssistantEntry,
     groupAssistantIds,
+    groupNotifyLevels,
     temporaryConversations,
     outgoingConversationPreviews,
     unreadByConv,
@@ -4042,6 +4053,41 @@ function MainWorkspace(): ReactElement {
         : [],
     ),
   );
+  const applyDirectoryUnread = useCallback(
+    (rows: UnreadRows, archivedCounts?: ReadonlyMap<string, number>) => {
+      const scope = messageScopeRef.current;
+      // 同一批未读数与群提醒方式一起提交，避免中间一帧误计红点。
+      setDirectoryUnread((current) => {
+        const previous = current?.scope === scope ? current : EMPTY_DIRECTORY_UNREAD;
+        let counts: DirectoryUnread['counts'] | undefined;
+        let groupNotifyLevels: Map<string, number> | undefined;
+        for (const { uid, chatType, readError, unreadCount, groupNotifyLevel } of rows) {
+          if (readError) continue;
+          const count = archivedCounts?.get(uid) ?? unreadCount ?? 0;
+          if ((counts ?? previous.counts)[uid] !== count) {
+            counts ??= { ...previous.counts };
+            counts[uid] = count;
+          }
+          if (
+            chatType !== 2 ||
+            (groupNotifyLevels ?? previous.groupNotifyLevels).get(uid) === groupNotifyLevel
+          )
+            continue;
+          groupNotifyLevels ??= new Map(previous.groupNotifyLevels);
+          if (groupNotifyLevel === undefined) groupNotifyLevels.delete(uid);
+          else groupNotifyLevels.set(uid, groupNotifyLevel);
+        }
+        return counts || groupNotifyLevels
+          ? {
+              scope,
+              counts: counts ?? previous.counts,
+              groupNotifyLevels: groupNotifyLevels ?? previous.groupNotifyLevels,
+            }
+          : current;
+      });
+    },
+    [messageScopeRef],
+  );
   initialMessagesPendingRef.current =
     messagesLoading || trackedConversationId !== shell.activeConversationId;
   const requestUnreadRefreshRef = useRef<((target?: UnreadTarget) => void) | null>(null);
@@ -4064,7 +4110,7 @@ function MainWorkspace(): ReactElement {
     unreadUpdateGuardRef.current = guard;
     if (changed) {
       setReadUndo(null);
-      setUnreadByConv({});
+      setDirectoryUnread(undefined);
       setHighlightsByConv({});
       setUnreadReadPositions(undefined);
     }
@@ -4097,18 +4143,7 @@ function MainWorkspace(): ReactElement {
       finish();
       retryEntryUnreadRef.current(accepted);
       applyUnreadReadPositions(accepted);
-      setUnreadByConv((current) => {
-        const next = { ...current };
-        let changed = false;
-        for (const row of accepted) {
-          const count = archivedUnreadRef.current.get(row.uid) ?? row.unreadCount ?? 0;
-          if (next[row.uid] !== count) {
-            next[row.uid] = count;
-            changed = true;
-          }
-        }
-        return changed ? next : current;
-      });
+      applyDirectoryUnread(accepted, archivedUnreadRef.current);
       setHighlightsByConv((current) => {
         const next = { ...current };
         let changed = false;
@@ -4218,6 +4253,7 @@ function MainWorkspace(): ReactElement {
     selectionRef,
     refreshArchivedUnread,
     applyUnreadReadPositions,
+    applyDirectoryUnread,
   ]);
   useEffect(() => {
     if (!IS_WEB) return;
@@ -5678,11 +5714,7 @@ function MainWorkspace(): ReactElement {
     (rows: UnreadRows, binding: UnreadBinding) => {
       useToast.getState().dismissReadMessages(binding, rows);
       applyUnreadReadPositions(rows);
-      setUnreadByConv((current) => {
-        const next = { ...current };
-        for (const row of rows) if (!row.readError) next[row.uid] = row.unreadCount ?? 0;
-        return next;
-      });
+      applyDirectoryUnread(rows);
       setHighlightsByConv((current) => {
         const next = { ...current };
         for (const row of rows) {
@@ -5693,7 +5725,7 @@ function MainWorkspace(): ReactElement {
         return next;
       });
     },
-    [applyUnreadReadPositions],
+    [applyUnreadReadPositions, applyDirectoryUnread],
   );
   const markVisibleConversationRead = useCallback(
     async (conv: Conversation, read: AutoRead = {}) => {
@@ -6207,10 +6239,7 @@ function MainWorkspace(): ReactElement {
         applyUnreadReadPositions([info]);
         if (readPolicy.current.readThroughViewport) {
           // 目录批量读取可能还没返回，首屏用同一次小表结果更新已读水位和未读数。
-          const count = archivedUnreadRef.current.get(convId) ?? unread;
-          setUnreadByConv((current) =>
-            current[convId] === count ? current : { ...current, [convId]: count },
-          );
+          applyDirectoryUnread([info], archivedUnreadRef.current);
         }
       }
 
@@ -6242,6 +6271,7 @@ function MainWorkspace(): ReactElement {
     messageScopeRef,
     messageBindingRef,
     applyUnreadReadPositions,
+    applyDirectoryUnread,
     readEntryUnreadInfo,
     unreadSelectionChatType,
     unreadSelectionId,
