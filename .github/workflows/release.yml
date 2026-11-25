@@ -1017,11 +1017,14 @@ jobs:
           VERSION="${TAG#v}"
           ASSET_BASE="https://github.com/${REPO}/releases/download/${TAG}"
 
-          # 2.8.0 的测试版和正式版共用上一正式版基线。
+          # 从本次 CHANGELOG 的已公开正式版本中选基线，跳过同一轮测试版和正式版。
+          PREVIOUS_TAG=$(gh api "repos/${REPO}/releases?per_page=100" --paginate \
+            --jq '.[] | select(.draft == false and .prerelease == false and .published_at != null) | .tag_name' \
+            | node scripts/extract-changelog.mjs --previous-stable "$TAG")
           NOTES_ARGS=(-f "tag_name=${TAG}")
-          case "$TAG" in
-            v2.8.0|v2.8.0[-+]*) NOTES_ARGS+=(-f "previous_tag_name=v2.7.5") ;;
-          esac
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            NOTES_ARGS+=(-f "previous_tag_name=${PREVIOUS_TAG}")
+          fi
 
           # 将 GitHub 生成的 PR 列表和比较链接附在中文说明后面。
           CHANGES=$(gh api "repos/${REPO}/releases/generate-notes" \

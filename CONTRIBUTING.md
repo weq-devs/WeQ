@@ -95,7 +95,7 @@ git checkout -b feat/your-feature
 
 测试版使用 `vX.Y.Z-beta.N` 这样的标签，GitHub Release 取该标签里的 `Unreleased` 正文，并附自动生成的变更列表。整个发布周期的条目继续累积在 `Unreleased`，正式发版时统一整理成一个正式版本章节。
 
-`2.8.0` 的测试版和正式版都以 `v2.7.5` 为 GitHub 自动变更列表的比较基线。
+测试版和正式版都从候选提交的 `CHANGELOG.md` 选择比较基线。工作流使用低于本轮版本、已公开为 GitHub 正式版的最高版本；没有可用基线时，由 GitHub 选择。
 
 **日常开发**
 
