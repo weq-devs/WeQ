@@ -150,7 +150,7 @@ try {
         `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?mobile-input&composer-actions&count=30`,
       );
       const editor = page.locator('.composer > .composer-editor');
-      const send = page.locator('.composer > .composer-send');
+      const send = page.locator('.composer .composer-send');
       await editor.waitFor();
       // 桌面 WebKit 没有刘海；只替换安全区的来源，不改被测的高度和布局公式。
       await page.addStyleTag({

@@ -92,7 +92,7 @@ html[data-theme='dark'] .composer-media-tray > .composer-single-card {
 
 :where(html[data-weq-layout='single'])
   .composer.has-media-attachments
-  > :is(.composer-editor, .composer-send, .mobile-composer-expand-button) {
+  > :is(.composer-editor, .composer-send-controls, .mobile-composer-expand-button) {
   grid-row: 2;
 }
 

@@ -17,7 +17,11 @@ import {
   type SlashEmojiTrigger,
 } from '../../lib/slashEmoji';
 import { SlashEmojiMenu } from '../../components/SlashEmojiMenu';
-import { ComposerSendButton, type ComposerSpeechRestriction } from './composerSendButton';
+import {
+  ComposerSendButton,
+  ComposerSendNotice,
+  type ComposerSpeechRestriction,
+} from './composerSendButton';
 import {
   useContentMultiSelect,
   useRequestContentExport,
@@ -7997,18 +8001,19 @@ function ChatPaneContent({
             onCopy={handleComposerCopy}
             onCut={handleComposerCopy}
           />
-          <ComposerSendButton
-            variant="desktop"
-            title={composerSendBlockedReason ?? '发送'}
-            disabled={composerSendBlockedReason !== null}
-            restriction={groupSpeechRestriction}
-            active={tabActive && !mobileComposerExpanded}
-            onSend={requestComposerSend}
-          />
-          <div className="composer-send-notice" role="status">
-            {!mobileComposerExpanded && visibleComposerSendNotice ? (
-              <span>{visibleComposerSendNotice}</span>
-            ) : null}
+          <div className="composer-send-controls">
+            <ComposerSendButton
+              variant="desktop"
+              title={composerSendBlockedReason ?? '发送'}
+              disabled={composerSendBlockedReason !== null}
+              restriction={groupSpeechRestriction}
+              active={tabActive && !mobileComposerExpanded}
+              onSend={requestComposerSend}
+            />
+            <ComposerSendNotice
+              text={mobileComposerExpanded ? null : visibleComposerSendNotice}
+              scope={conversation.id}
+            />
           </div>
           {attachmentError ? (
             <span className={cn('composer-attachment-error')} role="status">
@@ -8168,20 +8173,20 @@ function ChatPaneContent({
                   <AiOutlineRedEnvelope size={22} />
                 </button>
               ) : null}
-              <span />
-              <ComposerSendButton
-                variant="expanded"
-                title={composerSendBlockedReason ?? '发送'}
-                disabled={composerSendBlockedReason !== null}
-                restriction={groupSpeechRestriction}
-                active={tabActive}
-                onSend={requestComposerSend}
-              />
-            </div>
-            <div className="composer-send-notice" role="status">
-              {mobileComposerExpanded && visibleComposerSendNotice ? (
-                <span>{visibleComposerSendNotice}</span>
-              ) : null}
+              <div className="composer-send-controls">
+                <ComposerSendButton
+                  variant="expanded"
+                  title={composerSendBlockedReason ?? '发送'}
+                  disabled={composerSendBlockedReason !== null}
+                  restriction={groupSpeechRestriction}
+                  active={tabActive}
+                  onSend={requestComposerSend}
+                />
+                <ComposerSendNotice
+                  text={mobileComposerExpanded ? visibleComposerSendNotice : null}
+                  scope={conversation.id}
+                />
+              </div>
             </div>
             {fontOpen ? <ComposerFontPanel panelRef={fontPanelRef} font={composerFont} /> : null}
             {emojiOpen ? (

@@ -1173,7 +1173,7 @@
   bottom: var(--mobile-composer-safe-bottom);
   left: 0;
   z-index: 2;
-  /* 表情 / 弹射 / 应用的扩展键都从左排，中间那段留白把发送键顶到最右。 */
+  /* 扩展键从左排列，发送控件贴着工具栏右侧。 */
   display: flex;
   align-items: center;
   gap: 9px;
@@ -1182,8 +1182,9 @@
   background: #ffffff;
 }
 
-:where(html[data-weq-layout='single']) .mobile-composer-expanded-tools > span {
-  flex: 1 1 auto;
+:where(html[data-weq-layout='single']) .mobile-composer-expanded-tools > .composer-send-controls {
+  position: absolute;
+  inset: 0 22px 8px;
 }
 
 :where(html[data-weq-layout='single']) .mobile-composer-expanded-tools button {
@@ -1338,21 +1339,24 @@ html:where([data-weq-layout='single'])[data-theme='dark']
 
 /* 竖屏正文占满输入行，由键盘发送；展开编辑页仍保留独立发送入口。 */
 
-:where(html[data-weq-layout='single']) .composer > .composer-send {
+:where(html[data-weq-layout='single']) .composer > .composer-send-controls > .composer-send {
   display: none;
 }
 
 /* 超级表情预览没有正文键盘，仍需卡片的确认发送入口。 */
 
-:where(html[data-weq-layout='single']) .composer.has-single-send > .composer-send {
+:where(html[data-weq-layout='single']) .composer.has-single-send > .composer-send-controls {
   position: relative;
-  top: auto;
-  right: auto;
-  bottom: auto;
   grid-row: 1;
   grid-column: 1;
-  justify-self: end;
+  inset: auto;
   align-self: end;
+}
+
+:where(html[data-weq-layout='single'])
+  .composer.has-single-send
+  > .composer-send-controls
+  > .composer-send {
   display: grid;
   width: 44px;
   min-width: 44px;
@@ -1361,7 +1365,7 @@ html:where([data-weq-layout='single'])[data-theme='dark']
   place-items: center;
 }
 
-:where(html[data-weq-layout='single']) .composer.has-single-send > .composer-send strong {
+:where(html[data-weq-layout='single']) .composer.has-single-send .composer-send strong {
   display: none;
 }
 

@@ -287,8 +287,8 @@ html[data-component-style='retro'][data-theme]:where(
     :not([data-weq-layout='single'], [data-weq-mobile-client='true'])
   )
   .composer:has(> .composer-editor:not(.composer-row-hidden))
-  > .composer-send {
-  right: calc(var(--composer-side-inset) + 8px);
+  > .composer-send-controls {
+  inset-inline-end: calc(var(--composer-side-inset) + 8px);
 }
 
 html[data-component-style='retro'][data-theme]

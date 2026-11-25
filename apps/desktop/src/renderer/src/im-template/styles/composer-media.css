@@ -228,7 +228,7 @@ button.composer-single-thumb {
 }
 
 /* 语音条开着时收起主发送键 —— 语音条自己带「发送语音 / 发送文字」。 */
-.composer.voice-open > .composer-send {
+.composer.voice-open > .composer-send-controls {
   display: none;
 }
 

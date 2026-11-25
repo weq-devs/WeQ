@@ -129,7 +129,7 @@ try {
         return {
           tray: rect('.composer-media-tray'),
           editor: rect('.composer > .composer-editor'),
-          send: rect('.composer > .composer-send'),
+          send: rect('.composer .composer-send'),
           toolbar: rect('.composer-tools'),
           overflow: document.documentElement.scrollWidth > innerWidth,
         };
@@ -137,7 +137,7 @@ try {
       assert(!geometry.overflow, JSON.stringify(geometry));
       assert(geometry.tray.bottom <= geometry.editor.y + 1, JSON.stringify(geometry));
       assert(geometry.editor.height >= 40, JSON.stringify(geometry));
-      const send = page.locator('.composer > .composer-send');
+      const send = page.locator('.composer .composer-send');
       assert.equal(await send.isVisible(), width > 760);
       if (width <= 760) {
         assert(geometry.editor.bottom <= geometry.toolbar.y + 1, JSON.stringify(geometry));
@@ -181,7 +181,7 @@ try {
         await page.waitForFunction(
           () => document.querySelectorAll('.composer-editor img').length === 20,
         );
-        await page.locator('.composer > .composer-send').click();
+        await page.locator('.composer .composer-send').click();
         await page.waitForFunction(() => window.timelineTest.sentBodies().length === 5);
         const body = await page.evaluate(() => window.timelineTest.sentBodies()[4]);
         assert(body.length > 4000);

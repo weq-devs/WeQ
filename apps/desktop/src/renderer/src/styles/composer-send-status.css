@@ -1,10 +1,29 @@
+.composer-send-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  column-gap: 8px;
+  pointer-events: none;
+}
+
+.composer-send-controls > button {
+  grid-area: 1 / 2;
+  pointer-events: auto;
+}
+
 .composer-send-notice {
   position: absolute;
-  z-index: 4;
-  inset-inline-end: var(--composer-side-inset, 12px);
-  inset-block-end: calc(100% + 6px);
-  max-inline-size: min(320px, calc(100% - 2 * var(--composer-side-inset, 12px)));
-  pointer-events: none;
+  grid-area: 1 / 1 / 2 / 2;
+  inset-inline-end: 0;
+  inset-block-start: 50%;
+  inline-size: max-content;
+  max-inline-size: min(320px, 100%);
+  translate: 0 -50%;
+  opacity: 0;
+}
+
+.composer-send-notice[data-visible] {
+  opacity: 1;
 }
 
 .composer-send-notice > span {
@@ -19,9 +38,35 @@
   overflow-wrap: anywhere;
 }
 
-.mobile-composer-expanded-sheet > .composer-send-notice {
-  --composer-side-inset: 22px;
-  inset-block-end: calc(68px + var(--mobile-composer-safe-bottom));
+/* 普通竖屏输入用软键盘发送，提示留在输入框右上侧。 */
+:where(html[data-weq-layout='single']) .composer:not(.has-single-send) > .composer-send-controls {
+  grid-template-columns: minmax(0, 1fr);
+  inset-inline: 12px;
+  bottom: calc(100% + 6px);
+}
+
+:where(html[data-weq-layout='single'])
+  .composer:not(.has-single-send)
+  > .composer-send-controls
+  > .composer-send-notice {
+  inset-block: auto 0;
+  translate: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .composer-send-notice {
+    transform: translateX(4px);
+    transition:
+      opacity 110ms ease-in,
+      transform 110ms ease-in;
+  }
+
+  .composer-send-notice[data-visible] {
+    transform: none;
+    transition:
+      opacity 150ms ease-out,
+      transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
 }
 
 .composer-send[data-muted] {
@@ -42,7 +87,7 @@
 }
 
 :where(html:not([data-weq-layout='single']))
-  .composer:has(> .composer-send[data-muted])
+  .composer:has(> .composer-send-controls > .composer-send[data-muted])
   > .composer-editor {
   padding-right: 188px;
 }
@@ -59,13 +104,17 @@
   font-size: 13px;
 }
 
-:where(html[data-weq-layout='single']) .composer.has-single-send > .composer-send[data-muted] {
+:where(html[data-weq-layout='single'])
+  .composer.has-single-send
+  > .composer-send-controls
+  > .composer-send[data-muted] {
   display: inline-flex;
   width: 160px;
 }
 
 :where(html[data-weq-layout='single'])
   .composer.has-single-send
+  > .composer-send-controls
   > .composer-send[data-muted]
   strong {
   display: inline;

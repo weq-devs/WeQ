@@ -233,13 +233,16 @@ html[data-weq-mobile-client='true'][data-weq-layout='wide'] :where(
     padding-right: 0;
   }
 
-  & > .composer:has(> .composer-send) > .composer-editor {
+  & > .composer:has(> .composer-send-controls) > .composer-editor {
     padding: 4px 84px 4px 4px;
   }
 
-  & > .composer > .composer-send {
-    right: 8px;
+  & > .composer > .composer-send-controls {
+    inset-inline: 8px;
     bottom: calc(8px + var(--weq-mobile-safe-bottom, env(safe-area-inset-bottom, 0px)));
+  }
+
+  & > .composer > .composer-send-controls > .composer-send {
     min-width: 68px;
     height: 44px;
   }
