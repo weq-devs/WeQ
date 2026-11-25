@@ -130,6 +130,7 @@ export class EnhancementPacks {
     { release: EnhancementRelease; blocker: string | null; requiresWeqUpdate: boolean }
   >();
   private readonly installedVersions = new Map<EnhancementPackId, string>();
+  private readonly updatedAt = new Map<EnhancementPackId, number>();
   private readonly gates = new Map<
     EnhancementPackId,
     {
@@ -158,11 +159,14 @@ export class EnhancementPacks {
                 identity?: string;
                 contentVersion?: string;
                 installed?: boolean;
+                updatedAt?: number;
               };
               if (receipt.installed) this.installed.add(id);
               if (typeof receipt.identity === 'string') this.receipts[id] = receipt.identity;
               if (typeof receipt.contentVersion === 'string')
                 this.installedVersions.set(id, receipt.contentVersion);
+              if (typeof receipt.updatedAt === 'number' && Number.isFinite(receipt.updatedAt))
+                this.updatedAt.set(id, receipt.updatedAt);
             }
           }
       })
@@ -256,6 +260,7 @@ export class EnhancementPacks {
           states[index]!.ready ? [] : [component.name ?? component.id],
         ),
         installedVersion: installed ? (version ?? 'legacy') : null,
+        updatedAt: installed ? this.updatedAt.get(pack.id) : undefined,
         latestVersion: selected?.release.contentVersion ?? null,
         minWeqVersion: selected?.release.minWeqVersion ?? null,
         requiresWeqUpdate:
@@ -568,6 +573,10 @@ export class EnhancementPacks {
       this.receipts[pack.id] = this.identity(pack);
       this.removed.delete(pack.id);
       if (selected) this.installedVersions.set(pack.id, selected.release.contentVersion);
+      const changed =
+        previouslyRemoved ||
+        previousReceipt !== this.receipts[pack.id] ||
+        previousVersion !== this.installedVersions.get(pack.id);
       if (pack.validateShared)
         for (const other of this.definitions) {
           if (
@@ -577,7 +586,7 @@ export class EnhancementPacks {
           )
             this.receipts[other.id] = this.identity(other);
         }
-      await this.save();
+      await this.save(download && changed ? { id: pack.id, at: Date.now() } : undefined);
     } catch (error) {
       for (const revert of undo.reverse()) await revert();
       this.receipts = previousReceipts;
@@ -675,6 +684,7 @@ export class EnhancementPacks {
       delete this.receipts[id];
       this.installed.delete(id);
       this.installedVersions.delete(id);
+      this.updatedAt.delete(id);
       await this.save();
       this.operations.delete(id);
     } catch (error) {
@@ -690,33 +700,47 @@ export class EnhancementPacks {
     }
   }
 
-  private save(): Promise<void> {
-    const text = JSON.stringify(
-      Object.fromEntries(
-        [...new Set([...Object.keys(this.receipts), ...this.installed, ...this.removed])].map(
-          (id) => [
-            id,
-            {
-              identity: this.receipts[id as EnhancementPackId],
-              removed: this.removed.has(id as EnhancementPackId),
-              installed: !this.removed.has(id as EnhancementPackId),
-              contentVersion: this.installedVersions.get(id as EnhancementPackId),
-              components: this.definitions
-                .find((pack) => pack.id === id)
-                ?.components.flatMap((componentId) => {
-                  const value = this.components.get(componentId)?.installation?.();
-                  return value ? [value] : [];
-                }),
-            },
-          ],
-        ),
-      ),
-    );
+  private save(update?: { id: EnhancementPackId; at: number }): Promise<void> {
+    const snapshot = ENHANCEMENT_PACK_IDS.filter(
+      (id) => this.receipts[id] || this.installed.has(id) || this.removed.has(id),
+    ).map((id) => {
+      const removed = this.removed.has(id);
+      const components = this.definitions
+        .find((pack) => pack.id === id)
+        ?.components.flatMap((componentId) => {
+          const value = this.components.get(componentId)?.installation?.();
+          return value ? [value] : [];
+        });
+      return [
+        id,
+        {
+          identity: this.receipts[id],
+          removed,
+          installed: !removed,
+          contentVersion: this.installedVersions.get(id),
+          components,
+        },
+      ] as const;
+    });
     const write = this.writes
       .catch(() => {})
       .then(async () => {
         const path = join(this.directory, 'ready.json');
-        await writeFileAtomic(path, text);
+        const saved = Object.fromEntries(
+          snapshot.map(([id, receipt]) => [
+            id,
+            {
+              ...receipt,
+              updatedAt: receipt.removed
+                ? undefined
+                : id === update?.id
+                  ? update.at
+                  : this.updatedAt.get(id),
+            },
+          ]),
+        );
+        await writeFileAtomic(path, JSON.stringify(saved));
+        if (update) this.updatedAt.set(update.id, update.at);
       });
     this.writes = write;
     return write;

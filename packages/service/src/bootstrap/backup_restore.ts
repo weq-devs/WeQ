@@ -741,6 +741,13 @@ function configPlan(
       selective ? settings : merge(snapshotWeqSettings(DEFAULT_APP_SETTINGS), settings),
       imported,
     );
+    if (record(imported.enhancementUpdates) && record(settings.enhancementUpdates)) {
+      const { autoInstall, autoUpdatePacks } = imported.enhancementUpdates;
+      if (autoInstall === false && autoUpdatePacks === undefined)
+        settings.enhancementUpdates.autoUpdatePacks = [];
+      if (autoInstall !== true && (autoUpdatePacks !== undefined || autoInstall === false))
+        delete settings.enhancementUpdates.autoInstall;
+    }
     if (record(imported.sharedPreferences)) {
       const groups = record(settings.sharedPreferences) ? settings.sharedPreferences : {};
       const previousGroups =

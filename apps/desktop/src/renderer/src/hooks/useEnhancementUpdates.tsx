@@ -26,18 +26,20 @@ export function useEnhancementUpdates() {
   });
   useEffect(() => {
     if (!packages.data) return;
-    const packs = packages.data.packs;
-    useUpdateStore.getState().setPacksAvailable(packs.some((pack) => pack.updateAvailable));
+    const { packs, preferences } = packages.data;
+    useUpdateStore.getState().setPacksAvailable(packs.some((pack) => pack.updateNeedsAttention));
     let changed = false;
     for (const pack of packs) {
       const notice = pending.current.get(pack.id);
-      if (!notice || pack.busy) continue;
+      if (!notice) continue;
+      const applied =
+        pack.ready &&
+        !pack.updateAvailable &&
+        (pack.installedVersion === notice.contentVersion ||
+          (pack.latestVersion && pack.latestVersion === pack.installedVersion));
       if (
-        !pack.installed ||
-        (pack.ready &&
-          !pack.updateAvailable &&
-          (pack.installedVersion === notice.contentVersion ||
-            (pack.latestVersion && pack.latestVersion === pack.installedVersion)))
+        (pack.autoUpdate && preferences.autoCheck) ||
+        (!pack.busy && (!pack.installed || applied))
       ) {
         pending.current.delete(pack.id);
         changed = true;

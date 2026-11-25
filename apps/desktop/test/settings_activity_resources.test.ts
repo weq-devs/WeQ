@@ -57,6 +57,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               busy: fixture.busy,
               pausable: id !== 'dress',
               installed: fixture.ready,
+              autoUpdate: id === 'text' && fixture.autoInstall,
               needsRepair: fixture.ready && fixture.partial,
               missingComponents: fixture.partial ? ['文字筛图模型'] : [],
               updateAvailable: fixture.partial || fixture.updateAvailable,
@@ -77,10 +78,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 name === 'enhancementPacks'
                   ? {
                       packs,
-                      preferences: {
-                        autoCheck: fixture.autoCheck,
-                        autoInstall: fixture.autoInstall,
-                      },
+                      preferences: { autoCheck: fixture.autoCheck },
                       all: { downloadBytes: 4194304, sizeOnDisk: 0 },
                     }
                   : name === 'enhancementPlan'
@@ -179,8 +177,17 @@ describe('增强设置与非活动页面资源', () => {
       expect(f.host.querySelectorAll('.weq-set-card')).toHaveLength(2);
       expect(f.host.querySelectorAll('.weq-enhancement-item')).toHaveLength(4);
       expect(f.host.querySelectorAll('.weq-enhancement-size')).toHaveLength(4);
-      expect(f.host.textContent).not.toContain('下载全部');
-      expect(f.host.querySelectorAll('[role="switch"]')).toHaveLength(2);
+      expect(f.host.querySelectorAll('[role="switch"]')).toHaveLength(1);
+      const batch = f.host.querySelector<HTMLButtonElement>(
+        '.weq-enhancement-batch-actions button',
+      )!;
+      expect(batch.textContent).toBe('全部下载');
+      expect(f.host.textContent).not.toContain('全部更新');
+      await act(async () => batch.click());
+      expect(fixture.mutate).toHaveBeenLastCalledWith({
+        ids: ['text', 'voice', 'intent', 'dress'],
+        mode: 'download',
+      });
       const chosen = f.host.querySelector<HTMLButtonElement>('[aria-label="下载本地文字识别"]')!;
       await act(async () => chosen.click());
       expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
@@ -207,31 +214,25 @@ describe('增强设置与非活动页面资源', () => {
       f.dispose();
     }
   });
-  it.each([false, true])(
-    '检查中显示状态，不锁下载、删除或重复检查（已安装：%s）',
-    async (ready) => {
-      fixture.ready = ready;
-      fixture.checkPhase = 'checking';
-      fixture.checkLoading = true;
-      const f = mount(h(EnhancementPacksSection));
-      try {
-        const row = f.host.querySelector('[data-setting-id="enhancement-text"]')!;
-        expect(row.querySelector('[role="status"]')?.textContent).toBe('正在检查更新');
-        const action = row.querySelector<HTMLButtonElement>(
-          `[aria-label="${ready ? '删除' : '下载'}本地文字识别"]`,
-        )!;
-        expect(action.disabled).toBe(false);
-        await act(async () => action.click());
-        expect(fixture.mutate).toHaveBeenLastCalledWith(ready ? { id: 'text' } : { ids: ['text'] });
-        const check = row.querySelector<HTMLButtonElement>('[aria-label="检查本地文字识别更新"]')!;
-        expect(check.disabled).toBe(false);
-        await act(async () => check.click());
-        expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
-      } finally {
-        f.dispose();
-      }
-    },
-  );
+  it.each([false, true])('检查中显示状态，下载或删除仍可操作（已安装：%s）', async (ready) => {
+    fixture.ready = ready;
+    fixture.checkPhase = 'checking';
+    fixture.checkLoading = true;
+    const f = mount(h(EnhancementPacksSection));
+    try {
+      const row = f.host.querySelector('[data-setting-id="enhancement-text"]')!;
+      expect(row.querySelector('[role="status"]')?.textContent).toBe('正在检查更新');
+      const action = row.querySelector<HTMLButtonElement>(
+        `[aria-label="${ready ? '删除' : '下载'}本地文字识别"]`,
+      )!;
+      expect(action.disabled).toBe(false);
+      await act(async () => action.click());
+      expect(fixture.mutate).toHaveBeenLastCalledWith(ready ? { id: 'text' } : { ids: ['text'] });
+      expect(f.host.textContent).not.toContain('全部检查');
+    } finally {
+      f.dispose();
+    }
+  });
   it('手动检查发出即显示在途状态并轮询，不等宿主快照；结束后恢复结果', () => {
     fixture.ready = true;
     fixture.checkLoading = true;
@@ -263,10 +264,19 @@ describe('增强设置与非活动页面资源', () => {
     fixture.checkLoading = true;
     const f = mount(h(EnhancementPacksSection));
     try {
-      const check = f.host.querySelector<HTMLButtonElement>('[aria-label="检查本地文字识别更新"]')!;
-      expect(check.disabled).toBe(false);
-      await act(async () => check.click());
-      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      expect(f.host.textContent).not.toContain('全部检查');
+      const batch = f.host.querySelector<HTMLButtonElement>(
+        '.weq-enhancement-batch-actions button',
+      );
+      if (partial) expect(batch).toBeNull();
+      else {
+        expect(batch?.textContent).toBe('全部更新');
+        await act(async () => batch!.click());
+        expect(fixture.mutate).toHaveBeenLastCalledWith({
+          ids: ['text', 'voice', 'intent', 'dress'],
+          mode: 'update',
+        });
+      }
       const button = f.host.querySelector<HTMLButtonElement>(
         `[aria-label="${partial ? '补齐' : '更新'}本地文字识别"]`,
       )!;
@@ -277,17 +287,22 @@ describe('增强设置与非活动页面资源', () => {
       f.dispose();
     }
   });
-  it('检查等网络时可主动检查，准备资源时同一排可暂停、检查和删除', async () => {
+  it('检查等网络时可批量检查，准备资源时可在原位暂停和删除', async () => {
     fixture.ready = true;
     fixture.checkPhase = 'waiting-network';
     fixture.checkLoading = true;
     const f = mount(h(EnhancementPacksSection));
     try {
       expect(f.host.textContent).toContain('等待网络允许检查');
-      const check = f.host.querySelector<HTMLButtonElement>('[aria-label="检查本地文字识别更新"]')!;
+      const check = f.host.querySelector<HTMLButtonElement>(
+        '.weq-enhancement-batch-actions button',
+      )!;
+      expect(check.textContent).toBe('全部检查');
       expect(check.disabled).toBe(false);
       await act(async () => check.click());
-      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      expect(fixture.mutate).toHaveBeenLastCalledWith({
+        ids: ['text', 'voice', 'intent', 'dress'],
+      });
       fixture.ready = false;
       f.render(false);
       f.render(true);
@@ -335,9 +350,10 @@ describe('增强设置与非活动页面资源', () => {
       f.dispose();
     }
   });
-  it('关闭自动检查隐藏安装开关但不清空其值；最低版本提示跳到设置内更新页', async () => {
+  it('关闭自动检查保留逐包开关，最低版本提示跳到设置内更新页', async () => {
     const navigate = vi.fn();
     fixture.autoInstall = true;
+    fixture.ready = true;
     const f = mount(
       h(SettingsNavigateContext.Provider, { value: navigate }, h(EnhancementPacksSection)),
     );
@@ -347,7 +363,13 @@ describe('增强设置与非活动页面资源', () => {
       await f.render(false);
       await f.render(true);
       expect(f.host.querySelector('[aria-label="自动安装增强包更新"]')).toBeNull();
-      expect(fixture.autoInstall).toBe(true);
+      const toggle = f.host.querySelector<HTMLButtonElement>(
+        '[aria-label="本地文字识别自动更新"]',
+      )!;
+      expect(toggle.getAttribute('aria-pressed')).toBe('true');
+      await act(async () => toggle.click());
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ pack: { id: 'text', enabled: false } });
+      expect(f.host.textContent).toContain('全部检查');
       const link = f.host.querySelector<HTMLAnchorElement>('.weq-enhancement-issue a')!;
       await act(async () => link.click());
       expect(navigate).toHaveBeenCalledWith('version');

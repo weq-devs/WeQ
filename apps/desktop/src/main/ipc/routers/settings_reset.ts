@@ -87,6 +87,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   const boot = context.bootstrap;
   if (!boot) throw new Error('配置尚未就绪');
   const config = boot.userConfig;
+  if (selected.has('enhancement-updates')) await boot.enhancements.updates.ready();
   const current = config.getSettings();
   const defaults = settingsDefaults(DEFAULT_APP_SETTINGS);
   const b = bootstrapRouter.createCaller(ctx);
@@ -196,14 +197,18 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   for (const spec of APP_SETTING_FIELDS)
     bind(spec.id, current[spec.key], defaults[spec.key], appWriters[spec.key]);
 
-  for (const key of ['autoCheck', 'autoInstall'] as const) {
-    bind(
-      `${'enhancement-updates'}:${key}`,
-      current.enhancementUpdates[key],
-      defaults.enhancementUpdates[key],
-      () => b.setEnhancementUpdates({ [key]: defaults.enhancementUpdates[key] }),
-    );
-  }
+  bind(
+    'enhancement-updates:autoCheck',
+    current.enhancementUpdates.autoCheck,
+    defaults.enhancementUpdates.autoCheck,
+    () => b.setEnhancementUpdates({ autoCheck: defaults.enhancementUpdates.autoCheck }),
+  );
+  bind(
+    'enhancement-updates:autoUpdatePacks',
+    current.enhancementUpdates.autoUpdatePacks,
+    defaults.enhancementUpdates.autoUpdatePacks,
+    async () => config.setSettings({ enhancementUpdates: { autoUpdatePacks: [] } }),
+  );
 
   if (!ctx.authorize && selected.has('startup-system')) {
     const status = await b.getAutostartStatus();

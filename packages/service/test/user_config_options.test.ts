@@ -70,6 +70,18 @@ describe('自动检查更新频率', () => {
   );
 });
 
+it('增强包备份保留已选包，旧总开关可读，损坏的包列表校验失败', () => {
+  const f = configFixture();
+  f.service.setSettings({ enhancementUpdates: { autoCheck: false, autoUpdatePacks: ['dress'] } });
+  const backup = snapshotWeqSettings(f.open().getSettings());
+  expect(backup.enhancementUpdates).toEqual({ autoCheck: false, autoUpdatePacks: ['dress'] });
+  expect(() => validateWeqAppSettings(backup)).not.toThrow();
+  expect(() => validateWeqAppSettings({ enhancementUpdates: { autoInstall: true } })).not.toThrow();
+  expect(() => validateWeqAppSettings({ enhancementUpdates: { autoUpdatePacks: [42] } })).toThrow(
+    'settings.enhancementUpdates.autoUpdatePacks',
+  );
+});
+
 describe('测试版更新偏好', () => {
   it('默认关闭，独立保存且重开后保留', () => {
     const f = configFixture();

@@ -212,6 +212,18 @@ type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
 
+function normalizeEnhancementUpdates(value?: DeepPartial<AppSettings['enhancementUpdates']>) {
+  const autoUpdatePacks = Array.isArray(value?.autoUpdatePacks)
+    ? [...new Set(value.autoUpdatePacks.filter((id) => typeof id === 'string'))]
+    : [];
+  return {
+    autoCheck: value?.autoCheck !== false,
+    autoUpdatePacks,
+    // 旧总开关由宿主读取已安装的包后迁移。
+    ...(value?.autoInstall === true ? { autoInstall: true } : {}),
+  };
+}
+
 function isAgentLabProviderConfig(value: unknown): value is AgentLabProviderConfig {
   if (!value || typeof value !== 'object') return false;
   const item = value as Partial<AgentLabProviderConfig>;
@@ -864,7 +876,7 @@ export interface AppSettings {
   updateCheckPrerelease: boolean;
   /** 自动检查更新间隔（分钟），-1 表示永不。 */
   updateCheckIntervalMinutes: number;
-  enhancementUpdates: { autoCheck: boolean; autoInstall: boolean };
+  enhancementUpdates: { autoCheck: boolean; autoUpdatePacks: string[]; autoInstall?: boolean };
   /** 横幅完成态停留秒数，-1 表示不自动关闭。 */
   toastDurations: ToastDurations;
   notificationEvents: import('../common/notification_settings').NotificationEvents;
@@ -1286,7 +1298,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   contactCard: DEFAULT_CONTACT_CARD,
   updateCheckPrerelease: false,
   updateCheckIntervalMinutes: DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
-  enhancementUpdates: { autoCheck: true, autoInstall: false },
+  enhancementUpdates: { autoCheck: true, autoUpdatePacks: [] },
   toastDurations: { ...DEFAULT_TOAST_DURATIONS },
   notificationEvents: normalizeNotificationEvents(undefined),
   exportSaveMode: 'before',
@@ -2213,10 +2225,7 @@ export class UserConfigService {
       updateCheckIntervalMinutes: isUpdateCheckInterval(s?.updateCheckIntervalMinutes)
         ? s.updateCheckIntervalMinutes
         : d.updateCheckIntervalMinutes,
-      enhancementUpdates: {
-        autoCheck: s?.enhancementUpdates?.autoCheck !== false,
-        autoInstall: s?.enhancementUpdates?.autoInstall === true,
-      },
+      enhancementUpdates: normalizeEnhancementUpdates(s?.enhancementUpdates),
       toastDurations: normalizeToastDurations(s?.toastDurations),
       notificationEvents: normalizeNotificationEvents(s?.notificationEvents, {
         messageNotifications: s?.sharedPreferences?.client?.messageNotifications,
@@ -2430,10 +2439,11 @@ export class UserConfigService {
       updateCheckIntervalMinutes: isUpdateCheckInterval(patch.updateCheckIntervalMinutes)
         ? patch.updateCheckIntervalMinutes
         : current.updateCheckIntervalMinutes,
-      enhancementUpdates: {
+      enhancementUpdates: normalizeEnhancementUpdates({
         ...current.enhancementUpdates,
         ...patch.enhancementUpdates,
-      },
+        ...(patch.enhancementUpdates?.autoUpdatePacks ? { autoInstall: undefined } : {}),
+      }),
       toastDurations: normalizeToastDurations(patch.toastDurations, current.toastDurations),
       notificationEvents: normalizeNotificationEvents(
         mergeNotificationEventOverrides(current.notificationEvents, patch.notificationEvents),

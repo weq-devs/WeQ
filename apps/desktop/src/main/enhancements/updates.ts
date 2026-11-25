@@ -147,6 +147,7 @@ export class EnhancementUpdateController {
       fetcher?: typeof fetch;
       localDress?: () => boolean;
       legacyModels?: ModelEntry[];
+      inspected?: Promise<unknown>;
     },
   ) {
     this.path = join(config.appDataRoot(), 'enhancements/checks.json');
@@ -232,12 +233,23 @@ export class EnhancementUpdateController {
   }
   async ready() {
     await this.loaded;
+    if (!this.config.getSettings().enhancementUpdates.autoInstall) return;
+    await this.options.inspected;
+    const installed = (await this.packs.list()).filter((pack) => pack.installed);
+    if (this.config.getSettings().enhancementUpdates.autoInstall)
+      this.config.setSettings({
+        enhancementUpdates: { autoUpdatePacks: installed.map(({ id }) => id) },
+      });
   }
   async wait() {
     await this.pending?.catch(() => {});
   }
   state(id: EnhancementPackId) {
     return this.states.get(id) ?? { phase: 'unchecked' as const };
+  }
+  private autoUpdates(id: EnhancementPackId) {
+    const { autoCheck, autoUpdatePacks } = this.config.getSettings().enhancementUpdates;
+    return autoCheck && autoUpdatePacks.includes(id);
   }
   subscribeState(listener: (change: EnhancementStateChange) => void) {
     const stopPacks = this.packs.onChanged(listener);
@@ -285,6 +297,7 @@ export class EnhancementUpdateController {
           pack.updateAvailable &&
           !pack.busy &&
           !pack.blocker &&
+          !this.autoUpdates(pack.id) &&
           pack.latestVersion &&
           pack.latestVersion !== pack.installedVersion &&
           this.notifiedVersions.get(pack.id) !== pack.latestVersion,
@@ -297,7 +310,7 @@ export class EnhancementUpdateController {
     const configure = () => {
       const settings = this.config.getSettings();
       const key = JSON.stringify([
-        settings.enhancementUpdates,
+        settings.enhancementUpdates.autoCheck,
         settings.updateCheckIntervalMinutes,
         settings.updateCheckPrerelease,
       ]);
@@ -309,14 +322,22 @@ export class EnhancementUpdateController {
         startup,
       );
     };
-    this.stopSettings = onSettingsChanged(configure);
+    this.stopSettings = onSettingsChanged((change) => {
+      configure();
+      if (!change || change.fields.includes('enhancementUpdates'))
+        void this.ready()
+          .then(() => this.refreshNotifications())
+          .catch(() => {});
+    });
     this.stopSettled = this.packs.onChanged(({ kind }) => {
       if (kind !== 'resources') return;
       void this.installKnown(ENHANCEMENT_PACK_IDS).catch(() => {});
       if (this.notifications.length) void this.refreshNotifications().catch(() => {});
     });
     configure();
-    void this.loaded.then(() => this.packs.reconcileExisting());
+    void this.ready()
+      .then(() => this.packs.reconcileExisting())
+      .catch(() => {});
   }
   stop() {
     this.scheduler.stop();
@@ -353,7 +374,7 @@ export class EnhancementUpdateController {
     return this.pending;
   }
   private async performCheck(ids: EnhancementPackId[], automatic: boolean) {
-    await this.loaded;
+    await this.ready();
     if (automatic && !this.config.getSettings().enhancementUpdates.autoCheck) return;
     for (const id of ids) this.fresh.delete(id);
     const gate = new TransferGate();
@@ -530,27 +551,25 @@ export class EnhancementUpdateController {
     if (
       this.abort.signal.aborted ||
       !settings.enhancementUpdates.autoCheck ||
-      !settings.enhancementUpdates.autoInstall
+      !ids.some(
+        (id) => settings.enhancementUpdates.autoUpdatePacks.includes(id) && this.fresh.has(id),
+      )
     )
       return;
-    const install = (await this.packs.list())
-      .filter(
-        (pack) =>
-          ids.includes(pack.id) &&
+    await networkScope.run({ restricted: false, intent: 'batch' }, () =>
+      startEnhancementDownloads(this.packs, ids, {
+        automaticUpdate: (pack) =>
+          !this.abort.signal.aborted &&
+          this.autoUpdates(pack.id) &&
           this.fresh.has(pack.id) &&
           pack.installed &&
           pack.updateAvailable &&
-          !pack.busy &&
           !enhancementTaskNeedsInput(this.packs, pack.id) &&
           !pack.blocker &&
           pack.operation?.phase !== 'failed' &&
           this.state(pack.id).phase === 'checked',
-      )
-      .map((pack) => pack.id);
-    if (install.length)
-      await networkScope.run({ restricted: false, intent: 'batch' }, () =>
-        startEnhancementDownloads(this.packs, install, { installedOnly: true }),
-      );
+      }),
+    );
   }
   private async readSignedFeed(repository: string, feedTag?: string): Promise<ReleaseIndex | null> {
     const feed = getReleaseFeed(repository, feedTag);

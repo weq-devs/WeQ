@@ -10,7 +10,8 @@ const descriptions = [
   'QQ 不在线时也能查询装扮地址；下载具体素材仍需网络。',
 ];
 let downloaded = new Set(['text', 'intent']);
-let preferences = { autoCheck: true, autoInstall: false };
+let preferences = { autoCheck: true };
+const autoUpdatePacks = new Set<string>();
 const state = new URLSearchParams(location.search).get('state');
 const checking = state?.startsWith('checking') ?? false;
 const partial = state === 'partial' || state === 'checking-partial';
@@ -30,6 +31,9 @@ const snapshot = () => {
     downloaded: downloaded.has(id) && !(partial && id === 'text'),
     ready: downloaded.has(id) && !(partial && id === 'text'),
     installed: downloaded.has(id),
+    autoUpdate: autoUpdatePacks.has(id),
+    updatedAt:
+      state === 'update' && id === 'text' ? Date.parse('2026-11-25T10:50:00+08:00') : undefined,
     needsRepair: partial && id === 'text',
     missingComponents: partial && id === 'text' ? ['文字筛图模型'] : [],
     busy: (state === 'busy' || state === 'retrying') && id === 'voice',
@@ -115,13 +119,16 @@ const proxy = (path = ''): unknown =>
             ids?: string[];
             id?: string;
             autoCheck?: boolean;
-            autoInstall?: boolean;
+            pack?: { id: string; enabled: boolean };
           }) => {
             if (path === 'bootstrap.prepareEnhancementPacks')
               for (const id of input.ids ?? []) downloaded.add(id);
             if (path === 'bootstrap.deleteEnhancementPack') downloaded.delete(input.id!);
-            if (path === 'bootstrap.setEnhancementUpdates')
-              preferences = { ...preferences, ...input };
+            if (path === 'bootstrap.setEnhancementUpdates') {
+              if (input.autoCheck !== undefined) preferences = { autoCheck: input.autoCheck };
+              if (input.pack?.enabled) autoUpdatePacks.add(input.pack.id);
+              else if (input.pack) autoUpdatePacks.delete(input.pack.id);
+            }
           },
         });
       return proxy(path ? `${path}.${String(key)}` : String(key));

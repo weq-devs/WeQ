@@ -318,9 +318,9 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   ),
   field(
     'enhancement-updates',
-    'autoInstall',
-    'enhancement-auto-install',
-    '自动安装增强包更新',
+    'autoUpdatePacks',
+    'enhancement-management',
+    '各增强包的自动更新',
     'runtime',
   ),
   field('toast', 'successSeconds', 'toast-success', '成功通知停留时长', 'runtime'),

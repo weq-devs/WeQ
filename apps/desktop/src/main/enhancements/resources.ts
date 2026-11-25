@@ -712,6 +712,7 @@ export function createEnhancementResources(
   restoreEnhancementTasks(packs, join(root, 'enhancements'));
   const updates = new EnhancementUpdateController(packs, userConfig, target, {
     legacyModels,
+    inspected,
     currentVersion: () => getHost().appVersion(),
     nativeCommit: () =>
       platform.native.ntHelper.getDressResourceKeyId?.() ??

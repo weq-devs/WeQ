@@ -4,6 +4,7 @@ import { timeDate } from '@weq/time';
 import {
   AudioLines,
   BrainCircuit,
+  Check,
   Download,
   Package,
   Palette,
@@ -19,6 +20,7 @@ import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
 import { useAppDialog } from '../../lib/dialogUtils';
 import type { EnhancementPackId } from '../../../../shared/enhancement_manifest';
+import { canPrepareEnhancement } from '../../../../shared/enhancement_actions';
 import { Card, QueryError, SectionHeader, Row, Toggle } from './controls';
 import { SettingsNavigateContext } from './controls.shared';
 import { LoadingIndicator } from '../LoadingIndicator';
@@ -33,6 +35,10 @@ const ICONS = {
   dress: Palette,
   'market-emoji': Sticker,
 };
+const BATCH_ACTIONS = [
+  { mode: 'download', label: '全部下载' },
+  { mode: 'update', label: '全部更新' },
+] as const;
 
 export function EnhancementPacksSection() {
   const active = useTabActive();
@@ -63,7 +69,13 @@ export function EnhancementPacksSection() {
   const pause = trpc.bootstrap.pauseEnhancementPack.useMutation();
   const resume = trpc.bootstrap.resumeEnhancementPack.useMutation();
   const packs = query.data?.packs ?? [];
-  const preferences = query.data?.preferences ?? { autoCheck: true, autoInstall: false };
+  const autoCheck = query.data?.preferences.autoCheck ?? true;
+  const checkable = packs.filter(
+    (pack) =>
+      pack.check?.phase === 'waiting-network' ||
+      (pack.check?.phase !== 'checking' &&
+        !(check.isLoading && check.variables?.ids.includes(pack.id))),
+  );
   async function refresh() {
     await Promise.all([
       utils.bootstrap.enhancementPacks.invalidate(),
@@ -99,7 +111,7 @@ export function EnhancementPacksSection() {
     <div className="weq-set">
       <SectionHeader title="增强包" page="enhancement-packs" />
       <Card
-        title="增强包自动更新"
+        title="增强包更新设置"
         icon={<Settings2 size={15} />}
         settingId="enhancement-updates"
         resetId="enhancement-updates"
@@ -109,26 +121,12 @@ export function EnhancementPacksSection() {
           control={
             <Toggle
               label="自动检查增强包更新"
-              checked={preferences.autoCheck}
+              checked={autoCheck}
               disabled={!query.data || settings.isLoading}
               onChange={(autoCheck) => void act(() => settings.mutateAsync({ autoCheck }))}
             />
           }
         />
-        {preferences.autoCheck ? (
-          <Row
-            settingId="enhancement-auto-install"
-            indent
-            control={
-              <Toggle
-                label="自动安装增强包更新"
-                checked={preferences.autoInstall}
-                disabled={!query.data || settings.isLoading}
-                onChange={(autoInstall) => void act(() => settings.mutateAsync({ autoInstall }))}
-              />
-            }
-          />
-        ) : null}
       </Card>
       {query.isLoading ? <LoadingIndicator /> : null}
       {query.error ? (
@@ -144,7 +142,46 @@ export function EnhancementPacksSection() {
           {error}
         </p>
       ) : null}
-      <Card title="增强包管理" icon={<Package size={15} />} settingId="enhancement-management">
+      <Card
+        title="增强包管理"
+        icon={<Package size={15} />}
+        settingId="enhancement-management"
+        action={
+          <div className="weq-enhancement-batch-actions">
+            {BATCH_ACTIONS.map(({ mode, label }) => {
+              const ids = packs
+                .filter((pack) =>
+                  canPrepareEnhancement(pack, mode, pack.downloadTask?.status === 'paused'),
+                )
+                .map(({ id }) => id);
+              return ids.length ? (
+                <button
+                  type="button"
+                  key={mode}
+                  className="weq-set-btn"
+                  disabled={prepare.isLoading}
+                  onClick={() => void act(() => prepare.mutateAsync({ ids, mode }))}
+                >
+                  <Download size={14} aria-hidden />
+                  {label}
+                </button>
+              ) : null;
+            })}
+            {checkable.length ? (
+              <button
+                type="button"
+                className="weq-set-btn"
+                onClick={() =>
+                  void act(() => check.mutateAsync({ ids: checkable.map(({ id }) => id) }))
+                }
+              >
+                <RefreshCw size={14} aria-hidden />
+                全部检查
+              </button>
+            ) : null}
+          </div>
+        }
+      >
         <ul className="weq-enhancement-list">
           {packs.map((pack) => {
             const Icon = ICONS[pack.id];
@@ -158,6 +195,7 @@ export function EnhancementPacksSection() {
               pack.check?.phase === 'checking' ||
               (check.isLoading && check.variables?.ids.includes(pack.id));
             const checkedAt = timeDate(pack.check?.checkedAt);
+            const updatedAt = timeDate(pack.updatedAt);
             const percent = operation?.total
               ? Math.min(100, Math.max(0, (operation.received / operation.total) * 100))
               : task?.progress;
@@ -171,10 +209,10 @@ export function EnhancementPacksSection() {
                   : (operation?.note ?? '正在准备')
               : waiting
                 ? (task.statusLabel ?? '等待继续')
-                : checking
-                  ? '正在检查更新'
-                  : pack.check?.phase === 'waiting-network'
-                    ? '等待网络允许检查'
+                : pack.check?.phase === 'waiting-network'
+                  ? '等待网络允许检查'
+                  : checking
+                    ? '正在检查更新'
                     : pack.needsRepair
                       ? '待补齐'
                       : pack.check?.phase === 'checked'
@@ -248,18 +286,34 @@ export function EnhancementPacksSection() {
                         )
                       }
                     >
-                      <PrimaryIcon size={14} />
+                      <PrimaryIcon size={14} aria-hidden />
+                      {primaryLabel}
                     </button>
                   ) : null}
-                  <button
-                    type="button"
-                    className="weq-set-btn weq-set-btn-soft weq-enhancement-check"
-                    title={`检查${pack.name}更新`}
-                    aria-label={`检查${pack.name}更新`}
-                    onClick={() => void act(() => check.mutateAsync({ ids: [pack.id] }))}
-                  >
-                    <RefreshCw size={14} />
-                  </button>
+                  {pack.installed ? (
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-enhancement-auto-update"
+                      title={autoCheck ? '后台自动更新此增强包' : '开启全局自动检查后生效'}
+                      aria-label={`${pack.name}自动更新`}
+                      aria-pressed={pack.autoUpdate}
+                      disabled={settings.isLoading}
+                      onClick={() =>
+                        void act(() =>
+                          settings.mutateAsync({
+                            pack: { id: pack.id, enabled: !pack.autoUpdate },
+                          }),
+                        )
+                      }
+                    >
+                      {pack.autoUpdate ? (
+                        <Check size={14} aria-hidden />
+                      ) : (
+                        <RefreshCw size={14} aria-hidden />
+                      )}
+                      自动更新
+                    </button>
+                  ) : null}
                   {pack.busy ||
                   waiting ||
                   pack.downloaded ||
@@ -296,15 +350,18 @@ export function EnhancementPacksSection() {
                     ) : null}
                   </div>
                 ) : null}
-                {(!pack.busy && !waiting && status) || checkedAt ? (
+                {(!pack.busy && !waiting && status) || checkedAt || updatedAt ? (
                   <div className="weq-enhancement-status" title={missing}>
                     {!pack.busy && !waiting && status ? <span role="status">{status}</span> : null}
+                    {updatedAt ? (
+                      <span>
+                        上次更新 <TimeLabel value={updatedAt} />
+                      </span>
+                    ) : null}
                     {checkedAt ? (
-                      <>
-                        {!pack.busy && !waiting && status ? ' · ' : null}
-                        上次成功检查：
-                        <TimeLabel value={checkedAt} />
-                      </>
+                      <span>
+                        上次成功检查 <TimeLabel value={checkedAt} />
+                      </span>
                     ) : null}
                   </div>
                 ) : null}

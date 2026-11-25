@@ -307,6 +307,7 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     restrictedModeIndicatorEnabled,
     qqProxyIndicatorEnabled,
     updateCheckIntervalMinutes,
+    enhancementUpdates,
     quitConfirmSuppressed,
     reportReadEnabled,
     manualReadReportEnabled,
@@ -327,6 +328,20 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     !isUpdateCheckInterval(updateCheckIntervalMinutes)
   )
     fail('settings.updateCheckIntervalMinutes');
+  if (enhancementUpdates !== undefined) {
+    const path = 'settings.enhancementUpdates';
+    const { autoUpdatePacks, ...switches } = fields(
+      enhancementUpdates,
+      path,
+      [],
+      ['autoCheck', 'autoInstall', 'autoUpdatePacks'],
+    );
+    shape(switches, { autoCheck: true, autoInstall: false }, path);
+    if (autoUpdatePacks !== undefined) {
+      if (!Array.isArray(autoUpdatePacks)) fail(`${path}.autoUpdatePacks`);
+      for (const id of autoUpdatePacks) string(id, `${path}.autoUpdatePacks`, true);
+    }
+  }
   if (qqShowCacheDays !== undefined) number(qqShowCacheDays, 'settings.qqShowCacheDays', 1, 365);
   if (restrictedModeIndicatorEnabled !== undefined)
     shape(restrictedModeIndicatorEnabled, true, 'settings.restrictedModeIndicatorEnabled');

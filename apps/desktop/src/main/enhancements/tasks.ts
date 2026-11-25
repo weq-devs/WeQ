@@ -2,6 +2,10 @@ import { JsonStore } from '@weq/service/json-store';
 import { z } from 'zod/v3';
 import { join } from 'node:path';
 import { ENHANCEMENT_PACK_IDS, type EnhancementPackId } from '../../shared/enhancement_manifest';
+import {
+  canPrepareEnhancement,
+  type EnhancementBatchAction,
+} from '../../shared/enhancement_actions';
 import type { EnhancementPacks, PackOperation } from './packs';
 import { backgroundTasks, taskError } from '../background_tasks';
 import { downloadTaskReceipt, downloadTaskSnapshot } from '../download_task_receipt';
@@ -19,10 +23,14 @@ interface PreparationTaskPort {
 const pending = new WeakMap<PreparationTaskPort, Map<EnhancementPackId, Promise<void>>>();
 const requestedActions = new WeakMap<
   PreparationTaskPort,
-  Map<EnhancementPackId, { action: string; foreground: boolean }>
+  Map<EnhancementPackId, { action: string; foreground: boolean; automaticUpdate?: boolean }>
 >();
 const taskIds = new WeakMap<PreparationTaskPort, Map<EnhancementPackId, string>>();
-const enhancementReceipt = downloadTaskReceipt.extend({ name: z.string(), action: z.string() });
+const enhancementReceipt = downloadTaskReceipt.extend({
+  name: z.string(),
+  action: z.string(),
+  automaticUpdate: z.boolean().optional(),
+});
 const enhancementReceipts = z.record(z.enum(ENHANCEMENT_PACK_IDS), enhancementReceipt);
 const stores = new WeakMap<PreparationTaskPort, JsonStore<z.infer<typeof enhancementReceipts>>>();
 
@@ -133,13 +141,22 @@ export async function forgetRemovedPackTask(packs: EnhancementPacks, id: Enhance
 export async function startEnhancementDownloads(
   packs: EnhancementPacks,
   requested: readonly EnhancementPackId[],
-  options: { foreground?: boolean; installedOnly?: boolean } = {},
+  options: {
+    foreground?: boolean;
+    mode?: EnhancementBatchAction;
+    automaticUpdate?: (pack: Awaited<ReturnType<EnhancementPacks['list']>>[number]) => boolean;
+  } = {},
 ): Promise<void> {
-  const { foreground = false, installedOnly = false } = options;
+  const { foreground = false, mode, automaticUpdate } = options;
   const previous = await packs.list();
   const ids = [...new Set(requested)].filter((id) => {
     const pack = previous.find((item) => item.id === id);
-    return !pack?.busy && (!installedOnly || pack?.installed);
+    if (!pack || pack.busy) return false;
+    if (automaticUpdate) return automaticUpdate(pack);
+    return (
+      !mode ||
+      canPrepareEnhancement(pack, mode, enhancementDownloadTask(packs, id)?.status === 'paused')
+    );
   });
   // start 会同步通知准备观察者，先固定本次操作意图，两个入口共用同一任务。
   const actions = new Map(
@@ -149,6 +166,7 @@ export async function startEnhancementDownloads(
         id,
         {
           foreground,
+          automaticUpdate: automaticUpdate ? true : undefined,
           action: !pack
             ? '准备增强包'
             : pack.needsRepair
@@ -175,6 +193,7 @@ export async function startEnhancementDownloads(
         pack.name,
         actions.get(id)?.action,
         foreground,
+        actions.get(id)?.automaticUpdate,
       ).catch(() => {});
   }
 }
@@ -186,6 +205,7 @@ export function trackEnhancementPreparation(
   name: string,
   action = requestedActions.get(packs)?.get(id)?.action ?? '准备增强包',
   foreground = requestedActions.get(packs)?.get(id)?.foreground,
+  automaticUpdate = requestedActions.get(packs)?.get(id)?.automaticUpdate,
 ): Promise<void> {
   let tasks = pending.get(packs);
   if (!tasks) {
@@ -202,7 +222,7 @@ export function trackEnhancementPreparation(
     backgroundTasks.snapshot().some((entry) => entry.id === saved.id);
   const taskId = useSaved
     ? saved.id
-    : backgroundTasks.start({ ...presentation(name, action), foreground });
+    : backgroundTasks.start({ ...presentation(name, action), foreground, automaticUpdate });
   const ids = taskIds.get(packs) ?? new Map<EnhancementPackId, string>();
   ids.set(id, taskId);
   taskIds.set(packs, ids);
@@ -220,7 +240,18 @@ export function trackEnhancementPreparation(
     )
       return;
     try {
-      store.replace({ ...store.data, [id]: { ...downloadTaskSnapshot(task), name, action } }, true);
+      store.replace(
+        {
+          ...store.data,
+          [id]: {
+            ...downloadTaskSnapshot(task),
+            name,
+            action,
+            automaticUpdate: task.automaticUpdate,
+          },
+        },
+        true,
+      );
     } catch (error) {
       console.warn('[增强包] 任务记录保存失败', error);
     }

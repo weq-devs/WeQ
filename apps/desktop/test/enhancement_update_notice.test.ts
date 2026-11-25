@@ -16,6 +16,7 @@ const fixture = vi.hoisted(() => ({
   unsubscribe: vi.fn(),
   packs: undefined as
     | {
+        preferences?: { autoCheck: boolean };
         packs: Array<{
           id: string;
           installed: boolean;
@@ -23,6 +24,8 @@ const fixture = vi.hoisted(() => ({
           ready: boolean;
           busy: boolean;
           updateAvailable: boolean;
+          updateNeedsAttention?: boolean;
+          autoUpdate?: boolean;
         }>;
       }
     | undefined,
@@ -169,6 +172,16 @@ it('安装确认前保留增强包提醒，安装一部分只移除对应项', (
     fixture.packs = { packs: [pack(first, first.contentVersion, true)] };
     render();
     expect(listedNames(useToast.getState().toasts[0]!)).toContain(first.name);
+    fixture.packs = {
+      preferences: { autoCheck: true },
+      packs: [
+        { ...pack(first, 'legacy', true), autoUpdate: true, updateNeedsAttention: false },
+        { ...pack(second, 'legacy'), updateNeedsAttention: true },
+      ],
+    };
+    render();
+    expect(listedNames(useToast.getState().toasts[0]!)).toBe(second.name);
+    expect(useUpdateStore.getState().packsAvailable).toBe(true);
     fixture.packs = { packs: [pack(first, first.contentVersion), pack(second, 'legacy')] };
     render();
     expect(useToast.getState().leaving).toEqual([]);
@@ -178,6 +191,7 @@ it('安装确认前保留增强包提醒，安装一部分只移除对应项', (
     };
     render();
     expect(useToast.getState().leaving).toEqual([item!.id]);
+    expect(useUpdateStore.getState().packsAvailable).toBe(false);
   } finally {
     unmount();
   }
@@ -192,6 +206,7 @@ it('其他端安装完成不需要新的更新通知，刷新后收起红点和�
     ready: true,
     busy: false,
     updateAvailable: true,
+    updateNeedsAttention: true,
   };
   fixture.packs = { packs: [initial] };
   let render!: () => void;
@@ -205,7 +220,14 @@ it('其他端安装完成不需要新的更新通知，刷新后收起红点和�
     expect(useUpdateStore.getState().packsAvailable).toBe(true);
     fixture.refetch.mockImplementation(async () => {
       fixture.packs = {
-        packs: [{ ...initial, installedVersion: notice.contentVersion, updateAvailable: false }],
+        packs: [
+          {
+            ...initial,
+            installedVersion: notice.contentVersion,
+            updateAvailable: false,
+            updateNeedsAttention: false,
+          },
+        ],
       };
       render();
     });

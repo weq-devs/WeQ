@@ -65,7 +65,7 @@ export const SETTINGS_RESET_CARDS = [
   ['interaction-profile', 'profile-cache', '请求与缓存'],
   ['recognition', 'voice-online', '语音转写'],
   ['recognition', 'ocr-online', '图片文字识别'],
-  ['enhancement-packs', 'enhancement-updates', '增强包自动更新'],
+  ['enhancement-packs', 'enhancement-updates', '增强包更新设置'],
   ['database-management', 'realtime', '监听与读取'],
   ['account', 'attach', 'QQ 在线能力'],
   ['account', 'qq-client-sync', '代理连接'],

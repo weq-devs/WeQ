@@ -31,6 +31,8 @@ export interface BackgroundTask {
   ownerId?: string;
   /** 业务仍在运行或保留回执，交给后台后才在统一列表显示。 */
   foreground?: boolean;
+  /** 增强包后台自动更新仅在失败或需要继续时提醒。 */
+  automaticUpdate?: boolean;
   destination?: 'db-checkup' | 'enhancement-packs' | 'group-intersection';
   status: BackgroundTaskStatus;
   statusLabel?: string;
@@ -146,6 +148,7 @@ export class BackgroundTaskRegistry {
       | 'ownerId'
       | 'display'
       | 'foreground'
+      | 'automaticUpdate'
       | 'groupAlbum'
     > &
       TaskPatch,
