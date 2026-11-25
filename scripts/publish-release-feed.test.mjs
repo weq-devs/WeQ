@@ -33,7 +33,7 @@ const release = (version = '2.7.2') => ({
     },
   ],
 });
-test('统一签名索引发布两包，单包更新保留另一包并拒绝版本倒退', async () => {
+test('统一签名索引只上传变更，单包更新保留另一包并拒绝版本倒退', async () => {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   const repository = 'weq-devs/dress-resources';
   const source = (tag_name, name, day) => ({
@@ -49,6 +49,7 @@ test('统一签名索引发布两包，单包更新保留另一包并拒绝版�
   const releases = [dress, emoji, newDress, newEmoji];
   const publicKeys = [publicKey.export({ type: 'spki', format: 'pem' }).toString()];
   let published;
+  let rejectUpload = false;
   const publish = (...resourceTags) =>
     publishReleaseFeed({
       repository,
@@ -73,20 +74,32 @@ test('统一签名索引发布两包，单包更新保留另一包并拒绝版�
       readAsset: async (asset) =>
         asset.name === 'update-index.json' ? JSON.stringify(published) : catalog,
       upload: async (feed, envelope) => {
+        if (rejectUpload) throw new Error('上传失败');
         feed.draft = false;
         published = envelope;
       },
     });
   await publish(dress.tag_name, emoji.tag_name);
   assert.equal(verifyReleaseIndex(published, repository, publicKeys).releases.length, 2);
+  const firstPublication = published;
+  await publish(emoji.tag_name);
+  assert.equal(published, firstPublication);
+
   await publish(newDress.tag_name);
+  const afterDress = published;
   await publish(dress.tag_name);
+  assert.equal(published, afterDress);
   const index = verifyReleaseIndex(published, repository, publicKeys);
   assert.equal(index.kind, 'resource-release-index');
   assert.deepEqual(Object.fromEntries(index.releases.map((entry) => [entry.track, entry.tag])), {
     dress: newDress.tag_name,
     'market-emoji': emoji.tag_name,
   });
+
+  rejectUpload = true;
+  await assert.rejects(publish(newEmoji.tag_name), /上传失败/);
+  assert.equal(published, afterDress);
+  rejectUpload = false;
   await publish(newEmoji.tag_name);
   const singleEmojiUpdated = verifyReleaseIndex(published, repository, publicKeys);
   assert.deepEqual(
