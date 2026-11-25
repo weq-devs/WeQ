@@ -61,6 +61,7 @@ try {
   );
   const tab = (name) => page.getByRole('tab', { name, exact: true });
   const button = (name) => page.getByRole('button', { name, exact: true });
+  const release = button('维护中，解除占用');
   await button('开始扫描').waitFor();
   assert.equal(await tab('报告').isDisabled(), true);
   assert.equal(await tab('修复').isDisabled(), true);
@@ -83,9 +84,19 @@ try {
   assert.equal(await page.getByRole('radiogroup', { name: '体检类型' }).count(), 0);
   assert.equal(await tab('报告').isDisabled(), true);
   assert.equal(await tab('修复').isDisabled(), true);
+  assert.equal(await release.count(), 0);
   await page.evaluate(() => window.maintenanceQa.complete());
   const summary = page.getByRole('region', { name: '本轮检查结论' });
   await summary.waitFor();
+  assert.equal(await release.getByText('维护中', { exact: true }).isVisible(), true);
+  const releaseLabel = release.getByText('解除占用', { exact: true });
+  assert.equal(await releaseLabel.isVisible(), false);
+  await release.hover();
+  await releaseLabel.waitFor();
+  await release.click();
+  const releaseDialog = page.getByRole('dialog', { name: '解除数据库占用？' });
+  await releaseDialog.getByRole('button', { name: '继续维护' }).click();
+  assert.equal(await page.evaluate(() => window.maintenanceQa.snapshot().locked), true);
   assert.equal(await tab('报告').getAttribute('aria-selected'), 'true');
   await page.getByText('发现 1 个坏页，尚未定位', { exact: true }).first().waitFor();
   assert.equal(await page.getByRole('button', { name: '查看 unsupported.db 检查详情' }).count(), 0);

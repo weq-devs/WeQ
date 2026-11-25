@@ -397,7 +397,7 @@ export function DbRepairPanel({
         !(await useDialog
           .getState()
           .confirm(
-            '结束数据库维护？',
+            '解除数据库占用？',
             '放弃本次扫描结果并释放此账号全部目标数据库的维护锁。历史报告继续保留；下次修复需要主动重新扫描。',
             {
               okLabel: '放弃结果并解除占用',
@@ -512,7 +512,7 @@ export function DbRepairPanel({
     live?.state === 'repairing' ||
     starting === 'repair' ||
     (live?.operation?.status === 'running' && live.operation.kind === 'repair');
-  const ending = live?.state === 'ending';
+  const ending = live?.state === 'ending' || end.isLoading;
   const locked = !!live?.locked && live.state !== 'ended';
   const waiting = live?.state === 'waiting' && !ending;
   const paused =
@@ -599,6 +599,7 @@ export function DbRepairPanel({
           : scanKind === 'checkup'
             ? '开始补充检查'
             : '继续扫描';
+  const canEndMaintenance = locked && waiting && !running;
   const maintenanceLabel = ending
     ? '正在解锁'
     : repairing
@@ -798,7 +799,24 @@ export function DbRepairPanel({
               {scope.uin}
             </span>
           ) : null}
-          {locked || running || operation ? (
+          {canEndMaintenance ? (
+            <button
+              type="button"
+              className="weq-dbm-state weq-dbm-state-action"
+              aria-label="维护中，解除占用"
+              aria-haspopup="dialog"
+              onClick={() => void endMaintenance()}
+            >
+              <span className="weq-dbm-state-label">
+                <LockKeyhole size={12} strokeWidth={2} aria-hidden />
+                维护中
+              </span>
+              <span className="weq-dbm-state-release">
+                <UnlockKeyhole size={12} strokeWidth={2} aria-hidden />
+                解除占用
+              </span>
+            </button>
+          ) : locked || running || operation ? (
             <span className="weq-dbm-state" title={maintenanceLabel} aria-label={maintenanceLabel}>
               {locked ? (
                 <LockKeyhole size={12} strokeWidth={2} aria-hidden />
@@ -1084,18 +1102,6 @@ export function DbRepairPanel({
               ) : null}
               {canExportCurrent ? (
                 <ReportExportMenu disabled={exportReport.isLoading} onExport={onExportCurrent} />
-              ) : null}
-              {locked ? (
-                <button
-                  className="weq-set-btn"
-                  type="button"
-                  data-danger="outline"
-                  disabled={end.isLoading}
-                  onClick={() => void endMaintenance()}
-                >
-                  <UnlockKeyhole size={14} aria-hidden />
-                  解除占用
-                </button>
               ) : null}
             </div>
           </section>

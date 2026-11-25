@@ -310,11 +310,13 @@ it('跨数据源查看报告不切换正在维护的账号，返回当前结果�
 it('放弃扫描结果必须明确确认，取消继续持锁，确认后仍能查看历史结果', async () => {
   maintenanceQa.ready();
   await mount();
-  await act(async () => button('解除占用').click());
+  await act(async () => button('扫描').click());
+  const release = iconButton('维护中，解除占用');
+  await act(async () => release.click());
   await confirm(false);
   expect(maintenanceQa.calls.end).toBe(0);
   expect(maintenanceQa.snapshot()?.locked).toBe(true);
-  await act(async () => button('解除占用').click());
+  await act(async () => release.click());
   await confirm(true);
   expect(maintenanceQa.calls.end).toBe(1);
   expect(button('报告', host).disabled).toBe(true);
