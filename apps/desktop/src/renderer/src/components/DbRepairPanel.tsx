@@ -841,8 +841,18 @@ export function DbRepairPanel({
     : insufficientSpace
       ? '磁盘空间不足'
       : canUseLowSpace
-        ? '建议余量不足'
+        ? '磁盘空间偏低'
         : undefined;
+  const repairStartBlocked = !selectedReady.length
+    ? '请选择数据库'
+    : ending
+      ? '正在结束维护'
+      : starting
+        ? '正在准备修复'
+        : spaceError || insufficientSpace || (canUseLowSpace && !allowLowSpace)
+          ? spaceStatus
+          : undefined;
+  const repairStartLabel = repairStartBlocked ?? '开始修复';
   const tightVolume = space?.find(
     ({ freeBytes, requiredBytes, recommendedBytes }) =>
       freeBytes !== null && freeBytes < (insufficientSpace ? requiredBytes : recommendedBytes),
@@ -1572,17 +1582,10 @@ export function DbRepairPanel({
               <button
                 type="button"
                 className={`weq-set-btn weq-set-btn-primary weq-dbm-scan-start weq-dbm-repair-start${insufficientSpace ? ' is-short' : spaceStatus ? ' is-warn' : ''}`}
-                aria-label="开始修复"
+                aria-label={repairStartLabel}
                 aria-describedby={selectedReady.length ? spaceEstimateId : undefined}
                 title={tightVolume?.paths.join('、')}
-                disabled={
-                  !selectedReady.length ||
-                  !!starting ||
-                  ending ||
-                  !!insufficientSpace ||
-                  !!spaceError ||
-                  (canUseLowSpace && !allowLowSpace)
-                }
+                disabled={!!repairStartBlocked}
                 onClick={() => void startRepair()}
               >
                 {insufficientSpace ? (
@@ -1590,10 +1593,20 @@ export function DbRepairPanel({
                 ) : (
                   <ShieldCheck size={26} strokeWidth={1.6} aria-hidden />
                 )}
-                开始修复
+                <span
+                  className={
+                    repairStartBlocked === spaceStatus && spaceStatus
+                      ? 'weq-dbm-space-title'
+                      : undefined
+                  }
+                >
+                  {repairStartLabel}
+                </span>
                 {selectedReady.length ? (
                   <span className="weq-dbm-repair-estimate" id={spaceEstimateId} aria-live="polite">
-                    {spaceStatus ? <span>{spaceStatus}</span> : null}
+                    {spaceStatus && !repairStartBlocked ? (
+                      <strong className="weq-dbm-space-title">{spaceStatus}</strong>
+                    ) : null}
                     {spaceDeficit !== undefined && !spaceError ? (
                       <span>
                         <NumericText>{`${insufficientSpace ? '还需腾出' : '建议再腾出'} ${formatBytesOrUnknown(spaceDeficit)}`}</NumericText>
@@ -2344,7 +2357,9 @@ function RepairStorageWarning({
     >
       <div className="weq-dbm-storage-heading" role={waiting ? 'alert' : 'status'}>
         <AlertTriangle size={17} aria-hidden />
-        <strong>{insufficient ? '磁盘空间不足' : '磁盘可用空间偏低'}</strong>
+        <strong className="weq-dbm-space-title">
+          {insufficient ? '磁盘空间不足' : '磁盘空间偏低'}
+        </strong>
       </div>
       <p>
         {waiting

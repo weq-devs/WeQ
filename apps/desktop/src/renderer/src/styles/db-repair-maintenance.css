@@ -1228,6 +1228,12 @@ button.weq-dbm-db:hover,
   color: var(--dbm-space-ink);
 }
 
+.weq-dbm-space-title {
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
 .weq-dbm-storage-warning p,
 .weq-dbm-storage-warning dl,
 .weq-dbm-storage-warning dd {
@@ -1521,6 +1527,10 @@ button.weq-dbm-step.is-current {
   font-size: 11px;
   font-weight: 500;
   line-height: 1.3;
+}
+
+.weq-dbm-repair-estimate .weq-dbm-space-title {
+  font-size: 13px;
 }
 
 .weq-dbm-repair-option {

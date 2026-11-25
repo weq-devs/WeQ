@@ -487,7 +487,9 @@ it('空间不足和持锁等待不阻止改缓存位置，开始修复后禁止�
   expect(button('使用默认位置').disabled).toBe(false);
   await act(async () => iconButton('数据库修复设置').click());
   await act(async () => button('进入修复').click());
-  expect(button('开始修复').disabled).toBe(true);
+  const blocked = button('磁盘空间不足');
+  expect(blocked.disabled).toBe(true);
+  expect(blocked.textContent).not.toContain('开始修复');
   await act(async () => maintenanceQa.lowSpace(10_000_000_000));
   await act(async () => button('开始修复').click());
   await confirm(true);
@@ -530,7 +532,7 @@ it('等待修复时，空间告警只跟随当前勾选的数据库', async () =
   };
   await mount();
   await act(async () => tab('开始修复').click());
-  const warning = () => button('开始修复').textContent?.includes('磁盘空间不足');
+  const warning = () => !!host.querySelector('button[aria-label="磁盘空间不足"]:disabled');
   expect(warning()).toBe(true);
   await act(async () => choice('nt_msg.db').click());
   expect(warning()).toBe(false);
@@ -611,12 +613,12 @@ it('仅建议余量不足时要求继续确认，取消确认会清除勾选', a
       ?.querySelector('input');
   expect(lowSpaceOption()).toBeUndefined();
   await act(async () => maintenanceQa.lowSpace(1_100_000));
-  expect(button('开始修复').disabled).toBe(true);
+  expect(button('磁盘空间偏低').disabled).toBe(true);
   await act(async () => lowSpaceOption()!.click());
   await act(async () => button('开始修复').click());
   await confirm(false);
   expect(lowSpaceOption()?.checked).toBe(false);
-  expect(button('开始修复').disabled).toBe(true);
+  expect(button('磁盘空间偏低').disabled).toBe(true);
   await act(async () => lowSpaceOption()!.click());
   await act(async () => button('开始修复').click());
   await confirm(true);
