@@ -82,15 +82,14 @@ it('GitHub API 不可达仍可通过镜像选择更新及取得目标版本的�
   expect(await feed.archive('2.7.2', 'weQ-2.7.2-mac-arm64.zip')).toMatchObject({ size: 4 });
   expect(fetcher.mock.calls.every(([url]) => !String(url).includes('api.github.com'))).toBe(true);
 });
-it('重新检查统一资源索引时能绕过固定下载地址的缓存', async () => {
-  const repository = 'weq-devs/dress-resources';
-  const feed = new ReleaseFeed(repository, undefined, keys, RESOURCE_FEED_TAG);
+const resourceRepository = 'weq-devs/dress-resources';
+function resourceIndex(tag: string, publishedAt: string): ReleaseIndex {
   const descriptor = 'enhancement-dress-v2.json';
   const catalog = '{}';
-  const publishedIndex = (tag: string, publishedAt: string): ReleaseIndex => ({
+  return {
     schemaVersion: 1,
     kind: 'resource-release-index',
-    repository,
+    repository: resourceRepository,
     generatedAt: publishedAt,
     releases: [
       {
@@ -109,10 +108,13 @@ it('重新检查统一资源索引时能绕过固定下载地址的缓存', asyn
         ],
       },
     ],
-  });
+  };
+}
+it('重新检查统一资源索引时能绕过固定下载地址的缓存', async () => {
+  const feed = new ReleaseFeed(resourceRepository, undefined, keys, RESOURCE_FEED_TAG);
   const old = 'dress-index-old';
   const next = 'dress-index-new';
-  let published = publishedIndex(old, '2026-11-24T00:00:00Z');
+  let published = resourceIndex(old, '2026-11-24T00:00:00Z');
   const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.parse(published.generatedAt));
   const cached = new Map<string, ReturnType<typeof signReleaseIndex>>();
   const fetcher: typeof fetch = async (input) => {
@@ -122,9 +124,21 @@ it('重新检查统一资源索引时能绕过固定下载地址的缓存', asyn
   };
   expect((await feed.read(true, undefined, fetcher))?.releases[0]?.tag).toBe(old);
 
-  published = publishedIndex(next, '2026-11-25T00:00:00Z');
+  published = resourceIndex(next, '2026-11-25T00:00:00Z');
   clock.mockReturnValue(Date.parse(published.generatedAt));
   expect((await feed.read(true, undefined, fetcher))?.releases[0]?.tag).toBe(next);
+});
+it('带刷新参数的统一索引不可用时可从原镜像地址验签读取', async () => {
+  const feed = new ReleaseFeed(resourceRepository, undefined, keys, RESOURCE_FEED_TAG);
+  const tag = 'dress-index-new';
+  const envelope = signReleaseIndex(resourceIndex(tag, '2026-11-25T00:00:00Z'), privatePem);
+  const fetcher: typeof fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.hostname === 'github.com') return new Response(null, { status: 404 });
+    if (url.search) return new Response(null, { status: 403 });
+    return Response.json(envelope);
+  };
+  expect((await feed.read(true, undefined, fetcher))?.releases[0]?.tag).toBe(tag);
 });
 it('磁盘缓存重新验签；离线检查不冒称新鲜，但明确版本可以继续核验', async () => {
   const root = await mkdtemp(join(tmpdir(), 'weq-release-feed-'));
