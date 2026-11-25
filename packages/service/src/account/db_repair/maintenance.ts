@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { BadPageScanCheckpoint } from '@weq/native';
+import type { BadPageScanCheckpoint, SingleBytePageCorrection } from '@weq/native';
 import type { BadPageScanReport } from '../bad_pages';
 import { DatabaseScanUnsupportedError, type DbRepairCheckupIntegrity } from './checkup';
 import { DatabaseProgressTracker, type DatabaseWorkProgress } from './progress';
@@ -68,6 +68,7 @@ export interface DatabaseMaintenanceDeps {
       maintenanceId?: string;
       method?: DatabaseRepairMethod;
       quickBudgetBytes?: number;
+      singleByteCorrection?: SingleBytePageCorrection;
       replacement: NonNullable<DbRepairRequest['replacement']>;
     },
   ): Promise<DbRepairRecord>;
@@ -104,6 +105,7 @@ interface Session {
   targets: DbRepairTarget[];
   sourceIdentities: Map<string, string>;
   pageScans: Map<string, SavedPageScan>;
+  singleByteCorrections: Map<string, SingleBytePageCorrection>;
   lease?: DatabaseMaintenanceLease;
   abort?: AbortController;
   pending?: Promise<DatabaseMaintenanceSnapshot>;
@@ -272,6 +274,7 @@ export class DatabaseMaintenance {
         targets: [...targets],
         sourceIdentities: new Map(),
         pageScans: new Map(),
+        singleByteCorrections: new Map(),
         lastSaved: 0,
         lastPublished: 0,
         unsavedReports: session?.unsavedReports ?? new Map(),
@@ -544,6 +547,7 @@ export class DatabaseMaintenance {
       if (identity !== this.deps.sourceIdentity?.(target))
         throw new Error('体检期间原库发生变化。');
       session.pageScans.delete(target.dbName);
+      session.singleByteCorrections.delete(target.dbName);
       if (identity !== undefined) session.sourceIdentities.set(target.dbName, identity);
       row.scan = scan;
       row.scanStatus = 'completed';
@@ -627,7 +631,7 @@ export class DatabaseMaintenance {
         );
         signal.throwIfAborted();
         row.scan = { ...row.scan, affected: location.affected };
-        row.quickBudgetBytes = location.quickBudgetBytes;
+        this.setQuickRepairEvidence(session, row, location);
         row.locationChecked = true;
         const located = row.scan.affected.reduce((sum, object) => sum + object.badPageCount, 0);
         this.tick(session, row, tracker, 'checkup', {
@@ -812,6 +816,9 @@ export class DatabaseMaintenance {
               maintenanceId: session.lease!.id,
               method,
               quickBudgetBytes: method === 'quick' ? row.quickBudgetBytes : undefined,
+              ...(method === 'quick' && session.singleByteCorrections.has(name)
+                ? { singleByteCorrection: session.singleByteCorrections.get(name) }
+                : {}),
               replacement: {
                 begin: async () => {
                   while (session.endDecision) await session.endDecision.settled;
@@ -942,7 +949,9 @@ export class DatabaseMaintenance {
         'recover-failed',
         checkError
           ? `快速修复条件核验失败：${checkError}`
-          : '未能确认所有坏页都可修复且原库所在卷支持克隆。可以查看深度修复方案。',
+          : result?.quickFailure === 'clone-unavailable'
+            ? '已核验坏页，但无法在原库所在卷创建工作副本。可以查看深度修复方案。'
+            : '未能找到可核验的内容来修复全部坏页。可以查看深度修复方案。',
       );
       error.sourceUnchanged = true;
       this.tick(session, row, tracker, 'preparing', {
@@ -955,12 +964,25 @@ export class DatabaseMaintenance {
     }
     row.scan!.affected = result.affected;
     row.locationChecked = true;
-    row.quickBudgetBytes = result.quickBudgetBytes;
+    this.setQuickRepairEvidence(session, row, result);
     this.tick(session, row, tracker, 'preparing', {
       step,
       message: '已核验坏页与同卷克隆能力',
       status: 'completed',
     });
+  }
+
+  private setQuickRepairEvidence(
+    session: Session,
+    row: DatabaseMaintenanceRow,
+    location: DatabasePageLocation,
+  ) {
+    row.quickBudgetBytes = location.quickBudgetBytes;
+    if (location.quickBudgetBytes && location.singleByteCorrection) {
+      session.singleByteCorrections.set(row.dbName, location.singleByteCorrection);
+    } else {
+      session.singleByteCorrections.delete(row.dbName);
+    }
   }
 
   private hasSameSource(session: Session, target: DbRepairTarget): boolean {
@@ -1078,6 +1100,7 @@ export class DatabaseMaintenance {
   }
   private async releaseLease(session: Session): Promise<void> {
     session.pageScans.clear();
+    session.singleByteCorrections.clear();
     await session.lease?.release();
     session.lease = undefined;
     session.snapshot.locked = false;

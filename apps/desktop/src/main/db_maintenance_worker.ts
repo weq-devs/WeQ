@@ -1,7 +1,7 @@
 import { dirname } from 'node:path';
 import { loadNative, resolveNtHelperPath, type DatabaseProgress } from '@weq/native';
 import type { DatabaseMaintenanceWorkerRequest } from './db_maintenance_worker_types';
-import { mapBadPagesToObjects, probeDbLayout } from '@weq/service';
+import { mapBadPagesToObjects, probeDbLayout, type DatabasePageLocation } from '@weq/service';
 import { inspectDatabase } from './db_checkup_core';
 import { DatabaseScanUnsupportedError } from '@weq/service/db-checkup';
 
@@ -53,6 +53,11 @@ async function main() {
     const candidates = [
       { name: '空闲叶页', pagetype: 'freelist-leaf', pages: evidence?.freeLeaves ?? [] },
       { name: '已核验的备份页', pagetype: 'backup-page', pages: evidence?.backupMatches ?? [] },
+      {
+        name: '可按原签名恢复的页',
+        pagetype: 'single-byte-correction',
+        pages: evidence?.singleByteCorrection ? [evidence.singleByteCorrection.page] : [],
+      },
     ];
     const known = new Set(candidates.flatMap((candidate) => candidate.pages));
     const unresolved = scan.badPages.filter((page) => !known.has(page));
@@ -83,7 +88,16 @@ async function main() {
     const quickBudgetBytes = canQuick
       ? await nt.probeDatabaseCloneBudget?.(dbDir).catch(() => undefined)
       : undefined;
-    result = { affected, quickBudgetBytes };
+    result = {
+      affected,
+      quickBudgetBytes,
+      singleByteCorrection: quickBudgetBytes ? evidence?.singleByteCorrection : undefined,
+      quickFailure: quickBudgetBytes
+        ? undefined
+        : canQuick
+          ? 'clone-unavailable'
+          : 'page-evidence-missing',
+    } satisfies DatabasePageLocation;
   } else {
     const layout = probeDbLayout(request.target.dbPath);
     if (request.kind === 'scan' && layout.fileBytes < layout.headerOffset + 4096)

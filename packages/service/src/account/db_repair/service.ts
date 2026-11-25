@@ -20,7 +20,7 @@ import {
   statSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { DatabaseAlgorithms } from '@weq/native';
+import type { DatabaseAlgorithms, SingleBytePageCorrection } from '@weq/native';
 import type { BadPageScanReport } from '../bad_pages';
 import { writeFileAtomicSync } from '../../common/atomic_write';
 import { getHost } from '../../common/host';
@@ -252,6 +252,7 @@ export interface DbRepairRequest {
   sourceScan?: BadPageScanReport;
   method?: DatabaseRepairMethod;
   quickBudgetBytes?: number;
+  singleByteCorrection?: SingleBytePageCorrection;
   references?: string[];
   /** 当前账号维护锁标识，替换前将锁转接到临时产物。 */
   maintenanceId?: string;
@@ -828,6 +829,9 @@ export class DbRepairService {
             lostAndFoundName: request.lostAndFoundName,
             slowIndexes: request.slowIndexes,
             sourceScan: request.sourceScan,
+            ...(quick && request.singleByteCorrection
+              ? { singleByteCorrection: request.singleByteCorrection }
+              : {}),
             ...(layoutMigration
               ? { sourceLayout: 'standard' as const, targetLayout: 'qq' as const }
               : {}),

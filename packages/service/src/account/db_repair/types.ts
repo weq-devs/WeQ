@@ -11,7 +11,12 @@
  * "重新取产物"，与 salvage 链路同一套做法。
  */
 
-import type { BadPageScanResult, DatabaseAlgorithms, DatabaseProgress } from '@weq/native';
+import type {
+  BadPageScanResult,
+  DatabaseAlgorithms,
+  DatabaseProgress,
+  SingleBytePageCorrection,
+} from '@weq/native';
 
 /** 一个账号 + 它的数据目录 —— 与 `accountConfigId(uin, dataDir)` 是同一套主键。 */
 export interface DbRepairAccountRef {
@@ -93,6 +98,7 @@ export interface DbRepairRecoverOptions {
   /** 目标库逻辑页布局（迁移固定 `qq`）。 */
   targetLayout?: 'qq' | 'standard';
   sourceScan?: BadPageScanResult;
+  singleByteCorrection?: SingleBytePageCorrection;
 }
 
 /** native `recoverDatabase` 的产物自检。 */

@@ -13,6 +13,7 @@ import type { DbRepairTarget, DbRepairRecord } from '../src/account/db_repair/ty
 import type { DbRepairCheckupIntegrity } from '../src/account/db_repair/checkup';
 import { DbRepairError, DbRepairRollbackError } from '../src/account/db_repair/service';
 import type { DatabaseWorkProgress } from '../src/account/db_repair/progress';
+import type { DatabasePageLocation } from '../src/account/db_repair/maintenance_types';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -74,10 +75,11 @@ function fixture(scanConcurrency = () => 1) {
       corruptedTables: ['broken'],
     }),
   );
-  const locate = vi.fn(async (_target: DbRepairTarget, _scan: BadPageScanReport) => ({
-    affected: [] as BadPageScanReport['affected'],
-    quickBudgetBytes: undefined as number | undefined,
-  }));
+  const locate = vi.fn(
+    async (_target: DbRepairTarget, _scan: BadPageScanReport): Promise<DatabasePageLocation> => ({
+      affected: [],
+    }),
+  );
   const changed = vi.fn();
   const sourceIdentity = vi.fn((_target: DbRepairTarget) => 'original');
   const acquireMore = vi.fn(async (_targets: DbRepairTarget[], _signal: AbortSignal) => {});
@@ -1249,6 +1251,7 @@ it.each(['eligible', 'unverified', 'source-changed'] as const)(
     );
     const initial = await h.maintenance.scan(scope, h.targets.slice(0, 1), 'scan');
     expect(h.locate).not.toHaveBeenCalled();
+    const singleByteCorrection = { page: 2, offset: 99, originalByte: 11, replacementByte: 36 };
     h.locate.mockImplementationOnce(async () => {
       expect(h.repair).not.toHaveBeenCalled();
       if (outcome === 'source-changed') h.sourceIdentity.mockReturnValue('changed');
@@ -1257,6 +1260,7 @@ it.each(['eligible', 'unverified', 'source-changed'] as const)(
           { name: '空闲叶页', pagetype: 'freelist-leaf', badPageCount: 1, samplePages: [2] },
         ],
         quickBudgetBytes: outcome === 'unverified' ? undefined : 32 * 1024 * 1024,
+        singleByteCorrection: outcome === 'eligible' ? singleByteCorrection : undefined,
       };
     });
     const result = await h.maintenance.repair(scope, ['msg.db'], {
@@ -1275,6 +1279,8 @@ it.each(['eligible', 'unverified', 'source-changed'] as const)(
     if (outcome === 'eligible') {
       expect(result.databases[0]?.repair).toMatchObject({ method: 'quick', status: 'completed' });
       expect(h.repair).toHaveBeenCalledOnce();
+      expect(h.repair.mock.calls[0]?.[4]).toMatchObject({ singleByteCorrection });
+      expect(result.databases[0]).not.toHaveProperty('singleByteCorrection');
     } else {
       expect(h.repair).not.toHaveBeenCalled();
       if (outcome === 'unverified') {

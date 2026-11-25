@@ -453,6 +453,13 @@ export interface WalCheckpointResult {
  */
 export type RecoverPhase = 'Scan' | 'Decrypt' | 'Repair' | 'Encrypt' | 'Restore' | 'Verify';
 
+export interface SingleBytePageCorrection {
+  page: number;
+  offset: number;
+  originalByte: number;
+  replacementByte: number;
+}
+
 /** `recoverDatabase` 的入参。 */
 export interface RecoverOptions {
   /** 加密的 QQ 库路径（含 1024 字节自定义头）。**本函数不会修改它**。 */
@@ -488,6 +495,7 @@ export interface RecoverOptions {
   targetLayout?: 'qq' | 'standard';
   /** 同一维护锁内已完成的源库扫描，修复不得重新扫描源库。 */
   sourceScan?: BadPageScanResult;
+  singleByteCorrection?: SingleBytePageCorrection;
 }
 
 /** 一次进度回调（napi 的 TSFN 约定：第一个参数是投递失败的错误）。 */
@@ -1187,7 +1195,11 @@ export interface NtHelperBinding {
     algo: DatabaseAlgorithms,
     pages: number[],
     references: string[],
-  ): Promise<{ freeLeaves: number[]; backupMatches: number[] }>;
+  ): Promise<{
+    freeLeaves: number[];
+    backupMatches: number[];
+    singleByteCorrection?: SingleBytePageCorrection;
+  }>;
   cloneDatabaseRepairBackup?(source: string, target: string): Promise<void>;
   probeDatabaseCloneBudget?(directory: string): Promise<number>;
   repairDatabaseQuick?(
