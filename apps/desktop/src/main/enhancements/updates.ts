@@ -116,7 +116,7 @@ export function resourceCatalogFor(
 export class EnhancementUpdateController {
   private readonly states = new Map<EnhancementPackId, EnhancementCheckState>();
   private readonly latest = new Map<EnhancementPackId, EnhancementRelease>();
-  private readonly fresh = new Set<EnhancementPackId>();
+  private readonly checkedChannels = new Map<EnhancementPackId, boolean>();
   private readonly notifiedVersions = new Map<EnhancementPackId, string>();
   private notifications: EnhancementUpdateNotice[] = [];
   private readonly notificationListeners = new Set<(notices: EnhancementUpdateNotice[]) => void>();
@@ -197,7 +197,7 @@ export class EnhancementUpdateController {
       });
     packs.setReleaseResolver(async (id) => {
       await this.loaded;
-      if (!this.fresh.has(id)) {
+      if (!this.checkedForCurrentChannel(id)) {
         try {
           await this.check([id]);
         } catch (error) {
@@ -247,6 +247,9 @@ export class EnhancementUpdateController {
   state(id: EnhancementPackId) {
     return this.states.get(id) ?? { phase: 'unchecked' as const };
   }
+  private checkedForCurrentChannel(id: EnhancementPackId) {
+    return this.checkedChannels.get(id) === this.config.getSettings().updateCheckPrerelease;
+  }
   private autoUpdates(id: EnhancementPackId) {
     const { autoCheck, autoUpdatePacks } = this.config.getSettings().enhancementUpdates;
     return autoCheck && autoUpdatePacks.includes(id);
@@ -291,7 +294,7 @@ export class EnhancementUpdateController {
     this.notifications = (await this.packs.list())
       .filter(
         (pack) =>
-          this.fresh.has(pack.id) &&
+          this.checkedForCurrentChannel(pack.id) &&
           this.state(pack.id).phase === 'checked' &&
           pack.installed &&
           pack.updateAvailable &&
@@ -326,7 +329,9 @@ export class EnhancementUpdateController {
       configure();
       if (!change || change.fields.includes('enhancementUpdates'))
         void this.ready()
-          .then(() => this.refreshNotifications())
+          .then(() =>
+            Promise.all([this.installKnown(ENHANCEMENT_PACK_IDS), this.refreshNotifications()]),
+          )
           .catch(() => {});
     });
     this.stopSettled = this.packs.onChanged(({ kind }) => {
@@ -376,7 +381,7 @@ export class EnhancementUpdateController {
   private async performCheck(ids: EnhancementPackId[], automatic: boolean) {
     await this.ready();
     if (automatic && !this.config.getSettings().enhancementUpdates.autoCheck) return;
-    for (const id of ids) this.fresh.delete(id);
+    for (const id of ids) this.checkedChannels.delete(id);
     const gate = new TransferGate();
     this.gate = gate;
     if (this.forceCheck) gate.continue();
@@ -414,6 +419,7 @@ export class EnhancementUpdateController {
     try {
       updatePolicy();
       await gate.wait(this.abort.signal);
+      const includePrerelease = this.config.getSettings().updateCheckPrerelease;
       for (const packId of ids)
         this.states.set(packId, { ...this.state(packId), phase: 'checking', error: undefined });
       const tracks = ids.filter(
@@ -430,7 +436,7 @@ export class EnhancementUpdateController {
                 track,
                 this.options.currentVersion(),
                 this.target,
-                this.config.getSettings().updateCheckPrerelease,
+                includePrerelease,
               );
               if (catalog) return catalog;
               const runtime = this.latest.get(track)?.runtime;
@@ -439,12 +445,17 @@ export class EnhancementUpdateController {
               return this.fetchCatalog(
                 RESOURCE_REPOSITORY,
                 track === 'dress' ? 'enhancement-pack.json' : MARKET_EMOJI_MANIFEST,
+                includePrerelease,
               );
             })
           : Promise.resolve(null);
       const results = await Promise.allSettled([
         ids.some((id) => id !== 'dress' && id !== 'market-emoji')
-          ? this.fetchCatalog('weq-devs/WeQ', `enhancement-packs-${this.target}.json`)
+          ? this.fetchCatalog(
+              'weq-devs/WeQ',
+              `enhancement-packs-${this.target}.json`,
+              includePrerelease,
+            )
           : Promise.resolve(null),
         resourceCatalog('dress'),
         resourceCatalog('market-emoji'),
@@ -481,7 +492,7 @@ export class EnhancementUpdateController {
           continue;
         }
         this.latest.set(packId, entry);
-        this.fresh.add(packId);
+        this.checkedChannels.set(packId, includePrerelease);
         this.states.set(packId, { phase: 'checked', checkedAt: Date.now() });
       }
       await this.save();
@@ -552,7 +563,9 @@ export class EnhancementUpdateController {
       this.abort.signal.aborted ||
       !settings.enhancementUpdates.autoCheck ||
       !ids.some(
-        (id) => settings.enhancementUpdates.autoUpdatePacks.includes(id) && this.fresh.has(id),
+        (id) =>
+          settings.enhancementUpdates.autoUpdatePacks.includes(id) &&
+          this.checkedChannels.get(id) === settings.updateCheckPrerelease,
       )
     )
       return;
@@ -561,7 +574,7 @@ export class EnhancementUpdateController {
         automaticUpdate: (pack) =>
           !this.abort.signal.aborted &&
           this.autoUpdates(pack.id) &&
-          this.fresh.has(pack.id) &&
+          this.checkedForCurrentChannel(pack.id) &&
           pack.installed &&
           pack.updateAvailable &&
           !enhancementTaskNeedsInput(this.packs, pack.id) &&
@@ -590,7 +603,11 @@ export class EnhancementUpdateController {
       }
     }
   }
-  private async fetchCatalog(repository: string, asset: string): Promise<EnhancementCatalog> {
+  private async fetchCatalog(
+    repository: string,
+    asset: string,
+    includePrerelease: boolean,
+  ): Promise<EnhancementCatalog> {
     const isMarketEmoji = asset === MARKET_EMOJI_MANIFEST;
     const signedIndex = await this.readSignedFeed(
       repository,
@@ -607,7 +624,6 @@ export class EnhancementUpdateController {
           }))
         : await this.fetchJson(`https://api.github.com/repos/${repository}/releases?per_page=100`),
     );
-    const includePrerelease = this.config.getSettings().updateCheckPrerelease;
     const isDress = repository.endsWith('/dress-resources');
     const legacyAsset = isMarketEmoji
       ? undefined

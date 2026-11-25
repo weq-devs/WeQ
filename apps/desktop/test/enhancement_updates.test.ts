@@ -764,6 +764,56 @@ it('默认只自动检查，发现更新不安装；列表查询不触发下载�
   });
   expect(f.ensure).not.toHaveBeenCalled();
 });
+it.each(['当前渠道', '上次运行', '旧发布渠道'] as const)(
+  '开启自动安装时只使用本次运行中当前渠道的检查结果（%s）',
+  async (source) => {
+    const checked = await fixture();
+    const beta = release('beta');
+    if (source === '旧发布渠道') {
+      checked.config.setSettings({ updateCheckPrerelease: true });
+      checked.setLatest(beta);
+      checked.fetcher.mockResolvedValueOnce(
+        Response.json([
+          {
+            tag_name: 'dress-beta',
+            draft: false,
+            prerelease: true,
+            published_at: '2026-11-14T00:00:00Z',
+            assets: [{ name: 'enhancement-pack.json' }],
+          },
+        ]),
+      );
+    }
+    await checked.controller.check(['dress']);
+    const f = source === '上次运行' ? await fixture(true, checked.root) : checked;
+    f.config.setSettings({ updateCheckIntervalMinutes: -1, updateCheckPrerelease: false });
+    f.controller.start();
+    host.bootstrap = { userConfig: f.config, enhancements: { updates: f.controller } };
+    const settings = router(enhancementProcedures).createCaller({});
+    expect((await f.packs.list())[0]).toMatchObject({
+      updateAvailable: true,
+      latestVersion: source === '旧发布渠道' ? beta.contentVersion : f.next.contentVersion,
+    });
+    const notices = vi.fn();
+    f.controller.subscribeNotifications(notices);
+    notices.mockClear();
+    f.fetcher.mockClear();
+    await settings.setEnhancementUpdates({ pack: { id: 'dress', enabled: true } });
+    await vi.waitFor(() => expect(notices).toHaveBeenLastCalledWith([]));
+    if (source !== '当前渠道') {
+      expect(backgroundTasks.snapshot()).toEqual([]);
+      expect(f.ensure).not.toHaveBeenCalled();
+      expect(f.fetcher).not.toHaveBeenCalled();
+      f.setLatest(f.next);
+      await settings.checkEnhancementUpdates({ ids: ['dress'] });
+    }
+    await vi.waitFor(() => expect(f.ensure).toHaveBeenCalledOnce());
+    await f.packs.wait();
+    expect((await f.packs.list())[0]?.installedVersion).toBe(f.next.contentVersion);
+    expect(backgroundTasks.snapshot()).toMatchObject([{ automaticUpdate: true }]);
+    if (source === '当前渠道') expect(f.fetcher).not.toHaveBeenCalled();
+  },
+);
 it('增强包按内容版本提醒，已提醒版本在 WeQ 升级后不重复提醒', async () => {
   const f = await fixture();
   const notices = vi.fn();
