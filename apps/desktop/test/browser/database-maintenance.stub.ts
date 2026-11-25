@@ -587,6 +587,7 @@ export const trpc = {
     }),
     endMaintenance: mutation(async () => {
       calls.end++;
+      finish('cancelled');
       if (live) {
         live.state = 'ended';
         live.locked = false;
@@ -610,6 +611,36 @@ export const trpc = {
 };
 export const client = {
   dbRepair: {
+    prepareEndMaintenance: {
+      subscribe: (
+        _: unknown,
+        listener: {
+          onData(value: {
+            id: string;
+            kind?: 'scan' | 'checkup' | 'repair';
+            running: boolean;
+            replacing?: string;
+          }): void;
+        },
+      ) => {
+        let open = true;
+        queueMicrotask(() => {
+          if (!open) return;
+          listener.onData({
+            id: 'end-decision',
+            kind: live?.operation?.kind,
+            running: live?.operation?.status === 'running',
+            replacing:
+              live?.progress?.current.phase === 'swapping' ? live.operation?.currentDb : undefined,
+          });
+        });
+        return {
+          unsubscribe: () => {
+            open = false;
+          },
+        };
+      },
+    },
     onMaintenance: {
       subscribe: (_: unknown, listener: Listener) => {
         listeners.add(listener);

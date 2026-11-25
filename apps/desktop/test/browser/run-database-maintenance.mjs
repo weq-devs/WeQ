@@ -61,7 +61,7 @@ try {
   );
   const tab = (name) => page.getByRole('tab', { name, exact: true });
   const button = (name) => page.getByRole('button', { name, exact: true });
-  const release = button('维护中，解除占用');
+  const release = button('维护中，结束维护');
   await button('开始体检').waitFor();
   assert.equal(await tab('体检进度与结果').isDisabled(), true);
   assert.equal(await tab('开始修复').isDisabled(), true);
@@ -106,15 +106,15 @@ try {
   await displayedDatabases.getByText('等待快速体检', { exact: true }).waitFor();
   assert.equal(await page.getByRole('radiogroup', { name: '体检类型' }).count(), 0);
   assert.equal(await tab('开始修复').isDisabled(), true);
-  assert.equal(await release.count(), 0);
+  await release.click();
+  await page
+    .getByRole('dialog', { name: '停止当前操作并解除占用？' })
+    .getByRole('button', { name: '继续维护' })
+    .click();
   await page.evaluate(() => window.maintenanceQa.complete());
   const summary = page.getByRole('region', { name: '本轮检查结论' });
   await summary.waitFor();
   assert.equal(await release.getByText('维护中', { exact: true }).isVisible(), true);
-  const releaseLabel = release.getByText('解除占用', { exact: true });
-  assert.equal(await releaseLabel.isVisible(), false);
-  await release.hover();
-  await releaseLabel.waitFor();
   await release.click();
   const releaseDialog = page.getByRole('dialog', { name: '解除数据库占用？' });
   await releaseDialog.getByRole('button', { name: '继续维护' }).click();
@@ -248,7 +248,12 @@ try {
   await page.evaluate(() => window.maintenanceQa.repair());
   await page.getByText('恢复表数据', { exact: true }).waitFor();
   await capture('repair-progress-narrow-dark');
-  await button('停止修复').click();
+  await page.evaluate(() => window.maintenanceQa.repair('swapping'));
+  await release.click();
+  await page
+    .getByRole('dialog', { name: '撤销本次替换并停止维护？' })
+    .getByRole('button', { name: '撤销替换并停止维护' })
+    .click();
   await page.waitForFunction(() => window.maintenanceQa.snapshot().locked === false);
   assert.equal(await tab('开始修复').isDisabled(), true);
   assert.equal(await tab('修复进度与结果').getAttribute('aria-selected'), 'true');

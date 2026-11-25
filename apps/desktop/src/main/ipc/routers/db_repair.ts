@@ -530,10 +530,28 @@ export const dbRepairRouter = router({
     const snapshot = await databaseMaintenance.stop(input);
     return snapshot ? summarizeDatabaseMaintenance(snapshot) : null;
   }),
-  endMaintenance: procedure.input(accountRef).mutation(async ({ input }) => {
-    await databaseMaintenance.end(input);
-    return true;
-  }),
+  prepareEndMaintenance: procedure
+    .input(accountRef.extend({ sessionId: z.string().min(1) }))
+    .subscription(({ input }) =>
+      observable<NonNullable<ReturnType<DatabaseMaintenance['prepareEnd']>>['preview'] | null>(
+        (emit) => {
+          try {
+            const decision = databaseMaintenance.prepareEnd(input, input.sessionId);
+            emit.next(decision?.preview ?? null);
+            if (!decision) emit.complete();
+            return decision?.dismiss;
+          } catch (error) {
+            emit.error(error);
+          }
+        },
+      ),
+    ),
+  endMaintenance: procedure
+    .input(accountRef.extend({ decisionId: z.string().min(1).optional() }))
+    .mutation(async ({ input }) => {
+      await databaseMaintenance.end(input, input.decisionId);
+      return true;
+    }),
   reports: procedure.input(accountRef).query(async ({ input }) =>
     (await databaseMaintenance.reports(input)).map((report) => ({
       id: report.operation.id,

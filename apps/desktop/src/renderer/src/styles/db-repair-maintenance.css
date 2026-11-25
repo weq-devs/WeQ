@@ -143,41 +143,19 @@ html[data-theme='dark'] .weq-dbm {
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
+  min-height: 28px;
+  border: 0;
   border-radius: 999px;
   background: var(--dbm-tint);
   color: var(--weq-accent-ink, var(--weq-accent-effective));
   font-size: 10.5px;
   font-weight: 550;
   white-space: nowrap;
-}
-
-.weq-dbm-state-action {
-  display: inline-grid;
-  place-items: center;
-  min-height: 28px;
-  border: 0;
   cursor: pointer;
 }
 
-.weq-dbm-state-action > span {
-  display: inline-flex;
-  grid-area: 1 / 1;
-  align-items: center;
-  gap: 4px;
-}
-
-.weq-dbm-state-release,
-.weq-dbm-state-action:is(:hover, :focus-visible) > .weq-dbm-state-label {
-  visibility: hidden;
-}
-
-.weq-dbm-state-action:is(:hover, :focus-visible) {
-  background: transparent;
-  color: var(--weq-danger-ink);
-}
-
-.weq-dbm-state-action:is(:hover, :focus-visible) > .weq-dbm-state-release {
-  visibility: visible;
+.weq-dbm-state:is(:hover, :focus-visible) {
+  box-shadow: inset 0 0 0 1px currentColor;
 }
 
 /* ── 流程条 ───────────────────────────────────────────────────────── */
@@ -1422,15 +1400,6 @@ button.weq-dbm-db:hover,
 
   .weq-dbm-title p {
     display: none;
-  }
-
-  .weq-dbm-state:not(.weq-dbm-state-action) {
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    gap: 0;
-    font-size: 0;
   }
 
   .weq-dbm-step-text em {

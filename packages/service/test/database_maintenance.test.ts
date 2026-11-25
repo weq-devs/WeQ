@@ -11,7 +11,7 @@ import { renderDatabaseMaintenanceReport } from '../src/account/db_repair/mainte
 import type { BadPageScanReport } from '../src/account/bad_pages';
 import type { DbRepairTarget, DbRepairRecord } from '../src/account/db_repair/types';
 import type { DbRepairCheckupIntegrity } from '../src/account/db_repair/checkup';
-import { DbRepairError } from '../src/account/db_repair/service';
+import { DbRepairError, DbRepairRollbackError } from '../src/account/db_repair/service';
 import type { DatabaseWorkProgress } from '../src/account/db_repair/progress';
 
 const roots: string[] = [];
@@ -58,7 +58,7 @@ function fixture(scanConcurrency = () => 1) {
   );
   const release = vi.fn();
   const lease = new AbortController();
-  const repair = vi.fn(
+  const repair = vi.fn<DatabaseMaintenanceDeps['repair']>(
     async (target: DbRepairTarget, _scan: BadPageScanReport, _signal: AbortSignal) =>
       ({
         id: `record-${target.dbName}`,
@@ -382,10 +382,10 @@ it('报告写满磁盘不打断维护，空间恢复后补存原报告', async (
   expect(h.release).not.toHaveBeenCalled();
   save.mockRestore();
   await h.maintenance.reports(scope);
-  await vi.waitFor(async () =>
-    expect((await h.reports.get(result.operation!.id))?.operation.status).toBe('completed'),
-  );
-  expect(h.maintenance.current(scope)?.reportError).toBeUndefined();
+  await vi.waitFor(async () => {
+    expect((await h.reports.get(result.operation!.id))?.operation.status).toBe('completed');
+    expect(h.maintenance.current(scope)?.reportError).toBeUndefined();
+  });
   await h.maintenance.end(scope);
 });
 
@@ -440,6 +440,105 @@ it('结束维护和启动修复不能交错，重复结束等待同一次统一�
   expect(h.release).toHaveBeenCalledOnce();
   release();
   await Promise.all([ending, again]);
+  expect(h.maintenance.current(scope)).toMatchObject({ state: 'ended', locked: false });
+});
+
+it.each([false, true])('替换确认期间保留维护锁，确认撤销只作用于当前库（%s）', async (confirm) => {
+  const h = fixture();
+  await h.maintenance.scan(scope, h.targets, 'scan');
+  const firstRepair = h.repair.getMockImplementation()!;
+  const entered = Promise.withResolvers<void>();
+  const finishVerification = Promise.withResolvers<void>();
+  const awaitingDecision = Promise.withResolvers<void>();
+  h.repair.mockImplementationOnce(firstRepair);
+  h.repair.mockImplementationOnce(async (...args) => {
+    const { replacement } = args[4];
+    await replacement.begin();
+    entered.resolve();
+    await finishVerification.promise;
+    awaitingDecision.resolve();
+    await replacement.waitForDecision();
+    replacement.signal.throwIfAborted();
+    return firstRepair(...args);
+  });
+  const run = h.maintenance.repair(scope, ['msg.db', 'profile.db']);
+  await entered.promise;
+  const sessionId = h.maintenance.current(scope)!.id;
+  const decision = h.maintenance.prepareEnd(scope, sessionId)!;
+  expect(decision.preview.replacing).toBe('profile.db');
+  finishVerification.resolve();
+  await awaitingDecision.promise;
+  expect(h.release).not.toHaveBeenCalled();
+  if (confirm) await h.maintenance.end(scope, decision.preview.id);
+  else decision.dismiss();
+  const result = await run;
+  expect(h.maintenance.current(scope)?.locked).toBe(false);
+  expect(h.release).toHaveBeenCalledOnce();
+  expect(result.databases.map((row) => row.repair?.status)).toEqual([
+    'completed',
+    confirm ? 'cancelled' : 'completed',
+    undefined,
+  ]);
+});
+
+it('替换开始前发起结束维护，可在确认后阻止当前库进入替换', async () => {
+  const h = fixture();
+  await h.maintenance.scan(scope, h.targets, 'scan');
+  const rebuilding = Promise.withResolvers<void>();
+  const ready = Promise.withResolvers<void>();
+  const tryingToReplace = Promise.withResolvers<void>();
+  const replace = vi.fn();
+  h.repair.mockImplementationOnce(async (_target, _scan, _signal, _progress, { replacement }) => {
+    rebuilding.resolve();
+    await ready.promise;
+    tryingToReplace.resolve();
+    await replacement.begin();
+    replace();
+    return { state: 'applied' } as DbRepairRecord;
+  });
+  const run = h.maintenance.repair(scope, ['msg.db']);
+  await rebuilding.promise;
+  const decision = h.maintenance.prepareEnd(scope, h.maintenance.current(scope)!.id)!;
+  expect(decision.preview.replacing).toBeUndefined();
+  ready.resolve();
+  await tryingToReplace.promise;
+  expect(replace).not.toHaveBeenCalled();
+  await h.maintenance.end(scope, decision.preview.id);
+  expect(replace).not.toHaveBeenCalled();
+  expect((await run).operation?.status).toBe('cancelled');
+  expect(h.release).toHaveBeenCalledOnce();
+});
+
+it('撤销失败时解锁请求失败，重试恢复通过后才释放维护锁', async () => {
+  const h = fixture();
+  await h.maintenance.scan(scope, h.targets, 'scan');
+  const replacing = Promise.withResolvers<void>();
+  const ready = Promise.withResolvers<void>();
+  const retry = vi.fn(async () => {});
+  const failure = new DbRepairRollbackError('无法恢复原库', retry);
+  h.repair.mockImplementationOnce(async (_target, _scan, _signal, _progress, { replacement }) => {
+    await replacement.begin();
+    replacing.resolve();
+    await ready.promise;
+    await replacement.waitForDecision();
+    if (replacement.signal.aborted) throw failure;
+    return { state: 'applied' } as DbRepairRecord;
+  });
+  const run = h.maintenance.repair(scope, ['msg.db']);
+  await replacing.promise;
+  const sessionId = h.maintenance.current(scope)!.id;
+  const decision = h.maintenance.prepareEnd(scope, sessionId)!;
+  const ending = h.maintenance.end(scope, decision.preview.id);
+  ready.resolve();
+  await expect(ending).rejects.toBe(failure);
+  await run;
+  expect(h.release).not.toHaveBeenCalled();
+  expect(h.maintenance.current(scope)).toMatchObject({ state: 'waiting', locked: true });
+  const recover = h.maintenance.prepareEnd(scope, sessionId)!;
+  expect(recover.preview.restoring).toBe('msg.db');
+  await h.maintenance.end(scope, recover.preview.id);
+  expect(retry).toHaveBeenCalledOnce();
+  expect(h.release).toHaveBeenCalledOnce();
   expect(h.maintenance.current(scope)).toMatchObject({ state: 'ended', locked: false });
 });
 

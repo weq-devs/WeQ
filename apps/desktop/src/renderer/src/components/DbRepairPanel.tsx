@@ -30,7 +30,6 @@ import {
   Settings2,
   Square,
   Trash2,
-  UnlockKeyhole,
   Wrench,
   X,
 } from 'lucide-react';
@@ -259,6 +258,7 @@ export function DbRepairPanel({
   const lastOperation = useRef<string | undefined>(undefined);
   const displayedOperation = useRef<string | undefined>(undefined);
   const sessionId = useRef<string | undefined>(undefined);
+  const endDecision = useRef<{ unsubscribe(): void } | null>(null);
   const utils = trpc.useUtils();
   const status = trpc.dbRepair.status.useQuery(scope, { enabled: !!scope.uin, retry: false });
   const maintenance = trpc.dbRepair.maintenance.useQuery(scope, {
@@ -310,7 +310,9 @@ export function DbRepairPanel({
         snapshot.operation?.error ||
         snapshot.maintenanceError ||
         snapshot.reportError;
-      return current?.id === snapshot.id && current.state !== 'ending' && hasResult
+      return current?.id === snapshot.id &&
+        hasResult &&
+        (current.state !== 'ending' || snapshot.operation?.kind === 'repair')
         ? snapshot
         : null;
     });
@@ -442,28 +444,71 @@ export function DbRepairPanel({
         setStarting((current) => (current === request ? null : current));
       }
     });
-  const endMaintenance = () =>
-    act(async () => {
-      if (
-        !(await useDialog
-          .getState()
-          .confirm(
-            '解除数据库占用？',
-            '放弃本次体检结果并释放此账号全部目标数据库的维护锁。历史报告继续保留；下次修复需要主动重新体检。',
-            {
-              okLabel: '放弃结果并解除占用',
-              cancelLabel: '继续维护',
-              danger: 'outline',
-              ownerDocument,
-            },
-          ))
-      )
-        return;
-      await end.mutateAsync(scope);
-      setLive(null);
-      setTab('scan');
-      await refresh();
-    });
+  useEffect(() => () => endDecision.current?.unsubscribe(), []);
+  const endMaintenance = () => {
+    if (ending) {
+      useDialog.getState().showInfo('正在结束维护', '当前操作结束后会释放维护锁。', {
+        ownerDocument,
+      });
+      return;
+    }
+    if (!live || endDecision.current) return;
+    const dismiss = () => {
+      endDecision.current?.unsubscribe();
+      endDecision.current = null;
+    };
+    endDecision.current = client.dbRepair.prepareEndMaintenance.subscribe(
+      { ...scope, sessionId: live.id },
+      {
+        onData: (decision) =>
+          void act(async () => {
+            try {
+              if (!decision) return await refresh();
+              const { replacing, restoring, running, kind } = decision;
+              const title = restoring
+                ? '重试恢复原库并结束维护？'
+                : replacing
+                  ? '撤销本次替换并停止维护？'
+                  : running
+                    ? '停止当前操作并解除占用？'
+                    : '解除数据库占用？';
+              const detail = restoring
+                ? `将重试恢复并校验 ${restoring}，成功后释放维护锁。`
+                : replacing
+                  ? `将取消 ${replacing} 的替换。如果已经换入新库，将恢复并校验原库后解锁。此前已修复成功的其他数据库会保留结果。`
+                  : kind === 'repair' && running
+                    ? '将停止本次修复并释放维护锁。已修复成功的数据库会保留结果。'
+                    : '将结束本次维护并释放维护锁。历史报告会保留，下次修复需要重新体检。';
+              const confirmed = await useDialog.getState().confirm(title, detail, {
+                okLabel: restoring
+                  ? '恢复原库并结束维护'
+                  : replacing
+                    ? '撤销替换并停止维护'
+                    : running
+                      ? '停止并解除占用'
+                      : '解除占用',
+                cancelLabel: '继续维护',
+                danger: 'outline',
+                ownerDocument,
+              });
+              if (!confirmed) return;
+              await end.mutateAsync({ ...scope, decisionId: decision.id });
+              if (kind !== 'repair') {
+                setLive(null);
+                setTab('scan');
+              }
+              await refresh();
+            } finally {
+              dismiss();
+            }
+          }),
+        onError: (cause) => {
+          dismiss();
+          setError(cause.message);
+        },
+      },
+    );
+  };
   const startRepair = () =>
     act(async () => {
       const names = selectedReady;
@@ -721,18 +766,6 @@ export function DbRepairPanel({
           ? '开始补充检查'
           : '继续体检';
   const maintenanceIdle = !running && !starting && !ending;
-  const canEndMaintenance = locked && waiting && maintenanceIdle;
-  const maintenanceLabel = ending
-    ? '正在解锁'
-    : repairing
-      ? '修复中'
-      : scanRunning
-        ? locked
-          ? '体检中'
-          : '准备中'
-        : locked
-          ? '维护中'
-          : undefined;
   const canScan = !!(status.data?.keyPresent && !status.data.error && maintenanceIdle);
   const hasReportRows =
     checkRows.length > 0 &&
@@ -1093,32 +1126,17 @@ export function DbRepairPanel({
               <NumericText>{scope.uin}</NumericText>
             </span>
           ) : null}
-          {canEndMaintenance ? (
+          {locked || live?.state === 'locking' || live?.state === 'ending' ? (
             <button
               type="button"
-              className="weq-dbm-state weq-dbm-state-action"
-              aria-label="维护中，解除占用"
+              className="weq-dbm-state"
+              aria-label="维护中，结束维护"
               aria-haspopup="dialog"
-              onClick={() => void endMaintenance()}
+              onClick={endMaintenance}
             >
-              <span className="weq-dbm-state-label">
-                <LockKeyhole size={12} strokeWidth={2} aria-hidden />
-                维护中
-              </span>
-              <span className="weq-dbm-state-release">
-                <UnlockKeyhole size={12} strokeWidth={2} aria-hidden />
-                解除占用
-              </span>
+              <LockKeyhole size={12} strokeWidth={2} aria-hidden />
+              维护中
             </button>
-          ) : maintenanceLabel ? (
-            <span className="weq-dbm-state" title={maintenanceLabel} aria-label={maintenanceLabel}>
-              {locked ? (
-                <LockKeyhole size={12} strokeWidth={2} aria-hidden />
-              ) : (
-                <Database size={12} aria-hidden />
-              )}
-              {maintenanceLabel}
-            </span>
           ) : null}
         </div>
       </header>

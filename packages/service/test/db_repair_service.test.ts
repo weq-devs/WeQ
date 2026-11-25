@@ -41,6 +41,7 @@ import {
   type DbRepairWalCheckpoint,
   type DbRepairRequest,
 } from '../src/account/db_repair';
+import { DbRepairRollbackError } from '../src/account/db_repair/service';
 import { DbRepairHistory } from '../src/account/db_repair/history';
 
 vi.mock('node:fs', async (original) => {
@@ -831,6 +832,55 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     expect(record.state).toBe('apply-failed');
     expect(record.error).toContain('自动还原');
     expect(record.verification?.corruptedTables).toContain('group_msg_table');
+  });
+
+  it.each([false, true])('无备份撤销已换入的新库，首次恢复失败可重试（%s）', async (failOnce) => {
+    const entered = Promise.withResolvers<void>();
+    const choice = Promise.withResolvers<void>();
+    const rollback = new AbortController();
+    const h = createHarness({
+      verify: async () => {
+        entered.resolve();
+        return { healthy: true, corruptedTables: [] };
+      },
+    });
+    const result = h
+      .repair(
+        {
+          uin: REF,
+          dbName: 'nt_msg.db',
+          maintenanceId: 'locked',
+          backup: false,
+          replacement: {
+            begin: async () => {},
+            waitForDecision: () => choice.promise,
+            signal: rollback.signal,
+          },
+        },
+        collect(h.progress),
+      )
+      .catch((error: unknown) => error);
+    await entered.promise;
+    expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
+    if (failOnce)
+      vi.mocked(renameSync).mockImplementationOnce(() => {
+        throw new Error('暂时无法恢复原库');
+      });
+    rollback.abort(new DOMException('已撤销本次数据库替换。', 'AbortError'));
+    choice.resolve();
+    const error = await result;
+    if (failOnce) {
+      expect(error).toBeInstanceOf(DbRepairRollbackError);
+      expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
+      const work = readdirSync(h.dbDir).find((name) => name.startsWith('.nt_msg.db.weq-repair-'))!;
+      expect(readFileSync(join(h.dbDir, work, 'original', 'nt_msg.db'))).toEqual(originalBytes());
+      await (error as DbRepairRollbackError).retry();
+    } else {
+      expect(error).toMatchObject({ message: '已撤销本次数据库替换。' });
+      expect(h.service.listRecords(REF)[0]).toMatchObject({ state: 'aborted', backupPath: null });
+    }
+    expect(readFileSync(h.dbPath)).toEqual(originalBytes());
+    expect(readdirSync(h.dbDir)).toEqual(['nt_msg.db']);
   });
 
   it('预检就被锁挡住时不会发起 native 修复', async () => {

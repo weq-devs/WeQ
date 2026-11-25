@@ -8,7 +8,7 @@ import type {
   DatabaseMaintenanceReportHeader,
   DatabaseMaintenanceReports,
 } from './maintenance_reports';
-import { DbRepairError } from './service';
+import { DbRepairError, DbRepairRollbackError, type DbRepairRequest } from './service';
 import {
   normalizeDatabaseCheckupConcurrency,
   databaseCanCheckQuickRepair,
@@ -68,6 +68,7 @@ export interface DatabaseMaintenanceDeps {
       maintenanceId?: string;
       method?: DatabaseRepairMethod;
       quickBudgetBytes?: number;
+      replacement: NonNullable<DbRepairRequest['replacement']>;
     },
   ): Promise<DbRepairRecord>;
   reports(scope: DatabaseMaintenanceScope): DatabaseMaintenanceReports;
@@ -92,6 +93,12 @@ interface SavedPageScan {
   badPages: number[];
   zeroPages: number[];
 }
+interface EndDecision {
+  id: string;
+  replacement?: Session['replacement'];
+  settled: Promise<void>;
+  dismiss(): void;
+}
 interface Session {
   snapshot: DatabaseMaintenanceSnapshot;
   targets: DbRepairTarget[];
@@ -107,6 +114,9 @@ interface Session {
   preparation?: DatabaseProgressTracker;
   finalizedReportId?: string;
   ending?: Promise<void>;
+  endDecision?: EndDecision;
+  replacement?: { dbName: string; abort: AbortController };
+  rollbackFailure?: { row: DatabaseMaintenanceRow; error: DbRepairRollbackError };
   unsavedReports: Map<string, DatabaseMaintenanceReport>;
 }
 const keyFor = (scope: DatabaseMaintenanceScope) =>
@@ -216,6 +226,7 @@ export class DatabaseMaintenance {
     let session = this.sessions.get(keyFor(scope));
     if (session?.ending || session?.snapshot.state === 'ending')
       throw new Error('正在结束本次维护，请等待数据库解锁。');
+    if (session?.rollbackFailure) throw new Error('请先从「维护中」重试恢复原库。');
     if (session?.pending) throw new Error('数据库维护任务正在执行，请先停止当前操作。');
     if (session?.lease?.signal?.aborted)
       throw new Error('持续维护锁已中断，请先结束维护并重新体检。');
@@ -383,6 +394,7 @@ export class DatabaseMaintenance {
           'abort',
           () => {
             session.abort?.abort(lease.signal?.reason ?? new Error('持续维护锁已中断。'));
+            session.endDecision?.dismiss();
             if (!session.pending && !session.ending)
               void this.expireLease(session).catch((error: unknown) => {
                 session.snapshot.maintenanceError = errorText(error);
@@ -720,6 +732,7 @@ export class DatabaseMaintenance {
       throw new Error('请先开始体检并保留维护锁，再修复数据库。');
     if (session.ending || session.snapshot.state === 'ending')
       throw new Error('正在结束本次维护，不能开始修复。');
+    if (session.rollbackFailure) throw new Error('请先从「维护中」重试恢复原库。');
     if (session.lease.signal?.aborted)
       throw new Error('持续维护锁已中断，请先结束维护并重新体检。');
     if (session.pending) throw new Error('请先暂停当前体检，再修复已有结果的数据库。');
@@ -771,6 +784,7 @@ export class DatabaseMaintenance {
         const method = options.methods![name]!;
         row.repair = { status: 'running', method };
         const target = session.targets.find((item) => item.dbName === name)!;
+        const replacement = { dbName: name, abort: new AbortController() };
         try {
           if (!this.hasSameSource(session, target))
             throw new DbRepairError('changed-during-repair', '原库与体检时不同，请重新核对原库。');
@@ -798,11 +812,32 @@ export class DatabaseMaintenance {
               maintenanceId: session.lease!.id,
               method,
               quickBudgetBytes: method === 'quick' ? row.quickBudgetBytes : undefined,
+              replacement: {
+                begin: async () => {
+                  while (session.endDecision) await session.endDecision.settled;
+                  signal.throwIfAborted();
+                  session.replacement = replacement;
+                },
+                waitForDecision: async () => {
+                  while (session.endDecision) await session.endDecision.settled;
+                },
+                signal: replacement.abort.signal,
+                leaseSignal: session.lease!.signal,
+              },
             },
           );
           row.repair = { status: 'completed', record, method };
           row.progress = tracker.finish('completed');
         } catch (error) {
+          if (error instanceof DbRepairRollbackError) {
+            session.rollbackFailure = { row, error };
+            row.repair = { status: 'failed', method, error: error.message };
+            row.progress = tracker.finish('failed');
+            for (const pending of snapshot.databases)
+              if (pending.repair?.status === 'pending')
+                pending.repair = { status: 'cancelled', error: '请先恢复原库。' };
+            break;
+          }
           if (
             !signal.aborted &&
             !session.lease?.signal?.aborted &&
@@ -848,6 +883,8 @@ export class DatabaseMaintenance {
             this.countCompleted(session);
             break;
           }
+        } finally {
+          session.replacement = undefined;
         }
         this.countCompleted(session);
         this.publish(session, true);
@@ -857,7 +894,7 @@ export class DatabaseMaintenance {
       const lost = session.lease?.signal?.aborted;
       this.finish(
         session,
-        lost
+        lost || session.rollbackFailure
           ? 'failed'
           : signal.aborted
             ? 'cancelled'
@@ -868,9 +905,10 @@ export class DatabaseMaintenance {
                   ? 'partial'
                   : 'failed'
                 : 'completed',
-        lost ? '持续维护锁进程意外退出，已停止后续修复；已经成功的库保持不变。' : undefined,
+        session.rollbackFailure?.error.message ??
+          (lost ? '持续维护锁进程意外退出，已停止后续修复；已经成功的库保持不变。' : undefined),
       );
-      if (!waiting || signal.aborted || lost) {
+      if (!session.ending && !session.rollbackFailure && (!waiting || signal.aborted || lost)) {
         await this.releaseLease(session);
       }
       snapshot.state = session.lease ? 'waiting' : 'ended';
@@ -936,6 +974,7 @@ export class DatabaseMaintenance {
   async stop(scope: DatabaseMaintenanceScope): Promise<DatabaseMaintenanceSnapshot | null> {
     const session = this.sessions.get(keyFor(scope));
     if (!session) return null;
+    session.endDecision?.dismiss();
     if (session.pending) {
       session.snapshot.operation!.stopping = true;
       session.abort!.abort(new DOMException('已停止数据库维护操作。', 'AbortError'));
@@ -944,11 +983,50 @@ export class DatabaseMaintenance {
     }
     return this.current(scope);
   }
-  async end(scope: DatabaseMaintenanceScope): Promise<void> {
+  prepareEnd(scope: DatabaseMaintenanceScope, sessionId: string) {
     const session = this.sessions.get(keyFor(scope));
+    if (!session || session.snapshot.id !== sessionId || session.snapshot.state === 'ended')
+      return null;
+    if (session.ending || session.endDecision)
+      throw new Error('已有结束维护操作，请处理当前确认或等待解锁。');
+    // 确认框持有此决定，连接关闭或取消时继续替换。
+    let resolve!: () => void;
+    const settled = new Promise<void>((done) => {
+      resolve = done;
+    });
+    const decision: EndDecision = {
+      id: randomUUID(),
+      replacement: session.replacement,
+      settled,
+      dismiss: () => {
+        if (session.endDecision !== decision) return;
+        session.endDecision = undefined;
+        resolve();
+      },
+    };
+    session.endDecision = decision;
+    return {
+      preview: {
+        id: decision.id,
+        kind: session.snapshot.operation?.kind,
+        running: session.snapshot.operation?.status === 'running',
+        replacing: decision.replacement?.dbName,
+        restoring: session.rollbackFailure?.row.dbName,
+      },
+      dismiss: decision.dismiss,
+    };
+  }
+  async end(scope: DatabaseMaintenanceScope, decisionId?: string): Promise<void> {
+    const session = this.sessions.get(keyFor(scope));
+    const decision = session?.endDecision;
+    if (decisionId && decision?.id !== decisionId)
+      throw new Error('本次确认已失效，请重新点击「维护中」。');
     if (!session || session.snapshot.state === 'ended') return;
     if (session.ending) return session.ending;
-    if (session.snapshot.state === 'repairing') throw new Error('修复已经开始，请使用停止修复。');
+    if (!decisionId && session.snapshot.state === 'repairing')
+      throw new Error('修复已经开始，请从「维护中」确认停止。');
+    if (decisionId && decision?.replacement === session.replacement)
+      decision?.replacement?.abort.abort(new DOMException('已撤销本次数据库替换。', 'AbortError'));
     session.snapshot.state = 'ending';
     const pending = this.endSession(session);
     session.ending = pending;
@@ -956,20 +1034,31 @@ export class DatabaseMaintenance {
     return pending;
   }
   private async endSession(session: Session): Promise<void> {
+    const previousFailure = session.rollbackFailure;
     let failure: unknown;
     try {
       await this.stop(session.snapshot);
+      if (session.rollbackFailure) {
+        const { row, error } = session.rollbackFailure;
+        if (session.rollbackFailure !== previousFailure) throw error;
+        session.lease?.signal?.throwIfAborted();
+        await error.retry();
+        session.rollbackFailure = undefined;
+        row.repair = { ...row.repair!, error: '已恢复并校验修复前的数据库。' };
+        session.snapshot.operation!.error = undefined;
+        session.finalizedReportId = undefined;
+      }
     } catch (error) {
       failure = error;
     }
     try {
-      await this.releaseLease(session);
+      if (!session.rollbackFailure) await this.releaseLease(session);
     } catch (error) {
       failure ??= error;
     } finally {
       session.ending = undefined;
       session.snapshot.state = session.lease ? 'waiting' : 'ended';
-      this.publish(session);
+      this.publish(session, true);
     }
     if (failure) throw failure;
   }
