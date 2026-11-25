@@ -5,7 +5,7 @@
  *   - 备份发生在解密**之前**，且备份内容逐字节等于修复前的库；
  *   - 修复期间源库被写入 → 中止，且**源库一个字节都不动**；
  *   - 替换前仍被占用 → 中止，临时产物不留痕；
- *   - 产物自检不过 → 自动还原成修复前；
+ *   - 换入的数据库无法读取 → 自动还原成修复前；
  *   - 同一时刻只允许一个修复任务；
  *   - 保留策略真的会删旧备份，但记录还留着。
  *
@@ -112,8 +112,7 @@ interface HarnessOptions {
     onProgress: (progress: DbRepairProgress) => void,
     signal?: AbortSignal,
   ) => Promise<DbRepairRecoverReport>;
-  /** 覆盖替换后的复核。 */
-  verify?: DbRepairDeps['verify'];
+  checkInstalledDatabase?: DbRepairDeps['checkInstalledDatabase'];
   /** 覆盖 WAL 合并（默认成功；可以改成抛错或报 `merged: false` 来验"合并不成"的分支）。 */
   checkpoint?: (dbPath: string) => Promise<DbRepairWalCheckpoint>;
   /** 报告里写死一个版本号，避免测试依赖宿主。 */
@@ -161,7 +160,7 @@ function createHarness(options: HarnessOptions = {}) {
   const dbPath = join(dbDir, 'nt_msg.db');
   writeFileSync(dbPath, originalBytes());
 
-  const calls = { recover: 0, released: 0, verify: 0, probe: 0, checkpoint: 0 };
+  const calls = { recover: 0, released: 0, checkInstalled: 0, probe: 0, checkpoint: 0 };
   const progress: DbRepairProgress[] = [];
   const recoverArgs: DbRepairRecoverOptions[] = [];
   let clockMs = Date.parse('2026-09-20T05:30:12.000Z');
@@ -223,12 +222,10 @@ function createHarness(options: HarnessOptions = {}) {
     releaseHandles: () => {
       calls.released += 1;
     },
-    verify:
-      options.verify ??
-      (async () => {
-        calls.verify += 1;
-        return { healthy: true, corruptedTables: [] };
-      }),
+    checkInstalledDatabase: async (path, key, algo) => {
+      calls.checkInstalled += 1;
+      await options.checkInstalledDatabase?.(path, key, algo);
+    },
     appVersion: () => options.appVersion ?? '0.0.0-test',
     now: () => new Date(clockMs),
   };
@@ -312,7 +309,7 @@ describe('DbRepairService.repair 成功路径', () => {
     const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
 
     expect(record.state).toBe('applied');
-    expect(record.afterSha).not.toBe(record.beforeSha);
+    expect(h.service.restorePreview(REF, record.id).matchesAfter).toBe(true);
     expect(record.verification?.healthy).toBe(true);
     expect(record.badPages).toEqual([7871]);
 
@@ -466,14 +463,19 @@ describe('DbRepairService.repair 成功路径', () => {
     ).toBeUndefined();
   });
 
-  it('backup: false 时不落备份（记录里如实写 null）', async () => {
+  it('无备份时只记录产物大小，跳过修复后指纹', async () => {
     const h = createHarness();
     const record = await h.repair(
       { uin: REF, dbName: 'nt_msg.db', backup: false },
       collect(h.progress),
     );
-    expect(record.state).toBe('applied');
-    expect(record.backupPath).toBeNull();
+    expect(record).toMatchObject({
+      state: 'applied',
+      backupPath: null,
+      afterSha: null,
+      afterBytes: repairedBytes().length,
+    });
+    expect(h.calls.checkInstalled).toBe(1);
     expect(existsSync(h.paths().backupsDir)).toBe(false);
   });
 
@@ -840,7 +842,7 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
     expect(readFileSync(journal, 'utf8')).toBe('source-sidecar');
     expect(h.calls.released).toBe(0);
-    expect(h.calls.verify).toBe(0);
+    expect(h.calls.checkInstalled).toBe(0);
     expect(h.progress.some((tick) => tick.phase === 'swapping')).toBe(false);
     expect(readdirSync(h.dbDir).filter((name) => name.includes('.weq-repair-'))).toEqual([]);
     const record = h.service.listRecords(REF)[0]!;
@@ -854,7 +856,7 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     else expect(record.backupPath).toBeNull();
   });
 
-  it('原生自检部分未核验但未发现异常时保留原处理，仍执行替换后的最终复核', async () => {
+  it('换入后试读成功，报告仍保留产物结构自检的未核验项', async () => {
     const report = makeReport();
     report.verification.complete = false;
     report.verification.unverifiedTables = ['qq_fts'];
@@ -866,7 +868,7 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     });
     const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
     expect(record.state).toBe('applied');
-    expect(h.calls.verify).toBe(1);
+    expect(h.calls.checkInstalled).toBe(1);
     expect(record.verification).toMatchObject({ complete: false, unverifiedTables: ['qq_fts'] });
   });
 
@@ -931,38 +933,39 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     expect(h.service.listRecords(REF)[0]?.state).toBe('aborted');
   });
 
-  it('产物自检不过 → 自动还原成修复前（备份就是为了这一刻）', async () => {
-    const h = createHarness({
-      verify: async () => ({ healthy: false, corruptedTables: ['group_msg_table'] }),
-    });
-    await expect(
-      h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
-    ).rejects.toMatchObject({ code: 'verify-failed' });
+  it.each([{ backup: true }, { backup: false, maintenanceId: 'locked' }])(
+    '换入后试读失败时自动恢复原库（%j）',
+    async (options) => {
+      const h = createHarness({
+        checkInstalledDatabase: async (path) => {
+          expect(path).toBe(h.dbPath);
+          expect(readFileSync(path)).toEqual(repairedBytes());
+          throw new Error('无法读取 SQLite 结构');
+        },
+      });
+      await expect(
+        h.repair({ uin: REF, dbName: 'nt_msg.db', ...options }, collect(h.progress)),
+      ).rejects.toMatchObject({ code: 'verify-failed' });
 
-    // 库回到修复前
-    expect(readFileSync(h.dbPath)).toEqual(originalBytes());
-    expect(readdirSync(h.dbDir)).toEqual(['nt_msg.db']);
-    const record = h.service.listRecords(REF)[0]!;
-    expect(record.state).toBe('apply-failed');
-    expect(record.error).toContain('自动还原');
-    expect(record.verification?.corruptedTables).toContain('group_msg_table');
-  });
+      // 库回到修复前
+      expect(readFileSync(h.dbPath)).toEqual(originalBytes());
+      expect(readdirSync(h.dbDir)).toEqual(['nt_msg.db']);
+      const record = h.service.listRecords(REF)[0]!;
+      expect(record.state).toBe('apply-failed');
+      expect(record.error).toContain('自动还原');
+      expect(record.error).toContain('无法读取 SQLite 结构');
+      expect(record.verification?.healthy).toBe(true);
+      expect(record.afterSha).toBeNull();
+    },
+  );
 
   it.each([false, true])('无备份撤销已换入的新库，首次恢复失败可重试（%s）', async (failOnce) => {
     const entered = Promise.withResolvers<void>();
     const choice = Promise.withResolvers<void>();
     const rollback = new AbortController();
     const h = createHarness({
-      verify: async (_path, _key, _algo, progress) => {
-        progress({
-          step: 'integrity-pages',
-          message: '检查页结构与引用',
-          completed: 8,
-          total: 16,
-          unit: 'pages',
-        });
+      checkInstalledDatabase: async () => {
         entered.resolve();
-        return { healthy: true, corruptedTables: [] };
       },
     });
     const result = h
@@ -982,10 +985,7 @@ describe('DbRepairService.repair 中止 / 失败', () => {
       )
       .catch((error: unknown) => error);
     await entered.promise;
-    expect(h.progress.at(-1)).toMatchObject({
-      phase: 'final-check',
-      detail: { step: 'integrity-pages', completed: 8, total: 16, unit: 'pages' },
-    });
+    expect(h.progress.at(-1)?.phase).toBe('final-check');
     expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
     if (failOnce)
       vi.mocked(renameSync).mockImplementationOnce(() => {

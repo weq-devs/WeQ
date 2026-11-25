@@ -149,7 +149,7 @@ function rowSummary(row: DatabaseMaintenanceStatusRow): ReactNode {
   if (row.repair?.status === 'completed')
     return row.repair.verification?.healthy === false
       ? '产物已替换，复核发现结构异常。详情见下方。'
-      : '已替换数据库并完成结构复核。';
+      : '已换入通过检查的数据库。';
   if (row.scanStatus === 'pending') return '这个数据库还未体检。';
   if (row.scanStatus === 'running') {
     const current = row.progress?.current;

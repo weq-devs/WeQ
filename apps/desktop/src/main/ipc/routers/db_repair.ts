@@ -169,10 +169,14 @@ const deps: DbRepairDeps = {
     if (!worker) throw new Error('持续维护锁已经释放，不能替换数据库。');
     await worker.protect(path, product);
   },
-  verify: async (path, key, algo, progress) =>
-    requirePlatform().native.ntHelper.checkDatabaseHealth(path, key, algo, (error, tick) => {
-      if (!error && tick) progress(tick);
-    }),
+  checkInstalledDatabase: async (path, key, algo) => {
+    await requirePlatform().native.ntHelper.executeSqlWithKey(
+      path,
+      'SELECT name FROM main.sqlite_schema LIMIT 1',
+      key,
+      algo,
+    );
+  },
 };
 const service = new DbRepairService(deps);
 

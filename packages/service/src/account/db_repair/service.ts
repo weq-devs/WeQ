@@ -66,7 +66,6 @@ import type {
   DbRepairRecord,
   DbRepairRecoverOptions,
   DbRepairRecoverReport,
-  DbRepairRecoverVerification,
   DbRepairRestorePreview,
   DbRepairTarget,
   DbRepairWalCheckpoint,
@@ -207,18 +206,8 @@ export interface DbRepairDeps {
    * 替换前后调用，避免继续复用被替换文件的旧连接；调用方保证幂等。
    */
   releaseHandles?(uin: string, dbPath: string, keepReadOnly?: boolean): void;
-  /** 替换后的额外复核（native `checkDatabaseHealth`）。 */
-  verify?(
-    dbPath: string,
-    key: string,
-    algo: DatabaseAlgorithms,
-    progress: (tick: DatabaseProgress) => void,
-  ): Promise<{
-    healthy: boolean;
-    corruptedTables: string[];
-    complete?: boolean;
-    unverifiedTables?: string[];
-  } | null>;
+  /** 换入后用正式路径和现有密钥试读结构。读取失败时抛出错误。 */
+  checkInstalledDatabase(dbPath: string, key: string, algo: DatabaseAlgorithms): Promise<void>;
   /** 报告里写的 WeQ 版本；不注入则尝试 `getHost().appVersion()`，都拿不到写"未知"。 */
   appVersion?(): string;
   now?(): Date;
@@ -750,10 +739,7 @@ export class DbRepairService {
     let backup: DbRepairBackupResult | null = null;
     let before = { bytes: 0, sha256: '' };
     let recovered: DbRepairRecoverReport | null = null;
-    /** 替换成功后的产物指纹（成功路径与"自检不过"路径都要记）。 */
-    let after: { bytes: number; sha256: string } | null = null;
-    /** 自检结论（含注入的复核）；`null` = 还没走到自检。 */
-    let verification: DbRepairRecoverVerification | null = null;
+    let after: { bytes: number; sha256: string | null } | null = null;
     /** 未合并的 WAL 是否在修复前合并回主文件了（catch 里也要用，所以声明在外层）。 */
     let walMerged = false;
     let preserveOriginal = false;
@@ -894,7 +880,6 @@ export class DbRepairService {
         recovered.verification.badPages.length > 0 ||
         (quick && recovered.verification.complete !== true)
       ) {
-        verification = recovered.verification;
         throw new DbRepairError(
           'verify-failed',
           '修复产物自检未通过，已在替换前中止，原数据库保持不变（详情见修复报告）',
@@ -1059,57 +1044,47 @@ export class DbRepairService {
       this.replaceIntoPlace(product, target.dbPath, target.uin, lockAgain);
       try {
         if (request.maintenanceId) this.deps.releaseHandles?.(uin, target.dbPath, true);
-        after = await fingerprintFile(target.dbPath, (completed, total) => {
-          request.replacement?.signal.throwIfAborted();
-          emit({
-            phase: 'final-check',
-            percent: 100,
-            message: '校验替换后数据库指纹',
-            detail: {
-              step: 'final-fingerprint',
-              message: '校验替换后数据库指纹',
-              completed,
-              total,
-              unit: 'bytes',
-            },
-          });
-        });
         request.replacement?.signal.throwIfAborted();
-        emit({ phase: 'final-check', percent: 100, message: '复核替换后的数据库结构' });
-        verification = await this.verifyProduct(target, recovered, (detail) => {
-          if (request.replacement?.signal.aborted || detail.step === 'integrity') return;
-          emit({ phase: 'final-check', percent: 100, message: detail.message, detail });
-        });
+        emit({ phase: 'final-check', percent: 100, message: '确认换入的数据库可读取' });
+        try {
+          await this.deps.checkInstalledDatabase(target.dbPath, target.key, target.algo);
+        } catch (error) {
+          const cause = error instanceof Error ? error.message : String(error);
+          throw new DbRepairError('verify-failed', `换入的数据库无法读取（${cause}）`);
+        }
+        request.replacement?.signal.throwIfAborted();
+        if (backup) {
+          const message = '记录修复后指纹';
+          after = await fingerprintFile(target.dbPath, (completed, total) => {
+            request.replacement?.signal.throwIfAborted();
+            emit({
+              phase: 'final-check',
+              percent: 100,
+              message,
+              detail: { step: 'final-fingerprint', message, completed, total, unit: 'bytes' },
+            });
+          });
+        } else {
+          after = { bytes: statSync(target.dbPath).size, sha256: null };
+        }
         await request.replacement?.waitForDecision();
         request.replacement?.signal.throwIfAborted();
       } catch (error) {
-        if (request.maintenanceId) await restoreOriginal();
-        await request.replacement?.waitForDecision();
-        throw error;
-      }
-      if (!verification.healthy || verification.badPages.length > 0) {
-        const restored = !!request.maintenanceId || !!backup;
         if (request.maintenanceId) {
           await restoreOriginal();
         } else if (backup) {
-          // 自检可能已经打开过产物（留下它那一代的 sidecar），还原前同样得清掉。
+          this.deps.releaseHandles?.(uin, target.dbPath);
           removeSqliteSidecars(target.dbPath);
           this.installFromBackup(backup.path, target, stamp, target.uin);
         }
         await request.replacement?.waitForDecision();
         request.replacement?.signal.throwIfAborted();
-        this.log.error('db repair product failed verification', {
-          event: 'db-repair-verify-failed',
-          accountUin: target.uin,
-          dbPath: target.dbPath,
-          restored,
-        });
-        throw new DbRepairError(
-          'verify-failed',
-          restored
-            ? '修复产物自检未通过，已自动还原为修复前的数据库（详情见修复报告）'
-            : '修复产物自检未通过，且本次没有备份可还原（详情见修复报告）',
-        );
+        if (error instanceof DbRepairError && error.code === 'verify-failed') {
+          const recovery =
+            request.maintenanceId || backup ? '已自动还原原库' : '本次没有备份可还原';
+          throw new DbRepairError(error.code, `${error.message}，${recovery}。`);
+        }
+        throw error;
       }
 
       emit({ phase: 'report', percent: 100, message: '保存修复报告' });
@@ -1120,7 +1095,7 @@ export class DbRepairService {
         backup,
         before,
         after,
-        recovered: { ...recovered, verification },
+        recovered,
         pendingWalBytes: pendingWal,
         walMerged,
         layoutMigration,
@@ -1154,7 +1129,7 @@ export class DbRepairService {
           backup,
           before,
           after,
-          recovered: recovered && verification ? { ...recovered, verification } : recovered,
+          recovered,
           pendingWalBytes: pendingWal,
           walMerged,
           layoutMigration,
@@ -1552,48 +1527,6 @@ export class DbRepairService {
     return fresh.holders.length > 0 ? fresh.holders : (previous?.holders ?? []);
   }
 
-  /**
-   * 产物自检：先用 native 报告里的结论，再叠加调用方注入的复核（`checkDatabaseHealth`）。
-   * 复核拿不到就只用报告 —— 回到 native 已经做过一遍 integrity_check 的事实。
-   */
-  private async verifyProduct(
-    target: DbRepairTarget,
-    recovered: DbRepairRecoverReport,
-    progress: (tick: DatabaseProgress) => void,
-  ): Promise<DbRepairRecoverVerification> {
-    const verification: DbRepairRecoverVerification = { ...recovered.verification };
-    let checking = true;
-    const extra = await this.deps
-      .verify?.(target.dbPath, target.key, target.algo, (tick) => {
-        if (checking) progress(tick);
-      })
-      .finally(() => {
-        checking = false;
-      });
-    if (!extra) return verification;
-    const unverifiedTables = [
-      ...new Set([...(verification.unverifiedTables ?? []), ...(extra.unverifiedTables ?? [])]),
-    ];
-    const coverageKnown =
-      verification.complete !== undefined ||
-      extra.complete !== undefined ||
-      unverifiedTables.length > 0;
-    return {
-      ...verification,
-      healthy: verification.healthy && extra.healthy,
-      ...(coverageKnown
-        ? {
-            complete:
-              verification.complete !== false &&
-              extra.complete !== false &&
-              unverifiedTables.length === 0,
-            unverifiedTables,
-          }
-        : {}),
-      corruptedTables: [...new Set([...verification.corruptedTables, ...extra.corruptedTables])],
-    };
-  }
-
   /** 落一条记录 + 写报告。 */
   private record(
     history: DbRepairHistory,
@@ -1605,7 +1538,7 @@ export class DbRepairService {
       error?: string;
       backup: DbRepairBackupResult | null;
       before: { bytes: number; sha256: string };
-      after: { bytes: number; sha256: string } | null;
+      after: { bytes: number; sha256: string | null } | null;
       recovered: DbRepairRecoverReport | null;
       durationMs: number;
       startedAt: string;

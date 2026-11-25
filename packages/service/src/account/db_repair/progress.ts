@@ -197,7 +197,7 @@ export class DatabaseProgressTracker {
       const index = steps.findIndex((step) => step.step === 'integrity');
       if (index >= 0) steps[index] = { ...steps[index]!, outcome: 'abnormal' };
     }
-    // 两轮结构检查的逐项明细各自保留，避免挤掉先前的解密、重建等步骤。
+    // 保留产物检查及旧报告中的替换后结构检查明细，避免挤掉先前的解密、重建等步骤。
     const remaining = { main: 63, output: 63, 'final-check': 63 };
     const retained = steps
       .toReversed()

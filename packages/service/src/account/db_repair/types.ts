@@ -249,7 +249,7 @@ export interface DbRepairRecord extends DbRepairAccountRef {
   /** 修复前的源库 sha256（同时是"期间是否被写入"的比对基准）。 */
   beforeSha: string;
   beforeBytes: number;
-  /** 替换后的产物 sha256；中止/失败时为 `null`。 */
+  /** 有修复前备份时记录产物 sha256，供恢复时核对当前库是否改动。 */
   afterSha: string | null;
   afterBytes: number | null;
   badPages: number[];
