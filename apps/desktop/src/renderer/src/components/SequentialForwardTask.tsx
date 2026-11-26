@@ -97,7 +97,7 @@ export function startSequentialForward({
       const estimate = expected ? formatForwardDuration(Math.ceil(expected / 1000) * 1000) : '待估';
       const counts = `已处理 ${completed} / ${messages.length} 条 · 成功 ${sent} · 失败 ${failed}`;
       localBackgroundTasks.update(taskId, {
-        progress: (completed / messages.length) * 100,
+        progress: expected > 0 ? (elapsed / (elapsed + expected)) * 100 : undefined,
         statusLabel: label,
         note: `${counts} · 已进行 ${time}${finished ? '' : ` / 预计用时 ${estimate}`}`,
         details: receiptDetails(),

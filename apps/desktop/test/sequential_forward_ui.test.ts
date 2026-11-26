@@ -577,11 +577,16 @@ it('卸载配置窗后从任务查看持续进度、目标与完成结果', asyn
     expect(useToast.getState().toasts).toEqual([]);
     expect(currentTask().note).toContain('已进行 0 秒 / 预计用时 7 秒');
     expect(currentTask().note).toContain('0 / 2 条');
+    expect(currentTask().progress).toBe(0);
     await act(async () => localBackgroundTasks.act(currentTask().id, 'open'));
     expect(open).toHaveBeenCalledWith(target);
-    expect(send).not.toHaveBeenCalled();
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(send).not.toHaveBeenCalled();
+    expect(currentTask().progress).toBe(12.5);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
     });
     expect(send).toHaveBeenCalledTimes(1);
     expect(currentTask().note).toContain('已进行 2 秒');
@@ -590,7 +595,11 @@ it('卸载配置窗后从任务查看持续进度、目标与完成结果', asyn
     });
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[0]?.[2].aborted).toBe(false);
-    expect(currentTask()).toMatchObject({ status: 'completed', statusLabel: '转发完成' });
+    expect(currentTask()).toMatchObject({
+      status: 'completed',
+      statusLabel: '转发完成',
+      progress: 100,
+    });
     expect(currentTask().note).toContain('已进行 7 秒');
     expect(currentTask().note).toContain('2 / 2 条');
     expect(currentTask().forwardTargets).toEqual([target]);
