@@ -196,6 +196,36 @@ describe('SourceMsgSearchDb', () => {
       expect.objectContaining({ msgId: 903n }),
     );
   });
+  it('同一文件版本复用索引覆盖，缺失旧行和同一旧主键的新正文均重新校准', async () => {
+    const f = fixture();
+    const legacy = new GroupMsgFtsDb(f.nt, { dbPath: f.path });
+    await f.search.sync();
+    const reads = vi.spyOn(f.nt, 'executeSql');
+    expect(await legacy.search('absent', 1, f.search)).toEqual([]);
+    expect(await legacy.search('absent again', 1, f.search)).toEqual([]);
+    expect(reads.mock.calls.filter(([, statement]) => statement.includes('_docsize'))).toHaveLength(
+      0,
+    );
+
+    f.db.exec(`INSERT INTO ${TABLE} VALUES(2,901,2,'group','sender',100,3,77,'late match','')`);
+    expect((await legacy.search('late match', 1, f.search)).map(({ msgId }) => msgId)).toEqual([
+      901n,
+    ]);
+    expect(await legacy.search('absent', 1, f.search)).toEqual([]);
+    expect(reads.mock.calls.filter(([, statement]) => statement.includes('_docsize'))).toHaveLength(
+      1,
+    );
+
+    f.db.exec(`DELETE FROM ${TABLE} WHERE "41700"=2;
+      INSERT INTO ${TABLE} VALUES(2,902,2,'group','sender',100,3,77,'different text','');`);
+    expect(await legacy.search('late match', 1, f.search)).toEqual([]);
+    expect((await legacy.search('different text', 1, f.search)).map(({ msgId }) => msgId)).toEqual([
+      902n,
+    ]);
+    expect(reads.mock.calls.filter(([, statement]) => statement.includes('_docsize'))).toHaveLength(
+      2,
+    );
+  });
   it('全文候选读取失败时退回原查询，取消时停止读取', async () => {
     const f = fixture();
     const controller = new AbortController();

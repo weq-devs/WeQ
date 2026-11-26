@@ -655,9 +655,13 @@ function mountDbWatch(session: AccountSession): void {
     (change) => dbEventBus.emit('group-info-changed', change),
     () => getAppContext().services?.qqClientSync?.hasRecentGroupUpdates() === true,
   );
+  const knownChanges = new WeakSet<DbChange>();
   const notification = createDbChangeNotification((file: DbChange) => {
     if (getAppContext().account !== session) return;
-    dbEventBus.emit('changed', { at: file.at } satisfies MessageDbNotice);
+    dbEventBus.emit('changed', {
+      at: file.at,
+      ...(knownChanges.has(file) ? { backgroundReconcile: true } : {}),
+    } satisfies MessageDbNotice);
   });
   state.dbChangeNotification = notification;
   const hasRecentPush = () =>
@@ -679,6 +683,7 @@ function mountDbWatch(session: AccountSession): void {
     usesSharedRead,
   );
   const messageWatch = createNtMsgDbHook(session, {
+    onWatermarksAdvanced: (file) => knownChanges.add(file),
     onDbChanged: (file) => {
       if (usesSharedRead()) deferredChanges.add(file);
       return reconcile.onDbFileChangeHook(file);
@@ -1911,6 +1916,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
       this.services?.unifiedSearch.dispose();
+      this.services?.mediaResource?.dispose();
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await this.services?.qqClientSync?.dispose();
@@ -3077,6 +3083,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
       this.services?.unifiedSearch.dispose();
+      this.services?.mediaResource?.dispose();
       await this.services?.agentLab.close();
       await this.services?.unreadInfo.dispose();
       await this.services?.qqClientSync?.dispose();
@@ -3983,6 +3990,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       this.services?.mail.dispose();
       this.services?.annualReport.dispose();
       this.services?.unifiedSearch.dispose();
+      this.services?.mediaResource?.dispose();
       const agentLabClosed = this.services?.agentLab.close();
       const unreadClosed = this.services?.unreadInfo.dispose();
       await this.services?.qqClientSync?.dispose();

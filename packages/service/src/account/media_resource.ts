@@ -33,7 +33,12 @@ import { join, resolve, sep, extname } from 'node:path';
 import type { AccountSession } from '@weq/account';
 import type { Platform } from '@weq/platform';
 import { clampLimit, parseBucketCursor, walkBucketPages } from './resource_paging';
-import { MediaBucketPages, mediaFileNames, readMediaFileStats } from './media_resource_listing';
+import {
+  MediaBucketPages,
+  MediaDirectoryIndex,
+  mediaFileNames,
+  readMediaFileStats,
+} from './media_resource_listing';
 import { walkResourceTree } from './resource_tree_walk';
 
 /** Which media tree to browse. */
@@ -186,16 +191,25 @@ interface MediaPageOptions {
   limit?: number;
   cursor?: string | null;
   signal?: AbortSignal;
+  /** 资源浏览使用已观察到的文件版本；需要精确读回的调用保留默认。 */
+  observedIndex?: boolean;
 }
 
 export class MediaResourceService {
-  private readonly monthPages = new MediaBucketPages<MonthMediaEntry>();
-  private readonly voicePages = new MediaBucketPages<VoiceMediaEntry>();
+  private readonly directoryIndex = new MediaDirectoryIndex();
+  private readonly monthPages = new MediaBucketPages<MonthMediaEntry>(this.directoryIndex);
+  private readonly voicePages = new MediaBucketPages<VoiceMediaEntry>(this.directoryIndex);
 
   constructor(
     private readonly session: AccountSession,
     private readonly platform: Platform,
   ) {}
+
+  dispose(): void {
+    this.directoryIndex.dispose();
+    this.monthPages.dispose();
+    this.voicePages.dispose();
+  }
 
   /** Absolute root dir for a media kind, or null when the account has none. */
   private rootFor(kind: MediaResourceKind): string | null {
@@ -282,10 +296,11 @@ export class MediaResourceService {
           limit,
           Boolean(opts.cursor),
           async () =>
-            (await this.mergeMonth(dirs[0]!, dirs[1]!, month, opts.signal)).sort(
+            (await this.mergeMonth(dirs[0]!, dirs[1]!, month, opts)).sort(
               (x, y) => y.mtimeMs - x.mtimeMs || x.hash.localeCompare(y.hash),
             ),
           opts.signal,
+          opts.observedIndex,
         );
       },
     );
@@ -317,7 +332,7 @@ export class MediaResourceService {
           limit,
           Boolean(opts.cursor),
           async () => {
-            const files = (await this.readFiles(dir, opts.signal)).sort(
+            const files = (await this.readFiles(dir, opts)).sort(
               (x, y) => y.mtimeMs - x.mtimeMs || x.name.localeCompare(y.name),
             );
             return files.map((f) => {
@@ -333,6 +348,7 @@ export class MediaResourceService {
             });
           },
           opts.signal,
+          opts.observedIndex,
         );
       },
     );
@@ -437,7 +453,8 @@ export class MediaResourceService {
   }
 
   /** File entries (name + size + mtime) directly under a dir. */
-  private async readFiles(dir: string, signal?: AbortSignal) {
+  private async readFiles(dir: string, { observedIndex, signal }: MediaPageOptions) {
+    if (observedIndex) return this.directoryIndex.read(dir, signal);
     return readMediaFileStats(dir, await mediaFileNames(dir, signal), signal);
   }
 
@@ -446,7 +463,7 @@ export class MediaResourceService {
     ori: string,
     thumb: string,
     month: string,
-    signal?: AbortSignal,
+    opts: MediaPageOptions,
   ): Promise<MonthMediaEntry[]> {
     const out = new Map<string, MonthAcc>();
     const get = (hash: string): MonthAcc => {
@@ -470,7 +487,7 @@ export class MediaResourceService {
       return acc;
     };
 
-    const originals = await this.readFiles(ori, signal);
+    const originals = await this.readFiles(ori, opts);
     // Originals: `<hash>.<ext>` → hash is the basename without extension.
     for (const f of originals) {
       const ext = extname(f.name).toLowerCase().replace(/^\./, '');
@@ -491,7 +508,7 @@ export class MediaResourceService {
     }
 
     // Previews: `<hash>_<n>.<ext>` → keep the lowest-numbered thumb (`_0` = base).
-    for (const f of await this.readFiles(thumb, signal)) {
+    for (const f of await this.readFiles(thumb, opts)) {
       const base = f.name.replace(/\.[^.]+$/, '');
       const m = /^(.*)_(\d+)$/.exec(base);
       const hash = m ? m[1]! : base;

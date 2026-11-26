@@ -40,8 +40,8 @@ if (taskFixture) {
   useViewState.setState({ openedUin: '10001' });
   seedMobileSurfaceData({
     'bootstrap.getSettings': { exportSaveMode: 'before' },
-    'taskArchive.list': {
-      'export:export-fixture-17': { archivedAt: 1, result: 'completed:saved:' },
+    'taskArchive.summaries': {
+      entries: { 'export:export-fixture-17': { archivedAt: 1, result: 'completed:saved:' } },
     },
     'account.listExportTasks': Array.from({ length: 18 }, (_, i) => ({
       id: `export-fixture-${i}`,

@@ -90,6 +90,20 @@ it('现有 14 MiB 图片输入仍可通过，超限正文在业务解析前拒�
   expect(excessive.status).toBe(413);
   await excessive.body?.cancel();
 });
+it('后台解析返回无效大正文错误，并继续为小请求与合法大请求服务', async () => {
+  const url = await fixture();
+  const send = (body: string) =>
+    fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+  const body = '早🌙'.repeat(130_000);
+  const [invalid, small, valid] = await Promise.all([
+    send(`"${body}`),
+    send('"ready"'),
+    send(JSON.stringify(body)),
+  ]);
+  expect(invalid.status).toBe(400);
+  expect(await small.json()).toMatchObject({ result: { data: 5 } });
+  expect(await valid.json()).toMatchObject({ result: { data: body.length } });
+});
 it('chunked 超限立即返回，不等待发送方结束；按字节而非字符计数', async () => {
   const url = await fixture();
   const response = await new Promise<http.IncomingMessage>((resolve, reject) => {

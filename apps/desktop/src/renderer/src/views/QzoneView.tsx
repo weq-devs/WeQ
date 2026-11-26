@@ -2,13 +2,6 @@
 import { ToolbarLabel } from '../components/CompactToolbar';
 import { observeCompactToolbar } from '../components/CompactToolbar.shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  defaultRangeExtractor,
-  measureElement,
-  observeElementOffset,
-  observeElementRect,
-  useVirtualizer,
-} from '@tanstack/react-virtual';
 import { FormSelect } from '../components/FormSelect';
 import { SegmentedControl } from '../components/SegmentedControl';
 import { NumericText } from '../components/NumericText';
@@ -53,7 +46,6 @@ import { z } from 'zod/v3';
 import { PageSnapshotScope } from '../components/PageSnapshots';
 import { usePageDataCache, usePageState } from '../components/PageSnapshots.shared';
 import { PageScrollSnapshot } from '../components/PageScrollSnapshot';
-import { PageDataCache } from '../lib/pageDataCache';
 import { TabActivity } from '../components/RetainedTabs';
 import { useTabActive } from '../components/RetainedTabs.shared';
 import { pageValue } from '../lib/pageSnapshots';
@@ -122,6 +114,8 @@ import { QZONE_IMAGE_MAX_BYTES, QZONE_VISIBILITY } from '../../../shared/qzone';
 import type { QzoneTextVisibility } from '@weqbot/protocol/web';
 import { stageAccountFile } from '../lib/accountFilePicker';
 import { IS_WEB } from '../lib/target.shared';
+import { QzoneVirtualRows } from './QzoneVirtualRows';
+import { FeedCardData, PinFeedCard } from './qzoneCardState';
 import { QzoneSpaceHome, type QzoneHomePostProps } from './QzoneSpaceHome';
 import { QzoneBlogs } from './QzoneBlogs';
 import { useQzoneBlogIndex } from './QzoneBlogs.shared';
@@ -195,8 +189,6 @@ const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : '加载失败，请重试。';
 
 const QzoneReadsEnabled = createContext(true);
-const PinFeedCard = createContext<((pinned: boolean) => void) | null>(null);
-const FeedCardData = createContext<PageDataCache | null>(null);
 const OwnPostVisibility = createContext<{
   changes: ReadonlyMap<string, QzoneTextVisibility> | undefined;
   confirm: (tid: string, visibility: QzoneTextVisibility) => void;
@@ -3085,16 +3077,6 @@ interface FeedRow {
   body: ReturnType<typeof projectQzoneFeed>;
 }
 
-// 切到其他栏目时容器会隐藏，保留最后一次可见尺寸和已测的行高。
-const observeFeedRect: typeof observeElementRect = (instance, update) =>
-  observeElementRect(instance, (rect) => {
-    if (rect.height > 0) update(rect);
-  });
-const observeFeedOffset: typeof observeElementOffset = (instance, update) =>
-  observeElementOffset(instance, (offset, scrolling) => {
-    if (!instance.scrollElement?.hasAttribute('hidden')) update(offset, scrolling);
-  });
-
 function FriendFeedRows({
   rows,
   active,
@@ -3116,129 +3098,18 @@ function FriendFeedRows({
   onSpace: (uin: string, nickname?: string) => void;
   lookup: (feed: QzoneFeed, tid: string | null) => Promise<QzoneEmotion | null>;
 }) {
-  const content = useRef<HTMLDivElement>(null);
-  const getScrollElement = useCallback(
-    () => content.current?.closest<HTMLDivElement>('.weq-qzn-scroll') ?? null,
-    [],
-  );
-  const appliedFocus = useRef<typeof focusRequest>(null);
-  const [offset, setOffset] = useState(0);
-  const [focused, setFocused] = useState<string>();
-  const [pinned, setPinned] = useState<ReadonlySet<string>>(() => new Set());
-  const [cardData] = useState(() => new PageDataCache(128));
-  const indices = useMemo(() => new Map(rows.map((row, index) => [row.key, index])), [rows]);
-  const rangeExtractor = useCallback(
-    (range: Parameters<typeof defaultRangeExtractor>[0]) => {
-      const visible = defaultRangeExtractor(range);
-      if (!pinned.size && !focused) return visible;
-      const retained = new Set(visible);
-      for (const key of pinned) {
-        const index = indices.get(key);
-        if (index !== undefined) retained.add(index);
-      }
-      const focusedIndex = focused === undefined ? undefined : indices.get(focused);
-      if (focusedIndex !== undefined) retained.add(focusedIndex);
-      return [...retained].sort((a, b) => a - b);
-    },
-    [pinned, focused, indices],
-  );
-  const list = useVirtualizer({
-    count: rows.length,
-    getScrollElement,
-    getItemKey: useCallback((index: number) => rows[index]!.key, [rows]),
-    estimateSize: () => 180,
-    overscan: 4,
-    initialRect: { width: 0, height: 900 },
-    observeElementRect: observeFeedRect,
-    observeElementOffset: observeFeedOffset,
-    useAnimationFrameWithResizeObserver: true,
-    measureElement: (element, entry, instance) => {
-      const actual = measureElement(element, entry, instance);
-      if (actual > 0) return actual;
-      const index = instance.indexFromElement(element);
-      return (
-        instance.itemSizeCache.get(rows[index]?.key ?? '') ?? instance.options.estimateSize(index)
-      );
-    },
-    rangeExtractor,
-    scrollMargin: offset,
-    anchorTo: 'end',
-  });
-  useLayoutEffect(() => {
-    const scroll = getScrollElement();
-    const element = content.current;
-    if (!active || !scroll || !element) return;
-    const update = () =>
-      setOffset(
-        element.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop,
-      );
-    update();
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(update);
-    observer.observe(scroll);
-    for (
-      let sibling = element.previousElementSibling;
-      sibling;
-      sibling = sibling.previousElementSibling
-    )
-      observer.observe(sibling);
-    return () => observer.disconnect();
-  }, [active, getScrollElement, selectionMode]);
-  useLayoutEffect(() => {
-    if (!active || !focusRequest || appliedFocus.current === focusRequest) return;
-    const index = rows.findIndex((row) => row.selectionId === focusRequest.id);
-    if (index >= 0) {
-      appliedFocus.current = focusRequest;
-      list.scrollToIndex(index, { align: 'auto' });
-    }
-  }, [active, focusRequest, rows, list]);
-  const setPinnedRow = useCallback((key: string, keep: boolean) => {
-    setPinned((current) => {
-      if (keep === current.has(key)) return current;
-      const next = new Set(current);
-      if (keep) next.add(key);
-      else next.delete(key);
-      return next;
-    });
-  }, []);
   return (
-    <div
-      className="weq-qzn-feed-rows"
-      ref={content}
-      style={{ height: list.getTotalSize() }}
-      onFocusCapture={(event) => {
-        const row = event.target.closest<HTMLElement>('[data-qzone-feed-row]');
-        if (row) setFocused(row.dataset.qzoneFeedRow);
-      }}
-      onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setFocused(undefined);
-      }}
-    >
-      <FeedCardData.Provider value={cardData}>
-        {list.getVirtualItems().map((virtual) => {
-          const row = rows[virtual.index]!;
-          return (
-            <div
-              key={row.key}
-              {...(row.selectionId ? itemProps(row.selectionId) : {})}
-              ref={list.measureElement}
-              data-index={virtual.index}
-              data-qzone-feed-row={row.key}
-              className={`weq-reference-item${selected.has(row.selectionId) ? ' is-selected' : ''}`}
-              style={{ transform: `translateY(${virtual.start - offset}px)` }}
-            >
-              <FriendFeedCard
-                row={row}
-                selfUin={selfUin}
-                onSpace={onSpace}
-                lookup={lookup}
-                setPinnedRow={setPinnedRow}
-              />
-            </div>
-          );
-        })}
-      </FeedCardData.Provider>
-    </div>
+    <QzoneVirtualRows
+      rows={rows}
+      active={active}
+      selectionMode={selectionMode}
+      selected={selected}
+      focusRequest={focusRequest}
+      itemProps={itemProps}
+      renderRow={(row) => (
+        <FriendFeedCard row={row} selfUin={selfUin} onSpace={onSpace} lookup={lookup} />
+      )}
+    />
   );
 }
 
@@ -3247,28 +3118,14 @@ const FriendFeedCard = memo(function FriendFeedCard({
   selfUin,
   onSpace,
   lookup,
-  setPinnedRow,
 }: {
   row: FeedRow;
   selfUin: string;
   onSpace: (uin: string, nickname?: string) => void;
   lookup: (feed: QzoneFeed, tid: string | null) => Promise<QzoneEmotion | null>;
-  setPinnedRow: (key: string, keep: boolean) => void;
 }) {
-  const pinCard = useCallback(
-    (keep: boolean) => setPinnedRow(row.key, keep),
-    [row.key, setPinnedRow],
-  );
   return (
-    <PinFeedCard.Provider value={pinCard}>
-      <FeedCard
-        feed={row.feed}
-        body={row.body}
-        selfUin={selfUin}
-        onSpace={onSpace}
-        lookup={lookup}
-      />
-    </PinFeedCard.Provider>
+    <FeedCard feed={row.feed} body={row.body} selfUin={selfUin} onSpace={onSpace} lookup={lookup} />
   );
 });
 

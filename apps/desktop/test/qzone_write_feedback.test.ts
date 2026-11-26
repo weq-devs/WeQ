@@ -1387,6 +1387,40 @@ it('主页按可见性补全并复用说说，保留原位互动，并与说说�
   expect(home.textContent).toContain(post.content);
   expect(state.detail).toHaveBeenCalledTimes(1);
 });
+
+it('主页累计翻页后只挂载附近内容，后续卡片仍在可滚动的范围内', async () => {
+  state.detail.mockImplementation(async ({ tid }) => ({
+    post: {
+      tid,
+      content: `主页样本 ${Number(tid.slice(-14))}`,
+      time: 1600000000,
+      images: [],
+      videos: [],
+      commentNum: 0,
+    },
+  }));
+  state.homePages = Array.from({ length: 20 }, (_, page) => ({
+    feeds: Array.from({ length: 12 }, (_, slot) => {
+      const index = page * 12 + slot;
+      return {
+        cell_common: {
+          app_id: 311,
+          time: 1600000000 - index,
+          union_id: { feed_id: `1127000001${String(index).padStart(14, '0')}` },
+        },
+        cell_user_info: { user: { uin: '10001' } },
+        cell_summary: { summary: [{ type: 0, content: `主页样本 ${index}` }] },
+      };
+    }),
+  }));
+  const { host } = await mount(false, '主页', { timelineOnly: true });
+  const home = host.querySelector('.weq-qzn-home')!;
+  expect(home.textContent).toContain('主页样本 0');
+  expect(home.textContent).not.toContain('主页样本 239');
+  expect(home.querySelectorAll('article').length).toBeLessThan(30);
+  const list = home.querySelector<HTMLElement>('.weq-qzn-feed-rows')!;
+  expect(Number.parseFloat(list.style.height)).toBeGreaterThan(20_000);
+});
 it('主页取日志并集，按编号合并而不按时间，切换栏目复用详情和评论', async () => {
   const blogId = '1600000007';
   const newId = '1600000097';

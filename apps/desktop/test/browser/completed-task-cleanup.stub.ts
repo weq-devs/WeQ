@@ -17,9 +17,9 @@ function changeEntries(patch: Record<string, TaskArchiveEntry>) {
   for (const listener of listeners) listener();
 }
 export const useArchiveFixture = () => ({
-  data: useSyncExternalStore(subscribe, () => entries),
+  data: { entries: useSyncExternalStore(subscribe, () => entries) },
 });
-rpcFixture.set('taskArchive.list.useQuery', useArchiveFixture);
+rpcFixture.set('taskArchive.summaries.useQuery', useArchiveFixture);
 
 export const taskArchiveFixture = {
   change: {

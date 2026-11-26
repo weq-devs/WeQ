@@ -128,6 +128,7 @@ export function MonthMediaExplorer({ kind }: { kind: MonthKind }): ReactElement 
           cursor,
           limit: CURSOR_PAGE,
           requestId,
+          observedIndex: true,
         }),
       ),
     [kind],
@@ -290,7 +291,12 @@ export function VoiceExplorer(): ReactElement {
   const fetchPage = useCallback(
     (cursor: string | null, signal: AbortSignal) =>
       readMediaPage(signal, (requestId) =>
-        client.account.mediaResource.listVoice.query({ cursor, limit: CURSOR_PAGE, requestId }),
+        client.account.mediaResource.listVoice.query({
+          cursor,
+          limit: CURSOR_PAGE,
+          requestId,
+          observedIndex: true,
+        }),
       ),
     [],
   );

@@ -45,6 +45,7 @@ const REQUIRED = [
 const phrase = (text: string) => `"${text.replaceAll('"', '""')}"`;
 const nonAsciiCased = (text: string) =>
   text.codePointAt(0)! > 127 && text.toLowerCase() !== text.toUpperCase();
+const MAX_INDEX_GAPS = 2048;
 
 export interface SourceSearchPartition {
   column: '40021' | '40027' | '40035';
@@ -74,6 +75,7 @@ export class SourceMsgSearchDb {
   private schema = -1;
   private tokenizer: SourceTokenizer | null = null;
   private coverageRetryAt = Number.POSITIVE_INFINITY;
+  private gaps?: { revision: string; rows: Promise<string[] | undefined> };
   ready = false;
   lastError: string | null = null;
   indexedReadVerified = false;
@@ -91,6 +93,45 @@ export class SourceMsgSearchDb {
   private fileIdentity(): string {
     const info = statSync(this.target.dbPath);
     return `${info.dev}:${info.ino}`;
+  }
+
+  private sourceRevision(): string | undefined {
+    const versions: string[] = [];
+    for (const suffix of ['', '-wal', '-journal']) {
+      try {
+        const info = statSync(this.target.dbPath + suffix, { bigint: true });
+        versions.push(`${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`);
+      } catch (error) {
+        if (!suffix || (error as NodeJS.ErrnoException).code !== 'ENOENT') return undefined;
+        versions.push('-');
+      }
+    }
+    // shm 会随只读连接更新，不记录已提交的数据，故不作为内容版本的一部分。
+    return versions.join('/');
+  }
+
+  private missingRows(revision: string) {
+    if (this.gaps?.revision === revision) return this.gaps.rows;
+    const virtual = `${this.table}_fts`;
+    const rows = this.query(
+      `SELECT c.rowid FROM ${this.table} c
+       WHERE c.rowid NOT IN (SELECT id FROM ${virtual}_docsize)
+       AND (length(c."41701")>0 OR length(c."41702")>0)
+       LIMIT ?`,
+      [MAX_INDEX_GAPS + 1],
+      'validation',
+    ).then(
+      (rows) =>
+        rows.length <= MAX_INDEX_GAPS && this.sourceRevision() === revision
+          ? rows.map(([id]) => String(id))
+          : undefined,
+      () => {
+        if (this.gaps?.rows === rows) this.gaps = undefined;
+        return undefined;
+      },
+    );
+    this.gaps = { revision, rows };
+    return rows;
   }
   private query(
     sql: string,
@@ -133,6 +174,7 @@ export class SourceMsgSearchDb {
     this.ready = false;
     this.tokenizer = null;
     this.indexedReadVerified = false;
+    this.gaps = undefined;
     this.coverageRetryAt = Number.POSITIVE_INFINITY;
     if (this.identity && identity !== this.identity && !this.override) this.qq.close();
 
@@ -172,6 +214,7 @@ export class SourceMsgSearchDb {
       if (toStr(signature[0]?.[0]) !== 'qq-char0-ascii-query-v1') tokenizer = null;
     }
     if (tokenizer && version === afterVersion) {
+      const revision = this.sourceRevision();
       let missing: SqlRow[] | undefined;
       try {
         missing = await this.query(
@@ -194,6 +237,8 @@ export class SourceMsgSearchDb {
       if (Number(missing?.[0]?.[0]) !== 0) {
         tokenizer = null;
         this.coverageRetryAt = Date.now() + 5 * 60000;
+      } else if (revision !== undefined && this.sourceRevision() === revision) {
+        this.gaps = { revision, rows: Promise.resolve([]) };
       }
     }
     if (
@@ -363,26 +408,38 @@ export class SourceMsgSearchDb {
     const tie = `"${order === 'msgId' ? '40001' : '41700'}" ${order === 'time' ? 'ASC' : 'DESC'}`;
     const table = this.table;
     const virtual = `${table}_fts`;
-    // QQ 可能在校验后先写入内容表。补查无 docsize 的行，并在同一个 SQL 快照内去重。
-    const rows = await this.query(
-      `WITH candidates(id) AS MATERIALIZED (
-         SELECT rowid FROM ${virtual} WHERE ${virtual} MATCH ?
-         UNION
-         SELECT c.rowid FROM ${table} c WHERE ${filters}c.rowid NOT IN (SELECT id FROM ${virtual}_docsize)
-       )
-       SELECT p.*,v.schema_version FROM pragma_schema_version v LEFT JOIN (
-         SELECT ${CONTENT_FIELDS}, c."40027" AS partition
-         FROM candidates CROSS JOIN ${table} c ON c.rowid=candidates.id
-         WHERE ${filters}(${match}) ORDER BY c."40050" DESC,c.${tie} LIMIT ?
-       ) p ON 1 ORDER BY p."40050" DESC,p.${tie}`,
-      [
-        `${scope}:${anchor}`,
-        ...args,
-        ...args,
-        ...columns.map(() => ftsLikePattern(keyword)),
-        BigInt(limit),
-      ],
-    );
+    const run = (missing?: string[]) => {
+      // 已验证的文件版本共享一份缺口，只按主键补读。读中换版时用同一 SQL 快照完整对账。
+      const fallback = `SELECT c.rowid FROM ${table} c WHERE ${filters}c.rowid NOT IN (SELECT id FROM ${virtual}_docsize)`;
+      let supplement = fallback;
+      let gapArgs = args;
+      if (missing) {
+        supplement = missing.length ? 'SELECT CAST(value AS INTEGER) FROM json_each(?)' : '';
+        gapArgs = missing.length ? [JSON.stringify(missing)] : [];
+      }
+      return this.query(
+        `WITH candidates(id) AS MATERIALIZED (
+           SELECT rowid FROM ${virtual} WHERE ${virtual} MATCH ?
+           ${supplement ? `UNION ${supplement}` : ''}
+         )
+         SELECT p.*,v.schema_version FROM pragma_schema_version v LEFT JOIN (
+           SELECT ${CONTENT_FIELDS}, c."40027" AS partition
+           FROM candidates CROSS JOIN ${table} c ON c.rowid=candidates.id
+           WHERE ${filters}(${match}) ORDER BY c."40050" DESC,c.${tie} LIMIT ?
+         ) p ON 1 ORDER BY p."40050" DESC,p.${tie}`,
+        [
+          `${scope}:${anchor}`,
+          ...gapArgs,
+          ...args,
+          ...columns.map(() => ftsLikePattern(keyword)),
+          BigInt(limit),
+        ],
+      );
+    };
+    const revision = this.sourceRevision();
+    const missing = revision === undefined ? undefined : await this.missingRows(revision);
+    let rows = await run(missing);
+    if (missing && this.sourceRevision() !== revision) rows = await run();
     this.assertCurrent(rows, 10, generation);
     return rows.filter((row) => row[8] !== null).map((row) => [...row.slice(0, 8), row[9]!]);
   }

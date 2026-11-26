@@ -970,6 +970,19 @@ it('其他会话的新消息和当前未读变化都不重读当前正文，当�
       await vi.advanceTimersByTimeAsync(1000);
     });
     expect(f.headRefreshes).toBe(1);
+    f.headRefreshes = 0;
+    f.refreshReads.length = 0;
+    await act(async () => {
+      const observedAt = Date.now();
+      f.dbChanged!({ at: observedAt, targets: [{ kind: 'group', conv: '10002' }] });
+      f.dbChanged!({ at: observedAt, backgroundReconcile: true });
+      f.dbChanged!({ at: observedAt, draftChanged: true });
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(f.refreshReads).toEqual([]);
+    expect(f.headRefreshes).toBe(1);
+    await act(async () => vi.advanceTimersByTimeAsync(4000));
+    expect(f.refreshReads).toEqual(['10001']);
   } finally {
     act(() => root.unmount());
     client.clear();
@@ -2181,15 +2194,12 @@ it.each(['success', 'failed', 'pending'] as const)(
           finishSnapshot = () =>
             resolve(f.recent.map((row) => ({ uid: row.targetUid, unreadCount: 0 })));
         });
-    const reconcile = vi.spyOn(conversationRows, 'reconcileConversationRows');
+    const projectOrder = vi.spyOn(conversationRows, 'updateConversationOrder');
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const projected = () =>
-      reconcile.mock.calls
-        .filter(([, rows]) => rows.some((row) => 'pinStateKnown' in row))
-        .at(-1)?.[1];
+    const projected = () => projectOrder.mock.results.at(-1)?.value.rows;
     const count = () =>
       (
         JSON.parse(host.querySelector('[data-previews]')!.textContent!) as Array<{
@@ -2207,7 +2217,7 @@ it.each(['success', 'failed', 'pending'] as const)(
       await act(async () => vi.advanceTimersByTimeAsync(200));
       const before = new Map(projected()!.map((row) => [row.id, row]));
       expect(before.size).toBe(f.recent.length);
-      reconcile.mockClear();
+      projectOrder.mockClear();
       f.unreadCounts['10001'] = 9;
       await act(async () => {
         f.unreadChanged!([{ chatType: 2, uid: '10001' }]);
@@ -2226,7 +2236,7 @@ it.each(['success', 'failed', 'pending'] as const)(
         expect(count()).toBe(9);
       }
       const byId = new Map(after.map((row) => [row.id, row]));
-      reconcile.mockClear();
+      projectOrder.mockClear();
       f.unreadCounts['10001'] = 0;
       await act(async () => {
         f.unreadChanged!([{ chatType: 2, uid: '10001' }]);
@@ -2247,7 +2257,7 @@ it.each(['success', 'failed', 'pending'] as const)(
   },
 );
 
-it('MainView 单行预览更新时每条会话只计算一次排序时间', async () => {
+it('MainView 单行预览更新时只计算该会话的排序时间', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubGlobal('localStorage', new Storage());
@@ -2284,7 +2294,7 @@ it('MainView 单行预览更新时每条会话只计算一次排序时间', asyn
       lastMessage?: { body: string };
     }>;
     expect(rows.find((row) => row.id === '10001')?.lastMessage?.body).toBe('最新消息');
-    expect(time).toHaveBeenCalledTimes(f.recent.length);
+    expect(time).toHaveBeenCalledOnce();
   } finally {
     act(() => root.unmount());
     client.clear();

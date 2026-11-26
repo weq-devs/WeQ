@@ -212,6 +212,8 @@ export interface NewMessages {
 export interface NtMsgHooks {
   /** Every nt_msg.db change, regardless of whether new rows landed. */
   onDbChanged: (file: DbChange) => void;
+  /** 同序号替换仍需校准。仅指这轮已有可按会话读取的新增。 */
+  onWatermarksAdvanced?: (file: DbChange) => void;
   /** Only when newly-inserted rows were found. */
   onNewMessages: (change: NewMessages) => void | Promise<void>;
 }
@@ -295,6 +297,7 @@ export function createNtMsgDbHook(session: AccountSession, hooks: NtMsgHooks): D
       const old = previous.get(key);
       if (!old || cur.msgSeq > old.msgSeq) prioritized.push([key, cur]);
     }
+    if (prioritized.length) hooks.onWatermarksAdvanced?.(file);
     prioritized.sort(([, a], [, b]) =>
       a.sendTime > b.sendTime ? -1 : a.sendTime < b.sendTime ? 1 : 0,
     );

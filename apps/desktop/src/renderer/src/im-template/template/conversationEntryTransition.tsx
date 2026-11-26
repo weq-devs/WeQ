@@ -51,9 +51,11 @@ export class ConversationEntryTransition extends Component<Props> {
     )
       return null;
     const content = contentRef.current;
-    const windowed = content?.classList.contains('is-windowed') && content.parentNode === scroll;
+    const windowed = Boolean(
+      content?.classList.contains('is-windowed') && content.parentNode === scroll,
+    );
     const visible: Element[] = [];
-    if (windowed) {
+    if (windowed && content) {
       if (content.children.length > MAX_MEASURED_ROWS) return null;
       const bounds = scroll.getBoundingClientRect();
       for (const row of content.children) {

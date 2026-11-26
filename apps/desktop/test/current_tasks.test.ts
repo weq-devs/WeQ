@@ -179,7 +179,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   trpc: {
-    taskArchive: { list: { useQuery: () => ({ data: fixture.archive }) } },
+    taskArchive: {
+      summaries: { useQuery: () => ({ data: { entries: fixture.archive } }) },
+      detail: { useQuery: () => ({ data: null }) },
+    },
     dbRepair: { maintenance: { useQuery: () => ({ data: null }) } },
     backgroundTasks: {
       details: { useQuery: () => ({ data: [] }) },
@@ -193,7 +196,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     },
     useUtils: () => ({
-      taskArchive: { list: { invalidate: fixture.invalidate } },
+      taskArchive: { summaries: { invalidate: fixture.invalidate } },
       account: {
         flashListDownloadTasks: { invalidate: fixture.invalidate },
         listExportTasks: { invalidate: fixture.invalidate },

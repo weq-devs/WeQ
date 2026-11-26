@@ -1,3 +1,4 @@
+import { watch, type FSWatcher } from 'node:fs';
 import { lstat, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -67,21 +68,184 @@ export async function readMediaFileStats(
   return entries.filter((entry): entry is MediaFileEntry => entry !== undefined);
 }
 
+async function directoryStamp(path: string, signal?: AbortSignal) {
+  try {
+    const st = await mediaStat(path, signal);
+    return st.isDirectory() ? ([st.dev, st.ino, st.mtimeMs, st.ctimeMs] as const) : 'missing';
+  } catch (error) {
+    signal?.throwIfAborted();
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : undefined;
+  }
+}
+
 async function directoryRevision(paths: readonly string[], signal?: AbortSignal) {
-  const revisions = await Promise.all(
-    paths.map(async (path) => {
-      try {
-        const st = await mediaStat(path, signal);
-        return [st.dev, st.ino, st.mtimeMs, st.ctimeMs];
-      } catch (error) {
-        signal?.throwIfAborted();
-        const code = (error as NodeJS.ErrnoException).code;
-        return code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : undefined;
-      }
-    }),
-  );
+  const revisions = await Promise.all(paths.map((path) => directoryStamp(path, signal)));
   signal?.throwIfAborted();
   if (revisions.every((version) => version !== undefined)) return JSON.stringify(revisions);
+}
+
+const FILE_INDEX_TTL = 60_000;
+const FILE_INDEX_LIMIT = 128_000;
+type DirectoryIndex = {
+  epoch: number;
+  generation: number;
+  verified: number;
+  expires: number;
+  identity?: string;
+  revision?: string;
+  missing?: boolean;
+  files?: Map<string, MediaFileEntry>;
+  watcher?: FSWatcher;
+  dirty: Set<string>;
+  relist: boolean;
+  rescan: boolean;
+};
+
+/** 缓存每月文件元数据。文件变更只复查受影响的名称，丢失通知时定期完整校准。 */
+export class MediaDirectoryIndex {
+  private readonly dirs = new Map<string, DirectoryIndex>();
+  private epoch = 0;
+  private expiry?: ReturnType<typeof setTimeout>;
+  private closed = false;
+
+  version(paths: readonly string[]) {
+    const now = Date.now();
+    const versions: string[] = [];
+    for (const path of paths) {
+      const state = this.dirs.get(path);
+      if (
+        !state ||
+        state.expires <= now ||
+        state.verified !== state.generation ||
+        (!state.watcher && !state.missing)
+      )
+        return;
+      versions.push(`${state.epoch}:${state.verified}`);
+    }
+    return versions.join('/');
+  }
+
+  async read(path: string, signal?: AbortSignal): Promise<MediaFileEntry[]> {
+    const stamp = await directoryStamp(path, signal);
+    signal?.throwIfAborted();
+    if (this.closed || !stamp)
+      return readMediaFileStats(path, await mediaFileNames(path, signal), signal);
+    this.prune();
+    const identity = typeof stamp === 'string' ? stamp : `${stamp[0]}:${stamp[1]}`;
+    let state = this.dirs.get(path);
+    if (state?.identity !== identity) {
+      this.forget(path);
+      while (this.dirs.size >= 12) this.forget(this.dirs.keys().next().value!);
+      state = {
+        epoch: ++this.epoch,
+        generation: 0,
+        verified: -1,
+        expires: Date.now() + FILE_INDEX_TTL,
+        identity,
+        missing: stamp === 'missing',
+        dirty: new Set(),
+        relist: false,
+        rescan: false,
+      };
+      this.dirs.set(path, state);
+      if (!state.missing) this.watch(path, state);
+      this.scheduleExpiry();
+    }
+    if (state.missing) {
+      state.verified = state.generation;
+      return [];
+    }
+
+    const revision = JSON.stringify(stamp);
+    const generation = state.generation;
+    const changed = state.relist || state.revision !== revision;
+    const dirty = new Set(state.dirty);
+    // 无名通知、目录换代或监视失败时，保留完整读取作为兜底。
+    const previous =
+      state.watcher && !state.rescan && (!changed || dirty.size) ? state.files : undefined;
+    if (previous && !changed && !dirty.size) return [...previous.values()];
+    const names = previous && !changed ? [...previous.keys()] : await mediaFileNames(path, signal);
+    const changedNames = previous
+      ? names.filter((name) => !previous.has(name) || dirty.has(name))
+      : names;
+    const stats = await readMediaFileStats(path, changedNames, signal);
+    signal?.throwIfAborted();
+    const next = new Map(stats.map((item) => [item.name, item]));
+    if (previous)
+      for (const name of names) {
+        const item = previous.get(name);
+        if (item && !dirty.has(name)) next.set(name, item);
+      }
+    if (this.dirs.get(path) === state && state.verified <= generation) {
+      state.files = next;
+      state.revision = revision;
+      state.verified = generation;
+      if (state.generation === generation) {
+        state.dirty.clear();
+        state.relist = false;
+        state.rescan = false;
+      }
+      this.dirs.delete(path);
+      this.dirs.set(path, state);
+      let total = [...this.dirs.values()].reduce((sum, item) => sum + (item.files?.size ?? 0), 0);
+      while (total > FILE_INDEX_LIMIT) {
+        const oldest = this.dirs.keys().next().value!;
+        total -= this.dirs.get(oldest)?.files?.size ?? 0;
+        this.forget(oldest);
+      }
+    }
+    return [...next.values()];
+  }
+
+  private watch(path: string, state: DirectoryIndex) {
+    try {
+      const watcher = watch(path, { persistent: false }, (event, filename) => {
+        state.generation++;
+        if (event === 'rename') state.relist = true;
+        if (!filename || state.dirty.size >= 4096) {
+          state.dirty.clear();
+          state.rescan = true;
+        } else state.dirty.add(filename);
+      });
+      state.watcher = watcher;
+      watcher.on('error', () => this.forget(path, state));
+    } catch {
+      // 某些卷不支持监视，照常分页读取。
+    }
+  }
+
+  private forget(path: string, expected?: DirectoryIndex) {
+    const state = this.dirs.get(path);
+    if (expected && state !== expected) return;
+    this.dirs.delete(path);
+    state?.watcher?.close();
+  }
+
+  private prune() {
+    const now = Date.now();
+    for (const [path, state] of this.dirs) if (state.expires <= now) this.forget(path);
+  }
+
+  private scheduleExpiry() {
+    clearTimeout(this.expiry);
+    if (!this.dirs.size) return;
+    const next = Math.min(...[...this.dirs.values()].map(({ expires }) => expires));
+    this.expiry = setTimeout(
+      () => {
+        this.prune();
+        this.scheduleExpiry();
+      },
+      Math.max(1, next - Date.now()),
+    );
+    this.expiry.unref?.();
+  }
+
+  dispose() {
+    this.closed = true;
+    clearTimeout(this.expiry);
+    for (const path of this.dirs.keys()) this.forget(path);
+  }
 }
 
 const ROW_WINDOW = 16_000;
@@ -92,17 +256,21 @@ type Snapshot<T> = {
   total: number;
   offset: number;
   revision: string;
+  contentRevision?: string;
   expires: number;
   generation: number;
   rows: T[];
 };
 
-/** 保留排序结果，不持有文件描述符。首屏重开重新观察文件内部的 mtime 变化。 */
+/** 分页复用同版本的排序结果，重开首屏也走索引。 */
 export class MediaBucketPages<T> {
   private readonly cache = new Map<string, Snapshot<T>>();
   private rowCount = 0;
   private generation = 0;
   private expiry?: ReturnType<typeof setTimeout>;
+  private closed = false;
+
+  constructor(private readonly directoryIndex?: MediaDirectoryIndex) {}
 
   async page(
     dirs: string[],
@@ -111,16 +279,19 @@ export class MediaBucketPages<T> {
     resume: boolean,
     load: () => Promise<T[]>,
     signal?: AbortSignal,
+    observedIndex = false,
   ): Promise<{ entries: T[]; nextOffset: number | null }> {
     const key = JSON.stringify(dirs);
     const generation = ++this.generation;
     this.pruneExpired();
     const revision = await directoryRevision(dirs, signal);
+    const contentRevision = observedIndex ? this.directoryIndex?.version(dirs) : undefined;
     const cached = this.cache.get(key);
     if (
-      resume &&
+      (resume || contentRevision !== undefined) &&
       cached &&
       cached.revision === revision &&
+      cached.contentRevision === contentRevision &&
       cached.expires > Date.now() &&
       offset >= cached.offset &&
       Math.min(cached.total, offset + limit) <= cached.offset + cached.rows.length
@@ -138,8 +309,9 @@ export class MediaBucketPages<T> {
     signal?.throwIfAborted();
     const stable =
       revision !== undefined && rows.length && revision === (await directoryRevision(dirs, signal));
+    const confirmedContent = observedIndex ? this.directoryIndex?.version(dirs) : undefined;
     const current = this.cache.get(key);
-    if (stable && (!current || current.generation <= generation)) {
+    if (stable && !this.closed && (!current || current.generation <= generation)) {
       // 超大月份仍给接下来的页保留一段窗口，避免突破进程内的快照预算。
       const from = rows.length > ROW_WINDOW ? offset : 0;
       const window = rows.slice(from, from + ROW_WINDOW);
@@ -153,7 +325,8 @@ export class MediaBucketPages<T> {
         total: rows.length,
         offset: from,
         revision,
-        expires: Date.now() + SNAPSHOT_TTL,
+        contentRevision: confirmedContent,
+        expires: Date.now() + (confirmedContent === undefined ? SNAPSHOT_TTL : FILE_INDEX_TTL),
         generation,
         rows: window,
       });
@@ -189,5 +362,11 @@ export class MediaBucketPages<T> {
   private remove(key: string) {
     this.rowCount -= this.cache.get(key)?.rows.length ?? 0;
     this.cache.delete(key);
+  }
+
+  dispose() {
+    this.closed = true;
+    clearTimeout(this.expiry);
+    for (const key of this.cache.keys()) this.remove(key);
   }
 }

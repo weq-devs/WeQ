@@ -1445,14 +1445,26 @@ function MainWorkspace(): ReactElement {
     if (!messageScope || !binding) return;
     let pendingFileAt: number | undefined;
     let headFileAt: number | undefined;
-    const draftRefresh = createUnreadRefresh(async () => {
+    const refreshDrafts = async () => {
       if (messageScopeRef.current !== messageScope) return true;
       await Promise.all([
         utils.account.listConversationDraftTimes.invalidate(binding),
         utils.account.listDrafts.invalidate(binding),
       ]);
       return true;
-    }, 5000);
+    };
+    const draftRefresh = createUnreadRefresh(refreshDrafts, 100);
+    let draftMayHaveChanged = false;
+    const draftFallback = createUnreadRefresh(async () => {
+      if (!draftMayHaveChanged) return true;
+      draftMayHaveChanged = false;
+      try {
+        return await refreshDrafts();
+      } catch (error) {
+        draftMayHaveChanged = true;
+        throw error;
+      }
+    }, 15_000);
     // 隐藏、置顶和聚合目录的本机操作有定向更新；外部 QQ 的未知变化合并校准。
     const metadataRefresh = createUnreadRefresh(async () => {
       if (messageScopeRef.current !== messageScope) return true;
@@ -1473,9 +1485,25 @@ function MainWorkspace(): ReactElement {
       refreshRecentTargets();
       return true;
     }, 1000);
+    let backgroundRevision = 0;
+    const backgroundRefresh = createUnreadRefresh(async () => {
+      if (messageScopeRef.current !== messageScope) return true;
+      if (loadedRevisionRef.current < backgroundRevision) await refreshWindow();
+      if (headFileAt !== pendingFileAt) {
+        headFileAt = pendingFileAt;
+        refreshRecentHead();
+      }
+      refreshRecentTargets();
+      return true;
+    }, 5000);
     const sub = client.account.onDbChanged.subscribe(binding, {
       onData(notice) {
         if (messageScopeRef.current !== messageScope) return;
+        if (notice?.draftChanged) {
+          draftMayHaveChanged = false;
+          draftRefresh.request();
+          return;
+        }
         if (!IS_WEB && notice?.at) recordMessagePhase('observedToRenderer', Date.now() - notice.at);
         dbRevisionRef.current += 1;
         const selected = selectionRef.current;
@@ -1504,10 +1532,16 @@ function MainWorkspace(): ReactElement {
           return;
         }
         pendingFileAt = notice?.at;
-        conversationWindows.noteUnknownChange(activeKey);
-        void refreshWindow();
-        unknownRefresh.request();
-        draftRefresh.request();
+        conversationWindows.noteUnknownChange(notice?.backgroundReconcile ? undefined : activeKey);
+        if (notice?.backgroundReconcile) {
+          backgroundRevision = conversationWindows.revision;
+          backgroundRefresh.request();
+        } else {
+          void refreshWindow();
+          unknownRefresh.request();
+        }
+        draftMayHaveChanged = true;
+        draftFallback.request();
         metadataRefresh.request();
       },
       onError(err) {
@@ -1517,7 +1551,9 @@ function MainWorkspace(): ReactElement {
     return () => {
       metadataRefresh.dispose();
       unknownRefresh.dispose();
+      backgroundRefresh.dispose();
       draftRefresh.dispose();
+      draftFallback.dispose();
       sub.unsubscribe();
     };
   }, [
@@ -1530,6 +1566,7 @@ function MainWorkspace(): ReactElement {
     messageBindingRef,
     messageScopeRef,
     dbRevisionRef,
+    loadedRevisionRef,
     selectionRef,
   ]);
 

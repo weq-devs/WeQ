@@ -15,6 +15,7 @@ import { localBackgroundTasks } from '../../state/backgroundTasks';
 import type { BackgroundTaskEntry } from '../../hooks/useBackgroundTasks';
 import type { BackgroundTaskScope } from '../../../../shared/background_task';
 import { backgroundTaskDisplay } from '../../../../shared/background_task';
+import { backgroundResult } from '../../../../shared/task_archive';
 import { IS_WEB } from '../../lib/target.shared';
 import { useDialog } from '../Dialog.shared';
 import type { TaskLogLine } from '../TaskLogConsole';
@@ -101,7 +102,18 @@ function TaskDetails({
   managementActions: TaskQuickAction[];
   archived: boolean;
 }) {
-  const { task } = entry;
+  const saved = entry.source === 'saved' && Boolean(entry.savedId && scope?.configId);
+  const archivedDetails = trpc.taskArchive.detail.useQuery(
+    {
+      expectedAccountUin: scope?.uin ?? '',
+      expectedAccountConfigId: scope?.configId ?? '',
+      id: entry.savedId ?? 'background:host:_',
+      result: backgroundResult(entry.task),
+    },
+    { enabled: saved, staleTime: Infinity },
+  );
+  const archiveError = saved ? archivedDetails.error : null;
+  const task = archivedDetails.data ? { ...archivedDetails.data, ...entry.task } : entry.task;
   const outgoing = useOutgoingTaskProgress(task);
   const openCalendarTask = useContext(CalendarTaskNavigationContext);
   const canManageTask = !IS_WEB || task.kind !== 'update';
@@ -304,8 +316,8 @@ function TaskDetails({
           onShowFailures={(lane, label) => void showContactFailures(lane, label)}
         />
       ) : null}
-      {hostDetails.error && entry.source === 'host' ? (
-        <p role="alert">详情读取失败：{hostDetails.error.message}</p>
+      {(hostDetails.error && entry.source === 'host') || archiveError ? (
+        <p role="alert">详情读取失败：{(archiveError ?? hostDetails.error)?.message}</p>
       ) : null}
       {task.kind === 'contacts' ? (
         taskLogs.error ? (
@@ -327,7 +339,9 @@ function TaskDetails({
       (task.kind !== 'contacts' || !task.subtasks?.length) ? (
         <TaskActivityLog
           lines={logs}
-          loading={entry.source === 'host' && taskLogs.isLoading}
+          loading={
+            (entry.source === 'host' && taskLogs.isLoading) || (saved && archivedDetails.isLoading)
+          }
           error={taskLogs.error?.message}
         />
       ) : null}

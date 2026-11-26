@@ -15,6 +15,10 @@ export interface TaskArchiveEntry {
 }
 
 export type TaskArchive = Record<string, TaskArchiveEntry>;
+export type TaskArchivePatch = Record<string, TaskArchiveEntry | null>;
+export type TaskArchiveVersion = { generation: string; revision: number };
+export type TaskArchiveChange = TaskArchiveVersion & { patch?: TaskArchivePatch };
+export type TaskArchiveSummaries = TaskArchiveVersion & { entries: TaskArchive };
 
 export function isTaskArchived(entry: TaskArchiveEntry | undefined, result: string) {
   return entry?.result === result && entry.archivedAt !== undefined;

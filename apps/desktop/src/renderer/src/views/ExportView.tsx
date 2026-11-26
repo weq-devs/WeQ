@@ -1193,7 +1193,7 @@ function ExportToolBody({
           action: 'deliver',
           tasks: [exportTaskResult(t)],
         })
-        .then(() => utils.taskArchive.list.invalidate(saveBinding))
+        .then(() => utils.taskArchive.summaries.invalidate(saveBinding))
         .catch(() => undefined);
     } catch (error) {
       if (isCurrent())

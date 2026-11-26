@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -60,6 +60,64 @@ beforeEach(() => {
   fixture.remove.mockClear();
 });
 afterEach(() => rmSync(fixture.root, { recursive: true, force: true }));
+
+it('迁移旧归档后，活动订阅只发变更摘要，明细仍可按结果版本取回', async () => {
+  const directory = join(fixture.root, 'config', 'accounts', 'source');
+  mkdirSync(directory, { recursive: true });
+  const legacyId = 'background:window:old';
+  const legacy = {
+    result: 'completed:1',
+    archivedAt: 1,
+    snapshot: {
+      id: 'old',
+      kind: 'forward',
+      name: '旧转发',
+      status: 'completed',
+      startedAt: 0,
+      updatedAt: 1,
+      actions: [],
+      details: ['详细内容'],
+      logs: [{ seq: 1, at: 1, text: '日志' }],
+    },
+  };
+  const legacyPath = join(directory, 'task-archive.json');
+  writeFileSync(legacyPath, JSON.stringify({ [legacyId]: legacy }));
+  const before = await caller.summaries(binding);
+  expect(before.entries[legacyId]?.snapshot?.details).toBeUndefined();
+  expect(await caller.detail({ ...binding, id: legacyId, result: legacy.result })).toEqual(
+    legacy.snapshot,
+  );
+  expect(await caller.detail({ ...binding, id: legacyId, result: 'completed:2' })).toBeNull();
+
+  const next = vi.fn();
+  const subscription = (await caller.changes(binding)).subscribe({ next });
+  try {
+    fixture.exports.set('file', {
+      id: 'file',
+      status: 'completed',
+      updatedAt: 1,
+      save: { status: 'saved' },
+    });
+    expect((await change('archive', ref('file'))).changed).toBe(1);
+    expect(next.mock.calls).toEqual([
+      [{ generation: before.generation, revision: before.revision }],
+      [
+        {
+          generation: before.generation,
+          revision: before.revision + 1,
+          patch: {
+            'export:file': { result: 'completed:saved:1', archivedAt: expect.any(Number) },
+          },
+        },
+      ],
+    ]);
+    const reopened = new TaskArchiveStore(legacyPath);
+    expect(reopened.get(legacyId)?.snapshot?.details).toEqual(['详细内容']);
+    expect(reopened.get('export:file')?.result).toBe('completed:saved:1');
+  } finally {
+    subscription.unsubscribe();
+  }
+});
 
 it('归档完整保存结果但不清理产物，恢复抑制当前结果的自动归档，仅归档后才删除', async () => {
   fixture.exports.set('file', {

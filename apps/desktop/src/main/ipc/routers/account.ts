@@ -3290,9 +3290,10 @@ export const accountRouter = router({
         input.expectedAccountConfigId,
       );
       let expectedBody: Uint8Array | null = null;
-      const write = () => {
+      let written = false;
+      const write = async () => {
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
-        return services.drafts.compareAndSave(
+        written = await services.drafts.compareAndSave(
           {
             kind: input.kind,
             targetUid: input.targetUid,
@@ -3300,6 +3301,7 @@ export const accountRouter = router({
           },
           expectedBody,
         );
+        return written;
       };
       const state = currentDraftState();
       const key = `chat:${input.kind}:${input.targetUid}`;
@@ -3313,13 +3315,16 @@ export const accountRouter = router({
         state.relocateDraftImages(elements);
         return elements;
       };
-      return state.saveExternalDraft(
+      const saved = await state.saveExternalDraft(
         key,
         input.elements.length ? input.elements : null,
         input.expectedVersion ?? null,
         read,
         write,
       );
+      if (written && saved.ok && getAppContext().services === services)
+        dbEventBus.emit('changed', { at: Date.now(), draftChanged: true } satisfies MessageDbNotice);
+      return saved;
     }),
 
   /**

@@ -14,6 +14,7 @@ import {
   isTaskArchived,
   roamingArchivePolicy,
   roamingResult,
+  type TaskArchiveChange,
   type TaskArchiveEntry,
 } from '../../../shared/task_archive';
 import { procedure, router } from '../trpc';
@@ -161,7 +162,7 @@ function resolveTarget(
       remove: async () => (await downloads.clearFinishedSelection([id])) > 0,
     };
   }
-  const saved = store.snapshot()[ref.id]?.snapshot;
+  const saved = store.get(ref.id)?.snapshot;
   if (ref.id.startsWith('background:host:')) {
     const task = backgroundTasks.snapshot().find((row) => row.id === identity[1]);
     if (task) {
@@ -215,6 +216,29 @@ export const taskArchiveRouter = router({
   list: procedure
     .input(clientAccountBinding)
     .query(({ input }) => scopedArchive(input).store.snapshot()),
+  summaries: procedure
+    .input(clientAccountBinding)
+    .query(({ input }) => scopedArchive(input).store.summaries()),
+  detail: procedure
+    .input(clientAccountBinding.extend({ id: key, result: z.string().min(1) }))
+    .query(({ input }) => {
+      const { store, scope } = scopedArchive(input);
+      const entry = store.get(input.id);
+      return entry?.result === input.result &&
+        entry.snapshot &&
+        backgroundTaskVisible(entry.snapshot, scope)
+        ? entry.snapshot
+        : null;
+    }),
+  changes: procedure.input(clientAccountBinding).subscription(({ input }) => {
+    const { store } = scopedArchive(input);
+    return observable<TaskArchiveChange>((emit) => {
+      const version = store.version();
+      const unsubscribe = store.subscribe((change) => emit.next(change));
+      emit.next(version);
+      return unsubscribe;
+    });
+  }),
   changed: procedure.input(clientAccountBinding).subscription(({ input }) => {
     const { store } = scopedArchive(input);
     return observable<boolean>((emit) => store.subscribe(() => emit.next(true)));
@@ -233,7 +257,7 @@ export const taskArchiveRouter = router({
       const patch: Record<string, TaskArchiveEntry> = {};
       for (const ref of input.tasks) {
         if (store.deleting.has(ref.id)) continue;
-        const previous = store.snapshot()[ref.id];
+        const previous = store.get(ref.id);
         const sameResult = previous?.result === ref.result;
         if (input.action === 'restore') {
           if (previous && isTaskArchived(previous, ref.result))
@@ -294,8 +318,8 @@ export const taskArchiveRouter = router({
           snapshot: storedSnapshot(target.snapshot),
         };
       }
-      store.update(patch);
-      return { changed: Object.keys(patch).length };
+      const delta = store.update(patch);
+      return { changed: Object.keys(patch).length, delta };
     }),
   remove: procedure
     .input(clientAccountBinding.extend({ task: taskRef }))
@@ -303,7 +327,7 @@ export const taskArchiveRouter = router({
       const ref = input.task;
       const context = await prepare(input, [ref]);
       const { store } = context;
-      const previous = store.snapshot()[ref.id];
+      const previous = store.get(ref.id);
       if (
         !isTaskArchived(previous, ref.result) ||
         store.deleting.has(ref.id) ||

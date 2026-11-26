@@ -2,6 +2,7 @@ import { formatUnixTime } from '@weq/time';
 import type { QzoneShare, QzoneShareCategory } from '@weqbot/protocol/web';
 import { RefreshCw } from 'lucide-react';
 import { useContext, useEffect, useState, type ReactNode } from 'react';
+import { useFeedCardState } from './qzoneCardState';
 import { FormSelect } from '../components/FormSelect';
 import { QzoneActionsRow, QzoneCommentToggle } from '../components/QzoneActionsRow';
 import { QzoneCommentRow } from '../components/QzoneCommentRow';
@@ -109,7 +110,7 @@ export function QzoneSharePost({
     commentPreview?: ReactNode;
   };
 }) {
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useFeedCardState('share-comments');
   const [commentCount, setCommentCount] = useState<number | null>(null);
   const time = timeline?.time || formatUnixTime(share.publishedTime, 'minute') || share.publishedAt;
   return (

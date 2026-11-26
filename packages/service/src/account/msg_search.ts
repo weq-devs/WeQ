@@ -10,11 +10,16 @@
  */
 
 import type { AccountSession } from '@weq/account';
-import { type BuddyMsgFtsHit, type C2cPartition, withDatabaseSignal } from '@weq/db';
+import {
+  type BuddyMsgFtsHit,
+  type C2cPartition,
+  withDatabaseSignal,
+  withDatabaseWorkload,
+} from '@weq/db';
 import type { UnifiedSearchService } from './unified_search';
 
 function searchWithSignal<T>(signal: AbortSignal | undefined, read: () => Promise<T>): Promise<T> {
-  return signal ? withDatabaseSignal(signal, read) : read();
+  return withDatabaseWorkload('bulk', () => (signal ? withDatabaseSignal(signal, read) : read()));
 }
 
 export class MsgSearchService {

@@ -1,7 +1,12 @@
 import { client, trpc } from '../trpc/client';
+import { replaceEqualDeep } from '@tanstack/react-query';
 import type { AppRouter } from '../../../main/ipc/router';
 import type { inferRouterInputs } from '@trpc/server';
-import type { TaskArchive } from '../../../shared/task_archive';
+import type {
+  TaskArchive,
+  TaskArchiveChange,
+  TaskArchiveSummaries,
+} from '../../../shared/task_archive';
 
 type Routes = inferRouterInputs<AppRouter>['taskArchive'];
 export type TaskArchiveBinding = Routes['list'];
@@ -10,15 +15,44 @@ export type TaskArchiveAction = Routes['change']['action'];
 const empty: TaskArchive = {};
 const unbound = { expectedAccountUin: '', expectedAccountConfigId: '' };
 
+export function applyTaskArchiveChange(current: TaskArchiveSummaries, change: TaskArchiveChange) {
+  if (current.generation !== change.generation) return undefined;
+  if (change.revision <= current.revision) return current;
+  if (change.revision !== current.revision + 1 || !change.patch) return undefined;
+  const entries = { ...current.entries };
+  for (const [id, entry] of Object.entries(change.patch)) {
+    if (entry) entries[id] = entry;
+    else delete entries[id];
+  }
+  return { generation: change.generation, revision: change.revision, entries };
+}
+
+function updateSummaries(
+  utils: ReturnType<typeof trpc.useUtils>,
+  binding: TaskArchiveBinding,
+  change: TaskArchiveChange,
+) {
+  const current = utils.taskArchive.summaries.getData(binding);
+  const next = current && applyTaskArchiveChange(current, change);
+  if (!next) return utils.taskArchive.summaries.invalidate(binding);
+  if (next !== current) utils.taskArchive.summaries.setData(binding, next);
+}
+
 export function useTaskArchive(binding: TaskArchiveBinding | null | undefined, enabled = true) {
   const utils = trpc.useUtils();
-  const query = trpc.taskArchive.list.useQuery(binding ?? unbound, {
+  const query = trpc.taskArchive.summaries.useQuery(binding ?? unbound, {
     enabled: Boolean(binding) && enabled,
     staleTime: 5000,
     keepPreviousData: false,
+    structuralSharing: (previous, next) => {
+      const current = previous as TaskArchiveSummaries | undefined;
+      return current?.generation === next.generation && current.revision > next.revision
+        ? current
+        : replaceEqualDeep(current, next);
+    },
   });
   return {
-    entries: query.data ?? empty,
+    entries: query.data?.entries ?? empty,
     ready: !binding || query.data !== undefined,
     error: query.error,
     async change(action: TaskArchiveAction, tasks: TaskArchiveRef[]) {
@@ -30,16 +64,17 @@ export function useTaskArchive(binding: TaskArchiveBinding | null | undefined, e
           action,
           tasks: tasks.slice(offset, offset + 500),
         });
-        // 读最新的宿主快照，避免慢响应覆盖其他窗口刚保存的结果。
+        // 版本连续时只应用本次变更，慢回执不会覆盖其它窗口已应用的新版本。
+        if (result.delta) await updateSummaries(utils, binding, result.delta);
+        else if (result.changed) await utils.taskArchive.summaries.invalidate(binding);
         changed += result.changed;
       }
-      await utils.taskArchive.list.invalidate(binding);
       return changed;
     },
     async remove(task: TaskArchiveRef) {
       if (!binding) return false;
       const removed = await client.taskArchive.remove.mutate({ ...binding, task });
-      await utils.taskArchive.list.invalidate(binding);
+      if (removed) await utils.taskArchive.summaries.invalidate(binding);
       return removed;
     },
   };
@@ -47,10 +82,10 @@ export function useTaskArchive(binding: TaskArchiveBinding | null | undefined, e
 
 export function useTaskArchiveChanges(binding: TaskArchiveBinding | null, enabled: boolean) {
   const utils = trpc.useUtils();
-  trpc.taskArchive.changed.useSubscription(binding ?? unbound, {
+  trpc.taskArchive.changes.useSubscription(binding ?? unbound, {
     enabled: Boolean(binding) && enabled,
-    onData: () => {
-      if (binding) void utils.taskArchive.list.invalidate(binding);
+    onData: (change) => {
+      if (binding) void updateSummaries(utils, binding, change);
     },
   });
 }

@@ -21,9 +21,11 @@ import { logTransportError } from '@weq/service';
 import { WebSocketServer } from 'ws';
 import type { AuthGate } from './auth';
 import { createGroupVideoWebUpgrade, type ResolveGroupVideo } from './group_video';
+import { parseLargeRpcJson } from './rpc_json_worker';
 
 // 单图上传允许 14 MiB base64；附件使用既有分段入口。批量只用于读取。
 export const HTTP_RPC_MAX_BODY_BYTES = 16 * 1024 * 1024;
+const INLINE_JSON_BYTES = 256 * 1024;
 
 /** HTTP handler for queries + mutations, mounted under `/trpc`. */
 export function createTrpcHandler(
@@ -73,25 +75,37 @@ export function createTrpcHandler(
       req.off('aborted', cleanup);
       req.off('error', cleanup);
     };
-    const reject = (status: 400 | 413) => {
+    const reject = (status: 400 | 413 | 503) => {
       cleanup();
+      if (res.destroyed) return;
       req.pause();
-      const code = status === 413 ? 'PAYLOAD_TOO_LARGE' : 'PARSE_ERROR';
+      const code =
+        status === 413
+          ? 'PAYLOAD_TOO_LARGE'
+          : status === 503
+            ? 'INTERNAL_SERVER_ERROR'
+            : 'PARSE_ERROR';
       const error = new TRPCError({
         code,
         message:
-          status === 413 ? '请求正文超过 16 MiB 上限，请使用附件分段上传。' : '请求 JSON 无效',
+          status === 413
+            ? '请求正文超过 16 MiB 上限，请使用附件分段上传。'
+            : status === 503
+              ? '请求暂时无法解析，请稍后重试。'
+              : '请求 JSON 无效',
+      });
+      const shape = router.getErrorShape({
+        error,
+        type: req.method === 'GET' ? 'query' : 'mutation',
+        path: undefined,
+        input: undefined,
+        ctx: undefined,
       });
       const result = {
-        error: router._def._config.transformer.output.serialize(
-          router.getErrorShape({
-            error,
-            type: req.method === 'GET' ? 'query' : 'mutation',
-            path: undefined,
-            input: undefined,
-            ctx: undefined,
-          }),
-        ),
+        error: router._def._config.transformer.output.serialize({
+          ...shape,
+          data: { ...shape.data, httpStatus: status },
+        }),
       };
       const url = new URL(req.url ?? '/', 'http://localhost');
       const body =
@@ -109,6 +123,12 @@ export function createTrpcHandler(
       req.once('close', () => clearTimeout(closing));
       res.end(JSON.stringify(body));
     };
+    const json = req.headers['content-type']?.startsWith('application/json');
+    const dispatch = (body: unknown) => {
+      if (res.destroyed) return;
+      Object.assign(req, { body });
+      invoke();
+    };
     const data = (chunk: Buffer) => {
       bytes += chunk.byteLength;
       if (bytes > HTTP_RPC_MAX_BODY_BYTES) {
@@ -118,21 +138,23 @@ export function createTrpcHandler(
       chunks.push(chunk);
     };
     const end = () => {
-      const text = Buffer.concat(chunks, bytes).toString('utf8');
+      const bodyChunks = chunks;
       cleanup();
+      if (json && bytes > INLINE_JSON_BYTES) {
+        void parseLargeRpcJson(bodyChunks, bytes).then(dispatch, (error: unknown) =>
+          reject(error instanceof SyntaxError ? 400 : 503),
+        );
+        return;
+      }
+      const text = Buffer.concat(bodyChunks, bytes).toString('utf8');
+      let body: unknown = text || undefined;
       try {
-        Object.assign(req, {
-          body: req.headers['content-type']?.startsWith('application/json')
-            ? text
-              ? JSON.parse(text)
-              : undefined
-            : text || undefined,
-        });
+        if (json && text) body = JSON.parse(text);
       } catch {
         reject(400);
         return;
       }
-      invoke();
+      dispatch(body);
     };
     if (Number(req.headers['content-length'] ?? 0) > HTTP_RPC_MAX_BODY_BYTES) {
       reject(413);

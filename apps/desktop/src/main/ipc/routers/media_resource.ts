@@ -203,26 +203,32 @@ export const mediaResourceRouter = router({
   }),
 
   /** One page of merged month entries (图片 / 视频, Ori + Thumb by hash). */
-  listMonth: procedure.input(pageInput.extend({ kind: monthKind })).query(({ input }) => {
-    return mediaPage(input.requestId, ({ mediaResource }, signal) =>
-      mediaResource.listMonth(input.kind, {
-        limit: input.limit,
-        cursor: input.cursor ?? null,
-        signal,
-      }),
-    );
-  }),
+  listMonth: procedure
+    .input(pageInput.extend({ kind: monthKind, observedIndex: z.boolean().optional() }))
+    .query(({ input }) => {
+      return mediaPage(input.requestId, ({ mediaResource }, signal) =>
+        mediaResource.listMonth(input.kind, {
+          limit: input.limit,
+          cursor: input.cursor ?? null,
+          signal,
+          observedIndex: input.observedIndex,
+        }),
+      );
+    }),
 
   /** One page of voice clips (语音, Ptt cache — SILK, decoded on demand). */
-  listVoice: procedure.input(pageInput).query(({ input }) => {
-    return mediaPage(input.requestId, ({ mediaResource }, signal) =>
-      mediaResource.listVoice({
-        limit: input.limit,
-        cursor: input.cursor ?? null,
-        signal,
-      }),
-    );
-  }),
+  listVoice: procedure
+    .input(pageInput.extend({ observedIndex: z.boolean().optional() }))
+    .query(({ input }) => {
+      return mediaPage(input.requestId, ({ mediaResource }, signal) =>
+        mediaResource.listVoice({
+          limit: input.limit,
+          cursor: input.cursor ?? null,
+          signal,
+          observedIndex: input.observedIndex,
+        }),
+      );
+    }),
 
   cancelPage: procedure.input(z.object({ requestId: z.string().uuid() })).mutation(({ input }) => {
     const services = getAppContext().services;

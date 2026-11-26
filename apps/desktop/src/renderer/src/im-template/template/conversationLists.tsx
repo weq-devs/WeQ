@@ -59,7 +59,11 @@ import {
 } from 'react';
 import type { ContactMetricRows } from '@weq/service';
 import { conversationPinned } from '@weq/service/conversation-order';
-import { sortConversationRows, reconcileConversationRows } from '../../lib/conversationListOrder';
+import {
+  updateConversationOrder,
+  reconcileConversationRows,
+  type ConversationOrder,
+} from '../../lib/conversationListOrder';
 import { useEventContextValue } from '../../hooks/useEventContextValue';
 import {
   groupFriends,
@@ -392,12 +396,19 @@ export function ConversationList({
     if (removed.length === selectedIds.size) setSelectionMode(false);
     else if (removed.length) removeSelectedIds(removed);
   }, [generatedRows, loading, selectedIds, removeSelectedIds, setSelectionMode]);
-  const sorted = useMemo(() => {
+  const previousOrder = useRef<ConversationOrder<Conversation> | undefined>(undefined);
+  const order = useMemo(() => {
     const rows = directory?.rows ?? conversations;
     const visible = keyword.trim() ? rows.filter(createConversationListMatcher(keyword)) : rows;
-    const ordered = sortConversationRows(visible, preferences);
-    return { rows: ordered, ids: ordered.map((row) => row.id) };
+    return updateConversationOrder(visible, previousOrder.current, preferences);
   }, [conversations, preferences, directory?.rows, keyword]);
+  useLayoutEffect(() => {
+    previousOrder.current = order;
+  }, [order]);
+  const sorted = useMemo(
+    () => ({ rows: order.rows, ids: order.rows.map((row) => row.id) }),
+    [order],
+  );
   const orderedRows = useConversationHoverOrder(
     sorted.rows,
     keepPosition && (pointerInside || Boolean(actionMenu)),

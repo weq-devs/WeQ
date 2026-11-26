@@ -7,8 +7,12 @@ import { isDataline } from '../../lib/deviceAvatar';
 import { applyOutgoingConversationPreview } from '../../lib/outgoingConversationPreview';
 import { classifyChatType, toChatTypeNumber } from '@weq/codec';
 import { contactTitle } from '../../lib/contactTitle';
-import { conversationSortTime, conversationActivityTime } from '@weq/service/conversation-order';
-import { reconcileConversationRows, sortConversationRows } from '../../lib/conversationListOrder';
+import { conversationSortTime } from '@weq/service/conversation-order';
+import {
+  reconcileConversationRows,
+  updateConversationOrder,
+  type ConversationOrder,
+} from '../../lib/conversationListOrder';
 import { createConversationProjection } from '../../lib/conversationProjection';
 import { archivedConversationRow } from '../../lib/conversationDirectoryRows';
 import type { GroupPreviewNameIndex } from '../../lib/visibleConversationProfiles';
@@ -364,7 +368,7 @@ export function useWorkspaceDirectory({
     withGroupNotifyLevel,
   ]);
   const baseConversationRowsRef = useRef<Conversation[]>([]);
-  const conversationRowsRef = useRef<Conversation[]>([]);
+  const conversationOrderRef = useRef<ConversationOrder<Conversation> | undefined>(undefined);
   const recentConversationCache = useMemo(
     () => ({
       recent: createRecentContactProjection(user),
@@ -667,7 +671,7 @@ export function useWorkspaceDirectory({
     outgoingConversationPreviews,
     withGroupNotifyLevel,
   ]);
-  const conversations = useMemo(() => {
+  const conversationOrder = useMemo(() => {
     const assistantUnread = [...groupAssistantIds].reduce(
       (count, id) => count + (unreadByConv[id] ?? 0),
       0,
@@ -676,43 +680,38 @@ export function useWorkspaceDirectory({
       (latest, id) => Math.max(latest, draftTimesByConv[id] ?? 0),
       0,
     );
-    return reconcileConversationRows(
-      conversationRowsRef.current,
-      // 与 QQ 的 41136 一致：置顶分组，两组内部都按消息／草稿活动时间排。
-      sortConversationRows(
-        baseConversations.map((conversation) => {
-          const unread =
-            conversation.type === 'merged' && conversation.mergedKind === 'groupAssistant'
-              ? assistantUnread
-              : unreadByConv[conversation.id];
-          const highlights = highlightsByConv[conversation.id] ?? null;
-          const topTime = topTimeByConv[conversation.id];
-          const pinStateKnown =
-            Boolean(topContacts.data) &&
-            (conversation.type === 'direct' || conversation.type === 'group');
-          const activityTime = Math.max(
-            draftTimesByConv[conversation.id] ?? 0,
-            temporaryConversations[conversation.id]?.appearedAt ?? 0,
-            conversation.type === 'merged' && conversation.mergedKind === 'groupAssistant'
-              ? assistantDraftTime
-              : 0,
-          );
-          return recentConversationCache.projection.directory(
-            conversation,
-            {
-              unreadCount: unread,
-              highlights,
-              pinnedAt: topTime,
-              pinStateKnown,
-              activityTime,
-            },
-            fallbackPreference,
-          );
-        }),
-        undefined,
-        (row) =>
-          Math.max(conversationActivityTime(row), temporaryConversations[row.id]?.appearedAt ?? 0),
-      ),
+    // 与 QQ 的 41136 一致：置顶分组，两组内部都按消息／草稿活动时间排。
+    return updateConversationOrder(
+      baseConversations.map((conversation) => {
+        const unread =
+          conversation.type === 'merged' && conversation.mergedKind === 'groupAssistant'
+            ? assistantUnread
+            : unreadByConv[conversation.id];
+        const highlights = highlightsByConv[conversation.id] ?? null;
+        const topTime = topTimeByConv[conversation.id];
+        const pinStateKnown =
+          Boolean(topContacts.data) &&
+          (conversation.type === 'direct' || conversation.type === 'group');
+        const activityTime = Math.max(
+          draftTimesByConv[conversation.id] ?? 0,
+          temporaryConversations[conversation.id]?.appearedAt ?? 0,
+          conversation.type === 'merged' && conversation.mergedKind === 'groupAssistant'
+            ? assistantDraftTime
+            : 0,
+        );
+        return recentConversationCache.projection.directory(
+          conversation,
+          {
+            unreadCount: unread,
+            highlights,
+            pinnedAt: topTime,
+            pinStateKnown,
+            activityTime,
+          },
+          fallbackPreference,
+        );
+      }),
+      conversationOrderRef.current,
     );
   }, [
     baseConversations,
@@ -725,10 +724,11 @@ export function useWorkspaceDirectory({
     draftTimesByConv,
     groupAssistantIds,
   ]);
+  const conversations = conversationOrder.rows;
   useLayoutEffect(() => {
     baseConversationRowsRef.current = baseConversations;
-    conversationRowsRef.current = conversations;
-  }, [baseConversations, conversations]);
+    conversationOrderRef.current = conversationOrder;
+  }, [baseConversations, conversationOrder]);
   const sidebarConversations = useMemo(
     () => sidebarConversationsWithoutAssistant(conversations, groupAssistantIds),
     [conversations, groupAssistantIds],
