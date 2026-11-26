@@ -121,7 +121,7 @@ import {
 } from '../lib/startupQueries';
 import { useContactOnlineStatuses } from '../hooks/useContactOnlineStatuses';
 import { useContactNoticeUpdates } from '../hooks/useContactNoticeUpdates';
-import { useOnlineNoticeInbox } from '../components/qq-actions/RequestActions.shared';
+import { useGroupNoticeInbox, useOnlineNoticeInbox } from '../components/qq-actions/RequestActions.shared';
 import { CONTACT_NOTICE_LIMIT } from '../../../shared/contact_notices';
 import { useEventContextValue } from '../hooks/useEventContextValue';
 import { useStableCallback } from '../hooks/useStableCallback';
@@ -3143,13 +3143,11 @@ function MainWorkspace(): ReactElement {
     botUids,
   ]);
   const friendNoticeInbox = useOnlineNoticeInbox(
-    false,
     pinSession.available && (onlineReady || shell.contactNotice === 'friend'),
     pinSession.binding,
   );
-  const groupNoticeInbox = useOnlineNoticeInbox(
-    true,
-    pinSession.available && (onlineReady || shell.contactNotice === 'group'),
+  const groupNoticeInbox = useGroupNoticeInbox(
+    pinSession.available && shell.view === 'contacts' && shell.contactNotice === 'group',
     pinSession.binding,
   );
   const { ids: friendNoticeIds } = useMemo(

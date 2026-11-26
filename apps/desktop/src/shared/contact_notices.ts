@@ -4,6 +4,7 @@ export type NoticeOperationWire = {
   token: string;
   noticeId?: string;
   sequence?: string;
+  inboxCursor?: string;
   uid: string;
   uin: string;
   groupId: string;

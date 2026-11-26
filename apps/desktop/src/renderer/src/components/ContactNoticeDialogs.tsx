@@ -6,7 +6,7 @@ import { activateProfile } from '../lib/profileClick';
  * 数据与开关都由应用层给：`open` 由 MainView 的 `shell.contactNotice` 驱动，
  * `requests` 是已经取好的申请列表。
  */
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { useContext, useEffect, useRef } from 'react';
 import { sharedGroupConversation } from './ark/groupShareCard';
 import { cn } from '../im-template/template/classNames';
@@ -23,6 +23,7 @@ import {
   bindNoticeOperations,
   formatNoticeTimestamp,
   latestNormalNoticeSequence,
+  type GroupNoticeInbox,
   type NoticeInbox,
   type NoticeOperation,
 } from '../lib/contactNotice';
@@ -225,7 +226,7 @@ function GroupNoticeDialogBody({
 }: {
   open: boolean;
   requests: GroupJoinRequest[];
-  onlineInbox?: NoticeInbox;
+  onlineInbox?: GroupNoticeInbox;
   onViewed?: (sequence: string) => void;
   onClose: () => void;
   onOpenProfile?: NoticeProfileHandler;
@@ -245,6 +246,11 @@ function GroupNoticeDialogBody({
     onViewed(sequence);
   }, [activity.enabled, sequence, onViewed]);
   if (!open) return null;
+  const emptyTitle = inbox.error
+    ? '暂无本地群通知'
+    : onlineInbox?.loading
+      ? '正在读取群通知'
+      : '暂无群通知';
   return (
     <section
       ref={panel}
@@ -258,6 +264,20 @@ function GroupNoticeDialogBody({
         title={APP_NAVIGATION['group-notice'].label}
         icon={<GroupNoticeIcon size={15} aria-hidden />}
         leading={<ContactNoticeBackButton onBack={onClose} />}
+        actions={
+          onlineInbox?.onRefresh && (
+            <button
+              type="button"
+              className="weq-page-close"
+              title="刷新群通知"
+              aria-label="刷新群通知"
+              disabled={onlineInbox.loading}
+              onClick={onlineInbox.onRefresh}
+            >
+              <RefreshCw size={16} aria-hidden />
+            </button>
+          )
+        }
       >
         <div
           className={cn(
@@ -268,8 +288,10 @@ function GroupNoticeDialogBody({
           {inbox.error && <p role="alert">{inbox.error}</p>}
           {requests.length === 0 && remaining.length === 0 ? (
             <EmptyState
-              title="暂无群通知"
-              body="入群申请和处理结果会显示在这里。"
+              title={emptyTitle}
+              body={
+                inbox.error || onlineInbox?.loading ? undefined : '入群申请和处理结果会显示在这里。'
+              }
               icon={<GroupNoticeIcon />}
             />
           ) : (
@@ -356,6 +378,24 @@ function GroupNoticeDialogBody({
                 onOpenGroupProfile={onOpenGroupProfile}
               />
             ))}
+          {onlineInbox?.loadMoreNormal && (
+            <button
+              type="button"
+              disabled={onlineInbox.loading}
+              onClick={onlineInbox.loadMoreNormal}
+            >
+              加载更多普通申请
+            </button>
+          )}
+          {onlineInbox?.loadMoreFiltered && (
+            <button
+              type="button"
+              disabled={onlineInbox.loading}
+              onClick={onlineInbox.loadMoreFiltered}
+            >
+              加载更多可疑申请
+            </button>
+          )}
         </div>
       </PageShell>
     </section>

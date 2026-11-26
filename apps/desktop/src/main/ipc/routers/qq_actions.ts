@@ -67,6 +67,8 @@ const sequence = z
     (value) => /^[1-9]\d{0,19}$/.test(value) && BigInt(value) <= 0xffffffffffffffffn,
     '消息序号超出 uint64 范围',
   );
+const groupInboxBinding = requestInboxBinding.extend({ cursor: sequence.optional() });
+const groupInboxQuery = groupInboxBinding.extend({ manual: z.boolean().optional() });
 const uid = z.string().regex(/^u_[A-Za-z0-9_-]+$/);
 const album = group.extend({ albumId: id });
 const videoInput = album.extend({
@@ -200,7 +202,12 @@ export function createQQActionsRouter(
   async function loadRequestInbox(
     s: QQActionServices,
     kind: z.infer<typeof requestInboxBinding>['kind'],
-  ): Promise<{ operations: NoticeOperationWire[]; readSequence: string | null }> {
+    options: { cursor?: string; maxPages?: number; manual?: boolean } = {},
+  ): Promise<{
+    operations: NoticeOperationWire[];
+    readSequence: string | null;
+    nextCursor?: string;
+  }> {
     if (kind === 'friend')
       return {
         operations: (await s.profile.listBuddyRequests(2000))
@@ -235,7 +242,12 @@ export function createQQActionsRouter(
         readSequence: null,
       };
     const filtered = kind === 'filteredGroup';
-    const inbox = await s.groupNotify.fetchOnlineInbox({ filtered, maxPages: 3 });
+    const inbox = await s.groupNotify.fetchOnlineInbox({
+      filtered,
+      maxPages: options.maxPages ?? 3,
+      cursor: options.cursor ? BigInt(options.cursor) : undefined,
+      manual: options.manual,
+    });
     const cache = pending.get(s) ?? new Map();
     for (const [key, value] of cache) if (value.expires < Date.now()) cache.delete(key);
     if (cache.size > 1000) cache.clear();
@@ -260,6 +272,7 @@ export function createQQActionsRouter(
           token,
           noticeId: groupNoticeSequenceId(sequence, filtered),
           sequence,
+          ...(options.cursor ? { inboxCursor: options.cursor } : {}),
           uid: request.target.uid,
           uin: request.target.uin > 0 ? String(request.target.uin) : '',
           groupId: String(request.groupId),
@@ -268,7 +281,11 @@ export function createQQActionsRouter(
           groupName: request.groupName || String(request.groupId),
         };
       });
-    return { operations, readSequence: inbox.readSequence?.toString() ?? null };
+    return {
+      operations,
+      readSequence: inbox.readSequence?.toString() ?? null,
+      nextCursor: inbox.nextCursor?.toString(),
+    };
   }
   async function groupPermissions(s: QQActionServices, g: number) {
     const context = await s.groupInfo.operationContext(g);
@@ -1368,14 +1385,27 @@ export function createQQActionsRouter(
           ...(i.action === 'move' ? { moveSubmitted: move.submitted } : {}),
         };
       }),
-    requests: procedure
-      .input(requestInboxBinding)
-      .query(({ input }) =>
-        read(input, async (s) => (await loadRequestInbox(s, input.kind)).operations),
+    requests: procedure.input(groupInboxBinding).query(({ input }) =>
+      read(
+        input,
+        async (s) =>
+          (
+            await loadRequestInbox(s, input.kind, {
+              ...input,
+              maxPages: input.cursor ? 1 : undefined,
+            })
+          ).operations,
       ),
-    requestInbox: procedure.input(requestInboxBinding).query(async ({ input }) => {
-      const inbox = await read(input, (s) => loadRequestInbox(s, input.kind));
-      if (inbox.readSequence !== null && (input.kind === 'group' || input.kind === 'filteredGroup'))
+    ),
+    requestInbox: procedure.input(groupInboxQuery).query(async ({ input }) => {
+      const inbox = await read(input, (s) =>
+        loadRequestInbox(s, input.kind, { ...input, maxPages: 1 }),
+      );
+      if (
+        !input.cursor &&
+        inbox.readSequence !== null &&
+        (input.kind === 'group' || input.kind === 'filteredGroup')
+      )
         confirmGroupNoticeRead?.(
           input,
           input.kind === 'group' ? 'normal' : 'filtered',

@@ -64,6 +64,13 @@ export type NoticeOperation = NoticeOperationWire & {
 
 export type NoticeInbox = { operations: NoticeOperation[]; error?: string };
 
+export type GroupNoticeInbox = NoticeInbox & {
+  loading: boolean;
+  onRefresh?: () => void;
+  loadMoreNormal?: () => void;
+  loadMoreFiltered?: () => void;
+};
+
 export function groupNoticeReadId(notice: Pick<GroupJoinRequest, 'id' | 'sequence' | 'isDoubt'>) {
   return notice.sequence && /^[1-9]\d{0,19}$/.test(notice.sequence)
     ? groupNoticeSequenceId(notice.sequence, Boolean(notice.isDoubt))
