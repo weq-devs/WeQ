@@ -56,6 +56,40 @@ function resolveMock<T>(mock: { mockResolvedValue: (value: T) => unknown }, valu
 }
 
 describe('联系人和群聊的对象搜索', () => {
+  it('汉字、简拼和全拼混输在分页前查好友和当前会话，保留原文优先', async () => {
+    const f = fixture();
+    const keyword = '厦m大xue';
+    resolveMock(f.buddies, [
+      { uid: 'u_literal', uin: 10001n },
+      { uid: 'u_mixed', uin: 10002n },
+      { uid: 'u_split', uin: 10003n },
+    ]);
+    resolveMock(f.cached, [
+      { uid: 'u_literal', uin: '10001', nick: keyword, remark: '' },
+      { uid: 'u_mixed', uin: '10002', nick: '厦门大学', remark: '' },
+      { uid: 'u_split', uin: '10003', nick: '厦门', remark: '大学' },
+    ]);
+    resolveMock(f.recent, [
+      {
+        targetUid: 'u_recent',
+        targetUin: '10004',
+        chatType: 1,
+        name: '厦门大学',
+        remark: '',
+        groupNick: '',
+      },
+    ]);
+    const quick = await f.service.quickSearch(keyword, 1, ['contact'], 'all', ['qq']);
+    expect(quick.contacts.map(({ uid }) => uid)).toEqual(['u_literal']);
+    const next = await f.service.moreSearch('contact', keyword, 1, 10, 'all', ['qq']);
+    expect(next.items).toMatchObject([
+      { uid: 'u_mixed', isFriend: true },
+      { uid: 'u_recent', hasConversation: true },
+    ]);
+    expect(f.cached).toHaveBeenCalledWith(keyword, true);
+    expect(f.recent).toHaveBeenCalledWith(keyword, 'contact');
+  });
+
   it('联系人拼音搜索在分页前优先显示好友，同为好友时优先常用读法', async () => {
     const f = fixture();
     resolveMock(f.buddies, [
@@ -97,21 +131,24 @@ describe('联系人和群聊的对象搜索', () => {
     expect(f.recent).toHaveBeenCalledWith('smdx', 'contact');
   });
 
-  it('群拼音同时查群备注和已有会话标题，去重并保留定位身份', async () => {
-    const f = fixture();
-    resolveMock(f.directory, [{ groupCode: '20001', notifyLevel: 1 }]);
-    resolveMock(f.groupCached, [
-      { groupCode: '20001', name: '读书群', remark: '厦门大学', inDirectory: true },
-    ]);
-    resolveMock(f.recent, [
-      { targetUid: '20001', chatType: 2, name: '读书群', remark: '厦门大学', groupNick: '' },
-      { targetUid: '20002', chatType: 2, name: '厦门大学同学', remark: '', groupNick: '' },
-    ]);
-    expect(await searchGroups(f.session, 'xia men')).toMatchObject([
-      { groupCode: '20001', conversationView: 'regular' },
-      { groupCode: '20002', conversationView: 'regular' },
-    ]);
-  });
+  it.each(['xia men', '厦m daxue'])(
+    '群拼音 %s 查群备注和会话标题，去重并保留定位身份',
+    async (keyword) => {
+      const f = fixture();
+      resolveMock(f.directory, [{ groupCode: '20001', notifyLevel: 1 }]);
+      resolveMock(f.groupCached, [
+        { groupCode: '20001', name: '读书群', remark: '厦门大学', inDirectory: true },
+      ]);
+      resolveMock(f.recent, [
+        { targetUid: '20001', chatType: 2, name: '读书群', remark: '厦门大学', groupNick: '' },
+        { targetUid: '20002', chatType: 2, name: '厦门大学同学', remark: '', groupNick: '' },
+      ]);
+      expect(await searchGroups(f.session, keyword)).toMatchObject([
+        { groupCode: '20001', conversationView: 'regular' },
+        { groupCode: '20002', conversationView: 'regular' },
+      ]);
+    },
+  );
 
   it('联系人定位按当前、隐藏与删除记录判定，重开和无当前记录的旧隐藏标记不会误归类', async () => {
     const f = fixture();
