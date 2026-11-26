@@ -111,9 +111,8 @@ interface TipJsonItem {
 /**
  * Gray-tip `<img src="...">` icons reference QQ's own bundled asset filenames
  * (e.g. the wallet/red-packet "领取了" tip icon), not real URLs — rendering them
- * raw 404s into a broken-image glyph. Map the known ones to a local asset; let
- * real http(s) srcs through unchanged; drop anything else (unknown bare
- * filename) so no broken image shows.
+ * raw 404s into a broken-image glyph. Map known filenames to local assets and
+ * upgrade legacy QQ nudge icons to their HTTPS URL for Remote.
  */
 const LOCAL_TIP_ICONS: Record<string, string> = {
   'qqwallet_custom_tips_icon.png': littleIconUrl,
@@ -121,6 +120,8 @@ const LOCAL_TIP_ICONS: Record<string, string> = {
 
 function resolveTipImgSrc(src: string): string | null {
   if (!src) return null;
+  if (/^http:\/\/tianquan\.gtimg\.cn\/nudgeaction\/item\/\d+\/expression\.jpg(?:[?#]|$)/i.test(src))
+    return `https:${src.slice('http:'.length)}`;
   if (/^(https?:|data:|file:|asset:)/i.test(src)) return src;
   return LOCAL_TIP_ICONS[src] ?? null;
 }

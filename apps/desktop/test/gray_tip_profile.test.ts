@@ -122,6 +122,24 @@ it('戳一戳灰条中同名的两个人分别打开自己的名片', () => {
   );
 });
 
+it.each(['xml', 'json'])('%s 中的 QQ 互动小图使用 HTTPS 加载', (format) => {
+  const src = 'http://tianquan.gtimg.cn/nudgeaction/item/9/expression.jpg';
+  const f = mount(
+    h(GrayTipPokeMessage, {
+      element: {
+        type: 'grayTipPoke',
+        data:
+          format === 'xml'
+            ? { grayTipXmlContent: `<gtip><img src="${src}"/></gtip>` }
+            : { tipJson: JSON.stringify({ items: [{ type: 'img', src }] }) },
+      },
+    }),
+  );
+  expect(f.host.querySelector('img')?.src).toBe(
+    'https://tianquan.gtimg.cn/nudgeaction/item/9/expression.jpg',
+  );
+});
+
 it.each(['grayTipPoke', 'grayTipXml'] as const)('%s 按所有身份别名查找本地名称', (type) => {
   const f = mount(
     h(type === 'grayTipPoke' ? GrayTipPokeMessage : GrayTipXmlMessage, {

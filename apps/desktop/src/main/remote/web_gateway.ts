@@ -1,7 +1,12 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { WebEntry, WebAuth } from '../web/application';
+import { remoteMediaDirectives } from '../web/remote_media_policy';
 import type { RemotePairing } from './pairing';
 import { observeRemoteRequest } from './device';
+
+const mediaPolicy = remoteMediaDirectives
+  .map((name) => `${name} 'self' blob: data: https:`)
+  .join('; ');
 
 function webCredential(req: IncomingMessage): string {
   const bearer = /^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization ?? '');
@@ -48,7 +53,7 @@ export class RemoteWebGateway {
     }
     res.setHeader(
       'Content-Security-Policy',
-      `default-src 'self' blob: data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://${req.headers.host} wss://${req.headers.host}; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
+      `default-src 'self' blob: data:; ${mediaPolicy}; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://${req.headers.host} wss://${req.headers.host}; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
     );
     res.setHeader('Referrer-Policy', 'no-referrer');
     this.application.handle(req, res);

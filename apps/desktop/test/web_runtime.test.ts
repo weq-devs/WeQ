@@ -144,7 +144,12 @@ it('手机完整 Web 权限需单独批准，隔离宿主和本机管理，撤�
     pairing.decide(claim.id, true);
     expect(runtime.status()).toMatchObject({ enabled: false, port: null, autoStart: false });
     expect(() => runtime.accessToken()).toThrow();
-    expect(await (await fetch(base, { headers })).text()).toContain('WeQ fixture');
+    const workspace = await fetch(base, { headers });
+    const policy = workspace.headers.get('Content-Security-Policy');
+    expect(policy).toContain("img-src 'self' blob: data: https:;");
+    expect(policy).toContain("media-src 'self' blob: data: https:;");
+    expect(policy).toContain("script-src 'self' 'unsafe-inline';");
+    expect(await workspace.text()).toContain('WeQ fixture');
     const compressed = await fetch(`${base}/assets/index-Abcd1234.js`, {
       headers: { ...headers, 'Accept-Encoding': 'gzip' },
     });

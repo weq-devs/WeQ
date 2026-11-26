@@ -117,9 +117,10 @@ it('开发版 Remote 条件验证使用改写后的 HTML，Vite 更新后返回�
   const { base, deny, setPage } = await fixture(true);
   const headers = { 'User-Agent': 'WeQRemote' };
   const first = await fetch(base, { headers });
-  const tag = `"weq-release-${createHash('sha256')
-    .update(await first.text())
-    .digest('hex')}"`;
+  const html = await first.text();
+  expect(html).toContain("img-src 'self' data: https:;");
+  expect(html).toContain("media-src 'self' https:");
+  const tag = `"weq-release-${createHash('sha256').update(html).digest('hex')}"`;
   expect(first.headers.get('etag')).toBe(tag);
   const conditional = { ...headers, 'If-None-Match': tag };
   const same = await fetch(base, { headers: conditional });
