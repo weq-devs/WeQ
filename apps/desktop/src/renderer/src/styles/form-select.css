@@ -49,6 +49,26 @@
   user-select: none;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .weq-field-options {
+    opacity: 1;
+    transition: opacity var(--weq-motion-switch) ease-out;
+
+    @starting-style {
+      opacity: 0;
+    }
+  }
+
+  .weq-field-options[inert] {
+    transition: opacity var(--weq-motion-exit) ease-in;
+  }
+}
+
+.weq-field-options[inert] {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .weq-field-option {
   display: flex;
   align-items: center;

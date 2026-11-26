@@ -991,6 +991,7 @@ html[data-theme='dark'] .weq-shimmer-block {
 :root {
   --weq-motion-switch: 120ms;
   --weq-motion-enter: 160ms;
+  --weq-motion-exit: 120ms;
   --weq-motion-page: 220ms;
   --weq-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -1059,6 +1060,46 @@ html[data-theme='dark'] .weq-shimmer-block {
   }
   to {
     opacity: 1;
+  }
+}
+
+@keyframes weq-surface-switch {
+  from {
+    opacity: 0.86;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-weq-surface-motion] {
+    transition: opacity var(--weq-motion-enter) var(--weq-motion-ease);
+  }
+
+  [data-weq-surface-motion='fade']:not([hidden]),
+  [data-weq-surface-motion='enter']:not([hidden]) {
+    @starting-style {
+      opacity: 0;
+    }
+  }
+
+  /* hidden 和 inert 立即退出焦点和浮层处理，display 在淡出完成后离散切换。 */
+  :is([data-weq-surface-motion='fade'], [data-weq-surface-motion='exit'])[hidden] {
+    opacity: 0;
+    transition:
+      opacity var(--weq-motion-exit) ease-in,
+      display var(--weq-motion-exit) allow-discrete;
+  }
+
+  .weq-surface-switch {
+    animation: weq-surface-switch var(--weq-motion-switch) ease-out;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-dialog-layer > .weq-modal.weq-anim-pop {
+    animation: none;
   }
 }
 

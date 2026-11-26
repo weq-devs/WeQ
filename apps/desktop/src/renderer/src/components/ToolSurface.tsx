@@ -58,6 +58,7 @@ function ToolModal({
       <section
         ref={ref}
         className="weq-tool-modal"
+        data-weq-surface-motion="enter"
         role="dialog"
         aria-modal="true"
         aria-label={title}

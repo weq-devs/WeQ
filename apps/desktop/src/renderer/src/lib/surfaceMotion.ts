@@ -18,6 +18,8 @@ export const surfaceMotionTiming = {
   switch: 120,
   /** 面板、浮层、列表行进场。 */
   enter: 160,
+  /** 关闭后短暂收尾，交互由调用方立即释放。 */
+  exit: 120,
   /** 整页进场。 */
   page: 220,
   easing: 'cubic-bezier(0.22, 1, 0.36, 1)',

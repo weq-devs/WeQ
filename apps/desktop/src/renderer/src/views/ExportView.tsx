@@ -2722,7 +2722,7 @@ function ExportToolBody({
               />
             </div>
           ) : null}
-          <RetainedTabs snapshotKey="export-tasks" activeKey={visibleTaskTab}>
+          <RetainedTabs snapshotKey="export-tasks" activeKey={visibleTaskTab} animateSwitch>
             {visibleTaskTab === 'schedules' ? (
               pagedTasks ? (
                 activeSchedule ? (

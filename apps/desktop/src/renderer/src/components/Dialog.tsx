@@ -14,7 +14,7 @@ import { createPortal } from 'react-dom';
 import { RenderDocumentContext, useRenderDocument } from '../lib/renderDocument';
 import { useTabActive } from './RetainedTabs.shared';
 import { AlertTriangle, Info, Lock, ShieldAlert, X } from 'lucide-react';
-import { OverlayLayerContext, useOverlayLayerScope } from '../lib/overlayStack';
+import { OVERLAY_BASE_LAYER, OverlayLayerContext, useOverlayLayerScope } from '../lib/overlayStack';
 import { OverlayAnchorContext, useOverlayAnchor } from '../lib/overlayAnchor.shared';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
 import { WorkspacePage } from './WorkspacePages';
@@ -25,6 +25,8 @@ import { IS_WEB } from '../lib/target.shared';
 import '../styles/dialog-layout.css';
 import { ContactFieldHistoryBoundary } from '../lib/contactFieldHistoryContext';
 import { type DialogTone, useDialog, type DialogRequest } from './Dialog.shared';
+import { useClosingContent } from '../hooks/useClosingContent';
+import { surfaceMotionTiming } from '../lib/surfaceMotion';
 
 const TONE_ICON: Record<DialogTone, ReactElement> = {
   error: <ShieldAlert size={20} strokeWidth={1.85} aria-hidden />,
@@ -153,10 +155,18 @@ export function Modal({
     <div
       ref={ref}
       tabIndex={-1}
-      className={`weq-dialog-layer weq-anim-fade${IS_WEB ? ' weq-web-dialog-layer' : ''}${layerClassName ? ` ${layerClassName}` : ''}${presentation !== 'modal' ? ' weq-nonmodal-layer' : ''}${presentation === 'panel' ? ' weq-centered-panel' : ''}${presentation === 'popover' ? ' is-popover' : ''}${placement.position ? ' is-anchored-popover' : ''}`}
+      className={`weq-dialog-layer${IS_WEB ? ' weq-web-dialog-layer' : ''}${layerClassName ? ` ${layerClassName}` : ''}${presentation !== 'modal' ? ' weq-nonmodal-layer' : ''}${presentation === 'panel' ? ' weq-centered-panel' : ''}${presentation === 'popover' ? ' is-popover' : ''}${placement.position ? ' is-anchored-popover' : ''}`}
+      data-weq-surface-motion={
+        tabActive ? (presentation === 'popover' ? 'enter' : 'fade') : undefined
+      }
       hidden={!active}
       inert={!active}
-      style={{ ...placement.position, zIndex: layer, display: active ? undefined : 'none' }}
+      aria-hidden={!active || undefined}
+      style={{
+        ...placement.position,
+        zIndex: active ? layer : OVERLAY_BASE_LAYER,
+        display: active ? undefined : 'none',
+      }}
       onPointerDownCapture={placement.capture}
       onClickCapture={placement.capture}
       onMouseDown={(event) => event.stopPropagation()}
@@ -182,13 +192,19 @@ export function Modal({
 
 /** Mount once. Renders whatever the imperative store currently holds. */
 export function DialogHost(): ReactElement | null {
-  const current = useDialog((s) => s.current);
+  const request = useDialog((s) => s.current);
   const close = useDialog((s) => s.close);
+  const seq = useDialog((s) => s.seq);
+  const exiting = useClosingContent(
+    request?.password ? null : request,
+    seq,
+    surfaceMotionTiming.exit,
+  );
 
   useEffect(() => () => useDialog.getState().close(), []);
   useEffect(() => {
-    const id = current?.id;
-    const view = current?.ownerDocument?.defaultView;
+    const id = request?.id;
+    const view = request?.ownerDocument?.defaultView;
     if (!view || id === undefined) return;
     const dismiss = () => close(id);
     if (view.closed) {
@@ -201,11 +217,12 @@ export function DialogHost(): ReactElement | null {
       view.removeEventListener('beforeunload', dismiss);
       view.removeEventListener('unload', dismiss);
     };
-  }, [current, close]);
+  }, [request, close]);
 
+  const current = request ?? exiting;
   if (!current) return null;
 
-  const isPasswordPrompt = Boolean(current?.password);
+  const isPasswordPrompt = Boolean(current.password);
 
   const handleClose = current.dismissible
     ? () => {
@@ -219,6 +236,7 @@ export function DialogHost(): ReactElement | null {
     <RenderDocumentContext.Provider value={current.ownerDocument ?? null}>
       <Modal
         key={current.id}
+        open={request !== null}
         presentation={
           current.confirm || current.password || !current.dismissible ? 'modal' : 'panel'
         }
