@@ -16,7 +16,13 @@ import { ExportLightbox, type LightboxResult } from './ExportLightbox';
 import { StructuredExportControls } from './StructuredExportControls';
 import { ExportReportControl } from './ExportReportControl';
 import { TimeRangePicker } from './TimeRangePicker';
-import { DEFAULT_OPTIONS, FULL_FORMATS, BACKEND_FORMATS, type ExportFormat } from './types';
+import {
+  DEFAULT_OPTIONS,
+  FULL_FORMATS,
+  BACKEND_FORMATS,
+  exportFormatLabel,
+  type ExportFormat,
+} from './types';
 import { preflightChatExport } from './chatExport';
 import {
   isGeneratedConversationTarget,
@@ -82,7 +88,7 @@ export function ConversationBatchExportPane({
       if (plan.unsupported.length) {
         const lines = plan.unsupported.map(({ target, formats: unsupported }) => {
           const compatible = plan.targets.find((item) => item.target.id === target.id)?.formats;
-          return `${target.name}（${LABELS[target.kind]}）：不支持 ${result.options.chatlab && isGeneratedConversationTarget(target) ? 'ChatLab' : unsupported.map((format) => format.toUpperCase()).join('、')}，${compatible?.length ? `仅导出 ${compatible.map((format) => format.toUpperCase()).join('、')}` : '本次跳过'}`;
+          return `${target.name}（${LABELS[target.kind]}）：不支持 ${result.options.chatlab && isGeneratedConversationTarget(target) ? 'ChatLab' : unsupported.map(exportFormatLabel).join('、')}，${compatible?.length ? `仅导出 ${compatible.map(exportFormatLabel).join('、')}` : '本次跳过'}`;
         });
         const confirmed = await dialog.confirm('部分会话不支持所选格式', lines.join('\n'), {
           okLabel: '按上述范围导出',

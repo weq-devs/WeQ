@@ -2,28 +2,27 @@ import { useState } from 'react';
 import { Save } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
+import { SegmentedControl } from '../SegmentedControl';
+import { CheckPillGroup } from '../settings/controls';
 import {
   FULL_FORMATS,
-  CHATLAB_FORMATS,
-  isBackendFormat,
-  type BackendFormat,
+  explicitChatlabFormats,
+  type ExportFormat,
   type ScheduledTask,
 } from '../../views/export/types';
 
 export function ScheduleSettings({ schedule }: { schedule: ScheduledTask }) {
-  const allowedFormats = (schedule.chatlab ? CHATLAB_FORMATS : FULL_FORMATS)
-    .map((item) => item.value)
-    .filter(
-      (format): format is BackendFormat | 'html' => isBackendFormat(format) || format === 'html',
-    );
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
   const [name, setName] = useState(schedule.name);
   const [cadence, setCadence] = useState(schedule.schedule);
-  const [formats, setFormats] = useState(
-    (schedule.formats?.length ? schedule.formats : [schedule.format]).filter(
-      (format): format is BackendFormat | 'html' =>
-        allowedFormats.some((allowed) => allowed === format),
+  const [formats, setFormats] = useState(() =>
+    explicitChatlabFormats(
+      schedule.formats?.length ? schedule.formats : [schedule.format],
+      schedule.chatlab,
+    ).filter(
+      (format): format is Exclude<ExportFormat, 'vcard'> =>
+        format !== 'vcard' && FULL_FORMATS.some((option) => option.value === format),
     ),
   );
   const update = trpc.account.updateSchedule.useMutation({
@@ -57,6 +56,7 @@ export function ScheduleSettings({ schedule }: { schedule: ScheduledTask }) {
             name: name.trim(),
             format: formats[0],
             formats,
+            chatlab: false,
             ...(cadence.mode !== schedule.schedule.mode ||
             cadence.time !== schedule.schedule.time ||
             cadence.intervalHours !== schedule.schedule.intervalHours
@@ -110,11 +110,7 @@ export function ScheduleSettings({ schedule }: { schedule: ScheduledTask }) {
       )}
       <fieldset>
         <legend>导出格式</legend>
-        <CheckPillGroup
-          options={allowedFormats.map((format) => ({ value: format, label: format.toUpperCase() }))}
-          selected={formats}
-          onChange={setFormats}
-        />
+        <CheckPillGroup options={FULL_FORMATS} selected={formats} onChange={setFormats} />
       </fieldset>
       <section aria-label="定时导出范围">
         <strong>导出会话</strong>
@@ -134,5 +130,3 @@ export function ScheduleSettings({ schedule }: { schedule: ScheduledTask }) {
     </form>
   );
 }
-import { SegmentedControl } from '../SegmentedControl';
-import { CheckPillGroup } from '../settings/controls';

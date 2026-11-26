@@ -122,7 +122,7 @@ export function ResourceArchiveControls({
         options={[
           { value: 'json', label: 'JSON' },
           { value: 'jsonl', label: 'JSONL' },
-          { value: 'jsonl.gz', label: 'JSONL（压缩）' },
+          { value: 'jsonl.gz', label: 'JSONL.GZ' },
           { value: 'none', label: '仅资源' },
         ]}
       />
@@ -138,6 +138,10 @@ export function ResourceArchiveControls({
   );
 }
 export function ExportFormatHint() {
-  return <small className="weq-exp-format-note">仅 JSON、JSONL、JSONL（压缩）支持增量导出</small>;
+  return (
+    <small className="weq-exp-format-note" title="JSONL.GZ 是使用 gzip 压缩的 JSONL">
+      仅 JSON、JSONL、JSONL.GZ 支持增量导出
+    </small>
+  );
 }
 export type { StructuredExportOptions } from './StructuredExportControls.shared';

@@ -302,7 +302,7 @@ export const electronHost: HostBridge = {
         basename(defaultName),
       ),
       filters: extension
-        ? [{ name: 'File', extensions: [extension === 'jsonl.gz' ? 'gz' : extension] }]
+        ? [{ name: 'File', extensions: [extension.split('.').at(-1)!] }]
         : undefined,
     });
     if (result.canceled || !result.filePath) return null;

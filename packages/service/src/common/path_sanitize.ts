@@ -100,7 +100,7 @@ export function uniqueName(name: string, used: Set<string>): string {
 
 /** 导出复合扩展名作为整体保留，包括用户重命名后的大小写。 */
 export function fileExtension(name: string): string {
-  return name.toLowerCase().endsWith('.jsonl.gz') ? name.slice(-9) : extname(name);
+  return /\.(?:jsonl\.gz|chatlab\.jsonl?)$/i.exec(name)?.[0] ?? extname(name);
 }
 
 /** 把相对路径按 `/` 拆段逐段清洗（防目录穿越 + 非法字符）。 */

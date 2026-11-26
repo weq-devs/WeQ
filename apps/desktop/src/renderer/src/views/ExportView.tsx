@@ -1818,7 +1818,6 @@ function ExportToolBody({
           kind: t.kind ?? 'c2c',
           total: t.total ?? 0,
         })),
-        chatlab: result.options.chatlab,
         schedule: result.schedule,
         options: {
           profile: result.options.profile,

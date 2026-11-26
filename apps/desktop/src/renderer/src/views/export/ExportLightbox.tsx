@@ -1,21 +1,3 @@
-/**
- * 导出灯箱：在右侧选好对象后弹出，收集本次导出的细项后确认。
- *
- * 重构后是「宽面板 + 分板块」：左侧一列放时间范围、补全选项与图片识别，右侧一列放
- * 导出格式 / 导出内容 / 扩展功能，底部为操作条。所有配置都在本组件内部
- * draft，只有点「开始导出」才回传给父组件。
- *
- * 板块：
- *   1. 时间范围 —— 常驻精简月历，预设区间直接在日历上高亮。
- *   2. 导出格式 —— 多选（至少一种；媒体只导出一份，不会随格式重复）。
- *   3. 导出内容 —— 消息（必选）/ 媒体资源（子选项：图片·语音·视频·文件·
- *      QQ系统表情）/ 头像 / 装扮数据（子选项：气泡·字体·挂件）。
- *   4. 补全选项 —— 补全媒体资源（需在线 QQ + 已选导出媒体）、漫游消息、
- *      本地未缓存的装扮资源。
- *   5. 图片识别 —— 图片文字识别（自动 OCR）、在线识别；模型与并发统一在设置调整。
- *   6. 扩展功能 —— 导出后自动保存、语音转写（需已配置转录模型）。
- */
-
 import { NumericText } from '../../components/NumericText';
 import {
   useEffect,
@@ -42,9 +24,9 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { Card, Row, Toggle } from '../../components/settings/controls';
-import { client } from '../../trpc/client';
+import { client, trpc } from '../../trpc/client';
 import { useDialog } from '../../components/Dialog.shared';
-import { ocrReadiness, type OcrReadiness } from './preflight';
+import { requestOpenSettings, type SettingsSection } from '../../lib/callSettingsBridge';
 import { useExportAuthorization, type ExportAuthorizationIndicatorState } from './authorization';
 import { BaselinePicker } from './BaselinePicker';
 import { useRemoteClient } from '../../lib/remoteClient';
@@ -72,6 +54,7 @@ import { OverlayLayer } from '../../components/OverlayLayer';
 import {
   DEFAULT_OPTIONS,
   DEFAULT_SCHEDULE,
+  explicitChatlabFormats,
   FRIEND_FORMATS,
   FULL_FORMATS,
   MEMBER_FORMATS,
@@ -81,6 +64,103 @@ import {
   type Schedule,
 } from './types';
 
+type RecognitionMode = 'off' | 'local' | 'qq';
+
+function SettingsLink({ section, children }: { section: SettingsSection; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      className="weq-set-btn weq-set-btn-sm"
+      onClick={() => requestOpenSettings(section)}
+    >
+      {children}
+    </button>
+  );
+}
+
+function RecognitionRow({
+  label,
+  mode,
+  outcome,
+  localReady,
+  localBlocker,
+  modelLink,
+  onlineBlocker,
+  onlineReady,
+  scheduled,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  mode: RecognitionMode;
+  outcome: string;
+  localReady: boolean | undefined;
+  localBlocker?: string | null;
+  modelLink: SettingsSection;
+  onlineBlocker?: string;
+  onlineReady: boolean;
+  scheduled?: boolean;
+  disabled: boolean;
+  onChange: (mode: RecognitionMode) => void;
+}) {
+  const localHint = localBlocker || (localReady === false ? '本地模型未就绪' : undefined);
+  const onlineHint =
+    mode === 'qq' && !onlineBlocker
+      ? [
+          !onlineReady && '开始导出时准备 QQ 在线能力。',
+          localReady
+            ? 'QQ 在线未取得结果时用本地模型补齐。'
+            : 'QQ 在线未取得结果时没有本地模型可回退。',
+        ]
+          .filter(Boolean)
+          .join('')
+      : scheduled
+        ? undefined
+        : onlineBlocker;
+  return (
+    <Row
+      label={label}
+      desc={
+        <>
+          {outcome}
+          {localHint ? (
+            <>
+              {' '}
+              {localHint}。 <SettingsLink section={modelLink}>查看增强包</SettingsLink>
+            </>
+          ) : null}
+          {onlineHint ? (
+            <>
+              {' '}
+              {onlineHint}
+              {mode !== 'qq' || onlineBlocker ? '。' : ''}
+            </>
+          ) : null}
+        </>
+      }
+      control={
+        <SegmentedControl<RecognitionMode>
+          label={label}
+          value={mode}
+          disabled={disabled}
+          options={[
+            { value: 'off', label: '关闭' },
+            { value: 'local', label: '本地', disabled: localReady !== true, title: localHint },
+            {
+              value: 'qq',
+              label: 'QQ 在线优先',
+              hidden: scheduled,
+              disabled: Boolean(onlineBlocker),
+              title: onlineBlocker,
+            },
+          ]}
+          onChange={onChange}
+        />
+      }
+    />
+  );
+}
+
 export type LightboxVariant = 'full' | 'guild' | 'qzone' | 'scheduled' | 'album' | 'contacts';
 
 /** 把（可能来自旧预设的）partial 选项补齐成完整 {@link ExportOptions}。 */
@@ -88,12 +168,12 @@ function normalizeLightboxOptions(partial?: Partial<ExportOptions>): ExportOptio
   const options = {
     ...DEFAULT_OPTIONS,
     ...partial,
+    chatlab: false,
     range: { ...DEFAULT_OPTIONS.range, ...partial?.range },
     mediaKinds: { ...DEFAULT_OPTIONS.mediaKinds, ...partial?.mediaKinds },
     dress: { ...DEFAULT_OPTIONS.dress, ...partial?.dress },
-    // 在线转录是会话态：每次都要重新点开关 arm，不从持久化预设回填。
+    // 在线路线只用于本次导出。
     onlineTranscribe: false,
-    // 同理：在线识别依赖当下 QQ 在线（离线时开关会被隐藏），不沿用上次的选择。
     onlineOcr: false,
   };
   const content = normalizeExportContent(options.content, options);
@@ -292,17 +372,35 @@ export function ExportLightbox({
   const [pickingBaseline, setPickingBaseline] = useState(false);
   const [baselineByConversation, setBaselineByConversation] = useState<Record<string, string>>();
 
-  // 灯箱打开时探测：QQ 在线实例（4.1 可点击前提）+ 语音转录模型（5.2 前提）。
-  const [qqOnline, setQqOnline] = useState<boolean | null>(null);
-  const [attachEnabled, setAttachEnabled] = useState<boolean | null>(null);
-  const [voiceModelReady, setVoiceModelReady] = useState<boolean | null>(null);
+  const isAlbum = variant === 'album';
+  const isQzone = variant === 'qzone';
+  const wantQzonePosts = qzoneContent ? qzoneContent !== 'albums' : opts.qzonePosts !== false;
+  const wantQzoneAlbums = qzoneContent ? qzoneContent !== 'posts' : Boolean(opts.qzoneAlbums);
+  const isScheduled = variant === 'scheduled';
+  const isContacts = variant === 'contacts';
+  const isMessageFlow = !isAlbum && !isQzone && !isContacts;
+  const validationId = useId();
+  const resources = trpc.bootstrap.localModelResources.useQuery(undefined, {
+    enabled: isMessageFlow && !hidden,
+  });
+  const models = resources.data;
+  const localVoiceReady = models?.voice.some(
+    (model) => model.id === models.selected.voice && model.downloaded && !model.downloading,
+  );
+  const localOcrReady =
+    !models?.engineBlocker &&
+    models?.ocr.some(
+      (model) => model.id === models.selected.ocr && model.downloaded && !model.downloading,
+    );
   const noMessageBackfill = variant === 'guild' || localMessagesOnly;
+  const contentPolicy = normalizeExportContent(opts.content, opts, noMessageBackfill);
   const authorizationOptions =
     noMessageBackfill && opts.completeMessages ? { ...opts, completeMessages: false } : opts;
   /** 在线功能在确认导出时授权；选择开关本身不启动抓包。 */
   const authorization = useExportAuthorization(
     authorizationOptions,
-    ['full', 'guild'].includes(variant),
+    !hidden && !isScheduled && isMessageFlow,
+    { voice: localVoiceReady === true, ocr: localOcrReady === true },
   );
   const authorizationAction = useRef<() => void>(() => {});
   authorizationAction.current = () => {
@@ -317,47 +415,19 @@ export function ExportLightbox({
     });
     return () => onAuthorizationChange?.(null);
   }, [authorization.needsElevation, onAuthorizationChange]);
-  /** 图片文字识别的前置状态（在线可用 / 本地模型 / 筛图模型）。 */
-  const [ocrReady, setOcrReady] = useState<OcrReadiness | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void client.account.getGroupAlbumAccessState.query().then((s) => {
-      if (cancelled) return;
-      setQqOnline(s.qqOnline);
-      setAttachEnabled(s.attachEnabled);
-    });
-    void ocrReadiness().then((r) => {
-      if (!cancelled) setOcrReady(r);
-    });
-    void (async () => {
-      try {
-        const settings = await client.bootstrap.getSettings.query();
-        const modelId = settings.voiceTranscribe.modelId;
-        if (!modelId) {
-          if (!cancelled) setVoiceModelReady(false);
-          return;
-        }
-        const models = await client.bootstrap.voiceModels.query();
-        const model = models.find((m) => m.id === modelId);
-        if (!cancelled) setVoiceModelReady(Boolean(model?.downloaded));
-      } catch {
-        if (!cancelled) setVoiceModelReady(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const isAlbum = variant === 'album';
-  const isQzone = variant === 'qzone';
-  const wantQzonePosts = qzoneContent ? qzoneContent !== 'albums' : opts.qzonePosts !== false;
-  const wantQzoneAlbums = qzoneContent ? qzoneContent !== 'posts' : Boolean(opts.qzoneAlbums);
-  const isScheduled = variant === 'scheduled';
-  const isContacts = variant === 'contacts';
-  const isMessageFlow = !isAlbum && !isQzone && !isContacts;
-  const contentPolicy = normalizeExportContent(opts.content, opts, noMessageBackfill);
-  const validationId = useId();
+  const access = authorization.state?.access;
+  const qqOnlineAvailable = Boolean(access?.qqOnline && access.attachEnabled);
+  const onlineVoiceAvailable = qqOnlineAvailable && authorization.state?.capture?.available;
+  const onlineOcrReady = Boolean(
+    access?.hasA2 && access.hasD2 && access.hasD2Key && access.hasGuid,
+  );
+  const onlineBlocker = !access
+    ? '正在检查 QQ 在线状态'
+    : !access.qqOnline
+      ? '请先登录该账号的 QQ 客户端'
+      : !access.attachEnabled
+        ? '请先启用 QQ 在线能力'
+        : undefined;
 
   /** 该变体可选的格式。 */
   const formatOptions = useMemo(
@@ -372,10 +442,14 @@ export function ExportLightbox({
     [variant, contactScope],
   );
   const [formats, setFormats] = usePageState<ExportFormat[]>(
-    `export:formats:${variant}:${contactScope}`,
+    `export:output-formats:${variant}:${contactScope}`,
     () => {
       if (initialFormats?.length === 0) return [];
-      const allowed = initialFormats?.filter((f) => formatOptions.some((o) => o.value === f));
+      const allowed =
+        initialFormats &&
+        explicitChatlabFormats(initialFormats, initialOptions?.chatlab).filter((f) =>
+          formatOptions.some((option) => option.value === f),
+        );
       return allowed && allowed.length > 0 ? allowed : [formatOptions[0]!.value];
     },
     z.array(
@@ -401,7 +475,11 @@ export function ExportLightbox({
       ? '请至少选择一种导出格式'
       : isMessageFlow && !hasExportContent(contentPolicy)
         ? '请至少选择一项导出内容'
-        : null;
+        : isMessageFlow &&
+            contentPolicy.messages === 'none' &&
+            formats.some((value) => value === 'chatlab.json' || value === 'chatlab.jsonl')
+          ? 'ChatLab 需要导出消息正文，请选择消息正文或移除 ChatLab 格式'
+          : null;
 
   function patch(next: Partial<ExportOptions>): void {
     setOpts((o) => ({ ...o, ...next }));
@@ -418,17 +496,13 @@ export function ExportLightbox({
   async function changeContent(content: ExportContentPolicy): Promise<void> {
     let next = content;
     if (
-      (opts.chatlab ||
-        !formats.some(
-          (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
-        )) &&
+      !formats.some((format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz') &&
       addedStructuredContent(contentPolicy, next)
     ) {
       setRequestingFormat(true);
       try {
         if (await askForJson()) {
           setFormats((current) => (current.includes('json') ? current : [...current, 'json']));
-          patch({ chatlab: false });
         } else next = withoutStructuredContent(next);
       } finally {
         setRequestingFormat(false);
@@ -442,16 +516,6 @@ export function ExportLightbox({
     if (!htmlForced) return;
     setOpts((o) => ({ ...o, exportMedia: true, qzoneInteractions: true }));
   }, [htmlForced, setOpts]);
-
-  /** 在线转录先记本次选择，确认导出时再就绪抓包。 */
-  async function toggleOnlineTranscribe(v: boolean): Promise<void> {
-    if (!v) {
-      patch({ onlineTranscribe: false });
-      void authorization.releaseCapture().catch(() => undefined);
-      return;
-    }
-    patch({ onlineTranscribe: true });
-  }
 
   async function pickPath(): Promise<void> {
     if (!onPickPath) return;
@@ -481,22 +545,19 @@ export function ExportLightbox({
     setConfirming(true);
     try {
       const settings = isMessageFlow ? await client.bootstrap.getSettings.query() : null;
-      let selectedFormats = formats,
-        selectedContent = contentPolicy,
-        selectedChatlab = opts.chatlab;
+      let selectedFormats = formats;
+      let selectedContent = contentPolicy;
       if (
         isMessageFlow &&
         requiresStructuredExport(selectedContent) &&
-        (selectedChatlab ||
-          !selectedFormats.some(
-            (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
-          ))
+        !selectedFormats.some(
+          (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
+        )
       ) {
         if (await askForJson()) {
           selectedFormats = selectedFormats.includes('json')
             ? selectedFormats
             : [...selectedFormats, 'json'];
-          selectedChatlab = false;
           setFormats(selectedFormats);
         } else {
           selectedContent = withoutStructuredContent(selectedContent);
@@ -517,7 +578,10 @@ export function ExportLightbox({
                 ocrConcurrency: settings?.ocr?.onlineConcurrency ?? opts.ocrConcurrency,
                 onlineConcurrency:
                   settings?.voiceTranscribe?.onlineConcurrency ?? opts.onlineConcurrency,
-                chatlab: selectedChatlab,
+                chatlab: false,
+                ...(isScheduled
+                  ? { ocrImages: false, onlineOcr: false, onlineTranscribe: false }
+                  : {}),
                 content: selectedContent,
                 ...exportContentFlags(selectedContent),
               }
@@ -552,7 +616,7 @@ export function ExportLightbox({
         formats: selectedFormats,
         options: {
           ...prepared,
-          ...structuredExportOptions(prepared, selectedFormats, prepared.chatlab),
+          ...structuredExportOptions(prepared, selectedFormats),
         },
         schedule: isScheduled ? schedule : undefined,
         downloadPath: isAlbum ? path : undefined,
@@ -561,63 +625,6 @@ export function ExportLightbox({
       setConfirming(false);
     }
   }
-
-  /** ChatLab 只支持 JSON / JSONL。 */
-  const chatlabAllowed = formats.every((f) => f === 'json' || f === 'jsonl');
-
-  function toggleChatlab(v: boolean): void {
-    if (v) {
-      // 开启 ChatLab 时只保留 json / jsonl（优先 json）。
-      const kept = formats.filter((f) => f === 'json' || f === 'jsonl');
-      setFormats(kept.length > 0 ? kept : ['json']);
-      const content = withoutStructuredContent(contentPolicy);
-      patch({ chatlab: true, incrementalSupport: false, content, ...exportContentFlags(content) });
-    } else {
-      patch({ chatlab: false });
-    }
-  }
-  const imageRecognition = isMessageFlow ? (
-    <div className="weq-exp-image-recognition">
-      <Row
-        label="图片文字识别"
-        desc={
-          ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable
-            ? ocrReady.localEngineBlocker ||
-              '需要在线 QQ，或先在「设置 → AI 功能 → 图片识别」下好本地识别模型'
-            : '识别图片里的文字，写出 ocr.json（含像素坐标框）并把文字回写进导出文件'
-        }
-        control={
-          <Toggle
-            checked={opts.ocrImages}
-            disabled={Boolean(ocrReady && !ocrReady.localReady && !ocrReady.onlineCapable)}
-            onChange={(v) => patch({ ocrImages: v, ...(v ? {} : { onlineOcr: false }) })}
-          />
-        }
-      />
-      {opts.ocrImages ? (
-        <>
-          {ocrReady?.onlineCapable ? (
-            <Row
-              label="在线识别"
-              desc={
-                opts.onlineOcr
-                  ? '已就绪：优先让 QQ 服务端识别（更快），没拿到的回退本地模型'
-                  : '优先让 QQ 服务端识别（需保持 QQ 在线；连续失败会自动回退本地模型）'
-              }
-              control={
-                <Toggle checked={opts.onlineOcr} onChange={(v) => patch({ onlineOcr: v })} />
-              }
-            />
-          ) : null}
-          {ocrReady && !ocrReady.localReady && !ocrReady.localEngineBlocker ? (
-            <p className="weq-exp-block-hint">
-              未下载本地识别模型，在线识别失败时无法回退；可在「设置 → AI 功能 → 图片识别」下载。
-            </p>
-          ) : null}
-        </>
-      ) : null}
-    </div>
-  ) : null;
 
   const Surface = embedded ? 'div' : OverlayLayer;
   return (
@@ -698,7 +705,6 @@ export function ExportLightbox({
           {allowContinuation &&
           !remote &&
           variant === 'full' &&
-          !opts.chatlab &&
           formats.some(
             (format) => format === 'json' || format === 'jsonl' || format === 'jsonl.gz',
           ) ? (
@@ -842,14 +848,11 @@ export function ExportLightbox({
 
                 {/* 导出格式（多选；相册的格式仍走外部选择器） */}
                 {!isAlbum ? (
-                  <Card title="导出格式" action={opts.chatlab ? undefined : <ExportFormatHint />}>
+                  <Card title="导出格式" action={<ExportFormatHint />}>
                     <CheckPillGroup<ExportFormat>
                       options={formatOptions.map((f) => ({ value: f.value, label: f.label }))}
                       selected={formats}
                       onChange={(next) => setFormats(next)}
-                      optionDisabled={(value) =>
-                        opts.chatlab && value !== 'json' && value !== 'jsonl'
-                      }
                       disabled={submitting}
                     />
                     <p className="weq-exp-block-hint">
@@ -929,65 +932,64 @@ export function ExportLightbox({
                   </Card>
                 ) : null}
 
-                <Card title="扩展功能">
-                  {imageRecognition}
-                  {isMessageFlow ? (
-                    <>
-                      <Row
-                        label="语音转写"
-                        desc={
-                          voiceModelReady === false
-                            ? '需先在「设置 → AI 功能 → 语音识别」下载模型'
-                            : '将语音消息转录为文字一并保存'
-                        }
-                        control={
-                          <Toggle
-                            checked={opts.transcribeVoice}
-                            disabled={voiceModelReady === false}
-                            onChange={(v) => patch({ transcribeVoice: v })}
-                          />
-                        }
-                      />
-                      {opts.transcribeVoice && qqOnline && attachEnabled ? (
-                        <Row
-                          label="在线转录"
-                          desc={
-                            opts.onlineTranscribe
-                              ? authorization.armed
-                                ? '已就绪：优先用 QQ 服务端转写，漏包 / 过期回退本地'
-                                : '待就绪：导出前准备官方转写抓包'
-                              : '优先用 QQ 服务端转写（需保持 QQ 在线）'
-                          }
-                          control={
-                            <Toggle
-                              checked={opts.onlineTranscribe}
-                              disabled={authorization.busy}
-                              onChange={(v) => void toggleOnlineTranscribe(v)}
-                            />
+                {isMessageFlow ? (
+                  <div className="weq-exp-recognition">
+                    <Card
+                      title="识别与转写"
+                      action={<SettingsLink section="recognition">识别设置</SettingsLink>}
+                    >
+                      {isScheduled ? (
+                        <p className="weq-exp-block-hint">
+                          图片文字识别与 QQ 在线转写仅在立即导出时可选。
+                        </p>
+                      ) : (
+                        <RecognitionRow
+                          label="图片文字识别"
+                          mode={opts.ocrImages ? (opts.onlineOcr ? 'qq' : 'local') : 'off'}
+                          outcome="将识别出的文字与消息一起保存。"
+                          localReady={localOcrReady}
+                          localBlocker={models?.engineBlocker}
+                          modelLink="enhancementText"
+                          onlineBlocker={onlineBlocker}
+                          onlineReady={onlineOcrReady}
+                          disabled={submitting || confirming || authorization.busy}
+                          onChange={(mode) =>
+                            patch({ ocrImages: mode !== 'off', onlineOcr: mode === 'qq' })
                           }
                         />
-                      ) : null}
-                      <p className="weq-exp-block-hint">
-                        识别并发、筛图模型和转录并发请在「设置 → AI 功能」中调整。
-                      </p>
-                      <Row
-                        label="ChatLab 格式"
-                        desc={
-                          chatlabAllowed
-                            ? '导出为 ChatLab 交换格式（成员 / 角色 / 消息已标准化）'
-                            : '仅支持 JSON / JSONL 格式'
+                      )}
+                      <RecognitionRow
+                        label="语音转写"
+                        mode={
+                          opts.transcribeVoice
+                            ? !isScheduled && opts.onlineTranscribe
+                              ? 'qq'
+                              : 'local'
+                            : 'off'
                         }
-                        control={
-                          <Toggle
-                            checked={opts.chatlab}
-                            disabled={!chatlabAllowed}
-                            onChange={(v) => toggleChatlab(v)}
-                          />
+                        outcome="先使用已有转写，再处理没有文字的语音。"
+                        localReady={localVoiceReady}
+                        modelLink="enhancementVoice"
+                        onlineBlocker={
+                          onlineBlocker ||
+                          (!onlineVoiceAvailable ? '当前环境无法使用 QQ 在线转写' : undefined)
+                        }
+                        onlineReady={authorization.state?.armed === true}
+                        scheduled={isScheduled}
+                        disabled={submitting || confirming || authorization.busy}
+                        onChange={(mode) =>
+                          patch({
+                            transcribeVoice: mode !== 'off',
+                            onlineTranscribe: mode === 'qq',
+                          })
                         }
                       />
-                    </>
-                  ) : null}
+                    </Card>
+                  </div>
+                ) : null}
+                <Card>
                   <ExportReportControl
+                    plain
                     checked={opts.includeIntegrityReport ?? false}
                     onChange={(v) => patch({ includeIntegrityReport: v })}
                     disabled={submitting}

@@ -39,12 +39,13 @@ export function exportAuthorizationPlan(options: ExportOptions, state: ExportAut
 export function skipExportAuthorization(
   options: ExportOptions,
   plan: ReturnType<typeof exportAuthorizationPlan>,
+  local = { voice: true, ocr: false },
 ): ExportOptions {
   return {
     ...structuredClone(options),
-    ...(plan.capture ? { onlineTranscribe: false } : {}),
+    ...(plan.capture ? { onlineTranscribe: false, transcribeVoice: local.voice } : {}),
     ...(plan.roaming ? { completeMessages: false } : {}),
-    ...(plan.ocr ? { onlineOcr: false, ocrImages: false } : {}),
+    ...(plan.ocr ? { onlineOcr: false, ocrImages: local.ocr } : {}),
     ...(plan.media
       ? { completeMedia: false, downloadVideo: false, downloadFile: false, downloadPtt: false }
       : {}),
@@ -60,7 +61,11 @@ async function readReadiness(captureNeeded = false): Promise<ExportAuthorization
   return { access, capture, armed: status.armed };
 }
 
-export function useExportAuthorization(options: ExportOptions, enabled: boolean) {
+export function useExportAuthorization(
+  options: ExportOptions,
+  enabled: boolean,
+  local?: { voice: boolean; ocr: boolean },
+) {
   const notificationToast = useToastApi();
   const [state, setState] = useState<ExportAuthorizationState>();
   const [pending, setPending] = useState<{
@@ -223,7 +228,7 @@ export function useExportAuthorization(options: ExportOptions, enabled: boolean)
   const pendingPlan = pending ? exportAuthorizationPlan(pending.options, pending.state) : undefined;
   return {
     needsElevation: Boolean(plan?.elevate),
-    armed: state?.armed ?? false,
+    state,
     busy,
     prepare,
     releaseCapture,
@@ -284,7 +289,7 @@ export function useExportAuthorization(options: ExportOptions, enabled: boolean)
               <button
                 type="button"
                 className="weq-exp-btn"
-                onClick={() => settle(skipExportAuthorization(pending.options, pendingPlan))}
+                onClick={() => settle(skipExportAuthorization(pending.options, pendingPlan, local))}
               >
                 跳过需提权项目
               </button>

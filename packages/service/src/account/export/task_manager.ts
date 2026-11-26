@@ -91,7 +91,7 @@ import {
   watchTransferPolicy,
 } from '../../common/transfer_policy';
 import { MessageJournal } from './message_journal';
-import { isLikelyCorruptionError } from '@weq/db';
+import { isLikelyCorruptionError, withDatabaseWorkload } from '@weq/db';
 import {
   DatabaseRecoveryGate,
   DatabaseRecoveryStopped,
@@ -1027,7 +1027,7 @@ export class ExportTaskManager extends EventEmitter {
             intent: task?.networkOverride ? 'interactive' : 'batch',
             override: task?.networkOverride,
           },
-          run,
+          () => withDatabaseWorkload('bulk', run),
         );
         this.executions.set(id, execution);
         void execution
@@ -1612,9 +1612,15 @@ export class ExportTaskManager extends EventEmitter {
     if (localMessagesOnly && opts.media?.completeMessages) {
       opts = { ...opts, media: { ...opts.media, completeMessages: false } };
     }
+    const requestedFormats = opts.formats ?? [opts.format];
+    if (
+      opts.content?.messages === 'none' &&
+      requestedFormats.some((format) => format === 'chatlab.json' || format === 'chatlab.jsonl')
+    )
+      throw new Error('ChatLab 需要导出消息正文，请选择消息正文或移除 ChatLab 格式。');
     const resourceOnly = opts.formats?.length === 0;
     if (opts.chatlab && (opts.formats ?? [opts.format]).includes('jsonl.gz'))
-      throw new Error('JSONL（压缩）使用 WeQ 正式归档，不支持 ChatLab。');
+      throw new Error('旧版 ChatLab 模式不支持 JSONL.GZ。');
     if (
       resourceOnly &&
       (!opts.content ||
@@ -3911,6 +3917,7 @@ export class ExportTaskManager extends EventEmitter {
               const w = rewriteVoiceTranscripts(this.exportFilePaths(task, outDir), transcripts, {
                 plainText: true,
                 chatlabJson: task.chatlab === true,
+                chatlabFiles: this.chatlabOutputPaths(task, outDir),
                 onLog: (text, level) => this.log(id, 'transcribe', text, level ?? 'info'),
               });
               if (w.replaced > 0) {
@@ -4079,6 +4086,7 @@ export class ExportTaskManager extends EventEmitter {
               const w = rewriteOcrTexts(this.exportFilePaths(task, outDir), parsed.images ?? {}, {
                 plainText: true,
                 chatlabJson: task.chatlab === true,
+                chatlabFiles: this.chatlabOutputPaths(task, outDir),
                 onLog: (text, level) => this.log(id, 'ocr', text, level ?? 'info'),
               });
               if (w.replaced > 0) {
@@ -4221,6 +4229,8 @@ export class ExportTaskManager extends EventEmitter {
             format !== 'jsonl' &&
             format !== 'jsonl.gz' &&
             format !== 'vcard' &&
+            format !== 'chatlab.json' &&
+            format !== 'chatlab.jsonl' &&
             task.content?.messages === 'none'
           ) {
             await writeArchiveView(
@@ -5906,6 +5916,15 @@ export class ExportTaskManager extends EventEmitter {
     );
   }
 
+  private chatlabOutputPaths(task: ExportTask, outDir: string): Set<string> {
+    const formats = task.formats ?? [task.format];
+    return new Set(
+      this.exportFilePaths(task, outDir).filter(
+        (_, index) => formats[index] === 'chatlab.json' || formats[index] === 'chatlab.jsonl',
+      ),
+    );
+  }
+
   private async hashMessageOutputs(task: ExportTask): Promise<Record<string, string>> {
     const hashes: Record<string, string> = {};
     for (const path of this.exportFilePaths(task, task.outputDirectory!)) {
@@ -6241,16 +6260,18 @@ export class ExportTaskManager extends EventEmitter {
     const dressLookup = dressByMsg
       ? (msgId: string): MsgDecoration | undefined => dressByMsg.get(msgId)
       : undefined;
-    // ChatLab reuses json/jsonl but emits its own structure (header + members +
-    // normalized messages), and resolves names/roles itself — its own exporter.
-    if (task.chatlab && (format === 'json' || format === 'jsonl')) {
+    if (
+      format === 'chatlab.json' ||
+      format === 'chatlab.jsonl' ||
+      (task.chatlab && (format === 'json' || format === 'jsonl'))
+    ) {
       return exportToChatlab(
         this.msgsFor(task),
         {
           kind: task.kind,
           conv: task.conv,
           name: task.name,
-          format,
+          format: format === 'jsonl' || format === 'chatlab.jsonl' ? 'jsonl' : 'json',
           outputPath,
           range: task.range,
           roam,

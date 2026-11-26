@@ -270,7 +270,7 @@ export function MailExportPane({
         options={[
           { value: 'json', label: 'JSON' },
           { value: 'jsonl', label: 'JSONL' },
-          { value: 'jsonl.gz', label: 'JSONL（压缩）' },
+          { value: 'jsonl.gz', label: 'JSONL.GZ' },
         ]}
       />
       <StructuredExportControls

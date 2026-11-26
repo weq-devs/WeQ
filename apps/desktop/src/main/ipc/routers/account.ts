@@ -47,6 +47,7 @@ import {
   requireResourceSource,
   assertResourceSource,
 } from './resource_source';
+import { messageExportFormatInput } from '../../../shared/message_export_format';
 import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
 import { withDatabaseRequest, assertDatabaseWritable, measureDatabaseStartup } from '@weq/db';
 import { cardDisplayNames } from './card_display_names';
@@ -4601,11 +4602,9 @@ export const accountRouter = router({
         messageIds: z.array(z.string().regex(/^-?\d+$/)).optional(),
         /** 任务显示名（对方昵称）。 */
         name: z.string().min(1),
-        format: z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']),
+        format: messageExportFormatInput,
         /** 多格式导出：一次任务产出多个文件进同一 bundle（媒体只带一份）。 */
-        formats: z
-          .array(z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']))
-          .optional(),
+        formats: z.array(messageExportFormatInput).optional(),
         /** Also export every sender's avatar into an avatars/ subfolder. */
         exportAvatar: z.boolean().optional(),
         /** ChatLab interchange format (json/jsonl carry ChatLab structure). */
@@ -9203,11 +9202,9 @@ export const accountRouter = router({
         kind: z.enum(['group', 'c2c', 'official', 'service']),
         conv: z.string().min(1),
         name: z.string().min(1),
-        format: z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']),
+        format: messageExportFormatInput,
         /** 多格式导出：一次任务产出多个文件进同一 bundle（媒体只带一份）。 */
-        formats: z
-          .array(z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']))
-          .optional(),
+        formats: z.array(messageExportFormatInput).optional(),
         total: z.number().int().min(0),
         /** Also export every sender's avatar into an avatars/ subfolder. */
         exportAvatar: z.boolean().optional(),
@@ -9551,9 +9548,7 @@ export const accountRouter = router({
             category: z.enum(MESSAGE_CATEGORIES).optional(),
           })
           .optional(),
-        formats: z
-          .array(z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']))
-          .optional(),
+        formats: z.array(messageExportFormatInput).optional(),
         exportMedia: z.boolean().optional(),
       }),
     )
@@ -9806,11 +9801,9 @@ export const accountRouter = router({
       z.object({
         ...exportAccountBindingInput.shape,
         name: z.string().min(1),
-        format: z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']),
+        format: messageExportFormatInput,
         /** 灯箱多选的导出格式（媒体只带一份；缺省 = [format]）。 */
-        formats: z
-          .array(z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']))
-          .optional(),
+        formats: z.array(messageExportFormatInput).optional(),
         conversations: z
           .array(
             z.object({
@@ -9885,10 +9878,8 @@ export const accountRouter = router({
         id: z.string().min(1),
         patch: z.object({
           name: z.string().min(1).optional(),
-          format: z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']).optional(),
-          formats: z
-            .array(z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html']))
-            .optional(),
+          format: messageExportFormatInput.optional(),
+          formats: z.array(messageExportFormatInput).optional(),
           conversations: z
             .array(
               z.object({

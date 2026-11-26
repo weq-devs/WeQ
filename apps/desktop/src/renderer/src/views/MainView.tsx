@@ -1763,9 +1763,13 @@ function MainWorkspace(): ReactElement {
         if (
           section === 'qqOnlineCapability' ||
           section === 'qqProxyConnection' ||
-          section === 'longTermAuthorization'
+          section === 'longTermAuthorization' ||
+          section === 'enhancementText' ||
+          section === 'enhancementVoice'
         ) {
           const target = {
+            enhancementText: { section: 'enhancement-packs', settingId: 'enhancement-text' },
+            enhancementVoice: { section: 'enhancement-packs', settingId: 'enhancement-voice' },
             qqOnlineCapability: { section: 'account', settingId: 'auto-full-mode' },
             qqProxyConnection: { section: 'account', settingId: 'qq-proxy-connection' },
             longTermAuthorization: {
@@ -1793,9 +1797,9 @@ function MainWorkspace(): ReactElement {
           setSettingsOpen(true);
           return;
         }
-        if (section === 'enhancementPacks') {
+        if (section === 'enhancementPacks' || section === 'recognition') {
           setSettingsSearchTarget(null);
-          setSettingsSection('enhancement-packs');
+          setSettingsSection(section === 'recognition' ? 'recognition' : 'enhancement-packs');
           setSettingsOpen(true);
           return;
         }

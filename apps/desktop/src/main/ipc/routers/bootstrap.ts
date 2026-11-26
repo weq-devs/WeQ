@@ -33,6 +33,7 @@ import {
 } from '../../notification_click_bus';
 import { reconcileLocalModelResources } from '../../context/local_model_resources';
 import { z } from 'zod/v3';
+import { messageExportFormatInput } from '../../../shared/message_export_format';
 import { assertAccountBinding, optionalAccountBinding } from '../account_binding';
 import { normalizeContactCard } from '@weq/service/contact-card';
 import { MAX_CHAT_IMAGE_CACHE_MIB } from '@weq/service/chat-image-cache';
@@ -1085,9 +1086,7 @@ export const bootstrapRouter = router({
     .input(
       z.object({
         variant: z.enum(['full', 'scheduled', 'qzone', 'contacts']),
-        formats: z
-          .array(z.enum(['json', 'jsonl', 'jsonl.gz', 'txt', 'csv', 'xlsx', 'html', 'vcard']))
-          .min(1),
+        formats: z.array(messageExportFormatInput.or(z.literal('vcard'))).min(1),
         options: exportPresetOptionsSchema,
         schedule: exportPresetScheduleSchema.optional(),
       }),

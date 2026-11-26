@@ -44,6 +44,7 @@ export interface VoiceRewriteOptions {
    * 里面本来就有 `pttTranscript` 字段，不需要（也不该）做字符串替换。
    */
   chatlabJson?: boolean;
+  chatlabFiles?: ReadonlySet<string>;
 }
 
 /** 按扩展名判定回写方式；不认识的（含 .xlsx）一律跳过。 */
@@ -146,7 +147,10 @@ export function rewriteVoiceTranscripts(
   if (entries.length === 0) return stats;
 
   for (const filePath of filePaths) {
-    const mode = modeOf(filePath, opts.chatlabJson === true);
+    const mode = modeOf(
+      filePath,
+      opts.chatlabJson === true || opts.chatlabFiles?.has(filePath) === true,
+    );
     if (mode === 'skip') continue;
 
     let content: string;

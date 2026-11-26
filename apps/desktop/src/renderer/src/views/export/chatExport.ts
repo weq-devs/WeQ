@@ -110,17 +110,17 @@ export async function preflightChatExport(
     if (!ok) return false;
   }
 
-  if (media.transcribeVoice) {
+  if (media.transcribeVoice && !media.onlineTranscribe) {
     const ok = await preflightVoiceTranscribe(dialog);
     if (!ok) return false;
   }
 
   if (media.ocrImages) {
-    const ok = await preflightOcrImages(dialog);
+    const ok = await preflightOcrImages(dialog, media.onlineOcr);
     if (!ok) return false;
   }
 
-  // 在线转录必须已经 arm（灯箱点开关时 arm）；否则硬拦截。
+  // 在线转写由导出面板在确认时准备。
   if (media.onlineTranscribe) {
     const ok = await preflightOnlineTranscribe(dialog);
     if (!ok) return false;
