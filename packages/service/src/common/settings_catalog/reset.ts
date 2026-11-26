@@ -17,7 +17,7 @@ export const SETTINGS_RESET_CARDS = [
   ['global', 'notification-scopes', '事件提醒会话'],
   ['global', 'application-badge', '系统应用图标'],
   ['main-navigation', 'navigation-badges', '导航角标'],
-  ['main-navigation', 'menu-badges', '菜单'],
+  ['main-navigation', 'menu-badges', '菜单角标'],
   ['contacts', 'contact-badges', '未读显示'],
   ['global', 'recall-notifications', '撤回提醒'],
   ['privacy', 'privacy-mode', '隐私模式'],
