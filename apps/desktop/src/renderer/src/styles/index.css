@@ -4396,7 +4396,6 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 .app-shell .notice-card:hover {
   background: rgba(255, 255, 255, 0.9);
   border-color: color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
-  transform: translateX(2px);
 }
 
 .app-shell .notice-card .avatar {
@@ -9913,7 +9912,6 @@ html[data-theme='dark'] .weq-call-recording-play {
     color-mix(in srgb, var(--weq-accent-effective) 4%, transparent)
   );
   border-color: color-mix(in srgb, var(--weq-accent-effective) 25%, transparent);
-  transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 

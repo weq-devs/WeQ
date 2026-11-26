@@ -888,7 +888,7 @@ describe('输入区发送交接', () => {
   });
 
   it.each(['recalled', 'deleted'])(
-    '%s 标志悬停显示重新编辑，单击恢复原文而不自动发送',
+    '%s 消息标志可单击重新编辑，将原文填回输入框并且不自动发送',
     async (status) => {
       const f = mount();
       try {
@@ -909,8 +909,10 @@ describe('输入区发送交接', () => {
         });
         const marker = f.host.querySelector<HTMLButtonElement>('button.weq-msg-reedit-trigger')!;
         expect(marker).not.toBeNull();
-        act(() => marker.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
-        expect(marker.textContent).toContain('重新编辑');
+        if (status === 'deleted') {
+          act(() => marker.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+          expect(marker.textContent).toContain('重新编辑');
+        }
         expect(serializeComposer(f.editor())).toBe('');
         await act(async () => marker.click());
         expect(serializeComposer(f.editor())).toBe('重新编辑的原文');

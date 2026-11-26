@@ -2008,7 +2008,6 @@ button.group-info-heading {
 
 .group-info-member-row:hover {
   background: color-mix(in srgb, var(--weq-bg-elevated) 88%, var(--weq-accent-effective));
-  transform: translateX(2px);
 }
 
 .group-info-member-row .member-avatar-wrap {
@@ -2271,10 +2270,6 @@ html[data-theme='dark'] .member-role-badge.admin {
 
 .group-info-panel .group-info-member-row::after {
   left: 44px;
-}
-
-.group-info-panel .group-info-member-row:hover {
-  transform: none;
 }
 
 .group-info-panel .group-info-member-row .avatar {

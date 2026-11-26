@@ -415,8 +415,7 @@ function MessageBubbleBody({
     onDismissUnsent && mine && !selectionMode && optimistic === 'sent' && optimisticRejected,
   );
   const StatusTag = mine && onReedit && !selectionMode && (recall || isDeleted) ? 'button' : 'div';
-  const reeditClass =
-    StatusTag === 'button' ? cn('weq-msg-reedit-trigger', reeditArmed && 'is-armed') : undefined;
+  const reeditClass = StatusTag === 'button' ? 'weq-msg-reedit-trigger' : undefined;
   async function activateReedit(event: ReactMouseEvent) {
     event.stopPropagation();
     if (reeditPending.current) return;
@@ -435,10 +434,6 @@ function MessageBubbleBody({
           type: 'button' as const,
           'aria-label': '重新编辑',
           onClick: activateReedit,
-          onMouseEnter: () => setReeditArmed(true),
-          onMouseLeave: () => setReeditArmed(false),
-          onFocus: () => setReeditArmed(true),
-          onBlur: () => setReeditArmed(false),
           disabled: reeditBusy,
           'aria-busy': reeditBusy,
         }
@@ -865,7 +860,14 @@ function MessageBubbleBody({
             title="防撤回已保留原消息"
           >
             <RotateCcw size={12} />
-            <span>{reeditArmed && reeditClass ? '重新编辑' : recallText}</span>
+            {reeditClass ? (
+              <span className="weq-msg-recall-labels" aria-hidden="true">
+                <span className="weq-msg-recall-label">{recallText}</span>
+                <span className="weq-msg-recall-action">重新编辑</span>
+              </span>
+            ) : (
+              <span>{recallText}</span>
+            )}
           </StatusTag>
         ) : null}
         {outgoingMetadata ? (
@@ -969,7 +971,18 @@ function MessageBubbleBody({
             className={cn('weq-msg-deleted-veil')}
             aria-label={isQqDeleted ? 'QQ删除的消息' : '已删除的消息'}
           >
-            <StatusTag {...statusProps} className={cn('weq-msg-deleted-badge', reeditClass)}>
+            <StatusTag
+              {...statusProps}
+              className={cn(
+                'weq-msg-deleted-badge',
+                reeditClass,
+                reeditClass && reeditArmed && 'is-armed',
+              )}
+              onMouseEnter={reeditClass ? () => setReeditArmed(true) : undefined}
+              onMouseLeave={reeditClass ? () => setReeditArmed(false) : undefined}
+              onFocus={reeditClass ? () => setReeditArmed(true) : undefined}
+              onBlur={reeditClass ? () => setReeditArmed(false) : undefined}
+            >
               {reeditArmed && reeditClass ? '重新编辑' : isQqDeleted ? 'QQ删除' : '已删除'}
             </StatusTag>
             {!isQqDeleted && !selectionMode && onRestore ? (

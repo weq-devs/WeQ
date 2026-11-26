@@ -220,13 +220,11 @@
     ),
     var(--weq-bg-surface, #fff);
   transition:
-    transform 180ms ease,
     box-shadow 180ms ease,
     border-color 180ms ease;
 }
 
 .ca-person:hover {
-  transform: translateY(-2px);
   border-color: color-mix(in srgb, var(--weq-accent-effective) 26%, transparent);
   box-shadow: var(--weq-shadow-card, 0 10px 26px rgba(0, 0, 0, 0.08));
 }

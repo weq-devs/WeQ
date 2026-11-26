@@ -13,7 +13,9 @@ const demo = createTemplateDemoData();
 const conversation = demo.conversations.find((row) => row.type === 'group')!;
 const sender = { ...demo.user, customTitle: '群头衔', avatarUrl: null };
 function Scene() {
-  const [stage, setStage] = useState<'host' | 'qq' | 'failed' | 'acked' | 'confirmed'>('host');
+  const [stage, setStage] = useState<'host' | 'qq' | 'failed' | 'acked' | 'confirmed' | 'recalled'>(
+    'host',
+  );
   Object.assign(window, {
     echoQA: { setStage: (next: typeof stage) => flushSync(() => setStage(next)) },
   });
@@ -45,13 +47,17 @@ function Scene() {
                   stage === 'confirmed' ? '2026-10-20T03:00:02Z' : '2026-10-20T03:00:01.500Z',
                 msgSeq: stage === 'acked' || stage === 'confirmed' ? String(index + 12) : undefined,
                 optimistic:
-                  stage === 'confirmed'
+                  stage === 'confirmed' || stage === 'recalled'
                     ? undefined
                     : stage === 'acked'
                       ? 'sent'
                       : stage === 'failed'
                         ? 'failed'
                         : 'sending',
+                recall:
+                  stage === 'recalled' && index === 0
+                    ? { revokeUid: demo.user.id, sameSender: true, recallTs: 1 }
+                    : undefined,
                 outgoingToHost: stage === 'host',
                 decoration: { bubbleId: 21001, fontId: 32002, widgetId: 10001 },
               }}
@@ -65,6 +71,10 @@ function Scene() {
               active={false}
               onContextMenu={() => {}}
               onLongPress={() => {}}
+              onReedit={async () => {
+                setStage('confirmed');
+                return true;
+              }}
             />
           ))}
         </ShowMessageTimeContext.Provider>
