@@ -41,7 +41,18 @@ export function guardStorageCleanupStartup(): void {
       worker: string;
     };
     if (!Number.isInteger(pid) || pid <= 0) throw new Error('清除助手状态无效');
-    process.kill(pid, 0);
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'ESRCH') {
+        rmSync(lockPath(), { force: true });
+        return;
+      }
+      // EPERM 只说明进程存在但无权向它发信号（例如命中了 PID 复用后的系统进程），
+      // 仍可读取命令行核对身份，不能据此认定清理助手还在运行。
+      if (code !== 'EPERM') throw error;
+    }
     // PID 可被系统复用。即使该 PID 正在运行，也必须确认它仍属于原清理助手；
     // Windows 使用 Win32_Process.CommandLine，其他平台保留 ps 检查。
     if (!isStorageCleanupWorkerProcess(pid, worker)) {
@@ -51,13 +62,9 @@ export function guardStorageCleanupStartup(): void {
     // 不启动窗口、账号或后台服务，避免重新打开正在清除的文件。
     dialog.showErrorBox('存储清除仍在进行', '请等待清除助手完成后再打开 WeQ。');
     app.exit(0);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ESRCH') rmSync(lockPath(), { force: true });
-    else if ((error as NodeJS.ErrnoException).code === 'EPERM') app.exit(0);
-    else {
-      dialog.showErrorBox('无法核对清除状态', '清除状态暂时无法读取，请稍后重试。');
-      app.exit(1);
-    }
+  } catch {
+    dialog.showErrorBox('无法核对清除状态', '清除状态暂时无法读取，请稍后重试。');
+    app.exit(1);
   }
 }
 

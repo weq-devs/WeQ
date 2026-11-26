@@ -59,6 +59,7 @@ import {
   buildVideoState,
   buildVideoSubHeader,
   extractHevc,
+  hasAnnexBStartCode,
   parseAudioFrame,
   parseAudioHeader,
   parseCallEvent,
@@ -135,6 +136,8 @@ export interface CallSnapshot {
   receivedFrames: number;
   /** 本端摄像头是否开着（发视频中）。 */
   videoSending: boolean;
+  /** 每次开始发送或切换来源时改变，用于丢弃过期采集帧。 */
+  videoCaptureId: string;
   /** 对端摄像头是否开着（收到对端视频流）。 */
   videoReceiving: boolean;
   /** 收到的视频帧数。 */
@@ -189,8 +192,8 @@ export interface VideoStreamInfo {
   height: number;
   /** HEVC profile（1 = Main）。 */
   profile: number;
-  /** 编码格式，目前只认 hevc。 */
-  codec: 'hevc';
+  /** 编码格式。 */
+  codec: 'hevc' | 'h264';
   /** 编码帧率（可选）。 */
   fps?: number;
   /** 目标码率（kbps，可选）。 */
@@ -221,6 +224,8 @@ export interface UdpTransport {
   onMessage(handler: (data: Uint8Array, from: { address: string; port: number }) => void): void;
   /** 套接字错误。 */
   onError(handler: (error: Error) => void): void;
+  /** 系统明确判定目标不可达，套接字仍可发往其它地址。 */
+  onUnreachable?(handler: (error: Error, address: string, port: number) => void): void;
 }
 
 /** 编解码能力。native 侧实现；测试里可以换成恒等变换。 */
@@ -241,6 +246,8 @@ export interface CallAudioCodec {
  * 只关心「给我一帧 Annex B」。
  */
 export interface CallVideoEncoder {
+  /** 编码帧由外部主动推送，无需轮询 next。 */
+  readonly externalFrames?: boolean;
   /**
    * 取下一帧 Annex B 裸流；没有新画面时返回 null（不发包）。
    *
@@ -308,6 +315,7 @@ export interface VideoFramePayload {
    */
   frameIndex: number;
   isKeyframe: boolean;
+  codec?: 'hevc' | 'h264';
   /** 真实帧时间戳（毫秒）。 */
   timestamp: number;
   /** 视频规格（只在关键帧上更新）。 */
@@ -438,6 +446,10 @@ function normalizeHost(address: string): string {
   // `::ffff:1.2.3.4` 去掉前缀就是点分 IPv4；但 `::ffff:0102:0304` 形态要去前缀后
   // 再按 IPv6 比较 —— 这里只处理点分那种（Node 在双栈 socket 上就给点分）。
   return mapped;
+}
+
+function endpointKey(address: string, port: number): string {
+  return `[${normalizeHost(address)}]:${port}`;
 }
 
 /**
@@ -615,6 +627,8 @@ export class CallSession {
 
   private gcs: CallServer | null = null;
   private relays: CallServer[] = [];
+  private pushedRelays: CallServer[] = [];
+  private readonly unreachable = new Set<string>();
 
   private startedAt: number | null = null;
   private connectedAt: number | null = null;
@@ -626,6 +640,8 @@ export class CallSession {
   // 视频
   private readonly videoAssembler = new VideoFrameAssembler();
   private videoSending = false;
+  private videoCaptureId = crypto.randomUUID();
+  private videoNeedsKeyframe = true;
   private videoReceiving = false;
   private receivedVideoFrames = 0;
   /** 最后一帧视频到达的时刻（毫秒），用于「对端静默停流」的兜底判断。 */
@@ -719,6 +735,9 @@ export class CallSession {
   private videoInfo: VideoStreamInfo | null = null;
   /** 视频帧序号（写进 sub-header，每帧 +1）。 */
   private videoFrameIndex = 0;
+  /** H.264 的 IDR 开启新组，gidx 从 0 起计数。 */
+  private videoH264Group = 0;
+  private videoH264FrameInGroup = 0;
   /** 视频分片序号（每片 +1，整通不重置）。 */
   private videoSeq = 0;
   /**
@@ -801,6 +820,7 @@ export class CallSession {
       sentFrames: this.sentFrames,
       receivedFrames: this.receivedFrames,
       videoSending: this.videoSending,
+      videoCaptureId: this.videoCaptureId,
       videoReceiving: this.videoReceiving,
       receivedVideoFrames: this.receivedVideoFrames,
       videoInfo: this.videoInfo,
@@ -839,6 +859,8 @@ export class CallSession {
    */
   setVideoSource(source: CallVideoSource): void {
     if (this.videoSource === source) return;
+    this.videoCaptureId = crypto.randomUUID();
+    this.videoNeedsKeyframe = true;
     this.videoSource = source;
     this.log?.info('本端视频采集源', { source, profile: this.localVideoProfile() });
     this.emit();
@@ -851,6 +873,8 @@ export class CallSession {
    * 这里只负责让状态对得上。
    */
   setVideoEncoding(): void {
+    this.videoCaptureId = crypto.randomUUID();
+    this.videoNeedsKeyframe = true;
     this.log?.info('本端视频规格更新', { profile: this.localVideoProfile() });
     this.emit();
   }
@@ -877,10 +901,9 @@ export class CallSession {
    * 协议上**没有**「开」和「关」两种包：两者都是同一条空体 `subType=4`，
    * 连发两次防丢包。所以这里只做「发控制包 + 切换本端发送状态」。
    *
-   * 打开后真正发画面要等 `videoEncoder` 吐帧（见 {@link pumpVideo}）；
-   * 没有注入编码器时只发控制包，对端会显示「等待对方画面」。
+   * 从语音切到视频时，调用方可在开启发送的同时交给会话一个已打开的编码器。
    */
-  setCamera(enabled: boolean): void {
+  setCamera(enabled: boolean, encoder?: CallVideoEncoder): void {
     this.log?.info('setCamera 请求', {
       enabled,
       state: this.state,
@@ -896,11 +919,14 @@ export class CallSession {
       this.log?.warn('setCamera 被拒：状态已是目标值', { enabled });
       return;
     }
+    if (enabled && encoder) this.videoEncoder ??= encoder;
     this.videoSending = enabled;
+    this.videoCaptureId = crypto.randomUUID();
+    this.videoNeedsKeyframe = true;
     if (enabled) this.startVideoState();
     this.sendVideoControl();
     if (enabled) {
-      this.videoFrameIndex = 0;
+      if (!this.videoEncoder?.externalFrames) this.videoFrameIndex = 0;
       this.startVideoLoop();
       this.startVideoKeepalive();
     } else {
@@ -943,6 +969,9 @@ export class CallSession {
       // 3. UDP
       this.opts.transport.onMessage((data, from) => this.handlePacket(data, from));
       this.opts.transport.onError((error) => this.fail(error.message));
+      this.opts.transport.onUnreachable?.((error, address, port) =>
+        this.handleUnreachable(error, address, port),
+      );
       await this.opts.transport.bind();
       // P2P 端点公告要用这个端口（见 sendPeerJoinReport）。
       this.localPort = this.opts.transport.localPort?.() ?? 0;
@@ -1000,14 +1029,12 @@ export class CallSession {
     const isGcsPort = (server: CallServer) => server.port === 8000 || server.port === 8001;
     const preferred = servers.filter(isGcsPort);
     const fallback = servers.filter((server) => !isGcsPort(server));
-    this.gcsCandidates = [...preferred, ...fallback];
-    this.gcs =
-      preferred.find((s) => s.ip === CallSession.goodGcsIp) ??
-      preferred[0] ??
-      this.gcsCandidates.find((s) => s.ip === CallSession.goodGcsIp) ??
-      this.gcsCandidates[0] ??
-      null;
-    this.gcsIndex = Math.max(0, this.gcsCandidates.indexOf(this.gcs!));
+    const cached = (preferred.length ? preferred : fallback).find(
+      (server) => server.ip === CallSession.goodGcsIp,
+    );
+    this.gcsCandidates = [...preferred, ...fallback].filter((server) => server !== cached);
+    if (cached) this.gcsCandidates.unshift(cached);
+    this.gcs = this.gcsCandidates[0] ?? null;
     this.log?.debug('服务器表', {
       total: servers.length,
       ipv6: servers.filter((s) => s.ip.includes(':')).length,
@@ -1015,21 +1042,48 @@ export class CallSession {
       picked: this.gcs ? `${this.gcs.ip}:${this.gcs.port}` : 'none',
     });
 
-    // 中继通道注册用前两台（按原始顺序，去重）。
-    const seen = new Set<string>();
-    this.relays = [];
-    for (const server of servers) {
-      const key = `${server.ip}:${server.port}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      this.relays.push(server);
-      if (this.relays.length >= 2) break;
-    }
     // 服务器表里的地址全部当作「服务端 / 中继节点」，后面按 IP 排除。
     // 它们换端口再发包时，`rememberPeerSource` 才挡得住。
     this.relayHosts.clear();
     for (const server of servers) this.noteRelayHost(server.ip);
-    if (this.gcs) this.noteRelayHost(this.gcs.ip);
+  }
+
+  private selectRelays(): CallServer[] {
+    const servers = this.room?.servers ?? [];
+    const gcsIsIpv6 = normalizeHost(this.gcs?.ip ?? '').includes(':');
+    const sameFamily = (server: CallServer) => normalizeHost(server.ip).includes(':') === gcsIsIpv6;
+    // 进房前优先使用已认证的地址族，收到服务端的专用中继地址后优先使用它们。
+    const ordered = [
+      ...this.pushedRelays,
+      ...servers.filter(sameFamily),
+      ...servers.filter((s) => !sameFamily(s)),
+    ];
+    const seen = new Set(this.unreachable);
+    const selected: CallServer[] = [];
+    for (const server of ordered) {
+      const key = endpointKey(server.ip, server.port);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      selected.push(server);
+      if (selected.length >= (this.pushedRelays.length || 2)) break;
+    }
+    return selected;
+  }
+
+  private handleUnreachable(error: Error, address: string, port: number): void {
+    if (this.state === 'ending' || this.state === 'ended' || this.state === 'failed') return;
+    const key = endpointKey(address, port);
+    if (this.unreachable.has(key)) return;
+    this.unreachable.add(key);
+    this.log?.warn('UDP 目标不可达', { address, port, error: error.message });
+
+    if (!this.authAcked && this.gcs?.port === port && sameHost(this.gcs.ip, address)) {
+      this.tryNextGcs();
+    }
+    const previous = this.relays;
+    if (!previous.some((relay) => relay.port === port && sameHost(relay.ip, address))) return;
+    this.relays = this.selectRelays();
+    this.sendRelayGetIn(this.relays.filter((relay) => !previous.includes(relay)));
   }
 
   /** 候选 GCS 地址，按尝试顺序。 */
@@ -1180,19 +1234,34 @@ export class CallSession {
     this.clearGcsRetry();
     this.gcsRetryTimer = this.timers.setTimeout(() => {
       this.gcsRetryTimer = null;
-      if (this.authAcked) return;
-      if (this.gcsIndex + 1 >= this.gcsCandidates.length) {
-        // 全部试过还是不通：留着当前这台继续心跳，可能是回包慢。
-        this.log?.warn('所有 GCS 候选都没有认证回包');
+      if (!this.authAcked) this.tryNextGcs();
+    }, 3000);
+  }
+
+  private tryNextGcs(): void {
+    this.clearGcsRetry();
+    const next = this.gcsCandidates.findIndex(
+      (server, index) =>
+        index > this.gcsIndex && !this.unreachable.has(endpointKey(server.ip, server.port)),
+    );
+    if (next === -1) {
+      if (
+        this.gcsCandidates.every((server) =>
+          this.unreachable.has(endpointKey(server.ip, server.port)),
+        )
+      ) {
+        this.fail('通话服务器地址均不可达');
         return;
       }
-      this.gcsIndex++;
-      this.gcs = this.gcsCandidates[this.gcsIndex]!;
-      this.log?.debug('切换 GCS', { ip: this.gcs.ip, port: this.gcs.port });
-      this.sendAuth();
-      this.sendRelayGetIn();
-      this.sendCodecInit();
-    }, 3000);
+      // 等待仍可能到达的认证回包，沿用通话超时收尾。
+      this.log?.warn('所有 GCS 候选都没有认证回包');
+      return;
+    }
+    this.gcsIndex = next;
+    this.gcs = this.gcsCandidates[next]!;
+    this.log?.debug('切换 GCS', { ip: this.gcs.ip, port: this.gcs.port });
+    this.sendAuth();
+    this.sendCodecInit();
   }
 
   private clearGcsRetry(): void {
@@ -1202,11 +1271,11 @@ export class CallSession {
     }
   }
 
-  private sendRelayGetIn(): void {
+  private sendRelayGetIn(relays = this.relays): void {
     if (!this.room) return;
     // 序号在同一通内恒定（GET_IN 与保活共用），不能每次重发都换一个。
     if (this.relaySeq === 0) this.relaySeq = this.nextPeerSeq();
-    for (const server of this.relays) {
+    for (const server of relays) {
       this.sendTo(
         buildRelayGetIn({
           roomId: this.room.roomId,
@@ -1436,13 +1505,30 @@ export class CallSession {
     if (stx === AUDIO_STX) {
       this.rememberPeerSource(from);
       this.handleAudio(data);
-    } else if (stx === GCS_STX) this.handleGcs(data);
+    } else if (stx === GCS_STX) this.handleGcs(data, from);
     else if (stx === RELAY_STX) this.handleRelay(data, from);
   }
 
-  private handleGcs(data: Uint8Array): void {
+  private handleGcs(data: Uint8Array, from: { address: string; port: number }): void {
     const packet = parseGcsPacket(data);
     if (!packet) return;
+    if (packet.bodyType === GcsBodyType.authRsp) {
+      if (
+        this.authAcked ||
+        this.teardownPromise ||
+        this.unreachable.has(endpointKey(from.address, from.port))
+      )
+        return;
+      // 超时轮换后，上一台仍可能回包。以实际完成认证的候选为准。
+      const server = this.gcsCandidates.find(
+        (candidate, index) =>
+          index <= this.gcsIndex &&
+          candidate.port === from.port &&
+          sameHost(candidate.ip, from.address),
+      );
+      if (!server) return;
+      this.gcs = server;
+    }
 
     // 认证回包里的会话时间戳，之后所有包都要带。
     if (packet.sessionTs !== 0) this.sessionTs = packet.sessionTs;
@@ -1557,7 +1643,9 @@ export class CallSession {
       relayCandidates.push({ ip: formatIpv4Fixed(ip), port, type });
     }
     if (relayCandidates.length > 0 && this.authToken > 0) {
-      this.relays = relayCandidates;
+      this.pushedRelays = relayCandidates;
+      for (const relay of relayCandidates) this.noteRelayHost(relay.ip);
+      this.relays = this.selectRelays();
       this.sendRelayGetIn();
       if (!this.relayTimer) this.startRelayKeepalive();
     }
@@ -1880,6 +1968,7 @@ export class CallSession {
     this.authAcked = true;
     this.clearGcsRetry();
     if (this.gcs) CallSession.goodGcsIp = this.gcs.ip;
+    this.relays = this.selectRelays();
     // relay token 通常在后续 bt=9 才下发；拿到 token 后再注册并开始保活。
     if (this.authToken > 0) {
       this.sendRelayGetIn();
@@ -2027,6 +2116,8 @@ export class CallSession {
     // 这里在 emit 之前切，界面上接通的那一刻就已经是「本端在发视频」。
     if (this.opts.media === 'video' && !this.videoSending) {
       this.videoSending = true;
+      this.videoCaptureId = crypto.randomUUID();
+      this.videoNeedsKeyframe = true;
       this.sendVideoControl();
       this.videoFrameIndex = 0;
       this.startVideoLoop();
@@ -2170,6 +2261,8 @@ export class CallSession {
     }
 
     const hevc = extractHevc(frame);
+    const codec = frame.frameData[3] === 0x05 ? 'h264' : 'hevc';
+    if (this.videoInfo && this.videoInfo.codec !== codec) this.videoInfo = null;
     // 前几帧把组帧结果打出来：拼不上 / 剥不出裸流是「收到包但没画面」的典型原因。
     if (this.receivedVideoFrames <= 5 || this.receivedVideoFrames % 50 === 0) {
       this.log?.info('视频帧组装', {
@@ -2183,7 +2276,7 @@ export class CallSession {
       });
     }
     // 只在关键帧上读规格，避免每帧都解析 SPS。
-    if (hevc && frame.isKeyframe) {
+    if (hevc && frame.isKeyframe && codec === 'hevc') {
       const info = readHevcInfo(hevc);
       if (info && !this.videoInfo) {
         this.videoInfo = info;
@@ -2197,6 +2290,7 @@ export class CallSession {
       fidx: frame.fidx,
       frameIndex: frame.frameIndex,
       isKeyframe: frame.isKeyframe,
+      codec,
       timestamp: frame.timestamp,
       info: this.videoInfo,
       hevc,
@@ -2345,6 +2439,7 @@ export class CallSession {
    * 轮询兜住：比最慢的帧间隔小一个量级，又不会把主进程拖满。
    */
   private startVideoLoop(): void {
+    if (this.videoEncoder?.externalFrames) return;
     if (this.videoTimer !== null) return;
     const pump = () => {
       this.videoTimer = this.timers.setTimeout(() => {
@@ -2361,7 +2456,8 @@ export class CallSession {
   }
 
   private async pumpVideo(): Promise<void> {
-    if (!this.videoSending || this.state !== 'connected') return;
+    const timer = this.videoTimer;
+    if (timer === null || !this.videoSending || this.state !== 'connected') return;
     const encoder = this.videoEncoder;
     if (!encoder) {
       // 没有编码器：控制包已经发了，对端会显示「等待对方画面」。
@@ -2373,6 +2469,8 @@ export class CallSession {
 
     try {
       const hevc = await encoder.next();
+      // 关摄像头或挂断会取消当前循环。快速重开时也要丢掉上一轮的编码结果。
+      if (this.videoTimer !== timer) return;
       if (hevc && hevc.length > 0) {
         this.sentVideoFrames++;
         if (this.sentVideoFrames <= 3 || this.sentVideoFrames % 30 === 0) {
@@ -2394,58 +2492,77 @@ export class CallSession {
       this.log?.warn('编码一帧视频失败', { error });
     }
 
-    if (!this.videoSending) return;
+    if (this.videoTimer !== timer) return;
     this.videoTimer = this.timers.setTimeout(() => {
       void this.pumpVideo();
     }, VIDEO_PUMP_MS);
   }
 
-  /**
-   * 把一帧 Annex B 裸流切包发出去。
-   *
-   * 20 字节 sub-header + 裸流等分切包，每片一个 `0x5b subType=2` 包。单个 UDP
-   * 载荷约 1200 字节（IPv6 路径下更大，但 1200 是安全值）。
-   *
-   * 三个字段按实测填（见 {@link buildVideoSubHeader}）：
-   * - `[2]=0x00`（c2s 方向，不是 0x03）；
-   * - `[8:12]` 帧 PTS = 距接通时刻的毫秒数（不是 `Date.now()`）；
-   * - `[12:16]` 接通时定下的会话基准 tick。
-   */
-  private sendVideoFrame(hevc: Uint8Array): void {
+  /** 发送渲染层编码完成的 Annex B 视频帧。 */
+  pushEncodedVideoFrame(data: Uint8Array, keyframe: boolean): boolean {
+    if (!this.videoSending || this.state !== 'connected' || !hasAnnexBStartCode(data)) return false;
+    const types = splitHevcNals(data).map((nal) => nal.data[0]! & 0x1f);
+    const hasIdr = types.includes(5);
+    if (keyframe !== hasIdr || (!hasIdr && !types.includes(1))) return false;
+    if (this.videoNeedsKeyframe && (!hasIdr || !types.includes(7) || !types.includes(8)))
+      return false;
+    if (!hasIdr && this.videoH264FrameInGroup > 255) return false;
+    if (hasIdr) {
+      this.videoH264Group = (this.videoH264Group + 1) & 0xff;
+      this.videoH264FrameInGroup = 0;
+    }
+    this.sendVideoFrame(data, 'h264', keyframe);
+    this.videoH264FrameInGroup++;
+    this.videoNeedsKeyframe = false;
+    return true;
+  }
+
+  /** 将一帧 Annex B 裸流封成私聊视频 UDP 分片。 */
+  private sendVideoFrame(
+    data: Uint8Array,
+    codec: 'hevc' | 'h264' = 'hevc',
+    encodedKeyframe?: boolean,
+  ): void {
     const now = this.timers.now();
     const ptsMs = this.connectedAt === null ? 0 : now - this.connectedAt;
     // `[16:20]` 要提前知道片数，所以先按「sub-header + 裸流」的总长估一次。
     // 实测取值是 `0..totalPkg-1` 里的一个值（不是 `totalPkg-1` 定值），语义未
     // 还原，用随机值对齐分布。
-    const packetCount = videoPacketCount(VIDEO_SUBHEADER_LEN + hevc.length);
+    const packetCount = videoPacketCount(VIDEO_SUBHEADER_LEN + data.length);
     this.videoFrameFragment = packetCount <= 1 ? 0 : Math.floor(Math.random() * packetCount);
-    // 关键帧要额外带 RS-FEC 校验片（见 buildVideoPackets 的 `fec`）。判定与
-    // `[6:8]` 的质量档同源：都看这帧里有没有 IRAP NAL。
-    const keyframe = splitHevcNals(hevc).some((nal) => isIrapNalType(nal.type));
+    const keyframe = encodedKeyframe ?? splitHevcNals(data).some((nal) => isIrapNalType(nal.type));
     const subHeader = buildVideoSubHeader({
       direction: 'c2s',
-      frameIndex: this.videoFrameIndex,
+      codec,
+      // 原版 H.264 以 IDR 和每第 3 个 P 帧为参考点，后续三帧携带同一参考号。
+      frameIndex:
+        codec === 'h264'
+          ? Math.floor(Math.max(0, this.videoH264FrameInGroup - 1) / 3) * 3
+          : this.videoFrameIndex,
       timestampMs: ptsMs,
       peerVideoBase: this.peerVideoBase,
       // `[6:8]`：对端只拿它做统计，按真实分布抽样即可（见 sampleVideoFrameQuality）。
       quality: sampleVideoFrameQuality(keyframe),
       fragment: this.videoFrameFragment,
     });
-    const frameData = new Uint8Array(subHeader.length + hevc.length);
+    const frameData = new Uint8Array(subHeader.length + data.length);
     frameData.set(subHeader, 0);
-    frameData.set(hevc, subHeader.length);
+    frameData.set(data, subHeader.length);
 
     const packets = buildVideoPackets({
       frameData,
       // 16 位帧序号：包头里的 gidx/fidx 由它拆出。只写 gidx 会在第 256 帧回绕、
       // 帧序号倒退，对端按序号判连续性时会当成乱序而丢帧。
       frameIndex: this.videoFrameIndex,
+      ...(codec === 'h264' ? { gidx: this.videoH264FrameInGroup, fidx: this.videoH264Group } : {}),
       sessionTs: this.sessionTs,
       // tick 帧内恒定；seq 由 buildVideoPackets 按片递增。
       tick: this.tick(),
       seq: this.videoSeq,
-      // 关键帧带 RS(5,3) 校验片；普通帧不发（实测 QQ 也只有关键帧带）。
-      fec: keyframe,
+      // QQ H.264 在多分片 IDR 和组内每第 3 个 P 帧添加一片校验。
+      fec: keyframe || (codec === 'h264' && this.videoH264FrameInGroup % 3 === 0),
+      codec,
+      keyframe,
     });
     this.videoSeq += packets.length;
     for (const packet of packets) this.sendMedia(packet);

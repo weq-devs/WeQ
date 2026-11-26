@@ -12,6 +12,7 @@ import {
   AUDIO_HEADER_LEN,
   AudioSubType,
   CallEvent,
+  type CallServer,
   GcsBodyType,
   RELAY_CHANNEL,
   buildAudioFrame,
@@ -92,6 +93,7 @@ class FakeTransport implements UdpTransport {
   closed = false;
   private messageHandler?: (data: Uint8Array, from: { address: string; port: number }) => void;
   private errorHandler?: (error: Error) => void;
+  private unreachableHandler?: (error: Error, address: string, port: number) => void;
 
   async bind(): Promise<void> {}
   send(data: Uint8Array, port: number, address: string): void {
@@ -106,9 +108,16 @@ class FakeTransport implements UdpTransport {
   onError(handler: (error: Error) => void): void {
     this.errorHandler = handler;
   }
+  onUnreachable(handler: (error: Error, address: string, port: number) => void): void {
+    this.unreachableHandler = handler;
+  }
+  unreachable(server: CallServer): void {
+    this.unreachableHandler?.(new Error('send ENETUNREACH'), server.ip, server.port);
+  }
   /** 模拟服务端推一个包过来。 */
   deliver(data: Uint8Array): void {
-    this.messageHandler?.(data, { address: '1.2.3.4', port: 8000 });
+    const auth = parseGcsPacket(data)?.bodyType === GcsBodyType.authRsp;
+    this.deliverFrom(data, { address: auth ? '113.250.57.28' : '1.2.3.4', port: 8000 });
   }
   /** 模拟某个指定来源发一个包过来（P2P / 中继要用它才测得出端点归属）。 */
   deliverFrom(data: Uint8Array, from: { address: string; port: number }): void {
@@ -140,7 +149,12 @@ class FakeCodec implements CallAudioCodec {
   }
 }
 
-function fakeSignaling(): CallSignaling & { ended: boolean } {
+function fakeSignaling(
+  servers: CallServer[] = [
+    { ip: '113.250.57.28', port: 8000, type: 1 },
+    { ip: '113.250.57.28', port: 8800, type: 2 },
+  ],
+): CallSignaling & { ended: boolean } {
   const state = { ended: false };
   return {
     get ended() {
@@ -153,10 +167,7 @@ function fakeSignaling(): CallSignaling & { ended: boolean } {
           sessionId: 88n,
           relationId: 15001,
           authKey: new Uint8Array(80).fill(1),
-          servers: [
-            { ip: '113.250.57.28', port: 8000, type: 1 },
-            { ip: '113.250.57.28', port: 8800, type: 2 },
-          ],
+          servers,
         },
         authToken: 1234,
       };
@@ -167,11 +178,11 @@ function fakeSignaling(): CallSignaling & { ended: boolean } {
   };
 }
 
-function makeSession() {
+function makeSession(servers?: CallServer[]) {
   const timers = new FakeTimers();
   const transport = new FakeTransport();
   const codec = new FakeCodec();
-  const signaling = fakeSignaling();
+  const signaling = fakeSignaling(servers);
   const session = new CallSession({
     selfUin: '1707889225',
     selfUid: 'u_self',
@@ -566,6 +577,73 @@ describe('通话会话状态机', () => {
     timers.advance(10_000);
     expect(transport.gcs(GcsBodyType.authReq).length).toBe(before);
     expect(session.snapshot().state).toBe('calling');
+  });
+
+  it('轮换后仍能采用上一台 GCS 的迟到认证回包', async () => {
+    const first = { ip: '192.0.2.10', port: 8000, type: 2 };
+    const second = { ip: '192.0.2.11', port: 8001, type: 2 };
+    const { session, transport, timers } = makeSession([first, second]);
+    await session.start();
+    timers.advance(3000);
+    expect(transport.sent.at(-1)?.address).toBe(second.ip);
+    transport.deliverFrom(authRspPacket(), { address: first.ip, port: first.port });
+    timers.advance(2000);
+    expect(transport.sent.at(-1)?.address).toBe(first.ip);
+  });
+
+  it('路由错误立即切换 GCS，按认证成功的地址族选中继并补选发送失败的中继', async () => {
+    const ipv6Relay = { ip: '2001:db8::1', port: 8800, type: 2 };
+    const ipv6Gcs = { ip: '2001:db8::2', port: 8000, type: 2 };
+    const ipv4Gcs = { ip: '192.0.2.1', port: 8000, type: 2 };
+    const ipv4Relay = { ip: '192.0.2.2', port: 8001, type: 1 };
+    const ipv4Backup = { ip: '192.0.2.3', port: 8001, type: 1 };
+    const { session, transport, timers } = makeSession([
+      ipv6Relay,
+      ipv6Gcs,
+      ipv4Gcs,
+      ipv4Relay,
+      ipv4Backup,
+    ]);
+    const targets = (matches: (data: Uint8Array) => boolean) =>
+      new Set(transport.sent.filter(({ data }) => matches(data)).map(({ address }) => address));
+    const authTargets = () =>
+      targets((data) => parseGcsPacket(data)?.bodyType === GcsBodyType.authReq);
+    const relayTargets = (cmd: number) =>
+      targets((data) => data[0] === 2 && data[4] === RELAY_CHANNEL.server && data[6] === cmd);
+
+    await session.start();
+    expect(authTargets()).toEqual(new Set([ipv6Gcs.ip]));
+    transport.unreachable(ipv6Gcs);
+    transport.unreachable(ipv6Gcs);
+    expect(authTargets()).toEqual(new Set([ipv6Gcs.ip, ipv4Gcs.ip]));
+    transport.deliverFrom(authRspPacket(), { address: ipv6Gcs.ip, port: ipv6Gcs.port });
+    expect(relayTargets(RelayCmd.getIn).size).toBe(0);
+
+    transport.deliverFrom(authRspPacket(), { address: `::ffff:${ipv4Gcs.ip}`, port: ipv4Gcs.port });
+    expect(relayTargets(RelayCmd.getIn)).toEqual(new Set([ipv4Gcs.ip, ipv4Relay.ip]));
+    transport.sent.length = 0;
+    transport.unreachable(ipv4Relay);
+    expect(relayTargets(RelayCmd.getIn)).toEqual(new Set([ipv4Backup.ip]));
+    timers.advance(5000);
+    expect(relayTargets(RelayCmd.keepalive)).toEqual(new Set([ipv4Gcs.ip, ipv4Backup.ip]));
+    expect(authTargets().size).toBe(0);
+
+    transport.deliver(notifyPacket(CallEvent.dataChange));
+    expect(session.snapshot().state).toBe('connected');
+  });
+
+  it('所有候选均不可达时立即结束邀请', async () => {
+    const ipv6 = { ip: '2001:db8::9', port: 8000, type: 2 };
+    const { session, signaling, transport } = makeSession([ipv6]);
+    await session.start();
+    transport.unreachable(ipv6);
+    await session.hangup();
+    expect(session.snapshot()).toMatchObject({
+      state: 'failed',
+      lastError: '通话服务器地址均不可达',
+    });
+    expect(signaling.ended).toBe(true);
+    expect(transport.closed).toBe(true);
   });
 
   it('重复发起会被拒绝', async () => {

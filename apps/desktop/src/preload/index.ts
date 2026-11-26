@@ -16,7 +16,11 @@ import { createRequire } from 'node:module';
 import type { AnalyticsExportPayload, AnalyticsExportResult } from '../shared/analytics_export';
 import { installPerformanceSampling } from './performance_monitor';
 import type { EditMenuState } from '../shared/edit_menu';
-import { CALL_VIDEO_FRAME_CHANNEL, type CallVideoBridge } from '../shared/call_video_ipc';
+import {
+  CALL_VIDEO_ENCODED_CHANNEL,
+  CALL_VIDEO_FRAME_CHANNEL,
+  type CallVideoBridge,
+} from '../shared/call_video_ipc';
 import { groupVideoBridge } from './group_video';
 import type { LongTermAuthorizationBridge } from '../shared/long_term_authorization';
 import { rendererRecoveryBridge } from './renderer_recovery';
@@ -220,6 +224,9 @@ const weqBridge = {
      */
     pushFrame(frame): void {
       ipcRenderer.send(CALL_VIDEO_FRAME_CHANNEL, frame);
+    },
+    pushEncodedFrame(frame): Promise<boolean> {
+      return ipcRenderer.invoke(CALL_VIDEO_ENCODED_CHANNEL, frame);
     },
     ...groupVideoBridge,
   } satisfies CallVideoBridge,
