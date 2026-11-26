@@ -361,7 +361,8 @@ import { shouldShowMessageTime } from './messageTime.shared';
 import { MessageGapDivider, MessageLoadFailure } from './messageGap';
 import { isSeqBetween, messageGapCount } from './messageGap.shared';
 import { defaultConversationPreference } from './preferences';
-import { Avatar, ChatMessagesSkeleton, EmptyState } from './primitives';
+import { Avatar, EmptyState } from './primitives';
+import { ConversationEntryTransition } from './conversationEntryTransition';
 import type {
   Conversation,
   ConversationPreference,
@@ -1594,6 +1595,7 @@ function ChatPaneContent({
     () => messages.filter((message) => !isTimelineMessageHidden(message.id)),
     [messages, isTimelineMessageHidden],
   );
+  const waitingForEntry = Boolean(loading && !loadError && visibleMessages.length === 0);
   const mediaGalleryMessages = useMemo(
     () =>
       visibleMessages.map((message) => ({
@@ -6766,13 +6768,10 @@ function ChatPaneContent({
               {marquee.box ? (
                 <div className="weq-message-marquee" aria-hidden style={marquee.box} />
               ) : null}
-              {loading && visibleMessages.length === 0 ? (
-                <>
-                  <span className="sr-only" role="status">
-                    正在加载消息
-                  </span>
-                  <ChatMessagesSkeleton />
-                </>
+              {waitingForEntry ? (
+                <span className="sr-only" role="status">
+                  正在加载消息
+                </span>
               ) : visibleMessages.length === 0 && !loadingNewer && !loadError ? (
                 (emptyTimeline ?? (
                   <EmptyState
@@ -8559,7 +8558,7 @@ function ChatPaneContent({
       ) : null}
     </section>
   );
-  return (
+  const gallery = (
     <ChatMediaGallery
       key={conversation?.id}
       scopeKey={conversation?.id}
@@ -8582,6 +8581,17 @@ function ChatPaneContent({
     >
       <ReplyJumpContext.Provider value={jumpToSeq}>{pane}</ReplyJumpContext.Provider>
     </ChatMediaGallery>
+  );
+  return (
+    <ConversationEntryTransition
+      scope={JSON.stringify([user.id, conversation.type, conversation.id])}
+      active={tabActive}
+      waiting={waitingForEntry}
+      scrollRef={messageScrollRef}
+      contentRef={timelineContentRef}
+    >
+      {gallery}
+    </ConversationEntryTransition>
   );
 }
 
