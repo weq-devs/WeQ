@@ -2,6 +2,14 @@ import type { ExportTask, FlashDownloadTask, RoamingJobStatus } from '@weq/servi
 import type { CloneTask } from '../views/agentlab/cloneTaskStore';
 import type { BackgroundTask } from '../../../shared/background_task';
 import { backgroundTaskDisplay } from '../../../shared/background_task';
+import {
+  backgroundResult,
+  exportArchivePolicy,
+  flashResult,
+  isTaskArchived,
+  roamingResult,
+  type TaskArchive,
+} from '../../../shared/task_archive';
 import { exportTaskResult } from '../../../shared/export_task_result';
 import { isRoamingJobComplete } from '../../../shared/roaming_task_status';
 import { roamingTaskDisplay, taskNoticeTitle } from '@weq/service/task-display';
@@ -21,6 +29,9 @@ export interface WorkspaceTaskIndicator {
   cancelled?: boolean;
   notificationHandled?: boolean;
   showProgressNotification?: boolean;
+  showCompletionNotification?: boolean;
+  archived?: boolean;
+  resultSeen?: boolean;
   showRunningBadge?: boolean;
   transfer?: boolean;
   showResultBadge?: boolean;
@@ -69,7 +80,9 @@ export function summarizeWorkspaceTasks({
   scanning = false,
   flash = [],
   background = [],
+  archive,
 }: {
+  archive?: TaskArchive;
   exports?: (Pick<ExportTask, 'id' | 'status' | 'save'> &
     Partial<
       Pick<
@@ -81,9 +94,9 @@ export function summarizeWorkspaceTasks({
         | 'databaseRecovery'
         | 'databaseRecoveryRecords'
       >
-    >)[];
+    > & { generatedResources?: { missing: number } })[];
   clones?: (Pick<CloneTask, 'personaId' | 'status'> &
-    Partial<Pick<CloneTask, 'name' | 'operation'>>)[];
+    Partial<Pick<CloneTask, 'name' | 'operation' | 'revision'>>)[];
   roaming?: {
     id: string;
     status: RoamingJobStatus;
@@ -109,6 +122,7 @@ export function summarizeWorkspaceTasks({
         | 'clonePersonaId'
         | 'automaticUpdate'
         | 'statusLabel'
+        | 'needsConfirmation'
         | 'outgoingTransfer'
       >
     >)[];
@@ -128,6 +142,7 @@ export function summarizeWorkspaceTasks({
       task.save?.status === 'interrupted';
     items.push({
       ...exportTaskResult(task),
+      showCompletionNotification: !exportArchivePolicy(task).auto,
       name: '导出任务',
       notificationName: task.display ? taskNoticeTitle(task.display) : undefined,
       paused: task.status === 'paused',
@@ -153,7 +168,7 @@ export function summarizeWorkspaceTasks({
           })
         : undefined,
       activity: task.status === 'running' ? 'running' : 'finished',
-      result: task.status,
+      result: cloneTaskResult(task),
       failed: task.status === 'error',
       autoOpenTaskList: false, // 创建和更新会主动打开任务列表。
     });
@@ -173,7 +188,7 @@ export function summarizeWorkspaceTasks({
             task.status === 'cancelled'
           ? 'finished'
           : 'idle',
-      result: `${task.status}:${task.updatedAt ?? ''}`,
+      result: roamingResult(task),
       failed: task.status === 'failed',
       autoOpenTaskList: false,
     });
@@ -202,7 +217,9 @@ export function summarizeWorkspaceTasks({
         : ['pending', 'resolving', 'downloading'].includes(task.status)
           ? 'running'
           : 'finished',
-      result: `${task.status}:${task.finishedAt ?? ''}`,
+      result: flashResult(task),
+      showCompletionNotification: (task.files?.length ?? 1) > 1,
+      autoOpenTaskList: false,
       failed: !task.interrupted && task.status === 'failed',
     });
   }
@@ -233,11 +250,14 @@ export function summarizeWorkspaceTasks({
       transfer: task.kind === 'send-media',
       showResultBadge: task.kind !== 'update' && (!task.automaticUpdate || failed),
       paused: task.status === 'paused',
-      waiting: task.automaticUpdate && task.status === 'paused' && task.statusLabel === '等待继续',
+      waiting:
+        task.needsConfirmation ||
+        (task.automaticUpdate && task.status === 'paused' && task.statusLabel === '等待继续'),
       cancelled: task.status === 'cancelled',
       activity:
         task.status === 'running' ? 'running' : task.status === 'paused' ? 'idle' : 'finished',
-      result: `${task.status}:${task.updatedAt}`,
+      result: backgroundResult(task),
+      showCompletionNotification: !['analysis', 'forward', 'qzone-share'].includes(task.kind ?? ''),
       failed,
       partial: task.status === 'completed' && failedItems > 0,
       notificationSummary: failedItems ? `${failedItems} 项未完成` : undefined,
@@ -251,6 +271,17 @@ export function summarizeWorkspaceTasks({
       .length,
     failed: items.filter((item) => item.failed && item.showResultBadge !== false).length,
     // 可从任务入口找回的进度统一留在任务中。
-    items: items.map((item) => ({ ...item, showProgressNotification: false })),
+    items: items
+      .filter((item) => !(archive?.[item.id]?.deleted && archive[item.id]?.result === item.result))
+      .map((item) => ({
+        ...item,
+        archived: isTaskArchived(archive?.[item.id], item.result),
+        resultSeen: archive?.[item.id]?.result === item.result && archive[item.id]?.seen === true,
+        showProgressNotification: false,
+      })),
   };
+}
+
+export function cloneTaskResult(task: Pick<CloneTask, 'status' | 'revision'>) {
+  return `${task.status === 'done' ? 'completed' : task.status === 'error' ? 'failed' : 'running'}:${task.revision ?? 0}`;
 }

@@ -21,7 +21,8 @@ import { AvatarPicture } from '../AvatarPicture';
 import { useToast } from '../Toast.shared';
 import { copyTextToClipboard } from '../../im-template/template/clipboard';
 import { isSingleColumnLayout } from '../../lib/responsiveLayout';
-import { notificationSource } from '../../lib/notificationNavigation.shared';
+import { runMergeForwardTask, type SendMergeForward } from './mergeForwardTask';
+import { accountBinding } from '../../lib/clientPreferences';
 import { MergeForwardComposer } from './MergeForwardComposer';
 import { MergeForwardTargets } from './MergeForwardTargets';
 import { senderAvatarUrl } from './model';
@@ -55,18 +56,14 @@ export function MergeForwardDialog({
   onClose: () => void;
   /** 保存为可续编的合成记录。 */
   onPersist: (draft: MfDraft) => Promise<void> | void;
-  /** 发送接缝：真正的合并转发发包在这里接入（本分支不实现）。 */
-  onForward: (
-    draft: MfDraft,
-    target: MfTarget,
-    binding?: CompositionBinding,
-  ) => Promise<undefined | boolean>;
+  onForward: SendMergeForward;
 }): ReactElement {
   const pushToast = useToast((s) => s.push);
   const [draft, setDraft] = useState<MfDraft>(initialDraft);
   const [step, setStep] = useState<'edit' | 'targets'>('edit');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
+  const [attempted, setAttempted] = useState<Set<string>>(new Set());
 
   const title = useMemo(() => draft.title || draftTitle(draft.nodes), [draft]);
   const hasMessages = draft.nodes.length > 0;
@@ -90,48 +87,40 @@ export function MergeForwardDialog({
   }
 
   async function forward(): Promise<void> {
-    const picked = targets.filter((t) => selected.has(t.id));
+    const picked = targets.filter((t) => selected.has(t.id) && !attempted.has(t.id));
     if (picked.length === 0) {
       pushToast({ tone: 'warning', durationKind: 'success', title: '先选择会话' });
       return;
     }
+    if (!binding || sending) return;
     setSending(true);
-    let failed = 0;
-    const sent: MfTarget[] = [];
-    for (const target of picked) {
-      try {
-        if ((await onForward(draft, target, binding ?? undefined)) !== false) sent.push(target);
-      } catch (error) {
-        failed += 1;
-        pushToast({
-          tone: 'error',
-          title: `转发到「${target.name}」失败`,
-          detail: error instanceof Error ? error.message : String(error),
-        });
-      }
+    try {
+      const result = await runMergeForwardTask({
+        draft,
+        targets: picked,
+        binding,
+        send: onForward,
+        isCurrent: () => {
+          const current = accountBinding();
+          return (
+            current?.expectedAccountUin === binding.expectedAccountUin &&
+            current.expectedAccountConfigId === binding.expectedAccountConfigId
+          );
+        },
+      });
+      setAttempted(
+        (current) =>
+          new Set([
+            ...current,
+            ...result.sent.concat(result.unconfirmed).map((target) => target.id),
+          ]),
+      );
+      setSelected(new Set(result.rejected.map((target) => target.id)));
+      if (result.rejected.length) await onPersist(draft);
+      if (result.sent.length === picked.length) onClose();
+    } finally {
+      setSending(false);
     }
-    setSending(false);
-    setSelected(
-      new Set(picked.filter((target) => !sent.includes(target)).map((target) => target.id)),
-    );
-    if (failed > 0) {
-      // 协议还没接入 / 发送失败时不要把用户拼好的东西弄丢 —— 存一份草稿。
-      await onPersist(draft);
-    }
-    if (!sent.length) return;
-    pushToast({
-      tone: 'success',
-      title: '已转发',
-      summary: `${sent.length} 个会话`,
-      source: binding
-        ? notificationSource(
-            { kind: 'forwarded-conversations', targets: sent, binding },
-            sent.length === 1 ? '打开转发会话' : '选择转发会话',
-            binding,
-          )
-        : undefined,
-    });
-    if (sent.length === picked.length) onClose();
   }
 
   return (
@@ -200,7 +189,11 @@ export function MergeForwardDialog({
               senderMode={senderMode}
             />
           ) : (
-            <MergeForwardTargets targets={targets} selected={selected} onChange={setSelected} />
+            <MergeForwardTargets
+              targets={targets.filter((target) => !attempted.has(target.id))}
+              selected={selected}
+              onChange={setSelected}
+            />
           )}
         </div>
 

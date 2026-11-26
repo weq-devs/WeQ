@@ -7,13 +7,12 @@ import {
   RotateCw,
   RefreshCw,
   Square,
-  Trash2,
 } from 'lucide-react';
 import { useContext, useEffect, useRef, type ReactNode } from 'react';
 import type { ContactMetricsLaneKey } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { localBackgroundTasks } from '../../state/backgroundTasks';
-import { removeBackgroundTask, type BackgroundTaskEntry } from '../../hooks/useBackgroundTasks';
+import type { BackgroundTaskEntry } from '../../hooks/useBackgroundTasks';
 import type { BackgroundTaskScope } from '../../../../shared/background_task';
 import { backgroundTaskDisplay } from '../../../../shared/background_task';
 import { IS_WEB } from '../../lib/target.shared';
@@ -60,12 +59,16 @@ export function BackgroundTaskDetails({
   refresh,
   onOpenClone,
   cloneLog,
+  managementActions,
+  archived,
 }: {
   entry: BackgroundTaskEntry;
   scope: BackgroundTaskScope | null;
   refresh: () => Promise<unknown>;
   onOpenClone?: (id: string) => void;
   cloneLog?: ReactNode;
+  managementActions: TaskQuickAction[];
+  archived: boolean;
 }) {
   return (
     <TaskDetails
@@ -75,6 +78,8 @@ export function BackgroundTaskDetails({
       refresh={refresh}
       onOpenClone={onOpenClone}
       cloneLog={cloneLog}
+      managementActions={managementActions}
+      archived={archived}
     />
   );
 }
@@ -85,12 +90,16 @@ function TaskDetails({
   refresh,
   onOpenClone,
   cloneLog,
+  managementActions,
+  archived,
 }: {
   entry: BackgroundTaskEntry;
   scope: BackgroundTaskScope | null;
   refresh: () => Promise<unknown>;
   onOpenClone?: (id: string) => void;
   cloneLog?: ReactNode;
+  managementActions: TaskQuickAction[];
+  archived: boolean;
 }) {
   const { task } = entry;
   const outgoing = useOutgoingTaskProgress(task);
@@ -165,6 +174,13 @@ function TaskDetails({
     await refresh();
   };
   const taskActions: TaskQuickAction[] = (canManageTask ? task.actions : [])
+    .filter(
+      (action) =>
+        !archived ||
+        ['open', 'reveal', 'view-report', 'view-clone', 'download', 'open-message'].includes(
+          action.id,
+        ),
+    )
     .filter((action) => action.id !== 'view-clone' || Boolean(onOpenClone))
     .map((action) => ({
       id: action.id,
@@ -174,6 +190,12 @@ function TaskDetails({
         if (action.id === 'view-clone' && task.clonePersonaId) {
           return onOpenClone?.(task.clonePersonaId);
         }
+        if (action.id === 'view-report' && task.reportId) {
+          window.dispatchEvent(
+            new CustomEvent('weq:open-saved-analysis', { detail: task.reportId }),
+          );
+          return;
+        }
         return act(() =>
           entry.source === 'window'
             ? localBackgroundTasks.act(task.id, action.id)
@@ -181,7 +203,14 @@ function TaskDetails({
         );
       },
     }));
-  if (navigation) {
+  if (
+    navigation &&
+    !taskActions.some(
+      (action) =>
+        action.id === navigation.id ||
+        (action.id === 'open' && navigation.id === 'open-forward-target'),
+    )
+  ) {
     if (task.status === 'running') taskActions.push(navigation);
     else taskActions.unshift(navigation);
   }
@@ -193,14 +222,22 @@ function TaskDetails({
       run: () => openCalendarTask(task.id),
     });
   }
-  if (canManageTask && task.status !== 'running') {
-    taskActions.push({
-      id: 'remove',
-      label: '移除任务',
-      icon: <Trash2 size={14} />,
-      run: () => act(() => removeBackgroundTask(entry, scope)),
+  if (entry.source === 'saved' && task.clonePersonaId && onOpenClone)
+    taskActions.unshift({
+      id: 'view-clone',
+      label: '查看克隆体',
+      icon: <ExternalLink size={14} />,
+      run: () => onOpenClone(task.clonePersonaId!),
     });
-  }
+  if (entry.source === 'saved' && task.kind === 'analysis' && task.reportId)
+    taskActions.unshift({
+      id: 'view-report',
+      label: '查看报告',
+      icon: <ExternalLink size={14} />,
+      run: () =>
+        window.dispatchEvent(new CustomEvent('weq:open-saved-analysis', { detail: task.reportId })),
+    });
+  taskActions.push(...managementActions);
   const actions = (
     <TaskQuickActions variant="detail" actions={taskActions}>
       {task.download ? (

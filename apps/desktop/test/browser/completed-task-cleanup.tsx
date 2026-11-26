@@ -35,6 +35,25 @@ window.cleanupTheme = (dark, accent) => {
   useThemeStore.getState().setPreference(dark ? 'dark' : 'light');
   useThemeStore.getState().setAccent(accent);
 };
+function ArchivedExample() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        查看归档示例
+      </button>
+      {open ? (
+        <CurrentTaskList
+          layout="compact"
+          archived
+          exports={[{ ...task, id: 'archived', name: '合成已归档结果' }]}
+          cleanupBinding={{ expectedAccountUin: 'fixture', expectedAccountConfigId: 'fixture' }}
+          renderExport={() => null}
+        />
+      ) : null}
+    </>
+  );
+}
 function TaskMenu() {
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const [count, setCount] = useState(2);
@@ -78,6 +97,15 @@ function TaskMenu() {
                     ...task,
                     id: `menu-${index}`,
                     status: index === 0 ? 'completed' : 'running',
+                    ...(index === 0
+                      ? {
+                          save: {
+                            status: 'saved' as const,
+                            policy: { mode: 'before' as const },
+                            path: '/synthetic/report.txt',
+                          },
+                        }
+                      : {}),
                   }))}
                   cleanupBinding={{
                     expectedAccountUin: 'fixture',
@@ -107,6 +135,7 @@ createRoot(document.getElementById('root')!).render(
     <style>{`html,body,#root{margin:0;min-height:100%;background:var(--background)}main{max-width:680px;margin:16px auto;background:var(--weq-chat-bg)}`}</style>
     <main>
       <TaskMenu />
+      <ArchivedExample />
       {new URLSearchParams(location.search).has('empty-gallery') ? (
         <>
           <EmptyState compact title="暂无任务" icon={<ListTodo />} />

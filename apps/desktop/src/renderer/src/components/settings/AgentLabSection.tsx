@@ -1,3 +1,4 @@
+import { ConnectionTestStatus } from './ConnectionTestStatus';
 import { FormSelect } from '../FormSelect';
 import { NumericText } from '../NumericText';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
@@ -1580,6 +1581,7 @@ export function AgentLabSection(): ReactElement {
               </div>
             </fieldset>
 
+            <ConnectionTestStatus testKey={testKey} />
             <div className="weq-provider-modal-actions">
               <button
                 type="submit"

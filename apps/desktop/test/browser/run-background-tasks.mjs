@@ -15,7 +15,10 @@ const server = await createServer({
   cacheDir: resolve(root, 'node_modules/.vite-background-tasks'),
   resolve: {
     alias: [
-      { find: /^.*\/trpc\/client$/, replacement: resolve(root, 'test/browser/trpc.stub.ts') },
+      {
+        find: /^.*\/trpc\/client$/,
+        replacement: resolve(root, 'test/browser/completed-task-cleanup.stub.ts'),
+      },
       { find: '@renderer', replacement: resolve(root, 'src/renderer/src') },
       { find: '@resources', replacement: resolve(root, '../../resources') },
       { find: '@transport', replacement: resolve(root, 'test/support/transport.stub.ts') },
@@ -65,12 +68,14 @@ try {
       [dark, accent, background],
     );
     await page.getByRole('button', { name: /收藏表情导入/ }).click();
-    const cleanup = page.getByRole('button', { name: '清除已完成任务', exact: true });
-    const cleanupBox = await cleanup.boundingBox();
-    if (cleanupBox?.width !== 30 || cleanupBox.height !== 30)
-      throw new Error('任务工具栏按钮尺寸不统一');
-    if ((await cleanup.innerText()).trim()) throw new Error('工具栏应使用带提示的图标按钮');
-    await page.getByRole('button', { name: '移除任务', exact: true }).hover();
+    const cleanup = page.getByRole('button', { name: '归档已结束任务', exact: true });
+    if (
+      (await cleanup.innerText()).trim() !== '归档已结束任务' ||
+      !(await cleanup.locator('svg').count())
+    )
+      throw new Error('批量归档入口应显示操作名称和图标');
+    if (await page.getByRole('button', { name: '更多操作', exact: true }).count())
+      throw new Error('暂停任务的详情不应提供归档');
     await page
       .getByText('第 2 项：读回失败，保留未确认状态，不自动重传', { exact: true })
       .waitFor();
@@ -99,10 +104,11 @@ try {
   await page.getByText('已停止后续转发', { exact: true }).last().waitFor();
   if (await page.getByRole('button', { name: '停止向此会话发送', exact: true }).count())
     throw new Error('停止后仍显示停止按钮');
-  await page.getByRole('button', { name: '移除任务', exact: true }).click();
-  if ((await page.locator('.weq-long-task').count()) !== 7) throw new Error('移除记录未生效');
+  await page.getByRole('button', { name: '更多操作', exact: true }).click();
+  await page.getByRole('menuitem', { name: '归档', exact: true }).click();
+  if ((await page.locator('.weq-long-task').count()) !== 7) throw new Error('归档记录未生效');
   if (errors.length) throw new Error(errors.join('\n'));
-  console.log('八类后台任务：4 组深浅主题、主题色、背景与桌面/窄屏布局，停止及移除操作通过');
+  console.log('八类后台任务：4 组深浅主题、主题色、背景与桌面/窄屏布局，停止及归档操作通过');
 } finally {
   await browser?.close();
   await server.close();

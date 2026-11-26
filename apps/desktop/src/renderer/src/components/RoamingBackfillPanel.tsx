@@ -27,7 +27,7 @@ import {
   RefreshCw,
   Search,
   Square,
-  Trash2,
+  Archive,
   Users,
   WifiOff,
   X,
@@ -37,6 +37,8 @@ import type { RoamingTarget } from '@weq/service';
 import { trpc } from '../trpc/client';
 import { useQQAutoRefresh } from '../hooks/useQQAutoRefresh';
 import { useDialog } from './Dialog.shared';
+import { useTaskArchive } from '../hooks/useTaskArchive';
+import { isTaskArchived, roamingArchivePolicy, roamingResult } from '../../../shared/task_archive';
 import { WindowedList } from './WindowedList';
 import { useMultiSelection } from '../hooks/useMultiSelection';
 import { MessageCalendar } from './MessageCalendar';
@@ -90,6 +92,8 @@ export function RoamingBackfillPanel({
   targetMode = 'select',
   taskId,
   onSubmitted,
+  managementActions,
+  archived = false,
 }: {
   initialTarget?: RoamingTarget;
   initialTargets?: RoamingTarget[];
@@ -98,9 +102,11 @@ export function RoamingBackfillPanel({
   /** 统一任务列表仅展开选中任务，沿用原有续作、回执与覆盖口径。 */
   taskId?: string;
   onSubmitted?: (taskId: string) => void;
+  managementActions?: TaskQuickAction[];
+  archived?: boolean;
 }) {
   const utils = trpc.useUtils();
-  const confirm = useDialog((s) => s.confirm);
+  const showError = useDialog((s) => s.showError);
   const [fixedTargets] = useState(() => [
     ...new Map(
       [...initialTargets, ...(initialTarget ? [initialTarget] : [])].map((target) => [
@@ -155,10 +161,16 @@ export function RoamingBackfillPanel({
   const run = trpc.account.roamingBackfill.start.useMutation({ onSuccess: refresh, onError });
   const pause = trpc.account.roamingBackfill.pause.useMutation({ onSuccess: refresh, onError });
   const cancel = trpc.account.roamingBackfill.cancel.useMutation({ onSuccess: refresh, onError });
-  const remove = trpc.account.roamingBackfill.remove.useMutation({ onSuccess: refresh, onError });
+  const account = trpc.account.getAccountConfig.useQuery(undefined, {
+    enabled: autoRefresh.enabled && !taskId,
+  });
+  const binding =
+    !taskId && account.data?.configId
+      ? { expectedAccountUin: account.data.uin, expectedAccountConfigId: account.data.configId }
+      : null;
+  const archive = useTaskArchive(binding, autoRefresh.enabled);
   const busy = Boolean(state.data?.activeId || state.data?.scanning);
-  const mutating =
-    plan.isLoading || run.isLoading || pause.isLoading || cancel.isLoading || remove.isLoading;
+  const mutating = plan.isLoading || run.isLoading || pause.isLoading || cancel.isLoading;
   const targetInfo = useMemo(() => {
     const map = new Map<string, { uin: string; messageCount: number }>();
     if (fixed) return map;
@@ -199,7 +211,11 @@ export function RoamingBackfillPanel({
       current.has(initialKey) ? current : new Set([...current, initialKey]),
     );
   }, [fixed, initialKey]);
-  const jobs = (state.data?.jobs ?? []).filter((job) => !taskId || job.id === taskId);
+  const jobs = (state.data?.jobs ?? []).filter((job) =>
+    taskId
+      ? job.id === taskId
+      : !isTaskArchived(archive.entries[`roaming:${job.id}`], roamingResult(job)),
+  );
   const visible = useMemo(
     () =>
       filterByName(
@@ -752,21 +768,24 @@ export function RoamingBackfillPanel({
                     run: () => cancel.mutate({ id: job.id }),
                   });
                 }
-                actions.push({
-                  id: 'remove',
-                  label: '移除补全任务',
-                  icon: <Trash2 size={14} />,
-                  disabled: busy || mutating,
-                  run: async () => {
-                    if (
-                      await confirm('移除任务？', '仅移除任务与断点，已经取得的漫游消息会保留。', {
-                        danger: 'outline',
-                      })
-                    ) {
-                      remove.mutate({ id: job.id });
-                    }
-                  },
-                });
+                if (!taskId && binding && archive.ready && roamingArchivePolicy(job.status))
+                  actions.push({
+                    id: 'archive',
+                    label: '归档',
+                    icon: <Archive size={14} />,
+                    secondary: true,
+                    disabled: busy || mutating,
+                    run: async () => {
+                      if (
+                        !(await archive.change('archive', [
+                          { id: `roaming:${job.id}`, result: roamingResult(job) },
+                        ]))
+                      )
+                        showError('暂时无法归档', '任务状态已变化，请刷新后查看。');
+                    },
+                  });
+                if (archived) actions.length = 0;
+                actions.push(...(managementActions ?? []));
                 return (
                   <article
                     key={job.id}

@@ -40,6 +40,9 @@ if (taskFixture) {
   useViewState.setState({ openedUin: '10001' });
   seedMobileSurfaceData({
     'bootstrap.getSettings': { exportSaveMode: 'before' },
+    'taskArchive.list': {
+      'export:export-fixture-17': { archivedAt: 1, result: 'completed:saved:' },
+    },
     'account.listExportTasks': Array.from({ length: 18 }, (_, i) => ({
       id: `export-fixture-${i}`,
       name: `合成聊天 ${i}`,
@@ -50,6 +53,7 @@ if (taskFixture) {
       current: i < 2 ? 63 : 100,
       total: 100,
       canPause: i < 2,
+      ...(i === 17 ? { save: { status: 'saved', path: '/synthetic/report.txt' } } : {}),
       stages:
         i === 0
           ? [

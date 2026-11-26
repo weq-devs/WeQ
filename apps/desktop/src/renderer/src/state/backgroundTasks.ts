@@ -1,4 +1,5 @@
 import { BackgroundTaskRegistry, type BackgroundTask } from '../../../shared/background_task';
+import { backgroundResult } from '../../../shared/task_archive';
 import { client } from '../trpc/client';
 
 /** 逐条转发、浏览器分片上传等显式后台操作的生命周期由当前窗口负责。 */
@@ -20,6 +21,43 @@ export function rememberWindowTask(id: string, upload?: UploadReceipt) {
     localStorage.setItem(`${receiptPrefix}${id}`, JSON.stringify(value));
   } catch {
     /* 禁止存储或配额不足时保留本窗口进度。 */
+  }
+}
+
+/** 转发执行仍在发起窗口，已结束的回执同步到宿主，供重启或其他客户端查看。 */
+export async function recordForwardTask(id: string) {
+  const task = localBackgroundTasks.snapshot().find((entry) => entry.id === id);
+  if (
+    task?.kind !== 'forward' ||
+    !task.scope?.configId ||
+    !(task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled')
+  )
+    return;
+  const { uin, configId } = task.scope;
+  try {
+    await client.taskArchive.change.mutate({
+      expectedAccountUin: uin,
+      expectedAccountConfigId: configId,
+      action: 'record',
+      tasks: [
+        {
+          id: `background:window:${id}`,
+          result: backgroundResult(task),
+          receipt: {
+            ...task,
+            kind: 'forward',
+            status: task.status,
+            logs: task.logs
+              ?.slice(-200)
+              .map((line) => ({ ...line, text: line.text.slice(0, 4000) })),
+            details: task.details?.slice(0, 2000).map((line) => line.slice(0, 4000)),
+          },
+        },
+      ],
+    });
+    forgetWindowTask(id);
+  } catch {
+    // 宿主暂不可用时，本窗口已有回执可进入后续归档操作。
   }
 }
 
@@ -53,14 +91,8 @@ export function restoreWindowTaskReceipts(
       /* 单条旧回执损坏不会阻塞其余任务。 */
     }
   }
-  const ended = saved
-    .filter(({ task }) => task.status !== 'paused' && task.status !== 'running')
-    .sort((a, b) => b.task.updatedAt - a.task.updatedAt);
-  for (const { task } of ended.slice(60)) storage.removeItem(`${receiptPrefix}${task.id}`);
-  const keep = new Set(ended.slice(0, 60).map(({ task }) => task.id));
   for (const { task, upload } of saved) {
     const interrupted = task.status === 'running';
-    if (!interrupted && task.status !== 'paused' && !keep.has(task.id)) continue;
     if (localBackgroundTasks.snapshot().some((entry) => entry.id === task.id)) continue;
     const unknown = interrupted && !(task.kind === 'album-upload' && upload && !upload.submitted);
     const actions =

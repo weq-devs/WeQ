@@ -46,6 +46,7 @@ export function ChatMainContent({
   loadError,
   pagingLoadError,
   loadingNewer,
+  locatingMessage,
   initialReadingPosition,
   atLatest,
   latestMessageSeq,
@@ -150,6 +151,7 @@ export function ChatMainContent({
   | 'loadError'
   | 'pagingLoadError'
   | 'loadingNewer'
+  | 'locatingMessage'
   | 'initialReadingPosition'
   | 'atLatest'
   | 'latestMessageSeq'
@@ -359,6 +361,7 @@ export function ChatMainContent({
       loadError={loadError}
       pagingLoadError={pagingLoadError}
       loadingNewer={loadingNewer}
+      locatingMessage={locatingMessage}
       initialReadingPosition={initialReadingPosition}
       atLatest={atLatest}
       latestMessageSeq={latestMessageSeq}

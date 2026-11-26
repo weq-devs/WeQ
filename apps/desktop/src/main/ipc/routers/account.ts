@@ -49,7 +49,6 @@ import {
 } from './resource_source';
 import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
 import { withDatabaseRequest, assertDatabaseWritable, measureDatabaseStartup } from '@weq/db';
-import { clearFinishedTasks } from './clear_finished_tasks';
 import { cardDisplayNames } from './card_display_names';
 import { readContactSpecialCare } from './contact_special_care';
 import {
@@ -119,6 +118,7 @@ import {
   accountEventBus,
   type AccountServices,
   type RoamingCacheChange,
+  requirePlatform,
 } from '../../context/app_context';
 import { assertFullModeSource, fullModeAllowed } from '../../context/full_mode';
 import {
@@ -295,6 +295,9 @@ import {
   guildDirectMsgToWire,
   type ChatMsgWire,
 } from '../serde';
+import { exportArchivePolicy, flashArchivePolicy, flashResult } from '../../../shared/task_archive';
+import { archiveViewedTask, taskArchiveStore } from '../../task_archive';
+import { exportTaskResult } from '../../../shared/export_task_result';
 import { resolveFileTransferTip } from '../file_transfer_tip';
 
 /**
@@ -6041,10 +6044,6 @@ export const accountRouter = router({
     cancel: procedure
       .input(z.object({ id: z.string().uuid() }))
       .mutation(({ input }) => requireServices().roamingBackfill.pause(input.id, true)),
-    remove: procedure.input(z.object({ id: z.string().uuid() })).mutation(({ input }) => {
-      requireServices().roamingBackfill.remove(input.id);
-      return true;
-    }),
   }),
 
   /**
@@ -8108,7 +8107,8 @@ export const accountRouter = router({
     await downloads.load();
     if (requireServices() !== services) throw new Error('账号已切换');
     return downloads
-      .list((task) => !task.foreground)
+      .list()
+      .filter((task) => !task.foreground || flashArchivePolicy(task).manual)
       .map(({ logs: _logs, files, ...task }) => ({
         ...task,
         logVersion: files.reduce((total, file) => total + (file.logs?.at(-1)?.seq ?? 0), 0),
@@ -8132,6 +8132,7 @@ export const accountRouter = router({
           foreground: batch.foreground === true,
           status: batch.status,
           paused: batch.interrupted === true,
+          finishedAt: batch.finishedAt,
           canRetry: batch.canRetry === true,
           fileSize: batch.fileSize,
           downloadedBytes: batch.downloadedBytes,
@@ -8198,12 +8199,6 @@ export const accountRouter = router({
       return svc.flashTransferFiles.downloads.retry(input.taskId);
     }),
 
-  /** 清掉已结束（完成 / 失败 / 取消）的任务，进行中的保留。 */
-  flashClearDownloadTasks: procedure.mutation(async () => {
-    return requireServices().flashTransferFiles.downloads.clearFinished();
-  }),
-
-  /** 打开当前账号下载任务的文件或目录。 */
   flashOpenDownloadOutput: procedure
     .input(
       z.object({
@@ -8217,7 +8212,7 @@ export const accountRouter = router({
       const current = () =>
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
       const services = current();
-      return openFlashDownloadOutput(
+      const opened = await openFlashDownloadOutput(
         input,
         services.flashTransferFiles.downloads,
         getHost(),
@@ -8226,6 +8221,20 @@ export const accountRouter = router({
             throw new DOMException('账号已切换，已停止操作', 'AbortError');
         },
       );
+      const configId = services.accountConfig.getRecord()?.configId;
+      if (opened.ok && configId && current() === services) {
+        const batch = services.flashTransferFiles.downloads
+          .list(undefined, false)
+          .find((task) => task.id === input.taskId);
+        if (batch && !batch.browserOutput && flashArchivePolicy(batch).auto) {
+          archiveViewedTask(
+            taskArchiveStore(requirePlatform().appDataRoot(), configId),
+            `flash:${batch.id}`,
+            flashResult(batch),
+          );
+        }
+      }
+      return opened;
     }),
 
   flashDownloadOutput: procedure
@@ -9608,6 +9617,7 @@ export const accountRouter = router({
       if (!task) return null;
       return {
         id: task.id,
+        updatedAt: task.updatedAt,
         name: task.name,
         status: task.status,
         error: task.error,
@@ -9636,15 +9646,31 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const task = requireExpectedAccount(
+      const services = requireExpectedAccount(
         input.expectedAccountUin,
         input.expectedAccountConfigId,
-      ).exportManager.getTask(input.taskId);
+      );
+      const task = services.exportManager.getTask(input.taskId);
       const host = getHost();
       if (!host.canReveal) throw new Error('服务器保存位置不能在当前浏览器中打开。');
       if (!task?.save?.path) throw new Error('任务尚未保存到指定位置。');
+      const viewed = exportTaskResult(task);
       if (input.reveal) await host.revealInFolder(task.save.path);
       else await host.revealPath(task.save.path);
+      const configId = services.accountConfig.getRecord()?.configId;
+      const latest = services.exportManager.getTask(input.taskId);
+      if (
+        configId &&
+        getAppContext().services === services &&
+        latest &&
+        exportTaskResult(latest).result === viewed.result &&
+        exportArchivePolicy(latest).auto
+      )
+        archiveViewedTask(
+          taskArchiveStore(requirePlatform().appDataRoot(), configId),
+          viewed.id,
+          viewed.result,
+        );
       return true;
     }),
 
@@ -9750,29 +9776,6 @@ export const accountRouter = router({
     .input(z.object({ taskId: z.string().min(1) }))
     .mutation(({ input }) => {
       return requireServices().exportManager.cancelTask(input.taskId);
-    }),
-
-  /** 清除确认范围内的已结束任务（完成/失败/取消），绑定账号及配置来源。 */
-  clearFinishedTasks: procedure
-    .input(
-      generatedAccountInput.extend({
-        exports: z.array(z.string().min(1)),
-        roaming: z.array(z.string().uuid()),
-        flash: z.array(z.string().min(1)),
-      }),
-    )
-    .mutation(({ input }) =>
-      clearFinishedTasks(
-        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId),
-        input,
-      ),
-    ),
-
-  /** Delete a task. */
-  deleteExportTask: procedure
-    .input(z.object({ taskId: z.string().min(1) }))
-    .mutation(({ input }) => {
-      return requireServices().exportManager.deleteTask(input.taskId);
     }),
 
   /** Subscribe to export task progress. */

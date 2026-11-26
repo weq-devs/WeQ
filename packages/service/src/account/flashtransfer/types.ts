@@ -83,6 +83,8 @@ export interface FlashDownloadTask {
   /** 发起下载的分享，可能与压缩包内单文件的标识不同。 */
   viewFilesetId?: string;
   foreground?: boolean;
+  /** 服务器文件仍需由浏览器或 Remote 取回。 */
+  browserOutput?: boolean;
   resolutionErrors?: string[];
   filesetId: string;
   filesetName: string;

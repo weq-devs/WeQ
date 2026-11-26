@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Save } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useAppDialog } from '../../lib/dialogUtils';
-import { useSettingsSaveBanner } from '../../hooks/useSettingsSaveBanner';
 import {
   FULL_FORMATS,
   CHATLAB_FORMATS,
@@ -37,7 +36,6 @@ export function ScheduleSettings({ schedule }: { schedule: ScheduledTask }) {
     },
     onError: (error) => dialog.error('保存定时任务失败', error.message),
   });
-  useSettingsSaveBanner(update.isLoading);
   return (
     <form
       className="weq-schedule-settings"
@@ -131,7 +129,7 @@ export function ScheduleSettings({ schedule }: { schedule: ScheduledTask }) {
         aria-busy={update.isLoading || undefined}
       >
         <Save size={15} />
-        保存设置
+        {update.isLoading ? '保存中…' : '保存设置'}
       </button>
     </form>
   );

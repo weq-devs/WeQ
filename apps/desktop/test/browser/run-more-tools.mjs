@@ -234,10 +234,20 @@ async function checkTaskPages(page, { chrome, swipeBack, output, url }) {
   await taskDetail.getByRole('button', { name: '返回当前任务', exact: true }).click();
   await taskList.waitFor();
   await chrome();
-  await taskList.getByRole('button', { name: '已结束任务操作' }).click();
-  await page.getByRole('menuitem', { name: '清理已结束任务' }).click();
-  assert.ok(await page.getByText(/尚未保存，清除后将无法/).isVisible());
-  await page.getByRole('button', { name: '保留', exact: true }).click();
+  assert.equal(await taskList.getByRole('button', { name: '已结束任务操作' }).count(), 0);
+  await page.getByText('已归档任务', { exact: true }).click();
+  const archive = page.getByLabel('已归档任务列表', { exact: true });
+  await archive.getByRole('button', { name: /合成聊天 17\b/ }).click();
+  await taskDetail.getByRole('button', { name: '更多操作', exact: true }).click();
+  await page.getByRole('menuitem', { name: '恢复到当前任务', exact: true }).waitFor();
+  await page.getByRole('menuitem', { name: '彻底删除', exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await page
+    .getByRole('menuitem', { name: '彻底删除', exact: true })
+    .waitFor({ state: 'detached' });
+  await taskDetail.getByRole('button', { name: '返回已归档任务', exact: true }).click();
+  await page.getByText('当前任务', { exact: true }).click();
+  await taskList.waitFor();
   await finishedTask.scrollIntoViewIfNeeded();
   const scrollTop = await taskList.evaluate((node) => node.scrollTop);
   assert.ok(scrollTop > 210);
@@ -266,5 +276,5 @@ async function checkTaskPages(page, { chrome, swipeBack, output, url }) {
   await page.locator('.weq-current-task-details').waitFor();
   assert.ok(await page.locator('.weq-current-task-list').isVisible());
 
-  console.log('PASS: 竖屏任务列表/详情、滚动恢复、清理确认、定时任务、通知直达及宽屏双栏');
+  console.log('PASS: 竖屏任务列表/详情、已归档任务、滚动恢复、定时任务、通知直达及宽屏双栏');
 }

@@ -1,3 +1,4 @@
+import { ConnectionTestStatus } from './ConnectionTestStatus';
 /**
  * 设置 → SSE 消息推送
  *
@@ -368,6 +369,7 @@ export function SsePushSection(): ReactElement {
                     </div>
                   }
                 />
+                <ConnectionTestStatus testKey={testKey} />
                 <div className="weq-set-server-form-actions">
                   <button
                     type="button"

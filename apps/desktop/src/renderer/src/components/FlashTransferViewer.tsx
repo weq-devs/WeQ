@@ -48,6 +48,7 @@ import { TransferRing } from './TransferRing';
 import { useTransferProgress } from '../lib/transferActivity';
 import { IS_WEB } from '../lib/target.shared';
 import { downloadFlashToDevice } from '../lib/flashDownload';
+import { flashResult } from '../../../shared/task_archive';
 import { TaskProgressBar } from './tasks/TaskProgressBar';
 import {
   flashFileTransferTarget,
@@ -358,10 +359,18 @@ export function FlashTransferViewer({
           throw new Error('下载仍在收尾，请稍后再试');
         if (batch.foreground) owned.current.add(batch.id);
       } else if (action === 'download') {
-        await downloadFlashToDevice(
+        const downloaded = await downloadFlashToDevice(
           { ...ref, fileId },
           () => active.current && liveBinding.current === binding,
         );
+        if (downloaded && (!fileId || batch.files.length === 1))
+          void client.taskArchive.change
+            .mutate({
+              ...binding,
+              action: 'deliver',
+              tasks: [{ id: `flash:${batch.id}`, result: flashResult(batch) }],
+            })
+            .catch(() => undefined);
         return;
       } else {
         await client.account.flashOpenDownloadOutput.mutate({

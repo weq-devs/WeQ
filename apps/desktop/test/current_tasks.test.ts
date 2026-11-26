@@ -7,7 +7,6 @@ import { orderLongTasks } from '../src/renderer/src/components/tasks/LongTaskRow
 import type { UiTask } from '../src/renderer/src/views/export/TaskList';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
-import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 import { dismissCloneTask, getCloneTasks } from '../src/renderer/src/views/agentlab/cloneTaskStore';
 import {
   localBackgroundTasks,
@@ -26,6 +25,7 @@ import {
   taskNoticeTitle,
 } from '@weq/service/task-display';
 import { taskTypeLabel } from '../src/renderer/src/views/export/TaskList.shared';
+import type { TaskArchive } from '../src/shared/task_archive';
 import { summarizeWorkspaceTasks } from '../src/renderer/src/lib/workspaceIndicators';
 
 it('冷启只恢复转发及群相册回执，不提供再次提交；尚未提交 QQ 的上传不会标成未知', () => {
@@ -84,7 +84,13 @@ const fixture = vi.hoisted(() => ({
   retryFlash: vi.fn(async () => true),
   web: false,
   confirm: vi.fn(async () => false),
-  clear: vi.fn(async () => ({ removed: 3, skipped: 0, errors: [] as string[] })),
+  archive: {} as TaskArchive,
+  changeArchive: vi.fn(
+    async (_input: { action: string; tasks: { id: string; result: string }[] }) => ({
+      changed: _input.tasks.length,
+    }),
+  ),
+  deleteArchive: vi.fn(async () => true),
   invalidate: vi.fn(),
   info: vi.fn(),
   error: vi.fn(),
@@ -156,8 +162,11 @@ vi.mock('../src/renderer/src/views/agentlab/cloneTaskStore', () => {
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     backgroundTasks: { act: { mutate: fixture.taskAct }, remove: { mutate: fixture.taskRemove } },
+    taskArchive: {
+      change: { mutate: fixture.changeArchive },
+      remove: { mutate: fixture.deleteArchive },
+    },
     account: {
-      clearFinishedTasks: { mutate: fixture.clear },
       roamingBackfill: {
         pause: { mutate: fixture.pauseRoaming },
         cancel: { mutate: fixture.cancelRoaming },
@@ -170,6 +179,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   trpc: {
+    taskArchive: { list: { useQuery: () => ({ data: fixture.archive }) } },
     dbRepair: { maintenance: { useQuery: () => ({ data: null }) } },
     backgroundTasks: {
       details: { useQuery: () => ({ data: [] }) },
@@ -183,6 +193,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     },
     useUtils: () => ({
+      taskArchive: { list: { invalidate: fixture.invalidate } },
       account: {
         flashListDownloadTasks: { invalidate: fixture.invalidate },
         listExportTasks: { invalidate: fixture.invalidate },
@@ -240,7 +251,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
                       fileSize: 100,
                       downloadedBytes: 100,
                     }))
-                  : undefined,
+                  : [{ id: 'same-id', status: fixture.flashStatus }],
             },
           ],
         }),
@@ -259,6 +270,7 @@ afterEach(() => {
     localBackgroundTasks.remove(task.id);
   }
   fixture.background = [];
+  fixture.archive = {};
   fixture.accountId = 'fixture-account';
   fixture.roamingStatus = 'paused';
   fixture.plannedSeqs = 100;
@@ -695,7 +707,7 @@ describe('统一当前任务', () => {
     'forward',
     'album-upload',
     'resource',
-  ] as const)('%s 任务复用已注册控制，并能在小菜单移除结束记录', async (kind) => {
+  ] as const)('%s 任务复用已注册的停止控制', async (kind) => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const id = localBackgroundTasks.start({ kind, name: `快捷类别 ${kind}` });
     localBackgroundTasks.setActions(id, [
@@ -727,16 +739,11 @@ describe('统一当前任务', () => {
       expect(localBackgroundTasks.snapshot().find((task) => task.id === id)?.status).toBe(
         'cancelled',
       );
-      const row = [...host.querySelectorAll('.weq-long-task-entry')].find((item) =>
-        item.textContent?.includes(`快捷类别 ${kind}`),
-      )!;
-      await clickQuick(row, '移除任务');
-      expect(localBackgroundTasks.snapshot().some((task) => task.id === id)).toBe(false);
     } finally {
       act(() => root.unmount());
     }
   });
-  it('小菜单按导出状态显示控制，保存与收尾时禁止删除，调用同一组导出处理器', async () => {
+  it('小菜单按导出状态显示控制，暂停、保存与收尾时不提供归档，调用同一组导出处理器', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const actions = {
       pause: vi.fn(),
@@ -771,13 +778,13 @@ describe('统一当前任务', () => {
         ),
       );
     const row = () =>
-      [...host.querySelectorAll('.weq-long-task-entry')].find((item) =>
+      [...host.querySelectorAll('.weq-long-task-entry, .weq-long-task')].find((item) =>
         item.textContent?.includes(base.name),
       )!;
     const button = (label: string) => quickButton(row(), label);
     try {
       render(base);
-      expect(button('删除导出缓存')).toBeNull();
+      expect(button('彻底删除')).toBeNull();
       await act(async () => button('暂停')!.click());
       await act(async () => button('取消')!.click());
       expect(actions.pause).toHaveBeenCalledWith(base);
@@ -786,9 +793,8 @@ describe('统一当前任务', () => {
       render(paused);
       expect(button('暂停')).toBeNull();
       await act(async () => button('继续导出')!.click());
-      await act(async () => button('删除导出缓存')!.click());
       expect(actions.resume).toHaveBeenCalledWith(paused);
-      expect(actions.remove).toHaveBeenCalledWith(paused);
+      expect(button('归档')).toBeNull();
       const download: UiTask = {
         ...paused,
         resource: { kind: 'group-files' },
@@ -810,9 +816,9 @@ describe('统一当前任务', () => {
       render({ ...paused, isFinalizing: true });
       expect(button('取消')?.disabled).toBe(true);
       expect(button('继续导出')?.disabled).toBe(true);
-      expect(button('删除导出缓存')?.disabled).toBe(true);
+      expect(button('归档')).toBeNull();
       render({ ...base, status: 'completed', save: { status: 'saving' } });
-      expect(button('删除导出缓存')?.disabled).toBe(true);
+      expect(button('归档')).toBeNull();
       expect(button('保存')).toBeNull();
       expect(button('重试保存')).toBeNull();
       expect(button('取消')).toBeNull();
@@ -872,7 +878,7 @@ describe('统一当前任务', () => {
       render();
       await click('合成漫游', '暂停');
       expect(fixture.pauseRoaming).toHaveBeenCalledWith({ id: 'same-id' });
-      expect(quickButton(row('合成漫游'), '移除补全任务')?.disabled).toBe(true);
+      expect(quickButton(row('合成漫游'), '归档')).toBeNull();
       await click('合成漫游', '取消');
       expect(fixture.cancelRoaming).toHaveBeenCalledWith({ id: 'same-id' });
       fixture.roamingStatus = 'pausing';
@@ -885,26 +891,24 @@ describe('统一当前任务', () => {
       render();
       await click('合成漫游', '重试未补区间');
       expect(fixture.startRoaming).toHaveBeenCalledWith({ id: 'same-id', retryRemaining: true });
-      await click('合成漫游', '移除补全任务');
-      expect(fixture.removeRoaming).not.toHaveBeenCalled();
-      fixture.confirm.mockResolvedValueOnce(true);
-      await click('合成漫游', '移除补全任务');
-      expect(fixture.removeRoaming).toHaveBeenCalledWith({ id: 'same-id' });
+      await click('合成漫游', '归档');
+      expect(fixture.changeArchive.mock.lastCall?.[0].tasks[0]).toMatchObject({
+        id: 'roaming:same-id',
+      });
       await click('合成闪传', '取消下载');
       expect(fixture.cancelFlash).toHaveBeenCalledWith({ taskId: 'same-id' });
       fixture.flashStatus = 'done';
       getCloneTasks()[0]!.status = 'done';
       render();
-      await click('合成闪传', '移除任务');
-      expect(fixture.clear).toHaveBeenCalledWith({
-        expectedAccountUin: fixture.accountId,
-        expectedAccountConfigId: 'fixture-config',
-        exports: [],
-        roaming: [],
-        flash: ['same-id'],
+      await click('合成闪传', '归档');
+      expect(fixture.changeArchive.mock.lastCall?.[0].tasks[0]).toMatchObject({
+        id: 'flash:same-id',
       });
-      await click('合成克隆', '移除任务');
-      expect(dismissCloneTask).toHaveBeenCalledWith('same-id');
+      await click('合成克隆', '归档');
+      expect(fixture.changeArchive.mock.lastCall?.[0].tasks[0]).toMatchObject({
+        id: 'clone:same-id',
+      });
+      expect(dismissCloneTask).not.toHaveBeenCalled();
       expect(expand).not.toHaveBeenCalled();
     } finally {
       act(() => root.unmount());
@@ -965,7 +969,7 @@ describe('统一当前任务', () => {
       act(() => root.unmount());
     }
   });
-  it('小菜单直接停止和移除后台任务，不展开详情', async () => {
+  it('小菜单直接停止后台任务，不展开详情', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const stop = vi.fn();
     const id = localBackgroundTasks.start({ kind: 'forward', name: '快捷转发' });
@@ -990,18 +994,11 @@ describe('统一当前任务', () => {
       expect(stop).toHaveBeenCalledOnce();
       expect(expand).not.toHaveBeenCalled();
       expect(host.querySelector('button button')).toBeNull();
-      act(() => localBackgroundTasks.finish(id, 'cancelled'));
-      const row = [...host.querySelectorAll('.weq-long-task-entry')].find((item) =>
-        item.textContent?.includes('快捷转发'),
-      )!;
-      await clickQuick(row, '移除任务');
-      expect(localBackgroundTasks.snapshot().some((task) => task.id === id)).toBe(false);
-      expect(expand).not.toHaveBeenCalled();
     } finally {
       act(() => root.unmount());
     }
   });
-  it('新增任务复用同一列表，保留停止操作、账号隔离及完成清除', async () => {
+  it('新增任务复用同一列表，保留停止操作、账号隔离及完成归档', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const stop = vi.fn();
     const id = localBackgroundTasks.start({
@@ -1034,7 +1031,7 @@ describe('统一当前任务', () => {
       expect(host.textContent).toContain('合成逐条转发');
       expect(host.textContent).not.toContain('旧闪传目录');
       expect(
-        host.querySelector('[aria-label="清理已结束任务"]')?.classList.contains('weq-set-btn-soft'),
+        host.querySelector('[aria-label="归档已结束任务"]')?.classList.contains('weq-set-btn-soft'),
       ).toBe(true);
       expect(host.textContent).not.toContain('其他账号转发');
       act(() =>
@@ -1049,17 +1046,14 @@ describe('统一当前任务', () => {
       );
       expect(stop).toHaveBeenCalledOnce();
       act(() => localBackgroundTasks.finish(id, 'completed'));
-      fixture.confirm.mockResolvedValueOnce(true);
-      fixture.clear.mockResolvedValueOnce({ removed: 0, skipped: 0, errors: [] });
       await act(async () =>
-        host.querySelector<HTMLButtonElement>('[aria-label="清理已结束任务"]')!.click(),
+        host.querySelector<HTMLButtonElement>('[aria-label="归档已结束任务"]')!.click(),
       );
-      expect(localBackgroundTasks.snapshot().some((task) => task.id === id)).toBe(false);
+      expect(fixture.changeArchive.mock.lastCall?.[0].tasks[0]).toMatchObject({
+        id: `background:window:${id}`,
+      });
+      expect(localBackgroundTasks.snapshot().some((task) => task.id === id)).toBe(true);
       expect(localBackgroundTasks.snapshot().some((task) => task.id === other)).toBe(true);
-      expect(fixture.info).not.toHaveBeenCalled();
-      expect(useToast.getState().toasts).toEqual([
-        expect.objectContaining({ tone: 'success', title: '已清除 1 项任务。' }),
-      ]);
     } finally {
       act(() => root.unmount());
     }
@@ -1079,59 +1073,17 @@ describe('统一当前任务', () => {
     }
   });
 
-  it('计入当前账号的完成克隆，清除失败时保留记录并恢复按钮', async () => {
+  it('批量归档保留待保存、保存中和暂停任务，归档写入失败时保留记录', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    getCloneTasks()[0]!.status = 'done';
     const host = document.createElement('div');
     const root = createRoot(host);
-    const props = {
-      cleanupBinding: {
-        expectedAccountUin: 'fixture-account',
-        expectedAccountConfigId: 'fixture-config',
-      },
-      exports: [],
-      renderExport: () => null,
+    const binding = {
+      expectedAccountUin: fixture.accountId,
+      expectedAccountConfigId: 'fixture-config',
     };
-    fixture.confirm.mockResolvedValue(true);
-    fixture.clear.mockRejectedValueOnce(new Error('写入失败'));
-    try {
-      act(() => root.render(h(CurrentTaskList, props)));
-      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="清理已结束任务"]')!;
-      await act(async () => button().click());
-      expect(fixture.confirm).toHaveBeenCalledWith(
-        '清理已结束任务',
-        expect.stringContaining('确定清除 1 项'),
-        expect.anything(),
-      );
-      expect(dismissCloneTask).not.toHaveBeenCalled();
-      expect(fixture.error).toHaveBeenCalledWith('清除失败', '写入失败');
-      expect(button().disabled).toBe(false);
-      fixture.clear.mockResolvedValueOnce({ removed: 0, skipped: 0, errors: [] });
-      await act(async () => button().click());
-      expect(dismissCloneTask).toHaveBeenCalledWith('same-id');
-      expect(fixture.info).not.toHaveBeenCalled();
-      expect(useToast.getState().toasts[0]).toMatchObject({
-        tone: 'success',
-        title: '已清除 1 项任务。',
-        durationKind: 'success',
-      });
-      getCloneTasks()[0]!.status = 'running';
-      act(() => root.render(h(CurrentTaskList, props)));
-      expect(button().disabled).toBe(true);
-    } finally {
-      act(() => root.unmount());
-    }
-  });
-
-  it('清除前确认项目数并提示未保存结果，取消不执行；确认只传已结束任务快照', async () => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    fixture.roamingStatus = 'completed';
-    fixture.flashStatus = 'done';
-    const host = document.createElement('div');
-    const root = createRoot(host);
-    const task: UiTask = {
-      id: 'done',
-      name: '未保存导出',
+    const pending: UiTask = {
+      id: 'pending-save',
+      name: '待保存导出',
       kind: 'c2c',
       format: 'json',
       status: 'completed',
@@ -1139,174 +1091,85 @@ describe('统一当前任务', () => {
       current: 1,
       total: 1,
     };
-    const binding = {
-      expectedAccountUin: 'fixture-account',
-      expectedAccountConfigId: 'fixture-config',
-    };
-    const render = (cleanupBinding = binding) =>
-      root.render(
-        h(CurrentTaskList, {
-          cleanupBinding,
-          exports: [
-            task,
-            { ...task, id: 'saving', save: { status: 'saving' } },
-            { ...task, id: 'failed', status: 'failed' },
-            { ...task, id: 'cancelled', status: 'cancelled' },
-            { ...task, id: 'interrupted', save: { status: 'interrupted' } },
-            { ...task, id: 'paused', status: 'paused' },
-          ],
-          renderExport: () => null,
-        }),
-      );
+    const render = () =>
+      h(CurrentTaskList, {
+        cleanupBinding: binding,
+        exports: [
+          pending,
+          { ...pending, id: 'saving', save: { status: 'saving', policy: { mode: 'before' } } },
+          { ...pending, id: 'paused', status: 'paused' },
+          { ...pending, id: 'failed', status: 'failed' },
+          { ...pending, id: 'saved', save: { status: 'saved', policy: { mode: 'before' } } },
+        ],
+        renderExport: () => null,
+      });
     try {
-      act(() => render());
-      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="清理已结束任务"]')!;
+      act(() => root.render(render()));
+      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="归档已结束任务"]')!;
+      fixture.changeArchive.mockRejectedValueOnce(new Error('写入失败'));
       await act(async () => button().click());
-      expect(fixture.confirm).toHaveBeenCalledWith(
-        '清理已结束任务',
-        expect.stringContaining('确定清除 6 项'),
-        expect.objectContaining({ okLabel: '清除 6 项' }),
-      );
-      expect(fixture.confirm.mock.calls[0]?.[1]).toContain('2 项导出尚未保存');
-      expect(fixture.clear).not.toHaveBeenCalled();
-      fixture.confirm.mockResolvedValue(true);
-      fixture.clear.mockResolvedValueOnce({ removed: 6, skipped: 0, errors: [] });
+      expect(fixture.error).toHaveBeenCalledWith('归档失败', '写入失败');
+      expect(button().disabled).toBe(false);
       await act(async () => button().click());
-      expect(fixture.clear).toHaveBeenCalledOnce();
-      // 失败、取消、保存中断都可清除；保存中与可续传的暂停任务保留。
-      expect(fixture.clear).toHaveBeenCalledWith({
+      expect(fixture.changeArchive.mock.lastCall?.[0]).toMatchObject({
         ...binding,
-        exports: ['done', 'failed', 'cancelled', 'interrupted'],
-        roaming: ['same-id'],
-        flash: ['same-id'],
+        action: 'archive',
+        tasks: [{ id: 'export:failed' }, { id: 'export:saved' }],
       });
-      expect(fixture.invalidate).toHaveBeenCalledTimes(4);
-      expect(fixture.info).not.toHaveBeenCalled();
-      expect(useToast.getState().toasts[0]).toMatchObject({
-        tone: 'success',
-        title: '已清除 6 项任务。',
-      });
-      let resolve = (_ok: boolean) => {};
-      fixture.confirm.mockImplementationOnce(
-        () =>
-          new Promise<boolean>((done) => {
-            resolve = done;
-          }),
-      );
-      act(() => button().click());
-      expect(button().disabled).toBe(true);
-      act(() => render({ ...binding, expectedAccountConfigId: 'another-config' }));
-      await act(async () => resolve(true));
-      expect(fixture.clear).toHaveBeenCalledTimes(1);
+      expect(fixture.deleteArchive).not.toHaveBeenCalled();
     } finally {
       act(() => root.unmount());
     }
   });
 
-  it('只有失败/中断任务时也能清除，暂停与运行中的任务保留', async () => {
+  it('打开列表保留全部未读，打开一项详情只确认该项结果', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    fixture.roamingStatus = 'failed';
-    fixture.flashStatus = 'failed';
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
     const host = document.createElement('div');
+    document.body.append(host);
     const root = createRoot(host);
     const binding = {
-      expectedAccountUin: 'fixture-account',
+      expectedAccountUin: fixture.accountId,
       expectedAccountConfigId: 'fixture-config',
     };
-    const task: UiTask = {
-      id: 'failed',
-      name: '失败导出',
+    const scope = JSON.stringify([binding.expectedAccountUin, binding.expectedAccountConfigId]);
+    const one: UiTask = {
+      id: 'one',
+      name: '合成导出一',
       kind: 'c2c',
       format: 'json',
-      status: 'failed',
-      progress: 40,
+      status: 'completed',
+      progress: 100,
       current: 1,
-      total: 2,
+      total: 1,
     };
-    fixture.confirm.mockResolvedValue(true);
-    fixture.clear.mockResolvedValueOnce({ removed: 4, skipped: 0, errors: [] });
+    const two = { ...one, id: 'two', name: '合成导出二' };
+    const store = useWorkspaceMenu.getState();
+    store.syncTasks(scope, summarizeWorkspaceTasks({ exports: [one, two] }).items);
     try {
       act(() =>
         root.render(
           h(CurrentTaskList, {
+            exports: [one, two],
             cleanupBinding: binding,
-            exports: [
-              task,
-              { ...task, id: 'interrupted', status: 'completed', save: { status: 'interrupted' } },
-              { ...task, id: 'paused', status: 'paused' },
-              { ...task, id: 'running', status: 'running' },
-            ],
-            renderExport: () => null,
+            renderExport: () => h('p', null, '结果详情'),
           }),
         ),
       );
-      const button = () => host.querySelector<HTMLButtonElement>('[aria-label="清理已结束任务"]')!;
-      expect(button().disabled).toBe(false);
-      await act(async () => button().click());
-      expect(fixture.confirm).toHaveBeenCalledWith(
-        '清理已结束任务',
-        expect.stringContaining('确定清除 4 项'),
-        expect.objectContaining({ okLabel: '清除 4 项' }),
-      );
-      expect(fixture.clear).toHaveBeenCalledWith({
-        ...binding,
-        exports: ['failed', 'interrupted'],
-        roaming: ['same-id'],
-        flash: ['same-id'],
-      });
-      expect(fixture.info).not.toHaveBeenCalled();
-      expect(useToast.getState().toasts[0]).toMatchObject({
-        tone: 'success',
-        title: '已清除 4 项任务。',
-      });
-    } finally {
-      act(() => root.unmount());
-    }
-  });
-
-  it('隐藏或尚未加载的任务列表不清红点，查看列表后清除红点但保留蓝点', () => {
-    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    const host = document.createElement('div');
-    const root = createRoot(host);
-    const items = [
-      { id: 'export:done', activity: 'finished' as const, result: 'completed', failed: false },
-      { id: 'clone:running', activity: 'running' as const, result: 'running', failed: false },
-    ];
-    const store = useWorkspaceMenu.getState();
-    store.syncTasks('read-fixture', items);
-    const render = (active: boolean, loadingExports = false) =>
+      expect(useWorkspaceMenu.getState().finished).toBe(2);
       act(() =>
-        root.render(
-          h(
-            TabActivity,
-            { active },
-            h(CurrentTaskList, {
-              exports: [],
-              loadingExports,
-              renderExport: () => null,
-            }),
-          ),
-        ),
-      );
-    try {
-      render(false);
-      expect(useWorkspaceMenu.getState()).toMatchObject({ finished: 1, running: 1 });
-      render(true, true);
-      expect(useWorkspaceMenu.getState().finished).toBe(1);
-      render(true);
-      expect(useWorkspaceMenu.getState()).toMatchObject({ finished: 0, running: 1 });
-      render(false);
-      act(() =>
-        store.syncTasks('read-fixture', [
-          ...items,
-          { id: 'flash:new', activity: 'finished', result: 'done', failed: false },
-        ]),
+        [...host.querySelectorAll<HTMLButtonElement>('.weq-long-task')]
+          .find((button) => button.textContent?.includes(one.name))!
+          .click(),
       );
       expect(useWorkspaceMenu.getState().finished).toBe(1);
-      render(true);
-      expect(useWorkspaceMenu.getState()).toMatchObject({ finished: 0, running: 1 });
+      expect(useWorkspaceMenu.getState().readTaskResults['export:one']).toBe('completed::');
+      expect(useWorkspaceMenu.getState().readTaskResults['export:two']).toBeUndefined();
+      expect(fixture.changeArchive).not.toHaveBeenCalled();
     } finally {
       act(() => root.unmount());
+      host.remove();
+      vi.mocked(document.hasFocus).mockRestore();
     }
   });
 
@@ -1374,8 +1237,10 @@ describe('统一当前任务', () => {
         '拉取漫游消息 · 合成漫游',
         '导出聊天记录 · 合成导出',
       ]);
-      expect(host.querySelector('.weq-long-task-detail')?.textContent).toContain('训练中');
+      expect(host.querySelector('.weq-long-task-detail')).toBeNull();
       const rows = host.querySelectorAll<HTMLButtonElement>('.weq-long-task');
+      act(() => rows[0]!.click());
+      expect(host.querySelector('.weq-long-task-detail')?.textContent).toContain('训练中');
       act(() => rows[2]!.click());
       expect(host.querySelector('.weq-long-task-detail')?.textContent).toContain(
         '漫游详情 same-id',

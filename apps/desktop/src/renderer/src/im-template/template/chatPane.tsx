@@ -567,6 +567,7 @@ export type ChatPaneProps = {
   messageRenderers?: MessageRenderer[];
   loading: boolean;
   loadingNewer?: boolean;
+  locatingMessage?: boolean;
   initialReadingPosition?: ConversationReadingPosition;
   /** 是否为最新窗口；历史分页不触发新消息提示，分离窗口改由实时会话水位驱动。 */
   atLatest?: boolean;
@@ -801,6 +802,7 @@ function ChatPaneContent({
   messageRenderers,
   loading,
   loadingNewer = false,
+  locatingMessage,
   initialReadingPosition,
   atLatest = true,
   latestMessageSeq,
@@ -7027,6 +7029,11 @@ function ChatPaneContent({
       {loadingOlder ? (
         <div className="weq-conversation-loading is-older" role="status">
           加载更早消息…
+        </div>
+      ) : null}
+      {locatingMessage ? (
+        <div className="weq-conversation-loading is-older" role="status">
+          正在加载目标消息…
         </div>
       ) : null}
       {loadingNewer ? (

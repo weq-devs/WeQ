@@ -77,7 +77,14 @@ it('Web 使用服务器保存根，拒绝越界目录，不采用客户端文件
   roots.push(root);
   const f = fixture(null);
   await startFlashDownloads(input, f.manager, { ...f.host, exportRoot: root }, f.current);
-  expect(f.manager.start).toHaveBeenCalledWith(input.filesetName, 'set', input.selections, root);
+  expect(f.manager.start).toHaveBeenCalledWith(
+    input.filesetName,
+    'set',
+    input.selections,
+    root,
+    undefined,
+    true,
+  );
   await expect(
     startFlashDownloads(
       { ...input, directory: '../outside' },

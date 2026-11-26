@@ -1,3 +1,4 @@
+import { useArchiveFixture, taskArchiveFixture } from './completed-task-cleanup.stub';
 declare global {
   interface Window {
     taskQuickCalls: Array<{ action: string; input: unknown }>;
@@ -23,6 +24,10 @@ const flash = (id: string, count: number) => {
 const proxy = (path: string[] = []): unknown =>
   new Proxy(() => proxy(path), {
     get: (_target, key: string) => {
+      if (path[0] === 'taskArchive') {
+        if (key === 'useQuery') return useArchiveFixture;
+        if (key === 'mutate' && path[1] === 'change') return taskArchiveFixture.change.mutate;
+      }
       if (key === 'useQuery')
         return () => ({
           data:

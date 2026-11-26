@@ -292,6 +292,10 @@ import {
   useContentSelectionScope,
   useRequestContentExport,
 } from '../state/contentSelection.shared';
+import {
+  MergeForwardRejected,
+  MergeForwardUnconfirmed,
+} from '../components/mergeForward/mergeForwardTask';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { conversationWindowKey } from '../lib/conversationWindowCache';
 import { firstPageKey } from '../lib/conversationFirstPage';
@@ -3879,12 +3883,17 @@ function MainWorkspace(): ReactElement {
    * 已发送 / 发送失败」标识。
    */
   const forwardMergeDraft = useCallback(
-    async (draft: MfDraft, target: MfTarget, binding?: CompositionBinding) => {
+    async (
+      draft: MfDraft,
+      target: MfTarget,
+      binding?: CompositionBinding,
+      taskFeedback = false,
+    ) => {
       const pushToast = sourceToastPush(
         conversationNotificationSource({ id: target.conv, type: target.kind }),
       );
       const problem = validateDraft(draft);
-      if (problem) throw new Error(problem);
+      if (problem) throw new MergeForwardRejected(problem);
       const nodes = draftToSendNodes(draft, target.kind);
       const hasChatFiles = (rows: typeof nodes): boolean =>
         rows.some(
@@ -3951,7 +3960,7 @@ function MainWorkspace(): ReactElement {
         if (!outcome.ok) {
           const reason = outcome.card?.errMsg || outcome.hint || '发送失败';
           patch({ state: 'failed', error: reason });
-          throw new Error(reason);
+          throw new MergeForwardRejected(reason);
         }
         // 卡片那一步的回执带 random / seq：与 Ark 同款，cid 用于对账、seq 用于
         // 混排进真实消息之间（见 OptimisticForward.seq）。
@@ -3973,6 +3982,8 @@ function MainWorkspace(): ReactElement {
           ...(cardKeys.seqRejected ? { seqRejected: true } : {}),
         });
         if (cardKeys.seqRejected) {
+          if (taskFeedback)
+            throw new MergeForwardUnconfirmed('QQ 未返回消息序号，请核对目标会话中的发送结果。');
           pushToast({
             tone: 'warning',
             message: '聊天记录卡片可能未被服务端接收',
@@ -3983,12 +3994,14 @@ function MainWorkspace(): ReactElement {
         }
         return true;
       } catch (error) {
-        patch({ state: 'failed', error: error instanceof Error ? error.message : String(error) });
-        pushToast({
-          tone: 'error',
-          message: '发送失败',
-          detail: error instanceof Error ? error.message : String(error),
-        });
+        if (!(error instanceof MergeForwardUnconfirmed))
+          patch({ state: 'failed', error: error instanceof Error ? error.message : String(error) });
+        if (!taskFeedback)
+          pushToast({
+            tone: 'error',
+            message: '发送失败',
+            detail: error instanceof Error ? error.message : String(error),
+          });
         throw error;
       }
     },
@@ -6555,9 +6568,11 @@ function MainWorkspace(): ReactElement {
   ]);
 
   // Scroll the loaded list to a message row by id and briefly flash it.
-  const { run: runMessageLocate, cancel: cancelMessageLocate } = useMessageLocateFeedback(
-    `${messageScope}:${shell.view}:${selectedUid ?? ''}`,
-  );
+  const {
+    run: runMessageLocate,
+    cancel: cancelMessageLocate,
+    locating: locatingMessage,
+  } = useMessageLocateFeedback(`${messageScope}:${shell.view}:${selectedUid ?? ''}`);
   const scrollToMsgId = useStableCallback((msgId: string, flash: boolean = true): boolean => {
     const scroll = nativeMessageScrollRef.current;
     if (!scroll) return false;
@@ -6596,217 +6611,213 @@ function MainWorkspace(): ReactElement {
         readingPosition?: ConversationReadingPosition;
       } = {},
     ): Promise<boolean> =>
-      runMessageLocate(
-        async (isCurrent) => {
-          pendingProxyJump.current = null;
-          const pushToast = sourceToastPush(
-            notificationSource({ kind: 'conversation', conversationKind: kind, conv }),
-          );
-          const scope = messageScopeRef.current,
-            binding = messageBindingRef.current,
-            revision = conversationWindows.revision;
-          const selection = selectionRef.current;
-          if (
-            !scope ||
-            !binding ||
-            selection?.id !== conv ||
-            selection.kind !== (kind === 'group' ? 'group' : 'direct')
-          )
-            return false;
-          const current = () =>
-            isCurrent() && scope === messageScopeRef.current && selectionRef.current === selection;
-          const proxyTarget = messageId?.startsWith('proxy:') ? messageId : undefined;
-          const revealLoadedProxyTarget = () => {
-            if (!proxyTarget || entryLoadingRef.current) return false;
-            const exact = findTimelineMessageById(loadedRef.current, proxyTarget, targetSeq);
-            if (!exact || !scrollToMsgId(timelineRowKey(exact))) return false;
-            selection.explicitWindow = true;
-            setMissingJumpSeq(null);
-            return true;
-          };
-          if (revealLoadedProxyTarget()) return true;
-          const query = {
-            ...binding,
-            readWindow: selection.readWindow,
-            deferReplyMedia: true,
-            kind,
-            conv,
-          };
-          let before: ChatMsgWire[];
-          let after: ChatMsgWire[] = [];
-          try {
-            if (targetSeq) {
-              [before, after] = await Promise.all([
-                // listBefore 不含边界，加 1 才能把目标算进这一页。
-                client.account.listBefore.query({
-                  ...query,
-                  beforeSeq: String(BigInt(targetSeq) + 1n),
-                  limit: PAGE_SIZE,
-                }),
-                client.account.listAfter.query({ ...query, afterSeq: targetSeq, limit: PAGE_SIZE }),
-              ]);
-            } else {
-              // 刚发出的卡片可能还未落库，先读最新页，再从时间线中定位回显。
-              before = await client.account.listLatest.query({ ...query, limit: PAGE_SIZE });
-            }
-          } catch (err) {
-            if (!current()) return false;
-            console.error('[centerWindowOnSeq] fetch failed', err);
-            pushToast({
-              tone: 'info',
-              durationKind: 'failure',
-              title: mode === 'firstUnread' ? '未读消息加载失败' : '未找到该消息',
-              detail:
-                mode === 'firstUnread'
-                  ? err instanceof Error
-                    ? err.message
-                    : String(err)
-                  : '该消息可能已被撤回或删除。',
-            });
-            return false;
-          }
-          if (!current()) return false;
-
-          const seen = new Set<string>();
-          let merged: MessageWire[] = [];
-          // before is DESC (newest-first) incl. centre → reverse to ASC; after is ASC.
-          for (const m of [...before.map(toMessageWire).reverse(), ...after.map(toMessageWire)]) {
-            if (seen.has(timelineRowKey(m))) continue;
-            seen.add(timelineRowKey(m));
-            merged.push(m);
-          }
-
-          if (exactRecord && !merged.some((message) => message.msgId === exactRecord.msgId))
-            merged.unshift(toMessageWire(exactRecord));
-          const exactId = messageId ?? exactRecord?.msgId;
-          const findTarget = () => {
-            if (mode === 'firstUnread' && targetSeq) return firstUnreadMessage(merged, targetSeq);
-            if (exactId) return findTimelineMessageById(merged, exactId, targetSeq);
-            if (targetSeq) return findUnreadMessage(merged, targetSeq, importantMessage);
-          };
-          let target = findTarget();
-          if (!target && proxyTarget) {
-            if (revealLoadedProxyTarget()) return true;
-            // 等现有消息订阅交付，不把同序号的其他消息当目标，也不补发请求。
-            pendingProxyJump.current = {
-              scope,
-              selection,
-              id: proxyTarget,
-              expires: Date.now() + 30_000,
-            };
-            return false;
-          }
-
-          const autoContext = () =>
-            preferenceValue('autoFetchMissingMessages') ||
-            preferenceValue('autoFetchMissingContext');
-          let contextFetchFailed = false;
-          if (!target && targetSeq && autoContext()) {
-            try {
-              const rows = await fetchMissingContext(
-                targetSeq,
-                preferenceValue('autoFetchMissingMessages')
-                  ? preferenceDefaults.missingMessageContextCount
-                  : preferenceValue('missingMessageContextCount'),
-                (range) =>
-                  client.account.fetchGapMessages.query({ ...binding, kind, conv, ...range }),
-                () => current() && autoContext(),
-              );
-              if (!current()) return false;
-              merged = mergeRoamingTimeline(
-                kind,
-                merged,
-                rows
-                  .filter((row) => kind === 'group' || row.ntSeqVerified === true)
-                  .map((row) => ({ ...toMessageWire(row), source: 'roaming' as const })),
-              );
-              target = findTarget();
-            } catch (error) {
-              if (!current()) return false;
-              contextFetchFailed = true;
-              pushToast({
-                tone: 'warning',
-                title: '自动拉取上下文失败',
-                detail: error instanceof Error ? error.message : String(error),
-              });
-            }
-          }
-          if (!current()) return false;
-          if (!target && mode === 'firstUnread') {
-            pushToast({
-              tone: 'info',
-              durationKind: 'failure',
-              title: '未找到可定位的未读消息',
-              detail: '本地未读区间暂无可用消息，可稍后重试或拉取缺失消息。',
-            });
-            return false;
-          }
-          if (target) setMissingJumpSeq(null);
-
-          const atLatest =
-            after.length < PAGE_SIZE && (!exactRecord || BigInt(targetSeq ?? '0') > 0n);
-          // Update the live-subscription's window descriptor synchronously: a
-          // db-changed tick between this setLoaded and the passive windowRef effect
-          // must not see the stale (anchored, old-minSeq) descriptor and replace our
-          // freshly-jumped window via refreshWindow's listFrom.
+      runMessageLocate(async (isCurrent) => {
+        pendingProxyJump.current = null;
+        const pushToast = sourceToastPush(
+          notificationSource({ kind: 'conversation', conversationKind: kind, conv }),
+        );
+        const scope = messageScopeRef.current,
+          binding = messageBindingRef.current,
+          revision = conversationWindows.revision;
+        const selection = selectionRef.current;
+        if (
+          !scope ||
+          !binding ||
+          selection?.id !== conv ||
+          selection.kind !== (kind === 'group' ? 'group' : 'direct')
+        )
+          return false;
+        const current = () =>
+          isCurrent() && scope === messageScopeRef.current && selectionRef.current === selection;
+        const proxyTarget = messageId?.startsWith('proxy:') ? messageId : undefined;
+        const revealLoadedProxyTarget = () => {
+          if (!proxyTarget || entryLoadingRef.current) return false;
+          const exact = findTimelineMessageById(loadedRef.current, proxyTarget, targetSeq);
+          if (!exact || !scrollToMsgId(timelineRowKey(exact))) return false;
           selection.explicitWindow = true;
-          entryLoadingRef.current = false;
-          entryScrollIntentRef.current = null;
-          cachedScrollRef.current = null;
-          pendingScrollRestoreRef.current = null;
-          windowRef.current = { minSeq: merged[0]?.msgSeq ?? null, anchored: atLatest };
-          loadedRef.current = merged;
-          verifiedWindowRowsRef.current = merged;
-          loadedRevisionRef.current = revision;
-          windowVerifiedAtRef.current = Date.now();
-          // 目标和这次提交的窗口同帧交付，避免先绘制在旧的滚动坐标上。
-          flushSync(() => {
-            setLoaded(merged);
-            setMessagesLoading(false);
-            setLoadingNewerMessages(false);
-            setInitialReadingPosition(undefined);
-            setHasOlder(before.length >= PAGE_SIZE);
-            setHasNewer(!atLatest);
-            setAnchoredToLatest(atLatest);
-          });
-          // Exact row present → flash it. Otherwise fall back to the nearest real
-          // message: the clickable gap divider sits right beside it.
-          if (!current()) return false;
-          if (!targetSeq && exactId) {
-            const positioned = scrollToMsgId(target ? timelineRowKey(target) : exactId);
-            if (!positioned) pushToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
-            return positioned;
+          setMissingJumpSeq(null);
+          return true;
+        };
+        if (revealLoadedProxyTarget()) return true;
+        const query = {
+          ...binding,
+          readWindow: selection.readWindow,
+          deferReplyMedia: true,
+          kind,
+          conv,
+        };
+        let before: ChatMsgWire[];
+        let after: ChatMsgWire[] = [];
+        try {
+          if (targetSeq) {
+            [before, after] = await Promise.all([
+              // listBefore 不含边界，加 1 才能把目标算进这一页。
+              client.account.listBefore.query({
+                ...query,
+                beforeSeq: String(BigInt(targetSeq) + 1n),
+                limit: PAGE_SIZE,
+              }),
+              client.account.listAfter.query({ ...query, afterSeq: targetSeq, limit: PAGE_SIZE }),
+            ]);
+          } else {
+            // 刚发出的卡片可能还未落库，先读最新页，再从时间线中定位回显。
+            before = await client.account.listLatest.query({ ...query, limit: PAGE_SIZE });
           }
-          const anchor = target ?? (targetSeq ? nearestBySeq(merged, targetSeq) : undefined);
-          if (!target && targetSeq) {
-            if (!contextFetchFailed) onMissing?.();
-            setMissingJumpSeq(targetSeq);
+        } catch (err) {
+          if (!current()) return false;
+          console.error('[centerWindowOnSeq] fetch failed', err);
+          pushToast({
+            tone: 'info',
+            durationKind: 'failure',
+            title: mode === 'firstUnread' ? '未读消息加载失败' : '未找到该消息',
+            detail:
+              mode === 'firstUnread'
+                ? err instanceof Error
+                  ? err.message
+                  : String(err)
+                : '该消息可能已被撤回或删除。',
+          });
+          return false;
+        }
+        if (!current()) return false;
+
+        const seen = new Set<string>();
+        let merged: MessageWire[] = [];
+        // before is DESC (newest-first) incl. centre → reverse to ASC; after is ASC.
+        for (const m of [...before.map(toMessageWire).reverse(), ...after.map(toMessageWire)]) {
+          if (seen.has(timelineRowKey(m))) continue;
+          seen.add(timelineRowKey(m));
+          merged.push(m);
+        }
+
+        if (exactRecord && !merged.some((message) => message.msgId === exactRecord.msgId))
+          merged.unshift(toMessageWire(exactRecord));
+        const exactId = messageId ?? exactRecord?.msgId;
+        const findTarget = () => {
+          if (mode === 'firstUnread' && targetSeq) return firstUnreadMessage(merged, targetSeq);
+          if (exactId) return findTimelineMessageById(merged, exactId, targetSeq);
+          if (targetSeq) return findUnreadMessage(merged, targetSeq, importantMessage);
+        };
+        let target = findTarget();
+        if (!target && proxyTarget) {
+          if (revealLoadedProxyTarget()) return true;
+          // 等现有消息订阅交付，不把同序号的其他消息当目标，也不补发请求。
+          pendingProxyJump.current = {
+            scope,
+            selection,
+            id: proxyTarget,
+            expires: Date.now() + 30_000,
+          };
+          return false;
+        }
+
+        const autoContext = () =>
+          preferenceValue('autoFetchMissingMessages') || preferenceValue('autoFetchMissingContext');
+        let contextFetchFailed = false;
+        if (!target && targetSeq && autoContext()) {
+          try {
+            const rows = await fetchMissingContext(
+              targetSeq,
+              preferenceValue('autoFetchMissingMessages')
+                ? preferenceDefaults.missingMessageContextCount
+                : preferenceValue('missingMessageContextCount'),
+              (range) =>
+                client.account.fetchGapMessages.query({ ...binding, kind, conv, ...range }),
+              () => current() && autoContext(),
+            );
+            if (!current()) return false;
+            merged = mergeRoamingTimeline(
+              kind,
+              merged,
+              rows
+                .filter((row) => kind === 'group' || row.ntSeqVerified === true)
+                .map((row) => ({ ...toMessageWire(row), source: 'roaming' as const })),
+            );
+            target = findTarget();
+          } catch (error) {
+            if (!current()) return false;
+            contextFetchFailed = true;
             pushToast({
-              tone: 'info',
-              durationKind: 'success',
-              title: '未找到该条消息',
-              detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
+              tone: 'warning',
+              title: '自动拉取上下文失败',
+              detail: error instanceof Error ? error.message : String(error),
             });
           }
-          if (anchor) {
-            const scroll = nativeMessageScrollRef.current;
-            if (readingPosition && scroll) {
-              restoreReadingPosition(scroll, {
-                ...readingPosition,
-                anchorId: timelineRowKey(anchor),
-              });
-              return true;
-            }
-            const positioned = scrollToMsgId(timelineRowKey(anchor), Boolean(target));
-            if (target && !positioned && (exactId || importantMessage || mode === 'firstUnread')) {
-              pushToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
-              return false;
-            }
+        }
+        if (!current()) return false;
+        if (!target && mode === 'firstUnread') {
+          pushToast({
+            tone: 'info',
+            durationKind: 'failure',
+            title: '未找到可定位的未读消息',
+            detail: '本地未读区间暂无可用消息，可稍后重试或拉取缺失消息。',
+          });
+          return false;
+        }
+        if (target) setMissingJumpSeq(null);
+
+        const atLatest =
+          after.length < PAGE_SIZE && (!exactRecord || BigInt(targetSeq ?? '0') > 0n);
+        // Update the live-subscription's window descriptor synchronously: a
+        // db-changed tick between this setLoaded and the passive windowRef effect
+        // must not see the stale (anchored, old-minSeq) descriptor and replace our
+        // freshly-jumped window via refreshWindow's listFrom.
+        selection.explicitWindow = true;
+        entryLoadingRef.current = false;
+        entryScrollIntentRef.current = null;
+        cachedScrollRef.current = null;
+        pendingScrollRestoreRef.current = null;
+        windowRef.current = { minSeq: merged[0]?.msgSeq ?? null, anchored: atLatest };
+        loadedRef.current = merged;
+        verifiedWindowRowsRef.current = merged;
+        loadedRevisionRef.current = revision;
+        windowVerifiedAtRef.current = Date.now();
+        // 目标和这次提交的窗口同帧交付，避免先绘制在旧的滚动坐标上。
+        flushSync(() => {
+          setLoaded(merged);
+          setMessagesLoading(false);
+          setLoadingNewerMessages(false);
+          setInitialReadingPosition(undefined);
+          setHasOlder(before.length >= PAGE_SIZE);
+          setHasNewer(!atLatest);
+          setAnchoredToLatest(atLatest);
+        });
+        // Exact row present → flash it. Otherwise fall back to the nearest real
+        // message: the clickable gap divider sits right beside it.
+        if (!current()) return false;
+        if (!targetSeq && exactId) {
+          const positioned = scrollToMsgId(target ? timelineRowKey(target) : exactId);
+          if (!positioned) pushToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
+          return positioned;
+        }
+        const anchor = target ?? (targetSeq ? nearestBySeq(merged, targetSeq) : undefined);
+        if (!target && targetSeq) {
+          if (!contextFetchFailed) onMissing?.();
+          setMissingJumpSeq(targetSeq);
+          pushToast({
+            tone: 'info',
+            durationKind: 'success',
+            title: '未找到该条消息',
+            detail: '该消息可能已被撤回、删除或未同步。已定位到它附近，可在缺口条上点击拉取。',
+          });
+        }
+        if (anchor) {
+          const scroll = nativeMessageScrollRef.current;
+          if (readingPosition && scroll) {
+            restoreReadingPosition(scroll, {
+              ...readingPosition,
+              anchorId: timelineRowKey(anchor),
+            });
+            return true;
           }
-          return Boolean(target);
-        },
-        notificationSource({ kind: 'conversation', conversationKind: kind, conv }),
-      ),
+          const positioned = scrollToMsgId(timelineRowKey(anchor), Boolean(target));
+          if (target && !positioned && (exactId || importantMessage || mode === 'firstUnread')) {
+            pushToast({ tone: 'info', title: '目标消息未在当前时间线显示' });
+            return false;
+          }
+        }
+        return Boolean(target);
+      }),
   );
 
   // Scroll the loaded message list to a reply target, then briefly flash it. The
@@ -11534,6 +11545,7 @@ function MainWorkspace(): ReactElement {
                             messages={templateMessages}
                             messageRenderers={messageRenderers}
                             loadingMessages={loadingInitialMessages}
+                            locatingMessage={locatingMessage}
                             loadError={
                               failedStage === 'entry'
                                 ? loaded.length

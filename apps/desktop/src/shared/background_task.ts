@@ -11,6 +11,7 @@ export type BackgroundTaskKind =
   | 'backup'
   | 'favorite-import'
   | 'forward'
+  | 'qzone-share'
   | 'send-media'
   | 'album-upload'
   | 'resource';
@@ -38,6 +39,7 @@ export interface BackgroundTask {
   destination?: 'db-checkup' | 'enhancement-packs' | 'group-intersection';
   status: BackgroundTaskStatus;
   statusLabel?: string;
+  needsConfirmation?: boolean;
   progress?: number;
   databaseProgress?: DatabaseTaskProgress;
   databaseBatch?: DatabaseMaintenanceOperation & { locked: boolean };
@@ -50,6 +52,9 @@ export interface BackgroundTask {
   download?: { url: string; name: string };
   reportId?: string;
   groupAlbum?: { groupCode: string; albumId: string };
+  forwardTargets?: { id: string; name: string; kind: 'c2c' | 'group'; conv: string }[];
+  qzonePost?: { uin: string; tid: string };
+  messageTarget?: { conversationKind: 'c2c' | 'group' | 'dataline'; conv: string; msgId: string };
   clonePersonaId?: string;
   actions: { id: string; label: string }[];
   startedAt: number;
@@ -80,6 +85,7 @@ export function backgroundTaskDisplay(
     backup: '备份与恢复',
     'favorite-import': '导入收藏表情',
     forward: '逐条转发消息',
+    'qzone-share': '分享到 QQ 空间',
     'send-media': '发送附件',
     'album-upload': '上传群相册视频',
     resource: '资源任务',
@@ -116,6 +122,9 @@ type TaskPatch = Partial<
     | 'databaseProgress'
     | 'databaseBatch'
     | 'diagnosticAbnormal'
+    | 'forwardTargets'
+    | 'qzonePost'
+    | 'needsConfirmation'
   >
 >;
 export type BackgroundTaskAction = {

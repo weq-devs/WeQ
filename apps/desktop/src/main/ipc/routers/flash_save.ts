@@ -114,13 +114,18 @@ export async function startFlashDownloads(
     '选择闪传下载保存位置',
   );
   if (!destination?.directory) return { started: 0, errors: [], cancelled: true };
+  const options: [viewFilesetId?: string, browserOutput?: boolean] = host.exportRoot
+    ? [input.viewFilesetId, true]
+    : input.viewFilesetId
+      ? [input.viewFilesetId]
+      : [];
   return {
     ...(await manager.start(
       input.filesetName,
       input.selections[0]!.filesetId,
       input.selections,
       destination.directory,
-      ...(input.viewFilesetId ? [input.viewFilesetId] : []),
+      ...options,
     )),
     cancelled: false,
   };

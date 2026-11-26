@@ -7,6 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceTools } from '../src/renderer/src/components/WorkspaceTools';
 import { WorkspaceMenuButton } from '../src/renderer/src/components/WorkspaceMenuButton';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
+function viewCompletedTasks() {
+  const store = useWorkspaceMenu.getState();
+  if (!store.taskScope) return;
+  for (const task of store.taskItems) {
+    if (task.activity === 'finished') store.readTask(store.taskScope, task.id, task.result);
+  }
+}
 import { useUpdateStore } from '../src/renderer/src/state/update';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { AnnouncementUnread } from '../src/renderer/src/lib/announcementPresentation';
@@ -56,6 +63,10 @@ vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { bootstrap: { notifyConfiguredEvent: { mutate: async () => true } } },
   trpc: {
+    taskArchive: {
+      list: { useQuery: () => ({ data: {} }) },
+      changed: { useSubscription: () => {} },
+    },
     backgroundTasks: { list: { useQuery: () => ({ data: [] }) } },
     useUtils: () => ({}),
     account: {
@@ -331,7 +342,7 @@ describe('统一竖向工作菜单', () => {
       expect(taskBadge()?.textContent).toBe('');
       expect(trigger().querySelector('.weq-reminder-dot')).not.toBeNull();
       expect(trigger().querySelector('.weq-reminder-count')).toBeNull();
-      act(() => useWorkspaceMenu.getState().readTasks());
+      act(() => viewCompletedTasks());
       expect(taskBadge()).toBeNull();
       expect(trigger().title).not.toContain('任务失败');
       expect(trigger().querySelector('.weq-reminder')).toBeNull();

@@ -52,7 +52,7 @@ describe('工作菜单已读持久化', () => {
     store.syncTasks('disabled', [
       { id: 'task', result: 'result', activity: 'finished', failed: false },
     ]);
-    store.readTasks();
+    store.readTask('disabled', 'task', 'result');
     expect(useWorkspaceMenu.getState().finished).toBe(0);
   });
 });

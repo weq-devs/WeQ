@@ -70,6 +70,7 @@ export const SKIPPABLE_STAGE_KEYS = [
 export interface UiTask {
   display?: TaskDisplay;
   createdAt?: number;
+  updatedAt?: number;
   databaseRecovery?: import('@weq/service').ExportTask['databaseRecovery'];
   databaseRecoveryRecords?: import('@weq/service').ExportTask['databaseRecoveryRecords'];
   networkPaused?: boolean;

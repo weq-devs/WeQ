@@ -17,7 +17,6 @@ import { Card, Row, SectionHeader, Toggle } from '../../components/settings/cont
 import { useAppDialog } from '../../lib/dialogUtils';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { useSettingsAutosave, type SettingsSection } from '../../hooks/useSettingsAutosave';
-import { useSettingsSaveBanner } from '../../hooks/useSettingsSaveBanner';
 import { useDraftProtection } from '../../lib/draftClose';
 import { settingsSaves } from '../../lib/settingsSaveQueue';
 import { SettingsResetContext } from '../../components/settings/resetContext';
@@ -201,7 +200,6 @@ function AssistantSettingsFields({
     useAssistantParameters();
   const reset = useContext(SettingsResetContext);
   const form = useSettingsAutosave<AssistantConfig>(save);
-  useSettingsSaveBanner(saving || form.saving);
   const protection = useDraftProtection(form.dirty || (data && error) ? true : null, false);
   if (!form.dirty && !(data && error)) protection.reset(null);
   const saveState = useRef({ form, saving, error, settle, suspend, release, onReset });
@@ -276,7 +274,7 @@ function AssistantSettingsFields({
   const sendMode = data?.sendMode ?? DEFAULT_ASSISTANT_SEND_MODE;
   const contents = (
     <>
-      {error || form.error || !data ? (
+      {error || form.error || !data || saving || form.saving ? (
         <div role="status">
           {error || form.error ? (
             <span role="alert">
@@ -295,6 +293,8 @@ function AssistantSettingsFields({
                 {data ? '重试保存' : '重新读取'}
               </button>
             </span>
+          ) : data ? (
+            '保存中…'
           ) : (
             '读取中…'
           )}

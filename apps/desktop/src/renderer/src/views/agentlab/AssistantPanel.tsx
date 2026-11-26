@@ -34,7 +34,6 @@ import {
 } from '../../lib/aiImageDraft';
 import { AssistantReplyContent, type AssistantReplyActions } from './AssistantReplyContent';
 import { useStableCallback } from '../../hooks/useStableCallback';
-import { useSettingsSaveBanner } from '../../hooks/useSettingsSaveBanner';
 import { timeDate } from '@weq/time';
 import { AssistantGenerationControls } from './AssistantGenerationControls';
 import { WeqAssistantSettingsSection } from './AssistantSettingsPanel';
@@ -150,7 +149,6 @@ export function AssistantPanel({
     refetchOnMount: 'always',
   });
   const updateGeneration = trpc.account.setAssistantSessionGeneration.useMutation();
-  useSettingsSaveBanner(updateGeneration.isLoading);
   const sessionSettingsError = generationError || sessionGeneration.error?.message;
   const changeGeneration = useStableCallback((generation: AssistantSessionGeneration) => {
     if (sending || generationWrite.current) return;
@@ -630,7 +628,12 @@ export function AssistantPanel({
             hasExternalAttachments={parseAiImageDraft(input).images.length > 0}
             composerAttachments={attachments}
             composerToolbar={imageButton}
-            composerParameters={<AssistantGenerationControls {...generationControls} />}
+            composerParameters={
+              <>
+                <AssistantGenerationControls {...generationControls} />
+                {updateGeneration.isLoading ? <span role="status">保存中…</span> : null}
+              </>
+            }
             onOpenConversationSettings={(_conversation, anchor) => setSettings({ anchor })}
             settingsLabel="助手设置"
             onSearchChatRecords={() => setSearch(true)}

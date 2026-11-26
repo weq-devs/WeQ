@@ -31,7 +31,6 @@ import {
   FileCheck,
   ExternalLink,
   FolderOpen,
-  Trash2,
   Square,
   SkipForward,
 } from 'lucide-react';
@@ -307,7 +306,8 @@ function TaskDetail({
   onDownload,
   onOpenSaved,
   onBrowserDownload,
-  onDelete,
+  managementActions,
+  archived,
   onShowFailures,
   onDatabaseRecovery,
   foldCompletedStages = false,
@@ -323,7 +323,8 @@ function TaskDetail({
   onDownload: (t: UiTask) => void;
   onOpenSaved?: (t: UiTask, reveal: boolean) => void;
   onBrowserDownload?: (t: UiTask) => void;
-  onDelete: (t: UiTask) => void;
+  managementActions?: TaskQuickAction[];
+  archived?: boolean;
   onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
   foldCompletedStages?: boolean;
   onDatabaseRecovery?: (
@@ -492,13 +493,6 @@ function TaskDetail({
     });
   }
   if (t.status !== 'running') {
-    actions.push({
-      id: 'remove',
-      label: '删除导出缓存',
-      icon: <Trash2 size={15} />,
-      disabled: t.save?.status === 'saving' || t.isFinalizing,
-      run: () => onDelete(t),
-    });
   }
 
   return (
@@ -562,7 +556,20 @@ function TaskDetail({
           <span className="weq-number weq-number-inherit">{overall}</span>%
         </strong>
       </header>
-      <TaskQuickActions variant="detail" actions={actions} />
+      <TaskQuickActions
+        variant="detail"
+        actions={[
+          ...(archived
+            ? actions.filter(
+                (action) =>
+                  !['pause', 'resume', 'cancel', 'incremental', 'finalize', 'save'].includes(
+                    action.id,
+                  ),
+              )
+            : actions),
+          ...(managementActions ?? []),
+        ]}
+      />
       <TaskProgressBar
         value={overall}
         label={`${taskTitle(t)}总进度`}
@@ -705,7 +712,8 @@ export function TaskList({
   onDownload,
   onOpenSaved,
   onBrowserDownload,
-  onDelete,
+  managementActions,
+  archived,
   onShowFailures,
   autoSelectId,
   isExpanded = false,
@@ -729,7 +737,8 @@ export function TaskList({
   onDownload: (t: UiTask) => void;
   onOpenSaved?: (t: UiTask, reveal: boolean) => void;
   onBrowserDownload?: (t: UiTask) => void;
-  onDelete: (t: UiTask) => void;
+  managementActions?: TaskQuickAction[];
+  archived?: boolean;
   /** Open the failure-detail lightbox for a task's media-completion failures. */
   onShowFailures: (t: UiTask, failures: UiFailure[]) => void;
   /** 外部强制选中的任务 id（新任务到达时由父组件设置）。 */
@@ -791,7 +800,8 @@ export function TaskList({
         onDownload={onDownload}
         onOpenSaved={onOpenSaved}
         onBrowserDownload={onBrowserDownload}
-        onDelete={onDelete}
+        managementActions={managementActions}
+        archived={archived}
         onShowFailures={onShowFailures}
       />
     ) : null;
@@ -884,7 +894,8 @@ export function TaskList({
               onDownload={onDownload}
               onOpenSaved={onOpenSaved}
               onBrowserDownload={onBrowserDownload}
-              onDelete={onDelete}
+              managementActions={managementActions}
+              archived={archived}
               onShowFailures={onShowFailures}
             />
           ) : null}

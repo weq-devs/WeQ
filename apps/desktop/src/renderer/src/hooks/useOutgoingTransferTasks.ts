@@ -90,14 +90,13 @@ export function useOutgoingTransferTasks(
         previous.outgoingTransfer?.inConversation === transfer?.inConversation
       )
         continue;
+      const messageTarget = {
+        conversationKind: mediaSend.conversationKind,
+        conv: message.convId,
+        msgId: message.id,
+      };
       const source = notificationSource(
-        {
-          kind: 'conversation',
-          conversationKind: mediaSend.conversationKind,
-          conv: message.convId,
-          msgId: message.id,
-          dismissTaskPanel: true,
-        },
+        { kind: 'conversation', ...messageTarget, dismissTaskPanel: true },
         '查看消息',
         { expectedAccountUin: uin, expectedAccountConfigId: configId },
       );
@@ -115,6 +114,8 @@ export function useOutgoingTransferTasks(
         scope: { uin, configId },
         status,
         statusLabel,
+        messageTarget,
+        needsConfirmation: uncertain,
         note: message.error,
         outgoingTransfer: transfer,
         actions: [],

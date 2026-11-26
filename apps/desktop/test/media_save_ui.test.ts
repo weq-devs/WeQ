@@ -550,7 +550,7 @@ it('没有本地记录的文件卡片仍走公共保存策略', async () => {
   expect(view.host.querySelector('.qq-media-file-open button')).toBeNull();
   expect(view.host.querySelector('.qq-media-file-name')?.getAttribute('title')).toBe('report.txt');
 });
-it('聊天文件下载暂停后在原卡片继续，完成后离开不生成后台任务', async () => {
+it('聊天文件下载暂停后在原卡片继续，完成后保留任务回执', async () => {
   state.receipt.mockResolvedValueOnce({ status: 'paused', error: undefined });
   const view = await mount(
     h(QqFile, {
@@ -570,7 +570,15 @@ it('聊天文件下载暂停后在原卡片继续，完成后离开不生成后�
   });
   view.close();
   expect(state.accepted).not.toHaveBeenCalled();
-  expect(state.background).not.toHaveBeenCalled();
+  expect(state.background.mock.calls).toEqual([
+    [
+      {
+        expectedAccountUin: '10001',
+        expectedAccountConfigId: 'source-a',
+        taskId: 'media-task',
+      },
+    ],
+  ]);
 });
 it('文件任务受理及进度结束后保持原位反馈，相邻同名文件不受进度或位置刷新影响', async () => {
   const receipt = Promise.withResolvers<Awaited<ReturnType<typeof state.receipt>>>();

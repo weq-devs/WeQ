@@ -8,6 +8,7 @@ import { summarizeWorkspaceTasks } from '../src/renderer/src/lib/workspaceIndica
 import { BackgroundTaskRegistry } from '../src/shared/background_task';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { useTaskNotifications } from '../src/renderer/src/hooks/useTaskNotifications';
+import { rememberTaskResults } from '../src/renderer/src/lib/workspaceReadState';
 import { taskNotificationKey } from '../src/renderer/src/lib/taskNotificationPresentation';
 
 const task = (
@@ -15,6 +16,13 @@ const task = (
   activity: WorkspaceTaskIndicator['activity'] = 'finished',
   result = 'completed',
 ): WorkspaceTaskIndicator => ({ id, activity, result, failed: false });
+function viewCompletedTasks() {
+  const store = useWorkspaceMenu.getState();
+  if (!store.taskScope) return;
+  for (const task of store.taskItems) {
+    if (task.activity === 'finished') store.readTask(store.taskScope, task.id, task.result);
+  }
+}
 function resetMemory() {
   useWorkspaceMenu.setState({
     taskScope: null,
@@ -227,7 +235,7 @@ describe('任务结果已读状态', () => {
     expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 1);
   });
 
-  it('轮询不为定时导出或克隆弹出列表，手动导出、报告和闪传继续弹出', () => {
+  it('手动导出和报告可展开任务列表，定时导出、克隆与闪传留在原页', () => {
     const store = useWorkspaceMenu.getState();
     store.syncTasks('exports', []);
     const initial = useWorkspaceMenu.getState().taskOpenRequest;
@@ -261,12 +269,12 @@ describe('任务结果已读状态', () => {
       summarizeWorkspaceTasks({ flash: [{ id: 'flash', status: 'downloading' }] }),
     ])
       store.syncTasks('exports', summary.items);
-    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 3);
+    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 2);
     store.syncTasks(
       'exports',
       summarizeWorkspaceTasks({ clones: [{ personaId: 'clone', status: 'running' }] }).items,
     );
-    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 3);
+    expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(initial + 2);
   });
 
   it('首次加载和切换账号不弹出，同账号新增任务自动打开，刷新和进度变化不重复弹出', () => {
@@ -290,7 +298,7 @@ describe('任务结果已读状态', () => {
   it('重启后恢复已读结果，仍区分新结果、在途任务和其他账号', () => {
     const store = useWorkspaceMenu.getState();
     store.syncTasks('persist-a', [task('1'), task('2', 'running')]);
-    store.readTasks();
+    viewCompletedTasks();
     resetMemory();
     store.syncTasks('persist-a', [task('1'), task('2', 'running')]);
     expect(useWorkspaceMenu.getState()).toMatchObject({ finished: 0, running: 1 });
@@ -304,7 +312,7 @@ describe('任务结果已读状态', () => {
   it('重新运行会作废持久化已读结果，重启后结束仍提醒', () => {
     const store = useWorkspaceMenu.getState();
     store.syncTasks('persist-rerun', [task('1')]);
-    store.readTasks();
+    viewCompletedTasks();
     store.syncTasks('persist-rerun', [task('1', 'running')]);
     resetMemory();
     store.syncTasks('persist-rerun', [task('1')]);
@@ -314,11 +322,11 @@ describe('任务结果已读状态', () => {
   it('启动空快照、部分列表和重启不会删除暂时缺席任务的已读记录', () => {
     const store = useWorkspaceMenu.getState();
     store.syncTasks('partial', [task('1'), task('2')]);
-    store.readTasks();
+    viewCompletedTasks();
     resetMemory();
     store.syncTasks('partial', []);
     store.syncTasks('partial', [task('2')]);
-    store.readTasks();
+    viewCompletedTasks();
     resetMemory();
     store.syncTasks('partial', [task('1'), task('2'), task('new')]);
     expect(useWorkspaceMenu.getState().finished).toBe(1);
@@ -331,7 +339,7 @@ describe('任务结果已读状态', () => {
       readTaskResults: useWorkspaceMenu.getState().readTaskResults,
       readTaskResultsByScope: useWorkspaceMenu.getState().readTaskResultsByScope,
     };
-    store.readTasks();
+    viewCompletedTasks();
     useWorkspaceMenu.setState(stale);
     store.syncTasks('windows', [task('1')]);
     expect(useWorkspaceMenu.getState().finished).toBe(0);
@@ -342,13 +350,14 @@ describe('任务结果已读状态', () => {
 
   it('已读历史有界保留，优先保留最近查看的任务', () => {
     const store = useWorkspaceMenu.getState();
-    store.syncTasks(
+    rememberTaskResults(
       'bounded',
-      Array.from({ length: TASK_READ_LIMIT }, (_, i) => task(`old-${i}`)),
+      Object.fromEntries(
+        Array.from({ length: TASK_READ_LIMIT }, (_, i) => [`old-${i}`, 'completed']),
+      ),
     );
-    store.readTasks();
     store.syncTasks('bounded', [task('new')]);
-    store.readTasks();
+    viewCompletedTasks();
     const results = useWorkspaceMenu.getState().readTaskResults;
     expect(Object.keys(results)).toHaveLength(TASK_READ_LIMIT);
     expect(results.new).toBe('completed');
@@ -361,7 +370,7 @@ describe('任务结果已读状态', () => {
     const snapshot = (updatedAt: number) =>
       summarizeWorkspaceTasks({ exports: [{ id: 'same', status: 'completed', updatedAt }] }).items;
     store.syncTasks('a', snapshot(100));
-    store.readTasks();
+    viewCompletedTasks();
     store.syncTasks('a', snapshot(100));
     expect(useWorkspaceMenu.getState().finished).toBe(0);
     store.syncTasks('a', snapshot(200));
@@ -372,7 +381,7 @@ describe('任务结果已读状态', () => {
     const store = useWorkspaceMenu.getState();
     store.syncTasks('a', [task('1'), task('2'), task('3', 'running')]);
     expect(useWorkspaceMenu.getState()).toMatchObject({ finished: 2, running: 1 });
-    store.readTasks();
+    viewCompletedTasks();
     expect(useWorkspaceMenu.getState()).toMatchObject({ finished: 0, running: 1 });
     store.syncTasks('a', [task('2'), task('3', 'running'), task('1')]);
     expect(useWorkspaceMenu.getState().finished).toBe(0);
@@ -385,22 +394,22 @@ describe('任务结果已读状态', () => {
   it('数量相同但换了任务仍提醒，重新运行、重新保存或结果变化再次提醒', () => {
     const store = useWorkspaceMenu.getState();
     store.syncTasks('a', [task('1')]);
-    store.readTasks();
+    viewCompletedTasks();
     store.syncTasks('a', [task('2')]);
     expect(useWorkspaceMenu.getState().finished).toBe(1);
-    store.readTasks();
+    viewCompletedTasks();
     store.syncTasks('a', [task('2', 'running')]);
     expect(useWorkspaceMenu.getState()).toMatchObject({ finished: 0, running: 1 });
     store.syncTasks('a', [task('2')]);
     expect(useWorkspaceMenu.getState().finished).toBe(1);
-    store.readTasks();
+    viewCompletedTasks();
     store.syncTasks('a', [task('2', 'finished', 'completed:saved')]);
     expect(useWorkspaceMenu.getState().finished).toBe(1);
-    store.readTasks();
+    viewCompletedTasks();
     store.syncTasks('a', []);
     store.syncTasks('a', [task('2')]);
     expect(useWorkspaceMenu.getState().finished).toBe(1);
-    store.readTasks();
+    viewCompletedTasks();
     store.syncTasks('a', []);
     const request = useWorkspaceMenu.getState().taskOpenRequest;
     store.syncTasks('a', [task('2')]);

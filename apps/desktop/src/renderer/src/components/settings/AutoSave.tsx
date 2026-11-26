@@ -6,7 +6,6 @@ import { useDraftProtection } from '../../lib/draftClose';
 import { SaveStatusSlotContext } from './controls.shared';
 import { SettingsResetCardContext } from './resetContext';
 import { usePageSnapshotKey } from '../PageSnapshots.shared';
-import { useSettingsSaveBanner } from '../../hooks/useSettingsSaveBanner';
 import '../../styles/settings-autosave.css';
 
 interface AutoSaveProps<T> {
@@ -43,7 +42,6 @@ function AutoSaveField<T>({
       if (mounted.current) render((n) => n + 1);
     });
   const q = queue.current;
-  useSettingsSaveBanner(q.status === 'saving');
   const latest = useRef({ value, saved, ready, valid, save, reset, resetKeys });
   latest.current = { value, saved, ready, valid, save, reset, resetKeys };
   const composing = useRef(false);
@@ -117,7 +115,13 @@ function AutoSaveField<T>({
   }, [q, card]);
   const status = (
     <span className="weq-autosave-status" role={q.status === 'error' ? 'alert' : 'status'}>
-      {!valid && ready ? '输入无效，尚未保存' : q.status === 'error' ? `保存失败：${q.error}` : ''}
+      {!valid && ready
+        ? '输入无效，尚未保存'
+        : q.status === 'error'
+          ? `保存失败：${q.error}`
+          : q.status === 'saving'
+            ? '保存中…'
+            : ''}
       {q.status === 'error' ? (
         <button
           type="button"

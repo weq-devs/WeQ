@@ -15,6 +15,7 @@ import {
 import { MergeForwardDialog } from '../src/renderer/src/components/mergeForward/MergeForwardDialog';
 import { createEmptyDraft, createNode } from '../src/renderer/src/components/mergeForward/model';
 import { bindAccountState } from '../src/renderer/src/lib/clientPreferences';
+import { backgroundTaskNavigation } from '../src/renderer/src/components/tasks/backgroundTaskNavigation';
 import { onNotificationNavigation } from '../src/renderer/src/lib/notificationNavigation.shared';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
@@ -107,7 +108,7 @@ it('多个目标并行发送且群内保序，一个目标失败不会阻塞其�
     await task.done;
   }
   expect(events).toEqual(['qa-group:text', 'second:text', 'second:media', 'qa-group:media']);
-  expect(useToast.getState().toasts.map((toast) => toast.tone)).toEqual(['warning', 'success']);
+  expect(useToast.getState().toasts.map((toast) => toast.tone)).toEqual(['warning']);
   const failed = localBackgroundTasks.snapshot().find((entry) => entry.name === second.name)!;
   expect(useToast.getState().toasts[0]!.source?.target).toEqual({
     kind: 'task',
@@ -450,16 +451,29 @@ it.each([1, 2])('合并转发回执可打开本次选中的 %i 个会话', async
     await act(async () =>
       document.querySelector<HTMLButtonElement>('[data-weq-dialog-confirm]')!.click(),
     );
-    expect(send.mock.calls).toEqual(chosen.map((choice) => [expect.anything(), choice, binding]));
+    expect(send.mock.calls).toEqual(
+      chosen.map((choice) => [expect.anything(), choice, binding, true]),
+    );
 
-    const open = host.querySelector<HTMLButtonElement>('.weq-toast-open')!;
+    const record = localBackgroundTasks.snapshot().find((task) => task.kind === 'forward')!;
+    expect(record).toMatchObject({ status: 'completed', forwardTargets: chosen });
+    expect(useToast.getState().toasts).toEqual([]);
+    const action = backgroundTaskNavigation(record)!;
     bindAccountState({ ...binding, expectedAccountConfigId: 'different' });
-    await act(async () => open.click());
+    await expect(async () => action.run()).rejects.toThrow('请先切回');
     expect(navigate).not.toHaveBeenCalled();
     bindAccountState(binding);
-    await act(async () => open.click());
+    await act(async () => {
+      await action.run();
+    });
     expect(navigate.mock.calls).toEqual([
-      [{ kind: 'forwarded-conversations', targets: chosen, binding }],
+      [
+        {
+          kind: 'forwarded-conversations',
+          targets: chosen.map((target) => ({ ...target, avatarUrl: '' })),
+          binding,
+        },
+      ],
     ]);
 
     if (count > 1) {
@@ -510,7 +524,7 @@ it('单条转发隐藏间隔与抖动，保留失败策略和重试设置', () =
   }
 });
 
-it('卸载配置窗后从任务查看持续进度与目标，完成时才提醒', async () => {
+it('卸载配置窗后从任务查看持续进度、目标与完成结果', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -579,12 +593,8 @@ it('卸载配置窗后从任务查看持续进度与目标，完成时才提醒'
     expect(currentTask()).toMatchObject({ status: 'completed', statusLabel: '转发完成' });
     expect(currentTask().note).toContain('已进行 7 秒');
     expect(currentTask().note).toContain('2 / 2 条');
-    expect(useToast.getState().toasts.map((toast) => toast.event)).toEqual(['taskComplete']);
-    expect(document.querySelector('.weq-toast button[aria-label="关闭"]')).not.toBeNull();
-    act(() => document.querySelector<HTMLButtonElement>('.weq-toast-open')!.click());
-    expect(open).toHaveBeenCalledTimes(2);
-    await act(async () => vi.advanceTimersByTimeAsync(3500));
-    expect(document.querySelector('.weq-toast')).toBeNull();
+    expect(currentTask().forwardTargets).toEqual([target]);
+    expect(useToast.getState().toasts).toEqual([]);
   } finally {
     act(() => root.unmount());
     host.remove();
@@ -604,11 +614,7 @@ it('等待期间可以停止，不再发送下一条；失败保留原因且不�
   pending.controller.abort();
   await pending.done;
   expect(send).not.toHaveBeenCalled();
-  expect(useToast.getState().toasts.at(-1)).toMatchObject({
-    tone: 'warning',
-    durationKind: 'success',
-    ttl: 3000,
-  });
+  expect(useToast.getState().toasts).toEqual([]);
   const failed = startSequentialForward({
     scope: { uin: 'fixture', configId: 'fixture-config' },
     messages,

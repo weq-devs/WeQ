@@ -26,6 +26,10 @@ export class TaskNotificationTracker {
       const before = this.previous.get(task.id);
       this.previous.delete(task.id);
       this.previous.set(task.id, task);
+      if (task.archived) {
+        if (before && !before.archived) result.push({ task, event: null, phase: '' });
+        continue;
+      }
       if (task.notificationHandled) {
         if (before && !before.notificationHandled) result.push({ task, event: null, phase: '' });
         continue;
@@ -37,7 +41,8 @@ export class TaskNotificationTracker {
       const notify = (event: NotificationEvent, phase: string) => {
         const silent =
           (presented && event !== 'taskFailure') ||
-          (event === 'progress' && task.showProgressNotification === false);
+          (event === 'progress' && task.showProgressNotification === false) ||
+          (event === 'taskComplete' && task.showCompletionNotification === false);
         result.push({ task, event: silent ? null : event, phase });
       };
       if (task.waiting && !before?.waiting) {

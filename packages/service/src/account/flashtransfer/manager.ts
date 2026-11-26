@@ -299,9 +299,10 @@ export class FlashTransferDownloadManager extends EventEmitter {
     selections: FlashSelection[],
     directory: string,
     viewFilesetId?: string,
+    browserOutput = false,
   ): Promise<{ started: number; errors: string[]; taskId?: string }> {
     const request = this.startQueue.then(() =>
-      this.enqueue(filesetName, filesetId, selections, directory, viewFilesetId),
+      this.enqueue(filesetName, filesetId, selections, directory, viewFilesetId, browserOutput),
     );
     this.startQueue = request.catch(() => {});
     return request;
@@ -335,6 +336,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
     selections: FlashSelection[],
     directory: string,
     viewFilesetId?: string,
+    browserOutput = false,
   ) {
     await this.loading;
     if (!isAbsolute(directory) || !(await lstat(directory)).isDirectory())
@@ -372,6 +374,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
         id: randomUUID(),
         batchId,
         ...(viewFilesetId ? { viewFilesetId, foreground: true } : {}),
+        ...(browserOutput ? { browserOutput: true } : {}),
         filesetId: f.filesetId || filesetId,
         filesetName: filesetName || '闪传下载',
         name: f.name,

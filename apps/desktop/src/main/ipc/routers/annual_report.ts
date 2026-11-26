@@ -2,7 +2,7 @@ import { OperationError } from '@weq/service';
 import { z } from 'zod/v3';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { getAppContext, type AccountServices } from '../../context/app_context';
+import { getAppContext, requirePlatform, type AccountServices } from '../../context/app_context';
 import type { AnnualReportPreferences, ResolvedMsgDecoration } from '@weq/service';
 import { exportOutputFileName, getHost } from '@weq/service';
 import { handleMediaRequest } from '../../media_protocol';
@@ -11,6 +11,10 @@ import { procedure, router } from '../trpc';
 import { exportSavePolicyInput, prepareExportDestination } from './export_save';
 import { annualReportExportOutput } from '../../../shared/annual_report_export';
 import { toProtocolAssetUrl } from '../../protocol_asset_url';
+import { backgroundTasks, taskError } from '../../background_tasks';
+import { taskArchiveStore } from '../../task_archive';
+import { backgroundResult } from '../../../shared/task_archive';
+import { clientAccountBinding } from './client_state';
 
 /** 说说一次最多带 9 张图 —— 超出的页数在 router 层直接拒绝。 */
 const QZONE_MAX_IMAGES = 9;
@@ -368,7 +372,7 @@ export const annualReportRouter = router({
    */
   shareQzone: procedure
     .input(
-      z.object({
+      clientAccountBinding.extend({
         year: z.number().int().min(0),
         content: z.string().min(1).max(2000),
         html: z.string().min(1),
@@ -377,53 +381,107 @@ export const annualReportRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const services = requireServices();
-
-      if (input.slideIndexes.length > QZONE_MAX_IMAGES) {
-        throw new Error(
-          `说说一次最多 ${QZONE_MAX_IMAGES} 张图，当前选了 ${input.slideIndexes.length} 页`,
+      const services = requireServices(input);
+      const scope = { uin: input.expectedAccountUin, configId: input.expectedAccountConfigId };
+      const store = taskArchiveStore(requirePlatform().appDataRoot(), scope.configId);
+      const running = backgroundTasks
+        .snapshot()
+        .find(
+          (task) =>
+            task.kind === 'qzone-share' &&
+            task.status === 'running' &&
+            task.scope?.uin === scope.uin &&
+            task.scope.configId === scope.configId,
         );
-      }
-
-      // 分享者信息：昵称 + 头像字节（主进程直接读本地头像缓存，离线也能画）。
-      const profile = await services.profile.getSelfProfile();
-      const nick = profile?.nick ?? '';
-      let avatar: Buffer | undefined;
-      try {
-        const uin = profile?.uin != null ? String(profile.uin) : '';
-        const path = uin
-          ? ((await services.avatarResource.resolveByUin('user', uin, 'big')) ??
-            (await services.avatarResource.resolveByUin('user', uin, 'small')))
-          : null;
-        if (path) avatar = await readFile(path);
-      } catch {
-        avatar = undefined; // 头像缺席 → 卡片画首字兜底，不阻断分享。
-      }
-
-      // 1. 逐页截图（一页一图），叠上头像行与署名声。
-      const pngs = await getHost().renderHtmlToSlidesPng(input.html, {
-        indexes: input.slideIndexes,
-        overlayHtml: buildShareOverlay(nick, avatar),
+      if (running) return { taskId: running.id };
+      const taskId = backgroundTasks.start({
+        kind: 'qzone-share',
+        name: input.year ? `${input.year} 年度报告` : '全部聊天报告',
+        scope,
+        statusLabel: '正在生成分享图片',
       });
-
-      // 2. 逐张上传到 Qzone 图床，收集 richval。单张失败明确指出是第几张。
-      const richvals: string[] = [];
-      for (let i = 0; i < pngs.length; i++) {
+      const archiveId = `background:host:${taskId}`;
+      const saveReceipt = () => {
+        const task = backgroundTasks.snapshot().find((row) => row.id === taskId);
+        if (!task) return;
+        const snapshot =
+          task.status === 'running'
+            ? {
+                ...task,
+                status: 'failed' as const,
+                statusLabel: '分享结果待核对',
+                needsConfirmation: true,
+                note: '应用在分享途中退出。请核对 QQ 空间中的发表结果。',
+                actions: [],
+              }
+            : { ...task, actions: [] };
+        store.update({ [archiveId]: { result: backgroundResult(snapshot), snapshot } });
+      };
+      const checkScope = () => {
+        if (requireServices(input) !== services) throw new Error('账号数据源已切换，已停止分享');
+      };
+      let publishing = false;
+      try {
+        saveReceipt();
+        // 分享者信息：昵称 + 头像字节（主进程直接读本地头像缓存，离线也能画）。
+        const profile = await services.profile.getSelfProfile();
+        const nick = profile?.nick ?? '';
+        let avatar: Buffer | undefined;
         try {
-          const upload = await services.webQuery.uploadQzoneImage(pngs[i]!.toString('base64'));
-          richvals.push(upload.richval);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          throw new Error(`第 ${i + 1} 张图片上传失败：${message}`);
+          const uin = profile?.uin != null ? String(profile.uin) : '';
+          const path = uin
+            ? ((await services.avatarResource.resolveByUin('user', uin, 'big')) ??
+              (await services.avatarResource.resolveByUin('user', uin, 'small')))
+            : null;
+          if (path) avatar = await readFile(path);
+        } catch {
+          avatar = undefined; // 头像缺席 → 卡片画首字兜底，不阻断分享。
         }
-      }
 
-      // 3. 发表说说（richvals 内部用 \t 拼接）。
-      const published = await services.webQuery.publishQzone(
-        input.content,
-        richvals,
-        input.ugcRight,
-      );
-      return { tid: published.tid, time: published.time, images: pngs.length };
+        // 1. 逐页截图（一页一图），叠上头像行与署名声。
+        const pngs = await getHost().renderHtmlToSlidesPng(input.html, {
+          indexes: input.slideIndexes,
+          overlayHtml: buildShareOverlay(nick, avatar),
+        });
+
+        // 2. 逐张上传到 Qzone 图床，收集 richval。单张失败明确指出是第几张。
+        checkScope();
+        const richvals: string[] = [];
+        for (let i = 0; i < pngs.length; i++) {
+          try {
+            checkScope();
+            backgroundTasks.update(taskId, {
+              statusLabel: `正在上传图片 ${i + 1} / ${pngs.length}`,
+            });
+            const upload = await services.webQuery.uploadQzoneImage(pngs[i]!.toString('base64'));
+            richvals.push(upload.richval);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`第 ${i + 1} 张图片上传失败：${message}`);
+          }
+        }
+
+        // 3. 发表说说（richvals 内部用 \t 拼接）。
+        checkScope();
+        backgroundTasks.update(taskId, { statusLabel: '正在发表说说' });
+        publishing = true;
+        const published = await services.webQuery.publishQzone(
+          input.content,
+          richvals,
+          input.ugcRight,
+        );
+        backgroundTasks.finish(taskId, 'completed', {
+          note: `说说已发表 · ${pngs.length} 张图`,
+          qzonePost: published.tid ? { uin: scope.uin, tid: published.tid } : undefined,
+        });
+      } catch (error) {
+        backgroundTasks.finish(taskId, 'failed', {
+          note: taskError(error),
+          needsConfirmation: publishing,
+          statusLabel: publishing ? '分享结果待核对' : '分享失败',
+        });
+      }
+      saveReceipt();
+      return { taskId };
     }),
 });

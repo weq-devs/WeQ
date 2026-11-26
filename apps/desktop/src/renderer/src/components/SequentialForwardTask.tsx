@@ -10,8 +10,12 @@ import {
   type ForwardOptions,
 } from '../lib/sequentialForward';
 import { useToast } from './Toast.shared';
-import { taskNotificationSource, notificationSource } from '../lib/notificationNavigation.shared';
-import { localBackgroundTasks, rememberWindowTask } from '../state/backgroundTasks';
+import { notificationSource } from '../lib/notificationNavigation.shared';
+import {
+  localBackgroundTasks,
+  rememberWindowTask,
+  recordForwardTask,
+} from '../state/backgroundTasks';
 import { singleChatFile } from '../lib/chatFileForward';
 import type { BackgroundTaskScope } from '../../../shared/background_task';
 
@@ -64,10 +68,12 @@ export function startSequentialForward({
       scope,
       display: { action: '逐条转发消息', subject: target.name },
     });
-    const taskSource = taskNotificationSource(taskId, 'background:window');
-    const conversationSource = notificationSource(
-      { kind: 'local', open: () => onOpenTarget(target) },
-      `打开对话：${target.name}`,
+    const taskSource = notificationSource(
+      { kind: 'task', id: `background:window:${taskId}` },
+      '查看任务',
+      scope.configId
+        ? { expectedAccountUin: scope.uin, expectedAccountConfigId: scope.configId }
+        : null,
     );
     const openAction = { id: 'open', label: '打开对话', run: () => onOpenTarget(target) };
     localBackgroundTasks.setActions(taskId, [
@@ -170,6 +176,7 @@ export function startSequentialForward({
       local.signal.aborted ? 'cancelled' : stopped || failed ? 'failed' : 'completed',
       {
         statusLabel: label,
+        forwardTargets: [target],
         details: [stopped, ...receiptDetails(), ...failures].filter((line): line is string =>
           Boolean(line),
         ),
@@ -177,18 +184,20 @@ export function startSequentialForward({
     );
     localBackgroundTasks.setActions(taskId, [openAction]);
     rememberWindowTask(taskId);
+    void recordForwardTask(taskId);
     const problem = failed > 0 || Boolean(stopped && !cancelled);
-    toast.push({
-      taskId: `background:window:${taskId}`,
-      event: problem ? 'taskFailure' : cancelled ? 'success' : 'taskComplete',
-      source: problem ? taskSource : conversationSource,
-      tone: stopped || failed ? 'warning' : 'success',
-      durationKind: problem ? 'failure' : 'success',
-      title: `${label}：${target.name}`,
-      summary: counts,
-      detail: [stopped, ...failures].filter(Boolean).join('\n') || undefined,
-      ...(problem ? { ttl: 0 } : {}),
-    });
+    if (problem || partial)
+      toast.push({
+        taskId: `background:window:${taskId}`,
+        event: 'taskFailure',
+        source: taskSource,
+        tone: stopped || failed ? 'warning' : 'success',
+        durationKind: problem ? 'failure' : 'success',
+        title: `${label}：${target.name}`,
+        summary: counts,
+        detail: [stopped, ...failures].filter(Boolean).join('\n') || undefined,
+        ...(problem ? { ttl: 0 } : {}),
+      });
   };
   const done = Promise.all(targets.map(run)).then(() => undefined);
   return { controller, done };
