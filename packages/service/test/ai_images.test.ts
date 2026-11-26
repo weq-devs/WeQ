@@ -316,7 +316,7 @@ it.each([
     name: '主动占位，模型的重发请求缺少依据',
     mode: 'placeholder',
     output: ['图没刷出来，重发下？'],
-    attachment: { kind: 'image', analysis: { result: 'not_analyzed' } },
+    attachment: { kind: 'image' },
     expected: [],
   },
   {
@@ -324,7 +324,7 @@ it.each([
     mode: 'ocr',
     ocr: { text: '', skipped: true },
     output: ['图我这边没加载出来', '这图自带防撤回吗，我这边一片空白😂', '图没刷出来，重发下？'],
-    attachment: { kind: 'image', analysis: { method: 'ocr', result: 'screened_no_text' } },
+    attachment: { kind: 'image' },
     expected: [],
   },
   {
@@ -333,7 +333,7 @@ it.each([
     ocr: { text: ' \n ' },
     text: '晚安哦',
     output: ['图片没加载出来，但晚安收到啦～', '好梦！明天再聊～'],
-    attachment: { kind: 'image', analysis: { method: 'ocr', result: 'no_text' } },
+    attachment: { kind: 'image' },
     expected: ['好梦！明天再聊～'],
   },
   {
@@ -341,7 +341,7 @@ it.each([
     mode: 'ocr',
     fail: true,
     output: ['这图加载不出来'],
-    attachment: { kind: 'image', analysis: { result: 'failed' } },
+    attachment: { kind: 'image' },
     expected: [],
   },
   {
@@ -349,7 +349,7 @@ it.each([
     mode: 'ocr',
     ocr: { text: 'C' },
     output: ['只识别出个 C，我这边图没加载全吗'],
-    attachment: { kind: 'image', analysis: { method: 'ocr', result: 'text', text: 'C' } },
+    attachment: { kind: 'image', ocr: 'C' },
     expected: [],
   },
   {
@@ -357,7 +357,7 @@ it.each([
     mode: 'placeholder',
     text: '你刚发的图打不开，能重发一下吗？',
     output: ['我重发一下'],
-    attachment: { kind: 'image', analysis: { result: 'not_analyzed' } },
+    attachment: { kind: 'image' },
     expected: ['我重发一下'],
   },
   {
@@ -430,10 +430,9 @@ it.each([
   );
   const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
   const userPrompt: string = request.messages[1].content;
-  expect(JSON.parse(userPrompt).messages[0]).toMatchObject({
-    text,
-    attachments: [fixture.attachment],
-  });
+  const [message] = JSON.parse(userPrompt).messages;
+  expect(message.text).toBe(text || undefined);
+  expect(message.attachments).toEqual([fixture.attachment]);
   expect(userPrompt).not.toMatch(/合成的本地解码错误|private-url|\[媒体消息\]/);
   const details = service.getSuggestionDetails('c2c', 'peer');
   if ('fail' in fixture)
