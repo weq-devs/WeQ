@@ -19,6 +19,7 @@ import {
   createPageSnapshotStorage,
   PAGE_SNAPSHOT_MAX_BYTES,
   PAGE_SNAPSHOT_MAX_ENTRIES,
+  pageSnapshots,
   pageValue,
 } from '../src/renderer/src/lib/pageSnapshots';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
@@ -162,6 +163,7 @@ it('磁盘快照支持 Set、空值和重建，按账号/数据源隔离且忽�
     act(() => write(new Set(['source-b'])));
     render('account-a:source-a', 'a');
     expect(host.textContent).toBe('one,two');
+    pageSnapshots.flush();
     expect(localStorage.length).toBe(3);
     expect(
       Array.from({ length: localStorage.length }, (_, i) =>
@@ -171,6 +173,30 @@ it('磁盘快照支持 Set、空值和重建，按账号/数据源隔离且忽�
   } finally {
     act(() => root.unmount());
   }
+});
+
+it('普通快照先供页面恢复，空闲合并写入，重置不会让待写快照复活', () => {
+  const storage = new Storage();
+  const snapshots = createPageSnapshotStorage(() => storage);
+  const writes = vi.spyOn(storage, 'setItem');
+  const scan = vi.spyOn(storage, 'key');
+  const key = JSON.stringify(['account', 'page']);
+  snapshots.write('existing', 'keep');
+  scan.mockClear();
+  writes.mockClear();
+  snapshots.scheduleWrite(key, 'old');
+  snapshots.scheduleWrite(key, 'latest');
+  expect(snapshots.read(key, pageValue.string)).toBe('latest');
+  expect(writes).not.toHaveBeenCalled();
+  snapshots.flush();
+  expect(writes).toHaveBeenCalledOnce();
+  expect(scan).not.toHaveBeenCalled();
+  expect(snapshots.read(key, pageValue.string)).toBe('latest');
+  snapshots.scheduleWrite(key, 'late');
+  snapshots.resetScope('account');
+  snapshots.flush();
+  expect(snapshots.read(key, pageValue.string)).toBeUndefined();
+  expect(snapshots.read('existing', pageValue.string)).toBe('keep');
 });
 
 it('坏快照和不匹配的类型不覆盖原件；写入容量有界且草稿不被页面缓存淘汰', () => {

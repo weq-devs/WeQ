@@ -306,6 +306,7 @@ export function ChatRecordsModal({
             keyword: filter.keyword ?? '',
             offset,
             limit: 30,
+            lookAhead: true,
             ...(globalRecordFilter
               ? {
                   recordFilter: globalRecordFilter,

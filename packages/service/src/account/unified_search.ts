@@ -874,7 +874,7 @@ export class UnifiedSearchService {
     }
   }
 
-  /** Messages of ONE conversation matching the keyword (chat-record modal). */
+  /** 会话内消息搜索。lookAhead 模式的 total 只用于判断后面是否还有结果。 */
   async conversationRecords(
     source: FtsSource,
     conv: string,
@@ -882,6 +882,7 @@ export class UnifiedSearchService {
     offset = 0,
     limit = 20,
     filter?: GlobalChatRecordFilter,
+    lookAhead = false,
   ): Promise<{ items: ConversationRecordHit[]; total: number; limited?: boolean }> {
     const needle = keyword.trim();
     if (!needle) return { items: [], total: 0 };
@@ -911,8 +912,8 @@ export class UnifiedSearchService {
     const db = source === 'group' ? this.session.groupMsgFts : this.session.buddyMsgFts;
     const index = source === 'group' ? this.groupIndex : this.buddyIndex;
     const r = index?.ready
-      ? await index.searchPartition(partition, needle, limit, offset, true)
-      : await db.searchInPartition(partition, needle, limit, offset);
+      ? await index.searchPartition(partition, needle, limit, offset, true, lookAhead)
+      : await db.searchInPartition(partition, needle, limit, offset, lookAhead);
     this.maybeRetire(source);
     // 把 FTS 命中回查原消息表（同一 40027 分区 + 40003 seq），能取到真实
     // 40800 正文就渲染原消息，取不到（已撤回/未同步/行被删）回退 FTS 纯文本。

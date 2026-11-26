@@ -1,4 +1,5 @@
 import { ArrowLeft, ChevronRight } from 'lucide-react';
+import '../styles/group-media.css';
 import '../styles/group-resource-navigation.css';
 
 /** 相册与文件共用窗口内目录导航，不调用主界面的页面返回栈。 */

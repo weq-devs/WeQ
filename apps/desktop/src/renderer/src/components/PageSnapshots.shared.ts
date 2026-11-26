@@ -160,12 +160,17 @@ export function usePageState<T>(
       if (Object.is(value, current.current)) return;
       current.current = value;
       if (key) {
-        try {
-          pageSnapshots.write(key, validator.current.parse(value), draft);
-          fallback?.delete(key);
-        } catch {
+        const failed = () => {
           fallback?.set(key, value);
           report();
+        };
+        try {
+          const parsed = validator.current.parse(value);
+          if (draft) pageSnapshots.write(key, parsed, true);
+          else pageSnapshots.scheduleWrite(key, parsed, failed);
+          fallback?.delete(key);
+        } catch {
+          failed();
         }
       }
       update({ key, value });

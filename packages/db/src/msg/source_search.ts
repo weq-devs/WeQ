@@ -437,8 +437,15 @@ export class SourceMsgSearchDb {
       })),
     };
   }
-  searchPartition(partition: bigint, keyword: string, limit = 20, offset = 0, bodyOnly = false) {
-    return this.page(keyword, limit, offset, partition, false, bodyOnly);
+  searchPartition(
+    partition: bigint,
+    keyword: string,
+    limit = 20,
+    offset = 0,
+    bodyOnly = false,
+    lookAhead = false,
+  ) {
+    return this.page(keyword, limit, offset, partition, false, bodyOnly, true, lookAhead);
   }
   searchFiles(keyword: string, limit = 20, offset = 0, lookAhead = false) {
     return this.page(keyword, limit, offset, undefined, true, false, true, lookAhead);

@@ -54,6 +54,26 @@ it('无预算接口也使用有界分页，旧 rowid 上的新消息不会被漏
   ).toEqual([2001n, 2000n]);
 });
 
+it.each(['buddy_msg_fts', 'group_msg_fts'] as const)(
+  '会话搜索预读一条即可续页，仍支持精确总数（%s）',
+  async (table) => {
+    const { dbPath, nt } = fixture(table);
+    const db =
+      table === 'buddy_msg_fts'
+        ? new BuddyMsgFtsDb(nt, { dbPath })
+        : new GroupMsgFtsDb(nt, { dbPath });
+    const query = vi.spyOn(nt, 'executeSql');
+    const exact = await db.searchInPartition(234n, '普通', 30);
+    query.mockClear();
+    const first = await db.searchInPartition(234n, '普通', 30, 0, true);
+    expect(first).toEqual({ items: exact.items, total: 31 });
+    expect(query).toHaveBeenCalledOnce();
+    const last = await db.searchInPartition(234n, '普通', 30, exact.total - 1, true);
+    expect(last.items).toHaveLength(1);
+    expect(last.total).toBe(exact.total);
+  },
+);
+
 it('长查询到预算后继续逐页读取，保留群分区和命中排序', async () => {
   const { dbPath, nt } = fixture('group_msg_fts');
   const sql = fixtureDb(dbPath);

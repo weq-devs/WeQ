@@ -105,6 +105,20 @@ describe('SourceMsgSearchDb', () => {
     expect(await f.search.searchFiles('数据库', 1)).toEqual(candidates);
     expect((await f.search.searchFiles('数据库', 1, 1)).total).toBe(2);
   });
+
+  it('索引就绪的会话搜索也能跳过总数查询，末页正确收尾', async () => {
+    const f = fixture();
+    await f.search.sync();
+    const query = vi.spyOn(f.nt, 'executeSql');
+    const first = await f.search.searchPartition(77n, '数据库', 1, 0, true, true);
+    expect(first.items.map((row) => row.msgId)).toEqual([7318775631454291969n]);
+    expect(first.total).toBe(2);
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0]?.[1]).not.toContain('COUNT(*)');
+    const last = await f.search.searchPartition(77n, '数据库', 1, 1, true, true);
+    expect(last.items.map((row) => row.msgId)).toEqual([18n]);
+    expect(last.total).toBe(2);
+  });
   it('keeps partition filtering correct after bigint parameters cross a JSON worker boundary', async () => {
     const f = fixture();
     const remote = new SourceMsgSearchDb({

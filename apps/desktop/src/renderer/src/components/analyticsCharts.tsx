@@ -13,6 +13,7 @@ import { Loader2, CalendarDays } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../im-template/template/classNames';
 import { formatNumber, ACCENT } from './analyticsCharts.shared';
+import '../styles/group-media.css';
 
 export interface DailyActivityItem {
   date: string;

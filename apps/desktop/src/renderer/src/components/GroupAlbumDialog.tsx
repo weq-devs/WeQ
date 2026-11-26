@@ -47,6 +47,7 @@ import { resourceForRenderDocument, useRenderDocument } from '../lib/renderDocum
 import { usePageDataCache } from './PageSnapshots.shared';
 import { PageDataCache } from '../lib/pageDataCache';
 import { GroupResourceNavigation } from './GroupResourceNavigation';
+import '../styles/group-media.css';
 import '../styles/group-album-browser.css';
 
 type AccountOutput = inferRouterOutputs<AppRouter>['account'];

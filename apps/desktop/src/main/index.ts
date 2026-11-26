@@ -1238,10 +1238,8 @@ async function startDesktop(): Promise<void> {
     );
   electronApp.setAppUserModelId('app.weq.desktop');
 
-  // win32: resolve QQ's tencent:// handler (timwp.exe) before building the
-  // platform, so install-path detection can anchor on it and skip the fragile
-  // registry lookup. linux QQ doesn't register the scheme — skip the probe.
-  if (process.platform !== 'linux') {
+  // 只有 Windows 的平台实现会读取这个结果，用于定位 QQ 的安装路径。
+  if (process.platform === 'win32') {
     await probeQqProtocolHandler();
   }
   if (isQuitting) return;

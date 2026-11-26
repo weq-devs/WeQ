@@ -17,6 +17,7 @@ import { readWithRetry } from '../lib/autoRead';
 import { MediaPreview, type PreviewMedia } from './MediaPreview';
 import { OverlayLayer } from './OverlayLayer';
 import { QzoneEmoji } from './QzoneEmoji';
+import '../styles/group-media.css';
 import '../styles/group-album-browser.css';
 import '../styles/group-album-feed.css';
 

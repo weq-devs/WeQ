@@ -6,9 +6,11 @@ import { maintainDatabases } from '../src/maintenance';
 import {
   aliasDatabaseBinding,
   databasePerformance,
+  DEFAULT_DATABASE_READ_CONCURRENCY,
   scheduleDatabase,
   waitForDatabaseQuiet,
   withDatabasePriority,
+  withDatabaseWorkload,
   promoteDatabaseSignal,
   measureMessageWork,
   observeSlowDatabaseOperations,
@@ -157,6 +159,56 @@ const until = async (condition: () => boolean) => {
   for (let i = 0; i < 100 && !condition(); i++) await new Promise((done) => setTimeout(done, 1));
   expect(condition()).toBe(true);
 };
+
+it('不同库的导出和搜索共用批量额度，聊天读取仍可派发，结束后补跑排队批次', async () => {
+  const start = vi.fn();
+  let release!: () => void;
+  const inFlight = new Promise<void>((done) => {
+    release = done;
+  });
+  const background = Array.from({ length: DEFAULT_DATABASE_READ_CONCURRENCY }, (_, index) =>
+    withDatabaseWorkload('bulk', () =>
+      scheduleDatabase(
+        `/synthetic/mixed-load-${index}.db`,
+        async () => {
+          start(index);
+          await inFlight;
+        },
+        undefined,
+        undefined,
+        { read: true },
+      ),
+    ),
+  );
+  const controller = new AbortController();
+  const page = vi.fn(async () => '聊天首屏');
+  const prefetched = withDatabasePriority(
+    'background',
+    () =>
+      scheduleDatabase('/synthetic/mixed-load-page.db', page, undefined, undefined, { read: true }),
+    controller.signal,
+  );
+  try {
+    await expect(
+      scheduleDatabase(
+        '/synthetic/mixed-load-chat.db',
+        async () => '聊天首屏',
+        undefined,
+        undefined,
+        { read: true },
+      ),
+    ).resolves.toBe('聊天首屏');
+    expect(start).toHaveBeenCalledTimes(DEFAULT_DATABASE_READ_CONCURRENCY - 1);
+    expect(page).not.toHaveBeenCalled();
+    promoteDatabaseSignal(controller.signal);
+    expect(page).toHaveBeenCalledOnce();
+    await expect(prefetched).resolves.toBe('聊天首屏');
+  } finally {
+    release();
+    await Promise.all([...background, prefetched]);
+  }
+  expect(start).toHaveBeenCalledTimes(DEFAULT_DATABASE_READ_CONCURRENCY);
+});
 
 it('首屏阶段计时保留结果与错误，失败和取消同样记录，不泄露消息或会话', async () => {
   const path = '/synthetic/page-measurement.db';

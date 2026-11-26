@@ -201,27 +201,30 @@ export class BuddyMsgFtsDb {
     keyword: string,
     limit = 20,
     offset = 0,
+    lookAhead = false,
   ): Promise<{ items: BuddyMsgFtsHit[]; total: number }> {
     const needle = keyword.trim();
     if (!needle) return { items: [], total: 0 };
     const like = ftsLikePattern(needle);
     const [countRows, rows] = await Promise.all([
-      this.qq.query(
-        `SELECT COUNT(*) FROM buddy_msg_fts
+      lookAhead
+        ? undefined
+        : this.qq.query(
+            `SELECT COUNT(*) FROM buddy_msg_fts
           WHERE "40027" = ? AND "41701" LIKE ? ESCAPE '\\'`,
-        [partition, like],
-      ),
+            [partition, like],
+          ),
       this.qq.query(
         `SELECT ${SELECT_COLUMNS} FROM buddy_msg_fts
           WHERE "40027" = ? AND "41701" LIKE ? ESCAPE '\\'
           ORDER BY "40050" DESC
           LIMIT ? OFFSET ?`,
-        [partition, like, BigInt(limit), BigInt(offset)],
+        [partition, like, BigInt(lookAhead ? limit + 1 : limit), BigInt(offset)],
       ),
     ]);
     return {
-      items: rows.map(rowToHit),
-      total: Number(countRows[0]?.[0] ?? 0),
+      items: (lookAhead ? rows.slice(0, limit) : rows).map(rowToHit),
+      total: lookAhead ? offset + rows.length : Number(countRows?.[0]?.[0] ?? 0),
     };
   }
 

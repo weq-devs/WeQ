@@ -30,6 +30,7 @@ import {
   FolderOpen,
 } from 'lucide-react';
 import type { ExportSavePolicy } from '@weq/service';
+import '../../styles/group-media.css';
 import '../../styles/resource-export.css';
 import { OverlayLayer } from '../../components/OverlayLayer';
 import { client } from '../../trpc/client';

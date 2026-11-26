@@ -5665,26 +5665,27 @@ export const accountRouter = router({
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
         recordFilter: globalRecordFilterInput,
-        ...exportAccountBindingInput.shape,
+        ...sidebarSearchBinding.shape,
       }),
     )
-    .query(async ({ input }) => {
-      const { unifiedSearch } = requireExpectedAccount(
-        input.expectedAccountUin,
-        input.expectedAccountConfigId,
-      );
-      return withDatabaseWorkload('bulk', () =>
-        unifiedSearch.moreSearch(
-          input.category,
-          input.keyword,
-          input.offset,
-          input.limit,
-          input.conversationScope,
-          input.sources,
-          input.recordFilter,
-        ),
-      );
-    }),
+    .query(({ input }) =>
+      readSidebarSearch(
+        input,
+        (search) =>
+          withDatabaseWorkload('bulk', () =>
+            search.moreSearch(
+              input.category,
+              input.keyword,
+              input.offset,
+              input.limit,
+              input.conversationScope,
+              input.sources,
+              input.recordFilter,
+            ),
+          ),
+        'interactive',
+      ),
+    ),
 
   /** Messages of one conversation matching a keyword (chat-record modal). */
   searchConversationRecords: procedure
@@ -5696,6 +5697,7 @@ export const accountRouter = router({
         offset: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(100).default(20),
         recordFilter: globalRecordFilterInput,
+        lookAhead: z.boolean().default(false),
         ...exportAccountBindingInput.shape,
       }),
     )
@@ -5711,6 +5713,7 @@ export const accountRouter = router({
         input.offset,
         input.limit,
         input.recordFilter,
+        input.lookAhead,
       );
     }),
   /** Get merged-forward / quote-reply cache for one message. */
