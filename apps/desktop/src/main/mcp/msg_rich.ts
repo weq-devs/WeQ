@@ -10,6 +10,7 @@
  * stored voice transcripts and on-disk media resolution.
  */
 
+import { POKE_DETAILED_ID, parsePokeParties } from '@weq/codec';
 import { elementToText, elementsToText, type RenderElement } from '@weq/service';
 import type { FileType } from '@weq/service';
 
@@ -46,6 +47,14 @@ function snippet(s: string, max = 4000): string {
   return `${s.slice(0, max)}…（已截断，原文 ${s.length} 字）`;
 }
 
+function isPokeElement(
+  el: RenderElement,
+): el is Extract<RenderElement, { type: 'grayTipPoke' | 'grayTipXml' }> {
+  return (
+    el.type === 'grayTipPoke' || (el.type === 'grayTipXml' && el.data.detailId === POKE_DETAILED_ID)
+  );
+}
+
 /** One element → a human-readable line. Voice transcripts and reply quotes are
  *  included here even though the plain exporters collapse them. */
 export function elementToAiText(el: RenderElement): string {
@@ -57,6 +66,15 @@ export function elementToAiText(el: RenderElement): string {
   if (el.type === 'reply') {
     const quote = elementsToText(el.data.origElements ?? []).trim();
     return quote ? `[回复: ${quote}]` : '[回复]';
+  }
+  if (isPokeElement(el)) {
+    const parties = parsePokeParties(el.data);
+    const initiator = parties.initiatorName || parties.initiatorUin || parties.initiatorUid;
+    const target = parties.targetName || parties.targetUin || parties.targetUid;
+    if (initiator && target) return `[戳一戳: ${initiator} 戳了 ${target}]`;
+    if (initiator) return `[戳一戳: ${initiator} 发起]`;
+    if (target) return `[戳一戳: 目标 ${target}]`;
+    return '[戳一戳]';
   }
   return elementToText(el);
 }
@@ -132,6 +150,11 @@ export function elementAiPayload(el: RenderElement): Record<string, unknown> {
       break;
     case 'grayTipPoke':
     case 'grayTipXml':
+      if (isPokeElement(el)) {
+        for (const [key, value] of Object.entries(parsePokeParties(el.data))) {
+          if (value) out[key] = value;
+        }
+      }
       if (str(d.grayTipXmlContent)) out.xml = snippet(str(d.grayTipXmlContent), 2000);
       if (str(d.tipJson)) out.tipJson = snippet(str(d.tipJson), 2000);
       break;

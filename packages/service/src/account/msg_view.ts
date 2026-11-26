@@ -346,10 +346,16 @@ export interface RenderGrayTipGroupElement {
 
 export interface RenderGrayTipXmlElement {
   type: 'grayTipXml';
-  data: BaseRenderData & {
-    grayTipXmlContent?: string;
-    tipJson?: string;
-  };
+  data: BaseRenderData &
+    Pick<
+      GrayTipXmlElement,
+      | 'detailId'
+      | 'grayTipXmlContent'
+      | 'tipJson'
+      | 'actionInitiator'
+      | 'actionTarget'
+      | 'actionAttributes'
+    >;
 }
 
 export interface RenderArkElement {
@@ -996,8 +1002,12 @@ function mapGrayTipXml(el: GrayTipXmlElement): RenderGrayTipXmlElement {
   return {
     type: 'grayTipXml',
     data: {
+      detailId: el.detailId,
       grayTipXmlContent: el.grayTipXmlContent,
       tipJson: el.tipJson,
+      actionInitiator: el.actionInitiator,
+      actionTarget: el.actionTarget,
+      actionAttributes: el.actionAttributes,
       elementId: el.elementId,
       isSender: el.isSender,
       subType: el.subType,

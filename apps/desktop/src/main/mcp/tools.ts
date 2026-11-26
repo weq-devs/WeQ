@@ -2875,7 +2875,7 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '取回【某一条消息】的完整结构化详情：逐条 element 的可读文案（回复引用、markdown 正文、' +
       '灰条/卡片等不再只是占位）、可选 payload 字段，以及本地媒体信息（图片/语音/视频/文件是否已在磁盘、' +
-      '语音转写文本等）。' +
+      '语音转写文本等）。戳一戳 payload 包含已确认的发起者和目标身份。' +
       '\n【怎么定位消息】msgId 来自 get_messages / get_messages_by_date 的 includeIds=true 输出，' +
       '或 list_recalled_messages / list_deleted_messages 返回的 msgId；也可以像 get_forward_messages 一样先 execute_sql 查 40001。' +
       '\n【回复引用】includePayload=true 时，若在同一会话定位到唯一原消息，elements[].payload.original 返回 msgId、msgSeq、sendTime（Unix 秒）。' +

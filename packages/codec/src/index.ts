@@ -9,6 +9,13 @@ export * from './element';
 
 // Layer 3 — Domain Message (SqlRow + Element[] → Message)
 export * from './domain';
+export {
+  POKE_DETAILED_ID,
+  parsePokeDirection,
+  parsePokeParties,
+  type PokeParties,
+  type PokePartiesInput,
+} from './domain/msg/poke_event';
 
 // Wire schemas are intentionally NOT re-exported wholesale here — import them
 // directly from `@weq/codec/proto/<area>/<table>` so the import path stays
