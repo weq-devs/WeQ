@@ -16,6 +16,7 @@ const fixture = vi.hoisted(() => ({
     quit: vi.fn(),
   },
   fork: vi.fn(),
+  sharedRoot: '',
 }));
 vi.mock('electron', () => ({ app: fixture.app, dialog: { showErrorBox: vi.fn() } }));
 // @weq/native 现在还会 import execFile，保留真实实现只替换真正用到的 fork。
@@ -26,6 +27,12 @@ vi.mock('node:child_process', async (original) => ({
 }));
 vi.mock('../src/main/worker_path', () => ({
   resolveChildWorkerPath: () => '/synthetic/storageCleanupWorker.mjs',
+}));
+// 锁文件在 weqAppDataRoot() 下：不替换会写进开发者真实的 ~/.config/weq，
+// 残留的假锁会挡住之后每一次启动。指向本用例的临时目录，随用例一并删除。
+vi.mock('@weq/platform', async (original) => ({
+  ...(await original<typeof import('@weq/platform')>()),
+  weqAppDataRoot: () => fixture.sharedRoot,
 }));
 
 let root: string | undefined;
@@ -40,6 +47,7 @@ it('退出后清除等待可提交的 will-quit，不在后台清理暂缓期间
   vi.useFakeTimers();
   root = await mkdtemp(join(tmpdir(), 'weq-cleanup-quit-'));
   fixture.app.getPath.mockReturnValue(root);
+  fixture.sharedRoot = root;
   const app = new EventEmitter();
   fixture.app.on.mockImplementation(app.on.bind(app));
   fixture.app.removeListener.mockImplementation(app.removeListener.bind(app));
