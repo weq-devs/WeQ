@@ -248,6 +248,6 @@ export const MESSAGE_FEATURES = [
   ),
   messageFeature('media.save', '保存消息媒体', '按所选端的保存方式另存媒体或文件。', {
     navigation: 'context',
-    tools: ['download_chat_video'],
+    tools: ['download_chat_video', 'download_chat_file', 'download_chat_voice'],
   }),
 ] as const;

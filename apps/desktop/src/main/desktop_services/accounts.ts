@@ -13,6 +13,7 @@ import { runDesktopMcpTool } from '../mcp/server';
 import { MCP_MAIL_ATTACHMENT_ROUTE } from '../mcp/mail_tools';
 import { handleMcpMailDownload } from '../mcp/mail_download';
 import { MCP_CHAT_VIDEO_ROUTE, handleMcpChatVideoDownload } from '../mcp/chat_video_download';
+import { MCP_FILE_ROUTE, handleMcpFileDownload } from '../mcp/chat_file_download';
 import { runtimeMaintenance } from '../runtime_maintenance';
 import { currentAccountRuntime } from '../context/account_runtime';
 import {
@@ -180,6 +181,11 @@ export async function registerAccountWorker(options: {
             await runtimeMaintenance.operation(
               () => handleMcpChatVideoDownload(req, res),
               'MCP 聊天视频',
+            );
+          } else if (req.url?.startsWith(MCP_FILE_ROUTE)) {
+            await runtimeMaintenance.operation(
+              () => handleMcpFileDownload(req, res),
+              'MCP 文件下载',
             );
           } else sendJson(res, 404, { error: '接口不存在。' });
         };

@@ -15,6 +15,7 @@ import { z } from 'zod/v3';
 import { externalMcpTools, isCompactMcpTool, type McpServerOptions } from '../mcp/server';
 import { MCP_MAIL_ATTACHMENT_ROUTE } from '../mcp/mail_tools';
 import { MCP_CHAT_VIDEO_ROUTE } from '../mcp/chat_video_download';
+import { MCP_FILE_ROUTE } from '../mcp/chat_file_download';
 import { PRIVATE_ACCOUNT_HEADER, type DesktopAccountRoutes, type RoutedAccount } from './accounts';
 import { PRIVATE_TOKEN_HEADER, readControlJson, sendJson, stopPrivate } from './control';
 
@@ -254,7 +255,8 @@ export class DesktopMcpGateway {
       const workerPath = value.downloadPath;
       if (
         workerPath.startsWith(MCP_MAIL_ATTACHMENT_ROUTE) ||
-        workerPath.startsWith(MCP_CHAT_VIDEO_ROUTE)
+        workerPath.startsWith(MCP_CHAT_VIDEO_ROUTE) ||
+        workerPath.startsWith(MCP_FILE_ROUTE)
       ) {
         if (this.tickets.size >= MAX_TICKETS)
           this.tickets.delete(this.tickets.keys().next().value!);

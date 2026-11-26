@@ -72,8 +72,11 @@ async function fixture(
       const chunks: Buffer[] = [];
       req.on('data', (chunk: Buffer) => chunks.push(chunk));
       req.on('end', () => {
-        toolCalls.push(JSON.parse(Buffer.concat(chunks).toString()));
-        sendJson(res, 200, { value: { uin, downloadPath: '/chat/videos/fixture' } });
+        const call = JSON.parse(Buffer.concat(chunks).toString());
+        toolCalls.push(call);
+        const downloadPath =
+          call.name === 'download_group_file' ? '/files/fixture' : '/chat/videos/fixture';
+        sendJson(res, 200, { value: { uin, downloadPath } });
       });
       return;
     }
@@ -321,11 +324,15 @@ it('MCP 会话独立切号，旧下载票据随原会话切号失效', async () 
     expect(old.uin).toBe('101');
     expect((await call(b, 'get_self_profile')).uin).toBe('202');
     expect((await fetch(base + old.downloadPath, { headers })).status).toBe(200);
+    const file = await call(a, 'download_group_file', { groupCode: '12345', fileId: 'fixture' });
+    expect(file.downloadPath).toMatch(/^\/downloads\//);
+    expect((await fetch(base + file.downloadPath, { headers })).status).toBe(200);
     worker.stale.add('101');
     expect((await a.callTool({ name: 'get_self_profile' })).isError).toBe(true);
     expect((await call(b, 'get_self_profile')).uin).toBe('202');
     await call(a, 'switch_account', { configId: '202' });
     expect((await fetch(base + old.downloadPath, { headers })).status).toBe(404);
+    expect((await fetch(base + file.downloadPath, { headers })).status).toBe(404);
     expect((await call(b, 'get_self_profile')).uin).toBe('202');
   } finally {
     await Promise.all([a.close(), b.close()]);

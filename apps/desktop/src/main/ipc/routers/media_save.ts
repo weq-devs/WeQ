@@ -210,6 +210,15 @@ async function planSource(
   if (source.kind === 'url') {
     return planUrlMedia(source.url, source.name, check);
   }
+  return planFileMedia(services, source, check);
+}
+
+export async function planFileMedia(
+  services: AccountServices,
+  source: Exclude<MediaSaveSource, { kind: 'url' }>,
+  check: () => void,
+  select?: () => ReturnType<typeof findMediaElement>,
+): Promise<PlannedMedia> {
   if (source.kind === 'group-file')
     return {
       fileName: source.fileName,
@@ -227,16 +236,21 @@ async function planSource(
         return openUrl(url, signal, check);
       },
     };
-  const selected = await findMediaElement(
-    source.msgId,
-    'file',
-    source.token ?? '',
-    source.fwdMsgId,
-    source.fwdKind,
-    source.fwdResId,
-  );
+  const lookup =
+    select ??
+    (() =>
+      findMediaElement(
+        source.msgId,
+        'file',
+        source.token ?? '',
+        source.fwdMsgId,
+        source.fwdKind,
+        source.fwdResId,
+      ));
+  const selected = await lookup();
   check();
-  const local = await resolveRecordedChatFile(services, source, selected);
+  const localOptions = { exact: select !== undefined };
+  const local = await resolveRecordedChatFile(services, source, selected, localOptions);
   check();
   if (
     (selected && source.token && selected.element.fileToken !== source.token) ||
@@ -255,14 +269,7 @@ async function planSource(
     open: async (signal: AbortSignal) => {
       check();
       signal.throwIfAborted();
-      const found = await findMediaElement(
-        source.msgId,
-        'file',
-        source.token ?? '',
-        source.fwdMsgId,
-        source.fwdKind,
-        source.fwdResId,
-      );
+      const found = await lookup();
       check();
       signal.throwIfAborted();
       if (found && source.token && found.element.fileToken !== source.token)
@@ -275,7 +282,7 @@ async function planSource(
         found.element.fileName !== source.name
       )
         throw new Error('未找到所选文件');
-      const cached = await resolveRecordedChatFile(services, source, found);
+      const cached = await resolveRecordedChatFile(services, source, found, localOptions);
       check();
       if (cached) return fileResponse(cached.path);
       if (!found) throw new Error('未找到所选文件');

@@ -45,13 +45,15 @@ export async function resolveRecordedChatFile(
   services: AccountServices,
   source: Extract<MediaSaveSource, { kind: 'chat-file' }>,
   selected?: Awaited<ReturnType<typeof findMediaElement>>,
+  options: { exact?: boolean } = {},
 ) {
   if (!source.fwdKind && !source.fwdMsgId && !source.fwdResId && /^\d+$/.test(source.msgId)) {
     const sent = await services.fileResource.resolveSentFile(source.token ?? '', source.name ?? '');
     if (sent) return { path: sent, name: source.name };
-    const info = await services.fileAssistant
-      .getFileInfoByMsgId(BigInt(source.msgId))
-      .catch(() => null);
+    // File Assistant may fall back to a neighboring row, not the selected element.
+    const info = options.exact
+      ? null
+      : await services.fileAssistant.getFileInfoByMsgId(BigInt(source.msgId)).catch(() => null);
     if (info && (!source.name || info.fileName === source.name)) {
       const path = info.localPath.replace(/^::NTOSFull::/, '');
       if (isAbsolute(path) && (await firstFile([path]))) return { path, name: info.fileName };

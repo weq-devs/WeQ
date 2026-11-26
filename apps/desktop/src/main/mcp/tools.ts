@@ -26,6 +26,12 @@ import { assertAccountToolScope, toolExecutionOptions } from './account_scope';
 import { mailAttachmentForTool, mailDetailForTool, mailSummaryForTool } from './mail_tools';
 import { chatVideoForTool } from './chat_video_download';
 import {
+  chatFileForTool,
+  chatVoiceForTool,
+  groupFileForTool,
+  readMcpMessage,
+} from './chat_file_download';
+import {
   listFeaturesInput,
   getFeatureInput,
   listFeatureDefinitions,
@@ -167,6 +173,15 @@ const groupResourceCode = z
   .string()
   .trim()
   .regex(/^[1-9]\d{0,9}$/);
+
+const chatMediaTarget = z.object({
+  kind: z.enum(['c2c', 'group']).describe('私聊或群聊'),
+  conv: z.string().min(1).max(128).describe('私聊对方 uid 或群号'),
+  msgId: z
+    .string()
+    .regex(/^[1-9]\d{0,19}$/)
+    .describe('所在消息的数字 msgId'),
+});
 
 // ── 在线能力（凭据 / OIDB 协议 / Web CGI）公共小工具 ─────────────────────────
 
@@ -2765,12 +2780,13 @@ export const AI_TOOLS: AiTool[] = [
     description:
       '展开一条「合并转发 / 聊天记录」消息的内容。先拿承载消息的 msgId——get_messages 开 includeIds 会返回，' +
       '或 execute_sql 在对应会话表查 40001——再传 kind（c2c=私聊/group=群聊）+ msgId 到这里。' +
-      '本工具只读本机 40900 缓存，绝不联网拉取；本地没有缓存时返回 found=false（并提示没有走网络回退）。' +
+      '优先读本地缓存；同时传入 conv（私聊 uid 或群号）时，缓存没有内容可从该会话的原消息在线补拉，需要 QQ 在线。' +
       '返回 messages：time、sender、mine、text，嵌套的转发会按 depth 展开（受 maxDepth 限制），并附 hasMore/truncated。' +
       '媒体只保留占位（[图片]/[语音]/[文件]），不返回媒体本体。',
     input: z.object({
       kind: z.enum(['c2c', 'group']).describe('承载消息所在会话类型'),
       msgId: z.string().min(1).describe('承载「合并转发」的那条消息 msgId（数据库 40001）'),
+      conv: chatMediaTarget.shape.conv.optional(),
       maxDepth: z
         .number()
         .int()
@@ -2780,23 +2796,19 @@ export const AI_TOOLS: AiTool[] = [
         .describe('嵌套转发最多展开层数（0=只展开一层）'),
       limit: z.number().int().min(1).max(300).default(100).describe('返回子消息条数上限'),
     }),
-    run: async ({ kind, msgId, maxDepth, limit }) => {
-      const svc = services();
+    run: async ({ kind, conv, msgId, maxDepth, limit }) => {
+      const { account: svc, check } = accountReadScope();
       const id = safeBigint(msgId);
       if (id === null) throw new Error(`msgId 无效：${msgId}（应为数字字符串）`);
+      const carrier = conv ? await readMcpMessage(svc, { kind, conv, msgId }) : null;
+      check();
+      if (conv && !carrier)
+        return { found: false, kind, conv, msgId, hint: '指定会话中没有这条消息。' };
       const records =
         kind === 'group'
           ? await svc.forwardMsgs.getGroupForward(id)
           : await svc.forwardMsgs.getC2cForward(id);
-      if (records.length === 0) {
-        return {
-          found: false,
-          kind,
-          msgId,
-          hint: '本地 40900 缓存里没有这条合并转发的内容（可能消息已清理/从未缓存）。本工具不联网补拉；如需在线拉取请在应用内使用。',
-        };
-      }
-
+      check();
       interface ForwardNode {
         msgId?: string | number | bigint;
         sendNick?: unknown;
@@ -2807,7 +2819,34 @@ export const AI_TOOLS: AiTool[] = [
         elements?: readonly unknown[];
         subMsgs?: ForwardNode[];
       }
-      const roots = records.map((r) => forwardRecordToWire(r) as ForwardNode);
+      let roots = records.map((r) => forwardRecordToWire(r) as ForwardNode);
+      const source = roots.length ? 'local' : 'online';
+      if (source === 'online') {
+        const resIds = new Set(
+          carrier?.elements.flatMap((element) =>
+            element.type === 'multiMsg' && element.data.resId ? [element.data.resId] : [],
+          ),
+        );
+        const resId = resIds.size === 1 ? resIds.values().next().value : undefined;
+        if (resId) {
+          const online = accountReadScope(true);
+          roots = await svc.forwardMsgs.fetchForExport(resId);
+          online.check();
+        }
+        if (roots.length === 0) {
+          return {
+            found: false,
+            kind,
+            msgId,
+            hint: !conv
+              ? '没有本地缓存；传入承载消息所在的 conv 可尝试在线补拉。'
+              : resId
+                ? 'QQ 没有返回该转发的内容。'
+                : '没有找到唯一可在线补拉的合并转发资源。',
+          };
+        }
+      }
+      const self = source === 'online' ? String(currentMessageSelfUin()) : '';
       const items: Array<{
         depth: number;
         time: string;
@@ -2828,7 +2867,7 @@ export const AI_TOOLS: AiTool[] = [
           depth,
           time: node.sendTime !== undefined ? fmtTime(Number(node.sendTime)) : '',
           sender,
-          mine: node.isSender === true,
+          mine: node.isSender ?? Boolean(self && self === uin),
           text: flattenElements(node.elements ?? []),
         });
         for (const sub of node.subMsgs ?? []) walk(sub, depth + 1);
@@ -2838,6 +2877,7 @@ export const AI_TOOLS: AiTool[] = [
         found: true,
         kind,
         msgId,
+        source,
         count: items.length,
         truncated,
         hasMore: truncated,
@@ -3014,6 +3054,49 @@ export const AI_TOOLS: AiTool[] = [
   }),
 
   tool({
+    name: 'download_group_file',
+    structuredResult: true,
+    description:
+      '下载群文件目录中的单个文件。groupCode、folderId 和 fileId 来自 list_group_files；需 QQ 在线。' +
+      '对返回的短时下载路径用同一 MCP 地址和 Bearer 令牌发起 GET，上限 64 MiB。',
+    input: z.object({
+      groupCode: groupResourceCode,
+      folderId: z.string().min(1).max(4096).default('/'),
+      fileId: z.string().min(1).max(2048),
+    }),
+    run: async (target) => {
+      const { account, check } = accountReadScope(true);
+      return groupFileForTool(account, check, target);
+    },
+  }),
+
+  tool({
+    name: 'download_chat_file',
+    structuredResult: true,
+    description:
+      '下载私聊或群聊消息里的普通文件附件。按 msgId 和从 0 开始的文件序号定位；先查本地，缺失时使用 QQ 在线下载。' +
+      '对返回的短时下载路径用同一 MCP 地址和 Bearer 令牌发起 GET，上限 64 MiB。',
+    input: chatMediaTarget.extend({ fileIndex: z.number().int().nonnegative().default(0) }),
+    run: async (target) => {
+      const { account, check } = accountReadScope();
+      return chatFileForTool(account, check, target);
+    },
+  }),
+
+  tool({
+    name: 'download_chat_voice',
+    structuredResult: true,
+    description:
+      '下载私聊或群聊消息里的语音为 WAV。按 msgId 和从 0 开始的语音序号定位，使用已有语音播放链路。' +
+      '对返回的短时下载路径用同一 MCP 地址和 Bearer 令牌发起 GET，上限 64 MiB。',
+    input: chatMediaTarget.extend({ voiceIndex: z.number().int().nonnegative().default(0) }),
+    run: async (target) => {
+      const { account, check } = accountReadScope();
+      return chatVoiceForTool(account, check, target);
+    },
+  }),
+
+  tool({
     name: 'transcribe_voice_message',
     description:
       '把某条消息里的本地语音（ptt）交给 WeQ 已下载的语音转写模型即时转成文字。' +
@@ -3034,12 +3117,11 @@ export const AI_TOOLS: AiTool[] = [
     }),
     run: async ({ kind, conv, msgId, fileName }) => {
       const ctx = toolContext();
+      const { account, check } = accountReadScope();
       const id = safeBigint(msgId);
       if (id === null) throw new Error(`msgId 无效：${msgId}（应为数字字符串）`);
-      const row =
-        kind === 'group'
-          ? await services().msgs.getGroupMessageById(conv, id)
-          : await services().msgs.getC2cMessageById(conv, id);
+      const row = await readMcpMessage(account, { kind, conv, msgId });
+      check();
       if (!row) {
         return {
           found: false,
@@ -3074,16 +3156,17 @@ export const AI_TOOLS: AiTool[] = [
           durationSec: Number(ptt.data.pttDuration ?? 0) || undefined,
         };
         const hit = name
-          ? await services().fileSearch.findFile(Number(row.sendTime), name, 'ptt')
+          ? await account.fileSearch.findFile(Number(row.sendTime), name, 'ptt')
           : { source: null, thumb: null };
+        check();
         if (!hit.source) {
           entry.ok = false;
           entry.error = '本机没有该语音的缓存文件（可能是旧消息被清理，或从未下载到本地）。';
           results.push(entry);
           continue;
         }
-        entry.localPath = hit.source;
         const res = await ctx.transcribeSilk(hit.source);
+        check();
         if (res.ok && res.text) {
           entry.ok = true;
           entry.transcript = res.text;

@@ -105,6 +105,7 @@ export class GroupFileService {
     groupId: number,
     fileId: string,
     directory?: string,
+    check?: () => void,
   ): Promise<GroupFileItem | undefined> {
     const pending = [directory ?? '/'];
     const seen = new Set(pending);
@@ -115,8 +116,10 @@ export class GroupFileService {
       const parent = pending.shift()!;
       for (let page = 0; ; page++) {
         if (page >= MAX_PAGES) throw new Error('群文件分页超过上限，未找到目标文件');
+        check?.();
         if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新操作');
         const listing = await this.listPage(groupId, parent, page * PAGE_SIZE, PAGE_SIZE);
+        check?.();
         if (this.resolvePid() !== pid) throw new Error('QQ 运行时已改变，请重新操作');
         const file = listing.files.find((row) => row.fileId === fileId);
         if (file) return file;
@@ -131,6 +134,10 @@ export class GroupFileService {
       }
     }
     return undefined;
+  }
+
+  findFileInDirectory(groupId: number, directory: string, fileId: string, check: () => void) {
+    return this.permissionFile(groupId, fileId, directory, check);
   }
 
   async listPage(groupId: number, targetDirectory: string, startIndex: number, pageSize: number) {
