@@ -76,6 +76,30 @@
   z-index: 110;
   -webkit-app-region: no-drag;
 }
+.weq-titlebar-search-results[data-weq-surface] {
+  animation: weq-search-panel-in var(--weq-motion-enter) var(--weq-motion-ease) both;
+}
+.weq-titlebar-search-results[data-closing] {
+  animation: weq-search-panel-out var(--weq-motion-exit) ease-in both;
+  pointer-events: none;
+}
+@keyframes weq-search-panel-in {
+  from {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+}
+@keyframes weq-search-panel-out {
+  to {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .weq-titlebar-search-results[data-weq-surface] {
+    animation: none;
+  }
+}
 
 .weq-titlebar-search-results > * {
   position: relative;

@@ -1,6 +1,7 @@
 import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatRecordsModal } from '../src/renderer/src/components/search/ChatRecordsModal';
 import {
   cloneChatUser,
@@ -9,6 +10,7 @@ import {
 } from '../src/renderer/src/views/agentlab/cloneChatAdapter';
 import { changeInput } from './support/form-controls';
 import { usePreviews } from '../src/renderer/src/components/mediaPreviewStore.shared';
+import { useGroupMemberRosterOrder } from '../src/renderer/src/lib/groupMemberRosterOrder';
 
 const nativeReads = vi.hoisted(() => vi.fn());
 vi.mock('../src/renderer/src/trpc/client', async () => {
@@ -397,8 +399,9 @@ it('跳到原消息后重新打开搜索，恢复筛选、已加载页及滚动�
   }
 });
 
-it('图片/视频按统一类型查询，可预览并用右键定位原消息；文件仍按消息显示', async () => {
+it('图片、视频封面及表情自动加载，可预览和定位原消息', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('IntersectionObserver', undefined);
   const root = createRoot(document.createElement('div'));
   const { props } = nativeRecords('');
   const jump = vi.fn();
@@ -416,7 +419,9 @@ it('图片/视频按统一类型查询，可预览并用右键定位原消息；
             { type: 'pic', data: { fileName: 'fixture-image.jpg', fileToken: 'image-token' } },
             { type: 'video', data: { fileName: 'preview.webm', fileToken: 'video-token' } },
           ]
-        : [{ type: 'file', data: { fileName: 'fixture-file.txt', fileToken: 'file-token' } }],
+        : recordType === 'emoji'
+          ? [{ type: 'mface', data: { emojiPackId: 123, marketEmoticonIdHex: 'abc' } }]
+          : [{ type: 'file', data: { fileName: 'fixture-file.txt', fileToken: 'file-token' } }],
   });
   const browse = vi.fn((input: { filter: { recordType: string } }) => ({
     items: [item(input.filter.recordType)],
@@ -442,60 +447,114 @@ it('图片/视频按统一类型查询，可预览并用右键定位原消息；
       'preview.webm',
     ]);
     await act(async () => previews[0]!.click());
-    expect(
-      usePreviews
-        .getState()
-        .sessions.get(document)
-        ?.items.map(({ kind }) => kind),
-    ).toEqual(['image', 'video']);
+    const items = usePreviews.getState().sessions.get(document)?.items;
+    expect(items?.map(({ kind }) => kind)).toEqual(['image', 'video']);
+    const imageQuery = new URLSearchParams(items?.[0]?.src.split('?')[1]);
+    expect(imageQuery.get('v')).toBe('thumb');
+    expect(imageQuery.get('intent')).toBe('interactive');
+    expect(imageQuery.has('preview')).toBe(false);
+    const videoQuery = new URLSearchParams(items?.[1]?.poster?.split('?')[1]);
+    expect(videoQuery.get('intent')).toBe('interactive');
     expect(jump).not.toHaveBeenCalled();
     await jumpFromRecord(previews[1]!);
     expect(jump).toHaveBeenCalledWith(expect.objectContaining({ msgId: '4', msgSeq: '4' }));
 
+    await act(async () => tab('表情').click());
+    const emoji = document.querySelector<HTMLImageElement>('.weq-record-media-grid img');
+    const emojiQuery = new URLSearchParams(emoji?.src.split('?')[1]);
+    expect(emojiQuery.get('intent')).toBe('interactive');
+
     await act(async () => tab('文件').click());
     expect(document.querySelector('.weq-record-media-grid')).toBeNull();
     expect(document.querySelector('.weq-chatrecords-msg')).not.toBeNull();
-    expect(browse.mock.calls.map(([input]) => input.filter.recordType)).toEqual(['media', 'file']);
+    expect(browse.mock.calls.map(([input]) => input.filter.recordType)).toEqual([
+      'media',
+      'emoji',
+      'file',
+    ]);
   } finally {
     act(() => root.unmount());
   }
 });
 
-it('发送者可选群昵称、备注或号码，使用身份筛选并保留账号绑定', async () => {
+it('群发送者打开即使用当前排序读取完整名单，按昵称筛选并按身份查消息', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-  vi.useFakeTimers();
-  const root = createRoot(document.createElement('div'));
+  const query = new QueryClient();
   const { props } = nativeRecords('');
   const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source' };
   nativeReads.mockImplementation((path: string) =>
-    path === 'account.searchGroupMembers'
-      ? { members: [{ uid: 'u_peer', uin: '20001', nick: '昵称样本', card: '群名片' }], total: 1 }
+    path === 'account.groupMemberRoster'
+      ? {
+          members: [
+            {
+              member: { uid: 'u_other', uin: '20002', nick: '其他成员', card: '' },
+              displayName: '其他成员',
+            },
+            {
+              member: { uid: 'u_peer', uin: '20001', nick: '昵称样本', card: '群名片' },
+              displayName: '群名片',
+              remark: '联系人备注',
+            },
+          ],
+          total: 2,
+        }
       : { items: [], cursor: null, hasMore: false },
   );
-  try {
-    await act(async () => root.render(h(ChatRecordsModal, { ...props, accountBinding: binding })));
-    await act(async () =>
-      document.querySelector<HTMLButtonElement>('button[aria-label="全部发送者"]')!.click(),
+  function Fixture() {
+    const { changeOrder } = useGroupMemberRosterOrder('10001:source', '12345');
+    return h(
+      'div',
+      null,
+      h('button', {
+        id: 'sort-fixture',
+        onClick: () => changeOrder({ sort: 'uin', descending: true, prioritizeAdmins: false }),
+      }),
+      h(ChatRecordsModal, { ...props, accountBinding: binding }),
     );
-    const input = document.querySelector<HTMLInputElement>('[aria-label="查找发送者"]')!;
-    await act(async () => changeInput(input, '昵称样本'));
-    await act(async () => vi.advanceTimersByTime(180));
+  }
+  const host = document.createElement('div');
+  document.body.append(host);
+  const mountedRoot = createRoot(host);
+  const options = () => [
+    ...document.querySelectorAll<HTMLElement>('.weq-record-sender-options [role="checkbox"]'),
+  ];
+  try {
+    await act(async () =>
+      mountedRoot.render(h(QueryClientProvider, { client: query }, h(Fixture))),
+    );
+    act(() => host.querySelector<HTMLButtonElement>('#sort-fixture')!.click());
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label="全部发送者"]')!;
+    await act(async () => {
+      trigger.focus();
+      trigger.click();
+    });
     expect(nativeReads).toHaveBeenCalledWith(
-      'account.searchGroupMembers',
-      expect.objectContaining({
+      'account.groupMemberRoster',
+      {
         ...binding,
         groupCode: '12345',
-        keyword: '昵称样本',
-      }),
+        limit: 'all',
+        sort: 'uin',
+        descending: true,
+        prioritizeAdmins: false,
+      },
       expect.anything(),
     );
-    const option = [...document.querySelectorAll<HTMLElement>('[role="checkbox"]')].find(
-      (element) => element.textContent?.includes('群名片'),
-    )!;
+    await act(async () => {
+      await vi.waitFor(() => expect(query.isFetching()).toBe(0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(options().map((option) => option.textContent)).toEqual(['其他成员', '群名片']);
+    const input = document.querySelector<HTMLInputElement>('[aria-label="查找发送者"]')!;
+    expect(document.activeElement).toBe(input);
+    await act(async () => changeInput(input, '联系人备注'));
+    expect(options().map((option) => option.textContent)).toEqual(['群名片']);
+    await act(async () => changeInput(input, '昵称样本'));
+    expect(options().map((option) => option.textContent)).toEqual(['群名片']);
     expect(nativeReads.mock.calls.some(([path]) => path === 'account.browseConversation')).toBe(
       false,
     );
-    await act(async () => option.click());
+    await act(async () => options()[0]!.click());
     expect(nativeReads).toHaveBeenCalledWith(
       'account.browseConversation',
       expect.objectContaining({
@@ -504,7 +563,15 @@ it('发送者可选群昵称、备注或号码，使用身份筛选并保留账�
       }),
       expect.anything(),
     );
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+    });
+    expect(document.activeElement).toBe(trigger);
   } finally {
-    act(() => root.unmount());
+    act(() => mountedRoot.unmount());
+    query.clear();
+    host.remove();
   }
 });

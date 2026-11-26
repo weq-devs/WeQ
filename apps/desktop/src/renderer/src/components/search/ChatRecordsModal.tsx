@@ -225,10 +225,18 @@ export function ChatRecordsModal({
   const senderOptions = useMemo(() => {
     if (!senderOpen) return [];
     const options = new Map<string, RecordSender>();
+    if (localSource?.conversation.type === 'group') {
+      for (const member of localSource.conversation.members)
+        options.set(member.id, {
+          id: member.id,
+          label: displayUserName(member),
+          avatar: member.avatarUrl,
+        });
+    }
     for (const message of localSource ? localRows : messages) {
       const uin = message.senderUin && message.senderUin !== '0' ? message.senderUin : '';
       const id = (localSource ? message.senderUid : uin) || message.senderUid;
-      if (id)
+      if (id && !options.has(id))
         options.set(id, {
           id,
           label: message.senderName || id,
@@ -690,7 +698,7 @@ export function ChatRecordsModal({
                 setDayNotice('');
               }}
               placeholder="搜索本会话"
-              autoFocus
+              data-weq-autofocus
             />
             {keyword ? (
               <button
@@ -792,6 +800,7 @@ export function ChatRecordsModal({
                       : undefined
                   }
                   paged={!localSource}
+                  browseThumbnails={Boolean(mediaType)}
                   messages={galleryMessages}
                 >
                   <ReplyJumpContext.Provider value={jumpToReply}>

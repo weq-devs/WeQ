@@ -161,7 +161,7 @@ export async function listOrderedGroupMembers(
     sort: GroupMemberSort;
     descending: boolean;
     prioritizeAdmins: boolean;
-    limit: number;
+    limit: number | 'all';
     offset: number;
   },
 ) {
@@ -225,12 +225,16 @@ export async function listOrderedGroupMembers(
       a.member.uid.localeCompare(b.member.uid),
   );
   return {
-    members: ordered.slice(offset, offset + limit).map(({ member, name, birth, value }) => ({
-      member: groupMemberToWire(member),
-      displayName: name,
-      isBot: profiles.get(member.uid)?.isBot || undefined,
-      sortDetail: orderDetail(sort, value, birth),
-    })),
+    members: ordered
+      .slice(offset, limit === 'all' ? undefined : offset + limit)
+      .map(({ member, name, birth, value }) => ({
+        member: groupMemberToWire(member),
+        displayName: name,
+        remark: profiles.get(member.uid)?.remark,
+        nick: member.nick.trim() || profiles.get(member.uid)?.nick,
+        isBot: profiles.get(member.uid)?.isBot || undefined,
+        sortDetail: orderDetail(sort, value, birth),
+      })),
     ownerUid: detail?.ownerUid,
     total: ordered.length,
     preparing: times?.done === false,

@@ -85,6 +85,20 @@ describe('群成员列表排序', () => {
       offset: 2,
     });
     expect(second.members.map(({ member }) => member.uid)).toEqual(['u_2', 'u_3']);
+    const full = await listOrderedGroupMembers(services, {
+      ...input,
+      sort: 'memberLevel',
+      descending: true,
+      prioritizeAdmins: true,
+      limit: 'all',
+    });
+    expect(full.members.map(({ member }) => member.uid)).toEqual([
+      'u_1',
+      'u_4',
+      'u_2',
+      'u_3',
+      'u_5',
+    ]);
 
     const matches = await listOrderedGroupMembers(services, {
       ...input,

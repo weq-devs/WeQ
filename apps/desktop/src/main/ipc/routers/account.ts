@@ -5159,7 +5159,7 @@ export const accountRouter = router({
           .default('displayName'),
         descending: z.boolean().optional(),
         prioritizeAdmins: z.boolean().default(GROUP_MEMBER_PRIORITIZE_ADMINS_DEFAULT),
-        limit: z.number().int().min(1).max(200).default(100),
+        limit: z.union([z.number().int().min(1).max(200), z.literal('all')]).default(100),
         offset: z.number().int().min(0).default(0),
       }),
     )

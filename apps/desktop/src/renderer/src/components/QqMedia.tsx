@@ -45,6 +45,7 @@ import {
   chatFileSaveSource,
   chatImagePreviewSources,
   type ChatVideoAttachment,
+  MediaBrowseContext,
   MediaItemKeyContext,
   useChatMediaOpen,
 } from './ChatMediaGallery.shared';
@@ -223,6 +224,8 @@ export function QqImage({
   const limited = useDataSaver((state) => state.enabled);
   const behavior = useDataSaver((state) => state.behavior);
   const [requested, setRequested] = useState(false);
+  const browse = useContext(MediaBrowseContext);
+  const loadMedia = requested || browse;
   const galleryOpen = useChatMediaOpen();
   const previewKey = useContext(MediaItemKeyContext);
   const webScope = useContext(WebAvatarScope);
@@ -256,8 +259,8 @@ export function QqImage({
   const originalProxySrc = mediaUrl('pic', { ...params, intent: 'interactive' });
   const proxySrc = mediaUrl('pic', {
     ...params,
-    ...(requested ? { intent: 'interactive' } : {}),
-    ...(wantThumbnail || (isAnimatedEmoji && limited && !behavior.dataSaverEmoji)
+    ...(loadMedia ? { intent: 'interactive' } : {}),
+    ...(wantThumbnail || (isAnimatedEmoji && limited && !behavior.dataSaverEmoji && !browse)
       ? { v: 'thumb' }
       : {}),
   });
@@ -295,11 +298,11 @@ export function QqImage({
       : remoteChatThumbnailUrl(cdn, str(data, 'thumbnailUrl'), token, conv !== '');
   const candidates: string[] = [];
   if (localPreviewUrl) candidates.push(localPreviewUrl);
-  if (localPath && (!limited || !IS_WEB || requested)) candidates.push(localFileUrl(localPath));
+  if (localPath && (!limited || !IS_WEB || loadMedia)) candidates.push(localFileUrl(localPath));
   if (cdnSrc) candidates.push(cdnSrc);
   if (!candidates.includes(proxySrc)) candidates.push(proxySrc);
-  if ((!limited || requested) && !isAnimatedEmoji)
-    candidates.push(requested ? originalProxySrc : mediaUrl('pic', params));
+  if ((!limited || loadMedia) && !isAnimatedEmoji)
+    candidates.push(loadMedia ? originalProxySrc : mediaUrl('pic', params));
   const [srcIndex, setSrcIndex] = useState(0);
   const source = candidates[Math.min(srcIndex, candidates.length - 1)] ?? proxySrc;
   const usingLocalPreview = source === localPreviewUrl;
@@ -378,7 +381,7 @@ export function QqImage({
   const ImageControl = openable ? 'button' : 'span';
   const previewSrc = broken || source === proxySrc ? originalProxySrc : source;
   const kindLabel = isAnimatedEmoji ? '表情' : '图片';
-  const retryLabel = limited && !requested ? `加载${kindLabel}` : `重试加载${kindLabel}`;
+  const retryLabel = limited && !loadMedia ? `加载${kindLabel}` : `重试加载${kindLabel}`;
   return (
     <span className="qq-media-image-preview-wrap">
       {/* 缩略图换源或失败时保留同一个点击目标，避免按下后按钮被卸载。 */}
@@ -512,6 +515,7 @@ export function QqVideo({
   attachment?: ChatVideoAttachment;
 }) {
   useDataSaver((state) => state.behavior.dataSaverVideoCovers);
+  const browse = useContext(MediaBrowseContext);
   const galleryOpen = useChatMediaOpen();
   const previewKey = useContext(MediaItemKeyContext);
   const [posterBroken, setPosterBroken] = useState(false);
@@ -542,7 +546,13 @@ export function QqVideo({
   const cdn = useCdn();
   const [coverCdnFailed, setCoverCdnFailed] = useState(false);
   const coverCdn = cdn.remote ? null : cdnVideoCoverUrl(cdn, conv !== '', coverToken);
-  const proxyCover = mediaUrl('video', { t: sendTimeMs, name, v: 'thumb', token: coverToken });
+  const proxyCover = mediaUrl('video', {
+    t: sendTimeMs,
+    name,
+    v: 'thumb',
+    token: coverToken,
+    ...(browse ? { intent: 'interactive' } : {}),
+  });
   // 合并转发编辑器里拼的视频带 `localPath` / `thumbLocalPath`（本机绝对路径）——
   // 还没上传、不在 Video 缓存里，按发送时间 / 文件名去找会 404，直接从本机文件流
   // （主进程只放行 nt_data 内 + 用户亲手选中的路径）。乐观渲染的视频带
@@ -1396,14 +1406,16 @@ export function QqMarketFace({ data, interactive = true }: { data: Data; interac
   const limited = useDataSaver((state) => state.enabled);
   const behavior = useDataSaver((state) => state.behavior);
   const [requested, setRequested] = useState(false);
+  const browse = useContext(MediaBrowseContext);
+  const loadMedia = requested || browse;
   const [broken, setBroken] = useState(false);
   const pack = num(data, 'emojiPackId');
   const hash = str(data, 'marketEmoticonIdHex');
-  const src = mediaUrl('mface', { pack, hash, ...(requested ? { intent: 'interactive' } : {}) });
+  const src = mediaUrl('mface', { pack, hash, ...(loadMedia ? { intent: 'interactive' } : {}) });
   useEffect(() => setBroken(false), [src]);
   const style = messageMediaSize('mface', data);
 
-  if (broken && limited && !behavior.dataSaverEmoji && !requested && pack && hash) {
+  if (broken && limited && !behavior.dataSaverEmoji && !loadMedia && pack && hash) {
     return (
       <button
         type="button"

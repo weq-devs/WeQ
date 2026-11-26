@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { Search, UsersRound, X } from 'lucide-react';
 import { Modal } from '../Dialog';
 import { QqAvatar } from '../QqAvatar';
@@ -6,6 +8,9 @@ import { client } from '../../trpc/client';
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
 import { c2cAvatarSrc } from './SearchResultCard.shared';
 import { CheckPill } from '../settings/controls';
+import { useGroupMemberRosterOrder } from '../../lib/groupMemberRosterOrder';
+import { PROFILE_QUERY_OPTIONS } from '../../lib/profileQuery';
+import { LoadingIndicator } from '../LoadingIndicator';
 
 export type RecordSender = { id: string; label: string; avatar?: string | null };
 
@@ -35,70 +40,61 @@ export function RecordSenderPicker({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState('');
-  const [remote, setRemote] = useState<{ query: string; items: RecordSender[]; error?: string }>();
   const needle = query.trim().toLocaleLowerCase();
-  const expectedAccountUin = binding?.expectedAccountUin;
-  const expectedAccountConfigId = binding?.expectedAccountConfigId;
-  useEffect(() => {
-    if (!groupCode || !needle) return;
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      void client.account.searchGroupMembers
-        .query(
-          {
-            groupCode,
-            keyword: needle,
-            limit: 50,
-            expectedAccountUin,
-            expectedAccountConfigId,
-          },
-          { signal: controller.signal },
-        )
-        .then(({ members }) => {
-          if (controller.signal.aborted) return;
-          setRemote({
-            query: needle,
-            items: members.flatMap((member) => {
-              const uin = member.uin && member.uin !== '0' ? member.uin : '';
-              const id = uin || member.uid;
-              return id
-                ? [
-                    {
-                      id,
-                      label: member.card || member.nick || id,
-                      avatar: uin ? c2cAvatarSrc(uin) : null,
-                    },
-                  ]
-                : [];
-            }),
-          });
-        })
-        .catch((failure) => {
-          if (!controller.signal.aborted)
-            setRemote({ query: needle, items: [], error: String(failure) });
+  const key = `${binding?.expectedAccountUin}:${binding?.expectedAccountConfigId ?? ''}`;
+  const { order } = useGroupMemberRosterOrder(key, groupCode ?? '');
+  const canReadRoster = Boolean(groupCode && binding);
+  const roster = useQuery({
+    ...PROFILE_QUERY_OPTIONS,
+    queryKey: ['group-member-roster', key, groupCode, 'all', order],
+    enabled: canReadRoster,
+    queryFn: ({ signal }) =>
+      client.account.groupMemberRoster.query(
+        { ...binding!, groupCode: groupCode!, ...order, limit: 'all' },
+        { signal },
+      ),
+    refetchInterval: (data) => (data?.preparing ? 500 : false),
+  });
+  const matches = useMemo(() => {
+    const matches = new Map<string, RecordSender>();
+    const pinyin = createPinyinMatcher(needle);
+    for (const { member, displayName, remark, nick } of roster.data?.members ?? []) {
+      if (
+        !needle ||
+        [displayName, remark, nick ?? member.nick, member.uin, member.uid].some((value) =>
+          value?.toLocaleLowerCase().includes(needle),
+        ) ||
+        pinyin?.test(displayName, remark, nick ?? member.nick)
+      )
+        matches.set(member.uin, {
+          id: member.uin,
+          label: displayName,
+          avatar: c2cAvatarSrc(member.uin),
         });
-    }, 170);
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [groupCode, needle, expectedAccountUin, expectedAccountConfigId]);
-
-  const matches = new Map<string, RecordSender>();
-  for (const option of [...selected, ...options]) {
-    if (!needle || `${option.label} ${option.id}`.toLocaleLowerCase().includes(needle))
-      matches.set(option.id, option);
-  }
-  if (remote?.query === needle)
-    for (const option of remote.items) if (!matches.has(option.id)) matches.set(option.id, option);
-  if (groupCode && /^(?:[1-9]\d*|u_[\w-]+)$/.test(needle) && !matches.has(needle))
-    matches.set(needle, {
-      id: needle,
-      label: needle,
-      avatar: /^\d+$/.test(needle) ? c2cAvatarSrc(needle) : null,
-    });
+    }
+    // 查找时仍可用已知的历史发送者或直接输入其号码。
+    if (!groupCode || needle) {
+      for (const option of [...options, ...selected]) {
+        if (
+          !matches.has(option.id) &&
+          (!needle ||
+            `${option.label} ${option.id}`.toLocaleLowerCase().includes(needle) ||
+            pinyin?.test(option.label))
+        )
+          matches.set(option.id, option);
+      }
+    }
+    if (groupCode && /^(?:[1-9]\d*|u_[\w-]+)$/.test(needle) && !matches.has(needle))
+      matches.set(needle, {
+        id: needle,
+        label: needle,
+        avatar: /^\d+$/.test(needle) ? c2cAvatarSrc(needle) : null,
+      });
+    return [...matches.values()];
+  }, [groupCode, needle, options, roster.data, selected]);
   const activeIds = new Set(selected.map(({ id }) => id));
-  const searchError = remote?.query === needle ? remote.error : undefined;
+  const loadingRoster = canReadRoster && roster.isInitialLoading;
+  const rosterError = roster.error instanceof Error ? roster.error.message : '';
   return (
     <Modal
       presentation="popover"
@@ -123,7 +119,7 @@ export function RecordSenderPicker({
             placeholder="昵称、备注或 QQ 号"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            autoFocus
+            data-weq-autofocus
           />
           {query ? (
             <button
@@ -143,7 +139,7 @@ export function RecordSenderPicker({
           <span>全部发送者</span>
         </CheckPill>
         <div className="weq-record-sender-options">
-          {[...matches.values()].map((sender) => (
+          {matches.map((sender) => (
             <CheckPill
               key={sender.id}
               checked={activeIds.has(sender.id)}
@@ -159,15 +155,26 @@ export function RecordSenderPicker({
               </span>
             </CheckPill>
           ))}
-          {needle && !matches.size && !searchError ? (
+          {loadingRoster ? (
             <p className="weq-record-sender-feedback" role="status">
-              {groupCode && remote?.query !== needle ? '正在查找…' : '未找到发送者'}
+              <LoadingIndicator>正在读取群成员…</LoadingIndicator>
+            </p>
+          ) : !matches.length && !rosterError && (needle || roster.isSuccess) ? (
+            <p className="weq-record-sender-feedback" role="status">
+              {needle ? '未找到发送者' : '暂无本地群成员记录'}
             </p>
           ) : null}
         </div>
-        {searchError ? (
+        {rosterError ? (
           <p className="weq-record-sender-feedback" role="alert">
-            {searchError}
+            {rosterError}{' '}
+            <button type="button" className="weq-set-btn" onClick={() => void roster.refetch()}>
+              重试
+            </button>
+          </p>
+        ) : groupCode && !canReadRoster ? (
+          <p className="weq-record-sender-feedback" role="status">
+            暂时无法读取群成员
           </p>
         ) : null}
       </div>

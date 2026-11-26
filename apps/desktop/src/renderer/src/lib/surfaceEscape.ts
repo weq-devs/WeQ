@@ -102,12 +102,13 @@ export function useSurfaceEscapeDismissal(
   ref: RefObject<HTMLElement | null>,
   onClose: () => void,
   active: boolean,
+  restoreFocus = true,
 ) {
   useSurfaceConfirm(ref, active);
   useMobileBack(active, onClose, 100, () => ref.current);
   useLayoutEffect(() => {
     const element = ref.current;
-    if (!active || !element) return;
+    if (!active || !element || !restoreFocus) return;
     const document = element.ownerDocument;
     const previous = document.activeElement;
     return () => {
@@ -119,7 +120,7 @@ export function useSurfaceEscapeDismissal(
       )
         (previous as HTMLElement).focus({ preventScroll: true });
     };
-  }, [ref, active]);
+  }, [ref, active, restoreFocus]);
   useEffect(() => {
     const element = ref.current;
     if (!active || !element) return;
@@ -181,6 +182,7 @@ export function useSurfaceEscape(
     if (!focusedAbove && !element.contains(previous) && !previous?.closest('[role="tablist"]')) {
       const focusable =
         element.querySelector<HTMLElement>(`${CONFIRM_BUTTON}:not(:disabled)`) ??
+        element.querySelector<HTMLElement>('[data-weq-autofocus]:not(:disabled)') ??
         element.querySelector<HTMLElement>(
           'input:not([disabled]), button:not([disabled]), [tabindex="0"]',
         );

@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useEffectEvent,
   useLayoutEffect,
@@ -8,7 +9,10 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { hasActiveModal, useOverlayLayer } from '../lib/overlayStack';
+import { hasActiveModal, OverlayLayerContext, useOverlayLayerScope } from '../lib/overlayStack';
+import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
+import { useSurfaceOutside } from '../lib/surfaceOutside';
+import { useExitMotion } from '../hooks/useExitMotion';
 import { IS_WEB } from '../lib/target.shared';
 import { RESTORE_SEARCH_EVENT } from './search/searchPosition.shared';
 import { Search, X } from 'lucide-react';
@@ -17,12 +21,14 @@ export function TitleBarSearch({
   query,
   onQueryChange,
   onSearchFocus,
+  onSearchDismiss,
   results,
   persistent = false,
 }: {
   query: string;
   onQueryChange: (query: string) => void;
   onSearchFocus?: () => void;
+  onSearchDismiss?: () => void;
   results?: ReactNode;
   persistent?: boolean;
 }) {
@@ -35,10 +41,15 @@ export function TitleBarSearch({
   const panel = useRef<HTMLDivElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const forceInputFocus = useRef(false);
-  const hadResults = useRef(false);
+  const lastResults = useRef<ReactNode>(null);
   const expanded = pinned || (!persistent && hovered && !suppressHover);
-  const hasPanel = Boolean(results) || pinned;
-  const layer = useOverlayLayer(expanded && hasPanel);
+  const panelOpen = expanded && Boolean(results);
+  const showPanel = useExitMotion(panel, panelOpen);
+  const { layer, scope } = useOverlayLayerScope(showPanel);
+  useLayoutEffect(() => {
+    if (panelOpen) lastResults.current = results;
+    else if (!showPanel) lastResults.current = null;
+  }, [panelOpen, results, showPanel]);
 
   useEffect(() => {
     if (pinned && (forceInputFocus.current || !panel.current?.contains(document.activeElement)))
@@ -46,13 +57,40 @@ export function TitleBarSearch({
     forceInputFocus.current = false;
   }, [pinned]);
 
+  const collapse = useCallback(() => {
+    setPinned(false);
+    setHovered(false);
+    setSuppressHover(true);
+    input.current?.blur();
+  }, []);
+  const dismiss = useCallback(() => {
+    collapse();
+    returnFocus.current = null;
+    onSearchDismiss?.();
+  }, [collapse, onSearchDismiss]);
+  const handleBack = useCallback(() => {
+    const back = panel.current?.querySelector<HTMLButtonElement>('[data-search-back]');
+    if (back) {
+      back.click();
+      return;
+    }
+    const previous = returnFocus.current;
+    dismiss();
+    if (previous?.isConnected && previous !== document.body)
+      previous.focus({ preventScroll: true });
+    else root.current?.querySelector('button')?.focus({ preventScroll: true });
+  }, [dismiss]);
+  useSurfaceEscapeDismissal(panel, handleBack, panelOpen, false);
+  useSurfaceOutside(panel, dismiss, panelOpen, { anchor: root.current, consume: false });
+
+  const hadResults = useRef(false);
   useEffect(() => {
     if (hadResults.current && !results) {
-      setPinned(false);
-      setSuppressHover(true);
+      collapse();
+      returnFocus.current = null;
     }
     hadResults.current = Boolean(results);
-  }, [results]);
+  }, [collapse, results]);
 
   const openKeyboardSearch = useEffectEvent((focusInput: boolean) => {
     if (!root.current?.getClientRects().length || !root.current.offsetWidth) return false;
@@ -98,7 +136,7 @@ export function TitleBarSearch({
   }, []);
 
   useLayoutEffect(() => {
-    if (!expanded) return;
+    if (!panelOpen) return;
     const update = () => {
       const rect = root.current?.getBoundingClientRect();
       if (!rect) return;
@@ -126,25 +164,16 @@ export function TitleBarSearch({
       window.visualViewport?.removeEventListener('resize', update);
       window.visualViewport?.removeEventListener('scroll', update);
     };
-  }, [expanded]);
+  }, [panelOpen]);
 
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded || panelOpen) return;
     const outside = (event: PointerEvent) => {
-      if (
-        !(event.target instanceof Node) ||
-        root.current?.contains(event.target) ||
-        panel.current?.contains(event.target)
-      )
-        return;
-      setPinned(false);
-      setHovered(false);
-      setSuppressHover(true);
-      input.current?.blur();
+      if (event.target instanceof Node && !root.current?.contains(event.target)) dismiss();
     };
     document.addEventListener('pointerdown', outside);
     return () => document.removeEventListener('pointerdown', outside);
-  }, [expanded]);
+  }, [dismiss, expanded, panelOpen]);
 
   return (
     <div
@@ -167,25 +196,20 @@ export function TitleBarSearch({
           event.nativeEvent.keyCode === 229
         )
           return;
-        if (event.key === 'Escape' && expanded) {
+        const target = event.target;
+        if (
+          !(target instanceof HTMLElement) ||
+          (!root.current?.contains(target) && !panel.current?.contains(target))
+        )
+          return;
+        if (event.key === 'Escape' && expanded && !panelOpen) {
           event.preventDefault();
           event.stopPropagation();
-          const back = panel.current?.querySelector<HTMLButtonElement>('[data-search-back]');
-          if (back) {
-            back.click();
-            return;
-          }
-          setPinned(false);
-          setSuppressHover(true);
-          input.current?.blur();
-          const previous = returnFocus.current;
-          returnFocus.current = null;
-          if (previous?.isConnected && previous !== document.body)
-            previous.focus({ preventScroll: true });
-          else root.current?.querySelector('button')?.focus();
+          handleBack();
           return;
         }
         if (
+          !panelOpen ||
           !['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key) ||
           event.ctrlKey ||
           event.metaKey ||
@@ -193,11 +217,9 @@ export function TitleBarSearch({
           event.shiftKey
         )
           return;
-        const target = event.target;
         if (
-          !(target instanceof HTMLElement) ||
-          (target !== input.current &&
-            !target.matches('[data-search-row-input], button[data-search-hit-key]'))
+          target !== input.current &&
+          !target.matches('[data-search-row-input], button[data-search-hit-key]')
         )
           return;
         if (event.key === 'Enter' && target instanceof HTMLButtonElement) return;
@@ -232,9 +254,7 @@ export function TitleBarSearch({
         aria-pressed={pinned}
         onClick={() => {
           if (pinned) {
-            setPinned(false);
-            setSuppressHover(true);
-            input.current?.blur();
+            dismiss();
           } else {
             forceInputFocus.current = true;
             setPinned(true);
@@ -266,17 +286,21 @@ export function TitleBarSearch({
           aria-label="清空搜索"
           onClick={() => {
             onQueryChange('');
-            if (expanded && hasPanel) input.current?.focus();
+            if (panelOpen) input.current?.focus();
           }}
         >
           <X size={20} aria-hidden />
         </button>
       ) : null}
-      {expanded && hasPanel && typeof document !== 'undefined'
+      {showPanel && typeof document !== 'undefined'
         ? createPortal(
             <div
               ref={panel}
               className="weq-titlebar-search-results"
+              data-weq-surface
+              data-weq-escape-surface
+              data-closing={!panelOpen || undefined}
+              inert={!panelOpen}
               style={{ ...position, zIndex: layer }}
               onPointerEnter={(event) => {
                 if (event.pointerType === 'mouse') setHovered(true);
@@ -287,16 +311,17 @@ export function TitleBarSearch({
               onClick={(event) => {
                 if (
                   !(event.target instanceof Element) ||
-                  !event.target.closest('[role="option"]') ||
+                  !event.currentTarget.contains(event.target) ||
+                  !event.target.closest('button[role="option"][data-search-hit-key]') ||
                   event.target.closest('[data-search-keep-open="true"]')
                 )
                   return;
-                setPinned(false);
-                setHovered(false);
-                setSuppressHover(true);
+                dismiss();
               }}
             >
-              {results}
+              <OverlayLayerContext.Provider value={scope}>
+                {panelOpen ? results : lastResults.current}
+              </OverlayLayerContext.Provider>
             </div>,
             document.body,
           )

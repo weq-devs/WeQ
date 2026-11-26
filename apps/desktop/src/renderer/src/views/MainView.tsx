@@ -457,7 +457,6 @@ import { isGeneratedSearchHit, isContentSearchHit } from '../components/search/t
 import { useGlobalSearch } from '../hooks/useGlobalSearch';
 import { useSearchPreferences } from '../hooks/useSearchPreferences';
 import { useSearchReturn } from '../hooks/useSearchReturn';
-import { useSearchDismissal } from '../hooks/useSearchDismissal';
 import type { AnalysisReportRequest, AnalysisToolRequest } from './analysis/model';
 import { restoredAnalysisRequest } from './analysis/model';
 import { useMessageNotifications } from '../hooks/useMessageNotifications';
@@ -2888,6 +2887,10 @@ function MainWorkspace(): ReactElement {
   const [searchDismissed, setSearchDismissed] = useState(false);
   // 搜索框点开但尚未输入时，仅显示范围选择。
   const [searchFocused, setSearchFocused] = useState(false);
+  const dismissGlobalSearch = useCallback(() => {
+    setSearchDismissed(true);
+    setSearchFocused(false);
+  }, []);
   // Set when a search hit was clicked: the listLatest effect, after the target
   // conversation's newest page lands, rebuilds the window centred on this seq
   // instead of leaving the view pinned to the latest.
@@ -7611,8 +7614,6 @@ function MainWorkspace(): ReactElement {
     setMissingJumpSeq(null);
   }, [loaded, messageScope, messagesTabActive, scrollToMsgId, selectionRef, setMissingJumpSeq]);
 
-  useSearchDismissal(searchQuery, searchFocused, setSearchDismissed, setSearchFocused);
-
   function updateConversationPreference(
     conversationId: string,
     key: keyof ConversationPreference,
@@ -11217,6 +11218,7 @@ function MainWorkspace(): ReactElement {
               setSearchFocused(true);
               setSearchDismissed(false);
             }}
+            onSearchDismiss={dismissGlobalSearch}
             // 搜索框下方的浮层：范围先于输入显示，结果由关键词控制。
             // 它挂在搜索框上（不是可滚动列表里），所以会话列表怎么滚都看得见。
             searchPanel={

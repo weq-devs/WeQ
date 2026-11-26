@@ -26,6 +26,7 @@ export const GalleryItemsContext = createContext<readonly PreviewMedia[]>([]);
 export const MediaItemKeyContext = createContext('');
 export const MediaItemIndexContext = createContext(0);
 export const MediaMessageKeyContext = createContext('');
+export const MediaBrowseContext = createContext(false);
 export function useChatMediaOpen() {
   return useContext(GalleryContext);
 }
@@ -37,13 +38,18 @@ export function useChatMediaItems() {
 export function chatImagePreviewSources(
   data: Record<string, unknown>,
   params: Record<string, string | number>,
+  browseThumbnail = false,
 ): Pick<PreviewMedia, 'src' | 'originalImage'> | undefined {
   if (data.localPreviewUrl || data.localPath || (!params.token && !params.name && !params.md5))
     return undefined;
   const bytes = Number(data.fileSize);
   const original = { ...params, v: 'original', intent: 'interactive' };
   return {
-    src: mediaUrl('pic', { ...params, v: 'thumb', preview: 1 }),
+    src: mediaUrl('pic', {
+      ...params,
+      v: 'thumb',
+      ...(browseThumbnail ? { intent: 'interactive' } : { preview: 1 }),
+    }),
     originalImage: {
       cachedSrc: mediaUrl('pic', { ...original, localOnly: 1 }),
       src: mediaUrl('pic', original),
@@ -117,6 +123,7 @@ export function galleryMedia(
   conv = '',
   kind: 'c2c' | 'group' = 'c2c',
   carrier?: import('../state/messageContext').ForwardCarrier,
+  browseThumbnails = false,
 ): PreviewMedia[] {
   return messages.flatMap((message) => {
     const identity =
@@ -175,7 +182,7 @@ export function galleryMedia(
             }),
       };
       const proxy = mediaUrl(image ? 'pic' : 'video', params);
-      const preview = image ? chatImagePreviewSources(data, params) : undefined;
+      const preview = image ? chatImagePreviewSources(data, params, browseThumbnails) : undefined;
       const src =
         String(data.localPreviewUrl || '') ||
         (data.localPath ? localFileUrl(String(data.localPath)) : (preview?.src ?? proxy));
@@ -209,7 +216,13 @@ export function galleryMedia(
           fallbackSources: !preview && src !== proxy ? [proxy] : [],
           poster: image
             ? undefined
-            : mediaUrl('video', { t, name, token: String(data.videoToken ?? ''), v: 'thumb' }),
+            : mediaUrl('video', {
+                t,
+                name,
+                token: String(data.videoToken ?? ''),
+                v: 'thumb',
+                ...(browseThumbnails ? { intent: 'interactive' } : {}),
+              }),
           ocr:
             image && token && width > 0 && height > 0
               ? {

@@ -49,6 +49,7 @@ export function MobileWebNavigation({
   query,
   onQueryChange,
   onSearchFocus,
+  onSearchDismiss,
   searchPanel,
   messageBadgeCount,
   onMessageBadgeClick,
@@ -67,6 +68,7 @@ export function MobileWebNavigation({
   query: string;
   onQueryChange: (query: string) => void;
   onSearchFocus?: () => void;
+  onSearchDismiss?: () => void;
   searchPanel?: ReactNode;
   messageBadgeCount: number;
   onMessageBadgeClick?: () => void;
@@ -227,6 +229,7 @@ export function MobileWebNavigation({
           query={query}
           onQueryChange={onQueryChange}
           onSearchFocus={onSearchFocus}
+          onSearchDismiss={onSearchDismiss}
           results={searchPanel}
         />
         <DataSaverMenu />

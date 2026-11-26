@@ -2,17 +2,16 @@ import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import type { inferRouterInputs } from '@trpc/server';
 import type { AppRouter } from '../../../../shared/router';
 import { useCallback, useEffect, useMemo, useState, type ComponentProps } from 'react';
-import { create } from 'zustand';
 import { useGroupReadScope, previewMemberView } from '../../hooks/useGroupProfile';
 import { useTaskPage } from '../../hooks/useTaskPage';
 import { GroupInfoPanel } from '../../im-template/template/groupInfoPanel';
 import type { GroupMember } from '../../im-template/template/types';
 import { displayUserName } from '../../im-template/template/user';
 import { PROFILE_QUERY_OPTIONS } from '../../lib/profileQuery';
+import { useGroupMemberRosterOrder } from '../../lib/groupMemberRosterOrder';
 import { client } from '../../trpc/client';
 import type { GroupMemberWire } from '../../../../main/ipc/serde';
 import {
-  GROUP_MEMBER_PRIORITIZE_ADMINS_DEFAULT,
   GROUP_MEMBER_SORTS,
   compareGroupMemberValues,
   groupMemberCollator,
@@ -28,14 +27,6 @@ type RosterProps = PanelProps & {
   ownerUid?: string;
   mapMember?: (row: GroupMemberWire) => GroupMember;
 };
-type RosterOrder = { sort: GroupMemberSort; descending: boolean; prioritizeAdmins: boolean };
-const defaultOrder: RosterOrder = {
-  sort: 'displayName',
-  descending: false,
-  prioritizeAdmins: GROUP_MEMBER_PRIORITIZE_ADMINS_DEFAULT,
-};
-const useRosterOrder = create<Record<string, RosterOrder>>(() => ({}));
-
 export function GroupRosterPanel(props: RosterProps) {
   const { active, binding, key } = useGroupReadScope(!props.conversation.generated);
   const rosterKey = JSON.stringify([
@@ -44,25 +35,16 @@ export function GroupRosterPanel(props: RosterProps) {
     Boolean(props.conversation.generated),
   ]);
   // 搜索和任务状态随群切换重置，排序保留在会话面板之外。
-  return (
-    <ScopedGroupRosterPanel
-      key={rosterKey}
-      {...props}
-      rosterKey={rosterKey}
-      scope={{ active, binding, key }}
-    />
-  );
+  return <ScopedGroupRosterPanel key={rosterKey} {...props} scope={{ active, binding, key }} />;
 }
 
 function ScopedGroupRosterPanel({
   conversation,
   mapMember,
   ownerUid,
-  rosterKey,
   scope,
   ...props
 }: RosterProps & {
-  rosterKey: string;
   scope: Pick<ReturnType<typeof useGroupReadScope>, 'active' | 'binding' | 'key'>;
 }) {
   const { active, binding, key } = scope;
@@ -70,13 +52,12 @@ function ScopedGroupRosterPanel({
   const onVisibilityChange = useCallback((_group: string, value: boolean) => setVisible(value), []);
   const [keyword, setKeyword] = useState('');
   const [needle, setNeedle] = useState('');
-  const { sort, descending, prioritizeAdmins } = useRosterOrder(
-    (orders) => orders[rosterKey] ?? defaultOrder,
+  const { order, changeOrder } = useGroupMemberRosterOrder(
+    key,
+    conversation.id,
+    Boolean(conversation.generated),
   );
-  const changeOrder = (patch: Partial<RosterOrder>) =>
-    useRosterOrder.setState((orders) => ({
-      [rosterKey]: { ...(orders[rosterKey] ?? defaultOrder), ...patch },
-    }));
+  const { sort, descending, prioritizeAdmins } = order;
   const [startedTask, setStartedTask] = useState<{ id: string; sort: GroupMemberSort }>();
   const pendingSearch = !conversation.generated && keyword.trim() !== needle;
   useEffect(() => {
