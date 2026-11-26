@@ -88,6 +88,14 @@ export function messageSearchText(elements: RenderElement[]): string {
 
 type ClassifiedElement = RenderElement | { type?: string; data?: Record<string, unknown> };
 
+export function isMovFileName(name: unknown): name is string {
+  return typeof name === 'string' && /\.mov$/i.test(name);
+}
+
+export function isChatVideoAttachment(element: ClassifiedElement): boolean {
+  return element.type === 'file' && isMovFileName(element.data?.fileName);
+}
+
 function categoryOf(element: ClassifiedElement): MessageCategory {
   if (element.type === 'text' || element.type === 'at') return 'text';
   if (element.type === 'pic') return 'image';

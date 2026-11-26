@@ -12,7 +12,10 @@ import { QqMessageContent } from '../src/renderer/src/components/QqMessageConten
 import { MarketFaceLightbox } from '../src/renderer/src/components/MarketFaceLightbox';
 import { openMarketFaceLightbox } from '../src/renderer/src/state/marketFaceLightbox';
 import { MediaPreviewHost } from '../src/renderer/src/components/mediaPreviewStore';
-import { openMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
+import {
+  openMediaPreview,
+  usePreviews,
+} from '../src/renderer/src/components/mediaPreviewStore.shared';
 import { QqMarketFace } from '../src/renderer/src/components/QqMedia';
 import { useDataSaver } from '../src/renderer/src/lib/dataSaver';
 import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
@@ -646,6 +649,39 @@ it('聊天元素按消息与元素位置标识，不混入闪照、表情和嵌�
       },
     ]).map((item) => item.key),
   ).toEqual(['roaming:native:10:1:0', 'roaming:native:11:1:0']);
+});
+it('MOV 附件沿用行内视频和同一组预览，保存仍使用原始聊天文件', async () => {
+  const mov = { type: 'file', data: { fileToken: 'movie', fileName: 'clip.MOV' } };
+  const pic = { type: 'pic', data: { fileToken: 'picture', fileName: 'same.png' } };
+  const messages = [{ msgId: '4', sendTime: 1, elements: [pic, mov, pic] }];
+  const items = galleryMedia(messages, '42', 'group');
+  expect(items.map(({ key, kind }) => [key, kind])).toEqual([
+    ['4:0', 'image'],
+    ['4:1', 'video'],
+    ['4:2', 'image'],
+  ]);
+  act(() =>
+    root.render(
+      h(
+        ChatMediaGallery,
+        { messages, conv: '42', kind: 'group' },
+        h(QqMessageContent, { elements: [pic, mov, pic], msgId: '4', sendTimeMs: 1000 }),
+      ),
+    ),
+  );
+  expect(host.querySelector('video')).toBeNull();
+  act(() => button('播放视频：clip.MOV').click());
+  expect(new URL(host.querySelector('video')!.src).searchParams.get('token')).toBe('movie');
+  await act(async () => button('放大预览视频').click());
+  const session = usePreviews.getState().sessions.get(document);
+  expect(session?.initialKey).toBe('4:1');
+  expect(session?.items[1]?.saveSource).toMatchObject({
+    kind: 'chat-file',
+    msgId: '4',
+    name: 'clip.MOV',
+    token: 'movie',
+    conv: '42',
+  });
 });
 it('商城表情使用无全屏遮罩的小浮层，图片主动复用聊天路径并保留加密回退与分级Escape', () => {
   act(() => root.render(h(MarketFaceLightbox)));

@@ -11,6 +11,7 @@ import { bounded, networkFetch } from '@weq/network';
  *   weq-media://pic?t=<sendTimeMs>&name=<fileName>            → image bytes
  *   weq-media://pic?t=&name=&v=thumb                          → thumbnail bytes
  *   weq-media://video?t=&name=&v=thumb                        → cover image bytes
+ *   weq-media://file?msgId=&name=&token=                      → MOV chat attachment playback
  *   weq-media://ptt?t=&name=                                  → decoded WAV bytes
  *   weq-media://mface?pack=<emojiPackId>&hash=<marketEmoticonIdHex> → sticker bytes
  *   weq-media://mface?pack=&hash=&enc=tea&key=<opt> → 商城表情包 CDN 加密流 QQTEA 解密后 GIF（解密失败回退明文 raw GIF/PNG）
@@ -72,6 +73,8 @@ import { redPackSkinField, resourceSkinCover } from './redpack_catalog';
 import { CallRecordingStore, recordingsRootFor } from './call_recording_store';
 import { videoPreviewResponse } from './video_preview_response';
 import { videoPreviewSource } from './video_preview_source';
+import { resolveRecordedChatFile } from './message_media_local';
+import { isMovFileName } from '@weq/service/message-filter';
 import { observeDownload, transferIdInput } from './ipc/routers/transfer_progress';
 
 /** rkey types accepted when downloading the video COVER (thumb only; the
@@ -164,6 +167,7 @@ export async function findMediaElement(
   fwdMsgId = '',
   fwdKind?: 'group' | 'c2c',
   fwdResId?: string,
+  fileName?: string,
 ): Promise<{ element: MediaElement; conv: 'group' | 'c2c' | null } | null> {
   mediaBinding.getStore()?.();
   const services = getAppContext().services;
@@ -201,7 +205,9 @@ export async function findMediaElement(
     return services.gapHistory.findMediaElement(msgId, kind, token);
   }
   const matches = raw.elements.filter(
-    (e) => e.kind === kind || (kind === 'video' && e.kind === 'bubbleVideo'),
+    (e) =>
+      (e.kind === kind || (kind === 'video' && e.kind === 'bubbleVideo')) &&
+      (fileName === undefined || (e as { fileName?: string }).fileName === fileName),
   );
   const el = matches.find((e) => (e as { fileToken?: string }).fileToken === token) ?? matches[0];
   if (!el) return null;
@@ -252,6 +258,16 @@ const currentRequest = new AsyncLocalStorage<Request>();
 
 function fileResponse(path: string): Promise<Response> {
   return streamFile(path, currentRequest.getStore());
+}
+
+function movPlaybackResponse(response: Response): Response {
+  if (!response.ok) return response;
+  const headers = new Headers(response.headers);
+  headers.set('Content-Type', 'video/quicktime');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('Content-Security-Policy', "default-src 'none'; sandbox");
+  headers.set('Cache-Control', 'no-store');
+  return new Response(response.body, { status: response.status, headers });
 }
 
 async function voiceResponse(
@@ -1059,11 +1075,14 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
             });
           return path ? await respond(path) : notFound('pic not found');
         }
+        case 'file':
         case 'video': {
+          const attachment = kind === 'file';
+          if (attachment && !isMovFileName(name)) return notFound('unsupported file preview');
           // ?v=thumb → cover image (rkey is fine for covers); otherwise →
           // original mp4, completed via OIDB (rkey doesn't work for video
           // originals, so it's intentionally not attempted).
-          if (wantThumb) {
+          if (!attachment && wantThumb) {
             const { thumb } = await services.fileSearch.findFile(tMs, name, 'video');
             mediaBinding.getStore()?.();
             if (thumb) return fileResponse(thumb);
@@ -1074,16 +1093,11 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
             mediaBinding.getStore()?.();
             return dl ? fileResponse(dl) : notFound('video cover not found');
           }
-          const { source } = await services.fileSearch.findFile(tMs, name, 'video');
-          mediaBinding.getStore()?.();
-          if (source) return fileResponse(source);
-
-          // 本地缺片时现签 URL 并按播放器 Range 流式读取；完整收取后才发布缓存。
-          const boot = getAppContext().bootstrap;
-          if (!boot || !token) return notFound('video not found');
-          const cacheDir = join(boot.userConfig.cacheDir('media'), 'video');
-          const cachePath = oidbCachePath(cacheDir, token, '.mp4');
-          if (existsSync(cachePath)) return fileResponse(cachePath);
+          if (!attachment) {
+            const { source } = await services.fileSearch.findFile(tMs, name, 'video');
+            mediaBinding.getStore()?.();
+            if (source) return fileResponse(source);
+          }
 
           const msgId = q.get('msgId') ?? '';
           const conv = q.get('conv') ?? '';
@@ -1113,7 +1127,52 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
             request.signal.throwIfAborted();
             checkBinding();
           };
+          checkPlayback();
+          const file = attachment
+            ? await findMediaElement(msgId, 'file', token, fwdMsgId, fwdKind, fwdResId, name)
+            : null;
+          checkPlayback();
+          if (attachment) {
+            if (
+              !file ||
+              file.element.fileName !== name ||
+              (token && file.element.fileToken !== token)
+            )
+              return notFound('video attachment not found');
+            const local = await resolveRecordedChatFile(
+              services,
+              { kind: 'chat-file', msgId, name, token, conv, fwdMsgId, fwdKind, fwdResId },
+              file,
+              { exact: true },
+            );
+            checkPlayback();
+            if (local) return movPlaybackResponse(await fileResponse(local.path));
+          }
+          // 本地缺片时现签 URL 并按播放器 Range 流式读取；完整收取后才发布缓存。
+          const boot = getAppContext().bootstrap;
+          if (!boot || (!file && !token)) return notFound('video not found');
+          const cacheDir = join(boot.userConfig.cacheDir('media'), 'video');
+          const identity = JSON.stringify([
+            scope,
+            token,
+            msgId,
+            groupId,
+            fwdMsgId,
+            fwdKind,
+            fwdResId,
+          ]);
+          const key = file ? JSON.stringify(['file', identity, name]) : identity;
+          const cachePath = oidbCachePath(cacheDir, file ? key : token, file ? '.mov' : '.mp4');
+          if (existsSync(cachePath)) {
+            const response = await fileResponse(cachePath);
+            return file ? movPlaybackResponse(response) : response;
+          }
           const sign = async () => {
+            if (file) {
+              return file.conv === null
+                ? accountServices.mediaUrl.resolveFileUrlUnknownScene(groupId, file.element, name)
+                : accountServices.mediaUrl.resolveFileUrl(file.conv, groupId, file.element, name);
+            }
             const found = await findMediaElement(
               msgId,
               'video',
@@ -1140,13 +1199,18 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
           const play = async (url: Promise<string | null>) => {
             const signed = await bounded(url, request.signal);
             checkPlayback();
-            return signed
-              ? videoPreviewResponse(signed, cachePath, request, checkBinding, cacheVideo, scope)
-              : notFound('video OIDB returned empty url');
+            if (!signed) return notFound('video OIDB returned empty url');
+            const response = await videoPreviewResponse(
+              signed,
+              cachePath,
+              request,
+              checkBinding,
+              cacheVideo,
+              scope,
+            );
+            return file ? movPlaybackResponse(response) : response;
           };
-          checkPlayback();
           if (cacheVideo === false) return await play(sign());
-          const key = JSON.stringify([scope, token, msgId, groupId, fwdMsgId, fwdKind, fwdResId]);
           const signed = videoPreviewSource(accountServices, key, sign);
           const response = await play(signed.url);
           if (!signed.reused || response.status !== 502) return response;

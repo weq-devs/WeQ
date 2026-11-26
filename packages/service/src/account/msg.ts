@@ -52,6 +52,7 @@ import type { AntiRecallService } from './anti_recall';
 import type { ExportSkippedRanges } from './export/message_source';
 import {
   compileMessageFilter,
+  isChatVideoAttachment,
   matchesMessageFilter,
   messageSearchText,
   messageSelectionKey,
@@ -455,6 +456,7 @@ export class MsgService {
         message.elements.some(
           (element) =>
             element.type === 'video' ||
+            isChatVideoAttachment(element) ||
             (element.type === 'pic' &&
               element.data?.subType !== 1 &&
               !element.data?.isFlash &&

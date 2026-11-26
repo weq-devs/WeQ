@@ -42,7 +42,9 @@ import { openMediaPreview } from './mediaPreviewStore.shared';
 
 import {
   chatBlobImageSaveSource,
+  chatFileSaveSource,
   chatImagePreviewSources,
+  type ChatVideoAttachment,
   MediaItemKeyContext,
   useChatMediaOpen,
 } from './ChatMediaGallery.shared';
@@ -497,6 +499,7 @@ export function QqVideo({
   bubble = false,
   templateName = '',
   interactive = true,
+  attachment,
 }: {
   data: Data;
   sendTimeMs: number;
@@ -506,6 +509,7 @@ export function QqVideo({
   bubble?: boolean;
   templateName?: string;
   interactive?: boolean;
+  attachment?: ChatVideoAttachment;
 }) {
   useDataSaver((state) => state.behavior.dataSaverVideoCovers);
   const galleryOpen = useChatMediaOpen();
@@ -528,7 +532,8 @@ export function QqVideo({
   // Cover is fetched with videoToken; the original mp4 with fileToken.
   const coverToken = str(data, 'videoToken');
   const fileToken = str(data, 'fileToken');
-  const progressTarget = messageTransferTarget('video', msgId, fileToken, name, fwd);
+  const progressTarget =
+    attachment?.progressTarget ?? messageTransferTarget('video', msgId, fileToken, name, fwd);
   const w = num(data, 'videoWidth');
   const h = num(data, 'videoHeight');
   const duration = num(data, 'videoDuration');
@@ -546,14 +551,16 @@ export function QqVideo({
   const thumbLocalPath = str(data, 'thumbLocalPath');
   const localPreviewUrl = str(data, 'localPreviewUrl');
   const localCoverSrc = thumbLocalPath ? localFileUrl(thumbLocalPath) : localPreviewUrl;
-  const previewSize = useMediaPreviewSize('video', data, localCoverSrc || localPath || proxyCover);
+  const previewSize = useMediaPreviewSize(
+    'video',
+    data,
+    attachment?.src ?? (localCoverSrc || localPath || proxyCover),
+  );
   // 视频气泡填满已有的 120×120 圆形容器。
   const style: CSSProperties = bubble ? { width: '100%', height: '100%' } : previewSize.size;
-  const coverSrc = localCoverSrc
-    ? localCoverSrc
-    : coverCdn && !coverCdnFailed
-      ? coverCdn
-      : proxyCover;
+  const coverSrc = attachment
+    ? undefined
+    : localCoverSrc || (!coverCdnFailed && coverCdn) || proxyCover;
   useEffect(() => setPosterBroken(false), [coverSrc]);
 
   // Original couldn't be located locally or downloaded → missing placeholder.
@@ -578,9 +585,10 @@ export function QqVideo({
 
   const videoSrc = mediaRetryUrl(
     resourceForRenderDocument(
-      localPath
-        ? localFileUrl(localPath)
-        : localPreviewUrl ||
+      attachment?.src ??
+        (localPath
+          ? localFileUrl(localPath)
+          : localPreviewUrl ||
             mediaUrl('video', {
               t: sendTimeMs,
               name,
@@ -589,7 +597,7 @@ export function QqVideo({
               conv,
               ...(fwd ? { fwdMsgId: fwd.fwdMsgId, fwdKind: fwd.fwdKind } : {}),
               ...(fwd?.fwdResId ? { fwdResId: fwd.fwdResId } : {}),
-            }),
+            })),
       ownerDocument,
     ),
     attempt,
@@ -634,6 +642,7 @@ export function QqVideo({
             poster: coverSrc,
             title: name,
             progressTarget,
+            saveSource: attachment?.saveSource,
           },
         ],
         ownerDocument: ownerDocument,
@@ -714,7 +723,7 @@ export function QqVideo({
             : undefined
         }
       >
-        {posterBroken ? (
+        {posterBroken || !coverSrc ? (
           <div className="qq-media-video-noposter" />
         ) : (
           <ShimmerImage
@@ -852,15 +861,13 @@ export function QqFile({
     token = str(data, 'fileToken');
   const previewPath = !msgId && !fwd?.fwdResId ? str(data, 'localPath') : '';
   const mediaSave = useMediaSave({ foreground: true, ownerKey: `${active}:${conv}:${msgId}` });
-  const chatFile = {
-    kind: 'chat-file' as const,
-    msgId: fwd && !/^\d+$/.test(msgId) ? '0' : msgId,
+  const chatFile = chatFileSaveSource({
+    msgId,
     name,
     token,
     conv,
     ...fwd,
-    ...(fwd && !/^\d+$/.test(fwd.fwdMsgId) ? { fwdMsgId: undefined } : {}),
-  };
+  });
   const source: MediaSaveSource = previewPath
     ? { kind: 'url', url: localFileUrl(previewPath), name }
     : chatFile;

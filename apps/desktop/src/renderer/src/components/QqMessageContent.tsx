@@ -23,12 +23,14 @@ import {
 } from 'react';
 import { ArrowUp } from 'lucide-react';
 import type { UrlVerifyInfo } from '@weq/service';
+import { isChatVideoAttachment } from '@weq/service/message-filter';
 import { FaceEmoji } from './FaceEmoji';
 import { QqImage, QqVideo, QqFile, QqVoice, QqMarketFace, QqOnlineFile } from './QqMedia';
 import {
   MediaItemKeyContext,
   MediaItemIndexContext,
   MediaMessageKeyContext,
+  chatVideoAttachment,
   useChatMediaOpen,
 } from './ChatMediaGallery.shared';
 import { chatImageGridAt, CHAT_IMAGE_GRID_WIDTH, CHAT_IMAGE_GRID_GAP } from '../lib/chatMediaSize';
@@ -248,10 +250,21 @@ function MediaBody({
           />
         </div>
       );
-    case 'file':
-      return (
+    case 'file': {
+      const attachment = chatVideoAttachment(data, { msgId: ownerMsgId, conv, ...fwd });
+      return attachment ? (
+        <QqVideo
+          data={data}
+          sendTimeMs={sendTimeMs}
+          msgId={ownerMsgId}
+          conv={conv}
+          fwd={fwd}
+          attachment={attachment}
+        />
+      ) : (
         <QqFile data={data} sendTimeMs={sendTimeMs} msgId={ownerMsgId} conv={conv} fwd={fwd} />
       );
+    }
     case 'ptt':
       return (
         <QqVoice
@@ -534,7 +547,8 @@ function renderElementNodes(
       continue;
     }
     const mediaPosition = mediaIndex;
-    if (element.type === 'pic' || element.type === 'video') mediaIndex++;
+    if (element.type === 'pic' || element.type === 'video' || isChatVideoAttachment(element))
+      mediaIndex++;
     if (isTextLike(element)) {
       if (runStart === -1) runStart = index;
       runItems.push(element);
@@ -1110,7 +1124,7 @@ function QqMessageContentBody({
   if (lone) {
     // A lone borderless media element (image/video/sticker/mface) renders with
     // no bubble background — same treatment as a sticker face.
-    if (lone.type && BORDERLESS_MEDIA.has(lone.type)) {
+    if ((lone.type && BORDERLESS_MEDIA.has(lone.type)) || isChatVideoAttachment(lone)) {
       return (
         <div className={cn('message-content', 'sticker-only')}>
           <MediaNode element={lone} sendTimeMs={sendTimeMs} msgId={msgId} />

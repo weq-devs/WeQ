@@ -2,7 +2,9 @@ import { createContext, useContext } from 'react';
 import { localFileUrl, mediaUrl } from '../lib/resourceUrl';
 import { timelineRowKey } from '../../../shared/roaming_timeline';
 import type { PreviewMedia } from './mediaPreviewTypes';
-import { messageTransferTarget } from '../../../shared/transfer_progress';
+import { mediaTransferTarget, messageTransferTarget } from '../../../shared/transfer_progress';
+import { isChatVideoAttachment, isMovFileName } from '@weq/service/message-filter';
+import type { MediaSaveSource } from '../../../shared/media_save';
 import { isChatGalleryImage } from '../lib/chatMediaSize';
 
 export interface GalleryMessage {
@@ -63,6 +65,53 @@ export function chatBlobImageSaveSource(
   };
 }
 
+type ChatFileSource = Extract<MediaSaveSource, { kind: 'chat-file' }>;
+
+export function chatFileSaveSource({
+  fwdMsgId,
+  ...source
+}: Omit<ChatFileSource, 'kind'>): ChatFileSource {
+  return {
+    ...source,
+    kind: 'chat-file',
+    msgId: source.fwdKind && !/^\d+$/.test(source.msgId) ? '0' : source.msgId,
+    fwdMsgId: fwdMsgId && /^\d+$/.test(fwdMsgId) ? fwdMsgId : undefined,
+  };
+}
+
+export type ChatVideoAttachment = Pick<PreviewMedia, 'src' | 'progressTarget'> & {
+  saveSource: MediaSaveSource;
+};
+
+export function chatVideoAttachment(
+  data: Record<string, unknown>,
+  identity: Pick<ChatFileSource, 'msgId' | 'conv' | 'fwdMsgId' | 'fwdKind' | 'fwdResId'>,
+): ChatVideoAttachment | undefined {
+  const { fileName: name } = data;
+  if (!isMovFileName(name)) return undefined;
+  const path =
+    !identity.msgId && !identity.fwdResId && typeof data.localPath === 'string' && data.localPath;
+  if (path) {
+    const src = localFileUrl(path);
+    const saveSource: MediaSaveSource = { kind: 'url', url: src, name };
+    return { src, saveSource, progressTarget: mediaTransferTarget(saveSource) };
+  }
+  const token = typeof data.fileToken === 'string' ? data.fileToken : '';
+  const saveSource = chatFileSaveSource({ ...identity, name, token });
+  if (!/^\d{1,20}$/.test(saveSource.msgId)) return undefined;
+  const { msgId, conv, fwdMsgId, fwdKind, fwdResId } = saveSource;
+  const src = mediaUrl('file', {
+    name,
+    token,
+    msgId,
+    ...(conv ? { conv } : {}),
+    ...(fwdMsgId ? { fwdMsgId } : {}),
+    ...(fwdKind ? { fwdKind } : {}),
+    ...(fwdResId ? { fwdResId } : {}),
+  });
+  return { src, saveSource, progressTarget: mediaTransferTarget(saveSource) };
+}
+
 export function galleryMedia(
   messages: GalleryMessage[],
   conv = '',
@@ -81,9 +130,27 @@ export function galleryMedia(
     return message.elements.flatMap((raw): PreviewMedia[] => {
       if (!raw || typeof raw !== 'object') return [];
       const element = raw as { type?: string; data?: Record<string, unknown> };
-      if (element.type !== 'pic' && element.type !== 'video') return [];
+      const attachment = isChatVideoAttachment(element);
+      if (element.type !== 'pic' && element.type !== 'video' && !attachment) return [];
       const key = `${identity}:${mediaIndex++}`;
       const data = element.data ?? {};
+      const order = {
+        time: Number(message.sendTime),
+        messageId: identity,
+        rawId: message.msgId,
+        sequence: message.msgSeq,
+        element: mediaIndex - 1,
+      };
+      if (attachment) {
+        const video = chatVideoAttachment(data, {
+          msgId: carrier?.msgId ?? message.msgId,
+          conv: carrier || kind === 'group' ? conv : '',
+          ...(carrier
+            ? { fwdMsgId: message.msgId, fwdKind: carrier.kind, fwdResId: carrier.resId }
+            : {}),
+        });
+        return video ? [{ key, order, kind: 'video', title: String(data.fileName), ...video }] : [];
+      }
       const token = String(data.fileToken ?? '');
       if (element.type === 'pic' && !isChatGalleryImage(data)) return [];
       const image = element.type === 'pic';
@@ -120,13 +187,7 @@ export function galleryMedia(
       return [
         {
           key,
-          order: {
-            time: Number(message.sendTime),
-            messageId: identity,
-            rawId: message.msgId,
-            sequence: message.msgSeq,
-            element: mediaIndex - 1,
-          },
+          order,
           kind: image ? 'image' : 'video',
           progressTarget: messageTransferTarget(
             image ? 'pic' : 'video',
