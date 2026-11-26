@@ -1139,8 +1139,12 @@ export class UnifiedSearchService {
         ? searchNameRank(keyword, hit.uid, hit.uin, ...hit.aliases)
         : searchNameRank(keyword, hit.groupCode, ...hit.aliases));
     return hits
-      .map((hit) => ({ hit, rank: rank(hit) }))
-      .sort((a, b) => b.rank - a.rank)
+      .map((hit) => ({
+        hit,
+        rank: rank(hit),
+        friendPriority: Number(pinyin !== undefined && hit.category === 'contact' && hit.isFriend),
+      }))
+      .sort((a, b) => b.friendPriority - a.friendPriority || b.rank - a.rank)
       .map(({ hit }) => hit);
   }
 

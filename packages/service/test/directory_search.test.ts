@@ -56,7 +56,7 @@ function resolveMock<T>(mock: { mockResolvedValue: (value: T) => unknown }, valu
 }
 
 describe('联系人和群聊的对象搜索', () => {
-  it('联系人拼音召回好友和已有会话，按原文、常用读法和其他读法排序', async () => {
+  it('联系人拼音搜索在分页前优先显示好友，同为好友时优先常用读法', async () => {
     const f = fixture();
     resolveMock(f.buddies, [
       { uid: 'u_normal', uin: 10001n },
@@ -86,10 +86,13 @@ describe('联系人和群聊的对象搜索', () => {
         groupNick: '',
       },
     ]);
-    const quick = await f.service.quickSearch('smdx', 3, ['contact'], 'all', ['qq']);
-    expect(quick.contacts.map(({ uid }) => uid)).toEqual(['u_literal', 'u_normal', 'u_alt']);
-    const next = await f.service.moreSearch('contact', 'smdx', 3, 10, 'all', ['qq']);
-    expect(next.items).toMatchObject([{ uid: 'u_recent', hasConversation: true }]);
+    const quick = await f.service.quickSearch('smdx', 2, ['contact'], 'all', ['qq']);
+    expect(quick.contacts.map(({ uid }) => uid)).toEqual(['u_normal', 'u_alt']);
+    const next = await f.service.moreSearch('contact', 'smdx', 2, 10, 'all', ['qq']);
+    expect(next.items).toMatchObject([
+      { uid: 'u_literal', isFriend: false },
+      { uid: 'u_recent', hasConversation: true, isFriend: false },
+    ]);
     expect(f.cached).toHaveBeenCalledWith('smdx', true);
     expect(f.recent).toHaveBeenCalledWith('smdx', 'contact');
   });
