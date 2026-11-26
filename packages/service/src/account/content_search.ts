@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
+import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { writeFileAtomicSync } from '../common/atomic_write';
 import { rankContentSearchHits } from './search_policy';
 
@@ -58,6 +59,7 @@ export interface ContentSearchHit extends ContentSearchRecord {
   category: ContentSearchCategory;
   id: string;
   observedAt: number;
+  matchRank?: number;
 }
 export interface ContentSearchCoverage {
   available?: boolean;
@@ -370,12 +372,21 @@ export class ContentSearchStore {
             : ownUin === undefined || row.target.uin === ownUin)),
     );
     const needle = keyword.trim().toLocaleLowerCase();
+    const pinyin =
+      category === 'groupFile' || category === 'groupAlbum'
+        ? createPinyinMatcher(needle)
+        : undefined;
     const ranked = needle
       ? rankContentSearchHits(
           needle,
-          pool.filter((row) =>
-            `${row.title}\n${row.sourceName}\n${row.content}`.toLocaleLowerCase().includes(needle),
-          ),
+          pool.flatMap((row) => {
+            if (
+              `${row.title}\n${row.sourceName}\n${row.content}`.toLocaleLowerCase().includes(needle)
+            )
+              return [row];
+            const matchRank = pinyin?.rank(row.title);
+            return matchRank ? [{ ...row, matchRank }] : [];
+          }),
         )
       : [];
     return {

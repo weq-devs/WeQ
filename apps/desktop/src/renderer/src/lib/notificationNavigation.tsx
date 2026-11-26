@@ -31,6 +31,7 @@ export function SettingsNotificationSource({
   const binding = [
     'account',
     'credentials',
+    'qq-accounts',
     'diagnostics',
     'database-management',
     'qq-storage',

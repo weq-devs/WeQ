@@ -24,9 +24,10 @@ import { mkdir, open, rename, unlink, writeFile } from 'node:fs/promises';
 export async function writeFileAtomic(
   path: string,
   data: string | Uint8Array | Iterable<string>,
+  { createParent = true } = {},
 ): Promise<void> {
   const parent = dirname(path);
-  await mkdir(parent, { recursive: true });
+  if (createParent) await mkdir(parent, { recursive: true });
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   let file: Awaited<ReturnType<typeof open>> | undefined;
   try {

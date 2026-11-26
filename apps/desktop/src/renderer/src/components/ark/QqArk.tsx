@@ -102,7 +102,7 @@ function ArkShell({
   footer?: ReactNode;
   activation?: {
     label: string;
-    open: () => void;
+    open: (trigger: HTMLElement) => void;
     getChatShortcut?: () => ProfileShortcut | undefined;
   };
 }): ReactElement {
@@ -116,14 +116,13 @@ function ArkShell({
     !activation && (albumNavigation.blocked || directAlbum?.state === 'invalid');
   const target = jump ? qzoneCardTarget(jump) : null;
   const onOpen =
-    activation?.open ??
-    (navigationBlocked
+    activation || navigationBlocked
       ? undefined
       : groupAlbumTarget && openGroupAlbum
         ? () => openGroupAlbum(groupAlbumTarget)
         : target && navigate
           ? () => navigate(target)
-          : openHandler(jump));
+          : openHandler(jump);
   const linkTitle = groupAlbumTarget && openGroupAlbum ? '查看群相册' : jump;
   return (
     <div
@@ -138,17 +137,19 @@ function ArkShell({
       onClick={(event) => {
         if (activation) {
           event.stopPropagation();
-          activateProfile(event, activation.open, activation.getChatShortcut?.());
+          const trigger = event.currentTarget;
+          activateProfile(event, () => activation.open(trigger), activation.getChatShortcut?.());
         } else onOpen?.();
       }}
-      tabIndex={onOpen ? 0 : undefined}
+      tabIndex={activation || onOpen ? 0 : undefined}
       onKeyDown={(event) => {
-        if (onOpen && (event.key === 'Enter' || event.key === ' ')) {
+        if ((activation || onOpen) && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault();
           if (activation) {
             event.stopPropagation();
-            activateProfile(event, activation.open);
-          } else onOpen();
+            const trigger = event.currentTarget;
+            activateProfile(event, () => activation.open(trigger));
+          } else onOpen?.();
         }
       }}
     >
@@ -175,7 +176,7 @@ function ArkFooter({ source, icon }: { source?: string; icon?: string }): ReactE
 /** 名片：左头像 + 右昵称/副标题，底部来源标签（contact / cardshare / 名片分享变体）。 */
 function ContactCard({ v, group }: { v: ArkValues; group?: GroupShareTarget }): ReactElement {
   const directory = useContext(ConversationDirectoryContext);
-  const [open, setOpen] = useState(false);
+  const [trigger, setTrigger] = useState<HTMLElement | null>(null);
   const chatShortcut = useContext(ProfileChatShortcutContext);
   const known = group
     ? directory?.real?.find((conv) => conv.type === 'group' && conv.id === group.code)
@@ -190,7 +191,7 @@ function ContactCard({ v, group }: { v: ArkValues; group?: GroupShareTarget }): 
           conversation
             ? {
                 label: '查看群名片',
-                open: () => setOpen(true),
+                open: setTrigger,
                 getChatShortcut: () => chatShortcut?.({ kind: 'group', conversation }),
               }
             : undefined
@@ -222,12 +223,13 @@ function ContactCard({ v, group }: { v: ArkValues; group?: GroupShareTarget }): 
           </div>
         </div>
       </ArkShell>
-      {open && group ? (
+      {trigger && group ? (
         <GroupProfileDialog
           key={group.code}
           conversation={conversation}
+          profileTrigger={trigger}
           detailsKnown={Boolean(known)}
-          onClose={() => setOpen(false)}
+          onClose={() => setTrigger(null)}
         />
       ) : null}
     </>

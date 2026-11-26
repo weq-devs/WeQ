@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { MessagesSquare } from 'lucide-react';
+import { EmptyState } from '../../components/EmptyState';
 import { trpc } from '../../trpc/client';
 import { TabActivity } from '../../components/RetainedTabs';
 import {
@@ -212,9 +214,18 @@ function AssistantConversationWorkspace({
   return (
     <section className="weq-assistant-main-conversation" aria-label="WeQ 助手会话" hidden={!active}>
       {requestedDeleted ? (
-        <div className="weq-workspace-empty" role="status">
-          这段助手会话已永久删除。
-        </div>
+        <EmptyState
+          icon={<MessagesSquare />}
+          title="这段助手会话已永久删除"
+          body="可以从列表打开其他会话，或开始一段新对话。"
+          action={
+            onNewSession ? (
+              <button type="button" className="weq-set-btn" onClick={newSession}>
+                新建对话
+              </button>
+            ) : null
+          }
+        />
       ) : null}
       {livePanels.map((panel) => (
         <ConversationPanel

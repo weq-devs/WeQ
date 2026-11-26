@@ -7,7 +7,6 @@ import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { SegmentedControl } from '../SegmentedControl';
-import { HomeSettingsSection } from './HomeSettingsSection';
 import { DesktopOnly } from '../../lib/target';
 import { IS_WEB } from '../../lib/target.shared';
 
@@ -223,9 +222,6 @@ export function StartupSection() {
           />
         </Card>
       </DesktopOnly>
-      <div data-setting-id="home-settings">
-        <HomeSettingsSection />
-      </div>
     </div>
   );
 }

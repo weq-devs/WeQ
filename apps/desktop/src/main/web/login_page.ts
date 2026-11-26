@@ -240,14 +240,12 @@ export const LOGIN_PAGE = `<!doctype html>
     border-radius: 10px;
     cursor: pointer;
     box-shadow: 0 10px 24px -12px rgba(0, 122, 204, 0.75);
-    transition: transform 160ms ease, box-shadow 220ms ease, background-color 220ms ease;
+    transition: box-shadow 220ms ease, background-color 220ms ease;
   }
   button:hover:not(:disabled) {
-    transform: translateY(-1px);
     background: var(--action-hover);
     box-shadow: 0 14px 30px -12px rgba(0, 122, 204, 0.85);
   }
-  button:active:not(:disabled) { transform: translateY(0); }
   button:disabled { cursor: default; opacity: 0.62; box-shadow: none; }
 
   .spinner {

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { topSurface } from '../../lib/surfaceEscape';
 import { reportCanTurn, reportGestureTarget, reportSwipeDirection } from '../../lib/reportSwipe';
@@ -31,8 +38,7 @@ function reportHasOverlay(host: HTMLElement): boolean {
 
 /**
  * 宽屏演示把 960×640 画幅缩放到可用空间；窄/短内容区采用原字号滚动阅读。
- * 页面在画幅内**同位层叠**
- * （不是横向/纵向滑动轨），翻页由各页自己的 transform/opacity/blur 完成景深过渡。
+ * 页面同位层叠，翻页使用位移与透明度过渡。
  * 负责滚轮、触摸、键盘三种翻页输入。
  *
  * `guard` 让当前页在翻页发生前截住一次手势（「我的主场」用它转轮盘：转到边界
@@ -64,29 +70,19 @@ export function AnnualReportStage({
   const wheelRef = useRef({ acc: 0, lastAt: 0, mode: null as 'scroll' | 'turn' | null });
   const [scale, setScale] = useState(1);
   const [reading, setReading] = useState(false);
-  /** 守卫存在 ref 里：`move` 是 useCallback，不能让它随每次 guard 重建而失效。 */
-  const guardRef = useRef(guard);
-  guardRef.current = guard;
-
-  const clampIndex = useCallback(
-    (next: number) => Math.max(0, Math.min(Math.max(0, count - 1), next)),
-    [count],
-  );
-  const move = useCallback(
-    (delta: number) => {
-      // 当前页消费翻页动作后，滚轮的手势锁仍保留到惯性结束。
-      if (delta !== 0 && guardRef.current?.(delta > 0 ? 1 : -1)) return;
-      onIndexChange(clampIndex(index + delta));
-    },
-    [clampIndex, index, onIndexChange],
-  );
+  const movePage = (delta: number) => {
+    // 当前页消费翻页动作后，滚轮的手势锁仍保留到惯性结束。
+    if (delta !== 0 && guard?.(delta > 0 ? 1 : -1)) return;
+    onIndexChange(Math.max(0, Math.min(Math.max(0, count - 1), index + delta)));
+  };
+  const move = useEffectEvent(movePage);
 
   useEffect(() => {
     if (!tabActive) return;
     const host = hostRef.current;
     if (!host) return undefined;
-    const resize = (): void => {
-      const rect = host.getBoundingClientRect();
+    const resize = (entries?: ResizeObserverEntry[]): void => {
+      const rect = entries?.[0]?.contentRect ?? host.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
       setReading(rect.width < 720 || rect.height < 400);
       setScale(
@@ -116,8 +112,7 @@ export function AnnualReportStage({
         event.defaultPrevented ||
         event.ctrlKey ||
         event.shiftKey ||
-        Math.abs(deltaY) <= Math.abs(deltaX) ||
-        reportHasOverlay(host)
+        Math.abs(deltaY) <= Math.abs(deltaX)
       )
         return;
       if (!reportGestureTarget(event.target)) return;
@@ -129,6 +124,8 @@ export function AnnualReportStage({
         wheel.acc = 0;
         wheel.mode = null;
       }
+      const newGesture = !wheel.mode && !wheel.acc;
+      if (newGesture && reportHasOverlay(host)) return;
       wheel.lastAt = now;
 
       if (wheel.mode === 'scroll') return;
@@ -162,11 +159,11 @@ export function AnnualReportStage({
       const direction = wheel.acc > 0 ? 1 : -1;
       wheel.acc = 0;
       wheel.mode = 'turn';
-      move(direction);
+      if (newGesture || !reportHasOverlay(host)) move(direction);
     };
     host.addEventListener('wheel', onWheel, { passive: false });
     return () => host.removeEventListener('wheel', onWheel);
-  }, [move, tabActive, reading]);
+  }, [tabActive, reading]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -243,11 +240,17 @@ export function AnnualReportStage({
       host.removeEventListener('touchend', end);
       host.removeEventListener('touchcancel', cancel);
     };
-  }, [move, tabActive]);
+  }, [tabActive]);
 
   useEffect(() => {
     if (!tabActive) return;
     function onKeyDown(event: KeyboardEvent): void {
+      const direction = ['ArrowDown', 'PageDown', ' '].includes(event.key)
+        ? 1
+        : ['ArrowUp', 'PageUp'].includes(event.key)
+          ? -1
+          : 0;
+      if (!direction && event.key !== 'Home' && event.key !== 'End') return;
       if (
         event.defaultPrevented ||
         (hostRef.current && reportHasOverlay(hostRef.current)) ||
@@ -255,12 +258,10 @@ export function AnnualReportStage({
           event.target.closest('input, textarea, select, button, a, [contenteditable="true"]'))
       )
         return;
-      const direction = ['ArrowDown', 'PageDown', ' '].includes(event.key)
-        ? 1
-        : ['ArrowUp', 'PageUp'].includes(event.key)
-          ? -1
-          : 0;
-      const page = hostRef.current?.querySelector<HTMLElement>('.weq-report-slide.is-active');
+      const page =
+        reading && direction
+          ? hostRef.current?.querySelector<HTMLElement>('.weq-report-slide.is-active')
+          : null;
       if (
         reading &&
         direction &&
@@ -273,12 +274,9 @@ export function AnnualReportStage({
           direction * (event.key.startsWith('Arrow') ? 40 : page.clientHeight * 0.8);
         return;
       }
-      if (event.key === 'ArrowDown' || event.key === 'PageDown' || event.key === ' ') {
+      if (direction) {
         event.preventDefault();
-        move(1);
-      } else if (event.key === 'ArrowUp' || event.key === 'PageUp') {
-        event.preventDefault();
-        move(-1);
+        move(direction);
       } else if (event.key === 'Home') {
         event.preventDefault();
         onIndexChange(0);
@@ -289,7 +287,7 @@ export function AnnualReportStage({
     }
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [count, move, onIndexChange, tabActive, reading]);
+  }, [count, onIndexChange, tabActive, reading]);
 
   function onPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
     if (
@@ -346,7 +344,7 @@ export function AnnualReportStage({
       return;
     const dx = Math.abs(event.clientX - gesture.x);
     const dy = event.clientY - gesture.y;
-    if (Math.abs(dy) >= 24 && Math.abs(dy) >= dx * 1.5) move(dy < 0 ? 1 : -1);
+    if (Math.abs(dy) >= 24 && Math.abs(dy) >= dx * 1.5) movePage(dy < 0 ? 1 : -1);
   }
 
   return (

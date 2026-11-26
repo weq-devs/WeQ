@@ -1,17 +1,16 @@
 /**
  * 数据库修复窗口。
  *
- * 页面回答三个问题，顺序就是阅读顺序：现在处于哪一步（流程条）、
- * 整体是什么状态（状态卡）、每个库具体怎样（库卡片与详情）。
+ * 扫描、报告和修复各自使用独立标签页，维护状态保留在顶栏。
  * 修复是批处理动作，所以主按钮固定在底栏，不随列表滚走。
  *
- * 颜色全部来自主题 token：强调色只负责「当前/选中/可操作」，
- * 异常沿用设置页的 --weq-warn-*，不引入第二支色相。
+ * 空间偏低用琥珀色，空间不足沿用红色。其他提示跟随主题。
  */
 .weq-dbm {
   --dbm-surface: var(--weq-bg-elevated);
   --dbm-tint: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
   --dbm-hair: var(--weq-border-subtle);
+  --dbm-space-warn-ink: #92400e;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -24,6 +23,7 @@
 html[data-theme='dark'] .weq-dbm {
   --dbm-surface: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
   --dbm-tint: color-mix(in srgb, var(--weq-accent-effective) 13%, transparent);
+  --dbm-space-warn-ink: #fcd34d;
 }
 
 .weq-dbm h1,
@@ -144,12 +144,19 @@ html[data-theme='dark'] .weq-dbm {
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
+  min-height: 28px;
+  border: 0;
   border-radius: 999px;
   background: var(--dbm-tint);
   color: var(--weq-accent-ink, var(--weq-accent-effective));
   font-size: 10.5px;
   font-weight: 550;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.weq-dbm-state:is(:hover, :focus-visible) {
+  box-shadow: inset 0 0 0 1px currentColor;
 }
 
 /* ── 流程条 ───────────────────────────────────────────────────────── */
@@ -181,6 +188,11 @@ html[data-theme='dark'] .weq-dbm {
   background: var(--dbm-surface);
   color: var(--weq-fg-primary);
   box-shadow: 0 1px 2px color-mix(in srgb, var(--weq-fg-primary) 9%, transparent);
+}
+
+.weq-dbm-step:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .weq-dbm-step-dot {
@@ -337,33 +349,95 @@ html[data-theme='dark'] .weq-dbm {
   gap: 10px;
 }
 
-.weq-dbm-scan-controls {
+.weq-dbm-hero-actions .weq-set-btn[aria-disabled='true'] {
+  background: var(--muted);
+  color: var(--muted-foreground);
+  border-color: var(--weq-border-subtle);
+  cursor: not-allowed;
+}
+
+.weq-dbm-body > .weq-dbm-scan-setup {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
+  flex: 1 0 auto;
+  flex-direction: column;
+  justify-content: space-evenly;
+  gap: 24px;
+}
+
+.weq-dbm-scan-controls {
+  display: grid;
+  justify-items: center;
+  gap: 13px;
   min-width: 0;
+  padding-block: 16px 8px;
+  text-align: center;
 }
 
-.weq-dbm-scan-controls > .weq-segmented {
-  box-sizing: border-box;
+.weq-dbm-scan-controls.is-scan {
+  margin-block: auto;
+}
+
+.weq-dbm .weq-set-btn.weq-dbm-scan-start {
+  --weq-control-radius: 50%;
+  position: relative;
+  flex-direction: column;
+  gap: 8px;
+  width: clamp(112px, 18vh, 140px);
+  aspect-ratio: 1;
+  padding: 8px;
+  border-radius: var(--weq-control-radius);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.weq-dbm-scan-start::before {
+  position: absolute;
+  inset: -7px;
+  border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 32%, transparent);
+  border-radius: inherit;
+  pointer-events: none;
+  content: '';
+}
+
+.weq-dbm-scan-start:disabled::before {
+  border-color: var(--dbm-hair);
+}
+
+/* 扫描页的模式选项共用一个圆条外形。 */
+html[data-theme] .weq-dbm .weq-dbm-scan-controls > .weq-segmented {
+  --weq-control-radius: 999px;
+  --weq-control-border-width: 0px;
+  --weq-control-shadow: none;
+  width: 154px;
   flex-wrap: nowrap;
-  height: 46px;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: var(--weq-control-radius);
+  background: color-mix(in srgb, var(--weq-fg-primary) 7%, transparent);
+  box-shadow: none;
 }
 
-.weq-dbm-scan-controls > .weq-segmented > button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  height: 38px;
-  min-height: 0;
-  padding: 6px 12px;
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 18px;
-  white-space: nowrap;
+html[data-theme] .weq-dbm .weq-dbm-scan-controls > .weq-segmented > button {
+  --weq-control-radius: 0px;
+  flex: 1 1 0;
+  padding-inline: 5px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.weq-dbm .weq-dbm-scan-controls > .weq-segmented > button:focus-visible {
+  outline-color: currentColor;
+  outline-offset: -2px;
+}
+
+.weq-dbm-scan-controls > p {
+  max-width: 48ch;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  line-height: 1.65;
 }
 
 .weq-dbm-hero-actions .weq-set-btn {
@@ -581,11 +655,6 @@ html[data-theme='dark'] .weq-dbm {
   scroll-snap-align: start;
 }
 
-.weq-dbm-db-wrap {
-  position: relative;
-  height: 100%;
-}
-
 .weq-dbm-db {
   position: relative;
   display: flex;
@@ -601,16 +670,19 @@ html[data-theme='dark'] .weq-dbm {
   color: var(--weq-fg-secondary);
   font: inherit;
   text-align: left;
-  cursor: pointer;
   transition:
     border-color 140ms ease,
-    background-color 140ms ease,
-    transform 140ms ease;
+    background-color 140ms ease;
 }
 
-.weq-dbm-db:hover {
+button.weq-dbm-db,
+.weq-dbm-db.is-selectable {
+  cursor: pointer;
+}
+
+button.weq-dbm-db:hover,
+.weq-dbm-db.is-selectable:hover {
   border-color: var(--weq-border-strong);
-  transform: translateY(-1px);
 }
 
 .weq-dbm-db.is-current {
@@ -631,6 +703,10 @@ html[data-theme='dark'] .weq-dbm {
 
 .weq-dbm-db.is-selectable .weq-dbm-db-top {
   padding-right: 28px;
+}
+
+.weq-dbm-db.is-selectable {
+  min-height: 100px;
 }
 
 .weq-dbm-db-icon {
@@ -705,13 +781,8 @@ html[data-theme='dark'] .weq-dbm {
   cursor: pointer;
 }
 
-.weq-dbm-db-input:disabled {
-  cursor: default;
-}
-
-.weq-dbm-db-wrap:has(.weq-dbm-db-input:focus-visible) .weq-dbm-db {
+.weq-dbm-db:has(.weq-dbm-db-input:focus-visible) {
   outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
 }
 
 .weq-dbm-db-name {
@@ -722,6 +793,12 @@ html[data-theme='dark'] .weq-dbm {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.weq-dbm-db-purpose {
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  line-height: 1.45;
 }
 
 .weq-dbm-db-note {
@@ -879,7 +956,7 @@ html[data-theme='dark'] .weq-dbm {
   min-width: 0;
 }
 
-.weq-dbm-detail-title > span {
+.weq-dbm-detail-name {
   color: var(--weq-fg-secondary);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11.5px;
@@ -987,155 +1064,6 @@ html[data-theme='dark'] .weq-dbm {
   color: var(--weq-accent-ink, var(--weq-accent-effective));
 }
 
-/* ── 底栏：始终可见的修复动作 ─────────────────────────────────────── */
-
-.weq-dbm-foot {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 16px;
-  padding: 11px 22px;
-  border-top: 1px solid var(--dbm-hair);
-  background: var(--background);
-}
-
-.weq-dbm-foot-summary {
-  display: grid;
-  flex: 1 1 auto;
-  gap: 2px;
-  min-width: 0;
-}
-
-.weq-dbm-foot-summary strong {
-  overflow: hidden;
-  color: var(--weq-fg-primary);
-  font-size: 12.5px;
-  font-weight: 620;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.weq-dbm-foot-summary span {
-  overflow: hidden;
-  color: var(--weq-fg-muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.weq-dbm-foot-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-}
-
-.weq-dbm-options {
-  position: relative;
-}
-
-.weq-dbm-options > summary {
-  gap: 5px;
-  list-style: none;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.weq-dbm-options > summary::-webkit-details-marker {
-  display: none;
-}
-
-.weq-dbm-options[open] > summary .weq-dbm-chevron,
-.weq-dbm-options[open] > summary > svg {
-  transform: rotate(180deg);
-}
-
-.weq-dbm-options-panel {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 8px);
-  z-index: 12;
-  display: grid;
-  gap: 2px;
-  width: min(360px, calc(100vw - 32px));
-  padding: 12px 14px;
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 10px;
-  background: var(--weq-bg-elevated);
-  box-shadow: 0 20px 45px -24px color-mix(in srgb, var(--weq-fg-primary) 45%, transparent);
-}
-
-.weq-dbm-option {
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
-  gap: 9px;
-  align-items: start;
-  padding: 7px 0;
-  cursor: pointer;
-}
-
-.weq-dbm-option input {
-  width: 15px;
-  height: 15px;
-  margin: 2px 0 0;
-  accent-color: var(--weq-accent-effective);
-}
-
-.weq-dbm-option span {
-  display: grid;
-  gap: 1px;
-  min-width: 0;
-}
-
-.weq-dbm-option strong {
-  color: var(--weq-fg-primary);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.weq-dbm-option em {
-  color: var(--weq-fg-muted);
-  font-size: 11px;
-  font-style: normal;
-  line-height: 1.5;
-}
-
-.weq-dbm-space {
-  display: grid;
-  gap: 5px;
-  margin-top: 6px;
-  padding-top: 9px;
-  border-top: 1px solid var(--dbm-hair);
-}
-
-.weq-dbm-space-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--weq-fg-secondary);
-  font-size: 11px;
-}
-
-.weq-dbm-budget {
-  display: grid;
-  gap: 1px;
-  color: var(--weq-fg-muted);
-  font-size: 10.5px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-
-.weq-dbm-budget strong {
-  color: var(--weq-fg-secondary);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
-  font-weight: 600;
-}
-
-.weq-dbm-budget.is-warn span {
-  color: var(--weq-warn-fg);
-}
-
 /* ── 历史报告与设置浮层 ───────────────────────────────────────────── */
 
 .weq-dbm-overlay-head {
@@ -1218,40 +1146,51 @@ html[data-theme='dark'] .weq-dbm {
   height: 30px;
 }
 
-.weq-dbm-cache {
-  display: grid;
-  gap: 9px;
-  padding: 8px 0 4px;
+.weq-dbm-settings > .weq-dialog-head {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.weq-dbm-cache h3 {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
+.weq-dbm-settings .weq-set-row {
+  min-height: 36px;
+  flex-wrap: wrap;
+  row-gap: 8px;
 }
 
-.weq-dbm-cache p {
-  color: var(--weq-fg-secondary);
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
-  line-height: 1.6;
+.weq-dbm-settings .weq-set-row-main {
+  min-width: min(100%, 10em);
+}
+
+.weq-dbm-settings .weq-set-row-ctrl {
+  max-width: 100%;
+  margin-inline-start: auto;
+}
+
+.weq-dbm-settings .weq-set-row-desc {
   overflow-wrap: anywhere;
 }
 
-.weq-dbm-cache-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.weq-dbm-storage-warning,
+.weq-dbm .weq-set-btn.weq-dbm-repair-start.is-warn {
+  --dbm-space-ink: var(--dbm-space-warn-ink);
+  --dbm-space-tint: color-mix(in srgb, #f59e0b 14%, transparent);
+  --dbm-space-border: color-mix(in srgb, #f59e0b 40%, transparent);
+}
+
+.weq-dbm-storage-warning.is-short,
+.weq-dbm .weq-set-btn.weq-dbm-repair-start.is-short {
+  --dbm-space-ink: var(--weq-danger-ink);
+  --dbm-space-tint: var(--weq-danger-soft-hover);
+  --dbm-space-border: color-mix(in srgb, var(--weq-danger-ink) 32%, transparent);
 }
 
 .weq-dbm-storage-warning {
   display: grid;
-  gap: 10px;
-  padding: 16px;
-  border: 1px solid var(--weq-warn-border);
+  gap: 5px;
+  padding: 12px 16px;
+  border: 1px solid var(--dbm-space-border);
   border-radius: 8px;
-  background: var(--weq-warn-bg);
-  color: var(--weq-warn-fg);
+  background: var(--dbm-space-tint);
+  color: var(--weq-fg-primary);
   font-size: 13px;
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -1261,6 +1200,13 @@ html[data-theme='dark'] .weq-dbm {
   display: flex;
   align-items: center;
   gap: 8px;
+  color: var(--dbm-space-ink);
+}
+
+.weq-dbm-space-title {
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.3;
 }
 
 .weq-dbm-storage-warning p,
@@ -1272,8 +1218,18 @@ html[data-theme='dark'] .weq-dbm {
 .weq-dbm-storage-warning dl,
 .weq-dbm-storage-warning dd {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
+}
+
+.weq-dbm-storage-warning dl {
+  padding-top: 6px;
+  border-top: 1px solid var(--dbm-space-border);
+}
+
+.weq-dbm-storage-warning .weq-dbm-path {
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
 }
 
 .weq-dbm-storage-warning dl > div {
@@ -1283,7 +1239,7 @@ html[data-theme='dark'] .weq-dbm {
 }
 
 .weq-dbm-storage-warning dt {
-  flex: 0 0 90px;
+  flex: 0 0 auto;
 }
 
 .weq-dbm-storage-warning dd {
@@ -1433,36 +1389,24 @@ html[data-theme='dark'] .weq-dbm {
 
   .weq-dbm-hero-actions {
     grid-column: 1 / -1;
+  }
+
+  .weq-dbm-hero-actions:not(.is-summary) {
     justify-content: flex-start;
   }
 
   .weq-dbm-list > li {
     flex-basis: min(224px, 82%);
   }
-
-  .weq-dbm-foot {
-    flex-wrap: wrap;
-    gap: 8px;
-    padding: 10px 16px;
-  }
-
-  .weq-dbm-foot-actions {
-    margin-left: auto;
-  }
 }
 
 @media (max-width: 560px) {
-  .weq-dbm-title p {
-    display: none;
+  .weq-dbm-step-text strong {
+    white-space: normal;
   }
 
-  .weq-dbm-state {
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    gap: 0;
-    font-size: 0;
+  .weq-dbm-title p {
+    display: none;
   }
 
   .weq-dbm-step-text em {
@@ -1480,20 +1424,6 @@ html[data-theme='dark'] .weq-dbm {
 
   .weq-dbm-account {
     max-width: 72px;
-  }
-
-  .weq-dbm-foot {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .weq-dbm-foot-actions {
-    justify-content: space-between;
-    margin-left: 0;
-  }
-
-  .weq-dbm-foot-actions > .weq-set-btn-primary {
-    flex: 1 1 auto;
   }
 
   .weq-dbm-history-row {
@@ -1516,8 +1446,81 @@ html[data-theme='dark'] .weq-dbm {
   .weq-dbm-chevron {
     transition: none;
   }
+}
 
-  .weq-dbm-db:hover {
-    transform: none;
-  }
+/* 可交互的维护标签沿用原流程条的视觉。 */
+button.weq-dbm-step {
+  border: 0;
+  background: transparent;
+  color: var(--weq-fg-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+button.weq-dbm-step:hover {
+  background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
+}
+
+button.weq-dbm-step.is-current {
+  background: var(--dbm-surface);
+  color: var(--weq-fg-primary);
+}
+
+.weq-dbm-scan-databases {
+  min-width: 0;
+  min-height: 132px;
+}
+
+.weq-dbm-scan-databases .weq-dbm-list > li {
+  flex-grow: 1;
+  max-width: 280px;
+}
+
+.weq-dbm .weq-set-btn.weq-dbm-repair-start {
+  gap: 5px;
+  min-width: 128px;
+}
+
+.weq-dbm .weq-set-btn.weq-dbm-repair-start:is(.is-warn, .is-short) {
+  border-color: var(--dbm-space-border);
+  background: var(--dbm-space-tint);
+  color: var(--dbm-space-ink);
+  opacity: 1;
+}
+
+.weq-dbm-repair-start:is(.is-warn, .is-short)::before {
+  border-color: var(--dbm-space-border);
+}
+
+.weq-dbm-repair-estimate {
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.weq-dbm-repair-space-actions {
+  display: grid;
+  gap: 4px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-dbm-repair-space-actions .weq-dbm-text-btn {
+  font-size: inherit;
+}
+
+.weq-dbm-repair-space-actions > p[role='alert'] {
+  color: var(--dbm-space-warn-ink);
+}
+
+.weq-dbm-db.is-selectable:has(.weq-dbm-db-input:disabled) {
+  border-color: var(--dbm-hair);
+  background: var(--dbm-tint);
+  cursor: default;
+}
+
+.weq-dbm-db:has(.weq-dbm-db-input:disabled) .weq-dbm-db-name {
+  color: var(--weq-fg-secondary);
 }

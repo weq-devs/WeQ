@@ -34,6 +34,7 @@ import {
   mailAddress,
   mailFolders,
   mailSummary,
+  type MailObject,
   object,
   parseMailUnread,
   text,
@@ -384,6 +385,32 @@ export class QQMailService {
     return entry;
   }
 
+  /** 正文接口可能在 QQ 邮箱服务端推进已读，预览只使用简要详情接口。 */
+  async preview(
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<MailDetail & { bodyAvailable: boolean }> {
+    if (isMailThreadId(id))
+      return { ...(await this.read(id, signal, false)), bodyAvailable: false };
+    const entry = await this.fetchMailItem(id, 'metadata', signal);
+    return {
+      ...(await this.mailDetail(entry, id)),
+      bodyAvailable: typeof entry.content === 'string',
+    };
+  }
+
+  private async mailDetail(entry: MailObject, id: string): Promise<MailDetail> {
+    const html = await this.scoped((auth) =>
+      auth.redact(protectMailHtml(text(entry.content), this.attachments)),
+    );
+    return {
+      ...mailSummary(entry),
+      html,
+      replyTo: entry.replyto ? mailAddress(entry.replyto) : null,
+      attachments: this.attachments.fromMessage(entry, id),
+    };
+  }
+
   async read(id: string, signal?: AbortSignal, markRead = true): Promise<MailDetail> {
     if (isMailThreadId(id)) {
       const match = /^C(\d+)T(.+)$/.exec(id);
@@ -404,16 +431,7 @@ export class QQMailService {
       };
     }
     const entry = await this.fetchMailItem(id, 'body', signal);
-    const summary = mailSummary(entry);
-    const html = await this.scoped((auth) =>
-      auth.redact(protectMailHtml(text(entry.content), this.attachments)),
-    );
-    const detail: MailDetail = {
-      ...summary,
-      html,
-      replyTo: entry.replyto ? mailAddress(entry.replyto) : null,
-      attachments: this.attachments.fromMessage(entry, id),
-    };
+    const detail = await this.mailDetail(entry, id);
     if (markRead) {
       await this.action([id], 'read', signal);
       detail.unread = false;

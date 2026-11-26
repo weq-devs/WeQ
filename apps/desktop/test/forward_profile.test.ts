@@ -247,7 +247,7 @@ it('转发记录沿用时间分隔与元数据设置，仍仅头像打开名片'
     expect(open).toHaveBeenCalledOnce();
     expect(open).toHaveBeenLastCalledWith(
       expect.objectContaining({ id: '', identityValue: '10002', displayName: '本地昵称' }),
-      { x: 40, y: 60 },
+      { x: 40, y: 60, trigger: author.querySelector('button') },
       undefined,
     );
     expect(useForwardStore.getState().windows).toHaveLength(1);

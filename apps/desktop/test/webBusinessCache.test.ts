@@ -38,6 +38,27 @@ function memoryStore(): BusinessCacheStore {
 }
 
 describe('Web 业务持久缓存', () => {
+  it('恢复离线排序快照时丢弃批量加好友计数，保留共同属性计数和其他指标', async () => {
+    const storage = memoryStore();
+    const first = createQueryClient(true);
+    const stop = watchBusinessCache(first, 'scope', storage);
+    const cacheKey = nestedKey('contactMetrics.snapshot');
+    const cell = { state: 'ready', attemptedAt: 1, updatedAt: 1 };
+    const rows = {
+      'friend:123': { commonFriends: { ...cell, value: 25 }, level: { ...cell, value: 39 } },
+      'friend:456': { commonFriends: { ...cell, value: 31, source: 'commonAttributes' } },
+    };
+    first.setQueryData(cacheKey, { revision: 1, rows });
+    await stop();
+
+    const next = createQueryClient(true);
+    await restoreBusinessCache(next, 'scope', storage);
+    expect(next.getQueryData(cacheKey)).toEqual({
+      revision: 1,
+      rows: { 'friend:123': { level: rows['friend:123'].level }, 'friend:456': rows['friend:456'] },
+    });
+  });
+
   it.each([true, false])('冷启动恢复个人和群名片并按需刷新（Web=%s）', async (web) => {
     const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
     const other = { ...binding, expectedAccountConfigId: 'source-b' };

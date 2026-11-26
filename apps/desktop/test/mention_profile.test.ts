@@ -91,7 +91,7 @@ it('普通 @ 使用消息中的 UID 打开名片，传递群上下文并保留 U
       identityValue: 'u_unloaded',
       displayName: '合成成员',
     }),
-    { x: 80, y: 90 },
+    { x: 80, y: 90, trigger: mention },
     { code: '12345', name: '' },
   );
   expect(mention.title).toContain('u_unloaded');

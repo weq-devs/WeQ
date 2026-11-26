@@ -27,10 +27,6 @@ import '../styles/announcements.css';
 const AnnouncementPanel = lazy(() => import('./AnnouncementPanel'));
 const AnnouncementPreviewTitle = createContext<string | undefined>(undefined);
 const bannerKey = 'official-announcement';
-const inForeground = () =>
-  document.visibilityState === 'visible' &&
-  document.hasFocus() &&
-  !document.body.classList.contains('weq-tool-window');
 
 export function AnnouncementCenter({
   active,
@@ -43,9 +39,7 @@ export function AnnouncementCenter({
 }) {
   const [selection, setSelection] = useState<{ id?: string } | null>(null);
   const locked = useAppLock((state) => state.locked);
-  const [focused, setFocused] = useState(inForeground);
-  const inFlight = useRef(false);
-  const shown = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const locallyDismissed = useRef<string | null>(null);
   const allowed = useNotificationPolicy(
     (state) => state.ready && state.events.officialAnnouncement.banner,
   );
@@ -64,19 +58,9 @@ export function AnnouncementCenter({
       void utils.announcements.detail.invalidate();
     },
   });
-
   useEffect(() => {
-    const update = () => setFocused(inForeground());
-    update();
-    window.addEventListener('focus', update);
-    window.addEventListener('blur', update);
-    document.addEventListener('visibilitychange', update);
-    return () => {
-      window.removeEventListener('focus', update);
-      window.removeEventListener('blur', update);
-      document.removeEventListener('visibilitychange', update);
-    };
-  }, []);
+    if (active && allowed) void utils.announcements.list.invalidate();
+  }, [active, allowed, utils]);
 
   const close = useCallback(() => setSelection(null), []);
   const open = useCallback((id?: string) => {
@@ -84,76 +68,47 @@ export function AnnouncementCenter({
   }, []);
   const unread = showBadge ? (query.data?.unread ?? 0) : 0;
 
-  const clearBanner = useCallback(() => {
-    if (shown.current) clearTimeout(shown.current.timer);
-    shown.current = null;
-    useToast.getState().resolve(bannerKey);
-  }, []);
-  useEffect(() => clearBanner, [clearBanner]);
   useEffect(() => {
     if (locked) close();
-    if (
-      !active ||
-      locked ||
-      !allowed ||
-      (shown.current &&
-        query.data &&
-        !query.data.entries.some(
-          ({ id, unread, level }) => id === shown.current?.id && unread && level === 'important',
-        ))
-    )
-      clearBanner();
-  }, [active, allowed, clearBanner, close, locked, query.data]);
+  }, [close, locked]);
 
-  const canPresent = active && !locked && allowed && focused && !selection;
-  const presenting = useRef(canPresent);
-  presenting.current = canPresent;
-  const candidate = query.data?.reminder;
+  const reminder = active && allowed && !locked && !selection ? query.data?.reminder : null;
+  const reminderId = reminder?.id;
+  const title = reminder?.title;
+  const summary = reminder?.summary;
+  const expiresAt = reminder ? query.dataUpdatedAt + reminder.remainingMs : 0;
   useEffect(() => {
-    if (
-      !candidate ||
-      !canPresent ||
-      inFlight.current ||
-      !inForeground() ||
-      useToast.getState().toasts.some(({ key }) => key === bannerKey)
-    )
+    const toast = useToast.getState();
+    const remaining = expiresAt - Date.now();
+    if (!reminderId || !title || remaining <= 0 || locallyDismissed.current === reminderId) {
+      toast.resolve(bannerKey);
       return;
-    const start = performance.now();
-    inFlight.current = true;
-    void client.announcements.claimBanner
-      .mutate(candidate)
-      .then(async (lease) => {
-        if (!lease) return;
-        const elapsed = performance.now() - start;
-        const entries = utils.announcements.list.getData()?.entries;
-        const show =
-          presenting.current &&
-          inForeground() &&
-          elapsed < Math.min(lease.leaseMs, lease.remainingMs) &&
-          Boolean(entries?.some(({ id, unread }) => id === candidate && unread));
-        if (show) {
-          clearBanner();
-          useToast.getState().push({
-            event: 'officialAnnouncement',
-            key: bannerKey,
-            title: lease.title,
-            summary: lease.summary === lease.title ? undefined : lease.summary,
-            action: { label: '查看公告', icon: 'open', run: () => open(candidate) },
-            system: false,
-            source: null,
-          });
-          shown.current = {
-            id: candidate,
-            timer: setTimeout(clearBanner, Math.min(lease.remainingMs - elapsed, 2_147_483_647)),
-          };
-        }
-        await client.announcements.finishBanner.mutate({ token: lease.token, shown: show });
-      })
-      .catch(() => {})
-      .finally(() => {
-        inFlight.current = false;
-      });
-  }, [candidate, canPresent, clearBanner, open, query.dataUpdatedAt, utils]);
+    }
+    toast.push({
+      appWide: true,
+      event: 'officialAnnouncement',
+      key: bannerKey,
+      durationKind: 'long',
+      title,
+      summary: summary === title ? undefined : summary,
+      action: { label: '查看公告', icon: 'open', run: () => open(reminderId) },
+      onManualDismiss: () => {
+        locallyDismissed.current = reminderId;
+        void client.announcements.dismissBanner
+          .mutate(reminderId)
+          .catch((error: unknown) => console.warn('[announcements] 关闭提醒未同步', error));
+      },
+      system: false,
+    });
+    const timer = setTimeout(
+      () => {
+        toast.resolve(bannerKey);
+        void utils.announcements.list.invalidate();
+      },
+      Math.min(remaining, 2_147_483_647),
+    );
+    return () => clearTimeout(timer);
+  }, [expiresAt, open, reminderId, summary, title, utils]);
 
   return (
     <OpenAnnouncement.Provider value={open}>

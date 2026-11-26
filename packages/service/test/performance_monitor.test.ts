@@ -144,9 +144,10 @@ describe('宿主性能监视', () => {
   it('设置严格校验；缺失不冒充有效设置', () => {
     expect(normalizeMonitorSettings(DEFAULT_MONITOR_SETTINGS)).toEqual(DEFAULT_MONITOR_SETTINGS);
     for (const patch of [
-      { retentionDays: 0 },
+      { retentionDays: -1 },
       { retentionDays: 366 },
-      { capacityMiB: 1 },
+      { capacityMiB: 1.5 },
+      { capacityMiB: -1 },
       { fullUntil: NaN },
       { mode: 'debug' },
       { version: 2 },
@@ -159,6 +160,7 @@ describe('宿主性能监视', () => {
     });
     const { service, source } = await monitor();
     expect(service.settings).toEqual(DEFAULT_MONITOR_SETTINGS);
+    expect(service.settings.capacityMiB).toBe(256);
     await vi.advanceTimersByTimeAsync(1);
     await service.flush();
     const history = await service.history({
@@ -167,7 +169,7 @@ describe('宿主性能监视', () => {
       buckets: 100,
     });
     expect(history.points).toHaveLength(1);
-    await service.configure({ ...DEFAULT_MONITOR_SETTINGS, mode: 'off' });
+    await service.configure({ ...DEFAULT_MONITOR_SETTINGS, mode: 'off', capacityMiB: 1536 });
     const count = vi.mocked(source.collect).mock.calls.length;
     await vi.advanceTimersByTimeAsync(120_000);
     expect(source.collect).toHaveBeenCalledTimes(count);
@@ -179,7 +181,7 @@ describe('宿主性能监视', () => {
     const restored = new PerformanceMonitor(path, collector());
     monitors.push(restored);
     await restored.ready;
-    expect(restored.settings.mode).toBe('off');
+    expect(restored.settings).toMatchObject({ mode: 'off', capacityMiB: 1536 });
     expect((await restored.status()).records).toBeGreaterThan(0);
   });
   it('完整档到期回轻量；重启恢复剩余截止时间', async () => {
@@ -413,11 +415,20 @@ describe('性能历史 Worker', () => {
       event: 'startup',
     }));
     await request('batch', { records, settings: DEFAULT_MONITOR_SETTINGS });
-    const next = { ...DEFAULT_MONITOR_SETTINGS, retentionDays: 3 };
+    const unlimited = { ...DEFAULT_MONITOR_SETTINGS, retentionDays: 0 };
+    expect(await request('prune-preview', { settings: unlimited })).toMatchObject({
+      cutoff: null,
+      expiredRecords: 0,
+    });
+    await request('configure', { settings: unlimited, confirmPrune: false });
+    expect((await request<{ records: number }>('status')).records).toBe(2);
+    await request('configure', { settings: DEFAULT_MONITOR_SETTINGS });
+    const next = { ...DEFAULT_MONITOR_SETTINGS, retentionDays: 3, capacityMiB: 0 };
     const preview = await request<MonitorPrunePreview>('prune-preview', { settings: next });
     expect(preview).toMatchObject({
       records: 2,
       expiredRecords: 1,
+      capacityBudgetBytes: null,
       capacityExceeded: false,
       needsPrune: true,
     });
@@ -440,7 +451,7 @@ describe('性能历史 Worker', () => {
     const request = await worker(),
       now = Date.now();
     const settings = { ...DEFAULT_MONITOR_SETTINGS, capacityMiB: 4 };
-    const next = { ...settings, capacityMiB: 0.25 };
+    const next = { ...settings, capacityMiB: 0.25, retentionDays: 0 };
     await request('configure', { settings });
     expect(
       (await request<MonitorPrunePreview>('prune-preview', { settings: next })).needsPrune,

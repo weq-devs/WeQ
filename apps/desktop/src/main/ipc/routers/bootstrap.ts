@@ -12,7 +12,8 @@
  * underlying `AsyncIterable<KeyEvent>` converted to an `observable`.
  * superjson moves `bigint`s through unscathed.
  */
-import { OperationError, developmentDressToolsEnabled } from '@weq/service';
+import { OperationError, developmentDressToolsEnabled, MAX_LOG_RETENTION_DAYS } from '@weq/service';
+import { isHistoryCapacityMiB, type HistoryCapacityMiB } from '@weq/service/settings-catalog';
 import { measureDatabaseStartup } from '@weq/db';
 
 import { observable } from '@trpc/server/observable';
@@ -82,6 +83,7 @@ import {
   hasDesktopServices,
 } from '../../desktop_services/host';
 import { mcpCredentialId } from '../../desktop_services/mcp_gateway';
+import { mcpGrantInput } from '../../desktop_services/mcp_grants';
 import { assistantResourceServer } from '../../weq_assistant/server';
 import {
   installMcpAgents as installMcpAgentConfigs,
@@ -100,7 +102,11 @@ import {
   rescanSigner as rescanSignerImpl,
   type AccountForcedClosedEvent,
 } from '../../context/app_context';
-import { runLogRetentionSweep } from '../../log_retention';
+import {
+  assertLogPruneConfirmed,
+  planLogRetention,
+  runLogRetentionSweep,
+} from '../../log_retention';
 import { takePendingConversationJump, takePendingGroupJump } from '../../group_keyword_bus';
 import {
   accountSwitchSubscriberClosed,
@@ -145,6 +151,7 @@ import { normalizeQqDataRoot } from '@weq/platform';
 import { intentSenseModelProcedures, isIntentModelDownloading } from './intent_sense';
 import { enhancementProcedures } from './enhancements';
 import { startEnhancementDownloads } from '../../enhancements/tasks';
+import { ENHANCEMENT_PACK_IDS } from '../../../shared/enhancement_manifest';
 import { assertRuntimeFilesIdle, runtimeFileBusyPaths } from '../../context/runtime_files';
 import { runtimeMaintenance } from '../../runtime_maintenance';
 import { resolveSignerWrapper } from '../../context/signer_target';
@@ -181,6 +188,12 @@ function requireDebugCopyDesktop(): QqDebugCopyManager {
 function currentLiveAccountUin(): string | null {
   const { account, accountIsStatic } = getAppContext();
   return account && !accountIsStatic ? String(account.context.uin) : null;
+}
+
+function currentLiveAccountPid(): number | null {
+  const { accountIsStatic, services } = getAppContext();
+  const record = services?.accountConfig.getRecord();
+  return !accountIsStatic && record?.qqOnline ? (record.qqPid ?? null) : null;
 }
 
 /** Result of the QQ data-directory picker. */
@@ -326,7 +339,9 @@ function storageRoots(): StorageRoot[] {
   const host = getHost();
   return [
     ...(host.storageRoots?.() ?? []),
-    ...(host.exportRoot ? [{ path: host.exportRoot, label: 'Web 导出文件' }] : []),
+    ...(host.exportRoot
+      ? [{ path: host.exportRoot, label: 'Web 导出文件', category: 'work-products' as const }]
+      : []),
   ];
 }
 
@@ -579,45 +594,62 @@ export const bootstrapRouter = router({
     const platform = requirePlatform();
     if (platform.kind === 'darwin' && (await qqDebugCopy.isConfigured())) {
       const { phase, runningPids, sourceRunningPids } = await qqDebugCopy.status();
-      const switchingToDebugCopy = sourceRunningPids.length > 0;
-      const running = switchingToDebugCopy || runningPids.length > 0;
+      const pid = currentLiveAccountPid();
+      const switchingToDebugCopy =
+        runningPids.length === 0 && sourceRunningPids.length === 1 && sourceRunningPids[0] === pid;
       return {
-        running,
-        canRestart: running,
+        running: sourceRunningPids.length > 0 || runningPids.length > 0,
+        canRestart: switchingToDebugCopy || (pid !== null && runningPids.includes(pid)),
         switchingToDebugCopy,
         restarting: qqRestartInProgress() || phase !== 'idle',
       };
     }
     const count = await runningQqCount(platform.kind);
-    const uin = currentLiveAccountUin();
-    const canRestart = count !== null ? count > 0 : Boolean(uin && platform.resolveQqPid(uin));
+    const canRestart = currentLiveAccountPid() !== null && count !== 0;
     const running =
       count !== null ? count > 0 : canRestart || (platform.launcherCount() ?? 0) > 0 || null;
     return { running, canRestart, switchingToDebugCopy: false, restarting: qqRestartInProgress() };
   }),
 
   /** 启动宿主上已安装的 QQ，不自动登录或更改在线功能设置。 */
-  launchQq: procedure.mutation(async () => {
-    if (qqRestartInProgress()) throw new Error('正在重新启动 QQ，请稍候。');
-    const platform = requirePlatform();
-    if (platform.kind === 'darwin' && (await qqDebugCopy.isConfigured())) {
-      const status = await qqDebugCopy.status();
-      await qqDebugCopy.perform(status.runningPids.length ? 'activate' : 'open');
-    } else await launchQq(platform);
-    return true;
-  }),
+  launchQq: procedure
+    .input(z.object({ newInstance: z.boolean() }).optional())
+    .mutation(async ({ input }) => {
+      if (qqRestartInProgress()) throw new Error('正在重新启动 QQ，请稍候。');
+      const platform = requirePlatform();
+      const newInstance = input?.newInstance ?? false;
+      if (platform.kind === 'darwin' && (await qqDebugCopy.isConfigured())) {
+        const activate = !newInstance && (await qqDebugCopy.status()).runningPids.length > 0;
+        await qqDebugCopy.perform(activate ? 'activate' : 'open');
+      } else await launchQq(platform, newInstance);
+      return true;
+    }),
 
   restartQq: procedure.mutation(async () => {
     if (qqRestartInProgress()) throw new Error('正在重新启动 QQ，请稍候。');
     const platform = requirePlatform();
     const uin = currentLiveAccountUin();
     if (platform.kind === 'darwin' && (await qqDebugCopy.isConfigured())) {
-      const status = await qqDebugCopy.status();
-      if (status.sourceRunningPids.length) await qqDebugCopy.perform('switch');
-      else if (status.runningPids.length) {
+      const { runningPids, sourceRunningPids } = await qqDebugCopy.status();
+      const pid = uin
+        ? await (platform.resolveQqPidAsync?.(uin) ?? platform.resolveQqPid(uin))
+        : null;
+      if (pid === null) throw new Error('尚未检测到当前账号登录 QQ，请先登录。');
+      if (runningPids.includes(pid)) {
         await restartQq({ ...platform, qqExePath: () => qqDebugCopy.executablePath }, uin);
-      } else await qqDebugCopy.perform('open');
-    } else await restartQq(platform, uin);
+      } else if (
+        runningPids.length === 0 &&
+        sourceRunningPids.length === 1 &&
+        sourceRunningPids[0] === pid
+      ) {
+        await qqDebugCopy.perform('switch', pid);
+      } else {
+        throw new Error('当前 QQ 进程状态已变化，请重新检查或打开 QQ 登录窗口。');
+      }
+    } else {
+      if (!currentLiveAccountPid()) throw new Error('尚未检测到当前账号登录 QQ，请先登录。');
+      await restartQq(platform, uin);
+    }
     return true;
   }),
 
@@ -655,8 +687,25 @@ export const bootstrapRouter = router({
 
   qqDebugCopyStatus: procedure.query(() => requireDebugCopyDesktop().status()),
   qqDebugCopyAction: procedure
-    .input(z.object({ action: z.enum(QQ_DEBUG_COPY_ACTIONS) }))
-    .mutation(({ input }) => requireDebugCopyDesktop().perform(input.action)),
+    .input(
+      z.object({
+        action: z.enum(QQ_DEBUG_COPY_ACTIONS),
+        expectedSourcePid: z.number().int().positive().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const manager = requireDebugCopyDesktop();
+      if (input.action !== 'switch' || input.expectedSourcePid === undefined)
+        return manager.perform(input.action);
+      const uin = currentLiveAccountUin();
+      const platform = requirePlatform();
+      const pid = uin
+        ? await (platform.resolveQqPidAsync?.(uin) ?? platform.resolveQqPid(uin))
+        : null;
+      if (pid !== input.expectedSourcePid)
+        throw new Error('当前账号的 QQ 登录状态已变化，请重新检查。');
+      return manager.perform('switch', pid);
+    }),
   qqDebugCopyPermission: procedure
     .input(z.object({ action: z.enum(QQ_DEBUG_COPY_PERMISSION_ACTIONS) }))
     .mutation(async ({ input }) => {
@@ -792,14 +841,13 @@ export const bootstrapRouter = router({
     .input(z.object({ startup: z.boolean() }).optional())
     .query(({ input }) => {
       const config = requireBootstrap().userConfig;
-      if (getHost().startupReadOnly) return null;
-      return input?.startup ? config.getStartupAutoEnter() : config.getAutoEnter();
+      if (!input?.startup) return config.getAutoEnter();
+      return getHost().startupReadOnly ? null : config.getStartupAutoEnter();
     }),
 
   setAutoEnter: procedure
     .input(z.object({ uin: z.string(), dataDir: z.string().optional() }))
     .mutation(({ input }) => {
-      if (getHost().startupReadOnly) return false;
       const boot = requireBootstrap();
       const dataDir = input.dataDir ?? boot.globalConfig.accountDataDir(input.uin) ?? undefined;
       const configId = accountConfigId(input.uin, dataDir);
@@ -813,11 +861,17 @@ export const bootstrapRouter = router({
       return true;
     }),
 
-  clearAutoEnter: procedure.mutation(() => {
-    if (getHost().startupReadOnly) return false;
-    requireBootstrap().userConfig.clearAutoEnter();
-    return true;
-  }),
+  clearAutoEnter: procedure
+    .input(
+      z
+        .object({
+          configId: z.string().optional(),
+          uin: z.string(),
+          dataDir: z.string().optional(),
+        })
+        .optional(),
+    )
+    .mutation(({ input }) => requireBootstrap().userConfig.clearAutoEnter(input)),
 
   // ---- version (设置 → 版本) ----
 
@@ -1056,10 +1110,10 @@ export const bootstrapRouter = router({
   /** 各窗口与 Web 客户端读取同一宿主的有效运行态。 */
   getFullModeState: procedure.query(() => ({ allowed: fullModeAllowed(getAppContext()) })),
 
-  setRestrictedModeIndicatorEnabled: procedure
+  setQqStatusIndicatorEnabled: procedure
     .input(z.object({ enabled: z.boolean() }).strict())
     .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ restrictedModeIndicatorEnabled: input.enabled });
+      requireBootstrap().userConfig.setSettings({ qqStatusIndicatorEnabled: input.enabled });
       return true;
     }),
 
@@ -1085,18 +1139,19 @@ export const bootstrapRouter = router({
     const ctx = getAppContext();
     const { qqSyncRoot, userConfig } = requireBootstrap();
     const accountUin = ctx.account ? String(ctx.account.context.uin) : null;
+    const accountConfigId = ctx.services?.accountConfig.getRecord()?.configId ?? null;
     const liveAccount = accountUin !== null && !ctx.accountIsStatic;
     const sync = ctx.services?.qqClientSync;
     const protection = ctx.services?.antiRecall.protection();
     const preferences = readAccountQqSync(ctx);
     const status = await qqSyncStatus(qqSyncRoot);
+    const uses = {
+      sync: preferences.enabled,
+      liveMessages: preferences.liveMessages && userConfig.getSetting('realtimeEnabled'),
+      antiRecall: protection?.enabled === true && protection.method !== 'database',
+    };
     const connectionExpected =
-      status.enabled &&
-      liveAccount &&
-      Boolean(sync) &&
-      (preferences.enabled ||
-        (preferences.liveMessages && userConfig.getSetting('realtimeEnabled')) ||
-        (protection?.enabled === true && protection.method !== 'database'));
+      status.enabled && liveAccount && Boolean(sync) && Object.values(uses).some(Boolean);
     const connected = status.running && liveAccount && status.accounts.includes(accountUin);
     const connecting =
       status.running &&
@@ -1107,6 +1162,8 @@ export const bootstrapRouter = router({
     return {
       ...status,
       accountUin,
+      accountConfigId,
+      uses,
       connectionExpected,
       connected,
       connecting,
@@ -1136,13 +1193,6 @@ export const bootstrapRouter = router({
         liveMessages: input.enabled,
       });
       services.qqClientSync?.refreshLive();
-      return true;
-    }),
-
-  setQqProxyIndicatorEnabled: procedure
-    .input(z.object({ enabled: z.boolean() }).strict())
-    .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ qqProxyIndicatorEnabled: input.enabled });
       return true;
     }),
 
@@ -1449,18 +1499,43 @@ export const bootstrapRouter = router({
       return owner.setTypingStatusHidden(input.hidden);
     }),
 
-  /**
-   * 日志保留天数（设置 → 日志 → 日志保留时长）。0 = 永久保留。
-   *
-   * 写入后立即按新阈值清一轮：用户调小天数就是为了**马上**腾出空间，等到下一次
-   * 启动或后台定时（最长 6 小时）才生效会让人以为没生效。
-   */
+  previewLogRetention: procedure
+    .input(
+      z.object({
+        days: z.number().int().min(0).max(MAX_LOG_RETENTION_DAYS),
+        capacityMiB: z.custom<HistoryCapacityMiB>(isHistoryCapacityMiB),
+      }),
+    )
+    .query(
+      ({ input }) =>
+        planLogRetention({
+          logRetentionDays: input.days,
+          logCapacityMiB: input.capacityMiB,
+        }).preview,
+    ),
+
   setLogRetentionDays: procedure
-    .input(z.object({ days: z.number().int().min(0).max(365) }))
+    .input(
+      z.object({
+        days: z.number().int().min(0).max(MAX_LOG_RETENTION_DAYS).optional(),
+        capacityMiB: z.custom<HistoryCapacityMiB>(isHistoryCapacityMiB).optional(),
+        confirmPrune: z.boolean().optional(),
+        pruneConfirmation: z.string().nullable().optional(),
+      }),
+    )
     .mutation(({ input }) => {
-      requireBootstrap().userConfig.setSettings({ logRetentionDays: input.days });
-      runLogRetentionSweep(input.days);
-      return true;
+      const config = requireBootstrap().userConfig;
+      const policy = {
+        logRetentionDays: input.days ?? config.getSetting('logRetentionDays'),
+        logCapacityMiB: input.capacityMiB ?? config.getSetting('logCapacityMiB'),
+      };
+      const plan = planLogRetention(policy);
+      if (input.pruneConfirmation !== undefined)
+        assertLogPruneConfirmed(plan, input.pruneConfirmation);
+      if (plan.targets.size && input.confirmPrune === false)
+        throw new Error('当前日志会被新保存策略删除，请重新确认后保存');
+      config.setSettings(policy);
+      return runLogRetentionSweep(policy, plan);
     }),
 
   setDatabaseReadConcurrency: procedure
@@ -1619,16 +1694,26 @@ export const bootstrapRouter = router({
   setComposerFont: procedure
     .input(
       z.object({
-        choice: z.union([z.enum(['plain', 'qq']), z.number().int().min(1).max(0xffff)]).optional(),
-        send: z.boolean().optional(),
-        preview: z.boolean().optional(),
+        choice: z.union([z.literal('default'), z.number().int().min(1).max(0xffff)]),
       }),
     )
     .mutation(({ input }) => {
-      if (typeof input.choice === 'number' && !developmentDressToolsEnabled())
-        throw new Error('当前未开启个性装扮功能');
-      return requireBootstrap().userConfig.setSettings({ composerFont: input }).composerFont;
+      const { userConfig } = requireBootstrap();
+      if (typeof input.choice === 'number') {
+        if (!developmentDressToolsEnabled()) throw new Error('当前未开启个性装扮功能');
+        if (!userConfig.getSharedPreference('dress').installedFonts?.includes(input.choice))
+          throw new Error('这款字体已移除，请重新选择。');
+      }
+      return userConfig.setSettings({ composerFont: input }).composerFont;
     }),
+
+  setDefaultMessageFont: procedure
+    .input(z.object({ font: z.enum(['plain', 'account']) }))
+    .mutation(
+      ({ input }) =>
+        requireBootstrap().userConfig.setSettings({ defaultMessageFont: input.font })
+          .defaultMessageFont,
+    ),
 
   setShowGroupAssistantMessageCount: procedure
     .input(z.object({ enabled: z.boolean() }))
@@ -2087,18 +2172,20 @@ export const bootstrapRouter = router({
     if (ctx.authorize) throw new Error('请在桌面管理 MCP 授权。');
     return desktopServiceCommand<{
       accounts: { configId: string; displayName: string; uin: string; static: boolean }[];
-      grants: { id: string; label: string; configIds: string[]; primary?: true }[];
+      grants: {
+        id: string;
+        label: string;
+        configIds: string[];
+        writeConfigIds: string[];
+        primary?: true;
+      }[];
     }>('mcp.grants', undefined, () => ({ accounts: [], grants: [] }));
   }),
 
-  setMcpAccountGrant: procedure
-    .input(
-      z.object({ id: z.string().regex(/^[a-f0-9]{64}$/), configIds: z.array(z.string()).max(256) }),
-    )
-    .mutation(({ input, ctx }) => {
-      if (ctx.authorize || !hasDesktopServices()) throw new Error('请在桌面管理 MCP 授权。');
-      return desktopServiceCommand('mcp.grant', input, () => undefined);
-    }),
+  setMcpAccountGrant: procedure.input(mcpGrantInput).mutation(({ input, ctx }) => {
+    if (ctx.authorize || !hasDesktopServices()) throw new Error('请在桌面管理 MCP 授权。');
+    return desktopServiceCommand('mcp.grant', input, () => undefined);
+  }),
 
   createMcpAccountToken: procedure
     .input(z.object({ label: z.string().trim().min(1).max(64) }))
@@ -2337,7 +2424,7 @@ export const bootstrapRouter = router({
           const modelId = boot.userConfig.getLocalModelId('voice');
           const model = getVoiceModel(modelId);
           if (!model || !boot.voiceTranscribe.getModelStatus(modelId)?.downloaded)
-            return { success: false, error: '请先在「设置 → 增强功能 → 增强包」准备本地语音转写' };
+            return { success: false, error: '请先在「设置 → 能力 → 增强包」准备本地语音转写' };
           const { model: modelPath, tokens } = boot.voiceTranscribe.resolveModelPaths(modelId);
           if (!modelPath || !tokens) return { success: false, error: '本地语音模型文件缺失' };
           const { transcribeWav } = await import('../../transcribe/engine');
@@ -2946,6 +3033,11 @@ export const bootstrapRouter = router({
           }
           if (input.afterExit) {
             assertRuntimeFilesIdle();
+            if (targets.some((item) => item.exitOnly && item.category === 'app-resources')) {
+              const { packs } = requireBootstrap().enhancements;
+              if (ENHANCEMENT_PACK_IDS.some((id) => packs.isPreparing(id) || packs.isRemoving(id)))
+                throw new Error('增强包正在下载或删除，请等待完成后再清理');
+            }
             if (targets.some((item) => storageRestartCandidates.get(item.id) !== item.path))
               throw new Error('请先执行直接清理，只能重试其中被占用的剩余项目');
             await host.clearStorageAfterExit(targets);
@@ -3541,21 +3633,19 @@ export const bootstrapRouter = router({
 
   /** 仅桌面首屏领走启动页与失败信息，重载不重设栏目、不重复弹错。 */
   desktopStartup: procedure.query(async (): Promise<StartupResult> => {
-    if (getHost().startupReadOnly) return desktopStartupAccount.attach();
-    // 正常启动已由主进程调度；文件恢复曾失败时，在恢复成功后补上未开始的任务。
-    await desktopStartupAccount.start(() =>
-      openStartupAccount(
-        requireBootstrap().userConfig,
-        bootstrapRouter.createCaller({}),
-        process.platform === 'darwin',
-      ),
-    );
-    return desktopStartupAccount.attach();
+    const config = requireBootstrap().userConfig;
+    if (!getHost().startupReadOnly) {
+      // 正常启动已由主进程调度；文件恢复曾失败时，在恢复成功后补上未开始的任务。
+      void desktopStartupAccount().start(() =>
+        openStartupAccount(config, bootstrapRouter.createCaller({}), process.platform === 'darwin'),
+      );
+    }
+    return desktopStartupAccount().attach(config.getStartupPage());
   }),
 
   /** 等待后台启动任务后接回实际账号，Web 同时连接也不能重复开库。 */
   currentAccount: procedure.query(async () => {
-    await desktopStartupAccount.wait();
+    await desktopStartupAccount().wait();
     const account = getAppContext().account;
     return account ? { uin: String(account.context.uin) } : null;
   }),

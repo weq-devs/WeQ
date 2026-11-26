@@ -3,6 +3,7 @@ import { getQueryKey } from '@trpc/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import type { inferRouterOutputs } from '@trpc/server';
 import type { AppRouter } from '../../../shared/router';
+import { REMOTE_WORKSPACE_KEY } from '../../../shared/remote_account_switch';
 import { trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { isRemoteClient } from './remoteClient';
@@ -12,7 +13,6 @@ import {
   setRemoteWorkspaceCheckPending,
 } from './remoteWorkspaceCheck';
 
-const startupKey = 'weq.remote-web-startup.v1';
 const updatingKey = 'weq.remote-web-updating';
 const releaseNoticeKey = 'remote-web-release';
 export const remoteReleasePath = '/_weq-remote-local/release';
@@ -61,7 +61,7 @@ export function notifyRemoteReload(id: string) {
 export function readRemoteWorkspace(): CachedWorkspace | undefined {
   if (!isRemoteClient() || location.hostname !== '127.0.0.1') return;
   try {
-    const raw = localStorage.getItem(startupKey);
+    const raw = localStorage.getItem(REMOTE_WORKSPACE_KEY);
     if (!raw) return;
     const value = JSON.parse(raw) as Partial<CachedWorkspace>;
     if (
@@ -92,7 +92,7 @@ export function saveRemoteWorkspace(
   if (!isRemoteClient() || location.hostname !== '127.0.0.1') return;
   try {
     if (!config || settings.appLock?.enabled || privateMode) {
-      localStorage.removeItem(startupKey);
+      localStorage.removeItem(REMOTE_WORKSPACE_KEY);
       return;
     }
     const { uin, configId, static: staticMode, mobile } = config;
@@ -105,14 +105,14 @@ export function saveRemoteWorkspace(
       page: page === 'messages' || page === 'home' ? page : null,
       preferRemoteCdn: settings.preferRemoteCdn,
     };
-    localStorage.setItem(startupKey, JSON.stringify(value));
+    localStorage.setItem(REMOTE_WORKSPACE_KEY, JSON.stringify(value));
   } catch {}
 }
 
 export function clearRemoteWorkspace() {
   if (!isRemoteClient()) return;
   try {
-    localStorage.removeItem(startupKey);
+    localStorage.removeItem(REMOTE_WORKSPACE_KEY);
   } catch {}
 }
 

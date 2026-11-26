@@ -217,6 +217,22 @@ describe('开发进程输出', () => {
     expect(await finished).toBe(143);
     expect(process.listenerCount('SIGTERM')).toBe(before);
   });
+  it.runIf(process.platform === 'darwin')('进程组退出时遇到 EPERM 仍返回子进程退出码', async () => {
+    const child = spawn(process.execPath, ['-e', 'process.exitCode = 7'], { detached: true });
+    const realKill = process.kill;
+    const kill = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid === -child.pid! && signal === 'SIGTERM') {
+        throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
+      }
+      return realKill(pid, signal);
+    });
+    try {
+      expect(await superviseDevelopmentChild(child, true)).toBe(7);
+      expect(kill).toHaveBeenCalledWith(-child.pid!, 'SIGTERM');
+    } finally {
+      kill.mockRestore();
+    }
+  });
   it.skipIf(process.platform === 'win32')(
     '开发进程退出后清理本次进程组中的后代，不等待遗留输出管道',
     async () => {

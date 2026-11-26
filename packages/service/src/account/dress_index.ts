@@ -7,9 +7,9 @@ import { getHost, type HostBridge } from '../common/host';
 import type { downloadUrlToFile } from './media_url';
 import { ManagedDownload } from '../common/managed_download';
 import { writeFileAtomicSync } from '../common/atomic_write';
+import { DRESS_INDEX_KINDS, type DressIndexKind } from '../common/dress_index_kinds';
 
-export const DRESS_INDEX_KINDS = ['bubble', 'font', 'widget'] as const;
-export type DressIndexKind = (typeof DRESS_INDEX_KINDS)[number];
+export { DRESS_INDEX_KINDS, type DressIndexKind } from '../common/dress_index_kinds';
 
 interface DressIndexManifestBase {
   schemaVersion: 1;

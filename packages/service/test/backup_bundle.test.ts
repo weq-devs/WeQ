@@ -8,6 +8,7 @@ import {
   weqBackupPart,
   WEQ_BACKUP_LIMITS,
   WEQ_BACKUP_VERSION,
+  WEQ_SELECTIVE_BACKUP_VERSION,
   type WeqBackupFile,
 } from '../src/bootstrap/backup_bundle';
 
@@ -194,7 +195,7 @@ describe('WeQ 版本化备份格式', () => {
     expect(() =>
       readWeqBackup(
         rewriteManifest((value) => {
-          value.version = WEQ_BACKUP_VERSION + 1;
+          value.version = WEQ_SELECTIVE_BACKUP_VERSION + 1;
         }),
       ),
     ).toThrow('版本');

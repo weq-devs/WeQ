@@ -453,6 +453,27 @@ export interface WalCheckpointResult {
  */
 export type RecoverPhase = 'Scan' | 'Decrypt' | 'Repair' | 'Encrypt' | 'Restore' | 'Verify';
 
+export interface SingleBytePageCorrection {
+  page: number;
+  offset: number;
+  originalByte: number;
+  replacementByte: number;
+}
+
+export interface QuickPageEvidence {
+  freeLeaves: number[];
+  backupMatches: number[];
+  singleByteCorrection?: SingleBytePageCorrection;
+}
+
+export type QuickRepairFailure = 'scan-ineligible' | 'page-evidence-missing' | 'clone-unavailable';
+
+export interface QuickRepairAssessment {
+  evidence?: QuickPageEvidence;
+  budgetBytes?: number;
+  failure?: QuickRepairFailure;
+}
+
 /** `recoverDatabase` 的入参。 */
 export interface RecoverOptions {
   /** 加密的 QQ 库路径（含 1024 字节自定义头）。**本函数不会修改它**。 */
@@ -488,6 +509,7 @@ export interface RecoverOptions {
   targetLayout?: 'qq' | 'standard';
   /** 同一维护锁内已完成的源库扫描，修复不得重新扫描源库。 */
   sourceScan?: BadPageScanResult;
+  singleByteCorrection?: SingleBytePageCorrection;
 }
 
 /** 一次进度回调（napi 的 TSFN 约定：第一个参数是投递失败的错误）。 */
@@ -498,6 +520,8 @@ export interface RecoverProgress {
   /** 给用户看的短句，例如"正在恢复 group_msg_table（第 1024/22454 页）"。 */
   message: string;
   detail?: DatabaseProgress;
+  /** 深度重建主产物的逻辑字节数，不含 QQ 文件头或日志。 */
+  rebuiltBytes?: number;
 }
 
 /** 原生数据库维护的真实工作量；total 缺省表示没有可靠分母。 */
@@ -510,6 +534,8 @@ export interface DatabaseProgress {
   objectName?: string;
   badPages?: number;
   zeroPages?: number;
+  processedFields?: number;
+  locatedPages?: number;
 }
 
 /** 单个阶段的耗时。 */
@@ -1134,6 +1160,15 @@ export interface NtHelperBinding {
     algo: DatabaseAlgorithms,
     onProgress?: (error: Error | null, progress: DatabaseProgress) => void,
   ): Promise<BadPageScanResult>;
+  /** 返回从 firstPage 开始的扫描结果，并增量回报已完成的连续页区间。 */
+  scanBadPagesFrom?(
+    dbPath: string,
+    key: string,
+    algo: DatabaseAlgorithms,
+    firstPage: number,
+    onProgress?: (error: Error | null, progress: DatabaseProgress) => void,
+    onCheckpoint?: (error: Error | null, checkpoint: BadPageScanCheckpoint) => void,
+  ): Promise<BadPageScanResult>;
   /**
    * 列出当前被 L3（整表放弃）隔离的表。进程内状态，条目有存活时间（默认 300 秒）。
    */
@@ -1156,12 +1191,48 @@ export interface NtHelperBinding {
   beginDatabaseMaintenance?(
     id: string,
     targets: Array<{ dbPath: string; key: string; algo: DatabaseAlgorithms }>,
+    onProgress?: (error: Error | null, progress: DatabaseProgress) => void,
   ): Promise<Array<{ dbPath: string; error?: string }>>;
   protectDatabaseMaintenanceProduct?(id: string, dbPath: string, product: string): void;
   endDatabaseMaintenance?(id: string): boolean;
   setDatabaseMaintenanceWriteBarrier?(id: string, paths: string[], enabled: boolean): void;
   /** 1 = 提前释放明文源库并直接写带头产物；旧模块没有该方法。 */
   databaseRepairStorageVersion?(): number;
+  recoverDatabaseStreaming?(
+    options: RecoverOptions,
+    onProgress?: (error: Error | null, progress: RecoverProgress) => void,
+  ): Promise<RecoverReport>;
+  locateDatabaseBadPages?(
+    dbPath: string,
+    key: string,
+    algo: DatabaseAlgorithms,
+    pages: number[],
+    onProgress?: (error: Error | null, progress: DatabaseProgress) => void,
+  ): Promise<{ name: string; pagetype: string; badPageCount: number; samplePages: number[] }[]>;
+  inspectDatabaseQuickPages?(
+    dbPath: string,
+    key: string,
+    algo: DatabaseAlgorithms,
+    pages: number[],
+    references: string[],
+    onProgress?: (error: Error | null, progress: DatabaseProgress) => void,
+  ): Promise<QuickPageEvidence>;
+  assessDatabaseQuickRepair?(
+    dbPath: string,
+    key: string,
+    algo: DatabaseAlgorithms,
+    scan: BadPageScanResult,
+    sourceLayout: 'qq' | 'standard',
+    references: string[],
+    onProgress?: (error: Error | null, progress: DatabaseProgress) => void,
+  ): Promise<QuickRepairAssessment>;
+  cloneDatabaseRepairBackup?(source: string, target: string): Promise<void>;
+  probeDatabaseCloneBudget?(directory: string): Promise<number>;
+  repairDatabaseQuick?(
+    options: RecoverOptions,
+    references: string[],
+    onProgress?: (error: Error | null, progress: RecoverProgress) => void,
+  ): Promise<RecoverReport>;
   /**
    * 消费同一维护锁内的 sourceScan，产出新库：解密（不校验页 HMAC，
    * 所以坏页也能救回大部分 cell）→ SQLite 官方 `recover` 重建 → 用 QQ 的参数
@@ -1359,6 +1430,11 @@ export interface NtHelperBinding {
    * 早于该开关的 nt_helper 会忽略第三个参数（只做转换），所以调用方不必探测版本。
    */
   convertFont(inputPath: string, outputPath: string, options?: ConvertFontOptions): string;
+  convertFontAsync?(
+    inputPath: string,
+    outputPath: string,
+    options?: ConvertFontOptions,
+  ): Promise<string>;
 
   /**
    * 字体转换链的版本号（nt_helper 的 `FONT_PIPELINE_VERSION`）。
@@ -1714,6 +1790,14 @@ export interface QuarantinedTable {
   since: number;
   /** 隔离时已连续失败次数。 */
   failures: number;
+}
+
+/** 已检查的连续页区间及本批新增的异常页，nextPage 不包含在本批内。 */
+export interface BadPageScanCheckpoint {
+  firstPage: number;
+  nextPage: number;
+  badPages: number[];
+  zeroPages: number[];
 }
 
 /** 坏页扫描（"坏页地图"）的结果。 */

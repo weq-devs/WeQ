@@ -16,6 +16,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
+import { applyRestoredHostPreferences } from '@weq/desktop/main/context/backup_host_preferences';
 import { weqAppDataRoot } from '@weq/platform';
 import { AccountInstances } from '@weq/desktop/main/account_instances';
 import { setAccountInstanceScope } from '@weq/desktop/main/account_instance_scope';
@@ -24,11 +25,13 @@ import { DEFAULT_SERVICE_PORTS } from '@weq/service/service-ports';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  weqBackupRestoreStatus,
   setHost,
-  initLogger,
+  initRuntimeLogging,
   configureDevelopmentLogging,
   flushFileLogger,
   getLogger,
+  logErrorContext,
 } from '@weq/service';
 import {
   initAppContext,
@@ -67,6 +70,7 @@ const isLoopback = HOST === '127.0.0.1' || HOST === 'localhost' || HOST === '::1
  * reference would throw ReferenceError rather than yield undefined.
  */
 declare const __WEQ_VERSION__: string;
+declare const __WEQ_BUILD_REVISION__: { commit: string | null; builtAt: string } | undefined;
 const VERSION = ((): string => {
   try {
     return __WEQ_VERSION__;
@@ -100,6 +104,14 @@ async function main(): Promise<void> {
     process.env.WEQ_DATA_DIR || join(process.cwd(), 'weq-data'),
     desktopRoot,
   );
+  const mode = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+  configureDevelopmentLogging(mode === 'development', 'web-server');
+  initRuntimeLogging(DATA_DIR, {
+    version: VERSION,
+    build: typeof __WEQ_BUILD_REVISION__ === 'undefined' ? undefined : __WEQ_BUILD_REVISION__,
+    mode,
+    host: 'web',
+  });
   const directoryOwner = new AccountInstances(DATA_DIR);
   try {
     directoryOwner.claim('standalone-web');
@@ -107,16 +119,14 @@ async function main(): Promise<void> {
     throw new Error('无法独占独立 Web 数据目录，请检查是否已有 Web 进程在使用。', { cause: error });
   }
   process.once('exit', () => directoryOwner.dispose());
-  configureDevelopmentLogging(process.env.NODE_ENV !== 'production', 'web-server');
   getLogger().info('WeQ Web 启动', {
     scope: 'web',
     event: 'startup',
     version: VERSION,
-    mode: process.env.NODE_ENV === 'production' ? 'production' : 'development',
+    mode,
     platform: process.platform,
     arch: process.arch,
   });
-  initLogger(DATA_DIR);
   // The native addon writes its own log through a separate path that would
   // otherwise default to `<cwd>/logs`, dropping files into the release bundle.
   process.env.WEQ_LOG_DIR ??= join(DATA_DIR, 'logs');
@@ -148,10 +158,18 @@ async function main(): Promise<void> {
     createNodeCollector(performanceDatabaseDetails),
   );
   const files = getBackupContext();
-  if (files.ok)
+  if (files.ok) {
     void finishPerformanceRecordingReset(files.config).catch((error: unknown) => {
       console.warn('[web] 恢复性能记录档位未完成:', error);
     });
+    const pending = files.result?.hostPending
+      ? files.result
+      : weqBackupRestoreStatus(files.root).result;
+    if (pending?.hostPending)
+      void applyRestoredHostPreferences(files.root, pending, false).catch((error: unknown) => {
+        console.warn('[web] 应用备份中的本机设置失败:', error);
+      });
+  }
 
   const assistant = getAppContext().bootstrap?.userConfig.getSettings().weqAssistant;
   if (assistant?.enabled)
@@ -208,6 +226,11 @@ async function main(): Promise<void> {
 }
 
 main().catch(async (e) => {
+  getLogger().error('WeQ Web 启动失败', {
+    scope: 'web',
+    event: 'startup-web-failed',
+    ...logErrorContext(e),
+  });
   console.error('[web] failed to start:', e);
   await flushFileLogger();
   process.exit(1);

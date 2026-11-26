@@ -132,6 +132,24 @@ describe('独立资源沿用导出任务生命周期', () => {
     expect(readFileSync(target, 'utf8')).toBe('existing');
     expect(readFileSync(saved, 'utf8')).toBe('downloaded');
   });
+  it('原位结束的下载失败离页或重启后仍不进入任务列表', async () => {
+    const f = fixture();
+    const id = await f.manager.startResourceExport({
+      name: '附件',
+      kind: 'media',
+      foreground: true,
+      browserOutput: true,
+      run: async () => {
+        throw new Error('合成的下载失败');
+      },
+    });
+    await f.done();
+    expect(f.manager.getTask(id)?.status).toBe('failed');
+    expect(f.manager.backgroundResourceTask(id, true)).toBe(false);
+    expect(f.manager.listTasks(true)).toEqual([]);
+    const restored = new ExportTaskManager({} as MsgService, f.cache);
+    expect(restored.listTasks(true)).toEqual([]);
+  });
   it('单文件下载取消时丢弃暂存文件，不发布目标', async () => {
     const f = fixture();
     const target = join(f.root, 'attachment.bin');

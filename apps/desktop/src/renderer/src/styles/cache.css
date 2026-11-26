@@ -418,6 +418,12 @@
   font-weight: 600;
 }
 
+.weq-cache-dbpick-purpose {
+  color: var(--weq-fg-secondary);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
 .weq-cache-dbpick-item small {
   font-size: 11px;
   color: #8a94a4;
@@ -3076,15 +3082,13 @@ html[data-theme='dark'] .weq-related-stage {
   transition:
     border-color 130ms ease,
     background-color 130ms ease,
-    box-shadow 130ms ease,
-    transform 130ms ease;
+    box-shadow 130ms ease;
 }
 
 .weq-mpack-card:hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
   background: #ffffff;
   box-shadow: 0 12px 28px -18px color-mix(in srgb, var(--weq-accent-effective) 70%, transparent);
-  transform: translateY(-1px);
 }
 
 .weq-mpack-cover {
@@ -4709,13 +4713,11 @@ html[data-theme='dark'] .weq-filerow-name {
   transition:
     border-color 130ms ease,
     background-color 130ms ease,
-    transform 130ms ease,
     box-shadow 130ms ease;
 }
 .weq-clean-mode:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 45%, transparent);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
-  transform: translateY(-1px);
 }
 .weq-clean-mode:disabled {
   opacity: 0.5;
@@ -5927,4 +5929,26 @@ html[data-theme='dark'] .weq-mpack-skel-card {
   height: 10px;
   border-radius: 999px;
   opacity: 0.7;
+}
+
+.weq-cache-grid-placeholder {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 24px;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-cache-grid-placeholder .weq-empty-state {
+  flex: none;
+  min-height: 0;
+  padding: 16px;
+}
+
+.weq-cache-grid-placeholder .weq-cache-btn {
+  flex: none;
 }

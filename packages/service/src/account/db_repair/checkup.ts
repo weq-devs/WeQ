@@ -22,17 +22,26 @@ export class DatabaseScanUnsupportedError extends Error {
   }
 }
 export {
+  DATABASE_REPAIR_BACKUP_MODES,
+  MAX_DATABASE_CHECKUP_CONCURRENCY,
+  type DatabaseRepairBackupMode,
   databaseReadyForRepair,
+  databaseNeedsPageLocation,
+  databaseCanCheckQuickRepair,
+  databaseRepairRecommendation,
   verifiedDatabaseScans,
   summarizeDatabaseMaintenance,
   databaseRepairSupportLabel,
   databaseMaintenanceKindLabel,
+  databaseMaintenanceOperationLabel,
   databaseMaintenanceStatusLabel,
   databaseRepairStatusLabel,
   databaseMaintenanceRowAbnormal,
 } from './maintenance_types';
 export type {
   DatabaseMaintenanceSnapshot,
+  DatabaseRepairMethod,
+  DatabasePageLocation,
   DatabaseMaintenanceReport,
   DatabaseMaintenanceRow,
   DatabaseMaintenanceStatus,

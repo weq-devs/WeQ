@@ -1,3 +1,4 @@
+import { filterByName } from '../../lib/nameSearch';
 import { CalendarDateField } from '../../components/CalendarDateField';
 import { TimeLabel } from '../../components/TimeLabel';
 import * as timeFormat from '@weq/time';
@@ -84,13 +85,16 @@ function ObjectPicker({
   loading?: boolean;
 }) {
   const [query, setQuery] = useState('');
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
-    if (!needle) return items;
-    return items.filter((item) =>
-      `${item.name}\n${item.detail}`.toLocaleLowerCase().includes(needle),
-    );
-  }, [items, query]);
+  const filtered = useMemo(
+    () =>
+      filterByName(
+        items,
+        query,
+        (item) => [item.name],
+        (item, needle) => `${item.name}\n${item.detail}`.toLocaleLowerCase().includes(needle),
+      ),
+    [items, query],
+  );
   return (
     <div className="weq-analysis-picker">
       <div className="weq-analysis-picker-head">

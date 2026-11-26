@@ -11,12 +11,12 @@ afterEach(() => {
   for (const root of roots) rmSync(root, { recursive: true, force: true });
   roots.length = 0;
 });
-function setup(cleanExit?: boolean) {
+function setup(cleanExit?: boolean, shared = false) {
   const root = mkdtempSync(join(tmpdir(), 'weq-auto-enter-'));
   roots.push(root);
   writeFileSync(join(root, 'config.json'), JSON.stringify({ cleanExit }));
   const platform = { kind: 'linux', appDataRoot: () => root } as unknown as Platform;
-  return () => new UserConfigService(platform);
+  return () => new UserConfigService(platform, shared);
 }
 it('登录页退出只跳过下次自动进入，不修改目标，同次启动重复读取也跳过', () => {
   const restart = setup();
@@ -39,6 +39,21 @@ it('账号内退出及旧配置仍按自动进入偏好启动', () => {
   config.setSkipAutoEnterOnce(true);
   config.setSkipAutoEnterOnce(false);
   expect(restart().getStartupAutoEnter()).toEqual(target);
+});
+
+it('在旧窗口关闭默认进入前，另一个窗口设为默认的同号数据源仍会保留', () => {
+  const openWindow = setup(undefined, true);
+  const first = openWindow();
+  const target = { uin: '10001', configId: 'live', dataDir: '/fixture/live' };
+  const next = { ...target, configId: 'backup', dataDir: '/fixture/backup' };
+  first.setAutoEnter(target);
+  const second = openWindow();
+  second.setAutoEnter(next);
+
+  expect(first.clearAutoEnter(target)).toBe(false);
+  expect(openWindow().getAutoEnter()).toEqual(next);
+  expect(first.clearAutoEnter(next)).toBe(true);
+  expect(openWindow().getAutoEnter()).toBeNull();
 });
 
 it.each([undefined, false, true])('退出标记为 %s 时，重新启动始终遵循启动页面偏好', (cleanExit) => {

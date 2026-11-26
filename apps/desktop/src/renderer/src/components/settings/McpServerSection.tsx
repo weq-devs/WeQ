@@ -37,6 +37,7 @@ import {
   RotateCcw,
   Save,
   Square,
+  UserRoundCheck,
 } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { IS_WEB } from '../../lib/target.shared';
@@ -45,6 +46,8 @@ import { useTabActive } from '../RetainedTabs.shared';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
+import { SegmentedControl } from '../SegmentedControl';
+import type { McpAccountPermission } from '../../../../main/desktop_services/mcp_grants';
 import { Card, QueryError, Row, SectionHeader, Toggle } from './controls';
 import '../../styles/settings-services.css';
 
@@ -103,7 +106,7 @@ export function McpServerSection(): ReactElement {
     if (!active) setReveal(false);
   }, [active]);
   const [copiedToken, setCopiedToken] = useState(false);
-  const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState<'standard' | 'compact' | null>(null);
   const [copiedConfig, setCopiedConfig] = useState(false);
   const [portDraft, setPortDraft] = usePageState('mcp:port', '', pageValue.string, true);
   usePageDraftConfirmation(
@@ -165,7 +168,7 @@ export function McpServerSection(): ReactElement {
   useEffect(() => {
     if (!active) {
       setCopiedToken(false);
-      setCopiedUrl(false);
+      setCopiedUrl(null);
       setCopiedConfig(false);
     }
     return () => {
@@ -185,7 +188,7 @@ export function McpServerSection(): ReactElement {
       if (copyTimer.current !== null) window.clearTimeout(copyTimer.current);
       copyTimer.current = window.setTimeout(() => {
         setCopiedToken(false);
-        setCopiedUrl(false);
+        setCopiedUrl(null);
         setCopiedConfig(false);
         copyTimer.current = null;
       }, 1500);
@@ -373,15 +376,37 @@ export function McpServerSection(): ReactElement {
               : '—'
           }
           control={
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-              disabled={!data?.url}
-              onClick={() => void copyText(data?.url ?? '', () => setCopiedUrl(true))}
-            >
-              {copiedUrl ? <Check size={13} className="weq-set-ok" /> : <Copy size={13} />}
-              复制地址
-            </button>
+            <div className="weq-set-btn-group">
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                disabled={!data?.url}
+                onClick={() => void copyText(data?.url ?? '', () => setCopiedUrl('standard'))}
+              >
+                {copiedUrl === 'standard' ? (
+                  <Check size={13} className="weq-set-ok" />
+                ) : (
+                  <Copy size={13} />
+                )}
+                复制地址
+              </button>
+              {data?.sharedService && data.url ? (
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+                  onClick={() =>
+                    void copyText(`${data.url}/mcp/compact`, () => setCopiedUrl('compact'))
+                  }
+                >
+                  {copiedUrl === 'compact' ? (
+                    <Check size={13} className="weq-set-ok" />
+                  ) : (
+                    <Copy size={13} />
+                  )}
+                  复制精简地址
+                </button>
+              ) : null}
+            </div>
           }
         />
       </Card>
@@ -654,7 +679,7 @@ function McpAccountAccess({ active }: { active: boolean }) {
   const grants = new Map(access.data?.grants.map((grant) => [grant.id, grant]));
   // 创建成功即显示一次性令牌，账号授权列表刷新失败时也能复制。
   for (const { id, label } of createdById.values()) {
-    if (!grants.has(id)) grants.set(id, { id, label, configIds: [] });
+    if (!grants.has(id)) grants.set(id, { id, label, configIds: [], writeConfigIds: [] });
   }
 
   function dismissToken(id: string) {
@@ -679,7 +704,8 @@ function McpAccountAccess({ active }: { active: boolean }) {
     <div className="weq-set-mcp-access">
       <Card
         title="令牌可访问的账号"
-        desc="为每个令牌勾选可访问的账号。修改后，相关客户端需重新连接。"
+        icon={<UserRoundCheck size={15} strokeWidth={1.8} />}
+        desc="为每个令牌设置各账号的权限。「读取和操作」还允许通过 MCP 发送消息和执行 QQ 在线操作。修改后，相关客户端需重新连接。"
       >
         {access.error ? (
           <QueryError
@@ -723,30 +749,41 @@ function McpAccountAccess({ active }: { active: boolean }) {
                   onDismiss={() => dismissToken(grant.id)}
                 />
               ) : null}
-              {accounts?.map((account) => (
-                <Row
-                  key={account.configId}
-                  label={account.displayName}
-                  desc={`${account.uin}${account.static ? ' · 静态备份' : ''}`}
-                  control={
-                    <Toggle
-                      label={`允许${grant.label}访问${account.displayName}`}
-                      checked={grant.configIds.includes(account.configId)}
-                      disabled={busy}
-                      onChange={(enabled) =>
-                        void act(() =>
-                          client.bootstrap.setMcpAccountGrant.mutate({
-                            id: grant.id,
-                            configIds: enabled
-                              ? [...grant.configIds, account.configId]
-                              : grant.configIds.filter((configId) => configId !== account.configId),
-                          }),
-                        )
-                      }
-                    />
-                  }
-                />
-              ))}
+              {accounts?.map(({ configId, displayName, uin, static: isStatic }) => {
+                const canRead = grant.configIds.includes(configId);
+                const canOperate = !isStatic && grant.writeConfigIds?.includes(configId);
+                const permission = !canRead ? 'none' : canOperate ? 'operate' : 'read';
+                const accountDesc = `${uin}${isStatic ? ' · 静态备份' : ''}`;
+                return (
+                  <Row
+                    key={configId}
+                    label={displayName}
+                    desc={accountDesc}
+                    control={
+                      <SegmentedControl<McpAccountPermission>
+                        label={`${grant.label} · ${displayName}（${accountDesc}）权限`}
+                        value={permission}
+                        disabled={busy}
+                        options={[
+                          { value: 'none', label: '不授权' },
+                          { value: 'read', label: '只读' },
+                          { value: 'operate', label: '读取和操作', hidden: isStatic },
+                        ]}
+                        onChange={(nextPermission) => {
+                          if (nextPermission === permission) return;
+                          void act(() =>
+                            client.bootstrap.setMcpAccountGrant.mutate({
+                              id: grant.id,
+                              configId,
+                              permission: nextPermission,
+                            }),
+                          );
+                        }}
+                      />
+                    }
+                  />
+                );
+              })}
             </Card>
           );
         })}
@@ -870,7 +907,7 @@ function McpCreatedToken({
       {needsGrant && hasAccounts !== undefined ? (
         <p className="weq-set-note">
           {hasAccounts
-            ? '请在下方勾选此令牌可访问的账号。'
+            ? '请在下方设置此令牌的账号权限。'
             : '添加账号后，可在此为令牌设置访问权限。'}
         </p>
       ) : null}

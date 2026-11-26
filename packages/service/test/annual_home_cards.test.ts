@@ -35,7 +35,7 @@ describe('我的主场：轮盘卡片', () => {
       group: {
         countRows: async () => ranked,
         weeklyCounts: async () => weekly,
-        speechRows: async () => [],
+        async *speechBatches() {},
         standing: async () => null,
       },
     };
@@ -81,7 +81,7 @@ describe('我的主场：轮盘卡片', () => {
         weeklyCounts: async () => {
           throw new Error('sparkline unavailable');
         },
-        speechRows: async () => [],
+        async *speechBatches() {},
         standing: async () => null,
       },
     };

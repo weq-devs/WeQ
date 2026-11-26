@@ -37,7 +37,7 @@ it('重启与关闭连接保留设备，删除后重启仍拒绝旧凭据；磁�
       scope: 'web:access',
     });
     expect(new RemoteStore(dir).claims()).toEqual([]);
-    first.decide(claim.id, true);
+    first.decide(claim.id, true, ['101', '202']);
     first.authenticate(token, {
       deviceInfo: {
         platform: 'android',
@@ -56,6 +56,7 @@ it('重启与关闭连接保留设备，删除后重启仍拒绝旧凭据；磁�
     const second = new RemotePairing();
     second.restore(reload.claims(), (claims) => reload.save({ claims }));
     expect(second.canAccessWeb(token)).toBe(true);
+    expect(second.accountConfigIds(token)).toEqual(['101', '202']);
     expect(second.snapshot().devices[0]).toMatchObject({
       deviceInfo: { model: 'Test Phone', appBuild: '9' },
       lastConnection: { ip: '100.64.0.2', route: 'tailscale' },
@@ -98,4 +99,15 @@ it('凭据落盘失败时不授予新权限，也不误报已删除设备', () =
   );
   expect(() => pairing.revoke(claim.id)).toThrow('disk full');
   expect(pairing.canAccessWeb(token)).toBe(true);
+  const nextToken = 'e'.repeat(64);
+  const next = pairing.claim({
+    invitation: pairing.invite().secret,
+    name: '另一部手机',
+    tokenHash: tokenHash(nextToken),
+    scope: 'web:access',
+  });
+  expect(() => pairing.decide(next.id, true, ['101', '202'])).toThrow('disk full');
+  expect(pairing.poll(next.id, nextToken)?.approved).toBe(false);
+  expect(pairing.accountConfigIds(nextToken)).toEqual([]);
+  expect(pairing.canAccessWeb(nextToken)).toBe(false);
 });

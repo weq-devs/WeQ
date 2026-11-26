@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react';
-import { DatabaseProgressTracker } from '@weq/service/db-progress';
+import { DatabaseProgressTracker, type DatabaseWorkProgress } from '@weq/service/db-progress';
 import {
   summarizeDatabaseMaintenance,
+  type DatabaseRepairBackupMode,
   type DatabaseMaintenanceStatus,
   type DatabaseMaintenanceSnapshot,
   type DatabaseMaintenanceReport,
@@ -9,31 +10,42 @@ import {
 } from '@weq/service/db-checkup';
 
 type Input = {
+  concurrency?: number;
+  mode?: DatabaseRepairBackupMode;
   uin?: string;
   configId?: string;
   kind?: 'scan' | 'checkup';
   dbNames?: string[];
+  operationId?: string;
+  methods?: Record<string, 'quick' | 'deep'>;
   reportId?: string;
   recordId?: string;
   format?: string;
   allowLowSpace?: boolean;
   backup?: boolean;
+  backups?: Record<string, boolean>;
   strictPages?: boolean;
 };
 type Listener = { onData(value: DatabaseMaintenanceStatus): void; onError?(error: Error): void };
 const listeners = new Set<Listener>();
+type RestoreProgress = { dbName: string; step: DatabaseWorkProgress } | null;
+const restoreListeners = new Set<{ onData(value: RestoreProgress): void }>();
 const stores = new Set<() => void>();
 const saved = new Map<string, DatabaseMaintenanceReport>();
 let live: DatabaseMaintenanceSnapshot | null = null;
 let liveStatus: DatabaseMaintenanceStatus | null = null;
 let tracker: DatabaseProgressTracker;
 let sequence = 0;
+let scopeNames = namesForFixture();
 let version = 0;
 let cache: string | null = '/synthetic/cache';
+let checkupConcurrency = 2;
+let repairBackupMode: DatabaseRepairBackupMode = 'deep';
 let freeBytes = 10_000_000_000;
 let resolveRun: ((value: unknown) => void) | undefined;
 const calls = {
   scan: [] as Input[],
+  append: [] as Input[],
   repair: [] as Input[],
   stop: 0,
   end: 0,
@@ -42,7 +54,10 @@ const calls = {
   export: [] as Input[],
   delete: [] as Input[],
 };
-const names = ['nt_msg.db', 'profile.db', 'unsupported.db'];
+function namesForFixture() {
+  return ['nt_msg.db', 'profile.db', 'unsupported.db'];
+}
+const names = namesForFixture();
 const notify = () => {
   version++;
   for (const listener of stores) listener();
@@ -61,7 +76,7 @@ function regularRow(dbName: string, index: number): DatabaseMaintenanceRow {
     total: 100,
     unit: 'pages',
     status: 'completed',
-    badPages: index === 0 ? 3 : 0,
+    badPages: index === 0 ? 1 : 0,
     outcome: index === 0 ? 'abnormal' : 'normal',
   });
   const done = progress.finish('completed');
@@ -71,7 +86,7 @@ function regularRow(dbName: string, index: number): DatabaseMaintenanceRow {
     support: index === 2 ? 'unsupported' : 'supported',
     issues:
       index === 0
-        ? [{ message: '发现 3 个坏页，可重建仍能读取的数据。', support: 'supported' }]
+        ? [{ message: '发现 1 个坏页。', support: 'supported' }]
         : index === 2
           ? [
               {
@@ -85,8 +100,8 @@ function regularRow(dbName: string, index: number): DatabaseMaintenanceRow {
       dbName,
       dbPath: `/synthetic/${dbName}`,
       pageSize: 4096,
-      pageCount: 100,
-      badPages: index === 0 ? [4, 8, 12] : [],
+      pageCount: index === 0 ? 4663100 : 100,
+      badPages: index === 0 ? [4663083] : [],
       zeroPages: [],
       usedHmac: index !== 2,
       plaintext: index === 2,
@@ -107,7 +122,7 @@ function create(kind: 'scan' | 'checkup' | 'repair' = 'scan'): DatabaseMaintenan
     configId: 'source',
     state: kind === 'repair' ? 'repairing' : 'scanning',
     locked: true,
-    databases: names.map((dbName) => ({
+    databases: scopeNames.map((dbName) => ({
       dbName,
       scanStatus: 'pending',
       support: 'possible',
@@ -120,8 +135,8 @@ function create(kind: 'scan' | 'checkup' | 'repair' = 'scan'): DatabaseMaintenan
       startedAt: Date.now() - 13_000,
       elapsedMs: 13_000,
       completedDatabases: 0,
-      totalDatabases: 3,
-      currentDb: names[0],
+      totalDatabases: scopeNames.length,
+      currentDb: scopeNames[0],
     },
   };
 }
@@ -139,10 +154,32 @@ function finish(status: 'completed' | 'cancelled' = 'completed') {
     live.locked = false;
   } else {
     if (status === 'completed') {
-      live.databases = names.map(regularRow);
-      if (live.operation.kind === 'checkup') {
-        for (const [index, row] of live.databases.entries()) {
+      const targets = live.operation.databaseNames ?? scopeNames;
+      scopeNames = [...new Set([...scopeNames, ...targets])];
+      live.databases = scopeNames.map((name) =>
+        targets.includes(name)
+          ? regularRow(name, names.indexOf(name))
+          : live!.databases.find((row) => row.dbName === name)!,
+      );
+      const { kind, databaseScanKinds } = live.operation;
+      const deepNames = targets.filter((name) => (databaseScanKinds?.[name] ?? kind) === 'checkup');
+      if (deepNames.length) {
+        for (const row of live.databases) {
+          if (!deepNames.includes(row.dbName)) continue;
+          const index = names.indexOf(row.dbName);
           row.deepStatus = 'completed';
+          if (index === 0) {
+            row.locationChecked = true;
+            row.quickBudgetBytes = 32 * 1024 * 1024;
+            row.scan!.affected = [
+              {
+                name: '空闲叶页',
+                pagetype: 'freelist-leaf',
+                badPageCount: 1,
+                samplePages: [4663083],
+              },
+            ];
+          }
           row.integrity = {
             ran: true,
             healthy: index !== 0,
@@ -164,9 +201,12 @@ function finish(status: 'completed' | 'cancelled' = 'completed') {
           detail: '异常表：group_msg_table',
         });
       }
-    } else
-      for (const row of live.databases)
+    } else {
+      for (const row of live.databases) {
         if (row.scanStatus === 'running') row.scanStatus = 'pending';
+        if (row.deepStatus === 'running') row.deepStatus = 'cancelled';
+      }
+    }
     const empty =
       status === 'cancelled' && !live.databases.some((row) => row.scanStatus === 'completed');
     live.state = empty ? 'ended' : 'waiting';
@@ -181,9 +221,14 @@ function finish(status: 'completed' | 'cancelled' = 'completed') {
   live.operation.status = status;
   live.operation.finishedAt = live.operation.startedAt + 17_000;
   live.operation.elapsedMs = 17_000;
-  live.operation.completedDatabases = live.databases.filter((row) =>
-    repair ? row.repair?.status === 'completed' : row.scanStatus === 'completed',
-  ).length;
+  const { databaseNames, kind, databaseScanKinds } = live.operation;
+  live.operation.completedDatabases = live.databases.filter((row) => {
+    if (databaseNames && !databaseNames.includes(row.dbName)) return false;
+    if (repair) return row.repair?.status === 'completed';
+    return (databaseScanKinds?.[row.dbName] ?? kind) === 'checkup'
+      ? row.deepStatus === 'completed'
+      : row.scanStatus === 'completed';
+  }).length;
   live.operation.currentDb = undefined;
   if (
     repair ||
@@ -206,9 +251,13 @@ export const maintenanceQa = {
     liveStatus = null;
     saved.clear();
     sequence = 0;
+    scopeNames = namesForFixture();
     cache = '/synthetic/cache';
+    checkupConcurrency = 2;
+    repairBackupMode = 'deep';
     freeBytes = 10_000_000_000;
     calls.scan.length = 0;
+    calls.append.length = 0;
     calls.repair.length = 0;
     calls.export.length = 0;
     calls.delete.length = 0;
@@ -216,10 +265,37 @@ export const maintenanceQa = {
     notify();
   },
   snapshot: () => live,
-  ready() {
-    live = create();
+  restoreTick(completed: number | null) {
+    for (const listener of restoreListeners) {
+      listener.onData(
+        completed === null
+          ? null
+          : {
+              dbName: 'nt_msg.db',
+              step: {
+                step: 'restore-backup',
+                message: '读取并校验备份',
+                completed,
+                total: 1024,
+                unit: 'bytes',
+              },
+            },
+      );
+    }
+  },
+  ready(
+    kind: 'scan' | 'checkup' = 'scan',
+    options: { secondIssue?: boolean; quickSupported?: boolean } = {},
+  ) {
+    live = create(kind);
     tracker = new DatabaseProgressTracker('scan', names[0]!);
     finish();
+    if (kind === 'checkup') {
+      if (!options.quickSupported) live.databases[0]!.quickBudgetBytes = undefined;
+      if (options.secondIssue)
+        live.databases[1]!.issues.push({ message: '测试用结构异常', support: 'supported' });
+      publish();
+    }
   },
   archive(target?: { uin: string; configId?: string }) {
     if (!live?.operation) return;
@@ -237,7 +313,7 @@ export const maintenanceQa = {
   },
   pages() {
     if (!live?.operation) return;
-    const row = live.databases[0]!;
+    const row = live.databases.find((item) => item.dbName === live?.operation?.currentDb)!;
     row.scanStatus = 'running';
     row.progress = tracker.update('scan', {
       step: 'pages',
@@ -245,13 +321,29 @@ export const maintenanceQa = {
       completed: 42,
       total: 100,
       unit: 'pages',
-      badPages: 3,
-      outcome: 'abnormal',
+      badPages: row.dbName === names[0] ? 3 : 0,
+      outcome: row.dbName === names[0] ? 'abnormal' : 'normal',
     });
     live.progress = row.progress;
     publish();
   },
   complete: () => finish(),
+  failQuick() {
+    if (!live?.operation || !resolveRun) return;
+    live.state = 'waiting';
+    live.operation.status = 'waiting';
+    const row = live.databases.find((item) => item.dbName === live?.operation?.currentDb)!;
+    row.repair = {
+      status: 'waiting',
+      method: 'quick',
+      nextAction: 'view-deep',
+      error: '快速修复产物未通过复核，原数据库保持不变。',
+    };
+    retain();
+    publish();
+    resolveRun({ snapshot: summarizeDatabaseMaintenance(live), closedAccount: false });
+    resolveRun = undefined;
+  },
   completeFirst() {
     if (!live) return;
     live.databases[0] = regularRow(names[0]!, 0);
@@ -273,23 +365,20 @@ export const maintenanceQa = {
   },
   structure() {
     if (!live?.operation) return;
-    live.databases = names.map(regularRow);
+    live.databases = scopeNames.map(regularRow);
     live.state = 'checking';
-    live.operation.currentDb = names[0];
-    tracker = new DatabaseProgressTracker(
-      'checkup',
-      names[0]!,
-      Date.now,
-      live.databases[0]!.scanProgress,
-    );
-    live.databases[0]!.progress = tracker.update('checkup', {
+    const row = live.databases[0]!;
+    row.deepStatus = 'running';
+    live.operation.currentDb = row.dbName;
+    tracker = new DatabaseProgressTracker('checkup', row.dbName, Date.now, row.scanProgress);
+    row.progress = tracker.update('checkup', {
       step: 'integrity-pages',
       message: '检查页结构与引用',
       completed: 800,
       total: 2048,
       unit: 'pages',
     });
-    live.progress = live.databases[0]!.progress;
+    live.progress = row.progress;
     publish();
   },
   tableStructure() {
@@ -367,6 +456,7 @@ function query<T>(get: (input: Input) => T) {
         data: get(input),
         error: null,
         isLoading: false,
+        isFetchedAfterMount: true,
         refetch: async () => {
           notify();
           return {};
@@ -418,6 +508,16 @@ export const trpc = {
     history: query(() => []),
     legacyReport: query(() => null),
     cacheLocation: query(() => ({ override: cache })),
+    repairBackupMode: query(() => repairBackupMode),
+    setRepairBackupMode: mutation(async ({ mode }) => {
+      repairBackupMode = mode!;
+      notify();
+    }),
+    checkupSettings: query(() => ({ concurrency: checkupConcurrency })),
+    setCheckupConcurrency: mutation(async ({ concurrency }) => {
+      checkupConcurrency = concurrency!;
+      notify();
+    }),
     preflight: query(() => ({
       cachePath: cache,
       space: [
@@ -458,18 +558,50 @@ export const trpc = {
     }),
     scanAccount: mutation(async (input) => {
       calls.scan.push(input);
+      const previous = live?.locked ? live.databases : undefined;
+      const targets = input.dbNames ?? scopeNames;
+      scopeNames = previous ? [...new Set([...scopeNames, ...targets])] : targets;
       live = create(input.kind);
-      tracker = new DatabaseProgressTracker('scan', names[0]!);
+      if (previous)
+        live.databases = live.databases.map(
+          (row) => previous.find((item) => item.dbName === row.dbName) ?? row,
+        );
+      live.operation!.databaseNames = targets;
+      live.operation!.totalDatabases = targets.length;
+      const currentDb = targets[0]!;
+      live.operation!.currentDb = currentDb;
+      tracker = new DatabaseProgressTracker('scan', currentDb);
       maintenanceQa.pages();
       return new Promise((resolve) => {
         resolveRun = resolve;
       });
     }),
+    appendScan: mutation(async (input) => {
+      calls.append.push(input);
+      const operation = live?.operation;
+      if (!operation || operation.id !== input.operationId || operation.status !== 'running')
+        throw new Error('本次体检已停止或完成。');
+      operation.databaseNames = [
+        ...new Set([...(operation.databaseNames ?? []), ...input.dbNames!]),
+      ];
+      operation.totalDatabases = operation.databaseNames.length;
+      const kind = input.kind ?? operation.kind;
+      if (kind !== 'repair') {
+        const scanKinds = { ...operation.databaseScanKinds };
+        for (const name of input.dbNames!) {
+          if (kind === operation.kind) delete scanKinds[name];
+          else scanKinds[name] = kind;
+        }
+        operation.databaseScanKinds = Object.keys(scanKinds).length ? scanKinds : undefined;
+      }
+      publish();
+    }),
     repairSelected: mutation(async (input) => {
       calls.repair.push(input);
       const rows = live!.databases;
-      live = { ...create('repair'), databases: rows };
+      live = { ...create('repair'), id: live!.id, databases: rows };
       live.operation!.totalDatabases = input.dbNames!.length;
+      live.operation!.databaseNames = input.dbNames;
       live.operation!.currentDb = input.dbNames![0];
       for (const row of rows)
         row.repair = input.dbNames!.includes(row.dbName)
@@ -488,6 +620,7 @@ export const trpc = {
     }),
     endMaintenance: mutation(async () => {
       calls.end++;
+      finish('cancelled');
       if (live) {
         live.state = 'ended';
         live.locked = false;
@@ -511,6 +644,42 @@ export const trpc = {
 };
 export const client = {
   dbRepair: {
+    onRestoreProgress: {
+      subscribe: (_: unknown, listener: { onData(value: RestoreProgress): void }) => {
+        restoreListeners.add(listener);
+        return { unsubscribe: () => restoreListeners.delete(listener) };
+      },
+    },
+    prepareEndMaintenance: {
+      subscribe: (
+        _: unknown,
+        listener: {
+          onData(value: {
+            id: string;
+            kind?: 'scan' | 'checkup' | 'repair';
+            running: boolean;
+            replacing?: string;
+          }): void;
+        },
+      ) => {
+        let open = true;
+        queueMicrotask(() => {
+          if (!open) return;
+          listener.onData({
+            id: 'end-decision',
+            kind: live?.operation?.kind,
+            running: live?.operation?.status === 'running',
+            replacing:
+              live?.progress?.current.phase === 'swapping' ? live.operation?.currentDb : undefined,
+          });
+        });
+        return {
+          unsubscribe: () => {
+            open = false;
+          },
+        };
+      },
+    },
     onMaintenance: {
       subscribe: (_: unknown, listener: Listener) => {
         listeners.add(listener);

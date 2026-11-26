@@ -132,7 +132,7 @@ function mount() {
     render,
     toggle: (label: string) => {
       const page = ['群聊引用时自动 @ 对方', '按退格键移除引用'].includes(label)
-        ? '互动与防撤回'
+        ? '消息发送'
         : [
               '消息气泡',
               '消息字体',
@@ -142,30 +142,21 @@ function mount() {
               '显示群成员等级',
               '显示群成员头衔与身份',
             ].includes(label)
-          ? '消息阅读'
-          : ['在消息图标上显示红点', '在联系人界面显示未读消息数', '群助手显示总消息数'].includes(
-                label,
-              )
-            ? '通知与提醒'
-            : ['显示会话预览', '鼠标停留时保持会话位置', '会话互动红点'].includes(label)
-              ? '会话列表'
-              : '消息阅读';
-      if (page === '通知与提醒')
-        act(() =>
-          [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]
-            .find((button) => button.textContent === '常规')!
-            .click(),
-        );
-      else if (
-        !host.querySelector('.weq-settings-subnav-item')?.parentElement?.textContent?.includes(page)
-      )
-        act(() =>
-          [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]
-            .find((button) => button.textContent === '基础功能')!
-            .click(),
-        );
+          ? '消息显示'
+          : ['在消息图标上显示红点', '软件更新'].includes(label)
+            ? '主导航'
+            : label === '在联系人界面显示未读消息数'
+              ? '联系人'
+              : [
+                    '显示会话预览',
+                    '鼠标停留时保持会话位置',
+                    '会话互动红点',
+                    '群助手显示总消息数',
+                  ].includes(label)
+                ? '消息'
+                : '会话浏览';
       act(() =>
-        [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-subnav-item')]
+        [...host.querySelectorAll<HTMLButtonElement>('.weq-settings-nav-item')]
           .find((button) => button.textContent === page)!
           .click(),
       );
@@ -204,6 +195,7 @@ function mount() {
 const sharedToggles = [
   ['在消息图标上显示红点', 'showMessageUnreadBadge', true],
   ['在联系人界面显示未读消息数', 'showContactUnreadCount', false],
+  ['软件更新', 'showSoftwareUpdateBadge', true],
   ['群助手显示总消息数', 'showGroupAssistantMessageCount', false],
   ['会话互动红点', 'showInteractionBadge', false],
   ['显示会话预览', 'showConversationPreview', true],
@@ -226,35 +218,20 @@ const toggles = [
   ['向下浏览时显示「回到最新」按钮', 'showScrollToBottomButton', true],
 ] as const;
 
-it('未读角标按系统图标、主导航、常规视图、联系人和菜单排列', () => {
+it('主导航直接配置消息角标，常规视图角标由消息页配置', () => {
   const f = mount();
   try {
     f.toggle('在消息图标上显示红点');
-    const card = f.host.querySelector('[data-setting-id="notification-badges"]');
-    expect(
-      [...card!.querySelectorAll('[role="switch"]')].map((toggle) =>
-        toggle.getAttribute('aria-label'),
-      ),
-    ).toEqual([
-      '应用图标未读角标',
-      '消息导航未读角标',
-      '邮箱导航未读角标',
-      '会话互动红点',
-      '群助手',
-      '公众号',
-      '服务号',
-      '频道私聊',
-      '已隐藏会话',
-      '已删除会话',
-      '克隆会话',
-      'WeQ 助手会话',
-      '好友与群通知未读角标',
-      '好友与群聊未读消息数',
-      '进行中任务',
-      '已完成任务',
-      '增强包更新',
-      '官方公告',
-    ]);
+    const navigation = f.host.querySelector(
+      '[data-settings-page="main-navigation"]:not([hidden])',
+    )!;
+    expect(navigation.querySelector('[aria-label="邮箱导航未读角标"]')).not.toBeNull();
+    expect(navigation.querySelector('[aria-label="会话互动红点"]')).toBeNull();
+    expect(navigation.textContent).not.toContain('前往设置');
+    const interaction = f.toggle('会话互动红点');
+    expect(interaction.closest('[data-settings-page]')?.getAttribute('data-settings-page')).toBe(
+      'chat-messages',
+    );
   } finally {
     f.close();
   }

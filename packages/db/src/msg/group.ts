@@ -19,6 +19,8 @@
  * order by 40003 to hit the `(40027,40003)` composite index.
  */
 
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
+import { databaseRequestSignal } from '../query_schedule';
 import type { DatabaseAlgorithms, NtHelperBinding, SqlRow, SqlValue } from '@weq/native';
 import type { AtElement, Element, GrayTipPokeElement } from '@weq/codec';
 import type {
@@ -38,6 +40,8 @@ import {
   decodeEmoji,
   decodeDress,
   emptyDressTally,
+  reportRowBatches,
+  reportSpeechBatches,
   tallyDressBlobs,
   toBigint,
   toStr,
@@ -52,6 +56,8 @@ import {
 } from './calendar';
 import {
   browseConditions,
+  queryBrowsePage,
+  browseRow,
   type BrowseFilter,
   type BrowseCursor,
   type BrowseDirection,
@@ -164,8 +170,8 @@ export class GroupMsgDb {
     }));
   }
 
-  calendar(targetGroupCode: string) {
-    return queryMessageDays(this.qq, 'group_msg_table', '"40027"=?', targetGroupCode);
+  calendar(targetGroupCode: string, bounds?: Required<MessageBounds>) {
+    return queryMessageDays(this.qq, 'group_msg_table', '"40027"=?', targetGroupCode, bounds);
   }
 
   async browse(
@@ -175,13 +181,30 @@ export class GroupMsgDb {
     limit = 500,
     direction: BrowseDirection = 'older',
   ) {
-    const query = browseConditions('"40027"=?', conv, filter, cursor, direction);
-    const order = direction === 'older' ? 'DESC' : 'ASC';
-    const rows = await this.qq.query(
-      `SELECT rowid,${SELECT_COLUMNS} FROM group_msg_table WHERE ${query.clause} ORDER BY COALESCE("40050",0) ${order},rowid ${order} LIMIT ?`,
-      [...query.params, BigInt(limit)],
+    const rows = await this.browseRows(conv, filter, cursor, limit, direction);
+    return rows.map((row) => ({ rowId: row.rowId, message: row.decode() }));
+  }
+
+  async browseRows(
+    conv: string,
+    filter: BrowseFilter,
+    cursor?: BrowseCursor,
+    limit = 500,
+    direction: BrowseDirection = 'older',
+  ) {
+    const rows = await queryBrowsePage(
+      this.qq,
+      'group_msg_table',
+      SELECT_COLUMN_NAMES,
+      { clause: '"40027"=?', value: conv },
+      filter,
+      cursor,
+      limit,
+      direction,
     );
-    return rows.map((row) => ({ rowId: String(row[0]), message: rowToGroupMsg(row.slice(1)) }));
+    const timeIndex = SELECT_COLUMN_NAMES.indexOf('40050');
+    const bodyIndex = SELECT_COLUMN_NAMES.indexOf('40800');
+    return rows.map((row) => browseRow(row, timeIndex, bodyIndex, rowToGroupMsg));
   }
 
   boundary(targetGroupCode: string, newest: boolean, bounds?: MessageBounds) {
@@ -860,17 +883,17 @@ export class GroupMsgDb {
    * 不把别人的群发言算给自己。窗口时间用调用方给的 unix 秒半开区间；
    * 空 body 的行在 SQL 侧滤掉。
    *
-   * 返回的是**共享只读**数组（调用方只在 compute 内聚合，不得修改）。
+   * 逐批输出正文，只保留当前批次。
    */
-  async sentSpeechRows(
+  async *sentSpeechBatches(
     opts: { startTime?: number; endTime?: number; selfUin?: bigint; senderUid?: string } = {},
-  ): Promise<SentSpeechRow[]> {
+  ): AsyncGenerator<SentSpeechRow[]> {
     const mine = opts.senderUid
       ? { clause: `"40020" = ? AND "40020" != ''`, value: opts.senderUid as SqlValue }
       : opts.selfUin !== undefined && opts.selfUin > 0n
         ? { clause: `"40033" = ?`, value: opts.selfUin as SqlValue }
         : null;
-    if (!mine) return [];
+    if (!mine) return;
 
     const conditions: string[] = [`"40050" > 0`, mine.clause, `length("40800") > 0`];
     const params: SqlValue[] = [mine.value];
@@ -882,28 +905,22 @@ export class GroupMsgDb {
       conditions.push(`"40050" < ?`);
       params.push(BigInt(opts.endTime));
     }
-    const rows = await this.qq.query(
-      `SELECT "40050","40800" FROM group_msg_table WHERE ${conditions.join(' AND ')}`,
-      params,
+    yield* reportSpeechBatches(
+      reportRowBatches(this.qq, 'group_msg_table', '"40050","40800"', conditions, params),
     );
-    return rows.map((row) => ({
-      sendTime: toBigint(row[0]),
-      elements: decodeBody(row[1]),
-    }));
   }
 
   /**
    * 某一个群的**全体成员**在时间窗内发出的正文行 —— 年度报告「我的主场」页
-   * 给冠军群数词云用。与 {@link sentSpeechRows} 不同，这一页要的是「大家聊了
+   * 给冠军群数词云用。与 {@link sentSpeechBatches} 不同，这一页要的是「大家聊了
    * 什么」，所以不按 sender 过滤，只锁群号与时间窗；空 body 的行在 SQL 侧滤掉。
    *
-   * 窗口与报告口径一致：unix 秒半开区间 [startTime, endTime)。返回的是**共享
-   * 只读**数组（调用方只在 compute 内聚合，不得修改）。
+   * 窗口与报告口径一致：unix 秒半开区间 [startTime, endTime)。正文按批次交给调用方聚合。
    */
-  async bodyRowsInGroup(
+  async *speechBatchesInGroup(
     targetGroupCode: string,
     opts: { startTime?: number; endTime?: number } = {},
-  ): Promise<SentSpeechRow[]> {
+  ): AsyncGenerator<SentSpeechRow[]> {
     const conditions: string[] = [`"40027" = ?`, `"40050" > 0`, `length("40800") > 0`];
     const params: SqlValue[] = [targetGroupCode];
     if (opts.startTime != null && opts.startTime > 0) {
@@ -914,14 +931,9 @@ export class GroupMsgDb {
       conditions.push(`"40050" < ?`);
       params.push(BigInt(opts.endTime));
     }
-    const rows = await this.qq.query(
-      `SELECT "40050","40800" FROM group_msg_table WHERE ${conditions.join(' AND ')}`,
-      params,
+    yield* reportSpeechBatches(
+      reportRowBatches(this.qq, 'group_msg_table', '"40050","40800"', conditions, params, true),
     );
-    return rows.map((row) => ({
-      sendTime: toBigint(row[0]),
-      elements: decodeBody(row[1]),
-    }));
   }
 
   /**
@@ -963,7 +975,10 @@ export class GroupMsgDb {
       longest: null as GroupEchoLongest | null,
     };
 
+    const signal = databaseRequestSignal();
     const codes = await this.interactionGroupCodes(opts);
+    let processed = 0;
+    let deadline = performance.now() + 8;
     for (const groupCode of codes) {
       const conditions: string[] = [`"40027" = ?`, `"40050" > 0`, `length("40800") > 0`];
       const params: SqlValue[] = [groupCode];
@@ -1002,6 +1017,10 @@ export class GroupMsgDb {
       };
 
       for (const row of rows) {
+        if ((++processed & 63) === 0 && performance.now() >= deadline) {
+          await yieldToEventLoop(undefined, { signal });
+          deadline = performance.now() + 8;
+        }
         const senderUid = toStr(row[2]);
         const senderUin = toBigint(row[3]);
         const mine =
@@ -1292,11 +1311,10 @@ export class GroupMsgDb {
       conditions.push(`"40050" < ?`);
       params.push(BigInt(opts.endTime));
     }
-    const rows = await this.qq.query(
-      `SELECT "40801","40800","40050" FROM group_msg_table WHERE ${conditions.join(' AND ')}`,
-      params,
+    return tallyDressBlobs(
+      reportRowBatches(this.qq, 'group_msg_table', '"40801","40800","40050"', conditions, params),
+      emptyDressTally(),
     );
-    return tallyDressBlobs(rows, emptyDressTally());
   }
 
   /**
@@ -1477,8 +1495,14 @@ export class GroupMsgDb {
       conditions.push(`"40020" = ?`);
       params.push(opts.senderUid);
     }
+    // 多群有时间窗口时，用已存在的时间索引缩小范围，避免按群索引重复遍历整段历史。
+    const timeIndex =
+      groupCodes.length > 1 && (opts.startTime ?? 0) > 0
+        ? await this.qq.findIndexPrefix('group_msg_table', ['40050'])
+        : undefined;
+    const index = timeIndex ? ` INDEXED BY "${timeIndex.replaceAll('"', '""')}"` : '';
     const rows = await this.qq.query(
-      `SELECT "40027", COUNT(*) FROM group_msg_table WHERE ${conditions.join(' AND ')} GROUP BY "40027"`,
+      `SELECT "40027", COUNT(*) FROM group_msg_table${index} WHERE ${conditions.join(' AND ')} GROUP BY "40027"`,
       params,
     );
     const result: Record<string, number> = {};

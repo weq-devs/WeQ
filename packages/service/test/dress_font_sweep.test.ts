@@ -15,7 +15,7 @@
  * 实例）+ `queryDressResourceUrl: () => null`（没有离线 bundle）来固定这个前提。
  */
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { NtHelperBinding } from '@weq/native';
@@ -178,6 +178,62 @@ function readSidecar(fontsDir: string, itemId: number): FontSidecar {
 }
 
 describe('DressSharedCache.refreshAllFonts', () => {
+  it('重解产物不可用时保留旧字体和全部动画帧', async () => {
+    const { binding } = makeBinding(2);
+    const { cache, fontsDir } = makeCache(binding);
+    const itemId = 10011;
+    const frameDir = join(fontsDir, `${itemId}_assets`);
+    const frame = join(frameDir, 'frame_001.png');
+    mkdirSync(frameDir);
+    writeFileSync(frame, 'old-frame');
+    writeFont(fontsDir, itemId, {
+      itemId,
+      deriveVersion: DRESS_DERIVE_VERSION,
+      fontPipeline: 1,
+    });
+    writeCachedZip(fontsDir, itemId);
+    binding.convertFontAsync = async (_input, output) => {
+      writeFileSync(output, Buffer.alloc(20));
+      return 'invalid fixture';
+    };
+
+    const font = await cache.installFont(itemId, '');
+    expect(readFileSync(font.file)).toEqual(buildSfnt());
+    expect(readFileSync(frame, 'utf8')).toBe('old-frame');
+    expect(cache.fontSidecar(itemId)?.fontPipeline).toBe(1);
+  });
+
+  it('合并并发重解，异步转换完成前继续提供旧缓存', async () => {
+    const { binding, convertCalls } = makeBinding(2);
+    const { cache, fontsDir } = makeCache(binding);
+    const itemId = 10012;
+    writeFont(fontsDir, itemId, { itemId, deriveVersion: DRESS_DERIVE_VERSION, fontPipeline: 1 });
+    writeCachedZip(fontsDir, itemId);
+    const started = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    let asyncConversions = 0;
+    binding.convertFontAsync = async (_input, output) => {
+      asyncConversions++;
+      started.resolve();
+      await finish.promise;
+      writeFileSync(output, buildSfnt());
+      return 'converted fixture';
+    };
+
+    const first = cache.installFont(itemId, '');
+    const second = cache.installFont(itemId, '');
+    await started.promise;
+    expect(cache.fontSidecar(itemId)?.fontPipeline).toBe(1);
+    expect(cache.fontFile(itemId)).toBe(join(fontsDir, `${itemId}.ttf`));
+    finish.resolve();
+    const [font, same] = await Promise.all([first, second]);
+    expect(same).toEqual(font);
+    expect(cache.fontFile(itemId)).toBe(font.file);
+    expect(cache.fontSidecar(itemId)?.fontPipeline).toBe(2);
+    expect(asyncConversions).toBe(1);
+    expect(convertCalls).toEqual([]);
+  });
+
   it('版本都对得上：一款都不重做，也不碰 zip', async () => {
     const { binding, convertCalls } = makeBinding(2);
     const { cache, fontsDir } = makeCache(binding);

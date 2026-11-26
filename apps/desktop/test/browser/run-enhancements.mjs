@@ -70,16 +70,16 @@ try {
             return { width: box.width, height: box.height, text: node.textContent };
           }),
         );
-        assert.ok(buttons.every((button) => button.text.trim() === ''));
         assert.ok(
           buttons.every(
             (button) =>
+              Math.abs(button.width - button.height) <= 1 &&
               Math.abs(button.width - buttons[0].width) <= 1 &&
-              Math.abs(button.height - buttons[0].height) <= 1,
+              !button.text.trim(),
           ),
-          `下载和删除按钮必须同尺寸：${JSON.stringify({ width, theme, style, buttons })}`,
+          `单包操作使用等大的方形图标按钮：${JSON.stringify({ width, theme, style, buttons })}`,
         );
-        assert.equal(await page.getByRole('switch').count(), 2);
+        assert.equal(await page.getByRole('switch').count(), 1);
         assert.equal(await page.locator('progress').count(), 0);
         assert.equal(
           await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
@@ -102,7 +102,8 @@ try {
   assert.equal(await page.locator('input[type="number"]').count(), 2);
   assert.equal(await page.getByRole('button', { name: '增强包', exact: true }).count(), 0);
   await page.goto(`${url}?state=empty`);
-  assert.equal(await page.getByRole('button', { name: /^下载全部/ }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: '全部下载' }).count(), 1);
+  assert.equal(await page.getByRole('button', { name: '全部更新' }).count(), 0);
   await page.getByRole('button', { name: '下载本地文字识别', exact: true }).click();
   await page.getByRole('button', { name: '删除本地文字识别', exact: true }).waitFor();
   assert.equal(await page.locator('.weq-enhancement-item').count(), 4);
@@ -121,7 +122,7 @@ try {
     await page
       .locator('[data-setting-id="enhancement-text"] .weq-enhancement-actions button')
       .count(),
-    2,
+    1,
   );
   await page.goto(`${url}?state=busy`);
   assert.equal(await page.locator('progress').evaluate((node) => node.value), 50);
@@ -137,7 +138,7 @@ try {
       }, theme);
       assert.equal(await page.getByRole('status').filter({ hasText: '正在检查更新' }).count(), 4);
       assert.equal(await page.locator('.weq-enhancement-actions button:disabled').count(), 0);
-      await page.getByRole('button', { name: '检查本地文字识别更新', exact: true }).click();
+      assert.equal(await page.getByRole('button', { name: '全部检查', exact: true }).count(), 0);
       await page.getByRole('button', { name: '下载本地语音转写', exact: true }).click();
       await page.getByRole('button', { name: '删除本地语音转写', exact: true }).waitFor();
       await page.getByRole('button', { name: '删除本地文字识别', exact: true }).click();
@@ -187,6 +188,18 @@ try {
   await page.goto(`${url}?state=failed`);
   assert.equal(await page.getByRole('button', { name: '重试', exact: true }).count(), 1);
   await page.goto(`${url}?state=update`);
+  assert.deepEqual(await page.locator('.weq-enhancement-batch-actions button').allTextContents(), [
+    '全部下载',
+    '全部更新',
+    '全部检查',
+  ]);
+  const autoUpdate = page.getByRole('button', { name: '本地文字识别自动安装更新', exact: true });
+  await autoUpdate.click();
+  await autoUpdate.and(page.getByRole('button', { pressed: true })).waitFor();
+  assert.equal(
+    await page.getByRole('button', { name: '本地意图与画像自动安装更新', pressed: false }).count(),
+    1,
+  );
   assert.equal(
     await page.getByRole('button', { name: '更新本地文字识别', exact: true }).count(),
     1,
@@ -207,7 +220,7 @@ try {
       await row.getByRole('button', { name: '补齐本地文字识别', exact: true }).count(),
       1,
     );
-    assert.equal(await row.locator('.weq-enhancement-status').textContent(), '待补齐');
+    assert.equal(await row.getByRole('status').textContent(), '待补齐');
     assert.match(
       await row.locator('.weq-enhancement-status').getAttribute('title'),
       /文字筛图模型/,

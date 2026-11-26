@@ -128,7 +128,7 @@ describe('贴表情名单', () => {
     );
     expect(open).toHaveBeenCalledWith(
       expect.objectContaining({ id: uid, identityValue: '10001', displayName: '群名片' }),
-      { x: 120, y: 140 },
+      { x: 120, y: 140, trigger: button },
       { code: '12345', name: '' },
     );
     expect(close).not.toHaveBeenCalled();

@@ -46,6 +46,7 @@ export function Modal({
   anchor,
   anchorPlacement,
   centered = false,
+  resizeEdges = false,
   dismissOnOutside = true,
   focusContainerOnOpen = false,
   portalTarget,
@@ -65,8 +66,10 @@ export function Modal({
   title?: string;
   anchor?: HTMLElement | null;
   anchorPlacement?: 'above' | 'below' | 'side';
-  /** 强制居中遮罩，不沿用最近的触发点。 */
+  /** 居中打开浮窗或弹出层，不沿用最近的触发点。 */
   centered?: boolean;
+  /** 允许从浮窗的四条边和四个角拖动调整大小。 */
+  resizeEdges?: boolean;
   /** 安全验证、编辑正文等流程可显式禁用点外关闭。 */
   dismissOnOutside?: boolean;
   focusContainerOnOpen?: boolean;
@@ -117,6 +120,8 @@ export function Modal({
         mode={presentation}
         open={open}
         anchor={anchor}
+        centered={centered}
+        resizeEdges={resizeEdges}
         width={width}
         labelledBy={labelledBy}
         title={title}

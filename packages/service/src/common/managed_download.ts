@@ -82,6 +82,7 @@ export class ManagedDownload {
       total?: number;
       state?: (state: DownloadState) => void;
       name?: string;
+      activityPageId?: string;
       /** 没有任务入口的缓存填充不等待手动继续。 */
       deferOnPolicyPause?: boolean;
       signal?: AbortSignal;
@@ -99,6 +100,9 @@ export class ManagedDownload {
   ) {
     this.total = options.total ?? 0;
     if (networkScope.getStore()?.override) this.gate.continue();
+  }
+  get activityPageId() {
+    return this.options.activityPageId;
   }
   pause() {
     this.gate.pause();

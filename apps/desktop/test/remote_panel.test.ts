@@ -1,6 +1,7 @@
-import { act, createElement } from 'react';
+import { act, createElement, Fragment } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DialogHost } from '../src/renderer/src/components/Dialog';
 import {
   RemotePanel,
   type RemoteStatus,
@@ -35,18 +36,23 @@ describe('电脑端远程连接面板', () => {
   async function render(data: RemoteStatus, extra = {}) {
     await act(async () =>
       root.render(
-        createElement(RemotePanel, {
-          data,
-          qr: null,
-          busy: false,
-          error: null,
-          onToggle: noop,
-          onLogin: noop,
-          onInvite: noop,
-          onDecide: noop,
-          onRevoke: noop,
-          ...extra,
-        }),
+        createElement(
+          Fragment,
+          null,
+          createElement(RemotePanel, {
+            data,
+            qr: null,
+            busy: false,
+            error: null,
+            onToggle: noop,
+            onLogin: noop,
+            onInvite: noop,
+            onReview: noop,
+            onRevoke: noop,
+            ...extra,
+          }),
+          createElement(DialogHost),
+        ),
       ),
     );
   }
@@ -65,30 +71,43 @@ describe('电脑端远程连接面板', () => {
     ).toBe(true);
   });
 
-  it('待批准请求显示校验码，确认与撤销使用设备 ID', async () => {
-    const onDecide = vi.fn();
-    const onRevoke = vi.fn();
+  it('待批准请求显示校验码，查看请求使用设备 ID', async () => {
+    const onReview = vi.fn();
     await render(
       {
         ...base,
         pending: [{ id: 'claim', name: '测试手机', code: '123456', expiresAt: Date.now() + 10000 }],
       },
-      { onDecide },
+      { onReview },
     );
     expect(container.textContent).toContain('123456');
     await act(async () =>
       [...container.querySelectorAll('button')]
-        .find((b) => b.textContent?.includes('允许配对'))
+        .find((b) => b.textContent?.includes('查看请求'))
         ?.click(),
     );
-    expect(onDecide).toHaveBeenCalledWith('claim', true);
+    expect(onReview).toHaveBeenCalledWith('claim');
+  });
+
+  it('删除已配对手机需确认，取消保留设备，确认后撤销指定设备', async () => {
+    const onRevoke = vi.fn();
     await render(
       { ...base, devices: [{ id: 'device', name: '测试手机', approvedAt: 1, lastSeenAt: null }] },
       { onRevoke },
     );
-    await act(async () =>
-      container.querySelector<HTMLButtonElement>('[aria-label="撤销 测试手机"]')?.click(),
-    );
+    const remove = container.querySelector<HTMLButtonElement>('[aria-label="删除 测试手机"]')!;
+    const confirmation = () => document.querySelector<HTMLElement>('[role="dialog"]')!;
+    const button = (label: string) =>
+      [...confirmation().querySelectorAll('button')].find((item) => item.textContent === label)!;
+
+    await act(async () => remove.click());
+    expect(confirmation().textContent).toContain('测试手机');
+    expect(onRevoke).not.toHaveBeenCalled();
+    await act(async () => button('取消').click());
+    expect(onRevoke).not.toHaveBeenCalled();
+    await act(async () => remove.click());
+    await act(async () => button('删除设备').click());
+    expect(onRevoke).toHaveBeenCalledOnce();
     expect(onRevoke).toHaveBeenCalledWith('device');
   });
 

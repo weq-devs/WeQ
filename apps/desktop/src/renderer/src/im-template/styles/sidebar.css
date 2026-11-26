@@ -399,6 +399,18 @@
   background: transparent;
   text-align: left;
   cursor: pointer;
+  /* 指针扫过时底色渐变，选中切换也不再硬切。 */
+  transition:
+    background-color 120ms ease-out,
+    box-shadow 120ms ease-out,
+    color 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-row,
+  .contact-row {
+    transition: none;
+  }
 }
 
 .conversation-row.active .row-preview-line,

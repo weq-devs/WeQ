@@ -444,6 +444,20 @@
   outline-offset: -2px;
 }
 
+.chat-pane > .weq-conversation-snapshot {
+  position: absolute;
+  grid-area: 2 / 1 / 3 / 2;
+  inset: 0;
+  z-index: 1;
+  overflow: clip;
+  pointer-events: none;
+  user-select: none;
+}
+
+.weq-conversation-snapshot > .message-scroll {
+  overflow: hidden;
+}
+
 .message-scroll::-webkit-scrollbar {
   width: 8px;
 }
@@ -482,7 +496,7 @@
   right: 24px;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 8px;
   max-width: calc(100% - 24px);
   pointer-events: none;
@@ -511,8 +525,7 @@
   animation: unread-dock-in 220ms cubic-bezier(0.2, 0.9, 0.3, 1.3);
   transition:
     background 120ms ease-out,
-    box-shadow 120ms ease-out,
-    transform 120ms ease-out;
+    box-shadow 120ms ease-out;
 }
 
 .unread-dock-button.tone-alert {
@@ -534,7 +547,6 @@
     0 4px 14px rgba(0, 0, 0, 0.16),
     0 0 0 1px color-mix(in srgb, var(--dock-tone, #1598ff) 42%, transparent);
   outline: 0;
-  transform: translateY(-1px);
 }
 
 .unread-dock-button svg {
@@ -581,24 +593,26 @@
   gap: 10px;
 }
 
-/* 键盘把焦点落到某条消息时，只给气泡/正文描边，不整行拉一条通栏轮廓。 */
-.message-line:focus-visible {
+/* 普通模式描边正文，多选模式描边勾选标记。 */
+.message-line[tabindex]:focus-visible,
+.weq-system-message-row[tabindex]:focus-visible {
   outline: none;
 }
 
-.message-line:focus-visible .message-content {
+.message-line:not(.selection-mode):focus-visible .message-content {
   outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
   outline-offset: 2px;
 }
 
-.weq-system-message-row:focus-visible {
-  outline: none;
-}
-
-.weq-system-message-row:focus-visible .weq-system-message-content {
+.weq-system-message-row:not(.selection-mode):focus-visible .weq-system-message-content {
   outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
   outline-offset: 2px;
   border-radius: 6px;
+}
+
+:is(.message-line, .weq-system-message-row).selection-mode:focus-visible > .message-select-mark {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: 2px;
 }
 
 .message-line.mine {
@@ -1638,12 +1652,13 @@ html[data-theme='dark'] .avatar-context-submenu {
 
 /* ---- 贴表情选择面板（ReactionPicker）------------------------------------ */
 .reaction-picker {
+  --reaction-icon-size: 24px;
   position: fixed;
   z-index: 46;
   display: flex;
   flex-direction: column;
-  width: 328px;
-  max-height: 320px;
+  width: min(328px, calc(100vw - 16px));
+  max-height: min(320px, calc(100vh - 16px));
   overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 8px;
@@ -1667,16 +1682,14 @@ html[data-theme='dark'] .avatar-context-submenu {
 
 .reaction-picker-grid {
   display: grid;
-  grid-template-columns: repeat(10, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(32px, 1fr));
   gap: 2px;
 }
 
 .reaction-picker-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
+  display: grid;
+  place-items: center;
+  height: 32px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -1690,17 +1703,17 @@ html[data-theme='dark'] .avatar-context-submenu {
   background: #f1f1f1;
 }
 
-.reaction-picker-cell img,
-.reaction-picker-cell .emoji-glyph {
+.reaction-picker-cell img {
   display: block;
-  width: 20px;
-  height: 20px;
-  font-size: 18px;
-  line-height: 20px;
+  width: var(--reaction-icon-size);
+  height: var(--reaction-icon-size);
+  object-fit: contain;
 }
 
-.reaction-picker-cell img {
-  object-fit: contain;
+.reaction-picker-glyph {
+  font-size: var(--reaction-icon-size);
+  font-variant-emoji: emoji;
+  line-height: 1;
 }
 
 .details-toggle-row {
@@ -2011,11 +2024,11 @@ button.group-info-heading {
 .group-info-member-row .member-name-text {
   display: flex;
   min-width: 0;
-  overflow: hidden;
   flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
   font-size: 13px;
-  align-items: center;
-  height: 100%;
 }
 
 .member-name-with-badge {
@@ -2024,14 +2037,46 @@ button.group-info-heading {
   gap: 6px;
   min-width: 0;
   max-width: 100%;
-  height: 100%;
 }
 
 .member-display-name {
+  min-width: 0;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1.2;
+}
+
+.group-info-member-row .member-name-with-badge > .member-badge {
+  flex: 0 0 auto;
+  max-inline-size: calc(100% - 1.5rem);
+}
+
+.group-info-member-row.has-sort-detail {
+  min-height: 44px;
+}
+
+.group-info-member-actions .group-info-sort-button[data-active] {
+  background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
+  color: var(--weq-accent-ink, var(--weq-accent-effective));
+}
+
+.group-info-member-sort-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 4px;
+  margin: 0 12px 4px;
+  color: var(--weq-fg-muted);
+  font-size: 11px;
+}
+
+.group-info-member-sort-status > button {
+  min-height: 24px;
+  padding-inline: 6px;
+  font-size: inherit;
 }
 
 .member-role-badge {
@@ -2069,18 +2114,10 @@ html[data-theme='dark'] .member-role-badge.admin {
   border-color: rgba(179, 127, 235, 0.3);
 }
 
-.group-info-member-row .member-name-text span,
-.group-info-member-row .member-name-text small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.group-info-member-row .member-name-text small {
-  color: var(--weq-fg-muted);
-  font-size: 11px;
-  font-weight: 400;
+.group-info-member-row .weq-directory-sort-detail {
+  max-inline-size: 100%;
+  margin-top: 2px;
+  color: var(--weq-fg-secondary);
 }
 
 .group-info-member-row .bot-badge {
@@ -2248,10 +2285,6 @@ html[data-theme='dark'] .member-role-badge.admin {
 
 .group-info-panel .group-info-member-row .member-name-text {
   font-size: 11px;
-}
-
-.group-info-panel .group-info-member-row .member-name-text small {
-  font-size: 9px;
 }
 
 .group-info-panel .group-info-member-loading {
@@ -2510,14 +2543,15 @@ html[data-theme='dark'] .member-role-badge.admin {
   opacity: 0.42;
 }
 
-/* 发送键贴在输入框右下角（QQ PC 同款位置）。.composer 是 position:relative，
-   所以这里绝对定位即可，不占网格行。仅在桌面端渲染（带 composer-desktop-tool，
-   <760px 时被 responsive.css 隐藏）。 */
-.composer-send {
+/* 发送按钮和提示共用覆盖层，提示出现时不挤动按钮或编辑区。 */
+.composer > .composer-send-controls {
   position: absolute;
   z-index: 4;
-  right: var(--composer-side-inset);
   bottom: 20px;
+  inset-inline: var(--composer-side-inset);
+}
+
+.composer-send {
   display: inline-flex;
   width: auto;
   min-width: 68px;
@@ -2534,8 +2568,7 @@ html[data-theme='dark'] .member-role-badge.admin {
   line-height: 1;
   transition:
     background-color 140ms ease,
-    opacity 140ms ease,
-    transform 140ms ease;
+    opacity 140ms ease;
 }
 
 .composer-send strong {
@@ -2545,7 +2578,6 @@ html[data-theme='dark'] .member-role-badge.admin {
 
 .composer-send:hover:not(:disabled) {
   background: color-mix(in srgb, var(--weq-accent-effective, #0099ff) 88%, #000000);
-  transform: translateY(-1px);
 }
 
 .composer-send:disabled {
@@ -2557,7 +2589,9 @@ html[data-theme='dark'] .member-role-badge.admin {
 
 /* 给编辑器右侧留出按钮的位置，正文不会滑到按钮底下。只在桌面端生效 ——
    小屏有独立的 composer 内边距（responsive.css），别把它盖掉。 */
-:where(html:not([data-weq-layout='single'])) .composer:has(> .composer-send) > .composer-editor {
+:where(html:not([data-weq-layout='single']))
+  .composer:has(> .composer-send-controls)
+  > .composer-editor {
   padding-right: 96px;
 }
 /* 网格一次释放输入区的占位，输入区保持原高，沿底边滑出并停止交互。 */
@@ -2761,6 +2795,18 @@ html[data-theme='dark'] .chat-empty-logo {
 
 .ga-body {
   min-height: 320px;
+}
+
+/* 分析面板先出骨架屏、数据到位后原地换成正文。骨架屏和空态自带动效，
+ * 这里只让真正的内容进场，读起来像「骨架落位后内容浮上来」。 */
+:is(.ga-body, .ba-body, .ma-body) > :not(.ga-skeleton, .weq-empty-state) {
+  animation: weq-fade-in var(--weq-motion-enter) var(--weq-motion-ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.ga-body, .ba-body, .ma-body) > :not(.ga-skeleton, .weq-empty-state) {
+    animation: none;
+  }
 }
 
 /*

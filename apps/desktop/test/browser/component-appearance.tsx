@@ -201,7 +201,7 @@ function Fixture() {
       <main className="appearance-fixture">
         <div className="appearance-columns">
           <section>
-            <h1>外观与布局</h1>
+            <h1>主题与布局</h1>
             <div className="weq-settings-dialog">
               <ComponentAppearance />
             </div>
@@ -312,7 +312,7 @@ function Fixture() {
                 </label>
                 <button type="button" className="weq-settings-nav-item is-active">
                   <Palette size={16} />
-                  <span className="weq-settings-nav-label">外观与布局</span>
+                  <span className="weq-settings-nav-label">主题与布局</span>
                 </button>
                 <article className="weq-dress-card">装扮预览</article>
               </section>

@@ -323,16 +323,21 @@ it('桌面后台任务未完成时保持启动页，不重复验证密钥或打�
   expect(api.mutate).not.toHaveBeenCalled();
 });
 
-it.each([null, '合成后台打开失败'])(
-  '桌面未打开账号时回首页，不重跑前端自动进入：%s',
-  async (error) => {
-    api.web = false;
-    api.current = null;
-    api.desktopStartup = { opened: false, page: null, error };
-    await render();
-    expect(useViewState.getState()).toMatchObject({ view: 'bootstrap', homeStage: 'home' });
-    expect(api.mutate).not.toHaveBeenCalled();
-    if (error) expect(api.error).toHaveBeenCalledWith('自动进入失败', error);
-    else expect(api.error).not.toHaveBeenCalled();
-  },
-);
+it.each([
+  { page: 'home', error: null },
+  { page: 'messages', error: '合成后台打开失败' },
+  { page: 'last', error: null },
+] as const)('桌面手动选账号前保留本轮 $page 设置，不重跑前端自动进入', async ({ page, error }) => {
+  api.web = false;
+  api.current = null;
+  api.desktopStartup = { opened: false, page, error };
+  await render();
+  expect(useViewState.getState()).toMatchObject({
+    view: 'bootstrap',
+    homeStage: 'home',
+    startupPage: page === 'last' ? null : page,
+  });
+  expect(api.mutate).not.toHaveBeenCalled();
+  if (error) expect(api.error).toHaveBeenCalledWith('自动进入失败', error);
+  else expect(api.error).not.toHaveBeenCalled();
+});

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { extractSection } from './extract-changelog.mjs';
+import { extractSection, previousStableTag } from './extract-changelog.mjs';
 
 test('extractSection 原样保留发布正文，不混入其他版本', () => {
   const section = [
@@ -28,5 +28,23 @@ test('extractSection 原样保留发布正文，不混入其他版本', () => {
   ].join('\n');
 
   assert.equal(extractSection(raw, 'v2.6.0'), section.join('\n'));
+  assert.equal(extractSection(raw, 'Unreleased'), '- 尚未发布');
   assert.equal(extractSection(raw, '2.6.1'), '');
+});
+
+test('测试版和正式版比较同一个已公开的较早正式版本', () => {
+  const raw = [
+    '## Unreleased - 进行中',
+    '## 4.0.0',
+    '## 3.11.0',
+    '## 3.10.1',
+    '## 3.9.9-beta.1',
+    '## 3.9.0',
+    '## v3.10.0',
+  ].join('\r\n');
+  const published = ['v4.0.0', 'v3.11.0', 'v3.10.2', 'v3.10.0', 'v3.9.0'];
+
+  assert.equal(previousStableTag(raw, 'v3.11.0-beta.2', published), 'v3.10.0');
+  assert.equal(previousStableTag(raw, 'v3.11.0', published), 'v3.10.0');
+  assert.equal(previousStableTag(raw, 'v3.9.0', published), '');
 });

@@ -130,9 +130,9 @@ try {
         );
         if (width > 760) {
           const navIcon = page
-            .locator('.weq-settings-subnav-item')
+            .locator('.weq-settings-nav-item')
             .filter({ hasText: title })
-            .locator('svg');
+            .locator('.weq-settings-nav-icon svg');
           assert.equal(await navIcon.innerHTML(), await icon.innerHTML());
         }
         if (output && theme !== 'system' && section === 'qzone')

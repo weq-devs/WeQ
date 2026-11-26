@@ -22,6 +22,7 @@ import {
   renderDbRepairReportMarkdown,
   resolveAccountDbDir,
   type BadPageScanReport,
+  type DatabasePageLocation,
   type DatabaseMaintenanceScope,
   type DbRepairAccountInfo,
   type DbRepairCheckupIntegrity,
@@ -29,15 +30,19 @@ import {
   type DbRepairRecord,
 } from '@weq/service';
 import {
+  DATABASE_REPAIR_BACKUP_MODES,
+  MAX_DATABASE_CHECKUP_CONCURRENCY,
   summarizeDatabaseMaintenance,
+  databaseRepairRecommendation,
   type DatabaseMaintenanceStatus,
 } from '@weq/service/db-checkup';
 import { writeFileAtomic } from '@weq/service/atomic-write';
-import type { RecoverReport } from '@weq/native';
+import type { DatabaseProgress, RecoverReport } from '@weq/native';
 import {
   clearVerifiedDbDamage,
   closeSalvageConnections,
   getAppContext,
+  visitOpenAccounts,
   requireBootstrap,
   requirePlatform,
 } from '../../context/app_context';
@@ -59,7 +64,10 @@ const targetRef = accountRef.extend({ dbName: z.string().min(1) });
 const recordRef = accountRef.extend({ recordId: z.string().min(1) });
 const reportRef = accountRef.extend({ reportId: z.string().min(1) });
 const progressBus = new EventEmitter();
-const maintenanceLocks = new Map<string, DatabaseMaintenanceLock>();
+type RestoreProgress = { dbName: string; step: DatabaseProgress };
+let restoreActivity: { scope: DatabaseMaintenanceScope; progress: RestoreProgress } | null = null;
+let pendingRestore: Promise<DbRepairRecord> | undefined;
+const maintenanceLocks = new Map<string, Map<string, DatabaseMaintenanceLock>>();
 let closedAccountDuringRun = false;
 
 function configuredDbDir(dataDir: string): string | undefined {
@@ -102,13 +110,18 @@ function resolveAccountInfo(uin: string): DbRepairAccountInfo | null {
 const deps: DbRepairDeps = {
   cacheDir: (...segments) => requireBootstrap().userConfig.cacheDir(join(...segments)),
   scratchDir: () => requireBootstrap().userConfig.getDbRepairCacheDir(),
+  storageStreaming: () => !!requirePlatform().native.ntHelper.recoverDatabaseStreaming,
   storageOptimized: () =>
     (requirePlatform().native.ntHelper.databaseRepairStorageVersion?.() ?? 0) >= 1,
   resolveAccount: resolveAccountInfo,
   probeLock: (path) => {
     try {
       const probe = requirePlatform().native.ntHelper.probeDbLock(path);
-      const owned = new Set([...maintenanceLocks.values()].map((worker) => worker.pid));
+      const owned = new Set(
+        [...maintenanceLocks.values()].flatMap((workers) =>
+          [...workers.values()].map((worker) => worker.pid),
+        ),
+      );
       return { ...probe, holders: probe.holders.filter((holder) => !owned.has(holder.pid)) };
     } catch {
       return { success: false, holders: [] };
@@ -123,37 +136,64 @@ const deps: DbRepairDeps = {
   },
   selfPid: () => process.pid,
   releaseHandles: (uin, path, keepReadOnly) => {
-    const ctx = getAppContext();
-    const platform = ctx.platform;
+    const platform = getAppContext().platform;
     if (!platform) return;
-    if (
-      !keepReadOnly &&
-      ctx.account?.context.uin === uin &&
-      dirname(ctx.account.msgDbPath) === dirname(path)
-    ) {
-      closeSalvageConnections(ctx);
-      void ctx.clearAccount();
-      closedAccountDuringRun = true;
-    }
+    visitOpenAccounts((ctx) => {
+      if (ctx.account?.context.uin !== uin || dirname(ctx.account.msgDbPath) !== dirname(path))
+        return;
+      if (!keepReadOnly) {
+        closeSalvageConnections(ctx);
+        void ctx.clearAccount();
+        closedAccountDuringRun = true;
+      }
+      ctx.services?.unreadInfo.invalidate();
+    });
     platform.native.ntHelper.closeSalvageDb(path);
     platform.native.ntHelper.closeDb(path);
-    ctx.services?.unreadInfo.invalidate();
   },
-  recover: async (options, progress, signal) => {
+  recover: async (options, progress, signal, method, streaming, references) => {
     if (!signal) throw new Error('修复必须由当前维护任务启动。');
-    return (await runDatabaseMaintenanceWorker({ kind: 'repair', options }, signal, (tick) => {
-      if ('phase' in tick) progress(tick);
-    })) as RecoverReport;
+    return (await runDatabaseMaintenanceWorker(
+      { kind: 'repair', options, method, streaming, references },
+      signal,
+      (tick) => {
+        if ('phase' in tick) progress(tick);
+      },
+    )) as RecoverReport;
+  },
+  cloneBackup: async (source, target, signal) => {
+    await runDatabaseMaintenanceWorker({ kind: 'clone-backup', source, target }, signal);
   },
   protectProduct: async (id, path, product) => {
-    const worker = maintenanceLocks.get(id);
+    const worker = maintenanceLocks.get(id)?.get(path);
     if (!worker) throw new Error('持续维护锁已经释放，不能替换数据库。');
     await worker.protect(path, product);
   },
-  verify: async (path, key, algo) =>
-    requirePlatform().native.ntHelper.checkDatabaseHealth(path, key, algo),
+  checkInstalledDatabase: async (path, key, algo) => {
+    await requirePlatform().native.ntHelper.executeSqlWithKey(
+      path,
+      'SELECT name FROM main.sqlite_schema LIMIT 1',
+      key,
+      algo,
+    );
+  },
 };
 const service = new DbRepairService(deps);
+
+function backupReferencesFor(dbPath: string, uin: string): string[] {
+  const history = service.history(uin);
+  return [
+    ...new Set(
+      history
+        .list()
+        .flatMap((record) =>
+          record.dbPath === dbPath && record.backupPath && history.backupExists(record)
+            ? [record.backupPath]
+            : [],
+        ),
+    ),
+  ].slice(0, 3);
+}
 
 function historyRoot(scope: DatabaseMaintenanceScope) {
   const boot = requireBootstrap();
@@ -185,7 +225,29 @@ function historicalRecords(scope: DatabaseMaintenanceScope) {
 }
 
 export const databaseMaintenance = new DatabaseMaintenance({
-  acquire: async (targets, signal) => {
+  scanConcurrency: () => requireBootstrap().userConfig.getSetting('databaseCheckupConcurrency'),
+  sourceIdentity: ({ dbPath }) => {
+    const db = statSync(dbPath, { bigint: true });
+    const sidecar = (suffix: string) => {
+      try {
+        return statSync(`${dbPath}${suffix}`, { bigint: true }).size;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0n;
+        throw error;
+      }
+    };
+    const wal = sidecar('-wal');
+    return [
+      db.dev,
+      db.ino,
+      db.size,
+      db.mtimeNs,
+      db.ctimeNs,
+      wal > 32n ? wal : 0n,
+      sidecar('-journal'),
+    ].join(':');
+  },
+  acquire: async (targets, signal, progress) => {
     const nt = requirePlatform().native.ntHelper;
     if (
       !nt.beginDatabaseMaintenance ||
@@ -193,57 +255,110 @@ export const databaseMaintenance = new DatabaseMaintenance({
       !nt.protectDatabaseMaintenanceProduct ||
       !nt.setDatabaseMaintenanceWriteBarrier
     )
-      throw new Error('当前原生组件不支持持续维护锁，请更新原生组件后再开始扫描。');
-    const releaseWrites = maintainDatabases(targets.map((target) => target.dbPath));
+      throw new Error('当前原生组件不支持持续维护锁，请更新原生组件后再开始体检。');
     const id = randomUUID();
-    let worker: DatabaseMaintenanceLock | undefined;
-    try {
-      nt.setDatabaseMaintenanceWriteBarrier(
-        id,
-        targets.map((target) => target.dbPath),
-        true,
-      );
-      for (const target of targets) nt.closeDb(target.dbPath);
-      worker = new DatabaseMaintenanceLock();
-      const locks = await worker.begin(id, targets, signal);
-      maintenanceLocks.set(id, worker);
-      const owned = worker;
-      return {
-        id,
-        signal: worker.signal,
-        errors: Object.fromEntries(
-          locks.flatMap((lock) =>
-            lock.error
-              ? [[targets.find((target) => target.dbPath === lock.dbPath)!.dbName, lock.error]]
-              : [],
-          ),
-        ),
-        release: async () => {
+    const setWriteBarrier = nt.setDatabaseMaintenanceWriteBarrier.bind(nt);
+    const workers = new Map<string, DatabaseMaintenanceLock>();
+    const releases = new Set<() => Promise<void>>();
+    const errors: Record<string, string> = Object.create(null);
+    const lost = new AbortController();
+    // 每批库有自己的原生持锁进程，替换产物时仍使用原库实际对应的锁。
+    const acquireMore = async (
+      batch: typeof targets,
+      signal: AbortSignal,
+      onProgress: (tick: DatabaseProgress) => void,
+    ) => {
+      const batchId = randomUUID();
+      const paths = batch.map((target) => target.dbPath);
+      const releaseWrites = maintainDatabases(paths);
+      let worker: DatabaseMaintenanceLock | undefined;
+      try {
+        setWriteBarrier(batchId, paths, true);
+        for (const path of paths) nt.closeDb(path);
+        worker = new DatabaseMaintenanceLock();
+        const locks = await worker.begin(batchId, batch, signal, onProgress);
+        worker.signal.throwIfAborted();
+        const owned = worker;
+        owned.signal.addEventListener('abort', () => lost.abort(owned.signal.reason), {
+          once: true,
+        });
+        for (const { dbPath, dbName } of batch) {
+          workers.set(dbPath, owned);
+          const error = locks.find((lock) => lock.dbPath === dbPath)?.error;
+          if (error) errors[dbName] = error;
+        }
+        const release = async () => {
           await owned.end();
-          nt.setDatabaseMaintenanceWriteBarrier!(id, [], false);
+          setWriteBarrier(batchId, [], false);
           releaseWrites();
-          maintenanceLocks.delete(id);
-          service.endMaintenance(id);
-        },
-      };
-    } catch (error) {
-      await worker?.terminate();
-      nt.setDatabaseMaintenanceWriteBarrier(id, [], false);
-      releaseWrites();
-      throw error;
-    }
+          for (const path of paths) workers.delete(path);
+          releases.delete(release);
+        };
+        releases.add(release);
+      } catch (error) {
+        await worker?.terminate();
+        setWriteBarrier(batchId, [], false);
+        releaseWrites();
+        throw error;
+      }
+    };
+    await acquireMore(targets, signal, progress);
+    maintenanceLocks.set(id, workers);
+    return {
+      id,
+      signal: lost.signal,
+      errors,
+      acquireMore,
+      release: async () => {
+        const results = await Promise.allSettled([...releases].map((release) => release()));
+        const failure = results.find((result) => result.status === 'rejected');
+        if (failure) {
+          lost.abort(failure.reason);
+          throw failure.reason;
+        }
+        maintenanceLocks.delete(id);
+        service.endMaintenance(id);
+      },
+    };
   },
-  scan: async (target, signal, progress) =>
-    (await runDatabaseMaintenanceWorker({ kind: 'scan', target }, signal, (tick) => {
-      if ('step' in tick) progress(tick);
-    })) as BadPageScanReport,
+  scan: async (target, signal, progress, resume) =>
+    (await runDatabaseMaintenanceWorker(
+      { kind: 'scan', target, firstPage: resume?.firstPage },
+      signal,
+      (tick) => {
+        if ('step' in tick) progress(tick);
+      },
+      { onCheckpoint: resume?.onCheckpoint },
+    )) as BadPageScanReport,
+  locate: async (target, scan, signal, progress, quickOnly) =>
+    (await runDatabaseMaintenanceWorker(
+      {
+        kind: 'locate',
+        target,
+        scan,
+        references: backupReferencesFor(target.dbPath, target.uin),
+        quickOnly,
+      },
+      signal,
+      (tick) => {
+        if ('step' in tick) progress(tick);
+      },
+    )) as DatabasePageLocation,
   deep: async (target, signal, progress) =>
     (await runDatabaseMaintenanceWorker({ kind: 'deep', target }, signal, (tick) => {
       if ('step' in tick) progress(tick);
     })) as DbRepairCheckupIntegrity,
   repair: (target, sourceScan, signal, progress, options) =>
     service.repair(
-      { uin: target.uin, dbName: target.dbName, sourceScan, signal, ...options },
+      {
+        uin: target.uin,
+        dbName: target.dbName,
+        sourceScan,
+        signal,
+        ...options,
+        references:
+          options.method === 'quick' ? backupReferencesFor(target.dbPath, target.uin) : undefined,
+      },
       progress,
     ),
   reports,
@@ -252,7 +367,17 @@ export const databaseMaintenance = new DatabaseMaintenance({
     progressBus.emit('maintenance', snapshot);
   },
 });
+function quickBudgetFor(scope: DatabaseMaintenanceScope, name: string) {
+  const row = databaseMaintenance.status(scope)?.databases.find((row) => row.dbName === name);
+  if (row && databaseRepairRecommendation(row) === 'quick') return row.quickBudgetBytes;
+  throw new Error('此数据库当前没有可用的快速修复方案。');
+}
 export const isDbRepairBusy = () => service.isBusy() || databaseMaintenance.active().length > 0;
+export const waitForDatabaseRestore = () =>
+  pendingRestore?.then(
+    () => undefined,
+    () => undefined,
+  );
 
 export interface DbRepairRecordSummary {
   id: string;
@@ -319,6 +444,9 @@ function rowsFor(uin: string, dbDir: string) {
 function assertIdle() {
   if (isDbRepairBusy()) throw new Error('数据库正在维护中，请先结束维护。');
 }
+function assertNotRestoring() {
+  if (restoreActivity) throw new Error('数据库备份正在恢复，请等待完成。');
+}
 function assertCacheIdle() {
   if (
     service.isBusy() ||
@@ -354,26 +482,62 @@ export const dbRepairRouter = router({
   }),
   maintenance: procedure.input(accountRef).query(({ input }) => databaseMaintenance.status(input)),
   scanAccount: procedure
-    .input(accountRef.extend({ kind: z.enum(['scan', 'checkup']) }))
+    .input(
+      accountRef.extend({
+        kind: z.enum(['scan', 'checkup']),
+        dbNames: z.array(z.string().min(1)).min(1).optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
+      assertNotRestoring();
       const info = service.accountInfo(input.uin);
-      const targets = rowsFor(input.uin, info.dbDir)
-        .filter((row) => row.exists)
-        .map((row) => service.resolveTarget(input.uin, row.dbName));
+      const current = databaseMaintenance.status(input);
+      const names = current?.locked
+        ? (input.dbNames ?? []).filter(
+            (name) => !current.databases.some((row) => row.dbName === name),
+          )
+        : (input.dbNames ??
+          rowsFor(input.uin, info.dbDir)
+            .filter((row) => row.exists)
+            .map((row) => row.dbName));
+      const targets = [...new Set(names)].map((name) => service.resolveTarget(input.uin, name));
       return summarizeDatabaseMaintenance(
-        await databaseMaintenance.scan(input, targets, input.kind),
+        await databaseMaintenance.scan(
+          input,
+          targets,
+          input.kind,
+          current?.locked ? input.dbNames : undefined,
+        ),
       );
+    }),
+  appendScan: procedure
+    .input(
+      accountRef.extend({
+        operationId: z.string().min(1),
+        dbNames: z.array(z.string().min(1)).min(1),
+        kind: z.enum(['scan', 'checkup']).optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const current = databaseMaintenance.status(input);
+      const targets = [...new Set(input.dbNames)]
+        .filter((name) => !current?.databases.some((row) => row.dbName === name))
+        .map((name) => service.resolveTarget(input.uin, name));
+      databaseMaintenance.appendScan(input, input.operationId, targets, input.dbNames, input.kind);
     }),
   repairSelected: procedure
     .input(
       accountRef.extend({
         dbNames: z.array(z.string().min(1)).min(1),
+        methods: z.record(z.enum(['quick', 'deep'])).optional(),
+        backups: z.record(z.boolean()).optional(),
         backup: z.boolean().optional(),
         strictPages: z.boolean().optional(),
         allowLowSpace: z.boolean().optional(),
       }),
     )
     .mutation(async ({ input }) => {
+      assertNotRestoring();
       closedAccountDuringRun = false;
       try {
         return {
@@ -386,14 +550,34 @@ export const dbRepairRouter = router({
         closedAccountDuringRun = false;
       }
     }),
-  stopMaintenance: procedure.input(accountRef).mutation(async ({ input }) => {
-    const snapshot = await databaseMaintenance.stop(input);
-    return snapshot ? summarizeDatabaseMaintenance(snapshot) : null;
-  }),
-  endMaintenance: procedure.input(accountRef).mutation(async ({ input }) => {
-    await databaseMaintenance.end(input);
-    return true;
-  }),
+  stopMaintenance: procedure
+    .input(accountRef.extend({ operationId: z.string().min(1).optional() }))
+    .mutation(async ({ input }) => {
+      const snapshot = await databaseMaintenance.stop(input, input.operationId);
+      return snapshot ? summarizeDatabaseMaintenance(snapshot) : null;
+    }),
+  prepareEndMaintenance: procedure
+    .input(accountRef.extend({ sessionId: z.string().min(1) }))
+    .subscription(({ input }) =>
+      observable<NonNullable<ReturnType<DatabaseMaintenance['prepareEnd']>>['preview'] | null>(
+        (emit) => {
+          try {
+            const decision = databaseMaintenance.prepareEnd(input, input.sessionId);
+            emit.next(decision?.preview ?? null);
+            if (!decision) emit.complete();
+            return decision?.dismiss;
+          } catch (error) {
+            emit.error(error);
+          }
+        },
+      ),
+    ),
+  endMaintenance: procedure
+    .input(accountRef.extend({ decisionId: z.string().min(1).optional() }))
+    .mutation(async ({ input }) => {
+      await databaseMaintenance.end(input, input.decisionId);
+      return true;
+    }),
   reports: procedure.input(accountRef).query(async ({ input }) =>
     (await databaseMaintenance.reports(input)).map((report) => ({
       id: report.operation.id,
@@ -433,35 +617,68 @@ export const dbRepairRouter = router({
     }),
   ),
   preflight: procedure
-    .input(targetRef.extend({ backup: z.boolean().optional() }))
+    .input(
+      targetRef.extend({
+        backup: z.boolean().optional(),
+        method: z.enum(['quick', 'deep']).optional(),
+      }),
+    )
     .query(({ input }) => {
       const { key: _key, ...budget } = service.preflight(
         input.uin,
         input.dbName,
         input.backup,
         databaseMaintenance.leaseId(input),
+        input.method === 'quick' ? quickBudgetFor(input, input.dbName) : undefined,
       );
       return budget;
     }),
   repairStorage: procedure
-    .input(accountRef.extend({ dbNames: z.array(z.string()), backup: z.boolean() }))
+    .input(
+      accountRef.extend({
+        dbNames: z.array(z.string()),
+        backup: z.boolean().optional(),
+        backups: z.record(z.boolean()).optional(),
+        methods: z.record(z.enum(['quick', 'deep'])).optional(),
+      }),
+    )
     .query(({ input }) =>
       input.dbNames.map((name) => {
         const { cachePath, space } = service.preflight(
           input.uin,
           name,
-          input.backup,
+          input.backups?.[name] ?? (input.methods?.[name] === 'quick' ? false : input.backup),
           databaseMaintenance.leaseId(input),
+          input.methods?.[name] === 'quick' ? quickBudgetFor(input, name) : undefined,
         );
         return { dbName: name, cachePath, space, phase: 'preparing' };
       }),
     ),
-  detectLayout: procedure
-    .input(targetRef)
-    .query(({ input }) => service.probeLayout(input.uin, input.dbName)),
+  detectLayout: procedure.input(targetRef).query(async ({ input }) => {
+    const { dbPath } = service.resolveDatabasePath(input.uin, input.dbName);
+    const result = await runDatabaseMaintenanceWorker({ kind: 'layout', dbPath }, undefined);
+    if (!('needsMigration' in result)) throw new Error('源库布局检测结果无效。');
+    return result;
+  }),
   cacheLocation: procedure.query(() => ({
     override: requireBootstrap().userConfig.getDbRepairCacheDir(),
   })),
+  repairBackupMode: procedure.query(() =>
+    requireBootstrap().userConfig.getSetting('databaseRepairBackupMode'),
+  ),
+  setRepairBackupMode: procedure
+    .input(z.object({ mode: z.enum(DATABASE_REPAIR_BACKUP_MODES) }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ databaseRepairBackupMode: input.mode });
+    }),
+  checkupSettings: procedure.query(() => ({
+    concurrency: requireBootstrap().userConfig.getSetting('databaseCheckupConcurrency'),
+  })),
+  setCheckupConcurrency: procedure
+    .input(z.object({ concurrency: z.number().int().min(1).max(MAX_DATABASE_CHECKUP_CONCURRENCY) }))
+    .mutation(({ input }) => {
+      requireBootstrap().userConfig.setSettings({ databaseCheckupConcurrency: input.concurrency });
+    }),
   pickCacheLocation: procedure.mutation(async () => {
     assertCacheIdle();
     const picked = await getHost().pickDirectory({ title: '选择备份与修复工作区位置' });
@@ -486,15 +703,39 @@ export const dbRepairRouter = router({
   backup: procedure
     .input(targetRef)
     .mutation(({ input }) => service.backup(input.uin, input.dbName)),
+  onRestoreProgress: procedure.input(accountRef).subscription(({ input }) =>
+    observable<RestoreProgress | null>((emit) => {
+      const publish = () =>
+        emit.next(
+          restoreActivity?.scope.uin === input.uin &&
+            restoreActivity.scope.configId === input.configId
+            ? restoreActivity.progress
+            : null,
+        );
+      progressBus.on('restore', publish);
+      publish();
+      return () => {
+        progressBus.off('restore', publish);
+      };
+    }),
+  ),
   restore: procedure
     .input(recordRef.extend({ force: z.boolean().optional() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       assertIdle();
       closedAccountDuringRun = false;
       try {
+        pendingRestore = service.restore(input.uin, input.recordId, {
+          force: input.force,
+          progress: (dbName, step) => {
+            restoreActivity = { scope: input, progress: { dbName, step } };
+            progressBus.emit('restore');
+          },
+        });
+        const record = await pendingRestore;
         return {
           ok: true as const,
-          record: service.restore(input.uin, input.recordId, { force: input.force }),
+          record,
           closedAccount: closedAccountDuringRun,
         };
       } catch (error) {
@@ -506,6 +747,9 @@ export const dbRepairRouter = router({
           closedAccount: closedAccountDuringRun,
         };
       } finally {
+        pendingRestore = undefined;
+        restoreActivity = null;
+        progressBus.emit('restore');
         closedAccountDuringRun = false;
       }
     }),

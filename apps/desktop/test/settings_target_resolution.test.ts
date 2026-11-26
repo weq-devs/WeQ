@@ -10,47 +10,68 @@ import {
 
 describe('设置重构的规范目标与旧入口分流', () => {
   it.each(['global', 'chat-messages', 'message-display', 'chat-interaction'] as const)(
-    '%s 的消息提醒入口统一定位到通知与提醒',
+    '%s 的消息通知和角标分别定位',
     (section) => {
-      for (const [settingId, item] of [
-        ['message-system-notifications', '新消息系统通知'],
-        ['application-unread-badge', '应用图标未读角标'],
+      for (const [settingId, item, page] of [
+        ['message-system-notifications', '新消息系统通知', 'global'],
+        ['application-unread-badge', '应用图标未读角标', 'global'],
       ]) {
         expect(resolveSettingsTarget({ section, item })).toMatchObject({
-          section: 'global',
+          section: page,
           settingId,
         });
         expect(resolveSettingsTarget({ section, settingId })).toMatchObject({
-          section: 'global',
+          section: page,
           settingId,
         });
       }
     },
   );
 
-  it('六组页面各归其位，凭据与数据合并且不重复保留旧页面', () => {
+  it('各设置组按指定顺序展示，各设置页只出现一次', () => {
     expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
-      '常规',
-      '基础功能',
-      '增强功能',
-      '凭据与数据',
-      'WeQ 服务',
-      '关于 WeQ',
+      '能力',
+      '通用',
+      '外观',
+      '聊天',
+      'AI',
+      '服务',
+      'QQ',
+      '应用',
+      '关于',
+    ]);
+    expect(settingsGroupFor('startup').sections).toEqual([
+      'startup',
+      'global',
+      'resource-loading',
+      'data-saver',
+    ]);
+    expect(settingsGroupFor('appearance').sections).toEqual([
+      'appearance',
+      'home',
+      'main-navigation',
+      'chat-messages',
+      'contacts',
+      'contact-card',
+    ]);
+    expect(settingsGroupFor('privacy').sections).toEqual([
+      'privacy',
+      'weq-storage',
+      'accounts',
+      'backup',
+    ]);
+    expect(settingsGroupFor('qzone').sections).toEqual([
+      'qzone',
+      'mail',
+      'credentials',
+      'qq-accounts',
+      'qq-storage',
+      'database-management',
+      'diagnostics',
     ]);
     const sections = SETTINGS_GROUPS.flatMap((group) => group.sections);
     expect(sections).toHaveLength(Object.keys(SETTINGS_PAGE_LABELS).length);
     expect(new Set(sections)).toEqual(new Set(Object.keys(SETTINGS_PAGE_LABELS)));
-    expect(SETTINGS_GROUPS[0]?.sections).not.toContain('home');
-    expect(SETTINGS_GROUPS[0]?.sections[0]).toBe('startup');
-    expect(SETTINGS_GROUPS[1]?.sections).toEqual([
-      'chat-messages',
-      'message-display',
-      'chat-interaction',
-      'contact-card',
-      'call-recording',
-      'qzone',
-      'mail',
-    ]);
   });
 
   it.each<{
@@ -59,8 +80,8 @@ describe('设置重构的规范目标与旧入口分流', () => {
     target: string;
     settingId?: string;
   }>([
-    { section: 'home', target: 'startup', settingId: 'home-settings' },
-    { section: 'home', item: '一言屏蔽词', target: 'startup', settingId: 'home-blocked-words' },
+    { section: 'home', target: 'home', settingId: 'home-settings' },
+    { section: 'home', item: '一言屏蔽词', target: 'home', settingId: 'home-blocked-words' },
     { section: 'applock', target: 'privacy', settingId: 'app-lock' },
     { section: 'applock', item: '启用应用锁', target: 'privacy', settingId: 'app-lock' },
     { section: 'applock', item: '解锁方式', target: 'privacy', settingId: 'unlock-method' },
@@ -80,6 +101,19 @@ describe('设置重构的规范目标与旧入口分流', () => {
       settingId: 'prefer-cdn',
     },
     { section: 'global', target: 'global' },
+    { section: 'notification-badges', target: 'main-navigation' },
+    {
+      section: 'notification-badges',
+      item: '好友与群通知未读角标',
+      target: 'contacts',
+      settingId: 'contact-request-badge',
+    },
+    {
+      section: 'notification-badges',
+      item: '常规视图未读角标',
+      target: 'chat-messages',
+      settingId: 'conversation-markers',
+    },
     {
       section: 'global',
       item: '默认发送正在输入状态',
@@ -87,17 +121,23 @@ describe('设置重构的规范目标与旧入口分流', () => {
       settingId: 'typing-status',
     },
     { section: 'account', target: 'account' },
-    { section: 'message-display', item: '显示消息序号（seq）', target: 'message-display' },
-    { section: 'anti-recall', target: 'chat-interaction', settingId: 'anti-recall' },
+    { section: 'message-display', item: '显示消息序号（seq）', target: 'message-content' },
+    { section: 'anti-recall', target: 'anti-recall', settingId: 'anti-recall' },
     { section: 'media', target: 'resource-loading' },
-    { section: 'qq-accounts', target: 'diagnostics', settingId: 'qq-accounts' },
+    { section: 'qq-accounts', target: 'qq-accounts' },
+    {
+      section: 'diagnostics',
+      item: '登录记录与设备标识',
+      target: 'qq-accounts',
+      settingId: 'qq-accounts',
+    },
     {
       section: 'media',
       item: '允许使用外部安卓图片缓存',
       target: 'resource-loading',
       settingId: 'external-chatpic',
     },
-    { section: 'rkey', target: 'credentials', settingId: 'external-rkey' },
+    { section: 'rkey', target: 'resource-loading', settingId: 'external-rkey' },
     {
       section: 'accounts',
       item: '关联资源目录',

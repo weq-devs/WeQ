@@ -14,6 +14,7 @@ const activity = new WeakMap<
   object,
   {
     transfers: Map<string, ActiveTransfer>;
+    resumeDownloads: Map<string, () => void>;
     listeners: Set<() => void>;
   }
 >();
@@ -21,7 +22,7 @@ const activity = new WeakMap<
 function accountTransfers(services: object) {
   let state = activity.get(services);
   if (!state) {
-    state = { transfers: new Map(), listeners: new Set() };
+    state = { transfers: new Map(), resumeDownloads: new Map(), listeners: new Set() };
     activity.set(services, state);
   }
   return state;
@@ -70,9 +71,22 @@ export function observeUpload<T>(
 export function observeDownload<T>(
   services: object,
   id: string,
-  run: (update: (progress: TransferProgress) => void) => Promise<T>,
+  run: (
+    update: (progress: TransferProgress) => void,
+    setResume: (resume?: () => void) => void,
+  ) => Promise<T>,
 ) {
-  return observeTransfer(services, 'download', id, run);
+  const { resumeDownloads } = accountTransfers(services);
+  return observeTransfer(services, 'download', id, async (update) => {
+    try {
+      return await run(update, (resume) => {
+        if (resume) resumeDownloads.set(id, resume);
+        else resumeDownloads.delete(id);
+      });
+    } finally {
+      resumeDownloads.delete(id);
+    }
+  });
 }
 
 export function updateFlashUpload(
@@ -163,6 +177,15 @@ function snapshot(services: AccountServices): ActiveTransfer[] {
 }
 
 export const transferProgressRouter = router({
+  continuePreviewDownload: procedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(({ input }) => {
+      const services = getAppContext().services;
+      const resume = services && accountTransfers(services).resumeDownloads.get(input.id);
+      if (!resume) return false;
+      resume();
+      return true;
+    }),
   watch: procedure.input(resourceSourceInput.required()).subscription(({ input }) => {
     const services = requireResourceSource(input);
     return observable<ActiveTransfer[]>((emit) => {

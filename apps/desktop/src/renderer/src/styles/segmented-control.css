@@ -46,6 +46,17 @@
   letter-spacing: 0;
   overflow-wrap: anywhere;
   cursor: pointer;
+  /* 选中块在相邻按钮之间「滑」过去：底色、描边和文字色一起过渡。 */
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-segmented > button {
+    transition: none;
+  }
 }
 
 @media (pointer: fine) {

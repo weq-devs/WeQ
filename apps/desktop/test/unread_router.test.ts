@@ -75,6 +75,7 @@ beforeEach(() => {
       msgSeq: 10,
       latestSeq: '11',
       unreadCount: 1,
+      groupNotifyLevel: 4,
       readSeq: '10',
       highlights: [
         { kind: 'atMe', rawKind: 1000, msgSeq: 11, senderUid: 'u_fixture', sendTime: 1, text: '' },
@@ -292,6 +293,7 @@ describe('未读 IPC', () => {
         msgSeq: '10',
         latestSeq: '11',
         unreadCount: 1,
+        groupNotifyLevel: 4,
         readSeq: '10',
         readError: false,
         highlights: [{ msgSeq: '11', sendTime: '1' }],

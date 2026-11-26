@@ -35,7 +35,7 @@
 
 :is(.weq-title-online-status, .weq-mobile-online-status),
 :is(.weq-title-online-status, .weq-mobile-online-status) > .weq-online-status,
-.chat-status-desktop .weq-online-status {
+:is(.chat-status-desktop, .chat-status-mobile) .weq-online-status {
   display: inline-flex;
   align-items: center;
   overflow: hidden;
@@ -55,7 +55,7 @@
   flex: none;
 }
 
-:is(.weq-title-online-status, .weq-mobile-online-status, .chat-status-desktop)
+:is(.weq-title-online-status, .weq-mobile-online-status, .chat-status-desktop, .chat-status-mobile)
   .weq-online-status-text {
   min-width: 0;
   overflow: hidden;

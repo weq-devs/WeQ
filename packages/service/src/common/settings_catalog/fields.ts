@@ -3,8 +3,10 @@ import type { IntentSenseConfig } from '../../account/intent_sense';
 import { INTENT_TUNING, type IntentTuningKey } from '../intent_context';
 import {
   AGGREGATE_BADGE_SETTINGS,
+  CONTACT_NAVIGATION_BADGE_SETTING,
+  CONTACT_REQUEST_BADGE_SETTING,
   CONTACT_UNREAD_COUNT_LABEL,
-  ENTRY_BADGE_SETTINGS,
+  MENU_BADGE_SETTINGS,
   type PreferenceKey,
 } from '../client_preferences';
 import type { SettingsResetCardId } from './reset';
@@ -48,14 +50,13 @@ export const APP_SETTING_FIELDS = (
     ['window', 'windowCloseBehavior', 'window-close-behavior', '关闭窗口时'],
     ['window-appearance', 'windowsStyleControls', 'windows-style-controls', '仿 Windows 窗口按钮'],
     ['app-lock', 'autoLockMinutes', 'auto-lock', '自动锁定分钟'],
-    ['notification-badges', 'showMessageUnreadBadge', 'message-unread-badge', '消息导航未读角标'],
+    ['navigation-badges', 'showMessageUnreadBadge', 'message-unread-badge', '消息导航未读角标'],
     [
-      'notification-badges',
+      'contact-badges',
       'showContactUnreadCount',
       'contact-unread-count',
       CONTACT_UNREAD_COUNT_LABEL,
     ],
-    ['notification-badges', 'showGroupAssistantMessageCount', 'group-assistant-count', '群助手'],
     ['reading', 'readFromFirstUnread', 'read-first-unread', '打开会话时继续上次阅读'],
     ['reading', 'preserveUnreadUntilRead', 'preserve-unread-until-read', '按阅读进度更新未读数'],
     ['conversation-markers', 'showGroupAssistantMessageCount', 'group-assistant-count', '群助手'],
@@ -81,6 +82,7 @@ export const APP_SETTING_FIELDS = (
     ['message-content', 'showMsgDecoration', 'message-bubble', '消息装饰'],
     ['message-content', 'showMessageBubble', 'message-bubble', '消息气泡'],
     ['message-content', 'showMessageFont', 'message-font', '消息字体'],
+    ['message-send-font', 'defaultMessageFont', 'default-message-font', '默认使用的字体'],
     ['message-content', 'renderTextMarkdown', 'text-markdown', 'Markdown 文本'],
     ['message-content', 'linkPreview', 'link-preview', '链接预览'],
     ['chat-memory', 'chatImageCacheMiB', 'chat-image-cache', '图片预览内存预算'],
@@ -99,20 +101,15 @@ export const APP_SETTING_FIELDS = (
     ['realtime', 'realtimeEnabled', 'realtime-enabled', '数据库监听'],
     ['attach', 'autoAttachQq', 'auto-full-mode', '启用 QQ 在线能力'],
     [
-      'attach',
-      'restrictedModeIndicatorEnabled',
-      'restricted-mode-indicator',
-      '在线能力受限时显示窗口提示',
-    ],
-    [
-      'qq-client-sync',
-      'qqProxyIndicatorEnabled',
-      'qq-proxy-indicator',
-      'QQ 代理未连接时显示窗口提示',
+      'qq-status-reminders',
+      'qqStatusIndicatorEnabled',
+      'qq-status-indicator',
+      '显示 QQ 功能状态提示',
     ],
     ['cdn', 'preferCdn', 'prefer-cdn', '优先 CDN'],
     ['cdn', 'preferRemoteCdn', 'prefer-remote-cdn', 'Remote 缺少资源时优先直取'],
-    ['logs', 'logRetentionDays', 'log-retention', '日志保留天数'],
+    ['logs', 'logRetentionDays', 'log-retention', '应用日志保存时长'],
+    ['logs', 'logCapacityMiB', 'log-capacity', '应用日志容量上限'],
     ['database-read', 'databaseReadConcurrency', 'database-read-concurrency', '数据库读取并发上限'],
     ['web', 'webServiceAutoStart', 'web-autostart', 'Web 服务自动启动'],
   ] as const satisfies readonly (readonly [
@@ -130,7 +127,7 @@ export const APP_SETTING_FIELDS = (
 /** 前端即时反馈与宿主恢复都消费同一份共享偏好绑定。 */
 export const CLIENT_SETTING_FIELDS = (
   [
-    ['theme-mode', 'preference', 'theme-mode', '基础模式'],
+    ['theme-mode', 'preference', 'theme-mode', '主题模式'],
     ['theme-accent', 'accent', 'theme-accent', '主题色'],
     ['theme-background', 'background', 'theme-background', '界面背景'],
     ['theme-components', 'componentStyle', 'component-style', '组件风格'],
@@ -177,19 +174,10 @@ export const CLIENT_SETTING_FIELDS = (
     ['quote-replies', 'backspaceRemovesQuote', 'quote-backspace-remove', '按退格键移除引用'],
     ['emoji-shortcuts', 'slashEmojiEnabled', 'slash-emoji-input', '斜杠表情快捷输入'],
     ['emoji-shortcuts', 'slashEmojiAutoReplace', 'slash-emoji-auto-replace', '无需回车即自动替换'],
-    ['notification-badges', 'applicationBadge', 'application-unread-badge', '应用图标未读角标'],
-    [
-      'notification-badges',
-      'showInteractionBadge',
-      'conversation-interaction-badge',
-      '会话互动红点',
-    ],
-    ...ENTRY_BADGE_SETTINGS.map(
-      ([key, id, label]) => ['notification-badges', key, id, label] as const,
-    ),
-    ...AGGREGATE_BADGE_SETTINGS.filter(([, key]) => key !== 'showGroupAssistantMessageCount').map(
-      ([, key, id, label]) => ['notification-badges', key, id, label] as const,
-    ),
+    ['application-badge', 'applicationBadge', 'application-unread-badge', '应用图标未读角标'],
+    ['navigation-badges', ...CONTACT_NAVIGATION_BADGE_SETTING],
+    ['contact-badges', ...CONTACT_REQUEST_BADGE_SETTING],
+    ...MENU_BADGE_SETTINGS.map(([key, id, label]) => ['menu-badges', key, id, label] as const),
     [
       'conversation-markers',
       'showInteractionBadge',
@@ -333,14 +321,21 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   ),
   field(
     'enhancement-updates',
-    'autoInstall',
-    'enhancement-auto-install',
-    '自动安装增强包更新',
+    'autoUpdatePacks',
+    'enhancement-management',
+    '各增强包的自动更新',
     'runtime',
   ),
   field('toast', 'successSeconds', 'toast-success', '成功通知停留时长', 'runtime'),
   field('toast', 'failureSeconds', 'toast-failure', '失败通知停留时长', 'runtime'),
   field('toast', 'messageSeconds', 'toast-message', '消息通知停留时长', 'runtime'),
+  field(
+    'qq-status-reminders',
+    'runtime',
+    'qq-online-notification',
+    '在线能力受限时通知',
+    'runtime',
+  ),
   field('qq-client-sync', 'proxy', 'qq-proxy-connection', 'QQ 代理', 'runtime', {
     scope: '此设备',
     stopsService: true,
@@ -420,7 +415,7 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   field('update', 'prerelease', 'update-prerelease', '检查测试版', 'runtime', {
     desktopOnly: true,
   }),
-  field('notification-badges', 'unread', 'mail-unread-badge', '邮箱导航未读角标', 'runtime'),
+  field('navigation-badges', 'unread', 'mail-unread-badge', '邮箱导航未读角标', 'runtime'),
   field('mail', 'unread', 'mail-unread-badge', '邮箱导航未读角标', 'runtime'),
   field('mail', 'poll-interval', 'mail-poll-interval', '邮箱查询间隔', 'runtime'),
   ...SCOPED_NOTIFICATION_EVENTS.map((event) =>

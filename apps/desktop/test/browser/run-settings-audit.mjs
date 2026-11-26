@@ -182,16 +182,9 @@ try {
   const shot = async (name) => {
     if (output) await page.screenshot({ path: resolve(output, `${name}.png`), fullPage: false });
   };
-  const clickGroup = async (label) => {
-    await page
-      .locator('.weq-settings-nav')
-      .getByRole('button', { name: label, exact: true })
-      .click();
-    await page.waitForTimeout(120);
-  };
-  const openSubnav = async (label) => {
+  const openSetting = async (label) => {
     const item = page
-      .locator('.weq-settings-subnav')
+      .locator('.weq-settings-nav')
       .getByRole('button', { name: label, exact: true });
     if (!(await item.count())) return false;
     await item.click();
@@ -200,7 +193,7 @@ try {
   };
   const activeId = () =>
     page.evaluate(() => {
-      const el = document.querySelector('.weq-settings-subnav-item.is-active');
+      const el = document.querySelector('.weq-settings-nav-item.is-active');
       return el ? el.textContent.trim() : null;
     });
 
@@ -209,27 +202,15 @@ try {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`${base()}?x=1`);
     await setTheme(theme);
-    const groups = await page
-      .locator('.weq-settings-nav-item .weq-settings-nav-label')
-      .allTextContents();
-    report.groups = groups.map((g) => g.trim());
-    for (const group of groups) {
-      await clickGroup(group.trim());
-      const sections = await page.locator('.weq-settings-subnav-label').allTextContents();
-      for (const section of sections) {
-        const label = section.trim();
-        if (!(await openSubnav(label))) continue;
-        const slug = `${group.trim()}_${label}`.replace(/[^\w\u4e00-\u9fa5-]+/g, '-');
-        await shot(`1280-${theme}-${slug}`);
-        if (theme === 'light') {
-          const diag = await page.evaluate(DIAG);
-          report.pages.push({
-            group: group.trim(),
-            section: label,
-            active: await activeId(),
-            ...diag,
-          });
-        }
+    const sections = await page.locator('.weq-settings-nav-label').allTextContents();
+    for (const section of sections) {
+      const label = section.trim();
+      if (!(await openSetting(label))) continue;
+      const slug = label.replace(/[^\w一-龥-]+/g, '-');
+      await shot(`1280-${theme}-${slug}`);
+      if (theme === 'light') {
+        const diag = await page.evaluate(DIAG);
+        report.pages.push({ section: label, active: await activeId(), ...diag });
       }
     }
   }
@@ -237,7 +218,7 @@ try {
   // ---- 1b. 版式一致性断言（41 页全量） ----
   const layoutProblems = [];
   for (const page of report.pages) {
-    const where = `${page.group}/${page.section}`;
+    const where = page.section;
     if (page.overflowX > 0) layoutProblems.push(`${where} 横向溢出 ${page.overflowX}px`);
     if (page.duplicatedCardRow.length)
       layoutProblems.push(`${where} 卡片标题与行 label 重复：${page.duplicatedCardRow.join('、')}`);
@@ -250,8 +231,8 @@ try {
         layoutProblems.push(`${where} 卡片内边距 ${card.padding} ≠ 14 16 14 16`);
       if (card.gap !== 10) layoutProblems.push(`${where} 卡片内间距 ${card.gap}px ≠ 10px`);
     }
-    if (page.metrics.cardTitle && page.metrics.cardTitle.fontSize !== 13)
-      layoutProblems.push(`${where} 卡片标题字号 ${page.metrics.cardTitle.fontSize}px ≠ 13px`);
+    if (page.metrics.cardTitle && page.metrics.cardTitle.fontSize !== 14)
+      layoutProblems.push(`${where} 卡片标题字号 ${page.metrics.cardTitle.fontSize}px ≠ 14px`);
     if (page.metrics.rowLabel && page.metrics.rowLabel.fontSize !== 14)
       layoutProblems.push(`${where} 行 label 字号 ${page.metrics.rowLabel.fontSize}px ≠ 14px`);
     if (page.metrics.rowDesc && page.metrics.rowDesc.fontSize !== 12)
@@ -276,11 +257,11 @@ try {
     await shot(`390-${theme}-categories`);
     const mobile = [];
     for (const [group, section, id] of [
-      ['常规', '外观与布局', 'appearance'],
-      ['基础功能', 'QQ 邮箱', 'mail'],
-      ['基础功能', '联系人名片', 'contact-card'],
-      ['基础功能', '消息显示', 'message-display'],
-      ['关于 WeQ', '配置备份与恢复', 'backup'],
+      ['外观', '主题与布局', 'appearance'],
+      ['QQ', 'QQ 邮箱', 'mail'],
+      ['外观', '联系人名片', 'contact-card'],
+      ['聊天', '消息显示', 'message-content'],
+      ['应用', '配置备份与恢复', 'backup'],
     ]) {
       await page.goto(`${base()}?section=${id}`);
       await setTheme(theme);
@@ -314,7 +295,7 @@ try {
         document.activeElement?.getAttribute('aria-label') || document.activeElement?.tagName,
       scrollTop: document.querySelector('.weq-settings-body')?.scrollTop ?? null,
       activeSection: document
-        .querySelector('.weq-settings-subnav-item.is-active')
+        .querySelector('.weq-settings-nav-item.is-active')
         ?.textContent?.trim(),
     };
   });
@@ -417,7 +398,7 @@ try {
   const state = () =>
     page.evaluate(() => ({
       dialog: Boolean(document.querySelector('.weq-settings-dialog')),
-      categories: document.querySelector('.weq-settings-dialog')?.dataset.mobileCategory !== 'true',
+      list: document.querySelector('.weq-settings-dialog')?.dataset.mobileDetail !== 'true',
       navVisible: (() => {
         const nav = document.querySelector('.weq-settings-nav');
         return Boolean(nav && nav.getBoundingClientRect().width > 0);
@@ -425,15 +406,15 @@ try {
     }));
   await page
     .locator('.weq-settings-nav')
-    .getByRole('button', { name: '基础功能', exact: true })
+    .getByRole('button', { name: '消息', exact: true })
     .click();
   await page.waitForTimeout(400);
-  await page.getByRole('button', { name: '返回设置分类', exact: true }).click();
+  await page.getByRole('button', { name: '返回设置', exact: true }).click();
   await page.waitForTimeout(500);
   const afterBack = await state();
-  assert.equal(afterBack.dialog, true, '返回设置分类不应退出设置');
-  assert.equal(afterBack.navVisible, true, '返回设置分类后应回到一级分类列表');
-  report.interactions.push({ name: 'mobile-back-to-categories', ...afterBack });
+  assert.equal(afterBack.dialog, true, '返回设置不应退出设置');
+  assert.equal(afterBack.navVisible, true, '应回到设置页面列表');
+  report.interactions.push({ name: 'mobile-back-to-settings-list', ...afterBack });
   await page.keyboard.press('Tab');
   const ring = await page.evaluate(() => {
     const el = document.activeElement;

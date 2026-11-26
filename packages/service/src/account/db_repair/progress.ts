@@ -1,6 +1,8 @@
 import type { DatabaseProgress } from '@weq/native';
 
 export type DatabaseWorkProgress = DatabaseProgress & {
+  /** 深度修复没有步骤总量时，供重建进度条使用的产物大小比例。 */
+  rebuildPercent?: number;
   /** 结构体检中，当前索引所属的表。旧报告可能没有此字段。 */
   tableName?: string;
   status?: 'running' | 'completed' | 'incomplete' | 'failed' | 'skipped';
@@ -27,6 +29,30 @@ export interface DatabaseTaskProgress {
   steps: DatabaseStepProgress[];
 }
 
+/** 兼容仍在运行的旧主进程和旧报告，其中每次重建计数都可能被记录为独立步骤。 */
+export function databaseProgressDisplaySteps(
+  progress: DatabaseTaskProgress,
+): DatabaseStepProgress[] {
+  const { kind, current, steps } = progress;
+  if (kind !== 'repair') return steps;
+  const isRecovery = (step: DatabaseStepProgress) =>
+    step.phase === 'Repair' && step.step === 'recover-data';
+  const latestIndex = steps.findLastIndex(isRecovery);
+  if (latestIndex < 0) return steps;
+  const currentIsSummary = current.phase === 'Repair' && current.step === 'Repair';
+  if (!currentIsSummary && steps.findIndex(isRecovery) === latestIndex) return steps;
+
+  return steps.flatMap((step, index) => {
+    if (currentIsSummary && index === steps.length - 1) return [];
+    if (!isRecovery(step)) return [step];
+    if (index !== latestIndex) return [];
+    // 旧进程可能在最后一次计数后只发阶段摘要，再以该摘要记录停止或失败。
+    return [
+      currentIsSummary ? { ...step, status: current.status, finishedAt: current.finishedAt } : step,
+    ];
+  });
+}
+
 /** 仅计算当前步骤的进度，不把页号、字段数或步骤数量当作整体百分比。 */
 export function databaseStepPercent(step: DatabaseWorkProgress): number | undefined {
   if (
@@ -37,6 +63,18 @@ export function databaseStepPercent(step: DatabaseWorkProgress): number | undefi
   )
     return undefined;
   return Math.min(100, Math.max(0, (step.completed! / step.total!) * 100));
+}
+
+function finalIntegrityStep(step: DatabaseStepProgress): boolean {
+  return step.phase === 'final-check' && step.step.startsWith('integrity-');
+}
+
+export function databaseRepairCheckGroup(
+  step: DatabaseStepProgress,
+): 'output' | 'final-check' | undefined {
+  if (!/^(?:output-)?integrity-(?:records|index)-/.test(step.step)) return undefined;
+  if (step.phase === 'final-check') return 'final-check';
+  if (step.phase === 'Restore' || step.phase === 'Verify') return 'output';
 }
 
 function closeCheckupStep(step: DatabaseStepProgress, at: number): DatabaseStepProgress {
@@ -75,6 +113,17 @@ export class DatabaseProgressTracker {
           }
         : work;
     if (this.snapshot && this.snapshot.status !== 'running') return this.snapshot;
+    // 深度修复交替上报原生阶段摘要与 recover-data 的累计计数。
+    // 同阶段摘要不能结束正在恢复的数据步骤。
+    if (
+      this.kind === 'repair' &&
+      phase === 'Repair' &&
+      tick.step === phase &&
+      tick.status === undefined &&
+      this.snapshot?.current.phase === phase &&
+      this.snapshot.current.step === 'recover-data'
+    )
+      return this.snapshot;
     const at = this.now();
     const old = this.snapshot;
     // 整体结构检查包住多个原生子阶段，最终结果回填原行，不新增一个同名步骤。
@@ -108,7 +157,7 @@ export class DatabaseProgressTracker {
       previous &&
       count !== undefined &&
       previous.completed !== undefined &&
-      count >= previous.completed &&
+      count > previous.completed &&
       delta >= 100
         ? ((count - previous.completed) * 1000) / delta
         : previous?.rate;
@@ -130,6 +179,8 @@ export class DatabaseProgressTracker {
       if (this.kind === 'checkup') {
         if (last.step !== 'integrity' || !tick.step.startsWith('integrity-'))
           steps[steps.length - 1] = closeCheckupStep(last, at);
+      } else if (finalIntegrityStep(last)) {
+        steps[steps.length - 1] = closeCheckupStep(last, at);
       } else {
         steps[steps.length - 1] = {
           ...last,
@@ -146,15 +197,24 @@ export class DatabaseProgressTracker {
       const index = steps.findIndex((step) => step.step === 'integrity');
       if (index >= 0) steps[index] = { ...steps[index]!, outcome: 'abnormal' };
     }
-    const retained = steps.filter(
-      (step, index) =>
-        index >= steps.length - 63 ||
-        step.status === 'failed' ||
-        step.status === 'incomplete' ||
-        step.outcome === 'abnormal' ||
-        step.status === 'skipped' ||
-        step.outcome === 'unverified',
-    );
+    // 保留产物检查及旧报告中的替换后结构检查明细，避免挤掉先前的解密、重建等步骤。
+    const remaining = { main: 63, output: 63, 'final-check': 63 };
+    const retained = steps
+      .toReversed()
+      .filter((step) => {
+        const group = (this.kind === 'repair' && databaseRepairCheckGroup(step)) || 'main';
+        const withinLimit = remaining[group] > 0;
+        remaining[group] -= 1;
+        return (
+          withinLimit ||
+          step.status === 'failed' ||
+          step.status === 'incomplete' ||
+          step.outcome === 'abnormal' ||
+          step.status === 'skipped' ||
+          step.outcome === 'unverified'
+        );
+      })
+      .reverse();
     const summary = steps.find((step) => step.step === 'integrity');
     if (this.kind === 'checkup' && summary && !retained.includes(summary)) retained[0] = summary;
     this.snapshot = {
@@ -175,17 +235,20 @@ export class DatabaseProgressTracker {
     if (!this.snapshot) return undefined;
     const at = this.now();
     const last =
-      this.kind === 'checkup' && status === 'completed'
+      status === 'completed' &&
+      (this.kind === 'checkup' || finalIntegrityStep(this.snapshot.current))
         ? closeCheckupStep(this.snapshot.current, at)
         : this.snapshot.current;
     const current = {
       ...last,
       status:
-        status === 'cancelled'
-          ? ('skipped' as const)
-          : status === 'completed' && last.status !== 'running'
-            ? last.status
-            : status,
+        last.step === 'rollback-fingerprint' && last.status === 'completed'
+          ? last.status
+          : status === 'cancelled'
+            ? ('skipped' as const)
+            : status === 'completed' && last.status !== 'running'
+              ? last.status
+              : status,
       finishedAt: at,
     };
     this.snapshot = {

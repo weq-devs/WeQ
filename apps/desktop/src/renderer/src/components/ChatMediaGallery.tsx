@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { client } from '../trpc/client';
 import { useExportSavePolicy } from '../hooks/useExportSavePolicy';
+import type { PreviewMedia } from './mediaPreviewTypes';
 import { openMediaPreview } from './mediaPreviewStore.shared';
 import {
   type GalleryMessage,
@@ -19,6 +20,7 @@ export function ChatMediaGallery({
   kind = 'c2c',
   filter,
   mediaKind,
+  renderToolbarActions,
   carrier,
   paged = false,
   scopeKey = conv,
@@ -29,6 +31,7 @@ export function ChatMediaGallery({
   kind?: 'c2c' | 'group';
   filter?: GalleryFilter;
   mediaKind?: 'image' | 'video';
+  renderToolbarActions?: (item: PreviewMedia) => ReactNode;
   carrier?: import('../state/messageContext').ForwardCarrier;
   paged?: boolean;
   scopeKey?: string;
@@ -76,6 +79,7 @@ export function ChatMediaGallery({
         items: initial,
         initialKey: key,
         ownerDocument: owner,
+        renderToolbarActions,
         onClose: () => {
           controller.abort();
           handle.current = null;
@@ -108,7 +112,7 @@ export function ChatMediaGallery({
       });
       return true;
     },
-    [conv, kind, paged, filter, identity, mediaFor],
+    [conv, kind, paged, filter, identity, mediaFor, renderToolbarActions],
   );
   return (
     <GalleryContext.Provider value={open}>

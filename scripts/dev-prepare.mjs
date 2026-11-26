@@ -46,26 +46,43 @@ export async function hashFile(path) {
   return hash.digest('hex');
 }
 
-export async function acquireProcessLock(lock) {
+export class ProcessLockBusy extends Error {
+  constructor(lock, owner = null) {
+    super(
+      owner
+        ? `此启动或构建流程已在运行（PID ${owner.pid}）：${lock}`
+        : `启动或构建锁尚未就绪，请稍后重试；若已无对应进程，请检查 ${lock}`,
+    );
+    this.owner = owner;
+  }
+}
+
+export function processIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error.code === 'ESRCH') return false;
+    throw error;
+  }
+}
+
+export async function acquireProcessLock(lock, metadata = {}) {
   await mkdir(dirname(lock), { recursive: true });
   try {
-    await mkdir(lock);
+    await mkdir(lock, { mode: 0o700 });
   } catch (error) {
     if (error.code !== 'EEXIST') throw error;
     const owner = await readCache(join(lock, 'owner.json'));
-    if (!Number.isSafeInteger(owner?.pid) || owner.pid <= 0)
-      throw new Error(`启动或构建锁尚未就绪，请稍后重试；若已无对应进程，请检查 ${lock}`);
-    try {
-      process.kill(owner.pid, 0);
-    } catch (error) {
-      if (error.code !== 'ESRCH') throw error;
+    if (!Number.isSafeInteger(owner?.pid) || owner.pid <= 0) throw new ProcessLockBusy(lock);
+    if (!processIsAlive(owner.pid)) {
       await rm(lock, { recursive: true });
-      return acquireProcessLock(lock);
+      return acquireProcessLock(lock, metadata);
     }
-    throw new Error(`此启动或构建流程已在运行（PID ${owner.pid}）：${lock}`);
+    throw new ProcessLockBusy(lock, owner);
   }
   try {
-    await writeJson(join(lock, 'owner.json'), { pid: process.pid });
+    await writeJson(join(lock, 'owner.json'), { ...metadata, pid: process.pid });
   } catch (error) {
     await rm(lock, { recursive: true, force: true });
     throw error;

@@ -1,3 +1,4 @@
+import { filterByName } from '../../lib/nameSearch';
 import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import { useId, useRef, useState } from 'react';
@@ -38,8 +39,11 @@ export function AddGroupMembersModal({
   const pending = useRef(false);
   const locked = new Set([...memberIds, ...completed]);
   const query = keyword.trim().toLocaleLowerCase();
-  const visible = personas.filter((persona) =>
-    [persona.name, persona.uin].some((value) => value?.toLocaleLowerCase().includes(query)),
+  const visible = filterByName(
+    personas,
+    query,
+    (persona) => [persona.name],
+    (persona, needle) => Boolean(persona.uin?.toLocaleLowerCase().includes(needle)),
   );
   const additions = personas
     .filter((persona) => selected.has(persona.id) && !locked.has(persona.id))

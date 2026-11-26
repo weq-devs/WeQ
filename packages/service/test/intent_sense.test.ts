@@ -668,7 +668,7 @@ describe('IntentSenseService', () => {
     expect(existsSync(join(traceDir, 'unrelated.json'))).toBe(true);
   });
 
-  it.each(['http', 'empty'])(
+  it.each(['http', 'invalid'])(
     '模型 %s 失败时详情保存实际 prompt 与回退原因，不把模型概括配给本地候选',
     async (failure) => {
       const fetchMock = vi.fn(async () =>
@@ -679,7 +679,7 @@ describe('IntentSenseService', () => {
                 choices: [
                   {
                     message: {
-                      content: JSON.stringify({ summary: '不应显示的概括', replies: [] }),
+                      content: JSON.stringify({ summary: '不应显示的概括', replies: [null] }),
                     },
                   },
                 ],
@@ -715,7 +715,7 @@ describe('IntentSenseService', () => {
     },
   );
 
-  it.each([true, false])('API 失败、冷却和空候选均遵守回退开关 %s', async (enabled) => {
+  it.each([true, false])('API 失败、冷却和无效候选均遵守回退开关 %s', async (enabled) => {
     const fetchMock = vi.fn(async () => new Response('fixture-down', { status: 500 }));
     vi.stubGlobal('fetch', fetchMock);
     const svc = new IntentSenseService(makeSession([textMsg(1n, 'u_peer', '你好', 1000)]), dir, {
@@ -735,7 +735,7 @@ describe('IntentSenseService', () => {
     await svc.setConfig({ suggestionFallbackTexts: ['新回退'] });
     fetchMock.mockImplementation(
       async () =>
-        new Response(JSON.stringify({ choices: [{ message: { content: '{"replies":[]}' } }] })),
+        new Response(JSON.stringify({ choices: [{ message: { content: '{"replies":[null]}' } }] })),
     );
     expect(await svc.getSuggestions('c2c', 'u_peer', { refresh: true })).toHaveLength(
       enabled ? 1 : 0,

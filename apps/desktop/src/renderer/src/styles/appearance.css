@@ -76,12 +76,7 @@ html[data-theme]
   text-decoration-color: currentColor;
 }
 
-html[data-theme]
-  :is(
-    .weq-settings-subnav-item.is-active,
-    .weq-settings-nav-item.is-active,
-    .weq-tools-child-menu > button:hover
-  ) {
+html[data-theme] :is(.weq-settings-nav-item.is-active, .weq-tools-child-menu > button:hover) {
   color: var(--weq-accent-ink, var(--weq-fg-primary));
 }
 

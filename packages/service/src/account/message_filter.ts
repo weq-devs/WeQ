@@ -15,6 +15,16 @@ export const MESSAGE_CATEGORIES = [
   'other',
 ] as const;
 export type MessageCategory = (typeof MESSAGE_CATEGORIES)[number];
+export const CONVERSATION_RECORD_TYPES = [
+  'media',
+  'emoji',
+  'voice',
+  'file',
+  'forward',
+  'linkCard',
+  'other',
+] as const;
+export type ConversationRecordType = (typeof CONVERSATION_RECORD_TYPES)[number];
 
 export interface ForwardCardTarget {
   elementIndex: number;
@@ -38,6 +48,8 @@ export interface MessageFilter {
   messageIds?: string[];
   forwardTarget?: ForwardExportTarget;
   sender?: string;
+  senders?: string[];
+  recordType?: ConversationRecordType;
   keyword?: string;
   category?: MessageCategory;
 }
@@ -66,21 +78,28 @@ export function compileMessageFilter(
 ): (message: FilterableMessage) => boolean {
   const snapshot = filter ? { ...filter } : undefined;
   const ids = filter?.messageIds ? new Set(filter.messageIds) : undefined;
-  return (message) => matchesMessageFilter(message, snapshot, ids);
+  const senders = filter?.senders ? new Set(filter.senders) : undefined;
+  return (message) => matchesMessageFilter(message, snapshot, ids, senders);
 }
 
-function categoryOf(element: RenderElement): MessageCategory {
+export function messageSearchText(elements: RenderElement[]): string {
+  return elementsToText(elements).toLocaleLowerCase();
+}
+
+type ClassifiedElement = RenderElement | { type?: string; data?: Record<string, unknown> };
+
+function categoryOf(element: ClassifiedElement): MessageCategory {
   if (element.type === 'text' || element.type === 'at') return 'text';
   if (element.type === 'pic') return 'image';
   if (element.type === 'video') return 'video';
   if (element.type === 'ptt') return 'voice';
-  if (['file', 'onlineFile', 'onlineFolder'].includes(element.type)) return 'file';
-  if (['face', 'mface', 'emojiBounce'].includes(element.type)) return 'emoji';
-  if (element.type.startsWith('grayTip')) return 'system';
+  if (['file', 'onlineFile', 'onlineFolder'].includes(element.type ?? '')) return 'file';
+  if (['face', 'mface', 'emojiBounce'].includes(element.type ?? '')) return 'emoji';
+  if (element.type?.startsWith('grayTip')) return 'system';
   return 'other';
 }
 
-function hasLink(element: RenderElement): boolean {
+function hasLink(element: ClassifiedElement): boolean {
   if (element.type === 'text') return hasTextLink(String(element.data?.textContent ?? ''));
   if (element.type !== 'ark') return false;
   const news = parseArkData(element.data?.arkData)?.meta?.news;
@@ -98,10 +117,34 @@ export function messageCategory(elements: readonly RenderElement[]): MessageCate
   return [...categories];
 }
 
+export function conversationRecordTypeOf(element: ClassifiedElement): ConversationRecordType {
+  if (
+    element.type === 'multiMsg' ||
+    (element.type === 'ark' && parseArkData(element.data?.arkData)?.app === 'com.tencent.multimsg')
+  )
+    return 'forward';
+  if (element.type === 'pic' && Number(element.data?.subType) === 1) return 'emoji';
+  const category = categoryOf(element);
+  if (category === 'image' || category === 'video') return 'media';
+  if (category === 'emoji' || category === 'voice' || category === 'file') return category;
+  if (element.type === 'ark' || hasLink(element)) return 'linkCard';
+  return 'other';
+}
+
+export function matchesConversationRecordType(
+  elements: readonly ClassifiedElement[],
+  type: ConversationRecordType,
+): boolean {
+  return type === 'other'
+    ? elements.every((element) => conversationRecordTypeOf(element) === 'other')
+    : elements.some((element) => conversationRecordTypeOf(element) === type);
+}
+
 export function matchesMessageFilter(
   message: FilterableMessage,
   filter?: MessageFilter,
   selectedIds?: ReadonlySet<string>,
+  selectedSenders?: ReadonlySet<string>,
 ): boolean {
   if (!filter) return true;
   if (filter.messageIds !== undefined) {
@@ -113,6 +156,12 @@ export function matchesMessageFilter(
     filter.sender !== message.senderUid &&
     filter.sender !== String(message.senderUin)
   )
+    return false;
+  if (filter.senders?.length) {
+    const senders = selectedSenders ?? new Set(filter.senders);
+    if (!senders.has(message.senderUid) && !senders.has(String(message.senderUin))) return false;
+  }
+  if (filter.recordType && !matchesConversationRecordType(message.elements, filter.recordType))
     return false;
   const { category } = filter;
   if (category) {
@@ -127,9 +176,7 @@ export function matchesMessageFilter(
   }
   if (
     filter.keyword &&
-    !elementsToText(message.elements)
-      .toLocaleLowerCase()
-      .includes(filter.keyword.toLocaleLowerCase())
+    !messageSearchText(message.elements).includes(filter.keyword.toLocaleLowerCase())
   )
     return false;
   return true;

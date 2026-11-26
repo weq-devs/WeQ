@@ -1,4 +1,3 @@
-import { networkFetch } from '@weq/network';
 /**
  * 群关键词提醒的「命中处理」（Electron 主进程）。
  *
@@ -15,6 +14,8 @@ import { networkFetch } from '@weq/network';
  * 两件事都是 best-effort：失败只记日志，不影响后续消息。
  */
 
+import { currentAccountRuntime } from './context/account_runtime';
+import { networkFetch } from '@weq/network';
 import { Notification } from 'electron';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -114,10 +115,13 @@ async function showNotification(
     icon: hidden ? undefined : (iconPath ?? undefined),
     silent: false,
   });
-  notification.on('click', () => {
-    if (getAppContext().services !== services) return;
-    openConversationAt(hit);
-  });
+  notification.on(
+    'click',
+    currentAccountRuntime().bind(() => {
+      if (getAppContext().services !== services) return;
+      openConversationAt(hit);
+    }),
+  );
   notification.show();
 }
 

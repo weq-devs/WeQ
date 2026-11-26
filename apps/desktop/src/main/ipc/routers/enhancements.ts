@@ -39,17 +39,30 @@ export const enhancementProcedures = {
       return true;
     }),
   enhancementPacks: procedure.query(async () => {
-    const resources = requireBootstrap().enhancements;
+    const { enhancements: resources, userConfig } = requireBootstrap();
     await resources.inspected;
     await resources.updates.ready();
     const packs = await resources.packs.list();
+    const preferences = userConfig.getSettings().enhancementUpdates;
     return {
-      packs: packs.map((pack) => ({
-        ...pack,
-        check: resources.updates.state(pack.id),
-        downloadTask: enhancementDownloadTask(resources.packs, pack.id),
-      })),
-      preferences: requireBootstrap().userConfig.getSettings().enhancementUpdates,
+      packs: packs.map((pack) => {
+        const autoUpdate = preferences.autoUpdatePacks.includes(pack.id);
+        const downloadTask = enhancementDownloadTask(resources.packs, pack.id);
+        return {
+          ...pack,
+          autoUpdate,
+          updateNeedsAttention:
+            pack.updateAvailable &&
+            (!autoUpdate ||
+              !preferences.autoCheck ||
+              !!pack.blocker ||
+              pack.operation?.phase === 'failed' ||
+              downloadTask?.status === 'failed'),
+          check: resources.updates.state(pack.id),
+          downloadTask,
+        };
+      }),
+      preferences: { autoCheck: preferences.autoCheck },
       all: resources.packs.plan(
         packs.filter((pack) => !pack.downloaded && !pack.blocker).map((pack) => pack.id),
       ),
@@ -57,12 +70,27 @@ export const enhancementProcedures = {
   }),
   setEnhancementUpdates: procedure
     .input(
-      z.object({ autoCheck: z.boolean().optional(), autoInstall: z.boolean().optional() }).strict(),
+      z
+        .object({
+          autoCheck: z.boolean().optional(),
+          pack: z.object({ id: packId, enabled: z.boolean() }).optional(),
+        })
+        .strict(),
     )
-    .mutation(
-      ({ input }) =>
-        requireBootstrap().userConfig.setSettings({ enhancementUpdates: input }).enhancementUpdates,
-    ),
+    .mutation(async ({ input: { autoCheck, pack } }) => {
+      const { enhancements: resources, userConfig } = requireBootstrap();
+      await resources.updates.ready();
+      const current = userConfig.getSettings().enhancementUpdates;
+      const enabled = new Set(current.autoUpdatePacks);
+      if (pack?.enabled) enabled.add(pack.id);
+      else if (pack) enabled.delete(pack.id);
+      return userConfig.setSettings({
+        enhancementUpdates: {
+          autoCheck: autoCheck ?? current.autoCheck,
+          autoUpdatePacks: ENHANCEMENT_PACK_IDS.filter((id) => enabled.has(id)),
+        },
+      }).enhancementUpdates;
+    }),
   checkEnhancementUpdates: procedure.input(selection).mutation(async ({ input }) => {
     await requireBootstrap().enhancements.updates.check(input.ids);
     return true;
@@ -71,16 +99,25 @@ export const enhancementProcedures = {
     .input(selection)
     .query(({ input }) => requireBootstrap().enhancements.packs.plan(input.ids)),
   prepareEnhancementPacks: procedure
-    .input(selection.extend({ foreground: z.boolean().optional() }))
+    .input(
+      selection.extend({
+        foreground: z.boolean().optional(),
+        pageId: z.string().uuid().optional(),
+        mode: z.enum(['download', 'update']).optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
       const packs = requireBootstrap().enhancements.packs;
-      await startEnhancementDownloads(packs, input.ids, { foreground: input.foreground });
+      await startEnhancementDownloads(packs, input.ids, input);
       return true;
     }),
   backgroundEnhancementPack: procedure
     .input(z.object({ id: packId, taskId: z.string().uuid() }))
     .mutation(({ input }) => {
-      backgroundEnhancementDownload(requireBootstrap().enhancements.packs, input.id, input.taskId);
+      const packs = requireBootstrap().enhancements.packs;
+      if (enhancementDownloadTask(packs, input.id)?.id !== input.taskId)
+        throw new Error('增强包下载已改变，请刷新');
+      backgroundEnhancementDownload(packs, input.id, input.taskId);
       return true;
     }),
   deleteEnhancementPack: procedure.input(z.object({ id: packId })).mutation(async ({ input }) => {

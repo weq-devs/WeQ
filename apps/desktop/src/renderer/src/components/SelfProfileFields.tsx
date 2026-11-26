@@ -17,6 +17,12 @@ export function SelfProfileSlot({
 }) {
   const context = useSelfProfileFields();
   const editor = context?.fields[field];
-  return editor ? cloneElement(editor, { renderValue, inline, valueHasAction }) : children;
+  return editor
+    ? cloneElement(editor, {
+        renderValue: renderValue ?? editor.props.renderValue,
+        inline,
+        valueHasAction,
+      })
+    : children;
 }
 export type { SelfProfileFields, SelfProfileKey } from './SelfProfileFields.shared';

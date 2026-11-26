@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
 import { developmentWeb, prepareWebAssets } from '../../scripts/dev-web.mjs';
+import { buildRevision } from '../../scripts/build-revision.mjs';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -153,6 +154,10 @@ export default defineConfig({
           intentSenseWorker: resolve(import.meta.dirname, 'src/main/intent_sense/worker.ts'),
         },
         output: {
+          banner: ({ name }) =>
+            name === 'index'
+              ? `const __WEQ_BUILD_REVISION__ = ${JSON.stringify(buildRevision(resolve(import.meta.dirname, '../..')))};`
+              : '',
           entryFileNames: (chunk) =>
             chunk.name === 'imageWorker' ||
             chunk.name === 'coverWorker' ||

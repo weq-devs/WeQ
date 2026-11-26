@@ -54,15 +54,8 @@ try {
   assert.equal(await page.getByTestId('chinese-date').textContent(), '2026 年 3 月 4 日');
   assert.equal(await page.getByTestId('relative-time').textContent(), '3 分钟前');
   assert.equal(await page.getByTestId('duration').textContent(), '1 天 1 小时 1 分钟 1 秒');
-  assert.equal(
-    await page.locator('.weq-birth-details summary span').textContent(),
-    '2010 年（推断） · 水瓶座',
-  );
-  await page.locator('.weq-birth-details summary').click();
-  assert.equal(
-    await page.locator('.weq-birth-details p').textContent(),
-    '推断生日：2010 年 1 月 20 日至 2 月 18 日',
-  );
+  await page.getByText('2010 年 1 月 20 日至 2 月 18 日', { exact: true }).waitFor();
+  await page.getByText('按星座推算', { exact: true }).waitFor();
   assert.equal(
     await page.getByTestId('source-text').textContent(),
     '原文2026年11月16日，耗时3秒，QQ12345',

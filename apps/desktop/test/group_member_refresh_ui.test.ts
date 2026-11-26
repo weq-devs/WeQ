@@ -31,6 +31,16 @@ vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
   useDialog: (select) => select({ showError: state.showError, confirm: state.confirm }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: {
+    backgroundTasks: {
+      onTaskPage: {
+        subscribe: (_: unknown, handler: { onData(id: string): void }) => {
+          handler.onData('group-refresh-page');
+          return { unsubscribe() {} };
+        },
+      },
+    },
+  },
   trpc: {
     useUtils: () => ({
       account: {
@@ -114,6 +124,7 @@ it('打开页面不更新名单，主动刷新启动群成员范围任务且不�
     target: 'groupMembers',
     range: 'all',
     missingOnly: false,
+    pageId: 'group-refresh-page',
   });
   expect(state.focusTask).not.toHaveBeenCalled();
   expect(state.invalidateGraph).not.toHaveBeenCalled();

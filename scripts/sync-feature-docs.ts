@@ -11,12 +11,21 @@ import {
   type FeatureDomain,
 } from '../packages/service/src/common/feature_catalog';
 import { featureUnsupported } from '../apps/desktop/src/shared/feature_access';
+import { canLinkToFeature } from '../apps/desktop/src/shared/feature_links';
+import {
+  isMcpTool,
+  MCP_WRITE_TOOLS,
+  isSandboxTool,
+  SELECT_OPEN_ACCOUNT_TOOL,
+} from '../apps/desktop/src/main/mcp/tool_permissions';
 import {
   ASSISTANT_BASE_SPECS,
   ANALYZE_ATTACHED_IMAGE_SPEC,
 } from '../packages/service/src/account/assistant_local_tools';
 import type { APP_NAVIGATION } from '../apps/desktop/src/renderer/src/lib/appNavigation';
 import type { AppSearchEntry } from '../apps/desktop/src/renderer/src/components/search/appSearchCatalog';
+
+import { oneBotMcpAccess } from '../vendor/weqbot/packages/control/src/onebot-mcp';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const DOCS = join(ROOT, 'docs');
@@ -39,7 +48,7 @@ const DOMAIN_LABELS: Record<FeatureDomain, string> = {
 };
 
 /** 解析实际传给 MCP 和助手的注册表，不载入工具或自行添加工具名。 */
-export function readRegisteredTools(source: string): Set<string> {
+export function readRegisteredTools(source: string): Map<string, { assistantOnly: boolean }> {
   const file = ts.createSourceFile('tools.ts', source, ts.ScriptTarget.Latest, true);
   const declarations = file.statements
     .filter(ts.isVariableStatement)
@@ -48,7 +57,7 @@ export function readRegisteredTools(source: string): Set<string> {
     ({ name }) => ts.isIdentifier(name) && name.text === 'AI_TOOLS',
   )?.initializer;
   if (!entries || !ts.isArrayLiteralExpression(entries)) throw new Error('未找到实际工具注册数组');
-  const names = new Set<string>();
+  const names = new Map<string, { assistantOnly: boolean }>();
   for (const entry of entries.elements) {
     const declaration = ts.isCallExpression(entry) ? entry.arguments[0] : undefined;
     const property =
@@ -63,9 +72,67 @@ export function readRegisteredTools(source: string): Set<string> {
       throw new Error('工具注册项缺少可核对的名称');
     const name = property.initializer.text;
     if (names.has(name)) throw new Error(`工具注册名重复：${name}`);
-    names.add(name);
+    const assistantOnly =
+      declaration && ts.isObjectLiteralExpression(declaration)
+        ? declaration.properties.find((item) => item.name?.getText(file) === 'assistantOnly')
+        : undefined;
+    if (
+      assistantOnly &&
+      (!ts.isPropertyAssignment(assistantOnly) ||
+        (assistantOnly.initializer.kind !== ts.SyntaxKind.TrueKeyword &&
+          assistantOnly.initializer.kind !== ts.SyntaxKind.FalseKeyword))
+    )
+      throw new Error(`工具注册项的 assistantOnly 必须为布尔字面量：${name}`);
+    names.set(name, {
+      assistantOnly: assistantOnly?.initializer.kind === ts.SyntaxKind.TrueKeyword,
+    });
   }
   return names;
+}
+
+function readFrontendCapabilities(source: string): Map<string, string> {
+  const file = ts.createSourceFile(
+    'frontend_capabilities.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const variable = file.statements
+    .filter(ts.isVariableStatement)
+    .flatMap((statement) => [...statement.declarationList.declarations])
+    .find(({ name }) => ts.isIdentifier(name) && name.text === 'FRONTEND_CAPABILITIES');
+  if (!variable?.initializer || !ts.isArrayLiteralExpression(variable.initializer))
+    throw new Error('未找到实际前端能力注册表');
+  const capabilities = new Map<string, string>();
+  for (const entry of variable.initializer.elements) {
+    const [name, feature] = ts.isCallExpression(entry) ? entry.arguments : [];
+    if (!name || !ts.isStringLiteral(name) || !feature || !ts.isStringLiteral(feature))
+      throw new Error('前端能力缺少名称或功能 ID');
+    if (capabilities.has(name.text)) throw new Error(`前端能力重名：${name.text}`);
+    capabilities.set(name.text, feature.text);
+  }
+  return capabilities;
+}
+
+function renderOneBotReference() {
+  const path = join(ROOT, 'vendor/weqbot/schema/onebot-actions.json');
+  const { groups } = JSON.parse(readFileSync(path, 'utf8')) as {
+    groups: { key: string; label: string; actions: { name: string }[] }[];
+  };
+  return [
+    '',
+    '## OneBot 能力索引',
+    '',
+    '按 OneBot 注册表统计。运行时只列出当前已上线账号和后端实际注册的操作。QQ 操作需要对应账号的令牌授权。各 action 的参数用 `get_capability` 查询。',
+    '',
+    '| 领域 | 只读 | QQ 操作 | OneBot 原有接入 |',
+    '| --- | ---: | ---: | ---: |',
+    ...groups.map(({ key, label, actions }) => {
+      const read = actions.filter(({ name }) => oneBotMcpAccess(name) === 'read').length;
+      const write = actions.filter(({ name }) => oneBotMcpAccess(name) === 'write').length;
+      return `| ${cell(label)} (\`${key}\`) | ${read} | ${write} | ${actions.length - read - write} |`;
+    }),
+  ];
 }
 
 export function verifyFeatureReferences(
@@ -196,15 +263,58 @@ function describeNavigation(
   if (search) place.push(search.target.kind === 'setting' ? search.path : '全局搜索');
   if (search?.target.kind === 'dressup' || navigation?.target.kind === 'dressup')
     place.push('需启用开发装扮入口');
+  if (feature.navigation === 'context') place.push('从对应工作区打开');
   if (feature.context?.length)
     place.push(`需要${feature.context.map((key) => contextLabels[key]).join('、')}`);
   return { clients: clients.join('、') || '—', entry: place.join('；') || '—' };
+}
+
+function renderToolReference(
+  registered: ReturnType<typeof readRegisteredTools>,
+  features: readonly FeatureDefinition[],
+  frontend: ReadonlyMap<string, string>,
+) {
+  const assistantLocal = [...ASSISTANT_BASE_SPECS, ANALYZE_ATTACHED_IMAGE_SPEC];
+  const names = [
+    ...registered.keys(),
+    SELECT_OPEN_ACCOUNT_TOOL,
+    ...assistantLocal.map(({ function: spec }) => spec.name),
+  ];
+  const byTool = new Map<string, string[]>();
+  for (const { id, tools } of features) {
+    for (const name of tools ?? []) {
+      const ids = byTool.get(name) ?? [];
+      ids.push(id);
+      byTool.set(name, ids);
+    }
+  }
+  return [
+    '',
+    '## 工具索引',
+    '',
+    '「可注册」表示当前版本支持该入口。助手精简工具轮次、图片附件、账号和运行条件会影响本轮能否调用。桌面 MCP 的接口与连接方式见 [MCP 服务器](./mcp-server.md)。',
+    '',
+    '| 工具 | 桌面 MCP | 沙箱助手 | 任意权限助手 | 功能 ID |',
+    '| --- | --- | --- | --- | --- |',
+    ...names.map((name) => {
+      const tool = registered.get(name);
+      const local = assistantLocal.some(({ function: spec }) => spec.name === name);
+      const mcp =
+        name === SELECT_OPEN_ACCOUNT_TOOL || (tool && !tool.assistantOnly && isMcpTool(name));
+      const ids = byTool.get(name);
+      if (!ids?.length) throw new Error(`工具未关联功能目录：${name}`);
+      return `| \`${name}\` | ${mcp ? '可注册' : MCP_WRITE_TOOLS.has(name) ? '授权后按需' : '—'} | ${local || isSandboxTool(name) ? '可注册' : '—'} | ${tool || local ? '可注册' : '—'} | ${ids.map((id) => `\`${id}\``).join('、')} |`;
+    }),
+    ...[...frontend].map(([name, id]) => `| \`${name}\` | 按需 | 按需 | 按需 | \`${id}\` |`),
+  ];
 }
 
 function renderReference(
   features: readonly FeatureDefinition[],
   desktop: NavigationSnapshot,
   web: NavigationSnapshot,
+  registered: ReturnType<typeof readRegisteredTools>,
+  frontend: ReadonlyMap<string, string>,
 ) {
   const lines = [
     '# 功能参考',
@@ -241,22 +351,42 @@ function renderReference(
       lines.push(`| ${description} | \`${feature.id}\` | ${clients} | ${cell(entry)} | ${tools} |`);
     }
   }
+  lines.push(...renderToolReference(registered, features, frontend), ...renderOneBotReference());
   return `${lines.join('\n')}\n`;
 }
 
 async function main() {
   const features = listFeatures();
-  const tools = readRegisteredTools(
+  const registered = readRegisteredTools(
     readFileSync(join(ROOT, 'apps/desktop/src/main/mcp/tools.ts'), 'utf8'),
   );
+  const tools = new Set([...registered.keys(), SELECT_OPEN_ACCOUNT_TOOL]);
   for (const spec of [...ASSISTANT_BASE_SPECS, ANALYZE_ATTACHED_IMAGE_SPEC])
     tools.add(spec.function.name);
+  const frontend = readFrontendCapabilities(
+    readFileSync(join(ROOT, 'apps/desktop/src/main/mcp/frontend_capabilities.ts'), 'utf8'),
+  );
+  for (const [name, id] of frontend) {
+    if (tools.has(name)) throw new Error(`前端能力与工具重名：${name}`);
+    if (!features.some((feature) => feature.id === id))
+      throw new Error(`前端能力 ${name} 缺少功能：${id}`);
+  }
   verifyFeatureReferences(features, tools, readDocs());
   const [desktop, web] = await Promise.all([
     navigationSnapshot('desktop'),
     navigationSnapshot('web'),
   ]);
-  const expected = renderReference(features, desktop, web);
+  const searchIds = new Set(desktop.search.map(({ id }) => id));
+  if (searchIds.size !== desktop.search.length) throw new Error('功能搜索存在重复 ID');
+  for (const { id } of desktop.search) {
+    if (!features.some((feature) => feature.id === id))
+      throw new Error(`功能搜索使用了不存在的 ID：${id}`);
+  }
+  for (const feature of features) {
+    if (canLinkToFeature(feature) && !searchIds.has(feature.id))
+      throw new Error(`功能链接缺少实际搜索入口：${feature.id}`);
+  }
+  const expected = renderReference(features, desktop, web, registered, frontend);
   if (process.argv.includes('--check')) {
     let actual: string | undefined;
     try {

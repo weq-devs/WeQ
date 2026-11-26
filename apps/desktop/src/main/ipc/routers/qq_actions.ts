@@ -12,7 +12,12 @@ import {
   type GroupRequest,
 } from '@weqbot/protocol';
 import { isIncomingPendingBuddyRequest } from '@weq/service/buddy-request';
-import { FAVORITE_EMOJI_MAX_ARCHIVE_BYTES, FAVORITE_EMOJI_MAX_ITEMS } from '@weq/service';
+import {
+  FAVORITE_EMOJI_MAX_ARCHIVE_BYTES,
+  FAVORITE_EMOJI_MAX_ITEMS,
+  OperationError,
+  type PanelFavItem,
+} from '@weq/service';
 import type { AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import type { QQWriteBinding } from './qq_write';
@@ -31,6 +36,7 @@ import { readFavoriteEmojiMedia } from './favorite_emoji_media';
 import { runResumableExport } from '../../resumable_exports';
 import { groupNoticeSequenceId, type NoticeOperationWire } from '../../../shared/contact_notices';
 import { sameGroupTags } from '../../../shared/group_tags';
+import { qqActionUnavailable } from '../../../shared/qq_action_availability';
 import { albumMediaDeleteAllowed, qqResourceOwnedBy } from '@weq/service/qq-permissions';
 
 const binding = z.object({
@@ -793,8 +799,10 @@ export function createQQActionsRouter(
           kickMemberPerDay: z.number().int().min(0).max(200).optional(),
         }),
       )
-      .mutation(({ input: i }) =>
-        write(i, async (s, current) => {
+      .mutation(({ input: i }) => {
+        const unavailable = qqActionUnavailable.setGroupAdminPermissions;
+        if (unavailable) throw new OperationError(unavailable, 'expected');
+        return write(i, async (s, current) => {
           const userId = await adminTarget(s, i.groupId, i.targetUid);
           const before = await s.groupInfo.adminPermissions(i.groupId, userId);
           current();
@@ -810,8 +818,8 @@ export function createQQActionsRouter(
             ...(i.kickMember === undefined ? {} : { kickMember: i.kickMember }),
             ...(i.kickMemberPerDay === undefined ? {} : { kickMemberPerDay: i.kickMemberPerDay }),
           });
-        }),
-      ),
+        });
+      }),
     groupAdminReceiveVerify: procedure
       .input(group.extend({ targetUid: uid }))
       .query(({ input: i }) =>
@@ -1294,22 +1302,35 @@ export function createQQActionsRouter(
     favoriteFromMedia: procedure
       .input(binding.extend({ url: z.string().min(1).max(16_384) }))
       .mutation(async ({ input: i }) => {
-        let emojiId = '';
-        let local: Awaited<ReturnType<QQActionServices['emoji']['rememberFavorite']>> = null;
+        const result: {
+          emojiId: string;
+          alreadyExists: boolean;
+          existingPosition: number;
+          local: PanelFavItem | null;
+        } = {
+          emojiId: '',
+          alreadyExists: false,
+          existingPosition: 0,
+          local: null,
+        };
         await write(i, async (s, current) => {
           const bytes = await readFavoriteEmojiMedia(i.url, current);
           current();
           const md5 = createHash('md5').update(bytes).digest('hex').toUpperCase();
           const ids = await s.emoji.fetchOnlineFavoriteIds();
           current();
-          emojiId = ids.find((id) => parseCustomFaceId(id).md5 === md5) ?? '';
-          if (!emojiId) emojiId = await s.emoji.addFavorite(bytes, undefined, current);
+          const existingIndex = ids.findIndex((id) => parseCustomFaceId(id).md5 === md5);
+          const existingId = ids[existingIndex];
+          const emojiId = existingId ?? (await s.emoji.addFavorite(bytes, undefined, current));
           current();
           if (!emojiId) throw new Error('未取得表情标识，请刷新表情列表核对结果');
-          local = await s.emoji.rememberFavorite(bytes);
+          result.emojiId = emojiId;
+          result.alreadyExists = existingId !== undefined;
+          result.existingPosition = existingIndex + 1;
+          result.local = await s.emoji.rememberFavorite(bytes);
           current();
         });
-        return { ...accepted, emojiId, local };
+        return { ...accepted, ...result };
       }),
     favorite: procedure
       .input(
@@ -1323,6 +1344,7 @@ export function createQQActionsRouter(
       )
       .mutation(async ({ input: i }) => {
         let addedEmojiId: string | undefined;
+        const move = { submitted: false };
         const result = await write(i, async (s, current) => {
           if (i.action === 'add') {
             if (!i.path) throw new Error('请选择图片');
@@ -1338,9 +1360,13 @@ export function createQQActionsRouter(
           if (!i.emojiId) throw new Error('缺少收藏表情标识');
           if (i.action === 'delete') return s.emoji.deleteFavorite(i.emojiId);
           if (i.action === 'rename') return s.emoji.modifyFavoriteDesc(i.emojiId, i.desc ?? '');
-          return s.emoji.moveFavorite(i.emojiId, i.position ?? 1, current);
+          move.submitted = await s.emoji.moveFavorite(i.emojiId, i.position ?? 1, current);
         });
-        return { ...result, ...(addedEmojiId ? { emojiId: addedEmojiId } : {}) };
+        return {
+          ...result,
+          ...(addedEmojiId ? { emojiId: addedEmojiId } : {}),
+          ...(i.action === 'move' ? { moveSubmitted: move.submitted } : {}),
+        };
       }),
     requests: procedure
       .input(requestInboxBinding)

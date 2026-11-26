@@ -73,26 +73,18 @@ export function createLinuxPlatform(
 
   const home = undefined; // let the helpers default to os.homedir()
 
-  /**
-   * Resolve an account's hosting QQ pid from its `nt_msg.db` fcntl write lock
-   * (`F_GETLK`) — the one and only "which instance is this account on?" probe.
-   * `F_GETLK` reports only the holder pid (WeQ reads the DB without taking a
-   * write lock), which is then name-checked against `/proc/<pid>/comm` so a
-   * non-QQ holder can never be accepted.
-   *
-   * Returns null both when the account is not signed in (the probe ran and
-   * found no QQ holder) and when the probe itself couldn't run (no
-   * `nt_msg.db`, permission denied). There is deliberately no port-probe
-   * fallback: it was slower and known to report stale pids.
-   */
-  const resolveQqPid = (uin: string): number | null => {
+  // The account's database must be held by QQ itself.
+  const probeQqPid = (uin: string): number | null => {
     const dbPath = findNtMsgDb(uid(uin), home, override());
-    if (!dbPath) return null;
+    if (!dbPath) throw new Error('找不到该账号的 QQ 消息数据库');
+    const probe = native.ntHelper.probeDbLock(dbPath);
+    if (!probe.success) throw new Error(probe.msg || '无法检查 QQ 消息数据库的占用状态');
+    return probe.holders.find((holder) => isQqProcessName(holder.name))?.pid ?? null;
+  };
+
+  const resolveQqPid = (uin: string): number | null => {
     try {
-      const probe = native.ntHelper.probeDbLock(dbPath);
-      if (!probe.success) return null;
-      const holder = probe.holders.find((h) => isQqProcessName(h.name));
-      return holder ? holder.pid : null;
+      return probeQqPid(uin);
     } catch {
       return null;
     }
@@ -142,7 +134,8 @@ export function createLinuxPlatform(
     isQqLoggedIn: (u: string) => resolveQqPid(u) !== null,
     // QQ records its own running-instance count in versions/setting.json.
     launcherCount: () => readLauncherCount(pickQqRoot(home, override())),
-    resolveQqPid: (u: string) => resolveQqPid(u),
+    resolveQqPid,
+    resolveQqPidAsync: async (uin) => probeQqPid(uin),
     // SIP 是 macOS 的东西；Linux 上读内存的门槛是 yama ptrace_scope（可用，只是要
     // 关掉或提权），没有「根本读不了」这一档，所以恒为 null。
     sipEnabled: () => null,

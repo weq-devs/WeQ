@@ -3,8 +3,15 @@ import {
   CONTACT_GROUP_FIELDS,
   normalizeContactCard,
 } from '@weq/service/contact-card';
-import type { SettingsResetItem } from '../../../shared/settings_reset';
-import { NOTIFICATION_SCOPE_OPTIONS } from '@weq/service/notification-settings';
+import type { LogPrunePreview, SettingsResetItem } from '../../../shared/settings_reset';
+import {
+  NOTIFICATION_EVENTS,
+  NOTIFICATION_LABELS,
+  NOTIFICATION_SCOPE_OPTIONS,
+  type NotificationEvents,
+} from '@weq/service/notification-settings';
+import { historyCapacityLabel } from '@weq/service/settings-catalog';
+import { NOTIFICATION_METHODS, notificationMethodOf } from '../../../shared/notification_method';
 import { CONTACT_CARD_SECTIONS, contactCardFieldGroup } from './contactCardSections';
 
 const labels: Record<string, string> = {
@@ -59,8 +66,41 @@ const selections = new Set([
   'recall-notifications:notify-targets',
 ]);
 
+const chatJumpLabels: Record<string, string> = {
+  off: '不显示',
+  entry: '仅首次提示',
+  keep: '切回后仍提示',
+};
+
+function notificationMethod(value: NotificationEvents[keyof NotificationEvents]): string {
+  const method = notificationMethodOf(value);
+  return NOTIFICATION_METHODS.find((option) => option.value === method)!.label;
+}
+
+export function describeLogPruneImpact({ expiredFiles, capacityFiles }: LogPrunePreview): string {
+  const details = [];
+  if (expiredFiles) details.push(`${expiredFiles} 份超过保存时长`);
+  if (capacityFiles) details.push(`${capacityFiles} 份超出容量上限`);
+  return `恢复应用日志的默认保存策略后，预计删除 ${expiredFiles + capacityFiles} 份日志（${details.join('、')}）。删除后无法恢复。`;
+}
+
 /** 只显示产品用语，不把未知配置序列化后交给用户阅读。 */
 export function formatResetValue(value: unknown, id = ''): string {
+  if (id === 'startup-system:autostart' && value === 'requiresApproval') return '等待系统批准';
+  if (id === 'app-lock:method') {
+    if (value === 'totp') return 'WeQ 验证器';
+    if (value === 'system') return 'Windows Hello / Touch ID';
+  }
+  if (
+    (id.startsWith('unread-jumps:') || id === 'reading:readingPositionJumpMode') &&
+    typeof value === 'string' &&
+    Object.hasOwn(chatJumpLabels, value)
+  )
+    return chatJumpLabels[value]!;
+  if (id === 'qzone-person:qzonePersonClickAction') {
+    if (value === 'profile') return '显示名片';
+    if (value === 'space') return '进入对方空间';
+  }
   if (id === 'performance-recording:mode') {
     if (value === 'light') return '轻量记录';
     if (value === 'full') return '完整记录';
@@ -84,6 +124,8 @@ export function formatResetValue(value: unknown, id = ''): string {
     if (id === 'api-default:embedding-model') return '未设置默认向量模型';
     if (id.endsWith('ProviderRef') || id.endsWith(':providerRef')) return '使用默认聊天模型';
     if (id === 'auto-enter:account') return '不自动进入账号';
+    if (id === 'call-directory:dir') return 'WeQ 默认录音目录';
+    if (id === 'external-chatpic:dir') return '未选择目录';
     if (id === 'rkey:enabled' || id === 'sse-targets:enabled') return '未启用';
     return '默认／未设置';
   }
@@ -97,16 +139,20 @@ export function formatResetValue(value: unknown, id = ''): string {
     const data = value as Record<string, unknown>;
     if (id.startsWith('notification-scopes:')) {
       const mode = NOTIFICATION_SCOPE_OPTIONS.find((option) => option.value === data.mode);
-      return mode?.value === 'selected'
-        ? `${mode.label}（${data.count} 个）`
-        : (mode?.label ?? '默认范围');
+      const scope =
+        mode?.value === 'selected'
+          ? `${mode.label}（${data.count} 个）`
+          : (mode?.label ?? '默认范围');
+      return typeof data.overrides === 'number' && data.overrides > 0
+        ? `${scope}，有 ${data.overrides} 个会话单独设置`
+        : scope;
     }
+    if (typeof data.banner === 'boolean' && typeof data.system === 'boolean')
+      return notificationMethod({ banner: data.banner, system: data.system });
     if ('windowSeconds' in data && 'maxPages' in data)
       return `${data.windowSeconds} 秒内最多 ${data.maxPages} 页`;
     if ('debounceMs' in data)
       return `合并等待 ${data.debounceMs} 毫秒，批量推送阈值 ${data.massThreshold} 条`;
-    if ('showTags' in data)
-      return `标签：${formatResetValue(data.showTags)}；问候语：${formatResetValue(data.showGreeting)}；一言：${formatResetValue(data.showHitokoto)}；屏蔽词：${formatResetValue(data.blockedWords)}`;
     if ('enabled' in data && 'screenshot' in data)
       return `链接预览：${formatResetValue(data.enabled)}；联网补全：${formatResetValue(data.autoFetch)}；网页截图：${formatResetValue(data.screenshot)}`;
     if (data.useDefault) return '使用默认聊天模型';
@@ -116,6 +162,8 @@ export function formatResetValue(value: unknown, id = ''): string {
     return '自定义配置';
   }
   if (typeof value === 'number') {
+    if (id === 'logs:logRetentionDays' && value === 0) return '不限时长';
+    if (id === 'logs:logCapacityMiB') return historyCapacityLabel(value);
     if (id === 'app-lock:autoLockMinutes' && value === 0) return '不自动锁定';
     if (id === 'update:interval' && value === -1) return '不自动检查';
     if (id.startsWith('toast:') && value === -1) return '不自动关闭';
@@ -141,6 +189,41 @@ export interface ResetPreviewLine {
   text: string;
 }
 export function describeSettingsReset(item: SettingsResetItem): ResetPreviewLine[] {
+  if (item.id === 'notification-events:notificationEvents') {
+    const current = item.current as NotificationEvents;
+    const defaults = item.defaultValue as NotificationEvents;
+    const lines = NOTIFICATION_EVENTS.filter(
+      (event) => notificationMethodOf(current[event]) !== notificationMethodOf(defaults[event]),
+    ).map((event) => ({
+      label: NOTIFICATION_LABELS[event],
+      text: `${notificationMethod(current[event])} → ${notificationMethod(defaults[event])}`,
+    }));
+    return lines.length ? lines : [{ label: '已是默认', text: '所有事件的通知方式均为默认设置' }];
+  }
+  if (item.id === 'home:home') {
+    const current = item.current as Record<string, unknown>;
+    const defaults = item.defaultValue as Record<string, unknown>;
+    const fields = {
+      preferQqShow: '优先展示 QQ 秀',
+      showTags: '个性标签',
+      showGreeting: '问候语',
+      showHitokoto: '一言',
+      blockedWords: '一言屏蔽词',
+    };
+    const format = (value: unknown) =>
+      Array.isArray(value)
+        ? value.length
+          ? `${value.length} 个屏蔽词`
+          : '无屏蔽词'
+        : formatResetValue(value);
+    const lines = Object.entries(fields)
+      .filter(([key]) => JSON.stringify(current[key]) !== JSON.stringify(defaults[key]))
+      .map(([key, label]) => ({
+        label,
+        text: `${format(current[key])} → ${format(defaults[key])}`,
+      }));
+    return lines.length ? lines : [{ label: '已是默认', text: '主页设置均为默认值' }];
+  }
   if (item.id === 'assistant-config:config') {
     const current = item.current as Record<string, unknown>;
     const defaults = item.defaultValue as Record<string, unknown>;

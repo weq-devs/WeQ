@@ -191,14 +191,12 @@ html[data-theme='dark'] .weq-qqshow-gallery {
   text-align: left;
   transition:
     border-color 0.16s ease,
-    box-shadow 0.16s ease,
-    transform 0.16s ease;
+    box-shadow 0.16s ease;
 }
 
 .weq-qqshow-gallery-card:hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, var(--weq-border-subtle));
   box-shadow: var(--weq-shadow-soft);
-  transform: translateY(-1px);
 }
 
 .weq-qqshow-gallery-card.is-current {

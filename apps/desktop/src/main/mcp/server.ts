@@ -23,17 +23,25 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { getLogger, logErrorContext, logRequest, withLogOperation } from '@weq/service';
 import { AI_TOOLS } from './tools';
-import { isReadOnlyTool } from './tool_permissions';
+import { isCapabilityTool, isMcpTool, SELECT_OPEN_ACCOUNT_TOOL } from './tool_permissions';
 import { bindAccountTools, withToolExecutionOptions } from './account_scope';
 import { MCP_MAIL_ATTACHMENT_ROUTE } from './mail_tools';
 import { handleMcpMailDownload } from './mail_download';
 import { handleMcpChatVideoDownload, MCP_CHAT_VIDEO_ROUTE } from './chat_video_download';
+import { handleMcpFileDownload, MCP_FILE_ROUTE } from './chat_file_download';
 import { runtimeMaintenance } from '../runtime_maintenance';
 
 const logger = getLogger().child({ scope: 'mcp-server' });
 
 export function externalMcpTools() {
-  return AI_TOOLS.filter((tool) => !tool.assistantOnly && isReadOnlyTool(tool.name));
+  return AI_TOOLS.filter((tool) => !tool.assistantOnly && isMcpTool(tool.name));
+}
+
+export function isCompactMcpTool(name: string) {
+  return (
+    isCapabilityTool(name) ||
+    ['list_accounts', 'switch_account', 'list_features', 'get_feature'].includes(name)
+  );
 }
 
 export async function runDesktopMcpTool(
@@ -42,13 +50,22 @@ export async function runDesktopMcpTool(
   account: object,
   currentAccount: () => object | null,
   signal: AbortSignal,
+  mcpCapabilityWrites = false,
+  compact = false,
 ): Promise<unknown> {
   const tools = externalMcpTools();
   const tool = tools.find((entry) => entry.name === name);
   if (!tool || name === 'list_accounts' || name === 'switch_account')
     throw new Error('此工具由 MCP 会话管理。');
   const input = tool.input.parse(args);
-  const options = { signal, visibleToolNames: tools.map((entry) => entry.name) };
+  const options = {
+    signal,
+    mcpCapabilityWrites,
+    visibleToolNames: [
+      ...tools.filter(({ name }) => !compact || isCompactMcpTool(name)).map(({ name }) => name),
+      SELECT_OPEN_ACCOUNT_TOOL,
+    ],
+  };
   const run = bindAccountTools(account, currentAccount, () =>
     logRequest('mcp-server', name, 'tool', () =>
       runtimeMaintenance.operation(() => tool.run(input as never), `MCP ${name}`),
@@ -160,6 +177,15 @@ async function handleRequest(
       if (!res.headersSent && !res.destroyed) {
         res.writeHead(503, { 'Cache-Control': 'no-store' }).end('聊天视频暂不可用。');
       }
+    }
+    return;
+  }
+  if (req.url?.startsWith(MCP_FILE_ROUTE)) {
+    try {
+      await runtimeMaintenance.operation(() => handleMcpFileDownload(req, res), 'MCP 文件下载');
+    } catch {
+      if (!res.headersSent && !res.destroyed)
+        res.writeHead(503, { 'Cache-Control': 'no-store' }).end('文件暂不可用。');
     }
     return;
   }

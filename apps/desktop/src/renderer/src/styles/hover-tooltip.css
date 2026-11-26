@@ -19,3 +19,14 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* 提示气泡 250ms 后才出现，出现这一下淡入，避免硬闪。 */
+.weq-hover-tooltip {
+  animation: weq-tooltip-in 90ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-hover-tooltip {
+    animation: none;
+  }
+}

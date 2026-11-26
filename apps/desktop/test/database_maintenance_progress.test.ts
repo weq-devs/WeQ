@@ -8,7 +8,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('步骤在同一时间线展示一次，无分母时使用不定进度，失败保留步骤和数量', async () => {
+it('步骤在同一时间线展示一次，重建进度优先使用步骤计数，失败保留步骤和数量', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -38,7 +38,7 @@ it('步骤在同一时间线展示一次，无分母时使用不定进度，失�
     expect(host.querySelector('details')?.open).toBe(true);
     await render(
       tracker.update('Repair', {
-        step: 'data',
+        step: 'recover-data',
         message: '恢复表数据',
         completed: 9000,
         unit: 'fields',
@@ -48,11 +48,29 @@ it('步骤在同一时间线展示一次，无分母时使用不定进度，失�
     expect(host.textContent).toContain('处理中');
     expect(host.textContent).toContain('9,000 个字段');
     expect(host.querySelector('progress')?.hasAttribute('value')).toBe(false);
+    await render(
+      tracker.update('Repair', {
+        step: 'recover-data',
+        message: '恢复表数据',
+        rebuildPercent: 36.5,
+      }),
+    );
+    expect(host.querySelector('progress')?.getAttribute('value')).toBe('36.5');
+    expect(host.textContent).toContain('处理中');
+    expect(host.textContent).toContain('9,000 个字段');
+    await render(
+      tracker.update('Repair', {
+        step: 'recover-data',
+        message: '恢复表数据',
+        total: 45_000,
+      }),
+    );
+    expect(host.querySelector('progress')?.getAttribute('value')).toBe('20');
     await render(tracker.finish('failed')!);
     expect(host.querySelector('.weq-db-progress-timeline .is-failed')).not.toBeNull();
     expect(host.textContent).toContain('未完成');
-    expect(host.textContent).toContain('9,000 个字段');
-    await render(tracker.update('Repair', { step: 'data', message: '恢复表数据' }), true);
+    expect(host.textContent).toContain('9,000 / 45,000 个字段');
+    await render(tracker.update('Repair', { step: 'recover-data', message: '恢复表数据' }), true);
     expect(host.getElementsByClassName('weq-db-progress-warning')[0]?.textContent).toContain(
       '进度连接中断',
     );
@@ -79,6 +97,55 @@ it('长步骤只显示一处任务耗时，不展示更新间隔或重复的步�
     expect(host.textContent).not.toContain('本步骤');
     expect(host.querySelectorAll('[aria-current="step"]')).toHaveLength(1);
     expect(host.querySelector('.is-pending')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    vi.useRealTimers();
+  }
+});
+
+it('页检查在两次有效采样之间保留最近速度，切换步骤后清除', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-17T04:00:00Z'));
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const tracker = new DatabaseProgressTracker('checkup', 'synthetic.db');
+  const render = async (progress: ReturnType<typeof tracker.update>) => {
+    await act(async () => root.render(h(DatabaseMaintenanceProgress, { progress })));
+  };
+  const scan = (completed: number) =>
+    tracker.update('checkup', {
+      step: 'integrity-pages',
+      message: '检查页结构与引用',
+      completed,
+      total: 1024,
+      unit: 'pages',
+    });
+  try {
+    await render(scan(0));
+    vi.setSystemTime(Date.now() + 500);
+    await render(scan(200));
+    expect(host.textContent).toContain('当前速度 400 页/秒');
+
+    await act(async () => vi.advanceTimersByTime(6000));
+    expect(host.textContent).toContain('最近速度 400 页/秒');
+
+    await render(scan(200));
+    expect(host.textContent).toContain('速度 400 页/秒');
+    await act(async () => vi.advanceTimersByTime(500));
+    await render(scan(300));
+    expect(host.textContent).toContain('当前速度 200 页/秒');
+
+    await render(
+      tracker.update('checkup', {
+        step: 'integrity-index-2',
+        message: '核对索引条目数量',
+        completed: 0,
+        total: 1024,
+        unit: 'pages',
+      }),
+    );
+    expect(host.textContent).not.toContain('页/秒');
   } finally {
     await act(async () => root.unmount());
     vi.useRealTimers();
@@ -164,10 +231,7 @@ it('长过程在同一时间线收起较早步骤，展开不重复当前步骤�
     await act(async () => root.render(h(DatabaseMaintenanceProgress, { progress })));
     const earlier = host.querySelector<HTMLDetailsElement>('details')!;
     expect(earlier.open).toBe(false);
-    await act(async () => {
-      earlier.open = true;
-      earlier.dispatchEvent(new Event('toggle'));
-    });
+    await act(async () => earlier.querySelector('summary')?.click());
     expect(earlier.open).toBe(true);
     expect(host.textContent).toContain('恢复步骤 0');
     expect(host.textContent?.match(/恢复当前数据/g)).toHaveLength(1);
@@ -177,6 +241,72 @@ it('长过程在同一时间线收起较早步骤，展开不重复当前步骤�
     expect(host.textContent).toContain('已停止');
     expect(host.querySelector('.is-pending')).toBeNull();
     expect(host.querySelector('.weq-spin')).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it.each([
+  ['Restore', 'output-', '生成与检查产物'],
+  ['Verify', 'output-', '生成与检查产物'],
+  ['final-check', '', '最终复核'],
+] as const)('%s 聚拢已完成的检查，保留实时进度和异常，并允许收起', async (phase, prefix, title) => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  const tracker = new DatabaseProgressTracker('repair', 'synthetic.db');
+  const render = async (progress: ReturnType<typeof tracker.update>) => {
+    await act(async () => root.render(h(DatabaseMaintenanceProgress, { progress })));
+  };
+  tracker.update('Decrypt', { step: 'decrypt', message: '解密源数据库' });
+  tracker.update(phase, {
+    step: `${prefix}integrity-records-2`,
+    message: '已完成的表检查',
+    completed: 20,
+    total: 20,
+  });
+  tracker.update(phase, {
+    step: `${prefix}integrity-index-3`,
+    message: '已完成的索引检查',
+    completed: 1,
+    total: 1,
+  });
+  tracker.update(phase, {
+    step: `${prefix}integrity-index-4`,
+    message: '索引未完成核验',
+    status: 'incomplete',
+    outcome: 'unverified',
+  });
+  const current = {
+    step: `${prefix}integrity-records-5`,
+    message: '检查记录与索引对应',
+    objectName: 'group_msg_table',
+    unit: 'records' as const,
+    total: 100,
+  };
+  try {
+    await render(tracker.update(phase, { ...current, completed: 25 }));
+    const active = host.querySelector('[aria-current="step"]');
+    const stage = active?.closest('details');
+    const stageHeading = stage?.querySelector('summary');
+    expect(stageHeading?.textContent).toContain(title);
+    const history = stage?.querySelector('details');
+    expect(history?.open).toBe(false);
+    expect(history?.textContent).toContain('已完成的表检查');
+    expect(history?.textContent).toContain('已完成的索引检查');
+    expect(history?.textContent).not.toContain('索引未完成核验');
+    expect(stage?.querySelector('.is-incomplete')?.closest('details')).toBe(stage);
+    expect(active?.textContent).toContain('group_msg_table');
+    expect(active?.querySelector('progress')?.value).toBe(25);
+
+    await act(async () => stageHeading?.click());
+    expect(stage?.open).toBe(false);
+    await render(tracker.update(phase, { ...current, completed: 75 }));
+    expect(stage?.open).toBe(false);
+    await act(async () => stageHeading?.click());
+    expect(stage?.open).toBe(true);
+    expect(stage?.querySelector('progress')?.value).toBe(75);
+    expect(history?.open).toBe(false);
   } finally {
     await act(async () => root.unmount());
   }

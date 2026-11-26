@@ -319,6 +319,47 @@ it('恢复部分备份保留本机偏好并清除退役的已读上报设置', (
   expect(restored.settings).not.toHaveProperty('manualReadReportEnabled');
 });
 
+it.each([undefined, ['preferences'] as const])('旧窗口提示备份合并为统一开关：%j', (sections) => {
+  const f = fixture();
+  const archive = buildWeqBackup(
+    [
+      file('settings/app.json', {
+        restrictedModeIndicatorEnabled: true,
+        qqProxyIndicatorEnabled: false,
+      }),
+    ],
+    undefined,
+    sections ? [...sections] : undefined,
+  );
+  stageWeqBackupRestore(f.root, archive, { parts: ['settings'], conflict: 'overwrite' });
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  const { settings } = read(join(f.root, 'config.json'));
+  expect(settings).toHaveProperty('qqStatusIndicatorEnabled', false);
+  expect(settings).not.toHaveProperty('restrictedModeIndicatorEnabled');
+  expect(settings).not.toHaveProperty('qqProxyIndicatorEnabled');
+});
+it.each([
+  [{ autoInstall: true }, { autoUpdatePacks: ['dress'] }, { autoInstall: true }],
+  [{ autoInstall: false }, { autoUpdatePacks: ['dress'] }, { autoUpdatePacks: [] }],
+  [{ autoUpdatePacks: ['voice'] }, { autoInstall: true }, { autoUpdatePacks: ['voice'] }],
+])('增强包设置按备份中明确选择的格式恢复：%j', (incoming, current, expected) => {
+  const f = fixture();
+  write(join(f.root, 'config.json'), {
+    ...f.initial,
+    settings: { ...f.initial.settings, enhancementUpdates: { autoCheck: false, ...current } },
+  });
+  const archive = buildWeqBackup(
+    [file('settings/app.json', { enhancementUpdates: incoming })],
+    undefined,
+    ['preferences'],
+  );
+  stageWeqBackupRestore(f.root, archive, { parts: ['settings'], conflict: 'overwrite' });
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  const { settings } = read(join(f.root, 'config.json'));
+  expect(settings.enhancementUpdates).toMatchObject({ autoCheck: false, ...expected });
+  if (!('autoInstall' in expected))
+    expect(settings.enhancementUpdates).not.toHaveProperty('autoInstall');
+});
 it('完整默认快照仍重置新增与旧字段，不影响 API、原始目录或锁密钥', () => {
   const f = fixture();
   write(join(f.root, 'config.json'), {

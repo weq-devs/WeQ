@@ -11,7 +11,10 @@ import { useContext, useEffect, useRef, useState } from 'react';
 import { Heart, Sparkles, Star, Zap, Flame } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useIntentSenseStatus } from './context.shared';
-import { ContactWorkspaceNavigationContext } from '../../lib/profileNavigation';
+import {
+  ContactWorkspaceNavigationContext,
+  contactPortraitTarget,
+} from '../../lib/profileNavigation';
 import '../../styles/intent-sense.css';
 
 const TIERS = [
@@ -78,21 +81,7 @@ export function AffinityPill({
       aria-label={tier === null ? '对方互动画像' : `对方互动画像：好感度 ${profile.data?.affinity}`}
       aria-busy={profile.isLoading}
       disabled={!openWorkspace}
-      onClick={() =>
-        openWorkspace?.({
-          kind: 'person',
-          tab: 'portrait',
-          contact: {
-            id: peerUid,
-            identityLabel: 'UID',
-            identityValue: peerUid,
-            username: peerUid,
-            displayName: peerName?.trim() || 'TA',
-            avatarUrl: null,
-            createdAt: new Date(0).toISOString(),
-          },
-        })
-      }
+      onClick={() => openWorkspace?.(contactPortraitTarget(peerUid, peerName))}
     >
       <Icon size={13} strokeWidth={2.2} />
       <span>

@@ -9,29 +9,18 @@ import { PageSnapshots } from '../src/renderer/src/components/PageSnapshots';
 import { pageSnapshots } from '../src/renderer/src/lib/pageSnapshots';
 const f = vi.hoisted(() => ({
   enabled: [] as boolean[],
-  external: vi.fn(),
-  app: '',
-  platform: 'linux',
-  versionLoading: false,
-  systemLoading: false,
+  external: vi.fn(async (_input: { url: string }) => ({ ok: true })),
+  environment: undefined as string | undefined,
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
-    bootstrap: {
-      getVersionInfo: {
-        useQuery: (_input: unknown, options: { enabled: boolean }) => {
-          f.enabled.push(options.enabled);
-          return { data: { app: f.app }, isLoading: f.versionLoading };
-        },
-      },
-      systemInfo: {
-        useQuery: (_input: unknown, options: { enabled: boolean }) => {
-          f.enabled.push(options.enabled);
-          return { data: { platformKind: f.platform }, isLoading: f.systemLoading };
-        },
-      },
-    },
     help: {
+      feedbackEnvironment: {
+        useQuery: (_input: unknown, options: { enabled: boolean }) => {
+          f.enabled.push(options.enabled);
+          return { data: f.environment, isLoading: f.environment === undefined };
+        },
+      },
       ghStatus: {
         useQuery: (_input: unknown, options: { enabled: boolean }) => {
           f.enabled.push(options.enabled);
@@ -57,10 +46,8 @@ vi.mock('streamdown', () => ({
 }));
 afterEach(() => {
   document.body.replaceChildren();
-  f.app = '';
-  f.platform = 'linux';
-  f.versionLoading = false;
-  f.systemLoading = false;
+  f.environment = undefined;
+  f.external.mockClear();
   vi.unstubAllGlobals();
 });
 
@@ -104,7 +91,7 @@ it('自动模板不是未保存修改，重新挂载后仍无需离开确认', (
     const template = page.body().value;
     expect(template).toContain('## 错误的功能描述');
     expect(pageSnapshots.hasDrafts(SCOPE)).toBe(false);
-    f.app = 'new-synthetic-version';
+    f.environment = '合成运行环境';
     page.render(1);
     expect(page.body().value).toBe(template);
     expect(pageSnapshots.hasDrafts(SCOPE)).toBe(false);
@@ -113,28 +100,27 @@ it('自动模板不是未保存修改，重新挂载后仍无需离开确认', (
   }
 });
 
-it.each(['version', 'system'] as const)(
-  '等待 %s 信息后生成模板，不将异步填入视为修改',
-  (pending) => {
-    f.versionLoading = pending === 'version';
-    f.systemLoading = pending === 'system';
-    const page = mountFeedback();
-    try {
-      expect(page.body().value).toBe('');
-      expect(pageSnapshots.hasDrafts(SCOPE)).toBe(false);
-      f.app = 'synthetic-version';
-      f.platform = 'darwin';
-      f.versionLoading = false;
-      f.systemLoading = false;
-      page.render();
-      expect(page.body().value).toContain('synthetic-version');
-      expect(page.body().value).toContain('macOS');
-      expect(pageSnapshots.hasDrafts(SCOPE)).toBe(false);
-    } finally {
-      page.dispose();
-    }
-  },
-);
+it('运行环境返回后只附到提交正文，不改动编辑模板或草稿状态', async () => {
+  const page = mountFeedback();
+  try {
+    const template = page.body().value;
+    expect(template).toContain('## 错误的功能描述');
+    f.environment = '合成运行环境';
+    page.render();
+    expect(page.body().value).toBe(template);
+    expect(pageSnapshots.hasDrafts(SCOPE)).toBe(false);
+    expect(f.external).not.toHaveBeenCalled();
+    await act(async () =>
+      [...page.host.querySelectorAll<HTMLButtonElement>('.weq-help-bug-actions button')]
+        .find((button) => button.textContent?.includes('打开 GitHub issue 页面'))!
+        .click(),
+    );
+    const url = new URL(f.external.mock.lastCall?.[0]?.url);
+    expect(url.searchParams.get('body')).toBe(template.trim() + '\n\n合成运行环境');
+  } finally {
+    page.dispose();
+  }
+});
 
 it('标题、正文和清单的实际修改需要确认，逐项还原后清除草稿标记', () => {
   const page = mountFeedback();
@@ -166,24 +152,23 @@ it('保留生成时的模板基准，清空正文后重建不重新填入或丢�
   try {
     inputValue(page.body(), '');
     expect(pageSnapshots.hasDrafts(SCOPE)).toBe(true);
-    f.app = 'new-synthetic-version';
+    f.environment = '合成运行环境';
     page.render(1);
     expect(page.body().value).toBe('');
     expect(pageSnapshots.hasDrafts(SCOPE)).toBe(true);
     act(() => page.host.querySelector<HTMLButtonElement>('[title="重新填入模板"]')!.click());
-    expect(page.body().value).toContain('new-synthetic-version');
+    expect(page.body().value).toContain('## 错误的功能描述');
     expect(pageSnapshots.hasDrafts(SCOPE)).toBe(false);
   } finally {
     page.dispose();
   }
 });
 
-it('模板加载前的用户输入不被覆盖，生成基准后仍保留草稿标记', () => {
-  f.versionLoading = true;
+it('运行环境加载期间输入反馈，返回后仍保留正文和草稿标记', () => {
   const page = mountFeedback();
   try {
     inputValue(page.body(), '加载前输入的合成反馈');
-    f.versionLoading = false;
+    f.environment = '合成运行环境';
     page.render();
     expect(page.body().value).toBe('加载前输入的合成反馈');
     expect(pageSnapshots.hasDrafts(SCOPE)).toBe(true);
@@ -222,7 +207,7 @@ it('反馈使用公共页标题/四个模块，保留编辑预览、hexdump 和�
     expect(host.querySelectorAll('.weq-help-bug-actions button')).toHaveLength(3);
     expect(host.querySelector('[aria-label="选择当前账号的数据库"]')).not.toBeNull();
     const textarea = host.querySelector<HTMLTextAreaElement>('[aria-label="反馈正文 Markdown"]')!;
-    expect(textarea.value).toContain('关于 WeQ');
+    expect(textarea.value).toContain('## 预期的功能描述');
     expect(textarea.value).not.toContain('帮助与关于');
     act(() => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(

@@ -2,6 +2,7 @@ import { Search, X } from 'lucide-react';
 
 export function DressSearchForm({
   label,
+  placeholder,
   value,
   onChange,
   onSearch,
@@ -9,6 +10,7 @@ export function DressSearchForm({
   maxLength,
 }: {
   label: string;
+  placeholder?: string;
   value: string;
   onChange: (value: string) => void;
   onSearch: (keyword: string) => void;
@@ -28,7 +30,7 @@ export function DressSearchForm({
       <Search size={15} aria-hidden />
       <input
         aria-label={label}
-        placeholder={disabled ? '搜索需要登录 QQ' : `${label}，回车确认`}
+        placeholder={disabled ? '搜索需要登录 QQ' : (placeholder ?? `${label}，回车确认`)}
         enterKeyHint="search"
         value={value}
         maxLength={maxLength}

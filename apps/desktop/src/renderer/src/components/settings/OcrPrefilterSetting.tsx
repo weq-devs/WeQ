@@ -33,7 +33,7 @@ export function OcrPrefilterSetting() {
         control={
           <Toggle
             label="OCR 前先筛图"
-            checked={settings.data?.ocr.prefilterEnabled ?? true}
+            checked={settings.data?.ocr.prefilterEnabled ?? false}
             disabled={!settings.data || mutation.isLoading}
             onChange={(enabled) => void save(() => mutation.mutateAsync({ enabled }))}
           />

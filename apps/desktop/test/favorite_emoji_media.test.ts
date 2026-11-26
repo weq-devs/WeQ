@@ -98,7 +98,13 @@ describe('添加聊天表情路由', () => {
   it('上传原字节并返回表情 ID，提供在线读回接口', async () => {
     const f = fixture();
     const result = await f.caller.favoriteFromMedia({ ...binding, url: 'weq-media://pic?token=a' });
-    expect(result).toEqual({ state: 'accepted', emojiId: f.emojiId, local: null });
+    expect(result).toEqual({
+      state: 'accepted',
+      emojiId: f.emojiId,
+      local: null,
+      alreadyExists: false,
+      existingPosition: 0,
+    });
     expect(f.emoji.addFavorite).toHaveBeenCalledWith(png, undefined, expect.any(Function));
     f.emoji.fetchOnlineFavoriteIds.mockResolvedValue([f.emojiId]);
     expect(await f.caller.favoriteIds(binding)).toEqual([f.emojiId]);
@@ -108,8 +114,8 @@ describe('添加聊天表情路由', () => {
     const f = fixture();
     f.emoji.fetchOnlineFavoriteIds.mockResolvedValue([f.emojiId]);
     expect(
-      (await f.caller.favoriteFromMedia({ ...binding, url: '/_media/pic?token=a' })).emojiId,
-    ).toBe(f.emojiId);
+      await f.caller.favoriteFromMedia({ ...binding, url: '/_media/pic?token=a' }),
+    ).toMatchObject({ emojiId: f.emojiId, alreadyExists: true, existingPosition: 1 });
     expect(f.emoji.addFavorite).not.toHaveBeenCalled();
     expect(f.emoji.rememberFavorite).toHaveBeenCalledWith(png);
   });

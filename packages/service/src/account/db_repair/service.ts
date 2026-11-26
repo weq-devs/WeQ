@@ -3,16 +3,24 @@
  *
  * 账号级扫描及持续锁归 `maintenance.ts`。生产入口必须持有同一数据源的维护锁，
  * 不再扫描源库或以持续正常变化使扫描失效。备份指纹仍用于记录与恢复。
- * 原生重建在可停止的子进程中执行；提交前检查取消，提交开始后完成本库替换与复核。
- * 产物位于原库卷的本次专用目录，先转接维护锁再原子替换；失败尝试从备份还原。
+ * 原生重建在可停止的子进程中执行；提交期间可以撤销本库替换。
+ * 产物位于原库卷的本次专用目录，先转接维护锁再原子替换，保留原库直到复核结束。
  * 正常维护仅失效连接缓存，保留账号只读浏览；历史备份恢复保留原账号关闭流程。
  * 结束时只清理本次创建的产物和工作目录，每次修复均保留结果与报告。
  */
 
 import { randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, renameSync, rmdirSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  renameSync,
+  rmdirSync,
+  statSync,
+} from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import type { DatabaseAlgorithms } from '@weq/native';
+import type { DatabaseAlgorithms, DatabaseProgress, SingleBytePageCorrection } from '@weq/native';
 import type { BadPageScanReport } from '../bad_pages';
 import { writeFileAtomicSync } from '../../common/atomic_write';
 import { getHost } from '../../common/host';
@@ -33,6 +41,7 @@ import {
 } from './files';
 import { DEFAULT_BACKUP_KEEP, DbRepairHistory } from './history';
 import { probeDbLayout, type DbLayoutProbe } from './layout_migration';
+import type { DatabaseRepairMethod } from './maintenance_types';
 import { classifyLock, type DbRepairLockClassification, type DbRepairLockProbe } from './lock';
 import {
   dbRepairPaths,
@@ -44,6 +53,8 @@ import {
 import { renderDbRepairReportMarkdown } from './report';
 import {
   repairSpaceBudget,
+  quickRepairSpaceBudget,
+  repairDiskSpace,
   repairWorkingBytes,
   type RepairDiskSpace,
   type RepairStorageStatus,
@@ -55,7 +66,6 @@ import type {
   DbRepairRecord,
   DbRepairRecoverOptions,
   DbRepairRecoverReport,
-  DbRepairRecoverVerification,
   DbRepairRestorePreview,
   DbRepairTarget,
   DbRepairWalCheckpoint,
@@ -100,6 +110,15 @@ export class DbRepairError extends Error {
   }
 }
 
+export class DbRepairRollbackError extends DbRepairError {
+  constructor(
+    message: string,
+    readonly retry: (progress?: (tick: DbRepairProgress) => void) => Promise<void>,
+  ) {
+    super('verify-failed', message);
+  }
+}
+
 const RESTORE_JOURNALS = ['-wal', '-journal'] as const;
 const RESTORE_SIDECARS = [...RESTORE_JOURNALS, '-shm'] as const;
 
@@ -141,6 +160,7 @@ export interface DbRepairDeps {
   /** 仅重定向备份和明文临时件，历史索引与报告保持原位。 */
   scratchDir?(): string | null;
   storageOptimized?(): boolean;
+  storageStreaming?(): boolean;
   diskSpace?(path: string): RepairDiskSpace;
   /** 由 uin 解析账号的库目录与密钥；解析不了（没配置）返回 `null`。 */
   resolveAccount(uin: string): DbRepairAccountInfo | null;
@@ -149,7 +169,11 @@ export interface DbRepairDeps {
     options: DbRepairRecoverOptions,
     onProgress: (progress: DbRepairProgress) => void,
     signal?: AbortSignal,
+    method?: DatabaseRepairMethod,
+    streaming?: boolean,
+    references?: string[],
   ): Promise<DbRepairRecoverReport>;
+  cloneBackup?(source: string, target: string, signal?: AbortSignal): Promise<void>;
   protectProduct?(maintenanceId: string, dbPath: string, product: string): void | Promise<void>;
   /**
    * 把源库未合并的 WAL 合并回主文件（`PRAGMA wal_checkpoint(TRUNCATE)`，带密钥的写连接；
@@ -182,17 +206,8 @@ export interface DbRepairDeps {
    * 替换前后调用，避免继续复用被替换文件的旧连接；调用方保证幂等。
    */
   releaseHandles?(uin: string, dbPath: string, keepReadOnly?: boolean): void;
-  /** 替换后的额外复核（native `checkDatabaseHealth`）。 */
-  verify?(
-    dbPath: string,
-    key: string,
-    algo: DatabaseAlgorithms,
-  ): Promise<{
-    healthy: boolean;
-    corruptedTables: string[];
-    complete?: boolean;
-    unverifiedTables?: string[];
-  } | null>;
+  /** 换入后用正式路径和现有密钥试读结构。读取失败时抛出错误。 */
+  checkInstalledDatabase(dbPath: string, key: string, algo: DatabaseAlgorithms): Promise<void>;
   /** 报告里写的 WeQ 版本；不注入则尝试 `getHost().appVersion()`，都拿不到写"未知"。 */
   appVersion?(): string;
   now?(): Date;
@@ -205,7 +220,7 @@ export interface DbRepairRequest {
   /** 账号 uin —— 目录与密钥由服务内部解析，渲染层不传路径。 */
   uin: string;
   dbName: string;
-  /** 是否先备份（默认 `true`）：没有备份就没有"后悔"。 */
+  /** 是否保留可供日后恢复的备份（默认 `true`）。 */
   backup?: boolean;
   /** 仅接受建议余量不足；不能绕过预计峰值不足，也不影响备份与自检。 */
   allowLowSpace?: boolean;
@@ -225,8 +240,18 @@ export interface DbRepairRequest {
    */
   layoutMigration?: boolean;
   sourceScan?: BadPageScanReport;
+  method?: DatabaseRepairMethod;
+  quickBudgetBytes?: number;
+  singleByteCorrection?: SingleBytePageCorrection;
+  references?: string[];
   /** 当前账号维护锁标识，替换前将锁转接到临时产物。 */
   maintenanceId?: string;
+  replacement?: {
+    begin(): Promise<void>;
+    waitForDecision(): Promise<void>;
+    signal: AbortSignal;
+    leaseSignal?: AbortSignal;
+  };
   signal?: AbortSignal;
 }
 
@@ -322,7 +347,7 @@ export class DbRepairService {
    * 布局检测只需要读文件；把路径解析从 {@link resolveTarget} 拆出来后，检测不会因为
    * 账号还没登录 / 没解出密钥而失效。`dbName` 来自渲染层，所以这里同样要挡住路径穿越。
    */
-  private resolveDatabasePath(
+  resolveDatabasePath(
     uin: string,
     dbName: string,
   ): { info: DbRepairAccountInfo; dbDir: string; dbPath: string } {
@@ -346,23 +371,47 @@ export class DbRepairService {
    * `unknown-lock` 不阻断（探测失败 ≠ 没锁）：真正的把关在替换前那道复核。
    * `self-hold`（只有 WeQ 自己拿着句柄）同样不阻断 —— 见 {@link classifyLock}。
    */
-  preflight(uin: string, dbName: string, backup = true, maintenanceId?: string): DbRepairPreflight {
-    this.assertScratchAvailable();
+  preflight(
+    uin: string,
+    dbName: string,
+    backup = true,
+    maintenanceId?: string,
+    quickBudgetBytes?: number,
+  ): DbRepairPreflight {
     const target = this.resolveTarget(uin, dbName);
     const lock = this.classifyLock(target.dbPath, uin);
     const dbBytes = fileBytes(target.dbPath) ?? 0;
     const paths = this.paths(uin);
     const walBytes = pendingWalBytes(target.dbPath);
     const storageOptimized = this.deps.storageOptimized?.() === true;
-    const space = repairSpaceBudget({
-      sourceDir: target.dbDir,
-      cacheDir: dirname(paths.workDir),
-      dbBytes,
-      walBytes,
-      backup: backup && !this.reusableBackup(target, maintenanceId),
-      optimized: storageOptimized,
-      probe: this.deps.diskSpace,
-    });
+    const storageStreaming = this.deps.storageStreaming?.() === true;
+    const makeBackup = backup && !this.reusableBackup(target, maintenanceId);
+    if (!quickBudgetBytes || makeBackup) this.assertScratchAvailable();
+    if (quickBudgetBytes && makeBackup) {
+      const probe = this.deps.diskSpace ?? repairDiskSpace;
+      const sourceVolume = probe(target.dbDir).volume;
+      if (
+        !sourceVolume ||
+        sourceVolume !== probe(dirname(paths.workDir)).volume ||
+        !this.deps.cloneBackup
+      )
+        throw new DbRepairError(
+          'blocked',
+          '快速修复的备份需要能克隆的同卷工作区。请将工作区改到原库所在卷，或取消快速修复的备份。',
+        );
+    }
+    const space = quickBudgetBytes
+      ? quickRepairSpaceBudget(target.dbDir, quickBudgetBytes, this.deps.diskSpace)
+      : repairSpaceBudget({
+          sourceDir: target.dbDir,
+          cacheDir: dirname(paths.workDir),
+          dbBytes,
+          walBytes,
+          backup: makeBackup,
+          optimized: storageOptimized,
+          streaming: storageStreaming,
+          probe: this.deps.diskSpace,
+        });
     return {
       ...target,
       readiness: lock.readiness,
@@ -374,6 +423,7 @@ export class DbRepairService {
       space,
       cachePath: dirname(paths.workDir),
       storageOptimized,
+      storageStreaming,
       freeBytes: freeBytesAt(target.dbDir),
       requiredBytes: space.reduce((sum, item) => sum + item.requiredBytes, 0),
       recommendedBytes: space.reduce((sum, item) => sum + item.recommendedBytes, 0),
@@ -464,6 +514,12 @@ export class DbRepairService {
       );
     }
     request.signal?.throwIfAborted();
+    const quick = request.method === 'quick';
+    if (
+      quick &&
+      (!request.maintenanceId || !request.quickBudgetBytes || request.quickBudgetBytes <= 0)
+    )
+      throw new DbRepairError('recover-failed', '请先取得本轮快速修复方案。');
     const layoutMigration =
       request.layoutMigration === true || request.sourceScan.sourceLayout === 'standard';
     const retryBackup =
@@ -473,6 +529,7 @@ export class DbRepairService {
       request.dbName,
       request.backup !== false,
       request.maintenanceId,
+      quick ? request.quickBudgetBytes : undefined,
     );
     const initialStorage: RepairStorageStatus = {
       cachePath: preflight.cachePath,
@@ -544,13 +601,33 @@ export class DbRepairService {
     let latest: DbRepairProgress = { phase: 'backup', percent: 0, message: '准备重建' };
     let lastSpaceCheck = 0;
     let storage = initialStorage;
+    let rebuildPercent: number | undefined;
+    let hasNativeRebuildProgress = false;
+    const { pageCount, pageSize, headerOffset } = request.sourceScan;
+    const sourcePageBytes = pageCount * pageSize;
+    const updateRebuildPercent = (rebuiltBytes: number) => {
+      if (sourcePageBytes > 0)
+        rebuildPercent = Math.min(
+          99,
+          Math.max(rebuildPercent ?? 0, (rebuiltBytes / sourcePageBytes) * 100),
+        );
+    };
     const checkSpace = () => {
       lastSpaceCheck = Date.now();
+      if (quick) return;
       const working = repairWorkingBytes(join(paths.workDir, stamp));
-      const productBytes = repairWorkingBytes(productDirectory).allocated;
+      const productWorking = repairWorkingBytes(productDirectory);
+      const productBytes = productWorking.allocated;
+      if (latest.phase === 'Repair' && !hasNativeRebuildProgress) {
+        const rebuiltBytes = preflight.storageStreaming
+          ? productWorking.streamingProduct - headerOffset
+          : working.rebuilt;
+        if (rebuiltBytes > 0) updateRebuildPercent(rebuiltBytes);
+      }
       // 文件释放与 IPC 进度可能先后到达，不把刚被删除的输入再次计入未来写入。
       let budgetPhase = latest.phase.toLowerCase();
       if (
+        !preflight.storageStreaming &&
         preflight.storageOptimized &&
         budgetPhase === 'repair' &&
         working.rebuilt > 0 &&
@@ -558,6 +635,7 @@ export class DbRepairService {
       )
         budgetPhase = 'encrypt';
       if (
+        !preflight.storageStreaming &&
         preflight.storageOptimized &&
         budgetPhase === 'encrypt' &&
         working.rebuilt === 0 &&
@@ -574,6 +652,7 @@ export class DbRepairService {
           walBytes: preflight.pendingWalBytes,
           backup: request.backup !== false,
           optimized: preflight.storageOptimized,
+          streaming: preflight.storageStreaming,
           probe: this.deps.diskSpace,
           current: {
             phase: budgetPhase,
@@ -605,12 +684,32 @@ export class DbRepairService {
           ),
         );
     };
+    const publishProgress = () => {
+      const progress = { ...latest, storage };
+      if (
+        latest.phase === 'Repair' &&
+        (!latest.detail || latest.detail.step === 'recover-data') &&
+        rebuildPercent !== undefined
+      ) {
+        const detail = latest.detail ?? { step: latest.phase, message: latest.message };
+        progress.detail = { ...detail, rebuildPercent };
+      }
+      guardedEmit(progress);
+    };
     const emit = (progress: DbRepairProgress, interrupt = true) => {
       if (!committing && interrupt) request.signal?.throwIfAborted();
+      if (progress.phase === 'Repair' && progress.rebuiltBytes !== undefined) {
+        hasNativeRebuildProgress = true;
+        updateRebuildPercent(progress.rebuiltBytes);
+      }
       const phaseChanged = latest.phase !== progress.phase;
-      latest = progress;
+      // 同一重建阶段的摘要与空间采样应保留正在执行的具体步骤。
+      latest =
+        !phaseChanged && progress.phase === 'Repair' && !progress.detail && latest.detail
+          ? { ...progress, detail: latest.detail }
+          : progress;
       if (!committing && (phaseChanged || Date.now() - lastSpaceCheck >= 1000)) checkSpace();
-      guardedEmit({ ...progress, storage });
+      publishProgress();
       if (!committing && interrupt) spaceAbort.signal.throwIfAborted();
     };
     let spaceTimer: ReturnType<typeof setInterval> | undefined;
@@ -640,16 +739,21 @@ export class DbRepairService {
     let backup: DbRepairBackupResult | null = null;
     let before = { bytes: 0, sha256: '' };
     let recovered: DbRepairRecoverReport | null = null;
-    /** 替换成功后的产物指纹（成功路径与"自检不过"路径都要记）。 */
-    let after: { bytes: number; sha256: string } | null = null;
-    /** 自检结论（含注入的复核）；`null` = 还没走到自检。 */
-    let verification: DbRepairRecoverVerification | null = null;
+    let after: { bytes: number; sha256: string | null } | null = null;
     /** 未合并的 WAL 是否在修复前合并回主文件了（catch 里也要用，所以声明在外层）。 */
     let walMerged = false;
+    let preserveOriginal = false;
     try {
       mkdirSync(productDirectory, { mode: 0o700 });
+      if (!quick && preflight.storageStreaming)
+        mkdirSync(join(paths.workDir, stamp), { recursive: true, mode: 0o700 });
 
       // 先合并 WAL（如果有）：必须在**备份之前**做，备份里才含最后那批改动。
+      if (quick && pendingWal > 0)
+        throw new DbRepairError(
+          'changed-during-repair',
+          '发现新的预写日志，请核对原库状态后重新扫描。',
+        );
       if (pendingWal > 0) emit({ phase: 'wal', percent: 0, message: '合并预写日志' });
       walMerged = request.maintenanceId ? true : await this.mergePendingWal(target, pendingWal);
 
@@ -694,23 +798,31 @@ export class DbRepairService {
         backup = retryBackup;
         before = { bytes: backup.bytes, sha256: backup.sha256 };
       } else {
-        const fingerprint = await backupFileAndHash(
-          target.dbPath,
-          paths.backupFile(stamp, target.dbName),
-          (completed, total) =>
-            emit({
-              phase: 'backup',
-              percent: 0,
+        const destination = paths.backupFile(stamp, target.dbName);
+        const onBackupProgress = (completed: number, total: number) =>
+          emit({
+            phase: 'backup',
+            percent: 0,
+            message: '备份并校验数据库',
+            detail: {
+              step: 'backup',
               message: '备份并校验数据库',
-              detail: {
-                step: 'backup',
-                message: '备份并校验数据库',
-                completed,
-                total,
-                unit: 'bytes',
-              },
-            }),
-        );
+              completed,
+              total,
+              unit: 'bytes',
+            },
+          });
+        let fingerprint: Awaited<ReturnType<typeof fingerprintFile>>;
+        if (quick) {
+          mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
+          try {
+            await this.deps.cloneBackup!(target.dbPath, destination, recoverSignal);
+            fingerprint = await fingerprintFile(destination, onBackupProgress);
+          } catch (error) {
+            removeDirQuietly(dirname(destination));
+            throw error;
+          }
+        } else fingerprint = await backupFileAndHash(target.dbPath, destination, onBackupProgress);
         backup = this.writeBackup(target, paths, stamp, fingerprint);
         before = { bytes: backup.bytes, sha256: backup.sha256 };
         if (request.maintenanceId)
@@ -727,7 +839,7 @@ export class DbRepairService {
       // 原生工作在子进程中；即使某个步骤不再发进度，也继续观测文件增长与可用空间。
       spaceTimer = setInterval(() => {
         checkSpace();
-        guardedEmit({ ...latest, storage });
+        publishProgress();
       }, 1000);
       try {
         recovered = await this.deps.recover(
@@ -742,12 +854,18 @@ export class DbRepairService {
             lostAndFoundName: request.lostAndFoundName,
             slowIndexes: request.slowIndexes,
             sourceScan: request.sourceScan,
+            ...(quick && request.singleByteCorrection
+              ? { singleByteCorrection: request.singleByteCorrection }
+              : {}),
             ...(layoutMigration
               ? { sourceLayout: 'standard' as const, targetLayout: 'qq' as const }
               : {}),
           },
           (progress) => emit(progress, false),
           recoverSignal,
+          request.method,
+          !quick && preflight.storageStreaming,
+          request.references,
         );
         spaceAbort.signal.throwIfAborted();
       } finally {
@@ -757,8 +875,11 @@ export class DbRepairService {
       request.signal?.throwIfAborted();
 
       // 已知不合格的产物不进入替换，也不为此触发原库还原。
-      if (!recovered.verification.healthy || recovered.verification.badPages.length > 0) {
-        verification = recovered.verification;
+      if (
+        !recovered.verification.healthy ||
+        recovered.verification.badPages.length > 0 ||
+        (quick && recovered.verification.complete !== true)
+      ) {
         throw new DbRepairError(
           'verify-failed',
           '修复产物自检未通过，已在替换前中止，原数据库保持不变（详情见修复报告）',
@@ -779,22 +900,23 @@ export class DbRepairService {
       }
 
       // ── 保险：修复期间源库被写过就中止（源库一个字节没动） ──
-      const current = request.maintenanceId
-        ? before
-        : await fingerprintFile(target.dbPath, (completed, total) =>
-            emit({
-              phase: 'source-check',
-              percent: 100,
-              message: '替换前核对源库指纹',
-              detail: {
-                step: 'source-check',
+      const current =
+        request.maintenanceId && !quick
+          ? before
+          : await fingerprintFile(target.dbPath, (completed, total) =>
+              emit({
+                phase: 'source-check',
+                percent: 100,
                 message: '替换前核对源库指纹',
-                completed,
-                total,
-                unit: 'bytes',
-              },
-            }),
-          );
+                detail: {
+                  step: 'source-check',
+                  message: '替换前核对源库指纹',
+                  completed,
+                  total,
+                  unit: 'bytes',
+                },
+              }),
+            );
       if (current.sha256 !== before.sha256) {
         throw new DbRepairError(
           'changed-during-repair',
@@ -802,8 +924,8 @@ export class DbRepairService {
         );
       }
 
-      // ── 替换前：释放句柄 + 复核锁 ──
       request.signal?.throwIfAborted();
+      await request.replacement?.begin();
       this.deps.releaseHandles?.(uin, target.dbPath, !!request.maintenanceId);
       emit({ phase: 'swapping', percent: 100, message: '正在替换数据库…' });
       const lockAgain = this.classifyLock(target.dbPath, uin);
@@ -825,7 +947,38 @@ export class DbRepairService {
       if (request.maintenanceId)
         await this.deps.protectProduct?.(request.maintenanceId, target.dbPath, product);
       request.signal?.throwIfAborted();
-      // 提交开始后完成替换与验证；停止不回退已经提交成功的数据库。
+      // 同卷硬链接保留原文件及其维护锁，文件系统不支持时复制并转接锁。
+      const original = join(productDirectory, 'original', target.dbName);
+      let copiedOriginal = false;
+      if (request.maintenanceId) {
+        mkdirSync(dirname(original), { mode: 0o700 });
+        try {
+          linkSync(target.dbPath, original);
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (!['ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'EPERM', 'EINVAL'].includes(code ?? ''))
+            throw error;
+          const retained = await backupFileAndHash(target.dbPath, original, (completed, total) =>
+            emit({
+              phase: 'source-check',
+              percent: 100,
+              message: '保留可撤销的原库',
+              detail: {
+                step: 'retain-original',
+                message: '保留可撤销的原库',
+                completed,
+                total,
+                unit: 'bytes',
+              },
+            }),
+          );
+          if (retained.sha256 !== before.sha256 || retained.bytes !== before.bytes)
+            throw new DbRepairError('changed-during-repair', '保留原库时发现数据库内容发生变化。');
+          copiedOriginal = true;
+        }
+      }
+      request.signal?.throwIfAborted();
+      // 普通停止保留提交结果，明确撤销本次替换时才还原。
       committing = true;
       this.retryBackups.delete(target.dbPath);
       onCommit();
@@ -840,58 +993,98 @@ export class DbRepairService {
         });
       }
 
-      this.replaceIntoPlace(product, target.dbPath, target.uin, lockAgain);
-      if (request.maintenanceId) this.deps.releaseHandles?.(uin, target.dbPath, true);
-      after = await fingerprintFile(target.dbPath, (completed, total) =>
-        emit({
-          phase: 'final-check',
-          percent: 100,
-          message: '校验替换后数据库指纹',
-          detail: {
-            step: 'final-fingerprint',
-            message: '校验替换后数据库指纹',
-            completed,
-            total,
-            unit: 'bytes',
-          },
-        }),
-      );
-
-      // ── 自检：产物不可用就自动还原（备份就是为了这一刻） ──
-      emit({ phase: 'final-check', percent: 100, message: '复核替换后的数据库结构' });
-      verification = await this.verifyProduct(target, recovered);
-      if (!verification.healthy || verification.badPages.length > 0) {
-        // 记录交给 catch 统一落盘（同 stamp → 同 id，不会写出两条），这里只负责
-        // "把用户的库放回去"这件事，并且把原因说清。
-        let restored = false;
-        if (backup) {
-          // 自检可能已经打开过产物（留下它那一代的 sidecar），还原前同样得清掉。
-          removeSqliteSidecars(
-            target.dbPath,
-            request.maintenanceId ? ['-wal', '-journal'] : undefined,
+      let restoredOriginal = false;
+      let protectedOriginal = !copiedOriginal;
+      const restoreOriginal = async (onProgress = emit) => {
+        try {
+          request.replacement?.leaseSignal?.throwIfAborted();
+          if (!restoredOriginal) {
+            this.deps.releaseHandles?.(uin, target.dbPath, true);
+            if (!protectedOriginal) {
+              await this.deps.protectProduct?.(request.maintenanceId!, target.dbPath, original);
+              protectedOriginal = true;
+            }
+            request.replacement?.leaseSignal?.throwIfAborted();
+            removeSqliteSidecars(target.dbPath, ['-wal', '-journal']);
+            this.replaceIntoPlace(original, target.dbPath, uin, null);
+            restoredOriginal = true;
+            this.deps.releaseHandles?.(uin, target.dbPath, true);
+          }
+          const progress = (completed: number, total: number, status?: 'completed') =>
+            onProgress({
+              phase: 'final-check',
+              percent: 100,
+              message: '校验已恢复的原库',
+              detail: {
+                step: 'rollback-fingerprint',
+                message: '校验已恢复的原库',
+                completed,
+                total,
+                unit: 'bytes',
+                status,
+              },
+            });
+          const restored = await fingerprintFile(target.dbPath, progress);
+          if (restored.sha256 !== before.sha256 || restored.bytes !== before.bytes)
+            throw new Error('恢复后的原库指纹与修复前不一致。');
+          progress(restored.bytes, restored.bytes, 'completed');
+        } catch (error) {
+          preserveOriginal = true;
+          const path = restoredOriginal ? target.dbPath : original;
+          throw new DbRepairRollbackError(
+            `无法恢复并校验原库。原库文件保留在 ${path}。请从「维护中」重试。 ${error instanceof Error ? error.message : String(error)}`,
+            async (progress) => {
+              await restoreOriginal(progress);
+              removeDirQuietly(productDirectory);
+            },
           );
-          if (request.maintenanceId) {
-            const staged = join(productDirectory, `${target.dbName}.restore`);
-            copyFileAndHashSync(backup.path, staged);
-            this.deps.releaseHandles?.(uin, target.dbPath, true);
-            await this.deps.protectProduct?.(request.maintenanceId, target.dbPath, staged);
-            this.replaceIntoPlace(staged, target.dbPath, uin, null);
-            this.deps.releaseHandles?.(uin, target.dbPath, true);
-          } else this.installFromBackup(backup.path, target, stamp, target.uin);
-          restored = true;
         }
-        this.log.error('db repair product failed verification', {
-          event: 'db-repair-verify-failed',
-          accountUin: target.uin,
-          dbPath: target.dbPath,
-          restored,
-        });
-        throw new DbRepairError(
-          'verify-failed',
-          restored
-            ? '修复产物自检未通过，已自动还原为修复前的数据库（详情见修复报告）'
-            : '修复产物自检未通过，且本次没有备份可还原（详情见修复报告）',
-        );
+      };
+
+      this.replaceIntoPlace(product, target.dbPath, target.uin, lockAgain);
+      try {
+        if (request.maintenanceId) this.deps.releaseHandles?.(uin, target.dbPath, true);
+        request.replacement?.signal.throwIfAborted();
+        emit({ phase: 'final-check', percent: 100, message: '确认换入的数据库可读取' });
+        try {
+          await this.deps.checkInstalledDatabase(target.dbPath, target.key, target.algo);
+        } catch (error) {
+          const cause = error instanceof Error ? error.message : String(error);
+          throw new DbRepairError('verify-failed', `换入的数据库无法读取（${cause}）`);
+        }
+        request.replacement?.signal.throwIfAborted();
+        if (backup) {
+          const message = '记录修复后指纹';
+          after = await fingerprintFile(target.dbPath, (completed, total) => {
+            request.replacement?.signal.throwIfAborted();
+            emit({
+              phase: 'final-check',
+              percent: 100,
+              message,
+              detail: { step: 'final-fingerprint', message, completed, total, unit: 'bytes' },
+            });
+          });
+        } else {
+          after = { bytes: statSync(target.dbPath).size, sha256: null };
+        }
+        await request.replacement?.waitForDecision();
+        request.replacement?.signal.throwIfAborted();
+      } catch (error) {
+        if (request.maintenanceId) {
+          await restoreOriginal();
+        } else if (backup) {
+          this.deps.releaseHandles?.(uin, target.dbPath);
+          removeSqliteSidecars(target.dbPath);
+          this.installFromBackup(backup.path, target, stamp, target.uin);
+        }
+        await request.replacement?.waitForDecision();
+        request.replacement?.signal.throwIfAborted();
+        if (error instanceof DbRepairError && error.code === 'verify-failed') {
+          const recovery =
+            request.maintenanceId || backup ? '已自动还原原库' : '本次没有备份可还原';
+          throw new DbRepairError(error.code, `${error.message}，${recovery}。`);
+        }
+        throw error;
       }
 
       emit({ phase: 'report', percent: 100, message: '保存修复报告' });
@@ -902,10 +1095,11 @@ export class DbRepairService {
         backup,
         before,
         after,
-        recovered: { ...recovered, verification },
+        recovered,
         pendingWalBytes: pendingWal,
         walMerged,
         layoutMigration,
+        method: request.method,
         durationMs: Date.now() - startMs,
         startedAt,
       });
@@ -935,10 +1129,11 @@ export class DbRepairService {
           backup,
           before,
           after,
-          recovered: recovered && verification ? { ...recovered, verification } : recovered,
+          recovered,
           pendingWalBytes: pendingWal,
           walMerged,
           layoutMigration,
+          method: request.method,
           durationMs: Date.now() - startMs,
           startedAt,
         });
@@ -957,17 +1152,19 @@ export class DbRepairService {
       if (cause instanceof DbRepairError) throw cause;
       const failure = new DbRepairError(classified.code, classified.message);
       if (
-        /ENOSPC|SQLITE_FULL|database or disk is full|no space left|磁盘.*不足/i.test(
+        /ENOSPC|SQLITE_FULL|database or disk is full|no space left|not enough space|os error 112|磁盘.*不足/i.test(
           classified.message,
         )
       ) {
-        failure.storage = { ...storage, warning: 'insufficient-space' };
+        const shortage = new DbRepairError('insufficient-space', classified.message);
+        shortage.storage = { ...storage, warning: 'insufficient-space' };
+        throw shortage;
       }
       throw failure;
     } finally {
       clearInterval(spaceTimer);
       removeDirQuietly(join(paths.workDir, stamp));
-      removeDirQuietly(productDirectory);
+      if (!preserveOriginal) removeDirQuietly(productDirectory);
       this.running = null;
     }
   }
@@ -1000,7 +1197,11 @@ export class DbRepairService {
    *
    * 主库与修复产物不一致，或仍有可能包含新数据的日志时，必须显式确认覆盖。
    */
-  restore(uin: string, recordId: string, options: { force?: boolean } = {}): DbRepairRecord {
+  async restore(
+    uin: string,
+    recordId: string,
+    options: { force?: boolean; progress?: (dbName: string, tick: DatabaseProgress) => void } = {},
+  ): Promise<DbRepairRecord> {
     if (this.running) {
       throw new DbRepairError('busy', '已有修复任务在进行中，请等它结束再回滚');
     }
@@ -1025,7 +1226,19 @@ export class DbRepairService {
       mkdirSync(stagingDir, { mode: 0o700 });
       const staged = join(stagingDir, 'verified-backup.db');
       try {
-        const fingerprint = backupFileAndHashSync(record.backupPath, staged);
+        options.progress?.(record.dbName, {
+          step: 'restore-backup',
+          message: '读取并校验备份',
+        });
+        const fingerprint = await backupFileAndHash(record.backupPath, staged, (completed, total) =>
+          options.progress?.(record.dbName, {
+            step: 'restore-backup',
+            message: '读取并校验备份',
+            completed,
+            total,
+            unit: 'bytes',
+          }),
+        );
         if (fingerprint.bytes !== record.beforeBytes || fingerprint.sha256 !== record.beforeSha) {
           throw new DbRepairError(
             'verify-failed',
@@ -1039,6 +1252,7 @@ export class DbRepairService {
         }
         const lock = this.checkRestoreLock(record.dbPath, uin);
         // 原子换入已经核对的文件；旧代日志只在替换成功后丢弃。
+        options.progress?.(record.dbName, { step: 'restore-install', message: '正在恢复数据库' });
         this.replaceRestoredDatabase(record.dbPath, stagingDir, staged, uin, lock, !!options.force);
       } finally {
         removeQuietly(staged);
@@ -1313,40 +1527,6 @@ export class DbRepairService {
     return fresh.holders.length > 0 ? fresh.holders : (previous?.holders ?? []);
   }
 
-  /**
-   * 产物自检：先用 native 报告里的结论，再叠加调用方注入的复核（`checkDatabaseHealth`）。
-   * 复核拿不到就只用报告 —— 回到 native 已经做过一遍 integrity_check 的事实。
-   */
-  private async verifyProduct(
-    target: DbRepairTarget,
-    recovered: DbRepairRecoverReport,
-  ): Promise<DbRepairRecoverVerification> {
-    const verification: DbRepairRecoverVerification = { ...recovered.verification };
-    const extra = await this.deps.verify?.(target.dbPath, target.key, target.algo);
-    if (!extra) return verification;
-    const unverifiedTables = [
-      ...new Set([...(verification.unverifiedTables ?? []), ...(extra.unverifiedTables ?? [])]),
-    ];
-    const coverageKnown =
-      verification.complete !== undefined ||
-      extra.complete !== undefined ||
-      unverifiedTables.length > 0;
-    return {
-      ...verification,
-      healthy: verification.healthy && extra.healthy,
-      ...(coverageKnown
-        ? {
-            complete:
-              verification.complete !== false &&
-              extra.complete !== false &&
-              unverifiedTables.length === 0,
-            unverifiedTables,
-          }
-        : {}),
-      corruptedTables: [...new Set([...verification.corruptedTables, ...extra.corruptedTables])],
-    };
-  }
-
   /** 落一条记录 + 写报告。 */
   private record(
     history: DbRepairHistory,
@@ -1358,13 +1538,14 @@ export class DbRepairService {
       error?: string;
       backup: DbRepairBackupResult | null;
       before: { bytes: number; sha256: string };
-      after: { bytes: number; sha256: string } | null;
+      after: { bytes: number; sha256: string | null } | null;
       recovered: DbRepairRecoverReport | null;
       durationMs: number;
       startedAt: string;
       pendingWalBytes: number;
       walMerged: boolean;
       layoutMigration: boolean;
+      method?: DatabaseRepairMethod;
     },
   ): DbRepairRecord {
     const { target, recovered } = input;
@@ -1388,6 +1569,7 @@ export class DbRepairService {
       pageSize: recovered?.pageSize ?? null,
       headerOffset: recovered?.headerOffset ?? null,
       kind: input.layoutMigration ? 'layout-migration' : 'repair',
+      method: input.method,
       strictPages: recovered?.strictPages ?? false,
       sourcePages: recovered?.sourcePages ?? null,
       outputPages: recovered?.outputPages ?? null,
@@ -1518,7 +1700,7 @@ function isDirectory(path: string): boolean {
   }
 }
 
-/** 保留旧回调的单调 percent 契约；界面只使用 detail 的真实步骤计数。 */
+/** 保留旧回调的单调 percent 契约；界面使用 detail 的步骤进度。 */
 function progressGuard(
   onProgress: (progress: DbRepairProgress) => void,
 ): (progress: DbRepairProgress) => void {
@@ -1540,7 +1722,10 @@ function classifyFailure(error: unknown): {
     return {
       code: 'recover-failed',
       state: 'aborted',
-      message: '修复已停止，尚未提交的临时重建已取消。',
+      message:
+        error.message === '已撤销本次数据库替换。'
+          ? error.message
+          : '修复已停止，尚未提交的临时重建已取消。',
     };
   }
   if (error instanceof DbRepairError) {

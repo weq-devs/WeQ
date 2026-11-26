@@ -6,24 +6,20 @@ import { ConversationActionsMenu } from '../../components/ConversationActionsMen
 import { DressSearchForm } from '../../components/DressSearchForm';
 import { ShimmerImage } from '../../components/ShimmerImage';
 import { observeCompactToolbar } from '../../components/CompactToolbar.shared';
-import { Toggle } from '../../components/settings/controls';
 import { ActionIcon } from '../../components/qq-actions/shared';
 import { dressUrl } from '../../lib/resourceUrl';
 import { trpc } from '../../trpc/client';
 import { useFontFamily, type useComposerFont } from './composerFontPanel.shared';
-import type { ComposerFontSettings } from '@weq/service';
 import '../../styles/dressup.css';
 import '../../styles/composer-font.css';
 
 const FONT_EXAMPLE = '字体预览 Aa';
 
 type FontOption = {
-  value: 'plain' | 'qq' | number;
+  value: 'default' | number;
   name: string;
   preview?: string;
-  description?: string;
   localFont?: { itemId: number; deriveVersion?: number };
-  disabled?: boolean;
 };
 
 function FontSample({ item }: { item: FontOption }) {
@@ -32,13 +28,11 @@ function FontSample({ item }: { item: FontOption }) {
     item.localFont?.deriveVersion,
   );
   return (
-    <span className="composer-font-sample" aria-hidden>
+    <span className="composer-preview-cover composer-font-sample" aria-hidden>
       {item.preview ? (
-        <ShimmerImage src={dressUrl(item.preview)} alt="" loading="lazy" />
+        <ShimmerImage src={dressUrl(item.preview)} alt="" loading="lazy" draggable={false} />
       ) : (
-        <span style={family ? { fontFamily: family } : undefined}>
-          {item.disabled ? '未设置' : FONT_EXAMPLE}
-        </span>
+        <span style={family ? { fontFamily: family } : undefined}>{FONT_EXAMPLE}</span>
       )}
     </span>
   );
@@ -51,7 +45,7 @@ export function ComposerFontPanel({
   panelRef: RefObject<HTMLDivElement | null>;
   font: ReturnType<typeof useComposerFont>;
 }) {
-  const { development, preferences, selected, state } = font;
+  const { development, preferences, selected } = font;
   const id = useId();
   const [adding, setAdding] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; itemId: number } | null>(null);
@@ -71,24 +65,11 @@ export function ComposerFontPanel({
       await utils.account.dressup.getState.invalidate();
     },
   });
-  const own = state?.own;
-  const fonts = state?.manifest.fonts ?? [];
-  const ownInstalled = own?.fontId ? fonts.find((item) => item.itemId === own.fontId) : undefined;
-  const options: FontOption[] = [
-    { value: 'plain', name: '普通字体' },
-    {
-      value: 'qq',
-      name: 'QQ 同款',
-      preview: own?.fontPreviewUrl || ownInstalled?.previewUrl,
-      localFont: ownInstalled,
-      description: own?.fontId ? own.fontName : state ? '未设置' : '正在读取',
-      disabled: !own?.fontId,
-    },
-  ];
+  const fonts = font.fonts ?? [];
+  const options: FontOption[] = [{ value: 'default', name: '默认字体', ...font.defaultPreview }];
   if (development) {
     for (const item of fonts) {
-      if (item.itemId > 0xffff || (item.itemId === own?.fontId && item.itemId !== selected))
-        continue;
+      if (item.itemId > 0xffff) continue;
       options.push({
         value: item.itemId,
         name: item.name || `字体 ${item.itemId}`,
@@ -98,10 +79,6 @@ export function ComposerFontPanel({
     }
   }
   const disabled = !preferences || save.isLoading || remove.isLoading;
-  const usesPersonalFont = selected !== 'plain';
-  function setToggle(key: 'send' | 'preview', enabled: boolean) {
-    save.mutate({ [key]: enabled } satisfies Partial<ComposerFontSettings>);
-  }
 
   return (
     <div
@@ -120,53 +97,54 @@ export function ComposerFontPanel({
           </div>
         ) : null}
       </header>
-      <div className="emoji-panel-body composer-font-list" role="radiogroup" aria-label="选择字体">
-        {options.map((item) => {
-          const itemId = typeof item.value === 'number' ? item.value : undefined;
-          return (
-            <label
-              key={item.value}
-              className="composer-font-option"
-              data-has-preview={Boolean(item.preview)}
-              data-unavailable={item.disabled}
-              onContextMenu={
-                itemId
-                  ? (event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setMenu({ x: event.clientX, y: event.clientY, itemId });
-                    }
-                  : undefined
-              }
-              onKeyDown={
-                itemId
-                  ? (event) => {
-                      if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
-                        return;
-                      event.preventDefault();
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      setMenu({ x: rect.left, y: rect.bottom, itemId });
-                    }
-                  : undefined
-              }
-            >
-              <input
-                type="radio"
-                name={id}
-                checked={item.value === selected}
-                disabled={item.disabled || disabled}
-                aria-haspopup={itemId ? 'menu' : undefined}
-                onChange={() => save.mutate({ choice: item.value })}
-              />
-              <FontSample item={item} />
-              <span className="composer-font-option-label">
-                <strong>{item.name}</strong>
-                {!item.disabled && item.description ? <small>{item.description}</small> : null}
-              </span>
-              <Check size={16} aria-hidden />
-            </label>
-          );
-        })}
+      <div className="emoji-panel-body composer-preview-section">
+        <div className="composer-preview-grid" role="radiogroup" aria-label="选择字体">
+          {options.map((item) => {
+            const itemId = typeof item.value === 'number' ? item.value : undefined;
+            return (
+              <label
+                key={item.value}
+                className="composer-preview-card composer-font-option"
+                onContextMenu={
+                  itemId
+                    ? (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setMenu({ x: event.clientX, y: event.clientY, itemId });
+                      }
+                    : undefined
+                }
+                onKeyDown={
+                  itemId
+                    ? (event) => {
+                        if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10'))
+                          return;
+                        event.preventDefault();
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setMenu({ x: rect.left, y: rect.bottom, itemId });
+                      }
+                    : undefined
+                }
+              >
+                <input
+                  type="radio"
+                  name={id}
+                  checked={item.value === selected}
+                  disabled={disabled}
+                  aria-haspopup={itemId ? 'menu' : undefined}
+                  onChange={() => save.mutate({ choice: item.value })}
+                />
+                <FontSample item={item} />
+                <span className="composer-font-option-label">
+                  <span className="composer-preview-name" title={item.name}>
+                    {item.name}
+                  </span>
+                </span>
+                <Check className="composer-font-check" size={14} aria-hidden />
+              </label>
+            );
+          })}
+        </div>
       </div>
       {menu ? (
         <ConversationActionsMenu
@@ -190,26 +168,6 @@ export function ComposerFontPanel({
           {(remove.error ?? save.error)?.message}
         </div>
       ) : null}
-      <footer className="composer-font-controls">
-        <div>
-          <span>发送个性字体</span>
-          <Toggle
-            label="发送个性字体"
-            checked={usesPersonalFont && (preferences?.send ?? true)}
-            disabled={disabled || !usesPersonalFont}
-            onChange={(enabled) => setToggle('send', enabled)}
-          />
-        </div>
-        <div>
-          <span>预览个性字体</span>
-          <Toggle
-            label="预览个性字体"
-            checked={usesPersonalFont && (preferences?.preview ?? false)}
-            disabled={disabled || !usesPersonalFont}
-            onChange={(enabled) => setToggle('preview', enabled)}
-          />
-        </div>
-      </footer>
       {adding ? (
         <ComposerFontCatalog
           installedIds={new Set(fonts.map(({ itemId }) => itemId))}

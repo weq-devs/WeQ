@@ -25,6 +25,28 @@ it('单字段设置与整份快照隔离调用方修改，并在保存和重载�
   expect(f.service.getSetting('realtimeEnabled')).toBe(true);
 });
 
+it('数据库体检并行数有默认值，保存后重开仍生效，非法值不覆盖设置', () => {
+  const f = configFixture();
+  expect(f.service.getSetting('databaseCheckupConcurrency')).toBe(2);
+  f.service.setSettings({ databaseCheckupConcurrency: 5 });
+  f.service.setSettings({ databaseCheckupConcurrency: 9 });
+  expect(f.open().getSetting('databaseCheckupConcurrency')).toBe(5);
+  expect(snapshotWeqSettings(f.open().getSettings())).toMatchObject({
+    databaseCheckupConcurrency: 5,
+  });
+  expect(() => validateWeqAppSettings({ databaseCheckupConcurrency: 1.5 })).toThrow();
+});
+
+it('数据库修复默认只在深度修复时备份，保存后重开仍生效，备份拒绝非法值', () => {
+  const f = configFixture();
+  expect(f.service.getSetting('databaseRepairBackupMode')).toBe('deep');
+  f.service.setSettings({ databaseRepairBackupMode: 'off' });
+  const saved = f.open().getSettings();
+  expect(saved.databaseRepairBackupMode).toBe('off');
+  expect(snapshotWeqSettings(saved)).toMatchObject({ databaseRepairBackupMode: 'off' });
+  expect(() => validateWeqAppSettings({ databaseRepairBackupMode: 'invalid' })).toThrow();
+});
+
 describe('自动检查更新频率', () => {
   it('旧配置默认 60 分钟，正数不设上限并随备份保留', () => {
     const f = configFixture();
@@ -58,6 +80,18 @@ describe('自动检查更新频率', () => {
   );
 });
 
+it('增强包备份保留已选包，旧总开关可读，损坏的包列表校验失败', () => {
+  const f = configFixture();
+  f.service.setSettings({ enhancementUpdates: { autoCheck: false, autoUpdatePacks: ['dress'] } });
+  const backup = snapshotWeqSettings(f.open().getSettings());
+  expect(backup.enhancementUpdates).toEqual({ autoCheck: false, autoUpdatePacks: ['dress'] });
+  expect(() => validateWeqAppSettings(backup)).not.toThrow();
+  expect(() => validateWeqAppSettings({ enhancementUpdates: { autoInstall: true } })).not.toThrow();
+  expect(() => validateWeqAppSettings({ enhancementUpdates: { autoUpdatePacks: [42] } })).toThrow(
+    'settings.enhancementUpdates.autoUpdatePacks',
+  );
+});
+
 describe('测试版更新偏好', () => {
   it('默认关闭，独立保存且重开后保留', () => {
     const f = configFixture();
@@ -72,17 +106,17 @@ describe('测试版更新偏好', () => {
 });
 
 describe('导出识别并发设置', () => {
-  it('全局 OCR 筛图默认开启，关闭后不改变模型，重开与备份保留', () => {
+  it('全局 OCR 筛图默认关闭，开启不改变模型，重开与备份保留', () => {
     const f = configFixture();
-    expect(f.service.getSettings().ocr.prefilterEnabled).toBe(true);
+    expect(f.service.getSettings().ocr.prefilterEnabled).toBe(false);
     f.service.setSettings({ modelResources: { filter: 'filter-model' } });
-    f.service.setSettings({ ocr: { prefilterEnabled: false } });
+    f.service.setSettings({ ocr: { prefilterEnabled: true } });
     f.service.setSettings({ ocr: { onlineConcurrency: 8 } });
     const settings = f.open().getSettings();
-    expect(settings.ocr.prefilterEnabled).toBe(false);
+    expect(settings.ocr.prefilterEnabled).toBe(true);
     expect(settings.modelResources.filter).toBe('filter-model');
     const backup = snapshotWeqSettings(settings);
-    expect(backup.ocr.prefilterEnabled).toBe(false);
+    expect(backup.ocr.prefilterEnabled).toBe(true);
     expect(() => validateWeqAppSettings(backup)).not.toThrow();
     expect(() => validateWeqAppSettings({ ocr: { prefilterEnabled: 'false' } })).toThrow(
       'settings.ocr.prefilterEnabled',

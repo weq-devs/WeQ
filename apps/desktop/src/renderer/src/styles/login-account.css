@@ -1,5 +1,5 @@
 /**
- * QQ 高级工具 → 登录记录与设备标识。
+ * QQ → QQ 登录管理。
  *
  * 颜色一律走 design token（`--weq-fg-*` / `--weq-border-*` / `--weq-accent-effective`），
  * 不写死色值；深色是独立一套覆盖（钩 `html[data-theme="dark"]`，不用 Tailwind 的
@@ -7,20 +7,12 @@
  */
 
 .weq-login-acc {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
-  min-height: 0;
-  height: 100%;
 }
 
 /* ---- 设备身份卡 ---- */
-.weq-login-acc-identity {
-  padding: 12px 14px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
-}
 .weq-login-acc-identity-main {
   display: flex;
   align-items: center;
@@ -29,42 +21,23 @@
 .weq-login-acc .weq-login-acc-identity-main > .weq-set-btn {
   align-self: center;
 }
-.weq-login-acc-identity-icon {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  flex: none;
-  border-radius: 8px;
-  color: var(--weq-accent-solid-foreground, var(--primary-foreground));
-  background: var(--weq-accent-solid);
-}
-.weq-login-acc-identity-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-.weq-login-acc-identity-label {
-  font-size: 11px;
-  color: var(--weq-fg-muted);
-}
 .weq-login-acc-identity-value {
+  flex: 1;
+  min-width: 0;
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   font-size: 12px;
   color: var(--weq-fg-primary);
   letter-spacing: 0.4px;
 }
 .weq-login-acc-identity-hint {
-  margin: 8px 0 0;
+  margin: 0;
   font-size: 11px;
   line-height: 1.6;
   color: var(--weq-fg-muted);
 }
 /* 数据根路径：给排查用，平时只是安静的一行小字；太长就省略 + title 兜底。 */
 .weq-login-acc-root {
-  margin: 4px 0 0;
+  margin: 0;
   font-size: 11px;
   color: var(--weq-fg-muted);
   opacity: 0.75;
@@ -131,26 +104,17 @@
 
 /* ---- 列表 ---- */
 .weq-login-acc-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding-right: 2px;
+  display: grid;
+  gap: 12px;
 }
-.weq-login-acc-card {
+.weq-login-acc-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 8px;
-  background: var(--weq-bg-surface);
-  transition: border-color 0.15s;
 }
-.weq-login-acc-card:hover {
-  border-color: var(--weq-border-strong);
+.weq-login-acc-row + .weq-login-acc-row {
+  padding-top: 12px;
+  border-top: 1px solid var(--weq-border-subtle);
 }
 .weq-login-acc-avatar {
   flex: none;
@@ -214,7 +178,6 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  flex: 1;
   padding: 40px 0;
   font-size: 12px;
   color: var(--weq-fg-muted);
@@ -243,56 +206,23 @@
   color: var(--weq-accent-effective);
 }
 
-/* 嵌入设置卡片时使用连续内容与列表行，不再套独立卡片或内部滚动区。 */
-[data-setting-id='qq-accounts'] .weq-login-acc {
-  height: auto;
-}
-[data-setting-id='qq-accounts'] .weq-login-acc-list {
-  flex: none;
-  overflow: visible;
-}
-[data-setting-id='qq-accounts'] .weq-login-acc-identity,
-[data-setting-id='qq-accounts'] .weq-login-acc-card {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-[data-setting-id='qq-accounts'] .weq-login-acc-card + .weq-login-acc-card {
-  padding-top: 12px;
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
 /* ---- dark theme（独立一套值，不是浅色取反）---- */
-html[data-theme='dark'] .weq-login-acc-identity {
-  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
-}
-html[data-theme='dark'] .weq-login-acc-card {
-  background: var(--weq-bg-elevated);
-}
 html[data-theme='dark'] .weq-login-acc-gate.is-blocked {
   background: color-mix(in srgb, var(--weq-list-alert-ink) 16%, transparent);
 }
 html[data-theme='dark'] .weq-login-acc-inline-error {
   background: color-mix(in srgb, var(--weq-list-alert-ink) 14%, transparent);
 }
-html[data-theme='dark'] [data-setting-id='qq-accounts'] .weq-login-acc-identity,
-html[data-theme='dark'] [data-setting-id='qq-accounts'] .weq-login-acc-card {
-  background: transparent;
-}
-
 @media (max-width: 760px) {
   .weq-login-acc-identity-main {
     flex-wrap: wrap;
   }
-  .weq-login-acc-identity-text {
-    min-width: min(140px, 100%);
-  }
   .weq-login-acc-identity-value {
+    min-width: min(140px, 100%);
     overflow-wrap: anywhere;
     letter-spacing: 0;
   }
-  .weq-login-acc-card {
+  .weq-login-acc-row {
     display: grid;
     grid-template-columns: 40px minmax(0, 1fr);
     gap: 10px;
@@ -309,11 +239,5 @@ html[data-theme='dark'] [data-setting-id='qq-accounts'] .weq-login-acc-card {
     grid-column: 1 / -1;
     justify-content: flex-end;
     flex-wrap: wrap;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .weq-login-acc-card {
-    transition: none;
   }
 }

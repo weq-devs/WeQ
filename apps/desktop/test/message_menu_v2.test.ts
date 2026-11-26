@@ -282,13 +282,29 @@ it('媒体显式命中优先，无命中回退第一项，文件保存保持原�
   expect(target.favoriteUrl).toBeUndefined();
 });
 
-it('最近回应去重排序且默认补齐；字符表情保留 Unicode 类型', () => {
+it('更多表情与最近回应只提供 QQ 支持的候选，按回应码去重', () => {
   const catalog = reactionItems([
-    { unicode: true, items: [{ id: 'laugh', desc: '笑', glyph: '😀' }] },
+    {
+      items: [
+        { id: 179, desc: 'doge' },
+        { id: 392, desc: '龙年快乐' },
+      ],
+    },
+    { items: [{ id: '179', desc: 'doge' }] },
+    {
+      unicode: true,
+      items: [
+        { id: 'thumb', desc: '赞', glyph: '👍' },
+        { id: '👍🏻', desc: '带肤色的赞' },
+        { id: '🙏', desc: '合十' },
+        { id: '😀', desc: '笑' },
+      ],
+    },
   ]);
-  const quick = quickReactions([catalog[0]!.code, '76', '76', 'invalid'], catalog);
+  expect(catalog.map(({ code }) => code)).toEqual(['179', '128077']);
+  const quick = quickReactions(['392', '128591', '128077', '76', '76', 'invalid'], catalog);
   expect(quick).toHaveLength(6);
-  expect(quick[0]?.item.glyph).toBe('😀');
+  expect(quick[0]?.item.glyph).toBe('👍');
   expect(new Set(quick.map((item) => item.code)).size).toBe(6);
   expect(quickReactions([], [])).toEqual(DEFAULT_REACTIONS);
 });

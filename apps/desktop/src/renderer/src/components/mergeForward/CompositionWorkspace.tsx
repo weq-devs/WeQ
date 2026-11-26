@@ -117,7 +117,11 @@ function CompositionWorkspaceBody({
   sendAvailable: boolean;
   incoming?: readonly CompositionRequest[];
   onRequestsHandled?: (ids: string[]) => void;
-  onForward: (draft: MfDraft, target: MfTarget, binding: CompositionBinding) => Promise<void>;
+  onForward: (
+    draft: MfDraft,
+    target: MfTarget,
+    binding: CompositionBinding,
+  ) => Promise<undefined | boolean>;
   onSend: (
     message: Message,
     target: MfTarget,
@@ -472,11 +476,15 @@ function CompositionWorkspaceBody({
     for (const target of targets.filter((target) => selected.has(target.id))) {
       if (!visibleRef.current || popup?.closed) throw new Error('合成窗口已关闭，已停止后续发送');
       if (accepted.current.has(target.id)) continue;
-      await onForward(send.draft, target, binding);
+      if ((await onForward(send.draft, target, binding)) === false) continue;
       accepted.current.add(target.id);
     }
-    setSend(null);
-    setStatus('已发送');
+    const remaining = new Set([...selected].filter((id) => !accepted.current.has(id)));
+    setSelected(remaining);
+    if (!remaining.size) {
+      setSend(null);
+      setStatus('已发送');
+    }
   };
   const decoded = useMemo(
     () => ({
@@ -1069,7 +1077,7 @@ function CompositionWorkspaceBody({
             if (node && isNestedContent(node.segs)) {
               signal.throwIfAborted();
               if (!visibleRef.current || popup?.closed) throw new Error('合成窗口已关闭');
-              await onForward(
+              const sent = await onForward(
                 {
                   ...send.draft,
                   nodes: node.segs.flatMap((segment) =>
@@ -1096,6 +1104,7 @@ function CompositionWorkspaceBody({
                 target,
                 binding,
               );
+              if (sent === false) throw new Error('已取消转发此聊天记录');
               return;
             }
             await onSend(message, target, signal, binding);

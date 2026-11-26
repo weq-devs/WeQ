@@ -1,6 +1,7 @@
 import { act, createElement as h } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import faqMarkdown from '../../../resources/help/faq.md?raw';
 import { FaqPanel } from '../src/renderer/src/components/settings/FaqPanel';
 import { SETTINGS_PAGE_LABELS } from '../src/renderer/src/components/settings/navigation';
 import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
@@ -58,6 +59,25 @@ it('文件不可用时保持页标题和模块，只显示读取失败而非空�
   expect(page.host.querySelector('.weq-set-title')?.textContent).toBe(SETTINGS_PAGE_LABELS.faq);
   expect(page.host.textContent).toContain('常见问题文件缺失或读取失败');
   expect(page.host.querySelector('.weq-help-md')).toBeNull();
+});
+it('正式 FAQ 的主题目录在页内滚动并将焦点转到对应标题', () => {
+  f.text = faqMarkdown;
+  const { host } = fixture();
+  const links = host.querySelectorAll<HTMLAnchorElement>('a[href^="#"]');
+  const headings = [...host.querySelectorAll('h2')];
+  const originalHash = window.location.hash;
+  expect(links.length).toBeGreaterThan(0);
+  expect(host.querySelectorAll('hr')).toHaveLength(links.length);
+
+  for (const link of links) {
+    const heading = headings.find((item) => item.textContent === link.textContent)!;
+    const scroll = vi.spyOn(heading, 'scrollIntoView');
+    act(() => link.click());
+    expect(document.activeElement).toBe(heading);
+    expect(scroll).toHaveBeenCalled();
+    scroll.mockRestore();
+  }
+  expect(window.location.hash).toBe(originalHash);
 });
 it('FAQ 文档链接直接新窗打开，点击不弹出外链确认', () => {
   const url = 'https://example.com/guide/macos-debug-copy.html';

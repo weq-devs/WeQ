@@ -3,7 +3,6 @@ import {
   Bug,
   CirclePlus,
   Ellipsis,
-  Images,
   ListFilter,
   ListRestart,
   ListX,
@@ -11,6 +10,7 @@ import {
   MoreHorizontal,
   Search,
   Settings2,
+  Sparkles,
   Users,
   UsersRound,
   Wrench,
@@ -25,6 +25,8 @@ import {
   conversationSourceLabel,
 } from '../lib/conversationActions';
 import { ConversationDirectoryContext } from '../lib/conversationDirectory';
+import { ContactWorkspaceNavigationContext, contactPortraitTarget } from '../lib/profileNavigation';
+import { displayUserName } from '../im-template/template/user';
 import { useRequestContentExport } from '../state/contentSelection.shared';
 import { useTabActive } from './RetainedTabs.shared';
 import { ConversationActionsMenu, type ConversationMenuAction } from './ConversationActionsMenu';
@@ -42,8 +44,8 @@ export function ConversationMessageActions({
   onRecalled,
   onAdd,
   compact = false,
+  showPortrait = false,
   onSearch,
-  onMedia,
   onImportant,
   dismissJumpActions,
   onGroupInfo,
@@ -58,8 +60,8 @@ export function ConversationMessageActions({
   onRecalled?: (conversation: Conversation) => void;
   onAdd?: (conversation: Conversation) => void;
   compact?: boolean;
+  showPortrait?: boolean;
   onSearch?: () => void;
-  onMedia?: () => void;
   onImportant?: () => void;
   dismissJumpActions?: { label: string; action: () => void }[];
   onGroupInfo?: (anchor: HTMLButtonElement) => void;
@@ -69,11 +71,14 @@ export function ConversationMessageActions({
   bugOnline?: boolean;
 }) {
   const directory = useContext(ConversationDirectoryContext);
+  const openWorkspace = useContext(ContactWorkspaceNavigationContext);
   const requestExport = useRequestContentExport();
   const sourceLabel = conversationSourceLabel(conversation);
   const generated = Boolean(sourceLabel);
   const exportSelection = conversationExportSelection(conversation);
   const target = conversationRoamingTarget(conversation);
+  const portraitPeer =
+    compact && showPortrait && conversation.type === 'direct' ? conversation.otherUser : null;
   const active = useTabActive();
   const remoteShell = useRemoteShellAvailable();
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -197,7 +202,19 @@ export function ConversationMessageActions({
         ]
       : []),
     ...(onSearch ? [{ label: '搜索', icon: <Search size={18} />, action: onSearch }] : []),
-    ...(onMedia ? [{ label: '共享媒体', icon: <Images size={18} />, action: onMedia }] : []),
+    ...(portraitPeer
+      ? [
+          {
+            label: '互动画像',
+            icon: <Sparkles size={18} />,
+            disabled: !openWorkspace,
+            action: () =>
+              openWorkspace?.(
+                contactPortraitTarget(portraitPeer.id, displayUserName(portraitPeer)),
+              ),
+          },
+        ]
+      : []),
     ...(messages.length
       ? [{ label: '消息', icon: <MessageSquareText size={18} />, children: messages }]
       : []),
@@ -207,8 +224,7 @@ export function ConversationMessageActions({
       : []),
   ];
   // 没有宿主能力的虚拟对象不单独显示空工具栏。
-  if (!onSearch && !onMedia && !onSettings && !messages.length && !tools.length && !onBug)
-    return null;
+  if (actions.length === 1 && !tools.length) return null;
   const menuActions =
     menu && (compact ? actions : actions.find((item) => item.label === menu.label)?.children);
   const open = (button: HTMLButtonElement, label: string) => {

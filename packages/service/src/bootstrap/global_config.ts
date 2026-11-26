@@ -24,6 +24,8 @@ import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Platform } from '@weq/platform';
 import type { UserConfigService } from './user_config';
+import { getLogger } from '../common/logger';
+import { updateRuntimeDiagnostics } from '../common/runtime_diagnostics';
 
 /** Enriched install info the renderer renders + drives error dialogs from. */
 export interface GlobalInstallInfo {
@@ -110,6 +112,12 @@ export class GlobalConfigService {
     }
     const value = this.probe();
     this.memo = { expiresAt: Date.now() + INSTALL_MEMO_TTL_MS, value };
+    if (updateRuntimeDiagnostics('qqVersion', value.version))
+      getLogger().info('QQ 客户端版本检测结果', {
+        scope: 'startup',
+        event: 'qq-version-detected',
+        qqVersion: value.version,
+      });
     return value;
   }
 

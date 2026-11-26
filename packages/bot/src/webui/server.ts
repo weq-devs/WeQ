@@ -153,7 +153,7 @@ function readConfigFile(configPath: string): BotConfig | null {
 /** /api/config GET 的返回结构：可编辑字段 + 打码 key。绝不返回明文 apiKey。 */
 function buildConfigPayload(cfg: BotConfig): unknown {
   return {
-    images: cfg.images ?? { mode: 'vision', visionModel: null, prefilterEnabled: true },
+    images: cfg.images ?? { mode: 'vision', visionModel: null, prefilterEnabled: false },
     adapter: {
       type: cfg.adapter.type,
       wsUrl: cfg.adapter.wsUrl,

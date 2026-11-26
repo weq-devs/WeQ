@@ -1,6 +1,7 @@
 import { createInterface } from 'node:readline';
 import { dirname } from 'node:path';
-import { loadNative, resolveNtHelperPath } from '@weq/native';
+import { loadNative, resolveNtHelperPath, type DatabaseProgress } from '@weq/native';
+import type { DbRepairTarget } from '@weq/service';
 
 /** 此进程持锁后不再读取源库文件，避免 POSIX close(fd) 释放本进程的 SQLite 文件锁。 */
 async function main() {
@@ -22,7 +23,22 @@ async function main() {
       try {
         if (request.kind === 'begin' && !sessionId) {
           sessionId = request.id;
-          const databases = await nt.beginDatabaseMaintenance(sessionId!, request.targets);
+          const targets: DbRepairTarget[] = request.targets;
+          const names = new Map(targets.map(({ dbPath, dbName }) => [dbPath, dbName]));
+          const databases = await nt.beginDatabaseMaintenance(
+            sessionId!,
+            targets,
+            (error, tick: DatabaseProgress) => {
+              if (!error)
+                send({
+                  requestId: request.requestId,
+                  progress: {
+                    ...tick,
+                    objectName: names.get(tick.objectName ?? '') ?? '',
+                  },
+                });
+            },
+          );
           send({ requestId: request.requestId, databases });
         } else if (request.kind === 'protect' && sessionId) {
           nt.protectDatabaseMaintenanceProduct(sessionId, request.dbPath, request.product);

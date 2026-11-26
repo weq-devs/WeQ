@@ -24,8 +24,9 @@ export type {
   ForwardExportTarget,
   ForwardRecordTarget,
   MessageCategory,
+  ConversationRecordType,
 } from './account/message_filter';
-export { MESSAGE_CATEGORIES } from './account/message_filter';
+export { CONVERSATION_RECORD_TYPES, MESSAGE_CATEGORIES } from './account/message_filter';
 export { installContentSearchCapture } from './account/content_search_capture';
 export { writeCompositionBundle } from './account/export/composition_export';
 export { fileDigest } from './account/export/archive_resource';
@@ -61,7 +62,11 @@ export {
 } from './common/credential_repair';
 export type { OnlineCredentialIssue } from './common/credential_repair';
 
-export { UserConfigService, DEFAULT_APP_SETTINGS } from './bootstrap/user_config';
+export {
+  UserConfigService,
+  DEFAULT_APP_SETTINGS,
+  MAX_LOG_RETENTION_DAYS,
+} from './bootstrap/user_config';
 export type {
   UserConfig,
   AutoEnterTarget,
@@ -1234,6 +1239,8 @@ export type {
 export {
   OcrModelService,
   OCR_MODELS,
+  DEFAULT_OCR_MODEL_ID,
+  LEGACY_OCR_MODEL_ID,
   ONNXRUNTIME_CPU_TARGETS,
   getOcrModel,
   localOcrBlocker,
@@ -1271,6 +1278,7 @@ export {
   pruneExpiredLogs,
 } from './common/logger';
 export {
+  isHistoricalWeqLog,
   logFileSource,
   readLogFileChunk,
   readLogFileInfo,
@@ -1280,6 +1288,11 @@ export {
 export type { LogFileEntry, LogFileKind } from './common/log_files';
 export type { LogFileCandidate } from './common/logger';
 export { configureConsoleLogger, flushConsoleLogger } from './common/logger';
+export {
+  initRuntimeLogging,
+  runtimeDiagnosticsMarkdown,
+  updateRuntimeDiagnostics,
+} from './common/runtime_diagnostics';
 export { withLogOperation, currentOperationId } from './common/operation_log';
 export { configureDevelopmentLogging } from './common/development_logging';
 export { logRequest, logTransportError } from './common/request_log';
@@ -1357,8 +1370,10 @@ export { SharedPrompt } from './common/shared_prompt';
 export { bootstrapWeqBackupFiles } from './bootstrap/backup_startup';
 export { withSharedConfigLock } from './bootstrap/shared_config_lock';
 export type { WeqFileStartup } from './bootstrap/backup_startup';
-export { WeqBackupService, legacyWeqAccountBackup } from './bootstrap/backup_service';
-export { recordWeqRestoreWarnings } from './bootstrap/backup_restore';
+export { WEQ_BACKUP_SECTIONS, type WeqSelectiveBackup } from './common/backup_sections';
+export type { WeqBackupHost } from './bootstrap/backup_host';
+export { WeqBackupService } from './bootstrap/backup_service';
+export { finishWeqBackupHostRestore, recordWeqRestoreWarnings } from './bootstrap/backup_restore';
 export { WEQ_DEFAULTS_PATHS, WEQ_DEFAULTS_CONNECTIONS } from './bootstrap/backup_defaults';
 export type {
   WeqDefaultsChoice,
@@ -1436,6 +1451,8 @@ export type {
   DatabaseMaintenanceSnapshot,
   DatabaseMaintenanceReport,
   DatabaseMaintenanceScope,
+  DatabaseRepairMethod,
+  DatabasePageLocation,
   DatabaseMaintenanceRow,
   DatabaseMaintenanceOperation,
 } from './account/db_repair/maintenance_types';

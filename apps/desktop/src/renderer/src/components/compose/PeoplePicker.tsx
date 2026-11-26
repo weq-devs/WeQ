@@ -8,13 +8,10 @@ import { EmptyState } from '../EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
 import { Search, SearchX } from 'lucide-react';
 import { QqAvatar } from '../QqAvatar';
+import { searchPeople, type MfPerson } from '../mergeForward/SenderPicker.shared';
 import { WindowedList } from '../WindowedList';
 
-export interface Person {
-  uid: string;
-  uin: string;
-  name: string;
-}
+export type Person = MfPerson;
 
 export function PeoplePicker({
   people,
@@ -27,11 +24,7 @@ export function PeoplePicker({
 }): ReactElement {
   const [kw, setKw] = useState('');
 
-  const filtered = useMemo(() => {
-    const term = kw.trim().toLowerCase();
-    if (!term) return people;
-    return people.filter((p) => p.name.toLowerCase().includes(term) || p.uin.includes(term));
-  }, [people, kw]);
+  const filtered = useMemo(() => searchPeople(people, kw), [people, kw]);
 
   return (
     <div className="weq-people-picker">

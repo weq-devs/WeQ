@@ -31,6 +31,7 @@ import { RemoteDataCacheDialog } from './components/RemoteDataCacheDialog';
 import { HoverTooltip } from './components/HoverTooltip';
 import { ToastHost } from './components/Toast';
 import { AnnouncementCenter } from './components/AnnouncementCenter';
+import { AppUpdateNotifications } from './components/AppUpdateNotifications';
 import { useToast } from './components/Toast.shared';
 import { NotificationClickBridge } from './components/NotificationClickBridge';
 import { DbRepairWindowHost } from './components/DbRepairWindow';
@@ -296,6 +297,7 @@ export default function App(): ReactElement {
             <AccountSwitchRequestHost />
             <RemoteRequests />
             <ToastHost />
+            <AppUpdateNotifications />
             <NotificationClickBridge />
             <RendererRecoveryNotice ready={view === 'bootstrap' && homeStage !== 'booting'} />
             {IS_WEB && <WebConnectionStatus />}
@@ -323,7 +325,7 @@ export default function App(): ReactElement {
   );
   return (
     <AnnouncementCenter
-      active={!switching && (view === 'main' || homeStage !== 'booting')}
+      active={view === 'main' || homeStage !== 'booting'}
       canOpenUpdateSettings={!IS_WEB && !switching && view === 'main'}
     >
       {workspace}

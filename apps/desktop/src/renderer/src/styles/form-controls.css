@@ -2,21 +2,15 @@
 html[data-theme] {
   --weq-field-bg: var(--weq-bg-surface);
   --weq-field-fg: var(--weq-fg-primary);
-  --weq-field-border: var(--weq-border-strong);
-  --weq-field-placeholder: var(--weq-fg-muted);
+  --weq-field-border: color-mix(in srgb, var(--weq-fg-secondary) 85%, var(--weq-field-bg));
+  --weq-field-placeholder: color-mix(in oklab, var(--weq-fg-muted) 88%, var(--weq-field-fg));
   --weq-field-readonly-bg: var(--weq-bg-elevated);
   --weq-field-disabled-bg: var(--muted);
   --weq-field-disabled-fg: var(--weq-fg-secondary);
 }
 
 html[data-theme='dark'] {
-  --weq-field-bg: var(--weq-bg-surface);
   --weq-field-readonly-bg: var(--weq-bg-app);
-  --weq-field-disabled-bg: var(--muted);
-}
-
-html[data-theme='light']:not([data-component-style='qqnt']) {
-  --weq-field-placeholder: color-mix(in oklab, var(--weq-fg-muted) 95%, var(--weq-fg-primary));
 }
 
 html[data-theme] :where(input:is([type='checkbox'], [type='radio'], [type='range']), progress) {
@@ -75,9 +69,19 @@ html[data-theme] input:is([type='checkbox'], [type='radio'], [type='range']):foc
     clip-path: inset(39% 8%);
   }
 
+  html[data-theme] input:is([type='checkbox'], [type='radio']):disabled:not([hidden]) {
+    border-color: var(--weq-border-strong);
+    background: var(--weq-field-disabled-bg);
+    cursor: not-allowed;
+  }
+
+  html[data-theme] input:is([type='checkbox'], [type='radio']):disabled:not([hidden])::before {
+    background: var(--weq-field-disabled-fg);
+  }
+
   html[data-theme] input[type='range']:not([hidden]) {
     --weq-range-direction: to right;
-    --weq-range-track: color-mix(in srgb, var(--weq-fg-primary) 16%, transparent);
+    --weq-range-track: var(--weq-field-border);
     --weq-range-background: linear-gradient(
       var(--weq-range-direction),
       var(--weq-accent-solid) 0 var(--weq-range-fill, 0%),
@@ -126,22 +130,52 @@ html[data-theme] input:is([type='checkbox'], [type='radio'], [type='range']):foc
     background: var(--weq-field-bg);
   }
 
-  html[data-theme] input:is([type='checkbox'], [type='radio'], [type='range']):disabled {
+  html[data-theme] input[type='range']:disabled {
     opacity: 0.55;
     cursor: not-allowed;
   }
+}
+
+/* 保留原生展开交互，统一使用线形箭头。已有 Lucide 箭头的标题沿用自身布局。 */
+:where(details > summary) {
+  --weq-disclosure-angle: -45deg;
+  list-style: none;
+  cursor: pointer;
+}
+
+:where(details > summary)::-webkit-details-marker {
+  display: none;
+}
+
+:where(details[open] > summary) {
+  --weq-disclosure-angle: 45deg;
+}
+
+:where(
+  details
+    > summary:not([aria-disabled='true']):not(
+      :has(> svg:is(.lucide-chevron-right, .lucide-chevron-down, .lucide-chevron-up))
+    )
+)::before {
+  content: '';
+  box-sizing: border-box;
+  display: inline-block;
+  flex: none;
+  inline-size: 0.56em;
+  block-size: 0.56em;
+  margin-inline: 0.14em 0.62em;
+  vertical-align: 0.12em;
+  color: var(--weq-fg-secondary, currentColor);
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  border-end-end-radius: 1px;
+  transform: rotate(var(--weq-disclosure-angle));
 }
 
 .weq-disclosure-summary {
   display: flex;
   align-items: center;
   gap: 5px;
-  list-style: none;
-  cursor: pointer;
-}
-
-.weq-disclosure-summary::-webkit-details-marker {
-  display: none;
 }
 
 .weq-disclosure-summary > .weq-disclosure-chevron {
@@ -163,6 +197,7 @@ details[open] > .weq-disclosure-summary > .weq-disclosure-chevron {
 html:root[data-theme][data-component-style] body
   :is(
     input,
+    select,
     .weq-select-trigger,
     textarea:where(:not(.voice-tts-input, .weq-help-bug-textarea, .weq-group-bug-textarea)),
     .weq-input,
@@ -175,7 +210,6 @@ html:root[data-theme][data-component-style] body
     .weq-directory-toolbar input,
     .weq-password-input,
     .weq-static-input,
-    .weq-record-filters input,
     .weq-search-more-input,
     .weq-msglist-select,
     .weq-mf-textarea,
@@ -222,6 +256,7 @@ html:root[data-theme][data-component-style] body
 
   &[readonly] {
     background: var(--weq-field-readonly-bg);
+    border-color: var(--weq-border-strong);
     cursor: default;
   }
 
@@ -264,6 +299,7 @@ html:root[data-theme][data-component-style] body
     .weq-analysis-search,
     .weq-analysis-reports-search,
     .weq-roaming-search,
+    .weq-record-search-input,
     .weq-cp-hex,
     .weq-dress-search,
     .weq-collection-search,
@@ -295,6 +331,7 @@ html:root[data-theme][data-component-style] body
 
   &:has([readonly]):not(:has(input:not([readonly]), textarea:not([readonly]))) {
     background: var(--weq-field-readonly-bg);
+    border-color: var(--weq-border-strong);
   }
 
   &:has(:disabled):not(:has(input:enabled, textarea:enabled, .weq-select-trigger:enabled)) {

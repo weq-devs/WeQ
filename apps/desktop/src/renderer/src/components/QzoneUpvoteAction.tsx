@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArchiveX, Heart, Loader2, Lock, RefreshCw, Send, Trash2, Undo2 } from 'lucide-react';
 import type { QzoneUpvotePreview } from '@weqbot/protocol';
@@ -109,15 +110,17 @@ export function QzoneUpvoteAction({
           })}
         </div>
         <p className="weq-qzn-status">
-          {value?.count === 0 && !value.users.length
-            ? '还没有人推过'
-            : value?.users.length
-              ? `已显示 ${value.users.length} 人${value.count === null ? '' : `，共 ${value.count} 人推过`}`
-              : value?.count != null
-                ? `共 ${value.count} 人推过，暂无用户预览`
-                : loading
-                  ? '正在读取推预览'
-                  : '暂无可读取的推数据'}
+          <NumericText>
+            {value?.count === 0 && !value.users.length
+              ? '还没有人推过'
+              : value?.users.length
+                ? `已显示 ${value.users.length} 人${value.count === null ? '' : `，共 ${value.count} 人推过`}`
+                : value?.count != null
+                  ? `共 ${value.count} 人推过，暂无用户预览`
+                  : loading
+                    ? '正在读取推预览'
+                    : '暂无可读取的推数据'}
+          </NumericText>
         </p>
         {error ? (
           <p className="weq-qzn-error" role="status">

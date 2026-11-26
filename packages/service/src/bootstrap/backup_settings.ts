@@ -1,5 +1,15 @@
+import { isHistoryCapacityMiB } from '../common/settings_catalog/history';
+import {
+  MAX_DATABASE_CHECKUP_CONCURRENCY,
+  isDatabaseRepairBackupMode,
+} from '../account/db_repair/maintenance_types';
 import type { AccountConfig } from '../account/user_config';
-import { DEFAULT_APP_SETTINGS, MAX_LOG_RETENTION_DAYS, type AppSettings } from './user_config';
+import {
+  DEFAULT_APP_SETTINGS,
+  MAX_LOG_RETENTION_DAYS,
+  type AppSettings,
+  type AppSettingsPatch,
+} from './user_config';
 import { isToastDuration } from '../common/toast_settings';
 import { isUpdateCheckInterval } from '../common/update_settings';
 import { normalizeQzonePagination } from '../common/qzone_pagination';
@@ -33,10 +43,8 @@ export type WeqAppBackupSettings = Omit<
   >;
 };
 type PartialSettings<T> = T extends object ? { [K in keyof T]?: PartialSettings<T[K]> } : T;
-export type WeqAppBackupPatch = PartialSettings<WeqAppBackupSettings> & {
-  sendWithQqFont?: boolean;
-  sendWithDressFont?: boolean;
-};
+export type WeqAppBackupPatch = PartialSettings<Omit<WeqAppBackupSettings, 'composerFont'>> &
+  Pick<AppSettingsPatch, 'composerFont' | 'sendWithQqFont' | 'sendWithDressFont'>;
 export interface WeqApiBackupSettings {
   agentLab: AppSettings['agentLab'];
   ttsProviders: AppSettings['voiceTranscribe']['ttsProviders'];
@@ -302,12 +310,16 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     home,
     contactCard,
     qqShowCacheDays,
+    restrictedModeIndicatorEnabled,
+    qqProxyIndicatorEnabled,
     updateCheckIntervalMinutes,
+    enhancementUpdates,
     quitConfirmSuppressed,
     reportReadEnabled,
     manualReadReportEnabled,
     sharedPreferences,
     composerFont,
+    defaultMessageFont,
     sendWithQqFont,
     sendWithDressFont,
     ...scalarSettings
@@ -323,14 +335,44 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     !isUpdateCheckInterval(updateCheckIntervalMinutes)
   )
     fail('settings.updateCheckIntervalMinutes');
+  if (enhancementUpdates !== undefined) {
+    const path = 'settings.enhancementUpdates';
+    const { autoUpdatePacks, ...switches } = fields(
+      enhancementUpdates,
+      path,
+      [],
+      ['autoCheck', 'autoInstall', 'autoUpdatePacks'],
+    );
+    shape(switches, { autoCheck: true, autoInstall: false }, path);
+    if (autoUpdatePacks !== undefined) {
+      if (!Array.isArray(autoUpdatePacks)) fail(`${path}.autoUpdatePacks`);
+      for (const id of autoUpdatePacks) string(id, `${path}.autoUpdatePacks`, true);
+    }
+  }
   if (qqShowCacheDays !== undefined) number(qqShowCacheDays, 'settings.qqShowCacheDays', 1, 365);
+  if (restrictedModeIndicatorEnabled !== undefined)
+    shape(restrictedModeIndicatorEnabled, true, 'settings.restrictedModeIndicatorEnabled');
+  if (qqProxyIndicatorEnabled !== undefined)
+    shape(qqProxyIndicatorEnabled, true, 'settings.qqProxyIndicatorEnabled');
   if (sendWithQqFont !== undefined) shape(sendWithQqFont, true, 'settings.sendWithQqFont');
   if (sendWithDressFont !== undefined) shape(sendWithDressFont, true, 'settings.sendWithDressFont');
+  if (
+    defaultMessageFont !== undefined &&
+    defaultMessageFont !== 'plain' &&
+    defaultMessageFont !== 'account'
+  )
+    fail('settings.defaultMessageFont');
   if (composerFont !== undefined) {
     const path = 'settings.composerFont';
     const { choice, ...switches } = fields(composerFont, path, [], ['choice', 'send', 'preview']);
     shape(switches, { send: true, preview: false }, path);
-    if (choice !== undefined && choice !== 'plain' && choice !== 'qq' && choice !== 'legacy-dress')
+    if (
+      choice !== undefined &&
+      choice !== 'default' &&
+      choice !== 'plain' &&
+      choice !== 'qq' &&
+      choice !== 'legacy-dress'
+    )
       number(choice, `${path}.choice`, 1, 0xffff);
   }
   shape(scalarSettings, snapshotWeqSettings(DEFAULT_APP_SETTINGS), 'settings');
@@ -443,8 +485,22 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     number(input.autoLockMinutes, 'settings.autoLockMinutes', 0, 120);
   if (input.logRetentionDays !== undefined)
     number(input.logRetentionDays, 'settings.logRetentionDays', 0, MAX_LOG_RETENTION_DAYS);
+  if (input.logCapacityMiB !== undefined && !isHistoryCapacityMiB(input.logCapacityMiB))
+    fail('settings.logCapacityMiB');
   if (input.databaseReadConcurrency !== undefined)
     number(input.databaseReadConcurrency, 'settings.databaseReadConcurrency', 1, 8);
+  if (input.databaseCheckupConcurrency !== undefined)
+    number(
+      input.databaseCheckupConcurrency,
+      'settings.databaseCheckupConcurrency',
+      1,
+      MAX_DATABASE_CHECKUP_CONCURRENCY,
+    );
+  if (
+    input.databaseRepairBackupMode !== undefined &&
+    !isDatabaseRepairBackupMode(input.databaseRepairBackupMode)
+  )
+    fail('settings.databaseRepairBackupMode');
   if (input.appLock !== undefined) {
     const lock = record(input.appLock, 'settings.appLock');
     if (lock.method !== undefined && lock.method !== 'totp' && lock.method !== 'system')

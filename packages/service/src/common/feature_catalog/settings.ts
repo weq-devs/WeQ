@@ -22,6 +22,11 @@ const pageDetails: Partial<
     summary: '设置 QQ 数据库的监听与读取，查看体检和修复入口，浏览或导出数据库。',
     docs: ['guide/settings.md', 'guide/database-view.md'],
   },
+  credentials: {
+    summary: '查看 QQ 会话凭据与在线能力相关配置。',
+    docs: ['guide/settings.md'],
+    tools: ['get_web_tokens', 'get_client_key', 'get_download_rkeys', 'get_ptlogin_jump_url'],
+  },
   remote: {
     summary: '查看本机浏览器访问地址，配对手机和管理已配对设备。',
     docs: ['guide/remote-web.md'],
@@ -29,12 +34,19 @@ const pageDetails: Partial<
   mcp: {
     summary: '启停 MCP 服务器，查看连接信息或安装到本机 AI 客户端。',
     docs: ['guide/mcp-server.md'],
-    tools: ['list_features', 'get_feature', 'list_settings'],
+    tools: [
+      'list_features',
+      'get_feature',
+      'list_settings',
+      'list_capabilities',
+      'get_capability',
+      'call_capability',
+    ],
   },
   accounts: {
     summary: '查看和切换已配置的 QQ 账号与数据源。',
     docs: ['guide/settings.md'],
-    tools: ['list_accounts', 'switch_account'],
+    tools: ['list_accounts', 'switch_account', 'select_open_account'],
   },
   recognition: {
     summary: '配置图中文字识别、语音转写及相关模型。',
@@ -54,7 +66,7 @@ const pageDetails: Partial<
     docs: ['guide/settings.md'],
   },
   backup: {
-    summary: '导出当前配置备份，或从已有备份恢复所选内容。',
+    summary: '选择设置、账号配置、草稿或助手数据导出，并按选择范围预览和恢复。',
     docs: ['guide/settings.md'],
   },
   version: {
@@ -98,7 +110,17 @@ export const SETTING_FEATURES = SETTINGS_CATALOG.map(
       desktopOnly: setting.desktopOnly === true,
       ...(setting.id === 'llm-default-model' ? { operation: 'default-chat-model' as const } : {}),
       ...(setting.id === 'database-manager'
-        ? { tools: ['list_databases', 'list_db_tables', 'get_db_columns', 'execute_sql'] }
+        ? {
+            tools: [
+              'list_databases',
+              'list_db_tables',
+              'get_db_columns',
+              'execute_sql',
+              'query_sqlite_file',
+              'decode_blob',
+              'decode_db_blob',
+            ],
+          }
         : {}),
       ...(setting.id === 'anti-recall'
         ? { tools: ['get_anti_recall_status', 'set_anti_recall'] }

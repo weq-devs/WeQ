@@ -35,12 +35,11 @@
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
-  transform: none !important;
-  filter: none !important;
+  animation: none;
 }
 
 .weq-report-stage-host[data-layout='reading'] .weq-report-slide:not(.is-active) {
-  visibility: hidden;
+  display: none;
 }
 
 .weq-report-stage-host[data-layout='reading'] .weq-report-page {
@@ -373,6 +372,21 @@
 .weq-report-stage-host[data-layout='reading'] .weq-vc-faves-row .weq-vc-fave-count b {
   font-size: 16px;
   white-space: nowrap;
+}
+
+.weq-report-stage-host[data-layout='reading'] .weq-dress-hero-col {
+  align-items: center;
+  text-align: center;
+}
+
+.weq-report-stage-host[data-layout='reading'] .weq-dress-say {
+  justify-content: center;
+}
+
+.weq-report-stage-host[data-layout='reading'] .weq-dress-foot {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .weq-report-stage-host[data-layout='reading'] .weq-dress-shelf {

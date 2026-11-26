@@ -1637,7 +1637,13 @@ function Posts({
   return (
     <div {...multi.rootProps}>
       {loading && posts.length > 0 && headRequest.current ? (
-        <LoadingStatus text={`正在刷新…${pageCountLabel}`} />
+        <LoadingStatus
+          text={
+            <span>
+              正在刷新…<NumericText>{pageCountLabel}</NumericText>
+            </span>
+          }
+        />
       ) : null}
       {visiblePosts.map((post) => (
         <Post
@@ -3003,7 +3009,9 @@ function Interaction({
           </button>
         </p>
       ) : null}
-      <p className="weq-qzn-status">评论及回复共 {result!.commentCountInclusive ?? '?'} 条</p>
+      <p className="weq-qzn-status">
+        <NumericText>{`评论及回复共 ${result!.commentCountInclusive ?? '?'} 条`}</NumericText>
+      </p>
       {focusComment && !focusedComment ? (
         <div ref={focusRef} className="weq-qzn-comment is-notification-target">
           <div>
@@ -3932,7 +3940,7 @@ function FeedTimeline({
             <EmptyState
               icon={<Images />}
               title={scope === 7 ? '暂无特别关心的动态' : '暂时没有可查看的动态'}
-              body={pageCountLabel}
+              body={<NumericText>{pageCountLabel}</NumericText>}
             />
           ) : (
             <p className="weq-qzn-status">

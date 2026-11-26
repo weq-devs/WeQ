@@ -72,7 +72,7 @@ export function ChatMainContent({
   groupMembersError,
   groupMemberSearch,
   onGroupMemberSearchChange,
-  onLoadMoreGroupMemberSearch,
+  mapGroupRosterMember,
   profileLoading,
   sendAvailable,
   onSend,
@@ -170,7 +170,7 @@ export function ChatMainContent({
   | 'groupMembersError'
   | 'groupMemberSearch'
   | 'onGroupMemberSearchChange'
-  | 'onLoadMoreGroupMemberSearch'
+  | 'mapGroupRosterMember'
   | 'profileLoading'
   | 'sendAvailable'
   | 'onSend'
@@ -382,7 +382,7 @@ export function ChatMainContent({
       groupMembersError={groupMembersError}
       groupMemberSearch={groupMemberSearch}
       onGroupMemberSearchChange={onGroupMemberSearchChange}
-      onLoadMoreGroupMemberSearch={onLoadMoreGroupMemberSearch}
+      mapGroupRosterMember={mapGroupRosterMember}
       profileLoading={profileLoading}
       sendAvailable={sendAvailable}
       onSend={onSend}

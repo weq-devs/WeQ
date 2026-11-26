@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UpdateEvent } from '../src/main/update/state';
 import { UpdateCard } from '../src/renderer/src/components/settings/UpdateCard';
 import { NativeExpiredDialog } from '../src/renderer/src/components/NativeExpiredDialog';
+import { TabActivity } from '../src/renderer/src/components/RetainedTabs';
 
 const fixture = vi.hoisted(() => ({
   event: null as ((event: UpdateEvent) => void) | null,
@@ -13,6 +14,7 @@ const fixture = vi.hoisted(() => ({
   setPrerelease: vi.fn(async ({ enabled }: { enabled: boolean }) => enabled),
   download: vi.fn(),
   control: vi.fn(async (_input: unknown) => true),
+  leaveDownloadPage: vi.fn(),
   showError: vi.fn(),
   state: {
     current: '1.0.0',
@@ -46,6 +48,14 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   client: {
+    backgroundTasks: {
+      onTaskPage: {
+        subscribe: (_input: unknown, callbacks: { onData(id: string): void }) => {
+          callbacks.onData('download-page');
+          return { unsubscribe: fixture.leaveDownloadPage };
+        },
+      },
+    },
     update: {
       controlDownload: { mutate: fixture.control },
       onEvent: {
@@ -78,6 +88,7 @@ beforeEach(() => {
   fixture.showError.mockClear();
   fixture.download.mockReset().mockResolvedValue(true);
   fixture.control.mockClear();
+  fixture.leaveDownloadPage.mockClear();
   fixture.state = {
     current: '1.0.0',
     latest: '1.1.0',
@@ -109,13 +120,17 @@ async function downloaded(kind: 'settings' | 'expired') {
 }
 
 describe('重启并安装反馈', () => {
-  it('版本与更新直接启动可在任务列表查看的下载，原位控制同一任务', async () => {
-    await act(async () => root.render(createElement(UpdateCard)));
+  it('版本与更新原位控制下载，切走时释放下载页', async () => {
+    const render = (active: boolean) =>
+      act(async () =>
+        root.render(createElement(TabActivity, { active }, createElement(UpdateCard))),
+      );
+    await render(true);
     const button = (text: string) =>
       [...document.querySelectorAll('button')].find((item) => item.textContent?.trim() === text);
     await act(async () => button('立即更新')!.click());
-    expect(fixture.download).toHaveBeenCalledWith(undefined);
-    const task = { id: 'task', foreground: false, version: '1.1.0' };
+    expect(fixture.download).toHaveBeenCalledWith({ pageId: 'download-page' });
+    const task = { id: 'task', foreground: true, version: '1.1.0' };
     await act(async () =>
       fixture.event?.({
         kind: 'download-task',
@@ -148,9 +163,14 @@ describe('重启并安装反馈', () => {
     );
     expect(document.querySelector('[role="alert"]')?.textContent).toBe('合成下载失败');
     await act(async () => button('重试下载')!.click());
-    expect(fixture.control.mock.calls).toEqual(
-      ['pause', 'continue', 'retry'].map((action) => [{ id: 'task', action }]),
-    );
+    expect(fixture.control.mock.calls).toEqual([
+      [{ id: 'task', action: 'pause' }],
+      [{ id: 'task', action: 'continue', pageId: 'download-page' }],
+      [{ id: 'task', action: 'retry', pageId: 'download-page' }],
+    ]);
+    expect(fixture.leaveDownloadPage).not.toHaveBeenCalled();
+    await render(false);
+    expect(fixture.leaveDownloadPage).toHaveBeenCalledOnce();
   });
   it('自动检查失败后恢复手动检查按钮，不弹出后台失败提示', async () => {
     fixture.state = { ...fixture.state, hasUpdate: false, latest: null };

@@ -2,11 +2,13 @@ import { FormSelect } from '../FormSelect';
 import type { WeqDefaultsChoice, WeqDefaultsPath, WeqDefaultsConnection } from '@weq/service';
 import { Row, Toggle } from './controls';
 import { DEFAULTS_DESCRIPTION } from './DefaultsOptions.shared';
+import type { LogPrunePreview } from '../../../../shared/settings_reset';
 
 export interface DefaultsInfo {
   hasApi: boolean;
   paths: { id: WeqDefaultsPath; label: string; value: string }[];
   connections: { id: WeqDefaultsConnection; label: string; value: string }[];
+  logPrune: LogPrunePreview | null;
 }
 export function DefaultsOptions({
   info,

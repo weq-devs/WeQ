@@ -5,6 +5,11 @@ import { RailAccountFooter } from '../src/renderer/src/components/RailAccountFoo
 
 const fixture = vi.hoisted(() => ({
   mutate: vi.fn(),
+  savePrivacy: vi.fn(async (values: { privacyMode: boolean }) => ({
+    revision: values.privacyMode ? 1 : 2,
+    values,
+    records: {},
+  })),
   refetch: vi.fn(async () => ({ data: undefined })),
   openInstance: vi.fn(async (_configId: string) => {}),
   newWindow: vi.fn(async () => {}),
@@ -53,7 +58,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             isFetching: false,
             refetch: fixture.refetch,
           });
-        if (key === 'mutate') return fixture.mutate;
+        if (key === 'mutate')
+          return path === '.clientState.patch' ? fixture.savePrivacy : fixture.mutate;
         if (key === 'query') return async () => null;
         return proxy(`${path}.${String(key)}`);
       },
@@ -92,6 +98,19 @@ function popup() {
 }
 
 describe('账号菜单的公共浮层契约', () => {
+  it('隐私快捷开关立即切换遮盖并保存同一项偏好', async () => {
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="隐私模式"]')!;
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    await act(async () => button.click());
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(document.documentElement.hasAttribute('data-privacy')).toBe(true);
+    expect(fixture.savePrivacy).toHaveBeenLastCalledWith({ privacyMode: true });
+    await act(async () => button.click());
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect(document.documentElement.hasAttribute('data-privacy')).toBe(false);
+    expect(fixture.savePrivacy).toHaveBeenLastCalledWith({ privacyMode: false });
+  });
+
   it('加号只打开账号选择窗口，保留当前账号', async () => {
     vi.stubGlobal('weq', { accountInstances: { newWindow: fixture.newWindow } });
     open();

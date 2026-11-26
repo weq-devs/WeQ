@@ -242,3 +242,24 @@ export function applyWeqClientSettings(
     throw error;
   }
 }
+
+export {
+  WEQ_BACKUP_SECTIONS,
+  type WeqBackupSection,
+  type WeqSelectiveBackup,
+} from './backup_sections';
+
+export function isWeqBackupLayoutKey(key: string) {
+  return (
+    key === 'weq.desktop.sidebarWidth.v2' ||
+    key.startsWith('chat-template.layout.') ||
+    key === 'weq:tools-position' ||
+    key === 'weq:tools-docked'
+  );
+}
+
+export function snapshotWeqClientLayout(storage: Storage): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(readClientSettings(storage)).filter(([key]) => isWeqBackupLayoutKey(key)),
+  );
+}

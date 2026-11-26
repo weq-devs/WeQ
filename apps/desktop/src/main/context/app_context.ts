@@ -18,16 +18,23 @@
  * `requireBootstrap()` / `requireGlobalConfig()` guards) is enough.
  */
 
-import { EventEmitter } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AccountQqSync } from '../qq_sync/account';
 import { GroupReactionWatch } from '../qq_sync/group_reaction_watch';
 import { coalesceLiveDbWatch, createLiveMessageObservers } from '../qq_sync/live_db_watch';
-import { ensureQqSyncProxy, isQqSyncProxyEnabled } from '../qq_sync/runtime';
+import { ensureQqSyncProxy, isQqSyncProxyEnabled, qqSyncStatus } from '../qq_sync/runtime';
 import { readAccountQqSync } from '../qq_sync/preferences';
 import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { onSettingsChanged } from '@weq/service/settings-changes';
+import {
+  accountRuntimeEvents,
+  accountRuntimeState,
+  type AccountRuntime,
+  currentAccountRuntime,
+  emitAccountClosing,
+  primaryAccountRuntime,
+} from './account_runtime';
 import { createContactsExportDeps } from './export_contacts';
 import { createDbChangeNotification } from '../db_change_notification';
 import { withAccountInstance } from '../account_instance_scope';
@@ -47,7 +54,7 @@ import { resolveBackupLocation, backupResourceRoots } from '../static_backup';
 import { VipBadgeService } from '../vip_badge';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { loadNativeSafe } from '@weq/native';
+import { loadNativeSafe, readNativeBuildInfo, type NativeBuildInfo } from '@weq/native';
 import {
   AnnualReportIndexDb,
   GroupNotifyStatus,
@@ -212,7 +219,7 @@ import {
   waitForUnreadWrites,
   formatDbHealthFailures,
   writeDbHealthReport,
-  initLogger,
+  updateRuntimeDiagnostics,
   getLogger,
   logRequest,
   getLogDir,
@@ -268,7 +275,7 @@ import { ContactDirectoryRuntime } from './contact_metrics';
  *   - 'contact-notices-changed' — 好友／群通知小表内容变化。
  * The account router turns each into a tRPC subscription.
  */
-export const dbEventBus = new EventEmitter();
+export const dbEventBus = accountRuntimeEvents();
 
 export interface LiveMessageNoticeBatch {
   session: AccountSession;
@@ -305,17 +312,43 @@ export interface AccountForcedClosedEvent {
   reportPath: string | null;
 }
 
-export const accountEventBus = new EventEmitter();
+export const accountEventBus = accountRuntimeEvents();
+const initializedRuntimes = new Set<AccountRuntime>();
+const runtimeState = accountRuntimeState(() => {
+  const dbWatch = new DbWatchService();
+  return {
+    cached: undefined as AppContext | undefined,
+    pendingAccountClosures: new Set<Promise<unknown>>(),
+    bootstrapCacheRoot: undefined as string | undefined,
+    signerWarmup: undefined as Promise<SignerWarmupResult | null> | undefined,
+    uidRegistry: new Map<string, string>(),
+    dbWatch,
+    liveMessageObservers: createLiveMessageObservers(dbWatch),
+    dbWatchHandle: null as DbWatchHandle | null,
+    releaseUnreadWatch: undefined as (() => void) | undefined,
+    groupInfoWatchHandle: null as DbWatchHandle | null,
+    contactNoticeWatchHandles: [] as DbWatchHandle[],
+    dbChangeNotification: null as ReturnType<typeof createDbChangeNotification<DbChange>> | null,
+    ssePush: null as SsePushService | null,
+    groupKeyword: null as GroupKeywordService | null,
+    activeAntiRecall: null as AntiRecallService | null,
+    accountMonitor: null as AccountMonitorService | null,
+    vipBadge: null as VipBadgeService | null,
+    dbHealthCheckSeq: 0,
+    annualIndexWarmup: null as ReturnType<typeof setTimeout> | null,
+    annualIndexController: null as AbortController | null,
+    accountOneBot: undefined as
+      | {
+          session: AccountSession;
+          pending: Promise<unknown>;
+          configured: boolean;
+          observer?: { sessionId: number; handle: DbWatchHandle };
+        }
+      | undefined,
+    stopFullModeSettings: undefined as (() => void) | undefined,
+  };
+});
 const accountCacheRoots = new WeakMap<object, string>();
-const pendingAccountClosures = new Set<Promise<unknown>>();
-let bootstrapCacheRoot: string | undefined;
-/**
- * 启动期签名器预热：`SignerWarmupResult` 或 `null`（失败 / 没有 wrapper）。
- *
- * 只给诊断接口读状态；发包路径不依赖它 —— 那边从 `signer_cache` 的内存提示
- * 取 RVA，预热没跑完时退回 native 自己的扫描。
- */
-let signerWarmup: Promise<SignerWarmupResult | null> | undefined;
 function warmupSelectedSigner(
   platform: Platform,
   uin?: string,
@@ -346,7 +379,7 @@ export function accountRuntimeCacheRoot(ctx: AppContext): string | undefined {
 }
 
 export function bootstrapRuntimeCacheRoot(): string | undefined {
-  return bootstrapCacheRoot;
+  return runtimeState().bootstrapCacheRoot;
 }
 
 /**
@@ -359,32 +392,10 @@ export function emitDressChanged(): void {
   accountEventBus.emit('dressChanged', { at: Date.now() });
 }
 
-/**
- * Process-wide uin→uid registry. On linux the on-disk account directory is
- * `nt_qq_<md5(md5(uid)+"nt_kernel")>`, so path resolution needs the string uid
- * for a given uin. A freshly-added account's uid isn't in the saved config yet
- * when `openAccount` first probes its db path, so the router seeds it here via
- * `rememberAccountUid` before the lookup. The linux platform's uid resolver
- * checks this map first, then falls back to the persisted account configs.
- */
-const uidRegistry = new Map<string, string>();
-
 /** Seed the uin→uid map (called from the openAccount flow). No-op off linux. */
 export function rememberAccountUid(uin: string, uid: string): void {
-  if (uin && uid) uidRegistry.set(uin, uid);
+  if (uin && uid) runtimeState().uidRegistry.set(uin, uid);
 }
-
-/** One polling loop for the whole process; we (un)mount the active db on it. */
-const dbWatch = new DbWatchService();
-const liveMessageObservers = createLiveMessageObservers(dbWatch);
-/** Handle for the currently-watched account db, if any. */
-let dbWatchHandle: DbWatchHandle | null = null;
-let releaseUnreadWatch: (() => void) | undefined;
-let groupInfoWatchHandle: DbWatchHandle | null = null;
-let contactNoticeWatchHandles: DbWatchHandle[] = [];
-let dbChangeNotification: ReturnType<typeof createDbChangeNotification<DbChange>> | null = null;
-/** SSE 消息推送服务（随账号开关），null = 未启用 / 无账号。 */
-let ssePush: SsePushService | null = null;
 
 /**
  * SSE 推送是否真的在推送（有账号 + 已挂上推送目标）。
@@ -393,12 +404,10 @@ let ssePush: SsePushService | null = null;
  * 服务实例判断。配置里选了目标但账号没开时不算运行中。
  */
 export function isSsePushActive(): boolean {
-  return ssePush?.hasTarget ?? false;
+  return runtimeState().ssePush?.hasTarget ?? false;
 }
-/** 群关键词提醒匹配器（随账号打开常驻），null = 无账号。 */
-let groupKeyword: GroupKeywordService | null = null;
 export function matchLiveGroupKeyword(message: Parameters<GroupKeywordService['matchMessage']>[0]) {
-  return groupKeyword?.matchMessage(message) ?? null;
+  return runtimeState().groupKeyword?.matchMessage(message) ?? null;
 }
 /**
  * 群关键词命中的「通知」实现（Electron 系统通知 + 写 2006 高亮）。由 app 层注入
@@ -488,8 +497,6 @@ export function setMailNotifier(
 ): void {
   mailNotifier = notifier;
 }
-/** 当前账号的防撤回 service（仅为了在切换/关闭账号时停掉它的撤回监听）。 */
-let activeAntiRecall: AntiRecallService | null = null;
 
 /** 意图感知本地模型下载进度（bridge 的 BundleProgress，结构化复述保持 electron-free）。 */
 export interface IntentSenseModelProgress {
@@ -528,12 +535,14 @@ let intentSenseLocalEngine: IntentSenseLocalEngineControl | null = null;
 export function setIntentSenseLocalEngine(engine: IntentSenseLocalEngineControl | null): void {
   intentSenseLocalEngine = engine;
   if (engine)
-    void cached?.bootstrap?.enhancements.packs.reconcileExisting().catch((error: unknown) =>
-      getLogger().warn('enhancement local validation failed', {
-        event: 'enhancement-local-check-failed',
-        error: String(error),
-      }),
-    );
+    void runtimeState()
+      .cached?.bootstrap?.enhancements.packs.reconcileExisting()
+      .catch((error: unknown) =>
+        getLogger().warn('enhancement local validation failed', {
+          event: 'enhancement-local-check-failed',
+          error: String(error),
+        }),
+      );
 }
 
 /** 当前注入的本地引擎控制面（未注入时返回 null）。 */
@@ -553,46 +562,32 @@ export function setRecallNotifier(notifier: typeof recallNotifier): void {
 
 /** Stop the active account's recall monitor (account switch / close). */
 function unmountAntiRecallMonitor(): void {
-  activeAntiRecall?.stopMonitor();
-  activeAntiRecall = null;
+  runtimeState().activeAntiRecall?.stopMonitor();
+  runtimeState().activeAntiRecall = null;
 }
-/** Background login/pid/rkey monitor for the open account, if any. */
-let accountMonitor: AccountMonitorService | null = null;
-/** 顶栏会员徽标的刷新器（账号级，跟着会话起落）。 */
-let vipBadge: VipBadgeService | null = null;
 
 /**
  * 停掉会员徽标刷新并清空引用。三条换账号/关账号路径都要先调它 —— 晚到的
  * 会员响应不能再写进已经换掉的那个账号。
  */
 function stopVipBadge(): void {
-  vipBadge?.stop();
-  vipBadge = null;
+  runtimeState().vipBadge?.stop();
+  runtimeState().vipBadge = null;
 }
-let dbHealthCheckSeq = 0;
 const dbHealthChecks = new WeakMap<AccountSession, Map<string, { finishedAt?: number }>>();
 const reportedDbDamage = new Map<string, string>();
 
 function dbDamageKey(uin: string, configId: string | undefined, dbPath: string): string {
   return JSON.stringify([uin, configId, resolve(dbPath)]);
 }
-/**
- * 年度报告索引的一次性预热句柄（每次开账号重置）。
- *
- * 建索引本身是一次短 DDL，但**新**建时要全表扫一遍写 B-tree —— 那段时间会占住
- * `nt_msg.db` 的连接（native 对同一个库的查询是串行化的），把用户此刻的聊天页
- * 查询排到后面。所以这里刻意**延迟一小段**再动手：等打开账号后的首屏查询都跑完，
- * 再在后台把索引补上。已经建好的库上这个调用是 ~9ms 的 no-op。
- */
-let annualIndexWarmup: ReturnType<typeof setTimeout> | null = null;
-let annualIndexController: AbortController | null = null;
 /** 延迟多久开始建索引 —— 避开开账号瞬间那一批首屏查询。 */
 const ANNUAL_INDEX_WARMUP_DELAY_MS = 3000;
 function cancelAnnualReportWarmup(): void {
-  if (annualIndexWarmup) clearTimeout(annualIndexWarmup);
-  annualIndexWarmup = null;
-  annualIndexController?.abort();
-  annualIndexController = null;
+  const state = runtimeState();
+  if (state.annualIndexWarmup) clearTimeout(state.annualIndexWarmup);
+  state.annualIndexWarmup = null;
+  state.annualIndexController?.abort();
+  state.annualIndexController = null;
 }
 
 /**
@@ -603,11 +598,12 @@ function cancelAnnualReportWarmup(): void {
  * callers / `applyRealtime`.
  */
 function mountDbWatch(session: AccountSession): void {
-  if (dbWatchHandle) return;
+  const state = runtimeState();
+  if (runtimeState().dbWatchHandle) return;
   const isCurrent = () => getAppContext().account === session;
   let groupRoleNotices: Set<string> | undefined;
   getAppContext().services?.interactionBadges.requestScan();
-  contactNoticeWatchHandles = [
+  runtimeState().contactNoticeWatchHandles = [
     {
       kind: 'friend' as const,
       dbPath: session.profileInfo.dbPath,
@@ -648,12 +644,12 @@ function mountDbWatch(session: AccountSession): void {
       },
     },
   ].map((source) =>
-    mountContactNoticeWatch(dbWatch, source, isCurrent, (kind) => {
+    mountContactNoticeWatch(state.dbWatch, source, isCurrent, (kind) => {
       dbEventBus.emit('contact-notices-changed', { session, kind });
     }),
   );
-  groupInfoWatchHandle = mountGroupInfoWatch(
-    dbWatch,
+  state.groupInfoWatchHandle = mountGroupInfoWatch(
+    state.dbWatch,
     session.groupMembers.dbPath,
     () => getAppContext().account === session,
     (change) => dbEventBus.emit('group-info-changed', change),
@@ -663,11 +659,11 @@ function mountDbWatch(session: AccountSession): void {
     if (getAppContext().account !== session) return;
     dbEventBus.emit('changed', { at: file.at } satisfies MessageDbNotice);
   });
-  dbChangeNotification = notification;
+  state.dbChangeNotification = notification;
   const hasRecentPush = () =>
     getAppContext().account === session &&
     getAppContext().services?.qqClientSync?.hasRecentLiveMessages() === true;
-  const usesSharedRead = () => hasRecentPush() && liveMessageObservers.hasConsumer(session);
+  const usesSharedRead = () => hasRecentPush() && state.liveMessageObservers.hasConsumer(session);
   const deferredChanges = new WeakSet<DbChange>();
   const reconcile = coalesceLiveDbWatch(
     {
@@ -757,7 +753,7 @@ function mountDbWatch(session: AccountSession): void {
         } satisfies MessageDbNotice);
     },
   });
-  dbWatchHandle = dbWatch.mount(
+  state.dbWatchHandle = state.dbWatch.mount(
     coalesceLiveDbWatch(
       {
         ...messageWatch,
@@ -766,24 +762,24 @@ function mountDbWatch(session: AccountSession): void {
           messageWatch.dispose?.();
         },
       },
-      () => hasRecentPush() && !liveMessageObservers.hasConsumer(session),
+      () => hasRecentPush() && !state.liveMessageObservers.hasConsumer(session),
     ),
   );
-  releaseUnreadWatch = getAppContext().services?.unreadInfo.attachMessageFileWatch();
+  state.releaseUnreadWatch = getAppContext().services?.unreadInfo.attachMessageFileWatch();
 }
 
 /** Stop watching the current account db, if any. */
 function unmountDbWatch(): void {
-  for (const handle of contactNoticeWatchHandles) handle.unmount();
-  contactNoticeWatchHandles = [];
-  groupInfoWatchHandle?.unmount();
-  groupInfoWatchHandle = null;
-  dbChangeNotification?.dispose();
-  dbChangeNotification = null;
-  dbWatchHandle?.unmount();
-  dbWatchHandle = null;
-  releaseUnreadWatch?.();
-  releaseUnreadWatch = undefined;
+  for (const handle of runtimeState().contactNoticeWatchHandles) handle.unmount();
+  runtimeState().contactNoticeWatchHandles = [];
+  runtimeState().groupInfoWatchHandle?.unmount();
+  runtimeState().groupInfoWatchHandle = null;
+  runtimeState().dbChangeNotification?.dispose();
+  runtimeState().dbChangeNotification = null;
+  runtimeState().dbWatchHandle?.unmount();
+  runtimeState().dbWatchHandle = null;
+  runtimeState().releaseUnreadWatch?.();
+  runtimeState().releaseUnreadWatch = undefined;
 }
 
 /**
@@ -793,9 +789,10 @@ function unmountDbWatch(): void {
  * open, including when SSE push is off.
  */
 function mountGroupKeyword(session: AccountSession, rules: GroupKeywordRules): void {
-  if (!groupKeyword) {
-    groupKeyword = new GroupKeywordService(session, {
-      watch: liveMessageObservers.consumer(session),
+  const state = runtimeState();
+  if (!state.groupKeyword) {
+    state.groupKeyword = new GroupKeywordService(session, {
+      watch: state.liveMessageObservers.consumer(session),
       onHit: async (hit) => {
         const { services, account, platform } = getAppContext();
         if (account !== session || !services || !platform) return;
@@ -824,15 +821,15 @@ function mountGroupKeyword(session: AccountSession, rules: GroupKeywordRules): v
         return groupKeywordNotifier?.(hit, copy);
       },
     });
-    groupKeyword.start();
+    state.groupKeyword.start();
   }
-  groupKeyword.setRules(rules);
+  state.groupKeyword.setRules(rules);
 }
 
 /** Drop the group-keyword matcher. */
 function unmountGroupKeyword(): void {
-  groupKeyword?.stop();
-  groupKeyword = null;
+  runtimeState().groupKeyword?.stop();
+  runtimeState().groupKeyword = null;
 }
 
 /** 导出消息源的无损读取策略；跳过区间与表的决策在任务内追加。 */
@@ -923,10 +920,10 @@ export function closeSalvageConnections(ctx: AppContext): number {
 function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platform: Platform): void {
   cancelAnnualReportWarmup();
   const controller = new AbortController();
-  annualIndexController = controller;
+  runtimeState().annualIndexController = controller;
   const logger = getLogger().child({ scope: 'database-index' });
-  annualIndexWarmup = setTimeout(() => {
-    annualIndexWarmup = null;
+  runtimeState().annualIndexWarmup = setTimeout(() => {
+    runtimeState().annualIndexWarmup = null;
     // 期间切过账号 / 关过账号就放弃：索引属于刚打开的那个会话。
     if (ctx.account !== session) return;
     void (async () => {
@@ -971,32 +968,11 @@ function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platfor
         });
       })
       .finally(() => {
-        if (annualIndexController === controller) annualIndexController = null;
+        if (runtimeState().annualIndexController === controller)
+          runtimeState().annualIndexController = null;
       });
   }, ANNUAL_INDEX_WARMUP_DELAY_MS);
 }
-
-/**
- * Run the full per-account database health check **on demand** — triggered when
- * a live query rejected with an error that strongly looks like database
- * corruption (see `isLikelyCorruptionError` in `@weq/db`). It is deliberately
- * NOT run at account-open: a healthy database should never pay for the scan.
- *
- * Non-reentrant: only one check runs at a time. When it comes back clean the
- * gate reopens, so a later suspicion can re-verify (the trigger was a false
- * alarm / transient). A CONFIRMED corruption writes a damage report to the log
- * dir and publishes a notification — the account session is deliberately KEPT
- * open so the user can continue browsing.
- */
-
-let accountOneBot:
-  | {
-      session: AccountSession;
-      pending: Promise<unknown>;
-      configured: boolean;
-      observer?: { sessionId: number; handle: DbWatchHandle };
-    }
-  | undefined;
 const closingOneBotAccounts = new WeakSet<AccountSession>();
 const closingOneBotDaemons = new Map<string, Promise<void>>();
 
@@ -1006,8 +982,8 @@ async function shutdownAccountOneBot(ctx: AppContext): Promise<void> {
   if (!session) return;
   const uin = String(session.context.uin);
   closingOneBotAccounts.add(session);
-  const binding = accountOneBot;
-  accountOneBot = undefined;
+  const binding = runtimeState().accountOneBot;
+  runtimeState().accountOneBot = undefined;
   binding?.observer?.handle.unmount();
   const pending = closingOneBotDaemons.get(uin);
   if (pending) return pending;
@@ -1028,6 +1004,7 @@ export async function syncAccountOneBot(
   session: AccountSession,
   saved?: ControlOneBotConfig,
 ) {
+  const state = runtimeState();
   if (
     ctx.account !== session ||
     closingOneBotAccounts.has(session) ||
@@ -1036,14 +1013,14 @@ export async function syncAccountOneBot(
     !ctx.platform
   )
     return;
-  if (accountOneBot && accountOneBot.session !== session) return;
+  if (state.accountOneBot && state.accountOneBot.session !== session) return;
   const { accountConfig, profile } = ctx.services;
   const platform = ctx.platform;
   const uin = String(session.context.uin);
-  accountOneBot ??= { session, configured: false, pending: Promise.resolve() };
-  const binding = accountOneBot;
+  state.accountOneBot ??= { session, configured: false, pending: Promise.resolve() };
+  const binding = state.accountOneBot;
   const previousShutdown = closingOneBotDaemons.get(uin);
-  const current = () => ctx.account === session && accountOneBot === binding;
+  const current = () => ctx.account === session && state.accountOneBot === binding;
   const stopObservation = () => {
     binding.observer?.handle.unmount();
     binding.observer = undefined;
@@ -1131,7 +1108,7 @@ export async function syncAccountOneBot(
       binding.observer = {
         sessionId,
         handle: watchObservedMessages(
-          liveMessageObservers.consumer(session),
+          state.liveMessageObservers.consumer(session),
           session,
           canPublish,
           async (uid) => (await profile.getProfile(uid))?.nick,
@@ -1155,10 +1132,10 @@ function startAccountOneBot(ctx: AppContext, session: AccountSession): void {
 }
 
 export function clearVerifiedDbDamage(snapshot: DatabaseMaintenanceStatus): void {
-  const account = cached?.account;
+  const account = runtimeState().cached?.account;
   const active =
     account?.context.uin === snapshot.uin &&
-    cached?.services?.accountConfig.getRecord()?.configId === snapshot.configId
+    runtimeState().cached?.services?.accountConfig.getRecord()?.configId === snapshot.configId
       ? account
       : undefined;
   for (const scan of verifiedDatabaseScans(snapshot)) {
@@ -1187,12 +1164,14 @@ function startDbHealthCheck(
   const check: { finishedAt?: number } = {};
   checks.set(dbPath, check);
   const pending = checks;
-  const seq = dbHealthCheckSeq;
+  const seq = runtimeState().dbHealthCheckSeq;
   const uin = session.context.uin;
   const key = dbDamageKey(uin, configId, dbPath);
   const logger = getLogger().child({ scope: 'db-health', accountUin: uin, dbPath });
   const current = () =>
-    seq === dbHealthCheckSeq && ctx.account === session && pending.get(dbPath) === check;
+    seq === runtimeState().dbHealthCheckSeq &&
+    ctx.account === session &&
+    pending.get(dbPath) === check;
   void (async () => {
     await delay(1_000);
     if (!current() || databaseUnderMaintenance(dbPath)) return;
@@ -1564,9 +1543,6 @@ export interface AppContext {
   transcribeSilk(silkPath: string): Promise<TranscribeSilkResult>;
 }
 
-let cached: AppContext | undefined;
-let stopFullModeSettings: (() => void) | undefined;
-
 function unavailableContext(nativeError: NativeInitError | null, reason: string): AppContext {
   return {
     platform: null,
@@ -1626,7 +1602,8 @@ function unavailableContext(nativeError: NativeInitError | null, reason: string)
 }
 
 export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext {
-  if (cached) return cached;
+  const state = runtimeState();
+  if (state.cached) return state.cached;
   const files = initBackupContext(fileRoot);
   if (!files.ok) {
     getLogger().error('应用数据初始化失败', {
@@ -1634,24 +1611,32 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       event: 'startup-data-failed',
       errorMessage: files.error,
     });
-    cached = unavailableContext(null, files.error);
-    return cached;
+    state.cached = unavailableContext(null, files.error);
+    return state.cached;
   }
   configureNativeDressResources();
+  const nativeStartedAt = performance.now();
   const result = loadNativeSafe();
+  const durationMs = Math.round(performance.now() - nativeStartedAt);
   if (!result.ok) {
+    updateRuntimeDiagnostics('ntHelper', {
+      state: result.kind,
+      build: result.status === null ? null : readNativeBuildInfo(),
+    });
     getLogger().error('原生助手加载失败', {
       scope: 'startup',
       event: 'native-load-failed',
       kind: result.kind,
       status: result.status,
+      durationMs,
+      ...logErrorContext(result.error),
       errorMessage: result.message,
     });
-    cached = unavailableContext(
+    state.cached = unavailableContext(
       { kind: result.kind, status: result.status, message: result.message },
       result.message,
     );
-    return cached;
+    return state.cached;
   }
 
   // The user-picked Tencent Files override lives in config.json
@@ -1666,22 +1651,24 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
   // we fall back to the saved account configs. Late-bound like the override
   // reader above because `userConfig` is constructed after `platform`.
   let readUidFromConfig: (uin: string) => string | null = () => null;
-  const resolveUid = (uin: string): string | null => uidRegistry.get(uin) ?? readUidFromConfig(uin);
+  const resolveUid = (uin: string): string | null =>
+    state.uidRegistry.get(uin) ?? readUidFromConfig(uin);
 
   // SQLite 的保留页现在是按文件（per-Pager）设置的，同一个进程可以同时打开
   // QQ 库、标准库和解密产物，不再需要拆子进程。
   const bundle = result.bundle;
-  let nativeBuild: unknown = 'unknown';
+  let nativeBuild: NativeBuildInfo | null = null;
   try {
-    nativeBuild = bundle.ntHelper.getBuildInfo?.() ?? 'unknown';
+    nativeBuild = bundle.ntHelper.getBuildInfo?.() ?? null;
   } catch {
     /* 旧助手不一定提供构建信息。 */
   }
+  updateRuntimeDiagnostics('ntHelper', { state: 'ready', build: nativeBuild });
   getLogger().info('原生助手已就绪', {
     scope: 'startup',
     event: 'native-ready',
-    nativeVersion: 'unknown',
     nativeBuild,
+    durationMs,
   });
 
   const nativePlatform =
@@ -1692,7 +1679,6 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         : createWin32Platform(bundle, () => readDataRootOverride(), getQqProtocolExe);
   const platform: Platform = { ...nativePlatform, appDataRoot: () => files.root };
   const qqSyncRoot = hostRoot ?? files.root;
-  initLogger(platform.appDataRoot());
   const logger = getLogger().child({ scope: 'app-context' });
   logger.info('initializing app context', {
     event: 'init-app-context',
@@ -1700,10 +1686,17 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     logDir: getLogDir(),
   });
   const userConfig = files.config;
-  if (isQqSyncProxyEnabled(qqSyncRoot))
-    void ensureQqSyncProxy(qqSyncRoot).catch((error) =>
-      getLogger().warn('QQ 同步代理启动失败', { error: String(error) }),
-    );
+  if (isQqSyncProxyEnabled(qqSyncRoot)) {
+    void logRequest('qq-sync', 'qqSync.startProxy', 'operation', async () => {
+      try {
+        await ensureQqSyncProxy(qqSyncRoot);
+      } finally {
+        await qqSyncStatus(qqSyncRoot);
+      }
+    }).catch(() => undefined);
+  } else {
+    void qqSyncStatus(qqSyncRoot);
+  }
   // 词云 / 常用语的分词优先用 QQ 自带结巴词典，读不到时用随包的
   // resources/jieba（进程级单例）。账号无关、非关键路径，fire-and-forget 即可。
   void warmJiebaDict([platform.jiebaDictDir(), resolveResource('jieba')]);
@@ -1748,15 +1741,17 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     }
   }
 
-  // 日志保留清理：启动时先按用户设置的保留天数清一轮旧日志，之后每 6 小时兜底一次
-  // （常驻托盘的应用可能几周不重启，而日志是按天切文件的）。0 = 永久保留。
   // 定时器是 unref 的，不阻止进程退出，因此这里不需要持有 stop 句柄。
-  startLogRetention(() => userConfig.getSetting('logRetentionDays'));
+  if (currentAccountRuntime() === primaryAccountRuntime)
+    startLogRetention(() => ({
+      logRetentionDays: userConfig.getSetting('logRetentionDays'),
+      logCapacityMiB: userConfig.getSetting('logCapacityMiB'),
+    }));
 
   // macOS 启动时跳过未知目标的预热，待 QQ 在线能力确认运行中 QQ 后再加载同一份模块。
   // 否则先载安装旧版、再载热更新版，会重复注册 Objective-C 类并刷满原生警告。
   if (platform.kind === 'darwin') primeSignerHints(platform.appDataRoot());
-  signerWarmup = warmupSelectedSigner(platform);
+  state.signerWarmup = warmupSelectedSigner(platform);
 
   // Reading a running QQ's memory needs a ptrace attach: on linux AND macOS that
   // is gated (linux: yama ptrace_scope / root + CAP_SYS_PTRACE; macOS: root and
@@ -1771,7 +1766,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       : createDirectAttachHook(platform.native.ntHelper, tryLongTermAttach);
 
   const linkPreview = new LinkPreviewService(userConfig);
-  bootstrapCacheRoot = userConfig.cacheBaseDir();
+  state.bootstrapCacheRoot = userConfig.cacheBaseDir();
   const apiUsage = new TokenUsageStore(
     join(userConfig.cacheDir('api_usage'), 'global.json'),
     hostRoot !== undefined,
@@ -1813,7 +1808,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
   // change between 进入 and 使用 is honoured). Factored here to avoid duplication.
   const transcribeSilk = async (silkPath: string): Promise<TranscribeSilkResult> => {
     const modelId = userConfig.getLocalModelId('voice');
-    if (!modelId) return { ok: false, error: '请先到「设置 → 增强功能 → 增强包」准备本地语音转写' };
+    if (!modelId) return { ok: false, error: '请先到「设置 → 能力 → 增强包」准备本地语音转写' };
     const model = getVoiceModel(modelId);
     if (!model) return { ok: false, error: '转录模型不存在' };
     const status = bootstrap.voiceTranscribe.getModelStatus(modelId);
@@ -1903,9 +1898,9 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         accountUin: accountCtx.uin,
         dataDir: metadata.dataDir ?? null,
       });
-      dbHealthCheckSeq += 1;
-      accountMonitor?.stop();
-      accountMonitor = null;
+      state.dbHealthCheckSeq += 1;
+      state.accountMonitor?.stop();
+      state.accountMonitor = null;
       stopVipBadge();
       await shutdownAccountOneBot(this);
       void stopMcpServer();
@@ -1926,8 +1921,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       await this.services?.contactDirectory?.dispose();
       this.account?.dispose();
       unmountDbWatch();
-      ssePush?.stop();
-      ssePush = null;
+      state.ssePush?.stop();
+      state.ssePush = null;
       unmountGroupKeyword();
       unmountAntiRecallMonitor();
       // 日常查询出现疑似损坏时才复查该库，忽略打开期间和已结束会话的回调。
@@ -1967,6 +1962,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       // Online account: resources resolve against the local install as always.
       this.resourcePlatform = platform;
       this.accountIsStatic = false;
+      updateRuntimeDiagnostics('dataSource', 'local-qq');
       this.accountIsAndroidBackup = false;
       const accountConfig = new AccountConfigService(session, platform.appDataRoot(), userConfig);
       // Per-account export cache: tasks + outputs must NOT leak across accounts.
@@ -2109,7 +2105,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             userConfig.cacheDir(join('anti_recall', exportConfigId)),
             'retained.db',
           ),
-          messageWatch: liveMessageObservers.consumer(
+          messageWatch: state.liveMessageObservers.consumer(
             session,
             () => antiRecall.protection().enabled,
           ),
@@ -2136,7 +2132,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         },
       );
       // 打开账号就挂上撤回记录监听（拦到新撤回时按会话开关弹系统通知）。
-      activeAntiRecall = antiRecall;
+      state.activeAntiRecall = antiRecall;
       antiRecall.startMonitor();
       // 商城表情：一个实例同时供 `emoji` 服务字段与 exportManager 的 marketpack
       // 解密下载依赖复用（避免两处各建一个、密钥/详情缓存不共享）。
@@ -2223,7 +2219,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         allowLiveMessage: (row) => !deletedMsgs.isHiddenCached(row),
         onLiveMessages: (messages) => {
           if (this.account !== session) return;
-          groupKeyword?.observeLiveText(messages);
+          state.groupKeyword?.observeLiveText(messages);
           const byConversation = new Map<string, GapFetchedMessage[]>();
           for (const row of messages) {
             const key = `${row.kind}:${row.conv}`;
@@ -2251,7 +2247,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
               observedAt: Date.now(),
               messages: messages.map((row) => ({
                 row,
-                groupKeyword: groupKeyword?.matchObservedLiveText(row),
+                groupKeyword: state.groupKeyword?.matchObservedLiveText(row),
               })),
             } satisfies LiveMessageNoticeBatch);
           }
@@ -2271,7 +2267,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
           if (this.account === session) {
             this.services?.unreadInfo.clearProxyReads();
             this.services?.interactionBadges.clearProxyConversations();
-            groupKeyword?.clearProxyMatches();
+            state.groupKeyword?.clearProxyMatches();
           }
         },
         current: () => {
@@ -2288,6 +2284,28 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         },
       });
       setProxyMessageReadSharing(session, () => qqClientSync.isLiveEnabled());
+      const unifiedSearch = new UnifiedSearchService(session, {
+        searchContent: (category, keyword, limit, offset) =>
+          searchAccountContent(
+            contentSearch,
+            guildDirect,
+            category,
+            keyword,
+            limit,
+            offset,
+            String(session.context.uin),
+          ),
+        searchCollections: (keyword, limit, offset) =>
+          collectionSvc.searchLocal(keyword, limit, offset),
+        generatedSources: () => generatedSources,
+        // 只读复用 QQ 搜索库；校验与交互查询在独立 worker 中运行。
+        dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
+        nt: platform.native.ntHelper,
+        sourceSearchQuery: createSourceSearchQuery(),
+        retireSearchIndex: createSearchIndexRetirement(
+          userConfig.cacheDir(join('search-index', exportConfigId)),
+        ),
+      });
       this.services = {
         qqClientSync,
         proxyReactions,
@@ -2397,29 +2415,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
           resolvePid: resolveOnlinePid,
         }),
         profile,
-        msgSearch: new MsgSearchService(session),
-        unifiedSearch: new UnifiedSearchService(session, {
-          searchContent: (category, keyword, limit, offset) =>
-            searchAccountContent(
-              contentSearch,
-              guildDirect,
-              category,
-              keyword,
-              limit,
-              offset,
-              String(session.context.uin),
-            ),
-          searchCollections: (keyword, limit, offset) =>
-            collectionSvc.searchLocal(keyword, limit, offset),
-          generatedSources: () => generatedSources,
-          // 只读复用 QQ 搜索库；校验与交互查询在独立 worker 中运行。
-          dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
-          nt: platform.native.ntHelper,
-          sourceSearchQuery: createSourceSearchQuery(),
-          retireSearchIndex: createSearchIndexRetirement(
-            userConfig.cacheDir(join('search-index', exportConfigId)),
-          ),
-        }),
+        msgSearch: new MsgSearchService(session, unifiedSearch),
+        unifiedSearch,
         onlineStatus: new OnlineStatusService(
           session,
           { nt: platform.native.ntHelper, resolvePid: resolveOnlinePid },
@@ -2826,24 +2823,22 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             } satisfies RoamingCacheChange);
           },
           () => accountConfig.getRecord()?.homeDress?.fontId,
-          () => {
-            const font = userConfig.getSetting('composerFont');
-            return font.send && font.choice === 'qq';
-          },
+          () => userConfig.getSetting('defaultMessageFont') === 'account',
           () => accountConfig.getRecord()?.homeDress?.bubbleId,
           mediaDownload,
           (groupId, uploadFile) => groupInfo.assertCanSend(groupId, uploadFile),
           () => {
             const { choice } = userConfig.getSetting('composerFont');
-            return typeof choice === 'number' ? choice : dressInstall.read().activeFont;
+            const dress = userConfig.getSharedPreference('dress');
+            const itemId = typeof choice === 'number' ? choice : dress.activeFont;
+            return itemId !== undefined && dress.installedFonts?.includes(itemId)
+              ? itemId
+              : undefined;
           },
           () => {
-            const font = userConfig.getSetting('composerFont');
             return (
               developmentDressToolsEnabled() &&
-              font.send &&
-              font.choice !== 'qq' &&
-              font.choice !== 'plain'
+              userConfig.getSetting('composerFont').choice !== 'default'
             );
           },
           () => emojiService.listSystemFaces(),
@@ -2891,7 +2886,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         this.services,
         session,
         userConfig.cacheDir(join('contacts', exportConfigId, session.context.uin)),
-        dbWatch,
+        state.dbWatch,
         () => fullModeAllowed(this, session) && Boolean(accountConfig.getRecord()?.qqOnline),
         () => this.account === session,
         exportConfigId,
@@ -2932,7 +2927,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
 
       // 后台登录/pid 监视器实时检查本来源有效运行态，包含自动策略和显式手动请求；
       // 凭据采集在下次轮询生效，不用重新打开账号，也不能复用已失活的会话。
-      accountMonitor = new AccountMonitorService(
+      state.accountMonitor = new AccountMonitorService(
         session,
         platform,
         accountConfig,
@@ -2946,7 +2941,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         },
         () => {
           if (platform.kind === 'darwin') {
-            signerWarmup = warmupSelectedSigner(
+            state.signerWarmup = warmupSelectedSigner(
               platform,
               session.context.uin,
               () => this.account === session && fullModeAllowed(this, session),
@@ -2957,12 +2952,12 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
           startAccountOneBot(this, session);
         },
       );
-      accountMonitor.start();
+      state.accountMonitor.start();
 
       // 顶栏会员徽标：登录 seed 的 vip p_skey 立刻试一次；之后 AccountMonitor
       // 每次登记好 SSO 会话都会发 `onlineCredentialsReady`（QQ 后上线 / 重启换
       // pid），由这里再换活票刷新。
-      vipBadge = new VipBadgeService(
+      state.vipBadge = new VipBadgeService(
         String(session.context.uin),
         platform.native.ntHelper,
         accountConfig,
@@ -2973,10 +2968,11 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         () => accountEventBus.emit('vipChanged', { at: Date.now() }),
         () => fullModeAllowed(this, session),
       );
-      vipBadge.start();
+      state.vipBadge.start();
 
       logger.info('opened account session', {
         event: 'open-account-success',
+        dataSource: 'local-qq',
         durationMs: Math.round(performance.now() - openedAt),
         accountUin: session.context.uin,
         dataDir: metadata.dataDir ?? null,
@@ -3068,9 +3064,9 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         accountUin: selfPreview.uin,
         dirPath,
       });
-      dbHealthCheckSeq += 1;
-      accountMonitor?.stop();
-      accountMonitor = null;
+      state.dbHealthCheckSeq += 1;
+      state.accountMonitor?.stop();
+      state.accountMonitor = null;
       stopVipBadge();
       await shutdownAccountOneBot(this);
       void stopMcpServer();
@@ -3091,8 +3087,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       await this.services?.contactDirectory?.dispose();
       this.account?.dispose();
       unmountDbWatch();
-      ssePush?.stop();
-      ssePush = null;
+      state.ssePush?.stop();
+      state.ssePush = null;
       unmountGroupKeyword();
       unmountAntiRecallMonitor();
       this.scheduler?.stop();
@@ -3140,6 +3136,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       this.resourcePlatform = staticPlatform;
       this.accountIsStatic = true;
       this.accountIsAndroidBackup = options.mobile ?? false;
+      const dataSource = this.accountIsAndroidBackup ? 'mobile-backup' : 'desktop-backup';
+      updateRuntimeDiagnostics('dataSource', dataSource);
 
       // A same-account QQ may be running even though our databases came from
       // elsewhere. The monitor (started at the end) records its pid, so this
@@ -3306,6 +3304,28 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       );
       let generatedSources: GeneratedSearchSources | undefined;
       await dressInstall.prepareMessageRendering();
+      const unifiedSearch = new UnifiedSearchService(session, {
+        searchContent: (category, keyword, limit, offset) =>
+          searchAccountContent(
+            contentSearch,
+            guildDirect,
+            category,
+            keyword,
+            limit,
+            offset,
+            String(session.context.uin),
+          ),
+        searchCollections: (keyword, limit, offset) =>
+          collectionSvc.searchLocal(keyword, limit, offset),
+        generatedSources: () => generatedSources,
+        // 只读复用 QQ 搜索库；校验与交互查询在独立 worker 中运行。
+        dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
+        nt: platform.native.ntHelper,
+        sourceSearchQuery: createSourceSearchQuery(),
+        retireSearchIndex: createSearchIndexRetirement(
+          userConfig.cacheDir(join('search-index', exportConfigId)),
+        ),
+      });
       this.services = {
         msgs,
         roamingBackfill,
@@ -3369,29 +3389,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
           resolvePid: livePid,
         }),
         profile,
-        msgSearch: new MsgSearchService(session),
-        unifiedSearch: new UnifiedSearchService(session, {
-          searchContent: (category, keyword, limit, offset) =>
-            searchAccountContent(
-              contentSearch,
-              guildDirect,
-              category,
-              keyword,
-              limit,
-              offset,
-              String(session.context.uin),
-            ),
-          searchCollections: (keyword, limit, offset) =>
-            collectionSvc.searchLocal(keyword, limit, offset),
-          generatedSources: () => generatedSources,
-          // 只读复用 QQ 搜索库；校验与交互查询在独立 worker 中运行。
-          dataDir: userConfig.cacheDir(join('search-index', exportConfigId)),
-          nt: platform.native.ntHelper,
-          sourceSearchQuery: createSourceSearchQuery(),
-          retireSearchIndex: createSearchIndexRetirement(
-            userConfig.cacheDir(join('search-index', exportConfigId)),
-          ),
-        }),
+        msgSearch: new MsgSearchService(session, unifiedSearch),
+        unifiedSearch,
         onlineStatus: new OnlineStatusService(
           session,
           { nt: platform.native.ntHelper, resolvePid: livePid },
@@ -3765,24 +3764,22 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             } satisfies RoamingCacheChange);
           },
           () => accountConfig.getRecord()?.homeDress?.fontId,
-          () => {
-            const font = userConfig.getSetting('composerFont');
-            return font.send && font.choice === 'qq';
-          },
+          () => userConfig.getSetting('defaultMessageFont') === 'account',
           () => accountConfig.getRecord()?.homeDress?.bubbleId,
           mediaDownload,
           (groupId, uploadFile) => groupInfo.assertCanSend(groupId, uploadFile),
           () => {
             const { choice } = userConfig.getSetting('composerFont');
-            return typeof choice === 'number' ? choice : dressInstall.read().activeFont;
+            const dress = userConfig.getSharedPreference('dress');
+            const itemId = typeof choice === 'number' ? choice : dress.activeFont;
+            return itemId !== undefined && dress.installedFonts?.includes(itemId)
+              ? itemId
+              : undefined;
           },
           () => {
-            const font = userConfig.getSetting('composerFont');
             return (
               developmentDressToolsEnabled() &&
-              font.send &&
-              font.choice !== 'qq' &&
-              font.choice !== 'plain'
+              userConfig.getSetting('composerFont').choice !== 'default'
             );
           },
           () => emojiService.listSystemFaces(),
@@ -3830,7 +3827,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         this.services,
         session,
         userConfig.cacheDir(join('contacts', exportConfigId, session.context.uin)),
-        dbWatch,
+        state.dbWatch,
         () => fullModeAllowed(this, session) && Boolean(accountConfig.getRecord()?.qqOnline),
         () => this.account === session,
         exportConfigId,
@@ -3863,6 +3860,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       });
       logger.info('opened static account session', {
         event: 'open-static-account-success',
+        dataSource,
         durationMs: Math.round(performance.now() - openedAt),
         accountUin: session.context.uin,
         dirPath,
@@ -3880,7 +3878,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       //
       // `onHomeDress` is deliberately omitted — syncing 装扮 from the live QQ
       // would overwrite what the user picked for this imported account.
-      accountMonitor = new AccountMonitorService(
+      state.accountMonitor = new AccountMonitorService(
         session,
         platform,
         accountConfig,
@@ -3892,11 +3890,11 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
           mail.credentialsAvailable();
         },
       );
-      accountMonitor.start();
+      state.accountMonitor.start();
 
       // 会员徽标与在线账号同一套：同号 QQ 在线时走活 hook，离线时只读缓存。
       // 静态账号不写 homeDress，但会员身份属于账号本身，照常刷新。
-      vipBadge = new VipBadgeService(
+      state.vipBadge = new VipBadgeService(
         String(session.context.uin),
         platform.native.ntHelper,
         accountConfig,
@@ -3907,7 +3905,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         () => accountEventBus.emit('vipChanged', { at: Date.now() }),
         () => fullModeAllowed(this, session),
       );
-      vipBadge.start();
+      state.vipBadge.start();
 
       // 监听走和在线账号完全相同的一套：导入目录里的库照样会变（同步工具落盘、
       // 手动覆盖、WeQ 自己写入），没理由区别对待。
@@ -3944,9 +3942,10 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     },
     async clearAccount(waitForPending = false): Promise<void> {
       accountEventBus.emit('closing', this.account);
+      emitAccountClosing(this.account);
       const closedAt = performance.now();
       const closingUin = this.account?.context.uin;
-      const previousClosures = [...pendingAccountClosures];
+      const previousClosures = [...state.pendingAccountClosures];
       retireFullModeSource(this);
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
@@ -3955,9 +3954,9 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         event: 'clear-account',
         accountUin: this.account?.context.uin ?? null,
       });
-      dbHealthCheckSeq += 1;
-      accountMonitor?.stop();
-      accountMonitor = null;
+      state.dbHealthCheckSeq += 1;
+      state.accountMonitor?.stop();
+      state.accountMonitor = null;
       stopVipBadge();
       // Tear down the scheduler's wake timer before dropping the services
       // object — otherwise a late tick would call into a disposed
@@ -3974,8 +3973,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       cancelAnnualReportWarmup();
       unmountDbWatch();
       this.services?.interactionBadges.dispose();
-      ssePush?.stop();
-      ssePush = null;
+      state.ssePush?.stop();
+      state.ssePush = null;
       unmountGroupKeyword();
       unmountAntiRecallMonitor();
       const roamingClosed = this.services?.roamingBackfill.close();
@@ -3997,11 +3996,12 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       this.resourcePlatform = null;
       this.accountIsStatic = false;
       this.accountIsAndroidBackup = false;
+      updateRuntimeDiagnostics('dataSource', 'none');
       // 宽容服务跟着账号一起走：留着它会让设置页继续显示、甚至改写刚刚关掉的那个账号的
       // 配置，而下一个账号（尤其静态账号）会误用到它（见 `createDbTolerance`）。
       this.dbTolerance = null;
       accountCacheRoots.delete(this);
-      if (waitForPending) uidRegistry.clear();
+      if (waitForPending) state.uidRegistry.clear();
       const closing = Promise.allSettled([
         waitForCalendarWrites(),
         oneBotClosed,
@@ -4014,8 +4014,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         unreadClosed,
         ...previousClosures,
       ]);
-      pendingAccountClosures.add(closing);
-      void closing.then(() => pendingAccountClosures.delete(closing));
+      state.pendingAccountClosures.add(closing);
+      void closing.then(() => state.pendingAccountClosures.delete(closing));
       if (!waitForPending) closingAccount?.dispose();
       const closed = await closing;
       if (waitForPending) closingAccount?.dispose();
@@ -4047,27 +4047,27 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       const session = this.account;
       const server = config.servers.find((s) => s.id === config.enabledServerId);
       if (!session || !server) {
-        ssePush?.stop();
-        ssePush = null;
+        state.ssePush?.stop();
+        state.ssePush = null;
         return;
       }
-      if (!ssePush) {
-        ssePush = new SsePushService(
+      if (!state.ssePush) {
+        state.ssePush = new SsePushService(
           session,
           {
             debounceMs: config.debounceMs,
             massThreshold: config.massThreshold,
           },
-          liveMessageObservers.consumer(session, () => ssePush?.hasTarget === true),
+          state.liveMessageObservers.consumer(session, () => state.ssePush?.hasTarget === true),
         );
-        ssePush.start();
+        state.ssePush.start();
       } else {
-        ssePush.setTuning({
+        state.ssePush.setTuning({
           debounceMs: config.debounceMs,
           massThreshold: config.massThreshold,
         });
       }
-      ssePush.setTarget({ pushUrl: server.pushUrl, accessToken: server.accessToken });
+      state.ssePush.setTarget({ pushUrl: server.pushUrl, accessToken: server.accessToken });
       logger.info('applied sse push config', {
         event: 'apply-sse-push',
         accountUin: session.context.uin,
@@ -4223,41 +4223,43 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         event: 'refresh-rkeys-now',
         accountUin: this.account?.context.uin ?? null,
       });
-      return accountMonitor?.harvestRkeysNow() ?? Promise.resolve(false);
+      return state.accountMonitor?.harvestRkeysNow() ?? Promise.resolve(false);
     },
     onlineCredentialsPending(): boolean {
-      return accountMonitor?.credentialsPending ?? false;
+      return state.accountMonitor?.credentialsPending ?? false;
     },
     onlineCredentialsIssue(): OnlineCredentialIssue | null {
-      return accountMonitor?.credentialIssue ?? null;
+      return state.accountMonitor?.credentialIssue ?? null;
     },
     async ensureOnlineCredentials(): Promise<void> {
-      const monitor = accountMonitor;
+      const monitor = state.accountMonitor;
       const services = this.services;
       const record = services?.accountConfig.getRecord();
       if (!monitor || !record?.qqOnline || !record.qqPid)
         throw new Error('需要先登录该账号的 QQ 客户端。');
       if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用 QQ 在线能力。');
       await monitor.ensureCredentialsReady(record.qqPid);
-      if (accountMonitor !== monitor || this.services !== services)
+      if (state.accountMonitor !== monitor || this.services !== services)
         throw new Error('账号已切换，请重新读取。');
       if (!fullModeAllowed(this)) throw new Error('本次运行尚未启用 QQ 在线能力。');
     },
   };
 
   let onlineEnabled = userConfig.getSettings().autoAttachQq;
-  stopFullModeSettings = onSettingsChanged((change) => {
-    if (change && !change.fields.includes('autoAttachQq')) return;
-    const enabled = userConfig.getSettings().autoAttachQq;
-    if (onlineEnabled === enabled) return;
-    onlineEnabled = enabled;
-    if (enabled) return;
-    ctx.services?.unreadInfo.cancelReports();
-    ctx.services?.mail.suspendOnline();
-    // 取消旧凭据读取与授权等待，并继续监视 QQ 登录状态。
-    accountMonitor?.stop();
-    accountMonitor?.start();
-  });
+  state.stopFullModeSettings = onSettingsChanged(
+    currentAccountRuntime().bind((change) => {
+      if (change && !change.fields.includes('autoAttachQq')) return;
+      const enabled = userConfig.getSettings().autoAttachQq;
+      if (onlineEnabled === enabled) return;
+      onlineEnabled = enabled;
+      if (enabled) return;
+      ctx.services?.unreadInfo.cancelReports();
+      ctx.services?.mail.suspendOnline();
+      // 取消旧凭据读取与授权等待，并继续监视 QQ 登录状态。
+      state.accountMonitor?.stop();
+      state.accountMonitor?.start();
+    }),
+  );
 
   const setAccount = ctx.setAccount.bind(ctx);
   const setStaticAccount = ctx.setStaticAccount.bind(ctx);
@@ -4275,7 +4277,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     logRequest('account', 'account.close', 'operation', () =>
       withAccountInstance(null, () => clearAccount(...args), openedUin),
     );
-  cached = ctx;
+  state.cached = ctx;
+  initializedRuntimes.add(currentAccountRuntime());
   return ctx;
 }
 
@@ -4284,10 +4287,20 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
  * `initAppContext()` — which would be a startup-ordering bug.
  */
 export function getAppContext(): AppContext {
+  const { cached } = runtimeState();
   if (!cached) {
     throw new Error('AppContext not initialized — call initAppContext() in main first.');
   }
   return cached;
+}
+
+/** 对同一应用中已打开的数据源执行宿主级操作，并保留各自的账号作用域。 */
+export function visitOpenAccounts(visit: (ctx: AppContext) => void): void {
+  for (const runtime of initializedRuntimes)
+    runtime.run(() => {
+      const { cached } = runtimeState();
+      if (cached?.account) visit(cached);
+    });
 }
 
 /**
@@ -4314,17 +4327,17 @@ export function requireBootstrap(): BootstrapServices {
 /** 仅失败的文件恢复上下文可以重建，此时没有账号或后台业务服务在途。 */
 export function retryBackupRecovery(): boolean {
   const root = resetBackupContextForRecovery();
-  stopFullModeSettings?.();
-  stopFullModeSettings = undefined;
-  cached = undefined;
+  runtimeState().stopFullModeSettings?.();
+  runtimeState().stopFullModeSettings = undefined;
+  runtimeState().cached = undefined;
   initAppContext(root);
   return initBackupContext(root).ok;
 }
 
 export function blockRuntimeForBackupRecovery(reason: string): void {
-  stopFullModeSettings?.();
-  stopFullModeSettings = undefined;
-  cached = unavailableContext(null, reason);
+  runtimeState().stopFullModeSettings?.();
+  runtimeState().stopFullModeSettings = undefined;
+  runtimeState().cached = unavailableContext(null, reason);
 }
 
 /** Platform handle, asserting native loaded. */
@@ -4338,8 +4351,9 @@ export function requirePlatform(): Platform {
 
 /** 当前签名器预热的结果（还在跑时等它完成）。 */
 export async function awaitSignerWarmup(): Promise<SignerWarmupResult | null> {
-  if (!signerWarmup) return null;
-  return signerWarmup;
+  const state = runtimeState();
+  if (!state.signerWarmup) return null;
+  return state.signerWarmup;
 }
 
 /**
@@ -4348,14 +4362,27 @@ export async function awaitSignerWarmup(): Promise<SignerWarmupResult | null> {
  * 命中缓存就只 dlopen + 校验，否则完整扫描并写回缓存；macOS 只选当前账号的实载模块。
  */
 export async function rescanSigner(): Promise<SignerWarmupResult | null> {
+  const state = runtimeState();
   const platform = requirePlatform();
   const ctx = getAppContext();
   const session = ctx.account;
-  signerWarmup = warmupSelectedSigner(
+  state.signerWarmup = warmupSelectedSigner(
     platform,
     session?.context.uin,
     () => ctx.account === session,
   );
-  return signerWarmup;
+  return state.signerWarmup;
 }
 import { createAccountImagePort, withImageTaskConfiguration } from '../ai_images';
+
+/** 释放已关闭窗口的账号和该运行作用域的共享设置监听。 */
+export async function disposeAppContext(): Promise<void> {
+  const state = runtimeState();
+  state.stopFullModeSettings?.();
+  state.stopFullModeSettings = undefined;
+  try {
+    await state.cached?.clearAccount(true);
+  } finally {
+    initializedRuntimes.delete(currentAccountRuntime());
+  }
+}

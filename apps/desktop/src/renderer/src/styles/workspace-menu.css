@@ -177,6 +177,11 @@
   height: 32px;
 }
 
+.weq-workspace-controls > .weq-workspace-control[aria-pressed='true'] {
+  color: var(--weq-accent-ink, var(--weq-fg-primary));
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+}
+
 .weq-workspace-controls .weq-rail-account-avatar {
   width: 38px;
   height: 38px;
@@ -346,16 +351,6 @@
 
 .weq-schedule-settings > button {
   align-self: flex-start;
-}
-
-.weq-workspace-empty {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  padding: 20px;
-  color: var(--weq-fg-secondary);
-  font-size: 13px;
 }
 
 .weq-settings-update-mark {

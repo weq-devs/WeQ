@@ -15,16 +15,9 @@ import { client } from '../../trpc/client';
 import { Modal } from '../Dialog';
 import { NumericText } from '../NumericText';
 import { ContactInlineError } from '../contactProfile/ContactRow';
+import { GroupRosterPanel } from './GroupRosterPanel';
 
-export function GroupCardMemberList({
-  conversation,
-  ownerUid,
-  kind,
-  includedUids,
-  anchor,
-  onClose,
-  onOpenMember,
-}: {
+type MemberListProps = {
   conversation: GroupConversation;
   ownerUid?: string;
   kind: 'members' | 'friends' | 'addedFriends';
@@ -32,7 +25,78 @@ export function GroupCardMemberList({
   anchor: HTMLElement;
   onClose: () => void;
   onOpenMember?: (member: GroupMember, anchor: { x: number; y: number }) => void;
-}) {
+};
+
+export function GroupCardMemberList(props: MemberListProps) {
+  if (props.kind === 'members' && !props.conversation.generated)
+    return <GroupCardRoster {...props} />;
+  return <ScopedMemberList {...props} />;
+}
+
+function GroupCardRoster({
+  conversation,
+  ownerUid,
+  anchor,
+  onClose,
+  onOpenMember,
+}: MemberListProps) {
+  const chatShortcut = useContext(ProfileChatShortcutContext);
+  const titleId = useId();
+  useEffect(
+    () => () => {
+      if (anchor.isConnected) anchor.focus({ preventScroll: true });
+    },
+    [anchor],
+  );
+  return (
+    <Modal
+      presentation="popover"
+      anchor={anchor}
+      anchorPlacement="side"
+      labelledBy={titleId}
+      title="群成员"
+      className="weq-group-card-member-list weq-group-card-roster"
+      onClose={onClose}
+    >
+      <GroupRosterPanel
+        membersOnly
+        layout="profile"
+        memberHeadingId={titleId}
+        autoFocusSearch
+        conversation={conversation}
+        ownerUid={ownerUid}
+        onClose={onClose}
+        onOpenMember={onOpenMember}
+        getMemberChatShortcut={(member) => {
+          const shortcut = chatShortcut?.({
+            kind: 'direct',
+            user: member,
+            pokeGroupCode: conversation.group.identityValue,
+          });
+          return {
+            landscape:
+              shortcut?.landscape &&
+              (() => {
+                onClose();
+                shortcut.landscape?.();
+              }),
+            portrait: shortcut?.portrait,
+          };
+        }}
+      />
+    </Modal>
+  );
+}
+
+function ScopedMemberList({
+  conversation,
+  ownerUid,
+  kind,
+  includedUids,
+  anchor,
+  onClose,
+  onOpenMember,
+}: MemberListProps) {
   const titleId = useId();
   const chatShortcut = useContext(ProfileChatShortcutContext);
   const title =
@@ -214,6 +278,7 @@ export function GroupCardMemberList({
               disabled={!onOpenMember}
               onClick={(event) => {
                 const rect = event.currentTarget.getBoundingClientRect();
+                const anchor = { x: rect.right, y: rect.bottom, trigger: event.currentTarget };
                 const shortcut = !generated
                   ? chatShortcut?.({
                       kind: 'direct',
@@ -221,19 +286,15 @@ export function GroupCardMemberList({
                       pokeGroupCode: conversation.group.identityValue,
                     })
                   : undefined;
-                activateProfile(
-                  event,
-                  () => onOpenMember?.(member, { x: rect.right, y: rect.bottom }),
-                  {
-                    landscape:
-                      shortcut?.landscape &&
-                      (() => {
-                        onClose();
-                        shortcut.landscape?.();
-                      }),
-                    portrait: shortcut?.portrait,
-                  },
-                );
+                activateProfile(event, () => onOpenMember?.(member, anchor), {
+                  landscape:
+                    shortcut?.landscape &&
+                    (() => {
+                      onClose();
+                      shortcut.landscape?.();
+                    }),
+                  portrait: shortcut?.portrait,
+                });
               }}
             >
               <Avatar

@@ -148,7 +148,7 @@ export function DatabaseDamagedDialog({
               <p>
                 可以尝试<strong>数据库修复</strong>，将仍可读取的内容重建到新库中。修复前会备份，
                 但无法保证恢复全部数据。可从{' '}
-                <strong>设置 → 凭据与数据 → QQ 数据库管理 → 数据库检查与修复</strong>
+                <strong>设置 → QQ → QQ 数据库管理 → 数据库检查与修复</strong>
                 进入，也可以点击下方的「尝试修复」。
               </p>
             ) : null}

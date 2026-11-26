@@ -82,7 +82,7 @@ it('每个稳定 ID、公开名称与受支持别名由同一解析器定位，�
 it('旧装扮 ID 只定位新气泡项，AI 同名别名按页面隔离', () => {
   expect(
     resolveSettingsTarget({ section: 'message-display', settingId: 'message-decoration' }),
-  ).toMatchObject({ section: 'message-display', settingId: 'message-bubble' });
+  ).toMatchObject({ section: 'message-content', settingId: 'message-bubble' });
   expect(resolveSettingsTarget({ section: 'intent-sense', item: '运行方式' }).settingId).toBe(
     'intent-engine',
   );

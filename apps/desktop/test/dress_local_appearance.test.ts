@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { DressMallItem, DressManifest, DressScopeKind } from '@weq/service';
 import { DressUpDialog } from '../src/renderer/src/components/DressUpDialog';
+import { MessageDecorationCard } from '../src/renderer/src/components/MessageDecorationCard';
 import { resolveChatBackdrop } from '../src/renderer/src/hooks/useDressSkin';
 vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
   useDevelopmentDressTools: () => fixture.developmentTools,
@@ -13,6 +14,7 @@ vi.mock('../src/renderer/src/hooks/useDevelopmentDressTools', () => ({
 const fixture = vi.hoisted(() => ({
   developmentTools: true,
   activate: vi.fn(),
+  installWidget: vi.fn(),
   setCallBackground: vi.fn(),
   rankItems: [] as DressMallItem[],
   callBackground: {
@@ -72,12 +74,12 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
         rank: { useQuery: () => ({ data: { items: fixture.rankItems } }) },
         search: { useQuery: () => ({ data: { items: [] } }) },
         widgets: { useQuery: () => ({ data: [] }) },
+        resolveMsgDecoration: { useQuery: () => ({}) },
         setCallBackground: { useMutation: () => ({ mutateAsync: fixture.setCallBackground }) },
         ...Object.fromEntries(
           [
             'installBubble',
             'installFont',
-            'installWidget',
             'setActive',
             'setScope',
             'pickBackground',
@@ -87,12 +89,24 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             'setWidgetOpacity',
           ].map((name) => [name, { useMutation: () => ({ mutateAsync: fixture.activate }) }]),
         ),
+        installWidget: {
+          useMutation: ({ onSuccess }: { onSuccess?: () => unknown } = {}) => ({
+            mutateAsync: async (input: { itemId: number }) => {
+              const result = await fixture.installWidget(input);
+              await onSuccess?.();
+              return result;
+            },
+          }),
+        },
       },
     },
   },
 }));
 vi.mock('../src/renderer/src/hooks/useDressDownload', () => ({
   useDressDownload: () => ({ run: fixture.download, disabled: false }),
+}));
+vi.mock('../src/renderer/src/components/DecorationSaveControls.shared', () => ({
+  useDecorationSave: () => ({ disabled: false }),
 }));
 vi.mock('../src/renderer/src/components/ChatBackdrop', () => ({
   ScreenWidget: () => null,
@@ -106,6 +120,8 @@ afterEach(() => vi.unstubAllGlobals());
 beforeEach(() => {
   fixture.developmentTools = true;
   fixture.rankItems = [];
+  fixture.invalidate.mockClear();
+  fixture.installWidget.mockReset();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   fixture.manifest = {
     bubbles: [],
@@ -151,6 +167,35 @@ beforeEach(() => {
         return fixture.manifest;
       },
     );
+});
+
+it('查看消息装扮时能单独添加挂件，不切换使用中的装扮', async () => {
+  const decoration = { bubbleId: 0, fontId: 0, widgetId: 42 };
+  const onClose = () => {};
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = () => root.render(createElement(MessageDecorationCard, { decoration, onClose }));
+  const getButton = (name: string) =>
+    document.querySelector<HTMLButtonElement>(`[role="dialog"] button[aria-label="${name}"]`);
+
+  fixture.installWidget.mockImplementation(async ({ itemId }) => {
+    const widget = { itemId, name: '', frameCount: 1, frameTimeMs: 100, repeat: 0 };
+    fixture.manifest.widgets = [widget];
+    return widget;
+  });
+  try {
+    await act(async () => render());
+    await act(async () => getButton('添加挂件到已装')!.click());
+    expect(fixture.installWidget).toHaveBeenCalledWith({ itemId: 42 });
+    expect(fixture.invalidate).toHaveBeenCalledOnce();
+    expect(fixture.activate).not.toHaveBeenCalled();
+    await act(async () => render());
+    expect(getButton('挂件已添加')?.disabled).toBe(true);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
 });
 
 it('默认打开第一个页签，使用中可保存三档范围并取消当前气泡', async () => {

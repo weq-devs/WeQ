@@ -10,9 +10,6 @@ import {
 
 vi.mock('../src/renderer/src/components/OnlineStatus', () => ({ OnlineStatus: () => null }));
 vi.mock('../src/renderer/src/components/VipBadge', () => ({ VipBadge: () => null }));
-vi.mock('../src/renderer/src/components/QqProxyConnection', () => ({
-  QqProxyIndicator: () => null,
-}));
 vi.mock('../src/renderer/src/components/RestrictedMode', () => ({
   RestrictedModeIndicator: () => null,
 }));
@@ -63,7 +60,15 @@ describe('顶栏自己的名片群上下文', () => {
     const first = { code: '20001', name: '第一个群' };
     render(first);
     click();
-    expect(open).toHaveBeenLastCalledWith(user, { x: 48, y: 24 }, first);
+    expect(open).toHaveBeenLastCalledWith(
+      user,
+      {
+        x: 48,
+        y: 24,
+        trigger: host.querySelector('button[aria-label="查看我的名片"]'),
+      },
+      first,
+    );
     click(true);
     expect(open).toHaveBeenLastCalledWith(user, expect.any(Object), first);
     const second = { code: '20002', name: '第二个群' };

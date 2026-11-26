@@ -19,6 +19,14 @@ import {
 } from './backup_bundle';
 import { weqCloneStickerReferences, weqClonePersona } from './backup_refs';
 
+export function backupAgentDataKind(path: string) {
+  const [part, , file] = path.split('/');
+  if (part !== 'clones' || !file) return;
+  return ['assistant_sessions.json', 'assistant_runs', 'reports'].includes(file)
+    ? 'assistant'
+    : 'clones';
+}
+
 export interface CloneBackupSnapshot {
   files: WeqBackupFile[];
   warnings: string[];
@@ -78,6 +86,7 @@ function directoryEntries(path: string): string[] {
 export function snapshotWeqClones(
   agentlabRoot: string,
   configIds?: readonly string[],
+  selection?: { assistant: boolean; clones: boolean },
 ): CloneBackupSnapshot {
   const root = resolve(agentlabRoot);
   const scopes = configIds
@@ -111,6 +120,11 @@ export function snapshotWeqClones(
     for (const name of names) {
       // bot_exports 是当前机器生成的机器人运行入口，包含过期地址／密钥，不是克隆数据。
       if (!name.endsWith('.json') || name === 'bot_exports.json' || name === 'assistant.json')
+        continue;
+      if (
+        selection &&
+        !(name === 'assistant_sessions.json' ? selection.assistant : selection.clones)
+      )
         continue;
       const path = `${prefix}/${name}`;
       weqBackupPart(path);
@@ -188,6 +202,11 @@ export function snapshotWeqClones(
       add(path, Buffer.from(JSON.stringify(value)));
     }
     for (const kind of ['stickers', 'voice', 'agentvoice', 'images', 'assistant_runs', 'reports']) {
+      if (
+        selection &&
+        !(kind === 'assistant_runs' || kind === 'reports' ? selection.assistant : selection.clones)
+      )
+        continue;
       for (const name of directoryEntries(join(directory, kind))) {
         const path = `${prefix}/${kind}/${name}`;
         // 不收集模型、未知资源或目录中的数据库；只保留实际运行时可寻址的资产。

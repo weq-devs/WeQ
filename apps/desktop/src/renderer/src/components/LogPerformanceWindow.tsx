@@ -13,6 +13,7 @@ import { useAppLock } from '../state/lock';
 import { TabActivity } from './RetainedTabs';
 import { Modal } from './Dialog';
 import { HoverTooltip } from './HoverTooltip';
+import { MonitorPageSkeleton } from './PageSkeletons';
 import '../styles/log-performance.css';
 
 const PerformanceMonitor = lazy(() => import('./settings/PerformanceMonitor'));
@@ -53,13 +54,7 @@ function MonitorWindow({ tab, request }: { tab: MonitorTab; request: MonitorWind
         </div>
       </header>
       <div className="weq-monitor-panel" role="region" aria-label={title}>
-        <Suspense
-          fallback={
-            <div className="weq-monitor-loading" role="status">
-              正在加载…
-            </div>
-          }
-        >
+        <Suspense fallback={<MonitorPageSkeleton />}>
           {tab === 'performance' ? <PerformanceMonitor /> : <LogViewer />}
         </Suspense>
       </div>

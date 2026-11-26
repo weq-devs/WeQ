@@ -13,7 +13,9 @@ import { runDesktopMcpTool } from '../mcp/server';
 import { MCP_MAIL_ATTACHMENT_ROUTE } from '../mcp/mail_tools';
 import { handleMcpMailDownload } from '../mcp/mail_download';
 import { MCP_CHAT_VIDEO_ROUTE, handleMcpChatVideoDownload } from '../mcp/chat_video_download';
+import { MCP_FILE_ROUTE, handleMcpFileDownload } from '../mcp/chat_file_download';
 import { runtimeMaintenance } from '../runtime_maintenance';
+import { currentAccountRuntime } from '../context/account_runtime';
 import {
   callControl,
   type DesktopServiceRegistry,
@@ -56,6 +58,7 @@ export async function registerAccountWorker(options: {
   reveal: () => void;
 }): Promise<() => void> {
   const { core, registry } = options;
+  const runtime = currentAccountRuntime();
   const watchers = new Set<() => void>();
   let previous: object | undefined;
   let generation = '';
@@ -90,15 +93,17 @@ export async function registerAccountWorker(options: {
         };
       },
     });
-    const server = createServer((req, res) => {
-      if (!allowed(req)) {
-        res.writeHead(401).end();
-        return;
-      }
-      withWebAccountRoute(req.headers[PRIVATE_WEB_ROUTE_HEADER], () =>
-        application.handle(req, res),
-      );
-    });
+    const server = createServer(
+      runtime.bind((req: IncomingMessage, res: import('node:http').ServerResponse) => {
+        if (!allowed(req)) {
+          res.writeHead(401).end();
+          return;
+        }
+        withWebAccountRoute(req.headers[PRIVATE_WEB_ROUTE_HEADER], () =>
+          application.handle(req, res),
+        );
+      }),
+    );
     try {
       const port = await listenPrivate(server);
       application.attach(server);
@@ -127,74 +132,96 @@ export async function registerAccountWorker(options: {
     const remote = await listen(true);
     cleanup.push(remote.close);
     const mcpToken = newServiceToken();
-    const mcp = createServer((req, res) => {
-      const state = current();
-      const account = options.currentAccount();
-      if (
-        !state ||
-        !account ||
-        !privateRequest(req, mcpToken) ||
-        req.headers[PRIVATE_ACCOUNT_HEADER] !== state.generation
-      ) {
-        sendJson(res, 401, { error: '账号已关闭或切换。' });
-        return;
-      }
-      const controller = new AbortController();
-      const stop = () => controller.abort();
-      watchers.add(stop);
-      res.once('close', () => {
-        watchers.delete(stop);
-        stop();
-      });
-      const run = async () => {
-        if (req.method === 'POST' && req.url === '/tool') {
-          const input = z
-            .object({ name: z.string(), args: z.unknown() })
-            .parse(await readControlJson(req));
-          const value = await runDesktopMcpTool(
-            input.name,
-            input.args,
-            account.session,
-            () => options.currentAccount()?.session ?? null,
-            controller.signal,
-          );
-          sendJson(res, 200, { value });
-        } else if (req.url?.startsWith(MCP_MAIL_ATTACHMENT_ROUTE)) {
-          await runtimeMaintenance.operation(() => handleMcpMailDownload(req, res), 'MCP 邮箱附件');
-        } else if (req.url?.startsWith(MCP_CHAT_VIDEO_ROUTE)) {
-          await runtimeMaintenance.operation(
-            () => handleMcpChatVideoDownload(req, res),
-            'MCP 聊天视频',
-          );
-        } else sendJson(res, 404, { error: '接口不存在。' });
-      };
-      void run().catch((error: unknown) => {
-        if (!res.headersSent && !res.destroyed)
-          sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
-      });
-    });
+    const mcp = createServer(
+      runtime.bind((req: IncomingMessage, res: import('node:http').ServerResponse) => {
+        const state = current();
+        const account = options.currentAccount();
+        if (
+          !state ||
+          !account ||
+          !privateRequest(req, mcpToken) ||
+          req.headers[PRIVATE_ACCOUNT_HEADER] !== state.generation
+        ) {
+          sendJson(res, 401, { error: '账号已关闭或切换。' });
+          return;
+        }
+        const controller = new AbortController();
+        const stop = () => controller.abort();
+        watchers.add(stop);
+        res.once('close', () => {
+          watchers.delete(stop);
+          stop();
+        });
+        const run = async () => {
+          if (req.method === 'POST' && req.url === '/tool') {
+            const input = z
+              .object({
+                name: z.string(),
+                args: z.unknown(),
+                allowWrites: z.boolean().optional(),
+                compact: z.boolean().optional(),
+              })
+              .parse(await readControlJson(req));
+            const value = await runDesktopMcpTool(
+              input.name,
+              input.args,
+              account.session,
+              () => options.currentAccount()?.session ?? null,
+              controller.signal,
+              input.allowWrites,
+              input.compact,
+            );
+            sendJson(res, 200, { value });
+          } else if (req.url?.startsWith(MCP_MAIL_ATTACHMENT_ROUTE)) {
+            await runtimeMaintenance.operation(
+              () => handleMcpMailDownload(req, res),
+              'MCP 邮箱附件',
+            );
+          } else if (req.url?.startsWith(MCP_CHAT_VIDEO_ROUTE)) {
+            await runtimeMaintenance.operation(
+              () => handleMcpChatVideoDownload(req, res),
+              'MCP 聊天视频',
+            );
+          } else if (req.url?.startsWith(MCP_FILE_ROUTE)) {
+            await runtimeMaintenance.operation(
+              () => handleMcpFileDownload(req, res),
+              'MCP 文件下载',
+            );
+          } else sendJson(res, 404, { error: '接口不存在。' });
+        };
+        void run().catch((error: unknown) => {
+          if (!res.headersSent && !res.destroyed)
+            sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+        });
+      }),
+    );
     const mcpPort = await listenPrivate(mcp);
     cleanup.push(() => stopPrivate(mcp));
-    const control = await openControl((method, input) => {
-      if (method === 'state')
-        return {
-          account: current(),
-          browser: browser.endpoint,
-          remote: remote.endpoint,
-          mcp: { port: mcpPort, token: mcpToken },
-          assignedUin: options.assignedUin,
-        };
-      if (method === 'open') return options.launch(configIdSchema.parse(input));
-      if (method === 'openHere') return options.openHere(configIdSchema.parse(input));
-      if (method === 'reveal') return options.reveal();
-      throw new Error('未知账号窗口命令。');
-    });
+    const control = await openControl(
+      runtime.bind((method: string, input: unknown) => {
+        if (method === 'state')
+          return {
+            account: current(),
+            browser: browser.endpoint,
+            remote: remote.endpoint,
+            mcp: { port: mcpPort, token: mcpToken },
+            assignedUin: options.assignedUin,
+          };
+        if (method === 'open') return options.launch(configIdSchema.parse(input));
+        if (method === 'openHere') return options.openHere(configIdSchema.parse(input));
+        if (method === 'reveal') return options.reveal();
+        throw new Error('未知账号窗口命令。');
+      }),
+    );
     cleanup.push(control.close);
-    const unpublish = await registry.publish(`window-${process.pid}`, control.endpoint);
-    return () => {
+    const unpublish = await registry.publish(
+      `window-${process.pid}-${randomUUID()}`,
+      control.endpoint,
+    );
+    return runtime.bind(() => {
       void unpublish();
       for (const close of cleanup.reverse()) close();
-    };
+    });
   } catch (error) {
     for (const close of cleanup.reverse()) close();
     throw error;

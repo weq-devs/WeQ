@@ -85,6 +85,7 @@ function fixture() {
       })),
       commonRelationships: vi.fn(async () => ({
         friendCount: 3,
+        attributeFriendCount: 3,
         groups: [],
         friendError: null,
         groupError: null,

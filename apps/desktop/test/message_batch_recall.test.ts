@@ -228,8 +228,8 @@ describe('消息多选撤回', () => {
     const f = mount({ overrides: [{}, { senderId: 'u_peer' }] });
     await act(async () => f.button().click());
     expect(rpc.recall).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain('1 条消息不支持撤回，1 条可以继续');
-    await clickText('仅撤回支持的 1 条');
+    expect(document.querySelector('.weq-message-batch-summary')?.textContent).toContain('无法撤回');
+    await clickText('继续（1 条）');
     expect(rpc.recall).toHaveBeenCalledOnce();
     expect(f.state().ids).toEqual(['2']);
   });
@@ -318,10 +318,10 @@ describe('消息多选撤回', () => {
     const f = mount({ overrides: [patch] });
     await act(async () => f.button().click());
     expect(rpc.recall).not.toHaveBeenCalled();
-    const proceed = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-      (node) => node.textContent === '仅撤回支持的 0 条',
+    const proceed = document.querySelector<HTMLButtonElement>(
+      '.weq-message-batch-dialog footer button',
     )!;
-    expect(proceed.disabled).toBe(true);
+    expect(proceed.textContent).toBe('关闭');
     expect(f.state().ids).toEqual(['1']);
   });
   it.each(['owner', 'admin', 'member'] as const)(

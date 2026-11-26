@@ -21,18 +21,24 @@ beforeEach(() => {
 });
 
 describe('启动已安装的 QQ', () => {
-  it('macOS 通过 LaunchServices 打开检测到的应用，路径含空格也不经 shell', async () => {
-    const exe = '/Applications/QQ Test.app/Contents/MacOS/QQ';
-    f.execFile.mockImplementation((_command, _args, _options, callback) => callback(null));
-    await launchQq({ kind: 'darwin', qqExePath: () => exe });
-    expect(f.execFile).toHaveBeenCalledWith(
-      '/usr/bin/open',
-      ['-a', '/Applications/QQ Test.app'],
-      { timeout: 10_000, env: expect.any(Object) },
-      expect.any(Function),
-    );
-    expect(f.spawn).not.toHaveBeenCalled();
-  });
+  it.each([
+    [undefined, ['-a', '/Applications/QQ Test.app']],
+    [true, ['-n', '-a', '/Applications/QQ Test.app']],
+  ])(
+    'macOS 通过 LaunchServices 打开应用（请求新实例：%s），路径含空格也不经 shell',
+    async (newInstance, args) => {
+      const exe = '/Applications/QQ Test.app/Contents/MacOS/QQ';
+      f.execFile.mockImplementation((_command, _args, _options, callback) => callback(null));
+      await launchQq({ kind: 'darwin', qqExePath: () => exe }, newInstance);
+      expect(f.execFile).toHaveBeenCalledWith(
+        '/usr/bin/open',
+        args,
+        { timeout: 10_000, env: expect.any(Object) },
+        expect.any(Function),
+      );
+      expect(f.spawn).not.toHaveBeenCalled();
+    },
+  );
   it.each(['linux', 'win32'] as const)('%s 启动独立进程，不等待 QQ 退出', async (kind) => {
     const exe = kind === 'win32' ? 'C:\\Program Files\\QQ\\QQ.exe' : '/opt/QQ Test/qq';
     const child = Object.assign(new EventEmitter(), { unref: vi.fn() });
@@ -142,10 +148,13 @@ describe('重新启动 QQ', () => {
     }
   });
 
-  it('存在多个实例且无法归属时，不结束任何进程', async () => {
+  it.each([
+    [` 1234 ${normal}\n`, '没有找到可重新启动的 QQ 进程'],
+    [` 1234 ${normal}\n 2345 ${debug}\n`, '检测到多个 QQ 实例'],
+  ])('当前账号的进程无法确认时，不结束任何进程（%s）', async (processes, message) => {
     const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
     f.execFile.mockImplementation((_command, _args, _options, callback) =>
-      callback(null, ` 1234 ${normal}\n 2345 ${debug}\n`),
+      callback(null, processes),
     );
     try {
       await expect(
@@ -154,7 +163,7 @@ describe('重新启动 QQ', () => {
           '10001',
           debug,
         ),
-      ).rejects.toThrow('检测到多个 QQ 实例');
+      ).rejects.toThrow(message);
       expect(kill).not.toHaveBeenCalled();
       expect(f.execFile).toHaveBeenCalledTimes(1);
     } finally {

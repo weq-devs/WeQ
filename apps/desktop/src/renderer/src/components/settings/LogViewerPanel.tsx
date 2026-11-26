@@ -3,7 +3,7 @@ import { observeCompactToolbar } from '../CompactToolbar.shared';
 import * as timeFormat from '@weq/time';
 import { TimeLabel } from '../TimeLabel';
 /**
- * 设置 → 关于 WeQ → 日志与性能 → 日志查看。
+ * 设置 → 关于 → 日志与性能 → 日志查看。
  *
  * 支持 WeQ 分段日志（JSONL 与 gzip 归档）和 nt_helper / 原生加载日志。
  * 打开默认定位到文件尾部；跟随最新时跟随当前分段的尾部

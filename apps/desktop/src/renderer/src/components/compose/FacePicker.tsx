@@ -10,6 +10,7 @@
 import { EmptyState } from '../EmptyState';
 import { useMemo, useState, type ReactElement } from 'react';
 import { Search, SearchX } from 'lucide-react';
+import { filterByName } from '../../lib/nameSearch';
 import { trpc } from '../../trpc/client';
 import { FaceEmoji } from '../FaceEmoji';
 import { LoadingIndicator } from '../LoadingIndicator';
@@ -54,8 +55,7 @@ export function FacePicker({
       // De-dup by the authored faceId (unicode faces can repeat across rows).
       .filter((f, i, arr) => arr.findIndex((o) => o.faceId === f.faceId) === i);
 
-    const term = kw.trim().toLowerCase();
-    const filtered = term ? faces.filter((f) => f.faceText.toLowerCase().includes(term)) : faces;
+    const filtered = filterByName(faces, kw, (face) => [face.faceText]);
 
     return GROUP_ORDER.map((type) => ({
       type,

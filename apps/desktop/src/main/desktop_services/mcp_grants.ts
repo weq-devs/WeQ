@@ -9,8 +9,26 @@ const grantSchema = z.object({
   id: z.string().regex(/^[a-f0-9]{64}$/),
   label: z.string().min(1).max(64),
   configIds: z.array(z.string()).max(256),
+  writeConfigIds: z.array(z.string()).max(256).default([]),
 });
 type McpGrant = z.infer<typeof grantSchema>;
+
+const mcpAccountPermission = z.enum(['none', 'read', 'operate']);
+export type McpAccountPermission = z.infer<typeof mcpAccountPermission>;
+export const mcpGrantInput = z.union([
+  grantSchema.pick({ id: true }).extend({
+    configId: z.string(),
+    permission: mcpAccountPermission,
+  }),
+  grantSchema.pick({ id: true, configIds: true, writeConfigIds: true }).partial({
+    writeConfigIds: true,
+  }),
+]);
+
+function setMembership(ids: string[], configId: string, enabled: boolean): string[] {
+  if (ids.includes(configId) === enabled) return ids;
+  return enabled ? [...ids, configId] : ids.filter((id) => id !== configId);
+}
 
 export class McpGrants {
   private readonly path: string;
@@ -34,7 +52,12 @@ export class McpGrants {
       if (!token) continue;
       const id = mcpCredentialId(token);
       if (!this.grants.some((grant) => grant.id === id))
-        this.grants.push({ id, label: `旧窗口令牌 ${this.grants.length + 1}`, configIds: [] });
+        this.grants.push({
+          id,
+          label: `旧窗口令牌 ${this.grants.length + 1}`,
+          configIds: [],
+          writeConfigIds: [],
+        });
     }
     if (this.grants.length) this.save(this.grants);
   }
@@ -49,20 +72,53 @@ export class McpGrants {
     const id = mcpCredentialId(primary);
     const grant = this.grants.find((item) => item.id === id);
     return [
-      { id, label: '默认令牌', configIds: grant?.configIds ?? [], primary: true },
+      {
+        id,
+        label: '默认令牌',
+        configIds: grant?.configIds ?? [],
+        writeConfigIds: grant?.writeConfigIds ?? [],
+        primary: true,
+      },
       ...this.grants.filter((item) => item.id !== id),
     ];
   }
 
-  set(primary: string, id: string, configIds: string[]): void {
+  set(primary: string, id: string, configIds: string[], writeConfigIds?: string[]): void {
     const grant = this.list(primary).find((item) => item.id === id);
     if (!grant) throw new Error('此 MCP 令牌已失效。');
-    this.save([...this.grants.filter((item) => item.id !== id), { ...grant, configIds }]);
+    this.saveGrant(grant, configIds, writeConfigIds ?? grant.writeConfigIds);
+  }
+
+  setAccountPermission(
+    primary: string,
+    id: string,
+    configId: string,
+    permission: McpAccountPermission,
+  ): boolean {
+    const grant = this.list(primary).find((item) => item.id === id);
+    if (!grant) throw new Error('此 MCP 令牌已失效。');
+    const configIds = setMembership(grant.configIds, configId, permission !== 'none');
+    const writeConfigIds = setMembership(grant.writeConfigIds, configId, permission === 'operate');
+    if (configIds === grant.configIds && writeConfigIds === grant.writeConfigIds) return false;
+    this.saveGrant(grant, configIds, writeConfigIds);
+    return true;
+  }
+
+  private saveGrant(grant: McpGrant, configIds: string[], writeConfigIds: string[]): void {
+    if (configIds.length > 256) throw new Error('每个 MCP 令牌最多可授权 256 个账号数据源。');
+    const writes = writeConfigIds.filter((configId) => configIds.includes(configId));
+    this.save([
+      ...this.grants.filter((item) => item.id !== grant.id),
+      { ...grant, configIds, writeConfigIds: writes },
+    ]);
   }
 
   create(label: string): string {
     const token = randomBytes(32).toString('hex');
-    this.save([...this.grants, { id: mcpCredentialId(token), label, configIds: [] }]);
+    this.save([
+      ...this.grants,
+      { id: mcpCredentialId(token), label, configIds: [], writeConfigIds: [] },
+    ]);
     return token;
   }
 

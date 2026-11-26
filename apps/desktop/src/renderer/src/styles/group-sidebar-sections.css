@@ -145,6 +145,12 @@
   contain-intrinsic-block-size: 34px;
 }
 
+.weq-group-sections .group-info-member-row.has-sort-detail {
+  height: 44px;
+  min-height: 44px;
+  contain-intrinsic-block-size: 44px;
+}
+
 .weq-group-sections .group-info-member-row .member-name-text {
   font-size: 12px;
   color: var(--weq-fg-primary);
@@ -154,16 +160,6 @@
   display: flex;
   width: 100%;
   gap: 5px;
-}
-
-.weq-group-sections .member-display-name {
-  flex: 0 1 auto;
-  min-width: 24px;
-}
-
-.weq-group-sections .member-badge {
-  flex: 0 1 auto;
-  max-width: 52%;
 }
 
 .weq-group-sidebar-close {

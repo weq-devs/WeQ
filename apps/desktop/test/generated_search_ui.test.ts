@@ -451,7 +451,7 @@ describe('生成内容搜索定位', () => {
     const f = mount();
     try {
       act(() => f.root.render(createElement(AgentLabView, { embedded: true })));
-      expect(f.host.textContent).not.toContain('暂无打开的克隆会话');
+      expect(f.host.textContent).not.toContain('选择一段克隆对话');
       expect(f.host.querySelector('.weq-agentlab-workspace')).not.toBeNull();
       expect(fixture.mutate).not.toHaveBeenCalled();
     } finally {

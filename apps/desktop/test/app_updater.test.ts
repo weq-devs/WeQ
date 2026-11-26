@@ -74,6 +74,38 @@ afterEach(() => {
   vi.useRealTimers();
   Object.defineProperty(process, 'platform', platformDescriptor);
 });
+
+it('账号和登录窗口接收同一更新，关闭共享，下载完成可再次提醒', async () => {
+  const { updateRouter } = await import('../src/main/ipc/routers/update');
+  const { updateBus } = await import('../src/main/update/state');
+  const account = updateRouter.createCaller({});
+  const login = updateRouter.createCaller({});
+  const first = vi.fn();
+  const second = vi.fn();
+  const active = (await account.onBanner()).subscribe({ next: first });
+  const available = { kind: 'available', latest: '1.1.0' } as const;
+  const downloaded = { ...available, kind: 'downloaded' } as const;
+  updateBus.emit('event', available);
+  const picker = (await login.onBanner()).subscribe({ next: second });
+  try {
+    expect(first).toHaveBeenLastCalledWith(available);
+    expect(second).toHaveBeenLastCalledWith(available);
+    await login.dismissBanner(available);
+    expect(first).toHaveBeenLastCalledWith(null);
+    expect(second).toHaveBeenLastCalledWith(null);
+    updateBus.emit('event', available);
+    expect(second).toHaveBeenLastCalledWith(null);
+    updateBus.emit('event', downloaded);
+    expect(first).toHaveBeenLastCalledWith(downloaded);
+    await login.dismissBanner(available);
+    expect(first).toHaveBeenLastCalledWith(downloaded);
+    await account.dismissBanner(downloaded);
+    expect(second).toHaveBeenLastCalledWith(null);
+  } finally {
+    picker.unsubscribe();
+    active.unsubscribe();
+  }
+});
 async function ready() {
   const {
     default: { autoUpdater },
@@ -82,7 +114,6 @@ async function ready() {
   const state = await import('../src/main/update/state');
   const updater = await import('../src/main/update/updater');
   const events: unknown[] = [];
-  state.updateBus.on('event', (event) => events.push(event));
   state.setUpdateState({
     current: '1.0.0',
     latest: '1.1.0',
@@ -90,6 +121,7 @@ async function ready() {
     base: 'https://synthetic.invalid',
     ranked: ['https://synthetic.invalid'],
   });
+  state.updateBus.on('event', (event) => events.push(event));
   fixture.checkForUpdates.mockImplementation(async () => ({
     updateInfo: { version: state.getUpdateState()?.latest ?? '1.1.0' },
     cancellationToken: { cancel: fixture.cancelDownload },
@@ -109,6 +141,25 @@ async function ready() {
   });
   return { updater, autoUpdater, events };
 }
+
+it('软件更新订阅先回放缓存可用状态，切换检查渠道后清除', async () => {
+  const { updater } = await ready();
+  const { updateRouter } = await import('../src/main/ipc/routers/update');
+  const stream = await updateRouter.createCaller({}).onEvent();
+  const seen: boolean[] = [];
+  const subscription = stream.subscribe({
+    next: (event) => {
+      if (event.kind === 'availability') seen.push(event.available);
+    },
+  });
+  try {
+    expect(seen).toEqual([true]);
+    updater.setCheckPrerelease(true);
+    expect(seen).toEqual([true, false]);
+  } finally {
+    subscription.unsubscribe();
+  }
+});
 
 describe.each(['win32', 'linux'])('更新安装动作（%s）', (platform) => {
   beforeEach(() => {
@@ -441,7 +492,7 @@ describe.each(['win32', 'linux'])('更新安装动作（%s）', (platform) => {
   });
 });
 
-it('设置入口只建一个任务；重启后需核验同一版本才能再次提供安装', async () => {
+it('中途离开设置保留同一次下载；重启后需核验同一版本才能再次提供安装', async () => {
   Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
   const root = await mkdtemp(join(tmpdir(), 'weq-update-task-'));
   const options = { dataRoot: root, get: () => false, set: () => {} };
@@ -457,12 +508,19 @@ it('设置入口只建一个任务；重启后需核验同一版本才能再次�
       return finish();
     });
     const caller = updateRouter.createCaller({});
-    await caller.download();
-    await caller.download();
+    const { watchTaskPage } = await import('../src/main/task_page');
+    let pageId: string | undefined;
+    const page = watchTaskPage().subscribe({
+      next: (id) => {
+        pageId = id;
+      },
+    });
+    await caller.download({ pageId });
+    await caller.download({ pageId });
     await vi.waitFor(() => expect(fixture.downloadUpdate).toHaveBeenCalledOnce());
     expect(registry.snapshot()).toHaveLength(1);
     const id = registry.snapshot()[0]!.id;
-    expect(registry.snapshot()[0]?.foreground).not.toBe(true);
+    expect(registry.snapshot()[0]?.foreground).toBe(true);
     expect(registry.snapshot()[0]?.actions).toContainEqual({ id: 'pause', label: '暂停' });
     const liveActions = (await import('../src/main/update/state')).getUpdateActions();
     expect(liveActions.getDownloadTask?.()).toMatchObject({
@@ -470,6 +528,8 @@ it('设置入口只建一个任务；重启后需核验同一版本才能再次�
       status: 'running',
     });
     expect(fixture.downloadUpdate).toHaveBeenCalledOnce();
+    page.unsubscribe();
+    expect(registry.snapshot()[0]).toMatchObject({ id, foreground: false });
     release.resolve();
     await vi.waitFor(() => expect(registry.snapshot()[0]?.status).toBe('completed'));
 
@@ -511,6 +571,67 @@ it('设置入口只建一个任务；重启后需核验同一版本才能再次�
     await rm(root, { force: true, recursive: true });
   }
 }, 20_000);
+
+it('软件更新在页面内下载完成，离开和重启均不加入任务列表', async () => {
+  Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+  const root = await mkdtemp(join(tmpdir(), 'weq-update-task-'));
+  const options = { dataRoot: root, get: () => false, set: () => {} };
+  try {
+    const { updater } = await ready();
+    updater.installUpdateActions(options);
+    const { watchTaskPage } = await import('../src/main/task_page');
+    const { updateRouter } = await import('../src/main/ipc/routers/update');
+    const caller = updateRouter.createCaller({});
+    const registry = (await import('../src/main/background_tasks')).backgroundTasks;
+    let pageId: string | undefined;
+    const page = watchTaskPage().subscribe({
+      next: (id) => {
+        pageId = id;
+      },
+    });
+    try {
+      await caller.download({ pageId });
+      await vi.waitFor(() => expect(registry.snapshot()[0]?.status).toBe('completed'));
+    } finally {
+      page.unsubscribe();
+    }
+    expect(registry.snapshot()[0]).toMatchObject({
+      foreground: true,
+      actions: [{ id: 'install' }],
+    });
+    vi.resetModules();
+    const restarted = await ready();
+    restarted.updater.installUpdateActions(options);
+    const restored = (await import('../src/main/background_tasks')).backgroundTasks;
+    expect(restored.snapshot()[0]).toMatchObject({ foreground: true, status: 'paused' });
+    const { watchTaskPage: watchReopenedPage } = await import('../src/main/task_page');
+    const { updateRouter: restartedRouter } = await import('../src/main/ipc/routers/update');
+    const reopened = watchReopenedPage().subscribe({
+      next: (id) => {
+        pageId = id;
+      },
+    });
+    const finish = fixture.downloadUpdate.getMockImplementation()!;
+    const release = Promise.withResolvers<void>();
+    fixture.downloadUpdate.mockImplementationOnce(async () => {
+      await release.promise;
+      return finish();
+    });
+    try {
+      const { id } = restored.snapshot()[0]!;
+      await restartedRouter.createCaller({}).controlDownload({ id, action: 'continue', pageId });
+      expect(restored.snapshot()[0]).toMatchObject({ id, foreground: true, status: 'running' });
+      reopened.unsubscribe();
+      expect(restored.snapshot()[0]).toMatchObject({ id, foreground: false });
+    } finally {
+      reopened.unsubscribe();
+      release.resolve();
+      await vi.waitFor(() => expect(restored.snapshot()[0]?.status).toBe('completed'));
+    }
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+});
 
 describe('AUR 托管的副本', () => {
   it('拒绝应用内下载，直接给出包管理器指引', async () => {

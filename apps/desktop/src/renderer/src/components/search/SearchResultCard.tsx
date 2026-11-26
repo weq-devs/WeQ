@@ -192,7 +192,7 @@ export function SearchResultCard({
         <span className="weq-search-muted">
           {hit.sourceName ? (
             <>
-              <span data-privacy-sensitive>{hit.sourceName}</span>
+              <span data-privacy-sensitive>{names.render(hit.sourceName)}</span>
               {' · '}
             </>
           ) : (
@@ -317,7 +317,11 @@ export function SearchResultCard({
       <span className="weq-search-text">
         <span className="weq-search-row-top">
           <span className="weq-search-name">
-            {hit.category === 'contact' || hit.category === 'group'
+            {hit.category === 'contact' ||
+            hit.category === 'group' ||
+            (hit.category === 'collection' && hit.kind !== 'text') ||
+            hit.category === 'groupAlbum' ||
+            hit.category === 'groupFile'
               ? names.render(title)
               : literal.render(title)}
           </span>

@@ -270,10 +270,6 @@
   font-size: 12px;
   flex-shrink: 0;
 }
-.weq-overview-calendar .weq-density-calendar-grid small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 html[data-theme='dark'] .weq-overview-calendar-row {
   border-color: var(--weq-border-strong);
 }

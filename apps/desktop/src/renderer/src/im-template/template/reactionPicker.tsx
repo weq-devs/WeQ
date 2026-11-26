@@ -1,24 +1,8 @@
 // @ts-nocheck
-/**
- * 贴表情（表情回应）选择面板。
- *
- * 只列 QQ 系统小黄脸 + 字符表情 —— 这两类才能作为 OIDB 0x9082 的 `code`
- * （1–3 位 = 小黄脸 id，更长 = Unicode 码点）。商城 / 收藏 / GIF 表情不支持回应，
- * 不进这个面板。数据复用输入框表情面板的系统目录。
- */
-import { Smile } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { reactionItems } from '../../lib/reactionItems';
 import { trpc } from '../../trpc/client';
 import { cn } from './classNames';
-import { systemFaceItem, unicodeFaceItem } from './emojiPacks';
-
-type ReactionCell = {
-  key: string;
-  title: string;
-  /** 回应 code：系统表情 = faceId，字符表情 = Unicode 码点。 */
-  code: string;
-  item: ReturnType<typeof systemFaceItem>;
-};
 
 export function ReactionPicker({
   anchor,
@@ -36,34 +20,8 @@ export function ReactionPicker({
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const catalog = trpc.account.emojiPanel.catalog.useQuery(undefined, { staleTime: 30_000 });
-  const faces = catalog.data?.faces ?? [];
-
-  const cells = useMemo<ReactionCell[]>(() => {
-    const out: ReactionCell[] = [];
-    for (const group of faces) {
-      for (const it of group.items) {
-        if (group.unicode) {
-          const glyph = it.glyph || it.id;
-          const point = glyph ? glyph.codePointAt(0) : undefined;
-          if (point == null) continue;
-          out.push({
-            key: `u-${it.id}`,
-            title: it.desc,
-            code: String(point),
-            item: unicodeFaceItem(glyph, it.desc),
-          });
-        } else {
-          out.push({
-            key: `f-${it.id}`,
-            title: it.desc,
-            code: String(it.id),
-            item: systemFaceItem(it.id, it.desc),
-          });
-        }
-      }
-    }
-    return out;
-  }, [faces]);
+  const faces = catalog.data?.faces;
+  const cells = useMemo(() => reactionItems(faces ?? []), [faces]);
 
   useLayoutEffect(() => {
     panelRef.current?.focus({ preventScroll: true });
@@ -94,7 +52,7 @@ export function ReactionPicker({
       Math.max(anchor.y, margin),
       Math.max(margin, window.innerHeight - rect.height - margin),
     )}px`;
-  }, [anchor.x, anchor.y]);
+  }, [anchor.x, anchor.y, cells.length]);
 
   useEffect(() => {
     function closeFromOutside(event: globalThis.PointerEvent) {
@@ -135,7 +93,7 @@ export function ReactionPicker({
           <div className={cn('reaction-picker-grid')}>
             {cells.map((cell) => (
               <button
-                key={cell.key}
+                key={cell.code}
                 type="button"
                 title={cell.title}
                 aria-label={cell.title}
@@ -145,11 +103,9 @@ export function ReactionPicker({
                 onClick={() => onSelect(cell.code)}
               >
                 {cell.item.glyph ? (
-                  <span className={cn('emoji-glyph')}>{cell.item.glyph}</span>
-                ) : cell.item.src ? (
-                  <img src={cell.item.src} alt={cell.title} draggable={false} />
+                  <span className={cn('reaction-picker-glyph')}>{cell.item.glyph}</span>
                 ) : (
-                  <Smile size={20} strokeWidth={1.5} />
+                  <img src={cell.item.src ?? undefined} alt="" draggable={false} />
                 )}
               </button>
             ))}

@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { z } from 'zod/v3';
 import { usePageState } from '../PageSnapshots.shared';
-import { BarChart3, FolderOpen, Trash2 } from 'lucide-react';
+import { BarChart3, FolderOpen, HardDrive, Layers, Trash2 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useViewState } from '../../state/view';
 import { RetainedTabs, TabActivity } from '../RetainedTabs';
 import { useTabActive } from '../RetainedTabs.shared';
 import { SegmentedControl } from '../SegmentedControl';
-import { SectionHeader, QueryError } from './controls';
+import { Card, SectionHeader, QueryError } from './controls';
+import { EmptyState } from '../EmptyState';
+import { PanelLoading } from '../LoadingIndicator';
 import { CacheView } from '../../views/cache/CacheView';
 import { ResourceAnalyticsDialog } from '../../views/cache/ResourceAnalyticsDialog';
 import { ResourceCleanupDialog } from '../../views/cache/ResourceCleanupDialog';
@@ -44,9 +46,13 @@ export function ResourceManagementSection() {
         />
       ) : null}
       {account.data?.static ? (
-        <p role="status" className="weq-resource-status">
-          静态账号不提供本机 QQ 资源维护，这些目录不属于导入的数据库快照。
-        </p>
+        <Card>
+          <EmptyState
+            icon={<HardDrive />}
+            title="该备份没有关联的 QQ 资源目录"
+            body="导入的数据库快照可以用来查看聊天记录。要浏览或清理 QQ 缓存，请打开本机的 QQ 账号。"
+          />
+        </Card>
       ) : source ? (
         <TabActivity active={active && !account.error}>
           <ResourceManagementBody
@@ -55,9 +61,7 @@ export function ResourceManagementSection() {
           />
         </TabActivity>
       ) : !account.error ? (
-        <p role="status" className="weq-resource-status">
-          正在读取当前账号与数据源…
-        </p>
+        <PanelLoading>正在读取当前账号与数据源…</PanelLoading>
       ) : null}
     </div>
   );
@@ -83,87 +87,93 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
       : RESOURCE_CATEGORIES.find((category) => category.key === scan.scanningKey)?.label;
   return (
     <div className="weq-resource-management">
-      <SegmentedControl<ResourceView>
-        label="资源管理视图"
-        value={currentView}
-        onChange={setView}
-        options={[
-          {
-            value: 'overview' as const,
-            label: (
-              <span data-setting-id="qq-storage-analysis">
-                <BarChart3 size={15} />
-                占用概览
-              </span>
-            ),
-          },
-          {
-            value: 'cleanup' as const,
-            label: (
-              <span data-setting-id="qq-storage-cleanup">
-                <Trash2 size={15} />
-                资源清理
-              </span>
-            ),
-          },
-          {
-            value: 'browse' as const,
-            label: (
-              <span data-setting-id="resource-viewer">
-                <FolderOpen size={15} />
-                资源浏览
-              </span>
-            ),
-          },
-        ].filter((option) => !remote || option.value !== 'cleanup')}
-      />
-      {busy ? (
-        <p className="weq-resource-status" role="status">
-          QQ 资源清理正在执行
-        </p>
-      ) : progress && currentView !== 'overview' ? (
-        <p className="weq-resource-status" role="status">
-          正在扫描<span className="weq-number weq-number-inherit">{progress}</span> ·{' '}
-          <span className="weq-number weq-number-inherit">{scan.stats.length}</span> /{' '}
-          <span className="weq-number weq-number-inherit">{RESOURCE_CATEGORIES.length + 1}</span>
-        </p>
-      ) : null}
+      <Card>
+        <div>
+          <SegmentedControl<ResourceView>
+            label="资源管理视图"
+            value={currentView}
+            onChange={setView}
+            options={[
+              {
+                value: 'overview' as const,
+                label: (
+                  <span className="weq-set-seg-label" data-setting-id="qq-storage-analysis">
+                    <BarChart3 size={15} />
+                    占用概览
+                  </span>
+                ),
+              },
+              {
+                value: 'cleanup' as const,
+                label: (
+                  <span className="weq-set-seg-label" data-setting-id="qq-storage-cleanup">
+                    <Trash2 size={15} />
+                    资源清理
+                  </span>
+                ),
+              },
+              {
+                value: 'browse' as const,
+                label: (
+                  <span className="weq-set-seg-label" data-setting-id="resource-viewer">
+                    <FolderOpen size={15} />
+                    资源浏览
+                  </span>
+                ),
+              },
+            ].filter((option) => !remote || option.value !== 'cleanup')}
+          />
+        </div>
+        {busy ? (
+          <p className="weq-resource-status" role="status">
+            QQ 资源清理正在执行
+          </p>
+        ) : progress && currentView !== 'overview' ? (
+          <p className="weq-resource-status" role="status">
+            正在扫描<span className="weq-number weq-number-inherit">{progress}</span> ·{' '}
+            <span className="weq-number weq-number-inherit">{scan.stats.length}</span> /{' '}
+            <span className="weq-number weq-number-inherit">{RESOURCE_CATEGORIES.length + 1}</span>
+          </p>
+        ) : null}
+      </Card>
       <RetainedTabs snapshotKey="resource-management" activeKey={currentView}>
         <div key={currentView} className="weq-resource-panel" data-resource-panel={currentView}>
           {currentView === 'overview' ? (
             <>
               <ResourceAnalyticsDialog open embedded snapshot={snapshot} onClose={() => {}} />
-              <section className="weq-resource-mapping">
-                <h3>分类与清理范围</h3>
-                {RESOURCE_CATEGORIES.map((category) => (
-                  <div className="weq-resource-map-row" key={category.key}>
-                    <strong>{category.label}</strong>
-                    <span>
-                      {scan.complete
-                        ? category.cleanup
-                            .map(
-                              (id) => scan.targets.find((target) => target.id === id)?.label ?? id,
-                            )
-                            .join('、')
-                        : '等待扫描清理目标'}
-                    </span>
-                    <button
-                      type="button"
-                      className="weq-set-btn"
-                      onClick={() => {
-                        setSelection({ category: category.browse[0] });
-                        setView('browse');
-                      }}
-                    >
-                      <FolderOpen size={14} />
-                      浏览
-                    </button>
-                  </div>
-                ))}
-                <p>
+              <Card title="分类与清理范围" icon={<Layers size={15} strokeWidth={1.8} />}>
+                <div className="weq-resource-mapping">
+                  {RESOURCE_CATEGORIES.map((category) => (
+                    <div className="weq-resource-map-row" key={category.key}>
+                      <strong>{category.label}</strong>
+                      <span>
+                        {scan.complete
+                          ? category.cleanup
+                              .map(
+                                (id) =>
+                                  scan.targets.find((target) => target.id === id)?.label ?? id,
+                              )
+                              .join('、')
+                          : '等待扫描清理目标'}
+                      </span>
+                      <button
+                        type="button"
+                        className="weq-set-btn"
+                        onClick={() => {
+                          setSelection({ category: category.browse[0] });
+                          setView('browse');
+                        }}
+                      >
+                        <FolderOpen size={14} />
+                        浏览
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="weq-set-note">
                   总量只计算顶层分析目录，表情子目标不重复累加。批量清理不删除系统表情资源、表情包元数据或主动下载文件。
                 </p>
-              </section>
+              </Card>
             </>
           ) : currentView === 'cleanup' ? (
             <ResourceCleanupDialog
@@ -174,7 +184,7 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
               onClose={() => setView('overview')}
             />
           ) : (
-            <>
+            <Card title="资源浏览" icon={<FolderOpen size={15} strokeWidth={1.8} />}>
               {scan.error ? (
                 <QueryError
                   message={scan.error}
@@ -185,7 +195,7 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
               <div className="weq-resource-browser">
                 <CacheView selection={selection} revision={scan.revision} />
               </div>
-            </>
+            </Card>
           )}
         </div>
       </RetainedTabs>

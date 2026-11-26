@@ -193,7 +193,7 @@ describe('新增消息交互', () => {
       )!;
       expect(title.tagName).toBe('BUTTON');
       expect(title.type).toBe('button');
-      expect(title.title).toBe('查看好友名片');
+      expect(title.title).toContain('查看好友名片');
       vi.spyOn(title, 'getBoundingClientRect').mockReturnValue({
         left: 180,
         bottom: 72,
@@ -201,7 +201,7 @@ describe('新增消息交互', () => {
       act(() => title.click());
       expect(onOpenGroupMember).toHaveBeenCalledWith(
         conversation.type === 'direct' ? conversation.otherUser : undefined,
-        { x: 180, y: 72 },
+        { x: 180, y: 72, trigger: title },
       );
     } finally {
       fixture.close();
@@ -221,7 +221,7 @@ describe('新增消息交互', () => {
       const title = fixture.host.querySelector<HTMLButtonElement>(
         '.weq-conversation-title-profile',
       )!;
-      expect(title.title).toBe('查看群名片');
+      expect(title.title).toContain('查看群名片');
       await act(async () => {
         title.click();
         await vi.dynamicImportSettled();

@@ -1,11 +1,14 @@
+import { useContext } from 'react';
 import { EyeOff } from 'lucide-react';
 import { usePrivacyStore } from '../../state/privacy';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { AppLockSection } from './AppLockSection';
 import { IS_WEB } from '../../lib/target.shared';
 import { NotificationSettingsLink } from './NotificationSettingsLink';
+import { BeforeLoginSettingsContext, OPEN_ACCOUNT_SETTINGS_HINT } from './controls.shared';
 
 export function PrivacySection() {
+  const beforeLogin = useContext(BeforeLoginSettingsContext);
   const enabled = usePrivacyStore((state) => state.enabled);
   const set = usePrivacyStore((state) => state.set);
   const capturePrivacy = usePrivacyStore((state) => state.capturePrivacy);
@@ -13,7 +16,7 @@ export function PrivacySection() {
   return (
     <>
       <div className="weq-set">
-        <SectionHeader title="隐私" page="privacy" />
+        <SectionHeader title="隐私" page="privacy" pageReset={!beforeLogin} />
       </div>
       <div className="weq-set">
         <Card
@@ -39,7 +42,13 @@ export function PrivacySection() {
           />
         </Card>
       </div>
-      <AppLockSection heading={false} />
+      {beforeLogin ? (
+        <div className="weq-set">
+          <Card title="应用锁" desc={OPEN_ACCOUNT_SETTINGS_HINT} />
+        </div>
+      ) : (
+        <AppLockSection heading={false} />
+      )}
       {IS_WEB && (
         <div className="weq-set">
           <NotificationSettingsLink settingId="web-notifications">

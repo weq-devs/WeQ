@@ -64,7 +64,7 @@ try {
             `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html?mobile-input&composer-actions&count=30`,
           );
           const editor = page.locator('.composer > .composer-editor');
-          const send = page.locator('.composer > .composer-send');
+          const send = page.locator('.composer .composer-send');
           await editor.waitFor();
           await page.evaluate((theme) => {
             document.documentElement.dataset.theme = theme;

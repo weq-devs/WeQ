@@ -1,4 +1,3 @@
-import { networkFetch } from '@weq/network';
 /**
  * 防撤回通知的「拦下处理」（Electron 主进程）。
  *
@@ -14,6 +13,8 @@ import { networkFetch } from '@weq/network';
  * 与服务层解耦：本文件认识 Electron，AntiRecallService 不认识（见 app_context 注入）。
  */
 
+import { currentAccountRuntime } from './context/account_runtime';
+import { networkFetch } from '@weq/network';
 import { Notification } from 'electron';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -70,10 +71,13 @@ async function handle(
     icon: hidden ? undefined : (iconPath ?? undefined),
     silent: false,
   });
-  notification.on('click', () => {
-    if (getAppContext().services !== services) return;
-    openConversationAt(event);
-  });
+  notification.on(
+    'click',
+    currentAccountRuntime().bind(() => {
+      if (getAppContext().services !== services) return;
+      openConversationAt(event);
+    }),
+  );
   notification.show();
 }
 

@@ -20,6 +20,26 @@ function item(cid: string, text: string, collectTime = 1): CollectionItem {
 }
 
 describe('收藏本地全局检索', () => {
+  it('拼音按标题或来源召回，保留原文优先及分页，正文仍按原文匹配', () => {
+    const literal = item('literal', 'cq', 1);
+    const title: CollectionItem = {
+      ...item('title', '', 3),
+      kind: 'link',
+      summary: { linkSummary: { title: '重庆' } },
+    };
+    const source = { ...item('source', '', 2), author: { groupName: '重庆' } };
+    const body = { ...item('body', '重庆', 4), author: undefined };
+    const rows = [body, source, { ...title, author: undefined }, { ...literal, author: undefined }];
+    expect(searchCollectionItems(rows, 'cq', 0, 3).items.map((hit) => hit.cid)).toEqual([
+      'literal',
+      'title',
+      'source',
+    ]);
+    expect(searchCollectionItems(rows, 'chongqing', 1, 1)).toMatchObject({
+      total: 2,
+      items: [{ cid: 'source' }],
+    });
+  });
   it('正文、类型摘要与来源都能命中，包含已缓存详情且不索引 HTML 属性和脚本', () => {
     const rich: CollectionItem = {
       ...item('rich', ''),

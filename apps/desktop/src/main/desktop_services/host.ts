@@ -9,9 +9,8 @@ import { DesktopAccountRoutes } from './accounts';
 import {
   callControl,
   connectDesktopService,
-  currentDesktopServiceGeneration,
-  DesktopServiceRegistry,
-  desktopServiceGeneration,
+  desktopServiceIsRunning,
+  type DesktopServiceRegistry,
   openControl,
   type ServiceEndpoint,
 } from './control';
@@ -19,25 +18,30 @@ import { DesktopWebEntry } from './web_entry';
 import type { WebAuth } from '../web/application';
 import { RemoteRuntime } from '../remote/runtime';
 import { RemoteWebGateway } from '../remote/web_gateway';
-import { remoteConnectionMode, remoteInviteInput } from '../../shared/remote_bootstrap';
+import {
+  remoteAccountAccessDecisionInput,
+  remoteConnectionMode,
+  remoteInviteInput,
+  remotePairingDecisionInput,
+} from '../../shared/remote_bootstrap';
 import { migrateRemoteDevices } from './remote_migration';
 import { DesktopMcpGateway, mcpCredentialId } from './mcp_gateway';
-import { McpGrants } from './mcp_grants';
+import { McpGrants, mcpGrantInput } from './mcp_grants';
 
-export const DESKTOP_SERVICE_ARG = '--weq-desktop-service';
-
-export async function runDesktopServices(options: {
+interface DesktopServiceOptions {
   dataRoot: string;
   config: UserConfigService;
   publicDir: string;
   developmentUrl?: string;
   remoteDirectory: string;
   remoteHelper: string;
-  quit: () => void;
-}): Promise<() => void> {
+}
+
+async function runDesktopServices(
+  registry: DesktopServiceRegistry,
+  options: DesktopServiceOptions,
+) {
   const { config, publicDir, developmentUrl } = options;
-  const generation = currentDesktopServiceGeneration();
-  const registry = new DesktopServiceRegistry(options.dataRoot);
   const accounts = new DesktopAccountRoutes(options.dataRoot, registry);
   const avatarCache = new MediaCacheService(config);
   const loadAccountAvatar = (uin: string) => {
@@ -50,11 +54,17 @@ export async function runDesktopServices(options: {
   const createWebEntry = (auth: WebAuth) =>
     new DesktopWebEntry({ auth, accounts, publicDir, developmentUrl, loadAccountAvatar });
   const mcpGrants = new McpGrants(options.dataRoot);
-  const mcp = new DesktopMcpGateway(accounts, (id) => {
+  const findGrant = (id: string) => {
     const settings = config.getSettings().mcp;
-    if (!settings.enabled) return undefined;
-    return mcpGrants.list(settings.token).find((grant) => grant.id === id)?.configIds;
-  });
+    return settings.enabled
+      ? mcpGrants.list(settings.token).find((grant) => grant.id === id)
+      : undefined;
+  };
+  const mcp = new DesktopMcpGateway(
+    accounts,
+    (id) => findGrant(id)?.configIds,
+    (id, configId) => findGrant(id)?.writeConfigIds.includes(configId) === true,
+  );
   const configureMcp = async () => {
     const settings = config.getSettings().mcp;
     await mcp.configure(settings.enabled ? { port: settings.port, token: settings.token } : null);
@@ -88,6 +98,10 @@ export async function runDesktopServices(options: {
         .catch(() => undefined);
     },
   });
+  function checkRemoteAccountConfigIds(configIds: readonly string[]): void {
+    const saved = new Set(accounts.list().map((account) => account.configId));
+    if (configIds.some((configId) => !saved.has(configId))) throw new Error('账号数据源已经变化。');
+  }
   async function remoteCommand(method: string, input: unknown): Promise<unknown> {
     switch (method) {
       case 'remote.enabled': {
@@ -114,15 +128,31 @@ export async function runDesktopServices(options: {
       case 'remote.invite':
         return remote.invite(remoteInviteInput.parse(input));
       case 'remote.decide': {
-        const { id, approve } = z
-          .object({ id: z.string().uuid(), approve: z.boolean() })
-          .parse(input);
+        const { id, approve, configIds } = remotePairingDecisionInput.parse(input);
+        if (!approve) return remote.pairing.decide(id, false);
+        if (configIds !== undefined) {
+          checkRemoteAccountConfigIds(configIds);
+          return remote.pairing.decide(id, true, configIds);
+        }
         const configId = remote.defaultAccountConfigId();
         const exists = configId && accounts.list().some((account) => account.configId === configId);
-        return remote.pairing.decide(id, approve, exists ? configId : null);
+        return remote.pairing.decide(id, true, exists ? [configId] : undefined);
       }
       case 'remote.revoke':
         return remote.pairing.revoke(z.string().uuid().parse(input));
+      case 'remote.decideAccountAccess': {
+        const { id, approve } = remoteAccountAccessDecisionInput.parse(input);
+        return remote.pairing.decideAccountAccess(id, approve, (requested) =>
+          accounts
+            .list()
+            .some(
+              ({ configId, uin, static: isStatic }) =>
+                configId === requested.configId &&
+                uin === requested.uin &&
+                isStatic === requested.static,
+            ),
+        );
+      }
       case 'remote.accountConfigIds': {
         const { id, configIds } = z
           .object({
@@ -130,9 +160,7 @@ export async function runDesktopServices(options: {
             configIds: z.array(z.string()).max(256),
           })
           .parse(input);
-        const saved = new Set(accounts.list().map((account) => account.configId));
-        if (configIds.some((configId) => !saved.has(configId)))
-          throw new Error('账号数据源已经变化。');
+        checkRemoteAccountConfigIds(configIds);
         return remote.pairing.setAccountConfigIds(id, configIds);
       }
       case 'remote.restore':
@@ -142,23 +170,9 @@ export async function runDesktopServices(options: {
     }
   }
   let commandQueue: Promise<unknown> = Promise.resolve();
-  const stopSettings = onSettingsChanged((change) => {
-    if (!change?.fields.includes('mcp')) return;
-    const pending = commandQueue.then(configureMcp);
-    commandQueue = pending.catch((error: unknown) =>
-      getLogger().warn('应用 MCP 共享设置失败', { error: String(error) }),
-    );
-  });
+  let stopping = false;
   const controller = await openControl((method, input) => {
     if (method === 'ping') return true;
-    if (method === 'service.generation') return generation;
-    if (method === 'service.retire') {
-      const next = desktopServiceGeneration.parse(input);
-      if (generation === null || next === null || next <= generation)
-        throw new Error('只有更新的开发进程可以接管桌面服务。');
-      setImmediate(options.quit);
-      return true;
-    }
     if (method === 'web.status') return web.status();
     if (method === 'web.token') return web.accessToken();
     if (method === 'remote.status') return remote.status();
@@ -168,6 +182,7 @@ export async function runDesktopServices(options: {
     if (method === 'mcp.grants')
       return { accounts: accounts.list(), grants: mcpGrants.list(config.getSettings().mcp.token) };
     const run = commandQueue.then(async () => {
+      if (stopping) throw new Error('WeQ 正在退出。');
       if (method.startsWith('remote.')) return remoteCommand(method, input);
       if (method === 'mcp.configure') {
         config.reload();
@@ -184,13 +199,32 @@ export async function runDesktopServices(options: {
         return configureMcp();
       }
       if (method === 'mcp.grant') {
-        const { id, configIds } = z
-          .object({ id: z.string(), configIds: z.array(z.string()).max(256) })
-          .parse(input);
-        const saved = new Set(accounts.list().map((account) => account.configId));
+        const grant = mcpGrantInput.parse(input);
+        const entries = accounts.list();
+        const token = config.getSettings().mcp.token;
+        if ('permission' in grant) {
+          const { id, configId, permission } = grant;
+          const account = entries.find((entry) => entry.configId === configId);
+          if (!account) throw new Error('账号数据源已经变化。');
+          if (account.static && permission === 'operate') throw new Error('静态备份只支持读取。');
+          if (mcpGrants.setAccountPermission(token, id, configId, permission)) {
+            mcp.invalidateCredential(id);
+          }
+          return;
+        }
+        const { id, configIds, writeConfigIds } = grant;
+        const saved = new Set(entries.map((account) => account.configId));
         if (configIds.some((configId) => !saved.has(configId)))
           throw new Error('账号数据源已经变化。');
-        mcpGrants.set(config.getSettings().mcp.token, id, configIds);
+        if (
+          writeConfigIds?.some(
+            (configId) =>
+              !configIds.includes(configId) ||
+              !entries.some((account) => !account.static && account.configId === configId),
+          )
+        )
+          throw new Error('QQ 在线操作只可授权给令牌已勾选的在线账号。');
+        mcpGrants.set(token, id, configIds, writeConfigIds);
         mcp.invalidateCredential(id);
         return;
       }
@@ -215,42 +249,46 @@ export async function runDesktopServices(options: {
     commandQueue = run.catch(() => undefined);
     return run;
   });
-  const unpublish = await registry.publish('service', controller.endpoint);
-  void configureMcp().catch((error: unknown) =>
+  let unpublish: () => Promise<void>;
+  try {
+    unpublish = await registry.publish('service', controller.endpoint);
+  } catch (error) {
+    controller.close();
+    throw error;
+  }
+  commandQueue = configureMcp().catch((error: unknown) =>
     getLogger().warn('MCP 服务恢复失败', { error: String(error) }),
   );
-  if (web.status().autoStart)
-    void web
-      .start()
-      .catch((error: unknown) =>
-        getLogger().warn('本机 Web 服务自动恢复失败', { error: String(error) }),
-      );
-  void remote
+  const restoreWeb = web.status().autoStart
+    ? web
+        .start()
+        .catch((error: unknown) =>
+          getLogger().warn('本机 Web 服务自动恢复失败', { error: String(error) }),
+        )
+    : undefined;
+  const restoreRemote = remote
     .resume()
     .catch((error: unknown) => getLogger().warn('远程连接恢复失败', { error: String(error) }));
-  let lastActive = Date.now();
-  let checking = false;
-  const lifecycle = setInterval(() => {
-    if (checking) return;
-    checking = true;
-    void accounts
-      .windows()
-      .then((windows) => {
-        if (windows.length) lastActive = Date.now();
-        else if (Date.now() - lastActive >= 15000) options.quit();
+  const stopSettings = onSettingsChanged((change) => {
+    if (!change?.fields.includes('mcp')) return;
+    commandQueue = commandQueue
+      .then(async () => {
+        if (!stopping) await configureMcp();
       })
-      .finally(() => {
-        checking = false;
-      });
-  }, 2000);
-  return () => {
-    clearInterval(lifecycle);
-    stopSettings();
-    web.stop();
-    remote.stop();
-    void mcp.stop();
-    controller.close();
-    void unpublish();
+      .catch((error: unknown) =>
+        getLogger().warn('应用 MCP 共享设置失败', { error: String(error) }),
+      );
+  });
+  return {
+    endpoint: controller.endpoint,
+    async stop() {
+      stopping = true;
+      stopSettings();
+      controller.close();
+      web.stop();
+      await Promise.all([commandQueue, restoreWeb, restoreRemote, remote.shutdown()]);
+      await Promise.all([mcp.stop(), unpublish()]);
+    },
   };
 }
 
@@ -268,15 +306,53 @@ let desktopServices:
 
 export function connectDesktopServices(
   registry: DesktopServiceRegistry,
-  launch: () => Promise<void>,
-): void {
+  options?: DesktopServiceOptions,
+): () => Promise<void> {
+  const lifetime = new AbortController();
   let starting: Promise<ServiceEndpoint> | undefined;
-  const generation = currentDesktopServiceGeneration();
+  let stopping: Promise<void> | undefined;
+  let hosted: Awaited<ReturnType<typeof runDesktopServices>> | undefined;
+  let releaseHost: (() => void) | undefined;
+  const startHost = options
+    ? async (signal: AbortSignal) => {
+        const release = await registry.claimHost();
+        if (!release) return null;
+        try {
+          const legacy = await registry.legacyService();
+          if (legacy && (await desktopServiceIsRunning(legacy, signal))) return null;
+          signal.throwIfAborted();
+          hosted = await runDesktopServices(registry, options);
+          releaseHost = release;
+          return hosted.endpoint;
+        } finally {
+          if (!releaseHost) release();
+        }
+      }
+    : undefined;
   desktopServices = {
-    getEndpoint: () =>
-      (starting ??= connectDesktopService(registry, launch, generation).finally(() => {
+    async getEndpoint() {
+      lifetime.signal.throwIfAborted();
+      if (hosted) return hosted.endpoint;
+      starting ??= connectDesktopService(registry, startHost, lifetime.signal).finally(() => {
         starting = undefined;
-      })),
+      });
+      return starting;
+    },
+  };
+  async function stop() {
+    lifetime.abort();
+    if (starting) await starting.catch(() => undefined);
+    try {
+      await hosted?.stop();
+    } finally {
+      releaseHost?.();
+      releaseHost = undefined;
+      hosted = undefined;
+    }
+  }
+  return () => {
+    stopping ??= stop();
+    return stopping;
   };
 }
 

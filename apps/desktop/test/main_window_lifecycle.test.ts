@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'vitest';
-import { createMainWindowLifecycle } from '../src/main/main_window_lifecycle.ts';
+import {
+  createMainWindowLifecycle,
+  shouldRevealMainWindowOnActivation,
+} from '../src/main/main_window_lifecycle.ts';
 import {
   desktopApplicationMenu,
   macApplicationMenu,
@@ -20,6 +23,9 @@ class FakeWindow {
   }
   isMinimized() {
     return this.minimized;
+  }
+  isVisible() {
+    return this.visible;
   }
   restore() {
     this.minimized = false;
@@ -89,17 +95,33 @@ test('隐藏自启只创建并关联窗口，手动唤出后仍复用同一个�
   assert.equal(window.visible, true);
 });
 
-test('Dock activation reveals a hidden main window even when auxiliary windows exist', () => {
+test('Dock activation reveals a hidden main window when only tool windows are visible', () => {
   const { lifecycle, created, attached } = fixture();
-  const window = lifecycle.open()!;
-  assert.equal(window.visible, false);
-  window.minimized = true;
+  const window = lifecycle.open({ show: false })!;
+  assert.equal(shouldRevealMainWindowOnActivation(true, [window]), true);
   assert.equal(lifecycle.open(), window);
   assert.equal(window.visible, true);
   assert.equal(window.focused, true);
-  assert.equal(window.restores, 1);
   assert.equal(created.length, 1);
   assert.deepEqual(attached, [window]);
+});
+
+test('Dock activation restores the main window when it is minimized', () => {
+  const { lifecycle } = fixture();
+  const window = lifecycle.open()!;
+  window.visible = true;
+  window.minimized = true;
+  assert.equal(shouldRevealMainWindowOnActivation(true, [window]), true);
+  assert.equal(lifecycle.open(), window);
+  assert.equal(window.restores, 1);
+});
+
+test('Dock activation preserves window order when another account main window is visible', () => {
+  const hidden = new FakeWindow();
+  const visible = new FakeWindow();
+  visible.visible = true;
+  assert.equal(shouldRevealMainWindowOnActivation(true, [hidden, visible]), false);
+  assert.equal(shouldRevealMainWindowOnActivation(false, [hidden, visible]), true);
 });
 
 test('destroyed windows are replaced and each replacement attaches to the existing IPC handler', () => {

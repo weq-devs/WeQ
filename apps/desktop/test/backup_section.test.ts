@@ -1,6 +1,7 @@
 import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
+import { TRPCClientError } from '@trpc/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { BackupSection } from '../src/renderer/src/components/settings/BackupSection';
 import { backupApi } from '../src/renderer/src/components/settings/BackupSection.shared';
@@ -31,6 +32,8 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', new Storage());
   reset.preview.mockReset().mockResolvedValue({
     source: null,
+    revision: 'synthetic-revision',
+    logPrune: null,
     items: [
       {
         id: 'web:enabled',
@@ -68,10 +71,13 @@ function fixture() {
         hasApi: false,
         paths: [],
         connections: [],
+        logPrune: null,
       }),
     ),
     inventory: vi.fn(async () => ({
-      accounts: [],
+      accounts: [{ configId: '10001', uin: '10001', displayName: '测试账号' }],
+      activeConfigId: '10001',
+      canActivateServices: true,
       cloneScopes: [],
       restore: { pending: null, result: null },
       canPickFile: true,
@@ -129,7 +135,13 @@ async function mount(api: typeof backupApi) {
   return { host, button, click };
 }
 async function mountReset(items?: SettingsResetItem[]) {
-  if (items) reset.preview.mockResolvedValue({ source: null, items });
+  if (items)
+    reset.preview.mockResolvedValue({
+      source: null,
+      items,
+      revision: 'synthetic-revision',
+      logPrune: null,
+    });
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -156,22 +168,85 @@ async function mountReset(items?: SettingsResetItem[]) {
   };
   return { host, button, click, settled };
 }
-it('读取文件不直接写入，明确预览并确认后直接恢复；改选使旧确认失效', async () => {
-  const f = fixture(),
-    ui = await mount(f.api);
-  await ui.click('选择备份文件');
-  expect(f.api.stage).not.toHaveBeenCalled();
-  await ui.click('预览恢复');
-  expect(ui.host.textContent).toContain('确认恢复范围');
-  await act(async () => {
-    ui.host.querySelectorAll<HTMLButtonElement>('[aria-label="同名数据处理"] button')[1]!.click();
+it('选择备份后自动校验，取消时释放来源，确认导入才写入', async () => {
+  const f = fixture();
+  const ui = await mount(f.api);
+  await ui.click('导入备份');
+  expect(f.api.prepare).toHaveBeenCalledWith('source-1', {
+    parts: ['settings'],
+    conflict: 'skip',
+    keepLocalPaths: true,
+    includeClient: true,
+    clientId: expect.any(String),
   });
-  expect(ui.host.textContent).not.toContain('确认恢复范围');
-  await ui.click('预览恢复');
-  expect(ui.host.textContent).toContain('无需重启 WeQ');
-  await ui.click('确认恢复');
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('synthetic.zip');
+  expect(document.activeElement).toBe(ui.button('取消'));
+  expect(ui.button('确认导入').dataset.danger).toBe('solid');
+  expect(f.api.stage).not.toHaveBeenCalled();
+  await ui.click('取消');
+  expect(f.api.dispose).toHaveBeenCalledWith('source-1');
+  expect(f.api.stage).not.toHaveBeenCalled();
+  await ui.click('导入备份');
+  await ui.click('确认导入');
   expect(f.api.stage).toHaveBeenCalledWith('preview-1');
 });
+
+it('没有可导入的项目时释放备份，不关闭账号执行恢复', async () => {
+  const f = fixture();
+  const review = await f.api.prepare();
+  f.api.prepare.mockClear().mockResolvedValue({ ...review, planned: [], skipped: ['account'] });
+  const ui = await mount(f.api);
+  await ui.click('导入备份');
+  expect(f.api.dispose).toHaveBeenCalledWith('source-1');
+  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(f.api.stage).not.toHaveBeenCalled();
+});
+
+it('导出先展示选项，按默认选择提交后 Web 直接下载', async () => {
+  const f = fixture();
+  const download = vi
+    .spyOn(window.HTMLAnchorElement.prototype, 'click')
+    .mockImplementation(() => {});
+  try {
+    const exportBackup = vi.fn(async () => ({
+      id: 'export-id',
+      path: '/synthetic/backup.zip',
+      downloadUrl: '/synthetic-download',
+      canReveal: false,
+      summary: (await f.api.pick()).summary,
+    }));
+    const ui = await mount({ ...f.api, export: exportBackup });
+    await ui.click('导出备份');
+    expect(exportBackup).not.toHaveBeenCalled();
+    const modal = document.querySelector('[role="dialog"]')!;
+    expect(modal.querySelector('[aria-label="账号与会话偏好"]')?.getAttribute('aria-checked')).toBe(
+      'true',
+    );
+    expect(
+      modal.querySelector('[aria-label="API 模型与语音服务"]')?.getAttribute('aria-checked'),
+    ).toBe('false');
+    await ui.click('保存备份');
+    expect(exportBackup).toHaveBeenCalledWith({
+      selection: {
+        sections: ['appearance', 'preferences', 'account'],
+        accountConfigIds: ['10001'],
+        databaseConfigIds: [],
+        draftConfigIds: [],
+        cloneConfigIds: [],
+        includeApiKeys: false,
+        includeServiceTokens: false,
+      },
+      client: {},
+    });
+    expect(download).toHaveBeenCalledOnce();
+    expect((download.mock.instances[0] as unknown as HTMLAnchorElement).getAttribute('href')).toBe(
+      '/synthetic-download',
+    );
+  } finally {
+    download.mockRestore();
+  }
+});
+
 it('配置备份页保留全局恢复入口，先读取范围、取消不提交，确认才恢复全部设置', async () => {
   const f = fixture();
   const ui = await mount(f.api);
@@ -276,7 +351,7 @@ it('全局恢复读取及提交期间禁用取消和重复提交，提交失败�
   expect(ui.button('正在恢复…').disabled).toBe(true);
   await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
   expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-  await act(async () => finishRead({ hasApi: true, paths: [], connections: [] }));
+  await act(async () => finishRead({ hasApi: true, paths: [], connections: [], logPrune: null }));
   await act(async () =>
     document.querySelector<HTMLButtonElement>('[aria-label="清除 API 配置"]')!.click(),
   );
@@ -301,6 +376,7 @@ it('全局恢复的 API、服务与目录仅在显式选择后重置，重新打
     hasApi: true,
     paths: [{ id: 'defaultExportDir', label: '导出目录', value: '/synthetic/exports' }],
     connections: [{ id: 'webEnabled', label: 'Web 服务', value: '运行中' }],
+    logPrune: null,
   };
   const ui = await mount({ ...f.api, defaultsInfo: vi.fn(async () => info) });
   await ui.click('恢复全局默认设置');
@@ -402,6 +478,41 @@ it('读取恢复范围失败可重试，未读取成功时不能确认恢复', a
   await ui.click('取消');
   expect(reset.restore).not.toHaveBeenCalled();
 });
+
+it('范围变化后用新预览替换确认内容，再次点击才提交', async () => {
+  const initial = {
+    id: 'remote:enabled',
+    label: 'WeQ Remote',
+    scope: '全局',
+    current: true,
+    defaultValue: false,
+    stopsService: true,
+  } satisfies SettingsResetItem;
+  const added = { ...initial, id: 'web:enabled', label: '本机浏览器访问' };
+  reset.preview
+    .mockResolvedValueOnce({ source: null, items: [initial], revision: 'before', logPrune: null })
+    .mockResolvedValueOnce({
+      source: null,
+      items: [initial, added],
+      revision: 'after',
+      logPrune: null,
+    });
+  reset.restore.mockRejectedValueOnce(
+    TRPCClientError.from({
+      error: { code: -32009, message: '设置已变化', data: { code: 'CONFLICT' } },
+    }),
+  );
+  const ui = await mountReset();
+  await ui.click('恢复本页默认设置');
+  await ui.click('确认恢复默认');
+  expect(reset.restore).toHaveBeenCalledOnce();
+  const modal = document.querySelector('[role="dialog"]')!;
+  expect(modal.textContent).toContain('设置已变化');
+  expect(modal.textContent).toContain('本机浏览器访问');
+  await ui.click('确认恢复默认');
+  await ui.settled();
+  expect(reset.restore).toHaveBeenLastCalledWith(expect.objectContaining({ revision: 'after' }));
+});
 it('恢复默认使用居中模态确认，默认聚焦确认，取消仍不提交恢复', async () => {
   const ui = await mountReset();
   await ui.click('恢复本页默认设置');
@@ -446,7 +557,7 @@ it('旧暂存任务可确认后直接应用，Web 同样不要求重启服务', 
     confirmation?.querySelectorAll<HTMLButtonElement>('button')[1]?.click();
   });
   expect(api.apply).toHaveBeenCalledTimes(1);
-  expect(ui.button('选择备份文件')).toBeDefined();
+  expect(ui.button('导入备份').disabled).toBe(false);
 });
 
 it('Esc 可取消确认，提交中不能重复或关闭，失败留在弹窗且可重试', async () => {
@@ -486,7 +597,7 @@ it('组件关闭后迟到文件被释放，不把旧选择留作可确认输入'
       }),
   );
   const ui = await mount(f.api);
-  await ui.click('选择备份文件');
+  await ui.click('导入备份');
   const close = cleanups.pop()!;
   close();
   await act(async () => {
@@ -568,7 +679,7 @@ it('本地分片读取期间关闭页面，不会在读取完成后再发送一�
   expect(localBackgroundTasks.snapshot()).toEqual([]);
 });
 
-it('浏览器分片上传完成后在设置页显示备份预览，不创建任务', async () => {
+it('浏览器分片上传完成后自动校验并显示确认，不创建任务', async () => {
   const f = fixture();
   const api: typeof backupApi = {
     ...f.api,
@@ -585,6 +696,8 @@ it('浏览器分片上传完成后在设置页显示备份预览，不创建任�
   await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
   expect(api.chunk).toHaveBeenCalledOnce();
   expect(api.finish).toHaveBeenCalledWith('synthetic-upload');
-  expect(ui.host.textContent).toContain('synthetic.zip');
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('synthetic.zip');
+  expect(f.api.prepare).toHaveBeenCalledOnce();
+  expect(f.api.stage).not.toHaveBeenCalled();
   expect(localBackgroundTasks.snapshot()).toEqual([]);
 });

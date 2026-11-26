@@ -3,12 +3,14 @@ import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { type AccountConfig, writeFileAtomicSync } from '@weq/service';
+import { type AccountConfig, type AutoEnterTarget, writeFileAtomicSync } from '@weq/service';
 import type { AccountInstanceScope } from './account_instance_scope';
 
 const ACCOUNT_ARG = '--weq-account-instance=';
 const FOCUS_ARG = '--weq-focus-account=';
 const PICKER_ARG = '--weq-account-picker=';
+// scripts/dev.mjs 为默认开发窗口保留的固定 ID。
+const DEVELOPMENT_PICKER_ID = '00000000-0000-0000-0000-000000000000';
 const CONFIG_ID = /^[a-z\d][a-z\d_-]{0,127}$/i;
 const PICKER_ID = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/;
 // Vite 5 的内置模块表不识别 node:sqlite，交给 Electron/Node 运行时加载。
@@ -120,14 +122,14 @@ export function prepareInstanceAccount(root: string, target: AccountInstanceTarg
 function lockAccount(root: string, uin: string, probe = false): DatabaseSync | null {
   const directory = instanceRoot(root, uin);
   if (!probe) mkdirSync(directory, { recursive: true, mode: 0o700 });
-  return lockOwnerFile(join(directory, 'owner.sqlite'), probe);
+  return lockOwnerFile(join(directory, 'owner.sqlite'), probe ? 0 : 100);
 }
 
-function lockOwnerFile(path: string, probe: boolean): DatabaseSync | null {
+export function lockOwnerFile(path: string, waitMs = 0): DatabaseSync | null {
   const db = new nodeSqlite.DatabaseSync(path);
   try {
     // SQLite 的跨进程文件锁会在进程崩溃后由系统释放，无需根据 PID 清理锁文件。
-    db.exec(probe ? 'BEGIN IMMEDIATE' : 'PRAGMA busy_timeout = 100; BEGIN IMMEDIATE');
+    db.exec(`PRAGMA busy_timeout = ${waitMs}; BEGIN IMMEDIATE`);
     return db;
   } catch (error) {
     db.close();
@@ -138,13 +140,27 @@ function lockOwnerFile(path: string, probe: boolean): DatabaseSync | null {
 
 export function ownerFileIsLocked(path: string): boolean {
   if (!existsSync(path)) return false;
-  const probe = lockOwnerFile(path, true);
+  const probe = lockOwnerFile(path);
   probe?.close();
   return probe === null;
 }
 
 export function accountIsRunning(root: string, uin: string): boolean {
   return ownerFileIsLocked(join(instanceRoot(root, uin), 'owner.sqlite'));
+}
+
+export function developmentStartupConfigId(
+  root: string,
+  pickerId: string | undefined,
+  target: AutoEnterTarget | null | undefined,
+): string | undefined {
+  if (!isDevelopmentPicker(pickerId) || !target || accountIsRunning(root, target.uin))
+    return undefined;
+  return target.configId;
+}
+
+export function isDevelopmentPicker(pickerId: string | undefined): boolean {
+  return pickerId === DEVELOPMENT_PICKER_ID;
 }
 
 function pickerOwnerPath(root: string, uin: string): string {
@@ -168,6 +184,7 @@ export class AccountInstanceBusy extends Error {
 export class AccountInstances implements AccountInstanceScope {
   private readonly locks = new Map<string, DatabaseSync>();
   private pending: Promise<unknown> = Promise.resolve();
+  private closing = false;
 
   constructor(
     private readonly root: string,
@@ -177,6 +194,10 @@ export class AccountInstances implements AccountInstanceScope {
 
   owns(uin: string): boolean {
     return this.locks.has(uin);
+  }
+
+  stopOpening(): void {
+    this.closing = true;
   }
 
   dispose(): void {
@@ -205,6 +226,7 @@ export class AccountInstances implements AccountInstanceScope {
     opened: () => string | undefined,
   ): Promise<T> {
     const result = this.pending.then(async () => {
+      if (uin && this.closing) throw new Error('账号窗口正在关闭。');
       if (uin && this.assignedUin && uin !== this.assignedUin)
         throw new Error('此窗口已绑定一个 QQ 账号，请在独立窗口打开其它账号。');
       if (uin) this.claim(uin);

@@ -11,9 +11,10 @@ const api = vi.hoisted(() => ({
   retry: vi.fn(),
   mutate: vi.fn(),
   createToken: vi.fn(),
+  setAccountGrant: vi.fn(),
   mcpGrants: null as null | {
     accounts: { configId: string; displayName: string; uin: string; static: boolean }[];
-    grants: { id: string; label: string; configIds: string[] }[];
+    grants: { id: string; label: string; configIds: string[]; writeConfigIds?: string[] }[];
   },
   settings: {
     externalRkey: {
@@ -79,6 +80,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           });
         if (key === 'useMutation') return () => ({ isLoading: false, mutateAsync: api.mutate });
         if (key === 'mutate' && path.endsWith('createMcpAccountToken')) return api.createToken;
+        if (key === 'mutate' && path.endsWith('setMcpAccountGrant')) return api.setAccountGrant;
         return proxy(`${path}.${String(key)}`);
       },
     });
@@ -92,6 +94,7 @@ beforeEach(() => {
   api.retry.mockClear();
   api.mutate.mockClear();
   api.createToken.mockReset();
+  api.setAccountGrant.mockReset();
   api.mcpGrants = null;
   host = document.createElement('div');
   document.body.append(host);
@@ -176,6 +179,57 @@ function buttonWithin(element: Element, label: string) {
   )!;
 }
 
+it('MCP 分段选择在一次请求中为当前数据源设置指定权限', async () => {
+  const backup = { ...testAccount, configId: 'backup', static: true };
+  const grant = { ...sameNameGrant, configIds: [backup.configId] };
+  api.mcpGrants = {
+    accounts: [testAccount, backup],
+    grants: [grant],
+  };
+  api.setAccountGrant.mockResolvedValue(undefined);
+  render('mcp');
+
+  const livePermissions = host.querySelector('[aria-label="测试客户端 · 测试账号（10001）权限"]')!;
+  const backupPermissions = host.querySelector(
+    '[aria-label="测试客户端 · 测试账号（10001 · 静态备份）权限"]',
+  )!;
+  expect(backupPermissions.querySelector('[aria-checked="true"]')?.textContent).toBe('只读');
+  expect(buttonWithin(backupPermissions, '读取和操作')).toBeUndefined();
+
+  act(() => buttonWithin(livePermissions, '不授权').click());
+  expect(api.setAccountGrant).not.toHaveBeenCalled();
+
+  await act(async () => buttonWithin(livePermissions, '读取和操作').click());
+  expect(api.setAccountGrant).toHaveBeenCalledOnce();
+  expect(api.setAccountGrant).toHaveBeenCalledWith({
+    id: grant.id,
+    configId: testAccount.configId,
+    permission: 'operate',
+  });
+  api.mcpGrants.grants = [
+    {
+      ...grant,
+      configIds: [backup.configId, testAccount.configId],
+      writeConfigIds: [testAccount.configId],
+    },
+  ];
+  render('mcp');
+  expect(livePermissions.querySelector('[aria-checked="true"]')?.textContent).toBe('读取和操作');
+
+  await act(async () => buttonWithin(livePermissions, '只读').click());
+  expect(api.setAccountGrant).toHaveBeenLastCalledWith({
+    id: grant.id,
+    configId: testAccount.configId,
+    permission: 'read',
+  });
+  await act(async () => buttonWithin(backupPermissions, '不授权').click());
+  expect(api.setAccountGrant).toHaveBeenLastCalledWith({
+    id: grant.id,
+    configId: backup.configId,
+    permission: 'none',
+  });
+});
+
 it('MCP 创建结果按 ID 定位，列表尚未读回时仍可复制并收起', async () => {
   api.mcpGrants = { accounts: [testAccount], grants: [sameNameGrant] };
   api.createToken.mockResolvedValue(tokenResult);
@@ -192,8 +246,7 @@ it('MCP 创建结果按 ID 定位，列表尚未读回时仍可复制并收起',
   const receipt = host.querySelector('[role="group"][tabindex="-1"]')!;
   const card = receipt.closest('section')!;
   expect(document.activeElement).toBe(receipt);
-  expect(receipt.textContent).toContain('请在下方勾选');
-  expect(card.querySelector('[role="switch"]')?.getAttribute('aria-checked')).toBe('false');
+  expect(card.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('不授权');
   expect(host.textContent).not.toContain(tokenResult.token);
 
   await act(async () => buttonWithin(receipt, '复制令牌').click());
@@ -206,7 +259,7 @@ it('MCP 创建结果按 ID 定位，列表尚未读回时仍可复制并收起',
   render('mcp');
   act(() => buttonWithin(receipt, '收起提示').click());
   expect(host.textContent).not.toContain(tokenResult.token);
-  expect(card.querySelector('[role="switch"]')).not.toBeNull();
+  expect(card.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('不授权');
 });
 
 it('MCP 切出后返回时不回显上一轮在途创建的令牌', async () => {

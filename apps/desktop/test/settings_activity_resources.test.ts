@@ -23,6 +23,8 @@ const fixture = vi.hoisted(() => ({
   updateAvailable: false,
   checkPhase: 'unchecked' as 'unchecked' | 'checking' | 'waiting-network' | 'checked',
   checkedAt: undefined as number | undefined,
+  installedAt: undefined as number | undefined,
+  updatedAt: undefined as number | undefined,
   checkLoading: false,
   autoCheck: true,
   autoInstall: false,
@@ -57,15 +59,19 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               busy: fixture.busy,
               pausable: id !== 'dress',
               installed: fixture.ready,
+              installedAt: fixture.installedAt,
+              updatedAt: fixture.updatedAt,
+              autoUpdate: id === 'text' && fixture.autoInstall,
               needsRepair: fixture.ready && fixture.partial,
               missingComponents: fixture.partial ? ['文字筛图模型'] : [],
               updateAvailable: fixture.partial || fixture.updateAvailable,
               check: { phase: fixture.checkPhase, checkedAt: fixture.checkedAt },
               blocker: fixture.requiresWeqUpdate ? '需先更新 WeQ 至 v3.0.0' : null,
               requiresWeqUpdate: fixture.requiresWeqUpdate,
+              fullDownloadBytes: 2 * 1048576,
               downloadBytes: fixture.ready ? 0 : 1048576,
-              sizeOnDisk: fixture.ready ? 1048576 : 0,
-              sharedBytes: 0,
+              sizeOnDisk: fixture.ready || id === 'intent' ? 1048576 : 0,
+              sharedBytes: !fixture.ready && id === 'intent' ? 1048576 : 0,
               deleteBytes: fixture.ready ? 1048576 : 0,
               operation: fixture.busy
                 ? { phase: 'downloading', total: 1048576, received: 524288 }
@@ -77,10 +83,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
                 name === 'enhancementPacks'
                   ? {
                       packs,
-                      preferences: {
-                        autoCheck: fixture.autoCheck,
-                        autoInstall: fixture.autoInstall,
-                      },
+                      preferences: { autoCheck: fixture.autoCheck },
                       all: { downloadBytes: 4194304, sizeOnDisk: 0 },
                     }
                   : name === 'enhancementPlan'
@@ -106,9 +109,11 @@ vi.mock('../src/renderer/src/trpc/client', () => {
           });
         if (key === 'invalidate') return () => fixture.invalidate(path.join('.'));
         if (key === 'subscribe')
-          return (_input: unknown, options: { onData: (value: Progress) => void }) => {
-            const id = path.join('.') + ':' + fixture.listeners.size;
-            fixture.listeners.set(id, { path: path.join('.'), onData: options.onData });
+          return (_input: unknown, options: { onData: (value: Progress | string) => void }) => {
+            const name = path.join('.');
+            const id = `${name}:${fixture.listeners.size}`;
+            fixture.listeners.set(id, { path: name, onData: options.onData });
+            if (name === 'backgroundTasks.onTaskPage') options.onData('download-page');
             return { unsubscribe: () => fixture.listeners.delete(id) };
           };
         return proxy([...path, String(key)]);
@@ -131,6 +136,8 @@ beforeEach(() => {
   fixture.updateAvailable = false;
   fixture.checkPhase = 'unchecked';
   fixture.checkedAt = undefined;
+  fixture.installedAt = undefined;
+  fixture.updatedAt = undefined;
   fixture.checkLoading = false;
   fixture.autoCheck = true;
   fixture.autoInstall = false;
@@ -173,65 +180,76 @@ describe('增强设置与非活动页面资源', () => {
       f.dispose();
     }
   });
-  it('管理页是两张卡片与四行列表，下载单包并将空间占用放在独立列', async () => {
+  it('管理页显示完整包下载大小并支持批量及单包下载', async () => {
     const f = mount(h(EnhancementPacksSection));
     try {
       expect(f.host.querySelectorAll('.weq-set-card')).toHaveLength(2);
       expect(f.host.querySelectorAll('.weq-enhancement-item')).toHaveLength(4);
-      expect(f.host.querySelectorAll('.weq-enhancement-size')).toHaveLength(4);
-      expect(f.host.textContent).not.toContain('下载全部');
-      expect(f.host.querySelectorAll('[role="switch"]')).toHaveLength(2);
+      expect(f.host.textContent).toContain('本地文字识别（2.00 MiB）');
+      expect(f.host.querySelectorAll('[role="switch"]')).toHaveLength(1);
+      expect(f.host.querySelector('[aria-label="删除本地意图与画像"]')).toBeNull();
+      const batch = f.host.querySelector<HTMLButtonElement>(
+        '.weq-enhancement-batch-actions button',
+      )!;
+      expect(batch.textContent).toBe('全部下载');
+      expect(f.host.textContent).not.toContain('全部更新');
+      await act(async () => batch.click());
+      expect(fixture.mutate).toHaveBeenLastCalledWith({
+        ids: ['text', 'voice', 'intent', 'dress'],
+        mode: 'download',
+        pageId: 'download-page',
+      });
       const chosen = f.host.querySelector<HTMLButtonElement>('[aria-label="下载本地文字识别"]')!;
+      expect(chosen.title).toContain('1.00 MiB');
       await act(async () => chosen.click());
-      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'], pageId: 'download-page' });
       expect(f.host.querySelector('progress')).toBeNull();
     } finally {
       f.dispose();
     }
   });
-  it('非活动管理页停止轮询，回来从宿主状态恢复进度；不订阅遗留下载流', () => {
+  it('非活动管理页交回下载页，停止轮询，回来从宿主状态恢复进度', () => {
     fixture.busy = true;
     const f = mount(h(EnhancementPacksSection));
     try {
       expect(f.host.querySelector('progress')?.value).toBe(50);
-      expect(fixture.listeners.size).toBe(0);
+      expect([...fixture.listeners.values()].map(({ path }) => path)).toEqual([
+        'backgroundTasks.onTaskPage',
+      ]);
       f.render(false);
+      expect(fixture.listeners.size).toBe(0);
       expect(fixture.enabled.get('enhancementPacks')).toBe(false);
       fixture.busy = false;
       fixture.ready = true;
       f.render(true);
       expect(f.host.querySelector('progress')).toBeNull();
-      expect(f.host.textContent).toContain('1.00 MiB');
+      expect(f.host.textContent).toContain('本地文字识别（2.00 MiB）');
       expect(f.host.querySelectorAll('button[aria-label^="删除"]')).toHaveLength(4);
     } finally {
       f.dispose();
     }
   });
-  it.each([false, true])(
-    '检查中显示状态，不锁下载、删除或重复检查（已安装：%s）',
-    async (ready) => {
-      fixture.ready = ready;
-      fixture.checkPhase = 'checking';
-      fixture.checkLoading = true;
-      const f = mount(h(EnhancementPacksSection));
-      try {
-        const row = f.host.querySelector('[data-setting-id="enhancement-text"]')!;
-        expect(row.querySelector('[role="status"]')?.textContent).toBe('正在检查更新');
-        const action = row.querySelector<HTMLButtonElement>(
-          `[aria-label="${ready ? '删除' : '下载'}本地文字识别"]`,
-        )!;
-        expect(action.disabled).toBe(false);
-        await act(async () => action.click());
-        expect(fixture.mutate).toHaveBeenLastCalledWith(ready ? { id: 'text' } : { ids: ['text'] });
-        const check = row.querySelector<HTMLButtonElement>('[aria-label="检查本地文字识别更新"]')!;
-        expect(check.disabled).toBe(false);
-        await act(async () => check.click());
-        expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
-      } finally {
-        f.dispose();
-      }
-    },
-  );
+  it.each([false, true])('检查中显示状态，下载或删除仍可操作（已安装：%s）', async (ready) => {
+    fixture.ready = ready;
+    fixture.checkPhase = 'checking';
+    fixture.checkLoading = true;
+    const f = mount(h(EnhancementPacksSection));
+    try {
+      const row = f.host.querySelector('[data-setting-id="enhancement-text"]')!;
+      expect(row.querySelector('[role="status"]')?.textContent).toBe('正在检查更新');
+      const action = row.querySelector<HTMLButtonElement>(
+        `[aria-label="${ready ? '删除' : '下载'}本地文字识别"]`,
+      )!;
+      expect(action.disabled).toBe(false);
+      await act(async () => action.click());
+      expect(fixture.mutate).toHaveBeenLastCalledWith(
+        ready ? { id: 'text' } : { ids: ['text'], pageId: 'download-page' },
+      );
+      expect(f.host.textContent).not.toContain('全部检查');
+    } finally {
+      f.dispose();
+    }
+  });
   it('手动检查发出即显示在途状态并轮询，不等宿主快照；结束后恢复结果', () => {
     fixture.ready = true;
     fixture.checkLoading = true;
@@ -247,10 +265,19 @@ describe('增强设置与非活动页面资源', () => {
       fixture.checkLoading = false;
       fixture.checkPhase = 'checked';
       fixture.checkedAt = Date.parse('2026-11-19T08:03:31Z');
+      fixture.installedAt = Date.parse('2026-11-18T08:03:31Z');
       f.render(true);
-      expect(row.querySelector('[role="status"]')?.textContent).toBe('已检查');
+      expect(row.querySelector('[role="status"]')?.textContent).toBe('已是最新');
       expect(row.textContent).toContain('2026-11-19 16:03:31');
+      expect(row.textContent).toContain('安装时间 2026-11-18 16:03:31');
       expect(fixture.intervals.get('enhancementPacks')).toBe(false);
+      f.render(false);
+      fixture.updateAvailable = true;
+      fixture.updatedAt = Date.parse('2026-11-20T08:03:31Z');
+      f.render(true);
+      expect(row.querySelector('[role="status"]')?.textContent).toBe('有新版本');
+      expect(row.textContent).toContain('上次更新 2026-11-20 16:03:31');
+      expect(row.textContent).not.toContain('安装时间');
     } finally {
       f.dispose();
     }
@@ -263,31 +290,46 @@ describe('增强设置与非活动页面资源', () => {
     fixture.checkLoading = true;
     const f = mount(h(EnhancementPacksSection));
     try {
-      const check = f.host.querySelector<HTMLButtonElement>('[aria-label="检查本地文字识别更新"]')!;
-      expect(check.disabled).toBe(false);
-      await act(async () => check.click());
-      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      expect(f.host.textContent).not.toContain('全部检查');
+      const batch = f.host.querySelector<HTMLButtonElement>(
+        '.weq-enhancement-batch-actions button',
+      );
+      if (partial) expect(batch).toBeNull();
+      else {
+        expect(batch?.textContent).toBe('全部更新');
+        await act(async () => batch!.click());
+        expect(fixture.mutate).toHaveBeenLastCalledWith({
+          ids: ['text', 'voice', 'intent', 'dress'],
+          mode: 'update',
+          pageId: 'download-page',
+        });
+      }
       const button = f.host.querySelector<HTMLButtonElement>(
         `[aria-label="${partial ? '补齐' : '更新'}本地文字识别"]`,
       )!;
       expect(button.disabled).toBe(false);
       await act(async () => button.click());
-      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'], pageId: 'download-page' });
     } finally {
       f.dispose();
     }
   });
-  it('检查等网络时可主动检查，准备资源时同一排可暂停、检查和删除', async () => {
+  it('检查等网络时可批量检查，准备资源时可在原位暂停和删除', async () => {
     fixture.ready = true;
     fixture.checkPhase = 'waiting-network';
     fixture.checkLoading = true;
     const f = mount(h(EnhancementPacksSection));
     try {
       expect(f.host.textContent).toContain('等待网络允许检查');
-      const check = f.host.querySelector<HTMLButtonElement>('[aria-label="检查本地文字识别更新"]')!;
+      const check = f.host.querySelector<HTMLButtonElement>(
+        '.weq-enhancement-batch-actions button',
+      )!;
+      expect(check.textContent).toBe('全部检查');
       expect(check.disabled).toBe(false);
       await act(async () => check.click());
-      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      expect(fixture.mutate).toHaveBeenLastCalledWith({
+        ids: ['text', 'voice', 'intent', 'dress'],
+      });
       fixture.ready = false;
       f.render(false);
       f.render(true);
@@ -330,14 +372,15 @@ describe('增强设置与非活动页面资源', () => {
       const repair = row.querySelector<HTMLButtonElement>('[aria-label="补齐本地文字识别"]')!;
       expect(repair.title).toContain('文字筛图模型');
       await act(async () => repair.click());
-      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'] });
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ ids: ['text'], pageId: 'download-page' });
     } finally {
       f.dispose();
     }
   });
-  it('关闭自动检查隐藏安装开关但不清空其值；最低版本提示跳到设置内更新页', async () => {
+  it('关闭自动检查保留逐包开关，最低版本提示跳到设置内更新页', async () => {
     const navigate = vi.fn();
     fixture.autoInstall = true;
+    fixture.ready = true;
     const f = mount(
       h(SettingsNavigateContext.Provider, { value: navigate }, h(EnhancementPacksSection)),
     );
@@ -347,7 +390,13 @@ describe('增强设置与非活动页面资源', () => {
       await f.render(false);
       await f.render(true);
       expect(f.host.querySelector('[aria-label="自动安装增强包更新"]')).toBeNull();
-      expect(fixture.autoInstall).toBe(true);
+      const toggle = f.host.querySelector<HTMLButtonElement>(
+        '[aria-label="本地文字识别自动安装更新"]',
+      )!;
+      expect(toggle.getAttribute('aria-pressed')).toBe('true');
+      await act(async () => toggle.click());
+      expect(fixture.mutate).toHaveBeenLastCalledWith({ pack: { id: 'text', enabled: false } });
+      expect(f.host.textContent).toContain('全部检查');
       const link = f.host.querySelector<HTMLAnchorElement>('.weq-enhancement-issue a')!;
       await act(async () => link.click());
       expect(navigate).toHaveBeenCalledWith('version');
@@ -383,7 +432,7 @@ describe('增强设置与非活动页面资源', () => {
     const f = mount(h(Reader));
     try {
       expect(update.phase).toBe('available');
-      expect(fixture.listeners.size).toBe(2);
+      expect(fixture.listeners.size).toBe(3);
       f.render(false);
       expect(fixture.listeners.size).toBe(0);
       expect(Object.fromEntries(fixture.enabled)).toEqual({

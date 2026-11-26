@@ -68,13 +68,14 @@ function fixture(sameSequence = false) {
     c2cMsgs: new C2cMsgDb(nt, { dbPath: path }),
     uidMap: { sortNoByUid: () => undefined },
     msgDbPath: path,
+    profileInfo: { profilesByUids: async () => [] },
   } as unknown as AccountSession);
-  return service;
+  return { service, sql };
 }
 it.each(['group', 'c2c'] as const)(
   '媒体分页 %s 同时间双向完整，稀疏批次前进且不跨会话',
   async (kind) => {
-    const service = fixture();
+    const { service } = fixture();
     const conv = kind === 'group' ? '42' : 'u_peer';
     const older = await service.mediaPage(kind, conv, {}, 'older', '10');
     expect(older.items.map((row) => String(row.msgId))).toEqual(['99']);
@@ -88,7 +89,7 @@ it.each(['group', 'c2c'] as const)(
   },
 );
 it('过滤器沿用消息筛选，游标定位不受筛选条件排除锚点影响', async () => {
-  const service = fixture();
+  const { service } = fixture();
   const page = await service.mediaPage(
     'group',
     '42',
@@ -101,8 +102,41 @@ it('过滤器沿用消息筛选，游标定位不受筛选条件排除锚点影�
     (await service.mediaPage('group', '42', { start: 11, end: 29 }, 'newer', '10')).items,
   ).toHaveLength(0);
 });
+
+it.each(['group', 'c2c'] as const)(
+  '会话搜索 %s 复用正文时仍核对同一行的更新并纳入新消息',
+  async (kind) => {
+    const { service, sql } = fixture();
+    const conv = kind === 'group' ? '42' : 'u_peer';
+    const table = `${kind === 'group' ? 'group' : 'c2c'}_msg_table`;
+    const filter = { keyword: 'FIXTURE', recordType: 'media' as const };
+    const first = await service.browse(kind, conv, filter, undefined, 2);
+    expect(first.items.map(({ msgId }) => msgId)).toEqual([500n, 10n]);
+    expect(first.items.every(({ content }) => content === '[图片: fixture.png]')).toBe(true);
+    expect(await service.browse(kind, conv, filter, undefined, 2)).toEqual(first);
+    const next = await service.browse(kind, conv, filter, first.cursor ?? undefined, 2);
+    expect(next.items.map(({ msgId }) => msgId)).toEqual([99n]);
+
+    const changed = { keyword: '更新后的正文' };
+    expect((await service.browse(kind, conv, changed)).items).toEqual([]);
+    const body = new ProtoMsg(MsgBody).encode({
+      elements: [encodeElement({ kind: 'text', textContent: changed.keyword })],
+    });
+    sql.prepare(`UPDATE ${table} SET "40800"=? WHERE "40001"=500`).run(body);
+    sql
+      .prepare(`INSERT INTO ${table} ("40001","40020","40021","40027","40050","40800")
+    VALUES(502,'alice','u_peer','42',31,?)`)
+      .run(body);
+    const after = await service.browse(kind, conv, changed);
+    expect(after.items.map(({ msgId }) => msgId)).toEqual([502n, 500n]);
+    expect((await service.browse(kind, conv, filter)).items.map(({ msgId }) => msgId)).toEqual([
+      10n,
+      99n,
+    ]);
+  },
+);
 it('同序号同时间的消息沿用真实ID排序，双向游标不遗漏媒体', async () => {
-  const service = fixture(true);
+  const { service } = fixture(true);
   expect(
     (await service.mediaPage('group', '42', {}, 'older', '77')).items.map((item) => item.msgId),
   ).toEqual(['20', '10', '99']);
@@ -111,7 +145,7 @@ it('同序号同时间的消息沿用真实ID排序，双向游标不遗漏媒�
   ).toEqual(['20', '77']);
 });
 it('离线漫游缓存补入本地窗口，截断前先合并，缓存独有起点仍可连续浏览', async () => {
-  const service = fixture();
+  const { service } = fixture();
   const cached: GapFetchedMessage = {
     kind: 'group',
     conv: '42',

@@ -12,6 +12,7 @@
  */
 import { ProfileChatShortcutContext } from '../../lib/chatNavigation';
 import { activateProfile } from '../../lib/profileClick';
+import type { ProfilePoint } from '../../lib/profileCardMotion';
 import { profileTargetUser } from '../../lib/profileNavigation';
 import { NumericText } from '../NumericText';
 import { EmptyState } from '../EmptyState';
@@ -156,7 +157,11 @@ export function RelationGraphView({
   const [settings, setSettings] = useState<GraphSettings>(DEFAULT_SETTINGS);
   const [showRemarks, setShowRemarks] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [groupCardId, setGroupCardId] = useState<string | null>(null);
+  const [groupCard, setGroupCard] = useState<{
+    code: string;
+    trigger: ProfilePoint['trigger'];
+  } | null>(null);
+  const groupCardId = groupCard?.code ?? null;
   const groupAnchorRef = useRef<HTMLSpanElement | null>(null);
   const directory = useContext(ConversationDirectoryContext);
   const chatShortcut = useContext(ProfileChatShortcutContext);
@@ -177,7 +182,7 @@ export function RelationGraphView({
 
   useEffect(() => {
     setSelectedId(null);
-    setGroupCardId(null);
+    setGroupCard(null);
     setPair(null);
     setSettings((current) => {
       const previousMode = previousModeRef.current;
@@ -327,7 +332,7 @@ export function RelationGraphView({
             onSelect={(node, anchor, event) => {
               const show = () => {
                 setSelectedId(node && node.kind !== 'self' ? node.id : null);
-                setGroupCardId(null);
+                setGroupCard(null);
                 if (node?.kind === 'person') {
                   onOpenMember?.(
                     data.nodes.find((person) => person.uid === node.id) ?? {
@@ -345,7 +350,7 @@ export function RelationGraphView({
                 } else if (node?.kind === 'group' && groupAnchorRef.current) {
                   groupAnchorRef.current.style.left = `${anchor.x}px`;
                   groupAnchorRef.current.style.top = `${anchor.y}px`;
-                  setGroupCardId(node.code);
+                  setGroupCard({ code: node.code, trigger: anchor.trigger });
                 }
               };
               const user =
@@ -369,7 +374,7 @@ export function RelationGraphView({
                 landscape:
                   openChat?.landscape &&
                   (() => {
-                    setGroupCardId(null);
+                    setGroupCard(null);
                     openChat.landscape?.();
                   }),
                 portrait: openChat?.portrait,
@@ -391,8 +396,9 @@ export function RelationGraphView({
             key={groupCardId}
             conversation={groupConversation}
             anchor={groupAnchorRef.current}
+            profileTrigger={groupCard?.trigger}
             detailsKnown={Boolean(knownGroup)}
-            onClose={() => setGroupCardId(null)}
+            onClose={() => setGroupCard(null)}
           />
         ) : null}
 

@@ -61,24 +61,7 @@ try {
   );
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/full-functions.html`;
   await page.goto(url);
-  const comparison = page.locator('.weq-full-function-comparison-details');
-  await comparison.waitFor();
-  assert.deepEqual(
-    await comparison.evaluate((node) => {
-      const style = getComputedStyle(node);
-      return {
-        top: style.borderTopWidth,
-        bottom: style.borderBottomWidth,
-        bottomStyle: style.borderBottomStyle,
-      };
-    }),
-    { top: '0px', bottom: '1px', bottomStyle: 'solid' },
-  );
-  assert.equal(await comparison.evaluate((node) => node.open), false);
-  await comparison.locator('summary').click();
-  await page.getByRole('table', { name: 'QQ 在线能力对照' }).waitFor();
-  assert.equal(await page.locator('.weq-full-function-comparison td strong').count(), 4);
-  await comparison.locator('summary').click();
+  await page.getByRole('heading', { name: '启用方式（macOS）', exact: true }).waitFor();
   assert.equal(await page.locator('[data-setting-id="qq-debug-copy"] .weq-qq-debug').count(), 0);
   await page.getByRole('button', { name: '副本设置', exact: true }).click();
   const manager = page.locator('.weq-qq-debug-modal');
@@ -94,7 +77,7 @@ try {
   await auto.click();
   assert.equal(await auto.getAttribute('aria-checked'), 'false');
   const indicator = page.getByRole('switch', {
-    name: '在线能力受限时显示窗口提示',
+    name: '显示 QQ 功能状态提示',
     exact: true,
   });
   assert.equal(await indicator.getAttribute('aria-checked'), 'true');
@@ -122,7 +105,7 @@ try {
     .getByRole('button', { name: 'QQ 在线能力：在线能力受限，查看详情', exact: true })
     .waitFor();
   await status.click();
-  const restrictedDetails = page.getByRole('dialog', { name: '在线能力受限', exact: true });
+  const restrictedDetails = page.getByRole('dialog', { name: 'QQ 功能状态', exact: true });
   await restrictedDetails.getByText('会话凭据不完整').waitFor();
   await page.keyboard.press('Escape');
   await restrictedDetails.waitFor({ state: 'detached' });
@@ -130,17 +113,48 @@ try {
   await page.getByRole('combobox', { name: '功能受限或运行异常通知方式' }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.fullFunctionsQa.saves), [
     'setAutoAttachQq',
-    'setRestrictedModeIndicatorEnabled',
+    'setQqStatusIndicatorEnabled',
   ]);
+  const proxyCard = page.locator('[data-setting-id="qq-proxy-connection"]');
+  await proxyCard.getByText('等待在线能力', { exact: true }).waitFor();
+  await auto.click();
   for (const [id, label] of [
     ['qq-proxy-connection', '已连接'],
     ['long-term-authorization', '已授权'],
   ])
-    await page
-      .locator(`[data-setting-id="${id}"]`)
-      .getByRole('status')
-      .getByText(label, { exact: true })
-      .waitFor();
+    await page.locator(`[data-setting-id="${id}"]`).getByText(label, { exact: true }).waitFor();
+  await indicator.click();
+  await page.evaluate(() => {
+    window.fullFunctionsQa.setOnlineFixture({ qqOnline: false });
+    window.fullFunctionsQa.setProxyFixture({ connected: false });
+  });
+  const unified = page.getByRole('button', { name: '在线能力受限', exact: true });
+  await unified.click();
+  assert.equal(await page.locator('.weq-restricted-indicator').count(), 1);
+  await restrictedDetails.getByRole('region', { name: 'QQ 在线能力' }).waitFor();
+  assert.equal(await restrictedDetails.getByRole('region', { name: 'QQ 代理连接' }).count(), 0);
+  assert.equal(
+    await restrictedDetails.getByRole('button', { name: '打开 QQ', exact: true }).count(),
+    1,
+  );
+  assert.equal(
+    await restrictedDetails.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      return rect.right <= innerWidth && rect.bottom <= innerHeight;
+    }),
+    true,
+  );
+  if (output) {
+    await mkdir(output, { recursive: true });
+    await restrictedDetails.screenshot({ path: resolve(output, 'qq-function-status.png') });
+  }
+  await page.keyboard.press('Escape');
+  await restrictedDetails.waitFor({ state: 'detached' });
+  assert.equal(await unified.evaluate((node) => node === document.activeElement), true);
+  await page.evaluate(() => {
+    window.fullFunctionsQa.setOnlineFixture({ qqOnline: true, hasUid: true });
+    window.fullFunctionsQa.setProxyFixture({ connected: true });
+  });
   for (const style of ['classic', 'retro', 'qqnt']) {
     await page.evaluate(
       (style) => window.fullFunctionsQa.theme.getState().setComponentStyle(style),
@@ -166,12 +180,21 @@ try {
     assert.deepEqual(groups[1], groups[0], `${style}: QQ 在线能力分组与设置基线不一致`);
     assert.deepEqual(groups[2], groups[0], `${style}: QQ 代理连接分组与设置基线不一致`);
   }
-  for (const id of ['full-feature-routes', 'auto-full-mode', 'restricted-mode-indicator'])
+  for (const [id, title] of [
+    ['full-feature-routes', '在线能力'],
+    ['auto-full-mode', '在线能力'],
+    ['qq-status-indicator', '状态提醒'],
+    ['qq-client-sync', '同步与实时更新'],
+    ['qq-live-messages', '同步与实时更新'],
+  ])
     assert.equal(
       await page
         .locator(`[data-setting-id="${id}"]`)
-        .evaluate((node) => node.closest('.weq-set-card')?.getAttribute('data-setting-id')),
-      'full-features',
+        .evaluate(
+          (node) =>
+            node.closest('.weq-set-card')?.querySelector('.weq-set-card-title')?.textContent,
+        ),
+      title,
     );
   await page
     .getByRole('region', { name: 'QQ 调试副本路线', exact: true })
@@ -198,77 +221,34 @@ try {
           },
           { theme, accent },
         );
-        const contrast = await page
-          .locator('.weq-full-function-comparison-details > summary')
-          .evaluate((node) => {
-            const paint = document.createElement('canvas').getContext('2d');
-            const luminance = (color) => {
-              paint.clearRect(0, 0, 1, 1);
-              paint.fillStyle = color;
-              paint.fillRect(0, 0, 1, 1);
-              return [...paint.getImageData(0, 0, 1, 1).data]
-                .slice(0, 3)
-                .reduce((sum, value, i) => {
-                  const channel = value / 255;
-                  return (
-                    sum +
-                    (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4) *
-                      [0.2126, 0.7152, 0.0722][i]
-                  );
-                }, 0);
-            };
-            const levels = [
-              luminance(getComputedStyle(node).color),
-              luminance(getComputedStyle(node.closest('.weq-set-card')).backgroundColor),
-            ].sort((a, b) => b - a);
-            return (levels[0] + 0.05) / (levels[1] + 0.05);
+        const layout = await page.locator('main').evaluate((root) => ({
+          overflow: root.scrollWidth > root.clientWidth + 1,
+          clipped: [...root.querySelectorAll('h4,h5,button,.weq-set-row-main')]
+            .filter((node) => node.scrollWidth > node.clientWidth + 1)
+            .map((node) => node.textContent),
+          nestedCards: root.querySelectorAll('.weq-set-card .weq-set-card').length,
+          oldName: /完整(?:功能|模式|体验)/.test(root.textContent),
+        }));
+        assert.deepEqual(layout, {
+          overflow: false,
+          clipped: [],
+          nestedCards: 0,
+          oldName: false,
+        });
+        const columns = await page.locator('.weq-full-function-routes').evaluate((node) => {
+          const [copy, original] = [...node.children].map((child) => child.getBoundingClientRect());
+          return {
+            sideBySide: Math.abs(copy.top - original.top) < 1 && original.left > copy.right,
+            stacked: original.top >= copy.bottom,
+          };
+        });
+        assert.equal(width === 1180 ? columns.sideBySide : columns.stacked, true);
+        if (output && accent === '#075c30' && width !== 320)
+          await page.screenshot({
+            path: resolve(output, `${width}-${theme}-overview.png`),
+            fullPage: true,
           });
-        assert.ok(contrast >= 4.5, `${width}-${theme}-${accent}: summary contrast ${contrast}`);
-        for (const expanded of [false, true]) {
-          await comparison.evaluate((node, open) => {
-            node.open = open;
-          }, expanded);
-          await page.getByRole('table').waitFor({ state: expanded ? 'visible' : 'hidden' });
-          const layout = await page.locator('main').evaluate((root) => ({
-            overflow: root.scrollWidth > root.clientWidth + 1,
-            wrappedLabels: [
-              ...root.querySelectorAll('.weq-full-function-comparison tbody th'),
-            ].filter((node) => {
-              const range = document.createRange();
-              range.selectNodeContents(node);
-              const lines = [...range.getClientRects()].map((rect) => Math.round(rect.top));
-              return new Set(lines).size > 1;
-            }).length,
-            clipped: [...root.querySelectorAll('th,td,h4,h5,button,.weq-set-row-main')]
-              .filter((node) => node.scrollWidth > node.clientWidth + 1)
-              .map((node) => node.textContent),
-            nestedCards: root.querySelectorAll('.weq-set-card .weq-set-card').length,
-            oldName: /完整(?:功能|模式|体验)/.test(root.textContent),
-          }));
-          assert.deepEqual(layout, {
-            overflow: false,
-            wrappedLabels: 0,
-            clipped: [],
-            nestedCards: 0,
-            oldName: false,
-          });
-          const columns = await page.locator('.weq-full-function-routes').evaluate((node) => {
-            const [copy, original] = [...node.children].map((child) =>
-              child.getBoundingClientRect(),
-            );
-            return {
-              sideBySide: Math.abs(copy.top - original.top) < 1 && original.left > copy.right,
-              stacked: original.top >= copy.bottom,
-            };
-          });
-          assert.equal(width === 1180 ? columns.sideBySide : columns.stacked, true);
-          if (output && accent === '#075c30' && width !== 320)
-            await page.screenshot({
-              path: resolve(output, `${width}-${theme}-${expanded ? 'expanded' : 'overview'}.png`),
-              fullPage: true,
-            });
-          cases++;
-        }
+        cases++;
         if (accent === '#075c30') {
           await page.getByRole('button', { name: '副本设置', exact: true }).click();
           await manager.waitFor();
@@ -291,7 +271,7 @@ try {
   }
   for (const query of ['?platform=linux', '?platform=win32', '?sip-off', '?sip-error']) {
     await page.goto(url + query);
-    await page.locator('.weq-full-function-comparison-details').waitFor();
+    await page.getByRole('heading', { name: /^启用方式/ }).waitFor();
     if (query.includes('platform')) {
       assert.equal(await page.locator('[data-setting-id="qq-debug-copy"]').count(), 0);
       assert.equal((await page.locator('main').textContent()).includes('SIP'), false);

@@ -29,10 +29,12 @@ import { trpc } from '../../trpc/client';
 import { DbDataGrid } from './DbDataGrid';
 import { SqlConsole } from './SqlConsole';
 import { InlineSkeleton, TreeSkeleton } from './CacheSkeleton';
+import { EmptyState } from '../../components/EmptyState';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { useRemoteClient } from '../../lib/remoteClient';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { CheckPill } from '../../components/settings/controls';
+import { qqDatabasePurpose } from '../../lib/qqDatabasePurpose';
 import { useSurfaceEscapeDismissal } from '../../lib/surfaceEscape';
 
 type SubTab = 'data' | 'sql';
@@ -173,23 +175,27 @@ export function DbExplorer({
                 className="weq-cache-dbpick-menu"
                 role="listbox"
               >
-                {dbList.map((db) => (
-                  <button
-                    key={db.path}
-                    type="button"
-                    className={`weq-cache-dbpick-item${db.path === dbPath ? ' is-on' : ''}`}
-                    onClick={() => {
-                      setDbPath(db.path);
-                      setPickerOpen(false);
-                    }}
-                    title={db.path}
-                  >
-                    <strong>{db.name}</strong>
-                    <small>
-                      <span className="weq-number weq-number-inherit">{fmtBytes(db.bytes)}</span>
-                    </small>
-                  </button>
-                ))}
+                {dbList.map((db) => {
+                  const purpose = qqDatabasePurpose(db.name);
+                  return (
+                    <button
+                      key={db.path}
+                      type="button"
+                      className={`weq-cache-dbpick-item${db.path === dbPath ? ' is-on' : ''}`}
+                      onClick={() => {
+                        setDbPath(db.path);
+                        setPickerOpen(false);
+                      }}
+                      title={db.path}
+                    >
+                      <strong>{db.name}</strong>
+                      {purpose ? <span className="weq-cache-dbpick-purpose">{purpose}</span> : null}
+                      <small>
+                        <span className="weq-number weq-number-inherit">{fmtBytes(db.bytes)}</span>
+                      </small>
+                    </button>
+                  );
+                })}
               </div>
             ) : null}
           </div>
@@ -282,7 +288,28 @@ export function DbExplorer({
 
         <div className="weq-cache-panel-body">
           {!dbPath ? (
-            <div className="weq-cache-grid-state">请选择数据库</div>
+            <div className="weq-cache-grid-placeholder">
+              <EmptyState
+                icon={<Database />}
+                title={databases.isLoading ? '正在读取数据库…' : '没有可浏览的数据库'}
+                body={
+                  databases.isLoading
+                    ? '正在读取当前账号的本地数据库，完成后会显示在这里。'
+                    : '当前账号没有可读取的本地数据库。确认 QQ 数据目录可访问后，刷新列表重试。'
+                }
+              />
+              {!databases.isLoading ? (
+                <button
+                  type="button"
+                  className="weq-cache-btn"
+                  disabled={databases.isFetching}
+                  onClick={() => void databases.refetch()}
+                >
+                  <RefreshCw size={14} aria-hidden />
+                  刷新数据库
+                </button>
+              ) : null}
+            </div>
           ) : subTab === 'sql' ? (
             <SqlConsole
               key={dbPath}
@@ -299,7 +326,22 @@ export function DbExplorer({
               editable={editable && !remote}
             />
           ) : (
-            <div className="weq-cache-grid-state">请选择左侧的表或视图</div>
+            <div className="weq-cache-grid-placeholder">
+              <EmptyState
+                icon={<Table2 />}
+                title="选择一张表或视图"
+                body="从左侧选择表或视图后，这里会显示表结构和行数据。"
+              />
+              <button
+                type="button"
+                className="weq-cache-btn"
+                disabled={objects.isFetching}
+                onClick={() => void objects.refetch()}
+              >
+                <RefreshCw size={14} aria-hidden />
+                刷新对象列表
+              </button>
+            </div>
           )}
         </div>
       </section>

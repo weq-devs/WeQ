@@ -12,8 +12,7 @@ import { serveStatic } from '../src/main/web/static';
 let root: string;
 let server: Server;
 let port: number;
-const shell =
-  '<!doctype html><head><link rel="modulepreload" href="/assets/shared-12345678.js"><link rel="stylesheet" href="/assets/app-12345678.css"><script type="module" src="/assets/app-12345678.js"></script><link rel="modulepreload" href="/assets/shared-12345678.js"><script src="https://other.invalid/assets/external.js"></script><script src="/outside.js"></script></head><body><div id="root"></div></body>';
+const shell = `<!doctype html><head><meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; connect-src 'self'"><link rel="modulepreload" href="/assets/shared-12345678.js"><link rel="stylesheet" href="/assets/app-12345678.css"><script type="module" src="/assets/app-12345678.js"></script><link rel="modulepreload" href="/assets/shared-12345678.js"><script src="https://other.invalid/assets/external.js"></script><script src="/outside.js"></script></head><body><div id="root"></div></body>`;
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'weq-startup-assets-'));
@@ -98,7 +97,10 @@ it.each(['gzip', 'gzip;q=0', 'br'])(
 
 it('普通浏览器不改变 HTML，更新入口后不沿用旧清单', async () => {
   expect((await get('/', 'gzip', false)).toString()).toBe(shell);
-  await get('/', 'gzip');
+  const remoteShell = (await get('/', 'gzip')).toString();
+  expect(remoteShell).toContain("img-src 'self' data: https:;");
+  expect(remoteShell).toContain("media-src 'self' https:");
+  expect(remoteShell).toContain("connect-src 'self';");
   await writeFile(
     join(root, 'index.html'),
     '<script type="module" src="/assets/shared-12345678.js"></script>',

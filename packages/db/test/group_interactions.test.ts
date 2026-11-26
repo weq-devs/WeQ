@@ -148,6 +148,44 @@ it('按群和序号补读表情，返回移除后的空状态并排除其他群'
   expect(read).toHaveLength(2);
 });
 
+it('按页读正文时保留同秒消息、时间和群范围，跳过新写入的 rowid', async () => {
+  createFixture();
+  const sql = fixtureDb(join(dir, 'nt_msg.db'));
+  sql.exec('CREATE INDEX group_msg_seq ON group_msg_table ("40027","40003")');
+  const insert = sql.prepare(
+    'INSERT INTO group_msg_table (rowid, "40027", "40020", "40050", "40800", "40003") VALUES (?, ?, ?, ?, ?, ?)',
+  );
+  insert.setReadBigInts(true);
+  for (let index = 0; index < 630; index++) {
+    insert.run(
+      BigInt(index) * 2n - 100n + 9_007_199_254_740_000n,
+      GROUP,
+      SELF_UID,
+      200,
+      encodeBody(text(`话${index}`)),
+      Math.floor(index / 10),
+    );
+  }
+  insert.run(-24n, GROUP, SELF_UID, 199, encodeBody(text('早于窗口')), null);
+  insert.run(-23n, GROUP, SELF_UID, 200, encodeBody(text('负数行号')), null);
+  insert.run(-20n, '888', SELF_UID, 200, encodeBody(text('另一个群')), 1);
+  insert.run(-19n, GROUP, SELF_UID, 201, encodeBody(text('晚于窗口')), 1);
+  const collected: string[] = [];
+  for await (const batch of db.speechBatchesInGroup(GROUP, { startTime: 200, endTime: 201 })) {
+    if (!collected.length) {
+      expect(batch.length).toBeLessThan(631);
+      insert.run(9_007_199_254_750_000n, GROUP, SELF_UID, 200, encodeBody(text('翻页时才写入')), 2);
+    }
+    collected.push(
+      ...batch.map((row) => (row.elements[0]?.kind === 'text' ? row.elements[0].textContent : '')),
+    );
+  }
+  expect(collected).toEqual([
+    '负数行号',
+    ...Array.from({ length: 630 }, (_, index) => `话${index}`),
+  ]);
+});
+
 describe('GroupMsgDb.tallyInteractions (offline fixture)', () => {
   it('separates poking out from being poked', async () => {
     createFixture();

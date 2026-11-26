@@ -86,6 +86,7 @@ export async function stageAccountFile(
   expected?: FileBinding,
   signal?: AbortSignal,
   onProgress?: (received: number, total: number) => void,
+  format?: 'silk',
 ) {
   signal?.throwIfAborted();
   if (!file.size || file.size > PICKED_BROWSER_FILE_MAX_BYTES)
@@ -124,7 +125,11 @@ export async function stageAccountFile(
       onProgress?.(next.offset, file.size);
     }
     check();
-    const completed = await client.account.pickedFileFinish.mutate({ ...binding, uploadId: id });
+    const completed = await client.account.pickedFileFinish.mutate({
+      ...binding,
+      uploadId: id,
+      ...(format ? { format } : {}),
+    });
     check();
     return {
       ...completed,

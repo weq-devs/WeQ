@@ -34,9 +34,21 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-11-16T05:00:00Z'));
+  // happy-dom 不布局。只有可测量的图表区域才会触发历史读取。
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.classList.contains('weq-perf-plots') ? 960 : 0;
+  });
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.classList.contains('weq-perf-plots') ? 640 : 0;
+  });
 });
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
+  vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });

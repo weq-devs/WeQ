@@ -78,10 +78,13 @@ it('有模型元数据、手动属性和请求时限的 API 备份可以重新�
 
 it('应用设置与 API 分区独立，快照不改原值或夹带运行票据', () => {
   const source = settings();
+  expect(source.logCapacityMiB).toBe(256);
+  source.logCapacityMiB = 1536;
   const original = structuredClone(source);
   const app = snapshotWeqSettings(source);
   const api = snapshotWeqApiSettings(source);
   expect(() => validateWeqAppSettings(app)).not.toThrow();
+  expect(app.logCapacityMiB).toBe(1536);
   expect(() => validateWeqApiSettings(api)).not.toThrow();
   expect(JSON.stringify(app)).not.toContain('secret');
   expect(JSON.stringify(api)).toContain('synthetic-api-secret');
@@ -151,6 +154,7 @@ it('允许部分设置恢复，并校验嵌套类型与现有分页规则', () =
     { weqAssistant: { port: 65536 } },
     { autoLockMinutes: -1 },
     { logRetentionDays: MAX_LOG_RETENTION_DAYS + 1 },
+    { logCapacityMiB: 1.5 },
     { exportSaveMode: 'arbitrary' },
     { exportSaveMode: 'after' },
     { windowCloseBehavior: 'hide' },

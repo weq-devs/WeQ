@@ -1,59 +1,49 @@
-.weq-resources-settings,
 .weq-resource-management,
 .weq-resource-panel {
-  min-width: 0;
-}
-.weq-resource-management > .weq-segmented {
-  margin-bottom: 12px;
-}
-.weq-resource-management .weq-segmented button > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
 }
 .weq-resource-status {
-  margin: 8px 0 16px;
+  margin: 0;
   color: var(--weq-fg-secondary);
   font-size: 13px;
 }
-.weq-resource-management .weq-ra-dialog {
-  width: 100%;
-  height: auto;
-  max-width: none;
-  max-height: none;
-  min-height: 0;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-  background: transparent;
-  animation: none;
-}
-.weq-resource-management .weq-ra-head {
-  padding: 10px 0;
-  background: transparent;
-}
-.weq-resource-management .weq-ra-body {
-  padding: 16px 0;
+.weq-resource-management .weq-clean-body {
+  padding: 0;
   overflow: visible;
 }
-.weq-resource-management .weq-ra-card {
-  border-radius: 6px;
-  box-shadow: none;
-  background: color-mix(in srgb, var(--weq-bg-surface) 65%, transparent);
+.weq-resource-management .weq-ra-progress {
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
-.weq-resource-management .weq-ra-tile,
+.weq-resource-management .weq-ra-error {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.weq-resource-management .weq-ra-tiles {
+  grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
+}
+.weq-resource-management .weq-ra-tile {
+  min-width: 0;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  overflow-wrap: anywhere;
+}
+.weq-resource-management .weq-ra-tile-icon {
+  display: none;
+}
+.weq-resource-management .weq-ra-tile-value {
+  font-size: 20px;
+  font-weight: 600;
+}
 .weq-resource-management .weq-clean-mode,
 .weq-resource-management .weq-clean-target,
 .weq-resource-management .weq-clean-summary {
   border-radius: 6px;
   background: transparent;
-}
-.weq-resource-management .weq-ra-tile-icon {
-  border-radius: 0;
-  background: transparent;
-}
-.weq-resource-management .weq-ra-tile-value {
-  font-size: 22px;
 }
 .weq-resource-management .weq-clean-mode:hover:not(:disabled) {
   transform: none;
@@ -111,25 +101,18 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.weq-resource-mapping {
-  padding: 16px 0;
-  border-top: 1px solid var(--weq-border-subtle);
-}
-.weq-resource-mapping h3 {
-  margin: 0 0 12px;
-  font-size: 14px;
-}
 .weq-resource-map-row {
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   padding: 10px 0;
-  border-bottom: 1px solid var(--weq-border-subtle);
   font-size: 13px;
 }
-.weq-resource-map-row > span,
-.weq-resource-mapping p {
+.weq-resource-map-row + .weq-resource-map-row {
+  border-top: 1px solid var(--weq-border-subtle);
+}
+.weq-resource-map-row > span {
   color: var(--weq-fg-secondary);
   overflow-wrap: anywhere;
   font-size: 12px;
@@ -139,12 +122,10 @@
   height: max(520px, calc(100dvh - 300px));
   max-height: 950px;
   min-width: 0;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 6px;
   overflow: hidden;
 }
-html[data-theme='dark'] .weq-resource-management .weq-ra-head {
-  background: transparent;
+.weq-resource-browser .weq-cache {
+  padding: 0;
 }
 html[data-theme='dark'] .weq-resource-management .weq-clean-go.is-danger {
   color: var(--background);
@@ -154,9 +135,19 @@ html[data-theme='dark'] .weq-resource-management .weq-clean-go.is-danger {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
-  .weq-resource-management .weq-ra-head {
-    flex-wrap: wrap;
-    gap: 10px;
+  .weq-resource-management > .weq-set-card .weq-segmented button {
+    padding-inline: 6px;
+  }
+  .weq-resource-management .weq-ra-tr {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.8fr) repeat(3, minmax(0, 1fr));
+    gap: 4px;
+    overflow-wrap: anywhere;
+  }
+  .weq-resource-management .weq-ra-cat {
+    gap: 4px;
+  }
+  .weq-resource-management .weq-ra-cat svg {
+    display: none;
   }
   .weq-resource-map-row {
     grid-template-columns: 60px minmax(0, 1fr) auto;
@@ -164,5 +155,14 @@ html[data-theme='dark'] .weq-resource-management .weq-clean-go.is-danger {
   }
   .weq-resource-browser {
     height: max(720px, calc(100dvh - 240px));
+  }
+}
+
+@media (max-width: 360px) {
+  .weq-resource-management > .weq-set-card .weq-segmented button {
+    padding-inline: 3px;
+  }
+  .weq-resource-management .weq-set-seg-label {
+    gap: 4px;
   }
 }

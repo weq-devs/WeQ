@@ -170,11 +170,11 @@ describe('右键菜单外部点击', () => {
         .querySelector('.weq-account-select')!
         .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
     });
-    expect(document.querySelector('.weq-acct-ctx-menu')).not.toBeNull();
+    expect(document.querySelector('[role="menu"][aria-label="账号操作"]')).not.toBeNull();
     host.addEventListener('pointerdown', (event) => event.stopPropagation());
     host.addEventListener('mousedown', (event) => event.stopPropagation());
     press(host);
-    expect(document.querySelector('.weq-acct-ctx-menu')).toBeNull();
+    expect(document.querySelector('[role="menu"][aria-label="账号操作"]')).toBeNull();
   });
 
   it('点击父层只关闭菜单，不关闭父窗或触发背后的按钮', () => {

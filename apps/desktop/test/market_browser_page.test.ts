@@ -168,7 +168,9 @@ it('商城表情在页签内离线搜索和清空，切换页签保留独立关�
         (item) => item.textContent === label,
       )!;
     await act(async () => tab('聊天气泡').click());
-    expect(host.querySelector<HTMLInputElement>('.weq-dress-search input')!.disabled).toBe(true);
+    const dressSearch = host.querySelector<HTMLInputElement>('.weq-dress-search input')!;
+    expect(dressSearch.disabled).toBe(false);
+    expect(dressSearch.getAttribute('aria-label')).toBe('搜索装扮');
     expect(host.querySelector<HTMLInputElement>('.weq-dress-search input')!.value).toBe('');
     await act(async () => tab('商城表情').click());
     expect(host.querySelector<HTMLInputElement>('.weq-dress-search input')!.value).toBe(' 开心 ');

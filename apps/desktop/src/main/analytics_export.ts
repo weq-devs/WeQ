@@ -20,8 +20,9 @@
  * 位置选择先于捕获；卡片数据固定为点击时的快照，结果由公共任务缓存与保存。
  */
 
+import { accountIpc, accountSession } from './window_account_runtime';
 import { labelPerformanceWindow } from './performance_process_labels';
-import { BrowserWindow, ipcMain, nativeImage } from 'electron';
+import { BrowserWindow, nativeImage } from 'electron';
 import fs from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -61,7 +62,7 @@ const MAX_CONTENT_SIDE = 16_000;
 const EXPORT_WIDTH = 840;
 
 /** 待认领的载荷：可见窗口递过来，导出窗口启动时领走。 */
-let pendingPayload: AnalyticsExportPayload | null = null;
+const pendingPayloads = new WeakMap<Electron.WebContents, AnalyticsExportPayload>();
 /** 同一时刻只跑一次导出：用户连点也不至于开一堆窗口。 */
 let inFlight = false;
 
@@ -113,6 +114,7 @@ function createExportWindow(): BrowserWindow {
     skipTaskbar: true,
     ...floatingWindowTypeOption(),
     webPreferences: {
+      session: accountSession(),
       preload: outFile('../preload/index.mjs'),
       sandbox: false,
       contextIsolation: true,
@@ -269,10 +271,10 @@ async function captureCard(win: BrowserWindow, card: CardRect): Promise<Buffer> 
 async function runExport(payload: AnalyticsExportPayload): Promise<Buffer> {
   if (inFlight) throw new Error('上一张还在导出中');
   inFlight = true;
-  pendingPayload = payload;
   let win: BrowserWindow | null = null;
   try {
     win = createExportWindow();
+    pendingPayloads.set(win.webContents, payload);
     await Promise.race([loadExportEntry(win).catch(() => {}), delay(LOAD_TIMEOUT_MS)]);
     if (win.isDestroyed()) throw new Error('导出窗口已关闭');
 
@@ -289,16 +291,18 @@ async function runExport(payload: AnalyticsExportPayload): Promise<Buffer> {
 
     return await captureCard(win, settled);
   } finally {
-    pendingPayload = null;
     inFlight = false;
-    if (win && !win.isDestroyed()) win.destroy();
+    if (win && !win.isDestroyed()) {
+      pendingPayloads.delete(win.webContents);
+      win.destroy();
+    }
   }
 }
 
 export function registerAnalyticsExportIpc(): void {
   setAnalyticsRenderer(runExport);
   /** 可见窗口：递交卡片快照，返回公共导出任务或取消结果。 */
-  ipcMain.handle(
+  accountIpc.handle(
     'analytics-shot:render',
     async (_event, payload: unknown): Promise<AnalyticsExportResult> => {
       const clean = sanitizePayload(payload);
@@ -312,5 +316,5 @@ export function registerAnalyticsExportIpc(): void {
   );
 
   /** 导出窗口：认领待渲染的载荷。 */
-  ipcMain.handle('analytics-shot:claim', () => pendingPayload);
+  accountIpc.handle('analytics-shot:claim', ({ sender }) => pendingPayloads.get(sender) ?? null);
 }

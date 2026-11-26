@@ -13,13 +13,12 @@ import * as timeFormat from '@weq/time';
  */
 
 import { useState, type ReactElement } from 'react';
-import { BellDot, Boxes, Info, RefreshCw } from 'lucide-react';
+import { Boxes, Info, RefreshCw } from 'lucide-react';
 import { NumericText } from '../NumericText';
 import { trpc } from '../../trpc/client';
 import { useQQAutoRefresh } from '../../hooks/useQQAutoRefresh';
 import { Card, SectionHeader } from './controls';
 import { UpdateCard } from './UpdateCard';
-import { EntryBadgeRows } from './UnreadBadgeSettings';
 import { DesktopOnly } from '../../lib/target';
 import logoUrl from '@resources/brand/logo.png';
 
@@ -111,7 +110,7 @@ export function VersionSection(): ReactElement {
         <div className="weq-set-hero">
           <Boxes size={28} strokeWidth={1.6} aria-hidden style={{ flexShrink: 0 }} />
           <div className="weq-set-hero-info">
-            <span className="weq-set-hero-name">nt_helper.node</span>
+            <span className="weq-set-row-label">nt_helper.node</span>
             <span className="weq-set-hero-sub">
               <NumericText>
                 {native.isLoading
@@ -148,9 +147,6 @@ export function VersionSection(): ReactElement {
       <DesktopOnly>
         <UpdateCard />
       </DesktopOnly>
-      <Card title="更新标记" icon={<BellDot size={15} strokeWidth={1.8} />}>
-        <EntryBadgeRows kind="updates" />
-      </Card>
     </div>
   );
 }

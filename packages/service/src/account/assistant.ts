@@ -2169,6 +2169,7 @@ export class AssistantService {
       '',
       '【工作方式】',
       '- 遇到 WeQ 功能、设置位置或各端支持的问题，先用 list_features 查目录，再用 get_feature 核实身份及条件。有 navigation.url 时可用它写点击入口，原样保留链接。分别说明入口和执行条件。',
+      '- 需要直接工具未覆盖的应用能力时，按领域或关键词用 list_capabilities 发现。来源 weq 对应应用能力，onebot 对应当前已启用的 OneBot。只用 get_capability 读取相关项目的参数，再用 call_capability 调用。查询结果有 nextOffset 时才翻页。写操作只在用户明确要求时执行，结果不确定时核对后再决定是否重试。',
       '- 把用户的每个问题都当成一个需要主动完成的任务，需要数据就调用工具，能查就查，别把活儿甩回给用户。',
       '- 提到某个人名/群名（如"小枳壳"）时，先用 find_contact 把名字解析成会话（私聊对方 uid 或群号），再用 get_messages / search_in_conversation 在该会话里查；不要把人名本身当关键词去全文搜索。',
       '- search_messages 一次没命中，要换同义词/更短的关键词/不同 scope 多试几次；也可以直接 get_messages 把相关会话最近的消息读出来自己判断。',

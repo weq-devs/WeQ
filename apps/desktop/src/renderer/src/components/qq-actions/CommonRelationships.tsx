@@ -25,7 +25,8 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
   const titleId = useId();
   const anchor = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [selectedCode, setSelectedCode] = useState<string | null>(null);
+  const [selection, setSelection] = useState<{ code: string; trigger: HTMLElement } | null>(null);
+  const selectedCode = selection?.code;
   const query = trpc.account.qqWrite.commonRelationships.useQuery(
     { ...session.binding!, target: uin },
     {
@@ -49,6 +50,13 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
         ),
     },
   );
+  const { attributeFriendCount, friendCount, friendError } = query.data ?? {};
+  const displayedCount = attributeFriendCount ?? friendCount;
+  const countsDiffer =
+    attributeFriendCount != null &&
+    friendCount != null &&
+    !friendError &&
+    attributeFriendCount !== friendCount;
   const selected = query.data?.groups?.find((group) => group.groupCode === selectedCode);
   const known = directory?.real?.find(
     (conversation) => conversation.type === 'group' && conversation.id === selectedCode,
@@ -69,19 +77,29 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
       <ContactRow
         label="共同好友"
         empty={
-          query.data?.friendCount == null &&
+          displayedCount == null &&
           !query.isFetching &&
           !query.error &&
           !query.data?.friendError &&
           !query.data?.groupError
         }
       >
-        {query.data?.friendCount == null ? (
+        {countsDiffer ? (
+          <>
+            <span title="共同属性接口返回的数据">
+              <NumericText>{attributeFriendCount}</NumericText>
+            </span>
+            {' / '}
+            <span title="批量加好友接口返回的数据">
+              <NumericText>{friendCount}</NumericText>
+            </span>
+          </>
+        ) : displayedCount == null ? (
           query.isFetching ? (
             '读取中…'
           ) : null
         ) : (
-          <NumericText>{query.data.friendCount}</NumericText>
+          <NumericText>{displayedCount}</NumericText>
         )}
         {query.error || query.data?.friendError || query.data?.groupError ? (
           <button
@@ -121,7 +139,7 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
           labelledBy={titleId}
           onClose={() => {
             setOpen(false);
-            setSelectedCode(null);
+            setSelection(null);
           }}
           className="weq-common-groups-dialog"
         >
@@ -136,7 +154,7 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
               aria-label="关闭"
               onClick={() => {
                 setOpen(false);
-                setSelectedCode(null);
+                setSelection(null);
               }}
             >
               <X size={18} />
@@ -163,11 +181,12 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
                         avatar: avatarFromGroupCode(code) ?? '',
                       }),
                     })?.landscape;
-                    activateProfile(event, () => setSelectedCode(code), {
+                    const trigger = event.currentTarget;
+                    activateProfile(event, () => setSelection({ code, trigger }), {
                       landscape:
                         open &&
                         (() => {
-                          setSelectedCode(null);
+                          setSelection(null);
                           setOpen(false);
                           onNavigate?.();
                           open();
@@ -191,13 +210,14 @@ function CommonRelationshipsBody({ uin, onNavigate }: { uin: string; onNavigate?
           {selected && (
             <GroupProfileDialog
               key={selected.groupCode}
+              profileTrigger={selection?.trigger}
               conversation={conversation}
               detailsKnown={known?.type === 'group'}
-              onClose={() => setSelectedCode(null)}
+              onClose={() => setSelection(null)}
               onOpenChat={
                 openChat && conversation
                   ? () => {
-                      setSelectedCode(null);
+                      setSelection(null);
                       setOpen(false);
                       onNavigate?.();
                       openChat({ kind: 'group', conversation });

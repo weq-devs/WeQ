@@ -518,7 +518,9 @@ function memberOpener(
     event: MouseEvent<HTMLButtonElement>,
     chatShortcut: React.ContextType<typeof ProfileChatShortcutContext>,
   ) => {
-    const rect = event.currentTarget.getBoundingClientRect();
+    const trigger = event.currentTarget;
+    const rect = trigger.getBoundingClientRect();
+    const anchor = { x: rect.right - 24, y: rect.bottom, trigger };
     const user = profileTargetUser({ identity: source.uid, uin: source.uin, name: source.nick });
     activateProfile(
       event,
@@ -532,7 +534,7 @@ function memberOpener(
             groupCode: group?.code,
             groupName: group?.name,
           },
-          { x: rect.right - 24, y: rect.bottom },
+          anchor,
         ),
       user ? chatShortcut?.({ kind: 'direct', user, pokeGroupCode: group?.code }) : undefined,
     );

@@ -1,3 +1,4 @@
+import { SELECT_OPEN_ACCOUNT_TOOL } from '../mcp/tool_permissions';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   createServer,
@@ -11,9 +12,10 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { servicePortCandidates } from '@weq/service/service-ports';
 import { z } from 'zod/v3';
-import { externalMcpTools, type McpServerOptions } from '../mcp/server';
+import { externalMcpTools, isCompactMcpTool, type McpServerOptions } from '../mcp/server';
 import { MCP_MAIL_ATTACHMENT_ROUTE } from '../mcp/mail_tools';
 import { MCP_CHAT_VIDEO_ROUTE } from '../mcp/chat_video_download';
+import { MCP_FILE_ROUTE } from '../mcp/chat_file_download';
 import { PRIVATE_ACCOUNT_HEADER, type DesktopAccountRoutes, type RoutedAccount } from './accounts';
 import { PRIVATE_TOKEN_HEADER, readControlJson, sendJson, stopPrivate } from './control';
 
@@ -47,10 +49,11 @@ export function mcpCredentialId(token: string): string {
 
 interface ToolSession {
   credential: string;
+  compact: boolean;
   transport: StreamableHTTPServerTransport;
   server: McpServer;
   selected?: RoutedAccount;
-  pendingSelection?: { configId: string; promise: Promise<RoutedAccount> };
+  pendingSelection?: { configId: string; open: boolean; promise: Promise<RoutedAccount> };
   selection: AbortController;
   lastActive: number;
   switchRevision: number;
@@ -90,6 +93,7 @@ export class DesktopMcpGateway {
   constructor(
     private readonly accounts: DesktopAccountRoutes,
     private readonly accountIds: (credential: string) => readonly string[] | undefined,
+    private readonly canWrite?: (credential: string, configId: string) => boolean,
   ) {}
 
   get boundPort(): number | null {
@@ -172,11 +176,13 @@ export class DesktopMcpGateway {
     return this.accounts.list().filter((account) => ids?.includes(account.configId));
   }
 
-  private select(session: ToolSession, configId: string): Promise<RoutedAccount> {
-    if (session.pendingSelection?.configId === configId) return session.pendingSelection.promise;
+  private select(session: ToolSession, configId: string, open = true): Promise<RoutedAccount> {
+    if (session.pendingSelection?.configId === configId && session.pendingSelection.open === open)
+      return session.pendingSelection.promise;
     const pending = {
       configId,
-      promise: this.selectAccount(session, configId).finally(() => {
+      open,
+      promise: this.selectAccount(session, configId, open).finally(() => {
         if (session.pendingSelection === pending) session.pendingSelection = undefined;
       }),
     };
@@ -184,11 +190,16 @@ export class DesktopMcpGateway {
     return pending.promise;
   }
 
-  private async selectAccount(session: ToolSession, configId: string): Promise<RoutedAccount> {
+  private async selectAccount(
+    session: ToolSession,
+    configId: string,
+    open: boolean,
+  ): Promise<RoutedAccount> {
     if (!this.accountIds(session.credential)?.includes(configId))
       throw new Error('此账号未向该 MCP 令牌授权。');
     const revision = ++session.switchRevision;
-    const selected = await this.accounts.open(configId);
+    const selected = open ? await this.accounts.open(configId) : await this.accounts.find(configId);
+    if (!selected) throw new Error('授权账号未在 WeQ 窗口中打开。');
     if (
       revision !== session.switchRevision ||
       session.selection.signal.aborted ||
@@ -202,11 +213,15 @@ export class DesktopMcpGateway {
   }
 
   private async runTool(session: ToolSession, name: string, args: unknown, signal: AbortSignal) {
-    if (name === 'list_accounts')
+    if (name === 'list_accounts') {
+      const windows = await this.accounts.windows();
+      const open = new Set(windows.map((window) => window.account?.configId));
       return this.candidates(session).map((account) => ({
         ...account,
+        open: open.has(account.configId),
         current: session.selected?.account.configId === account.configId,
       }));
+    }
     if (name === 'switch_account') {
       const { configId } = z.object({ configId: z.string() }).parse(args);
       const target = await this.select(session, configId);
@@ -218,12 +233,18 @@ export class DesktopMcpGateway {
       (candidates.length === 1 ? await this.select(session, candidates[0]!.configId) : null);
     if (!target)
       throw new Error(
-        candidates.length ? '请先使用 switch_account 选择账号。' : '此令牌尚未获账号授权。',
+        candidates.length
+          ? '请先使用 select_open_account 或 switch_account 选择账号。'
+          : '此令牌尚未获账号授权。',
       );
     if (!this.accountIds(session.credential)?.includes(target.account.configId))
       throw new Error('此账号授权已撤销。');
     const selection = session.selection.signal;
-    const value = await this.callWorker(target, name, args, AbortSignal.any([signal, selection]));
+    const allowWrites = this.canWrite?.(session.credential, target.account.configId) === true;
+    const value = await this.callWorker(target, name, args, AbortSignal.any([signal, selection]), {
+      allowWrites,
+      compact: session.compact,
+    });
     selection.throwIfAborted();
     if (
       value &&
@@ -234,7 +255,8 @@ export class DesktopMcpGateway {
       const workerPath = value.downloadPath;
       if (
         workerPath.startsWith(MCP_MAIL_ATTACHMENT_ROUTE) ||
-        workerPath.startsWith(MCP_CHAT_VIDEO_ROUTE)
+        workerPath.startsWith(MCP_CHAT_VIDEO_ROUTE) ||
+        workerPath.startsWith(MCP_FILE_ROUTE)
       ) {
         if (this.tickets.size >= MAX_TICKETS)
           this.tickets.delete(this.tickets.keys().next().value!);
@@ -257,11 +279,12 @@ export class DesktopMcpGateway {
     name: string,
     args: unknown,
     signal: AbortSignal,
+    options?: { allowWrites: boolean; compact: boolean },
   ) {
     const response = await fetch(`http://127.0.0.1:${target.mcp.port}/tool`, {
       method: 'POST',
       headers: { ...workerHeaders(target), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, args }),
+      body: JSON.stringify({ name, args, ...options }),
       signal,
       redirect: 'error',
     });
@@ -344,11 +367,13 @@ export class DesktopMcpGateway {
     if (req.headers.origin && req.headers.origin !== `http://127.0.0.1:${this.port}`)
       return sdkError(res, 403, 'MCP 请求来源无效。');
     if (req.url?.startsWith('/downloads/')) return this.download(credential, req, res);
-    if (req.url !== '/' && req.url !== '/mcp') return sdkError(res, 404, 'MCP 接口不存在。');
+    const compact = req.url === '/mcp/compact';
+    if (!compact && req.url !== '/' && req.url !== '/mcp')
+      return sdkError(res, 404, 'MCP 接口不存在。');
     const id = req.headers['mcp-session-id'];
     if (typeof id === 'string') {
       const session = this.sessions.get(id);
-      if (!session || session.credential !== credential)
+      if (!session || session.credential !== credential || session.compact !== compact)
         return sdkError(res, 404, 'MCP 会话已结束，请重新连接。');
       session.lastActive = Date.now();
       await session.transport.handleRequest(req, res);
@@ -356,7 +381,10 @@ export class DesktopMcpGateway {
     }
     if (req.method !== 'POST') return sdkError(res, 400, '需要初始化 MCP 会话。');
     const body = await readControlJson(req);
-    if (!isInitializeRequest(body)) return this.legacyRead(credential, body, res);
+    if (!isInitializeRequest(body)) {
+      if (compact) return sdkError(res, 400, '需要初始化 MCP 会话。');
+      return this.legacyRead(credential, body, res);
+    }
     this.prune();
     if (this.sessions.size >= MAX_SESSIONS) return sdkError(res, 503, 'MCP 会话容量已满。');
     const server = new McpServer({ name: 'weq', version: '0.1.0' });
@@ -369,6 +397,7 @@ export class DesktopMcpGateway {
     });
     const session: ToolSession = {
       credential,
+      compact,
       server,
       transport,
       selection: new AbortController(),
@@ -376,9 +405,10 @@ export class DesktopMcpGateway {
       switchRevision: 0,
     };
     for (const tool of externalMcpTools()) {
+      if (compact && !isCompactMcpTool(tool.name)) continue;
       const description =
         tool.name === 'list_accounts'
-          ? '列出当前令牌可访问的账号与数据源。'
+          ? '列出当前令牌可访问的账号与数据源。open=true 可用 select_open_account 选择；current=true 是当前 MCP 会话选中的数据源。'
           : tool.name === 'switch_account'
             ? '选择当前 MCP 会话的账号。目标就绪后返回，其他客户端与桌面窗口继续使用原账号。'
             : tool.description;
@@ -403,6 +433,21 @@ export class DesktopMcpGateway {
         },
       );
     }
+    server.registerTool(
+      SELECT_OPEN_ACCOUNT_TOOL,
+      {
+        description: '在当前 MCP 会话中选择一个已经打开的授权账号。账号未打开时返回错误。',
+        inputSchema: { configId: z.string().min(1) },
+      },
+      async ({ configId }) => {
+        try {
+          const target = await this.select(session, configId, false);
+          return result({ ok: true, configId, uin: target.account.uin });
+        } catch (error) {
+          return result(error instanceof Error ? error.message : String(error), true);
+        }
+      },
+    );
     transport.onclose = () => {
       session.selection.abort();
       if (transport.sessionId) this.sessions.delete(transport.sessionId);

@@ -246,7 +246,7 @@ export function createBotImages(
       if (cached && cached.modelId === selectedOcr?.id)
         return { text: cached.text, notes: ['复用本地识别缓存。'] };
       const notes: string[] = [];
-      if (!refresh && config.images?.prefilterEnabled !== false) {
+      if (!refresh && config.images?.prefilterEnabled === true) {
         try {
           const filterModels = models
             .listByKind('filter')

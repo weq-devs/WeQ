@@ -202,7 +202,7 @@ export interface Platform {
    */
   resolveQqPid(uin: string): number | null;
 
-  /** 有界异步在线探测：null 表示未发现该账号 QQ；探测不可用时抛错，不冒充离线。 */
+  /** 在线探测 Promise 接口：null 表示未发现该账号 QQ；探测不可用时抛错，不冒充离线。 */
   resolveQqPidAsync?(uin: string): Promise<number | null>;
 
   /**

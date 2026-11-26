@@ -1,4 +1,5 @@
 .emoji-panel {
+  --emoji-tabs-height: 46px;
   position: absolute;
   bottom: calc(100% - 1px);
   left: 12px;
@@ -11,12 +12,16 @@
   );
   min-height: 260px;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr) 46px;
+  grid-template-rows: auto minmax(0, 1fr) var(--emoji-tabs-height);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--im-color-line, #dedede) 82%, transparent);
   border-radius: 12px;
   background: var(--popover, #ffffff);
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.16);
+}
+
+.emoji-panel-searchable {
+  grid-template-rows: auto auto minmax(0, 1fr) var(--emoji-tabs-height);
 }
 
 .emoji-panel-header {
@@ -155,7 +160,7 @@
 .emoji-grid button,
 .kaomoji-grid button,
 .emoji-tabs button,
-.emoji-pack-card,
+.composer-preview-card,
 .emoji-back-btn {
   border: 0;
   background: transparent;
@@ -170,14 +175,11 @@
   height: 36px;
   place-items: center;
   border-radius: 8px;
-  transition:
-    background 120ms ease,
-    transform 120ms ease;
+  transition: background 120ms ease;
 }
 
 .emoji-cell:hover {
   background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 9%, transparent);
-  transform: translateY(-1px);
 }
 
 .emoji-cell img {
@@ -338,24 +340,24 @@
   font-size: 11.5px;
 }
 
-/* 商城表情包列表。 */
-.emoji-market-section {
-  container: emoji-market / inline-size;
+/* 输入框的商城表情与个性字体预览卡片。 */
+.composer-preview-section {
+  container: composer-preview / inline-size;
 }
 
-.emoji-pack-list {
+.composer-preview-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
-@container emoji-market (width < 304px) {
-  .emoji-pack-list {
+@container composer-preview (width < 304px) {
+  .composer-preview-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-.emoji-pack-card {
+.composer-preview-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-content: start;
@@ -371,12 +373,12 @@
     background 120ms ease;
 }
 
-.emoji-pack-card:hover {
+.composer-preview-card:where(:not(:disabled, :has(:disabled))):hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 46%, transparent);
   background: color-mix(in srgb, var(--weq-accent-effective, #12a8ff) 7%, transparent);
 }
 
-.emoji-pack-cover {
+.composer-preview-cover {
   position: relative;
   display: grid;
   width: min(76px, 100%);
@@ -386,13 +388,13 @@
   color: var(--weq-fg-muted);
 }
 
-.emoji-pack-cover img {
+.composer-preview-cover img {
   width: 100%;
   height: 100%;
   object-fit: contain;
 }
 
-.emoji-pack-name {
+.composer-preview-name {
   display: -webkit-box;
   overflow: hidden;
   color: var(--weq-fg-primary, #111111);

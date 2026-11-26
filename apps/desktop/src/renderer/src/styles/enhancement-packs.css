@@ -1,3 +1,12 @@
+.weq-enhancement-batch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.weq-set .weq-enhancement-batch-actions > .weq-set-btn {
+  white-space: nowrap;
+}
 .weq-enhancement-list {
   list-style: none;
   margin: 0;
@@ -5,7 +14,7 @@
 }
 .weq-enhancement-item {
   display: grid;
-  grid-template-columns: 26px minmax(0, 1fr) 100px 108px;
+  grid-template-columns: 26px minmax(0, 1fr) max-content;
   align-items: center;
   column-gap: 12px;
   row-gap: 8px;
@@ -34,32 +43,26 @@
   overflow-wrap: anywhere;
 }
 .weq-enhancement-size {
+  display: inline-block;
+  color: var(--weq-fg-secondary);
   font-size: 12px;
-  text-align: right;
+  font-weight: 400;
   white-space: nowrap;
 }
 .weq-enhancement-actions {
-  display: grid;
-  grid-template-columns: repeat(3, 30px);
+  display: flex;
   justify-content: flex-end;
   gap: 6px;
 }
-.weq-enhancement-actions > .weq-set-btn {
-  grid-row: 1;
-  width: 30px;
-  height: 30px;
-  min-width: 30px;
+.weq-enhancement-actions:empty {
+  display: none;
+}
+.weq-set .weq-enhancement-actions > .weq-set-btn {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
   padding: 0;
   justify-content: center;
-}
-.weq-enhancement-prepare {
-  grid-column: 1;
-}
-.weq-enhancement-check {
-  grid-column: 2;
-}
-.weq-enhancement-delete {
-  grid-column: 3;
 }
 .weq-enhancement-progress {
   grid-column: 2 / -1;
@@ -105,19 +108,25 @@
 html[data-theme='dark'] .weq-enhancement-item .weq-set-btn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--weq-accent-effective) 16%, transparent);
 }
+.weq-enhancement-item .weq-enhancement-auto-update[aria-pressed='true'] {
+  border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 15%, transparent);
+  color: var(--weq-fg-primary);
+}
+.weq-enhancement-item .weq-enhancement-auto-update[aria-pressed='true']:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--weq-accent-effective) 24%, transparent);
+}
+.weq-enhancement-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
 @media (max-width: 600px) {
   .weq-enhancement-item {
-    grid-template-columns: 22px minmax(0, 1fr) 108px;
+    grid-template-columns: 22px minmax(0, 1fr);
     column-gap: 8px;
   }
-  .weq-enhancement-main {
-    grid-column: 2 / -1;
-  }
-  .weq-enhancement-size {
-    grid-column: 2;
-    text-align: left;
-  }
   .weq-enhancement-actions {
-    grid-column: 3;
+    grid-column: 2 / -1;
   }
 }

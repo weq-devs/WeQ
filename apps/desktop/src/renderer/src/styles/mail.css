@@ -193,7 +193,6 @@ html[data-theme='dark'] .weq-mail-workspace {
   flex-direction: column;
   min-height: 0;
   min-width: 0;
-  border-right: 1px solid var(--weq-border-subtle);
   background: var(--mail-surface);
 }
 .weq-mail-search {
@@ -271,6 +270,7 @@ html[data-theme='dark'] .weq-mail-workspace {
   padding: 13px 10px 12px 14px;
   border-bottom: 1px solid var(--weq-border-subtle);
   min-height: 98px;
+  transition: background-color 120ms ease-out;
 }
 .weq-mail-row > input {
   margin-top: 4px !important;
@@ -344,11 +344,12 @@ html[data-theme='dark'] .weq-mail-workspace {
 .weq-mail-resize {
   cursor: col-resize;
   touch-action: none;
-  background: var(--weq-border-subtle);
+  border-left: 1px solid var(--weq-border-subtle);
+  background: var(--mail-surface);
 }
 .weq-mail-resize:hover,
 .weq-mail-resize:focus-visible {
-  background: var(--weq-accent-ink);
+  border-left-color: var(--mail-accent-ink);
   outline: none;
 }
 .weq-mail-row-main p {
@@ -604,6 +605,16 @@ html[data-theme='dark'] .weq-mail-workspace {
   line-height: 1.5;
   color: var(--weq-fg-primary);
   margin: 0;
+}
+.weq-mail-connection p {
+  max-width: 40ch;
+  margin: 0;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.weq-mail-workspace .weq-empty-state-action > button {
+  border-color: var(--weq-border-subtle);
 }
 .weq-mail-error {
   display: flex;
@@ -948,7 +959,6 @@ html[data-privacy] .weq-mail-text-editor {
     grid-template-columns: minmax(0, 1fr);
   }
   .weq-mail-list {
-    border-right: none;
     grid-column: 1;
   }
   .weq-mail-reader-shell {
@@ -1002,5 +1012,17 @@ html[data-privacy] .weq-mail-text-editor {
   /* 顶栏「更新于」在 320 会挤掉发送入口；列表头的同步状态仍在（窄屏列表无独立入口时隐藏）。 */
   .weq-mail-sync-state-compact {
     display: none;
+  }
+}
+
+/* 邮件按页加载，新到的一页整批淡入；列表本身不重建，翻页时只动新增行。 */
+.weq-mail-row {
+  animation: weq-list-item-in var(--weq-motion-enter) var(--weq-motion-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-mail-row {
+    animation: none;
+    transition: none;
   }
 }

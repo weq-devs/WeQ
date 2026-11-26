@@ -153,3 +153,29 @@ it('一次退出在别处取消后，之后的新修复退出仍需重新确认'
   await settle();
   expect(confirmStop).toHaveBeenCalledTimes(2);
 });
+
+it('从历史备份恢复期间等待文件操作完成后再退出', async () => {
+  const events = new EventEmitter();
+  const quit = vi.fn();
+  const preventDefault = vi.fn();
+  const confirmStop = vi.fn(async () => true);
+  const restore = Promise.withResolvers<void>();
+  guardDatabaseMaintenanceQuit(
+    { on: events.on.bind(events), quit },
+    {
+      repairing: () => false,
+      restoring: () => restore.promise,
+      confirmStop,
+      stop: vi.fn(async () => {}),
+      cancelled: vi.fn(),
+      failed: vi.fn(),
+    },
+  );
+  events.emit('before-quit', { preventDefault });
+  expect(preventDefault).toHaveBeenCalledOnce();
+  expect(quit).not.toHaveBeenCalled();
+  expect(confirmStop).not.toHaveBeenCalled();
+  restore.resolve();
+  await settle();
+  expect(quit).toHaveBeenCalledOnce();
+});

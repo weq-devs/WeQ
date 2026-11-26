@@ -4,18 +4,25 @@ import { CONTACT_CARD_FIELDS, CONTACT_GROUP_FIELDS } from '../contact_card';
 import { NOTIFICATION_EVENTS, NOTIFICATION_LABELS } from '../notification_settings';
 import {
   AGGREGATE_BADGE_SETTINGS,
+  CONTACT_NAVIGATION_BADGE_SETTING,
+  CONTACT_REQUEST_BADGE_SETTING,
   CONTACT_UNREAD_COUNT_LABEL,
-  ENTRY_BADGE_SETTINGS,
+  MENU_BADGE_SETTINGS,
 } from '../client_preferences';
 export const SETTINGS_PAGE_LABELS = {
   'contact-card': '联系人名片',
-  appearance: '外观与布局',
+  appearance: '主题与布局',
   global: '通知与提醒',
+  'main-navigation': '主导航',
+  contacts: '联系人',
   startup: '启动与退出',
+  home: '主页',
   'weq-storage': 'WeQ 存储管理',
-  'chat-messages': '会话列表',
-  'message-display': '消息阅读',
-  'chat-interaction': '互动与防撤回',
+  'chat-messages': '消息',
+  'message-display': '会话浏览',
+  'message-content': '消息显示',
+  'chat-interaction': '消息发送',
+  'anti-recall': '防撤回',
   'call-recording': '通话与录音',
   qzone: 'QQ 空间',
   mail: 'QQ 邮箱',
@@ -27,13 +34,16 @@ export const SETTINGS_PAGE_LABELS = {
   'reply-suggestions': '推荐回复',
   'enhancement-packs': '增强包',
   recognition: '识别与转写',
-  account: '在线能力与授权',
+  account: 'QQ 在线能力',
+  'long-term-authorization': '长期授权',
   credentials: '凭据管理',
+  'qq-accounts': 'QQ 登录管理',
   accounts: 'WeQ 账号管理',
   diagnostics: 'QQ 高级工具',
   'database-management': 'QQ 数据库管理',
   'qq-storage': 'QQ 资源管理',
   'resource-loading': '资源加载',
+  'data-saver': '省流量模式',
   remote: 'Web 与 Remote',
   mcp: 'MCP 服务器',
   onebot: 'OneBot',
@@ -50,15 +60,15 @@ export const SETTINGS_PAGE_LABELS = {
 export type SettingsPageId = keyof typeof SETTINGS_PAGE_LABELS;
 export type SectionId =
   | SettingsPageId
+  | 'notification-badges'
+  | 'qq-proxy'
+  | 'qq-status-reminders'
   | 'performance-monitor'
-  | 'anti-recall'
-  | 'home'
   | 'applock'
   | 'saving'
   | 'storage'
   | 'rkey'
   | 'media'
-  | 'qq-accounts'
   | 'database'
   | 'database-status'
   | 'database-repair'
@@ -75,29 +85,43 @@ export type SectionId =
 
 export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: SettingsPageId[] }> = [
   {
-    id: 'general',
-    label: '常规',
-    sections: ['startup', 'account', 'appearance', 'global', 'privacy'],
+    id: 'capabilities',
+    label: '能力',
+    sections: ['account', 'long-term-authorization', 'enhancement-packs'],
   },
   {
-    id: 'basic',
-    label: '基础功能',
+    id: 'general',
+    label: '通用',
+    sections: ['startup', 'global', 'resource-loading', 'data-saver'],
+  },
+  {
+    id: 'appearance',
+    label: '外观',
     sections: [
+      'appearance',
+      'home',
+      'main-navigation',
       'chat-messages',
-      'message-display',
-      'chat-interaction',
+      'contacts',
       'contact-card',
-      'call-recording',
-      'qzone',
-      'mail',
     ],
   },
   {
-    id: 'models',
-    label: '增强功能',
+    id: 'chat',
+    label: '聊天',
     sections: [
-      'enhancement-packs',
+      'message-display',
+      'message-content',
+      'chat-interaction',
+      'anti-recall',
+      'call-recording',
       'recognition',
+    ],
+  },
+  {
+    id: 'ai',
+    label: 'AI',
+    sections: [
       'agentlab',
       'model-usage',
       'reply-suggestions',
@@ -107,26 +131,29 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     ],
   },
   {
-    id: 'data',
-    label: '凭据与数据',
+    id: 'services',
+    label: '服务',
+    sections: ['remote', 'mcp', 'onebot', 'sse', 'assistant'],
+  },
+  {
+    id: 'qq',
+    label: 'QQ',
     sections: [
+      'qzone',
+      'mail',
       'credentials',
-      'resource-loading',
+      'qq-accounts',
       'qq-storage',
       'database-management',
       'diagnostics',
     ],
   },
   {
-    id: 'services',
-    label: 'WeQ 服务',
-    sections: ['remote', 'mcp', 'onebot', 'sse', 'assistant'],
+    id: 'app',
+    label: '应用',
+    sections: ['privacy', 'weq-storage', 'accounts', 'backup'],
   },
-  {
-    id: 'help',
-    label: '关于 WeQ',
-    sections: ['version', 'weq-storage', 'accounts', 'backup', 'logs', 'faq', 'feedback'],
-  },
+  { id: 'about', label: '关于', sections: ['version', 'faq', 'logs', 'feedback'] },
 ];
 
 export interface SettingsScope {
@@ -182,6 +209,12 @@ function chatMessagePageFor(settingId: string): SettingsPageId {
       'link-preview-auto-fetch',
       'link-screenshot',
       'auto-transcribe-voice',
+    ].includes(settingId)
+  ) {
+    return 'message-content';
+  }
+  if (
+    [
       'read-first-unread',
       'show-reading-position-button',
       'merge-chat-jump-buttons',
@@ -224,21 +257,70 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       from: ['global'],
     }),
   ),
-  ...(
-    [
-      ...ENTRY_BADGE_SETTINGS.map(([, id, label]) => [id, label] as const),
-      ...AGGREGATE_BADGE_SETTINGS.filter(([, key]) => key !== 'showGroupAssistantMessageCount').map(
-        ([, , id, label]) => [id, label] as const,
-      ),
-    ] as const
-  ).map(
-    ([id, label]): ItemRedirect => ({
+  {
+    id: CONTACT_REQUEST_BADGE_SETTING[1],
+    section: 'contacts',
+    label: CONTACT_REQUEST_BADGE_SETTING[2],
+    from: [
+      'contacts',
+      'notification-badges',
+      'global',
+      'mail',
+      'chat-messages',
+      'agentlab',
+      'version',
+    ],
+  },
+  ...MENU_BADGE_SETTINGS.map(
+    ([, id, label]): ItemRedirect => ({
       id,
-      section: 'global',
+      section: 'main-navigation',
       label,
-      from: ['global', 'mail', 'chat-messages', 'agentlab', 'version'],
+      from: [
+        'main-navigation',
+        'notification-badges',
+        'global',
+        'mail',
+        'chat-messages',
+        'agentlab',
+        ...(id === 'software-update-badge' ? [] : (['version'] as const)),
+      ],
     }),
   ),
+  {
+    id: 'conversation-markers',
+    section: 'chat-messages',
+    label: '常规视图未读角标',
+    aliases: ['会话列表常规视图'],
+    from: ['chat-messages', 'notification-badges'],
+  },
+  ...AGGREGATE_BADGE_SETTINGS.map(
+    ([, , id, label]): ItemRedirect => ({
+      id,
+      section: 'chat-messages',
+      label,
+      aliases:
+        id === 'group-assistant-count' ? ['群助手未读汇总角标', '群助手显示总消息数'] : undefined,
+      from: [
+        'chat-messages',
+        'notification-badges',
+        'global',
+        'mail',
+        'agentlab',
+        'version',
+        'message-display',
+        'message-content',
+        'chat-interaction',
+      ],
+    }),
+  ),
+  {
+    id: 'conversation-interaction-badge',
+    section: 'chat-messages',
+    label: '会话互动红点',
+    aliases: ['戳一戳红点', '撤回红点'],
+    from: ['global', 'message-display', 'chat-messages', 'chat-interaction', 'notification-badges'],
+  },
   {
     id: 'show-conversation-preview',
     section: 'chat-messages',
@@ -253,6 +335,21 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     aliases: ['@我', '@全体成员', '回复我', '特别关心', '群提醒词', '新文件', '红包', '群公告'],
     from: ['chat-messages'],
   },
+  {
+    id: 'windows-style-controls',
+    section: 'appearance',
+    label: '使用仿 Windows 窗口按钮',
+    aliases: ['窗口按钮', '红绿灯', '原生窗口'],
+    from: ['global', 'appearance'],
+    desktopOnly: true,
+  },
+  {
+    id: 'theme-mode',
+    section: 'appearance',
+    label: '主题模式',
+    aliases: ['基础模式'],
+    from: ['appearance'],
+  },
   ...(
     [
       ['toast-success', 'global', '成功通知停留时长'],
@@ -262,8 +359,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['call-mode', 'call-recording', '录音来源'],
       ['call-system-audio', 'call-recording', '同时录电脑声音'],
       ['call-directory', 'call-recording', '保存位置'],
-      ['call-udp-trace', 'call-recording', '记录 UDP 流量'],
-      ['theme-mode', 'appearance', '基础模式'],
       ['theme-accent', 'appearance', '主题色'],
       ['theme-background', 'appearance', '界面背景'],
       ['auto-enter-account', 'accounts', '现有配置'],
@@ -282,22 +377,24 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['onebot-config', 'onebot', '网络配置'],
       ['contact-card-all', 'contact-card', '全部字段'],
       ['contact-card-group-fields', 'contact-card', '群内资料'],
-      ['enhancement-updates', 'enhancement-packs', '增强包自动更新'],
+      ['enhancement-updates', 'enhancement-packs', '增强包更新设置'],
       ['enhancement-management', 'enhancement-packs', '增强包管理'],
-      ['signer-status', 'credentials', '签名器（wrapper.node）'],
     ] as const
   ).map(
     ([id, section, label]): ItemRedirect => ({
       id,
       section,
       label,
+      aliases:
+        id === 'enhancement-management'
+          ? ['增强包自动更新', '增强包自动安装', '自动安装增强包更新']
+          : undefined,
       from: section === 'recognition' ? [section, 'ocr'] : [section],
     }),
   ),
   ...(
     [
       ['enhancement-auto-check', '自动检查增强包更新', ['增强包更新检查']],
-      ['enhancement-auto-install', '自动安装增强包更新', ['增强包自动安装']],
       ['enhancement-text', '本地文字识别', ['识别模型', '筛图模型', '图片识别模型', 'OCR 模型']],
       ['enhancement-voice', '本地语音转写', ['本地语音模型', 'SenseVoice', 'ASR']],
       ['enhancement-intent', '本地意图与画像', ['Laya 模型下载', '画像模型下载']],
@@ -340,7 +437,37 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     aliases: ['性能记录', 'CPU', '内存历史'],
     from: ['diagnostics', 'performance-monitor', 'logs'],
   },
-  { id: 'log-retention', section: 'logs', label: '日志保留时长', from: ['logs'] },
+  {
+    id: 'log-retention',
+    section: 'logs',
+    label: '应用日志保存时长',
+    aliases: ['日志保留时长'],
+    from: ['logs'],
+  },
+  { id: 'log-capacity', section: 'logs', label: '应用日志容量上限', from: ['logs'] },
+  {
+    id: 'log-storage',
+    section: 'logs',
+    label: '应用日志存储占用',
+    aliases: ['清空应用日志', '清理日志'],
+    from: ['logs'],
+  },
+  { id: 'performance-retention', section: 'logs', label: '性能记录保存时长', from: ['logs'] },
+  { id: 'performance-capacity', section: 'logs', label: '性能记录容量上限', from: ['logs'] },
+  {
+    id: 'performance-storage',
+    section: 'logs',
+    label: '性能记录存储占用',
+    aliases: ['清空性能历史', '清理性能记录'],
+    from: ['logs'],
+  },
+  {
+    id: 'performance-folder',
+    section: 'logs',
+    label: '性能记录文件夹',
+    from: ['logs'],
+    desktopOnly: true,
+  },
   {
     id: 'realtime-enabled',
     section: 'database-management',
@@ -362,7 +489,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     aliases: ['接入与监听', '实时监听'],
     from: ['account', 'database-management'],
   },
-  { id: 'log-folder', section: 'logs', label: '日志文件夹', from: ['logs'], desktopOnly: true },
+  { id: 'log-folder', section: 'logs', label: '应用日志文件夹', from: ['logs'], desktopOnly: true },
   {
     id: 'native-debug-log',
     section: 'logs',
@@ -378,14 +505,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     label: '数字字体',
     aliases: ['特殊数字字体', '跟随界面字体', '数字排版'],
     from: ['appearance'],
-  },
-  {
-    id: 'windows-style-controls',
-    section: 'appearance',
-    label: '使用仿 Windows 窗口按钮',
-    aliases: ['窗口按钮', '红绿灯', '原生窗口'],
-    from: ['global', 'appearance'],
-    desktopOnly: true,
   },
   {
     id: 'window-close-behavior',
@@ -498,10 +617,23 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     aliases: ['互动画像图片', '画像 OCR'],
     from: ['interaction-profile'],
   },
+  {
+    id: 'call-udp-trace',
+    section: 'diagnostics',
+    label: '记录 UDP 流量',
+    aliases: ['udp 抓包', 'pcapng', '通话抓包'],
+    from: ['call-recording', 'diagnostics'],
+  },
+  {
+    id: 'signer-status',
+    section: 'diagnostics',
+    label: '签名器（wrapper.node）',
+    from: ['credentials', 'diagnostics'],
+  },
   { id: 'tts-providers', section: 'agentlab', label: 'TTS 语音合成', from: ['agentlab', 'tts'] },
   {
     id: 'home-settings',
-    section: 'startup',
+    section: 'home',
     label: '主页',
     aliases: ['主页显示'],
     from: ['home', 'startup'],
@@ -514,9 +646,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['home-hitokoto', '一言'],
       ['home-blocked-words', '一言屏蔽词'],
     ] as const
-  ).map(
-    ([id, label]): ItemRedirect => ({ id, label, section: 'startup', from: ['home', 'startup'] }),
-  ),
+  ).map(([id, label]): ItemRedirect => ({ id, label, section: 'home', from: ['home', 'startup'] })),
   {
     id: 'qqnt-capture',
     section: 'diagnostics',
@@ -630,10 +760,10 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'mail-unread-badge',
-    section: 'global',
+    section: 'main-navigation',
     label: '邮箱导航未读角标',
     aliases: ['显示未读邮件数', '在邮箱图标上显示红点', '邮箱红点'],
-    from: ['mail', 'global'],
+    from: ['mail', 'global', 'notification-badges', 'main-navigation'],
   },
   {
     id: 'mail-banner',
@@ -678,46 +808,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     from: ['account'],
   },
   {
-    id: 'restricted-mode-indicator',
-    section: 'account',
-    label: '在线能力受限时显示窗口提示',
-    aliases: [
-      '在线能力受限标记',
-      '标题栏在线能力受限',
-      '受限状态显示',
-      '在线能力受限时在窗口右上角显示',
-    ],
-    from: ['account'],
-  },
-  {
-    id: 'qq-proxy-connection',
-    section: 'account',
-    label: 'QQ 代理连接',
-    aliases: ['本机 QQ 同步', 'QQ 同步代理', '代理端口', '设置代理'],
-    from: ['account'],
-  },
-  {
-    id: 'qq-live-messages',
-    section: 'account',
-    label: '通过 QQ 代理加速实时更新',
-    aliases: ['通过 QQ 代理实时接收消息', '消息直推', '实时收信', '代理性能优化'],
-    from: ['account'],
-  },
-  {
-    id: 'qq-proxy-indicator',
-    section: 'account',
-    label: 'QQ 代理未连接时显示窗口提示',
-    aliases: ['QQ 代理未连接', '标题栏 QQ 代理', 'QQ 代理未连接时在窗口右上角显示'],
-    from: ['account'],
-  },
-  {
-    id: 'qq-client-sync',
-    section: 'account',
-    label: '自动同步本人消息与已读',
-    aliases: ['补投本人消息'],
-    from: ['account'],
-  },
-  {
     id: 'qq-debug-copy',
     section: 'account',
     label: 'QQ 调试副本',
@@ -726,11 +816,68 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     desktopOnly: true,
   },
   {
-    id: 'long-term-authorization',
+    id: 'qq-proxy-connection',
     section: 'account',
+    label: '代理连接',
+    aliases: ['QQ 代理连接', '本机 QQ 同步', 'QQ 同步代理', '代理端口', '设置代理'],
+    from: ['account', 'qq-proxy'],
+  },
+  {
+    id: 'qq-sync-and-live',
+    section: 'account',
+    label: '同步与实时更新',
+    from: ['account', 'qq-proxy'],
+  },
+  {
+    id: 'qq-live-messages',
+    section: 'account',
+    label: '通过 QQ 代理加速实时更新',
+    aliases: ['通过 QQ 代理实时接收消息', '消息直推', '实时收信', '代理性能优化'],
+    from: ['account', 'qq-proxy'],
+  },
+  {
+    id: 'qq-client-sync',
+    section: 'account',
+    label: '自动同步本人消息与已读',
+    aliases: ['补投本人消息'],
+    from: ['account', 'qq-proxy'],
+  },
+  {
+    id: 'qq-status-reminders',
+    section: 'account',
+    label: '状态提醒',
+    from: ['account', 'qq-status-reminders'],
+  },
+  {
+    id: 'qq-status-indicator',
+    section: 'account',
+    label: '显示 QQ 功能状态提示',
+    aliases: [
+      '在线能力受限时显示窗口提示',
+      '在线能力受限标记',
+      '标题栏在线能力受限',
+      '受限状态显示',
+      '在线能力受限时在窗口右上角显示',
+      'QQ 代理未连接时显示窗口提示',
+      'QQ 代理未连接',
+      '标题栏 QQ 代理',
+      'QQ 代理未连接时在窗口右上角显示',
+    ],
+    from: ['account', 'qq-proxy', 'qq-status-reminders'],
+  },
+  {
+    id: 'qq-online-notification',
+    section: 'account',
+    label: '在线能力受限时通知',
+    aliases: ['在线能力受限时横幅提醒', '受限横幅'],
+    from: ['account', 'qq-status-reminders'],
+  },
+  {
+    id: 'long-term-authorization',
+    section: 'long-term-authorization',
     label: '长期授权',
     aliases: ['权限助手', '本机权限助手', '免重复提权', '管理员授权'],
-    from: ['account'],
+    from: ['account', 'long-term-authorization'],
     desktopOnly: true,
   },
   {
@@ -756,8 +903,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ...(
     [
       ['message-system-notifications', '普通私聊消息', '新消息系统通知', '消息弹窗提醒'],
-      ['application-unread-badge', '应用图标未读角标', 'Dock 任务栏 Badge'],
-      ['conversation-interaction-badge', '会话互动红点', '戳一戳红点', '撤回红点'],
+      ['application-unread-badge', '应用图标未读角标', 'Dock 任务栏 Badge', '系统应用图标'],
     ] as const
   ).map(
     ([id, label, ...aliases]): ItemRedirect => ({
@@ -765,20 +911,54 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       label,
       aliases,
       section: 'global',
-      from: ['global', 'message-display', 'chat-messages', 'chat-interaction'],
+      from: [
+        'global',
+        'message-display',
+        'chat-messages',
+        'chat-interaction',
+        'notification-badges',
+      ],
     }),
   ),
+  {
+    id: 'message-unread-badge',
+    label: '消息导航未读角标',
+    aliases: ['消息图标红点', '显示消息汇总红点'],
+    section: 'main-navigation',
+    from: [
+      'main-navigation',
+      'message-display',
+      'message-content',
+      'chat-messages',
+      'chat-interaction',
+      'global',
+      'notification-badges',
+    ],
+  },
+  {
+    id: CONTACT_NAVIGATION_BADGE_SETTING[1],
+    label: CONTACT_NAVIGATION_BADGE_SETTING[2],
+    aliases: ['联系人红点'],
+    section: 'main-navigation',
+    from: ['main-navigation'],
+  },
+  {
+    id: 'contact-unread-count',
+    label: CONTACT_UNREAD_COUNT_LABEL,
+    aliases: ['好友与群聊', '联系人列表未读消息数', '在联系人界面显示未读消息数'],
+    section: 'contacts',
+    from: [
+      'contacts',
+      'message-display',
+      'message-content',
+      'chat-messages',
+      'chat-interaction',
+      'global',
+      'notification-badges',
+    ],
+  },
   ...(
     [
-      ['message-unread-badge', '消息导航未读角标', '消息图标红点', '显示消息汇总红点'],
-      [
-        'contact-unread-count',
-        CONTACT_UNREAD_COUNT_LABEL,
-        '好友与群聊',
-        '联系人列表未读消息数',
-        '在联系人界面显示未读消息数',
-      ],
-      ['group-assistant-count', '群助手', '群助手未读汇总角标', '群助手显示总消息数'],
       ['all-conversations-include-hidden', '包含已隐藏会话', '全部会话隐藏范围'],
       ['all-conversations-include-deleted', '包含已删除会话', '全部会话删除范围'],
       ['read-first-unread', '打开会话时继续上次阅读', '定位到上次阅读的位置'],
@@ -840,7 +1020,7 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       ['slash-emoji-auto-replace', '无需回车即自动替换', '表情自动替换'],
       ['quote-backspace-remove', '按退格键移除引用', '退格取消引用', 'Backspace'],
       ['auto-transcribe-voice', '语音消息自动转文字', '语音自动识别'],
-      ['custom-message-display', '内容显示', '自定义消息显示'],
+      ['custom-message-display', '消息样式与预览', '内容显示', '自定义消息显示'],
       ['group-consecutive-messages', '合并连续发言', '连续发言分组', '消息分组'],
       ['message-seq', '显示消息序号（seq）'],
       ['message-date', '显示发送日期'],
@@ -874,13 +1054,17 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
       id,
       label,
       aliases,
-      section:
-        id === 'message-unread-badge' ||
-        id === 'contact-unread-count' ||
-        id === 'group-assistant-count'
-          ? 'global'
-          : chatMessagePageFor(id),
-      from: ['message-display', 'chat-messages', 'chat-interaction', 'global'],
+      section: chatMessagePageFor(id),
+      from: (
+        [
+          'message-display',
+          'message-content',
+          'chat-messages',
+          'chat-interaction',
+          'global',
+          'notification-badges',
+        ] as const
+      ).filter((section) => id !== 'message-font' || section !== 'chat-interaction'),
     }),
   ),
   {
@@ -932,10 +1116,17 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'data-saver',
-    section: 'resource-loading',
-    label: '省流量模式',
-    aliases: ['低数据模式', '计费网络', '节省流量'],
-    from: ['resource-loading'],
+    section: 'data-saver',
+    label: '启用方式与行为',
+    aliases: ['省流量模式', '低数据模式', '计费网络', '节省流量'],
+    from: ['resource-loading', 'data-saver'],
+  },
+  {
+    id: 'default-message-font',
+    section: 'chat-interaction',
+    label: '默认使用的字体',
+    aliases: ['消息字体', '发送字体', '账号使用的字体', 'QQ 同款'],
+    from: ['chat-interaction'],
   },
   {
     id: 'typing-status',
@@ -948,12 +1139,11 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     id: 'restricted-mode-banner',
     section: 'global',
     label: '功能受限或运行异常',
-    aliases: ['在线能力受限时通知', '在线能力受限时横幅提醒'],
-    from: ['account', 'global'],
+    from: ['global'],
   },
   {
     id: 'anti-recall',
-    section: 'chat-interaction',
+    section: 'anti-recall',
     label: '防撤回',
     from: ['anti-recall', 'chat-messages', 'chat-interaction'],
   },
@@ -966,18 +1156,25 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   },
   {
     id: 'qq-accounts',
-    section: 'diagnostics',
-    label: '登录记录与设备标识',
-    aliases: ['QQ 登录记录管理', 'QQ 账号管理', '设备 GUID', '登录记录'],
+    section: 'qq-accounts',
+    label: '设备标识与登录账号',
+    aliases: [
+      'QQ 登录记录管理',
+      'QQ 账号管理',
+      '设备 GUID',
+      '登录记录',
+      '登录账号列表',
+      '登录记录与设备标识',
+    ],
     from: ['qq-accounts', 'diagnostics'],
     desktopOnly: true,
   },
   {
     id: 'external-rkey',
-    section: 'credentials',
+    section: 'resource-loading',
     label: '外部 rKey 服务器',
     aliases: ['外部 rKey', '外部 RKEY', '已导入的服务器', 'HTTP 服务器地址', 'rKey access_token'],
-    from: ['rkey', 'credentials'],
+    from: ['rkey', 'credentials', 'resource-loading'],
   },
   {
     id: 'damage-reminder',
@@ -985,13 +1182,6 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
     label: '数据库异常提醒',
     aliases: ['数据库异常时弹窗提醒', '损坏提醒', 'notification-databaseDamage'],
     from: ['database', 'database-repair', 'database-management', 'global'],
-  },
-  {
-    id: 'notification-badges',
-    section: 'global',
-    label: '未读角标',
-    aliases: ['红点与未读标记'],
-    from: ['global', 'chat-messages'],
   },
   {
     id: 'recall-notifications',
@@ -1113,14 +1303,16 @@ const SECTION_REDIRECTS: Partial<
   Record<SectionId, { section: SettingsPageId; settingId?: string }>
 > = {
   applock: { section: 'privacy', settingId: 'app-lock' },
+  'qq-proxy': { section: 'account', settingId: 'qq-proxy-connection' },
+  'qq-status-reminders': { section: 'account', settingId: 'qq-status-reminders' },
   'performance-monitor': { section: 'logs', settingId: 'performance-monitor' },
-  home: { section: 'startup', settingId: 'home-settings' },
+  home: { section: 'home', settingId: 'home-settings' },
+  'notification-badges': { section: 'main-navigation' },
   saving: { section: 'global' },
   storage: { section: 'weq-storage' },
-  'anti-recall': { section: 'chat-interaction', settingId: 'anti-recall' },
+  'anti-recall': { section: 'anti-recall', settingId: 'anti-recall' },
   media: { section: 'resource-loading' },
-  'qq-accounts': { section: 'diagnostics', settingId: 'qq-accounts' },
-  rkey: { section: 'credentials', settingId: 'external-rkey' },
+  rkey: { section: 'resource-loading', settingId: 'external-rkey' },
   database: { section: 'database-management', settingId: 'database-repair' },
   'database-tolerance': { section: 'database-management', settingId: 'database-repair' },
   'database-repair': { section: 'database-management', settingId: 'database-repair' },
@@ -1138,6 +1330,12 @@ const SECTION_REDIRECTS: Partial<
 
 /** 页面和条目共用一个解析器；解析只定位，不打开工具或执行操作。 */
 export function resolveSettingsTarget(target: SettingsTarget): ResolvedSettingsTarget {
+  if (
+    target.settingId === 'notification-badges' ||
+    (['global', 'chat-messages', 'notification-badges'].includes(target.section) &&
+      ['未读角标', '红点与未读标记'].includes(target.item ?? ''))
+  )
+    return { section: 'main-navigation' };
   // 已移除的资源关联入口只回到资源加载页，不留下失效定位或操作入口。
   if (
     target.settingId === 'linked-resources' ||
@@ -1145,7 +1343,14 @@ export function resolveSettingsTarget(target: SettingsTarget): ResolvedSettingsT
       ['关联资源目录', '关联本机媒体目录'].includes(target.item ?? ''))
   )
     return { section: 'resource-loading' };
-  const targetId = target.settingId === 'message-decoration' ? 'message-bubble' : target.settingId;
+  const targetId =
+    target.settingId === 'restricted-mode-indicator' || target.settingId === 'qq-proxy-indicator'
+      ? 'qq-status-indicator'
+      : target.settingId === 'message-decoration'
+        ? 'message-bubble'
+        : target.settingId === 'enhancement-auto-install'
+          ? 'enhancement-management'
+          : target.settingId;
   const redirect = targetId
     ? SETTINGS_ITEM_TARGETS.find((entry) => entry.id === targetId)
     : SETTINGS_ITEM_TARGETS.find(

@@ -6,7 +6,7 @@ import { client } from '../../../trpc/client';
 import { useToast } from '../../../components/Toast.shared';
 import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { useReportView } from '../reportContext';
-import { buildReportHtml, preloadReportAssets } from '../exportHtml';
+import type { ExportSlide } from '../exportHtml';
 import { QzoneShareLightbox } from '../QzoneShareLightbox';
 import type { AnalysisScope } from '../../analysis/model';
 import { useExportSavePolicy } from '../../../hooks/useExportSavePolicy';
@@ -52,16 +52,24 @@ const EXPORT_OPTIONS: Array<{
 export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): ReactElement {
   const { year, slides, readScope, overlayHostRef } = useReportView();
   const save = useExportSavePolicy();
-  const identity = useMemo(() => ({}), [year, slides, readScope]);
-  const latest = useRef(identity);
+  const identity = useMemo(
+    () => JSON.stringify([year, readScope?.expectedAccountUin, readScope?.expectedAccountConfigId]),
+    [year, readScope],
+  );
+  const latest = useRef<string | null>(identity);
   latest.current = identity;
   const cancelLocation = useRef(save.chooseServerLocation);
   cancelLocation.current = save.chooseServerLocation;
   useEffect(() => {
-    cancelLocation.current(null);
+    latest.current = identity;
+    const dismiss = cancelLocation.current;
+    return () => {
+      latest.current = null;
+      dismiss(null);
+    };
   }, [identity]);
   const pending = useRef(false);
-  const source = useRef<{ identity: object; scope: AnalysisScope | null }>({
+  const source = useRef<{ identity: string; scope: AnalysisScope | null }>({
     identity,
     scope: readScope ?? save.binding,
   });
@@ -77,7 +85,7 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
   );
   const pushToast = useToast((s) => s.push);
   const [busy, setBusy] = useState<ExportKind | null>(null);
-  const [shareOpen, setShareOpen] = useState(false);
+  const [shareSlides, setShareSlides] = useState<ExportSlide[] | null>(null);
   /** QQ 是否在线。分享走 qzone web cgi，需要在线实例（ptlogin2 可兜底取 p_skey）。 */
   const [qqOnline, setQqOnline] = useState(false);
   const allTime = isAllTimeYear(year);
@@ -104,28 +112,18 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
     };
   }, [active]);
 
-  /**
-   * 自包含 HTML：先把装扮气泡 / 头像经主进程拉成 base64 内联成 data URI，
-   * 再同步拼文档。任一图解析失败只是那一处退回排印表达，不阻塞导出。
-   */
-  const [cachedHtml, setHtml] = useState<{ identity: object; html: string } | null>(null);
-  const html = cachedHtml?.identity === identity ? cachedHtml.html : '';
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      if (!reportScope) return;
-      await preloadReportAssets(slides, (url) => resolveAssetDataUri(url, reportScope));
-      if (!cancelled) setHtml({ identity, html: buildReportHtml(year, slides) });
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [year, slides, reportScope, identity]);
-
-  /** 预热 + 拼 HTML（runExport 的兜底路径，正常时 html state 已就绪）。 */
-  async function buildHtmlWithAssets(): Promise<string> {
-    await preloadReportAssets(slides, (url) => resolveAssetDataUri(url, reportScope ?? undefined));
-    return buildReportHtml(year, slides);
+  // 仅在保存位置确认或提交分享后读取图片和拼文档。
+  async function buildHtmlWithAssets(
+    selectedSlides: ExportSlide[],
+    isCurrent?: () => boolean,
+  ): Promise<string> {
+    const { buildReportHtml, preloadReportAssets } = await import('../exportHtml');
+    const assets = await preloadReportAssets(
+      selectedSlides,
+      (url) => resolveAssetDataUri(url, reportScope ?? undefined),
+      isCurrent,
+    );
+    return isCurrent && !isCurrent() ? '' : buildReportHtml(year, selectedSlides, assets);
   }
 
   async function runExport(kind: ExportKind, intent?: ExportSavePolicy): Promise<void> {
@@ -142,7 +140,7 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
         format: output.extension,
       });
       if (!policy || !current()) return;
-      const payload = html || (await buildHtmlWithAssets());
+      const payload = await buildHtmlWithAssets(slides, current);
       if (!current()) return;
       const input = { ...selected, html: payload, savePolicy: policy };
       if (kind === 'html') await client.account.annualReport.exportHtml.mutate(input);
@@ -197,7 +195,7 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
                 type="button"
                 className="weq-end-take-btn"
                 disabled={busy != null}
-                onClick={() => setShareOpen(true)}
+                onClick={() => setShareSlides(slides)}
               >
                 <Share2 size={17} aria-hidden />
                 <span className="weq-end-take-name">分享到空间</span>
@@ -238,12 +236,12 @@ export function EndPage({ page, data, active }: ReportPageProps<EndPageData>): R
           portalTarget={overlayHostRef.current}
         />
       )}
-      {shareOpen ? (
+      {shareSlides ? (
         <QzoneShareLightbox
           year={year}
-          slides={slides}
-          getHtml={buildHtmlWithAssets}
-          onClose={() => setShareOpen(false)}
+          slides={shareSlides}
+          getHtml={() => buildHtmlWithAssets(shareSlides)}
+          onClose={() => setShareSlides(null)}
         />
       ) : null}
     </PageFrame>

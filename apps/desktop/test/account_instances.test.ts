@@ -1,9 +1,17 @@
 // @vitest-environment node
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import {
   AccountInstances,
@@ -13,6 +21,7 @@ import {
   accountPickerDirectories,
   accountPickerOwner,
   accountPickerTarget,
+  developmentStartupConfigId,
   instanceArg,
   instanceDirectories,
   instanceTarget,
@@ -23,8 +32,8 @@ import {
 import {
   accountStorageMigrationPath,
   migrateAccountStorage,
-  readLegacyAccountBackup,
 } from '../src/main/account_storage_migration';
+import { prepareMacAccountWindowSession } from '../src/main/account_window_session';
 import { DesktopStorage } from '../src/main/desktop_storage';
 
 let root: string;
@@ -32,6 +41,44 @@ beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'weq-account-instances-'));
 });
 afterEach(() => rmSync(root, { force: true, recursive: true }));
+
+it('同一主进程的另一个窗口打开时，备份恢复仍不能独占共享数据', async () => {
+  const first = new DesktopStorage(root);
+  const second = new DesktopStorage(root);
+  try {
+    await expect(first.maintain(async () => 'restored')).rejects.toThrow('其他 WeQ 窗口');
+  } finally {
+    second.close();
+  }
+  try {
+    await expect(first.maintain(async () => 'restored')).resolves.toBe('restored');
+  } finally {
+    first.close();
+  }
+});
+
+it('账号窗口开始关闭后，排队中的打开请求不能重新获得账号锁', async () => {
+  const instance = new AccountInstances(root);
+  try {
+    const opening = instance.run(
+      '101',
+      async () => {},
+      () => '101',
+    );
+    instance.stopOpening();
+    await expect(opening).rejects.toThrow('账号窗口正在关闭');
+    expect(accountIsRunning(root, '101')).toBe(false);
+    await expect(
+      instance.run(
+        null,
+        async () => 'closed',
+        () => undefined,
+      ),
+    ).resolves.toBe('closed');
+  } finally {
+    instance.dispose();
+  }
+});
 
 it('不同 Electron 实例从同一份账号配置打开数据源', () => {
   const target = { uin: '101', configId: '101_fixture' };
@@ -55,6 +102,45 @@ it('不同 Electron 实例从同一份账号配置打开数据源', () => {
   writeFileSync(original, JSON.stringify({ ...account, displayName: '共同配置' }));
   expect(prepareInstanceAccount(root, target).displayName).toBe('共同配置');
   expect(() => prepareInstanceAccount(root, { ...target, uin: '202' })).toThrow('找不到');
+});
+
+it('额外窗口已有的浏览器会话在 sessionData 内时直接复用', async () => {
+  const { userData } = instanceDirectories(root, '101');
+  mkdirSync(userData, { recursive: true });
+
+  await expect(prepareMacAccountWindowSession(root, userData)).resolves.toBe(
+    realpathSync(userData),
+  );
+});
+
+it('sessionData 外的窗口首次迁入浏览器状态，后续打开复用当前宿主的状态', async () => {
+  const sessionData = join(root, 'profile');
+  const legacyRoot = join(root, 'profile-shared');
+  const { userData } = instanceDirectories(legacyRoot, '101');
+  mkdirSync(sessionData);
+  for (const directory of ['Local Storage', 'Cache', 'Shared Dictionary', 'web-exports']) {
+    mkdirSync(join(userData, directory), { recursive: true });
+    writeFileSync(join(userData, directory, 'fixture'), '旧文件');
+  }
+
+  const destination = await prepareMacAccountWindowSession(sessionData, userData);
+  expect(destination).toBe(
+    join(
+      realpathSync(sessionData),
+      'Partitions',
+      'weq-account-windows',
+      basename(dirname(userData)),
+    ),
+  );
+  const storage = join(destination, 'Local Storage', 'fixture');
+  expect(readFileSync(storage, 'utf8')).toBe('旧文件');
+  for (const directory of ['Cache', 'Shared Dictionary', 'web-exports']) {
+    expect(existsSync(join(destination, directory))).toBe(false);
+    expect(readFileSync(join(userData, directory, 'fixture'), 'utf8')).toBe('旧文件');
+  }
+  writeFileSync(storage, '当前状态');
+  await expect(prepareMacAccountWindowSession(sessionData, userData)).resolves.toBe(destination);
+  expect(readFileSync(storage, 'utf8')).toBe('当前状态');
 });
 
 it('不同账号可并行，关闭和打开失败只释放对应账号的锁', async () => {
@@ -97,6 +183,22 @@ it('不同账号可并行，关闭和打开失败只释放对应账号的锁', a
     async () => {},
     () => undefined,
   );
+});
+
+it('固定开发窗口自动打开空闲的默认账号，普通新窗口或账号已打开时手动选择', () => {
+  const developmentPickerId = '00000000-0000-0000-0000-000000000000';
+  const target = { uin: '101', configId: 'default-source' };
+  expect(developmentStartupConfigId(root, prepareAccountPicker(), target)).toBeUndefined();
+  expect(developmentStartupConfigId(root, developmentPickerId, null)).toBeUndefined();
+  expect(developmentStartupConfigId(root, developmentPickerId, target)).toBe(target.configId);
+  const existing = new AccountInstances(root);
+  try {
+    existing.claim(target.uin);
+    expect(developmentStartupConfigId(root, developmentPickerId, target)).toBeUndefined();
+  } finally {
+    existing.dispose();
+  }
+  expect(developmentStartupConfigId(root, developmentPickerId, target)).toBe(target.configId);
 });
 
 it('迁入选择窗口独有的账号与草稿，主窗口冲突原件保留', () => {
@@ -147,9 +249,6 @@ it('迁入选择窗口独有的账号与草稿，主窗口冲突原件保留', (
   migrateAccountStorage(root);
   expect(readFileSync(accountStorageMigrationPath(root), 'utf8')).toBe(receipt);
   expect(readFileSync(retained, 'utf8')).toContain('旧窗口');
-  expect(
-    readLegacyAccountBackup(root, dirname(data).split(/[/\\]/).at(-1)!).length,
-  ).toBeGreaterThan(0);
 });
 
 it('另一个实例读取同一存储时拒绝恢复，关闭后可以恢复', async () => {

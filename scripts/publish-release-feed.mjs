@@ -5,6 +5,7 @@ import { readFile, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import {
   FEED_TAG,
   FEED_ASSET,
@@ -31,8 +32,8 @@ function resourceTrack(tag) {
   return null;
 }
 
-function releaseSummary(changelog, tag) {
-  const firstBullet = /^[-*][ \t]+(.+)$/m.exec(extractSection(changelog, tag))?.[1];
+function releaseSummary(changelog, section) {
+  const firstBullet = /^[-*][ \t]+(.+)$/m.exec(extractSection(changelog, section))?.[1];
   if (!firstBullet) return undefined;
   const summary = firstBullet
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
@@ -175,12 +176,21 @@ export async function publishReleaseFeed({
     const descriptor = await describeRelease(repository, release, readAsset);
     if (publishingResources) descriptor.track = resourceTrack(release.tag_name);
     if (repository.endsWith('/WeQ') && release.tag_name === tag && readChangelog) {
-      const summary = releaseSummary(await readChangelog(tag), tag);
+      const section = release.prerelease ? 'Unreleased' : tag;
+      const summary = releaseSummary(await readChangelog(tag), section);
       if (summary) descriptor.summary = summary;
     }
     descriptions.push(descriptor);
   }
   const index = mergeReleaseIndex(repository, previous, descriptions);
+  if (
+    publishingResources &&
+    feed?.draft === false &&
+    previous &&
+    isDeepStrictEqual(previous.releases, index.releases)
+  )
+    return previous;
+
   const signed = signReleaseIndex(index, privateKey);
   verifyReleaseIndex(signed, repository, publicKeys);
   const release =
@@ -256,6 +266,7 @@ async function main() {
       ],
       { encoding: 'utf8', maxBuffer: 8 * 1024 ** 2 },
     );
+  let uploaded = false;
   const upload = async (release, signed) => {
     const directory = await mkdtemp(join(tmpdir(), 'weq-release-feed-'));
     try {
@@ -270,6 +281,7 @@ async function main() {
         repository,
         '--clobber',
       ]);
+      uploaded = true;
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -287,7 +299,7 @@ async function main() {
     upload,
   });
   console.log(
-    `已更新 ${repository} 的签名索引：${result.releases.map((item) => item.tag).join(', ')}`,
+    `${uploaded ? '已更新' : '沿用'} ${repository} 的签名索引：${result.releases.map((item) => item.tag).join(', ')}`,
   );
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

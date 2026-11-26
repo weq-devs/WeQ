@@ -290,7 +290,9 @@ export function GroupCategorySettings({
       )}
       {canManage && baseline !== null && (
         <Row
-          label={`已选 ${selected.length} / ${GROUP_SELECTED_TAG_LIMIT}`}
+          label={
+            <NumericText>{`已选 ${selected.length} / ${GROUP_SELECTED_TAG_LIMIT}`}</NumericText>
+          }
           control={
             <div className="weq-group-management-tag-actions">
               {changed && (

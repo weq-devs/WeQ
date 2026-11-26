@@ -99,6 +99,7 @@ export function createContactMetricsRouter(
           range: z.enum(['all', 'older24h']).default('all'),
           target: z.enum(['metrics', 'groupMembers']).default('metrics'),
           foreground: z.boolean().optional(),
+          pageId: z.string().uuid().optional(),
           fields: z
             .array(
               z.enum([
@@ -129,11 +130,23 @@ export function createContactMetricsRouter(
           input.range,
           input.target,
           input.foreground,
+          input.pageId,
         ),
       ),
     backgroundRefresh: procedure
       .input(binding.extend({ taskId: z.string().uuid() }))
       .mutation(({ input }) => resolve(input).backgroundRefresh(input.taskId)),
+    controlGroupMemberRefresh: procedure
+      .input(
+        binding.extend({
+          taskId: z.string().uuid(),
+          action: z.enum(['pause', 'stop', 'resume', 'retry']),
+          pageId: z.string().uuid().optional(),
+        }),
+      )
+      .mutation(({ input }) =>
+        resolve(input).controlGroupMemberRefresh(input.taskId, input.action, input.pageId),
+      ),
     changed: procedure.input(binding).subscription(({ input }) => {
       const runtime = resolve(input);
       return observable<{ base: boolean; relationGraph?: boolean; profiles?: boolean }>((emit) => {

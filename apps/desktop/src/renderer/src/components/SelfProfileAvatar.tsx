@@ -1,3 +1,4 @@
+import { activateProfile } from '../lib/profileClick';
 import { useContext, type ReactNode } from 'react';
 import { Avatar } from '../im-template/template/primitives';
 import type { User } from '../im-template/template/types';
@@ -28,10 +29,9 @@ export function SelfProfileAvatar({
         const rect = event.currentTarget.getBoundingClientRect();
         const anchor =
           event.detail === 0
-            ? { x: rect.right, y: rect.bottom }
-            : { x: event.clientX, y: event.clientY };
-        if (group) open?.(user, anchor, group);
-        else open?.(user, anchor);
+            ? { x: rect.right, y: rect.bottom, trigger: event.currentTarget }
+            : { x: event.clientX, y: event.clientY, trigger: event.currentTarget };
+        activateProfile(event, () => open?.(user, anchor, group));
       }}
     >
       <Avatar name={displayUserName(user)} avatarUrl={user.avatarUrl} seed={user.identityValue} />

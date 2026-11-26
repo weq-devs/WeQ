@@ -26,6 +26,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { MessageMenuFeedbackContext } from '../../lib/messageMenuFeedback';
+import { NumericText } from '../../components/NumericText';
 import { MessageMenuButton } from '../../components/MessageMenuButton';
 import { MessageMenuContext } from '../../components/MessageMenuButton.shared';
 import { useToastApi } from '../../components/Toast.shared';
@@ -33,7 +34,8 @@ import { messageSequence, showsRoamingSource } from '../../components/MessagePro
 import type { Message } from './types';
 import { cn } from './classNames';
 import { copyTextToClipboard } from './clipboard';
-import { canRepeatMessage, forwardUnsupportedReason } from '../../lib/messageRepeat';
+import { canRepeatMessage } from '../../lib/messageRepeat';
+import { forwardContentBlockReason } from '../../lib/sequentialForward';
 import { parseFlashShareCode } from '../../lib/flashShare';
 import { messageMediaTarget } from '../../lib/messageMediaTarget';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
@@ -482,8 +484,7 @@ export function MessageContextMenu(props: Props) {
                   <Forward {...icon} />,
                   call(props.onForward),
                   props.forwardBlockedReason,
-                  Boolean(props.onForward) &&
-                    forwardUnsupportedReason(message.qqElements ?? []) === null,
+                  Boolean(props.onForward) && forwardContentBlockReason(message) === null,
                 ),
                 action(
                   'repeat',
@@ -587,8 +588,16 @@ export function MessageContextMenu(props: Props) {
           </div>
           {hasMetadata ? (
             <p className="message-menu-metadata" id={metadataId} aria-hidden="true">
-              {time ? <span>{time}（北京时间）</span> : null}
-              {seq ? <span>seq {seq}</span> : null}
+              {time ? (
+                <span>
+                  <NumericText>{time}</NumericText>（北京时间）
+                </span>
+              ) : null}
+              {seq ? (
+                <span>
+                  seq <NumericText>{seq}</NumericText>
+                </span>
+              ) : null}
               {roaming ? (
                 <span>{message.sourceFormat === 'native' ? 'QQ 原生漫游' : 'WeQ 漫游缓存'}</span>
               ) : null}

@@ -1,3 +1,4 @@
+import { Monitor, UsersRound } from 'lucide-react';
 import {
   changePreference,
   preferenceValue,
@@ -5,7 +6,7 @@ import {
 } from '../../lib/clientPreferences';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
-import { Row } from './controls';
+import { Card, Row } from './controls';
 import { QqShowSettings } from './QqShowSettings';
 import { SharedDisplayToggle } from './SharedDisplayToggle';
 import '../../styles/message-display-settings.css';
@@ -82,17 +83,24 @@ export function MessageDisplayOptions() {
   );
   return (
     <>
-      <h4 className="weq-message-display-heading">消息外观</h4>
-      <QqShowSettings />
-      {renderGroup(groups[0])}
-      <Row
-        settingId="group-consecutive-messages"
-        desc="同一人的连续发言只在组首显示头像和发送者信息。"
-        control={<SharedDisplayToggle name="groupConsecutiveMessages" label="合并连续发言" />}
-      />
-      <h4 className="weq-message-display-heading">发送者与消息信息</h4>
-      {renderGroup(groups[1])}
-      {renderGroup(groups[2])}
+      <Card title="发送者与消息信息" icon={<UsersRound size={15} />}>
+        <QqShowSettings />
+        {renderGroup(groups[1])}
+        {renderGroup(groups[2])}
+      </Card>
+      <Card
+        title="消息外观"
+        icon={<Monitor size={15} />}
+        settingId="custom-message-display"
+        resetId="message-content"
+      >
+        {renderGroup(groups[0])}
+        <Row
+          settingId="group-consecutive-messages"
+          desc="同一人的连续发言只在组首显示头像和发送者信息。"
+          control={<SharedDisplayToggle name="groupConsecutiveMessages" label="合并连续发言" />}
+        />
+      </Card>
     </>
   );
 }

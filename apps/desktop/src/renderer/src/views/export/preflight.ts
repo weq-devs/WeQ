@@ -210,7 +210,7 @@ export async function ocrReadiness(): Promise<OcrReadiness> {
   const state: OcrReadiness = {
     localReady: false,
     filterReady: false,
-    prefilterEnabled: true,
+    prefilterEnabled: false,
     onlineCapable: false,
     localEngineBlocker: null,
   };
@@ -227,7 +227,7 @@ export async function ocrReadiness(): Promise<OcrReadiness> {
     // 与实际执行共用主进程解析结果，避免下载完成时混读旧设置与新文件状态。
     state.localEngineBlocker = access.ocrLocalBlocker ?? null;
     state.localReady = !state.localEngineBlocker && Boolean(access.ocrLocalModelId);
-    state.prefilterEnabled = access.ocrPrefilterEnabled !== false;
+    state.prefilterEnabled = access.ocrPrefilterEnabled === true;
     state.filterReady =
       state.prefilterEnabled && !state.localEngineBlocker && Boolean(access.ocrFilterModelId);
     return state;
@@ -238,7 +238,7 @@ export async function ocrReadiness(): Promise<OcrReadiness> {
     const models = await client.bootstrap.localModelResources.query();
     const ocrId = models.selected.ocr;
     const filterId = models.selected.filter;
-    state.prefilterEnabled = models.ocrPrefilterEnabled !== false;
+    state.prefilterEnabled = models.ocrPrefilterEnabled === true;
     // 平台能力优先：引擎都跑不起来时，「模型下好了」不算数（主进程的
     // `resolveLocalOcrModel` / `resolveLocalOcrFilterModel` 是同一个口径）。
     state.localEngineBlocker = models.engineBlocker;

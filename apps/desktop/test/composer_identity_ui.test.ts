@@ -319,13 +319,13 @@ describe('真实输入区与 +1 操作', () => {
       );
       expect(f.props.onSend).not.toHaveBeenCalled();
       await act(async () =>
-        f.host.querySelector<HTMLButtonElement>('.composer > .composer-send')!.click(),
+        f.host.querySelector<HTMLButtonElement>('.composer .composer-send')!.click(),
       );
       expect(f.props.onSend).toHaveBeenCalledOnce();
       expect(f.props.onSend).toHaveBeenCalledWith('原有草稿', undefined);
       expect(document.activeElement).toBe(editor);
       expect(editor.textContent).toBe('');
-      expect(f.host.querySelector<HTMLButtonElement>('.composer > .composer-send')!.disabled).toBe(
+      expect(f.host.querySelector<HTMLButtonElement>('.composer .composer-send')!.disabled).toBe(
         true,
       );
     } finally {

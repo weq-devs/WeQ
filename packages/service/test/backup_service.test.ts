@@ -21,6 +21,7 @@ import {
 import { weqAccountSettingPath } from '../src/bootstrap/backup_accounts';
 import { DEFAULT_INTENT_SENSE_CONFIG } from '../src/account/intent_sense';
 import { DEFAULT_ASSISTANT_SEND_MODE } from '../src/account/assistant_config';
+import type { WeqSelectiveBackup } from '../src/common/backup_sections';
 import { snapshotWeqApiSettings } from '../src/bootstrap/backup_settings';
 
 const roots: string[] = [];
@@ -554,5 +555,210 @@ it('界面恢复绑定发起设备；其他设备不能确认，可明确转移�
   expect(pendingWeqClientSettings(f.root, first)).toBeNull();
   expect(f.service.inventory().restore.result?.warnings).toContain(
     '已选择保留本机界面偏好，未应用包内界面偏好。',
+  );
+});
+
+function selected(sections: WeqSelectiveBackup['sections']): WeqSelectiveBackup {
+  return {
+    sections,
+    accountConfigIds: ['10001'],
+    databaseConfigIds: ['10001'],
+    draftConfigIds: ['10001'],
+    cloneConfigIds: ['10001'],
+    includeApiKeys: false,
+    includeServiceTokens: false,
+  };
+}
+
+it('默认范围只备份所选来源的规则，不读取分文件草稿或携带凭据', () => {
+  const f = fixture();
+  f.config.setTypingStatusHidden([
+    { accountUin: '10001', accountConfigId: '10001', uid: 'u_chosen', name: '' },
+    { accountUin: '10002', accountConfigId: '10002', uid: 'u_other_account', name: '' },
+  ]);
+  write(weqAccountSettingPath(f.root, f.cache, '10001', 'client-state.json'), {
+    revision: 1,
+    values: {},
+    records: { pins: { 'group:1': true } },
+    drafts: { 'assistant:test': { version: 'v1', value: null } },
+    externalDrafts: true,
+  });
+  const result = f.service.snapshotSelected(selected(['appearance', 'preferences', 'account']), {});
+  const bundle = readWeqBackup(result.archive);
+  expect(bundle.manifest.version).toBe(2);
+  const payload = Buffer.concat(bundle.files.map(({ data }) => data)).toString();
+  expect(payload).toContain('u_chosen');
+  expect(payload).toContain('group:1');
+  for (const omitted of [
+    'u_other_account',
+    'assistant:test',
+    'synthetic-db-key',
+    'synthetic-api-secret',
+    'synthetic-local-token',
+    'synthetic-runtime-ticket',
+  ])
+    expect(payload).not.toContain(omitted);
+});
+
+it('将外观和一份账号规则应用到已有账号，保留目标的日常偏好、凭据和草稿', () => {
+  const source = fixture();
+  source.config.patchSharedPreference('client', { accent: '#aabbcc' });
+  source.config.setTypingStatusHidden([
+    { accountUin: '10001', accountConfigId: '10001', uid: 'u_selected', name: '' },
+  ]);
+  const target = fixture();
+  target.config.setSettings({ renderTextMarkdown: true });
+  const existing = join(target.root, 'config', 'accounts', '10001.json');
+  const account = JSON.parse(readFileSync(existing, 'utf8'));
+  write(existing, { ...account, dbKey: 'target-db-key' });
+  const statePath = weqAccountSettingPath(target.root, target.cache, '10001', 'client-state.json');
+  write(statePath, {
+    revision: 1,
+    values: {},
+    records: {},
+    drafts: { 'assistant:local': { version: null, value: '本机草稿' } },
+  });
+  write(weqAccountSettingPath(source.root, source.cache, '10001', 'client-state.json'), {
+    revision: 2,
+    values: {},
+    records: { pins: { 'group:1': true } },
+    drafts: {},
+  });
+  const archive = source.service.snapshotSelected(selected(['appearance', 'account']), {}).archive;
+  const inspect = target.service.inspect(archive, 'selected.zip');
+  const preview = target.service.prepare(inspect.id, {
+    parts: ['settings', 'accounts'],
+    conflict: 'skip',
+  });
+  target.service.stage(preview.id);
+  expect(applyPendingWeqBackupRestore(target.root, target.cache)?.status).toBe('applied');
+  target.config.reload();
+  expect(target.config.getSettings().renderTextMarkdown).toBe(true);
+  expect(target.config.getSharedPreference('client').accent).toBe('#aabbcc');
+  expect(target.config.getSettings().mcp.token).toBe('synthetic-local-token');
+  expect(target.config.getSettings().typingStatus.hidden[0]?.uid).toBe('u_selected');
+  expect(JSON.parse(readFileSync(existing, 'utf8')).dbKey).toBe('target-db-key');
+  expect(JSON.parse(readFileSync(statePath, 'utf8'))).toMatchObject({
+    records: { pins: { 'group:1': true } },
+    drafts: { 'assistant:local': { value: '本机草稿' } },
+  });
+});
+
+it('API Key 与服务令牌可独立包含，布局导入只合并相应客户端键', () => {
+  const f = fixture();
+  const base = selected(['models', 'services']);
+  const payload = (selection: WeqSelectiveBackup) =>
+    Buffer.concat(
+      readWeqBackup(f.service.snapshotSelected(selection, {}).archive).files.map(
+        ({ data }) => data,
+      ),
+    ).toString();
+  expect(payload(base)).not.toContain('synthetic-api-secret');
+  expect(payload(base)).not.toContain('synthetic-local-token');
+  expect(payload({ ...base, includeApiKeys: true })).toContain('synthetic-api-secret');
+  expect(payload({ ...base, includeApiKeys: true })).not.toContain('synthetic-local-token');
+  expect(payload({ ...base, includeServiceTokens: true })).not.toContain('synthetic-api-secret');
+  expect(payload({ ...base, includeServiceTokens: true })).toContain('synthetic-local-token');
+
+  const { archive } = f.service.snapshotSelected(selected(['layout']), {
+    'weq.desktop.sidebarWidth.v2': '320',
+    'weq.theme-preference': 'dark',
+  });
+  const source = f.service.inspect(archive, 'layout.zip');
+  const preview = f.service.prepare(source.id, { parts: ['settings'], conflict: 'skip' });
+  f.service.stage(preview.id);
+  expect(applyPendingWeqBackupRestore(f.root, f.cache)?.status).toBe('applied');
+  expect(pendingWeqClientSettings(f.root)).toMatchObject({
+    values: { 'weq.desktop.sidebarWidth.v2': '320' },
+    merge: true,
+  });
+  expect(pendingWeqClientSettings(f.root)?.values).not.toHaveProperty('weq.theme-preference');
+});
+
+it.each([false, true])('连接配置只在确认后启用服务（确认 %s）', (activateServices) => {
+  const source = fixture();
+  source.config.setSettings({
+    mcp: { enabled: true, port: 49834 },
+    weqAssistant: { enabled: true, port: 49835 },
+    oneBotByUin: {
+      '10001': {
+        networks: {
+          wsServers: [
+            {
+              enabled: true,
+              name: '合成连接',
+              port: 49836,
+              accessToken: 'synthetic-onebot-token',
+              messageFormat: 'array',
+              reportSelfMessage: true,
+            },
+          ],
+          wsClients: [],
+          httpServers: [],
+          httpClients: [],
+        },
+      },
+    },
+  });
+  const receiver = fixture();
+  const archive = source.service.snapshotSelected(selected(['services']), {}).archive;
+  const bundle = receiver.service.inspect(archive, 'services.zip');
+  const preview = receiver.service.prepare(bundle.id, {
+    parts: ['settings', 'api'],
+    conflict: 'skip',
+    activateServices,
+  });
+  expect(preview.services).toEqual(['QQ 公众号推送', 'MCP', 'OneBot']);
+  receiver.service.stage(preview.id);
+  expect(applyPendingWeqBackupRestore(receiver.root, receiver.cache)?.status).toBe('applied');
+  receiver.config.reload();
+  expect(receiver.config.getSettings().mcp).toEqual({
+    enabled: activateServices,
+    port: 49834,
+    token: 'synthetic-local-token',
+  });
+  expect(receiver.config.getSettings().weqAssistant).toEqual({
+    enabled: activateServices,
+    port: 49835,
+  });
+  expect(receiver.config.getSettings().oneBotByUin['10001']?.networks.wsServers[0]?.enabled).toBe(
+    false,
+  );
+});
+
+it('单独恢复助手会话，在已有克隆数据目录中保留克隆文件', () => {
+  const source = fixture();
+  const assistant = [{ id: 'synthetic-session', title: '合成会话' }];
+  const relative = 'agentlab/10001/assistant_sessions.json';
+  write(join(source.cache, relative), assistant);
+  write(join(source.cache, 'agentlab/10001/notes.json'), {
+    persona: { corrections: ['源'], episodes: [] },
+  });
+  const receiver = fixture();
+  const notesPath = join(receiver.cache, 'agentlab/10001/notes.json');
+  const notes = { persona: { corrections: ['目标'], episodes: [] } };
+  write(notesPath, notes);
+  const archive = source.service.snapshotSelected(selected(['assistant']), {}).archive;
+  expect(readWeqBackup(archive).files.map(({ path }) => path)).toEqual([
+    'clones/10001/assistant_sessions.json',
+  ]);
+  const bundle = receiver.service.inspect(archive, 'assistant.zip');
+  const preview = receiver.service.prepare(bundle.id, { parts: ['clones'], conflict: 'skip' });
+  receiver.service.stage(preview.id);
+  expect(applyPendingWeqBackupRestore(receiver.root, receiver.cache)?.status).toBe('applied');
+  expect(JSON.parse(readFileSync(notesPath, 'utf8'))).toEqual(notes);
+  expect(JSON.parse(readFileSync(join(receiver.cache, relative), 'utf8'))).toEqual(assistant);
+});
+
+it('选择清单与备份内容不一致时在预览阶段拒绝', () => {
+  const f = fixture();
+  const archive = buildWeqBackup(
+    [file('settings/app.json', { renderTextMarkdown: true })],
+    undefined,
+    ['appearance'],
+  );
+  const source = f.service.inspect(archive, 'mismatched.zip');
+  expect(() => f.service.prepare(source.id, { parts: ['settings'], conflict: 'skip' })).toThrow(
+    '与所选范围不一致',
   );
 });

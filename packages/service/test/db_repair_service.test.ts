@@ -5,7 +5,7 @@
  *   - 备份发生在解密**之前**，且备份内容逐字节等于修复前的库；
  *   - 修复期间源库被写入 → 中止，且**源库一个字节都不动**；
  *   - 替换前仍被占用 → 中止，临时产物不留痕；
- *   - 产物自检不过 → 自动还原成修复前；
+ *   - 换入的数据库无法读取 → 自动还原成修复前；
  *   - 同一时刻只允许一个修复任务；
  *   - 保留策略真的会删旧备份，但记录还留着。
  *
@@ -15,7 +15,6 @@
 
 import {
   appendFileSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -25,11 +24,12 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { copyFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { DatabaseAlgorithms } from '@weq/native';
+import type { DatabaseAlgorithms, DatabaseProgress } from '@weq/native';
 import {
   DbRepairError,
   DbRepairService,
@@ -41,21 +41,26 @@ import {
   type DbRepairWalCheckpoint,
   type DbRepairRequest,
 } from '../src/account/db_repair';
+import { DbRepairRollbackError } from '../src/account/db_repair/service';
 import { DbRepairHistory } from '../src/account/db_repair/history';
 
 vi.mock('node:fs', async (original) => {
   const fs = await original<typeof import('node:fs')>();
   return {
     ...fs,
-    copyFileSync: vi.fn(fs.copyFileSync),
     renameSync: vi.fn(fs.renameSync),
     rmSync: vi.fn(fs.rmSync),
   };
+});
+vi.mock('node:fs/promises', async (original) => {
+  const fs = await original<typeof import('node:fs/promises')>();
+  return { ...fs, copyFile: vi.fn(fs.copyFile) };
 });
 
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require('node:sqlite') as typeof import('node:sqlite');
 const realFs = require('node:fs') as typeof import('node:fs');
+const realFsPromises = require('node:fs/promises') as typeof import('node:fs/promises');
 
 const ALGO: DatabaseAlgorithms = { pageHmacAlgorithm: 'SHA1', kdfHmacAlgorithm: 'SHA512' };
 /** 服务只认 uin —— 目录与密钥由 `resolveAccount` 解析，测试里就是这个假账号。 */
@@ -70,7 +75,7 @@ function tmpDir(tag: string): string {
 }
 
 afterEach(() => {
-  vi.mocked(copyFileSync).mockReset().mockImplementation(realFs.copyFileSync);
+  vi.mocked(copyFile).mockReset().mockImplementation(realFsPromises.copyFile);
   vi.mocked(renameSync).mockReset().mockImplementation(realFs.renameSync);
   vi.mocked(rmSync).mockReset().mockImplementation(realFs.rmSync);
   for (const dir of tmpRoots) rmSync(dir, { recursive: true, force: true });
@@ -107,14 +112,14 @@ interface HarnessOptions {
     onProgress: (progress: DbRepairProgress) => void,
     signal?: AbortSignal,
   ) => Promise<DbRepairRecoverReport>;
-  /** 覆盖替换后的复核。 */
-  verify?: DbRepairDeps['verify'];
+  checkInstalledDatabase?: DbRepairDeps['checkInstalledDatabase'];
   /** 覆盖 WAL 合并（默认成功；可以改成抛错或报 `merged: false` 来验"合并不成"的分支）。 */
   checkpoint?: (dbPath: string) => Promise<DbRepairWalCheckpoint>;
   /** 报告里写死一个版本号，避免测试依赖宿主。 */
   appVersion?: string;
   scratchDir?: DbRepairDeps['scratchDir'];
   storageOptimized?: DbRepairDeps['storageOptimized'];
+  storageStreaming?: DbRepairDeps['storageStreaming'];
   diskSpace?: DbRepairDeps['diskSpace'];
 }
 
@@ -155,7 +160,7 @@ function createHarness(options: HarnessOptions = {}) {
   const dbPath = join(dbDir, 'nt_msg.db');
   writeFileSync(dbPath, originalBytes());
 
-  const calls = { recover: 0, released: 0, verify: 0, probe: 0, checkpoint: 0 };
+  const calls = { recover: 0, released: 0, checkInstalled: 0, probe: 0, checkpoint: 0 };
   const progress: DbRepairProgress[] = [];
   const recoverArgs: DbRepairRecoverOptions[] = [];
   let clockMs = Date.parse('2026-09-20T05:30:12.000Z');
@@ -176,6 +181,7 @@ function createHarness(options: HarnessOptions = {}) {
   const deps: DbRepairDeps = {
     scratchDir: options.scratchDir,
     storageOptimized: options.storageOptimized,
+    storageStreaming: options.storageStreaming,
     diskSpace: options.diskSpace,
     cacheDir: (...segments) => join(cacheRoot, ...segments),
     resolveAccount: () => {
@@ -216,12 +222,10 @@ function createHarness(options: HarnessOptions = {}) {
     releaseHandles: () => {
       calls.released += 1;
     },
-    verify:
-      options.verify ??
-      (async () => {
-        calls.verify += 1;
-        return { healthy: true, corruptedTables: [] };
-      }),
+    checkInstalledDatabase: async (path, key, algo) => {
+      calls.checkInstalled += 1;
+      await options.checkInstalledDatabase?.(path, key, algo);
+    },
     appVersion: () => options.appVersion ?? '0.0.0-test',
     now: () => new Date(clockMs),
   };
@@ -305,7 +309,7 @@ describe('DbRepairService.repair 成功路径', () => {
     const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress));
 
     expect(record.state).toBe('applied');
-    expect(record.afterSha).not.toBe(record.beforeSha);
+    expect(h.service.restorePreview(REF, record.id).matchesAfter).toBe(true);
     expect(record.verification?.healthy).toBe(true);
     expect(record.badPages).toEqual([7871]);
 
@@ -351,14 +355,127 @@ describe('DbRepairService.repair 成功路径', () => {
     expect(args.key).toBe('test-key');
   });
 
-  it('backup: false 时不落备份（记录里如实写 null）', async () => {
+  it.each([false, true])('重建进度随主产物增长更新（流式重建 %s）', async (streaming) => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const h = createHarness({
+        storageStreaming: () => streaming,
+        recover: async (options, progress) => {
+          const outputDirectory = streaming
+            ? join(dirname(options.outPath), '.nt-helper-export-fixture')
+            : options.workDir;
+          mkdirSync(outputDirectory, { recursive: true });
+          const output = join(outputDirectory, streaming ? 'database' : 'fixture-rebuilt.db');
+          const headerBytes = streaming ? 1024 : 0;
+          writeFileSync(output, Buffer.alloc(headerBytes + 4 * 4096));
+          writeFileSync(`${output}-wal`, Buffer.alloc(20 * 4096));
+          const tick = { phase: 'Repair', percent: 40, message: '正在重建' };
+          progress({
+            ...tick,
+            detail: {
+              step: 'recover-data',
+              message: '恢复表数据',
+              completed: 9000,
+              unit: 'fields',
+              objectName: 'group_msg_table',
+            },
+          });
+          progress(tick);
+          // 原生组件暂停推送字段计数时，仍从在写的主库读取进度。
+          writeFileSync(output, Buffer.alloc(headerBytes + 8 * 4096));
+          await vi.advanceTimersByTimeAsync(1000);
+          writeFileSync(output, Buffer.alloc(headerBytes + 18 * 4096));
+          await vi.advanceTimersByTimeAsync(1000);
+          writeFileSync(output, Buffer.alloc(headerBytes + 10 * 4096));
+          await vi.advanceTimersByTimeAsync(1000);
+          progress({
+            ...tick,
+            detail: {
+              step: 'recover-scan',
+              message: '扫描原库查找可恢复的数据',
+              completed: 8,
+              total: 20,
+              unit: 'pages',
+            },
+          });
+          await vi.advanceTimersByTimeAsync(1000);
+          progress(tick);
+          writeFileSync(options.outPath, repairedBytes());
+          progress({ phase: 'Verify', percent: 100, message: '检查修复产物' });
+          return makeReport();
+        },
+      });
+      await h.repair({ uin: REF, dbName: 'nt_msg.db', backup: false }, collect(h.progress));
+      const rebuilding = h.progress.filter((tick) => tick.phase === 'Repair');
+      const tableRecovery = rebuilding.slice(0, 5);
+      expect(tableRecovery.map((tick) => tick.detail?.rebuildPercent)).toEqual([
+        25, 25, 50, 99, 99,
+      ]);
+      expect(tableRecovery.at(-1)?.detail).toMatchObject({
+        step: 'recover-data',
+        completed: 9000,
+        objectName: 'group_msg_table',
+      });
+      const finalizing = rebuilding.slice(5);
+      expect(finalizing).toHaveLength(3);
+      for (const tick of finalizing) {
+        expect(tick.detail?.step).toBe('recover-scan');
+        expect(tick.detail?.rebuildPercent).toBeUndefined();
+        expect(tick.detail?.completed).toBe(8);
+        expect(tick.detail?.total).toBe(20);
+        expect(tick.detail?.objectName).toBeUndefined();
+      }
+      expect(
+        h.progress.find((tick) => tick.phase === 'Verify')?.detail?.rebuildPercent,
+      ).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('优先展示原生写入量，主产物文件名和阶段摘要不影响重建进度', async () => {
+    const h = createHarness({
+      storageStreaming: () => true,
+      recover: async (options, progress) => {
+        const outputDirectory = join(dirname(options.outPath), '.nt-helper-export-fixture');
+        mkdirSync(outputDirectory, { recursive: true });
+        writeFileSync(join(outputDirectory, 'database'), Buffer.alloc(1024 + 16 * 4096));
+        const tick = { phase: 'Repair', percent: 40, message: '正在重建' };
+        progress({ ...tick, rebuiltBytes: 0 });
+        progress({
+          ...tick,
+          rebuiltBytes: 4 * 4096,
+          detail: { step: 'recover-data', message: '恢复表数据', completed: 9000, unit: 'fields' },
+        });
+        progress(tick);
+        progress({ ...tick, rebuiltBytes: 8 * 4096 });
+        writeFileSync(options.outPath, repairedBytes());
+        progress({ phase: 'Verify', percent: 100, message: '检查修复产物' });
+        return makeReport();
+      },
+    });
+    await h.repair({ uin: REF, dbName: 'nt_msg.db', backup: false }, collect(h.progress));
+    const rebuilding = h.progress.filter((tick) => tick.phase === 'Repair');
+    expect(rebuilding.map((tick) => tick.detail?.rebuildPercent)).toEqual([0, 25, 25, 50]);
+    expect(rebuilding.at(-1)?.detail?.completed).toBe(9000);
+    expect(
+      h.progress.find((tick) => tick.phase === 'Verify')?.detail?.rebuildPercent,
+    ).toBeUndefined();
+  });
+
+  it('无备份时只记录产物大小，跳过修复后指纹', async () => {
     const h = createHarness();
     const record = await h.repair(
       { uin: REF, dbName: 'nt_msg.db', backup: false },
       collect(h.progress),
     );
-    expect(record.state).toBe('applied');
-    expect(record.backupPath).toBeNull();
+    expect(record).toMatchObject({
+      state: 'applied',
+      backupPath: null,
+      afterSha: null,
+      afterBytes: repairedBytes().length,
+    });
+    expect(h.calls.checkInstalled).toBe(1);
     expect(existsSync(h.paths().backupsDir)).toBe(false);
   });
 
@@ -652,7 +769,7 @@ describe('修复空间与自定义缓存', () => {
     expect(paths.backupsDir.startsWith(scratch)).toBe(true);
     expect(paths.history).toBe(historyFile);
     expect(h.service.history(REF).find(old.id)?.backupPath).toBe(old.backupPath);
-    h.service.restore(REF, old.id, { force: true });
+    await h.service.restore(REF, old.id, { force: true });
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
   });
 
@@ -725,7 +842,7 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
     expect(readFileSync(journal, 'utf8')).toBe('source-sidecar');
     expect(h.calls.released).toBe(0);
-    expect(h.calls.verify).toBe(0);
+    expect(h.calls.checkInstalled).toBe(0);
     expect(h.progress.some((tick) => tick.phase === 'swapping')).toBe(false);
     expect(readdirSync(h.dbDir).filter((name) => name.includes('.weq-repair-'))).toEqual([]);
     const record = h.service.listRecords(REF)[0]!;
@@ -739,7 +856,7 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     else expect(record.backupPath).toBeNull();
   });
 
-  it('原生自检部分未核验但未发现异常时保留原处理，仍执行替换后的最终复核', async () => {
+  it('换入后试读成功，报告仍保留产物结构自检的未核验项', async () => {
     const report = makeReport();
     report.verification.complete = false;
     report.verification.unverifiedTables = ['qq_fts'];
@@ -751,7 +868,7 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     });
     const record = await h.repair({ uin: REF, dbName: 'nt_msg.db' }, () => {});
     expect(record.state).toBe('applied');
-    expect(h.calls.verify).toBe(1);
+    expect(h.calls.checkInstalled).toBe(1);
     expect(record.verification).toMatchObject({ complete: false, unverifiedTables: ['qq_fts'] });
   });
 
@@ -816,21 +933,87 @@ describe('DbRepairService.repair 中止 / 失败', () => {
     expect(h.service.listRecords(REF)[0]?.state).toBe('aborted');
   });
 
-  it('产物自检不过 → 自动还原成修复前（备份就是为了这一刻）', async () => {
-    const h = createHarness({
-      verify: async () => ({ healthy: false, corruptedTables: ['group_msg_table'] }),
-    });
-    await expect(
-      h.repair({ uin: REF, dbName: 'nt_msg.db' }, collect(h.progress)),
-    ).rejects.toMatchObject({ code: 'verify-failed' });
+  it.each([{ backup: true }, { backup: false, maintenanceId: 'locked' }])(
+    '换入后试读失败时自动恢复原库（%j）',
+    async (options) => {
+      const h = createHarness({
+        checkInstalledDatabase: async (path) => {
+          expect(path).toBe(h.dbPath);
+          expect(readFileSync(path)).toEqual(repairedBytes());
+          throw new Error('无法读取 SQLite 结构');
+        },
+      });
+      await expect(
+        h.repair({ uin: REF, dbName: 'nt_msg.db', ...options }, collect(h.progress)),
+      ).rejects.toMatchObject({ code: 'verify-failed' });
 
-    // 库回到修复前
+      // 库回到修复前
+      expect(readFileSync(h.dbPath)).toEqual(originalBytes());
+      expect(readdirSync(h.dbDir)).toEqual(['nt_msg.db']);
+      const record = h.service.listRecords(REF)[0]!;
+      expect(record.state).toBe('apply-failed');
+      expect(record.error).toContain('自动还原');
+      expect(record.error).toContain('无法读取 SQLite 结构');
+      expect(record.verification?.healthy).toBe(true);
+      expect(record.afterSha).toBeNull();
+    },
+  );
+
+  it.each([false, true])('无备份撤销已换入的新库，首次恢复失败可重试（%s）', async (failOnce) => {
+    const entered = Promise.withResolvers<void>();
+    const choice = Promise.withResolvers<void>();
+    const rollback = new AbortController();
+    const h = createHarness({
+      checkInstalledDatabase: async () => {
+        entered.resolve();
+      },
+    });
+    const result = h
+      .repair(
+        {
+          uin: REF,
+          dbName: 'nt_msg.db',
+          maintenanceId: 'locked',
+          backup: false,
+          replacement: {
+            begin: async () => {},
+            waitForDecision: () => choice.promise,
+            signal: rollback.signal,
+          },
+        },
+        collect(h.progress),
+      )
+      .catch((error: unknown) => error);
+    await entered.promise;
+    expect(h.progress.at(-1)?.phase).toBe('final-check');
+    expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
+    if (failOnce)
+      vi.mocked(renameSync).mockImplementationOnce(() => {
+        throw new Error('暂时无法恢复原库');
+      });
+    rollback.abort(new DOMException('已撤销本次数据库替换。', 'AbortError'));
+    choice.resolve();
+    const error = await result;
+    if (failOnce) {
+      expect(error).toBeInstanceOf(DbRepairRollbackError);
+      expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
+      const work = readdirSync(h.dbDir).find((name) => name.startsWith('.nt_msg.db.weq-repair-'))!;
+      expect(readFileSync(join(h.dbDir, work, 'original', 'nt_msg.db'))).toEqual(originalBytes());
+      await (error as DbRepairRollbackError).retry(collect(h.progress));
+    } else {
+      expect(error).toMatchObject({ message: '已撤销本次数据库替换。' });
+      expect(h.service.listRecords(REF)[0]).toMatchObject({ state: 'aborted', backupPath: null });
+    }
+    expect(h.progress.at(-1)).toMatchObject({
+      detail: {
+        step: 'rollback-fingerprint',
+        completed: originalBytes().length,
+        total: originalBytes().length,
+        status: 'completed',
+      },
+    });
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
     expect(readdirSync(h.dbDir)).toEqual(['nt_msg.db']);
-    const record = h.service.listRecords(REF)[0]!;
-    expect(record.state).toBe('apply-failed');
-    expect(record.error).toContain('自动还原');
-    expect(record.verification?.corruptedTables).toContain('group_msg_table');
   });
 
   it('预检就被锁挡住时不会发起 native 修复', async () => {
@@ -951,8 +1134,14 @@ describe('DbRepairService.resolveTarget', () => {
 
   it('布局检测只看文件，不要求密钥 / 算法', () => {
     const h = createHarness({ credentials: null });
+    const wrapped = Buffer.alloc(1024 + 4096);
+    wrapped.write('SQLite header 3\0');
+    wrapped.writeUInt16LE(4, 16);
+    writeFileSync(h.dbPath, wrapped);
     const probe = h.service.probeLayout(REF, 'nt_msg.db');
     expect(probe.dbPath).toBe(h.dbPath);
+    expect(probe.headerOffset).toBe(1024);
+    expect(probe.pageCount).toBe(1);
     expect(probe.layout).toBe('unknown');
   });
 
@@ -974,7 +1163,20 @@ describe('DbRepairService.restore', () => {
     const record = await repairOnce(h);
     expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
 
-    const rolled = h.service.restore(REF, record.id);
+    const ticks: DatabaseProgress[] = [];
+    const restoring = h.service.restore(REF, record.id, {
+      progress: (_dbName, tick) => {
+        expect(readFileSync(h.dbPath)).toEqual(repairedBytes());
+        ticks.push(tick);
+      },
+    });
+    await expect(h.service.restore(REF, record.id)).rejects.toMatchObject({ code: 'busy' });
+    const rolled = await restoring;
+    const counts = ticks.flatMap((tick) =>
+      tick.completed === undefined ? [] : [[tick.completed, tick.total]],
+    );
+    expect(counts[0]).toEqual([0, originalBytes().length]);
+    expect(counts.at(-1)).toEqual([originalBytes().length, originalBytes().length]);
     expect(rolled.state).toBe('rolled-back');
     expect(rolled.restoredAt).toBeTruthy();
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
@@ -993,7 +1195,7 @@ describe('DbRepairService.restore', () => {
       code: 'needs-confirm',
     });
 
-    const rolled = h.service.restore(REF, record.id, { force: true });
+    const rolled = await h.service.restore(REF, record.id, { force: true });
     expect(rolled.state).toBe('rolled-back');
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
   });
@@ -1051,11 +1253,11 @@ describe('DbRepairService.restore', () => {
       currentSha: record.afterSha,
       matchesAfter: false,
     });
-    expect(() => h.service.restore(REF, record.id)).toThrow(
-      expect.objectContaining({ code: 'needs-confirm' }),
-    );
+    await expect(h.service.restore(REF, record.id)).rejects.toMatchObject({
+      code: 'needs-confirm',
+    });
     assertTwoRows();
-    expect(h.service.restore(REF, record.id, { force: true }).state).toBe('rolled-back');
+    expect((await h.service.restore(REF, record.id, { force: true })).state).toBe('rolled-back');
     expect(existsSync(walPath)).toBe(false);
   });
 
@@ -1070,9 +1272,7 @@ describe('DbRepairService.restore', () => {
       damaged[0] = damaged[0]! ^ 1;
       writeFileSync(record.backupPath!, damaged);
     } else if (failure === '复制') {
-      vi.mocked(copyFileSync).mockImplementationOnce(() => {
-        throw full;
-      });
+      vi.mocked(copyFile).mockRejectedValueOnce(full);
     } else {
       vi.mocked(renameSync).mockImplementation((from, to) => {
         if (to === h.dbPath) {
@@ -1084,14 +1284,16 @@ describe('DbRepairService.restore', () => {
     }
 
     const restore = () => h.service.restore(REF, record.id, { force: true });
-    expect(restore).toThrow(failure === '校验' ? /校验值与修复记录不符/ : /volume full/);
+    await expect(restore()).rejects.toThrow(
+      failure === '校验' ? /校验值与修复记录不符/ : /volume full/,
+    );
     expect(readFileSync(shmPath)).toEqual(shm);
     expect(readdirSync(h.dbDir).filter((name) => name.includes('.weq-restore-'))).toEqual([]);
     expect(h.service.listRecords(REF)[0]?.state).toBe('applied');
     assertTwoRows();
     writeFileSync(record.backupPath!, backup);
     vi.mocked(renameSync).mockImplementation(realFs.renameSync);
-    expect(restore().state).toBe('rolled-back');
+    expect((await restore()).state).toBe('rolled-back');
   });
 
   it('备份被清理后回滚给出明确原因', async () => {
@@ -1268,7 +1470,7 @@ describe('未合并的 WAL（sidecar）', () => {
     writeFileSync(`${h.dbPath}-wal`, '');
     writeFileSync(`${h.dbPath}-shm`, Buffer.alloc(32768));
 
-    h.service.restore(REF, record.id);
+    await h.service.restore(REF, record.id);
 
     expect(readFileSync(h.dbPath)).toEqual(originalBytes());
     expect(existsSync(`${h.dbPath}-wal`)).toBe(false);

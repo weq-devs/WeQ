@@ -301,6 +301,7 @@ export function ConversationList({
   const setView = directory?.onViewChange ?? setLocalView;
   const [queries, setQueries] = useState<Partial<Record<ConversationView, string>>>({});
   const keyword = queries[view] ?? '';
+  useImperativeHandle(directory?.readListQuery, () => () => keyword, [keyword]);
   const setKeyword = useCallback(
     (value: string) => setQueries((current) => ({ ...current, [view]: value })),
     [view],
@@ -1588,6 +1589,7 @@ export function GroupList({
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
       <ContactDirectoryOrder
+        kind="groups"
         order={order}
         active={active}
         filtersApplied={hasFilter}
@@ -2401,6 +2403,7 @@ const ContactListContent = memo(function ContactListContent({
   return (
     <div className="weq-contact-directory" {...multi.rootProps}>
       <ContactDirectoryOrder
+        kind="friends"
         order={order}
         active={active}
         filtersApplied={hasFilters}

@@ -14,6 +14,7 @@ export interface BackupStartupState {
     values: Record<string, string>;
     clientId?: string;
     defaults?: boolean;
+    merge?: boolean;
   } | null;
   canReveal: boolean;
   canRestart: boolean;
@@ -45,8 +46,8 @@ export async function restoreBackupClient(
   const pending = state.client;
   if (!state.ok || !pending) return state;
   if (storage.getItem(WEQ_CLIENT_RESTORE_RECEIPT) !== pending.id)
-    applyWeqClientSettings(storage, pending.values, true, pending.id, pending.defaults);
-  const intent = storage.getItem('weq.sync.restored-shared');
+    applyWeqClientSettings(storage, pending.values, !pending.merge, pending.id, pending.defaults);
+  const intent = pending.merge ? null : storage.getItem('weq.sync.restored-shared');
   if (intent !== null) {
     const values: unknown = JSON.parse(intent);
     validatePreferencePatch(values);

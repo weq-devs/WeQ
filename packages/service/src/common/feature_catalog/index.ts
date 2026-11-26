@@ -1,3 +1,4 @@
+import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { searchNameRank } from '../../account/search_policy';
 import { CONTEXT_FEATURES, DRESS_FEATURES, EXPORT_FEATURES, WORKSPACE_FEATURES } from './entries';
 import type { FeatureDefinition, FeatureDomain, FeatureKind } from './model';
@@ -61,10 +62,14 @@ export function listFeatures(
     (entry) => (!domain || entry.domain === domain) && (!kind || entry.kind === kind),
   );
   if (!query) return candidates;
+  const pinyin = createPinyinMatcher(query);
   return candidates
     .map((entry) => ({
       entry,
-      rank: searchNameRank(query, entry.label, ...entry.aliases, entry.id),
+      rank:
+        searchNameRank(query, entry.label, ...entry.aliases, entry.id) ||
+        pinyin?.rank(entry.label) ||
+        (pinyin ? pinyin.rank(...entry.aliases) * 0.5 : 0),
     }))
     .filter(({ rank }) => rank > 0)
     .sort((a, b) => b.rank - a.rank)

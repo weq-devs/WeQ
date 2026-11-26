@@ -139,8 +139,10 @@ function FuseBoard({
 
           {/* 冠军的引线永远满格 —— 它就是这一幕的标尺。 */}
           <div className="weq-fr-fuse-track">
-            <span className="weq-fr-fuse-burn" style={{ width: grown ? '100%' : '0%' }}>
-              {grown ? <i className="weq-fr-fuse-ember" aria-hidden /> : null}
+            <span className="weq-fr-fuse-burn" data-grown={grown}>
+              <span className="weq-fr-fuse-travel">
+                {grown ? <i className="weq-fr-fuse-ember" aria-hidden /> : null}
+              </span>
             </span>
           </div>
 
@@ -158,7 +160,11 @@ function FuseBoard({
                   <Face uin={entry.peerUin} />
                   <span className="weq-fr-fuse-rname">{entry.peerName}</span>
                   <span className="weq-fr-fuse-rtrack" aria-hidden>
-                    <i style={{ width: grown ? `${ratio(entry.value, champion.value)}%` : '0%' }} />
+                    <i
+                      style={{
+                        transform: `scaleX(${grown ? ratio(entry.value, champion.value) / 100 : 0})`,
+                      }}
+                    />
                   </span>
                   <span className="weq-fr-fuse-rval">
                     <b className="weq-number">{fmt(entry.value)}</b>
@@ -239,12 +245,11 @@ function StackBoard({
                   style={
                     {
                       '--share': `${Math.min(100, (entry.value / Math.max(1, champion.value)) * 100)}%`,
-                      height: grown
-                        ? `${Math.max(
-                            STACK_MIN_H,
-                            Math.round((entry.value / Math.max(1, champion.value)) * STACK_MAX_H),
-                          )}px`
-                        : '0px',
+                      height: `${Math.max(
+                        STACK_MIN_H,
+                        Math.round((entry.value / Math.max(1, champion.value)) * STACK_MAX_H),
+                      )}px`,
+                      transform: `scaleY(${grown ? 1 : 0})`,
                     } as CSSProperties
                   }
                 />

@@ -131,8 +131,13 @@ export function OpenersPage({
             <i className="weq-op-beam-half is-peer" />
             <i className="weq-op-beam-half is-mine" />
             <i className="weq-op-beam-mid" />
-            <span className="weq-op-beam-dot" style={{ '--pos': selfPct } as CSSProperties}>
-              <b />
+            <span
+              className="weq-op-beam-travel"
+              style={{ '--pos': `${selfPct}%` } as CSSProperties}
+            >
+              <span className="weq-op-beam-dot">
+                <b />
+              </span>
             </span>
           </div>
           <span className="weq-op-beam-side is-mine">

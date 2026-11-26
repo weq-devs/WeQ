@@ -26,7 +26,7 @@ import { PageFrame, type ReportPageProps } from '../pageFrame';
 import { Odometer } from '../Odometer';
 import { usePrefersReducedMotion } from '../Odometer.shared';
 import { useReportView } from '../reportContext';
-import { useDressAssets, type DressAssets } from '../useDressAssets';
+import { DRESS_CASE_ITEMS, useDressAssets, type DressAssets } from '../useDressAssets';
 import { useSelfFace, type SelfFace } from '../useSelfFace';
 import { reportFontFamily } from '../reportFont';
 import { DressBubble } from '../DressBubble';
@@ -78,9 +78,6 @@ export function DressPage({ page, data, active }: ReportPageProps<DressPageData>
     </PageFrame>
   );
 }
-
-/** 展柜每类最多陈列多少款。再多只留一个「+N」暗格，不把版面堆满。 */
-const CASE_MAX = 5;
 
 /** 三类单品各自的展柜文案与量词。 */
 const KIND_META: Record<
@@ -244,8 +241,7 @@ function ShowcaseShelf({
   assets: DressAssets;
 }): ReactElement {
   const meta = KIND_META[kind];
-  const items = kindData.items.slice(0, CASE_MAX);
-  const more = Math.max(0, kindData.distinct - items.length);
+  const items = kindData.items.slice(0, DRESS_CASE_ITEMS);
 
   if (items.length === 0) {
     return (
@@ -284,12 +280,6 @@ function ShowcaseShelf({
             </p>
           </li>
         ))}
-        {more > 0 ? (
-          <li className="weq-dress-item is-more" aria-hidden>
-            <b>+{fmt(more)}</b>
-            <span>{meta.unit}</span>
-          </li>
-        ) : null}
       </ul>
     </div>
   );

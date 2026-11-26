@@ -1,7 +1,39 @@
+import type { QuickRepairFailure, SingleBytePageCorrection } from '@weq/native';
 import type { BadPageScanReport } from '../bad_pages';
 import type { DbRepairCheckupIntegrity } from './checkup';
 import type { DatabaseTaskProgress } from './progress';
 import type { DbRepairRecord } from './types';
+
+export const DEFAULT_DATABASE_CHECKUP_CONCURRENCY = 2;
+export const MAX_DATABASE_CHECKUP_CONCURRENCY = 8;
+
+export function normalizeDatabaseCheckupConcurrency(
+  value: unknown,
+  fallback = DEFAULT_DATABASE_CHECKUP_CONCURRENCY,
+): number {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= MAX_DATABASE_CHECKUP_CONCURRENCY
+    ? value
+    : fallback;
+}
+
+export type DatabaseRepairMethod = 'quick' | 'deep';
+export const DATABASE_REPAIR_BACKUP_MODES = ['off', 'deep', 'all'] as const;
+export type DatabaseRepairBackupMode = (typeof DATABASE_REPAIR_BACKUP_MODES)[number];
+
+export function isDatabaseRepairBackupMode(value: unknown): value is DatabaseRepairBackupMode {
+  return DATABASE_REPAIR_BACKUP_MODES.some((mode) => mode === value);
+}
+
+export type DatabaseRepairNextAction = 'retry-space' | 'view-deep' | 'retry' | 'check-source';
+export interface DatabasePageLocation {
+  affected: BadPageScanReport['affected'];
+  quickBudgetBytes?: number;
+  singleByteCorrection?: SingleBytePageCorrection;
+  quickFailure?: QuickRepairFailure;
+}
 
 export type DatabaseRepairSupport = 'supported' | 'possible' | 'unsupported';
 export interface DatabaseMaintenanceIssue {
@@ -19,6 +51,8 @@ export interface DatabaseMaintenanceRow {
   scanStatus: 'pending' | 'running' | 'completed' | 'failed';
   scan?: BadPageScanReport;
   scanError?: string;
+  locationChecked?: boolean;
+  quickBudgetBytes?: number;
   integrity?: DbRepairCheckupIntegrity;
   deepStatus?: 'running' | 'completed' | 'partial' | 'failed' | 'cancelled';
   support: DatabaseRepairSupport;
@@ -28,6 +62,8 @@ export interface DatabaseMaintenanceRow {
   repair?: {
     status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'waiting';
     record?: DbRepairRecord;
+    method?: DatabaseRepairMethod;
+    nextAction?: DatabaseRepairNextAction;
     error?: string;
   };
 }
@@ -40,6 +76,9 @@ export interface DatabaseMaintenanceOperation {
   elapsedMs: number;
   totalDatabases: number;
   databaseNames?: string[];
+  /** 记录与起始类型不同的体检，其他库沿用起始类型。 */
+  databaseScanKinds?: Record<string, 'scan' | 'checkup'>;
+  currentScanKind?: 'scan' | 'checkup';
   completedDatabases: number;
   failedDatabases?: number;
   currentDb?: string;
@@ -67,6 +106,8 @@ export interface DatabaseMaintenanceStatusRow
   scan?: Pick<BadPageScanReport, 'dbPath' | 'pageCount' | 'plaintext' | 'usedHmac'> & {
     badPageCount: number;
     zeroPageCount: number;
+    affected?: BadPageScanReport['affected'];
+    quickRepairEligible?: boolean;
   };
   repair?: Omit<NonNullable<DatabaseMaintenanceRow['repair']>, 'record'> & {
     verification?: {
@@ -95,9 +136,13 @@ export function summarizeDatabaseMaintenance(
           usedHmac: scan.usedHmac,
           badPageCount: scan.badPages.length,
           zeroPageCount: scan.zeroPages.length,
+          affected: scan.affected,
+          quickRepairEligible: quickRepairEligible(scan),
         },
         repair: repair && {
           status: repair.status,
+          method: repair.method,
+          nextAction: repair.nextAction,
           error: repair.error,
           verification: verification
             ? {
@@ -129,16 +174,65 @@ export function verifiedDatabaseScans(snapshot: DatabaseMaintenanceStatus) {
 export function databaseReadyForRepair(
   row: Pick<
     DatabaseMaintenanceRow | DatabaseMaintenanceStatusRow,
-    'scanStatus' | 'scan' | 'support' | 'repair'
+    'scanStatus' | 'scan' | 'support' | 'repair' | 'locationChecked'
   >,
 ): boolean {
   return (
     row.scanStatus === 'completed' &&
     !!row.scan &&
     row.support !== 'unsupported' &&
+    // 常规扫描已验证存在正常页时，深度修复可直接重建；快速修复仍须取得坏页证据。
+    (row.support === 'supported' || !databaseNeedsPageLocation(row)) &&
     row.repair?.status !== 'completed'
   );
 }
+export function databaseRepairRecommendation(
+  row: DatabaseMaintenanceStatusRow | DatabaseMaintenanceRow,
+): DatabaseRepairMethod | undefined {
+  if (!databaseReadyForRepair(row) || !databaseMaintenanceRowAbnormal(row)) return undefined;
+  return row.quickBudgetBytes &&
+    !databaseNeedsPageLocation(row) &&
+    row.repair?.nextAction !== 'view-deep'
+    ? 'quick'
+    : 'deep';
+}
+
+function quickRepairEligible(scan: BadPageScanReport): boolean {
+  return (
+    scan.usedHmac &&
+    !scan.plaintext &&
+    scan.sourceLayout !== 'standard' &&
+    !scan.trailingBytes &&
+    scan.pageSize === 4096 &&
+    scan.badPages.length > 0 &&
+    scan.badPages.length <= 128 &&
+    scan.badPages.length < scan.pageCount
+  );
+}
+
+export function databaseCanCheckQuickRepair(
+  row: DatabaseMaintenanceStatusRow | DatabaseMaintenanceRow,
+): boolean {
+  const { scan } = row;
+  return (
+    databaseReadyForRepair(row) &&
+    row.repair?.nextAction !== 'view-deep' &&
+    databaseNeedsPageLocation(row) &&
+    !!scan &&
+    ('badPages' in scan ? quickRepairEligible(scan) : scan.quickRepairEligible === true)
+  );
+}
+
+export function databaseNeedsPageLocation(
+  row: Pick<DatabaseMaintenanceRow | DatabaseMaintenanceStatusRow, 'scan' | 'locationChecked'>,
+): boolean {
+  const scan = row.scan;
+  if (!scan || row.locationChecked) return false;
+  const bad = 'badPages' in scan ? scan.badPages.length : scan.badPageCount;
+  const located = scan.affected?.reduce((count, object) => count + object.badPageCount, 0) ?? 0;
+  return located < bad;
+}
+
 export const databaseRepairSupportLabel: Record<DatabaseRepairSupport, string> = {
   supported: 'WeQ 支持修复',
   possible: '可能支持修复',
@@ -149,6 +243,11 @@ export const databaseMaintenanceKindLabel = {
   checkup: '深度体检',
   repair: '数据库修复',
 };
+export function databaseMaintenanceOperationLabel(operation: DatabaseMaintenanceOperation): string {
+  return operation.databaseScanKinds
+    ? '快速及深度体检'
+    : databaseMaintenanceKindLabel[operation.kind];
+}
 export const databaseMaintenanceStatusLabel: Record<
   DatabaseMaintenanceOperation['status'],
   string

@@ -312,6 +312,141 @@ it.each(['pic', 'mface'])('%s 消息进入意图分析；更换图片策略后�
 });
 
 it.each([
+  {
+    name: '主动占位，模型的重发请求缺少依据',
+    mode: 'placeholder',
+    output: ['图没刷出来，重发下？'],
+    attachment: { kind: 'image', analysis: { result: 'not_analyzed' } },
+    expected: [],
+  },
+  {
+    name: '筛图跳过，全部三条候选都在猜客户端状态',
+    mode: 'ocr',
+    ocr: { text: '', skipped: true },
+    output: ['图我这边没加载出来', '这图自带防撤回吗，我这边一片空白😂', '图没刷出来，重发下？'],
+    attachment: { kind: 'image', analysis: { method: 'ocr', result: 'screened_no_text' } },
+    expected: [],
+  },
+  {
+    name: '空 OCR，保留根据原话生成的晚安回复',
+    mode: 'ocr',
+    ocr: { text: ' \n ' },
+    text: '晚安哦',
+    output: ['图片没加载出来，但晚安收到啦～', '好梦！明天再聊～'],
+    attachment: { kind: 'image', analysis: { method: 'ocr', result: 'no_text' } },
+    expected: ['好梦！明天再聊～'],
+  },
+  {
+    name: 'OCR 报错，错误详情只进入请求日志',
+    mode: 'ocr',
+    fail: true,
+    output: ['这图加载不出来'],
+    attachment: { kind: 'image', analysis: { result: 'failed' } },
+    expected: [],
+  },
+  {
+    name: 'OCR 识别到一个字，识别内容不为客户端状态提供依据',
+    mode: 'ocr',
+    ocr: { text: 'C' },
+    output: ['只识别出个 C，我这边图没加载全吗'],
+    attachment: { kind: 'image', analysis: { method: 'ocr', result: 'text', text: 'C' } },
+    expected: [],
+  },
+  {
+    name: '实际聊天原文要求重发，保留自然回复',
+    mode: 'placeholder',
+    text: '你刚发的图打不开，能重发一下吗？',
+    output: ['我重发一下'],
+    attachment: { kind: 'image', analysis: { result: 'not_analyzed' } },
+    expected: ['我重发一下'],
+  },
+  {
+    name: '卡片保留类型与标题，模型可主动给空候选',
+    mode: 'placeholder',
+    card: true,
+    output: [],
+    attachment: { kind: 'card', title: '周末出行安排' },
+    expected: [],
+  },
+] as const)('推荐回复拆分正文与附件：$name', async (fixture) => {
+  const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) =>
+    Response.json({
+      choices: [
+        { message: { content: JSON.stringify({ summary: '概要', replies: fixture.output }) } },
+      ],
+    }),
+  );
+  vi.stubGlobal('fetch', fetchMock);
+  const processor = new AiImageProcessor({
+    mode: () => fixture.mode,
+    vision: () => null,
+    load: async () => {
+      throw new Error('无需视觉取图');
+    },
+    ocr: async () => {
+      if ('fail' in fixture) throw new Error('合成的本地解码错误');
+      return 'ocr' in fixture ? fixture.ocr : { text: '' };
+    },
+  });
+  const text = 'text' in fixture ? fixture.text : '';
+  const row = {
+    msgId: 7n,
+    msgSeq: 7n,
+    senderUid: 'peer',
+    senderUin: 10001n,
+    sendTime: 1700000000n,
+    elements: [
+      ...(text ? [{ kind: 'text', textContent: text }] : []),
+      'card' in fixture
+        ? {
+            kind: 'ark',
+            arkData: JSON.stringify({
+              app: 'com.tencent.structmsg',
+              meta: {
+                news: { title: '周末出行安排', jumpUrl: 'https://fixture.invalid/private-url' },
+              },
+            }),
+          }
+        : { kind: 'pic', fileName: 'fixture.png' },
+    ],
+  };
+  const session = {
+    context: { uin: 10000n },
+    uidMap: { sortNoByUid: () => undefined },
+    c2cMsgs: { listLatest: async () => [row] },
+  } as unknown as AccountSession;
+  const service = new IntentSenseService(session, directory(), {
+    images: processor,
+    resolveEndpoint: () => endpoint,
+  });
+  await service.setConfig({
+    suggestionsEnabled: true,
+    suggestionProviderRef: { providerId: 'fixture', model: endpoint.model },
+    suggestionFallbackEnabled: true,
+    suggestionFallbackTexts: ['错误回退'],
+  });
+  expect((await service.getSuggestions('c2c', 'peer')).map((reply) => reply.text)).toEqual(
+    fixture.expected,
+  );
+  const request = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+  const userPrompt: string = request.messages[1].content;
+  expect(JSON.parse(userPrompt).messages[0]).toMatchObject({
+    text,
+    attachments: [fixture.attachment],
+  });
+  expect(userPrompt).not.toMatch(/合成的本地解码错误|private-url|\[媒体消息\]/);
+  const details = service.getSuggestionDetails('c2c', 'peer');
+  if ('fail' in fixture)
+    expect(details?.trace?.logs?.some((log) => log.text.includes('合成的本地解码错误'))).toBe(true);
+  expect(details?.progress?.status).toBe('completed');
+  expect(service.getSuggestionHistory('c2c', 'peer')).toHaveLength(fixture.expected.length ? 1 : 0);
+  expect((await service.getSuggestions('c2c', 'peer')).map((reply) => reply.text)).toEqual(
+    fixture.expected,
+  );
+  expect(fetchMock).toHaveBeenCalledOnce();
+});
+
+it.each([
   { mode: 'ocr', split: true },
   { mode: 'vision', split: true },
   { mode: 'ocr', split: false },

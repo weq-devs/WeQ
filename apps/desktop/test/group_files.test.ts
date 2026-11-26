@@ -50,6 +50,22 @@ describe('group_file_manager', () => {
   };
 
   describe('群文件管理器逻辑', () => {
+    it('用首字母和全拼筛选目录，原文优先且文件夹分组保留', () => {
+      const files = [
+        { ...file, fileName: '重庆资料.txt' },
+        { ...file, fileId: 'literal', fileName: 'cq.txt' },
+      ];
+      const folders = [{ ...folder, folderName: '重庆' }];
+      expect(groupFileEntries(files, folders, 'cq', 'name').map((row) => row.key)).toEqual([
+        'folder:d',
+        'file:literal',
+        'file:a',
+      ]);
+      expect(groupFileEntries(files, folders, 'chongqing', 'name').map((row) => row.key)).toEqual([
+        'folder:d',
+        'file:a',
+      ]);
+    });
     it('默认最近修改倒序，同项点击反转，切换排序项恢复该项默认方向', () => {
       expect(DEFAULT_GROUP_FILE_SORT).toEqual({ sort: 'time', order: 'desc' });
       const ascending = toggleGroupFileSort(DEFAULT_GROUP_FILE_SORT, 'time');

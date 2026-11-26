@@ -786,7 +786,7 @@ html[data-weq-input='touch'] .weq-exp-dialog-close {
 
 .weq-exp-format.is-on {
   border-color: var(--weq-accent-ink, var(--weq-accent-effective));
-  background: var(--weq-list-selected-background);
+  background: var(--weq-control-selected-background);
   color: var(--weq-fg-primary);
   font-weight: 600;
 }
@@ -1163,7 +1163,7 @@ html[data-weq-input='touch'] .weq-exp-dialog-close {
 
 .weq-exp-chip.is-on {
   border-color: var(--weq-accent-ink, var(--weq-accent-effective));
-  background: var(--weq-list-selected-background);
+  background: var(--weq-control-selected-background);
   color: var(--weq-fg-primary);
   font-weight: 600;
 }
@@ -1480,8 +1480,7 @@ html[data-weq-input='touch'] .weq-exp-dialog-close {
   transition:
     border-color 150ms ease,
     background 150ms ease,
-    box-shadow 150ms ease,
-    transform 120ms ease;
+    box-shadow 150ms ease;
 }
 
 /* 卡片背景 = 进度条：主题色自左向右填充，右缘为平滑正弦波浪（竖向流动）。 */
@@ -1590,7 +1589,6 @@ html[data-theme='dark'] .weq-exp-card-skeleton {
 
 .weq-exp-card:hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
-  transform: translateY(-1px);
 }
 
 /* 边框颜色 = 任务状态（不再放独立状态图标）。 */
@@ -2377,7 +2375,7 @@ html[data-theme='dark'] .weq-exp-btn,
 html[data-theme='dark'] .weq-exp-detail-stage-toggle,
 html[data-theme='dark'] .weq-exp-dialog-close,
 html[data-theme='dark'] .weq-exp-cal-head button,
-html[data-theme='dark'] .weq-exp-chip {
+html[data-theme='dark'] .weq-exp-chip:not(.is-on) {
   border-color: rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.03);
   color: #d5dde6;
@@ -2387,7 +2385,7 @@ html[data-theme='dark'] .weq-exp-tool:hover:not(:disabled),
 html[data-theme='dark'] .weq-exp-btn:hover:not(:disabled),
 html[data-theme='dark'] .weq-exp-detail-stage-toggle:hover:not(:disabled),
 html[data-theme='dark'] .weq-exp-dialog-close:hover,
-html[data-theme='dark'] .weq-exp-chip:hover,
+html[data-theme='dark'] .weq-exp-chip:hover:not(.is-on),
 html[data-theme='dark'] .weq-exp-cal-head button:hover {
   background: rgba(255, 255, 255, 0.07);
 }

@@ -304,6 +304,26 @@ describe('邮箱生命周期和提醒', () => {
       service.dispose();
     }
   });
+  it('只读预览未读邮件时只调用简要详情接口', async () => {
+    const auth = new MailAuth(native, '12345678', () => 42, new FakeMailTransport());
+    const cgi = vi.spyOn(auth, 'cgi').mockResolvedValueOnce({
+      item: { ret: 0, info: { emailid: 'fixture-unread', unread: 1, maildigest: '摘要' } },
+    });
+    const service = new QQMailService(native, '12345678', () => 42, { authFactory: () => auth });
+    try {
+      await expect(service.preview('fixture-unread')).resolves.toMatchObject({
+        unread: true,
+        snippet: '摘要',
+        html: '',
+        bodyAvailable: false,
+      });
+      expect(cgi.mock.calls).toEqual([
+        ['/read/readmail', { mailid: 'fixture-unread', func: 6 }, { signal: undefined }],
+      ]);
+    } finally {
+      service.dispose();
+    }
+  });
   it('导出读取不额外提交已读操作，保留返回的未读状态', async () => {
     const auth = new MailAuth(native, '12345678', () => 42, new FakeMailTransport());
     const cgi = vi.spyOn(auth, 'cgi').mockResolvedValueOnce({

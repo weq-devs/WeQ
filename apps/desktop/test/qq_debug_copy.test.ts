@@ -136,7 +136,7 @@ it('明确切换先校验副本，仅退出原安装主进程，再打开副本'
     `51 ${f.source}/Contents/MacOS/QQ\n52 /Other QQ.app/Contents/MacOS/QQ\n53 ${f.source}/Contents/Frameworks/QQ Helper`,
   );
   expect(await f.manager.status()).toMatchObject({ sourceRunningPids: [51] });
-  await f.manager.perform('switch');
+  await f.manager.perform('switch', 51);
   expect(f.run.mock.calls.filter(([cmd]) => cmd === '/bin/kill').map(([, args]) => args)).toEqual([
     ['-TERM', '51'],
   ]);
@@ -148,6 +148,13 @@ it('明确切换先校验副本，仅退出原安装主进程，再打开副本'
   expect(verified).toBeGreaterThan(-1);
   expect(commands.indexOf('/bin/kill')).toBeGreaterThan(verified);
   expect(commands.indexOf('/usr/bin/open')).toBeGreaterThan(commands.indexOf('/bin/kill'));
+});
+it('确认后出现另一个普通 QQ 进程时停止切换，保留所有账号', async () => {
+  const f = await fixture();
+  f.processes(`51 ${f.source}/Contents/MacOS/QQ\n52 ${f.source}/Contents/MacOS/QQ`);
+  await expect(f.manager.perform('switch', 51)).rejects.toThrow('普通 QQ 的运行状态已变化');
+  expect(f.run.mock.calls.some(([cmd]) => cmd === '/bin/kill')).toBe(false);
+  expect(f.run.mock.calls.some(([cmd]) => cmd === '/usr/bin/open')).toBe(false);
 });
 it('副本准备失败时不退出普通 QQ', async () => {
   const f = await fixture();

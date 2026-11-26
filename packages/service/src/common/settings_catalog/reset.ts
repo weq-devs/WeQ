@@ -1,19 +1,24 @@
+import type { SettingsPageId } from './navigation';
+
 /** 设置注册表的恢复分区；前端、服务端和文档共用，不依赖已挂载的控件。 */
 export const SETTINGS_RESET_CARDS = [
   ['startup', 'startup-system', '开机启动'],
   ['startup', 'startup-page', '启动时进入'],
   ['startup', 'window', '关闭窗口'],
-  ['startup', 'home', '主页'],
-  ['appearance', 'theme-mode', '基础模式'],
+  ['home', 'home', '主页'],
+  ['appearance', 'window-appearance', '窗口外观'],
+  ['appearance', 'theme-mode', '主题模式'],
   ['appearance', 'theme-accent', '主题色'],
   ['appearance', 'theme-background', '界面背景'],
   ['appearance', 'theme-components', '组件风格'],
   ['appearance', 'theme-font', '字体'],
-  ['appearance', 'window-appearance', '窗口外观'],
   ['global', 'toast', '应用内横幅提醒'],
   ['global', 'notification-events', '事件通知'],
   ['global', 'notification-scopes', '事件提醒会话'],
-  ['global', 'notification-badges', '未读角标'],
+  ['global', 'application-badge', '系统应用图标'],
+  ['main-navigation', 'navigation-badges', '导航角标'],
+  ['main-navigation', 'menu-badges', '菜单角标'],
+  ['contacts', 'contact-badges', '未读显示'],
   ['global', 'recall-notifications', '撤回提醒'],
   ['privacy', 'privacy-mode', '隐私模式'],
   ['privacy', 'app-lock', '应用锁'],
@@ -26,15 +31,16 @@ export const SETTINGS_RESET_CARDS = [
   ['message-display', 'unread-jumps', '未读与重要消息'],
   ['message-display', 'message-browsing', '浏览消息'],
   ['message-display', 'missing-messages', '历史消息补全'],
-  ['message-display', 'message-content', '内容显示'],
+  ['message-content', 'message-content', '消息样式与预览'],
   ['contact-card', 'contact-card', '联系人名片'],
+  ['chat-interaction', 'message-send-font', '消息字体'],
   ['chat-interaction', 'quote-replies', '引用回复'],
   ['chat-interaction', 'emoji-shortcuts', '表情输入'],
   ['chat-interaction', 'typing', '隐藏正在输入状态'],
-  ['chat-interaction', 'recall-scope', '防撤回'],
+  ['anti-recall', 'recall-scope', '防撤回'],
   ['call-recording', 'call-content', '录制内容'],
   ['call-recording', 'call-directory', '保存位置'],
-  ['call-recording', 'call-trace', '抓包与排障'],
+  ['diagnostics', 'call-trace', '通话抓包'],
   ['call-recording', 'call-connection', '连接方式'],
   ['qzone', 'qzone-person', '人物'],
   ['qzone', 'qzone-forward', '转发'],
@@ -63,18 +69,19 @@ export const SETTINGS_RESET_CARDS = [
   ['interaction-profile', 'profile-cache', '请求与缓存'],
   ['recognition', 'voice-online', '语音转写'],
   ['recognition', 'ocr-online', '图片文字识别'],
-  ['enhancement-packs', 'enhancement-updates', '增强包自动更新'],
+  ['enhancement-packs', 'enhancement-updates', '增强包更新设置'],
   ['database-management', 'realtime', '监听与读取'],
   ['account', 'attach', 'QQ 在线能力'],
-  ['account', 'qq-client-sync', 'QQ 代理连接'],
+  ['account', 'qq-client-sync', '代理连接'],
+  ['account', 'qq-status-reminders', '状态提醒'],
   ['accounts', 'auto-enter', '现有配置'],
   ['resource-loading', 'external-chatpic', '外部安卓图片缓存'],
   ['resource-loading', 'cdn', '加载来源'],
   ['resource-loading', 'chat-image-preview', '聊天图片'],
-  ['resource-loading', 'data-saver', '省流量模式'],
   ['resource-loading', 'qqshow-cache', 'QQ 秀缓存'],
   ['resource-loading', 'chat-memory', '聊天内存预算'],
-  ['credentials', 'rkey', '外部 rKey 服务器'],
+  ['resource-loading', 'rkey', '外部 rKey 服务器'],
+  ['data-saver', 'data-saver', '启用方式与行为'],
   ['remote', 'web', '本机浏览器访问'],
   ['remote', 'remote', 'WeQ Remote'],
   ['mcp', 'mcp', '服务开关'],
@@ -89,7 +96,10 @@ export const SETTINGS_RESET_CARDS = [
 ] as const;
 export type SettingsResetCardId = (typeof SETTINGS_RESET_CARDS)[number][1];
 export type SettingsResetPageId = (typeof SETTINGS_RESET_CARDS)[number][0];
-export type SettingsResetTarget = { page: SettingsResetPageId; card?: SettingsResetCardId };
+export type SettingsResetTarget = {
+  page: SettingsResetPageId | 'credentials' | 'qq-proxy' | 'qq-status-reminders';
+  card?: SettingsResetCardId;
+};
 export interface SettingsResetItem {
   id: string;
   label: string;
@@ -99,6 +109,11 @@ export interface SettingsResetItem {
   directory?: boolean;
   stopsService?: boolean;
 }
+
+export function settingsResetScopeLabel(scope: SettingsResetItem['scope']): string {
+  return scope === '此设备' ? '运行 WeQ 的电脑' : scope;
+}
+
 export interface SettingsResetResult {
   id: string;
   ok: boolean;
@@ -123,13 +138,34 @@ export function planSettingsReset<
       (selection.retry || JSON.stringify(item.current) !== JSON.stringify(item.defaultValue)),
   );
 }
+const previousResetPages: Partial<Record<SettingsResetCardId, SettingsPageId>> = {
+  home: 'startup',
+  'message-content': 'message-display',
+  'recall-scope': 'chat-interaction',
+  'call-trace': 'call-recording',
+  rkey: 'credentials',
+  'data-saver': 'resource-loading',
+  realtime: 'account',
+  'database-read': 'account',
+};
+
 export function resetCards(target: SettingsResetTarget) {
+  // 旧的页面恢复入口仍仅恢复当时页面上的设置。
+  const previousCard =
+    target.page === 'qq-proxy'
+      ? 'qq-client-sync'
+      : target.page === 'qq-status-reminders'
+        ? 'qq-status-reminders'
+        : undefined;
+  const card = target.card ?? previousCard;
   const currentPage =
-    target.page === 'account' && (target.card === 'realtime' || target.card === 'database-read')
-      ? 'database-management'
-      : target.page;
+    previousCard && card === previousCard
+      ? 'account'
+      : card && previousResetPages[card] === target.page
+        ? SETTINGS_RESET_CARDS.find(([, id]) => id === card)?.[0]
+        : target.page;
   const cards = SETTINGS_RESET_CARDS.filter(
-    ([page, card]) => page === currentPage && (!target.card || card === target.card),
+    ([page, id]) => page === currentPage && (!card || id === card),
   );
   if (!cards.length) throw new Error('未知的设置恢复范围');
   return cards;

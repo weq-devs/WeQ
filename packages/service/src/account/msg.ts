@@ -18,6 +18,7 @@ import { decodeBody, measureMessageWork, recordMessagePartition, recordMessageWo
 import type {
   C2cMsg,
   GroupMsg,
+  BrowseCursor,
   HistoryCursor,
   C2cPartition,
   AppendMsgFields,
@@ -35,6 +36,7 @@ import {
   validateComposeMessage,
   COMPOSE_ELEMENT_SPECS,
   isDatalineUid,
+  DATALINE_UID_TO_DEVICE,
   compareMessageOrder,
   type ComposeKind,
   type FieldSpec,
@@ -48,11 +50,18 @@ import { toRenderElements, type RenderElement } from './msg_view';
 import { DeletedMsgStore } from './deleted_msgs';
 import type { AntiRecallService } from './anti_recall';
 import type { ExportSkippedRanges } from './export/message_source';
-import { matchesMessageFilter, messageSelectionKey, type MessageFilter } from './message_filter';
+import {
+  compileMessageFilter,
+  matchesMessageFilter,
+  messageSearchText,
+  messageSelectionKey,
+  type MessageFilter,
+} from './message_filter';
 import type { GapFetchedMessage } from './gap_history';
 import { elementsToText } from './export/element_text';
 import { sourceStamp } from './export/resume';
 import { mergeRoamingTimeline } from '../common/roaming_timeline';
+import { RecordSearchIndex } from './record_search_index';
 
 const bodyCodec = new ProtoMsg(MsgBody);
 
@@ -168,6 +177,7 @@ export interface RenderGroupMsg extends Omit<GroupMsg, 'elements'> {
 
 export class MsgService {
   private readonly deletionWrites = new Map<string, Promise<unknown>>();
+  private readonly recordSearchIndex = new RecordSearchIndex();
   /**
    * `deleted` is the per-account {@link DeletedMsgStore}; omit it for contexts
    * that never delete (e.g. the export pipeline's private MsgService).
@@ -303,23 +313,38 @@ export class MsgService {
     let next = cursor;
     let hasMore = true;
     const recalls = await this.recallMapFor(kind, conv);
+    const keyword = filter.keyword?.toLocaleLowerCase();
+    const matches = compileMessageFilter({ ...filter, keyword: undefined });
+    let scannedTime: number | undefined;
     while (items.length < limit && scanned < 5000) {
       const page =
         kind === 'group'
-          ? await this.session.groupMsgs.browse(conv, filter, next)
-          : await this.c2cDbFor(conv).browse(this.c2cPartition(conv), filter, next);
+          ? await this.session.groupMsgs.browseRows(conv, filter, next)
+          : await this.c2cDbFor(conv).browseRows(this.c2cPartition(conv), filter, next);
       if (!page.length) {
         hasMore = false;
         break;
       }
       for (const row of page) {
         scanned++;
-        next = { time: Number(row.message.sendTime), rowId: row.rowId };
+        const time = Number(row.time);
+        if (time > 0) scannedTime = time;
+        next = { time, rowId: row.rowId };
+        if (keyword && !row.body) continue;
+        const key = `${kind}:${conv}:${row.rowId}`;
+        const indexed = keyword ? this.recordSearchIndex.get(key, row.body) : undefined;
+        if (keyword && indexed !== undefined && !indexed.includes(keyword)) continue;
         const rendered =
           kind === 'group'
-            ? this.renderGroupWithState(row.message as GroupMsg, recalls)
-            : this.renderC2cWithState(row.message as C2cMsg, recalls);
-        if (matchesMessageFilter(rendered, filter)) items.push(rendered);
+            ? this.renderGroupWithState(row.decode() as GroupMsg, recalls)
+            : this.renderC2cWithState(row.decode() as C2cMsg, recalls);
+        if (!matches(rendered)) continue;
+        if (keyword && indexed === undefined) {
+          const text = messageSearchText(rendered.elements);
+          this.recordSearchIndex.set(key, row.body, text);
+          if (!text.includes(keyword)) continue;
+        }
+        items.push(rendered);
         if (items.length === limit) break;
       }
       if (items.length === limit) break;
@@ -339,6 +364,7 @@ export class MsgService {
         content: elementsToText(m.elements),
       })),
       cursor: hasMore ? next : null,
+      scannedTime,
       scanned,
       hasMore,
     };
@@ -1062,10 +1088,10 @@ export class MsgService {
     }
   }
 
-  calendar(kind: 'group' | 'c2c', conv: string) {
+  calendar(kind: 'group' | 'c2c', conv: string, bounds?: { start: number; end: number }) {
     return kind === 'group'
-      ? this.session.groupMsgs.calendar(conv)
-      : this.c2cDbFor(conv).calendar(this.c2cPartition(conv));
+      ? this.session.groupMsgs.calendar(conv, bounds)
+      : this.c2cDbFor(conv).calendar(this.c2cPartition(conv), bounds);
   }
 
   boundary(
@@ -1240,6 +1266,53 @@ export class MsgService {
         ? this.renderGroupWithState(row as GroupMsg, recalls)
         : this.renderC2cWithState(row as C2cMsg, recalls),
     );
+  }
+
+  /** Latest local messages in a time interval, with rowid breaking ties within a second. */
+  async getLocalMessageRangePage(
+    kind: 'c2c' | 'group',
+    conv: string,
+    range: { start: number; end: number },
+    limit: number,
+    before?: BrowseCursor,
+  ) {
+    const rows =
+      kind === 'group'
+        ? await this.session.groupMsgs.browse(conv, range, before, limit + 1)
+        : await this.c2cDbFor(conv).browse(
+            await this.c2cPagePartition(conv),
+            range,
+            before,
+            limit + 1,
+          );
+    const page = rows.slice(0, limit);
+    const last = rows.length > limit ? page.at(-1) : undefined;
+    const recalls = await this.recallMapFor(
+      kind,
+      conv,
+      page.map(({ message }) => message),
+    );
+    return {
+      messages: page.map(({ message }) =>
+        'targetGroupCode' in message
+          ? this.renderGroupWithState(message, recalls)
+          : this.renderC2cWithState(message, recalls),
+      ),
+      nextBefore: last && { time: last.message.sendTime, rowId: last.rowId },
+    };
+  }
+
+  /** 以本地数据线消息为准，历史设备会话可能已从最近会话列表移除。 */
+  async listDatalineConversations() {
+    const db = this.session.datalineMsgs;
+    if (!(await db.hasTable())) return [];
+    const sessions = await Promise.all(
+      Object.keys(DATALINE_UID_TO_DEVICE).map(async (conv) => {
+        const [latest] = await db.listNewestHistory(this.c2cPartition(conv), 1);
+        return latest ? [{ conv, lastTime: latest.sendTime, lastSeq: latest.msgSeq }] : [];
+      }),
+    );
+    return sessions.flat().sort((a, b) => Number(b.lastTime - a.lastTime));
   }
 
   /** Newest N group messages in one group. */

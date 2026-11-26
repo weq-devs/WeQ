@@ -316,6 +316,21 @@ export class ProfileInfoDb {
     return out;
   }
 
+  /** 群成员排序热路径只读取昵称和备注。 */
+  async memberNamesByUids(uids: readonly string[]) {
+    if (!uids.length) return [];
+    const selected = ['1000', '20002', '20009'].map((id) => this.column(id)).join(',');
+    const rows = await this.qq.query(
+      `SELECT ${selected} FROM ${this.table} WHERE "1000" IN (${uids.map(() => '?').join(',')})`,
+      [...uids],
+    );
+    return rows.map(([uid, nick, remark]) => ({
+      uid: String(uid ?? ''),
+      nick: String(nick ?? ''),
+      remark: String(remark ?? ''),
+    }));
+  }
+
   /**
    * Batch-resolve full profiles by uid in one query. Returns the profiles for
    * the uids that have a cached row (missing ones are simply absent — no null

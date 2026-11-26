@@ -1,10 +1,10 @@
 // @vitest-environment node
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import type { Platform } from '@weq/platform';
-import { UserConfigService, VOICE_MODELS } from '@weq/service';
+import { getOcrModel, OCR_MODELS, UserConfigService, VOICE_MODELS } from '@weq/service';
 import { afterEach, expect, it, vi } from 'vitest';
 import { EnhancementUpdateController, resourceCatalogFor } from '../src/main/enhancements/updates';
 import type { ReleaseDescriptor, ReleaseIndex } from '@weq/network/release-metadata';
@@ -23,6 +23,7 @@ import {
   parseEnhancementCatalogForHost,
 } from '../src/shared/enhancement_release';
 import { backgroundTasks } from '../src/main/background_tasks';
+import { watchTaskPage } from '../src/main/task_page';
 import {
   enhancementDownloadTask,
   forgetEnhancementTask,
@@ -36,6 +37,8 @@ import { networkCost } from '@weq/service/data-saver';
 import { enhancementEngineCompatibility } from '../src/shared/enhancement_manifest';
 import { enhancementProcedures } from '../src/main/ipc/routers/enhancements';
 import { router } from '../src/main/ipc/trpc';
+import { summarizeWorkspaceTasks } from '../src/renderer/src/lib/workspaceIndicators';
+import { TaskNotificationTracker } from '../src/renderer/src/lib/taskNotificationState';
 
 const host = vi.hoisted(() => ({ bootstrap: {} as unknown }));
 vi.mock('../src/main/context/app_context', () => ({ requireBootstrap: () => host.bootstrap }));
@@ -385,7 +388,12 @@ it('首次手动下载自动读取在线清单，关闭自动检查也不使用�
   await f.packs.wait();
   expect(f.fetcher).toHaveBeenCalled();
   expect(f.ensure).toHaveBeenCalledOnce();
-  expect((await f.packs.list())[0]?.installedVersion).toBe(f.next.contentVersion);
+  const [pack] = await f.packs.list();
+  expect(pack?.installedVersion).toBe(f.next.contentVersion);
+  expect(pack?.installedAt).toEqual(expect.any(Number));
+  expect(pack?.updatedAt).toBeUndefined();
+  const restarted = await fixture(false, f.root);
+  expect((await restarted.packs.list())[0]?.installedAt).toBe(pack?.installedAt);
 });
 
 it('首次没有在线清单且断网时不开始组件下载，重试可重新取清单', async () => {
@@ -466,7 +474,7 @@ it('已有完整资源的离线核对不读取在线清单', async () => {
 it('关闭自动安装时启动核对已有资源，不生成增强包已就绪任务，也不下载', async () => {
   const f = await fixture(false);
   Object.assign(f.state, { ready: true, sizeOnDisk: 96, downloadBytes: 0, identity: 'legacy' });
-  f.config.setSettings({ enhancementUpdates: { autoCheck: false, autoInstall: false } });
+  f.config.setSettings({ enhancementUpdates: { autoCheck: false, autoUpdatePacks: [] } });
   f.packs.observePreparations((id, name) => {
     void trackEnhancementPreparation(f.packs, id, name).catch(() => {});
   });
@@ -478,8 +486,10 @@ it('关闭自动安装时启动核对已有资源，不生成增强包已就绪�
   expect(backgroundTasks.snapshot()).toEqual([]);
 });
 
-it('增强包原位进度和任务列表从启动起共用一条记录', async () => {
+it('从后台开始准备的增强包保留任务和首次安装时间', async () => {
   const f = await fixture(false);
+  const directory = join(f.root, 'enhancements');
+  restoreEnhancementTasks(f.packs, directory);
   f.packs.observePreparations((id, name) => {
     void trackEnhancementPreparation(f.packs, id, name).catch(() => {});
   });
@@ -497,7 +507,66 @@ it('增强包原位进度和任务列表从启动起共用一条记录', async (
   expect(backgroundTasks.snapshot()).toHaveLength(1);
   expect(backgroundTasks.snapshot()[0]?.foreground).toBe(false);
   expect(backgroundTasks.snapshot()[0]?.display).toEqual(tasks[0]?.display);
+  // 模拟首次安装已记入旧任务，但整包回执尚无独立安装时间。
+  const path = join(directory, 'ready.json');
+  const saved = JSON.parse(await readFile(path, 'utf8'));
+  delete saved.dress.installedAt;
+  await writeFile(path, JSON.stringify(saved));
+  const restarted = await fixture(false, f.root);
+  restoreEnhancementTasks(restarted.packs, directory);
+  expect((await restarted.packs.list())[0]?.installedAt).toBe(
+    backgroundTasks.snapshot()[0]?.updatedAt,
+  );
+  expect(JSON.parse(await readFile(path, 'utf8')).dress.installedAt).toEqual(expect.any(Number));
 });
+
+it.each([false, true])(
+  '增强包尚未完成时离开页面才进入任务列表（中途离开：%s）',
+  async (leavesEarly) => {
+    const f = await fixture(false);
+    const directory = join(f.root, 'enhancements');
+    restoreEnhancementTasks(f.packs, directory);
+    const gate = Promise.withResolvers<void>();
+    const ensure = f.ensure.getMockImplementation()!;
+    f.ensure.mockImplementationOnce(async () => {
+      await gate.promise;
+      return ensure();
+    });
+    let pageId: string | undefined;
+    const page = watchTaskPage().subscribe({
+      next: (id) => {
+        pageId = id;
+      },
+    });
+    try {
+      await startEnhancementDownloads(f.packs, ['dress'], { pageId });
+      const task = enhancementDownloadTask(f.packs, 'dress');
+      expect(task).toMatchObject({ status: 'running', foreground: true });
+      if (leavesEarly) {
+        page.unsubscribe();
+        expect(enhancementDownloadTask(f.packs, 'dress')).toMatchObject({
+          id: task?.id,
+          foreground: false,
+        });
+      }
+      gate.resolve();
+      await f.packs.wait();
+      await vi.waitFor(() =>
+        expect(enhancementDownloadTask(f.packs, 'dress')).toMatchObject({ status: 'completed' }),
+      );
+      page.unsubscribe();
+      backgroundTasks.remove(task!.id);
+      const restarted = await fixture(false, f.root);
+      restoreEnhancementTasks(restarted.packs, directory);
+      expect(backgroundTasks.snapshot()).toMatchObject([
+        { id: task?.id, status: 'completed', foreground: !leavesEarly },
+      ]);
+    } finally {
+      gate.resolve();
+      page.unsubscribe();
+    }
+  },
+);
 
 it('重启找回暂停的增强包，自动安装只检查，手动继续才接回原任务', async () => {
   const first = await fixture();
@@ -522,7 +591,7 @@ it('重启找回暂停的增强包，自动安装只检查，手动继续才接�
   backgroundTasks.remove(id);
 
   const restarted = await fixture();
-  restarted.config.setSettings({ enhancementUpdates: { autoInstall: true } });
+  restarted.config.setSettings({ enhancementUpdates: { autoUpdatePacks: ['dress'] } });
   const directory = join(restarted.root, 'enhancements');
   await writeFile(join(directory, 'download-tasks.json'), saved);
   restoreEnhancementTasks(restarted.packs, directory);
@@ -615,7 +684,7 @@ it('当前检查已经成功时，旧的忙碌任务结束后自动安装已确�
   f.setLatest(release('old'));
   await f.controller.check(['dress']);
   f.config.setSettings({
-    enhancementUpdates: { autoInstall: true },
+    enhancementUpdates: { autoUpdatePacks: ['dress'] },
     updateCheckIntervalMinutes: -1,
   });
   f.controller.start();
@@ -732,7 +801,7 @@ it('默认只自动检查，发现更新不安装；列表查询不触发下载�
   const f = await fixture();
   expect(f.config.getSettings().enhancementUpdates).toEqual({
     autoCheck: true,
-    autoInstall: false,
+    autoUpdatePacks: [],
   });
   await f.packs.list();
   expect(f.fetcher).not.toHaveBeenCalled();
@@ -744,6 +813,56 @@ it('默认只自动检查，发现更新不安装；列表查询不触发下载�
   });
   expect(f.ensure).not.toHaveBeenCalled();
 });
+it.each(['当前渠道', '上次运行', '旧发布渠道'] as const)(
+  '开启自动安装时只使用本次运行中当前渠道的检查结果（%s）',
+  async (source) => {
+    const checked = await fixture();
+    const beta = release('beta');
+    if (source === '旧发布渠道') {
+      checked.config.setSettings({ updateCheckPrerelease: true });
+      checked.setLatest(beta);
+      checked.fetcher.mockResolvedValueOnce(
+        Response.json([
+          {
+            tag_name: 'dress-beta',
+            draft: false,
+            prerelease: true,
+            published_at: '2026-11-14T00:00:00Z',
+            assets: [{ name: 'enhancement-pack.json' }],
+          },
+        ]),
+      );
+    }
+    await checked.controller.check(['dress']);
+    const f = source === '上次运行' ? await fixture(true, checked.root) : checked;
+    f.config.setSettings({ updateCheckIntervalMinutes: -1, updateCheckPrerelease: false });
+    f.controller.start();
+    host.bootstrap = { userConfig: f.config, enhancements: { updates: f.controller } };
+    const settings = router(enhancementProcedures).createCaller({});
+    expect((await f.packs.list())[0]).toMatchObject({
+      updateAvailable: true,
+      latestVersion: source === '旧发布渠道' ? beta.contentVersion : f.next.contentVersion,
+    });
+    const notices = vi.fn();
+    f.controller.subscribeNotifications(notices);
+    notices.mockClear();
+    f.fetcher.mockClear();
+    await settings.setEnhancementUpdates({ pack: { id: 'dress', enabled: true } });
+    await vi.waitFor(() => expect(notices).toHaveBeenLastCalledWith([]));
+    if (source !== '当前渠道') {
+      expect(backgroundTasks.snapshot()).toEqual([]);
+      expect(f.ensure).not.toHaveBeenCalled();
+      expect(f.fetcher).not.toHaveBeenCalled();
+      f.setLatest(f.next);
+      await settings.checkEnhancementUpdates({ ids: ['dress'] });
+    }
+    await vi.waitFor(() => expect(f.ensure).toHaveBeenCalledOnce());
+    await f.packs.wait();
+    expect((await f.packs.list())[0]?.installedVersion).toBe(f.next.contentVersion);
+    expect(backgroundTasks.snapshot()).toMatchObject([{ automaticUpdate: true }]);
+    if (source === '当前渠道') expect(f.fetcher).not.toHaveBeenCalled();
+  },
+);
 it('增强包按内容版本提醒，已提醒版本在 WeQ 升级后不重复提醒', async () => {
   const f = await fixture();
   const notices = vi.fn();
@@ -752,8 +871,14 @@ it('增强包按内容版本提醒，已提醒版本在 WeQ 升级后不重复�
   const expected = [{ id: 'dress', name: '装扮', contentVersion: f.next.contentVersion }] as const;
   expect(notices).toHaveBeenLastCalledWith(expected);
   expect(backgroundTasks.snapshot()).toEqual([]);
-  await f.controller.acknowledgeNotifications(expected);
+  const secondWindow = await fixture(true, f.root);
+  const secondNotices = vi.fn();
+  const stopSecond = secondWindow.controller.subscribeNotifications(secondNotices);
+  expect(secondNotices).toHaveBeenLastCalledWith(expected);
+  await secondWindow.controller.acknowledgeNotifications(expected);
   expect(notices).toHaveBeenLastCalledWith([]);
+  expect(secondNotices).toHaveBeenLastCalledWith([]);
+  stopSecond();
   await f.controller.check(['dress'], true);
   expect(notices).toHaveBeenLastCalledWith([]);
   unsubscribe();
@@ -793,7 +918,9 @@ it('另一端可在增强包安装、失败和删除后读取新状态，即使�
   const notifications = vi.fn();
   const stopNotifications = f.controller.subscribeNotifications(notifications);
   try {
-    expect(await snapshots[0]).toMatchObject({ packs: [{ installed: true }] });
+    expect(await snapshots[0]).toMatchObject({
+      packs: [{ installed: true, fullDownloadBytes: null }],
+    });
     await remote.setEnhancementUpdates({ autoCheck: false });
     expect(state).toHaveBeenLastCalledWith({ kind: 'preferences' });
     await remote.checkEnhancementUpdates({ ids: ['dress'] });
@@ -815,7 +942,15 @@ it('另一端可在增强包安装、失败和删除后读取新状态，即使�
     await remote.prepareEnhancementPacks({ ids: ['dress'] });
     await vi.waitFor(async () =>
       expect(await snapshots.at(-1)).toMatchObject({
-        packs: [{ ready: true, updateAvailable: false, installedVersion: f.next.contentVersion }],
+        packs: [
+          {
+            ready: true,
+            updateAvailable: false,
+            installedVersion: f.next.contentVersion,
+            fullDownloadBytes: 96,
+            downloadBytes: 0,
+          },
+        ],
       }),
     );
     await remote.deleteEnhancementPack({ id: 'dress' });
@@ -969,7 +1104,7 @@ it.each(['uninstalled', 'unchanged', 'repair', 'incompatible', 'automatic'] as c
     }
     if (scenario === 'incompatible') f.setLatest(release('future', '3.0.0'));
     if (scenario === 'automatic')
-      f.config.setSettings({ enhancementUpdates: { autoInstall: true } });
+      f.config.setSettings({ enhancementUpdates: { autoUpdatePacks: ['dress'] } });
     const notices = vi.fn();
     f.controller.subscribeNotifications(notices);
     await f.controller.check(['dress'], true);
@@ -1058,13 +1193,13 @@ it.each([false, true])(
 );
 it('自动安装已安装的更新，登记任务，未安装或明确删除的包不自动安装', async () => {
   const f = await fixture();
-  f.config.setSettings({ enhancementUpdates: { autoInstall: true } });
+  f.config.setSettings({ enhancementUpdates: { autoUpdatePacks: ['dress'] } });
   await f.controller.check(['dress'], true);
   await f.packs.wait();
   expect(f.ensure).toHaveBeenCalledTimes(1);
-  expect(backgroundTasks.snapshot().map((task) => task.name)).toEqual(['装扮']);
+  expect(backgroundTasks.snapshot()).toMatchObject([{ name: '装扮', automaticUpdate: true }]);
   const empty = await fixture(false);
-  empty.config.setSettings({ enhancementUpdates: { autoInstall: true } });
+  empty.config.setSettings({ enhancementUpdates: { autoUpdatePacks: ['dress'] } });
   await empty.controller.check(['dress'], true);
   expect(empty.ensure).not.toHaveBeenCalled();
   await f.packs.remove('dress');
@@ -1072,9 +1207,74 @@ it('自动安装已安装的更新，登记任务，未安装或明确删除的�
   await f.controller.check(['dress'], true);
   expect(f.ensure).toHaveBeenCalledTimes(1);
 });
+it('迁移旧总开关时只启用当时已安装的包，并清除旧设置', async () => {
+  const installed = await fixture();
+  const empty = await fixture(false);
+  for (const f of [installed, empty]) {
+    f.config.setSettings({ enhancementUpdates: { autoCheck: false, autoInstall: true } });
+    await f.controller.ready();
+    expect(f.config.getSettings().enhancementUpdates).toEqual({
+      autoCheck: false,
+      autoUpdatePacks: f === installed ? ['dress'] : [],
+    });
+  }
+});
+it('只有选中的包才自动更新，手动更新写入时间，失败和重启均保留时间', async () => {
+  const f = await fixture();
+  f.config.setSettings({ enhancementUpdates: { autoUpdatePacks: ['voice'] } });
+  await f.controller.check(['dress'], true);
+  expect(f.ensure).not.toHaveBeenCalled();
+  expect((await f.packs.list())[0]?.updatedAt).toBeUndefined();
+  await startEnhancementDownloads(f.packs, ['dress'], { mode: 'download' });
+  expect(f.ensure).not.toHaveBeenCalled();
+  await startEnhancementDownloads(f.packs, ['dress'], { mode: 'update' });
+  await f.packs.wait();
+  const updatedAt = (await f.packs.list())[0]?.updatedAt;
+  expect(updatedAt).toEqual(expect.any(Number));
+  f.setLatest(release('next'));
+  f.ensure.mockRejectedValueOnce(new Error('offline'));
+  f.config.setSettings({ enhancementUpdates: { autoUpdatePacks: ['dress'] } });
+  await f.controller.check(['dress'], true);
+  await f.packs.wait();
+  expect((await f.packs.list())[0]?.updatedAt).toBe(updatedAt);
+  const restarted = await fixture(false, f.root);
+  expect((await restarted.packs.list())[0]?.updatedAt).toBe(updatedAt);
+});
+it('自动更新任务仅在失败或需要继续时提醒，成功仍可查看历史', () => {
+  const tracker = new TaskNotificationTracker();
+  const update = (status: 'running' | 'paused' | 'completed' | 'failed', statusLabel?: string) => {
+    const summary = summarizeWorkspaceTasks({
+      background: [
+        { id: 'pack', kind: 'model', automaticUpdate: true, updatedAt: 1, status, statusLabel },
+      ],
+    });
+    return {
+      summary,
+      events: tracker
+        .update('test', summary.items, true)
+        .map(({ event }) => event)
+        .filter(Boolean),
+    };
+  };
+  tracker.update('test', [], true);
+  const running = update('running');
+  expect(running.summary.running).toBe(0);
+  expect(running.events).toEqual([]);
+  expect(update('paused', '省流量模式已暂停').events).toEqual([]);
+  expect(update('paused', '等待继续').events).toEqual(['taskFailure']);
+  expect(update('running').events).toEqual([]);
+  const completed = update('completed');
+  expect(completed.summary.items[0]?.activity).toBe('finished');
+  expect(completed.summary.finished).toBe(0);
+  expect(completed.events).toEqual([]);
+  expect(update('running').events).toEqual([]);
+  const failed = update('failed');
+  expect(failed.summary.failed).toBe(1);
+  expect(failed.events).toEqual(['taskFailure']);
+});
 it('最新最低版本过高只提示，不回退到较旧兼容更新；最低版本相等可用', async () => {
   const f = await fixture();
-  f.config.setSettings({ enhancementUpdates: { autoInstall: true } });
+  f.config.setSettings({ enhancementUpdates: { autoUpdatePacks: ['dress'] } });
   f.setLatest(release('future', '3.0.0'));
   await f.controller.check(['dress'], true);
   expect((await f.packs.list())[0]).toMatchObject({
@@ -1096,7 +1296,7 @@ it('已安装包升级后缺项：默认等待一键补齐，自动安装开启�
     updateAvailable: true,
   });
   expect(f.ensure).not.toHaveBeenCalled();
-  f.config.setSettings({ enhancementUpdates: { autoInstall: true } });
+  f.config.setSettings({ enhancementUpdates: { autoUpdatePacks: ['dress'] } });
   await f.controller.check(['dress'], true);
   await f.packs.wait();
   expect(f.ensure).toHaveBeenCalledOnce();
@@ -1114,10 +1314,10 @@ it('关闭自动设置不会停止已经启动的补齐任务', async () => {
     });
     await original();
   });
-  f.config.setSettings({ enhancementUpdates: { autoInstall: true } });
+  f.config.setSettings({ enhancementUpdates: { autoUpdatePacks: ['dress'] } });
   await f.controller.check(['dress'], true);
   await vi.waitFor(() => expect(f.ensure).toHaveBeenCalledOnce());
-  f.config.setSettings({ enhancementUpdates: { autoCheck: false, autoInstall: false } });
+  f.config.setSettings({ enhancementUpdates: { autoCheck: false, autoUpdatePacks: [] } });
   finish();
   await f.packs.wait();
   expect((await f.packs.list())[0]).toMatchObject({ ready: true, needsRepair: false });
@@ -1148,6 +1348,74 @@ it('旧客户端先读取最低版本，即使新版同时增加未知模型和�
     '需先更新 WeQ 至 v3.0.0',
   );
 });
+it('旧文字识别发布清单仍可准备新版模型，沿用同一引擎和筛图', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-ocr-release-'));
+  roots.push(root);
+  const directory = join(root, 'enhancements');
+  await mkdir(directory);
+  const target = 'darwin-arm64';
+  const engine = {
+    type: 'engine' as const,
+    artifact: {
+      kind: 'onnx' as const,
+      id: 'old-onnx',
+      name: 'engine.tar.gz',
+      compatibility: enhancementEngineCompatibility('onnx'),
+      target,
+      url: 'https://example.invalid/engine.tar.gz',
+      sha256: sha('archive'),
+      downloadBytes: 32,
+      installedBytes: 8,
+      files: [{ path: 'node_modules/runtime/index.js', size: 8, sha256: sha('runtime') }],
+    },
+  };
+  const [recognition, filter] = OCR_MODELS.map(modelReleaseComponent);
+  const old = createRelease('text', [
+    engine,
+    modelReleaseComponent(getOcrModel('ppocr-v5-mobile')!),
+    filter!,
+  ]);
+  const upgraded = createRelease('text', [engine, recognition!, filter!]);
+  const catalog = (entry: typeof old) => ({ schemaVersion: 1, target, packs: [entry] });
+  expect(
+    parseEnhancementCatalogForHost(catalog(upgraded), '2.8.0-beta.1', target).packs[0],
+  ).toMatchObject({ components: upgraded.components });
+  expect(parseEnhancementCatalogForHost(catalog(upgraded), '2.7.5', target).packs[0]).toMatchObject(
+    { unavailable: '需先更新 WeQ 至 v2.8.0-beta.1', components: [] },
+  );
+  await writeFile(join(directory, 'checks.json'), JSON.stringify({ catalog: catalog(old) }));
+  const ids = ['engine:onnx', 'model:ppocr-v6-small', 'model:ppocr-v6-det-tiny'];
+  const select = vi.fn();
+  const packs = new EnhancementPacks(
+    [{ id: 'text', name: '文字识别', description: '', components: ids, validate: async () => {} }],
+    new Map(
+      ids.map((id) => [
+        id,
+        {
+          id,
+          state: () => ({ ready: false, sizeOnDisk: 0, downloadBytes: 0, identity: '' }),
+          select,
+          ensure: async () => {},
+          remove: async () => {},
+        },
+      ]),
+    ),
+    directory,
+  );
+  const config = new UserConfigService({ appDataRoot: () => root } as unknown as Platform);
+  const controller = new EnhancementUpdateController(packs, config, target, {
+    currentVersion: () => '2.8.0-beta.1',
+    nativeCommit: () => undefined,
+    legacyModels: OCR_MODELS,
+  });
+  controllers.push(controller);
+  await controller.ready();
+  expect(select.mock.calls.map(([component]) => component)).toEqual(upgraded.components);
+  expect((await packs.list())[0]).toMatchObject({
+    blocker: null,
+    latestVersion: upgraded.contentVersion,
+  });
+});
 it('Release 标签或下载源变化不改变内容版本', () => {
   const a = release('same');
   const b = structuredClone(a);
@@ -1160,7 +1428,7 @@ it('Release 标签或下载源变化不改变内容版本', () => {
 });
 it('检查失败保留旧安装与失败状态，不报告最新或自动下载', async () => {
   const f = await fixture();
-  f.config.setSettings({ enhancementUpdates: { autoInstall: true } });
+  f.config.setSettings({ enhancementUpdates: { autoUpdatePacks: ['dress'] } });
   f.fetcher.mockRejectedValue(new Error('offline'));
   await expect(f.controller.check(['dress'], true)).rejects.toThrow('offline');
   expect(f.controller.state('dress')).toMatchObject({ phase: 'failed', error: 'offline' });
@@ -1179,7 +1447,7 @@ it('省流量暂停后台检查；手动继续解除本次暂停而不改全局�
   expect(f.fetcher).toHaveBeenCalled();
   expect(f.controller.state('dress').phase).toBe('checked');
   expect(backgroundTasks.snapshot()).toEqual([]);
-  expect(f.config.getSettings().enhancementUpdates.autoInstall).toBe(false);
+  expect(f.config.getSettings().enhancementUpdates.autoUpdatePacks).toEqual([]);
 });
 it('自动检查跟随软件更新频率，永不与关闭开关停止定时检查', async () => {
   vi.useFakeTimers();

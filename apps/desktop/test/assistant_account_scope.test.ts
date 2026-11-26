@@ -75,12 +75,12 @@ it('carries the account guard through sandbox worker callbacks', async () => {
 it('account teardown aborts every active assistant run', () => {
   const first = new AbortController();
   const second = new AbortController();
-  activeAssistantRuns.set('first', first);
-  activeAssistantRuns.set('second', second);
+  activeAssistantRuns().set('first', first);
+  activeAssistantRuns().set('second', second);
   cancelAssistantRuns();
   expect(first.signal.aborted).toBe(true);
   expect(second.signal.aborted).toBe(true);
-  expect(activeAssistantRuns.size).toBe(0);
+  expect(activeAssistantRuns().size).toBe(0);
 });
 
 it('invalidates the session before asynchronous account disposal finishes', async () => {

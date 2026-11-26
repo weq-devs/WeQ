@@ -12,10 +12,6 @@ html[data-theme] .weq-conversation-model-settings > .weq-set-row {
   padding-block: 9px;
 }
 
-.weq-conversation-model-settings > .weq-set-row + .weq-set-row {
-  border-top: 1px solid var(--weq-border-subtle);
-}
-
 html[data-theme] .weq-conversation-model-settings > .weq-set-row > .weq-set-row-main {
   flex: 1 1 0;
 }

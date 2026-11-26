@@ -56,6 +56,7 @@ export function guardDatabaseMaintenanceQuit(
   },
   options: {
     repairing(): boolean;
+    restoring?(): Promise<void> | undefined;
     confirmStop(): Promise<boolean>;
     stop(): Promise<void>;
     cancelled(): void;
@@ -64,12 +65,19 @@ export function guardDatabaseMaintenanceQuit(
 ): void {
   let deciding = false;
   app.on('before-quit', (event) => {
-    if (event.defaultPrevented || !options.repairing()) return;
+    if (event.defaultPrevented) return;
+    const restore = options.restoring?.();
+    if (!restore && !options.repairing()) return;
     event.preventDefault();
     if (deciding) return;
     deciding = true;
     void (async () => {
       try {
+        if (restore) {
+          await restore;
+          app.quit();
+          return;
+        }
         if (!(await options.confirmStop())) {
           options.cancelled();
           return;

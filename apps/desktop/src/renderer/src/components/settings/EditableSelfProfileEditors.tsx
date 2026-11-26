@@ -1,4 +1,5 @@
 import { FormSelect } from '../FormSelect';
+import { CalendarDateField } from '../CalendarDateField';
 import { useContext, useEffect, useRef, useState } from 'react';
 import { Check, Save, MapPin, Cake } from 'lucide-react';
 import { ProfileEditorRow, ProfileEditorAction } from '../ProfileFieldEditor';
@@ -133,12 +134,11 @@ export function BirthdayEditor({
       }
       control={
         <div className="weq-profile-region-editor weq-profile-birthday-editor">
-          <input
-            type="date"
-            aria-label="公历生日"
+          <CalendarDateField
+            label="公历生日"
             value={value}
             disabled={disabled}
-            onChange={(event) => setValue(event.target.value)}
+            onChange={setValue}
           />
           <ProfileEditorAction>
             <button

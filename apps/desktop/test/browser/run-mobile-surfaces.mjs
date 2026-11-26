@@ -128,10 +128,7 @@ try {
             const container = modal ?? document.querySelector('.fixture-page');
             const bounds = container.getBoundingClientRect();
             /**
-             * 元素是否落在可横向滚动的祖先里（例如手机设置页顶部的分区导航条、
-             * `.weq-settings-subnav`）。横向滚动条是设计的一部分：条内按钮本来就
-             * 会超出视口，用户滑一下就到，不算溢出。只豁免这一种情况，纵向/真实
-             * 越界仍然会被下面这条检查抓到。
+             * 横向滚动容器允许内容超出视口。仅豁免这种情况，仍检查纵向和页面越界。
              */
             const inHorizontalScroller = (el) => {
               for (

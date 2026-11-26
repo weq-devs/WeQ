@@ -47,6 +47,39 @@ export const CONVERSATION_CALENDAR_FEATURE = defineFeature(
 
 export const MESSAGE_FEATURES = [
   messageFeature(
+    'group-call',
+    '群语音与群视频',
+    '从群聊发起通话，可邀请成员、切换摄像头并查看通话中的消息。',
+    {
+      context: ['account', 'group'],
+      navigation: 'context',
+      docs: ['guide/chat-view.md#feature-messages.group-call'],
+    },
+  ),
+  messageFeature(
+    'timeline.resume',
+    '继续上次阅读',
+    '回到会话上次的阅读位置，或从首条未读开始查看。',
+    {
+      context: ['account', 'conversation'],
+      navigation: 'context',
+      docs: ['guide/chat-view.md'],
+    },
+  ),
+  messageFeature(
+    'copy.as-image',
+    '复制聊天长图',
+    '在桌面将选中的聊天消息复制为图片，保留会话样式。',
+    {
+      navigation: 'context',
+      docs: ['guide/chat-view.md'],
+    },
+  ),
+  messageFeature('media.flash-photo', '查看闪照', '在消息中打开可读取的闪照，沿用聊天媒体预览。', {
+    navigation: 'context',
+    docs: ['guide/chat-view.md'],
+  }),
+  messageFeature(
     'ai-voice-catalog',
     '群聊在线声线',
     '在群聊 AI 声聊面板浏览当前群的声线、试听并发送。',
@@ -79,8 +112,8 @@ export const MESSAGE_FEATURES = [
   ),
   messageFeature(
     'history.shared-media',
-    '共享媒体',
-    '从会话标题栏浏览图片、视频和文件，也可定位原消息。',
+    '会话内搜索',
+    '从会话标题栏按发送者、日期和消息类型查找聊天记录与媒体，并可定位原消息。',
     {
       context: ['account', 'conversation'],
       navigation: 'context',
@@ -136,13 +169,7 @@ export const MESSAGE_FEATURES = [
   messageFeature('send', '发送消息', '从输入区发送文本、媒体、文件和适用的卡片。', {
     context: ['account', 'conversation'],
     navigation: 'context',
-    tools: [
-      'send_text_message',
-      'send_media_message',
-      'send_file_message',
-      'send_rich_message',
-      'send_tuwen_ark',
-    ],
+    tools: ['send_text_message', 'send_media_message', 'send_file_message', 'send_rich_message'],
     docs: ['guide/chat-view.md'],
   }),
   messageFeature('voice.transcribe', '语音转文字', '从语音消息查看已有文字或发起转写。', {
@@ -161,7 +188,7 @@ export const MESSAGE_FEATURES = [
   }),
   messageFeature('red-packet.detail', 'QQ 红包详情与领取', '从红包消息查看领取记录或领取红包。', {
     navigation: 'context',
-    tools: ['get_red_bag_detail', 'grab_red_bag'],
+    tools: ['get_red_bag_detail', 'grab_red_bag', 'decode_redbag_packet'],
   }),
   messageFeature('reaction', '表情回应', '在适用的群消息上添加或取消表情回应。', {
     navigation: 'context',
@@ -215,6 +242,6 @@ export const MESSAGE_FEATURES = [
   ),
   messageFeature('media.save', '保存消息媒体', '按所选端的保存方式另存媒体或文件。', {
     navigation: 'context',
-    tools: ['download_chat_video'],
+    tools: ['download_chat_video', 'download_chat_file', 'download_chat_voice'],
   }),
 ] as const;

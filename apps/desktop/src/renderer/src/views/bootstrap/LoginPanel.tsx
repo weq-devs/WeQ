@@ -15,7 +15,8 @@
  */
 
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import { ArrowRight, KeyRound, Loader2, QrCode, Settings2, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ArrowRight, KeyRound, Loader2, QrCode, X } from 'lucide-react';
 import { client, trpc } from '../../trpc/client';
 import { Modal } from '../../components/Dialog';
 import { useDialog } from '../../components/Dialog.shared';
@@ -49,7 +50,9 @@ export function LoginPanel({
   autoTarget,
   onEntered,
   onBusyChange,
-  onDiagnostics,
+  qrActionHost,
+  qrActionDisabled = false,
+  emptyContent,
   disabled = false,
 }: {
   mode: 'new' | 'existing';
@@ -59,7 +62,9 @@ export function LoginPanel({
   autoTarget: AutoEnterTarget | null;
   onEntered: (uin: string) => void;
   onBusyChange?: (busy: boolean) => void;
-  onDiagnostics?: () => void;
+  qrActionHost?: HTMLElement | null;
+  qrActionDisabled?: boolean;
+  emptyContent?: ReactElement;
   disabled?: boolean;
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
@@ -81,10 +86,8 @@ export function LoginPanel({
   const [status, setStatus] = useState('');
   const [autoChoice, setAutoChoice] = useState<{ key: string; value: boolean } | null>(null);
   const choiceKey = `${mode}:${selected?.key ?? ''}`;
-  const autoEnter =
-    !settings.data?.startupReadOnly &&
-    (autoChoice?.key === choiceKey ? autoChoice.value : sameTarget(autoTarget, selected));
-  const working = busy || disabled || autoAttach.isLoading;
+  const savedAutoEnter = sameTarget(autoTarget, selected);
+  const autoEnter = autoChoice?.key === choiceKey ? autoChoice.value : savedAutoEnter;
   const [error, setError] = useState('');
   const [keyDetails, setKeyDetails] = useState(false);
   const autoOpening = useRef(false);
@@ -97,11 +100,6 @@ export function LoginPanel({
   const request = useRef(0);
   const accountsRef = useRef(accounts);
   accountsRef.current = accounts;
-  useEffect(() => {
-    onBusyChange?.(busy);
-    return () => onBusyChange?.(false);
-  }, [busy, onBusyChange]);
-
   // QR dialog state. `anonymous` = the "登录新的账号" flow, where the currently
   // selected account is irrelevant, so its identity must not be shown.
   const [qr, setQr] = useState<{
@@ -113,6 +111,12 @@ export function LoginPanel({
     anonymous: boolean;
   } | null>(null);
   const subRef = useRef<Sub | null>(null);
+  const occupied = busy || qr !== null;
+  const working = occupied || disabled || autoAttach.isLoading;
+  useEffect(() => {
+    onBusyChange?.(occupied);
+    return () => onBusyChange?.(false);
+  }, [occupied, onBusyChange]);
 
   // Reset the key + flags whenever the selected account changes.
   useEffect(() => {
@@ -198,7 +202,7 @@ export function LoginPanel({
   }
 
   function startQrLogin(acc: UiAccount | null, anonymous = false): void {
-    setStatus('正在获取二维码…');
+    if (!anonymous) setStatus('正在获取二维码…');
     setQr({
       uin: acc?.uin ?? '',
       name: acc?.name ?? '',
@@ -231,13 +235,16 @@ export function LoginPanel({
             const match = anonymous ? accountsRef.current.find((a) => a.uin === seenUin) : acc;
             if (!match || match.uin !== seenUin) {
               setBusy(false);
-              setStatus('');
-              setError(
-                '未发现扫码账号的本地记录。请先在本机 QQ 登录并同步记录，或导入该账号的备份。',
-              );
+              const message =
+                '未发现扫码账号的本地记录。请先在本机 QQ 登录并同步记录，或导入该账号的备份。';
+              if (anonymous) showError('无法打开扫码账号', message);
+              else {
+                setStatus('');
+                setError(message);
+              }
               return;
             }
-            if (match.key !== selected?.key) {
+            if (anonymous && (mode === 'existing' || match.key !== selected?.key)) {
               pendingKey.current = {
                 accountKey: match.key,
                 key: event.result.dbkey,
@@ -252,7 +259,7 @@ export function LoginPanel({
             if (autoOpening.current) void enter(match, event.result.dbkey, false);
           } else {
             setBusy(false);
-            setStatus('');
+            if (!anonymous) setStatus('');
             const message = event.result.error ?? '扫码登录失败，请填入数据库密钥。';
             if (autoOpening.current) recoveryFailed(message);
             else showError('扫码登录失败', message);
@@ -264,7 +271,7 @@ export function LoginPanel({
         closeSub();
         setQr(null);
         setBusy(false);
-        setStatus('');
+        if (!anonymous) setStatus('');
         if (autoOpening.current) recoveryFailed(errMsg(e));
         else showError('扫码登录失败', errMsg(e));
       },
@@ -273,18 +280,16 @@ export function LoginPanel({
 
   /** 「登录新的账号」：直接走匿名扫码（登录本身不再需要任何安装步骤）。 */
   function startNewAccountQr(): void {
-    if (working) return;
-    setError('');
-    setBusy(true);
+    if (working || qrActionDisabled) return;
     autoOpening.current = false;
-    startQrLogin(selected, true);
+    startQrLogin(null, true);
   }
 
   function cancelQr(): void {
     closeSub();
     setQr(null);
     setBusy(false);
-    setStatus('');
+    if (!qr?.anonymous) setStatus('');
     if (autoOpening.current) recoveryFailed('自动获取已取消，请填入数据库密钥。');
   }
 
@@ -295,6 +300,18 @@ export function LoginPanel({
   }
 
   // ---- enter (test then open) ----
+
+  async function saveAutoEnterChoice(account: UiAccount): Promise<void> {
+    if (autoChoice?.key !== `${mode}:${account.key}`) return;
+    if (autoChoice.value) {
+      await client.bootstrap.setAutoEnter.mutate({
+        uin: account.uin,
+        ...(account.dataDir ? { dataDir: account.dataDir } : {}),
+      });
+    } else if (autoTarget && sameTarget(autoTarget, account)) {
+      await client.bootstrap.clearAutoEnter.mutate(autoTarget);
+    }
+  }
 
   async function enter(acc = selected, candidate = key, recover = true): Promise<void> {
     if (!acc) return;
@@ -323,14 +340,7 @@ export function LoginPanel({
           ...(selected.mobile ? { mobile: true } : {}),
         });
         if (!alive.current) return;
-        if (autoEnter) {
-          await client.bootstrap.setAutoEnter.mutate({
-            uin: selected.uin,
-            ...(selected.dataDir ? { dataDir: selected.dataDir } : {}),
-          });
-        } else if (sameTarget(autoTarget, selected)) {
-          await client.bootstrap.clearAutoEnter.mutate();
-        }
+        await saveAutoEnterChoice(selected);
         onEntered(selected.uin);
       } catch (e) {
         if (!alive.current) return;
@@ -373,15 +383,7 @@ export function LoginPanel({
       });
       if (!alive.current) return;
 
-      if (autoEnter) {
-        await client.bootstrap.setAutoEnter.mutate({
-          uin: selected.uin,
-          ...(selected.dataDir ? { dataDir: selected.dataDir } : {}),
-        });
-      } else if (sameTarget(autoTarget, selected)) {
-        await client.bootstrap.clearAutoEnter.mutate();
-      }
-
+      await saveAutoEnterChoice(selected);
       onEntered(selected.uin);
       setKeyDetails(false);
     } catch (e) {
@@ -418,17 +420,6 @@ export function LoginPanel({
                 {accountSource(selected)}
               </span>
             </div>
-            {mode === 'new' && onDiagnostics && (
-              <button
-                type="button"
-                className="weq-icon-button weq-open-key-button"
-                title="环境诊断"
-                aria-label="环境诊断"
-                onClick={onDiagnostics}
-              >
-                <Settings2 size={16} aria-hidden />
-              </button>
-            )}
           </div>
           <div className="weq-open-state">
             {selected.static ? '本地备份已保存' : key ? '密钥已就绪' : '尚未获取密钥'}
@@ -526,17 +517,17 @@ export function LoginPanel({
 
           {/* 开关复用设置页的 Toggle：启动页是用户第一眼，控件形态与设置页一致。 */}
           <div className="weq-login-options">
-            {!settings.data?.startupReadOnly && (
-              <div className="weq-login-option">
-                <span className="weq-login-option-label">下次打开自动进入该账号</span>
-                <Toggle
-                  checked={autoEnter}
-                  disabled={working}
-                  onChange={(next) => setAutoChoice({ key: choiceKey, value: next })}
-                  label="下次打开自动进入该账号"
-                />
-              </div>
-            )}
+            <div className="weq-login-option">
+              <span className="weq-login-option-label">下次打开自动进入该账号</span>
+              <Toggle
+                checked={autoEnter}
+                disabled={working}
+                onChange={(value) =>
+                  setAutoChoice(value === savedAutoEnter ? null : { key: choiceKey, value })
+                }
+                label="下次打开自动进入该账号"
+              />
+            </div>
             <div className="weq-login-option">
               <span className="weq-login-option-label" title={fullModeHint}>
                 启用 QQ 在线能力
@@ -551,29 +542,23 @@ export function LoginPanel({
           </div>
           <p className="weq-login-options-hint">{fullModeHint}</p>
         </>
-      ) : null}
-      {mode === 'new' && (
-        <button
-          type="button"
-          className="weq-action-soft weq-open-qr"
-          disabled={working}
-          onClick={startNewAccountQr}
-        >
-          <QrCode size={16} aria-hidden />
-          扫码登录其他账号
-        </button>
+      ) : (
+        emptyContent
       )}
-      {mode === 'new' && !selected && onDiagnostics && (
-        <button
-          type="button"
-          className="weq-icon-button"
-          title="环境诊断"
-          aria-label="环境诊断"
-          onClick={onDiagnostics}
-        >
-          <Settings2 size={16} aria-hidden />
-        </button>
-      )}
+      {qrActionHost &&
+        createPortal(
+          <button
+            type="button"
+            className="weq-icon-button"
+            title="扫码登录其他账号"
+            aria-label="扫码登录其他账号"
+            disabled={working || qrActionDisabled}
+            onClick={startNewAccountQr}
+          >
+            <QrCode size={15} aria-hidden />
+          </button>,
+          qrActionHost,
+        )}
       {!selected && error && (
         <div className="weq-open-error" role="alert">
           {error}

@@ -25,6 +25,10 @@
  */
 
 import type { SendElement, SendForwardNodeInput } from '@weq/service';
+import {
+  chatFileForwardInput,
+  type ChatFileForwardSource,
+} from '../../../../shared/chat_file_forward';
 
 /** 渲染视图元素（`{type, data}`）—— 与 ForwardWindow / QqMessageContent 同形。 */
 export type MfElement = { type?: string; data?: Record<string, unknown> };
@@ -164,6 +168,7 @@ export interface MfFileSeg {
   path: string;
   fileName?: string;
   size?: number;
+  chatFile?: ChatFileForwardSource;
 }
 
 /** JSON / Ark 卡片（一段 JSON 文本）。 */
@@ -346,6 +351,7 @@ export interface MfTarget {
   /** c2c → 对方 uid；group → 群号。 */
   conv: string;
   name: string;
+  aliases?: readonly string[];
   avatarUrl: string | null;
   /** 在转发目标选择器中归入独立的群助手入口。 */
   groupAssistant?: boolean;
@@ -516,7 +522,7 @@ export function segHasContent(seg: MfSeg): boolean {
       // 有指纹（资源已在服务端）时不需要本机文件也算有内容。
       return seg.path.trim().length > 0 || Boolean(seg.fingerprint);
     case 'file':
-      return seg.path.trim().length > 0;
+      return seg.path.trim().length > 0 || Boolean(seg.chatFile);
     case 'ark':
       return seg.arkData.trim().length > 0;
     case 'xml':
@@ -780,6 +786,7 @@ function fileRenderElement(seg: MfFileSeg): MfElement {
       fileName: seg.fileName ?? basename(seg.path),
       fileSize: seg.size ?? 0,
       localPath: seg.path,
+      ...(seg.chatFile ? { fileToken: seg.chatFile.token, chatFile: seg.chatFile } : {}),
     },
   };
 }
@@ -987,6 +994,7 @@ export function segToSendElement(seg: MfSeg, kind?: 'c2c' | 'group'): SendElemen
         kind: 'file',
         source: seg.path,
         ...(seg.fileName ? { fileName: seg.fileName } : {}),
+        ...(seg.chatFile ? { chatFile: seg.chatFile } : {}),
       };
     case 'ark':
       return { kind: 'ark', arkData: seg.arkData };
@@ -1600,9 +1608,14 @@ export function codecElementToSeg(
     }
     case 'file': {
       const path = cleanNtPath(str(element, 'filePath'));
+      const source = chatFileForwardInput.safeParse(renderElement?.data?.chatFile).data;
+      const chatFile =
+        source?.token === str(element, 'fileToken') && source?.name === str(element, 'fileName')
+          ? source
+          : undefined;
       // 本机没有这个文件：**画成真正的文件卡**（图标 + 文件名 + 大小），而不是
       // `[文件: xxx]` 那样一段纯文本。点它还能走 OIDB 下载（QqFile 自带那条链路）。
-      if (!path) {
+      if (!path && !chatFile) {
         const name = str(element, 'fileName');
         return opaqueFor(renderElement, name ? `[文件: ${name}]` : '[文件]');
       }
@@ -1612,6 +1625,7 @@ export function codecElementToSeg(
         path,
         fileName: str(element, 'fileName') || basename(path),
         size: num(element, 'fileSize'),
+        ...(chatFile ? { chatFile } : {}),
       };
     }
     case 'ark': {
@@ -1760,13 +1774,15 @@ export function renderElementsToSegs(elements: MfElement[]): MfSeg[] {
       }
       case 'file': {
         const path = cleanNtPath(str(data, 'localPath') || str(data, 'filePath'));
-        if (path) {
+        const chatFile = chatFileForwardInput.safeParse(data.chatFile).data;
+        if (path || chatFile) {
           segs.push({
             t: 'file',
             id: mfId('seg'),
             path,
             fileName: str(data, 'fileName') || basename(path),
             size: num(data, 'fileSize'),
+            ...(chatFile ? { chatFile } : {}),
           });
         } else {
           // 没有本机文件：画成真正的文件卡（图标 + 名称 + 大小），不再是 `[文件: x]`。
@@ -1891,7 +1907,7 @@ function validateSeg(seg: MfSeg): string | null {
       if (!seg.path.trim() && !seg.fingerprint) return `${segLabel(seg)}没有选择本机文件`;
       return null;
     case 'file':
-      if (!seg.path.trim()) return '文件没有选择本机文件';
+      if (!seg.path.trim() && !seg.chatFile) return '文件没有选择本机文件';
       return null;
     case 'mface':
       if (!/^[0-9a-fA-F]{32}$/.test(seg.marketEmoticonId)) return '商城表情的 id 不合法';
@@ -1999,6 +2015,8 @@ function coerceSegments(
         next.time = source.time ?? 0;
         next.segs = coerceSegments(next.segs, depth + 1, path, budget);
       }
+      if (source.t === 'file' && next.chatFile !== undefined)
+        next.chatFile = chatFileForwardInput.parse(next.chatFile);
       return [next as unknown as MfSeg];
     } finally {
       path.delete(value);

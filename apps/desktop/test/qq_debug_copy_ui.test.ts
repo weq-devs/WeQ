@@ -270,14 +270,23 @@ it('打开系统设置或复制失败保留引导并显示错误，不执行权�
   expect(f.action).not.toHaveBeenCalled();
 });
 
-async function mountAction(needsQq = true, busy = false) {
+async function mountAction(needsQq = true, busy = false, currentAccountPid?: number) {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   const onOpened = vi.fn(async () => {});
   const onEnable = vi.fn(async () => {});
   await act(async () =>
-    root.render(createElement(RestrictedQqAction, { needsQq, busy, onOpened, onEnable })),
+    root.render(
+      createElement(RestrictedQqAction, {
+        needsQq,
+        busy,
+        onOpened,
+        onEnable,
+        currentAccountPid,
+        onRetryCredentials: currentAccountPid ? onEnable : undefined,
+      }),
+    ),
   );
   close = () => {
     act(() => root.unmount());
@@ -287,7 +296,16 @@ async function mountAction(needsQq = true, busy = false) {
     host,
     render: async () => {
       await act(async () =>
-        root.render(createElement(RestrictedQqAction, { needsQq, busy, onOpened, onEnable })),
+        root.render(
+          createElement(RestrictedQqAction, {
+            needsQq,
+            busy,
+            onOpened,
+            onEnable,
+            currentAccountPid,
+            onRetryCredentials: currentAccountPid ? onEnable : undefined,
+          }),
+        ),
       );
     },
     onOpened,
@@ -359,7 +377,7 @@ it('副本后台操作期间仍可查看设置，但不能重复启动', async (
 it('普通 QQ 在线且凭据读取中仍提供明确的切换副本入口', async () => {
   f.data!.state = 'ready';
   f.data!.sourceRunningPids = [51];
-  const v = await mountAction(false, true);
+  const v = await mountAction(false, true, 51);
   const button = [...v.host.querySelectorAll('button')].find(
     (item) => item.textContent === '重新启动 QQ',
   )!;
@@ -369,7 +387,7 @@ it('普通 QQ 在线且凭据读取中仍提供明确的切换副本入口', asy
   expect(v.host.textContent).not.toContain('启用 QQ 在线能力');
   expect(v.host.textContent).toContain('再打开调试副本');
   await act(async () => button.click());
-  expect(f.action).toHaveBeenCalledWith({ action: 'switch' });
+  expect(f.action).toHaveBeenCalledWith({ action: 'switch', expectedSourcePid: 51 });
   expect(v.onOpened).toHaveBeenCalledOnce();
 });
 it.each([
@@ -377,7 +395,7 @@ it.each([
   ['ready', [], '打开 QQ'],
   ['outdated', [], '打开 QQ'],
   ['invalid', [], '修复并打开 QQ'],
-  ['ready', [42], '登录其他账号'],
+  ['ready', [42], '登录当前账号'],
 ] as const)('精简入口按 %s 和进程状态展示单一主操作 %s', async (state, pids, label) => {
   f.data!.state = state;
   f.data!.runningPids = [...pids];
@@ -387,7 +405,7 @@ it.each([
   expect(f.action).toHaveBeenCalledOnce();
   expect(f.action).toHaveBeenCalledWith({ action: 'open' });
   expect(v.onOpened).toHaveBeenCalledOnce();
-  expect(v.host.querySelector('[role="status"]')?.textContent).toContain('完成登录');
+  expect(v.host.querySelector('[role="status"]')?.textContent).toContain('登录当前账号');
   expect(v.host.querySelector('.weq-qq-debug-permissions')).toBeNull();
 });
 it('精简入口启动期间不重复提交，失败保留重试且不继续启用', async () => {

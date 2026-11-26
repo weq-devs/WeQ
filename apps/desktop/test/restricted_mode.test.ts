@@ -17,6 +17,13 @@ import { ToastHost } from '../src/renderer/src/components/Toast';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { DialogHost } from '../src/renderer/src/components/Dialog';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
+import {
+  normalizeNotificationEvents,
+  type NotificationEvents,
+} from '@weq/service/notification-settings';
+import { activateNotificationClick } from '../src/renderer/src/lib/notificationSystemClick';
+import { useNotificationPolicy } from '../src/renderer/src/lib/notificationPolicy';
+import { onOpenSettingsRequest } from '../src/renderer/src/lib/callSettingsBridge';
 import type { QqDataAccess } from '../src/main/qq_data_access';
 import type { QqDebugCopyStatus } from '../src/shared/qq_debug_copy';
 vi.mock('../src/renderer/src/lib/target', () => ({ IS_MAC: true, IS_WEB: false }));
@@ -35,6 +42,27 @@ const mock = vi.hoisted(() => ({
   updatedAt: 0,
   failed: false,
   sip: null as boolean | null,
+  proxy: undefined as
+    | undefined
+    | {
+        enabled: boolean;
+        accountUin: string;
+        accountConfigId: string;
+        running: boolean;
+        port: number;
+        error: string;
+        uses: { sync: boolean; liveMessages: boolean; antiRecall: boolean };
+        connectionExpected: boolean;
+        connecting: boolean;
+        connected: boolean;
+      },
+  proxyFailed: false,
+  notificationEvents: undefined as NotificationEvents | undefined,
+  notify: vi.fn(),
+  proxyRefetch: vi.fn(),
+  proxyLaunch: vi.fn(),
+  proxyRestart: vi.fn(),
+  qqRunning: false,
   onlineCount: 1 as number | null,
   runningCount: null as number | null,
   dataAccess: { status: 'unsupported', applicationPath: '', issues: [] } as QqDataAccess,
@@ -46,6 +74,7 @@ const mock = vi.hoisted(() => ({
   openSettings: vi.fn(async () => true),
   onlineFailed: false,
   banner: true,
+  autoAttach: true,
   indicator: undefined as boolean | undefined,
   settingsLoading: false,
   launchQq: vi.fn(async () => true),
@@ -61,11 +90,13 @@ const mock = vi.hoisted(() => ({
   invalidateDebug: vi.fn(async () => {}),
   debugState: 'missing' as QqDebugCopyStatus['state'],
   debugPids: [] as number[],
+  originalPids: [] as number[],
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   client: {
     bootstrap: {
       launchQq: { mutate: mock.launchQq },
+      notifyConfiguredEvent: { mutate: mock.notify },
       qqDebugCopyAction: { mutate: mock.debugAction },
       openQqDataAccessSettings: { mutate: mock.openSettings },
     },
@@ -96,6 +127,37 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
     },
     bootstrap: {
+      getQqClientSyncStatus: {
+        useQuery: () => ({
+          data: mock.proxy,
+          isError: mock.proxyFailed,
+          refetch: mock.proxyRefetch,
+        }),
+      },
+      getQqProcessState: {
+        useQuery: () => ({
+          data: { running: mock.qqRunning, canRestart: mock.qqRunning },
+          refetch: mock.refetch,
+        }),
+      },
+      launchQq: {
+        useMutation: (options: { onSettled: () => void }) => ({
+          reset: () => {},
+          mutate: (input: unknown) => {
+            mock.proxyLaunch(input);
+            options.onSettled();
+          },
+        }),
+      },
+      restartQq: {
+        useMutation: (options: { onSettled: () => void }) => ({
+          reset: () => {},
+          mutate: () => {
+            mock.proxyRestart();
+            options.onSettled();
+          },
+        }),
+      },
       qqDebugCopyStatus: {
         useQuery: () => ({
           data: {
@@ -105,7 +167,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
             path: '/synthetic/QQ-WeQ.app',
             readerReady: false,
             runningPids: mock.debugPids,
-            sourceRunningPids: [],
+            sourceRunningPids: mock.originalPids,
             message: '合成副本状态',
           },
           refetch: mock.refetch,
@@ -124,11 +186,16 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
       getSettings: {
         useQuery: () => ({
-          data: {
-            restrictedModeBannerEnabled: mock.banner,
-            restrictedModeIndicatorEnabled: mock.indicator,
-          },
+          data: mock.settingsLoading
+            ? undefined
+            : {
+                autoAttachQq: mock.autoAttach,
+                restrictedModeBannerEnabled: mock.banner,
+                qqStatusIndicatorEnabled: mock.indicator,
+                notificationEvents: mock.notificationEvents,
+              },
           isLoading: mock.settingsLoading,
+          refetch: mock.refetch,
         }),
       },
       sipEnabled: { useQuery: () => ({ data: mock.sip, refetch: mock.refetch }) },
@@ -256,6 +323,15 @@ beforeEach(() => {
   mock.updatedAt = Date.now();
   mock.failed = false;
   mock.sip = null;
+  mock.proxy = undefined;
+  mock.proxyFailed = false;
+  mock.notificationEvents = undefined;
+  mock.notify.mockReset().mockResolvedValue(false);
+  useNotificationPolicy.getState().setEvents(normalizeNotificationEvents(undefined));
+  mock.proxyRefetch.mockClear();
+  mock.proxyLaunch.mockClear();
+  mock.proxyRestart.mockClear();
+  mock.qqRunning = false;
   mock.onlineCount = 1;
   mock.runningCount = null;
   mock.dataAccess = { status: 'unsupported', applicationPath: '', issues: [] };
@@ -264,6 +340,7 @@ beforeEach(() => {
   mock.openSettings.mockClear();
   mock.onlineFailed = false;
   mock.banner = true;
+  mock.autoAttach = true;
   mock.indicator = undefined;
   mock.settingsLoading = false;
   mock.launchQq.mockReset().mockResolvedValue(true);
@@ -279,12 +356,14 @@ beforeEach(() => {
   mock.invalidateDebug.mockReset().mockResolvedValue(undefined);
   mock.debugState = 'missing';
   mock.debugPids = [];
+  mock.originalPids = [];
   useViewState.setState({ view: 'main', openedUin: '10001' });
   useRestrictedMode.setState({
     reasons: [],
     reasonSource: null,
     requests: [],
     open: false,
+    settingsSection: null,
     enteringSince: null,
     enteringManually: false,
   });
@@ -329,6 +408,158 @@ function fixture(showToasts = false, showDialogs = false, persistent = false) {
 function event(channel: string, payload: unknown) {
   act(() => mock.listeners.get(channel)?.({}, payload));
 }
+
+function disconnectedProxy() {
+  return {
+    enabled: true,
+    accountUin: '10001',
+    accountConfigId: '10001',
+    running: true,
+    port: 19082,
+    error: '',
+    uses: { sync: true, liveMessages: false, antiRecall: false },
+    connectionExpected: true,
+    connecting: false,
+    connected: false,
+  };
+}
+
+it('依次引导登录和连接代理，全部恢复后收起菜单', () => {
+  const source = { expectedAccountUin: '10001', expectedAccountConfigId: '10001' };
+  mock.access = { ...ready, qqOnline: false, source };
+  mock.proxy = disconnectedProxy();
+  const f = fixture();
+  const indicators = () => f.host.querySelectorAll<HTMLButtonElement>('.weq-restricted-indicator');
+  expect(indicators()).toHaveLength(1);
+  expect(indicators()[0]?.textContent).toBe('在线能力受限');
+  act(() => indicators()[0]?.click());
+  const panel = f.host.querySelector<HTMLElement>('[role="dialog"]')!;
+  const online = () => panel.querySelector('[aria-label="QQ 在线能力"]');
+  const proxy = () => panel.querySelector('[aria-label="QQ 代理连接"]');
+  expect(online()?.textContent).toContain('当前账号未登录 QQ');
+  expect(online()?.textContent).toContain('19082');
+  expect(proxy()).toBeNull();
+  const launch = [...panel.querySelectorAll('button')].filter(
+    (button) => button.textContent === '打开 QQ',
+  );
+  expect(launch).toHaveLength(1);
+  act(() => launch[0]?.click());
+  expect(mock.launchQq).not.toHaveBeenCalled();
+  expect(mock.proxyLaunch).toHaveBeenCalledWith({ newInstance: false });
+  expect(mock.proxyRefetch).toHaveBeenCalledOnce();
+  expect(mock.refetch).toHaveBeenCalled();
+
+  mock.qqRunning = true;
+  f.render();
+  expect(indicators()[0]?.getAttribute('aria-busy')).toBe('false');
+  expect(proxy()).toBeNull();
+
+  mock.access = { ...ready, source };
+  f.render();
+  expect(indicators()[0]?.textContent).toBe('正在等待 QQ 代理连接');
+  expect(indicators()[0]?.getAttribute('aria-busy')).toBe('true');
+  expect(online()).toBeNull();
+  expect(proxy()?.querySelector('[role="status"]')?.textContent).toBe('正在等待 QQ 代理连接');
+  expect(proxy()?.textContent).toContain('本人消息与已读同步');
+  expect(proxy()?.textContent).not.toContain('代理防撤回');
+  expect(proxy()?.textContent).toContain('19082');
+
+  mock.access = { ...ready, qqOnline: false, source };
+  f.render();
+  expect(proxy()).toBeNull();
+  expect(indicators()[0]?.getAttribute('aria-busy')).toBe('false');
+
+  mock.access = { ...ready, source };
+  mock.proxy = { ...disconnectedProxy(), connecting: true };
+  f.render();
+  expect(online()).toBeNull();
+  expect(proxy()?.textContent).toContain('正在确认 QQ 代理连接');
+  expect(indicators()[0]?.getAttribute('aria-busy')).toBe('true');
+  expect(panel.isConnected).toBe(true);
+  expect(proxy()?.textContent).not.toContain('19082');
+
+  mock.proxyFailed = true;
+  f.render();
+  expect(proxy()?.textContent).toContain('QQ 代理状态待确认');
+  expect(panel.isConnected).toBe(true);
+  mock.proxyFailed = false;
+  mock.proxy = { ...disconnectedProxy(), connected: true };
+  f.render();
+  expect(indicators()).toHaveLength(0);
+  expect(panel.isConnected).toBe(false);
+});
+
+it('通过调试副本登录时将代理配置合入登录指引', async () => {
+  mock.sip = true;
+  mock.access = { ...ready, qqOnline: false };
+  mock.proxy = disconnectedProxy();
+  const f = fixture();
+  act(() => f.host.querySelector<HTMLButtonElement>('.weq-restricted-indicator')?.click());
+  const panel = f.host.querySelector<HTMLElement>('[role="dialog"]')!;
+  const labels = [...panel.querySelectorAll('button')].map((button) => button.textContent);
+  expect(labels).toContain('准备并打开 QQ');
+  expect(labels).not.toContain('打开 QQ');
+  expect(panel.querySelector('[aria-label="QQ 在线能力"]')?.textContent).toContain('19082');
+  expect(panel.querySelector('[aria-label="QQ 代理连接"]')).toBeNull();
+  await act(async () =>
+    panel
+      .querySelector<HTMLButtonElement>('[aria-label="QQ 在线能力"] .weq-set-btn-primary')
+      ?.click(),
+  );
+  expect(mock.debugAction).toHaveBeenCalledWith({ action: 'open' });
+  expect(mock.proxyLaunch).not.toHaveBeenCalled();
+  expect(mock.proxyRefetch).toHaveBeenCalledOnce();
+});
+
+it('仅系统通知时仍可在在线能力降级后打开共用面板', async () => {
+  mock.banner = false;
+  mock.notify.mockResolvedValueOnce(true);
+  mock.notificationEvents = normalizeNotificationEvents({
+    runtime: { banner: false, system: true },
+  });
+  useNotificationPolicy.getState().setEvents(mock.notificationEvents);
+  const f = fixture(true);
+  mock.access = { ...ready, qqOnline: false };
+  await act(async () => f.render());
+  expect(mock.notify).toHaveBeenCalledWith(
+    expect.objectContaining({ event: 'runtime', title: 'QQ 在线能力受限' }),
+  );
+  expect(f.host.querySelector('.weq-toast')).toBeNull();
+  const [{ clickId }] = mock.notify.mock.calls[0]!;
+  await act(async () => activateNotificationClick(clickId));
+  expect(f.host.querySelector('[role="dialog"]')?.textContent).toContain('QQ 功能状态');
+});
+it('代理设置入口可在统一提示关闭时打开面板，并在连接恢复后查看结果', () => {
+  mock.indicator = false;
+  mock.proxy = disconnectedProxy();
+  mock.qqRunning = true;
+  const f = fixture();
+  expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
+  act(() => useRestrictedMode.getState().setOpen(true, 'proxy'));
+  const panel = f.host.querySelector<HTMLElement>('[role="dialog"]')!;
+  const button = (label: string) =>
+    [...panel.querySelectorAll('button')].find((item) => item.textContent === label)!;
+  act(() => button('打开 QQ 登录窗口').click());
+  expect(mock.proxyLaunch).toHaveBeenCalledWith({ newInstance: true });
+  expect(mock.proxyRestart).not.toHaveBeenCalled();
+  act(() => button('重新启动 QQ').click());
+  expect(mock.proxyRestart).toHaveBeenCalledOnce();
+  mock.proxy = { ...disconnectedProxy(), connected: true };
+  f.render();
+  expect(panel.textContent).toContain('已连接');
+  expect(panel.isConnected).toBe(true);
+  act(() => useViewState.setState({ openedUin: '20002' }));
+  expect(panel.isConnected).toBe(false);
+});
+
+it.each([{ accountUin: '20002' }, { connectionExpected: false }, { enabled: false }])(
+  '其他账号或未使用代理时不显示窗口提示：%j',
+  (update) => {
+    mock.proxy = { ...disconnectedProxy(), ...update };
+    const f = fixture();
+    expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
+  },
+);
 
 it.each([false, true])(
   '右上角标记可隐藏并重新开启，不影响受限通知与详情：常驻 %s',
@@ -383,10 +614,46 @@ it('正常运行后降为受限才提醒，自动恢复不发成功通知', () =
   expect(useToast.getState().toasts.some((toast) => toast.tone === 'success')).toBe(false);
 });
 
+it('关闭在线能力会收起已有提醒和标题栏详情，设置仍可查看关闭状态', () => {
+  const f = fixture();
+  mock.proxy = disconnectedProxy();
+  mock.access = { ...ready, qqOnline: false };
+  f.render();
+  const notice = useToast.getState().toasts.at(-1)!;
+  act(() => f.host.querySelector<HTMLButtonElement>('.weq-restricted-indicator')!.click());
+
+  mock.access = { ...ready, qqOnline: false, attachEnabled: false };
+  f.render();
+  expect(useToast.getState().leaving).toContain(notice.id);
+
+  mock.autoAttach = false;
+  f.render();
+  expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
+  expect(f.host.querySelector('[role="dialog"]')).toBeNull();
+  expect(useToast.getState().leaving).toContain(notice.id);
+
+  expect(useToast.getState().toasts).toHaveLength(1);
+  act(() => useRestrictedMode.getState().setOpen(true, 'online'));
+  expect(f.host.querySelector('[role="dialog"]')?.textContent).toContain('QQ 在线能力已关闭');
+  act(() => useRestrictedMode.getState().setOpen(true, 'proxy'));
+  expect(f.host.querySelector('[role="dialog"] [aria-label="QQ 代理连接"]')).not.toBeNull();
+
+  mock.autoAttach = true;
+  mock.access = { ...ready, qqOnline: false };
+  f.render();
+  expect(f.host.querySelector('.weq-restricted-indicator')).not.toBeNull();
+  expect(useToast.getState().leaving).toContain(notice.id);
+});
+
 it.each(['ready', 'failed'] as const)(
   '启动受限后手动启用显示进度和真实结果：%s',
   async (outcome) => {
     mock.banner = false;
+    mock.autoAttach = false;
+    mock.requestFull.mockImplementationOnce(async () => {
+      mock.autoAttach = true;
+      return { requested: true };
+    });
     mock.access = {
       ...ready,
       attachEnabled: false,
@@ -401,12 +668,13 @@ it.each(['ready', 'failed'] as const)(
     );
     const f = fixture();
     expect(useToast.getState().toasts).toHaveLength(0);
-    act(() => useRestrictedMode.getState().setOpen(true));
+    act(() => useRestrictedMode.getState().setOpen(true, 'online'));
     await act(async () =>
       [...f.host.querySelectorAll('button')]
         .find((button) => button.textContent === '启用 QQ 在线能力')!
         .click(),
     );
+    f.render();
     expect(useToast.getState().toasts.at(-1)).toMatchObject({
       title: '正在启用 QQ 在线能力',
       loading: true,
@@ -502,6 +770,25 @@ it('菜单自动检查不发起手动启用，主动启用提交完整来源', a
     expect.objectContaining({ refetchInterval: 5000, refetchIntervalInBackground: false }),
   );
 });
+it('受限详情可直接打开在线能力设置，且不触发启用', () => {
+  mock.access = { ...ready, attachEnabled: false };
+  const f = fixture();
+  const openSettings = vi.fn();
+  const unsubscribe = onOpenSettingsRequest(openSettings);
+  try {
+    act(() => useRestrictedMode.getState().setOpen(true));
+    const button = [...f.host.querySelectorAll('button')].find(
+      (action) => action.textContent === '在线能力设置',
+    );
+    expect(button).toBeDefined();
+    act(() => button!.click());
+    expect(openSettings).toHaveBeenCalledWith('qqOnlineCapability');
+    expect(mock.requestFull).not.toHaveBeenCalled();
+    expect(f.host.querySelector('.weq-restricted-panel')).toBeNull();
+  } finally {
+    unsubscribe();
+  }
+});
 it.each([false, true])('凭据不全时可主动补读，SIP 开启：%s', async (sip) => {
   mock.sip = sip;
   mock.access = { ...ready, hasGuid: false };
@@ -532,7 +819,7 @@ it.each(['missing', 'ready', 'outdated', 'invalid', 'unmanaged'] as const)(
     expect(mock.requestFull).not.toHaveBeenCalled();
   },
 );
-it('副本、数据读取提示和多项授权同时出现时，保留独立的长期授权入口', () => {
+it('数据目录不可读时先给出处理方法，并保留待处理授权', () => {
   Object.defineProperty(window, 'weq', { configurable: true, value: { authorization: {} } });
   mock.sip = true;
   mock.access = { ...ready, hasD2: false };
@@ -544,7 +831,9 @@ it('副本、数据读取提示和多项授权同时出现时，保留独立的�
   const buttons = [...f.host.querySelectorAll<HTMLButtonElement>('button')];
   expect(buttons.filter((button) => button.textContent === '重新检查')).toHaveLength(0);
   expect(buttons.filter((button) => button.textContent === '重新检测')).toHaveLength(0);
-  expect(buttons.filter((button) => button.textContent === '管理长期授权')).toHaveLength(1);
+  expect(buttons.filter((button) => button.textContent === '管理长期授权')).toHaveLength(0);
+  expect(f.host.querySelector('[role="dialog"]')?.textContent).toContain('QQ 数据读取受限');
+  expect(f.host.querySelector('form')).toBeNull();
   expect(mock.send).not.toHaveBeenCalled();
   expect(useRestrictedMode.getState().requests).toHaveLength(2);
 });
@@ -604,8 +893,9 @@ it('同号切源丢弃手动请求的迟到结果，不在新来源继续采集'
   expect(f.host.textContent).not.toContain('尚未恢复 QQ 在线能力');
 });
 
-it('启动数据授权只在「在线能力受限」详情显示，运行中的 QQ 不显示为离线', async () => {
+it('关闭在线能力后仍可从标题栏处理数据读取权限', async () => {
   useViewState.setState({ view: 'startup', openedUin: null });
+  mock.autoAttach = false;
   mock.onlineCount = null;
   mock.runningCount = 1;
   mock.dataAccess = {
@@ -615,6 +905,7 @@ it('启动数据授权只在「在线能力受限」详情显示，运行中的 
     issues: [{ path: '/fixture/QQ', code: 'EPERM' }],
   };
   const f = fixture();
+  expect(f.host.querySelector('[aria-label="QQ 数据读取受限"]')).not.toBeNull();
   expect(f.host.querySelector('.weq-qq-data-access')).toBeNull();
   expect(useRestrictedMode.getState().reasons.map((r) => r.code)).toEqual([
     'data-access',
@@ -622,7 +913,6 @@ it('启动数据授权只在「在线能力受限」详情显示，运行中的 
   ]);
   act(() => useRestrictedMode.getState().setOpen(true));
   expect(f.host.querySelector('[role="dialog"] .weq-qq-data-access')).not.toBeNull();
-  expect(f.host.textContent).toContain('QQ 正在运行');
   expect(f.host.textContent).not.toContain('QQ 不在线');
   expect(f.host.textContent).toContain('/System/Applications/Utilities/Terminal.app');
   expect(
@@ -738,17 +1028,17 @@ it('失效授权表单不转发旧 token 或把新来源标记成进入中', () 
 it('关闭被动提醒仍保留状态入口，更新去重基线，重新开启不补发旧事件', () => {
   mock.banner = false;
   const f = fixture(true);
-  mock.access = { ...ready, attachEnabled: false };
+  mock.access = { ...ready, hasD2: false };
   f.render();
   expect(f.host.querySelector('.weq-restricted-indicator')).not.toBeNull();
   expect(useToast.getState().toasts).toHaveLength(0);
-  mock.access = { ...ready, qqOnline: false, attachEnabled: false };
+  mock.access = { ...ready, qqOnline: false };
   f.render();
   expect(useToast.getState().toasts).toHaveLength(0);
   mock.banner = true;
   f.render();
   expect(useToast.getState().toasts).toHaveLength(0);
-  mock.access = { ...ready, attachEnabled: false };
+  mock.access = { ...ready, hasD2: false };
   f.render();
   expect(useToast.getState().toasts.some((toast) => toast.key === 'restricted-mode')).toBe(true);
   mock.banner = false;
@@ -827,7 +1117,7 @@ describe('在线能力受限启动 QQ', () => {
       action: 'open',
     });
     expect(mock.launchQq).not.toHaveBeenCalled();
-    expect(f.host.textContent).toContain('QQ 不在线');
+    expect(f.host.textContent).toContain(view === 'main' ? '当前账号未登录 QQ' : 'QQ 不在线');
     expect(useRestrictedMode.getState().enteringSince).toBeNull();
   });
   it('其他账号已有副本进程时仍只显示一个主操作，可继续打开新实例', async () => {
@@ -840,25 +1130,62 @@ describe('在线能力受限启动 QQ', () => {
     const panel = f.host.querySelector('.weq-restricted-panel')!;
     expect(panel.querySelector('.weq-qq-debug-checks')).toBeNull();
     expect(panel.querySelector('.weq-qq-debug-details')).toBeNull();
-    expect(
-      panel.querySelectorAll('.weq-restricted-qq > .weq-restricted-actions > .weq-set-btn-primary'),
-    ).toHaveLength(1);
+    expect(panel.querySelectorAll('[aria-label="QQ 在线能力"] .weq-set-btn-primary')).toHaveLength(
+      1,
+    );
     const launch = [...panel.querySelectorAll('button')].find(
-      (item) => item.textContent === '登录其他账号',
+      (item) => item.textContent === '登录当前账号',
     )!;
     expect(launch.disabled).toBe(false);
     await act(async () => launch.click());
     expect(mock.debugAction).toHaveBeenCalledWith({ action: 'open' });
-    expect(panel.textContent).toContain('登录后会自动更新状态');
+    expect(panel.textContent).toContain('登录后 WeQ 会自动更新状态');
     expect(useRestrictedMode.getState().enteringSince).toBeNull();
     expect(mock.refreshRkeys).not.toHaveBeenCalled();
   });
-  it.each([true, false])('打开 QQ 后遵循在线能力开关（%s）', async (enabled) => {
+  it('普通 QQ 在运行时仍打开副本登录当前账号，等待当前账号在副本中上线', async () => {
+    mock.sip = true;
+    mock.access = { ...ready, qqOnline: false };
+    mock.debugState = 'ready';
+    mock.originalPids = [51];
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    const panel = f.host.querySelector('.weq-restricted-panel')!;
+    const primary = panel.querySelector<HTMLButtonElement>('.weq-set-btn-primary')!;
+    expect(primary.textContent).toBe('打开 QQ');
+    await act(async () => primary.click());
+    expect(mock.debugAction).toHaveBeenCalledWith({ action: 'open' });
+
+    mock.debugPids = [42];
+    mock.access = { ...ready, qqPid: 51, hasD2: false };
+    await act(async () => f.render());
+    expect(mock.refreshRkeys).not.toHaveBeenCalled();
+    expect(panel.textContent).toContain('当前账号已登录普通 QQ');
+
+    mock.access = { ...mock.access, qqPid: 42 };
+    await act(async () => f.render());
+    expect(mock.refreshRkeys).toHaveBeenCalledOnce();
+    expect(panel.textContent).toContain('正在启用 QQ 在线能力');
+    mock.updatedAt = Date.now() + 1;
+    await act(async () => f.render());
+    expect(panel.querySelector('.weq-set-btn-primary')?.textContent).toBe('重试获取在线凭据');
+    expect(mock.debugAction).toHaveBeenCalledOnce();
+  });
+  it('普通 QQ 已打开但当前账号未登录时打开新登录窗口', async () => {
+    mock.access = { ...ready, qqOnline: false };
+    mock.qqRunning = true;
+    const f = fixture();
+    act(() => useRestrictedMode.getState().setOpen(true));
+    const primary = f.host.querySelector<HTMLButtonElement>('.weq-set-btn-primary')!;
+    expect(primary.textContent).toBe('登录当前账号');
+    await act(async () => primary.click());
+    expect(mock.launchQq).toHaveBeenCalledWith({ newInstance: true });
+  });
+  it('打开调试副本后等当前账号登录再读取凭据', async () => {
     mock.sip = true;
     mock.access = {
       ...ready,
       qqOnline: false,
-      attachEnabled: enabled,
       source: { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' },
     };
     mock.debugState = 'ready';
@@ -871,11 +1198,12 @@ describe('在线能力受限启动 QQ', () => {
     );
     expect(mock.requestFull).not.toHaveBeenCalled();
     expect(mock.refreshRkeys).not.toHaveBeenCalled();
-    mock.access = { ...mock.access, qqOnline: true };
+    mock.debugPids = [42];
+    mock.access = { ...mock.access, qqOnline: true, qqPid: 42, hasD2: false };
     await act(async () => f.render());
-    expect(mock.refreshRkeys).toHaveBeenCalledTimes(enabled ? 1 : 0);
+    expect(mock.refreshRkeys).toHaveBeenCalledOnce();
     await act(async () => f.render());
-    expect(mock.refreshRkeys).toHaveBeenCalledTimes(enabled ? 1 : 0);
+    expect(mock.refreshRkeys).toHaveBeenCalledOnce();
     expect(mock.requestFull).not.toHaveBeenCalled();
   });
   it('打开后切换同号来源不会把继续启用请求带到新来源', async () => {
@@ -930,7 +1258,7 @@ describe('在线能力受限启动 QQ', () => {
       expect(mock.launchQq).toHaveBeenCalledOnce();
       expect(mock.launchQq).toHaveBeenCalledWith();
       expect(mock.refetch).toHaveBeenCalled();
-      expect(f.host.textContent).toContain('QQ 不在线');
+      expect(f.host.textContent).toContain(view === 'main' ? '当前账号未登录 QQ' : 'QQ 不在线');
       expect(useRestrictedMode.getState().enteringSince).toBeNull();
       expect(useToast.getState().toasts.some((toast) => toast.tone === 'success')).toBe(false);
     },
@@ -947,7 +1275,7 @@ describe('在线能力受限启动 QQ', () => {
     },
   );
   it('启动期间禁用操作，失败后显示原因并允许重试', async () => {
-    mock.access = { ...ready, qqOnline: false, attachEnabled: false };
+    mock.access = { ...ready, qqOnline: false };
     let fail = (_error: Error) => {};
     mock.launchQq.mockImplementationOnce(
       () =>
@@ -983,7 +1311,7 @@ describe('在线能力受限启动 QQ', () => {
 });
 
 describe('非阻塞提权入口', () => {
-  it('自动检查期间多项授权仍各自保留提权按钮', () => {
+  it('自动检查期间先显示首个授权，剩余请求留在队列', () => {
     Object.defineProperty(window, 'weq', { configurable: true, value: { authorization: {} } });
     const f = fixture();
     event('elev:request-password', { token: 41 });
@@ -998,7 +1326,7 @@ describe('非阻塞提权入口', () => {
         (button) => button.textContent === '管理长期授权',
       ),
     ).toHaveLength(1);
-    expect(f.host.querySelectorAll('form button[type="submit"]')).toHaveLength(2);
+    expect(f.host.querySelectorAll('form button[type="submit"]')).toHaveLength(1);
     expect(mock.send).not.toHaveBeenCalled();
     expect(useRestrictedMode.getState().requests).toHaveLength(2);
   });
@@ -1069,7 +1397,7 @@ describe('非阻塞提权入口', () => {
       expect(f.host.querySelector('.weq-restricted-indicator')?.getAttribute('aria-busy')).toBe(
         'false',
       );
-      expect(f.host.querySelector('[role="dialog"] h2')?.textContent).toBe('待提权');
+      expect(f.host.querySelector('[role="dialog"]')?.textContent).toContain('待提权');
       expect(f.host.textContent).toContain('管理员密码');
       expect(f.host.textContent).not.toContain('正在启用 QQ 在线能力');
       expect(f.host.querySelector('[role="status"]')).toBeNull();
@@ -1099,6 +1427,8 @@ describe('非阻塞提权入口', () => {
     });
     expect(f.host.querySelector('.weq-restricted-indicator')?.textContent).toBe('待提权');
     expect(f.host.textContent).not.toContain('正在启用 QQ 在线能力');
+    expect(f.host.querySelectorAll('form')).toHaveLength(1);
+    expect(f.host.querySelector('form')?.textContent).not.toContain('重试免密读取');
     submitAuthorization(f.host.querySelector('form')!);
     expect(mock.send).toHaveBeenCalledWith('elev:respond-password', {
       token: 8,
@@ -1248,7 +1578,7 @@ describe('非阻塞提权入口', () => {
     expect(useToast.getState().toasts).toHaveLength(1);
     act(() => useToast.getState().toasts[0]!.action!.run());
     expect(f.host.querySelector('[role="dialog"]')?.getAttribute('aria-modal')).toBe('false');
-    expect(f.host.textContent).toContain('QQ 不在线');
+    expect(f.host.textContent).toContain('当前账号未登录 QQ');
     mock.access = { ...ready };
     f.render();
     expect(f.host.querySelector('.weq-restricted-indicator')).toBeNull();
@@ -1259,7 +1589,7 @@ describe('非阻塞提权入口', () => {
     mock.access = { ...ready, qqOnline: false };
     f.render();
     expect(useToast.getState().toasts).toHaveLength(1);
-    expect(useToast.getState().toasts[0]!.summary).toContain('QQ 不在线');
+    expect(useToast.getState().toasts[0]!.summary).toContain('当前账号未登录 QQ');
     expect(useToast.getState().leaving).not.toContain(useToast.getState().toasts[0]!.id);
     mock.access = { ...ready };
     f.render();

@@ -1,19 +1,21 @@
 /**
- * 设置 → 基础功能 → 通话与录音。
+ * 设置 → 聊天 → 通话与录音。
  *
  * 与通话窗口里的「通话与录音设置」抽屉读的是**同一份**全局配置
  * （`AppSettings.callRecording`），改哪边都一样。
  *
  * 录音默认**不自动开** —— 要在通话窗口里手动点录音键。
- * 本页同时配置通话连接方式、录音内容与保存位置，以及抓包排障选项。
+ * 本页配置通话连接方式、录音内容与保存位置。
  */
 
-import type { ReactElement } from 'react';
+import { useContext, type ReactElement } from 'react';
 import { FolderOpen, Info, PhoneCall, Radio, Waypoints } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
 import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, Toggle } from './controls';
+import { SettingsNavigateContext } from './controls.shared';
+import { useRemoteClient } from '../../lib/remoteClient';
 import type { CallRecordingMode } from '@weq/service';
 
 const MODE_OPTIONS: ReadonlyArray<{ value: CallRecordingMode; label: string; hint: string }> = [
@@ -24,6 +26,7 @@ const MODE_OPTIONS: ReadonlyArray<{ value: CallRecordingMode; label: string; hin
 
 export function CallRecordingSection(): ReactElement {
   const active = useTabActive();
+  const navigate = useContext(SettingsNavigateContext);
   const pushToast = useToast((state) => state.push);
   const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
     enabled: active,
@@ -70,7 +73,7 @@ export function CallRecordingSection(): ReactElement {
     <div className="weq-set">
       <SectionHeader
         title="通话与录音"
-        desc="配置通话连接方式、录音内容与保存位置，以及抓包排障选项。"
+        desc="配置通话连接方式、录音内容与保存位置。"
         page="call-recording"
       />
 
@@ -139,21 +142,6 @@ export function CallRecordingSection(): ReactElement {
         />
       </Card>
 
-      <Card title="抓包与排障" icon={<Radio size={15} strokeWidth={1.8} />} remoteUnsupported>
-        <Row
-          label="记录 UDP 流量"
-          desc="发起通话时自动开始，把本机收发的全部 UDP 数据报写到录音目录下的 udp 文件夹，格式与 UDP 抓包面板的导出相同（pcapng，Wireshark 可直接打开）。视频通话的文件可能有几个 GB，用完记得清理。"
-          control={
-            <Toggle
-              checked={config?.udpTrace === true}
-              disabled={setSettings.isLoading || !config}
-              onChange={(next) => setSettings.mutate({ udpTrace: next })}
-              label="记录 UDP 流量"
-            />
-          }
-        />
-      </Card>
-
       <Card title="连接方式" icon={<Waypoints size={15} strokeWidth={1.8} />}>
         <Row
           label="禁用 P2P 直连"
@@ -167,6 +155,19 @@ export function CallRecordingSection(): ReactElement {
             />
           }
         />
+        <Row
+          label="通话抓包"
+          remoteUnsupported
+          control={
+            <button
+              type="button"
+              className="weq-set-btn weq-set-btn-soft"
+              onClick={() => navigate?.('diagnostics', 'call-udp-trace')}
+            >
+              前往通话抓包
+            </button>
+          }
+        />
       </Card>
 
       <div className="weq-set-note">
@@ -176,5 +177,40 @@ export function CallRecordingSection(): ReactElement {
         </span>
       </div>
     </div>
+  );
+}
+
+export function CallUdpTraceSettings(): ReactElement | null {
+  const active = useTabActive();
+  const remote = useRemoteClient();
+  const pushToast = useToast((state) => state.push);
+  const settings = trpc.bootstrap.getSettings.useQuery(undefined, {
+    enabled: active && !remote,
+    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
+  const setSettings = trpc.bootstrap.setCallRecording.useMutation({
+    onSuccess: () => void settings.refetch(),
+    onError: (error) =>
+      pushToast({ tone: 'error', message: '保存通话抓包设置失败', detail: error.message }),
+  });
+  const config = settings.data?.callRecording;
+
+  return (
+    <Card resetId="call-trace" icon={<Radio size={15} strokeWidth={1.8} />} remoteUnsupported>
+      <Row
+        settingId="call-udp-trace"
+        desc="发起通话时自动开始，把本机收发的全部 UDP 数据报写到录音目录下的 udp 文件夹，格式与 UDP 抓包面板的导出相同（pcapng，Wireshark 可直接打开）。视频通话的文件可能有几个 GB，用完记得清理。"
+        control={
+          <Toggle
+            checked={config?.udpTrace === true}
+            disabled={setSettings.isLoading || !config}
+            onChange={(next) => setSettings.mutate({ udpTrace: next })}
+            label="记录 UDP 流量"
+          />
+        }
+      />
+    </Card>
   );
 }

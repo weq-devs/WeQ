@@ -1,5 +1,10 @@
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
-import { dismissProfileCard } from './profileCardMotion';
+import {
+  dismissProfileCard,
+  ownsProfileCard,
+  previewProfileCardDismissal,
+} from './profileCardMotion';
+import { POKE_PRESS_MS, pressProfileAvatar, profileAvatarAtClick } from './profilePokeMotion';
 import { topSurface } from './surfaceEscape';
 
 const PROFILE_DOUBLE_CLICK_MS = 300;
@@ -68,28 +73,51 @@ export function activateProfile(
   const document = event.currentTarget.ownerDocument;
   pendingClicks.get(document)?.();
   const view = document.defaultView;
-  if (
-    shortcut &&
-    view &&
-    !('key' in event) &&
-    event.detail > 0 &&
-    plainPrimaryClick(event.nativeEvent)
-  ) {
-    const pointer = clickPointer(event.nativeEvent, document, view);
+  const previous = topSurface(document, false);
+  const click = 'key' in event ? undefined : event;
+  const closesCard = previous && ownsProfileCard(previous, event.currentTarget, click?.nativeEvent);
+  if (view && click && click.detail > 0 && plainPrimaryClick(click.nativeEvent)) {
+    const pointer = clickPointer(click.nativeEvent, document, view);
     const landscape = view.matchMedia('(orientation: landscape)').matches;
-    const action = landscape ? shortcut.landscape : shortcut.portrait;
-    if (action && (pointer === 'touch' || (pointer === 'mouse' && event.detail === 1))) {
-      const previous = !landscape ? topSurface(document, false) : undefined;
-      captureSecondClick(view, document, event, pointer, () => {
-        if (!landscape) {
-          const current = topSurface(document, false);
-          if (current && current !== previous) dismissProfileCard(current);
-        }
-        action();
-      });
+    const action = landscape ? shortcut?.landscape : shortcut?.portrait;
+    // 次数由 WeQ 自己的时间窗决定，鼠标 click.detail 仍可能包含更早的点击。
+    if ((action || closesCard) && (pointer === 'touch' || pointer === 'mouse')) {
+      const newCard = () => {
+        const current = topSurface(document, false);
+        return current !== previous ? current : undefined;
+      };
+      const avatar =
+        !landscape && action ? profileAvatarAtClick(event.currentTarget, event.target) : undefined;
+      captureSecondClick(
+        view,
+        document,
+        click,
+        pointer,
+        () => {
+          const current = action && !closesCard ? newCard() : undefined;
+          if (current) dismissProfileCard(current);
+          action?.();
+        },
+        avatar
+          ? () => {
+              if (!avatar.isConnected) return;
+              const reducedMotion = view.matchMedia('(prefers-reduced-motion: reduce)').matches;
+              const finishAvatar = pressProfileAvatar(avatar, reducedMotion);
+              const current = !reducedMotion && !closesCard ? newCard() : undefined;
+              const fade = current
+                ? previewProfileCardDismissal(current, POKE_PRESS_MS, PROFILE_DOUBLE_CLICK_MS)
+                : undefined;
+              return (confirmed) => {
+                if (!confirmed) fade?.cancel();
+                finishAvatar(confirmed);
+              };
+            }
+          : undefined,
+      );
     }
   }
-  openProfile();
+  if (closesCard) dismissProfileCard(previous);
+  else openProfile();
 }
 
 /** 首击可能换页、卸载菜单或用名片盖住入口。第二击仍以首击的坐标和动作识别。 */
@@ -99,6 +127,7 @@ function captureSecondClick(
   first: ReactMouseEvent,
   pointer: 'mouse' | 'touch',
   action: () => void,
+  onPress?: () => ((confirmed: boolean) => void) | undefined,
 ) {
   const x = first.clientX;
   const y = first.clientY;
@@ -114,11 +143,17 @@ function captureSecondClick(
   const capture = { capture: true, signal: listeners.signal };
   let timer = view.setTimeout(cancel, PROFILE_DOUBLE_CLICK_MS);
   let pressed: PointerEvent | undefined;
+  let finishPress: ((confirmed: boolean) => void) | undefined;
 
-  function cancel() {
+  function stopListening() {
     view.clearTimeout(timer);
     listeners.abort();
     pendingClicks.delete(document);
+  }
+
+  function cancel() {
+    stopListening();
+    finishPress?.(false);
   }
 
   pendingClicks.set(document, cancel);
@@ -139,6 +174,7 @@ function captureSecondClick(
       pressed = event;
       view.clearTimeout(timer);
       timer = view.setTimeout(cancel, PROFILE_DOUBLE_CLICK_MS);
+      finishPress = onPress?.();
       // 早于浮层的外部按下处理，保留这次手势的原生 click。
       event.stopImmediatePropagation();
     },
@@ -147,7 +183,6 @@ function captureSecondClick(
   view.addEventListener(
     'click',
     (event) => {
-      cancel();
       if (
         !pressed ||
         event.timeStamp - pressed.timeStamp > PROFILE_DOUBLE_CLICK_MS ||
@@ -155,10 +190,14 @@ function captureSecondClick(
         !plainPrimaryClick(event) ||
         clickPointer(event, document, view) !== pointer ||
         !nearFirst(event)
-      )
+      ) {
+        cancel();
         return;
+      }
+      stopListening();
       event.preventDefault();
       event.stopImmediatePropagation();
+      finishPress?.(true);
       action();
     },
     capture,

@@ -27,7 +27,9 @@ function fixture(unique = true) {
   return { path, sql, query, db };
 }
 const snapshotQueries = (f: ReturnType<typeof fixture>) =>
-  f.query.mock.calls.filter(([, statement]) => !statement.includes('pragma_index_list('));
+  f.query.mock.calls.filter(
+    ([, statement]) => !/pragma_index_list\(|pragma_table_info\(/.test(statement),
+  );
 
 it('1300 会话共享快照单条 SQL，不受未读区间长度或发送方向影响', async () => {
   const f = fixture();
@@ -144,19 +146,22 @@ it('无关会话写入和同水位内容修正只重读小表，不存在消息�
   }
 });
 
-it('同键合并和旧库快照在临时私聊、纯未读、设备及缺档时一致', async () => {
+it('同键合并和旧库快照在临时私聊、纯未读、设备、群提醒及缺档时一致', async () => {
   const indexed = fixture();
   const legacy = fixture(false);
   const proto = new ProtoMsg(UnreadInfo);
   try {
     for (const f of [indexed, legacy]) {
+      f.sql.exec('ALTER TABLE recent_contact_v3_table ADD COLUMN "41220" INTEGER');
       const recent = f.sql.prepare(`INSERT INTO recent_contact_v3_table
-        ("40021","40003","40010") VALUES (?,?,?)`);
-      recent.run('u_dupe', 25, ChatType.KCHATTYPETEMPC2CFROMGROUP);
-      recent.run('u_dupe', 20, ChatType.KCHATTYPEC2C);
-      recent.run('u_temp', 30, ChatType.KCHATTYPETEMPC2CFROMGROUP);
-      recent.run('u_noread', 40, ChatType.KCHATTYPEC2C);
-      recent.run('phone', 40, 8);
+        ("40021","40003","40010","41220") VALUES (?,?,?,?)`);
+      recent.run('u_dupe', 25, ChatType.KCHATTYPETEMPC2CFROMGROUP, null);
+      recent.run('u_dupe', 20, ChatType.KCHATTYPEC2C, null);
+      recent.run('u_temp', 30, ChatType.KCHATTYPETEMPC2CFROMGROUP, null);
+      recent.run('u_noread', 40, ChatType.KCHATTYPEC2C, null);
+      recent.run('phone', 40, 8, null);
+      recent.run('70001', 170, 2, 2);
+      recent.run('70002', 171, 2, 0);
       const unread = f.sql.prepare('INSERT INTO msg_unread_info_table VALUES (?,?)');
       for (const [peer, msgSeq] of [
         ['1_u_dupe', 11],
@@ -172,9 +177,15 @@ it('同键合并和旧库快照在临时私聊、纯未读、设备及缺档时�
       { peer: '1_u_temp', msgSeq: 22, latestSeq: '30' },
       { peer: '1_u_noread', latestSeq: '40' },
       { peer: '8_phone', msgSeq: 34 },
+      { peer: '2_70001', groupNotifyLevel: 2 },
+      { peer: '2_70002' },
       { peer: '2_only', msgSeq: 33, latestSeq: null },
     ]);
+    expect(expected.find((row) => row.uid === '70002')?.groupNotifyLevel).toBeUndefined();
     expect(await indexed.db.getAllUnreadInfos()).toEqual(expected);
+    expect(await indexed.db.getUnreadInfos([{ chatType: 2, uid: '70001' }])).toEqual([
+      expected.find((row) => row.uid === '70001'),
+    ]);
   } finally {
     indexed.db.close();
     legacy.db.close();

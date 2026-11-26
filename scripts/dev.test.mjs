@@ -3,11 +3,12 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import { commandOutput, pnpmCommand, runCommand } from './dev-process.mjs';
 import {
   dependencyState,
+  acquireProcessLock,
   exists,
   loadConfig,
   prepareDependencies,
@@ -17,7 +18,7 @@ import {
   readJson,
   writeJson,
 } from './dev-prepare.mjs';
-import { startDevelopment, withDevelopmentLock } from './dev.mjs';
+import { runDevelopment, startDevelopment } from './dev.mjs';
 import { formatConsoleHeader } from '../packages/service/src/common/console_header.mjs';
 
 const silent = () => {};
@@ -274,7 +275,9 @@ test('Electron 安装补齐 .npmrc 镜像配置，显式环境变量优先', asy
     env: { ...process.env, ELECTRON_MIRROR: 'https://env.example/electron/' },
     log: silent,
     run: async (command, args, options) => {
-      if (args[0] === join(electron, 'install.js')) {
+      if (args.length === 1) {
+        assert.equal(command, process.execPath);
+        assert.equal(basename(args[0]), 'install.js');
         installEnv = options.env;
         return '';
       }
@@ -283,6 +286,7 @@ test('Electron 安装补齐 .npmrc 镜像配置，显式环境变量优先', asy
     },
   });
   assert.equal(executable, process.execPath);
+  assert.ok(installEnv, '应调用 Electron 安装脚本');
   assert.equal(installEnv.ELECTRON_MIRROR, 'https://env.example/electron/');
   assert.equal(installEnv.ELECTRON_CUSTOM_DIR, '{{ version }}');
   assert.equal(installEnv.ELECTRON_CUSTOM_FILENAME, 'custom.zip');
@@ -354,8 +358,23 @@ test('一行入口按依赖、宿主、native、网络、启动顺序执行，�
   );
   assert.deepEqual(events, []);
   await writeJson(join(root, 'weq.dev.local.json'), { userDataDir: null });
-  await startDevelopment(hooks);
-  assert(!launch.args.some((arg) => arg.startsWith('--user-data-dir')));
+  const args = ['--enable-dress-tools'];
+  await startDevelopment({ ...hooks, args });
+  const [dress, picker] = launch.args;
+  assert.equal(dress, args[0]);
+  assert.equal(picker, '--weq-account-picker=00000000-0000-0000-0000-000000000000');
+  assert.equal(launch.args.length, 2);
+  await startDevelopment({ ...hooks, args });
+  assert.deepEqual(launch.args, [...args, picker]);
+  for (const explicit of [
+    '--user-data-dir=/custom',
+    '--weq-account-picker=12345678-0000-4000-8000-0123456789ab',
+    '--weq-account-instance=101:fixture',
+    '--weq-focus-account=101',
+  ]) {
+    await startDevelopment({ ...hooks, args: [...args, explicit] });
+    assert.deepEqual(launch.args, [...args, explicit]);
+  }
 });
 
 test('缓存启动仅报环境摘要与停止，native 回退及 prepare-only 不误称源码已就绪', async (t) => {
@@ -500,21 +519,24 @@ fs.writeFileSync(arg, JSON.stringify({ inputs: { 'entry.js': {} } }));
 
 test('开发锁拒绝同时启动并在失败后释放，可恢复已退出的已知进程锁', async (t) => {
   const root = await fixture(t);
-  await withDevelopmentLock(root, async () => {
-    await assert.rejects(
-      withDevelopmentLock(root, async () => {}),
-      /已在运行/,
-    );
-  });
+  const lock = join(root, '.weq-dev/running');
+  const release = await acquireProcessLock(lock);
+  try {
+    await assert.rejects(runDevelopment({ repo: root, args: ['--prepare-only'] }), /已在运行/);
+  } finally {
+    await release();
+  }
+  await writeJson(join(lock, 'owner.json'), { pid: 2147483647 });
   await assert.rejects(
-    withDevelopmentLock(root, async () => {
-      throw new Error('failed');
+    runDevelopment({
+      repo: root,
+      unused: () => {
+        throw new Error('failed');
+      },
     }),
     /failed/,
   );
-  assert.equal(await exists(join(root, '.weq-dev/running')), false);
-  await writeJson(join(root, '.weq-dev/running/owner.json'), { pid: 2147483647 });
-  await withDevelopmentLock(root, async () => {});
+  assert.equal(await exists(lock), false);
 });
 
 test('启动日志与应用共用行头，分块中文、CR 进度和长行均有界输出', () => {

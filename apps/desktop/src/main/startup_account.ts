@@ -1,5 +1,6 @@
 import type { UserConfigService } from '@weq/service';
 import type { appRouter } from './ipc/router';
+import { accountRuntimeState } from './context/account_runtime';
 
 type StartupPage = ReturnType<UserConfigService['getStartupPage']>;
 type BootstrapCaller = ReturnType<typeof appRouter.createCaller>['bootstrap'];
@@ -38,15 +39,15 @@ export class StartupAccount {
     return this.task ?? { opened: false, page: null, error: null };
   }
 
-  async attach(): Promise<StartupResult> {
+  async attach(page: StartupPage | null = null): Promise<StartupResult> {
     const result = await this.wait();
     if (this.attached) return { ...result, page: null, error: null };
     this.attached = true;
-    return result;
+    return { ...result, page: result.page ?? page };
   }
 }
 
-export const desktopStartupAccount = new StartupAccount();
+export const desktopStartupAccount = accountRuntimeState(() => new StartupAccount());
 
 /** 仅在本轮自动进入尚未结束且目标仍有效时提前使用工作区尺寸。 */
 export function startupWindowLayout(

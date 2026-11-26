@@ -19,6 +19,8 @@ import {
 import releaseKeys from '@weq/network/release-keys';
 import { writeFileAtomic } from '@weq/service/atomic-write';
 
+const SOURCE_BATCH_SIZE = 3;
+
 let root: string | undefined;
 const feeds = new Map<string, ReleaseFeed>();
 export function configureReleaseFeeds(directory: string) {
@@ -140,16 +142,20 @@ export class ReleaseFeed {
     await this.load();
     if (!force && this.checkedAt && Date.now() - this.checkedAt < 5 * 60_000)
       return this.index ?? null;
-    const deadline = Date.now() + 20000;
-    const sources = orderSources(
-      downloadSources(
-        `https://github.com/${this.repository}/releases/download/${this.feedTag}/${FEED_ASSET}`,
-      ),
-    );
-    for (let at = 0; at < sources.length && Date.now() < deadline; at += 3) {
+    const now = Date.now();
+    const deadline = now + 20000;
+    const feedUrl = `https://github.com/${this.repository}/releases/download/${this.feedTag}/${FEED_ASSET}`;
+    const sources = orderSources(downloadSources(feedUrl));
+    if (this.feedTag === RESOURCE_FEED_TAG) {
+      // 先绕过旧重定向缓存，再用原地址兼容不支持查询参数的镜像。
+      const refreshUrl = `${feedUrl}?check=${now}`;
+      const mirrors = orderSources(downloadSources(refreshUrl).filter((url) => url !== refreshUrl));
+      sources.unshift(refreshUrl, ...mirrors.slice(0, SOURCE_BATCH_SIZE - 1));
+    }
+    for (let at = 0; at < sources.length && Date.now() < deadline; at += SOURCE_BATCH_SIZE) {
       const requests: AbortController[] = [];
       let missingOrigin = false;
-      const pending = sources.slice(at, at + 3).map(async (url) => {
+      const pending = sources.slice(at, at + SOURCE_BATCH_SIZE).map(async (url) => {
         const request = new AbortController();
         requests.push(request);
         const requestSignal = AbortSignal.any([
@@ -169,8 +175,7 @@ export class ReleaseFeed {
           const response = await bounded(fetched, requestSignal);
           if (!response.ok || !response.body) {
             await response.body?.cancel();
-            if (response.status === 404 && new URL(url).hostname === 'github.com')
-              missingOrigin = true;
+            if (response.status === 404 && url === feedUrl) missingOrigin = true;
             throw new Error(`发布索引 HTTP ${response.status}`);
           }
           reader = response.body.getReader();

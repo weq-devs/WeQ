@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -44,8 +44,21 @@ it('降低保存策略但没有实际删除时不要求确认，公开容量与�
   await first.configure({ mode: 'light', retentionDays: 1, capacityMiB: 64 });
   await expect(first.history({ from: 100, to: 0 })).rejects.toThrow();
   await expect(
-    first.configure({ mode: 'full', retentionDays: 0, capacityMiB: 64 }),
+    first.configure({ mode: 'full', retentionDays: -1, capacityMiB: 64 }),
   ).rejects.toThrow();
+  await first.configure({ mode: 'light', retentionDays: 0, capacityMiB: 1536 });
+  expect((await second.status()).settings).toMatchObject({ retentionDays: 0, capacityMiB: 1536 });
+  await first.configure({ mode: 'light', retentionDays: 0, capacityMiB: 0 });
+  expect((await second.status()).settings.capacityMiB).toBe(0);
+});
+it('桌面端打开宿主实际写入的性能历史目录，Web 无此能力', async () => {
+  const revealPath = vi.fn(async () => {});
+  const caller = performanceMonitorRouter.createCaller({
+    host: { canReveal: true, revealPath } as unknown as HostBridge,
+  });
+  await caller.openFolder();
+  expect(revealPath).toHaveBeenCalledWith(join(root, 'performance-monitor'));
+  await expect(first.openFolder()).rejects.toThrow('桌面端');
 });
 it('分页 JSONL 与聚合 CSV 导出使用真实文件，Web 返回下载入口', async () => {
   await new Promise((resolve) => setTimeout(resolve, 30));

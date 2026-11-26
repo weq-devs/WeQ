@@ -17,6 +17,11 @@
  */
 
 import {
+  DEFAULT_HISTORY_CAPACITY_MIB,
+  isHistoryCapacityMiB,
+  type HistoryCapacityMiB,
+} from '../common/settings_catalog/history';
+import {
   normalizeNotificationEvents,
   mergeNotificationEventOverrides,
 } from '../common/notification_settings';
@@ -62,6 +67,12 @@ import {
   type HomeSettings,
 } from '../common/home_settings';
 import type { ExportFormat } from '../account/export/types';
+import {
+  DEFAULT_DATABASE_CHECKUP_CONCURRENCY,
+  isDatabaseRepairBackupMode,
+  normalizeDatabaseCheckupConcurrency,
+  type DatabaseRepairBackupMode,
+} from '../account/db_repair/maintenance_types';
 import {
   DEFAULT_CHAT_IMAGE_CACHE_MIB,
   normalizeChatImageCacheMiB,
@@ -202,6 +213,18 @@ function normalizeTypingStatus(value: unknown): TypingStatusSettings {
 type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K];
 };
+
+function normalizeEnhancementUpdates(value?: DeepPartial<AppSettings['enhancementUpdates']>) {
+  const autoUpdatePacks = Array.isArray(value?.autoUpdatePacks)
+    ? [...new Set(value.autoUpdatePacks.filter((id) => typeof id === 'string'))]
+    : [];
+  return {
+    autoCheck: value?.autoCheck !== false,
+    autoUpdatePacks,
+    // 旧总开关由宿主读取已安装的包后迁移。
+    ...(value?.autoInstall === true ? { autoInstall: true } : {}),
+  };
+}
 
 function isAgentLabProviderConfig(value: unknown): value is AgentLabProviderConfig {
   if (!value || typeof value !== 'object') return false;
@@ -709,7 +732,7 @@ export interface LocalModelResources {
   intent: string;
 }
 
-function localModelResources(settings: DeepPartial<AppSettings> | undefined): LocalModelResources {
+function localModelResources(settings: AppSettingsPatch | undefined): LocalModelResources {
   const refs = settings?.modelResources;
   const stringOr = (value: unknown, fallback: string): string =>
     typeof value === 'string' ? value : fallback;
@@ -811,23 +834,60 @@ export interface LinkPreviewConfig {
   screenshot: boolean;
 }
 
-export type ComposerFontChoice = 'plain' | 'qq' | 'legacy-dress' | number;
+export type ComposerFontChoice = 'default' | 'legacy-dress' | number;
 
 export interface ComposerFontSettings {
   choice: ComposerFontChoice;
-  send: boolean;
-  preview: boolean;
 }
 
-type LegacyComposerFontSettings = { sendWithQqFont?: boolean; sendWithDressFont?: boolean };
+export type AppSettingsPatch = Omit<DeepPartial<AppSettings>, 'composerFont'> & {
+  composerFont?: {
+    choice?: ComposerFontChoice | 'plain' | 'qq';
+    send?: boolean;
+    preview?: boolean;
+  };
+  sendWithQqFont?: boolean;
+  sendWithDressFont?: boolean;
+};
 
-function legacyComposerFont(
-  settings: LegacyComposerFontSettings | undefined,
-): Partial<ComposerFontSettings> {
-  if (settings?.sendWithDressFont === true) return { choice: 'legacy-dress', send: true };
-  if (settings?.sendWithDressFont === false || typeof settings?.sendWithQqFont === 'boolean')
-    return { choice: 'qq', send: settings.sendWithQqFont ?? true };
-  return {};
+function messageFontSettings(settings?: AppSettingsPatch) {
+  const { choice, send } = settings?.composerFont ?? {};
+  const legacyQq = settings?.sendWithQqFont;
+  const legacyDress = settings?.sendWithDressFont;
+  const legacySend = send ?? (legacyDress ? true : legacyQq);
+  const groupChoice =
+    choice === 'plain' || choice === 'qq'
+      ? 'default'
+      : (choice ?? (legacyDress ? 'legacy-dress' : undefined));
+  const defaultFont =
+    choice === 'plain' || legacySend === false
+      ? 'plain'
+      : choice === 'qq' || legacySend === true
+        ? 'account'
+        : undefined;
+  return {
+    groupChoice:
+      groupChoice ?? (legacyDress === false || legacyQq !== undefined ? 'default' : undefined),
+    defaultFont: settings?.defaultMessageFont ?? defaultFont,
+  } as const;
+}
+
+const LEGACY_QQ_STATUS_INDICATORS = [
+  'restrictedModeIndicatorEnabled',
+  'qqProxyIndicatorEnabled',
+] as const;
+type LegacyQqStatusIndicators = Partial<
+  Record<(typeof LEGACY_QQ_STATUS_INDICATORS)[number], boolean>
+>;
+
+/** 任一窗口提示曾被关闭时，合并后继续隐藏，直到用户主动打开。 */
+export function qqStatusIndicatorPreference(
+  settings?: Record<string, unknown>,
+): boolean | undefined {
+  if (typeof settings?.qqStatusIndicatorEnabled === 'boolean')
+    return settings.qqStatusIndicatorEnabled;
+  const legacy = LEGACY_QQ_STATUS_INDICATORS.map((key) => settings?.[key]);
+  return legacy.some((value) => typeof value === 'boolean') ? !legacy.includes(false) : undefined;
 }
 
 export interface AppSettings {
@@ -837,14 +897,14 @@ export interface AppSettings {
   updateCheckPrerelease: boolean;
   /** 自动检查更新间隔（分钟），-1 表示永不。 */
   updateCheckIntervalMinutes: number;
-  enhancementUpdates: { autoCheck: boolean; autoInstall: boolean };
+  enhancementUpdates: { autoCheck: boolean; autoUpdatePacks: string[]; autoInstall?: boolean };
   /** 横幅完成态停留秒数，-1 表示不自动关闭。 */
   toastDurations: ToastDurations;
   notificationEvents: import('../common/notification_settings').NotificationEvents;
   exportSaveMode: import('../account/export/save_output').ExportSaveMode;
   realtimeEnabled: boolean;
   /**
-   * QQ 在线能力开关（设置 → 常规 → 在线能力与授权）。
+   * QQ 在线能力开关（设置 → 常规 → QQ 在线能力）。
    *
    * 默认**关闭**：是否读取登录中的 QQ 进程内存，由用户在**首次运行欢迎框**里
    * 自己选择（见 {@link WELCOME_POLICY_VERSION}）。开启后后台自动读进程内存，
@@ -855,8 +915,8 @@ export interface AppSettings {
    * 登录时的数据库密钥提取仍独立于此策略。
    */
   autoAttachQq: boolean;
-  /** 在线能力受限时在窗口右上角显示状态入口，默认开启。 */
-  restrictedModeIndicatorEnabled: boolean;
+  /** 当前账号在线能力或代理需要关注时显示窗口提示。 */
+  qqStatusIndicatorEnabled: boolean;
   /** 进入受限状态的被动横幅；不隐藏真实授权请求或主动错误。 */
   restrictedModeBannerEnabled: boolean;
   /** 仅桌面客户端启动时启用本机 Web 服务；默认关闭。 */
@@ -868,8 +928,6 @@ export interface AppSettings {
   /** 通过本机代理同步本人消息及已读到 QQ。 */
   qqClientSyncEnabled: boolean;
   qqLiveMessagesEnabled: boolean;
-  /** 需要 QQ 代理而当前账号未连接时，在窗口右上角显示状态入口。 */
-  qqProxyIndicatorEnabled: boolean;
   /**
    * 空闲自动上锁阈值（分钟）。0 = 关闭自动上锁（仍可在左栏手动上锁）。
    * 解锁方式见 {@link AppLockConfig.method}，无绕过入口。
@@ -963,6 +1021,7 @@ export interface AppSettings {
   chatMessagePrewarmMiB: number;
   /** 输入框发送与预览共用的全局字体选择。 */
   composerFont: ComposerFontSettings;
+  defaultMessageFont: 'plain' | 'account';
   /** 群助手入口显示汇总未读消息数，而不是仅显示圆点。 */
   showGroupAssistantMessageCount: boolean;
   /**
@@ -1003,8 +1062,14 @@ export interface AppSettings {
    * 文件名里的日期（包括 WeQ 的 `.log.gz` 历史分段）。
    */
   logRetentionDays: number;
+  /** WeQ 应用日志容量上限，0 表示不限容量。 */
+  logCapacityMiB: HistoryCapacityMiB;
   /** 同一数据库的并行只读上限；宿主级设置，所有账号和客户端共用。 */
   databaseReadConcurrency: number;
+  /** 同一轮维护同时体检的数据库数量上限。 */
+  databaseCheckupConcurrency: number;
+  /** 数据库修复前保留备份的范围。 */
+  databaseRepairBackupMode: DatabaseRepairBackupMode;
   /** App-wide online Qzone page request budget, shared across accounts and exports. */
   qzonePagination: QzonePaginationSettings;
   /** 空友爱看自动换首页的冷却分钟数；0 表示每次进入都刷新。 */
@@ -1257,7 +1322,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   contactCard: DEFAULT_CONTACT_CARD,
   updateCheckPrerelease: false,
   updateCheckIntervalMinutes: DEFAULT_UPDATE_CHECK_INTERVAL_MINUTES,
-  enhancementUpdates: { autoCheck: true, autoInstall: false },
+  enhancementUpdates: { autoCheck: true, autoUpdatePacks: [] },
   toastDurations: { ...DEFAULT_TOAST_DURATIONS },
   notificationEvents: normalizeNotificationEvents(undefined),
   exportSaveMode: 'before',
@@ -1266,13 +1331,12 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   // WELCOME_POLICY_VERSION / planWelcomePolicyMigration。
   autoAttachQq: false,
   restrictedModeBannerEnabled: true,
-  restrictedModeIndicatorEnabled: true,
+  qqStatusIndicatorEnabled: true,
   webServiceAutoStart: false,
   showWindowOnAutostart: false,
   startupPage: 'home',
   qqClientSyncEnabled: false,
   qqLiveMessagesEnabled: false,
-  qqProxyIndicatorEnabled: true,
   autoLockMinutes: 0,
   appLock: { enabled: false, method: 'totp' },
   modelResources: { voice: '', ocr: '', filter: '', intent: 'auto' },
@@ -1281,7 +1345,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   ocr: {
     modelId: '',
     filterModelId: '',
-    prefilterEnabled: true,
+    prefilterEnabled: false,
     autoDownloadOriginal: false,
     onlineConcurrency: 5,
   },
@@ -1326,7 +1390,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showScrollToBottomButton: true,
   chatImageCacheMiB: DEFAULT_CHAT_IMAGE_CACHE_MIB,
   chatMessagePrewarmMiB: DEFAULT_CHAT_MESSAGE_PREWARM_MIB,
-  composerFont: { choice: 'qq', send: true, preview: false },
+  composerFont: { choice: 'default' },
+  defaultMessageFont: 'account',
   showGroupAssistantMessageCount: false,
   externalChatpic: { dir: '', enabled: false },
   externalRkey: { servers: [], enabledServerId: null },
@@ -1335,7 +1400,10 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   suppressDbDamageReminder: false,
   defaultExportDir: null,
   logRetentionDays: DEFAULT_LOG_RETENTION_DAYS,
+  logCapacityMiB: DEFAULT_HISTORY_CAPACITY_MIB,
   databaseReadConcurrency: DEFAULT_DATABASE_READ_CONCURRENCY,
+  databaseCheckupConcurrency: DEFAULT_DATABASE_CHECKUP_CONCURRENCY,
+  databaseRepairBackupMode: 'deep',
   qzonePagination: { ...DEFAULT_QZONE_PAGINATION },
   qzonePublicRefreshCooldownMinutes: DEFAULT_QZONE_PUBLIC_REFRESH_COOLDOWN_MINUTES,
   qzoneForwardQuotePrevious: false,
@@ -1359,7 +1427,7 @@ export interface UserConfig {
   /** 登录页退出后仅跳过下一次启动，不改变自动进入偏好。 */
   skipAutoEnterOnce?: boolean;
   tencentFilesRootOverride?: string | null;
-  settings?: DeepPartial<AppSettings> & LegacyComposerFontSettings;
+  settings?: AppSettingsPatch & LegacyQqStatusIndicators;
   composerMarketPacks?: import('../account/emoji').MarketPackDetail[];
   hiddenComposerMarketPackIds?: string[];
   cacheDirOverride?: string | null;
@@ -2032,9 +2100,20 @@ export class UserConfigService {
     });
   }
 
-  clearAutoEnter(): void {
-    this.write({ autoEnter: null });
-    this.logger.info('cleared auto-enter target', { event: 'clear-auto-enter' });
+  clearAutoEnter(expected?: { configId?: string; uin: string; dataDir?: string }): boolean {
+    return this.updateShared(() => {
+      const current = this.getAutoEnter();
+      if (
+        expected &&
+        (current?.uin !== expected.uin ||
+          current.configId !== expected.configId ||
+          current.dataDir !== expected.dataDir)
+      )
+        return false;
+      this.write({ autoEnter: null });
+      this.logger.info('cleared auto-enter target', { event: 'clear-auto-enter' });
+      return true;
+    });
   }
 
   read(): UserConfig {
@@ -2133,7 +2212,7 @@ export class UserConfigService {
     delete dress.fontMeta[itemId];
     if (dress.activeFont === itemId) dress.activeFont = 0;
     return this.setSettings({
-      composerFont: selected ? { choice: 'plain' } : undefined,
+      composerFont: selected ? { choice: 'default' } : undefined,
       sharedPreferences: { dress },
     }).composerFont;
   }
@@ -2164,6 +2243,7 @@ export class UserConfigService {
       ?.suppressPtraceHint;
     const suppressAttachHint =
       s?.suppressAttachHint ?? legacySuppressAttachHint ?? d.suppressAttachHint;
+    const fonts = messageFontSettings(s);
     const value: AppSettings = {
       sharedPreferences: s?.sharedPreferences ?? {},
       realtimeEnabled: s?.realtimeEnabled ?? d.realtimeEnabled,
@@ -2172,10 +2252,7 @@ export class UserConfigService {
       updateCheckIntervalMinutes: isUpdateCheckInterval(s?.updateCheckIntervalMinutes)
         ? s.updateCheckIntervalMinutes
         : d.updateCheckIntervalMinutes,
-      enhancementUpdates: {
-        autoCheck: s?.enhancementUpdates?.autoCheck !== false,
-        autoInstall: s?.enhancementUpdates?.autoInstall === true,
-      },
+      enhancementUpdates: normalizeEnhancementUpdates(s?.enhancementUpdates),
       toastDurations: normalizeToastDurations(s?.toastDurations),
       notificationEvents: normalizeNotificationEvents(s?.notificationEvents, {
         messageNotifications: s?.sharedPreferences?.client?.messageNotifications,
@@ -2189,7 +2266,7 @@ export class UserConfigService {
           ? s.exportSaveMode
           : d.exportSaveMode,
       autoAttachQq,
-      restrictedModeIndicatorEnabled: s?.restrictedModeIndicatorEnabled !== false,
+      qqStatusIndicatorEnabled: qqStatusIndicatorPreference(s) ?? d.qqStatusIndicatorEnabled,
       restrictedModeBannerEnabled: s?.restrictedModeBannerEnabled !== false,
       webServiceAutoStart: s?.webServiceAutoStart === true,
       showWindowOnAutostart: s?.showWindowOnAutostart === true,
@@ -2199,7 +2276,6 @@ export class UserConfigService {
           : d.startupPage,
       qqClientSyncEnabled: s?.qqClientSyncEnabled ?? d.qqClientSyncEnabled,
       qqLiveMessagesEnabled: s?.qqLiveMessagesEnabled ?? d.qqLiveMessagesEnabled,
-      qqProxyIndicatorEnabled: s?.qqProxyIndicatorEnabled !== false,
       autoLockMinutes: s?.autoLockMinutes ?? d.autoLockMinutes,
       appLock: {
         enabled: s?.appLock?.enabled ?? d.appLock.enabled,
@@ -2233,7 +2309,8 @@ export class UserConfigService {
       showScrollToBottomButton: s?.showScrollToBottomButton ?? d.showScrollToBottomButton,
       chatImageCacheMiB: normalizeChatImageCacheMiB(s?.chatImageCacheMiB),
       chatMessagePrewarmMiB: normalizeChatMessagePrewarmMiB(s?.chatMessagePrewarmMiB),
-      composerFont: { ...d.composerFont, ...legacyComposerFont(s), ...s?.composerFont },
+      composerFont: { choice: fonts.groupChoice ?? d.composerFont.choice },
+      defaultMessageFont: fonts.defaultFont ?? d.defaultMessageFont,
       showGroupAssistantMessageCount:
         s?.showGroupAssistantMessageCount ?? d.showGroupAssistantMessageCount,
       externalChatpic: {
@@ -2260,7 +2337,14 @@ export class UserConfigService {
       suppressDbDamageReminder: s?.suppressDbDamageReminder ?? d.suppressDbDamageReminder,
       defaultExportDir: s?.defaultExportDir ?? d.defaultExportDir,
       logRetentionDays: normalizeLogRetentionDays(s?.logRetentionDays) ?? d.logRetentionDays,
+      logCapacityMiB: isHistoryCapacityMiB(s?.logCapacityMiB) ? s.logCapacityMiB : d.logCapacityMiB,
       databaseReadConcurrency: normalizeDatabaseReadConcurrency(s?.databaseReadConcurrency),
+      databaseCheckupConcurrency: normalizeDatabaseCheckupConcurrency(
+        s?.databaseCheckupConcurrency,
+      ),
+      databaseRepairBackupMode: isDatabaseRepairBackupMode(s?.databaseRepairBackupMode)
+        ? s.databaseRepairBackupMode
+        : d.databaseRepairBackupMode,
       qzonePagination: normalizeQzonePagination(s?.qzonePagination),
       qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(
         s?.qzonePublicRefreshCooldownMinutes,
@@ -2349,11 +2433,11 @@ export class UserConfigService {
     this.write({ totpSecret: secret ?? undefined });
   }
 
-  setSettings(patch: DeepPartial<AppSettings> & LegacyComposerFontSettings): AppSettings {
+  setSettings(patch: AppSettingsPatch): AppSettings {
     return this.updateShared(() => this.applySettings(patch));
   }
 
-  private applySettings(patch: DeepPartial<AppSettings> & LegacyComposerFontSettings): AppSettings {
+  private applySettings(patch: AppSettingsPatch): AppSettings {
     const current = this.getSettings();
     const resources: LocalModelResources = {
       voice:
@@ -2367,6 +2451,7 @@ export class UserConfigService {
     };
     // 不再按平台归一化 —— macOS 也能读内存（需 root + 关 SIP），由用户自己选。
     const autoAttachQq = patch.autoAttachQq ?? current.autoAttachQq;
+    const fonts = messageFontSettings(patch);
     const next: AppSettings = {
       sharedPreferences: {
         ...current.sharedPreferences,
@@ -2386,10 +2471,11 @@ export class UserConfigService {
       updateCheckIntervalMinutes: isUpdateCheckInterval(patch.updateCheckIntervalMinutes)
         ? patch.updateCheckIntervalMinutes
         : current.updateCheckIntervalMinutes,
-      enhancementUpdates: {
+      enhancementUpdates: normalizeEnhancementUpdates({
         ...current.enhancementUpdates,
         ...patch.enhancementUpdates,
-      },
+        ...(patch.enhancementUpdates?.autoUpdatePacks ? { autoInstall: undefined } : {}),
+      }),
       toastDurations: normalizeToastDurations(patch.toastDurations, current.toastDurations),
       notificationEvents: normalizeNotificationEvents(
         mergeNotificationEventOverrides(current.notificationEvents, patch.notificationEvents),
@@ -2397,8 +2483,7 @@ export class UserConfigService {
       exportSaveMode: patch.exportSaveMode ?? current.exportSaveMode,
       realtimeEnabled: patch.realtimeEnabled ?? current.realtimeEnabled,
       autoAttachQq,
-      restrictedModeIndicatorEnabled:
-        patch.restrictedModeIndicatorEnabled ?? current.restrictedModeIndicatorEnabled,
+      qqStatusIndicatorEnabled: patch.qqStatusIndicatorEnabled ?? current.qqStatusIndicatorEnabled,
       restrictedModeBannerEnabled:
         patch.restrictedModeBannerEnabled ?? current.restrictedModeBannerEnabled,
       webServiceAutoStart: patch.webServiceAutoStart ?? current.webServiceAutoStart,
@@ -2406,7 +2491,6 @@ export class UserConfigService {
       startupPage: patch.startupPage ?? current.startupPage,
       qqClientSyncEnabled: patch.qqClientSyncEnabled ?? current.qqClientSyncEnabled,
       qqLiveMessagesEnabled: patch.qqLiveMessagesEnabled ?? current.qqLiveMessagesEnabled,
-      qqProxyIndicatorEnabled: patch.qqProxyIndicatorEnabled ?? current.qqProxyIndicatorEnabled,
       autoLockMinutes: patch.autoLockMinutes ?? current.autoLockMinutes,
       appLock: {
         enabled: patch.appLock?.enabled ?? current.appLock.enabled,
@@ -2445,11 +2529,8 @@ export class UserConfigService {
       chatMessagePrewarmMiB: normalizeChatMessagePrewarmMiB(
         patch.chatMessagePrewarmMiB ?? current.chatMessagePrewarmMiB,
       ),
-      composerFont: {
-        ...current.composerFont,
-        ...legacyComposerFont(patch),
-        ...patch.composerFont,
-      },
+      composerFont: { choice: fonts.groupChoice ?? current.composerFont.choice },
+      defaultMessageFont: fonts.defaultFont ?? current.defaultMessageFont,
       showGroupAssistantMessageCount:
         patch.showGroupAssistantMessageCount ?? current.showGroupAssistantMessageCount,
       externalChatpic: {
@@ -2490,10 +2571,20 @@ export class UserConfigService {
         patch.defaultExportDir !== undefined ? patch.defaultExportDir : current.defaultExportDir,
       logRetentionDays:
         normalizeLogRetentionDays(patch.logRetentionDays) ?? current.logRetentionDays,
+      logCapacityMiB: isHistoryCapacityMiB(patch.logCapacityMiB)
+        ? patch.logCapacityMiB
+        : current.logCapacityMiB,
       databaseReadConcurrency: normalizeDatabaseReadConcurrency(
         patch.databaseReadConcurrency,
         current.databaseReadConcurrency,
       ),
+      databaseCheckupConcurrency: normalizeDatabaseCheckupConcurrency(
+        patch.databaseCheckupConcurrency,
+        current.databaseCheckupConcurrency,
+      ),
+      databaseRepairBackupMode: isDatabaseRepairBackupMode(patch.databaseRepairBackupMode)
+        ? patch.databaseRepairBackupMode
+        : current.databaseRepairBackupMode,
       qzonePagination: normalizeQzonePagination(patch.qzonePagination, current.qzonePagination),
       qzonePublicRefreshCooldownMinutes: normalizeQzonePublicRefreshCooldown(
         patch.qzonePublicRefreshCooldownMinutes,

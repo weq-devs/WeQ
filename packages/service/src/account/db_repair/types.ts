@@ -11,7 +11,8 @@
  * "重新取产物"，与 salvage 链路同一套做法。
  */
 
-import type { BadPageScanResult, DatabaseAlgorithms, DatabaseProgress } from '@weq/native';
+import type { BadPageScanResult, DatabaseAlgorithms, SingleBytePageCorrection } from '@weq/native';
+import type { DatabaseWorkProgress } from './progress';
 
 /** 一个账号 + 它的数据目录 —— 与 `accountConfigId(uin, dataDir)` 是同一套主键。 */
 export interface DbRepairAccountRef {
@@ -56,7 +57,8 @@ export interface DbRepairProgress {
   phase: DbRepairPhase | string;
   percent: number;
   message: string;
-  detail?: DatabaseProgress;
+  detail?: DatabaseWorkProgress;
+  rebuiltBytes?: number;
   storage?: import('./space').RepairStorageStatus;
 }
 
@@ -93,6 +95,7 @@ export interface DbRepairRecoverOptions {
   /** 目标库逻辑页布局（迁移固定 `qq`）。 */
   targetLayout?: 'qq' | 'standard';
   sourceScan?: BadPageScanResult;
+  singleByteCorrection?: SingleBytePageCorrection;
 }
 
 /** native `recoverDatabase` 的产物自检。 */
@@ -182,6 +185,7 @@ export interface DbRepairPreflight extends DbRepairTarget {
   space: import('./space').RepairSpaceBudget[];
   cachePath: string;
   storageOptimized: boolean;
+  storageStreaming: boolean;
   readiness: DbRepairReadiness;
   /** 全部持有者（探测失败时为空数组）。 */
   holders: DbRepairLockHolder[];
@@ -236,6 +240,7 @@ export interface DbRepairRecord extends DbRepairAccountRef {
   state: DbRepairRecordState;
   /** 任务类型；旧记录没有这个字段，按 `repair` 处理。 */
   kind?: DbRepairRecordKind;
+  method?: import('./maintenance_types').DatabaseRepairMethod;
   /** 失败/中止原因（`applied` 时为空）。 */
   error?: string;
   /** 备份文件绝对路径；没做备份时为 `null`。 */
@@ -244,7 +249,7 @@ export interface DbRepairRecord extends DbRepairAccountRef {
   /** 修复前的源库 sha256（同时是"期间是否被写入"的比对基准）。 */
   beforeSha: string;
   beforeBytes: number;
-  /** 替换后的产物 sha256；中止/失败时为 `null`。 */
+  /** 有修复前备份时记录产物 sha256，供恢复时核对当前库是否改动。 */
   afterSha: string | null;
   afterBytes: number | null;
   badPages: number[];

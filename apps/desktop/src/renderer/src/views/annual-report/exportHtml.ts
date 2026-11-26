@@ -807,7 +807,7 @@ function slideOpen(ghost: string, ghostCenter = false): string {
  * 导出 HTML 里的一颗头像。预热过（data URI 可用）就画真脸，否则退回首字
  * 圆牌 —— 与屏幕版同一种降级。`cls` 追加尺寸/修饰类。
  */
-function avatarImg(uin: unknown, name: string, cls: string): string {
+function avatarImg(inlinedAsset: AssetLookup, uin: unknown, name: string, cls: string): string {
   const initial = Array.from(name)[0] ?? '?';
   const url = reportAvatarUrl(uin);
   const src = url ? inlinedAsset(url) : null;
@@ -816,7 +816,12 @@ function avatarImg(uin: unknown, name: string, cls: string): string {
 }
 
 /** 同路人页的共同群徽记：群头像小圆牌（`groupCode` 走 group scope）。 */
-function groupCrestImg(groupCode: unknown, groupName: string, rank: number): string {
+function groupCrestImg(
+  inlinedAsset: AssetLookup,
+  groupCode: unknown,
+  groupName: string,
+  rank: number,
+): string {
   const initial = Array.from(groupName)[0] ?? '群';
   const url = reportGroupAvatarUrl(groupCode);
   const src = url ? inlinedAsset(url) : null;
@@ -892,7 +897,7 @@ function overviewSlide(data: Record<string, unknown>): string {
  * 版式与屏幕版一致：左栏真气泡 + 巨数，右栏气泡/字体/挂件三类各一格。
  * 装扮编号一律不出现（屏幕版也不出现）：款名有就写，没有就只写话。
  */
-function dressSlide(data: Record<string, unknown>): string {
+function dressSlide(data: Record<string, unknown>, inlinedAsset: AssetLookup): string {
   const year = Number(data.year ?? 0);
   const decorated = Number(data.decorated ?? 0);
   const totalSent = Number(data.totalSent ?? 0);
@@ -1181,7 +1186,7 @@ function exportWall(
  * 头像在预热后以 data URI 内联（缺席回首字圆牌）。两幕的形状是这一页的主角：
  * 火花横向引线 + 消息纵向柱阵 —— 静态产物没有动画，引线和柱子直接画在终态。
  */
-function friendsSlide(data: Record<string, unknown>): string {
+function friendsSlide(data: Record<string, unknown>, inlinedAsset: AssetLookup): string {
   const year = Number(data.year ?? 0);
   type Entry = { peerUin?: string; peerName: string; value: number; messages: number };
   const sparkTop = (data.sparkTop ?? []) as Entry[];
@@ -1202,7 +1207,7 @@ function friendsSlide(data: Record<string, unknown>): string {
   const fuse = champSpark
     ? `<div class="fr-fuse-head">
          <div class="fr-fuse-who">
-           ${avatarImg(champSpark.peerUin, champSpark.peerName, 'fr-face fr-face-lg')}
+           ${avatarImg(inlinedAsset, champSpark.peerUin, champSpark.peerName, 'fr-face fr-face-lg')}
            <span class="fr-fuse-name">${escapeHtml(champSpark.peerName)}</span>
            <span class="fr-fuse-msgs">${fmt(champSpark.messages)} 条私聊</span>
          </div>
@@ -1247,7 +1252,7 @@ function friendsSlide(data: Record<string, unknown>): string {
                  Math.round((entry.value / Math.max(1, champMsg.value)) * 30 * 10) / 10,
                );
                return `<div class="fr-stack${index === 0 ? ' champ' : ''}">
-                 ${index === 0 ? avatarImg(entry.peerUin, entry.peerName, 'fr-face fr-face-stack') : ''}
+                 ${index === 0 ? avatarImg(inlinedAsset, entry.peerUin, entry.peerName, 'fr-face fr-face-stack') : ''}
                  <span class="fr-stack-val"><b>${fmt(entry.value)}</b><i>条</i></span>
                  <span class="fr-stack-bar" style="height:${h}mm"></span>
                  <span class="fr-stack-name">${escapeHtml(entry.peerName)}</span>
@@ -1279,7 +1284,7 @@ function friendsSlide(data: Record<string, unknown>): string {
  * 静态产物里星标直接落在最终位置 —— 它把「主动」画成一枚指向 TA / 我之间的
  * 光点，数字和句子都只是这枚光点的注脚。
  */
-function openersSlide(data: Record<string, unknown>): string {
+function openersSlide(data: Record<string, unknown>, inlinedAsset: AssetLookup): string {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
   const peerCount = Number(data.peerCount ?? 0);
@@ -1336,7 +1341,7 @@ function openersSlide(data: Record<string, unknown>): string {
         : role.kind === 'peer'
           ? 'TA 发起占比最高'
           : '最接近 50%';
-    const face = avatarImg(entry.peerUin, entry.peerName, 'op-face');
+    const face = avatarImg(inlinedAsset, entry.peerUin, entry.peerName, 'op-face');
     if (role.kind === 'mine') {
       const minePct = Math.round((entry.selfStarts / entry.totalStarts) * 100);
       return `${face}<span class="op-line-say"><span class="op-line-role">${roleLabel}</span><span class="op-line-dot">·</span><em>${escapeHtml(
@@ -1585,7 +1590,7 @@ function exportRhythmMood(input: {
  * 屏幕版里那颗系统表情 / 自定义表情在预热后以 data URI 内联（weq-asset / weq-media
  * 经主进程读成字节），画得出来；某颗缺席时那一格退回名字与次数。词仍是主角。
  */
-function voiceSlide(data: Record<string, unknown>): string {
+function voiceSlide(data: Record<string, unknown>, inlinedAsset: AssetLookup): string {
   const year = Number(data.year ?? 0);
   const allTime = isAllTimeYear(year);
   const sentTotal = Number(data.sentTotal ?? 0);
@@ -1835,14 +1840,14 @@ function atSlide(data: Record<string, unknown>): string {
  * 版心那枚「戳」：预热到 `resources/pokeemoji` 的贴图就画贴图（APNG，浏览器里会
  * 动），没预热到（导出没带 assets / 读盘失败）就退回「戳」字排印版。
  */
-function pokeFigureHtml(): string {
+function pokeFigureHtml(inlinedAsset: AssetLookup): string {
   const uri = inlinedAsset(reportPokeFigureUrl(REPORT_POKE_FIGURE_ID));
   if (!uri) return '<span class="pk-glyph">戳</span>';
   return `<img class="pk-figure" src="${uri}" alt="">`;
 }
 
 /** 「戳一戳」页：左右两个数字夹着一枚超大的「戳」，下面是相向点阵。 */
-function pokeSlide(data: Record<string, unknown>): string {
+function pokeSlide(data: Record<string, unknown>, inlinedAsset: AssetLookup): string {
   const { year, era } = interactionsEra(data);
   const pokeTotal = Number(data.pokeTotal ?? 0);
   const pokeMeTotal = Number(data.pokeMeTotal ?? 0);
@@ -1898,7 +1903,7 @@ function pokeSlide(data: Record<string, unknown>): string {
       <p class="pk-lede">${era}，隔着屏幕的那一下——</p>
       <div class="pk-main">
         ${side('out', pokeTotal, '我戳出去', pokeTop, '最常戳')}
-        ${pokeFigureHtml()}
+        ${pokeFigureHtml(inlinedAsset)}
         ${side('in', pokeMeTotal, '别人戳我', pokeMeTop, '最常戳我')}
       </div>
       <div class="pk-lanes">
@@ -2093,7 +2098,7 @@ function homeSlide(data: Record<string, unknown>): string {
  * 收在页底。静态产物画不了头像，所以主角退回一枚衬线首字 + 描边圆；属于聊伴
  * 的月份在月历里染成胭脂色，一眼就能看出谁「一路都在」。
  */
-function monthsSlide(data: Record<string, unknown>): string {
+function monthsSlide(data: Record<string, unknown>, inlinedAsset: AssetLookup): string {
   const year = Number(data.year ?? 0);
   const champion = (data.champion ?? null) as {
     peerUid?: string;
@@ -2145,7 +2150,7 @@ function monthsSlide(data: Record<string, unknown>): string {
       const quiet = top ? '' : ' quiet';
       const carried = 'carried' in cell && cell.carried;
       const face = top
-        ? avatarImg(top.peerUin, String(top.peerName ?? ''), 'mo-mini-face')
+        ? avatarImg(inlinedAsset, top.peerUin, String(top.peerName ?? ''), 'mo-mini-face')
         : '<span class="mo-mini is-empty">·</span>';
       return `<li class="mo-month${ours}${quiet}${carried ? ' carried' : ''}">
         <span class="mo-month-label">${carried ? '<em class="mo-year-tag">去年</em>' : ''}${escapeHtml(label)}</span>
@@ -2171,6 +2176,7 @@ function monthsSlide(data: Record<string, unknown>): string {
             }，每个月坐上聊天榜首的人一直在换，
             可回头一看，始终在的是——</div>
             <div class="mo-avatar">${avatarImg(
+              inlinedAsset,
               champion.peerUin,
               String(champion.peerName ?? ''),
               'mo-avatar-face',
@@ -2207,7 +2213,7 @@ function monthsSlide(data: Record<string, unknown>): string {
  * 排成页底一排群头像徽记（与屏幕版同一种表达 —— 群名太长，不上画面），冠军
  * 之外的推荐收进发丝线以上的小卡。数据与屏幕版同源，不做二次统计。
  */
-function mateSlide(data: Record<string, unknown>): string {
+function mateSlide(data: Record<string, unknown>, inlinedAsset: AssetLookup): string {
   const year = Number(data.year ?? 0);
   const top = (data.top ?? null) as {
     uid?: string;
@@ -2243,7 +2249,9 @@ function mateSlide(data: Record<string, unknown>): string {
   }).join('');
   const crests = (top?.groups ?? [])
     .slice(0, 5)
-    .map((group, index) => groupCrestImg(group.groupCode, String(group.groupName ?? ''), index))
+    .map((group, index) =>
+      groupCrestImg(inlinedAsset, group.groupCode, String(group.groupName ?? ''), index),
+    )
     .join('');
   const crestsPlus =
     (top?.sharedCount ?? 0) > (top?.groups ?? []).length
@@ -2303,6 +2311,7 @@ function mateSlide(data: Record<string, unknown>): string {
             <div class="mt-hero">
               <p class="mt-lede">你们还不是好友，却总在同一个圈子里碰面。</p>
               <div class="mt-avatar">${avatarImg(
+                inlinedAsset,
                 top.uin ?? top.peerUin,
                 String(top.name ?? ''),
                 'mt-avatar-face',
@@ -2469,39 +2478,30 @@ function genericSlide(slide: ExportSlide): string {
  */
 export type AssetInliner = (url: string) => Promise<string | null>;
 
-/**
- * 预热好的 data URI 快照。buildReportHtml 的 slide 渲染是同步的，必须先把
- * 所有 data URI 在这里准备停当，同步的 `inlinedAsset` 才有东西可查。
- */
-const assetValueCache = new Map<string, string | null>();
+type AssetLookup = (url: string | null | undefined) => string | null;
 
-/**
- * 预热：把 slides 里引用到的所有协议图片先拉好。任一图失败只是缺席，
- * 导出退回排印表达，不阻塞。
- */
+/** 每次导出持有自己的图片快照，并限制并发读取与 base64 解码。 */
 export async function preloadReportAssets(
   slides: ExportSlide[],
   resolve: AssetInliner,
-): Promise<void> {
-  const urls = collectAssetUrls(slides);
-  assetValueCache.clear();
-  await Promise.all(
-    urls.map(async (url) => {
-      let value: string | null = null;
+  isCurrent: () => boolean = () => true,
+): Promise<Map<string, string>> {
+  const urls = collectAssetUrls(slides).values();
+  const assets = new Map<string, string>();
+  async function load() {
+    while (isCurrent()) {
+      const next = urls.next();
+      if (next.done) return;
       try {
-        value = await resolve(url);
+        const value = await resolve(next.value);
+        if (value) assets.set(next.value, value);
       } catch {
-        value = null;
+        // 单张图片失败时保留文字版。
       }
-      if (value) assetValueCache.set(url, value);
-    }),
-  );
-}
-
-/** 同步取已经预热好的 data URI；没预热过/解析失败返回 null（退回排印版）。 */
-export function inlinedAsset(url: string | null | undefined): string | null {
-  if (!url || assetValueCache.size === 0) return null;
-  return assetValueCache.get(url) ?? null;
+    }
+  }
+  await Promise.all(Array.from({ length: 4 }, load));
+  return assets;
 }
 
 function collectAssetUrls(slides: ExportSlide[]): string[] {
@@ -2517,23 +2517,28 @@ function collectAssetUrls(slides: ExportSlide[]): string[] {
  * 传了 `assets`（先 preloadReportAssets 预热过）时，装扮页画真实气泡贴图、
  * 人物页画真实头像（data URI 内联）；否则维持纯排印的退化版。
  */
-export function buildReportHtml(year: number, slides: ExportSlide[]): string {
+export function buildReportHtml(
+  year: number,
+  slides: ExportSlide[],
+  assets?: ReadonlyMap<string, string>,
+): string {
+  const inlinedAsset: AssetLookup = (url) => (url ? (assets?.get(url) ?? null) : null);
   const body = slides
     .map((slide) => {
       const data = (slide.data ?? {}) as Record<string, unknown>;
       if (slide.page.id === 'overview') return overviewSlide(data);
-      if (slide.page.id === 'dress') return dressSlide(data);
+      if (slide.page.id === 'dress') return dressSlide(data, inlinedAsset);
       if (slide.page.id === 'spark') return sparkSlide(data);
-      if (slide.page.id === 'friends') return friendsSlide(data);
-      if (slide.page.id === 'openers') return openersSlide(data);
+      if (slide.page.id === 'friends') return friendsSlide(data, inlinedAsset);
+      if (slide.page.id === 'openers') return openersSlide(data, inlinedAsset);
       if (slide.page.id === 'rhythm') return rhythmSlide(data);
-      if (slide.page.id === 'voice') return voiceSlide(data);
+      if (slide.page.id === 'voice') return voiceSlide(data, inlinedAsset);
       if (slide.page.id === 'home') return homeSlide(data);
       if (slide.page.id === 'at') return atSlide(data);
-      if (slide.page.id === 'poke') return pokeSlide(data);
+      if (slide.page.id === 'poke') return pokeSlide(data, inlinedAsset);
       if (slide.page.id === 'echo') return echoSlide(data);
-      if (slide.page.id === 'months') return monthsSlide(data);
-      if (slide.page.id === 'mate') return mateSlide(data);
+      if (slide.page.id === 'months') return monthsSlide(data, inlinedAsset);
+      if (slide.page.id === 'mate') return mateSlide(data, inlinedAsset);
       if (slide.page.id === 'qzone') return qzoneSlide(data);
       if (slide.page.id === 'end') return endSlide(data);
       return genericSlide(slide);

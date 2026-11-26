@@ -148,6 +148,7 @@ describe('全局搜索来源与类型', () => {
       '合成',
       { senderUid: 'u_sender', start: 40, end: 60 },
       501,
+      undefined,
     );
     expect(preview.messageHits).toEqual(first.items);
     expect(first.hasMore).toBe(true);
@@ -162,6 +163,7 @@ describe('全局搜索来源与类型', () => {
       '合成',
       { senderUid: undefined, start: undefined, end: undefined },
       501,
+      undefined,
     );
     const unfilteredDetails = await service.conversationRecords('group', '100', '合成', 0, 20, {});
     expect(unfilteredDetails.items.map(({ msgId }) => msgId)).toEqual(['7', '6']);

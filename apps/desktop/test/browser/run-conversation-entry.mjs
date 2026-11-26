@@ -11,6 +11,7 @@ const root = resolve(here, '../..');
 const output = process.env.WEQ_ENTRY_ARTIFACTS;
 const unreadOnly = process.argv.includes('--unread');
 const firstFrameOnly = process.argv.includes('--first-frame');
+const crossfadeOnly = process.argv.includes('--crossfade');
 const { chromium } = await import(process.env.WEQ_PLAYWRIGHT_IMPORT ?? 'playwright');
 const cacheRoot = resolve(root, 'node_modules/.cache');
 await mkdir(cacheRoot, { recursive: true });
@@ -54,6 +55,12 @@ async function run() {
       : route.abort(),
   );
   const timelineURL = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/timeline.html`;
+  if (crossfadeOnly) {
+    await verifyCrossfade(page, timelineURL);
+    assert.deepEqual(errors, []);
+    console.log('Conversation entry crossfade passed (normal and reduced motion).');
+    return;
+  }
   if (!unreadOnly) {
     await page.addInitScript(() => {
       if (!location.search.includes('check-first-frame')) return;
@@ -360,6 +367,73 @@ async function run() {
     )
   )
     throw new Error('进入会话未定位最新消息');
+}
+
+async function verifyCrossfade(page, url) {
+  const live = page.locator('.chat-pane > .message-scroll');
+  const old = page.locator('.weq-conversation-snapshot');
+  const begin = () => page.evaluate(() => window.timelineTest.beginEntry());
+  const midFade = () =>
+    page.evaluate(() => {
+      const live = document.querySelector('.chat-pane > .message-scroll');
+      const old = document.querySelector('.weq-conversation-snapshot');
+      const animations = [live, old].map((node) => node?.getAnimations()[0]);
+      if (animations.some((animation) => !animation)) return null;
+      for (const animation of animations) {
+        animation.pause();
+        animation.currentTime = animation.effect.getTiming().duration / 2;
+      }
+      const result = [live, old].map((node) => Number(getComputedStyle(node).opacity));
+      for (const animation of animations) animation.finish();
+      return result;
+    });
+  for (const reducedMotion of ['no-preference', 'reduce']) {
+    await page.emulateMedia({ reducedMotion });
+    await page.goto(`${url}?entry&count=63&no-intent`);
+    const tail = live.locator('[data-message-id="row-1063"]');
+    await tail.waitFor();
+    const viewportOffset = (row) =>
+      row.getBoundingClientRect().top - row.closest('.message-scroll').getBoundingClientRect().top;
+    const before = await tail.evaluate(viewportOffset);
+    assert.ok(before > 0 && before < (await live.evaluate((node) => node.clientHeight)));
+    await begin();
+    await old.waitFor();
+    await begin();
+    await live.getByRole('status').filter({ hasText: '正在加载消息' }).waitFor();
+    const oldTail = old.locator('.message-line').filter({ hasText: '合成消息 1063' });
+    assert.equal(
+      await oldTail.count(),
+      1,
+      `Old viewport content: ${(await old.textContent()).slice(-900)}`,
+    );
+    assert.ok(Math.abs((await oldTail.evaluate(viewportOffset)) - before) < 2);
+    assert.equal(await old.evaluate((node) => node.inert), true);
+    assert.equal(await live.locator('[data-message-id]').count(), 0);
+    await page.waitForTimeout(140);
+    assert.equal(await page.locator('.chat-skeleton').count(), 0);
+    await page.evaluate(() => window.timelineTest.entryStage(2));
+    if (reducedMotion === 'no-preference') {
+      const opacity = await midFade();
+      assert.ok(
+        opacity?.every((value) => value > 0 && value < 1),
+        `Invalid crossfade: ${opacity}`,
+      );
+    } else {
+      assert.equal(await live.evaluate((node) => node.getAnimations().length), 0);
+    }
+    await old.waitFor({ state: 'detached' });
+    await live.locator('[data-message-id="row-1002"]').waitFor();
+    await begin();
+    await old.waitFor();
+    await page.evaluate(() => window.timelineTest.entryStage(0, true));
+    await old.waitFor({ state: 'detached' });
+    await live.getByText('还没有消息', { exact: true }).waitFor();
+    await begin();
+    await old.waitFor();
+    await page.evaluate(() => window.timelineTest.failEntry());
+    await old.waitFor({ state: 'detached' });
+    await live.getByText('这段聊天记录暂时无法加载', { exact: true }).waitFor();
+  }
 }
 try {
   await run();

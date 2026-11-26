@@ -14,6 +14,7 @@ import { z } from 'zod/v3';
 import { getAppContext } from '../context/app_context';
 import { toolExecutionOptions } from './account_scope';
 import { canLinkToFeature, featureLink } from '../../shared/feature_links';
+import { FRONTEND_CAPABILITIES } from './frontend_capabilities';
 
 const clientInput = z.enum(FEATURE_CLIENTS).optional().describe('仅在知道目标客户端时传入');
 export const listFeaturesInput = z.object({
@@ -117,6 +118,9 @@ export async function getFeatureDefinition({ id, client }: z.infer<typeof getFea
         }
       : null,
     ...access,
+    capabilities: FRONTEND_CAPABILITIES.filter(({ featureId }) => featureId === stableId).map(
+      ({ name }) => ({ source: 'weq', name }),
+    ),
     tools: (feature.tools ?? []).map((name) => ({
       name,
       exposed: visible ? visible.includes(name) : null,

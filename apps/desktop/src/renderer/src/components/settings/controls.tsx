@@ -15,7 +15,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
-import { ChevronRight, RefreshCw } from 'lucide-react';
+import { ChevronRight, LoaderCircle, RefreshCw } from 'lucide-react';
 import '../../styles/settings-query.css';
 import '../../styles/settings-controls.css';
 import { SettingsResetCardContext, SettingsResetContext } from './resetContext';
@@ -93,12 +93,14 @@ export function SectionHeader({
   return (
     <header className="weq-set-head">
       <div className="weq-set-head-title">
-        {headingIcon ? (
-          <span className="weq-set-head-icon" aria-hidden>
-            {headingIcon}
-          </span>
-        ) : null}
-        <h3 className={`weq-set-title${titleClassName ? ` ${titleClassName}` : ''}`}>{title}</h3>
+        <div className="weq-set-head-label">
+          {headingIcon ? (
+            <span className="weq-set-head-icon" aria-hidden>
+              {headingIcon}
+            </span>
+          ) : null}
+          <h3 className={`weq-set-title${titleClassName ? ` ${titleClassName}` : ''}`}>{title}</h3>
+        </div>
         <SettingsScopeBadge />
         {badge ? <span className="weq-set-badge">{badge}</span> : null}
       </div>
@@ -132,7 +134,7 @@ export function Card({
   settingId?: string;
   title?: string;
   titleBadge?: ReactNode;
-  /** 卡片标题下的一句说明，与页头 `SectionHeader` 的 desc 同一套字号/颜色。 */
+  /** 卡片标题下的一句说明。 */
   desc?: ReactNode;
   /** 标题前的图标（lucide 组件或资源图），与设置页各分区的视觉语言保持一致。 */
   icon?: ReactNode;
@@ -215,29 +217,43 @@ export function Card({
 export function SettingsStatusBadge({
   label,
   tone = 'neutral',
+  loading = false,
   details,
 }: {
   label: string;
   tone?: 'neutral' | 'ready' | 'warning';
+  loading?: boolean;
   details?: { label: string; open: boolean; controls?: string; onClick: () => void };
 }) {
+  const content = (
+    <>
+      {loading && <LoaderCircle size={12} className="weq-restricted-progress-icon" aria-hidden />}
+      {label}
+    </>
+  );
   return details ? (
     <button
       type="button"
       className="weq-set-status-badge"
       data-tone={tone}
       aria-label={details.label}
+      aria-busy={loading || undefined}
       aria-haspopup="dialog"
       aria-expanded={details.open}
       aria-controls={details.controls}
       onClick={details.onClick}
     >
-      {label}
+      {content}
       <ChevronRight size={12} aria-hidden />
     </button>
   ) : (
-    <span className="weq-set-status-badge" data-tone={tone} role="status">
-      {label}
+    <span
+      className="weq-set-status-badge"
+      data-tone={tone}
+      role="status"
+      aria-busy={loading || undefined}
+    >
+      {content}
     </span>
   );
 }

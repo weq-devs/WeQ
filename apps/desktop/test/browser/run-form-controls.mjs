@@ -39,6 +39,8 @@ const nativeFields = [
 ];
 const containers = [
   'search-box',
+  'group-album-search',
+  'weq-analysis-search',
   'weq-dress-search',
   'weq-collection-search',
   'weq-msglist-search',
@@ -46,11 +48,9 @@ const containers = [
   'weq-mf-search',
   'weq-mf-mall-search',
   'weq-gift-search',
-  'weq-redpack-wall-search',
   'weq-grouppick-search',
   'weq-rank-search',
   'ark-search',
-  'emoji-lb-search',
   'link-card-input',
   'redpacket-input-wrap',
   'redpacket-stepper',
@@ -64,11 +64,12 @@ const styles = [
   'qqnt-appearance',
   'retro-appearance',
   'dressup',
+  'analysis-tool',
+  'group-album-browser',
   'composition-time',
   'qzone',
   'cache',
   'gift-mall',
-  'redpack-wall',
   'settings-onebot',
 ];
 let browser;

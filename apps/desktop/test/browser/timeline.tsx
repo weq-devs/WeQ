@@ -218,6 +218,7 @@ function Fixture() {
   const mobileInput = params.has('mobile-input');
   useMobileWebViewport(rootRef, mobileInput);
   const [conversationId, setConversationId] = useState(conversation.id);
+  const [entryError, setEntryError] = useState<string>();
   const [messages, setMessages] = useState(() =>
     Array.from({ length: delayedEntry ? 0 : entryCount }, (_, i) =>
       message(i + Number(params.get('first') ?? 1001)),
@@ -261,12 +262,17 @@ function Fixture() {
       setConversationId((id) => `${id}-loading`);
       setMessages([]);
       setLoading(true);
+      setEntryError(undefined);
       setAtLatest(true);
       setInitialPosition(false);
     },
     entryStage: (count: number, complete = false) => {
       setMessages(Array.from({ length: count }, (_, i) => message(i + 1001)));
       setLoading(!complete);
+    },
+    failEntry: () => {
+      setEntryError('这段聊天记录暂时无法加载');
+      setLoading(false);
     },
     reenter: () => {
       setConversationId((id) => `${id}-next`);
@@ -449,6 +455,7 @@ function Fixture() {
       messageRenderers: [qqMessageRenderer],
       atLatest,
       loading,
+      loadError: entryError,
       draft: '',
       tabActive: active,
       initialReadingPosition: initialPosition ? { scrollTop: 0 } : undefined,

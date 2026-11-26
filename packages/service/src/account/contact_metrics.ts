@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { ContactHistoryService } from './contact_history';
+import { removeBatchCommonFriendCounts } from '../common/contact_directory_preferences';
 
 export type ContactMetric =
   | 'level'
@@ -26,6 +27,7 @@ export interface MetricCell {
   attemptedAt: number;
   state: 'ready' | 'failed' | 'stale';
   error?: string;
+  source?: 'commonAttributes';
 }
 export type ContactMetricRows = Record<string, Partial<Record<ContactMetric, MetricCell>>>;
 export interface ContactMetricsSnapshot {
@@ -98,7 +100,9 @@ export class ContactMetricsService extends EventEmitter {
     private readonly history?: ContactHistoryService,
   ) {
     super();
-    this.loaded = this.load();
+    this.loaded = this.load().then(() => {
+      this.rows = removeBatchCommonFriendCounts(this.rows);
+    });
   }
 
   private async load() {
@@ -153,6 +157,9 @@ export class ContactMetricsService extends EventEmitter {
                   ? cell.updatedAt
                   : undefined,
               state: failed ? 'failed' : 'stale',
+              ...('source' in cell && cell.source === 'commonAttributes'
+                ? { source: cell.source }
+                : {}),
               error:
                 failed && 'error' in cell && typeof cell.error === 'string'
                   ? cell.error
@@ -183,6 +190,14 @@ export class ContactMetricsService extends EventEmitter {
   async row(key: string) {
     await this.loaded;
     return structuredClone(this.rows[key] ?? {});
+  }
+  async rowsFor(keys: readonly string[]): Promise<ContactMetricRows> {
+    await this.loaded;
+    const rows: ContactMetricRows = {};
+    for (const key of keys) {
+      if (Object.hasOwn(this.rows, key)) rows[key] = structuredClone(this.rows[key]!);
+    }
+    return rows;
   }
   async keysForMetric(metric: ContactMetric) {
     await this.loaded;
@@ -247,7 +262,7 @@ export class ContactMetricsService extends EventEmitter {
       if (value === undefined || value === null || !validMetricValue(metric, value)) continue;
       const sequenceKey = `${key}:${metric}`;
       this.sequences.set(sequenceKey, (this.sequences.get(sequenceKey) ?? 0) + 1);
-      row[metric] = { value, state: 'ready', attemptedAt: Date.now(), updatedAt: Date.now() };
+      row[metric] = readyMetricCell(metric, value, Date.now());
       await this.remember(key, metric, value);
     }
     this.changed();
@@ -322,12 +337,7 @@ export class ContactMetricsService extends EventEmitter {
       if (value !== null && !validMetricValue(metric, value)) continue;
       const token = `${key}:${metric}`;
       this.sequences.set(token, (this.sequences.get(token) ?? 0) + 1);
-      this.rows[key][metric] = {
-        value: value ?? undefined,
-        state: 'ready',
-        attemptedAt: updatedAt,
-        updatedAt,
-      };
+      this.rows[key][metric] = readyMetricCell(metric, value ?? undefined, updatedAt);
       await this.remember(key, metric, value, updatedAt);
     }
     this.changed();
@@ -426,7 +436,7 @@ export class ContactMetricsService extends EventEmitter {
               now = Date.now();
             row[metric] =
               value != null && validMetricValue(metric, value)
-                ? { value, state: 'ready', attemptedAt: now, updatedAt: now }
+                ? readyMetricCell(metric, value, now)
                 : { ...row[metric], state: 'failed', attemptedAt: now, error: '未返回有效数据' };
             if (value != null && validMetricValue(metric, value))
               await this.remember(key, metric, value, now);
@@ -685,6 +695,20 @@ export class ContactMetricsService extends EventEmitter {
     this.removeAllListeners();
     await this.flush();
   }
+}
+
+function readyMetricCell(
+  metric: ContactMetric,
+  value: MetricValue | undefined,
+  at: number,
+): MetricCell {
+  return {
+    value,
+    state: 'ready',
+    attemptedAt: at,
+    updatedAt: at,
+    ...(metric === 'commonFriends' ? { source: 'commonAttributes' } : {}),
+  };
 }
 
 const CONTACT_METRICS: ContactMetric[] = [

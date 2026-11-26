@@ -7,7 +7,8 @@ import type { BuddyMsgFtsHit } from './types';
 import { toBigint, toStr } from './util';
 import { QqDb } from '../qq_db';
 import { ftsRecordCandidates, type FtsRecordBounds } from './fts_record_candidates';
-import { searchFtsContent } from './fts_content_search';
+import { ftsLikePattern, searchFtsContent, searchFtsFilePreview } from './fts_content_search';
+import type { SourceMsgSearchDb } from './source_search';
 
 const SELECT_COLUMNS = `"40001","40010","40021","40020","41701","40050","41702","40003"`;
 
@@ -34,22 +35,28 @@ export class GroupMsgFtsDb {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
   }
 
-  searchRecordCandidates(keyword: string, bounds: FtsRecordBounds, limit: number) {
+  searchRecordCandidates(
+    keyword: string,
+    bounds: FtsRecordBounds,
+    limit: number,
+    index?: SourceMsgSearchDb,
+  ) {
     return ftsRecordCandidates(
       this.qq,
       'group_msg_fts',
       SELECT_COLUMNS,
       rowToHit,
-      `%${escapeLike(keyword)}%`,
+      keyword,
       bounds,
       limit,
+      index,
     );
   }
 
   /**
    * Search group messages whose text or filename contains `keyword`, best matches first.
    */
-  async search(keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
+  async search(keyword: string, limit = 20, index?: SourceMsgSearchDb): Promise<BuddyMsgFtsHit[]> {
     const needle = keyword.trim();
     if (!needle) return [];
 
@@ -57,7 +64,8 @@ export class GroupMsgFtsDb {
     const rows = await searchFtsContent(this.qq, {
       table: 'group_msg_fts',
       columns: SELECT_COLUMNS,
-      pattern: `%${escapeLike(needle)}%`,
+      keyword: needle,
+      index,
       poolSize,
     });
 
@@ -69,7 +77,12 @@ export class GroupMsgFtsDb {
    * Search messages within a specific group. Filters by the indexed group-code
    * column `40027` (same value as group_msg_table.40027); `40021` is unindexed.
    */
-  async searchInGroup(groupCode: string, keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
+  async searchInGroup(
+    groupCode: string,
+    keyword: string,
+    limit = 20,
+    index?: SourceMsgSearchDb,
+  ): Promise<BuddyMsgFtsHit[]> {
     const needle = keyword.trim();
     if (!needle) return [];
 
@@ -77,7 +90,8 @@ export class GroupMsgFtsDb {
     const rows = await searchFtsContent(this.qq, {
       table: 'group_msg_fts',
       columns: SELECT_COLUMNS,
-      pattern: `%${escapeLike(needle)}%`,
+      keyword: needle,
+      index,
       poolSize,
       partition: { column: '40027', value: groupCode },
     });
@@ -89,7 +103,11 @@ export class GroupMsgFtsDb {
   /**
    * Search only by filename.
    */
-  async searchFiles(keyword: string, limit = 20): Promise<BuddyMsgFtsHit[]> {
+  async searchFiles(
+    keyword: string,
+    limit = 20,
+    index?: SourceMsgSearchDb,
+  ): Promise<BuddyMsgFtsHit[]> {
     const needle = keyword.trim();
     if (!needle) return [];
 
@@ -97,7 +115,8 @@ export class GroupMsgFtsDb {
     const rows = await searchFtsContent(this.qq, {
       table: 'group_msg_fts',
       columns: SELECT_COLUMNS,
-      pattern: `%${escapeLike(needle)}%`,
+      keyword: needle,
+      index,
       poolSize,
       filenameOnly: true,
     });
@@ -128,7 +147,7 @@ export class GroupMsgFtsDb {
       ) GROUP BY "40027"
         ORDER BY COUNT(*) DESC
         LIMIT ?`,
-      [`%${escapeLike(needle)}%`, BigInt(limit)],
+      [ftsLikePattern(needle), BigInt(limit)],
     );
     return rows.map((row) => ({
       partition: toBigint(row[0]),
@@ -149,7 +168,7 @@ export class GroupMsgFtsDb {
   ): Promise<{ items: BuddyMsgFtsHit[]; total: number }> {
     const needle = keyword.trim();
     if (!needle) return { items: [], total: 0 };
-    const like = `%${escapeLike(needle)}%`;
+    const like = ftsLikePattern(needle);
     const [countRows, rows] = await Promise.all([
       this.qq.query(
         `SELECT COUNT(*) FROM group_msg_fts
@@ -179,10 +198,15 @@ export class GroupMsgFtsDb {
     limit = 20,
     offset = 0,
     lookAhead = false,
+    index?: SourceMsgSearchDb,
   ): Promise<{ items: BuddyMsgFtsHit[]; total: number }> {
     const needle = keyword.trim();
     if (!needle) return { items: [], total: 0 };
-    const like = `%${escapeLike(needle)}%`;
+    if (lookAhead && offset === 0 && index) {
+      const rows = await searchFtsFilePreview(needle, limit, index);
+      if (rows) return { items: rows.slice(0, limit).map(rowToHit), total: rows.length };
+    }
+    const like = ftsLikePattern(needle);
     const [countRows, rows] = await Promise.all([
       lookAhead
         ? undefined
@@ -208,10 +232,6 @@ export class GroupMsgFtsDb {
   close(): void {
     this.qq.close();
   }
-}
-
-function escapeLike(s: string): string {
-  return s.replace(/[\\%_]/g, (m) => `\\${m}`);
 }
 
 function rankByRelevance(hits: BuddyMsgFtsHit[], needle: string): BuddyMsgFtsHit[] {

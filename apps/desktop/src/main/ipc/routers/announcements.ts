@@ -19,10 +19,9 @@ export const announcementsRouter = router({
   markRead: procedure
     .input(z.array(id).max(MAX_ANNOUNCEMENTS))
     .mutation(({ input }) => getAnnouncements().markRead(input)),
-  claimBanner: procedure.input(id).mutation(({ input }) => getAnnouncements().claimBanner(input)),
-  finishBanner: procedure
-    .input(z.object({ token: z.string().uuid(), shown: z.boolean() }))
-    .mutation(({ input }) => getAnnouncements().finishBanner(input.token, input.shown)),
+  dismissBanner: procedure
+    .input(id)
+    .mutation(({ input }) => getAnnouncements().dismissBanner(input)),
   changed: procedure.subscription(() =>
     observable<number>((emit) => getAnnouncements().subscribe((value) => emit.next(value))),
   ),

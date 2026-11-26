@@ -18,8 +18,9 @@
  * sandboxed/context-isolated — the privileged tRPC bridge never reaches it.
  */
 
+import { accountIpc } from './window_account_runtime';
 import { labelPerformanceWindow } from './performance_process_labels';
-import { BrowserWindow, ipcMain, nativeTheme, session } from 'electron';
+import { BrowserWindow, nativeTheme, session } from 'electron';
 import { accountConfigId, fetchWebTokens, getLogger, logErrorContext } from '@weq/service';
 import { getAppContext } from './context/app_context';
 import { windowDecorationOptions, installWindowControls } from './window_controls';
@@ -186,7 +187,7 @@ async function openQzoneWindow(): Promise<void> {
 }
 
 export function registerQzoneIpc(): void {
-  ipcMain.handle('qzone:open', async (_event, theme?: QzoneTheme) => {
+  accountIpc.handle('qzone:open', async (_event, theme?: QzoneTheme) => {
     applyQzoneTheme(theme);
     await openQzoneWindow();
     return true;
@@ -196,7 +197,7 @@ export function registerQzoneIpc(): void {
   // 在首次导航前把自动登录 cookie 种进该分区，然后把 partition/url 交给渲染层，
   // 由 <webview> 用同一个 partition 加载。cookie 注入失败不致命 —— 回退到持久
   // 分区里已有的 cookie。返回的 partition 与独立窗口用的是同一套，登录状态互通。
-  ipcMain.handle('qzone:prepare', async (_event, theme?: QzoneTheme) => {
+  accountIpc.handle('qzone:prepare', async (_event, theme?: QzoneTheme) => {
     applyQzoneTheme(theme);
     const partition = resolvePartition();
     await injectAutoLoginCookies(partition).catch((error) => {
@@ -212,14 +213,14 @@ export function registerQzoneIpc(): void {
 
   // Live theme follow: the renderer pushes this whenever WeQ's 深/浅 mode changes
   // so an already-open Qzone window updates without being reopened.
-  ipcMain.handle('qzone:set-theme', (_event, theme?: QzoneTheme) => {
+  accountIpc.handle('qzone:set-theme', (_event, theme?: QzoneTheme) => {
     applyQzoneTheme(theme);
     return true;
   });
 
   // Future 空间导出/分析: read the current account's qzone.qq.com cookies straight
   // from its persistent partition (no window needs to be open).
-  ipcMain.handle('qzone:get-cookies', async () => {
+  accountIpc.handle('qzone:get-cookies', async () => {
     const partition = resolvePartition();
     const cookies = await session.fromPartition(partition).cookies.get({ domain: 'qq.com' });
     return cookies.map((c) => ({ name: c.name, value: c.value, domain: c.domain, path: c.path }));

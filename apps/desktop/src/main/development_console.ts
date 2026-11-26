@@ -240,7 +240,10 @@ export function superviseDevelopmentChild(
         try {
           process.kill(-child.pid, signal);
         } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
+          const { code } = error as NodeJS.ErrnoException;
+          // macOS 的进程组正在消失、已无可发送信号的成员时，也可能返回 EPERM。
+          if (code === 'ESRCH' || (process.platform === 'darwin' && code === 'EPERM')) return;
+          throw error;
         }
       } else child.kill(signal);
     };

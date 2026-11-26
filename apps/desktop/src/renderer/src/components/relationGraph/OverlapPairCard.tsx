@@ -126,7 +126,9 @@ export function OverlapPairCard({
               type="button"
               className="weq-ov-paircard-row"
               onClick={(event) => {
-                const rect = event.currentTarget.getBoundingClientRect();
+                const trigger = event.currentTarget;
+                const rect = trigger.getBoundingClientRect();
+                const anchor = { x: rect.left + rect.width / 2, y: rect.bottom, trigger };
                 const user = profileTargetUser({
                   identity: node.uid,
                   uin: node.uin,
@@ -136,12 +138,7 @@ export function OverlapPairCard({
                   user && chatShortcut?.({ kind: 'direct', user, pokeGroupCode: selection.a });
                 activateProfile(
                   event,
-                  () =>
-                    onOpenMember(
-                      node,
-                      { x: rect.left + rect.width / 2, y: rect.bottom },
-                      { code: selection.a, name: nameA },
-                    ),
+                  () => onOpenMember(node, anchor, { code: selection.a, name: nameA }),
                   {
                     landscape:
                       shortcut?.landscape &&

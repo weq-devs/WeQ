@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import semver from 'semver';
 import type { ModelEntry, DressIndexManifest } from '@weq/service';
+import { DRESS_INDEX_KINDS } from '@weq/service/dress-index-kinds';
 import {
   ENHANCEMENT_RUNTIME_BASELINE,
   ENHANCEMENT_RUNTIME,
@@ -14,6 +15,21 @@ import {
   type EnhancementReleaseComponent,
   type EnhancementCatalog,
 } from '../../shared/enhancement_release';
+
+export function releaseDownloadBytes(release: EnhancementRelease): number | null {
+  if (!release.components.length) return null;
+  return release.components.reduce((total, component) => {
+    if (component.type === 'engine') return total + component.artifact.downloadBytes;
+    if (component.type === 'model')
+      return total + component.files.reduce((sum, file) => sum + file.sizeBytes, 0);
+    if (component.type === 'dress')
+      return (
+        total +
+        DRESS_INDEX_KINDS.reduce((sum, kind) => sum + component.manifest.parts[kind]!.size, 0)
+      );
+    return total + component.asset.sizeBytes;
+  }, 0);
+}
 
 export function releaseContentVersion(components: EnhancementReleaseComponent[]): string {
   const identity = components.map((component) => {
@@ -42,7 +58,7 @@ export function releaseContentVersion(components: EnhancementReleaseComponent[])
         ? component.manifest.keyId
         : component.manifest.nativeCommit,
       component.manifest.format,
-      ['bubble', 'font', 'widget'].map((kind) => {
+      DRESS_INDEX_KINDS.map((kind) => {
         const part = component.manifest.parts[kind]!;
         return [part.asset, part.size, part.sha256];
       }),
@@ -113,7 +129,7 @@ export function createEnhancementCatalog(
 ): EnhancementCatalog {
   const packs: EnhancementRelease[] = [];
   for (const [id, kind, ids] of [
-    ['text', 'onnx', ['ppocr-v5-mobile', 'ppocr-v6-det-tiny']],
+    ['text', 'onnx', ['ppocr-v6-small', 'ppocr-v6-det-tiny']],
     ['voice', 'sherpa', ['sensevoice']],
     ['intent', 'onnx', ['laya-multilingual']],
   ] as const) {

@@ -1,30 +1,58 @@
 // @vitest-environment node
 import { createServer } from 'node:http';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { UserConfigService } from '@weq/service';
 import { expect, it, vi } from 'vitest';
 import { DesktopWebEntry } from '../src/main/desktop_services/web_entry';
+import { createRemoteServer } from '../src/main/remote/http';
+import { RemotePairing, tokenHash } from '../src/main/remote/pairing';
+import { RemoteWebGateway } from '../src/main/remote/web_gateway';
 import { createWebHost, lookupDownload } from '../src/main/web/host';
 import { withWebAccountRoute } from '../src/main/web/account_route';
 import { DesktopMcpGateway, mcpCredentialId } from '../src/main/desktop_services/mcp_gateway';
+import { McpGrants, mcpGrantInput } from '../src/main/desktop_services/mcp_grants';
 import {
   connectDesktopService,
+  desktopServiceIsRunning,
+  DesktopServiceRegistry,
   listenPrivate,
   openControl,
   PRIVATE_TOKEN_HEADER,
   sendJson,
   stopPrivate,
 } from '../src/main/desktop_services/control';
+import { connectDesktopServices, desktopWebStatus } from '../src/main/desktop_services/host';
+import {
+  AccountRuntime,
+  accountRuntimeEvents,
+  currentAccountRuntime,
+} from '../src/main/context/account_runtime';
+import { observable } from '@trpc/server/observable';
+import { procedure, router } from '../src/main/ipc/trpc';
+import type { WebCore } from '../src/main/web/application';
 import {
   PRIVATE_ACCOUNT_HEADER,
-  type DesktopAccountRoutes,
+  DesktopAccountRoutes,
+  registerAccountWorker,
   type RoutedAccount,
 } from '../src/main/desktop_services/accounts';
+import {
+  LAST_REMOTE_ACCOUNT_KEY,
+  REMOTE_ACCOUNT_ACCESS,
+  REMOTE_ACCOUNT_ENTRY,
+  REMOTE_WORKSPACE_KEY,
+} from '../src/shared/remote_account_switch';
 
-async function fixture(configIds = ['101', '202'], uins: Record<string, string> = {}) {
+async function fixture(
+  configIds = ['101', '202'],
+  uins: Record<string, string> = {},
+  shell?: string,
+) {
   const accounts = configIds.map((configId) => ({
     configId,
     uin: uins[configId] ?? configId,
@@ -32,14 +60,25 @@ async function fixture(configIds = ['101', '202'], uins: Record<string, string> 
     static: false,
   }));
   const stale = new Set<string>();
+  const toolCalls: unknown[] = [];
   const tcp = createServer((req, res) => {
     const uin = req.headers[PRIVATE_ACCOUNT_HEADER];
     if (req.headers[PRIVATE_TOKEN_HEADER] !== 'a'.repeat(64) || typeof uin !== 'string')
       return sendJson(res, 403, {});
     if (stale.has(uin)) return res.writeHead(401).end();
+    if (shell && req.url === '/')
+      return res.writeHead(200, { 'Content-Type': 'text/html' }).end(shell);
     if (req.url === '/tool') {
-      req.resume();
-      return sendJson(res, 200, { value: { uin, downloadPath: '/chat/videos/fixture' } });
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        const call = JSON.parse(Buffer.concat(chunks).toString());
+        toolCalls.push(call);
+        const downloadPath =
+          call.name === 'download_group_file' ? '/files/fixture' : '/chat/videos/fixture';
+        sendJson(res, 200, { value: { uin, downloadPath } });
+      });
+      return;
     }
     sendJson(res, 200, { uin });
   });
@@ -63,59 +102,153 @@ async function fixture(configIds = ['101', '202'], uins: Record<string, string> 
   });
   const windows = vi.fn(async (): ReturnType<DesktopAccountRoutes['windows']> => []);
   const routes = { list: () => accounts, open, find, windows } as unknown as DesktopAccountRoutes;
-  return { routes, open, find, windows, stale, close: () => stopPrivate(tcp) };
+  return { routes, open, find, windows, stale, toolCalls, close: () => stopPrivate(tcp) };
 }
 
-it('开发重载交接旧桌面服务，旧窗口不会取代新进程', async () => {
-  let running = 1;
-  let current: Awaited<ReturnType<typeof openControl>> | undefined;
-  const retire = vi.fn((next: unknown) => {
-    expect(next).toBe(2);
-    setImmediate(() => {
-      current?.close();
-      current = undefined;
-    });
+it('桌面宿主等待旧服务退出，多个窗口复用宿主，退出后释放服务与所有权', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-desktop-host-'));
+  const registry = new DesktopServiceRegistry(root);
+  const legacyPing = vi.fn(() => {
+    setImmediate(() => legacy.close());
     return true;
   });
-  const serve = () =>
-    openControl((method, input) => {
-      if (method === 'service.generation') return running;
-      if (method === 'service.retire') return retire(input);
-      return true;
-    });
-  current = await serve();
-  const old = current.endpoint;
-  const registry = { endpoint: async () => current?.endpoint ?? null };
-  const launch = vi.fn(async () => {
-    running = 2;
-    current = await serve();
+  const legacy = await openControl(legacyPing);
+  mkdirSync(registry.root, { recursive: true });
+  writeFileSync(join(registry.root, 'service.json'), JSON.stringify(legacy.endpoint));
+  const config = new UserConfigService({ appDataRoot: () => root }, true);
+  const stop = connectDesktopServices(registry, {
+    dataRoot: root,
+    config,
+    publicDir: root,
+    remoteDirectory: join(root, 'remote-network'),
+    remoteHelper: join(root, 'helper'),
   });
+  const signal = AbortSignal.timeout(3000);
   try {
-    expect(await connectDesktopService(registry, launch, 1)).toEqual(old);
-    expect(launch).not.toHaveBeenCalled();
-    const updated = await connectDesktopService(registry, launch, 2);
-    expect(updated).not.toEqual(old);
-    expect(await connectDesktopService(registry, launch, 1)).toEqual(updated);
-    expect(retire).toHaveBeenCalledTimes(1);
-    expect(launch).toHaveBeenCalledTimes(1);
+    const [main, window] = await Promise.all([
+      desktopWebStatus(),
+      connectDesktopService(registry, undefined, signal),
+    ]);
+    expect(legacyPing).toHaveBeenCalledWith('ping', undefined);
+    expect(main).toMatchObject({ available: true, enabled: false });
+    expect(window).toEqual(await registry.endpoint('service'));
+    expect(window.token).not.toBe(legacy.endpoint.token);
+    expect(await registry.claimHost()).toBeNull();
+    await stop();
+    expect(await registry.endpoint('service')).toBeNull();
+    expect(await desktopServiceIsRunning(window, signal)).toBe(false);
+    const release = await registry.claimHost();
+    expect(release).not.toBeNull();
+    release?.();
   } finally {
-    current?.close();
+    legacy.close();
+    await stop();
+    rmSync(root, { force: true, recursive: true });
   }
 });
 
-it('只返回 ping 的旧桌面服务不算就绪，也不会重复启动争抢实例锁', async () => {
-  const legacy = await openControl((method) => {
-    if (method === 'ping') return true;
-    throw new Error('未知 WeQ 服务命令。');
+it('账号窗口退出可以取消对尚未启动的主进程的等待', async () => {
+  const controller = new AbortController();
+  const lookup = vi.fn(async () => null);
+  const pending = connectDesktopService({ endpoint: lookup }, undefined, controller.signal);
+  controller.abort();
+  await expect(pending).rejects.toThrow(expect.objectContaining({ name: 'AbortError' }));
+  expect(lookup).toHaveBeenCalledTimes(1);
+});
+
+it('窗口 IPC 的异步查询和晚挂载订阅始终留在发送窗口的账号中', async () => {
+  const a = new AccountRuntime();
+  const b = new AccountRuntime();
+  const labels = new Map([
+    [a, 'A'],
+    [b, 'B'],
+  ]);
+  const events = accountRuntimeEvents();
+  const calls = router({
+    read: procedure.query(async () => {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      return labels.get(currentAccountRuntime());
+    }),
+    watch: procedure.subscription(() =>
+      observable<string>((observer) => {
+        const receive = (msg: string) => observer.next(msg);
+        events.on('message', receive);
+        return () => events.off('message', receive);
+      }),
+    ),
   });
-  const launch = vi.fn(async () => {});
+  const left = calls.createCaller({ accountRuntime: a });
+  const right = calls.createCaller({ accountRuntime: b });
+  expect(await Promise.all([left.read(), right.read()])).toEqual(['A', 'B']);
+  const inboxA = vi.fn();
+  const inboxB = vi.fn();
+  const subscriptionA = (await left.watch()).subscribe({ next: inboxA });
+  const subscriptionB = (await right.watch()).subscribe({ next: inboxB });
   try {
-    await expect(
-      connectDesktopService({ endpoint: async () => legacy.endpoint }, launch, 1),
-    ).rejects.toThrow();
-    expect(launch).not.toHaveBeenCalled();
+    a.run(() => events.emit('message', 'only A'));
+    expect(inboxA).toHaveBeenCalledWith('only A');
+    expect(inboxB).not.toHaveBeenCalled();
+    subscriptionA.unsubscribe();
+    expect(a.run(() => events.listenerCount('message'))).toBe(0);
+    b.run(() => events.emit('message', 'still B'));
+    expect(inboxB).toHaveBeenCalledWith('still B');
   } finally {
-    legacy.close();
+    subscriptionA.unsubscribe();
+    subscriptionB.unsubscribe();
+  }
+});
+
+it('同一主进程的账号窗口各自注册，关闭 A 后 B 的地址和上下文仍可用', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-account-windows-'));
+  const registry = new DesktopServiceRegistry(root);
+  const routes = new DesktopAccountRoutes(root, registry);
+  const scopes = new Map<AccountRuntime, string>();
+  const core = {
+    entry: () => ({
+      handle: (_request: unknown, response: Parameters<typeof sendJson>[0]) => {
+        sendJson(response, 200, { account: scopes.get(currentAccountRuntime()) });
+      },
+      attach: () => {},
+      close: () => {},
+    }),
+  } as unknown as WebCore;
+  const register = (configId: string) => {
+    const runtime = new AccountRuntime();
+    scopes.set(runtime, configId);
+    const session = {};
+    return runtime.run(() =>
+      registerAccountWorker({
+        registry,
+        core,
+        currentAccount: () => ({ configId, uin: configId, session }),
+        watchClosing: () => () => {},
+        launch: async () => {},
+        openHere: async () => {},
+        reveal: () => {},
+      }),
+    );
+  };
+  const stop = await Promise.all([register('101'), register('202')]);
+  const read = async ({ account, remote }: RoutedAccount) => {
+    const response = await fetch(`http://127.0.0.1:${remote.port}/`, {
+      headers: {
+        [PRIVATE_TOKEN_HEADER]: remote.token,
+        [PRIVATE_ACCOUNT_HEADER]: account.generation,
+      },
+    });
+    return response.json();
+  };
+  try {
+    const a = (await routes.find('101'))!;
+    const b = (await routes.find('202'))!;
+    expect(await Promise.all([read(a), read(b)])).toEqual([{ account: '101' }, { account: '202' }]);
+    stop.shift()?.();
+    expect(await routes.find('101')).toBeUndefined();
+    expect((await routes.find('202'))?.remote).toEqual(b.remote);
+    expect(await read(b)).toEqual({ account: '202' });
+  } finally {
+    for (const close of stop) close();
+    rmSync(root, { force: true, recursive: true });
   }
 });
 
@@ -191,11 +324,154 @@ it('MCP 会话独立切号，旧下载票据随原会话切号失效', async () 
     expect(old.uin).toBe('101');
     expect((await call(b, 'get_self_profile')).uin).toBe('202');
     expect((await fetch(base + old.downloadPath, { headers })).status).toBe(200);
+    const file = await call(a, 'download_group_file', { groupCode: '12345', fileId: 'fixture' });
+    expect(file.downloadPath).toMatch(/^\/downloads\//);
+    expect((await fetch(base + file.downloadPath, { headers })).status).toBe(200);
+    worker.stale.add('101');
+    expect((await a.callTool({ name: 'get_self_profile' })).isError).toBe(true);
+    expect((await call(b, 'get_self_profile')).uin).toBe('202');
     await call(a, 'switch_account', { configId: '202' });
     expect((await fetch(base + old.downloadPath, { headers })).status).toBe(404);
+    expect((await fetch(base + file.downloadPath, { headers })).status).toBe(404);
     expect((await call(b, 'get_self_profile')).uin).toBe('202');
   } finally {
     await Promise.all([a.close(), b.close()]);
+    await gateway.stop();
+    worker.close();
+  }
+});
+
+it('MCP 后台会话只选择已打开的授权账号', async () => {
+  const worker = await fixture();
+  const token = 'c'.repeat(64);
+  const gateway = new DesktopMcpGateway(worker.routes, (id) =>
+    id === mcpCredentialId(token) ? ['101', '202'] : undefined,
+  );
+  await gateway.configure({ port: 0, token });
+  const client = new Client({ name: 'fixture-background', version: '1' });
+  const transport = new StreamableHTTPClientTransport(
+    new URL(`http://127.0.0.1:${gateway.boundPort}`),
+    { requestInit: { headers: { Authorization: `Bearer ${token}` } } },
+  );
+  const select = (configId: string) =>
+    client.callTool({ name: 'select_open_account', arguments: { configId } });
+  try {
+    await client.connect(transport);
+    worker.windows.mockResolvedValueOnce([(await worker.find('101'))!]);
+    worker.find.mockClear();
+    const accounts = await client.callTool({ name: 'list_accounts', arguments: {} });
+    expect(JSON.parse((accounts.content as { text: string }[])[0]!.text)).toEqual([
+      expect.objectContaining({ configId: '101', open: true, current: false }),
+      expect.objectContaining({ configId: '202', open: false, current: false }),
+    ]);
+    expect((await select('303')).isError).toBe(true);
+    expect(worker.find).not.toHaveBeenCalled();
+    worker.find.mockResolvedValueOnce(undefined);
+    expect((await select('202')).isError).toBe(true);
+    expect((await select('101')).isError).not.toBe(true);
+    const profile = await client.callTool({ name: 'get_self_profile', arguments: {} });
+    expect(JSON.parse((profile.content as { text: string }[])[0]!.text).uin).toBe('101');
+    expect(worker.open).not.toHaveBeenCalled();
+  } finally {
+    await client.close();
+    await gateway.stop();
+    worker.close();
+  }
+});
+
+it('旧 MCP 令牌保留读权限，移除账号时同步撤销操作权限', () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-mcp-grants-'));
+  const token = 'c'.repeat(64);
+  const id = mcpCredentialId(token);
+  try {
+    mkdirSync(join(root, 'desktop-services'));
+    writeFileSync(
+      join(root, 'desktop-services', 'mcp-grants.json'),
+      JSON.stringify([{ id, label: '默认令牌', configIds: ['101', '202'] }]),
+    );
+    const grants = new McpGrants(root);
+    expect(grants.list(token)[0]).toMatchObject({ configIds: ['101', '202'], writeConfigIds: [] });
+    grants.set(token, id, ['101', '202'], ['202']);
+    expect(new McpGrants(root).list(token)[0]?.writeConfigIds).toEqual(['202']);
+    expect(mcpGrantInput.parse({ id, configIds: ['101', '202'] })).toEqual({
+      id,
+      configIds: ['101', '202'],
+    });
+    grants.set(token, id, ['101']);
+    grants.set(token, id, ['101', '202']);
+    expect(new McpGrants(root).list(token)[0]?.writeConfigIds).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('MCP 单账号权限使用已保存的授权，降级和撤销时保留同一令牌下其他账号的权限', () => {
+  const root = mkdtempSync(join(tmpdir(), 'weq-mcp-grants-'));
+  const token = 'c'.repeat(64);
+  const id = mcpCredentialId(token);
+  try {
+    const grants = new McpGrants(root);
+    expect(grants.setAccountPermission(token, id, '101', 'operate')).toBe(true);
+    expect(grants.setAccountPermission(token, id, '202', 'operate')).toBe(true);
+    expect(grants.setAccountPermission(token, id, '101', 'read')).toBe(true);
+    expect(grants.setAccountPermission(token, id, '101', 'read')).toBe(false);
+    expect(new McpGrants(root).list(token)[0]).toMatchObject({
+      configIds: ['101', '202'],
+      writeConfigIds: ['202'],
+    });
+    expect(grants.setAccountPermission(token, id, '101', 'none')).toBe(true);
+    expect(new McpGrants(root).list(token)[0]).toMatchObject({
+      configIds: ['202'],
+      writeConfigIds: ['202'],
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('精简 MCP 只公布目录工具，操作授权跟随当前令牌选中的账号', async () => {
+  const worker = await fixture();
+  const token = 'c'.repeat(64);
+  const credential = mcpCredentialId(token);
+  const gateway = new DesktopMcpGateway(
+    worker.routes,
+    (id) => (id === credential ? ['101', '202'] : undefined),
+    (id, configId) => id === credential && configId === '202',
+  );
+  await gateway.configure({ port: 0, token });
+  const base = `http://127.0.0.1:${gateway.boundPort}`;
+  const client = new Client({ name: 'compact-fixture', version: '1' });
+  try {
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(base + '/mcp/compact'), {
+        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+      }),
+    );
+    expect((await client.listTools()).tools.map(({ name }) => name).sort()).toEqual([
+      'call_capability',
+      'get_capability',
+      'get_feature',
+      'list_accounts',
+      'list_capabilities',
+      'list_features',
+      'select_open_account',
+      'switch_account',
+    ]);
+    for (const configId of ['101', '202']) {
+      const selection = await client.callTool({
+        name: 'select_open_account',
+        arguments: { configId },
+      });
+      expect(selection.isError).not.toBe(true);
+      const result = await client.callTool({ name: 'list_capabilities', arguments: {} });
+      expect(result.structuredContent).toMatchObject({ uin: configId });
+    }
+    expect(worker.toolCalls).toEqual([
+      { name: 'list_capabilities', args: expect.any(Object), compact: true, allowWrites: false },
+      { name: 'list_capabilities', args: expect.any(Object), compact: true, allowWrites: true },
+    ]);
+  } finally {
+    await client.close();
     await gateway.stop();
     worker.close();
   }
@@ -233,6 +509,129 @@ it('已有只读客户端只能直连令牌唯一授权的在用账号，不会�
   } finally {
     await gateway.stop();
     worker.close();
+  }
+});
+
+it('Remote 在线入口先选账号，再加载一份带首屏资源的网页', async () => {
+  const shell = '<!doctype html><script type="module" src="/assets/entry.js"></script>';
+  const worker = await fixture(['101', '202'], {}, shell);
+  const publicDir = mkdtempSync(join(tmpdir(), 'weq-account-entry-'));
+  writeFileSync(join(publicDir, 'index.html'), '<!doctype html><title>测试离线入口</title>');
+  const pairing = new RemotePairing();
+  const token = 'b'.repeat(64);
+  const claim = pairing.claim({
+    invitation: pairing.invite().secret,
+    name: '测试手机',
+    scope: 'web:access',
+    tokenHash: tokenHash(token),
+  });
+  pairing.decide(claim.id, true, ['101', '202']);
+  const gateway = new RemoteWebGateway(
+    pairing,
+    (auth) =>
+      new DesktopWebEntry({
+        auth,
+        accounts: worker.routes,
+        publicDir,
+        loadAccountAvatar: async () => null,
+      }),
+  );
+  const server = createRemoteServer(pairing, gateway);
+  const base = `http://127.0.0.1:${await listenPrivate(server)}`;
+  const get = (path: string, redirect: RequestRedirect = 'manual') =>
+    fetch(base + path, { redirect, headers: { Authorization: `Bearer ${token}` } });
+  try {
+    expect(await (await get('/v1/status')).json()).toMatchObject({ webAccountEntry: true });
+    expect((await fetch(base + REMOTE_ACCOUNT_ENTRY)).status).toBe(403);
+    const entry = await get(REMOTE_ACCOUNT_ENTRY);
+    expect(entry.status).toBe(200);
+    expect(entry.headers.get('cache-control')).toBe('no-store');
+    const html = await entry.text();
+    expect(html).not.toMatch(/<(?:link\b|script\b[^>]*\bsrc\s*=)/i);
+    const script = /<script>([\s\S]+)<\/script>/.exec(html)?.[1];
+    expect(script).toBeTruthy();
+    const resume = async (storage: Record<string, string> = {}) => {
+      let path = '';
+      runInNewContext(script!, {
+        URLSearchParams,
+        Event,
+        window: new EventTarget(),
+        localStorage: { getItem: (key: string) => storage[key] ?? null },
+        location: {
+          replace: (target: string) => {
+            path = target;
+          },
+        },
+      });
+      return get(path, 'follow');
+    };
+    const first = await resume();
+    expect(new URL(first.url).pathname).toBe('/_weq/accounts');
+    const accounts = await first.text();
+    expect(accounts).toContain('name="configId" value="101"');
+    expect(accounts).toContain('name="configId" value="202"');
+
+    const workspace = (configId: string) =>
+      JSON.stringify({ configId, uin: configId, static: false, mobile: false });
+    const returning = await resume({
+      [LAST_REMOTE_ACCOUNT_KEY]: '202',
+      [REMOTE_WORKSPACE_KEY]: workspace('101'),
+    });
+    expect(new URL(returning.url).pathname).toMatch(/^\/_weq\/account\/202\//);
+    expect(await returning.text()).toBe(shell);
+    const migrated = await resume({ [REMOTE_WORKSPACE_KEY]: workspace('101') });
+    expect(new URL(migrated.url).pathname).toMatch(/^\/_weq\/account\/101\//);
+    expect(await migrated.text()).toBe(shell);
+    const malformed = await resume({ [REMOTE_WORKSPACE_KEY]: '{' });
+    expect(new URL(malformed.url).pathname).toBe('/_weq/accounts');
+    await malformed.text();
+
+    pairing.setAccountConfigIds(claim.id, ['101']);
+    const single = await get('/_weq/accounts?resume=1');
+    const accountPath = single.headers.get('location')!;
+    expect(accountPath).toMatch(/^\/_weq\/account\/101\//);
+    const revoked = await resume({ [LAST_REMOTE_ACCOUNT_KEY]: '202' });
+    expect(new URL(revoked.url).pathname).toBe('/_weq/accounts');
+    const revokedPicker = await revoked.text();
+    expect(revokedPicker).not.toContain('/assets/entry.js');
+    expect(revokedPicker).toContain('data-request-account="202"');
+    expect(revokedPicker).toContain('未授权');
+
+    const switchPath = `${accountPath}_weq/switch-account`;
+    const headers = { Authorization: `Bearer ${token}`, Accept: 'application/json' };
+    expect((await fetch(base + switchPath, { method: 'HEAD', headers })).status).toBe(204);
+    const list = async () => (await fetch(base + switchPath, { headers })).json();
+    expect(await list()).toMatchObject([
+      { configId: '101', authorized: true, online: false },
+      { configId: '202', authorized: false, online: null, avatarUrl: null },
+    ]);
+    const post = (path: string, origin?: string) =>
+      fetch(base + path, {
+        method: 'POST',
+        headers: { ...headers, ...(origin ? { Origin: origin } : {}) },
+        body: new URLSearchParams({ configId: '202' }),
+        redirect: 'manual',
+      });
+    expect((await post(`${accountPath}_weq/select-account`)).status).toBe(409);
+    expect((await post(REMOTE_ACCOUNT_ACCESS, 'http://different.invalid')).status).toBe(403);
+    expect(pairing.snapshot().accountRequests).toEqual([]);
+    const request = await (await post(REMOTE_ACCOUNT_ACCESS)).json();
+    expect(request).toMatchObject({ state: 'pending', id: expect.any(String) });
+    const accessPath = `${REMOTE_ACCOUNT_ACCESS}?id=${request.id}`;
+    expect(await (await get(accessPath)).json()).toEqual(request);
+    expect((await post(`${accountPath}_weq/select-account`)).status).toBe(409);
+    pairing.decideAccountAccess(request.id, true, (account) => account.configId === '202');
+    expect(await (await get(accessPath)).json()).toEqual({ state: 'approved' });
+    expect(await list()).toMatchObject([
+      { configId: '101', authorized: true },
+      { configId: '202', authorized: true },
+    ]);
+    expect((await post(`${accountPath}_weq/select-account`)).status).toBe(200);
+    expect(await (await get('/')).text()).toContain('测试离线入口');
+  } finally {
+    stopPrivate(server);
+    worker.close();
+    rmSync(publicDir, { recursive: true, force: true });
   }
 });
 
@@ -317,8 +716,8 @@ it('远程页面只打开已授权账号，选择失败和服务重启后可重�
     const choices = await fetch(switchPath, { headers: { accept: 'application/json' } });
     expect(choices.headers.get('cache-control')).toBe('no-store');
     expect(await choices.json()).toMatchObject([
-      { configId: '101', online: false },
       { configId: '202', online: true, avatarUrl: '/_weq/account-avatar?configId=202' },
+      { configId: '101', online: false },
       { configId: '303', online: false },
     ]);
     const changeAccount = (configId: string, accept = 'text/html') =>
@@ -354,6 +753,9 @@ it('远程页面只打开已授权账号，选择失败和服务重启后可重�
     expect(closedAccount.status).toBe(409);
     expect(closedAccount.headers.get('x-weq-account-selection')).toBe('required');
     expect((await fetch(snapshotPath, { method: 'POST' })).status).toBe(401);
+    expect(await (await fetch(`${base}${destination}trpc/startup.snapshot`)).json()).toEqual({
+      uin: '101',
+    });
     worker.stale.delete('202');
     entry.close();
     entry = createEntry();

@@ -44,6 +44,7 @@ export type UpdateDownloadTask = Pick<
 > & { version?: string; progress?: UpdateProgress };
 
 export type UpdateEvent =
+  | { kind: 'availability'; available: boolean }
   | { kind: 'download-task'; task: UpdateDownloadTask | null }
   /** Speed-test started — `mirrors` mirrors are being screened. */
   | { kind: 'checking'; mirrors: number }
@@ -61,6 +62,52 @@ export type UpdateEvent =
 
 export const updateBus = new EventEmitter();
 
+export type UpdateBanner = Extract<UpdateEvent, { kind: 'available' | 'downloaded' }>;
+let updateBanner: UpdateBanner | null = null;
+const dismissedBanners = new Map<string, UpdateBanner['kind']>();
+const bannerListeners = new Set<(banner: UpdateBanner | null) => void>();
+
+function visibleUpdateBanner() {
+  if (!updateBanner) return null;
+  const dismissed = dismissedBanners.get(updateBanner.latest);
+  return dismissed === 'downloaded' || dismissed === updateBanner.kind ? null : updateBanner;
+}
+
+function changeUpdateBanner(next: UpdateBanner | null) {
+  if (next?.latest === updateBanner?.latest && next?.kind === updateBanner?.kind) return;
+  const previous = visibleUpdateBanner();
+  updateBanner = next;
+  const visible = visibleUpdateBanner();
+  if (previous !== visible) for (const listener of bannerListeners) listener(visible);
+}
+
+updateBus.on('event', (event: UpdateEvent) => {
+  if (event.kind === 'downloaded') changeUpdateBanner(event);
+  else if (event.kind === 'available') {
+    if (updateBanner?.kind !== 'downloaded' || updateBanner.latest !== event.latest)
+      changeUpdateBanner(event);
+  } else if (
+    event.kind === 'installing' ||
+    (event.kind === 'chosen' && !event.hasUpdate) ||
+    (event.kind === 'availability' && !event.available)
+  )
+    changeUpdateBanner(null);
+});
+
+export function subscribeUpdateBanner(listener: (banner: UpdateBanner | null) => void) {
+  bannerListeners.add(listener);
+  listener(visibleUpdateBanner());
+  return () => bannerListeners.delete(listener);
+}
+
+export function dismissUpdateBanner(banner: UpdateBanner) {
+  if (updateBanner?.latest !== banner.latest || updateBanner.kind !== banner.kind) return;
+  if (!visibleUpdateBanner()) return;
+  dismissedBanners.set(banner.latest, banner.kind);
+  if (dismissedBanners.size > 32) dismissedBanners.delete(dismissedBanners.keys().next().value!);
+  for (const listener of bannerListeners) listener(null);
+}
+
 /** Last check result, cached for the session (settings getState + startup red dot). */
 let lastState: UpdateState | null = null;
 
@@ -69,7 +116,11 @@ export function getUpdateState(): UpdateState | null {
 }
 
 export function setUpdateState(state: UpdateState | null): void {
+  const wasAvailable = lastState?.hasUpdate === true;
   lastState = state;
+  const available = state?.hasUpdate === true;
+  if (available !== wasAvailable)
+    updateBus.emit('event', { kind: 'availability', available } satisfies UpdateEvent);
 }
 
 /**
@@ -84,7 +135,7 @@ export interface UpdateActions {
   setPrerelease(enabled: boolean): void;
   check(force: boolean): Promise<UpdateState>;
   assertDownloadAvailable?(): void;
-  startDownload(foreground?: boolean): Promise<void>;
+  startDownload(foreground?: boolean, pageId?: string): Promise<void>;
   getDownloadTask?(): UpdateDownloadTask | null;
   backgroundDownload?(id: string): void;
   forgetDownloadTask?(id: string): boolean;

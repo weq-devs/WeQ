@@ -9,6 +9,7 @@ import {
 } from '../../shared/enhancement_release';
 import { TransferGate } from '@weq/service/data-saver';
 import { networkScope } from '@weq/service/network-scope';
+import { releaseDownloadBytes } from './release_catalog';
 
 export interface EnhancementComponentState {
   ready: boolean;
@@ -124,12 +125,14 @@ export class EnhancementPacks {
   private queue = Promise.resolve();
   private removalQueue = Promise.resolve();
   private writes = Promise.resolve();
-  private readonly loaded: Promise<void>;
+  private loaded: Promise<void>;
   private readonly releases = new Map<
     EnhancementPackId,
     { release: EnhancementRelease; blocker: string | null; requiresWeqUpdate: boolean }
   >();
   private readonly installedVersions = new Map<EnhancementPackId, string>();
+  private readonly installedAt = new Map<EnhancementPackId, number>();
+  private readonly updatedAt = new Map<EnhancementPackId, number>();
   private readonly gates = new Map<
     EnhancementPackId,
     {
@@ -158,15 +161,34 @@ export class EnhancementPacks {
                 identity?: string;
                 contentVersion?: string;
                 installed?: boolean;
+                installedAt?: number;
+                updatedAt?: number;
               };
               if (receipt.installed) this.installed.add(id);
               if (typeof receipt.identity === 'string') this.receipts[id] = receipt.identity;
               if (typeof receipt.contentVersion === 'string')
                 this.installedVersions.set(id, receipt.contentVersion);
+              if (typeof receipt.installedAt === 'number' && Number.isFinite(receipt.installedAt))
+                this.installedAt.set(id, receipt.installedAt);
+              if (typeof receipt.updatedAt === 'number' && Number.isFinite(receipt.updatedAt))
+                this.updatedAt.set(id, receipt.updatedAt);
             }
           }
       })
       .catch(() => {});
+  }
+
+  restoreInstallTimes(times: ReadonlyArray<readonly [EnhancementPackId, number]>) {
+    if (!times.length) return;
+    this.loaded = this.loaded.then(async () => {
+      let changed = false;
+      for (const [id, at] of times) {
+        if (this.removed.has(id) || this.installedAt.has(id)) continue;
+        this.installedAt.set(id, at);
+        changed = true;
+      }
+      if (changed) await this.save().catch(() => {});
+    });
   }
 
   selectRelease(
@@ -225,15 +247,7 @@ export class EnhancementPacks {
         states.every((state) => state.ready) &&
         this.receipts[pack.id] === this.identity(pack);
       const downloaded = !this.removed.has(pack.id) && states.every((state) => state.ready);
-      const installed =
-        !this.removed.has(pack.id) &&
-        (this.installed.has(pack.id) ||
-          !!this.receipts[pack.id] ||
-          components.some(
-            (component, index) =>
-              !component.id.startsWith('engine:') &&
-              (states[index]!.installed || states[index]!.ready),
-          ));
+      const installed = this.hasInstallation(pack, states);
       const displayedBytes = states.map((state, index) =>
         installed
           ? (this.activatingSizes.get(components[index]!.id) ??
@@ -256,6 +270,8 @@ export class EnhancementPacks {
           states[index]!.ready ? [] : [component.name ?? component.id],
         ),
         installedVersion: installed ? (version ?? 'legacy') : null,
+        installedAt: installed ? this.installedAt.get(pack.id) : undefined,
+        updatedAt: installed ? this.updatedAt.get(pack.id) : undefined,
         latestVersion: selected?.release.contentVersion ?? null,
         minWeqVersion: selected?.release.minWeqVersion ?? null,
         requiresWeqUpdate:
@@ -265,6 +281,7 @@ export class EnhancementPacks {
           (states.some((state) => state.updateAvailable || !state.ready) ||
             (!!version && !!selected && version !== selected.release.contentVersion)),
         blocker: selected?.blocker ?? states.find((state) => state.blocker)?.blocker ?? null,
+        fullDownloadBytes: selected ? releaseDownloadBytes(selected.release) : null,
         downloadBytes: states.reduce((sum, state) => sum + state.downloadBytes, 0),
         sizeOnDisk: displayedBytes.reduce((sum, bytes) => sum + bytes, 0),
         sharedBytes: displayedBytes.reduce(
@@ -278,6 +295,18 @@ export class EnhancementPacks {
         operation: operation ?? null,
       };
     });
+  }
+
+  private hasInstallation(pack: EnhancementPackDefinition, states: EnhancementComponentState[]) {
+    return (
+      !this.removed.has(pack.id) &&
+      (this.installed.has(pack.id) ||
+        !!this.receipts[pack.id] ||
+        states.some(
+          (state, index) =>
+            !pack.components[index]!.startsWith('engine:') && (state.installed || state.ready),
+        ))
+    );
   }
 
   private shared(excluding: EnhancementPackId, componentId: string): boolean {
@@ -418,6 +447,12 @@ export class EnhancementPacks {
   ): Promise<void> {
     await this.loaded;
     signal.throwIfAborted();
+    const hadInstallation =
+      download &&
+      this.hasInstallation(
+        pack,
+        pack.components.map((id) => this.components.get(id)!.state()),
+      );
     const control = this.gates.get(pack.id)!;
     const { gate } = control;
     if (download && this.resolveRelease) {
@@ -568,6 +603,10 @@ export class EnhancementPacks {
       this.receipts[pack.id] = this.identity(pack);
       this.removed.delete(pack.id);
       if (selected) this.installedVersions.set(pack.id, selected.release.contentVersion);
+      const changed =
+        previouslyRemoved ||
+        previousReceipt !== this.receipts[pack.id] ||
+        previousVersion !== this.installedVersions.get(pack.id);
       if (pack.validateShared)
         for (const other of this.definitions) {
           if (
@@ -577,7 +616,11 @@ export class EnhancementPacks {
           )
             this.receipts[other.id] = this.identity(other);
         }
-      await this.save();
+      await this.save(
+        download && changed
+          ? { id: pack.id, field: hadInstallation ? 'updatedAt' : 'installedAt', at: Date.now() }
+          : undefined,
+      );
     } catch (error) {
       for (const revert of undo.reverse()) await revert();
       this.receipts = previousReceipts;
@@ -675,6 +718,8 @@ export class EnhancementPacks {
       delete this.receipts[id];
       this.installed.delete(id);
       this.installedVersions.delete(id);
+      this.installedAt.delete(id);
+      this.updatedAt.delete(id);
       await this.save();
       this.operations.delete(id);
     } catch (error) {
@@ -690,33 +735,55 @@ export class EnhancementPacks {
     }
   }
 
-  private save(): Promise<void> {
-    const text = JSON.stringify(
-      Object.fromEntries(
-        [...new Set([...Object.keys(this.receipts), ...this.installed, ...this.removed])].map(
-          (id) => [
-            id,
-            {
-              identity: this.receipts[id as EnhancementPackId],
-              removed: this.removed.has(id as EnhancementPackId),
-              installed: !this.removed.has(id as EnhancementPackId),
-              contentVersion: this.installedVersions.get(id as EnhancementPackId),
-              components: this.definitions
-                .find((pack) => pack.id === id)
-                ?.components.flatMap((componentId) => {
-                  const value = this.components.get(componentId)?.installation?.();
-                  return value ? [value] : [];
-                }),
-            },
-          ],
-        ),
-      ),
-    );
+  private save(time?: {
+    id: EnhancementPackId;
+    field: 'installedAt' | 'updatedAt';
+    at: number;
+  }): Promise<void> {
+    const snapshot = ENHANCEMENT_PACK_IDS.filter(
+      (id) => this.receipts[id] || this.installed.has(id) || this.removed.has(id),
+    ).map((id) => {
+      const removed = this.removed.has(id);
+      const components = this.definitions
+        .find((pack) => pack.id === id)
+        ?.components.flatMap((componentId) => {
+          const value = this.components.get(componentId)?.installation?.();
+          return value ? [value] : [];
+        });
+      return [
+        id,
+        {
+          identity: this.receipts[id],
+          removed,
+          installed: !removed,
+          contentVersion: this.installedVersions.get(id),
+          components,
+        },
+      ] as const;
+    });
     const write = this.writes
       .catch(() => {})
       .then(async () => {
         const path = join(this.directory, 'ready.json');
-        await writeFileAtomic(path, text);
+        const saved = Object.fromEntries(
+          snapshot.map(([id, receipt]) => [
+            id,
+            {
+              ...receipt,
+              installedAt: receipt.removed ? undefined : this.installedAt.get(id),
+              updatedAt:
+                receipt.removed || (id === time?.id && time.field === 'installedAt')
+                  ? undefined
+                  : this.updatedAt.get(id),
+              ...(id === time?.id && !receipt.removed ? { [time.field]: time.at } : {}),
+            },
+          ]),
+        );
+        await writeFileAtomic(path, JSON.stringify(saved));
+        if (time) {
+          if (time.field === 'installedAt') this.updatedAt.delete(time.id);
+          this[time.field].set(time.id, time.at);
+        }
       });
     this.writes = write;
     return write;

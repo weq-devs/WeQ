@@ -21,6 +21,7 @@ export interface WorkspaceTaskIndicator {
   cancelled?: boolean;
   notificationHandled?: boolean;
   showProgressNotification?: boolean;
+  showRunningBadge?: boolean;
   showResultBadge?: boolean;
   /** 记录与提醒照常保留，但后台步骤不抢占当前界面。 */
   autoOpenTaskList?: boolean;
@@ -93,7 +94,14 @@ export function summarizeWorkspaceTasks({
     Partial<
       Pick<
         BackgroundTask,
-        'name' | 'kind' | 'destination' | 'subtasks' | 'display' | 'clonePersonaId'
+        | 'name'
+        | 'kind'
+        | 'destination'
+        | 'subtasks'
+        | 'display'
+        | 'clonePersonaId'
+        | 'automaticUpdate'
+        | 'statusLabel'
       >
     >)[];
 }) {
@@ -208,9 +216,15 @@ export function summarizeWorkspaceTasks({
               }),
             )
           : undefined,
-      notificationHandled: task.kind === 'forward' || task.destination === 'db-checkup',
-      showResultBadge: task.kind !== 'update',
+      notificationHandled:
+        task.kind === 'forward' ||
+        task.destination === 'db-checkup' ||
+        (!!task.automaticUpdate && ['completed', 'cancelled'].includes(task.status) && !failed),
+      showProgressNotification: task.automaticUpdate ? false : undefined,
+      showRunningBadge: task.automaticUpdate ? false : undefined,
+      showResultBadge: task.kind !== 'update' && (!task.automaticUpdate || failed),
       paused: task.status === 'paused',
+      waiting: task.automaticUpdate && task.status === 'paused' && task.statusLabel === '等待继续',
       cancelled: task.status === 'cancelled',
       activity:
         task.status === 'running' ? 'running' : task.status === 'paused' ? 'idle' : 'finished',
@@ -222,7 +236,8 @@ export function summarizeWorkspaceTasks({
     });
   }
   return {
-    running: items.filter((item) => item.activity === 'running').length,
+    running: items.filter((item) => item.activity === 'running' && item.showRunningBadge !== false)
+      .length,
     finished: items.filter((item) => item.activity === 'finished' && item.showResultBadge !== false)
       .length,
     failed: items.filter((item) => item.failed && item.showResultBadge !== false).length,

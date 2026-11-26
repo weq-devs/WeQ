@@ -229,20 +229,6 @@ html[data-theme] .weq-select .weq-bignum-v.is-accent {
   background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
 }
 
-html[data-theme] body:has(.weq-select) > .weq-acct-ctx-menu {
-  background: var(--weq-bg-elevated);
-  border-color: var(--weq-border-strong);
-  box-shadow: var(--weq-shadow-card);
-}
-
-html[data-theme] body:has(.weq-select) > .weq-acct-ctx-menu button {
-  color: color-mix(in srgb, var(--destructive) 80%, var(--weq-fg-primary));
-}
-
-html[data-theme] body:has(.weq-select) > .weq-acct-ctx-menu button:hover {
-  background: color-mix(in srgb, var(--destructive) 10%, transparent);
-}
-
 .weq-select .weq-static-input,
 .weq-select .weq-auto-enter input:not(:checked) {
   color: var(--weq-fg-primary);
@@ -360,8 +346,7 @@ html[data-theme='dark'] .weq-select .weq-acct-row.is-active {
 
 @media (prefers-reduced-motion: reduce) {
   html[data-theme] .weq-select,
-  html[data-theme] .weq-select *,
-  html[data-theme] body:has(.weq-select) > .weq-acct-ctx-menu {
+  html[data-theme] .weq-select * {
     animation: none;
     transition: none;
   }
@@ -684,10 +669,6 @@ html[data-theme] .weq-select.weq-account-workspace .weq-action-primary:disabled 
 .weq-key-details > button {
   margin-bottom: 12px;
 }
-.weq-open-qr {
-  width: 100%;
-  min-height: 38px;
-}
 .weq-open-error {
   display: flex;
   flex-direction: column;
@@ -728,39 +709,6 @@ html[data-theme] .weq-account-workspace .weq-action-soft:disabled {
 }
 .weq-account-detail-empty img {
   object-fit: contain;
-}
-.weq-account-import {
-  flex: 1;
-  width: min(100%, 620px);
-  margin: 0 auto;
-}
-.weq-account-workspace .weq-static-backup {
-  gap: 20px;
-  overflow: visible;
-}
-.weq-account-workspace .weq-static-backup-head {
-  flex-direction: row;
-  justify-content: flex-start;
-  gap: 16px;
-  padding: 0;
-}
-.weq-account-workspace .weq-static-backup-head :is(img, .weq-static-backup-avatar-wrap > img) {
-  width: 56px !important;
-  height: 56px !important;
-  padding: 0;
-  border: none;
-  box-shadow: none;
-}
-.weq-account-workspace .weq-static-backup-title {
-  font-size: 18px;
-  max-height: 72px;
-  overflow-y: auto;
-}
-.weq-account-workspace .weq-static-badge.is-lg {
-  width: 22px;
-  height: 22px;
-  right: -3px;
-  bottom: -3px;
 }
 .weq-account-workspace .weq-static-input {
   border-radius: 6px;
@@ -809,7 +757,7 @@ html[data-theme] .weq-account-workspace .weq-action-soft:disabled {
   overflow-wrap: anywhere;
 }
 .weq-account-workspace .weq-account-grid {
-  flex: 0 1 auto;
+  flex: 1;
   min-height: 0;
 }
 .weq-account-workspace .weq-account-detail {
@@ -817,22 +765,42 @@ html[data-theme] .weq-account-workspace .weq-action-soft:disabled {
 }
 .weq-account-workspace .weq-account-accounts {
   display: flex;
+  flex: 1;
   flex-direction: column;
   min-height: 0;
 }
-.weq-account-workspace .weq-account-section-head,
-.weq-account-workspace .weq-account-actions {
+.weq-account-workspace .weq-account-section-head {
   flex-shrink: 0;
+  min-height: 36px;
 }
-.weq-account-workspace .weq-account-actions {
-  margin-top: auto;
+.weq-account-section-tools,
+.weq-account-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.weq-account-back {
+  min-height: 28px;
+  color: inherit;
+  text-align: left;
+}
+.weq-account-back:hover:not(:disabled) {
+  color: var(--weq-accent-ink);
 }
 .weq-account-workspace .weq-account-list {
   min-height: 0;
 }
-.weq-account-workspace .weq-account-import {
+.weq-account-workspace .weq-account-accounts > .weq-account-empty {
   min-height: 0;
+  gap: 12px;
   overflow-y: auto;
+}
+.weq-select .weq-account-diagnostics-action {
+  align-self: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  margin-inline-end: 8px;
 }
 .weq-diagnostics-trigger {
   display: flex;
@@ -891,27 +859,6 @@ html[data-theme] .weq-account-workspace .weq-action-soft:disabled {
 .weq-account-workspace button:disabled {
   cursor: default;
 }
-.weq-account-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  border-top: 1px solid var(--weq-border-subtle);
-}
-.weq-account-return {
-  grid-template-columns: minmax(0, 1fr);
-  margin-top: auto;
-}
-.weq-account-actions button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 40px;
-  color: var(--weq-fg-secondary);
-  font-size: 13px;
-}
-.weq-account-actions button:hover:not(:disabled) {
-  color: var(--weq-accent-ink);
-}
 .weq-account-workspace .weq-login-panel {
   gap: 12px;
 }
@@ -924,14 +871,6 @@ html[data-theme] .weq-account-workspace .weq-action-soft:disabled {
 }
 .weq-select.weq-account-workspace .weq-account-grid {
   gap: 16px;
-}
-.weq-open-identity {
-  position: relative;
-}
-.weq-open-key-button {
-  position: absolute;
-  top: 0;
-  right: 0;
 }
 .weq-key-recovery-body {
   display: flex;

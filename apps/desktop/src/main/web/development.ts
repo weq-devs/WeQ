@@ -12,6 +12,7 @@ import {
 import type { AuthGate } from './auth';
 import { developmentStartupProgress } from './development_progress';
 import { acceptsGzip } from './compression';
+import { allowRemoteMedia } from './remote_media_policy';
 import { lockRemoteViewport } from './remote_viewport';
 import { remoteReleaseDocument, startupResourceTracker } from './startup_assets';
 import { matchesIfNoneMatch } from '../protocol_response';
@@ -288,19 +289,19 @@ function developmentHtml(html: string, remote: boolean): string {
       )
     ) {
       const content = node.attrs.find((attr) => attr.name === 'content');
-      if (content)
-        content.value = content.value
-          .split(';')
-          .map((directive) => {
-            const parts = directive.trim().split(/\s+/);
-            if (
-              (parts[0] === 'script-src' || parts[0] === 'script-src-elem') &&
-              !parts.includes("'unsafe-inline'")
-            )
-              parts.push("'unsafe-inline'");
-            return parts.join(' ');
-          })
-          .join('; ');
+      if (content) {
+        const directives = content.value.split(';').map((directive) => {
+          const parts = directive.trim().split(/\s+/);
+          if (
+            (parts[0] === 'script-src' || parts[0] === 'script-src-elem') &&
+            !parts.includes("'unsafe-inline'")
+          )
+            parts.push("'unsafe-inline'");
+          return parts;
+        });
+        if (remote) allowRemoteMedia(directives);
+        content.value = directives.map((parts) => parts.join(' ')).join('; ');
+      }
     }
     if ('childNodes' in node) node.childNodes.forEach(visit);
   };

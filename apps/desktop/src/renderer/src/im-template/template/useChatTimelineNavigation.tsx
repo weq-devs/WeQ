@@ -129,7 +129,12 @@ export function useChatTimelineNavigation({
     (stop: UnreadDockStop) => visitedStops?.has(stop.seq),
     [visitedStops],
   );
-  const locateTask = useRef<object | null>(null);
+  const locateTask = useRef<{
+    scope: typeof navigationKey;
+    preserveNearbyStops: boolean;
+    pending: boolean;
+    target?: { id: string; seq: string };
+  } | null>(null);
   const [dockJumping, setDockJumping] = useState(false);
   const dockTask = useRef<object | null>(null);
 
@@ -182,21 +187,45 @@ export function useChatTimelineNavigation({
       if (scroll) timelineViewport(scroll)?.cancelScroll?.();
       const started = navigationScope.current;
       const dock = currentDock.current;
-      const task = {};
+      const task: NonNullable<typeof locateTask.current> = {
+        scope: started,
+        preserveNearbyStops: Boolean(dismissMissingStop || target.importantMessage),
+        pending: true,
+      };
       locateTask.current = task;
       let missing = false;
       const onMissing = () => {
         missing = true;
       };
-      const found = await parentJumpToSeq(dismissMissingStop ? { ...target, onMissing } : target);
+      let found: boolean;
+      try {
+        found =
+          (await parentJumpToSeq(dismissMissingStop ? { ...target, onMissing } : target)) !== false;
+      } finally {
+        task.pending = false;
+        if (
+          task.preserveNearbyStops &&
+          locateTask.current === task &&
+          navigationScope.current === started
+        )
+          readGestureUntil.current = 0;
+      }
       if (navigationScope.current !== started || locateTask.current !== task) return false;
-      if (found === false) {
+      if (!found) {
         if (missing && dismissMissingStop)
           visitStops(started, [dismissMissingStop.seq], 'important');
         return false;
       }
       const seq = target.seq == null ? null : String(target.seq);
       setLocatedSeq(seq);
+      if (task.preserveNearbyStops && seq) {
+        const row = target.msgId
+          ? messagesForDock.current.find(
+              (row) => row.msgSeq === seq && (row.msgId ?? row.id) === target.msgId,
+            )
+          : findUnreadMessage(messagesForDock.current, seq, target.importantMessage);
+        if (row) task.target = { id: row.id, seq };
+      }
       const stop = dock?.stops.find(
         (stop) => stop.seq === seq && (target.mode !== 'firstUnread' || stop.kind === 'unread'),
       );
@@ -616,17 +645,17 @@ export function useChatTimelineNavigation({
       (layout.height !== height || layout.viewportHeight !== viewportHeight);
     const delta = top - lastScrollTopRef.current;
     lastScrollTopRef.current = top;
-    const userReachedLatest =
-      bottom && atLatest && delta > 0 && readGestureUntil.current > performance.now();
+    const readGestureActive = readGestureUntil.current > performance.now();
+    const locate = locateTask.current;
+    if (delta !== 0 && readGestureActive && locate?.scope === navigationKey && !locate.pending)
+      locate.preserveNearbyStops = false;
+    const userReachedLatest = bottom && atLatest && delta > 0 && readGestureActive;
     if (userReachedLatest) holdingHistoryPosition.current = false;
     if (distanceFromBottom <= 48 && atLatest) setShowBottomJump(false);
     else if (Math.abs(delta) > 1) setShowBottomJump(delta > 0);
     if (!atLatest || holdingHistoryPosition.current) {
       atBottomRef.current = false;
-    } else if (
-      !bottomResized &&
-      (!bottom || !initialReadingPosition || readGestureUntil.current > performance.now())
-    ) {
+    } else if (!bottomResized && (!bottom || !initialReadingPosition || readGestureActive)) {
       atBottomRef.current = bottom;
     }
     if (bottom && atBottomRef.current)
@@ -635,7 +664,7 @@ export function useChatTimelineNavigation({
         viewportHeight,
         revision,
       };
-    if (bottom && readGestureUntil.current > performance.now()) requestReadAtBottom();
+    if (bottom && readGestureActive) requestReadAtBottom();
     if (bottom && atLatest && newMessagePill > 0) {
       setNewMessagePill(0);
     }
@@ -800,6 +829,7 @@ export function useChatTimelineNavigation({
       return;
     let rows = new Map<Element, ObservedTimelineRow>();
     const dockSince = new Map<string, number>();
+    let lastLocateTask = locateTask.current;
     const replySince = new Map<string, number>();
     let dockTimer: number | undefined;
     const clearVisibleRead = () => {
@@ -830,6 +860,14 @@ export function useChatTimelineNavigation({
         return;
       }
       const now = performance.now();
+      const locate = locateTask.current;
+      if (locate !== lastLocateTask) {
+        dockSince.clear();
+        lastLocateTask = locate;
+      }
+      // 定位带入视口的邻近消息仍可逐条跳转，等用户实际滚动后再按可见状态确认。
+      const importantJump =
+        locate?.scope === navigationKey && locate.preserveNearbyStops ? locate : null;
       const dockVisibleIds = new Set<string>();
       const dockSeen = new Set<string>();
       const visibleReplies = new Set<string>();
@@ -872,8 +910,9 @@ export function useChatTimelineNavigation({
           ready.add(seq);
       };
       for (const [target, { id, seq, readable, reply }] of rows) {
-        const stops = observeDock ? dockTargets?.get(id) : undefined;
-        const trackEntry = observeDock && entryPending && seq && !entryVisibility.ids.has(id);
+        const trackDock = observeDock && (!importantJump || importantJump.target?.id === id);
+        const stops = trackDock ? dockTargets?.get(id) : undefined;
+        const trackEntry = trackDock && entryPending && seq && !entryVisibility.ids.has(id);
         const trackReply =
           reply && seq && !replyViews.reported.has(seq) && !replyViews.pending.has(seq)
             ? seq
@@ -917,7 +956,9 @@ export function useChatTimelineNavigation({
               while (entryVisibility.sequences.size > 512)
                 entryVisibility.sequences.delete(entryVisibility.sequences.values().next().value!);
             }
-            if (stops) for (const stop of stops) dockSeen.add(stop);
+            if (stops)
+              for (const stop of stops)
+                if (!importantJump || importantJump.target?.seq === stop) dockSeen.add(stop);
           }
         }
         if (!readNow || !seq || !readable) continue;

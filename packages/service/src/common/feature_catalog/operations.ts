@@ -126,6 +126,17 @@ export const OPERATION_FEATURES = [
     },
   ),
   operation(
+    'scripts',
+    'assistant',
+    '在助手中计算与整理查询结果',
+    '使用脚本组合查询结果、统计与格式化。',
+    {
+      navigation: undefined,
+      tools: ['run_js'],
+      docs: ['guide/assistant.md'],
+    },
+  ),
+  operation(
     'investigation',
     'assistant',
     '调查计划与工作笔记',

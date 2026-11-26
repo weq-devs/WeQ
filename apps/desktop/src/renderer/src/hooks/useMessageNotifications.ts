@@ -272,8 +272,8 @@ export function useMessageNotifications(options: {
         );
         if (!event) return;
         const matching = eligible.filter((item) => item.reasons.includes(event));
-        const { message, elements } = matching.at(-1)!;
-        const anchor = matching[0]!.message;
+        // 合并提醒从第一条匹配消息读起，预览和点击必须指向同一条。
+        const { message, elements } = matching[0]!;
         const show = (resolvedName = '') => {
           if (
             generation.current !== currentGeneration ||
@@ -303,8 +303,8 @@ export function useMessageNotifications(options: {
           const target = {
             kind: message.kind,
             conv: message.conv,
-            seq: anchor.msgSeq,
-            msgId: anchor.live ? anchor.noticeIdentity : anchor.msgId,
+            seq: message.msgSeq,
+            msgId: message.live ? message.noticeIdentity : message.msgId,
           };
           const notice: WebNotice = {
             uin: scope.expectedAccountUin,
@@ -330,7 +330,7 @@ export function useMessageNotifications(options: {
                 binding: scope,
                 chatType: message.kind === 'group' ? 2 : 1,
                 uid: message.conv,
-                seq: event === 'replyMe' ? message.msgSeq : eligible.at(-1)!.message.msgSeq,
+                seq: (event === 'replyMe' ? matching : eligible).at(-1)!.message.msgSeq,
                 ...(event === 'replyMe'
                   ? { replySeqs: matching.map(({ message }) => message.msgSeq) }
                   : {}),

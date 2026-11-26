@@ -180,20 +180,27 @@ try {
   await page.getByRole('button', { name: '打开设置' }).click();
   await page
     .locator('.weq-settings-nav')
-    .getByRole('button', { name: '常规', exact: true })
+    .getByRole('button', { name: '启动与退出', exact: true })
     .click();
   await page.evaluate(() => window.weqMobileNavigation.back());
-  await page.waitForSelector('.weq-mobile-settings:not([data-mobile-category])');
+  await page.waitForSelector('.weq-mobile-settings:not([data-mobile-detail])');
   for (const theme of ['light', 'dark']) {
     await page.evaluate((theme) => window.remoteNavigationQa.theme(theme), theme);
-    for (const category of ['常规', '基础功能', '增强功能', '凭据与数据', 'WeQ 服务', '关于 WeQ']) {
+    for (const settingsPage of [
+      '启动与退出',
+      '会话列表',
+      '增强包',
+      '资源加载',
+      'OneBot',
+      '版本与更新',
+    ]) {
       await page
         .locator('.weq-settings-nav')
-        .getByRole('button', { name: category, exact: true })
+        .getByRole('button', { name: settingsPage, exact: true })
         .click();
-      await page.waitForSelector('.weq-mobile-settings[data-mobile-category]');
+      await page.waitForSelector('.weq-mobile-settings[data-mobile-detail]');
       assert.equal(await swipe(160, 4, '.weq-settings-dialog'), 'translateX(160px)');
-      await page.waitForSelector('.weq-mobile-settings:not([data-mobile-category])');
+      await page.waitForSelector('.weq-mobile-settings:not([data-mobile-detail])');
       await page.waitForFunction(() => !document.querySelector('[data-mobile-animating]'));
       assert.equal(await page.locator('.weq-settings-dialog').count(), 1);
       assert.equal(
@@ -400,28 +407,31 @@ try {
   await page.getByRole('button', { name: '打开设置' }).click();
   await page
     .locator('.weq-settings-nav')
-    .getByRole('button', { name: 'WeQ 服务', exact: true })
+    .getByRole('button', { name: 'OneBot', exact: true })
     .click();
-  await page.getByRole('button', { name: 'OneBot', exact: true }).click();
-  await page.getByRole('button', { name: 'WebSocket', exact: true }).click();
-  const editor = page.getByRole('dialog', { name: '新建 WebSocket 服务器', exact: true });
-  const draft = editor.getByLabel('OneBot 服务器名称', { exact: true });
+  await page
+    .locator('.weq-set-card')
+    .filter({ has: page.getByText('正向 WebSocket', { exact: true }) })
+    .getByRole('button', { name: '新建', exact: true })
+    .click();
+  const editor = page.getByRole('dialog', { name: '新建正向 WebSocket', exact: true });
+  const draft = editor.getByLabel('网络名称', { exact: true });
   await draft.fill('侧滑草稿回归');
   await swipe(160, 4, '.weq-editor-dialog');
   await page.getByRole('dialog', { name: '放弃未保存的修改？', exact: true }).waitFor();
   await page.getByRole('button', { name: '继续编辑', exact: true }).click();
   await page.waitForFunction(() => !document.querySelector('[data-mobile-animating]'));
   assert.equal(await draft.inputValue(), '侧滑草稿回归');
-  assert.equal(await page.locator('.weq-mobile-settings[data-mobile-category]').count(), 1);
+  assert.equal(await page.locator('.weq-mobile-settings[data-mobile-detail]').count(), 1);
   await swipe(160, 4, '.weq-editor-dialog');
   await page.getByRole('button', { name: '放弃修改', exact: true }).click();
   await editor.waitFor({ state: 'detached' });
   await swipe(160, 4, '.weq-settings-dialog');
-  await page.waitForSelector('.weq-mobile-settings:not([data-mobile-category])');
+  await page.waitForSelector('.weq-mobile-settings:not([data-mobile-detail])');
   await page.waitForFunction(() => !document.querySelector('[data-mobile-animating]'));
   assert.deepEqual(errors, []);
   console.log(
-    `PASS: ${engine} ${nativeTouch ? '原生触摸' : '合成触摸'}：真实通知页三种返回与取消、七组设置深浅色逐级侧滑及分类预览、Portal 弹层、设置草稿确认与保留、主标签双向滑动、键盘返回逐帧布局、320/390/430 安全区、320/390/1180 页面与减少动态效果`,
+    `PASS: ${engine} ${nativeTouch ? '原生触摸' : '合成触摸'}：真实通知页三种返回与取消、设置详情深浅色侧滑及列表预览、Portal 弹层、设置草稿确认与保留、主标签双向滑动、键盘返回逐帧布局、320/390/430 安全区、320/390/1180 页面与减少动态效果`,
   );
 } finally {
   await browser?.close();

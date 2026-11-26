@@ -22,6 +22,9 @@
   border-color: var(--weq-accent-effective);
   color: var(--weq-accent-ink, var(--weq-accent-effective));
 }
+.weq-directory-menu-button[data-active] .weq-select-arrow {
+  color: currentColor;
+}
 .weq-directory-menu-button:focus-visible {
   outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
   outline-offset: 2px;
@@ -69,6 +72,14 @@
   outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
   outline-offset: -2px;
 }
+.weq-directory-sort-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px;
+}
+
 .weq-directory-filter-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -97,13 +108,12 @@
   z-index: 1;
   background: var(--weq-bg-surface);
 }
-.weq-contact-directory .weq-directory-sort-detail {
+.weq-directory-sort-detail {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
-  font-variant-numeric: tabular-nums;
 }
 .weq-contact-directory .contact-cat-header[hidden] {
   display: none;

@@ -71,28 +71,24 @@ describe('QQ 秀分钟缓存配置', () => {
 });
 
 describe('聊天阅读偏好', () => {
-  it.each(['restrictedModeIndicatorEnabled', 'qqProxyIndicatorEnabled'] as const)(
-    '%s 默认开启，独立持久化并支持备份与恢复',
-    (indicator) => {
-      const f = fixture({ settings: { restrictedModeBannerEnabled: false } });
-      expect(f.open().getSettings()[indicator]).toBe(true);
-      f.service.setSettings({ [indicator]: false });
-      f.service.setSettings({ restrictedModeBannerEnabled: true });
-      expect(f.open().getSettings()).toMatchObject({
-        [indicator]: false,
-        restrictedModeBannerEnabled: true,
-      });
-      const snapshot = snapshotWeqSettings(f.open().getSettings());
-      expect(snapshot[indicator]).toBe(false);
-      expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
-      const { [indicator]: _indicator, ...legacy } = snapshot;
-      expect(() => validateWeqAppSettings(legacy)).not.toThrow();
-      expect(() => validateWeqAppSettings({ [indicator]: 'false' })).toThrow();
-      const restored = fixture();
-      restored.service.setSettings(snapshot);
-      expect(restored.open().getSettings()[indicator]).toBe(false);
-    },
-  );
+  it.each([
+    [{}, true],
+    [{ restrictedModeIndicatorEnabled: false }, false],
+    [{ restrictedModeIndicatorEnabled: true, qqProxyIndicatorEnabled: false }, false],
+    [{ restrictedModeIndicatorEnabled: false, qqStatusIndicatorEnabled: true }, true],
+  ])('窗口提示合并旧偏好，已保存的新值优先：%j', (settings, expected) => {
+    const f = fixture({ settings });
+    expect(f.open().getSettings().qqStatusIndicatorEnabled).toBe(expected);
+    f.service.setSettings({ restrictedModeBannerEnabled: false });
+    expect(f.open().getSettings().qqStatusIndicatorEnabled).toBe(expected);
+    f.service.setSettings({ qqStatusIndicatorEnabled: !expected });
+    const snapshot = snapshotWeqSettings(f.open().getSettings());
+    expect(snapshot.qqStatusIndicatorEnabled).toBe(!expected);
+    expect(snapshot).not.toHaveProperty('restrictedModeIndicatorEnabled');
+    expect(snapshot).not.toHaveProperty('qqProxyIndicatorEnabled');
+    expect(() => validateWeqAppSettings(snapshot)).not.toThrow();
+    expect(() => validateWeqAppSettings({ qqStatusIndicatorEnabled: 'false' })).toThrow();
+  });
   it('受限横幅默认开启，旧配置兼容，持久化与备份恢复保留独立偏好', () => {
     const f = fixture();
     expect(f.open().getSettings().restrictedModeBannerEnabled).toBe(true);
@@ -180,10 +176,11 @@ describe('阅读与群助手', () => {
 });
 
 describe('输入框个性字体', () => {
-  it('删除已选字体后回到普通字体，重开时保留两个开关与其他字体', () => {
+  it('删除群聊选款后回到默认字体，重开时保留偏好及其他字体', () => {
     const f = fixture();
     f.service.setSettings({
-      composerFont: { choice: 8915, send: true, preview: true },
+      composerFont: { choice: 8915 },
+      defaultMessageFont: 'plain',
       sharedPreferences: {
         dress: {
           localAppearanceVersion: 1,
@@ -193,17 +190,10 @@ describe('输入框个性字体', () => {
         },
       },
     });
-    expect(f.service.removeComposerFont(8915)).toEqual({
-      choice: 'plain',
-      send: true,
-      preview: true,
-    });
+    expect(f.service.removeComposerFont(8915)).toEqual({ choice: 'default' });
     const reopened = f.open();
-    expect(reopened.getSetting('composerFont')).toEqual({
-      choice: 'plain',
-      send: true,
-      preview: true,
-    });
+    expect(reopened.getSetting('composerFont')).toEqual({ choice: 'default' });
+    expect(reopened.getSetting('defaultMessageFont')).toBe('plain');
     expect(reopened.getSharedPreference('dress')).toMatchObject({
       activeFont: 0,
       installedFonts: [8920],
@@ -213,27 +203,43 @@ describe('输入框个性字体', () => {
     });
   });
 
-  it('迁移旧开关，修改预览时保留发送选择，重开与还原备份后仍生效', () => {
+  it('迁移旧发送开关，重开和还原备份都保留默认偏好和全局群聊选款', () => {
     const f = fixture({ settings: { sendWithQqFont: false, sendWithDressFont: true } });
-    expect(f.open().getSetting('composerFont')).toEqual({
-      choice: 'legacy-dress',
-      send: true,
-      preview: false,
-    });
+    expect(f.open().getSetting('composerFont')).toEqual({ choice: 'legacy-dress' });
     const old = { sendWithQqFont: false };
     expect(() => validateWeqAppSettings(old)).not.toThrow();
-    expect(f.service.setSettings(old).composerFont).toEqual({
-      choice: 'qq',
-      send: false,
-      preview: false,
+    expect(f.service.setSettings(old)).toMatchObject({
+      composerFont: { choice: 'default' },
+      defaultMessageFont: 'plain',
     });
-    f.service.setSettings({ composerFont: { choice: 8915, preview: true } });
+    f.service.setSettings({ composerFont: { choice: 8915 } });
     const settings = f.open().getSettings();
-    expect(settings.composerFont).toEqual({ choice: 8915, send: false, preview: true });
+    expect(settings).toMatchObject({
+      composerFont: { choice: 8915 },
+      defaultMessageFont: 'plain',
+    });
     const backup = snapshotWeqSettings(settings);
     expect(() => validateWeqAppSettings(backup)).not.toThrow();
     expect(() => validateWeqAppSettings({ composerFont: { choice: 65536 } })).toThrow();
-    expect(fixture().service.setSettings(backup).composerFont).toEqual(settings.composerFont);
+    expect(() => validateWeqAppSettings({ defaultMessageFont: 'unknown' })).toThrow();
+    expect(fixture().service.setSettings(backup)).toMatchObject({
+      composerFont: settings.composerFont,
+      defaultMessageFont: settings.defaultMessageFont,
+    });
+  });
+
+  it('默认使用账号字体，旧关闭偏好迁为普通字体，群聊恢复默认时保留该偏好', () => {
+    expect(fixture().service.getSetting('defaultMessageFont')).toBe('account');
+    const f = fixture({ settings: { composerFont: { choice: 8915, send: false, preview: true } } });
+    expect(f.service.getSettings()).toMatchObject({
+      composerFont: { choice: 8915 },
+      defaultMessageFont: 'plain',
+    });
+    f.service.setSettings({ composerFont: { choice: 'default' } });
+    expect(f.open().getSettings()).toMatchObject({
+      composerFont: { choice: 'default' },
+      defaultMessageFont: 'plain',
+    });
   });
 });
 

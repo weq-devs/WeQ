@@ -257,6 +257,8 @@ describe('输入区发送交接', () => {
         act(() =>
           f.editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })),
         );
+        expect(serializeComposer(f.editor())).toBe('');
+        expect(f.host.querySelector('.composer [role="status"]')?.textContent).toBe('请输入消息');
       }
       expect(f.onSend).not.toHaveBeenCalled();
       type(f.editor(), '');
@@ -272,6 +274,34 @@ describe('输入区发送交接', () => {
       act(() => f.host.querySelector<HTMLButtonElement>('.composer-send')!.click());
       expect(f.onSend).toHaveBeenCalledWith('\n', undefined);
       await act(async () => f.finish());
+    } finally {
+      f.close();
+    }
+  });
+
+  it('在线能力受限时回车提示发送原因，明确换行仍可编辑草稿', () => {
+    const f = mount();
+    try {
+      const reason = '请先在 QQ 登录当前账号';
+      f.render({ sendAvailable: false, sendBlockedReason: reason });
+      const pressEnter = (options?: KeyboardEventInit) => {
+        const event = new KeyboardEvent('keydown', {
+          key: 'Enter',
+          bubbles: true,
+          cancelable: true,
+          ...options,
+        });
+        act(() => f.editor().dispatchEvent(event));
+        return event;
+      };
+      expect(f.host.querySelector<HTMLButtonElement>('.composer-send')!.disabled).toBe(true);
+      expect(pressEnter().defaultPrevented).toBe(true);
+      expect(f.host.querySelector('.composer [role="status"]')?.textContent).toBe(reason);
+      expect(serializeComposer(f.editor())).toBe('第一条');
+      expect(f.onSend).not.toHaveBeenCalled();
+      expect(f.onDraftChange).not.toHaveBeenCalled();
+      pressEnter({ shiftKey: true });
+      expect(serializeComposer(f.editor())).toBe('第一条\n');
     } finally {
       f.close();
     }
@@ -790,13 +820,14 @@ describe('输入区发送交接', () => {
         [...confirmation().querySelectorAll('button')].find(
           (button) => button.textContent === label,
         )!;
-      expect(confirmation().textContent).toContain('1 条消息不支持删除，2 条可以继续');
+      expect(confirmation().textContent).toContain('发送失败的消息（2 条）');
+      expect(confirmation().textContent).toContain('已发送、等待同步的消息（1 条）无法删除');
       act(() => confirmButton('取消').click());
       expect(remove).not.toHaveBeenCalled();
       expect(confirmation()).toBeNull();
       await act(async () => deletion().click());
       expect(remove).not.toHaveBeenCalled();
-      await act(async () => confirmButton('仅删除支持的 2 条').click());
+      await act(async () => confirmButton('继续（2 条）').click());
       expect(confirm).toHaveBeenCalledOnce();
       expect(remove.mock.calls.map(([message]) => message.id)).toEqual([
         'optimistic-one',
@@ -807,9 +838,10 @@ describe('输入区发送交接', () => {
         f.host.querySelector('.message-line.is-selected')?.getAttribute('data-message-id'),
       ).toBe('optimistic-confirmed');
       await act(async () => deletion().click());
-      expect(confirmation().textContent).toContain('1 条消息不支持删除，0 条可以继续');
-      expect(confirmButton('仅删除支持的 0 条').disabled).toBe(true);
-      act(() => confirmButton('仅删除支持的 0 条').click());
+      expect(confirmation().textContent).toContain('以下消息无法删除');
+      expect(confirmation().querySelector('[data-weq-dialog-confirm]')?.textContent).toBe('关闭');
+      act(() => confirmButton('关闭').click());
+      expect(confirmation()).toBeNull();
       expect(remove).toHaveBeenCalledTimes(2);
       expect(f.onSend).not.toHaveBeenCalled();
     } finally {

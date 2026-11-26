@@ -2,7 +2,12 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastHost } from '../src/renderer/src/components/Toast';
-import { useToast } from '../src/renderer/src/components/Toast.shared';
+import { sourceToastPush, useToast } from '../src/renderer/src/components/Toast.shared';
+import { installAccountBannerRouting } from '../src/renderer/src/lib/accountBanners';
+import { bindAccountState } from '../src/renderer/src/lib/clientPreferences';
+import { notificationSource } from '../src/renderer/src/lib/notificationNavigation.shared';
+import { useAccountSwitch } from '../src/renderer/src/state/accountSwitch';
+import { useViewState } from '../src/renderer/src/state/view';
 
 let cleanup = () => {};
 beforeEach(() => {
@@ -33,6 +38,50 @@ function mount() {
 }
 
 describe('状态横幅的生命周期', () => {
+  it('登录和切号期间只保留应用横幅，迟到的旧账号或旧数据源结果不能进入当前窗口', () => {
+    const stop = installAccountBannerRouting();
+    const toast = useToast.getState();
+    const view = useViewState.getState();
+    const switchState = useAccountSwitch.getState();
+    const live = { expectedAccountUin: '10001', expectedAccountConfigId: 'live' };
+    const backup = { ...live, expectedAccountConfigId: 'backup' };
+    const other = { ...live, expectedAccountUin: '10002' };
+    const push = (title: string, account?: typeof live) =>
+      toast.push({ title, account, system: false });
+    try {
+      expect(push('登录页上的账号消息', live)).toBe(0);
+      const appBanner = toast.push({ title: '更新可用', appWide: true, system: false });
+      view.setOpenedUin(live.expectedAccountUin);
+      view.goTo('main');
+      bindAccountState(live);
+      const late = sourceToastPush(notificationSource({ kind: 'assistant' }));
+      expect(push('本账号消息', live)).toBeGreaterThan(0);
+      expect(push('其他账号消息', other)).toBe(0);
+      expect(push('其他数据源消息', backup)).toBe(0);
+
+      switchState.begin('正在切换');
+      expect(useToast.getState().toasts.map(({ id }) => id)).toEqual([appBanner]);
+      expect(push('切号中的消息')).toBe(0);
+      bindAccountState(backup);
+      switchState.end();
+      expect(push('新数据源消息', backup)).toBeGreaterThan(0);
+      expect(late({ title: '旧数据源的迟到结果', system: false })).toBe(0);
+      view.goTo('bootstrap');
+      expect(useToast.getState().toasts.map(({ id }) => id)).toEqual([appBanner]);
+
+      bindAccountState(live);
+      view.goTo('main');
+      expect(late({ title: '前一次会话的迟到结果', system: false })).toBe(0);
+    } finally {
+      stop();
+      bindAccountState(null);
+      view.setOpenedUin(null);
+      view.goTo('bootstrap');
+      switchState.end();
+      useToast.setState({ account: undefined });
+    }
+  });
+
   it('相同标识原地替换并清理旧详情和操作，不按相同标题合并不同错误', () => {
     const store = useToast.getState();
     const first = store.push({
@@ -78,6 +127,23 @@ describe('状态横幅的生命周期', () => {
     state.resolve('a');
     state.resolve('unknown');
     expect(useToast.getState()).toBe(state);
+  });
+
+  it('手动关闭同一进度后，后续进度不会取消退场或重新插入，结果和下一轮照常显示', async () => {
+    const host = mount();
+    const store = useToast.getState();
+    const progress = { key: 'operation', loading: true, system: false } as const;
+    act(() => store.push({ ...progress, title: '开始处理' }));
+    act(() => host.querySelector<HTMLButtonElement>('button[aria-label="关闭"]')!.click());
+    act(() => store.push({ ...progress, title: '继续处理' }));
+    await act(async () => vi.advanceTimersByTimeAsync(500));
+    expect(useToast.getState().toasts).toHaveLength(0);
+    act(() => store.push({ ...progress, title: '仍在处理' }));
+    expect(useToast.getState().toasts).toHaveLength(0);
+    act(() => store.push({ ...progress, loading: false, title: '处理完成' }));
+    expect(useToast.getState().toasts[0]?.event).toBe('taskComplete');
+    act(() => store.push({ ...progress, title: '下一轮开始' }));
+    expect(useToast.getState().toasts[0]?.title).toBe('下一轮开始');
   });
 
   it('退场期间同一问题再次出现时取消旧退场，下一阶段从头计时', async () => {

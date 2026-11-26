@@ -24,6 +24,8 @@ import { useTransferProgress } from '../lib/transferActivity';
 import { preferenceValue, useClientPreferences } from '../lib/clientPreferences';
 import { useDataSaver } from '../lib/dataSaver';
 import { useVideoBuffering } from '../hooks/useVideoBuffering';
+import { useTaskPage } from '../hooks/useTaskPage';
+import { client } from '../trpc/client';
 import { exportMedia } from '../lib/mediaExport';
 import { useToastApi } from './Toast.shared';
 import { retainObjectUrl } from '../lib/objectUrl';
@@ -318,6 +320,7 @@ function MediaPreviewItemBody({
   const resolvedItem = !showingStaticPhoto && resolved?.key === item.key ? resolved : undefined;
   const current = resolvedItem ?? item;
   const original = item.originalImage;
+  const taskPage = useTaskPage(active && Boolean(original), item.key);
   const sources = [
     ...new Set(
       [original?.cachedSrc, current.src, ...(item.fallbackSources ?? [])]
@@ -424,16 +427,20 @@ function MediaPreviewItemBody({
     const { naturalWidth: width, naturalHeight: height } = element;
     if (width && height) setIntrinsic({ key, width, height });
   }, []);
-  const startOriginal = useCallback((key: string, source: string, automatic: boolean) => {
-    const id = crypto.randomUUID();
-    const url = new URL(source, document.baseURI);
-    url.searchParams.set('transferId', id);
-    if (automatic) {
-      url.searchParams.set('autoOriginal', '1');
-      url.searchParams.delete('ds');
-    }
-    setRequest({ key, id, url: url.href, phase: 'download' });
-  }, []);
+  const startOriginal = useCallback(
+    (key: string, source: string, automatic: boolean, pageId?: string) => {
+      const id = crypto.randomUUID();
+      const url = new URL(source, document.baseURI);
+      url.searchParams.set('transferId', id);
+      if (pageId) url.searchParams.set('pageId', pageId);
+      if (automatic) {
+        url.searchParams.set('autoOriginal', '1');
+        url.searchParams.delete('ds');
+      }
+      setRequest({ key, id, url: url.href, phase: 'download' });
+    },
+    [],
+  );
   const canFetchOriginal = Boolean(original && sourceIndex > 0);
   useEffect(() => {
     if (active && autoOriginal && !dataSaver && canFetchOriginal && !originalRequest && original)
@@ -474,6 +481,17 @@ function MediaPreviewItemBody({
   const usingThumbnail = canFetchOriginal && !originalReady;
   const decodingOriginal = originalRequest?.phase === 'decode';
   const originalProgressLabel = decodingOriginal ? '正在解码原图' : '正在下载原图';
+  const originalPaused = !decodingOriginal && originalProgress?.paused;
+  const continueOriginal = async (id: string) => {
+    try {
+      await client.account.transfers.continuePreviewDownload.mutate({ id });
+    } catch (error) {
+      notificationToast.push({ tone: 'error', title: '继续下载原图失败', detail: String(error) });
+    }
+  };
+  const viewOriginal = async (key: string, src: string) => {
+    startOriginal(key, src, false, await taskPage());
+  };
   const originalMiB = original?.bytes ? original.bytes / 1024 ** 2 : undefined;
   const originalSize = originalMiB
     ? `（${originalMiB < 0.01 ? '<0.01' : originalMiB.toFixed(2)} MiB）`
@@ -544,7 +562,7 @@ function MediaPreviewItemBody({
               <button
                 type="button"
                 className="weq-lightbox-action weq-lightbox-original"
-                onClick={() => startOriginal(item.key, original.src, false)}
+                onClick={() => void viewOriginal(item.key, original.src)}
               >
                 {originalRequest?.phase === 'failed' ? '重试原图' : '查看原图'}
                 {originalSize}
@@ -621,8 +639,17 @@ function MediaPreviewItemBody({
                     : (originalProgress ?? { phase: 'download' })
                 }
               />
-              {originalProgressLabel}
+              {originalPaused ? '原图下载已暂停' : originalProgressLabel}
               {originalSize}
+              {originalPaused ? (
+                <button
+                  type="button"
+                  className="weq-lightbox-action"
+                  onClick={() => void continueOriginal(originalRequest.id)}
+                >
+                  继续下载
+                </button>
+              ) : null}
             </div>
           ) : null}
           <div ref={setSaveStatus} className="weq-preview-transfer-status" />

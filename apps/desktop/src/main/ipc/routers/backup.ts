@@ -4,6 +4,7 @@ import { basename } from 'node:path';
 import {
   getHost,
   WEQ_BACKUP_PARTS,
+  WEQ_BACKUP_SECTIONS,
   WEQ_BACKUP_LIMITS,
   readWeqBackupFile,
   writeWeqBackupExclusive,
@@ -24,6 +25,7 @@ import { getAppContext, retryBackupRecovery } from '../../context/app_context';
 import { procedure } from '../trpc';
 import { observable } from '@trpc/server/observable';
 import { runtimeMaintenance } from '../../runtime_maintenance';
+import { readBackupHostPreferences } from '../../context/backup_host_preferences';
 import { applyBackupLive } from '../../context/runtime_files';
 import {
   desktopServiceCommand,
@@ -35,11 +37,11 @@ import { disableNativeDebugLog } from './help';
 import { DEFAULT_QQ_SYNC_PORT } from '../../qq_sync/ipc';
 import { qqSyncStatus, setQqSyncPort, setQqSyncProxyEnabled } from '../../qq_sync/runtime';
 import {
-  accountStorageMigrationPath,
-  accountStorageMigrationSummary,
-  legacyAccountSources,
-  readLegacyAccountBackup,
-} from '../../account_storage_migration';
+  assertLogPruneConfirmed,
+  describeLogPrune,
+  planDefaultLogRetention,
+  runLogRetentionSweep,
+} from '../../log_retention';
 
 const selection = z.object({
   parts: z.array(z.enum(WEQ_BACKUP_PARTS)).min(1).max(4),
@@ -52,7 +54,19 @@ const choice = selection.extend({
   scopeMap: z.record(z.string()).optional(),
   keepLocalPaths: z.boolean().optional(),
   clientId: z.string().uuid().optional(),
+  activateServices: z.boolean().optional(),
 });
+const selective = z.object({
+  sections: z.array(z.enum(WEQ_BACKUP_SECTIONS)).min(1).max(WEQ_BACKUP_SECTIONS.length),
+  accountConfigIds: z.array(z.string()),
+  databaseConfigIds: z.array(z.string()),
+  draftConfigIds: z.array(z.string()),
+  cloneConfigIds: z.array(z.string()),
+  includeApiKeys: z.boolean(),
+  includeServiceTokens: z.boolean(),
+});
+const client = z.record(z.string()).default({});
+
 function ready() {
   const ctx = getBackupContext();
   if (!ctx.ok) throw new Error(ctx.error);
@@ -89,38 +103,21 @@ export const backupProcedures = {
       };
     }),
   backupInventory: procedure.query(({ ctx }) => {
-    const { backups, root } = ready();
+    const { backups } = ready();
     const host = getHost();
-    const migration =
-      !ctx.authorize && host.canReveal ? accountStorageMigrationSummary(root) : null;
     return {
       ...backups.inventory(),
-      ...(migration
-        ? { accountStorageMigration: { ...migration, sources: legacyAccountSources(root) } }
-        : {}),
+      activeConfigId: getAppContext().services?.accountConfig.getConfigId() ?? null,
+      canActivateServices: !ctx.authorize,
       canPickFile: host.canReveal,
       canRestart: Boolean(host.restartApplication),
       maxArchiveBytes: WEQ_BACKUP_LIMITS.maxArchiveBytes,
       chunkBytes: 65536,
     };
   }),
-  backupRevealAccountStorageMigration: procedure.mutation(async ({ ctx }) => {
-    const host = getHost();
-    const { root } = ready();
-    if (ctx.authorize || !host.canReveal || !accountStorageMigrationSummary(root))
-      throw new Error('账号迁移记录不可用。');
-    await host.revealInFolder(accountStorageMigrationPath(root));
-  }),
-  backupPickLegacyAccountStorage: procedure
-    .input(z.object({ id: z.string().regex(/^[a-f\d]{24}$/) }))
-    .mutation(({ input, ctx }) => {
-      const { root, backups } = ready();
-      if (ctx.authorize || !getHost().canReveal) throw new Error('请在桌面恢复旧窗口数据。');
-      return backups.inspect(readLegacyAccountBackup(root, input.id), '旧账号窗口资料');
-    }),
   backupExport: procedure
-    .input(selection.extend({ client: z.record(z.string()).default({}) }))
-    .mutation(async ({ input }) => {
+    .input(z.union([z.object({ selection: selective, client }), selection.extend({ client })]))
+    .mutation(async ({ input, ctx: request }) => {
       const ctx = ready(),
         host = getHost();
       const timestamp = eventTimeFormatter.format(new Date()).replace(/[^0-9]/g, '');
@@ -130,7 +127,14 @@ export const backupProcedures = {
         extension: 'zip',
       });
       if (!target) return null;
-      const snapshot = ctx.backups.snapshot(input, input.client);
+      const snapshot =
+        'selection' in input
+          ? ctx.backups.snapshotSelected(
+              input.selection,
+              input.client,
+              await readBackupHostPreferences(input.selection.sections, !request.authorize),
+            )
+          : ctx.backups.snapshot(input, input.client);
       await writeWeqBackupExclusive(target.path, snapshot.archive);
       const download = host.registerDownload?.(target.path, basename(target.path), 'file');
       return {
@@ -169,10 +173,22 @@ export const backupProcedures = {
     .mutation(({ input }) => ready().backups.finishUpload(input.id)),
   backupPrepare: procedure
     .input(choice.extend({ sourceId: z.string() }))
-    .mutation(({ input: { sourceId, ...choice } }) => ready().backups.prepare(sourceId, choice)),
+    .mutation(({ input: { sourceId, ...choice }, ctx }) =>
+      ready().backups.prepare(sourceId, {
+        ...choice,
+        ...(ctx.authorize ? { activateServices: false } : {}),
+      }),
+    ),
   backupStage: procedure
     .input(z.object({ previewId: z.string() }))
-    .mutation(({ input }) => applyBackupLive(() => ready().backups.stage(input.previewId))),
+    .mutation(({ input, ctx }) =>
+      applyBackupLive(
+        () => ready().backups.stage(input.previewId),
+        undefined,
+        true,
+        !ctx.authorize,
+      ),
+    ),
   backupDefaults: procedure
     .input(
       z
@@ -181,11 +197,12 @@ export const backupProcedures = {
           clearApi: z.boolean().optional(),
           resetPaths: z.array(z.enum(WEQ_DEFAULTS_PATHS)).optional(),
           resetConnections: z.array(z.enum(WEQ_DEFAULTS_CONNECTIONS)).optional(),
+          pruneConfirmation: z.string().optional(),
         })
         .optional(),
     )
     .mutation(({ input, ctx }) => {
-      const { clientId, ...defaults } = input ?? {};
+      const { clientId, pruneConfirmation, ...defaults } = input ?? {};
       const selected = input?.resetConnections ?? [];
       if (
         ctx.authorize &&
@@ -203,10 +220,14 @@ export const backupProcedures = {
       )
         throw new Error('请在桌面端恢复本机连接与自启设置');
       let stagedId: string | undefined;
+      function confirmedLogPlan() {
+        const plan = planDefaultLogRetention(ready().config.getSettings());
+        assertLogPruneConfirmed(plan, pruneConfirmation);
+        return plan;
+      }
+      let logPlan: ReturnType<typeof confirmedLogPlan> = null;
       return applyBackupLive(
-        () => {
-          stagedId = ready().backups.stageDefaults(clientId, defaults).id;
-        },
+        confirmedLogPlan,
         async (result) => {
           const attempt = async (label: string, run: () => unknown) => {
             try {
@@ -217,6 +238,12 @@ export const backupProcedures = {
               );
             }
           };
+          const confirmed = logPlan;
+          if (confirmed?.targets.size)
+            await attempt('清理应用日志', () => {
+              const { failed } = runLogRetentionSweep(DEFAULT_APP_SETTINGS, confirmed);
+              if (failed) throw new Error(`${failed} 份日志未能删除`);
+            });
           if (selected.includes('systemAutostart'))
             await attempt('恢复系统登录自启', async () => {
               const host = getHost();
@@ -248,6 +275,11 @@ export const backupProcedures = {
           await attempt('保存恢复回执', () => recordWeqRestoreWarnings(ready().root, result));
         },
         false,
+        true,
+        () => {
+          logPlan = confirmedLogPlan();
+          stagedId = ready().backups.stageDefaults(clientId, defaults).id;
+        },
       ).catch((error: unknown) => {
         const files = getBackupContext();
         if (files.ok && stagedId) {
@@ -307,9 +339,15 @@ export const backupProcedures = {
           connections.push({ id: 'qqProxyPort', label: 'QQ 代理端口', value: String(proxy.port) });
       }
     }
-    return { ...boot.backups.defaultsInfo(), connections };
+    return {
+      ...boot.backups.defaultsInfo(),
+      connections,
+      logPrune: describeLogPrune(planDefaultLogRetention(settings)),
+    };
   }),
-  backupApply: procedure.mutation(() => applyBackupLive()),
+  backupApply: procedure.mutation(({ ctx }) =>
+    applyBackupLive(undefined, undefined, true, !ctx.authorize),
+  ),
   backupDiscardPreview: procedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
     const ctx = getBackupContext();
     if (ctx.ok) ctx.backups.dispose(input.id);

@@ -1,7 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { Copy, Pin, Search } from 'lucide-react';
 import '../../src/renderer/src/styles/index.css';
-import '../../src/renderer/src/styles/settings-full-functions.css';
 import '../../src/renderer/src/styles/settings-responsive.css';
 import '../../src/renderer/src/styles/contact-workspace.css';
 import '../../src/renderer/src/styles/conversation-actions.css';
@@ -98,20 +97,6 @@ createRoot(document.getElementById('root')!).render(
           <details className="weq-set-details" data-divider-edge="top">
             <summary>查看读取说明</summary>
             <p>保留本机设置和现有数据。</p>
-          </details>
-          <details
-            className="weq-set-details weq-full-function-comparison-details"
-            data-divider-edge="bottom"
-          >
-            <summary>QQ 在线能力对照</summary>
-            <table className="weq-full-function-comparison">
-              <tbody>
-                <tr>
-                  <th data-divider-edge="bottom">读取记录</th>
-                  <td data-divider-edge="bottom">可用</td>
-                </tr>
-              </tbody>
-            </table>
           </details>
           <ul className="weq-set-ledger">
             <li>读取并发</li>

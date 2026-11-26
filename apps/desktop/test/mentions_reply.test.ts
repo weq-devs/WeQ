@@ -3,7 +3,14 @@ import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
 import { buildComposerSendPlan } from '../src/renderer/src/im-template/template/composerSend';
-import { mentionText } from '../src/renderer/src/im-template/template/mentions';
+import {
+  filterMentionMembers,
+  mentionText,
+} from '../src/renderer/src/im-template/template/mentions';
+import type {
+  GroupConversation,
+  GroupMember,
+} from '../src/renderer/src/im-template/template/types';
 import {
   getActiveComposerMentionTrigger,
   focusComposerEnd,
@@ -19,6 +26,24 @@ afterEach(() => {
 });
 
 describe('提及输入与草稿往返', () => {
+  it('成员候选按群名片和昵称匹配拼音，原文优先且不把拼音误作全体提及', () => {
+    const member: GroupMember = {
+      id: 'member',
+      username: 'member',
+      identityValue: '12345',
+      identityLabel: 'QQ',
+      displayName: '合成名片',
+      nick: '重庆',
+      avatarUrl: null,
+      role: 'member',
+      joinedAt: '',
+    };
+    const original = { ...member, id: 'literal', displayName: 'cq原文', nick: undefined };
+    const group = { type: 'group', members: [member, original] } as GroupConversation;
+    expect(filterMentionMembers(group, 'cq', 'self')).toEqual([original, member]);
+    expect(filterMentionMembers(group, 'chongqing', 'self')).toEqual([member]);
+    expect(filterMentionMembers(group, 'qtcy', 'self')).toEqual([]);
+  });
   it('提及文本只用昵称，不用群名片或好友备注；无昵称时退回号码或 UID', () => {
     const member = {
       id: 'u_fixture',

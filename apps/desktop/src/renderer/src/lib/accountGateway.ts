@@ -1,4 +1,5 @@
 import { isRemoteClient } from './remoteClient';
+import { LAST_REMOTE_ACCOUNT_KEY } from '../../../shared/remote_account_switch';
 
 const accountPrefix =
   typeof location === 'undefined'
@@ -8,7 +9,6 @@ const accountPrefix =
 export const isAccountGateway = !!accountPrefix;
 export const accountGatewayConfigId = accountPrefix.split('/')[3];
 const routeId = accountPrefix.split('/').at(-1);
-const lastRemoteAccountKey = 'weq.remote-last-account.v1';
 let cachedRemoteAccount: string | undefined;
 let selectingAccount = false;
 
@@ -19,8 +19,8 @@ export function setCachedRemoteAccount(configId: string | undefined) {
 export function rememberRemoteAccount(configId: string | undefined) {
   if (!isRemoteClient() || location.hostname !== '127.0.0.1') return;
   try {
-    if (configId) localStorage.setItem(lastRemoteAccountKey, configId);
-    else localStorage.removeItem(lastRemoteAccountKey);
+    if (configId) localStorage.setItem(LAST_REMOTE_ACCOUNT_KEY, configId);
+    else localStorage.removeItem(LAST_REMOTE_ACCOUNT_KEY);
   } catch {}
 }
 
@@ -33,7 +33,7 @@ export function resumeRemoteAccount() {
   selectingAccount = true;
   let configId = cachedRemoteAccount;
   try {
-    configId = localStorage.getItem(lastRemoteAccountKey) || configId;
+    configId = localStorage.getItem(LAST_REMOTE_ACCOUNT_KEY) || configId;
   } catch {}
   const search = new URLSearchParams({ resume: '1' });
   if (configId) search.set('last', configId);

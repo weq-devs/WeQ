@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONTACT_CARD } from '@weq/service/contact-card';
+import { DEFAULT_NOTIFICATION_EVENTS } from '@weq/service/notification-settings';
 import type { SettingsResetItem } from '../src/shared/settings_reset';
 import {
   describeSettingsReset,
@@ -15,6 +16,30 @@ const item = (id: string, current: unknown, defaultValue: unknown): SettingsRese
 });
 
 describe('恢复默认设置的可读预览', () => {
+  it('通知预览列出变化的渠道和被清除的会话例外', () => {
+    const next = DEFAULT_NOTIFICATION_EVENTS;
+    const current = { ...next, mail: { banner: false, system: false } };
+    expect(
+      describeSettingsReset(item('notification-events:notificationEvents', current, next)),
+    ).toEqual([{ label: '新邮件', text: '不通知 → 应用内横幅与系统通知' }]);
+    expect(
+      describeSettingsReset(
+        item(
+          'notification-scopes:mentionMe',
+          { mode: 'all', count: 0, overrides: 2 },
+          { mode: 'all', count: 0, overrides: 0 },
+        ),
+      ),
+    ).toEqual([
+      { label: '当前', text: '全部适用会话，有 2 个会话单独设置' },
+      { label: '恢复后', text: '全部适用会话' },
+    ]);
+  });
+  it('主页预览包含优先展示 QQ 秀', () => {
+    expect(
+      describeSettingsReset(item('home:home', { preferQqShow: false }, { preferQqShow: true })),
+    ).toEqual([{ label: '优先展示 QQ 秀', text: '关闭 → 开启' }]);
+  });
   it('三类默认模型清空时显示对应能力，不混用聊天文案', () => {
     expect(formatResetValue(null, 'api-default:model')).toBe('未设置默认聊天模型');
     expect(formatResetValue(null, 'api-default:vision-model')).toBe('未设置默认视觉模型');
@@ -83,6 +108,10 @@ describe('恢复默认设置的可读预览', () => {
     expect(formatResetValue('all', 'typing:mode')).toBe('全部会话');
     expect(formatResetValue('light', 'theme-mode:preference')).toBe('浅色');
     expect(formatResetValue('paper', 'theme-background:background')).toBe('纸感');
+    expect(formatResetValue('keep', 'reading:readingPositionJumpMode')).toBe('切回后仍提示');
+    expect(formatResetValue('space', 'qzone-person:qzonePersonClickAction')).toBe('进入对方空间');
+    expect(formatResetValue(0, 'logs:logRetentionDays')).toBe('不限时长');
+    expect(formatResetValue(0, 'logs:logCapacityMiB')).toBe('不限容量');
     expect(formatResetValue(5, 'toast:successSeconds')).toBe('5 秒');
     expect(formatResetValue(256, 'image-cache:chatImageCacheMiB')).toBe('256 MiB');
     expect(formatResetValue(0, 'app-lock:autoLockMinutes')).toBe('不自动锁定');

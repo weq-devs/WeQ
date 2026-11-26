@@ -72,14 +72,8 @@ export function OverviewPage({
 
         <div className="weq-ov-rail weq-report-line" style={{ '--i': 3 } as React.CSSProperties}>
           <div className="weq-ov-rail-track" data-open={railOpen ? 'yes' : 'no'}>
-            <span
-              className="weq-ov-rail-fill is-c2c"
-              style={{ width: railOpen ? `${c2cPct}%` : '0%' }}
-            />
-            <span
-              className="weq-ov-rail-fill is-group"
-              style={{ width: railOpen ? `${groupPct}%` : '0%' }}
-            />
+            <span className="weq-ov-rail-fill is-c2c" style={{ width: `${c2cPct}%` }} />
+            <span className="weq-ov-rail-fill is-group" style={{ width: `${groupPct}%` }} />
           </div>
           <div className="weq-ov-rail-legend">
             <span className="weq-ov-rail-side">

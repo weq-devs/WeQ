@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
+import { fadeInSurface } from '../lib/surfaceMotion';
 import { TabActivity } from './RetainedTabs';
 import { PageSnapshotScope } from './PageSnapshots';
 import { PageScrollSnapshot } from './PageScrollSnapshot';
@@ -103,12 +104,19 @@ export function WorkspaceContent({ children }: { children: ReactNode }) {
   const sidecars =
     context?.pages.filter((page) => !page.suspended && page.placement === 'sidecar') ?? [];
   const mainOpen = mainPages.some((page) => page.id === context?.active);
+  const base = useRef<HTMLDivElement>(null);
+  const previousMainOpen = useRef(mainOpen);
+  // 主页面关闭时淡入重新露出的底层；侧栏关闭则直接恢复主区宽度。
+  useLayoutEffect(() => {
+    if (previousMainOpen.current && !mainOpen) fadeInSurface(base.current, { from: 0.9 });
+    previousMainOpen.current = mainOpen;
+  }, [mainOpen]);
   return (
     <div className="weq-workspace-content">
       <div className="weq-workspace-split">
         <div className="weq-workspace-primary">
           <div className="weq-workspace-page-host" ref={context?.setHost} hidden={!mainOpen} />
-          <div id="workspace-base-page" className="weq-workspace-base" hidden={mainOpen}>
+          <div id="workspace-base-page" ref={base} className="weq-workspace-base" hidden={mainOpen}>
             <TabActivity active={!mainOpen}>{children}</TabActivity>
           </div>
         </div>

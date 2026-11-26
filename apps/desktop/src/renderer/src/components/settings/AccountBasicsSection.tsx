@@ -16,7 +16,7 @@ import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
  * settings mutation we refetch so a reopen reflects what was persisted.
  */
 
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useContext, useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import {
   ChevronDown,
   Copy,
@@ -37,14 +37,17 @@ import { useTabActive } from '../RetainedTabs.shared';
 import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, SettingsStatusBadge, Toggle } from './controls';
-import { LongTermAuthorizationSection } from './LongTermAuthorizationSection';
+import { BeforeLoginSettingsContext } from './controls.shared';
 import { DatabaseReadSettings } from './DatabaseReadSettings';
 import { FullFunctionSetup } from './FullFunctionSetup';
-import { NotificationMethodSelect } from './NotificationMethodSelect';
+import { QqStatusReminderSettings } from './QqStatusReminderSettings';
 import { CopyButton } from '../CopyButton';
-import { QqProxyRecovery } from '../QqProxyConnection';
-import { qqProxySetupGuide } from '../QqProxyConnection.shared';
+import { useRestrictedMode } from '../../state/restrictedMode';
+import { useViewState } from '../../state/view';
+import { QQ_STATUS_DETAILS_ID } from '../RestrictedMode.shared';
+import { isQqProxyWaiting, QQ_PROXY_WAITING, qqProxySetupGuide } from '../QqProxyConnection.shared';
 import { formatExpiry } from './AccountBasicsSection.shared';
+import { SETTINGS_PAGE_LABELS } from './navigation';
 
 /** rkey `type_` → human label. Mirrors media_download.ts scene constants. */
 const RKEY_TYPE_LABEL: Record<number, string> = {
@@ -124,11 +127,16 @@ function KeyValueRow({
 export function AccountBasicsSection({
   page = 'account',
   heading = true,
+  databaseKeyTools,
 }: {
   page?: 'account' | 'credentials' | 'media' | 'listening';
   heading?: boolean;
+  databaseKeyTools?: ReactNode;
 }): ReactElement {
   const active = useTabActive();
+  const uin = useViewState((state) => (state.view === 'main' ? state.openedUin : null));
+  const beforeLogin = useContext(BeforeLoginSettingsContext);
+  const proxyDetailsOpen = useRestrictedMode((state) => state.settingsSection === 'proxy');
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
   const autoRefresh = useQQAutoRefresh(true);
@@ -155,7 +163,6 @@ export function AccountBasicsSection({
 
   const setRealtime = trpc.bootstrap.setRealtimeEnabled.useMutation();
   const setAutoAttachQq = trpc.bootstrap.setAutoAttachQq.useMutation();
-  const setRestrictedIndicator = trpc.bootstrap.setRestrictedModeIndicatorEnabled.useMutation();
   const [qqSyncPortDraft, setQqSyncPortDraft] = useState<string | null>(null);
   const pushToast = useToast((state) => state.push);
   const qqSyncStatus = trpc.bootstrap.getQqClientSyncStatus.useQuery(undefined, {
@@ -163,17 +170,12 @@ export function AccountBasicsSection({
     staleTime: 0,
     refetchInterval: active && page === 'account' ? 5000 : false,
   });
+  const access = trpc.account.getGroupAlbumAccessState.useQuery(undefined, { enabled: false });
   const setQqProxyEnabled = trpc.bootstrap.setQqProxyEnabled.useMutation({
     onSuccess: async () => {
       await qqSyncStatus.refetch();
     },
     onError: (error) => showError('更改 QQ 代理状态失败', error.message),
-  });
-  const setQqProxyIndicator = trpc.bootstrap.setQqProxyIndicatorEnabled.useMutation({
-    onSuccess: async () => {
-      await settings.refetch();
-    },
-    onError: (error) => showError('保存失败', error.message),
   });
   const setQqLiveMessages = trpc.bootstrap.setQqLiveMessagesEnabled.useMutation({
     onSuccess: () => {
@@ -202,6 +204,8 @@ export function AccountBasicsSection({
     onError: (error) => showError('更改 QQ 代理端口失败', error.message),
   });
   const proxy = qqSyncStatus.data;
+  const proxyWaiting =
+    !qqSyncStatus.isError && !access.isError && isQqProxyWaiting(proxy, access.data, uin);
   const proxyEnabled = proxy?.enabled === true;
   const qqSyncPort = proxy?.port;
   const toggleQqProxy = async (enabled: boolean) => {
@@ -223,13 +227,17 @@ export function AccountBasicsSection({
       ? '检查中'
       : !proxyEnabled
         ? '已关闭'
-        : proxy.connected
-          ? '已连接'
-          : proxy.connecting
-            ? '正在确认连接'
-            : proxy.running
-              ? '等待 QQ 连接'
-              : '代理未运行';
+        : settings.data?.autoAttachQq === false
+          ? '等待在线能力'
+          : proxy.connected
+            ? '已连接'
+            : proxy.connecting
+              ? '正在确认连接'
+              : proxyWaiting
+                ? QQ_PROXY_WAITING
+                : proxy.running
+                  ? '未连接'
+                  : '代理未运行';
   const proxyStatusError = qqSyncStatus.isError
     ? '无法读取代理状态。'
     : proxyEnabled && proxy && !proxy.running
@@ -269,9 +277,6 @@ export function AccountBasicsSection({
   // Local mirror for snappy toggles; re-seeded whenever server data changes.
   const [realtime, setRealtimeLocal] = useState(true);
   const [autoAttach, setAutoAttach] = useState(false);
-  const [restrictedIndicator, setRestrictedIndicatorLocal] = useState(true);
-  const [savingIndicator, setSavingIndicator] = useState(false);
-  const indicatorPending = useRef(false);
   // 外部安卓 chatpic 兜底（存在全局设置里）。
   const [externalChatpicDir, setExternalChatpicDir] = useState('');
   const [externalChatpicEnabled, setExternalChatpicEnabled] = useState(false);
@@ -282,7 +287,6 @@ export function AccountBasicsSection({
     if (!d) return;
     setRealtimeLocal(d.realtimeEnabled);
     setAutoAttach(d.autoAttachQq);
-    setRestrictedIndicatorLocal(d.restrictedModeIndicatorEnabled !== false);
   }, [settings.data]);
 
   useEffect(() => {
@@ -300,6 +304,8 @@ export function AccountBasicsSection({
   const settingsLoading = settings.isLoading;
   const attachAllowed = fullMode.data?.allowed === true;
   const isMac = systemInfo.data?.platformKind === 'darwin';
+  const settingsPage =
+    page === 'media' ? 'resource-loading' : page === 'listening' ? 'database-management' : page;
 
   // Each toggle: flip locally for instant feedback, persist, then refetch so a
   // reopen reflects what's on disk. On failure, reconcile + surface the error.
@@ -311,24 +317,6 @@ export function AccountBasicsSection({
     } catch (e) {
       await settings.refetch();
       showError('保存失败', errMsg(e));
-    }
-  }
-
-  async function toggleRestrictedIndicator(enabled: boolean): Promise<void> {
-    if (indicatorPending.current) return;
-    indicatorPending.current = true;
-    setSavingIndicator(true);
-    const previous = restrictedIndicator;
-    setRestrictedIndicatorLocal(enabled);
-    try {
-      await setRestrictedIndicator.mutateAsync({ enabled });
-      await settings.refetch();
-    } catch (error) {
-      setRestrictedIndicatorLocal(previous);
-      showError('保存失败', errMsg(error));
-    } finally {
-      indicatorPending.current = false;
-      setSavingIndicator(false);
     }
   }
 
@@ -366,21 +354,8 @@ export function AccountBasicsSection({
     <div className="weq-set">
       {heading && (
         <SectionHeader
-          page={
-            page === 'account' || page === 'credentials'
-              ? page
-              : page === 'media'
-                ? 'resource-loading'
-                : 'database-management'
-          }
-          title={
-            {
-              account: '在线能力与授权',
-              credentials: '凭据管理',
-              media: '资源加载',
-              listening: '监听与读取',
-            }[page]
-          }
+          page={settingsPage}
+          title={page === 'listening' ? '监听与读取' : SETTINGS_PAGE_LABELS[settingsPage]}
           desc={page === 'credentials' ? '当前账号的敏感凭据，默认隐藏。' : undefined}
         />
       )}
@@ -422,6 +397,7 @@ export function AccountBasicsSection({
                 {cfg.algos['nt_msg.db'].kdfHmacAlgorithm}
               </p>
             ) : null}
+            {databaseKeyTools}
           </Card>
 
           {/* 会话密钥：在线 QQ 内存里采集的 a1 / a2 / d2 / d2key + 设备 guid。
@@ -609,7 +585,7 @@ export function AccountBasicsSection({
             enableSetting={
               <Row
                 settingId="auto-full-mode"
-                desc="开启后，WeQ 会从已登录的 QQ 获取会话凭据。在线能力就绪时，WeQ 自动向 QQ 服务器上报已读位置。"
+                desc="开启后，WeQ 会从已登录的 QQ 获取会话凭据。在线能力就绪时，WeQ 自动向 QQ 服务器上报已读位置。要把已读同步回本机 QQ，请在下方「同步与实时更新」开启同步。"
                 control={
                   <Toggle
                     checked={autoAttach}
@@ -625,33 +601,23 @@ export function AccountBasicsSection({
                 }
               />
             }
-          >
-            <Row
-              settingId="restricted-mode-indicator"
-              control={
-                <Toggle
-                  checked={restrictedIndicator}
-                  disabled={
-                    settingsLoading || !settings.data || Boolean(settings.error) || savingIndicator
-                  }
-                  onChange={(value) => void toggleRestrictedIndicator(value)}
-                  label="在线能力受限时显示窗口提示"
-                />
-              }
-            />
-            <Row
-              label="在线能力受限时通知"
-              desc="QQ 在线能力就绪后再次受限时，按通知设置提醒。授权请求、主动操作错误和启用进度不受影响。"
-              control={<NotificationMethodSelect event="runtime" />}
-            />
-          </FullFunctionSetup>
+          />
           <Card
             settingId="qq-proxy-connection"
-            title="QQ 代理连接"
+            title="代理连接"
             titleBadge={
               <SettingsStatusBadge
                 label={proxyStatusText}
-                tone={proxyStatusError ? 'warning' : proxy?.connected ? 'ready' : 'neutral'}
+                tone={
+                  proxyStatusError ? 'warning' : proxyStatusText === '已连接' ? 'ready' : 'neutral'
+                }
+                loading={proxyStatusText === QQ_PROXY_WAITING}
+                details={{
+                  label: `QQ 代理连接：${proxyStatusText}，查看详情`,
+                  open: active && proxyDetailsOpen,
+                  controls: active && proxyDetailsOpen ? QQ_STATUS_DETAILS_ID : undefined,
+                  onClick: () => useRestrictedMode.getState().setOpen(!proxyDetailsOpen, 'proxy'),
+                }}
               />
             }
             desc="连接本机 QQ，以便同步本人消息和已读，也可用来加速实时更新。"
@@ -716,12 +682,17 @@ export function AccountBasicsSection({
                 {proxyStatusError}
               </p>
             )}
-            {proxyEnabled &&
-              proxy?.connectionExpected &&
-              !proxy.connected &&
-              !qqSyncStatus.isError && (
-                <QqProxyRecovery onLaunch={() => void qqSyncStatus.refetch()} />
-              )}
+          </Card>
+          <Card
+            settingId="qq-sync-and-live"
+            title="同步与实时更新"
+            icon={<RefreshCw size={15} strokeWidth={1.8} />}
+            desc={
+              beforeLogin
+                ? '打开在线账号后可用。'
+                : '使用代理同步或加速实时更新时，需要当前账号的 QQ 在线能力就绪。'
+            }
+          >
             <Row
               settingId="qq-client-sync"
               desc="把 WeQ 发送的本人消息和已向 QQ 服务器成功上报的已读位置，同步回本机 QQ。"
@@ -729,6 +700,7 @@ export function AccountBasicsSection({
                 <Toggle
                   checked={settings.data?.qqClientSyncEnabled ?? false}
                   disabled={
+                    beforeLogin ||
                     !proxyEnabled ||
                     setQqProxyEnabled.isPending ||
                     settingsLoading ||
@@ -752,6 +724,7 @@ export function AccountBasicsSection({
                 <Toggle
                   checked={settings.data?.qqLiveMessagesEnabled ?? false}
                   disabled={
+                    beforeLogin ||
                     !proxyEnabled ||
                     setQqProxyEnabled.isPending ||
                     settingsLoading ||
@@ -762,25 +735,8 @@ export function AccountBasicsSection({
                 />
               }
             />
-            <Row
-              settingId="qq-proxy-indicator"
-              control={
-                <Toggle
-                  checked={settings.data?.qqProxyIndicatorEnabled ?? true}
-                  disabled={
-                    !proxyEnabled ||
-                    setQqProxyEnabled.isPending ||
-                    !settings.data ||
-                    Boolean(settings.error) ||
-                    setQqProxyIndicator.isLoading
-                  }
-                  onChange={(enabled) => setQqProxyIndicator.mutate({ enabled })}
-                  label="QQ 代理未连接时显示窗口提示"
-                />
-              }
-            />
           </Card>
-          <LongTermAuthorizationSection />
+          <QqStatusReminderSettings />
         </>
       )}
       {/* 外部安卓图片缓存（放最下面，带引导文案） */}

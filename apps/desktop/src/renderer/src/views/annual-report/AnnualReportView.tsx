@@ -1,11 +1,11 @@
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type ReactElement,
 } from 'react';
 import {
@@ -15,13 +15,16 @@ import {
   Maximize2,
   Minimize2,
   RefreshCw,
+  Sparkles,
 } from 'lucide-react';
 import type { ReportManifest } from '@weq/service';
 import { ALL_TIME_YEAR, reportEraLabel, reportPeriodLabel } from '@weq/service/report-time';
 import { client, trpc } from '../../trpc/client';
+import { EmptyState } from '../../components/EmptyState';
 import { AnnualReportStage } from './AnnualReportStage';
 import { AnnualReportEntry } from './AnnualReportEntry';
 import { renderReportPage } from './pageRegistry.shared';
+import { usePrefersReducedMotion } from './Odometer.shared';
 import { applyReportFont, clearReportFont } from './reportFont';
 import {
   ReportViewContext,
@@ -31,12 +34,28 @@ import {
 import '../../styles/annual-report.css';
 import { useTabActive } from '../../components/RetainedTabs.shared';
 import { useMobileBack } from '../../hooks/useMobileNavigation';
+import { scheduleBackgroundLoad } from '../../lib/backgroundLoad';
+import type { ExportSlide } from './exportHtml';
 import type { AnalysisScope } from '../analysis/model';
 
 type PageState = { status: 'idle' | 'loading' | 'ok' | 'error'; data?: unknown; error?: string };
 
-const SLIDE_TRANSITION =
-  'opacity 900ms cubic-bezier(0.16, 1, 0.3, 1), transform 1000ms cubic-bezier(0.16, 1, 0.3, 1), filter 900ms cubic-bezier(0.16, 1, 0.3, 1)';
+const ENTRY_SLIDE = 'entry';
+const SLIDE_EXIT_MS = 360;
+const EMPTY_PAGES: ReportManifest['pages'] = [];
+const IDLE_PAGE: PageState = { status: 'idle' };
+const EMPTY_SLIDES: ExportSlide[] = [];
+const ReportPageContent = memo(function ReportPageContent({
+  page,
+  data,
+  active,
+}: {
+  page: ReportManifest['pages'][number];
+  data: unknown;
+  active: boolean;
+}) {
+  return renderReportPage(page, data, active);
+});
 
 /**
  * 每页真正的等待工作。年度报告页面共享同一批内存缓存，但每个页面的统计仍然
@@ -78,28 +97,6 @@ function computationDescription(pageId: string): string {
     default:
       return '正在本地统计这一年';
   }
-}
-
-/**
- * 相邻页做「景深退场」：往后压一点、糊掉、压暗。翻页时前一页像被推进暗处，
- * 而不是两张卡片并排滑动 —— 这是报告的电影感来源之一。
- *
- * 上下两侧刻意**不对称**：已翻过的页（delta < 0）往上退进景深，还没到的页
- * （delta > 0）从下方抬起来，位移幅度比退场那侧大一档。对称的话翻上翻下看起来
- * 一模一样，方向感就丢了 —— 这一点位移差正是「往下翻」的实感来源。
- */
-function slideStyle(pageIndex: number, index: number): CSSProperties {
-  const delta = pageIndex - index;
-  const distance = Math.abs(delta);
-  const shift = delta < 0 ? distance * -4 : distance * 7;
-  return {
-    opacity: distance > 1 ? 0 : 1 - distance * 0.82,
-    transform: `scale(${1 - distance * 0.08}) translateY(${shift}%)`,
-    filter: distance > 0 ? 'blur(14px)' : 'none',
-    transition: SLIDE_TRANSITION,
-    zIndex: distance === 0 ? 2 : 1,
-    pointerEvents: distance === 0 ? 'auto' : 'none',
-  };
 }
 
 /**
@@ -174,7 +171,8 @@ export function AnnualReportView({
    * 不再默认 `new Date().getFullYear()` —— 今年可能一条都没发过，那样开屏
    * 就落在一个空报告上。选定之后才带上 `year` 查询。
    */
-  const [year, setYear] = useState<number | null>(configuredYear ?? null);
+  const [selectedYear, setYear] = useState<number | null>(null);
+  const year = configuredYear ?? selectedYear;
   const manifestQuery = trpc.account.annualReport.getManifest.useQuery(
     {
       ...(year == null ? {} : { year }),
@@ -195,8 +193,15 @@ export function AnnualReportView({
 
   return (
     <ReportDeckView
+      key={JSON.stringify([
+        configuredYear,
+        instanceKey,
+        scope?.expectedAccountUin,
+        scope?.expectedAccountConfigId,
+      ])}
       year={effectiveYear}
       manifest={manifestQuery.data ?? null}
+      manifestCurrent={manifestQuery.data?.year === effectiveYear}
       manifestLoading={manifestQuery.isLoading}
       manifestFetching={manifestQuery.isFetching}
       manifestError={manifestQuery.error?.message ?? null}
@@ -211,6 +216,7 @@ export function AnnualReportView({
 function ReportDeckView({
   year,
   manifest,
+  manifestCurrent,
   manifestLoading,
   manifestFetching,
   manifestError,
@@ -221,6 +227,7 @@ function ReportDeckView({
 }: {
   year: number;
   manifest: ReportManifest | null;
+  manifestCurrent: boolean;
   manifestLoading: boolean;
   manifestFetching: boolean;
   manifestError: string | null;
@@ -236,22 +243,26 @@ function ReportDeckView({
    * 页存在 `pages` state 里：某页 `getPageData` 返回 `unavailable` 时把它摘掉，
    * 这样年份选择不用等整份报告的资格扫描，翻页也不会遇到“今年没有这页”的哑页。
    */
-  const candidatePages = useMemo(() => manifest?.pages ?? [], [manifest?.pages]);
-  const [pages, setPages] = useState<ReportManifest['pages']>(candidatePages);
+  const candidatePages = manifestCurrent ? (manifest?.pages ?? EMPTY_PAGES) : EMPTY_PAGES;
+  const [{ pages, index }, setDeck] = useState({ pages: candidatePages, index: 0 });
   /** 该口径下所有候选页都因没有「自己发出的消息」被摘掉（可能有收到的消息）。 */
   const noOwnData = candidatePages.length > 0 && pages.length === 0;
   /**
    * 旧入口保留年份页；工具确认的报告不再重复选年，从第一张实际报告开始。
    * pageOffset 同时决定页码、边界和删除不可用页后的定位。
    */
-  const [index, setIndex] = useState(0);
+  const setIndex = useCallback((index: number) => {
+    setDeck((deck) => (deck.index === index ? deck : { ...deck, index }));
+  }, []);
   const [states, setStates] = useState<Record<string, PageState>>({});
   const generationRef = useRef(0);
   const fontRequest = useRef(0);
-  const cacheRef = useRef(new Map<string, unknown>());
   const inFlight = useRef(new Map<string, Promise<void>>());
+  const reduceMotion = usePrefersReducedMotion();
   /** 全屏播放的宿主：元素级全屏请求打在报告根节点上，应用自己的标题栏与图标栏留在外面。 */
   const rootRef = useRef<HTMLDivElement>(null);
+  const pageScroll = useRef(new Map<string, number>());
+  const homeCardIndex = useRef(0);
   /** 报告内的浮层宿主（目前只有 QQ 空间分享灯箱）—— 详见 ReportViewContextValue。 */
   const overlayHostRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -280,16 +291,13 @@ function ReportDeckView({
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
   }, [immersive]);
-  /** 摘页时要知道 pageId 在当前 deck 里的位置；放在 ref 里避免让 loadPage 随页变化重建。 */
-  const pagesRef = useRef(pages);
-  pagesRef.current = pages;
   /**
    * 报告主字体。装扮页选中「最爱字体」后写在这里，作用于整份报告 —— 已经翻过的
    * 总览页、这一页、结尾页，以及之后加入的任何一页。换年份 / 离开报告时还原。
    */
   const [reportFontId, setReportFontIdState] = useState(0);
   /**
-   * 当前页注册的翻页守卫（目前没有页面注册，机制为后续交互页保留）。
+   * 当前页注册的翻页守卫，供「我的主场」先处理轮盘转动。
    * 存在 ref 里而不是 state：注册/注销发生在页面的 effect 里，用 state 会让
    * context value 变化再触发页面重渲，绕回来又重新注册。
    */
@@ -316,15 +324,15 @@ function ReportDeckView({
   }, []);
 
   useLayoutEffect(() => {
-    setIndex(0);
+    setDeck({ pages: candidatePages, index: 0 });
     setStates({});
-    cacheRef.current.clear();
     inFlight.current.clear();
+    pageScroll.current.clear();
+    homeCardIndex.current = 0;
     generationRef.current += 1;
     setReportFontIdState(0);
     fontRequest.current++;
     clearReportFont([rootRef.current, overlayHostRef.current]);
-    setPages(candidatePages);
   }, [year, candidatePages]);
 
   /**
@@ -379,24 +387,19 @@ function ReportDeckView({
   }, [entry]);
 
   /** 回到第 0 页（年份选择海报）。错误/空态用它兜底：海报是常驻的第 0 页。 */
-  const backToEntry = useCallback(() => setIndex(0), []);
+  const backToEntry = useCallback(() => setIndex(0), [setIndex]);
 
   /** 本页今年没有数据：把它从 deck 摘掉，并保持“当前正在看的内容”不跳变。 */
   const dropUnavailablePage = useCallback(
     (pageId: string): void => {
-      const currentPages = pagesRef.current;
-      const original = currentPages.findIndex((page) => page.id === pageId);
-      if (original < 0) return;
-      const removed = original + pageOffset;
-      const nextPages = currentPages.filter((page) => page.id !== pageId);
-      setPages(nextPages);
-      // removed 是「含海报在内的虚拟序号」：当前页在其后不动，在其前要整体前移一位；
-      // 当前页恰好就是被摘的那页时，让后一页填进同一槽位（摘掉末页则退回上一页）。
-      setIndex((current) => {
-        let next = current;
-        if (removed < current) next = current - 1;
-        else if (removed === current) next = Math.min(current, nextPages.length + pageOffset - 1);
-        return Math.max(0, Math.min(next, nextPages.length + pageOffset - 1));
+      setDeck((deck) => {
+        const original = deck.pages.findIndex((page) => page.id === pageId);
+        if (original < 0) return deck;
+        const removed = original + pageOffset;
+        const pages = deck.pages.filter((page) => page.id !== pageId);
+        // 前面的候选页被摘掉时仍停留在同一页；当前页被摘则由后继填上。
+        const next = removed < deck.index ? deck.index - 1 : deck.index;
+        return { pages, index: Math.max(0, Math.min(next, pages.length + pageOffset - 1)) };
       });
       setStates((current) => {
         const rest = { ...current };
@@ -409,18 +412,10 @@ function ReportDeckView({
 
   /** 加载一页；成功/失败都 resolve，让顺序队列继续往下走。 */
   const loadPage = useCallback(
-    async (pageId: string, force = false): Promise<void> => {
+    async (pageId: string): Promise<void> => {
       const currentGeneration = generationRef.current;
-      const key = `${year}:${pageId}`;
-      const pending = inFlight.current.get(key);
+      const pending = inFlight.current.get(pageId);
       if (pending) return pending;
-      if (!force && cacheRef.current.has(key)) {
-        setStates((current) => ({
-          ...current,
-          [pageId]: { status: 'ok', data: cacheRef.current.get(key) },
-        }));
-        return;
-      }
       const work = (async () => {
         setStates((current) => ({ ...current, [pageId]: { status: 'loading' } }));
         try {
@@ -431,7 +426,6 @@ function ReportDeckView({
           });
           if (generationRef.current !== currentGeneration) return;
           if (result.status === 'ok') {
-            cacheRef.current.set(key, result.data);
             setStates((current) => ({ ...current, [pageId]: { status: 'ok', data: result.data } }));
           } else if (result.status === 'unavailable') {
             dropUnavailablePage(pageId);
@@ -452,47 +446,88 @@ function ReportDeckView({
           }));
         }
       })();
-      inFlight.current.set(key, work);
+      inFlight.current.set(pageId, work);
       try {
         await work;
       } finally {
-        if (inFlight.current.get(key) === work) inFlight.current.delete(key);
+        if (inFlight.current.get(pageId) === work) inFlight.current.delete(pageId);
       }
     },
     [year, dropUnavailablePage, scope],
   );
 
-  // 顺序加载：第 1 页好了立即显示，然后 2、3、4… 依次补齐。
-  // 只在真的滚进报告后开始：年份海报停留时点刻度不该触发整份统计的数据库扫描，
-  // 那些扫描会和「切年份」的动画抢 CPU，是选年份掉帧的隐性来源之一。
+  const onEntry = entry && index === 0;
+  const currentPage = pages[index - pageOffset];
+  const currentSlide = onEntry ? ENTRY_SLIDE : currentPage?.id;
+  const [navigation, setNavigation] = useState({
+    current: currentSlide,
+    index,
+    leaving: undefined as string | undefined,
+    direction: 1,
+  });
+  // 同一页因前面的候选页被摘掉而改变序号时，保留页面和滚动位置。
+  if (navigation.current !== currentSlide || navigation.index !== index) {
+    setNavigation({
+      current: currentSlide,
+      index,
+      leaving: navigation.current !== currentSlide ? navigation.current : navigation.leaving,
+      direction: index >= navigation.index ? 1 : -1,
+    });
+  }
+  const leaving = tabActive && !reduceMotion ? navigation.leaving : undefined;
   useEffect(() => {
-    if (!tabActive || pages.length === 0 || (entry && index === 0)) return;
-    let cancelled = false;
-    const generation = generationRef.current;
-    (async () => {
-      for (const page of pages) {
-        if (cancelled || generation !== generationRef.current) return;
-        await loadPage(page.id);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [index, pages, loadPage, entry, tabActive]);
+    if (!navigation.leaving) return;
+    const finish = () => setNavigation((nav) => ({ ...nav, leaving: undefined }));
+    if (!leaving) {
+      finish();
+      return;
+    }
+    const timer = window.setTimeout(finish, SLIDE_EXIT_MS);
+    return () => window.clearTimeout(timer);
+  }, [leaving, navigation]);
 
-  // 翻到还没加载的页时立即加载（不用等队列轮到）。
+  const currentStatus = currentPage ? states[currentPage.id]?.status : undefined;
+  useLayoutEffect(() => {
+    if (!tabActive || !currentSlide || (currentStatus !== 'ok' && !onEntry)) return;
+    const slide = rootRef.current?.querySelector<HTMLElement>(
+      '[data-layout="reading"] .weq-report-slide.is-active',
+    );
+    if (slide) slide.scrollTop = pageScroll.current.get(currentSlide) ?? 0;
+  }, [tabActive, currentSlide, currentStatus, onEntry]);
+
+  // 本地统计只维持一个请求，翻页时下一笔优先处理当前页。QQ 空间走
+  // 独立网络，慢请求不挡住本地卡片，也不因连续翻页重复启动。
   useEffect(() => {
-    if (!tabActive) return;
-    const active = pages[index - pageOffset];
-    if (!active) return;
-    void loadPage(active.id);
-  }, [index, pages, loadPage, pageOffset, tabActive]);
+    if (!tabActive || onEntry || !manifestCurrent) return;
+    const isIdle = (pageId: string) => !states[pageId] && !inFlight.current.has(pageId);
+    const localBusy = [...inFlight.current.keys()].some((pageId) => pageId !== 'qzone');
+    const nextLocal = pages.find((page) => page.id !== 'qzone' && isIdle(page.id));
+    const qzone = pages.find((page) => page.id === 'qzone' && isIdle(page.id));
+
+    if (currentPage && isIdle(currentPage.id) && (currentPage.id === 'qzone' || !localBusy)) {
+      void loadPage(currentPage.id);
+      return;
+    }
+    const next = localBusy ? (!nextLocal ? qzone : undefined) : (nextLocal ?? qzone);
+    if (next)
+      return scheduleBackgroundLoad(() => {
+        if (isIdle(next.id)) return loadPage(next.id);
+      }, SLIDE_EXIT_MS);
+  }, [tabActive, onEntry, manifestCurrent, currentPage, pages, states, loadPage]);
+
+  const retryPage = (pageId: string) => {
+    setStates((current) => {
+      const next = { ...current };
+      delete next[pageId];
+      return next;
+    });
+  };
 
   const moveTo = useCallback(
     (next: number) => {
       setIndex(Math.max(0, Math.min(pages.length + pageOffset - 1, next)));
     },
-    [pages.length, pageOffset],
+    [pages.length, pageOffset, setIndex],
   );
 
   const scopeLabel = useMemo(() => {
@@ -506,28 +541,29 @@ function ReportDeckView({
       year,
       scopeLabel,
       readScope: scope,
-      slides: pages
-        .filter((page) => states[page.id]?.status === 'ok')
-        .map((page) => ({ page, data: states[page.id]?.data })),
+      slides: EMPTY_SLIDES,
       reportFontId,
       setReportFontId,
       registerPageGuard,
+      homeCardIndex,
       overlayHostRef,
     }),
-    [
-      year,
-      scopeLabel,
-      scope,
-      pages,
-      states,
-      reportFontId,
-      setReportFontId,
-      registerPageGuard,
-      overlayHostRef,
-    ],
+    [year, scopeLabel, scope, reportFontId, setReportFontId, registerPageGuard, overlayHostRef],
   );
 
-  if (manifestLoading && !manifest) {
+  const readyPages = useMemo(
+    () =>
+      pages.flatMap((page) =>
+        states[page.id]?.status === 'ok' ? [{ page, data: states[page.id]?.data }] : [],
+      ),
+    [pages, states],
+  );
+  const endContext = useMemo(
+    () => ({ ...contextValue, slides: readyPages }),
+    [contextValue, readyPages],
+  );
+
+  if ((manifestLoading && !manifest) || (!entry && !manifestCurrent && manifestFetching)) {
     return (
       <div className="weq-report-root weq-report-loading">
         <LoaderCircle className="weq-report-spin" size={32} aria-label="正在加载年度报告" />
@@ -545,12 +581,14 @@ function ReportDeckView({
       </div>
     );
   }
-  if (candidatePages.length === 0 || (!entry && noOwnData)) {
+  if ((manifestCurrent && candidatePages.length === 0) || (!entry && noOwnData)) {
     return (
       <div className="weq-report-root weq-report-empty">
-        <p>
-          {reportEraLabel(year)}没有可展示的卡片 —— 至少需要发出过一条私聊或群聊消息，报告才会出现。
-        </p>
+        <EmptyState
+          icon={<Sparkles />}
+          title={`${reportEraLabel(year)}还没有可讲的卡片`}
+          body="至少需要发出过一条私聊或群聊消息，年度报告才会出现。"
+        />
         <button type="button" onClick={entry ? backToEntry : onRetry}>
           {entry ? '换个年份' : '重新读取'}
         </button>
@@ -558,14 +596,14 @@ function ReportDeckView({
     );
   }
 
-  /** 第 0 页（年份选择海报）是否正在画面上：是的话 chrome 与刻度轨让位。 */
-  const onEntry = entry && index === 0;
-  const readyCount = pages.filter((page) => states[page.id]?.status === 'ok').length;
+  const readyCount = readyPages.length;
+  const visiblePages = pages.filter((page) => page.id === currentSlide || page.id === leaving);
 
   return (
     <div
       className="weq-report-root is-deck"
       ref={rootRef}
+      data-playing={tabActive ? 'yes' : 'no'}
       data-entry={onEntry ? 'yes' : 'no'}
       data-immersive={immersive || undefined}
     >
@@ -609,72 +647,80 @@ function ReportDeckView({
         </div>
       </div>
 
-      <ReportViewContext.Provider value={contextValue}>
-        <AnnualReportStage
-          index={index}
-          count={pages.length + pageOffset}
-          onIndexChange={moveTo}
-          guard={runPageGuard}
-        >
-          {entry && (
-            <div
-              className={`weq-report-slide${index === 0 ? ' is-active' : ''}`}
-              style={slideStyle(0, index)}
-              aria-hidden={index !== 0}
-              inert={index !== 0}
-              tabIndex={index === 0 ? 0 : -1}
-            >
-              <div className="weq-report-entry-wrap">
-                <AnnualReportEntry
-                  manifest={manifest}
-                  loading={manifestLoading}
-                  isFetching={manifestFetching}
-                  error={manifestError}
-                  noOwnData={noOwnData}
-                  selectedYear={year}
-                  onSelectYear={onSelectYear}
-                  onGenerate={() => moveTo(1)}
-                />
-              </div>
+      <AnnualReportStage
+        index={index}
+        count={pages.length + pageOffset}
+        onIndexChange={moveTo}
+        guard={runPageGuard}
+      >
+        {entry && (onEntry || leaving === ENTRY_SLIDE) && (
+          <div
+            className={`weq-report-slide${onEntry ? ' is-active' : ''}`}
+            data-slide-direction={navigation.direction}
+            aria-hidden={!onEntry || !tabActive}
+            inert={!onEntry || !tabActive}
+            tabIndex={onEntry && tabActive ? 0 : -1}
+          >
+            <div className="weq-report-entry-wrap">
+              <AnnualReportEntry
+                manifest={manifest}
+                loading={manifestLoading}
+                isFetching={manifestFetching || !manifestCurrent}
+                error={manifestError}
+                noOwnData={noOwnData}
+                selectedYear={year}
+                onSelectYear={onSelectYear}
+                onGenerate={() => moveTo(1)}
+              />
             </div>
-          )}
-          {pages.map((page, pageIndex) => {
-            const virtualIndex = pageIndex + pageOffset;
-            const state = states[page.id] ?? { status: 'idle' as const };
-            const active = virtualIndex === index && tabActive;
-            return (
-              <div
-                className={`weq-report-slide${active ? ' is-active' : ''}`}
-                key={page.id}
-                style={slideStyle(virtualIndex, index)}
-                aria-hidden={!active}
-                inert={!active}
-                tabIndex={active ? 0 : -1}
-              >
-                {state.status === 'loading' || state.status === 'idle' ? (
-                  <ReportPageLoading
-                    page={page}
-                    order={pageIndex + 1}
-                    readyCount={readyCount}
-                    total={pages.length}
-                    queued={state.status === 'idle'}
-                  />
-                ) : null}
-                {state.status === 'error' ? (
-                  <div className="weq-report-page-status">
-                    <p>{state.error}</p>
-                    <button type="button" onClick={() => void loadPage(page.id, true)}>
-                      <RefreshCw size={16} />
-                      重试
-                    </button>
-                  </div>
-                ) : null}
-                {state.status === 'ok' ? renderReportPage(page, state.data, active) : null}
-              </div>
-            );
-          })}
-        </AnnualReportStage>
-      </ReportViewContext.Provider>
+          </div>
+        )}
+        {visiblePages.map((page) => {
+          const pageIndex = pages.indexOf(page);
+          const state = states[page.id] ?? IDLE_PAGE;
+          const current = page.id === currentSlide;
+          const active = current && tabActive;
+          return (
+            <div
+              className={`weq-report-slide${current ? ' is-active' : ''}`}
+              key={page.id}
+              data-slide-direction={navigation.direction}
+              aria-hidden={!active}
+              inert={!active}
+              tabIndex={active ? 0 : -1}
+              onScroll={
+                active && state.status === 'ok'
+                  ? (event) => pageScroll.current.set(page.id, event.currentTarget.scrollTop)
+                  : undefined
+              }
+            >
+              {state.status === 'loading' || state.status === 'idle' ? (
+                <ReportPageLoading
+                  page={page}
+                  order={pageIndex + 1}
+                  readyCount={readyCount}
+                  total={pages.length}
+                  queued={state.status === 'idle'}
+                />
+              ) : null}
+              {state.status === 'error' ? (
+                <div className="weq-report-page-status">
+                  <p>{state.error}</p>
+                  <button type="button" onClick={() => retryPage(page.id)}>
+                    <RefreshCw size={16} />
+                    重试
+                  </button>
+                </div>
+              ) : null}
+              {state.status === 'ok' ? (
+                <ReportViewContext.Provider value={page.id === 'end' ? endContext : contextValue}>
+                  <ReportPageContent page={page} data={state.data} active={active} />
+                </ReportViewContext.Provider>
+              ) : null}
+            </div>
+          );
+        })}
+      </AnnualReportStage>
 
       <div className="weq-report-rail" aria-label="报告翻页">
         <button

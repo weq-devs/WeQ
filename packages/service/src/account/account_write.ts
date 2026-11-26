@@ -17,8 +17,8 @@ import {
   SetFriendSpecialCare,
   type FriendSnsPage,
   getCloudProfile,
+  getCommonAttributes,
   getCommonFriendCount,
-  getCommonGroups,
   getFriendClue,
   GetGroupJoinInfo,
   readEditableProfile,
@@ -167,39 +167,41 @@ export class AccountWriteService {
     };
   }
 
-  async commonRelationships(target: string, priority = 0) {
+  async commonRelationships(target: string, priority = 0, source: 'both' | 'attributes' = 'both') {
     const pid = this.resolvePid();
-    const loadGroups = async () => {
+    const loadFriends = () => getCommonFriendCount(this.nt, pid, this.identity.uin, target);
+    const loadAttributes = async () => {
       const version = (await this.identity.clientVersion?.()) ?? '';
       this.assertCurrentPid(pid);
-      return getCommonGroups(this.nt, pid, this.identity.uin, target, version);
+      return getCommonAttributes(this.nt, pid, this.identity.uin, target, version);
     };
-    const [friends, groups] = await Promise.allSettled([
+    const loadBatchFriends = () =>
+      this.contactMetrics
+        ? this.contactMetrics.schedule(`friend:${target}:batchCommonFriends`, loadFriends, priority)
+        : loadFriends();
+    const loadAttributesCached = () =>
       this.contactMetrics
         ? this.contactMetrics.query(
             `friend:${target}`,
-            ['commonFriends'],
-            () => getCommonFriendCount(this.nt, pid, this.identity.uin, target),
-            (value) => ({ commonFriends: value }),
+            ['commonFriends', 'commonGroups'],
+            loadAttributes,
+            (value) => ({ commonFriends: value.friendCount, commonGroups: value.groups }),
             priority,
           )
-        : getCommonFriendCount(this.nt, pid, this.identity.uin, target),
-      this.contactMetrics
-        ? this.contactMetrics.query(
-            `friend:${target}`,
-            ['commonGroups'],
-            loadGroups,
-            (value) => ({ commonGroups: value }),
-            priority,
-          )
-        : loadGroups(),
+        : loadAttributes();
+    const [friends, attributes] = await Promise.allSettled([
+      source === 'both' ? loadBatchFriends() : null,
+      loadAttributesCached(),
     ]);
     this.assertCurrentPid(pid);
+    const data = attributes.status === 'fulfilled' ? attributes.value : null;
     return {
       friendCount: friends.status === 'fulfilled' ? friends.value : null,
-      groups: groups.status === 'fulfilled' ? groups.value : null,
+      attributeFriendCount: data?.friendCount ?? null,
+      groups: data?.groups ?? null,
       friendError: friends.status === 'rejected' ? '共同好友读取失败' : null,
-      groupError: groups.status === 'rejected' ? '共同群读取失败' : null,
+      groupError:
+        attributes.status === 'rejected' || data?.groups === null ? '共同群读取失败' : null,
     };
   }
 

@@ -83,7 +83,7 @@ try {
           await page.locator('.mobile-composer-expand-button').click();
         }
         const button = page.locator(
-          mobile ? '.composer-send-expanded' : '.composer > .composer-send',
+          mobile ? '.composer-send-expanded' : '.composer .composer-send',
         );
         const check = async (label) => {
           assert.equal(await button.textContent(), label);
@@ -129,7 +129,7 @@ try {
         );
         await page.waitForFunction(
           (selector) => !document.querySelector(selector).hasAttribute('data-muted'),
-          mobile ? '.composer-send-expanded' : '.composer > .composer-send',
+          mobile ? '.composer-send-expanded' : '.composer .composer-send',
         );
         assert.equal(await button.isDisabled(), false);
         assert.equal(await button.locator('.lucide-send-horizontal').count(), 1);

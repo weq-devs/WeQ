@@ -5,6 +5,8 @@ import { databaseRequestSignal } from '../query_schedule';
 import type { BuddyMsgFtsHit } from './types';
 import { toBigint, toStr } from './util';
 import { sourceFtsContract, type SourceTokenizer } from './source_search_contract';
+import type { FtsRecordBounds } from './fts_record_candidates';
+import { ftsLikePattern } from './fts_content_search';
 
 export type SourceSearchTable = 'buddy_msg_fts' | 'group_msg_fts';
 export interface SourceSearchTarget {
@@ -41,9 +43,22 @@ const REQUIRED = [
   '40027',
 ];
 const phrase = (text: string) => `"${text.replaceAll('"', '""')}"`;
-const like = (text: string) => `%${text.replace(/[\\%_]/g, '\\$&')}%`;
 const nonAsciiCased = (text: string) =>
   text.codePointAt(0)! > 127 && text.toLowerCase() !== text.toUpperCase();
+
+export interface SourceSearchPartition {
+  column: '40021' | '40027' | '40035';
+  value: string | bigint;
+}
+
+interface LikeCandidates {
+  keyword: string;
+  limit: number;
+  fields: 'body' | 'file' | 'both';
+  order: 'rowid' | 'msgId' | 'time';
+  partition?: SourceSearchPartition;
+  bounds?: FtsRecordBounds;
+}
 
 /** 直接读取 QQ 的搜索库；不解密复制、不建库、不增量写入。 */
 export class SourceMsgSearchDb {
@@ -107,69 +122,80 @@ export class SourceMsgSearchDb {
   private async probe(): Promise<void> {
     const generation = this.generation;
     const identity = this.fileIdentity();
-    const version = Number((await this.query('PRAGMA schema_version', [], 'validation'))[0]?.[0]);
     if (
       this.ready &&
       identity === this.identity &&
-      version === this.schema &&
-      Date.now() < this.coverageRetryAt
+      Date.now() < this.coverageRetryAt &&
+      Number((await this.query('PRAGMA schema_version', [], 'validation'))[0]?.[0]) === this.schema
     )
       return;
+
     this.ready = false;
     this.tokenizer = null;
     this.indexedReadVerified = false;
     this.coverageRetryAt = Number.POSITIVE_INFINITY;
     if (this.identity && identity !== this.identity && !this.override) this.qq.close();
-    const caps = await this.query(
-      "SELECT weq_trigram_contains('CAFÉ','café'),weq_trigram_contains('a  b','a b')",
-      [],
+
+    // 版本、列定义和 FTS 声明来自同一个 SQLite 快照，只启动一次读取进程。
+    const info = await this.query(
+      `SELECT v.schema_version,
+         weq_trigram_contains('CAFÉ','café'), weq_trigram_contains('a  b','a b'),
+         (SELECT sql FROM sqlite_master WHERE name=?), c.name, c.type, c.pk
+       FROM pragma_schema_version v LEFT JOIN pragma_table_info(?) c ON 1 ORDER BY c.cid`,
+      [`${this.table}_fts`, this.table],
       'validation',
     );
-    if (Number(caps[0]?.[0]) !== 1 || Number(caps[0]?.[1]) !== 0)
-      throw new Error('native 搜索能力不可用');
-    const info = await this.query(`PRAGMA table_info(${this.table})`, [], 'validation');
-    const names = new Set(info.map((row) => toStr(row[1])));
+    const [schema, folded, collapsed, ddl] = info[0] ?? [];
+    const version = Number(schema);
+    if (Number(folded) !== 1 || Number(collapsed) !== 0) throw new Error('native 搜索能力不可用');
+    const names = new Set(info.map((row) => toStr(row[4])));
     if (REQUIRED.some((name) => !names.has(name))) throw new Error('搜索内容表结构不兼容');
-    const keys = info.filter((row) => Number(row[5]) > 0);
+    const keys = info.filter((row) => Number(row[6]) > 0);
     if (
       keys.length !== 1 ||
-      toStr(keys[0]?.[1]) !== '41700' ||
-      toStr(keys[0]?.[2]).toUpperCase() !== 'INTEGER'
+      toStr(keys[0]?.[4]) !== '41700' ||
+      toStr(keys[0]?.[5]).toUpperCase() !== 'INTEGER'
     )
       throw new Error('搜索内容表主键不兼容');
-    const ddl = await this.query(
-      'SELECT sql FROM sqlite_master WHERE name=?',
-      [`${this.table}_fts`],
-      'validation',
-    );
-    const contract = sourceFtsContract(toStr(ddl[0]?.[0]), this.table);
+
+    let afterVersion = version;
+    const contract = sourceFtsContract(toStr(ddl), this.table);
     let tokenizer = contract?.tokenizer ?? null;
     if (contract?.columns.some((name) => !names.has(name))) tokenizer = null;
     if (tokenizer === 'pinyin0') {
-      const signature = await this.query('SELECT weq_qq_pinyin0_query_version()', [], 'validation');
+      const signature = await this.query(
+        'SELECT weq_qq_pinyin0_query_version(), schema_version FROM pragma_schema_version',
+        [],
+        'validation',
+      );
+      afterVersion = Number(signature[0]?.[1]);
       if (toStr(signature[0]?.[0]) !== 'qq-char0-ascii-query-v1') tokenizer = null;
     }
-    if (tokenizer) {
+    if (tokenizer && version === afterVersion) {
+      let missing: SqlRow[] | undefined;
       try {
-        const missing = await this.query(
-          `SELECT COUNT(*) FROM ${this.table} c
-          LEFT JOIN ${this.table}_fts_docsize d ON d.id=c."41700"
-          WHERE d.id IS NULL AND (length(c."41701")>0 OR length(c."41702")>0)`,
+        missing = await this.query(
+          `SELECT (
+             SELECT COUNT(*) FROM ${this.table} c
+             LEFT JOIN ${this.table}_fts_docsize d ON d.id=c."41700"
+             WHERE d.id IS NULL AND (length(c."41701")>0 OR length(c."41702")>0)
+           ), schema_version FROM pragma_schema_version`,
           [],
           'validation',
         );
-        if (Number(missing[0]?.[0]) !== 0) {
-          tokenizer = null;
-          this.coverageRetryAt = Date.now() + 5 * 60000;
-        }
       } catch {
+        // 核验查询不可用时仍要复核 schema，避免接纳已经换表的来源。
+      }
+      afterVersion = Number(
+        missing
+          ? missing[0]?.[1]
+          : (await this.query('PRAGMA schema_version', [], 'validation'))[0]?.[0],
+      );
+      if (Number(missing?.[0]?.[0]) !== 0) {
         tokenizer = null;
         this.coverageRetryAt = Date.now() + 5 * 60000;
       }
     }
-    const afterVersion = Number(
-      (await this.query('PRAGMA schema_version', [], 'validation'))[0]?.[0],
-    );
     if (
       this.closed ||
       generation !== this.generation ||
@@ -258,7 +284,7 @@ export class SourceMsgSearchDb {
         ? `weq_trigram_contains(${alias}."${column}",?)`
         : `${alias}."${column}" LIKE ? ESCAPE '\\'`,
     );
-    const args: SqlValue[] = columns.map(() => (long ? keyword : like(keyword)));
+    const args: SqlValue[] = columns.map(() => (long ? keyword : ftsLikePattern(keyword)));
     let from = `FROM ${this.table} c WHERE (${predicates.join(' OR ')})`;
     if (anchor) {
       const scope = `{${columns.map((column) => `"${column}"`).join(' ')}}`;
@@ -281,6 +307,84 @@ export class SourceMsgSearchDb {
       this.ready = false;
       throw new Error('搜索来源已变化，请重试');
     }
+  }
+
+  /** 以 MATCH 缩小文本比较范围，沿用调用方的 LIKE、过滤条件及候选排序。 */
+  async likeCandidates(options: LikeCandidates): Promise<SqlRow[] | undefined> {
+    try {
+      return await this.queryLikeCandidates(options);
+    } catch {
+      databaseRequestSignal()?.throwIfAborted();
+      this.abort.signal.throwIfAborted();
+    }
+  }
+
+  private async queryLikeCandidates({
+    keyword,
+    limit,
+    fields,
+    order,
+    partition,
+    bounds,
+  }: LikeCandidates) {
+    if (
+      !this.accelerated ||
+      !keyword.trim() ||
+      /[\p{Cs}\p{Cc}]/u.test(keyword.replace(/[\r\n\t]/g, ''))
+    )
+      return;
+    const generation = this.generation;
+    const anchor = await this.anchor(keyword);
+    if (!anchor) return;
+
+    const columns =
+      fields === 'body' ? ['41701'] : fields === 'file' ? ['41702'] : ['41701', '41702'];
+    const scope = `{${columns.map((column) => `"${column}"`).join(' ')}}`;
+    const match = columns.map((column) => `c."${column}" LIKE ? ESCAPE '\\'`).join(' OR ');
+    const where: string[] = [];
+    const args: SqlValue[] = [];
+    if (partition) {
+      where.push(`c."${partition.column}"=?`);
+      args.push(partition.value);
+    }
+    if (bounds?.senderUid) {
+      where.push('c."40020"=?');
+      args.push(bounds.senderUid);
+    }
+    if (bounds?.start !== undefined) {
+      where.push('c."40050">=?');
+      args.push(BigInt(bounds.start));
+    }
+    if (bounds?.end !== undefined) {
+      where.push('c."40050"<=?');
+      args.push(BigInt(bounds.end));
+    }
+    const filters = where.length ? `${where.join(' AND ')} AND ` : '';
+    const tie = `"${order === 'msgId' ? '40001' : '41700'}" ${order === 'time' ? 'ASC' : 'DESC'}`;
+    const table = this.table;
+    const virtual = `${table}_fts`;
+    // QQ 可能在校验后先写入内容表。补查无 docsize 的行，并在同一个 SQL 快照内去重。
+    const rows = await this.query(
+      `WITH candidates(id) AS MATERIALIZED (
+         SELECT rowid FROM ${virtual} WHERE ${virtual} MATCH ?
+         UNION
+         SELECT c.rowid FROM ${table} c WHERE ${filters}c.rowid NOT IN (SELECT id FROM ${virtual}_docsize)
+       )
+       SELECT p.*,v.schema_version FROM pragma_schema_version v LEFT JOIN (
+         SELECT ${CONTENT_FIELDS}, c."40027" AS partition
+         FROM candidates CROSS JOIN ${table} c ON c.rowid=candidates.id
+         WHERE ${filters}(${match}) ORDER BY c."40050" DESC,c.${tie} LIMIT ?
+       ) p ON 1 ORDER BY p."40050" DESC,p.${tie}`,
+      [
+        `${scope}:${anchor}`,
+        ...args,
+        ...args,
+        ...columns.map(() => ftsLikePattern(keyword)),
+        BigInt(limit),
+      ],
+    );
+    this.assertCurrent(rows, 10, generation);
+    return rows.filter((row) => row[8] !== null).map((row) => [...row.slice(0, 8), row[9]!]);
   }
   private async page(
     keyword: string,

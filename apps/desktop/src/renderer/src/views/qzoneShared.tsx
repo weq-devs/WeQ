@@ -1,5 +1,6 @@
 import { ToolbarLabel } from '../components/CompactToolbar';
 import { EmptyState } from '../components/EmptyState';
+import { NumericText } from '../components/NumericText';
 /**
  * 空间页与空友爱看共用的展示件。
  *
@@ -41,7 +42,15 @@ export function State({
   progress?: string;
 }) {
   if (!loading && !error && empty) {
-    return <EmptyState compact role="status" icon={<Images />} title={empty} body={progress} />;
+    return (
+      <EmptyState
+        compact
+        role="status"
+        icon={<Images />}
+        title={empty}
+        body={progress ? <NumericText>{progress}</NumericText> : undefined}
+      />
+    );
   }
   return (
     <div className="weq-qzn-state" role="status">
@@ -65,7 +74,7 @@ export function State({
       )}
       {progress ? (
         <span className="weq-qzn-page-count">
-          <span className="weq-number weq-number-inherit">{progress}</span>
+          <NumericText>{progress}</NumericText>
         </span>
       ) : null}
     </div>

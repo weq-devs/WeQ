@@ -46,7 +46,7 @@ export function ContactRow({
   empty?: boolean;
   /** 等宽展示（编号、UUID 一类），仍然可选中复制。 */
   mono?: boolean;
-  /** 身份编号使用等宽数字，字体随资料行。 */
+  /** 编号、邮箱等完整值跟随特殊数字字体设置。 */
   number?: boolean;
   /** 点值进入编辑/详情；拖动选择文本时不触发。 */
   onActivate?: (anchor: HTMLButtonElement) => void;
@@ -75,7 +75,7 @@ export function ContactRow({
         <ContactFieldHistoryButton label={label} field={historyField} />
       </span>
       <div
-        className={`weq-profile-data-value${mono ? ' is-mono' : ''}${number ? ' weq-number' : ''}`}
+        className={`weq-profile-data-value${mono ? ' is-mono' : ''}${number && !blank ? ' weq-number' : ''}`}
         data-privacy-sensitive
       >
         {onActivate ? (

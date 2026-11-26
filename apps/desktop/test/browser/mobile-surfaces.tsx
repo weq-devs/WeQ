@@ -123,7 +123,7 @@ function Fixture() {
                       : surface === 'settings-account'
                         ? 'account'
                         : surface === 'settings-display'
-                          ? 'message-display'
+                          ? 'message-content'
                           : undefined
                   }
                 />

@@ -1,3 +1,4 @@
+import { NumericText } from '../NumericText';
 import { useContext, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3, Eye, MessageSquareText } from 'lucide-react';
@@ -53,7 +54,9 @@ function OnlinePersonCard({ uin, onClose }: { uin: string; onClose: () => void }
           {profile.age > 0 ? (
             <>
               <dt>年龄</dt>
-              <dd>{profile.age}</dd>
+              <dd>
+                <NumericText>{profile.age}</NumericText>
+              </dd>
             </>
           ) : null}
           {profile.sex !== 'unknown' ? (
@@ -65,7 +68,9 @@ function OnlinePersonCard({ uin, onClose }: { uin: string; onClose: () => void }
           {profile.level > 0 ? (
             <>
               <dt>QQ 等级</dt>
-              <dd>{profile.level}</dd>
+              <dd>
+                <NumericText>{profile.level}</NumericText>
+              </dd>
             </>
           ) : null}
           {profile.robotCandidate ? (

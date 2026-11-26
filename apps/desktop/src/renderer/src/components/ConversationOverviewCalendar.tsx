@@ -45,7 +45,6 @@ export function ConversationOverviewCalendar({
   task,
   targets,
   scope,
-  query,
   ready,
   directoryError,
   sourceRevision,
@@ -56,7 +55,6 @@ export function ConversationOverviewCalendar({
   task?: CalendarTaskOpening;
   targets: CalendarTarget[];
   scope: ConversationView;
-  query: string;
   ready: boolean;
   directoryError?: string;
   sourceRevision?: string;
@@ -115,8 +113,8 @@ export function ConversationOverviewCalendar({
     [expectedAccountUin, expectedAccountConfigId],
   );
   const selected = useMemo(
-    () => task?.targets ?? filterCalendarTargets(targets, 'all', query),
-    [task, targets, query],
+    () => task?.targets ?? filterCalendarTargets(targets, 'all', ''),
+    [task, targets],
   );
   const selectionKey = useMemo(() => calendarTargetSetKey(selected), [selected]);
   const selectedByKey = useMemo(

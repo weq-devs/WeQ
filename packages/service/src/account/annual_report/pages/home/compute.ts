@@ -1,3 +1,4 @@
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import type { PageAvailability, ReportPageDefinition } from '../../types';
 import { isAllTimeYear, reportYearUnixRange } from '../../time';
 import { segmentWords } from '../../../text_segment';
@@ -45,7 +46,7 @@ export const homePage: ReportPageDefinition<HomePageData> = {
           : '这一年你没有发出过群聊消息',
     };
   },
-  compute: async ({ year, q }): Promise<HomePageData> => {
+  compute: async ({ year, q, signal }): Promise<HomePageData> => {
     const { startSec, endSec } = reportYearUnixRange(year);
     const ranked = await q.group.countRows(startSec, endSec);
     const groupSentTotal = ranked.reduce((sum, row) => sum + row.sentCount, 0);
@@ -97,17 +98,20 @@ export const homePage: ReportPageDefinition<HomePageData> = {
     }));
 
     const lead = ranked[0]!;
-    const [rows, standing] = await Promise.all([
-      q.group.speechRows(lead.groupCode, startSec, endSec),
-      q.group.standing(lead.groupCode),
-    ]);
-
     const wordCounts = new Map<string, number>();
-    for (const row of rows) {
-      for (const element of row.elements) {
-        if (element.kind === 'text' && element.textContent) {
-          for (const word of segmentWords(element.textContent)) {
-            wordCounts.set(word, (wordCounts.get(word) ?? 0) + 1);
+    let processed = 0;
+    let deadline = performance.now() + 8;
+    for await (const rows of q.group.speechBatches(lead.groupCode, startSec, endSec)) {
+      for (const row of rows) {
+        if ((++processed & 63) === 0 && performance.now() >= deadline) {
+          await yieldToEventLoop(undefined, { signal });
+          deadline = performance.now() + 8;
+        }
+        for (const element of row.elements) {
+          if (element.kind === 'text' && element.textContent) {
+            for (const word of segmentWords(element.textContent)) {
+              wordCounts.set(word, (wordCounts.get(word) ?? 0) + 1);
+            }
           }
         }
       }
@@ -117,6 +121,7 @@ export const homePage: ReportPageDefinition<HomePageData> = {
       .sort(rankTopics)
       .slice(0, TOPIC_KEEP);
 
+    const standing = await q.group.standing(lead.groupCode);
     const top: HomeGroupTop = {
       groupCode: lead.groupCode,
       groupName: lead.groupName,

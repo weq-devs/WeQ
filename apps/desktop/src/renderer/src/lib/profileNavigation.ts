@@ -3,6 +3,7 @@ import { z } from 'zod/v3';
 import type { Contact, GroupConversation, GroupMember, User } from '../im-template/template/types';
 import { avatarFromUin } from './avatarResolver';
 import type { SettingsNavigation } from '../hooks/useSettingsNavigation';
+import type { ProfilePoint } from './profileCardMotion';
 
 export const ProfileNavigationGuardContext = createContext<
   ((guard: SettingsNavigation) => () => void) | null
@@ -44,7 +45,7 @@ export function profileTargetUser(target: ProfileTarget): User | null {
 }
 
 export const ProfileNavigationContext = createContext<
-  ((user: User, anchor: { x: number; y: number }, group?: ProfileGroup) => void) | null
+  ((user: User, anchor: ProfilePoint, group?: ProfileGroup) => void) | null
 >(null);
 
 export const contactWorkspaceTabSchema = z.enum([
@@ -89,6 +90,22 @@ export type ContactWorkspaceTarget =
       folderId?: string;
       fileId?: string;
     };
+
+export function contactPortraitTarget(uid: string, name?: string): ContactWorkspaceTarget {
+  return {
+    kind: 'person',
+    tab: 'portrait',
+    contact: {
+      id: uid,
+      identityLabel: 'UID',
+      identityValue: uid,
+      username: uid,
+      displayName: name?.trim() || 'TA',
+      avatarUrl: null,
+      createdAt: new Date(0).toISOString(),
+    },
+  };
+}
 
 /** 小名片展开到联系人详情，不向好友或群目录写入临时对象。 */
 export const ContactWorkspaceNavigationContext = createContext<

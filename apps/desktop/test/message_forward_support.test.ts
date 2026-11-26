@@ -4,7 +4,13 @@ import {
   repeatImageSources,
   repeatSendPlan,
 } from '../src/renderer/src/lib/messageRepeat';
-import { partitionForwardMessages } from '../src/renderer/src/lib/sequentialForward';
+import {
+  failedForwardDraft,
+  partitionForwardMessages,
+  resolveFailedForwardMedia,
+} from '../src/renderer/src/lib/sequentialForward';
+import { elementsToComposerText } from '../src/renderer/src/im-template/template/draftElements';
+import { buildComposerSendPlan } from '../src/renderer/src/im-template/template/composerSend';
 import { createTemplateDemoData } from './support/templateDemoData';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -140,8 +146,55 @@ it('批量分流保留原顺序和整条拒绝原因，保留正文不因撤回�
   expect(prepared.ignored).toEqual([{ message: messages[1], reason: expect.any(String) }]);
 });
 
-it.each(['sending', 'failed'] as const)('尚未确认的本机 %s 消息不能进入转发队列', (optimistic) => {
+it.each(['queued', 'sending'] as const)('尚在 %s 的本机消息不能进入转发队列', (optimistic) => {
   const prepared = partitionForwardMessages([{ ...base, optimistic, qqElements: [text] }]);
   expect(prepared.sendable).toHaveLength(0);
-  expect(prepared.ignored[0]?.reason).toContain(optimistic === 'sending' ? '发送中' : '未确认');
+  expect(prepared.ignored[0]?.reason).toBeTruthy();
+});
+
+it('失败稿的正文和本地附件进入新发送计划，来源引用不会跨会话发送', () => {
+  const bytes = new Uint8Array([1, 2, 3]);
+  const body = elementsToComposerText([
+    { kind: 'reply', origMsgSeq: 13 },
+    { kind: 'text', textContent: '原稿' },
+    { kind: 'pic', localPreviewUrl: 'blob:fixture', fileName: 'image.png' },
+  ]);
+  const draft = { body, locals: [{ key: 'blob:fixture', name: 'image.png', bytes }] };
+  const failed = { ...base, optimistic: 'failed' as const, composerDraft: draft };
+  const missing = { ...failed, id: 'missing', composerDraft: { body } };
+  const result = partitionForwardMessages([failed, missing]);
+  expect(result.sendable).toEqual([failed]);
+  expect(result.ignored).toEqual([{ message: missing, reason: expect.any(String) }]);
+  const prepared = failedForwardDraft(failed)!;
+  expect(
+    buildComposerSendPlan({
+      body: prepared.body,
+      locals: prepared.locals!,
+      superStickers: new Map(),
+    }),
+  ).toMatchObject({
+    kind: 'elements',
+    elements: [
+      { kind: 'text', textContent: '原稿' },
+      { kind: 'image', source: bytes },
+    ],
+  });
+  expect(
+    partitionForwardMessages([{ ...base, optimistic: 'failed', qqElements: [text] }]).sendable,
+  ).toHaveLength(1);
+});
+
+it('可明确确认丢失的本机附件在打开转发设置前报错', async () => {
+  const body = elementsToComposerText([{ kind: 'file', localAttachmentId: 'original' }]);
+  const fixture = {
+    body,
+    locals: [
+      { key: 'original', name: '原文件', path: '/fixture/missing' },
+      { key: 'removed', name: '已移除文件', path: '/fixture/unreferenced' },
+    ],
+  };
+  const fetcher = vi.fn(async () => new Response(null, { status: 404 }));
+  vi.stubGlobal('fetch', fetcher);
+  await expect(resolveFailedForwardMedia(fixture)).rejects.toThrow('找不到本机附件');
+  expect(fetcher).toHaveBeenCalledOnce();
 });

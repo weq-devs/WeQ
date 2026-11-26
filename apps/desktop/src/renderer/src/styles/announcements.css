@@ -21,7 +21,7 @@
   padding: 4px 12px;
   text-align: left;
   border: 0;
-  border-bottom: 1px solid var(--weq-border-subtle);
+  border-top: 1px solid var(--weq-border-subtle);
   font-size: 13px;
 }
 
@@ -232,5 +232,45 @@
 @media (max-width: 520px) {
   .weq-announcement-entry.is-startup .weq-announcement-entry-label {
     display: none;
+  }
+}
+
+.weq-announcement-placeholder {
+  display: flex;
+  flex: 1;
+  min-height: 220px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 24px 16px;
+  color: var(--weq-fg-secondary);
+  font-size: 13px;
+}
+
+.weq-announcement-placeholder .weq-empty-state {
+  flex: none;
+  min-height: 0;
+  padding: 12px 16px;
+}
+
+.weq-announcement-placeholder .weq-set-btn {
+  flex: none;
+}
+
+.weq-announcements-scroll:has(> .weq-announcement-placeholder) {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+/* 公告正文随选中项替换，换一条就是一次新的内容入场。 */
+.weq-announcement-article {
+  animation: weq-list-item-in var(--weq-motion-enter) var(--weq-motion-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-announcement-article {
+    animation: none;
   }
 }

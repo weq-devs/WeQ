@@ -5,6 +5,7 @@ import { gzip } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { lockRemoteViewport } from './remote_viewport';
 import { remoteStartupRecovery } from './startup_recovery';
+import { allowRemoteMedia } from './remote_media_policy';
 import {
   parse,
   serialize,
@@ -132,6 +133,7 @@ export async function preparedStartupDocument(
 async function prepareStartupShell(root: string, html: string): Promise<PreparedStartupShell> {
   const document = parse(html);
   const paths = new Set<string>();
+  const policies: Array<{ value: string }> = [];
   let head: DefaultTreeAdapterMap['element'] | undefined;
   function visit(node: DefaultTreeAdapterMap['node']) {
     if ('tagName' in node) {
@@ -142,19 +144,7 @@ async function prepareStartupShell(root: string, html: string): Promise<Prepared
         attr('http-equiv')?.toLowerCase() === 'content-security-policy'
       ) {
         const content = node.attrs.find((a) => a.name === 'content');
-        if (content) {
-          const directives = content.value.split(';').map((part) => part.trim().split(/\s+/));
-          const script = directives.find((parts) => parts[0] === 'script-src');
-          if (script) script.push(trackerHash);
-          else
-            directives.push([
-              'script-src',
-              ...(directives.find((parts) => parts[0] === 'default-src')?.slice(1) ?? ["'self'"]),
-              trackerHash,
-            ]);
-          directives.find((parts) => parts[0] === 'script-src-elem')?.push(trackerHash);
-          content.value = directives.map((parts) => parts.join(' ')).join('; ');
-        }
+        if (content) policies.push(content);
       }
       const rel = attr('rel')?.split(/\s+/) ?? [];
       const value =
@@ -175,9 +165,26 @@ async function prepareStartupShell(root: string, html: string): Promise<Prepared
     if ('childNodes' in node) node.childNodes.forEach(visit);
   }
   visit(document);
-  if (!head || paths.size === 0) {
-    const unchanged = remoteReleaseDocument(html);
-    return () => unchanged;
+  const tracksResources = !!head && paths.size > 0;
+  for (const policy of policies) {
+    const directives = policy.value.split(';').map((part) => part.trim().split(/\s+/));
+    allowRemoteMedia(directives);
+    if (tracksResources) {
+      const script = directives.find((parts) => parts[0] === 'script-src');
+      if (script) script.push(trackerHash);
+      else
+        directives.push([
+          'script-src',
+          ...(directives.find((parts) => parts[0] === 'default-src')?.slice(1) ?? ["'self'"]),
+          trackerHash,
+        ]);
+      directives.find((parts) => parts[0] === 'script-src-elem')?.push(trackerHash);
+    }
+    policy.value = directives.map((parts) => parts.join(' ')).join('; ');
+  }
+  if (!head || !tracksResources) {
+    const output = remoteReleaseDocument(policies.length ? serialize(document) : html);
+    return () => output;
   }
   lockRemoteViewport(head);
   const inventory = await builtAssets(root, paths);

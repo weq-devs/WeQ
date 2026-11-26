@@ -3,7 +3,7 @@
  *
  * 顶部 banner（bug_banner.png，深色模式用 bug_banner_2.png，底部渐变模糊）；中间是反馈前须知、数据库
  * hexdump 工具（前 200 字节 + 复制）、标题 + Markdown 正文（编辑/预览，GitHub
- * 式模板：清单 + 系统版本 + weq 版本 + 错误描述 + 预期描述）。
+ * 式模板：清单 + 错误描述 + 预期描述）。提交时附带实际运行环境。
  *
  * 底部三个出口：
  *   1. 打开 GitHub issue 页面（带标题与正文预填）
@@ -11,7 +11,7 @@
  *   3. 打包到缓存目录的新建文件夹 + 打开目录 + QQ 深链接
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { z } from 'zod/v3';
 import { usePageDraftConfirmation, usePageState } from '../PageSnapshots.shared';
 import { pageValue } from '../../lib/pageSnapshots';
@@ -45,12 +45,25 @@ import { useThemeStore } from '../../state/theme';
 import bugBanner from '@resources/brand/bug_banner.png';
 import bugBannerDark from '@resources/brand/bug_banner_2.png';
 import { Card, CheckPill, SectionHeader } from './controls';
+import { BeforeLoginSettingsContext, OPEN_ACCOUNT_SETTINGS_HINT } from './controls.shared';
 import '../../styles/help-markdown.css';
 import { SegmentedControl } from '../SegmentedControl';
 
 const REMARK_PLUGINS = [remarkGfm];
 const PLUGINS = { code: shikiCodeHighlighter };
 const DEFAULT_CHECKS = { isBug: true, knowCause: false, willingPr: false };
+const DEFAULT_TEMPLATE = [
+  '- [x] 我反馈的是一个 bug（feature 意见请删除本模板，前往 issue 或 QQ 群交流）',
+  '- [ ] 我知道错误的原因',
+  '- [ ] 我愿意 PR 修复',
+  '',
+  '## 错误的功能描述',
+  '<在这里描述发生了什么，附上报错文本 / 日志 / 截图>',
+  '',
+  '## 预期的功能描述',
+  '<在这里描述期望的行为>',
+  '',
+].join('\n');
 
 const REPO = 'weq-devs/WeQ';
 const REPO_ISSUES = `https://github.com/${REPO}/issues`;
@@ -118,16 +131,10 @@ export function BugReportPanel(): ReactElement {
   const showError = useDialog((s) => s.showError);
   const confirm = useDialog((s) => s.confirm);
   const resolvedTheme = useThemeStore((s) => s.resolved);
+  const beforeLogin = useContext(BeforeLoginSettingsContext);
 
-  const version = trpc.bootstrap.getVersionInfo.useQuery(undefined, {
+  const environment = trpc.help.feedbackEnvironment.useQuery(undefined, {
     enabled: active,
-    refetchOnWindowFocus: false,
-    staleTime: Infinity,
-  });
-  const system = trpc.bootstrap.systemInfo.useQuery(undefined, {
-    enabled: active,
-    refetchOnWindowFocus: false,
-    staleTime: Infinity,
   });
   const ghStatus = trpc.help.ghStatus.useQuery(undefined, {
     enabled: active,
@@ -136,7 +143,7 @@ export function BugReportPanel(): ReactElement {
     refetchOnMount: 'always',
   });
   const databases = trpc.account.dbExplorer.listDatabases.useQuery(undefined, {
-    enabled: active,
+    enabled: active && !beforeLogin,
     refetchOnWindowFocus: false,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -174,58 +181,12 @@ export function BugReportPanel(): ReactElement {
     };
   }, [active]);
   const [submitting, setSubmitting] = useState<'gh' | 'qq' | null>(null);
-  const templateFilledRef = useRef(false);
-
-  const appVersion = version.data?.app ?? '';
-  const platform = system.data?.platformKind ?? '';
-
-  /** 生成 GitHub 式模板。 */
-  const buildTemplate = useCallback((): string => {
-    const platformHint =
-      platform === 'win32'
-        ? 'Windows 11 23H2'
-        : platform === 'linux'
-          ? 'Ubuntu 24.04 / 其它发行版'
-          : platform === 'darwin'
-            ? 'macOS 15'
-            : '操作系统 + 版本';
-    return [
-      '- [x] 我反馈的是一个 bug（feature 意见请删除本模板，前往 issue 或 QQ 群交流）',
-      '- [ ] 我知道错误的原因',
-      '- [ ] 我愿意 PR 修复',
-      '',
-      '## 系统版本',
-      platformHint,
-      '',
-      '## weq 版本',
-      appVersion || '<填写设置 → 关于 WeQ → 版本与更新中的版本号>',
-      '',
-      '## 错误的功能描述',
-      '<在这里描述发生了什么，附上报错文本 / 日志 / 截图>',
-      '',
-      '## 预期的功能描述',
-      '<在这里描述期望的行为>',
-      '',
-    ].join('\n');
-  }, [platform, appVersion]);
-
   // 生成时保存基准；自动模板及还原后的内容不参与离开检查。
   useEffect(() => {
-    if (templateFilledRef.current || templateBody !== null) return;
-    if (version.isLoading || system.isLoading) return;
-    templateFilledRef.current = true;
-    const template = buildTemplate();
-    setTemplateBody(template);
-    if (!body) setBody(template);
-  }, [
-    buildTemplate,
-    body,
-    templateBody,
-    version.isLoading,
-    system.isLoading,
-    setBody,
-    setTemplateBody,
-  ]);
+    if (templateBody !== null) return;
+    setTemplateBody(DEFAULT_TEMPLATE);
+    if (!body) setBody(DEFAULT_TEMPLATE);
+  }, [body, templateBody, setBody, setTemplateBody]);
 
   /** 顶部 banner 的底部渐变模糊。 */
   const bannerStyle = useMemo(
@@ -242,10 +203,9 @@ export function BugReportPanel(): ReactElement {
   };
 
   const resetTemplate = (): void => {
-    const template = buildTemplate();
     setChecks(DEFAULT_CHECKS);
-    setTemplateBody(template);
-    setBody(template);
+    setTemplateBody(DEFAULT_TEMPLATE);
+    setBody(DEFAULT_TEMPLATE);
     pushToast({
       tone: 'info',
       title: '已填入反馈模板',
@@ -306,7 +266,7 @@ export function BugReportPanel(): ReactElement {
   const openGithubPage = async (): Promise<void> => {
     const params = new URLSearchParams();
     const t = title.trim();
-    const b = body.trim();
+    const b = [body.trim(), environment.data].filter(Boolean).join('\n\n');
     if (t) params.set('title', t);
     if (b) params.set('body', b);
     const query = params.toString();
@@ -354,7 +314,7 @@ export function BugReportPanel(): ReactElement {
       }
       const ok = await confirm(
         '提交 GitHub Issue',
-        '将通过 gh 直接创建 issue，正文末尾会自动附带两份最新日志。确认提交？',
+        '将通过 gh 直接创建 issue，并附上运行环境和近期日志。确认提交？',
         { okLabel: '提交', cancelLabel: '取消', tone: 'info' },
       );
       if (!ok) return;
@@ -417,8 +377,8 @@ export function BugReportPanel(): ReactElement {
     <div className="weq-set weq-help-bug">
       <SectionHeader
         title="反馈"
-        icon={<MessageCircle size={16} />}
-        desc="提交前先确认不是已知问题，并按模板写清复现步骤、系统版本与当天日志。"
+        page="feedback"
+        desc="写清复现步骤，反馈会自动附上 WeQ 版本和系统等运行环境。"
       />
       {/* 顶部 banner：底部渐变模糊 */}
       <div className="weq-help-bug-banner" style={bannerStyle}>
@@ -469,21 +429,23 @@ export function BugReportPanel(): ReactElement {
             <IconPicker
               width="100%"
               maxHeight={220}
-              disabled={databases.isLoading || hexBusy}
+              disabled={beforeLogin || databases.isLoading || hexBusy}
               triggerIcon={<Database size={13} aria-hidden />}
               ariaLabel="选择当前账号的数据库"
               placeholder={
-                databases.isLoading
-                  ? '正在读取当前账号数据库…'
-                  : databases.isError
-                    ? '需要先打开账号'
-                    : (databases.data?.length ?? 0) === 0
-                      ? '当前账号暂无数据库'
-                      : '选择当前账号的数据库'
+                beforeLogin
+                  ? OPEN_ACCOUNT_SETTINGS_HINT
+                  : databases.isLoading
+                    ? '正在读取当前账号数据库…'
+                    : databases.isError
+                      ? '需要先打开账号'
+                      : (databases.data?.length ?? 0) === 0
+                        ? '当前账号暂无数据库'
+                        : '选择当前账号的数据库'
               }
               value={hexdump?.path ?? ''}
               onChange={(v) => void loadHexdump(v)}
-              options={(databases.data ?? []).map((db) => ({
+              options={(beforeLogin ? [] : (databases.data ?? [])).map((db) => ({
                 value: db.path,
                 label: db.name,
                 detail: fmtBytes(db.bytes),
@@ -645,7 +607,7 @@ export function BugReportPanel(): ReactElement {
               <small>
                 {ghStatus.data?.available
                   ? ghStatus.data.authenticated
-                    ? '本地 GitHub CLI 可用，正文自动附带两份最新日志'
+                    ? '正文自动附带运行环境和近期日志'
                     : 'GitHub CLI 未登录，提交前需 gh auth login'
                   : '未检测到 gh，安装 GitHub CLI 后可用'}
               </small>
@@ -666,7 +628,7 @@ export function BugReportPanel(): ReactElement {
             </span>
             <span>
               <strong>在 QQ 群提出</strong>
-              <small>正文与两份最新日志打包到缓存目录并打开</small>
+              <small>打包正文、运行环境和近期日志</small>
             </span>
           </button>
         </div>

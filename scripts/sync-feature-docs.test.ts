@@ -7,7 +7,9 @@ import {
   verifyGeneratedReference,
 } from './sync-feature-docs';
 
-const tools = readRegisteredTools("const AI_TOOLS = [tool({ name: 'read_fixture' })];");
+const tools = new Set(
+  readRegisteredTools("const AI_TOOLS = [tool({ name: 'read_fixture' })];").keys(),
+);
 const feature: FeatureDefinition = {
   id: 'messages.fixture',
   label: '夹具',

@@ -25,6 +25,7 @@ async function setup(online = true, groupReconcileInterval = 5) {
       Awaited<ReturnType<AccountServices['accountWrite']['commonRelationships']>>
     > => ({
       friendCount: 0,
+      attributeFriendCount: 0,
       groups: [],
       friendError: null,
       groupError: null,
@@ -568,13 +569,18 @@ it('慢字段不阻塞同一好友的其余指标，部分成功不判整个对�
   services.accountWrite.friendClue.mockResolvedValue({ addedAt: 123, direction: null });
   services.accountWrite.commonRelationships.mockResolvedValue({
     friendCount: 0,
+    attributeFriendCount: 0,
     groups: null,
     friendError: null,
     groupError: '合成共同群失败',
   });
   const id = await runtime.rebuild();
   await waitFor(() =>
-    expect(services.accountWrite.commonRelationships).toHaveBeenCalledWith('12345', 1),
+    expect(services.accountWrite.commonRelationships).toHaveBeenCalledWith(
+      '12345',
+      1,
+      'attributes',
+    ),
   );
   expect(runtime.cache.progress.lanes?.friends.done).toBe(0);
   level.reject(new Error('合成等级获取失败'));
@@ -659,6 +665,7 @@ it('只请求共同群时不因无关共同好友失败而失败', async () => {
   const { runtime, services } = await setup();
   services.accountWrite.commonRelationships.mockResolvedValue({
     friendCount: null,
+    attributeFriendCount: null,
     friendError: '合成共同好友失败',
     groups: [],
     groupError: null,
@@ -761,7 +768,11 @@ it('普通群资料变化不在线重查；好友成员变化才定向查询共�
   summaries.set('10001', { total: 1, friends: new Set() });
   callbacks[1]!();
   await waitFor(() =>
-    expect(services.accountWrite.commonRelationships).toHaveBeenCalledWith('12345', 1),
+    expect(services.accountWrite.commonRelationships).toHaveBeenCalledWith(
+      '12345',
+      1,
+      'attributes',
+    ),
   );
   expect(services.accountWrite.commonRelationships).toHaveBeenCalledTimes(1);
   await runtime.dispose();
@@ -820,6 +831,7 @@ it('群聊失败明细独立于最近 200 条过程日志，重试成功后清�
   services.groupInfo.getExtendedProfile.mockReturnValueOnce(group.promise);
   let release!: (value: {
     friendCount: number;
+    attributeFriendCount: number;
     groups: never[];
     friendError: null;
     groupError: null;
@@ -849,7 +861,13 @@ it('群聊失败明细独立于最近 200 条过程日志，重试成功后清�
   ]);
   expect(await caller.contactFailures({ ...input, lane: 'friends' })).toEqual([]);
   await expect(caller.contactFailures({ ...input, scope: null })).rejects.toThrow('失效');
-  release({ friendCount: 0, groups: [], friendError: null, groupError: null });
+  release({
+    friendCount: 0,
+    attributeFriendCount: 0,
+    groups: [],
+    friendError: null,
+    groupError: null,
+  });
   await waitFor(() => expect(runtime.cache.progress.status).toBe('failed'));
   const failed = backgroundTasks.snapshot().find((item) => item.id === id)!;
   expect(failed.progress).toBe(100);

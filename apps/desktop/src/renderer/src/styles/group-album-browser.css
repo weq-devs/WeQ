@@ -103,7 +103,6 @@
   background: transparent;
 }
 .group-album-browser .group-album-card:hover {
-  transform: none;
   box-shadow: none;
   border-color: var(--weq-accent-effective);
   background: color-mix(in srgb, var(--weq-accent-effective) 6%, transparent);
@@ -189,7 +188,6 @@
   background: var(--muted);
 }
 .group-album-browser .group-album-media-card:hover {
-  transform: none;
   box-shadow: none;
   border-color: var(--weq-accent-effective);
 }

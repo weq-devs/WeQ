@@ -1,3 +1,4 @@
+import { currentAccountRuntime } from './context/account_runtime';
 import { Notification } from 'electron';
 import type { MailNotice } from '@weq/service/mail';
 import { getAppContext } from './context/app_context';
@@ -19,16 +20,19 @@ export function handleMailNotification(uin: string, notice: MailNotice): void {
   const window = getMainWindow();
   if (window && !window.isDestroyed() && window.isFocused() && !window.isMinimized()) return;
   const notification = new Notification({ ...MAIL_NOTICE, silent: false });
-  notification.on('click', () => {
-    const current = getAppContext();
-    if (String(current.account?.context.uin) !== uin || current.services?.mail !== mail) return;
-    const target = getMainWindow();
-    if (target && !target.isDestroyed()) {
-      if (target.isMinimized()) target.restore();
-      target.show();
-      target.focus();
-    }
-    mail.events.emit('change', { type: 'open', notice });
-  });
+  notification.on(
+    'click',
+    currentAccountRuntime().bind(() => {
+      const current = getAppContext();
+      if (String(current.account?.context.uin) !== uin || current.services?.mail !== mail) return;
+      const target = getMainWindow();
+      if (target && !target.isDestroyed()) {
+        if (target.isMinimized()) target.restore();
+        target.show();
+        target.focus();
+      }
+      mail.events.emit('change', { type: 'open', notice });
+    }),
+  );
   notification.show();
 }

@@ -9,6 +9,8 @@ import {
   Minus,
 } from 'lucide-react';
 import {
+  databaseProgressDisplaySteps,
+  databaseRepairCheckGroup,
   databaseStepPercent,
   type DatabaseTaskProgress,
   type DatabaseStepProgress,
@@ -24,12 +26,12 @@ import '../styles/database-maintenance-progress.css';
 
 const stages = {
   scan: [
-    ['prepare', '准备扫描'],
-    ['pages', '页扫描'],
+    ['prepare', '准备体检'],
+    ['pages', '页签名检查'],
   ],
   checkup: [
-    ['prepare', '准备扫描'],
-    ['pages', '页扫描'],
+    ['prepare', '准备体检'],
+    ['pages', '页签名检查'],
     ['integrity', '结构体检'],
   ],
   repair: [
@@ -45,7 +47,7 @@ function stageKey(step: DatabaseStepProgress, kind: DatabaseTaskProgress['kind']
   if (kind !== 'repair')
     return step.step.startsWith('integrity')
       ? 'integrity'
-      : step.step === 'mapping'
+      : step.step === 'mapping' || step.step.startsWith('quick-')
         ? 'mapping'
         : step.step === 'pages'
           ? 'pages'
@@ -67,9 +69,20 @@ function countText(step: DatabaseStepProgress): string | undefined {
     step.unit === 'bytes' ? formatBytesOrUnknown(value) : Math.floor(value).toLocaleString('zh-CN');
   const suffix =
     (
-      { pages: '页', tables: '张表', fields: '个字段', records: '条记录' } as Record<string, string>
+      {
+        pages: '页',
+        tables: '张表',
+        fields: '个字段',
+        records: '条记录',
+        indexes: '个索引',
+        backups: '份备份',
+        databases: '个数据库',
+      } as Record<string, string>
     )[step.unit ?? ''] ?? '';
-  return `${count(step.completed)}${step.total === undefined ? '' : ` / ${count(step.total)}`}${suffix ? ` ${suffix}` : ''}`;
+  const prefix = step.step === 'recover-data' && step.unit === 'fields' ? '累计 ' : '';
+  const fields =
+    step.processedFields === undefined ? '' : ` · 累计 ${count(step.processedFields)} 个字段`;
+  return `${prefix}${count(step.completed)}${step.total === undefined ? '' : ` / ${count(step.total)}`}${suffix ? ` ${suffix}` : ''}${fields}`;
 }
 function attention(step: DatabaseStepProgress): boolean {
   return (
@@ -141,7 +154,11 @@ export function DatabaseMaintenanceProgress({
   actions?: ReactNode;
 }) {
   const [now, setNow] = useState(Date.now);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [disclosure, setDisclosure] = useState<{
+    run: string;
+    stages: Record<string, boolean>;
+  }>();
+  const run = `${progress.kind}:${progress.dbName}:${progress.startedAt}`;
   const running = progress.status === 'running';
   const timing = batch ? batch.status === 'running' : running;
   useEffect(() => {
@@ -155,14 +172,17 @@ export function DatabaseMaintenanceProgress({
       : batch.elapsedMs
     : (running ? Math.max(now, progress.updatedAt) : progress.updatedAt) - progress.startedAt;
   const currentKey = stageKey(progress.current, progress.kind);
+  const steps = databaseProgressDisplaySteps(progress);
   const detailedPhases = new Set(
-    progress.steps.filter((step) => step.step !== step.phase).map((step) => step.phase),
+    steps.filter((step) => step.step !== step.phase).map((step) => step.phase),
   );
   // 原生阶段起止回执不是额外工作步骤；保留带诊断、对象或计数的回执。
-  const visibleSteps = progress.steps.filter(
+  const visibleSteps = steps.filter(
     (step) =>
       progress.kind !== 'repair' ||
-      !['Scan', 'Decrypt', 'Repair', 'Encrypt', 'Restore', 'Verify'].includes(step.phase) ||
+      !['Scan', 'Decrypt', 'Repair', 'Encrypt', 'Restore', 'Verify', 'final-check'].includes(
+        step.phase,
+      ) ||
       step.step !== step.phase ||
       !detailedPhases.has(step.phase) ||
       attention(step) ||
@@ -175,51 +195,73 @@ export function DatabaseMaintenanceProgress({
     const isCurrent = step === currentStep;
     const executing = isCurrent && running && step.status === 'running';
     const percent = databaseStepPercent(step);
+    const rebuildPercent = percent === undefined ? step.rebuildPercent : undefined;
+    const barValue = percent ?? rebuildPercent;
     const count = countText(step);
     const rate =
-      executing &&
-      now - step.updatedAt < 5000 &&
-      step.rate &&
-      ['pages', 'bytes'].includes(step.unit ?? '')
+      executing && !connectionError && step.rate && ['pages', 'bytes'].includes(step.unit ?? '')
         ? `${step.unit === 'bytes' ? formatBytesOrUnknown(step.rate) : `${Math.round(step.rate).toLocaleString('zh-CN')} 页`}/秒`
         : undefined;
+    const rateLabel = now - step.updatedAt < 5000 ? '当前速度' : '最近速度';
     const state =
       connectionError && executing ? '连接中断' : label(step, progress.status === 'cancelled');
+    const objectName =
+      grouped && step.step.startsWith('integrity-records-') ? undefined : step.objectName;
     return (
       <div
-        key={`${step.phase}:${step.step}:${step.startedAt}`}
+        key={`${step.phase}:${step.step}:${step.step === 'recover-data' ? progress.startedAt : step.startedAt}`}
         className={`weq-db-progress-entry is-${step.status ?? 'running'}${step.outcome ? ` is-${step.outcome}` : ''}`}
         aria-current={executing ? 'step' : undefined}
       >
         <div className="weq-db-progress-entry-body">
           {!sharedHeading ? (
             <div className="weq-db-progress-step">
-              <span role={executing ? 'status' : undefined}>{step.message}</span>
-              <strong>{state}</strong>
+              <span className="weq-db-progress-step-heading">
+                <span role={executing ? 'status' : undefined}>
+                  {step.step === 'recover-data' ? '恢复表数据' : step.message}
+                </span>
+                {objectName ? (
+                  <span className="weq-db-progress-object" title={objectName}>
+                    {objectName}
+                  </span>
+                ) : null}
+                {count ? (
+                  <span className="weq-db-progress-count">
+                    <NumericText>{count}</NumericText>
+                  </span>
+                ) : null}
+              </span>
+              <strong>
+                <NumericText>{state}</NumericText>
+              </strong>
             </div>
           ) : null}
-          {step.objectName && !(grouped && step.step.startsWith('integrity-records-')) ? (
-            <p className="weq-db-progress-object">{step.objectName}</p>
+          {sharedHeading && objectName ? (
+            <p className="weq-db-progress-object">{objectName}</p>
           ) : null}
           {step.detail ? <p className="weq-db-progress-detail">{step.detail}</p> : null}
-          {isCurrent && (executing || percent !== undefined) ? (
+          {isCurrent && (executing || barValue !== undefined) ? (
             <TaskProgressBar
-              value={percent}
+              value={barValue}
               status={connectionError ? 'paused' : progress.status}
               label="当前步骤进度"
-              valueText={count ?? state}
+              valueText={rebuildPercent === undefined ? (count ?? state) : undefined}
             />
           ) : null}
-          {count || step.badPages !== undefined || step.zeroPages || rate ? (
+          {(sharedHeading && count) || step.badPages !== undefined || step.zeroPages || rate ? (
             <div className="weq-db-progress-readouts">
-              {count ? (
+              {sharedHeading && count ? (
                 <span>
                   <NumericText>{count}</NumericText>
                 </span>
               ) : null}
               {step.badPages !== undefined ? (
                 <span>
-                  <NumericText>{`已发现 ${step.badPages.toLocaleString('zh-CN')} 个坏页`}</NumericText>
+                  <NumericText>
+                    {step.locatedPages === undefined
+                      ? `已发现 ${step.badPages.toLocaleString('zh-CN')} 个坏页`
+                      : `已定位 ${step.locatedPages.toLocaleString('zh-CN')} / ${step.badPages.toLocaleString('zh-CN')} 个坏页`}
+                  </NumericText>
                 </span>
               ) : null}
               {step.zeroPages ? (
@@ -229,7 +271,7 @@ export function DatabaseMaintenanceProgress({
               ) : null}
               {rate ? (
                 <span>
-                  <NumericText>{`当前速度 ${rate}`}</NumericText>
+                  <NumericText>{`${rateLabel} ${rate}`}</NumericText>
                 </span>
               ) : null}
             </div>
@@ -240,18 +282,19 @@ export function DatabaseMaintenanceProgress({
     );
   };
   const basePlan = stages[progress.kind];
-  const plan = progress.steps.some((step) => step.step === 'mapping')
-    ? [...basePlan.slice(0, 2), ['mapping', '归属分析'] as const, ...basePlan.slice(2)]
-    : basePlan;
+  const plan =
+    progress.kind !== 'repair' && steps.some((step) => stageKey(step, progress.kind) === 'mapping')
+      ? [...basePlan.slice(0, 2), ['mapping', '归属分析'] as const, ...basePlan.slice(2)]
+      : basePlan;
   const currentIndex = plan.findIndex(([key]) => key === currentKey);
-  const abnormal = progress.steps.filter((step) => step.outcome === 'abnormal').length;
+  const abnormal = steps.filter((step) => step.outcome === 'abnormal').length;
   return (
     <section
       className={`weq-db-progress${compact ? ' is-compact' : ''} is-${progress.status}`}
       aria-label={`${progress.dbName}维护进度`}
     >
       <header className="weq-db-progress-heading">
-        <strong>{progress.dbName}</strong>
+        <strong className="weq-db-progress-name">{progress.dbName}</strong>
         <span>
           <NumericText>{`总耗时 ${duration(elapsed)}`}</NumericText>
         </span>
@@ -267,7 +310,11 @@ export function DatabaseMaintenanceProgress({
         </div>
       ) : null}
       {actions}
-      {abnormal ? <p className="weq-db-progress-warning">异常步骤 {abnormal}</p> : null}
+      {abnormal ? (
+        <p className="weq-db-progress-warning">
+          <NumericText>{`异常步骤 ${abnormal}`}</NumericText>
+        </p>
+      ) : null}
       {showBatchError && batch?.error ? (
         <p className="weq-db-progress-warning" role="alert">
           {batch.error}
@@ -275,40 +322,52 @@ export function DatabaseMaintenanceProgress({
       ) : null}
       <ol
         className="weq-db-progress-timeline"
-        aria-label={`${{ scan: '扫描', checkup: '体检', repair: '修复' }[progress.kind]}阶段`}
+        aria-label={`${{ scan: '快速体检', checkup: '深度体检', repair: '修复' }[progress.kind]}阶段`}
       >
         {plan.map(([key, title], index) => {
           const steps = visibleSteps.filter((step) => stageKey(step, progress.kind) === key);
           if (!steps.length && (!running || index <= currentIndex)) return null;
           const { standalone, groups } =
             key === 'integrity' ? groupIntegritySteps(steps) : { standalone: steps, groups: [] };
+          const completedChecks = new Set(
+            key === 'output' || key === 'verify'
+              ? steps.filter(
+                  (step) =>
+                    step.status === 'completed' &&
+                    !attention(step) &&
+                    !step.detail &&
+                    databaseRepairCheckGroup(step),
+                )
+              : [],
+          );
           const active = running && currentKey === key;
           const needsAttention = steps.some(attention);
           const pending = !steps.length;
-          const sharedHeading = steps.length === 1 && groups.length === 0;
-          const open = active || needsAttention || (expanded[key] ?? false);
+          const sharedHeading =
+            steps.length === 1 &&
+            groups.length === 0 &&
+            completedChecks.size === 0 &&
+            steps[0]?.step !== 'recover-data';
+          const open =
+            (disclosure?.run === run ? disclosure.stages[key] : undefined) ??
+            (active || needsAttention);
           const Icon = active ? Loader2 : needsAttention ? AlertTriangle : pending ? Circle : Check;
           return (
             <li
               key={key}
               className={`weq-db-progress-stage${active ? ' is-current' : ''}${pending ? ' is-pending' : ''}`}
             >
-              <details
-                open={open}
-                onToggle={(event) => {
-                  if (active || needsAttention) {
-                    event.currentTarget.open = true;
-                    return;
-                  }
-                  const value = event.currentTarget.open;
-                  setExpanded((old) => (old[key] === value ? old : { ...old, [key]: value }));
-                }}
-              >
+              <details open={open}>
                 <summary
                   aria-disabled={pending || undefined}
                   tabIndex={pending ? -1 : undefined}
                   onClick={(event) => {
-                    if (pending) event.preventDefault();
+                    event.preventDefault();
+                    if (pending) return;
+                    setDisclosure((old) => ({
+                      run,
+                      stages: { ...(old?.run === run ? old.stages : undefined), [key]: !open },
+                    }));
                   }}
                 >
                   <span className="weq-db-progress-node" aria-hidden>
@@ -319,23 +378,38 @@ export function DatabaseMaintenanceProgress({
                   </span>
                   <span>{sharedHeading ? steps[0]!.message : title}</span>
                   <strong>
-                    {sharedHeading
-                      ? connectionError && active
-                        ? '连接中断'
-                        : label(steps[0]!, progress.status === 'cancelled')
-                      : active
-                        ? '进行中'
-                        : pending
-                          ? '待开始'
-                          : needsAttention
-                            ? '需查看'
-                            : '已完成'}
+                    <NumericText>
+                      {sharedHeading
+                        ? connectionError && active
+                          ? '连接中断'
+                          : label(steps[0]!, progress.status === 'cancelled')
+                        : active
+                          ? needsAttention && !open
+                            ? '进行中 · 需查看'
+                            : '进行中'
+                          : pending
+                            ? '待开始'
+                            : needsAttention
+                              ? '需查看'
+                              : '已完成'}
+                    </NumericText>
                   </strong>
                   {!pending ? (
                     <ChevronRight className="weq-db-progress-chevron" size={14} aria-hidden />
                   ) : null}
                 </summary>
-                {standalone.map((step) => renderStep(step, sharedHeading))}
+                {standalone.map((step) =>
+                  completedChecks.has(step) ? null : renderStep(step, sharedHeading),
+                )}
+                {completedChecks.size ? (
+                  <details key={run} className="weq-db-progress-substeps">
+                    <summary>
+                      <ChevronRight className="weq-db-progress-chevron" size={14} aria-hidden />
+                      <span>最近完成的表与索引检查</span>
+                    </summary>
+                    {[...completedChecks].map((step) => renderStep(step, false))}
+                  </details>
+                ) : null}
                 {groups.map(([groupKey, group]) => {
                   const active =
                     running &&
@@ -345,7 +419,7 @@ export function DatabaseMaintenanceProgress({
                   return (
                     <details
                       key={groupKey}
-                      className="weq-db-progress-table"
+                      className="weq-db-progress-substeps"
                       open={active || needsAttention || undefined}
                     >
                       <summary>

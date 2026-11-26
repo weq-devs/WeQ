@@ -1,7 +1,12 @@
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { WebEntry, WebAuth } from '../web/application';
+import { remoteMediaDirectives } from '../web/remote_media_policy';
 import type { RemotePairing } from './pairing';
 import { observeRemoteRequest } from './device';
+
+const mediaPolicy = remoteMediaDirectives
+  .map((name) => `${name} 'self' blob: data: https:`)
+  .join('; ');
 
 function webCredential(req: IncomingMessage): string {
   const bearer = /^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization ?? '');
@@ -28,6 +33,10 @@ export class RemoteWebGateway {
     this.application = createApplication({
       remoteClient: true,
       accountIds: (req) => pairing.accountConfigIds(webCredential(req)),
+      accountAccess: {
+        request: (req, account) => pairing.requestAccountAccess(webCredential(req), account),
+        poll: (req, id) => pairing.pollAccountAccess(webCredential(req), id),
+      },
       identityKey: (req) => webCredential(req),
       login: async () => false,
       logout: () => {},
@@ -44,7 +53,7 @@ export class RemoteWebGateway {
     }
     res.setHeader(
       'Content-Security-Policy',
-      `default-src 'self' blob: data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://${req.headers.host} wss://${req.headers.host}; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
+      `default-src 'self' blob: data:; ${mediaPolicy}; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://${req.headers.host} wss://${req.headers.host}; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
     );
     res.setHeader('Referrer-Policy', 'no-referrer');
     this.application.handle(req, res);
@@ -52,6 +61,10 @@ export class RemoteWebGateway {
 
   stableWebRelease(): Promise<string | undefined> | undefined {
     return this.application.stableWebRelease();
+  }
+
+  get webAccountEntry(): true | undefined {
+    return this.application.webAccountEntry;
   }
 
   attach(server: Server): void {

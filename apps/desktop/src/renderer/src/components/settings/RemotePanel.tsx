@@ -1,10 +1,8 @@
 import { NumericText } from '../NumericText';
-import { eventTimeFormatter, formatRelativeTime } from '@weq/time';
-import { TimeLabel } from '../TimeLabel';
+import { RemoteDeviceDetails, RemoteDeviceTime } from '../RemoteDeviceDetails';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTabActive } from '../RetainedTabs.shared';
 import {
-  Check,
   ChevronRight,
   Copy,
   ExternalLink,
@@ -15,10 +13,10 @@ import {
   Square,
   Smartphone,
   Trash2,
-  X,
 } from 'lucide-react';
 import { Card, Row, Toggle } from './controls';
 import { Modal } from '../Dialog';
+import { useDialog } from '../Dialog.shared';
 import { useModalBackground } from '../../lib/modalBackground';
 import '../../styles/remote.css';
 import {
@@ -31,20 +29,6 @@ import {
   type RemoteDeviceInfo,
   type RemoteConnectionInfo,
 } from '../../../../shared/remote_device';
-
-const deviceTime = eventTimeFormatter;
-
-function DeviceTime({ value, now }: { value: number | null; now?: number }) {
-  if (value === null || !Number.isFinite(value) || Math.abs(value) > 8.64e15)
-    return <span>暂无记录</span>;
-  const full = deviceTime.format(value);
-  const text = now === undefined ? full : formatRelativeTime(value, now, 1);
-  return (
-    <TimeLabel value={value} precision="millisecond">
-      {text}
-    </TimeLabel>
-  );
-}
 
 const TAILSCALE_KEY_HINT = [
   '通过 Tailscale 跨网络连接',
@@ -89,7 +73,7 @@ export function RemotePanel({
   onTailscale,
   onChangeNetwork,
   onInvite,
-  onDecide,
+  onReview,
   onRevoke,
   onCopy,
   accounts,
@@ -105,7 +89,7 @@ export function RemotePanel({
   onTailscale?: (enabled: boolean) => void;
   onChangeNetwork?: () => void;
   onInvite: (bootstrap?: { authKey: string } | { endpoint: string }) => void;
-  onDecide: (id: string, approve: boolean) => void;
+  onReview: (id: string) => void;
   onRevoke: (id: string) => void;
   onCopy?: () => void;
   accounts?: { configId: string; displayName: string; uin: string; static: boolean }[];
@@ -122,6 +106,20 @@ export function RemotePanel({
   const generateButton = useRef<HTMLButtonElement>(null);
   const restorePairFocus = useRef(false);
   useModalBackground(keyForm, active && keyPrompt);
+  async function confirmDeviceRemoval(
+    { id, name }: RemoteStatus['devices'][number],
+    ownerDocument: Document,
+  ) {
+    const confirmed = await useDialog
+      .getState()
+      .confirm(
+        '删除已配对设备？',
+        `删除「${name}」会撤销这部手机的访问权限并断开连接。再次连接需要重新配对。`,
+        { danger: 'outline', okLabel: '删除设备', ownerDocument },
+      );
+    if (confirmed) onRevoke(id);
+  }
+
   useLayoutEffect(() => {
     if (!keyPrompt && restorePairFocus.current) {
       restorePairFocus.current = false;
@@ -398,30 +396,18 @@ export function RemotePanel({
                 <strong>{request.name}</strong>
                 <span>
                   {request.scope === 'web:access'
-                    ? '核对校验码 · 允许访问完整 WeQ Web（含聊天记录与操作）'
+                    ? '核对校验码并选择要授权的账号'
                     : '核对手机上的校验码 · 仅在线状态'}
                 </span>
                 <code className="weq-remote-code">{request.code}</code>
               </div>
               <button
-                data-danger="outline"
-                type="button"
-                className="weq-set-iconbtn"
-                title="拒绝配对"
-                aria-label={`拒绝 ${request.name}`}
-                disabled={busy}
-                onClick={() => onDecide(request.id, false)}
-              >
-                <X size={17} />
-              </button>
-              <button
                 type="button"
                 className="weq-set-btn weq-set-btn-primary"
                 disabled={busy}
-                onClick={() => onDecide(request.id, true)}
+                onClick={() => onReview(request.id)}
               >
-                <Check size={15} />
-                允许配对
+                查看请求
               </button>
             </div>
           ))}
@@ -463,10 +449,10 @@ export function RemotePanel({
                   <span>{device.scope === 'web:access' ? 'WeQ Web 访问' : '仅在线状态'}</span>
                   <div className="weq-remote-device-times">
                     <span>
-                      最近访问 <DeviceTime value={device.lastSeenAt} now={now} />
+                      最近访问 <RemoteDeviceTime value={device.lastSeenAt} now={now} />
                     </span>
                     <span>
-                      配对时间 <DeviceTime value={device.approvedAt} />
+                      配对时间 <RemoteDeviceTime value={device.approvedAt} />
                     </span>
                   </div>
                   {device.scope === 'web:access' && onAccountAccess && (
@@ -520,71 +506,18 @@ export function RemotePanel({
                       })}
                     </details>
                   )}
-                  <details className="weq-remote-device-details">
-                    <summary>
-                      <ChevronRight size={14} />
-                      设备详情
-                    </summary>
-                    <dl>
-                      <div>
-                        <dt>设备型号</dt>
-                        <dd>{device.deviceInfo?.model ?? '未上报'}</dd>
-                      </div>
-                      <div>
-                        <dt>系统版本</dt>
-                        <dd>
-                          {device.deviceInfo ? (
-                            <NumericText>{`${device.deviceInfo.platform === 'ios' ? 'iOS / iPadOS' : 'Android'} ${device.deviceInfo.osVersion}`}</NumericText>
-                          ) : (
-                            '未上报'
-                          )}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Remote 版本</dt>
-                        <dd>
-                          {device.deviceInfo ? (
-                            <NumericText>{`${device.deviceInfo.appVersion} (${device.deviceInfo.appBuild})`}</NumericText>
-                          ) : (
-                            '未上报'
-                          )}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>最近连接 IP</dt>
-                        <dd>{device.lastConnection?.ip ?? '暂无记录'}</dd>
-                      </div>
-                      <div>
-                        <dt>连接方式</dt>
-                        <dd>
-                          {device.lastConnection
-                            ? { lan: '局域网', tailscale: 'Tailscale', unknown: '未知网络' }[
-                                device.lastConnection.route
-                              ]
-                            : '暂无记录'}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>最近访问</dt>
-                        <dd>
-                          <DeviceTime value={device.lastSeenAt} />
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>设备标识</dt>
-                        <dd>{device.id}</dd>
-                      </div>
-                    </dl>
-                  </details>
+                  <RemoteDeviceDetails device={device} />
                 </div>
                 <button
                   data-danger="outline"
                   type="button"
                   className="weq-set-iconbtn"
-                  title="撤销设备授权"
-                  aria-label={`撤销 ${device.name}`}
+                  title="删除设备"
+                  aria-label={`删除 ${device.name}`}
                   disabled={busy}
-                  onClick={() => onRevoke(device.id)}
+                  onClick={(event) =>
+                    void confirmDeviceRemoval(device, event.currentTarget.ownerDocument)
+                  }
                 >
                   <Trash2 size={16} />
                 </button>

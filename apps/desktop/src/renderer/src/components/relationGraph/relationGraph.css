@@ -1467,19 +1467,13 @@ html[data-theme='dark'] .weq-rank-value {
     0 10px 24px -12px color-mix(in srgb, var(--weq-accent-solid) 70%, transparent),
     0 1px 0 rgba(255, 255, 255, 0.18) inset;
   transition:
-    transform 140ms ease,
     box-shadow 140ms ease,
     filter 140ms ease;
 }
 
 .weq-relhome-cta:hover:not(:disabled) {
-  transform: translateY(-1px);
   filter: brightness(1.05);
   box-shadow: 0 14px 30px -12px color-mix(in srgb, var(--weq-accent-solid) 78%, transparent);
-}
-
-.weq-relhome-cta:active:not(:disabled) {
-  transform: translateY(0);
 }
 
 .weq-relhome-cta:disabled {

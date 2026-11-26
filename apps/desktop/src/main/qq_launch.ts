@@ -65,7 +65,7 @@ export async function restartQq(
       const candidates = new Set([exe, debugExecutable].filter((path): path is string => !!path));
       const processes = await macQqProcesses(candidates);
       const accountPid = uin ? platform.resolveQqPid(uin) : null;
-      const target = accountPid
+      const target = uin
         ? processes.find(({ pid }) => pid === accountPid)
         : processes.length === 1
           ? processes[0]
@@ -112,7 +112,10 @@ function requireQqExecutable(kind: string, exe: string | null): string {
 }
 
 /** 只启动检测到的 QQ 客户端；启动成功不代表账号已登录或在线凭据已就绪。 */
-export async function launchQq(platform: Pick<Platform, 'kind' | 'qqExePath'>): Promise<void> {
+export async function launchQq(
+  platform: Pick<Platform, 'kind' | 'qqExePath'>,
+  newInstance = false,
+): Promise<void> {
   const exe = requireQqExecutable(platform.kind, platform.qqExePath());
   const path = platform.kind === 'win32' ? win32 : posix;
 
@@ -125,9 +128,9 @@ export async function launchQq(platform: Pick<Platform, 'kind' | 'qqExePath'>): 
     path.basename(path.dirname(exe)) === 'MacOS' &&
     path.basename(path.dirname(path.dirname(exe))) === 'Contents'
   ) {
-    // 通过系统打开应用，复用已运行实例并激活登录窗口。
+    const args = newInstance ? ['-n', '-a', app] : ['-a', app];
     await new Promise<void>((resolve, reject) => {
-      execFile('/usr/bin/open', ['-a', app], { timeout: 10_000, env }, (error) => {
+      execFile('/usr/bin/open', args, { timeout: 10_000, env }, (error) => {
         if (error) reject(error);
         else resolve();
       });

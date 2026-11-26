@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { GroupMsgDb, C2cMsgDb } from '@weq/db';
 import { fixtureDb, createSqliteStub, closeAllFixtureDbs } from '@weq/testkit';
 
@@ -39,12 +39,26 @@ function fixture() {
     add.run(6, 0, 'u_alice', 'u_peer', '777', 123, null);
     add.run(7, 0, 'u_alice', 'u_peer', '777', 123, null);
   }
+  const groupBinding = createSqliteStub();
   return {
     sql,
-    group: new GroupMsgDb(createSqliteStub(), { dbPath: path }),
+    groupBinding,
+    group: new GroupMsgDb(groupBinding, { dbPath: path }),
     c2c: new C2cMsgDb(createSqliteStub(), { dbPath: path }),
   };
 }
+it('多群日期统计复用本地时间索引，并保留群和发送者筛选', async () => {
+  const { group, groupBinding, sql } = fixture();
+  const startTime = Date.parse('2026-10-15T00:00:00+08:00') / 1000;
+  const opts = { startTime, endTime: startTime, senderUid: 'u_alice' };
+  expect(await group.countByGroups(['777', '999'], opts)).toEqual({ '777': 1, '999': 1 });
+  sql.exec('CREATE INDEX "date "" index" ON group_msg_table ("40050", "40027")');
+  const execute = vi.spyOn(groupBinding, 'executeSql');
+  expect(await group.countByGroups(['777', '999'], opts)).toEqual({ '777': 1, '999': 1 });
+  expect(execute.mock.calls.some(([, query]) => query.includes('INDEXED BY "date "" index"'))).toBe(
+    true,
+  );
+});
 it('占位发送者（40020 写成群号）不进任何发言人统计', async () => {
   const { group, sql } = fixture();
   // QQ 删除/撤回留下的是占位行：40020 直接写成群号，40033 = 0，40800 为空。
@@ -66,6 +80,16 @@ it('calendar groups by Beijing date and never leaks another conversation', async
     { day: '2026-10-15', count: 3 },
   ]);
   expect(await c2c.calendar({ uid: 'u_peer' })).toEqual(await group.calendar('777'));
+});
+it('按自然日分批读取计数，边界上的消息只统计一次', async () => {
+  const { group, c2c } = fixture();
+  const start = Date.parse('2026-10-15T00:00:00+08:00') / 1000;
+  expect(await group.calendar('777', { start: start - 86400, end: start - 1 })).toEqual([
+    { day: '2026-10-14', count: 1 },
+  ]);
+  expect(await c2c.calendar({ uid: 'u_peer' }, { start, end: start + 86399 })).toEqual([
+    { day: '2026-10-15', count: 3 },
+  ]);
 });
 it('date boundary uses chronological time and reports no usable seq explicitly', async () => {
   const { group } = fixture();
@@ -115,6 +139,50 @@ it('sender UID/UIN and inclusive date bounds combine using bound SQL parameters'
   expect(await group.browse('777', { sender: "123' OR 1=1 --" })).toEqual([]);
 });
 
+it('日期页可走普通复合时间索引，空时间与零时间的跨页顺序保持一致', async () => {
+  const { group, groupBinding, sql } = fixture();
+  const time = Date.parse('2026-10-15T00:00:00+08:00') / 1000;
+  sql.exec(`CREATE INDEX by_conversation_time ON group_msg_table ("40027", "40050");
+    INSERT INTO group_msg_table ("40001","40027","40050") VALUES (21,'777',0),(22,'777',-1);`);
+  const execute = vi.spyOn(groupBinding, 'executeSql');
+  const first = await group.browse('777', { start: time - 1, end: time + 1 }, undefined, 2);
+  const anchor = first[1]!;
+  const remaining = await group.browse(
+    '777',
+    { start: time - 1, end: time + 1 },
+    {
+      time: anchor.message.sendTime,
+      rowId: anchor.rowId,
+    },
+  );
+  expect([...first, ...remaining].map(({ message }) => message.msgId)).toEqual([4n, 3n, 2n, 1n]);
+  const [, statement, params] = execute.mock.calls.at(-1)!;
+  const plan = sql.prepare(`EXPLAIN QUERY PLAN ${statement}`).all(...(params ?? []));
+  expect(
+    plan.some(({ detail }) => String(detail).includes('COVERING INDEX by_conversation_time')),
+  ).toBe(true);
+
+  const rowId = (id: number) =>
+    String(sql.prepare('SELECT rowid FROM group_msg_table WHERE "40001"=?').get(id)?.rowid);
+  const undated = await group.browse('777', {}, { time: 0, rowId: rowId(21) }, 4);
+  expect(undated.map(({ message }) => message.msgId)).toEqual([7n, 6n, 22n]);
+  const newer = await group.browse('777', {}, { time: 0, rowId: rowId(7) }, 3, 'newer');
+  expect(newer.map(({ message }) => message.msgId)).toEqual([21n, 1n, 2n]);
+});
+
+it('QQ 号和 UID 可同时匹配多个发送者，并保留会话及时间条件', async () => {
+  const { group, c2c } = fixture();
+  const start = Date.parse('2026-10-15T00:00:00+08:00') / 1000;
+  const filter = { start, end: start, senders: ['123', 'u_bob'] };
+  expect((await group.browse('777', filter)).map(({ message }) => String(message.msgId))).toEqual([
+    '3',
+    '2',
+  ]);
+  expect(
+    (await c2c.browse({ uid: 'u_peer' }, filter)).map(({ message }) => String(message.msgId)),
+  ).toEqual(['3', '2']);
+  expect(await group.browse('777', { senders: ['u_missing'] })).toEqual([]);
+});
 it('正序浏览按时间与行号完整翻页，不遗漏空序号或同时间记录', async () => {
   const { c2c, group } = fixture();
   const first = await c2c.browse({ uid: 'u_peer' }, {}, undefined, 2, 'newer');

@@ -266,6 +266,9 @@
 .weq-remote-device-details[open] summary > svg {
   transform: rotate(90deg);
 }
+.weq-remote-access-body {
+  overflow-wrap: anywhere;
+}
 .weq-remote-account-access > .weq-set-row {
   padding-block: 3px;
 }
@@ -285,6 +288,41 @@
   color: var(--weq-fg-secondary);
   font-size: 12px;
   font-weight: 400;
+}
+.weq-remote-pairing-accounts {
+  min-width: 0;
+  margin-block: 12px;
+}
+.weq-remote-pairing-accounts > legend {
+  margin-bottom: 4px;
+  color: var(--weq-fg-primary);
+  font-weight: 600;
+}
+.weq-remote-pairing-account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+  cursor: pointer;
+}
+.weq-remote-pairing-account:hover {
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
+}
+.weq-remote-pairing-account > input {
+  flex: none;
+  accent-color: var(--weq-accent-effective);
+}
+.weq-remote-pairing-account .weq-remote-account-label {
+  flex-direction: column;
+  min-width: 0;
+  gap: 0;
+  color: var(--weq-fg-primary);
+  line-height: 1.4;
+  white-space: normal;
+}
+.weq-remote-pairing-accounts [role='alert'] > button {
+  margin-inline-start: 8px;
 }
 .weq-remote-device-details dl {
   display: grid;

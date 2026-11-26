@@ -7,7 +7,7 @@ import type { DatabaseMaintenanceReport } from './maintenance_types';
 import type { DbRepairRecord } from './types';
 import {
   databaseRepairSupportLabel,
-  databaseMaintenanceKindLabel,
+  databaseMaintenanceOperationLabel,
   databaseMaintenanceStatusLabel,
   databaseRepairStatusLabel,
 } from './maintenance_types';
@@ -192,7 +192,7 @@ export function renderDatabaseMaintenanceReport(
 ): string {
   if (format === 'json') return JSON.stringify(report, null, 2);
   const op = report.operation;
-  const title = `${databaseMaintenanceKindLabel[op.kind]}报告`;
+  const title = `${databaseMaintenanceOperationLabel(op)}报告`;
   const date = formatDateTime(op.startedAt);
   const lines = [
     `# ${title}`,
@@ -218,6 +218,11 @@ export function renderDatabaseMaintenanceReport(
       lines.push(
         `完整页：${row.scan.pageCount}；坏页：${row.scan.badPages.length}；全零页：${row.scan.zeroPages.length}；尾部残余：${row.scan.trailingBytes} 字节`,
       );
+    for (const object of row.scan?.affected ?? []) {
+      lines.push(
+        `坏页归属 ${object.name}（${object.badPageCount} 页）${object.samplePages.length ? ` · 第 ${object.samplePages.map((page) => page.toLocaleString('zh-CN')).join('、')} 页` : ''}`,
+      );
+    }
     if (row.integrity)
       lines.push(
         `结构诊断：${row.integrity.ran ? (row.integrity.healthy ? (row.integrity.complete === false ? '已检查部分正常，仍有未核验项' : '正常') : `发现异常：${row.integrity.corruptedTables.join('、') || '整体结构'}`) : `未完成：${row.integrity.error}`}`,

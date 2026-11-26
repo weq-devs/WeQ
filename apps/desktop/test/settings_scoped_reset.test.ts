@@ -25,6 +25,19 @@ const state = vi.hoisted(() => ({
   notifications: {} as Record<string, unknown>,
   nativeDebug: false,
   remote: { enabled: false, tailscaleEnabled: false },
+  autostart: { enabled: false, registered: false, requiresApproval: false },
+  logTargets: [] as string[],
+}));
+vi.mock('../src/main/log_retention', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/main/log_retention')>()),
+  planDefaultLogRetention: () =>
+    state.logTargets.length
+      ? {
+          targets: new Set(state.logTargets),
+          identities: new Map(state.logTargets.map((path) => [path, path])),
+          preview: { expiredFiles: state.logTargets.length, capacityFiles: 0, bytes: 0 },
+        }
+      : null,
 }));
 vi.mock('../src/main/qq_sync/runtime', () => ({
   isQqSyncProxyEnabled: () => state.proxyEnabled,
@@ -62,6 +75,7 @@ vi.mock('../src/main/context/app_context', () => ({
   closeSalvageConnections: vi.fn(),
   getAppContext: () => ({
     bootstrap: {
+      enhancements: { updates: { ready: async () => {} }, packs: { isPreparing: () => false } },
       userConfig: {
         getSettings: () => state.settings,
         setSettings: (patch: { modelResources: Partial<AppSettings['modelResources']> }) =>
@@ -124,6 +138,7 @@ vi.mock('../src/main/ipc/routers/bootstrap', () => ({
                 qqClientSyncEnabled: state.qqSync.enabled,
                 qqLiveMessagesEnabled: state.qqSync.liveMessages,
               };
+            if (name === 'getAutostartStatus') return state.autostart;
             state.calls.push([name, input]);
             if (name === state.fail) throw new Error('合成写入失败');
             if (name === 'setQzonePagination')
@@ -137,6 +152,10 @@ vi.mock('../src/main/ipc/routers/bootstrap', () => ({
             if (name === 'setQqProxyEnabled') state.proxyEnabled = false;
             if (name === 'setQqClientSyncEnabled') state.qqSync.enabled = false;
             if (name === 'setQqLiveMessagesEnabled') state.qqSync.liveMessages = false;
+            if (name === 'setAutostart') {
+              state.autostart = { enabled: false, registered: false, requiresApproval: false };
+              return state.autostart;
+            }
             if (name === 'saveOneBotConfig') {
               state.settings.oneBotByUin.synthetic = (
                 input as { config: AppSettings['oneBotByUin'][string] }
@@ -204,16 +223,103 @@ beforeEach(() => {
   state.notifications = {};
   state.nativeDebug = false;
   state.remote = { enabled: false, tailscaleEnabled: false };
+  state.autostart = { enabled: false, registered: false, requiresApproval: false };
+  state.logTargets = [];
 });
-const caller = () => settingsResetRouter.createCaller({});
+const rawCaller = () => settingsResetRouter.createCaller({});
+const caller = () => {
+  const api = rawCaller();
+  return {
+    preview: api.preview,
+    restore: async ({
+      page,
+      card,
+      revision,
+      ...selection
+    }: Omit<Parameters<typeof api.restore>[0], 'revision'> & { revision?: string }) => {
+      const target = { page, ...(card ? { card } : {}) };
+      return api.restore({
+        ...target,
+        ...selection,
+        revision: revision ?? (await api.preview(target)).revision,
+      });
+    },
+  };
+};
 describe('分级恢复默认', () => {
+  it('应用日志的时长和容量一起恢复，只接受最新的删除确认', async () => {
+    const api = rawCaller();
+    const target = { page: 'logs' } as const;
+    state.settings.logRetentionDays = 0;
+    state.settings.logCapacityMiB = 0;
+    state.logTargets = ['synthetic-one'];
+    const preview = await api.preview(target);
+    expect(preview.logPrune).toMatchObject({ expiredFiles: 1, capacityFiles: 0 });
+    const input = { ...target, source: preview.source, revision: preview.revision };
+    await expect(api.restore(input)).rejects.toMatchObject({ code: 'CONFLICT' });
+    state.logTargets = ['synthetic-two'];
+    await expect(
+      api.restore({ ...input, pruneConfirmation: preview.logPrune?.confirmation }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(state.calls).toEqual([]);
+    const reread = await api.preview(target);
+    const confirmation = reread.logPrune?.confirmation;
+    expect(
+      await api.restore({ ...input, revision: reread.revision, pruneConfirmation: confirmation }),
+    ).toEqual([
+      { id: 'logs:logRetentionDays', ok: true },
+      { id: 'logs:logCapacityMiB', ok: true },
+    ]);
+    expect(state.calls).toEqual([
+      [
+        'setLogRetentionDays',
+        {
+          days: DEFAULT_APP_SETTINGS.logRetentionDays,
+          capacityMiB: DEFAULT_APP_SETTINGS.logCapacityMiB,
+          confirmPrune: true,
+          pruneConfirmation: confirmation,
+        },
+      ],
+    ]);
+  });
+  it('预览后新启用的 QQ 代理须重新确认才会停用', async () => {
+    const api = rawCaller();
+    const target = { page: 'account', card: 'qq-client-sync' } as const;
+    const preview = await api.preview(target);
+    state.proxyEnabled = true;
+    await expect(
+      api.restore({ ...target, source: preview.source, revision: preview.revision }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(state.proxyEnabled).toBe(true);
+    const reread = await api.preview(target);
+    expect(reread.items).toContainEqual(
+      expect.objectContaining({ id: 'qq-client-sync:proxy', current: true, stopsService: true }),
+    );
+    expect(
+      await api.restore({ ...target, source: reread.source, revision: reread.revision }),
+    ).toEqual([{ id: 'qq-client-sync:proxy', ok: true }]);
+    expect(state.proxyEnabled).toBe(false);
+  });
+  it('开机自启正在等待系统批准时可以取消已登记的登录项', async () => {
+    const api = rawCaller();
+    const target = { page: 'startup', card: 'startup-system' } as const;
+    state.autostart = { enabled: false, registered: true, requiresApproval: true };
+    const preview = await api.preview(target);
+    expect(preview.items).toContainEqual(
+      expect.objectContaining({ id: 'startup-system:autostart', current: 'requiresApproval' }),
+    );
+    expect(
+      await api.restore({ ...target, source: preview.source, revision: preview.revision }),
+    ).toEqual([{ id: 'startup-system:autostart', ok: true }]);
+    expect(state.autostart.registered).toBe(false);
+  });
   it('防撤回默认保护全部会话，恢复时替换已保存的范围', async () => {
     const recall = sharedSettingsRouter.createCaller({}).antiRecall;
     expect(await recall.getStatus()).toMatchObject({ enabled: false, mode: 'all' });
     expect(await recall.setScope({ scope: 'off' })).toMatchObject({ enabled: false, mode: 'all' });
     expect(await recall.setMethod({ method: 'weq' })).toMatchObject({ enabled: true, mode: 'all' });
     await recall.setMode({ mode: 'selected' });
-    const target = { page: 'chat-interaction', card: 'recall-scope' } as const;
+    const target = { page: 'anti-recall', card: 'recall-scope' } as const;
     const preview = await caller().preview(target);
     expect(preview.items).toContainEqual(
       expect.objectContaining({
@@ -337,21 +443,28 @@ describe('分级恢复默认', () => {
     await caller().restore({ page: 'remote', source: null });
     expect(state.remote).toEqual({ enabled: false, tailscaleEnabled: false });
   });
-  it('QQ 在线能力卡片恢复右上角标记，不改变独立通知偏好', async () => {
-    state.settings.restrictedModeIndicatorEnabled = false;
-    state.settings.restrictedModeBannerEnabled = false;
-    const preview = await caller().preview({ page: 'account', card: 'attach' });
+  it('只在状态提醒页恢复统一提示和在线通知方式', async () => {
+    state.settings.qqStatusIndicatorEnabled = false;
+    state.settings.notificationEvents.runtime = { banner: false, system: true };
+    const input = { page: 'qq-status-reminders', card: 'qq-status-reminders' } as const;
+    const account = await caller().preview({ page: 'account', card: 'attach' });
+    expect(account.items.some((item) => item.id.includes('Indicator'))).toBe(false);
+    const preview = await caller().preview(input);
     expect(preview.items).toContainEqual(
       expect.objectContaining({
-        id: 'attach:restrictedModeIndicatorEnabled',
+        id: 'qq-status-reminders:qqStatusIndicatorEnabled',
         current: false,
         defaultValue: true,
       }),
     );
-    await caller().restore({ page: 'account', card: 'attach', source: null });
-    expect(state.calls).toContainEqual(['setRestrictedModeIndicatorEnabled', { enabled: true }]);
-    expect(state.calls.some(([name]) => name === 'resetNotificationEvents')).toBe(false);
-    expect(state.settings.restrictedModeBannerEnabled).toBe(false);
+    await caller().restore({ ...input, source: null });
+    expect(state.calls).toEqual([
+      ['setQqStatusIndicatorEnabled', { enabled: true }],
+      [
+        'setNotificationEvents',
+        { events: ['runtime'], channels: DEFAULT_APP_SETTINGS.notificationEvents.runtime },
+      ],
+    ]);
   });
   it('所有登记的全局恢复字段均有真实适配器，不依赖设置控件是否挂载', async () => {
     const api = settingsResetRouter.createCaller({ authorize: () => {} });
@@ -379,7 +492,7 @@ describe('分级恢复默认', () => {
       allConversationsIncludeHidden: true,
       allConversationsIncludeDeleted: true,
     };
-    state.settings.ocr.prefilterEnabled = false;
+    state.settings.ocr.prefilterEnabled = true;
     state.settings.ocr.autoDownloadOriginal = true;
     for (const page of ['chat-interaction', 'chat-messages', 'recognition'] as const)
       await caller().restore({ page, source: null });
@@ -531,15 +644,16 @@ describe('分级恢复默认', () => {
     ).rejects.toThrow('不属于当前范围');
     expect(state.calls).toEqual([]);
   });
-  it('通知与红点迁移后，旧功能页恢复不再修改通知偏好', async () => {
+  it('应用图标、导航、菜单和联系人角标按新归属恢复默认', async () => {
+    state.settings.sharedPreferences.client = {
+      showContactNavigationBadge: false,
+      showContactRequestBadge: false,
+    };
     const global = await caller().preview({ page: 'global' });
-    expect(global.items.map((item) => item.id)).toEqual(
-      expect.arrayContaining([
-        'notification-badges:showMessageUnreadBadge',
-        'notification-badges:showContactUnreadCount',
-        'notification-events:notificationEvents',
-        'notification-badges:unread',
-      ]),
+    expect(global.items.map((item) => item.id)).toContain('notification-events:notificationEvents');
+    expect(global.items.map((item) => item.id)).toContain('application-badge:application-badge');
+    expect(global.items.some((item) => /^(navigation|menu|contact)-badges:/.test(item.id))).toBe(
+      false,
     );
     expect(global.items.some((item) => item.id.startsWith('damage-reminder:'))).toBe(false);
     for (const page of [
@@ -553,14 +667,36 @@ describe('分级恢复默认', () => {
       const old = await caller().preview({ page });
       expect(
         old.items.some((item) =>
-          /^(notification-events|notification-badges|damage-reminder|recall-notifications|web-notifications):/.test(
+          /^(notification-events|application-badge|navigation-badges|menu-badges|contact-badges|damage-reminder|recall-notifications|web-notifications):/.test(
             item.id,
           ),
         ),
       ).toBe(false);
     }
-    const badges = await caller().preview({ page: 'global', card: 'notification-badges' });
-    expect(badges.items.some((item) => item.id.includes('reportRead'))).toBe(false);
+    const navigation = await caller().preview({ page: 'main-navigation' });
+    expect(navigation.items.map((item) => item.id)).toEqual(
+      expect.arrayContaining([
+        'navigation-badges:showMessageUnreadBadge',
+        'navigation-badges:showContactNavigationBadge',
+        'navigation-badges:unread',
+        'menu-badges:showSoftwareUpdateBadge',
+      ]),
+    );
+    expect(navigation.items.every((item) => /^(navigation|menu)-badges:/.test(item.id))).toBe(true);
+    const menu = await caller().preview({ page: 'main-navigation', card: 'menu-badges' });
+    expect(menu.items).toEqual(
+      navigation.items.filter((item) => item.id.startsWith('menu-badges:')),
+    );
+    const contacts = await caller().preview({ page: 'contacts' });
+    expect(contacts.items.map((item) => item.id)).toEqual([
+      'contact-badges:showContactUnreadCount',
+      'contact-badges:showContactRequestBadge',
+    ]);
+    await caller().restore({ page: 'main-navigation', source: null });
+    expect(state.settings.sharedPreferences.client).toMatchObject({
+      showContactNavigationBadge: true,
+      showContactRequestBadge: false,
+    });
   });
   it('只读预览不写入，卡片恢复不影响同页其他配置或连接凭据', async () => {
     state.settings.qzonePagination = { windowSeconds: 30, maxPages: 12 };
@@ -596,11 +732,11 @@ describe('分级恢复默认', () => {
     const page = 'resource-loading';
     const preview = await api.preview({ page, card: 'chat-image-preview' });
     expect(preview.items).toMatchObject([{ current: true, defaultValue: false }]);
-    await api.restore({ page, card: 'chat-image-preview', source: null });
+    await api.restore({ page, source: null });
     expect(state.settings.sharedPreferences.client.autoDownloadPreviewOriginal).toBe(false);
     expect(state.settings.sharedPreferences.client.dataSaverMode).toBe('always');
     state.settings.sharedPreferences.client.autoDownloadPreviewOriginal = true;
-    await api.restore({ page, card: 'data-saver', source: null });
+    await api.restore({ page: 'data-saver', source: null });
     expect(state.settings.sharedPreferences.client.dataSaverMode).toBe('auto');
     expect(state.settings.sharedPreferences.client.autoDownloadPreviewOriginal).toBe(true);
   });

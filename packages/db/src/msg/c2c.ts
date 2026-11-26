@@ -41,6 +41,8 @@ import {
   decodeBody,
   decodeDress,
   emptyDressTally,
+  reportRowBatches,
+  reportSpeechBatches,
   tallyDressBlobs,
   toBigint,
   toStr,
@@ -54,7 +56,8 @@ import {
   type MessageBounds,
 } from './calendar';
 import {
-  browseConditions,
+  queryBrowsePage,
+  browseRow,
   type BrowseFilter,
   type BrowseCursor,
   type BrowseDirection,
@@ -163,6 +166,9 @@ export class C2cMsgDb {
   get sourcePath(): string {
     return this.qq.dbPath;
   }
+  hasTable(): Promise<boolean> {
+    return this.qq.hasTable(this.table);
+  }
   directoryTimePage(before?: string) {
     return directoryTimePage(this.qq, before);
   }
@@ -191,9 +197,9 @@ export class C2cMsgDb {
     }));
   }
 
-  calendar(part: C2cPartition) {
+  calendar(part: C2cPartition, bounds?: Required<MessageBounds>) {
     const { clause, value } = partitionWhere(part);
-    return queryMessageDays(this.qq, this.table, clause, value);
+    return queryMessageDays(this.qq, this.table, clause, value, bounds);
   }
 
   async browse(
@@ -203,14 +209,30 @@ export class C2cMsgDb {
     limit = 500,
     direction: BrowseDirection = 'older',
   ) {
-    const { clause, value } = partitionWhere(part);
-    const query = browseConditions(clause, value, filter, cursor, direction);
-    const order = direction === 'older' ? 'DESC' : 'ASC';
-    const rows = await this.qq.query(
-      `SELECT rowid,${SELECT_COLUMNS} FROM ${this.table} WHERE ${query.clause} ORDER BY COALESCE("40050",0) ${order},rowid ${order} LIMIT ?`,
-      [...query.params, BigInt(limit)],
+    const rows = await this.browseRows(part, filter, cursor, limit, direction);
+    return rows.map((row) => ({ rowId: row.rowId, message: row.decode() }));
+  }
+
+  async browseRows(
+    part: C2cPartition,
+    filter: BrowseFilter,
+    cursor?: BrowseCursor,
+    limit = 500,
+    direction: BrowseDirection = 'older',
+  ) {
+    const rows = await queryBrowsePage(
+      this.qq,
+      this.table,
+      SELECT_COLUMN_NAMES,
+      partitionWhere(part),
+      filter,
+      cursor,
+      limit,
+      direction,
     );
-    return rows.map((row) => ({ rowId: String(row[0]), message: rowToC2cMsg(row.slice(1)) }));
+    const timeIndex = SELECT_COLUMN_NAMES.indexOf('40050');
+    const bodyIndex = SELECT_COLUMN_NAMES.indexOf('40800');
+    return rows.map((row) => browseRow(row, timeIndex, bodyIndex, rowToC2cMsg));
   }
 
   boundary(part: C2cPartition, newest: boolean, bounds?: MessageBounds) {
@@ -969,11 +991,11 @@ export class C2cMsgDb {
    * 对端不同即我发）。与作息页不同，这一页必须看**说了什么**，所以 40800 每一行
    * 都要解；空 body 的行直接滤掉。窗口时间用调用方给的 unix 秒半开区间。
    *
-   * 返回的是**共享只读**数组（调用方只在 compute 内聚合，不得修改）。
+   * 逐批输出正文，只保留当前批次。
    */
-  async sentSpeechRows(
+  async *sentSpeechBatches(
     opts: { startTime?: number; endTime?: number } = {},
-  ): Promise<SentSpeechRow[]> {
+  ): AsyncGenerator<SentSpeechRow[]> {
     const conditions: string[] = [
       `"40050" > 0`,
       `"40020" != "40021"`,
@@ -989,14 +1011,9 @@ export class C2cMsgDb {
       conditions.push(`"40050" < ?`);
       params.push(BigInt(opts.endTime));
     }
-    const rows = await this.qq.query(
-      `SELECT "40050","40800" FROM ${this.table} WHERE ${conditions.join(' AND ')}`,
-      params,
+    yield* reportSpeechBatches(
+      reportRowBatches(this.qq, this.table, '"40050","40800"', conditions, params),
     );
-    return rows.map((row) => ({
-      sendTime: toBigint(row[0]),
-      elements: decodeBody(row[1]),
-    }));
   }
 
   /**
@@ -1105,11 +1122,10 @@ export class C2cMsgDb {
       conditions.push(`"40050" < ?`);
       params.push(BigInt(opts.endTime));
     }
-    const rows = await this.qq.query(
-      `SELECT "40801","40800","40050" FROM ${this.table} WHERE ${conditions.join(' AND ')}`,
-      params,
+    return tallyDressBlobs(
+      reportRowBatches(this.qq, this.table, '"40801","40800","40050"', conditions, params),
+      emptyDressTally(),
     );
-    return tallyDressBlobs(rows, emptyDressTally());
   }
 
   /**

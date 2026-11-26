@@ -2,15 +2,14 @@
 
 import { useMemo, useState, type ReactElement } from 'react';
 import {
-  FolderOpen,
+  ChevronLeft,
   FolderInput,
+  FolderOpen,
   History,
   Loader2,
   RefreshCw,
   UserPlus,
-  ArrowLeft,
   X,
-  Copy,
 } from 'lucide-react';
 import { trpc, client } from '../../trpc/client';
 import { Modal } from '../../components/Dialog';
@@ -23,13 +22,18 @@ import { StaticBackupPanel } from './StaticBackupPanel';
 import { StatsPanel } from './StatsPanel';
 import { IS_MAC } from '../../lib/target.shared';
 import { useRemoteClient } from '../../lib/remoteClient';
-import { QqDebugCopy } from '../../components/QqDebugCopy';
 import { BootstrapWindowActions } from '../../components/BootstrapWindowActions';
 import type { UiAccount } from './types';
 import logoUrl from '@resources/brand/logo.png';
 import '../../styles/bootstrap-select.css';
 
-export function SelectScreen({ install }: { install: GlobalInstallInfo }): ReactElement {
+export function SelectScreen({
+  install,
+  onOpenSettings,
+}: {
+  install: GlobalInstallInfo;
+  onOpenSettings?: () => void;
+}): ReactElement {
   const remote = useRemoteClient();
   const mode = useViewState((s) => s.selectMode);
   const enterSelect = useViewState((s) => s.enterSelect);
@@ -39,8 +43,9 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
   const confirm = useDialog((s) => s.confirm);
   const utils = trpc.useUtils();
   const [busy, setBusy] = useState(false);
-  const [diagnostics, setDiagnostics] = useState(false);
-  const [debugCopyOpen, setDebugCopyOpen] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<UiAccount | null>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [qrActionHost, setQrActionHost] = useState<HTMLDivElement | null>(null);
   const [selection, setSelection] = useState<{ existing: string | null; new: string | null }>({
     existing: null,
     new: null,
@@ -58,9 +63,9 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
   const autoTarget = trpc.bootstrap.getAutoEnter.useQuery(undefined, {
     refetchOnWindowFocus: false,
   });
-  const accounts: UiAccount[] = useMemo(() => {
-    if (mode === 'existing')
-      return (savedConfigs.data ?? []).map((cfg) => ({
+  const savedAccounts = useMemo<UiAccount[]>(
+    () =>
+      (savedConfigs.data ?? []).map((cfg) => ({
         key: cfg.configId,
         uin: cfg.uin,
         name: cfg.displayName || cfg.uin,
@@ -75,25 +80,41 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
         static: cfg.static,
         mobile: cfg.mobile,
         a1Key: historical.data?.find((a) => a.uin === cfg.uin)?.a1Key,
-      }));
-    return (historical.data ?? []).map((a) => ({
-      key: a.uin,
-      uin: a.uin,
-      name: a.userName || a.uin,
-      hasName: !!a.userName,
-      avatarUrl: a.avatarUrl || null,
-      a1Key: a.a1Key,
-    }));
-  }, [mode, savedConfigs.data, historical.data]);
-  const accountMode = mode === 'existing' ? 'existing' : 'new';
-  const selected = accounts.find((a) => a.key === selection[accountMode]) ?? accounts[0] ?? null;
-  const accountQuery = mode === 'existing' ? savedConfigs : historical;
+      })),
+    [savedConfigs.data, historical.data],
+  );
+  const localAccounts = useMemo<UiAccount[]>(
+    () =>
+      (historical.data ?? []).map((a) => ({
+        key: a.uin,
+        uin: a.uin,
+        name: a.userName || a.uin,
+        hasName: !!a.userName,
+        avatarUrl: a.avatarUrl || null,
+        a1Key: a.a1Key,
+      })),
+    [historical.data],
+  );
+  const adding = mode === 'new';
+  const savedSelected =
+    savedAccounts.find((account) => account.key === selection.existing) ?? savedAccounts[0] ?? null;
+  const localSelected = adding
+    ? (localAccounts.find((account) => account.key === selection.new) ?? null)
+    : null;
+  const selected = localSelected ?? savedSelected;
+  const accounts = adding ? localAccounts : savedAccounts;
+  const accountQuery = adding ? historical : savedConfigs;
   const dataAccess = trpc.bootstrap.qqDataAccess.useQuery(undefined, {
-    enabled: IS_MAC && mode !== 'backup',
+    enabled: IS_MAC,
     retry: false,
     refetchOnWindowFocus: false,
   });
-  const dataBlocked = IS_MAC && dataAccess.data?.status === 'denied' && !selected?.static;
+  const dataDenied = IS_MAC && dataAccess.data?.status === 'denied';
+
+  function showLocalAccounts(): void {
+    setSelection((previous) => ({ ...previous, new: null }));
+    enterSelect('new');
+  }
 
   function onEntered(uin: string): void {
     setOpenedUin(uin);
@@ -139,17 +160,26 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
     }
   }
 
-  const debugCopyAction = IS_MAC ? (
-    <button
-      type="button"
-      className="weq-account-debug-copy"
-      disabled={busy}
-      onClick={() => setDebugCopyOpen(true)}
-    >
-      <Copy size={16} aria-hidden />
-      QQ 调试副本
-    </button>
-  ) : null;
+  const sectionTitle = (
+    <h2 aria-labelledby="account-section-title">
+      {mode === 'existing' ? (
+        <span id="account-section-title">最近使用</span>
+      ) : (
+        <button
+          type="button"
+          className="weq-account-back"
+          aria-label="返回账号主页"
+          disabled={busy || backupBusy}
+          onClick={() => enterSelect('existing')}
+        >
+          <ChevronLeft size={16} aria-hidden />
+          <span id="account-section-title">
+            {mode === 'new' ? '添加本机 QQ 账号' : '导入 QQ 备份'}
+          </span>
+        </button>
+      )}
+    </h2>
+  );
 
   return (
     <div className="weq-select weq-account-workspace" data-mode={mode}>
@@ -159,69 +189,86 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
             <img src={logoUrl} alt="" width={32} height={32} />
             <span>WeQ</span>
           </div>
-          <h1 id="account-page-title">
-            {mode === 'existing' ? '打开账号' : mode === 'new' ? '添加账号' : '导入备份'}
-          </h1>
+          <h1 id="account-page-title">打开账号</h1>
         </div>
-        <BootstrapWindowActions showAnnouncements />
+        <BootstrapWindowActions
+          showAnnouncements
+          onOpenSettings={onOpenSettings}
+          settingsDisabled={busy}
+        />
       </header>
       <div className="weq-account-content">
         <section
           id="account-source-panel"
           aria-labelledby="account-page-title"
-          className={mode === 'backup' ? 'weq-account-import' : 'weq-account-grid'}
+          className="weq-account-grid"
         >
-          {mode === 'backup' ? (
-            remote ? (
-              <p role="status">WeQ Remote 不支持导入电脑目录。配置备份可在设置中从设备上传。</p>
+          <section className="weq-account-detail" aria-label="打开选中账号">
+            <LoginPanel
+              mode={localSelected ? 'new' : 'existing'}
+              accounts={localAccounts}
+              selected={selected}
+              onSelect={(account) => setSelection((prev) => ({ ...prev, new: account.key }))}
+              autoTarget={autoTarget.data ?? null}
+              onEntered={onEntered}
+              onBusyChange={setBusy}
+              disabled={busy || backupBusy || (dataDenied && !selected?.static)}
+              qrActionHost={adding ? qrActionHost : null}
+              qrActionDisabled={dataDenied || historical.isLoading}
+              emptyContent={
+                <div className="weq-account-detail-empty">
+                  <img src={logoUrl} alt="" width={64} height={64} />
+                  <span>{savedConfigs.isLoading ? '正在读取账号' : '请选择账号'}</span>
+                </div>
+              }
+            />
+          </section>
+          <section className="weq-account-accounts" aria-labelledby="account-section-title">
+            {mode === 'backup' ? (
+              remote ? (
+                <>
+                  <div className="weq-account-section-head">{sectionTitle}</div>
+                  <p role="status">WeQ Remote 不支持导入电脑目录。配置备份可在设置中从设备上传。</p>
+                </>
+              ) : (
+                <StaticBackupPanel
+                  heading={sectionTitle}
+                  onEntered={onEntered}
+                  onBusyChange={setBackupBusy}
+                  disabled={busy}
+                />
+              )
             ) : (
-              <StaticBackupPanel onEntered={onEntered} onBusyChange={setBusy} />
-            )
-          ) : (
-            <>
-              <section className="weq-account-detail" aria-label="打开选中账号">
-                {!accountQuery.isLoading && (selected || mode === 'new') ? (
-                  <LoginPanel
-                    mode={accountMode}
-                    accounts={accounts}
-                    selected={selected}
-                    onSelect={(a) => setSelection((prev) => ({ ...prev, [accountMode]: a.key }))}
-                    autoTarget={autoTarget.data ?? null}
-                    onEntered={onEntered}
-                    onBusyChange={setBusy}
-                    disabled={busy || dataBlocked}
-                    onDiagnostics={
-                      mode === 'new' && !remote ? () => setDiagnostics(true) : undefined
-                    }
-                  />
-                ) : (
-                  <div className="weq-account-detail-empty">
-                    <img src={logoUrl} alt="" width={64} height={64} />
-                    <span>{accountQuery.isLoading ? '正在读取账号' : '暂无可打开的账号'}</span>
-                  </div>
-                )}
-              </section>
-              <section
-                className="weq-account-accounts"
-                aria-label={mode === 'existing' ? '最近使用的账号' : '本机 QQ 账号'}
-              >
+              <>
                 <div className="weq-account-section-head">
-                  <h2>{mode === 'existing' ? '最近使用' : '本机 QQ 账号'}</h2>
-                  {!accountQuery.error && (
-                    <button
-                      type="button"
-                      className="weq-icon-button"
-                      title="重新读取账号"
-                      aria-label="重新读取账号"
-                      disabled={busy || accountQuery.isFetching}
-                      onClick={() => void accountQuery.refetch()}
-                    >
-                      <RefreshCw
-                        size={15}
-                        className={accountQuery.isFetching ? 'weq-spin' : undefined}
-                        aria-hidden
-                      />
-                    </button>
+                  {sectionTitle}
+                  {mode === 'existing' ? (
+                    <div className="weq-account-section-tools">
+                      <button
+                        type="button"
+                        className="weq-icon-button"
+                        title="添加本机 QQ 账号"
+                        aria-label="添加本机 QQ 账号"
+                        disabled={busy}
+                        onClick={showLocalAccounts}
+                      >
+                        <UserPlus size={15} aria-hidden />
+                      </button>
+                      {!remote && (
+                        <button
+                          type="button"
+                          className="weq-icon-button"
+                          title="导入 QQ 备份"
+                          aria-label="导入 QQ 备份"
+                          disabled={busy}
+                          onClick={() => enterSelect('backup')}
+                        >
+                          <FolderInput size={15} aria-hidden />
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="weq-account-section-tools" ref={setQrActionHost} />
                   )}
                 </div>
                 {accountQuery.error && (
@@ -246,12 +293,18 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                 ) : accounts.length ? (
                   <AccountSelector
                     accounts={accounts}
-                    selected={selected}
+                    selected={adding ? localSelected : savedSelected}
                     disabled={busy}
-                    onSelect={(a) => setSelection((prev) => ({ ...prev, [accountMode]: a.key }))}
+                    onSelect={(account) =>
+                      setSelection((prev) => ({
+                        ...prev,
+                        [adding ? 'new' : 'existing']: account.key,
+                      }))
+                    }
                     onDeleteAccount={
                       mode === 'existing' ? (a) => void onDeleteAccount(a) : undefined
                     }
+                    onDiagnose={remote ? undefined : setDiagnostics}
                   />
                 ) : (
                   !accountQuery.error && (
@@ -264,21 +317,12 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                             ? '电脑端还没有可用账号'
                             : '未发现本机 QQ 账号'}
                       </h3>
-                      {mode === 'existing' ? (
-                        <button
-                          type="button"
-                          className="weq-action-soft"
-                          onClick={() => enterSelect('new')}
-                        >
-                          <UserPlus size={15} aria-hidden />
-                          添加账号
-                        </button>
-                      ) : remote ? (
+                      {mode === 'existing' ? null : remote ? (
                         /* Remote 不能选电脑目录：按钮保留原位但不可点，并把原因和下一步写出来，
                            而不是给一个没有说明的死按钮。 */
                         <>
                           <p>
-                            数据目录只能在电脑上选择。请先在电脑端选好目录并完成登录，再回到这里刷新。
+                            数据目录只能在电脑上选择。请先在电脑端选好目录并完成登录，再回到这里选择账号。
                           </p>
                           <button
                             type="button"
@@ -304,84 +348,16 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                     </div>
                   )
                 )}
-              </section>
-            </>
-          )}
-        </section>
-
-        {mode === 'existing' ? (
-          <nav className="weq-account-actions" aria-label="账号管理">
-            <button
-              type="button"
-              data-mode="new"
-              disabled={busy}
-              onClick={() => enterSelect('new')}
-            >
-              <UserPlus size={16} aria-hidden />
-              添加账号
-            </button>
-            {!remote && (
-              <button
-                type="button"
-                data-mode="backup"
-                disabled={busy}
-                onClick={() => enterSelect('backup')}
-              >
-                <FolderInput size={16} aria-hidden />
-                导入备份
-              </button>
+              </>
             )}
-            {debugCopyAction}
-          </nav>
-        ) : (
-          <nav className="weq-account-actions weq-account-return" aria-label="账号导航">
-            <button
-              type="button"
-              aria-label="返回账号主页"
-              disabled={busy}
-              onClick={() => enterSelect('existing')}
-            >
-              <ArrowLeft size={16} aria-hidden />
-              返回
-            </button>
-            {debugCopyAction}
-          </nav>
-        )}
-
-        {debugCopyOpen && (
-          <Modal
-            open
-            centered
-            labelledBy="qq-debug-copy-title"
-            className="weq-qq-debug-modal"
-            onClose={() => setDebugCopyOpen(false)}
-            width={520}
-          >
-            <div className="weq-dialog-head">
-              <h3 id="qq-debug-copy-title" className="weq-dialog-title">
-                QQ 调试副本
-              </h3>
-              <button
-                type="button"
-                className="weq-dialog-x"
-                title="关闭"
-                aria-label="关闭调试副本"
-                onClick={() => setDebugCopyOpen(false)}
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div className="weq-dialog-body">
-              <QqDebugCopy />
-            </div>
-          </Modal>
-        )}
-        {mode === 'new' && diagnostics && !remote && (
+          </section>
+        </section>
+        {diagnostics && !remote && (
           <Modal
             open
             centered
             labelledBy="account-diagnostics-title"
-            onClose={() => setDiagnostics(false)}
+            onClose={() => setDiagnostics(null)}
             width={400}
             className="weq-select weq-account-diagnostics"
           >
@@ -394,14 +370,14 @@ export function SelectScreen({ install }: { install: GlobalInstallInfo }): React
                 className="weq-dialog-x"
                 aria-label="关闭环境诊断"
                 title="关闭"
-                onClick={() => setDiagnostics(false)}
+                onClick={() => setDiagnostics(null)}
               >
                 <X size={16} aria-hidden />
               </button>
             </div>
             <Diagnostics
               install={install}
-              selectedUin={!selected?.static ? (selected?.uin ?? null) : null}
+              selectedUin={diagnostics.uin}
               busy={busy}
               onPickRoot={() => void pickRoot()}
             />

@@ -10,6 +10,7 @@ import { transferActivity, type TransferActivity } from '@weq/service/managed-do
 import { backgroundTasks } from './background_tasks';
 import { onSettingsChanged } from '@weq/service/settings-changes';
 import { unfinishedDataSaverTasks } from '../shared/data_saver_tasks';
+import { forgetTaskOnPage, holdTaskOnPage } from './task_page';
 
 const windowTasks = new Map<string, number | null>();
 const taskSources = new Map<string, NonNullable<ReturnType<typeof getAppContext>['services']>>();
@@ -113,10 +114,15 @@ export function startTransferPolicy() {
     transferActivity.on('state', (state: TransferActivity) => {
       let id = ids.get(state.id);
       if (!id) {
+        const foreground = holdTaskOnPage(state.transfer.activityPageId, state.id, () => {
+          const taskId = ids.get(state.id);
+          if (taskId) backgroundTasks.setForeground(taskId, false);
+        });
         id = backgroundTasks.start({
           kind: 'resource',
           name: state.name,
           display: { action: '下载资源', subject: state.name },
+          foreground,
         });
         ids.set(state.id, id);
       }
@@ -129,6 +135,7 @@ export function startTransferPolicy() {
         );
         backgroundTasks.setActions(id, []);
         ids.delete(state.id);
+        forgetTaskOnPage(state.id);
       } else if (state.paused) {
         backgroundTasks.finish(id, 'paused', {
           statusLabel: state.reasons.includes('user') ? '已暂停' : '省流量模式已暂停',

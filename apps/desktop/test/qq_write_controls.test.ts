@@ -757,17 +757,29 @@ describe('QQ 写操作账号与生命周期', () => {
     expect(mocked.invalidate.mock.calls).toEqual([[{ groupCode: '123' }]]);
     expect(mocked.invalidateStatus).not.toHaveBeenCalled();
   });
-  it.each([true, false])('延后读回有上限，不重复写入；最终同步：%s', async (synced) => {
+  it.each([
+    { synced: true, silent: false },
+    { synced: true, silent: true },
+    { synced: false, silent: false },
+  ])('延后读回、按回执显示横幅（同步 $synced，静默 $silent）', async ({ synced, silent }) => {
     vi.useFakeTimers();
     try {
       const f = harness();
-      const action = vi.fn(async (): Promise<QQWriteOutcome> => ({ state: 'accepted' }));
+      let successText = '';
+      const action = vi.fn(async (): Promise<QQWriteOutcome> => {
+        successText = '操作结果已确认';
+        return { state: 'accepted' };
+      });
       const readback = vi.fn(async () => false).mockResolvedValueOnce(false);
       if (synced) readback.mockResolvedValueOnce(true);
       let pending!: Promise<boolean>;
       await act(async () => {
-        pending = f.session().run(action, undefined, { readback });
+        pending = f.session().run(action, undefined, {
+          readback,
+          readbackSuccessText: () => (silent ? null : successText),
+        });
       });
+      expect(useToast.getState().toasts).toHaveLength(0);
       await act(async () => {
         await vi.runAllTimersAsync();
         expect(await pending).toBe(true);
@@ -775,7 +787,10 @@ describe('QQ 写操作账号与生命周期', () => {
       expect(action).toHaveBeenCalledOnce();
       expect(readback).toHaveBeenCalledTimes(synced ? 2 : 4);
       expect(f.host.textContent).toBe('');
-      expect(useToast.getState().toasts.at(-1)?.tone).toBe(synced ? 'success' : 'warning');
+      const toast = useToast.getState().toasts.at(-1);
+      if (silent) expect(toast).toBeUndefined();
+      else if (synced) expect(toast).toMatchObject({ title: successText, tone: 'success' });
+      else expect(toast?.tone).toBe('warning');
     } finally {
       vi.useRealTimers();
     }

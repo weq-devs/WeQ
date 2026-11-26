@@ -91,6 +91,10 @@ html[data-theme='dark'] .unread-dock-button.weq-important-dock[data-important-ki
 .weq-chat-jump > button:first-child {
   flex: 1;
 }
+.weq-chat-jump > button + button:hover {
+  background: color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 999px;
+}
 .weq-chat-jump > .weq-dock-touch {
   touch-action: pan-y pinch-zoom;
   min-height: 44px;

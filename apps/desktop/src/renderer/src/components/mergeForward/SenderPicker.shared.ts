@@ -1,7 +1,19 @@
+import { filterByName } from '../../lib/nameSearch';
+
 export interface MfPerson {
   uid: string;
   uin: string;
   name: string;
+  aliases?: readonly string[];
+}
+
+export function searchPeople(people: MfPerson[], query: string): MfPerson[] {
+  return filterByName(
+    people,
+    query,
+    (person) => [person.name, ...(person.aliases ?? [])],
+    (person, needle) => person.uin.includes(needle),
+  );
 }
 
 export const personKey = (person: MfPerson) => person.uid || `uin:${person.uin}`;

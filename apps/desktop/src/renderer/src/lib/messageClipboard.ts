@@ -4,6 +4,7 @@ import {
   plainElementText,
   plainBodyElements,
 } from '@weq/service/message-plain-text';
+import { formatDateTime } from '@weq/time';
 
 export interface MessageClipboard {
   text: string;
@@ -155,12 +156,13 @@ export function messageRichClipboard(
   const root = document.createElement('div');
   const texts: string[] = [];
   for (const row of rows) {
+    const timestamp = formatDateTime(row.time) || row.time;
     const section = document.createElement('section');
     const header = document.createElement('p');
     const name = document.createElement('strong');
     name.textContent = row.sender;
     const time = document.createElement('small');
-    time.textContent = ` ${row.time}`;
+    time.textContent = ` ${timestamp}`;
     header.append(name, time);
     section.append(header);
     const content = messageContentClipboard(row.elements, row.body);
@@ -168,7 +170,7 @@ export function messageRichClipboard(
     body.innerHTML = content.html;
     section.append(body);
     root.append(section);
-    texts.push(`${row.sender} ${row.time}\n${content.text}`);
+    texts.push(`${row.sender} ${timestamp}\n${content.text}`);
   }
   return { text: texts.join('\n\n'), html: root.outerHTML };
 }

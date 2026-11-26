@@ -6,7 +6,7 @@
  *  - **排行榜**:优先打商城接口(要 pskey);没有在线实例时回退到仓库里存的一份静态
  *    响应 `resources/dress/ranking-*.json`。所以离线账号照样能浏览一个
  *    可用的目录 —— 气泡渲染只要 itemId 就够,字体 / 挂件的安装也走本地离线 bundle。
- *  - **搜索**:必须在线,没有兜底(搜索结果没法预存)。离线时明确报错。
+ *  - **搜索**:名称搜索需要在线 QQ；ID 也能查本地目录和可用素材。
  *  - **安装/启用**:三类都**默认离线可用** —— 资源先走本地离线 bundle
  *    (QQ 自带那批装扮资源,见 nt_helper 的 queryDressResourceUrl),本地没有的款
  *    才回退到在线换链(气泡走 scupdate / 字体走手Q 专属包 / 挂件走 scupdate 的
@@ -50,6 +50,7 @@ import {
 } from '../../context/app_context';
 import { fullModeAllowed } from '../../context/full_mode';
 import { resolveResource } from '../../resource';
+import { dressIdQuery } from '../../../shared/dress_item';
 import { procedure, router } from '../trpc';
 import { buildDecorationBundle, buildDecorationFile } from './dressup_export';
 import { runDressDownload } from './dressup_download';
@@ -132,6 +133,77 @@ function staticRank(kind: DressKindInput): DressMallItem[] {
   } catch {
     return [];
   }
+}
+
+/** 查找明确的 ID，不把搜索接口返回的近似名称当成同款。 */
+async function findDressById(
+  services: AccountServices,
+  kind: DressKindInput,
+  itemId: number,
+): Promise<DressMallItem | undefined> {
+  const ranked = staticRank(kind).find((item) => item.itemId === itemId);
+  if (ranked) return ranked;
+
+  const appId = appIdFor(kind);
+  const item: DressMallItem = {
+    appId,
+    itemId,
+    name: '',
+    previewUrl: '',
+    previewLargeUrl: '',
+    labels: [],
+    price: 0,
+    mallName: '',
+  };
+  const own = services.accountConfig.getRecord()?.homeDress;
+  if (kind === 'callbg') {
+    if (own?.callBgId === itemId && (own.callBgUrl || own.callBgVideoUrl)) {
+      return {
+        ...item,
+        name: own.callBgName ?? '',
+        previewUrl: own.callBgUrl ?? '',
+        videoUrl: own.callBgVideoUrl,
+      };
+    }
+    // 来电没有通过 ID 解析素材的链路，只接受目录中带实际素材的同款。
+    if (!webQqOnline(services)) return;
+    const result = await services.webQuery.searchDress(appId, String(itemId), 0);
+    return result.items.find(
+      (entry) =>
+        entry.itemId === itemId &&
+        entry.appId === appId &&
+        (entry.previewUrl || entry.previewLargeUrl || entry.videoUrl),
+    );
+  }
+
+  const dress = services.dressInstall;
+  const manifest = dress.read();
+  const entries =
+    kind === 'bubble' ? manifest.bubbles : kind === 'font' ? manifest.fonts : manifest.widgets;
+  const installed = entries.find((entry) => entry.itemId === itemId);
+  const metadata = {
+    bubble: { id: own?.bubbleId, name: own?.bubbleName, preview: own?.bubblePreviewUrl },
+    font: { id: own?.fontId, name: own?.fontName, preview: own?.fontPreviewUrl },
+    widget: { id: own?.widgetId, name: own?.widgetName, preview: own?.widgetPreviewUrl },
+  }[kind];
+  // 这里只准备素材，不写入「已装」；也不把挂件的猜测预览地址当作匹配证据。
+  try {
+    const available =
+      installed ||
+      (kind === 'bubble'
+        ? await dress.fetchBubble(itemId)
+        : kind === 'font'
+          ? await dress.fetchFont(itemId)
+          : await dress.resolvePendantAnimation(itemId));
+    if (!available) return;
+  } catch {
+    return;
+  }
+  return {
+    ...item,
+    name: installed?.name || (metadata.id === itemId ? metadata.name : '') || '',
+    previewUrl: installed?.previewUrl || (metadata.id === itemId ? metadata.preview : '') || '',
+  };
 }
 
 /**
@@ -305,18 +377,26 @@ export const dressupRouter = router({
       return { items: staticRank(input.kind), source: 'static' as const };
     }),
 
-  /** 搜索。必须在线 —— 没有可预存的兜底。 */
+  /** 名称走商城搜索；纯数字或 #ID 精确匹配当前类别。 */
   search: procedure
     .input(
       z.object({
         kind: kindInput,
-        keyword: z.string().min(1).max(50),
+        keyword: z.string().trim().min(1).max(50),
         pageIndex: z.number().int().min(0).optional(),
       }),
     )
     .query(async ({ input }) => {
       requireDevelopmentDressTools();
       const services = requireServices();
+      const idQuery = dressIdQuery(input.keyword);
+      if (idQuery) {
+        const itemId = Number(idQuery);
+        if (itemId < 1 || itemId > 0xffff_ffff || (input.pageIndex ?? 0) > 0)
+          return { items: [], total: 0 };
+        const item = await findDressById(services, input.kind, itemId);
+        return { items: item ? [item] : [], total: item ? 1 : 0 };
+      }
       if (!webQqOnline(services)) throw new Error(OFFLINE_HINT);
       return services.webQuery.searchDress(
         appIdFor(input.kind),

@@ -1,6 +1,7 @@
 import { act, createElement as h, useCallback, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
+import type { Message } from '../src/renderer/src/im-template/template/types';
 import { useChatTimelineNavigation } from '../src/renderer/src/im-template/template/useChatTimelineNavigation';
 import {
   consumeUnreadDock,
@@ -102,6 +103,116 @@ it('定位进行中不消耗跳转点，失败可重试，旧会话任务结束�
     act(() => root.unmount());
     host.remove();
     error.mockRestore();
+    vi.unstubAllGlobals();
+  }
+});
+
+it('重要消息跳转保留同屏的下一条提醒，手动滚动后恢复可见确认', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.useFakeTimers({
+    toFake: [
+      'performance',
+      'setTimeout',
+      'clearTimeout',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+    ],
+  });
+  const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+  const demo = createTemplateDemoData();
+  const conversation = demo.conversations.find(({ type }) => type === 'group')!;
+  const messages: Message[] = ['101', '102', '103'].map((seq) => ({
+    id: `row-${seq}`,
+    msgId: `900${seq}`,
+    msgSeq: seq,
+    conversationId: conversation.id,
+    senderId: 'peer',
+    body: seq,
+    createdAt: conversation.updatedAt,
+  }));
+  const identity = { kind: 'atMe' as const };
+  const dock = {
+    stops: ['103', '102', '101'].map((seq) => ({ kind: identity.kind, seq, identity })),
+  };
+  const root = createRoot(document.createElement('div'));
+  let state!: ReturnType<typeof useChatTimelineNavigation>;
+  let visibility: ReturnType<typeof state.observeMessageVisibility>;
+  let shown = false;
+  const bounds = vi
+    .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockImplementation(function (this: HTMLElement) {
+      if (!this.dataset.messageId) return new DOMRect(0, 0, 300, 100);
+      const index = messages.findIndex(({ id }) => id === this.dataset.messageId);
+      return new DOMRect(0, shown ? 20 * index : 120, 300, 20);
+    });
+  function scrollTo(top: number) {
+    const scroll = state.messageScrollRef.current!;
+    scroll.scrollTop = top;
+    state.handleMessageScroll();
+    scroll.dispatchEvent(new Event('scroll'));
+  }
+  const jump = vi.fn(async () => {
+    shown = true;
+    scrollTo(10);
+    return true;
+  });
+  function Harness() {
+    state = useChatTimelineNavigation({
+      atLatest: false,
+      conversation,
+      initialReadingPosition: undefined,
+      jumpRequest: undefined,
+      latestMessageSeq: undefined,
+      loadError: null,
+      loading: false,
+      loadingNewer: false,
+      timelineSettings: undefined,
+      messages,
+      onJumpToLatest: undefined,
+      onReadCurrentConversation: undefined,
+      parentJumpToSeq: jump,
+      tabActive: true,
+      unreadDock: dock,
+      user: demo.user,
+      visibleMessages: messages,
+    });
+    return h(
+      'div',
+      { className: 'message-scroll', ref: state.messageScrollRef },
+      messages.map(({ id }) => h('div', { key: id, 'data-message-id': id })),
+    );
+  }
+  async function observeViewport() {
+    visibility?.dispose();
+    visibility = state.observeMessageVisibility();
+    visibility?.syncRows();
+    await act(async () => vi.advanceTimersByTimeAsync(250));
+  }
+  try {
+    act(() => root.render(h(Harness)));
+    await observeViewport();
+    await act(async () => state.jumpDockStop());
+    await observeViewport();
+    expect(state.dockStop?.seq).toBe('102');
+    expect(state.dockImportantRemaining).toBe(2);
+
+    await act(async () => state.jumpToSeq({ seq: '102', importantMessage: { ...identity } }));
+    await observeViewport();
+    expect(state.dockStop?.seq).toBe('101');
+    expect(state.dockImportantRemaining).toBe(1);
+
+    act(() => {
+      state.handleReadGesture({ target: state.messageScrollRef.current });
+      scrollTo(20);
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(250));
+    expect(state.dockImportantRemaining).toBe(0);
+  } finally {
+    visibility?.dispose();
+    act(() => root.unmount());
+    bounds.mockRestore();
+    focus.mockRestore();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   }
 });

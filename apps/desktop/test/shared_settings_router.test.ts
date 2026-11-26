@@ -57,6 +57,7 @@ describe('宿主全局设置接口', () => {
       page: 'resource-loading',
       card: 'data-saver',
       source: null,
+      revision: preview.revision,
     });
     expect(result.find((item) => item.id === 'data-saver:temporary')?.ok).toBe(true);
     expect(dataSaverSession.status().temporary).toBeNull();

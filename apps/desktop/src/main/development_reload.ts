@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { HotPayload, Plugin } from 'vite';
 import {
   DEVELOPMENT_RELOAD_APPLY,
+  DEVELOPMENT_RELOAD_DISMISS,
   DEVELOPMENT_RELOAD_QUERY,
   DEVELOPMENT_RELOAD_STATUS,
   type DevelopmentReloadStatus,
@@ -15,17 +16,26 @@ export function createDevelopmentReload() {
   let id: string | undefined;
   let page: (() => void) | undefined;
   let applying = false;
+  let dismissed = false;
   const callbacks = new Map<Target, () => void>();
   const unavailable = new Set<Target>();
   const listeners = new Set<() => void>();
   const status = (): DevelopmentReloadStatus | null =>
-    id ? { id, restart: callbacks.has('main'), ready: unavailable.size === 0 } : null;
+    id
+      ? {
+          id,
+          restart: callbacks.has('main'),
+          ready: unavailable.size === 0,
+          ...(dismissed ? { dismissed: true as const } : {}),
+        }
+      : null;
   const notify = () => {
     for (const listener of listeners) listener();
   };
   const clear = () => {
     if (!id) return;
     id = undefined;
+    dismissed = false;
     callbacks.clear();
     page = undefined;
     notify();
@@ -44,6 +54,11 @@ export function createDevelopmentReload() {
       unavailable.delete(target);
       id ??= randomUUID();
       callbacks.set(target, apply);
+      notify();
+    },
+    dismiss(requestId: unknown) {
+      if (!id || id !== requestId || dismissed) return;
+      dismissed = true;
       notify();
     },
     apply(requestId: unknown) {
@@ -87,6 +102,9 @@ export function createDevelopmentReload() {
           server.ws.on(DEVELOPMENT_RELOAD_APPLY, (data: { id?: unknown }, client) => {
             controller.apply(data?.id);
             client.send(DEVELOPMENT_RELOAD_STATUS, status());
+          });
+          server.ws.on(DEVELOPMENT_RELOAD_DISMISS, (data: { id?: unknown }) => {
+            controller.dismiss(data?.id);
           });
           if (clearOnMenuRestart) process.on(DEVELOPMENT_MENU_RESTART, clear);
           server.httpServer?.once('close', () => {

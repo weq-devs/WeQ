@@ -25,6 +25,7 @@ const fixture = vi.hoisted(() => ({
       bytes: 1024,
       clearable: true,
       reason: '按需下载',
+      category: 'media',
       incomplete: false,
     },
     {
@@ -34,7 +35,7 @@ const fixture = vi.hoisted(() => ({
       bytes: 2048,
       clearable: false,
       reason: '持久数据',
-      category: 'persistent',
+      category: 'search-analysis',
       incomplete: false,
     },
   ] as StorageUsageItem[],
@@ -101,6 +102,16 @@ function choice(host: HTMLElement, id: string) {
   return host.querySelector<HTMLButtonElement>(`[data-cache-id="${id}"] [role="checkbox"]`)!;
 }
 
+function expandStorageGroups(host: HTMLElement) {
+  act(() => {
+    for (const button of host.querySelectorAll<HTMLButtonElement>(
+      'h4 > button[aria-expanded="false"]',
+    )) {
+      button.click();
+    }
+  });
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -121,7 +132,7 @@ describe('WeQ 存储管理页面', () => {
           .click(),
       );
       expect(fixture.push).toHaveBeenLastCalledWith(
-        expect.objectContaining({ title: '清理已完成', message: '已清除 1 项，释放约 1 KB' }),
+        expect.objectContaining({ title: '清理已完成', message: '已清除 1 项，共 1 KB' }),
       );
       expect(host.querySelector('.weq-storage-result')).toBeNull();
       act(() => root.render(null));
@@ -156,9 +167,10 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      expandStorageGroups(host);
       expect(host.querySelectorAll('[data-cache-id="avatar"] [role="checkbox"]')).toHaveLength(1);
       expect(host.textContent).not.toContain('空装扮');
-      expect(host.textContent).not.toContain('表情与装扮缓存');
+      expect(host.textContent).not.toContain('表情、装扮与背景');
       act(() => choice(host, 'avatar').click());
       await act(async () =>
         [...host.querySelectorAll<HTMLButtonElement>('button')]
@@ -174,7 +186,7 @@ describe('WeQ 存储管理页面', () => {
       fixture.items.splice(length);
     }
   });
-  it('数据库备份置顶并默认展开，配置与闪传成品不计入本页占用或默认清理', async () => {
+  it('分组默认折叠并显示小计，按组展开后可查看备份详情', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const length = fixture.items.length;
@@ -215,10 +227,22 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
-      const first = host.querySelector<HTMLDetailsElement>('.weq-storage-category')!;
-      expect(first.querySelector('summary')?.textContent).toContain('历史数据库备份');
-      expect(first.open).toBe(true);
-      expect(first.textContent).toContain('已关联修复记录');
+      const groups = [...host.querySelectorAll<HTMLButtonElement>('h4 > button[aria-expanded]')];
+      expect(groups.map((button) => button.textContent)).toEqual([
+        '搜索与内容识别2 KB',
+        '数据库备份与维护1 KB',
+        '媒体、头像与预览1 KB',
+      ]);
+      expect(groups.every((button) => button.getAttribute('aria-expanded') === 'false')).toBe(true);
+      expect(host.querySelector('[role="checkbox"]')).toBeNull();
+      act(() => groups[1]!.click());
+      expect(groups[1]?.getAttribute('aria-expanded')).toBe('true');
+      expect(groups[0]?.getAttribute('aria-expanded')).toBe('false');
+      expect(groups[2]?.getAttribute('aria-expanded')).toBe('false');
+      const backup = host.querySelector<HTMLElement>('[data-cache-id="database-backup"]')!;
+      expect(backup.textContent).toContain('数据库备份');
+      act(() => backup.querySelector<HTMLButtonElement>('.weq-storage-details-toggle')!.click());
+      expect(host.textContent).toContain('已关联修复记录');
       expect(host.textContent).toContain('本页占用 4 KB');
       expect(host.textContent).not.toContain('账号与应用配置');
       expect(host.textContent).not.toContain('历史闪传下载');
@@ -279,6 +303,7 @@ describe('WeQ 存储管理页面', () => {
           }),
         ),
       );
+      expandStorageGroups(host);
       expect(host.textContent).toContain('头像缓存');
       expect(host.textContent).not.toContain('清除账号与应用配置');
       expect(host.textContent).not.toContain('重置全局配置');
@@ -308,7 +333,10 @@ describe('WeQ 存储管理页面', () => {
       ],
       restartIds: ['agentlab'],
     });
-    fixture.confirm.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    fixture.confirm
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);
@@ -320,17 +348,16 @@ describe('WeQ 存储管理页面', () => {
       );
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
-      act(() => {
-        choice(host, 'avatar').click();
-        choice(host, 'agentlab').click();
-      });
+      expandStorageGroups(host);
+      act(() => choice(host, 'avatar').click());
+      await act(async () => choice(host, 'agentlab').click());
       await click('开始清理');
       expect(fixture.clear).toHaveBeenCalledWith({
         ids: ['avatar', 'agentlab'],
         acknowledgeRisk: true,
       });
       expect(fixture.confirm).toHaveBeenLastCalledWith(
-        '剩余项目被占用',
+        '剩余项目需退出 WeQ 后清理',
         expect.stringContaining('可直接清除的项目已经处理'),
         expect.objectContaining({ cancelLabel: '暂不重启' }),
       );
@@ -406,9 +433,23 @@ describe('WeQ 存储管理页面', () => {
       await act(async () => button.click());
       expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'], acknowledgeRisk: true });
       expect(fixture.exitClear).not.toHaveBeenCalled();
+      expandStorageGroups(host);
       const checkbox = choice(host, 'backup:test');
       expect(checkbox.getAttribute('aria-checked')).toBe('false');
-      act(() => checkbox.click());
+      fixture.confirm.mockResolvedValueOnce(false);
+      await act(async () => checkbox.click());
+      expect(checkbox.getAttribute('aria-checked')).toBe('false');
+      expect(fixture.confirm).toHaveBeenLastCalledWith(
+        '勾选项的清理影响',
+        expect.stringContaining('失去回滚能力'),
+        expect.objectContaining({ okLabel: '勾选' }),
+      );
+      await act(async () => checkbox.click());
+      expect(checkbox.getAttribute('aria-checked')).toBe('true');
+      const group = checkbox.closest('section')!.querySelector<HTMLButtonElement>('h4 > button')!;
+      act(() => group.click());
+      expect(group.textContent).toContain('已选 1 项');
+      expect(host.querySelector('[data-cache-id="backup:test"]')).toBeNull();
       expect(button.textContent).toBe('开始清理');
       fixture.confirm.mockResolvedValueOnce(false);
       await act(async () => button.click());
@@ -450,7 +491,8 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
-      act(() => choice(host, 'dress_shared').click());
+      expandStorageGroups(host);
+      await act(async () => choice(host, 'dress_shared').click());
       const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
         (item) => item.textContent === '开始清理',
       )!;
@@ -468,7 +510,7 @@ describe('WeQ 存储管理页面', () => {
     }
   });
 
-  it('只读项目没有复选框、不参与全选和清理请求', async () => {
+  it('当前无法清理的项目可勾选和定位，清理请求只包含可执行的项目', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const host = document.createElement('div');
@@ -476,21 +518,19 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      expandStorageGroups(host);
       expect(host.textContent).toContain('WeQ 存储管理');
       expect(host.textContent).toContain('本页占用 3 KB');
       expect(host.textContent).toContain('可清理 1 KB');
-      expect(host.querySelectorAll('[role="checkbox"]')).toHaveLength(1);
+      expect(host.querySelectorAll('[role="checkbox"]')).toHaveLength(2);
       const readonly = host.querySelector<HTMLElement>('.is-readonly')!;
       const toolbar = host.querySelector('.weq-storage-toolbar')!;
       expect(toolbar.nextElementSibling?.classList.contains('weq-set-cache-list')).toBe(true);
-      const category = [...host.querySelectorAll<HTMLDetailsElement>('.weq-storage-category')].find(
-        (item) => item.textContent?.includes('图片识别结果'),
-      )!;
-      expect(category.open).toBe(false);
-      expect(category.querySelector('summary')?.textContent).toContain('持久数据');
       expect(readonly.textContent).toContain('图片识别结果');
-      expect(readonly.querySelector('input')).toBeNull();
-      expect(readonly.hasAttribute('data-weq-select-id')).toBe(false);
+      expect(readonly.textContent).toContain('仅统计');
+      expect(readonly.textContent).not.toContain('/synthetic/cache/ocr');
+      act(() => readonly.querySelector<HTMLButtonElement>('.weq-storage-details-toggle')!.click());
+      expect(readonly.textContent).toContain('定位');
       const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
         (item) => item.textContent === '开始清理',
       )!;
@@ -498,9 +538,13 @@ describe('WeQ 存储管理页面', () => {
       expect(list.nextElementSibling?.contains(button)).toBe(true);
       expect(button.parentElement?.nextElementSibling).toBeNull();
       expect(toolbar.contains(button)).toBe(false);
+      await act(async () => choice(host, 'ocr').click());
+      expect(choice(host, 'ocr').getAttribute('aria-checked')).toBe('true');
+      expect(button.disabled).toBe(true);
+      act(() => choice(host, 'avatar').click());
       await act(async () => button.click());
       expect(fixture.clear).toHaveBeenCalledWith({ ids: ['avatar'], acknowledgeRisk: true });
-      expect(fixture.confirm.mock.calls[0]).not.toContain('图片识别结果');
+      expect(fixture.confirm.mock.calls.at(-1)?.[1]).not.toContain('图片识别结果');
       expect(fixture.refetch).toHaveBeenCalled();
     } finally {
       act(() => root.unmount());
@@ -508,7 +552,7 @@ describe('WeQ 存储管理页面', () => {
     }
   });
 
-  it('同类数据折叠合并，系统文件不显示但占用仍计入合计', () => {
+  it('不同功能分别显示，系统文件只计入页面合计', () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal('localStorage', new Storage());
     const originalLength = fixture.items.length;
@@ -522,17 +566,13 @@ describe('WeQ 存储管理页面', () => {
     const root = createRoot(host);
     try {
       act(() => root.render(createElement(GlobalSettingsSection, { section: 'storage' })));
+      expandStorageGroups(host);
       expect(host.textContent).toContain('本页占用 7 KB');
       expect(host.textContent).not.toContain('.DS_Store');
       expect(host.textContent).not.toContain('空缓存');
-      const categories = [...host.querySelectorAll('.weq-storage-category')];
-      expect(categories).toHaveLength(2);
-      const persistent = categories.find((item) =>
-        item.querySelector('summary')?.textContent?.includes('持久数据'),
-      )!;
-      expect(persistent.querySelector('summary')?.textContent).toContain('6 KB');
-      expect(persistent.querySelectorAll('.is-readonly')).toHaveLength(2);
-      expect(host.querySelectorAll('[role="checkbox"]')).toHaveLength(1);
+      expect(host.querySelectorAll('.weq-storage-item')).toHaveLength(3);
+      expect(host.querySelectorAll('.is-readonly')).toHaveLength(2);
+      expect(host.querySelectorAll('[role="checkbox"]')).toHaveLength(3);
     } finally {
       act(() => root.unmount());
       host.remove();

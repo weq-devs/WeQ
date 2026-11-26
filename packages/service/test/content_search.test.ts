@@ -113,6 +113,39 @@ it('群文件保留目录上下文，不凭相同 fileId 合并不同位置的�
     ]),
   );
 });
+it('群文件和群相册的缓存标题可用拼音查找，原文描述命中优先', () => {
+  const { store } = fixture();
+  store.remember([
+    {
+      target: { kind: 'groupFile', groupCode: '50001', folderId: '/', fileId: 'name' },
+      title: '重庆资料.txt',
+      content: '',
+      sourceName: '',
+      time: 3,
+    },
+    {
+      target: { kind: 'groupFile', groupCode: '50001', folderId: '/', fileId: 'literal' },
+      title: '资料.txt',
+      content: 'cq',
+      sourceName: '',
+      time: 2,
+    },
+    {
+      target: { kind: 'groupAlbum', groupCode: '50001', albumId: 'album' },
+      title: '重庆照片',
+      content: '',
+      sourceName: '',
+      time: 1,
+    },
+  ]);
+  expect(store.search('groupFile', 'cq', 1, 0).items[0]?.target).toMatchObject({
+    fileId: 'literal',
+  });
+  expect(store.search('groupFile', 'cq', 1, 1).items[0]?.target).toMatchObject({ fileId: 'name' });
+  expect(store.search('groupAlbum', 'chongqing', 1).items[0]?.target).toMatchObject({
+    albumId: 'album',
+  });
+});
 it('缓存按真实身份隔离同名内容，持久化、分页和删除不需要网络', () => {
   const f = fixture();
   f.store.remember([post('a', 'needle a'), post('a', 'needle b', '10002'), post('b', 'needle c')]);

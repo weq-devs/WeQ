@@ -1,5 +1,5 @@
 /**
- * 装扮页的资源预热 —— 把这一页要画的气泡 / 字体 / 挂件全部拉到本地。
+ * 装扮页的资源预热 —— 只解析当前卡片实际展示的气泡、字体与挂件。
  *
  * 一次 `annualReport.prefetchDress` 批量解析（主进程复用 msgDecoration 的三条链，
  * 同 itemId 全局只解一次），拿到结果后：
@@ -35,58 +35,32 @@ const EMPTY: DressAssets = {
   ready: false,
 };
 
-/** 每类最多预热多少款 —— 与 IPC 侧的 max(60) 对齐，兜住异常庞大的榜单。 */
-const MAX_PER_KIND = 60;
+/** 每类最多展示五件单品，另外加上主角身上穿的一套。 */
+export const DRESS_CASE_ITEMS = 5;
 
-/**
- * 装扮页新增了「单品展柜」：除整套穿的 outfit 外，单类榜前几款也可能不在
- * 截断后的 outfit 列表里。这里多预热前 8 款，让展柜陈列所需的 id 也有资源。
- */
-const PREFETCH_CASE_ITEMS = 8;
-
-export function useDressAssets(data: DressPageData | null, active = true): DressAssets {
+export function useDressAssets(data: DressPageData | null, active: boolean): DressAssets {
   const [assets, setAssets] = useState<DressAssets>(EMPTY);
 
-  // 要预热的 id 从「套装」与单类榜前几款里并集取出 —— 主体画套装，展柜画单品。
-  // 这里只算出三条**字符串**当依赖：id 列表本身每次渲染都是新数组，直接依赖会让
-  // 预热在每次重渲时重跑（真正的 id 列表在 effect 内部重新取）。
-  const bubbleKey = unique([
-    ...(data?.outfits ?? []).map((o) => o.bubbleId),
-    ...(data?.bubble.items ?? []).slice(0, PREFETCH_CASE_ITEMS).map((item) => item.itemId),
-  ]).join(',');
-  const fontKey = unique([
-    ...(data?.outfits ?? []).map((o) => o.fontId),
-    ...(data?.font.items ?? []).slice(0, PREFETCH_CASE_ITEMS).map((item) => item.itemId),
-  ]).join(',');
-  const widgetKey = unique([
-    ...(data?.outfits ?? []).map((o) => o.widgetId),
-    ...(data?.widget.items ?? []).slice(0, PREFETCH_CASE_ITEMS).map((item) => item.itemId),
-  ]).join(',');
-
   useEffect(() => {
-    if (!data || !active) return undefined;
+    if (!data || !active) return;
     let cancelled = false;
     const releases: (() => void)[] = [];
-    const bubbleIds = unique([
-      ...data.outfits.map((o) => o.bubbleId),
-      ...data.bubble.items.slice(0, PREFETCH_CASE_ITEMS).map((item) => item.itemId),
-    ]);
-    const fontIds = unique([
-      ...data.outfits.map((o) => o.fontId),
-      ...data.font.items.slice(0, PREFETCH_CASE_ITEMS).map((item) => item.itemId),
-    ]);
-    const widgetIds = unique([
-      ...data.outfits.map((o) => o.widgetId),
-      ...data.widget.items.slice(0, PREFETCH_CASE_ITEMS).map((item) => item.itemId),
-    ]);
+    const hero = data.outfits[0];
+    const visibleIds = (kind: 'bubble' | 'font' | 'widget', heroId: number | undefined) =>
+      [
+        ...new Set([
+          heroId ?? 0,
+          ...data[kind].items.slice(0, DRESS_CASE_ITEMS).map((item) => item.itemId),
+        ]),
+      ].filter((id) => id > 0);
 
     void (async () => {
       let resolved: Awaited<ReturnType<typeof client.account.annualReport.prefetchDress.mutate>>;
       try {
         resolved = await client.account.annualReport.prefetchDress.mutate({
-          bubbles: bubbleIds.slice(0, MAX_PER_KIND),
-          fonts: fontIds.slice(0, MAX_PER_KIND),
-          widgets: widgetIds.slice(0, MAX_PER_KIND),
+          bubbles: visibleIds('bubble', hero?.bubbleId),
+          fonts: visibleIds('font', hero?.fontId),
+          widgets: visibleIds('widget', hero?.widgetId),
         });
       } catch {
         // 整批失败（没有打开的账号会话等）——页面全部走退化版，不提示。
@@ -130,12 +104,7 @@ export function useDressAssets(data: DressPageData | null, active = true): Dress
       cancelled = true;
       for (const release of releases) release();
     };
-    // itemId 列表变了才重新预热；data 对象每次渲染换引用，不能直接依赖它。
-  }, [data, bubbleKey, fontKey, widgetKey, active]);
+  }, [data, active]);
 
   return assets;
-}
-
-function unique(ids: number[]): number[] {
-  return [...new Set(ids.filter((id) => id > 0))];
 }

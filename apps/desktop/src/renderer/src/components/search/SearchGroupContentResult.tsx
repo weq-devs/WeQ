@@ -1,7 +1,8 @@
-import { Loader2, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { GroupAnnouncementsDialog } from '../GroupAnnouncementsDialog';
 import { GroupEssenceDialog } from '../GroupEssenceDialog';
+import { LoadingIndicator } from '../LoadingIndicator';
 import type { ContentSearchTarget } from './types';
 
 export function SearchGroupContentResult({
@@ -74,8 +75,7 @@ export function SearchGroupContentResult({
         </>
       ) : (
         <p role="status">
-          <Loader2 className="weq-spin" size={18} />
-          正在读取对应内容
+          <LoadingIndicator>正在读取对应内容</LoadingIndicator>
         </p>
       )}
     </div>

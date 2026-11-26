@@ -46,10 +46,20 @@ try {
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/storage-management.html`,
   );
-  await page.waitForSelector('[data-cleanup] .weq-storage-category');
+  const groupToggles = page.locator('[data-cleanup] .weq-storage-group-toggle');
+  await groupToggles.first().waitFor();
   const output = process.env.WEQ_STORAGE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
   const failures = [];
+  if (await page.locator('[data-cleanup] .weq-storage-item').count())
+    failures.push('groupsCollapsedOnEntry');
+  for (const group of await groupToggles.all()) await group.click();
+  await groupToggles.first().press('Enter');
+  if ((await groupToggles.first().getAttribute('aria-expanded')) !== 'false')
+    failures.push('keyboardCollapse');
+  await groupToggles.first().press('Space');
+  if ((await groupToggles.first().getAttribute('aria-expanded')) !== 'true')
+    failures.push('keyboardExpand');
   let cases = 0;
   for (const width of [1280, 390, 320])
     for (const theme of ['light', 'dark', 'system'])
@@ -71,20 +81,16 @@ try {
             (resolved) => document.documentElement.dataset.theme === resolved,
             theme === 'light' ? 'light' : 'dark',
           );
-          await page.locator('details').evaluateAll((nodes) =>
-            nodes.forEach((node) => {
-              node.open = true;
-            }),
-          );
+          await page.locator('[data-cache-id="unknown"] .weq-storage-details-toggle').click();
           const checks = await page.evaluate(() => {
             const cleanup = document.querySelector('[data-cleanup]');
             const list = cleanup.querySelector('.weq-set-cache-list');
             const button = list.nextElementSibling.querySelector('button');
             const rect = button.getBoundingClientRect();
             return {
-              backupFirst: cleanup
-                .querySelector('.weq-storage-category summary')
-                .textContent.includes('历史数据库备份'),
+              largestFirst: cleanup
+                .querySelector('.weq-storage-item')
+                .textContent.includes('运行日志'),
               bottom:
                 rect.top >= list.getBoundingClientRect().bottom &&
                 button.textContent.trim() === '开始清理',
@@ -132,9 +138,11 @@ try {
               consistentHeads: [...cleanup.querySelectorAll('.weq-storage-item-head')].every(
                 (node) => {
                   const label = node.firstElementChild.getBoundingClientRect();
-                  const size = node.lastElementChild.getBoundingClientRect();
+                  const size = node.querySelector('.weq-storage-size').getBoundingClientRect();
                   return (
-                    label.right <= size.left + 1 && size.top >= label.top && size.top < label.bottom
+                    label.right <= size.left + 1 &&
+                    size.top < label.bottom &&
+                    label.top < size.bottom
                   );
                 },
               ),
@@ -146,7 +154,8 @@ try {
           for (const [name, passed] of Object.entries(checks))
             if (!passed)
               failures.push(`${width}/${theme}/${background}/${componentStyle}: ${name}`);
-          const choice = page.locator('[data-cache-id="logs"] [role="checkbox"]');
+          const choice = page.locator('[data-cache-id="media"] [role="checkbox"]');
+          await page.locator('[data-cache-id="unknown"] .weq-storage-details-toggle').click();
           await choice.scrollIntoViewIfNeeded();
           await choice.click();
           await choice.hover();

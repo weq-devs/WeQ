@@ -16,9 +16,8 @@ import { networkFetch } from '@weq/network';
  * 装扮资源分两层：
  *  - **原始件**：从 CDN / 离线 bundle 下来的 `fonts/<id>.zip`、`bubbles/<id>.png`。它们
  *    是「服务端给什么就是什么」，与 WeQ 的版本无关，升级后不需要重新下载。
- *  - **派生物**：`fonts/<id>.ttf`（FTF → 彩色 TTF 的转换产物）、`fonts/<id>_assets/`
- *    （eimg 炫彩帧）以及描述它们的 `fonts/<id>.json` sidecar。它们取决于**我们的转换链**
- *   怎么写 —— 转换链改了，缓存里那份就是旧的。
+ *  - **派生物**：彩色 TTF 与 eimg 炫彩帧放在同一产物目录，`fonts/<id>.json` 指向
+ *    已验证的产物。旧缓存的同名 TTF 和帧目录也可以继续读取。转换链变化时重新派生。
  *
  * 所以升级后不必清缓存、也不必重新下载：sidecar 里记着产出这份派生物的转换链版本，
  * 读到时对不上就**就地重新派生**（{@link DressSharedCache.installFont} 先走本地已缓存的
@@ -47,11 +46,11 @@ import {
   writeFileSync,
   rmSync,
 } from 'node:fs';
-import { join, posix } from 'node:path';
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { basename, join, posix } from 'node:path';
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import type { TrpcNative } from '@weqbot/protocol';
 import { getBubbleResources, getFontResource, getPendantResources } from '@weqbot/protocol';
-import type { NtHelperBinding } from '@weq/native';
+import { convertNativeFont, type NtHelperBinding } from '@weq/native';
 import { getHost } from '../common/host';
 import { writeFileAtomic } from '../common/atomic_write';
 import { getLogger, logErrorContext } from '../common/logger';
@@ -110,6 +109,8 @@ export interface FontFx {
 /** `fonts/<id>.json` —— 字体派生物的 sidecar。 */
 export interface FontSidecar {
   itemId: number;
+  /** 已验证的派生物目录名，旧缓存缺省时使用原路径。 */
+  artifact?: string;
   /** 产出这份 ttf 的**宿主侧**转换链版本，见 {@link DRESS_DERIVE_VERSION}。 */
   deriveVersion: number;
   /**
@@ -180,6 +181,8 @@ export interface PendantSidecar {
   frameTimeMs: number;
   repeat: number;
 }
+
+const fontInstalls = new Map<string, Promise<FontDerived>>();
 
 /**
  * 装扮共享缓存服务。
@@ -610,22 +613,28 @@ export class DressSharedCache {
    * 继续用旧的 —— 老款字体至少还是能渲染的，不该因为一次升级变成「装不上」。
    */
   async installFont(itemId: number, _name: string): Promise<FontDerived> {
+    const key = this.fontSidecarPath(itemId);
+    const pending = fontInstalls.get(key);
+    if (pending) return pending;
+
     const derived = this.loadDerivedFont(itemId);
     if (derived) return derived;
 
     const stale = this.loadStaleFont(itemId);
-    try {
-      return await this.deriveFont(itemId);
-    } catch (e) {
-      if (!stale) throw e;
-      this.logger.warn('font re-derive failed, keeping the stale artifact', {
-        event: 'dress-font-derive-failed',
-        itemId,
-        deriveVersion: stale.deriveVersion,
-        ...logErrorContext(e),
-      });
-      return stale;
-    }
+    const install = this.deriveFont(itemId)
+      .catch((error) => {
+        if (!stale) throw error;
+        this.logger.warn('font re-derive failed, keeping the stale artifact', {
+          event: 'dress-font-derive-failed',
+          itemId,
+          deriveVersion: stale.deriveVersion,
+          ...logErrorContext(error),
+        });
+        return stale;
+      })
+      .finally(() => fontInstalls.delete(key));
+    fontInstalls.set(key, install);
+    return install;
   }
 
   /**
@@ -671,8 +680,6 @@ export class DressSharedCache {
       // 不看返回值只看落地结果：installFont 在重解失败时会静默回落旧产物。
       if (this.isFontDerived(itemId)) repaired += 1;
       else failed += 1;
-      // convertFont 是同步的 native 调用，逐款让出一次事件循环，别把主进程钉死。
-      await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
     this.writeSweepStamp();
@@ -792,7 +799,7 @@ export class DressSharedCache {
     const cachedZip = join(this.fontsDir, `${itemId}.zip`);
     if (existsSync(cachedZip)) {
       try {
-        return this.deriveFontFromZip(itemId, cachedZip);
+        return await this.deriveFontFromZip(itemId, cachedZip);
       } catch (e) {
         this.logger.warn('cached font zip re-derive failed, falling back to download', {
           event: 'dress-font-rebuild-failed',
@@ -848,69 +855,57 @@ export class DressSharedCache {
    * 用一份**已经在本地**的原始 zip 派生字体产物：转换（彩色表 / OTS）→ 扫出 eimg 炫彩
    * 帧 → 写 sidecar。下载与派生拆开，是为了让升级后的刷新完全离线（见 {@link deriveFont}）。
    */
-  private deriveFontFromZip(itemId: number, zipPath: string): FontDerived {
-    const ttf = extractFirstTtf(readFileSync(zipPath));
+  private async deriveFontFromZip(itemId: number, zipPath: string): Promise<FontDerived> {
+    const ttf = extractFirstTtf(await readFile(zipPath));
     if (!ttf) throw new Error('字体包里没有找到 ttf 文件');
 
-    const tempFile = join(this.fontsDir, `${itemId}_raw.ttf`);
-    writeFileSync(tempFile, ttf);
-
-    const finalFile = join(this.fontsDir, `${itemId}.ttf`);
-    const assetsDir = this.fontAssetsDir(itemId);
-    // 上一轮导出的帧先清干净：nt_helper 只写「这一轮真的解出来的」那些槽位，
-    // 不清的话换版本后旧帧会混在新帧后面被当成一段动画。
-    rmSync(assetsDir, { recursive: true, force: true });
+    const directory = await mkdtemp(join(this.fontsDir, `.${itemId}-font-`));
+    const input = join(directory, 'input.ttf');
+    const file = join(directory, 'font.ttf');
+    const assetsDir = join(directory, 'font_assets');
+    let published = false;
     try {
-      // assetsDir 必须与 nt_helper 的默认值（<输出名>_assets）一致，显式传是为了让
-      // 「帧图落在哪」在这里一眼可见（旧版 binding 忽略第三个参数，行为不变）。
-      const convertResult = this.ntHelper.convertFont(tempFile, finalFile, { assetsDir });
-      this.logger.info('font conversion completed', {
-        event: 'dress-font-convert',
+      await writeFile(input, ttf);
+      const result = await convertNativeFont(this.ntHelper, input, file, { assetsDir });
+      if (!isRenderableSfnt(await readFile(file))) {
+        throw new Error('该字体用了非标准的压缩/加密格式，无法直接喂给浏览器渲染');
+      }
+      await rm(input);
+      const fx = readFontFx(assetsDir);
+      const sidecar: FontSidecar = {
         itemId,
-        rawBytes: ttf.length,
-        result: convertResult,
+        artifact: basename(directory),
+        deriveVersion: DRESS_DERIVE_VERSION,
+        fontPipeline: this.fontPipelineVersion(),
+        ...(fx ? { fx } : {}),
+      };
+
+      // 发布入口只有 sidecar；切换前旧字体和全部帧仍可读。
+      const previous = this.fontSidecar(itemId);
+      await writeFileAtomic(this.fontSidecarPath(itemId), JSON.stringify(sidecar, null, 2));
+      published = true;
+      if (previous?.artifact) {
+        await rm(join(this.fontsDir, previous.artifact), { recursive: true, force: true }).catch(
+          () => {},
+        );
+      } else {
+        const legacy = this.fontPaths(itemId, null);
+        await Promise.all([
+          rm(legacy.file, { force: true }).catch(() => {}),
+          rm(legacy.assets, { recursive: true, force: true }).catch(() => {}),
+        ]);
+      }
+      this.logger.info('installed font to shared cache', {
+        event: 'dress-install-font-shared',
+        itemId,
+        result,
+        fontPipeline: sidecar.fontPipeline,
+        fxVariants: fx?.variants.length ?? 0,
       });
-    } catch (e) {
-      rmSync(tempFile, { force: true });
-      throw new Error(`字体转换失败: ${e instanceof Error ? e.message : String(e)}`);
+      return this.derivedFrom(itemId, file, sidecar);
+    } finally {
+      if (!published) await rm(directory, { recursive: true, force: true }).catch(() => {});
     }
-
-    rmSync(tempFile, { force: true });
-
-    const finalTtf = readFileSync(finalFile);
-    if (!isRenderableSfnt(finalTtf)) {
-      rmSync(finalFile, { force: true });
-      throw new Error(
-        '该字体用了非标准的压缩/加密格式，无法直接喂给浏览器渲染 —— 大概率是内容保护款',
-      );
-    }
-
-    const fx = readFontFx(assetsDir);
-    const fontPipeline = this.fontPipelineVersion();
-    const sidecar: FontSidecar = {
-      itemId,
-      deriveVersion: DRESS_DERIVE_VERSION,
-      fontPipeline,
-      ...(fx ? { fx } : {}),
-    };
-    writeFileSync(this.fontSidecarPath(itemId), JSON.stringify(sidecar, null, 2));
-
-    this.logger.info('installed font to shared cache', {
-      event: 'dress-install-font-shared',
-      itemId,
-      bytes: ttf.length,
-      deriveVersion: DRESS_DERIVE_VERSION,
-      fontPipeline,
-      fxVariants: fx?.variants.length ?? 0,
-    });
-
-    return {
-      itemId,
-      family: fontFamilyFor(itemId),
-      file: finalFile,
-      deriveVersion: fontRenderStamp(sidecar),
-      fx,
-    };
   }
 
   /**
@@ -1019,13 +1014,19 @@ export class DressSharedCache {
 
   /** 字体文件路径。 */
   fontFile(itemId: number): string | null {
-    const path = join(this.fontsDir, `${itemId}.ttf`);
-    return existsSync(path) ? path : null;
+    const { file } = this.fontPaths(itemId, this.fontSidecar(itemId));
+    return existsSync(file) ? file : null;
   }
 
-  /** eimg 炫彩帧的落盘目录（nt_helper 的默认 assetsDir，见 {@link deriveFontFromZip}）。 */
-  private fontAssetsDir(itemId: number): string {
-    return join(this.fontsDir, `${itemId}_assets`);
+  private fontPaths(itemId: number, sidecar: FontSidecar | null) {
+    if (sidecar?.artifact) {
+      const directory = join(this.fontsDir, sidecar.artifact);
+      return { file: join(directory, 'font.ttf'), assets: join(directory, 'font_assets') };
+    }
+    return {
+      file: join(this.fontsDir, `${itemId}.ttf`),
+      assets: join(this.fontsDir, `${itemId}_assets`),
+    };
   }
 
   /** 字体 sidecar 的路径。 */
@@ -1041,6 +1042,13 @@ export class DressSharedCache {
     try {
       const raw = JSON.parse(readFileSync(this.fontSidecarPath(itemId), 'utf-8')) as FontSidecar;
       if (typeof raw.deriveVersion !== 'number') return null;
+      if (
+        raw.artifact !== undefined &&
+        (typeof raw.artifact !== 'string' ||
+          !/^\.\d+-font-[A-Za-z0-9]{6,}$/.test(raw.artifact) ||
+          !raw.artifact.startsWith(`.${itemId}-font-`))
+      )
+        return null;
       return raw;
     } catch {
       return null;
@@ -1068,9 +1076,9 @@ export class DressSharedCache {
    * 内容可能不是最新的，等着被 {@link installFont} 就地重做。
    */
   fontDerived(itemId: number): FontDerived | null {
-    const file = this.fontFile(itemId);
-    if (!file) return null;
-    return this.derivedFrom(itemId, file, this.fontSidecar(itemId));
+    const sidecar = this.fontSidecar(itemId);
+    const { file } = this.fontPaths(itemId, sidecar);
+    return existsSync(file) ? this.derivedFrom(itemId, file, sidecar) : null;
   }
 
   /** 由已解析出的文件路径 + sidecar 拼出 {@link FontDerived}（省一次重复读）。 */
@@ -1089,11 +1097,15 @@ export class DressSharedCache {
    * 渲染侧拼 `weq-media://dressfontfx?id=&frame=` 就是走这里。
    */
   fontFrameFile(itemId: number, frame: number): string | null {
-    const fx = this.fontSidecar(itemId)?.fx;
+    const sidecar = this.fontSidecar(itemId);
+    const fx = sidecar?.fx;
     if (!fx || !Number.isInteger(frame) || frame < 1) return null;
     const slot = fx.variants.flatMap((v) => v.frames)[frame - 1];
     if (slot === undefined) return null;
-    const path = join(this.fontAssetsDir(itemId), `frame_${String(slot).padStart(3, '0')}.png`);
+    const path = join(
+      this.fontPaths(itemId, sidecar).assets,
+      `frame_${String(slot).padStart(3, '0')}.png`,
+    );
     return existsSync(path) ? path : null;
   }
 
@@ -1101,10 +1113,9 @@ export class DressSharedCache {
    * 已派生到当前版本的字体产物；sidecar 对不上、文件损坏时返回 null（= 需要重新派生）。
    */
   private loadDerivedFont(itemId: number): FontDerived | null {
-    const file = this.fontFile(itemId);
-    if (!file) return null;
     const sidecar = this.fontSidecar(itemId);
     if (!this.isCurrentSidecar(sidecar)) return null;
+    const { file } = this.fontPaths(itemId, sidecar);
     // 只有这里会整份读 ttf 做可渲染性校验（装/取的频次低），清单路径不做。
     try {
       if (!isRenderableSfnt(readFileSync(file))) return null;
@@ -1215,7 +1226,7 @@ export function fontFamilyFor(itemId: number): string {
 /**
  * 渲染戳：把 `deriveVersion` 与 `fontPipeline` 合成**一个数**给渲染侧当 URL 上的 `v=`。
  *
- * 为什么要合成：ttf 的路径（`<id>.ttf`）从不变化，靠 query 上的版本戳让浏览器丢掉旧
+ * 为什么要合成：字体媒体 URL 靠 query 上的版本戳让浏览器丢掉旧
  * `@font-face`。链条换了就必须换 URL —— 哪怕 DRESS_DERIVE_VERSION 没动、只是 native
  * 侧改了转换（如 hdmx/LTSH 那次），否则同一会话里已注册的 face 还是旧字节。
  * `deriveVersion` 是 1 位数量级，乘 1000 给 native 链版本留够位。

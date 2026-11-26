@@ -17,6 +17,7 @@ import {
   Suspense,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactElement,
@@ -27,6 +28,7 @@ import { trpc, client } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useDialog } from '../components/Dialog.shared';
 import { BootstrapWindowActions } from '../components/BootstrapWindowActions';
+import { SettingsDialog } from '../components/lazyWorkspaces';
 import { lazyPanel } from '../lib/lazyPanel';
 import { WarmupSplash } from '../components/WarmupSplash';
 import { NativeExpiredDialog } from '../components/NativeExpiredDialog';
@@ -73,6 +75,11 @@ export function BootstrapView(): ReactElement {
   /** 非 null 时 splash 显示预热进度条（自动进入的第二段）。 */
   const [warmup, setWarmup] = useState<WarmupProgress | null>(null);
   const [backupOpen, setBackupOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const accountScreen = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (settingsOpen) setWindowLayout('settings');
+  }, [settingsOpen]);
 
   const nativeStatus = trpc.bootstrap.nativeStatus.useQuery(undefined, {
     refetchOnWindowFocus: false,
@@ -132,7 +139,11 @@ export function BootstrapView(): ReactElement {
     refetchOnWindowFocus: false,
     retry: false,
   });
-  const requestedStartupPage = webSettings.data?.startupPage;
+  const requestedStartupPage = IS_WEB ? webSettings.data?.startupPage : desktopStartup.data?.page;
+  const startupPage =
+    requestedStartupPage === 'home' || requestedStartupPage === 'messages'
+      ? requestedStartupPage
+      : null;
 
   // 过期弹窗要显示构建/过期时间。注意这个 query 不看 nativeOk：构建过期时它照样能
   // 读出来（`readNativeBuildInfo` 绕过了初始化校验）。
@@ -213,11 +224,7 @@ export function BootstrapView(): ReactElement {
               advanceStartup('identity', progress.done / Math.max(1, progress.total));
             });
           }
-          const page = IS_WEB ? requestedStartupPage : desktopStartup.data?.page;
-          if (IS_WEB || page)
-            useViewState.setState({
-              startupPage: page === 'home' || page === 'messages' ? page : null,
-            });
+          useViewState.setState({ startupPage });
           setOpenedUin(uin);
           advanceStartup('workspace');
           goTo('main');
@@ -232,6 +239,7 @@ export function BootstrapView(): ReactElement {
       if (!IS_WEB) {
         // 后台已完成本轮自动进入；未打开或失败都回首页，不由界面再试一次。
         booted.current = true;
+        useViewState.setState({ startupPage });
         setHomeStage('home');
         if (desktopStartup.data?.error) showError('自动进入失败', desktopStartup.data.error);
         return;
@@ -240,12 +248,7 @@ export function BootstrapView(): ReactElement {
     if (!nativeOk || !autoTarget.isFetched || !configs.isFetched) return;
     if (IS_MAC && !dataAccess.isFetched) return;
     booted.current = true;
-    useViewState.setState({
-      startupPage:
-        requestedStartupPage === 'home' || requestedStartupPage === 'messages'
-          ? requestedStartupPage
-          : null,
-    });
+    useViewState.setState({ startupPage });
 
     const target = autoTarget.data ?? null;
     const cfg = target ? (configs.data ?? []).find((c) => c.configId === target.configId) : null;
@@ -328,7 +331,7 @@ export function BootstrapView(): ReactElement {
     currentAccount.data,
     autoTarget.isFetched,
     autoTarget.data,
-    requestedStartupPage,
+    startupPage,
     webSettings.isFetched,
     webSettings.isError,
     webSettings.error,
@@ -410,7 +413,26 @@ export function BootstrapView(): ReactElement {
 
   return (
     <BootstrapShell ready showWindowActions={false}>
-      <SelectScreen install={install.data} />
+      <div ref={accountScreen} hidden={settingsOpen} className="h-full">
+        <SelectScreen install={install.data} onOpenSettings={() => setSettingsOpen(true)} />
+      </div>
+      {settingsOpen && (
+        <div className="weq-bootstrap-settings weq-web-shell">
+          <SettingsDialog
+            open
+            beforeLogin
+            onClose={() => {
+              setSettingsOpen(false);
+              setWindowLayout('home');
+              requestAnimationFrame(() =>
+                accountScreen.current
+                  ?.querySelector<HTMLButtonElement>('.weq-shell-settings-btn')
+                  ?.focus(),
+              );
+            }}
+          />
+        </div>
+      )}
     </BootstrapShell>
   );
 }

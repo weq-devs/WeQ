@@ -8,6 +8,7 @@ import { startMcpServer, stopMcpServer } from '../src/main/mcp/server';
 const fake = vi.hoisted(() => ({
   account: {
     msgDbPath: '/synthetic/mcp-performance.db',
+    context: { uin: '10001' },
     groupMembers: { dbPath: '/synthetic/mcp-membership.db' },
   },
   attach: true,
@@ -15,6 +16,7 @@ const fake = vi.hoisted(() => ({
   groupPage: vi.fn(),
   mediaPage: vi.fn(),
   search: vi.fn(),
+  global: vi.fn(),
 }));
 vi.mock('../src/main/context/app_context', () => {
   const ctx = {
@@ -33,7 +35,7 @@ vi.mock('../src/main/context/app_context', () => {
         ],
       },
       groupAlbumMedia: { getMediaList: fake.mediaPage },
-      unifiedSearch: { localResourceSearch: fake.search },
+      unifiedSearch: { localResourceSearch: fake.search, moreSearch: fake.global },
     },
   };
   return { getAppContext: () => ctx };
@@ -60,6 +62,36 @@ it('lists the real registry without exposing SQL writes, messaging, wallet, cred
       expect(result.isError).not.toBe(true);
       return JSON.parse((result.content as Array<{ text: string }>)[0]!.text);
     };
+    const candidates = await featureCall('list_capabilities', {
+      query: 'search_global_content',
+      limit: 1,
+    });
+    expect(candidates.entries).toMatchObject([{ name: 'search_global_content', access: 'read' }]);
+    expect(candidates.entries[0]).not.toHaveProperty('inputSchema');
+    expect(await featureCall('get_capability', { name: 'search_global_content' })).toMatchObject({
+      found: true,
+      featureIds: ['messages.history.search'],
+      inputSchema: { required: ['keyword', 'category'] },
+    });
+    fake.global.mockResolvedValueOnce({ items: [], nextOffset: null });
+    expect(
+      await featureCall('call_capability', {
+        name: 'search_global_content',
+        arguments: { keyword: '合成', category: 'file' },
+      }),
+    ).toEqual({ items: [], nextOffset: null });
+    expect(fake.global).toHaveBeenLastCalledWith('file', '合成', 0, 10, 'all', undefined);
+    expect(await featureCall('get_capability', { name: 'send_text_message' })).toMatchObject({
+      found: false,
+    });
+    expect(
+      (
+        await client.callTool({
+          name: 'call_capability',
+          arguments: { name: 'send_text_message', arguments: {} },
+        })
+      ).isError,
+    ).toBe(true);
     const first = await featureCall('list_features', { domain: 'export', limit: 1 });
     expect(first.entries).toHaveLength(1);
     const next = await featureCall('list_features', {

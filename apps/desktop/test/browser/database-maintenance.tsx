@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { DbRepairPanel } from '../../src/renderer/src/components/DbRepairPanel';
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
+import { HoverTooltip } from '../../src/renderer/src/components/HoverTooltip';
 import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import { maintenanceQa } from './database-maintenance.stub';
 import '../../src/renderer/src/styles/index.css';
@@ -19,5 +20,6 @@ createRoot(document.getElementById('root')!).render(
       />
     </div>
     <DialogHost />
+    <HoverTooltip />
   </>,
 );

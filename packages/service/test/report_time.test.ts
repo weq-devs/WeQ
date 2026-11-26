@@ -73,10 +73,11 @@ it('跨年瞬间的火花正文窗口、滚动补足和月份使用同一北京�
     overview: { countByDirection: unused },
     dress: { tally: unused, names: unused },
     emoji: { names: unused },
-    speech: { sentRows: unused },
+    speech: { sentBatches: unused },
     group: {
       countRows: unused,
-      speechRows: unused,
+      weeklyCounts: unused,
+      speechBatches: unused,
       standing: unused,
       interactionTally: unused,
       details: unused,

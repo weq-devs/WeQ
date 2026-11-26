@@ -1,3 +1,4 @@
+import { NumericText } from './NumericText';
 import * as timeFormat from '@weq/time';
 /** 防撤回方式、保护范围与记录；设置页摘要和会话工具共用后端状态。 */
 
@@ -395,7 +396,7 @@ export function AntiRecallDialog({
 
   const protectionControls = (
     <>
-      <div className="weq-applock-settings-group">
+      <div className="weq-ar-protection-methods">
         <div className="weq-set-card-title">防撤回方式</div>
         <div className="weq-applock-methods" role="radiogroup" aria-label="防撤回方式">
           {METHODS.map((option) => (
@@ -691,9 +692,11 @@ export function AntiRecallDialog({
                   <Row
                     label="启用防撤回的会话"
                     desc={
-                      !hasAccount
-                        ? '打开账号后选择会话。'
-                        : `当前账号已选择 ${savedIds.size} 个会话。`
+                      !hasAccount ? (
+                        '打开账号后选择会话。'
+                      ) : (
+                        <NumericText>{`当前账号已选择 ${savedIds.size} 个会话。`}</NumericText>
+                      )
                     }
                     control={
                       <button
@@ -713,13 +716,15 @@ export function AntiRecallDialog({
                 <Row
                   label="提醒范围"
                   desc={
-                    !hasAccount
-                      ? '打开账号后选择会话。'
-                      : status.data
-                        ? notifyIds.size
-                          ? `当前账号已选择 ${notifyIds.size} 个提醒会话。`
-                          : '未选择会话时不会发送撤回提醒。'
-                        : undefined
+                    !hasAccount ? (
+                      '打开账号后选择会话。'
+                    ) : status.data ? (
+                      notifyIds.size ? (
+                        <NumericText>{`当前账号已选择 ${notifyIds.size} 个提醒会话。`}</NumericText>
+                      ) : (
+                        '未选择会话时不会发送撤回提醒。'
+                      )
+                    ) : undefined
                   }
                   control={
                     <button

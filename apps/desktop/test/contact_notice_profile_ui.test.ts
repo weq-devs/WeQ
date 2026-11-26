@@ -207,8 +207,8 @@ describe('通知头像名片入口', () => {
         onOpenProfile: open,
       }),
     );
-    click(host);
-    expect(open).toHaveBeenCalledWith(user, { x: 42, y: 64 }, undefined);
+    const trigger = click(host);
+    expect(open).toHaveBeenCalledWith(user, { x: 42, y: 64, trigger }, undefined);
     expect(close).not.toHaveBeenCalled();
     expect(host.querySelector('[aria-label="同意申请"]')).toBeNull();
   });
@@ -222,8 +222,12 @@ describe('通知头像名片入口', () => {
         onOpenProfile: open,
       }),
     );
-    click(host);
-    expect(open).toHaveBeenCalledWith(user, { x: 42, y: 64 }, { code: '123', name: '通知所属群' });
+    const trigger = click(host);
+    expect(open).toHaveBeenCalledWith(
+      user,
+      { x: 42, y: 64, trigger },
+      { code: '123', name: '通知所属群' },
+    );
   });
   it('群名打开通知所属群的群名片，不关闭通知或打开申请人名片', () => {
     const open = vi.fn(),
@@ -312,10 +316,10 @@ describe('通知头像名片入口', () => {
       const open = vi.fn();
       const props = { open: true, requests: [], onClose: vi.fn(), onOpenProfile: open };
       const host = fixture(isGroup ? h(GroupNoticeDialog, props) : h(ContactNoticeDialog, props));
-      click(host);
+      const trigger = click(host);
       expect(open).toHaveBeenCalledWith(
         expect.objectContaining({ id: '', identityLabel: 'QQ', identityValue: '10002' }),
-        { x: 42, y: 64 },
+        { x: 42, y: 64, trigger },
         isGroup ? { code: '123', name: '通知所属群' } : undefined,
       );
     },
@@ -333,6 +337,6 @@ describe('通知头像名片入口', () => {
     const button = host.querySelector<HTMLButtonElement>('.notice-avatar-button')!;
     vi.spyOn(button, 'getBoundingClientRect').mockReturnValue(new DOMRect(100, 120, 32, 32));
     act(() => button.click());
-    expect(open).toHaveBeenCalledWith(user, { x: 132, y: 152 }, undefined);
+    expect(open).toHaveBeenCalledWith(user, { x: 132, y: 152, trigger: button }, undefined);
   });
 });

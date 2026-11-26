@@ -1,5 +1,5 @@
 import { eventTimeFormatter } from '@weq/time';
-import type { ContactRequest, GroupJoinRequest } from '../im-template/template/types';
+import type { ContactRequest, GroupJoinRequest, User } from '../im-template/template/types';
 import { notificationInlineText } from '../../../shared/notification_copy';
 import { groupNoticeSequenceId, type NoticeOperationWire } from '../../../shared/contact_notices';
 
@@ -73,14 +73,32 @@ export function groupNoticeReadId(notice: Pick<GroupJoinRequest, 'id' | 'sequenc
 export function noticeBadgeList<T extends ContactRequest | GroupJoinRequest>(
   notices: T[],
   operations: NoticeOperation[],
+  self?: Pick<User, 'uid' | 'identityValue'>,
 ) {
   const { remaining } = bindNoticeOperations(notices, operations);
   const legacyIds = new Map<string, string>();
-  const ids = notices.map((notice) => {
+  const ids: string[] = [];
+  for (const notice of notices) {
+    // 发出申请本身不提醒；对方处理后的结果仍按原有规则计入未读。
+    if ('direction' in notice) {
+      if (
+        notice.direction === 'outgoing' &&
+        (notice.status === 'pending' || notice.status === 'unknown')
+      )
+        continue;
+    } else if (
+      notice.action === '申请加入' &&
+      (notice.handleState === 'pending' || notice.handleState === 'none') &&
+      ((self?.uid && notice.user.id === self.uid) ||
+        (self?.identityValue &&
+          notice.user.identityLabel === 'QQ' &&
+          notice.user.identityValue === self.identityValue))
+    )
+      continue;
     const id = 'direction' in notice ? notice.id : groupNoticeReadId(notice);
     if (id !== notice.id) legacyIds.set(id, notice.id);
-    return id;
-  });
+    ids.push(id);
+  }
   for (const { noticeId } of remaining) if (noticeId) ids.push(noticeId);
   return { ids, legacyIds };
 }

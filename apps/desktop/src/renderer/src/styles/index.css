@@ -120,11 +120,12 @@ html[data-theme='light'],
   --weq-list-alert-ink: #a61d2b;
   --weq-list-info-ink: #205bb5;
   --weq-list-attention-ink: #805500;
-  --weq-list-selected-background: color-mix(
+  --weq-control-selected-background: color-mix(
     in srgb,
     var(--weq-accent-effective) 14%,
     var(--weq-bg-surface)
   );
+  --weq-list-selected-background: var(--weq-control-selected-background);
   --weq-fg-secondary: oklch(0.45 0.02 248);
   --weq-fg-muted: oklch(0.58 0.015 248);
   /* 普通分区、列表与菜单统一用 1px 实线及此颜色；仅临时确认区保留虚线。 */
@@ -151,11 +152,12 @@ html[data-theme='light'],
 html[data-theme='dark'],
 .dark,
 :where(html[data-theme='dark']) [data-component-preview] {
-  --weq-list-selected-background: color-mix(
+  --weq-control-selected-background: color-mix(
     in srgb,
     var(--weq-accent-effective) 18%,
     var(--weq-bg-surface)
   );
+  --weq-list-selected-background: var(--weq-control-selected-background);
   --weq-list-alert-ink: #ffa39e;
   --weq-list-info-ink: #94c5ff;
   --weq-list-attention-ink: #f4d273;
@@ -626,11 +628,9 @@ html body.weq-tool-window {
     border: 1px solid rgba(0, 153, 255, 0.24);
   }
 
-  .weq-icon-button:hover,
-  .weq-action-primary:hover,
-  .weq-action-soft:hover,
-  .weq-danger-button:hover {
-    transform: translateY(-1px);
+  /* 悬停反馈留在原位，避免滚动区和面板边缘裁掉按钮。 */
+  .weq-action-primary:hover:not(:disabled) {
+    background: color-mix(in srgb, #0099ff 88%, #000000);
   }
 
   .weq-action-soft:hover,
@@ -977,6 +977,104 @@ html[data-theme='dark'] .weq-shimmer-block {
 .weq-anim-popc {
   transform: translateX(-50%);
   animation: weq-pop-center 170ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ---- 界面级转场：整页、侧栏页、灯箱、应用内浮窗、列表行 ----
+ *
+ * 上面的 `weq-anim-*` 只覆盖「元素」——弹窗卡片、菜单、Toast。整块界面（设置页、
+ * 群资料侧栏、图片灯箱、转发浮窗、邮件行）此前是直接出现或直接替换，这里补上统一的
+ * 进场节奏。数值与 `lib/surfaceMotion.ts` 的 `surfaceMotionTiming` 一致，改一处同步另一处。
+ *
+ * opacity / transform 不改变布局尺寸。含 transform 的进场不保留末帧，避免动画结束后
+ * 仍为 position: fixed 的后代建立新的包含块。
+ */
+:root {
+  --weq-motion-switch: 120ms;
+  --weq-motion-enter: 160ms;
+  --weq-motion-page: 220ms;
+  --weq-motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes weq-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes weq-sidecar-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes weq-lightbox-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes weq-lightbox-stage-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes weq-window-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes weq-list-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes weq-tooltip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 灯箱：遮罩淡入 + 舞台轻微放大。关闭仍是即时（媒体预览的卸载由调用方掌握）。 */
+.weq-lightbox-layer {
+  animation: weq-lightbox-in var(--weq-motion-enter) ease-out both;
+}
+.weq-lightbox-stage {
+  animation: weq-lightbox-stage-in var(--weq-motion-page) var(--weq-motion-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-lightbox-layer,
+  .weq-lightbox-stage {
+    animation: none;
+  }
 }
 .weq-splash-logo {
   animation: weq-float 2.6s ease-in-out infinite;
@@ -2366,13 +2464,11 @@ html[data-theme='dark'] .weq-mface-detail-nav {
     border: 1px solid color-mix(in srgb, var(--weq-accent-effective) 22%, transparent);
     background: linear-gradient(150deg, rgba(255, 255, 255, 0.72), rgba(245, 251, 255, 0.5));
     transition:
-      transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
       border-color 160ms ease,
       box-shadow 160ms ease,
       background-color 160ms ease;
   }
   .weq-entry-card:hover:not(:disabled) {
-    transform: translateY(-3px);
     border-color: color-mix(in srgb, var(--weq-accent-effective) 42%, transparent);
     box-shadow: 0 18px 34px -22px rgba(7, 31, 61, 0.4);
   }
@@ -2931,35 +3027,6 @@ html[data-theme='dark'] .weq-mface-detail-nav {
     flex-shrink: 0;
     border-top: 1px solid var(--weq-border-subtle);
   }
-  .weq-acct-ctx-menu {
-    position: fixed;
-    z-index: 60;
-    min-width: 120px;
-    padding: 5px;
-    border: 1px solid rgba(0, 0, 0, 0.08);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.98);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
-    backdrop-filter: blur(12px);
-  }
-  .weq-acct-ctx-menu button {
-    display: flex;
-    width: 100%;
-    align-items: center;
-    gap: 8px;
-    padding: 7px 10px;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: #d32f2f;
-    font-size: 13.5px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .weq-acct-ctx-menu button:hover {
-    background: rgba(211, 47, 47, 0.08);
-  }
-
   /* ---- key field ---- */
   .weq-keyfield {
     display: grid;
@@ -3366,44 +3433,6 @@ html[data-theme='dark'] .weq-mface-detail-nav {
   font-size: 12px;
   color: var(--weq-fg-secondary);
 }
-.weq-record-filters {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 8px;
-  padding: 0 16px 12px;
-  color: var(--weq-fg-secondary);
-}
-.weq-record-filters label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  font-size: 12px;
-}
-.weq-record-filters input,
-.weq-record-filters .weq-select-trigger {
-  max-width: 100%;
-  min-width: 0;
-  height: 30px;
-  padding: 4px 6px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 4px;
-  background: var(--weq-bg-elevated);
-  color: var(--weq-fg-primary);
-  font-size: 12px;
-}
-.weq-record-filters .weq-record-self {
-  flex-direction: row;
-  align-items: center;
-  height: 30px;
-}
-.weq-record-filters .weq-record-self input {
-  height: 14px;
-}
-.weq-record-filters input:not([type='checkbox']) {
-  width: 148px;
-}
 .weq-record-error {
   color: var(--weq-warn-fg);
   padding: 8px 16px;
@@ -3447,14 +3476,7 @@ html[data-theme='dark']
   color: var(--weq-fg-primary);
 }
 html[data-theme='dark']
-  :is(
-    .weq-db-feedback-menu,
-    .weq-acct-pop,
-    .weq-acct-ctx-menu,
-    .weq-bignum,
-    .weq-chart,
-    .weq-keyfield-input
-  ) {
+  :is(.weq-db-feedback-menu, .weq-acct-pop, .weq-bignum, .weq-chart, .weq-keyfield-input) {
   background: var(--weq-bg-elevated);
   border-color: var(--weq-border-strong);
 }
@@ -4798,8 +4820,9 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 
 .weq-settings-nav-title {
   margin: 0 8px 14px;
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 600;
+  line-height: var(--weq-settings-heading-height, 30px);
 }
 
 .weq-settings-nav ul {
@@ -4943,13 +4966,11 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   cursor: pointer;
   transition:
     border-color 0.12s ease,
-    background 0.12s ease,
-    transform 0.12s ease;
+    background 0.12s ease;
 }
 
 .weq-settings-preset-card:hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 28%, transparent);
-  transform: translateY(-1px);
 }
 
 .weq-settings-preset-card.is-active {
@@ -4965,7 +4986,6 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 
 .weq-settings-preset-card.is-locked:hover {
   border-color: rgba(0, 0, 0, 0.08);
-  transform: none;
 }
 
 .weq-settings-preset-card strong {
@@ -5219,7 +5239,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   color: #1f1f1f;
 }
 
-.weq-settings-section p {
+.weq-settings-section p:where(:not(.weq-set-card-desc)) {
   margin: 0;
   color: #525252;
   font-size: 14px;
@@ -5255,6 +5275,13 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   display: flex;
   align-items: center;
   gap: 9px;
+}
+
+.weq-set-head-label {
+  display: flex;
+  align-items: center;
+  gap: inherit;
+  min-width: 0;
 }
 
 .weq-set-head-icon {
@@ -5307,6 +5334,14 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   font-size: 13px;
   font-weight: 600;
   color: var(--weq-fg-primary);
+}
+
+.weq-set-subheading {
+  margin: 0;
+  color: var(--weq-fg-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.55;
 }
 
 .weq-set-card-icon {
@@ -6591,7 +6626,7 @@ html[data-theme='dark'] .weq-settings-nav-item.is-active {
   color: #8cc4ff;
 }
 
-html[data-theme='dark'] .weq-settings-section p,
+html[data-theme='dark'] .weq-settings-section p:where(:not(.weq-set-card-desc)),
 html[data-theme='dark'] .weq-set-desc,
 html[data-theme='dark'] .weq-set-row-desc,
 html[data-theme='dark'] .weq-set-hero-sub,
@@ -6634,7 +6669,7 @@ html[data-theme='dark'] .weq-set-account-item {
   background: rgba(255, 255, 255, 0.02);
 }
 
-html[data-theme='dark'] .weq-set-chk:hover:not(:disabled),
+html[data-theme='dark'] .weq-set-chk:hover:not(.is-on, :disabled),
 html[data-theme='dark'] .weq-set-account-item:hover {
   background: rgba(255, 255, 255, 0.05);
 }
@@ -7480,14 +7515,11 @@ html[data-theme='dark'] .weq-set-mirror b {
   border-radius: 7px;
   background: color-mix(in srgb, var(--weq-accent-effective) 5%, transparent);
   cursor: zoom-in;
-  transition:
-    border-color 140ms ease,
-    transform 140ms ease;
+  transition: border-color 140ms ease;
 }
 
 .weq-profile-photo:hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 34%, transparent);
-  transform: translateY(-1px);
 }
 
 .weq-profile-photo img {
@@ -7783,19 +7815,10 @@ html[data-theme='dark'] .weq-profile-member .avatar {
   touch-action: manipulation;
   overflow: visible;
   -webkit-app-region: no-drag;
-  transition: transform 130ms ease;
-}
-
-.message-avatar-button:hover {
-  transform: translateY(-1px);
 }
 
 .message-avatar-button:hover .avatar {
   opacity: 0.85;
-}
-
-.message-avatar-button:active {
-  transform: none;
 }
 
 /* 自己的头像没有资料卡点击，但同样要能右键弹「@他 / 戳一戳」，所以用一层不改变
@@ -8087,17 +8110,6 @@ html[data-theme='dark'] .weq-notice-dialog {
   box-shadow: 0 24px 60px -22px rgba(0, 0, 0, 0.6);
 }
 
-html[data-theme='dark'] .weq-acct-ctx-menu {
-  border-color: rgba(255, 255, 255, 0.08);
-  background: rgba(43, 44, 46, 0.98);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
-}
-html[data-theme='dark'] .weq-acct-ctx-menu button {
-  color: #ff6b6b;
-}
-html[data-theme='dark'] .weq-acct-ctx-menu button:hover {
-  background: rgba(255, 107, 107, 0.1);
-}
 html[data-theme='dark'] .weq-rail-account-ctx-menu {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(43, 44, 46, 0.98);
@@ -8440,6 +8452,7 @@ html[data-theme='dark'] .chat-empty-logo {
 .weq-ark-container {
   width: 320px;
   max-width: 100%;
+  font-family: var(--im-font-body, Inter, ui-sans-serif, system-ui, sans-serif);
   background: #ffffff;
   border-radius: 12px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
@@ -14032,23 +14045,16 @@ html[data-theme='dark'] .weq-provider-modal {
   border: 1px solid color-mix(in srgb, var(--weq-accent-solid) 60%, black 6%);
   border-radius: 6px;
   cursor: pointer;
-  transition:
-    transform 0.12s ease,
-    filter 0.12s ease;
+  transition: filter 0.12s ease;
 }
 .weq-msglist-restore:hover {
-  transform: translateY(-1px);
   filter: brightness(1.05);
-}
-.weq-msglist-restore:active {
-  transform: translateY(0);
 }
 .weq-msglist-restore:disabled {
   cursor: default;
   color: var(--weq-fg-muted);
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-subtle);
-  transform: none;
   filter: none;
 }
 
@@ -14109,13 +14115,10 @@ html[data-theme='dark'] .weq-provider-modal {
   border-radius: 7px;
   background: transparent;
   cursor: pointer;
-  transition:
-    background 0.12s ease,
-    transform 0.12s ease;
+  transition: background 0.12s ease;
 }
 .weq-face-cell:hover {
   background: color-mix(in srgb, var(--weq-accent-effective) 14%, transparent);
-  transform: scale(1.06);
 }
 .weq-face-empty {
   padding: 1.6rem 0;
@@ -14454,6 +14457,14 @@ html[data-theme='dark'] .weq-provider-modal {
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
+  /* 收藏按页拉取，新到的一页整批淡入。 */
+  animation: weq-list-item-in var(--weq-motion-enter) var(--weq-motion-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .weq-col-card {
+    animation: none;
+  }
 }
 .weq-col-card:hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 35%, transparent);
@@ -15276,14 +15287,12 @@ html[data-theme='dark'] .weq-asst-select-pop {
   cursor: pointer;
   transition:
     border-color 0.15s ease,
-    background 0.15s ease,
-    transform 0.15s ease;
+    background 0.15s ease;
 }
 
 .weq-asst-preset:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 55%, var(--weq-border-subtle));
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
-  transform: translateY(-1px);
 }
 
 .weq-asst-preset:disabled {
@@ -15388,23 +15397,16 @@ html[data-theme='dark'] .message-line.is-deleted .message-bubble {
   border-radius: 6px;
   cursor: pointer;
   pointer-events: auto;
-  transition:
-    transform 0.12s ease,
-    filter 0.12s ease;
+  transition: filter 0.12s ease;
 }
 .message-line.is-deleted .weq-msg-restore:hover {
-  transform: translateY(-1px);
   filter: brightness(1.05);
-}
-.message-line.is-deleted .weq-msg-restore:active {
-  transform: translateY(0);
 }
 .message-line.is-deleted .weq-msg-restore:disabled {
   cursor: default;
   color: var(--weq-fg-muted);
   background: var(--weq-bg-surface);
   border-color: var(--weq-border-subtle);
-  transform: none;
   filter: none;
 }
 
@@ -17942,14 +17944,12 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   transition:
     border-color 150ms ease,
     background-color 150ms ease,
-    transform 150ms ease,
     box-shadow 150ms ease;
 }
 
 .weq-qzal-album-card:hover {
   border-color: var(--weq-border-strong);
   background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-surface));
-  transform: translateY(-1px);
   box-shadow: 0 18px 34px -26px color-mix(in srgb, var(--weq-accent-effective) 42%, black);
 }
 
@@ -18087,13 +18087,11 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   background: color-mix(in srgb, var(--weq-fg-primary) 5%, transparent);
   transition:
     border-color 150ms ease,
-    transform 150ms ease,
     box-shadow 150ms ease;
 }
 
 .weq-qzal-media-card:hover {
   border-color: var(--weq-border-strong);
-  transform: translateY(-1px);
   box-shadow: 0 14px 28px -22px color-mix(in srgb, var(--weq-accent-effective) 40%, black);
 }
 
@@ -18266,11 +18264,11 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   cursor: pointer;
   transition:
     opacity 150ms ease,
-    transform 150ms ease;
+    background-color 150ms ease;
 }
 
 .weq-qzal-download:hover:not(:disabled) {
-  transform: translateY(-1px);
+  background: var(--weq-accent-solid-hover, var(--weq-accent-solid));
 }
 
 .weq-qzal-download:disabled {
@@ -18423,7 +18421,6 @@ html.weq-theme-ripple::view-transition-new(root) {
     filter 0.14s ease;
 }
 .weq-redbag-card.is-clickable:hover {
-  transform: translateY(-1px);
   filter: brightness(1.03);
 }
 .weq-redbag-card.is-clickable:active {

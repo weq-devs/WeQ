@@ -20,7 +20,7 @@ const preview: MonitorPrunePreview = {
 describe('性能历史删除确认文案', () => {
   it('时长删除显示当前占用、新天数、真实截止时间和过期条数', () => {
     const text = performancePruneMessage(preview);
-    expect(text).toContain('当前性能历史占用 70 MiB');
+    expect(text).toContain('当前性能记录占用 70 MiB');
     expect(text).toContain('保存时长改为 3 天');
     expect(text).toContain(
       `北京时间 ${preciseTimeFormatter.format(new Date(cutoff))} 之前的 12 条记录`,
@@ -29,7 +29,7 @@ describe('性能历史删除确认文案', () => {
   });
   it('容量删除显示当前与新容量、实际回收目标，不编造删除截止日期', () => {
     const text = performancePruneMessage({ ...preview, expiredRecords: 0, capacityExceeded: true });
-    expect(text).toContain('当前性能历史占用 70 MiB');
+    expect(text).toContain('当前性能记录占用 70 MiB');
     expect(text).toContain('容量上限设为 64 MiB');
     expect(text).toContain('实际回收目标为 57.6 MiB');
     expect(text).toContain('从最旧记录开始删除');

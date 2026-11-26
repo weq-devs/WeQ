@@ -159,7 +159,7 @@ describe('WeQ 存储管理', () => {
       ['cache/ocr', 13, true],
       ['cache/agentlab', 14, true],
       ['cache/search-index', 15, true],
-      ['models', 16, false],
+      ['models', 16, true],
       ['merge-forward', 17, true],
       ['unknown.bin', 18, false],
     ] as const) {

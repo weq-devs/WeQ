@@ -48,6 +48,22 @@ beforeEach(() => {
   state.sendOidbPacket.mockClear();
 });
 
+it('已停用的图文 Ark 和群报名拒绝旧客户端请求，不发 QQ 请求', async () => {
+  const caller = accountRouter.createCaller({});
+  await expect(
+    caller.sendTuwenArk({
+      peerType: 'group',
+      targetId: '123',
+      title: '合成卡片',
+      jumpUrl: 'https://example.invalid/',
+    }),
+  ).rejects.toThrow('QQ 暂不支持从 WeQ 发送图文 Ark 卡片');
+  await expect(
+    caller.sendGroupSignup({ groupCode: '123', title: '合成报名', detail: '测试内容' }),
+  ).rejects.toThrow('QQ 暂不支持从 WeQ 发送群报名卡片');
+  expect(state.sendOidbPacket).not.toHaveBeenCalled();
+});
+
 describe('闪传转发计划到 IPC 与实际协议', () => {
   it.each(['c2c', 'group'] as const)('%s 走已有文件集分享接口', async (peerType) => {
     const plan = repeatSendPlan(

@@ -112,10 +112,15 @@ function sizeLabel(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/**
- * PP-OCRv5 移动版：检测 + 方向分类 + 识别 + 字典。
- * 中文（简 / 繁）为主，带英文 / 日文；四件套合计约 21.5 MB。
- */
+const TEXTLINE_ORIENTATION: OcrFileSpec = {
+  key: 'cls',
+  name: 'ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx',
+  path: 'onnx/PP-OCRv5/cls/ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx',
+  bytes: 1_018_508,
+  sha256: '54379ae5174d026780215fc748a7f31910dee36818e63d49e17dc598ecc82df7',
+};
+
+/** PP-OCRv5 移动版，仅用于继续读取已安装模型。 */
 const PPOCR_V5_MOBILE: readonly OcrFileSpec[] = [
   {
     key: 'det',
@@ -131,19 +136,41 @@ const PPOCR_V5_MOBILE: readonly OcrFileSpec[] = [
     bytes: 16_631_306,
     sha256: '5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5',
   },
-  {
-    key: 'cls',
-    name: 'ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx',
-    path: 'onnx/PP-OCRv5/cls/ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx',
-    bytes: 1_018_508,
-    sha256: '54379ae5174d026780215fc748a7f31910dee36818e63d49e17dc598ecc82df7',
-  },
+  TEXTLINE_ORIENTATION,
   {
     key: 'dict',
     name: 'ppocrv5_dict.txt',
     path: 'paddle/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile/ppocrv5_dict.txt',
     bytes: 74_012,
     sha256: 'd1979e9f794c464c0d2e0b70a7fe14dd978e9dc644c0e71f14158cdf8342af1b',
+  },
+];
+
+export const LEGACY_OCR_MODEL_ID = 'ppocr-v5-mobile';
+export const DEFAULT_OCR_MODEL_ID = 'ppocr-v6-small';
+
+const PPOCR_V6_SMALL: readonly OcrFileSpec[] = [
+  {
+    key: 'det',
+    name: 'PP-OCRv6_det_small.onnx',
+    path: 'onnx/PP-OCRv6/det/PP-OCRv6_det_small.onnx',
+    bytes: 9_929_594,
+    sha256: '090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f',
+  },
+  {
+    key: 'rec',
+    name: 'PP-OCRv6_rec_small.onnx',
+    path: 'onnx/PP-OCRv6/rec/PP-OCRv6_rec_small.onnx',
+    bytes: 21_234_383,
+    sha256: '6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884',
+  },
+  TEXTLINE_ORIENTATION,
+  {
+    key: 'dict',
+    name: 'ppocrv6_dict.txt',
+    path: 'paddle/PP-OCRv6/rec/PP-OCRv6_rec_small/ppocrv6_dict.txt',
+    bytes: 74_947,
+    sha256: 'b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d',
   },
 ];
 
@@ -167,17 +194,18 @@ const PPOCR_V6_DET_TINY: readonly OcrFileSpec[] = [
  */
 export const OCR_MODELS: OcrModelInfo[] = [
   {
-    id: 'ppocr-v5-mobile',
+    id: DEFAULT_OCR_MODEL_ID,
     kind: 'ocr',
     engine: 'ppocr',
-    variant: 'PP-OCRv5 mobile',
-    name: 'PP-OCRv5 移动版',
+    variant: 'PP-OCRv6 small',
+    name: 'PP-OCRv6 small',
     desc: '中文（简 / 繁）/ 英文 / 日文；检测 + 方向分类 + 识别，出逐行文字与像素坐标框',
-    sizeBytes: totalBytes(PPOCR_V5_MOBILE),
-    sizeLabel: sizeLabel(totalBytes(PPOCR_V5_MOBILE)),
+    sizeBytes: totalBytes(PPOCR_V6_SMALL),
+    sizeLabel: sizeLabel(totalBytes(PPOCR_V6_SMALL)),
     languages: ['zh', 'zh-Hant', 'en', 'ja'],
     recommended: true,
-    files: buildFiles(PPOCR_V5_MOBILE),
+    minWeqVersion: '2.8.0-beta.1',
+    files: buildFiles(PPOCR_V6_SMALL),
   },
   {
     id: 'ppocr-v6-det-tiny',
@@ -194,9 +222,23 @@ export const OCR_MODELS: OcrModelInfo[] = [
   },
 ];
 
+const LEGACY_OCR_MODEL: OcrModelInfo = {
+  id: LEGACY_OCR_MODEL_ID,
+  kind: 'ocr',
+  engine: 'ppocr',
+  variant: 'PP-OCRv5 mobile',
+  name: 'PP-OCRv5 移动版',
+  desc: '已安装的旧版识别模型，升级完成前可继续使用',
+  sizeBytes: totalBytes(PPOCR_V5_MOBILE),
+  sizeLabel: sizeLabel(totalBytes(PPOCR_V5_MOBILE)),
+  languages: ['zh', 'zh-Hant', 'en', 'ja'],
+  recommended: false,
+  files: buildFiles(PPOCR_V5_MOBILE),
+};
+
 /** Look up a model in the registry by id. */
 export function getOcrModel(id: string): OcrModelInfo | undefined {
-  return OCR_MODELS.find((m) => m.id === id);
+  return id === LEGACY_OCR_MODEL_ID ? LEGACY_OCR_MODEL : OCR_MODELS.find((m) => m.id === id);
 }
 
 /**
@@ -260,7 +302,15 @@ export function localOcrBlocker(
 
 export class OcrModelService extends ModelStore<OcrModelInfo> {
   constructor(platform: Platform) {
-    super(join(platform.appDataRoot(), 'models'), OCR_MODELS);
+    super(join(platform.appDataRoot(), 'models'), [...OCR_MODELS, LEGACY_OCR_MODEL]);
+  }
+
+  override listModels(): OcrModelStatus[] {
+    const models = super.listModels();
+    const upgraded = models.some((model) => model.id === DEFAULT_OCR_MODEL_ID && model.downloaded);
+    return models.filter(
+      (model) => model.id !== LEGACY_OCR_MODEL_ID || (!upgraded && model.downloaded),
+    );
   }
 
   /** 某一类（识别 / 筛图）的模型，附落盘与下载状态。 */

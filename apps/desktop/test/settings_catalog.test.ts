@@ -12,22 +12,9 @@ import {
 } from '../src/renderer/src/components/search/appSearchCatalog';
 
 describe('basic_settings_navigation', () => {
-  describe('基础功能内的通话与录音入口', () => {
-    it('基础功能位于常规之后，通话与录音排在三项聊天设置后，深链身份与全局作用域不变', () => {
-      const group = settingsGroupFor('call-recording');
-      expect(SETTINGS_GROUPS[1]?.label).toBe('基础功能');
-      expect(group.label).toBe('基础功能');
-      // 联系人名片（7dded8b8 起）排在互动与防撤回之后，通话与录音紧随其后。
-      expect(group.sections.slice(0, 3)).toEqual([
-        'chat-messages',
-        'message-display',
-        'chat-interaction',
-      ]);
-      expect(group.sections.indexOf('call-recording')).toBe(
-        group.sections.indexOf('contact-card') + 1,
-      );
-      expect(settingsGroupFor('message-display').id).toBe(group.id);
-      expect(group.sections.slice(-2)).toEqual(['qzone', 'mail']);
+  describe('聊天分组内的通话与录音入口', () => {
+    it('通话与录音归聊天，深链身份与全局作用域保持原有行为', () => {
+      expect(settingsGroupFor('call-recording').id).toBe('chat');
       expect(settingsSectionFor('call-recording')).toBe('call-recording');
       expect(settingsScopeFor('call-recording')).toBeNull();
     });
@@ -36,16 +23,18 @@ describe('basic_settings_navigation', () => {
         const result = searchAppEntries(name)[0]!;
         expect(result.title).toBe('通话与录音');
         expect(result.target).toEqual({ kind: 'setting', section: 'call-recording' });
-        expect(result.path).toBe('设置 / 基础功能 / 通话与录音');
+        expect(result.path).toBe('设置 / 聊天 / 通话与录音');
       }
-      expect(searchAppEntries('消息显示')[0]?.target).toEqual({
-        kind: 'setting',
-        section: 'message-display',
-      });
+      for (const name of ['消息显示', '内容显示']) {
+        expect(searchAppEntries(name)[0]?.target).toEqual({
+          kind: 'setting',
+          section: 'message-content',
+        });
+      }
       expect(searchAppEntries('自定义消息显示')[0]?.target).toEqual({
         kind: 'setting',
-        section: 'message-display',
-        item: '内容显示',
+        section: 'message-content',
+        item: '消息样式与预览',
         settingId: 'custom-message-display',
       });
       expect(searchAppEntries('自启时显示窗口')[0]?.target).toEqual({
@@ -192,15 +181,17 @@ describe('feature_search', () => {
     it('功能指向真实入口，设置别名指向具体控件而不是执行配置变更', () => {
       expect(searchAppEntries('年度报告')[0]?.target).toEqual({ kind: 'view', view: 'annual' });
       expect(searchAppEntries('导出查看器')[0]?.target).toEqual({ kind: 'tool', tool: 'viewer' });
-      expect(searchAppEntries('深色模式')[0]?.target).toEqual({
-        kind: 'setting',
-        section: 'appearance',
-        item: '基础模式',
-        settingId: 'theme-mode',
-      });
+      for (const keyword of ['主题模式', '基础模式', '深色模式']) {
+        expect(searchAppEntries(keyword)[0]?.target).toEqual({
+          kind: 'setting',
+          section: 'appearance',
+          item: '主题模式',
+          settingId: 'theme-mode',
+        });
+      }
       expect(searchAppEntries('消息序号')[0]?.target).toEqual({
         kind: 'setting',
-        section: 'message-display',
+        section: 'message-content',
         item: '显示消息序号（seq）',
         settingId: 'message-seq',
       });
@@ -226,12 +217,12 @@ describe('feature_search', () => {
     it('应用锁与备份的旧名称均定位新路径，具体隐私项仍可直接定位', () => {
       for (const keyword of ['应用锁', '隐私模式', '无操作自动上锁']) {
         const result = searchAppEntries(keyword)[0]!;
-        expect(result.path).toBe('设置 / 常规 / 隐私');
+        expect(result.path).toBe('设置 / 应用 / 隐私');
         expect(result.target).toMatchObject({ kind: 'setting', section: 'privacy' });
       }
       for (const keyword of ['备份与恢复', '设置备份', '导入备份']) {
         const result = searchAppEntries(keyword)[0]!;
-        expect(result.path).toBe('设置 / 关于 WeQ / 配置备份与恢复');
+        expect(result.path).toBe('设置 / 应用 / 配置备份与恢复');
         expect(result.target).toMatchObject({ kind: 'setting', section: 'backup' });
       }
       expect(searchAppEntries('恢复默认设置')[0]?.target).toMatchObject({

@@ -3,12 +3,13 @@ import {
   databaseMaintenanceRowAbnormal,
   type DatabaseMaintenanceStatus,
 } from '@weq/service/db-checkup';
+import type { DbRepairAccountOption } from '../components/DbRepairPanel';
 
-/** 执行结果与诊断分别表达，查看目标始终绑定原报告，不携带重新检查动作。 */
+/** 执行结果与诊断分别表达，查看目标绑定本次操作。 */
 export function databaseMaintenanceNotification(snapshot: DatabaseMaintenanceStatus) {
   const op = snapshot.operation;
   if (!op) return null;
-  const account = {
+  const account: DbRepairAccountOption = {
     uin: snapshot.uin,
     configId: snapshot.configId,
     reportId: op.id,
@@ -82,6 +83,11 @@ export function databaseMaintenanceNotification(snapshot: DatabaseMaintenanceSta
     ]
       .filter(Boolean)
       .join('\n'),
-    account: op.status === 'waiting' ? { ...account, reportId: undefined } : account,
+    account:
+      op.kind !== 'repair'
+        ? { ...account, reportId: undefined, checkupResult: snapshot }
+        : op.status === 'waiting'
+          ? { ...account, reportId: undefined }
+          : account,
   };
 }

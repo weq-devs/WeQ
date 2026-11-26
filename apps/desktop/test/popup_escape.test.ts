@@ -330,7 +330,7 @@ it('仅注册 Esc 的子菜单不会阻断父窗原有的点遮罩关闭', () =>
   expect(f.close).toHaveBeenCalledOnce();
 });
 
-it.each(['好友', '群', '报名'])('Ark %s 候选列表优先 Esc 收起，保留输入且不发送', (tab) => {
+it.each(['好友', '群'])('Ark %s 候选列表优先 Esc 收起，保留输入且不发送', (tab) => {
   const send = vi.fn(async () => {});
   const f = mount((close) =>
     h(ArkPanel, {
@@ -344,6 +344,9 @@ it.each(['好友', '群', '报名'])('Ark %s 候选列表优先 Esc 收起，保
       },
     }),
   );
+  const tabs = [...f.host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+  expect(tabs.map((button) => button.textContent)).not.toContain('报名');
+  expect(tabs.map((button) => button.textContent)).not.toContain('图文');
   act(() =>
     [...f.host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
       .find((button) => button.textContent === tab)!

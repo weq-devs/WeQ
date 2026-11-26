@@ -7,10 +7,10 @@ export interface AccountInstanceScope {
   ): Promise<T>;
 }
 
-let scope: AccountInstanceScope | undefined;
+const state = accountRuntimeState(() => ({ scope: undefined as AccountInstanceScope | undefined }));
 
 export function setAccountInstanceScope(next: AccountInstanceScope): void {
-  scope = next;
+  state().scope = next;
 }
 
 export function withAccountInstance<T>(
@@ -18,5 +18,7 @@ export function withAccountInstance<T>(
   operation: () => Promise<T>,
   opened: () => string | undefined,
 ): Promise<T> {
+  const { scope } = state();
   return scope ? scope.run(uin, operation, opened) : operation();
 }
+import { accountRuntimeState } from './context/account_runtime';

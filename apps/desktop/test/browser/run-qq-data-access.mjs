@@ -55,7 +55,7 @@ try {
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/qq-data-access.html`,
   );
-  await page.getByRole('button', { name: '在线能力受限', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'QQ 数据读取受限', exact: true }).waitFor();
   if (await page.locator('.weq-account-content .weq-qq-data-access').count())
     throw new Error('授权提示不得占用账号页布局');
   await page.setViewportSize({ width: 390, height: 760 });
@@ -65,7 +65,7 @@ try {
       path: resolve(process.env.WEQ_ACCESS_ARTIFACTS, '390-account-page.png'),
     });
   }
-  await page.getByRole('button', { name: '在线能力受限', exact: true }).click();
+  await page.getByRole('button', { name: 'QQ 数据读取受限', exact: true }).click();
   await page.getByRole('heading', { name: 'QQ 数据读取受限' }).waitFor();
   if (await page.getByText('QQ 不在线', { exact: true }).count())
     throw new Error('状态不可读不能显示 QQ 不在线');
@@ -117,7 +117,7 @@ try {
   if (!(await page.getByRole('button', { name: '扫码登录其他账号', exact: true }).isDisabled()))
     throw new Error('读取受限时不能继续扫码取密钥');
   await page.getByRole('button', { name: '返回账号主页', exact: true }).click();
-  await page.getByRole('button', { name: '导入备份', exact: true }).click();
+  await page.getByRole('button', { name: '导入 QQ 备份', exact: true }).click();
   await page.locator('.weq-static-backup').waitFor();
   if (await page.locator('.weq-qq-data-access').count())
     throw new Error('备份入口不应被本机授权提示阻断');

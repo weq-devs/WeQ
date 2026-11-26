@@ -53,10 +53,10 @@ function App() {
               <CallRecordingSection />
             ) : (
               <>
-                <SectionHeader title="外观与布局" />
+                <SectionHeader title="主题与布局" />
                 <div className="weq-settings-appearance-card">
                   <div className="weq-settings-appearance-head">
-                    <strong>基础模式</strong>
+                    <strong>主题模式</strong>
                     <SettingsResetButton card="theme-mode" />
                   </div>
                 </div>

@@ -393,18 +393,19 @@ function ContactStats({
   const uid = person.uid || person.id;
   const query = useContactStats(person.identityValue, uid, field);
   const value = query.data?.[field];
-  return typeof value === 'number' ? (
-    <ContactRow label={field === 'level' ? 'QQ 等级' : '累计获赞'}>
+  const label = field === 'level' ? 'QQ 等级' : '累计获赞';
+  if (typeof value !== 'number') return <ContactRow label={label} value={null} />;
+  const readout = <NumericText>{value.toLocaleString('zh-CN')}</NumericText>;
+  return (
+    <ContactRow label={label}>
       {field === 'likeCount' && !preview ? (
         <ProfileLikeAction uid={uid} uin={person.identityValue} name={displayUserName(person)}>
-          {value.toLocaleString('zh-CN')}
+          {readout}
         </ProfileLikeAction>
       ) : (
-        value.toLocaleString('zh-CN')
+        readout
       )}
     </ContactRow>
-  ) : (
-    <ContactRow label={field === 'level' ? 'QQ 等级' : '累计获赞'} value={null} />
   );
 }
 
@@ -431,7 +432,8 @@ function ExtraField({
   if (field === 'company') return <ContactRow label="公司" value={data?.company} />;
   if (field === 'description')
     return <ContactRow label="个人说明" value={data?.personalDescription} />;
-  return <ContactRow label="邮箱" value={data?.email} copyValue={data?.email ?? undefined} />;
+  const email = data?.email ?? undefined;
+  return <ContactRow label="邮箱" value={email} copyValue={email} number />;
 }
 
 function EnergyRow({ person }: { person: ProfilePerson }) {
@@ -445,7 +447,12 @@ function EnergyRow({ person }: { person: ProfilePerson }) {
     { ...PROFILE_QUERY_OPTIONS, enabled: session.available },
   );
   const score = query.data?.targetUin === person.identityValue ? query.data.score : null;
-  return <ContactRow label="QQ 能量值" value={typeof score === 'number' ? score : null} />;
+  return (
+    <ContactRow
+      label="QQ 能量值"
+      value={typeof score === 'number' ? <NumericText>{score}</NumericText> : null}
+    />
+  );
 }
 
 function LabelsRow({ person, preview }: { person: ProfilePerson; preview: boolean }) {

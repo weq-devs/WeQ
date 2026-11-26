@@ -1,10 +1,16 @@
 import { TRPCError } from '@trpc/server';
+import { observable } from '@trpc/server/observable';
 import { z } from 'zod/v3';
 import { getHost } from '@weq/service';
 import { remoteRuntime } from '../../remote/runtime';
 import { getAppContext } from '../../context/app_context';
 import { procedure, router } from '../trpc';
-import { remoteInviteInput, remoteConnectionMode } from '../../../shared/remote_bootstrap';
+import {
+  remoteAccountAccessDecisionInput,
+  remoteInviteInput,
+  remoteConnectionMode,
+  remotePairingDecisionInput,
+} from '../../../shared/remote_bootstrap';
 import {
   desktopServiceCommand,
   desktopWebStatus,
@@ -20,6 +26,15 @@ const local = procedure.use(({ ctx, next }) => {
   return next();
 });
 
+const dismissedPairingBanners = new Set<string>();
+const pairingBannerListeners = new Set<(ids: string[]) => void>();
+
+function savedRemoteAccounts() {
+  return desktopServiceCommand<
+    { configId: string; uin: string; displayName: string; static: boolean }[]
+  >('remote.accounts', undefined, () => []);
+}
+
 export const remoteRouter = router({
   webStatus: local.query(() => desktopWebStatus()),
   setWebEnabled: local
@@ -32,6 +47,22 @@ export const remoteRouter = router({
   status: local.query(() =>
     desktopServiceCommand('remote.status', undefined, () => remoteRuntime.status()),
   ),
+  pairingBannersChanged: local.subscription(() =>
+    observable<string[]>((emit) => {
+      const receive = (ids: string[]) => emit.next(ids);
+      pairingBannerListeners.add(receive);
+      receive([...dismissedPairingBanners]);
+      return () => pairingBannerListeners.delete(receive);
+    }),
+  ),
+  dismissPairingBanner: local.input(z.string().uuid()).mutation(({ input }) => {
+    if (dismissedPairingBanners.has(input)) return;
+    dismissedPairingBanners.add(input);
+    if (dismissedPairingBanners.size > 256)
+      dismissedPairingBanners.delete(dismissedPairingBanners.values().next().value!);
+    const ids = [...dismissedPairingBanners];
+    for (const receive of pairingBannerListeners) receive(ids);
+  }),
   setEnabled: local.input(z.object({ enabled: z.boolean() })).mutation(({ input }) =>
     desktopServiceCommand(
       'remote.enabled',
@@ -77,10 +108,10 @@ export const remoteRouter = router({
       desktopServiceCommand('remote.invite', input, () => remoteRuntime.invite(input)),
     ),
   decide: local
-    .input(z.object({ id: z.string().uuid(), approve: z.boolean() }))
+    .input(remotePairingDecisionInput)
     .mutation(({ input }) =>
       desktopServiceCommand('remote.decide', input, () =>
-        remoteRuntime.pairing.decide(input.id, input.approve),
+        remoteRuntime.pairing.decide(input.id, input.approve, input.configIds),
       ),
     ),
   revoke: local
@@ -90,11 +121,17 @@ export const remoteRouter = router({
         remoteRuntime.pairing.revoke(input.id),
       ),
     ),
-  accounts: local.query(() =>
-    desktopServiceCommand<
-      { configId: string; uin: string; displayName: string; static: boolean }[]
-    >('remote.accounts', undefined, () => []),
+  decideAccountAccess: local.input(remoteAccountAccessDecisionInput).mutation(({ input }) =>
+    desktopServiceCommand('remote.decideAccountAccess', input, () => {
+      throw new Error('账号访问申请已失效。');
+    }),
   ),
+  accounts: local.query(() => savedRemoteAccounts()),
+  pairingAccounts: local.query(async () => {
+    const accounts = await savedRemoteAccounts();
+    const currentConfigId = getAppContext().services?.accountConfig.getConfigId() ?? null;
+    return { accounts, currentConfigId };
+  }),
   setAccountConfigIds: local
     .input(z.object({ id: z.string().uuid(), configIds: z.array(z.string()).max(256) }))
     .mutation(({ input }) =>

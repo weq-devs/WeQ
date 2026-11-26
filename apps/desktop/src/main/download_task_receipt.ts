@@ -13,6 +13,10 @@ export const downloadTaskReceipt = z.object({
   foreground: z.boolean().optional(),
 });
 
+export function isPendingDownload(status: BackgroundTask['status']) {
+  return status === 'running' || status === 'paused';
+}
+
 export function downloadTaskSnapshot(task: BackgroundTask): z.infer<typeof downloadTaskReceipt> {
   const { id, startedAt, updatedAt, status, statusLabel, progress, note, foreground } = task;
   return { id, startedAt, updatedAt, status, statusLabel, progress, note, foreground };

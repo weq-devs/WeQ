@@ -1,7 +1,8 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { useContactOnlineStatuses } from '../../hooks/useContactOnlineStatuses';
 import { intimateRelationOf } from '../../lib/profileRelations';
 import { sidebarConversationsWithoutAssistant } from '../../lib/groupAssistant';
+import { groupDirectoryPreference } from '../../lib/groupNotifications';
 import { isDataline } from '../../lib/deviceAvatar';
 import { applyOutgoingConversationPreview } from '../../lib/outgoingConversationPreview';
 import { classifyChatType, toChatTypeNumber } from '@weq/codec';
@@ -75,6 +76,7 @@ type DirectoryInput = {
   specialCareUnavailable: string | null;
   groupAssistantEntry: RecentContactWire | undefined;
   groupAssistantIds: Set<string>;
+  groupNotifyLevels: ReadonlyMap<string, number>;
   temporaryConversations: Record<string, { conversation: Conversation; appearedAt: number }>;
   outgoingConversationPreviews: Parameters<typeof applyOutgoingConversationPreview>[1];
   unreadByConv: Record<string, number>;
@@ -106,12 +108,26 @@ export function useWorkspaceDirectory({
   specialCareUnavailable,
   groupAssistantEntry,
   groupAssistantIds,
+  groupNotifyLevels,
   temporaryConversations,
   outgoingConversationPreviews,
   unreadByConv,
   highlightsByConv,
   draftTimesByConv,
 }: DirectoryInput) {
+  const withGroupNotifyLevel = useCallback(
+    (row: Conversation): Conversation => {
+      if (row.type !== 'group') return row;
+      const notifyLevel = groupNotifyLevels.get(row.id);
+      if (notifyLevel === undefined || notifyLevel === row.notifyLevel) return row;
+      return {
+        ...row,
+        notifyLevel,
+        preference: groupDirectoryPreference(notifyLevel, row.preference),
+      };
+    },
+    [groupNotifyLevels],
+  );
   const categoryById = useMemo(() => {
     return new Map(
       ((categories.data ?? []) as CategoryWire[]).map((category) => [category.id, category]),
@@ -248,6 +264,7 @@ export function useWorkspaceDirectory({
         ),
       );
     }
+    for (const [id, row] of map) map.set(id, withGroupNotifyLevel(row));
     return map;
   }, [
     hiddenUidSet,
@@ -261,6 +278,7 @@ export function useWorkspaceDirectory({
     previewGroupNames,
     profileByUid,
     outgoingConversationPreviews,
+    withGroupNotifyLevel,
   ]);
 
   // 删除会话同样不在主列表（已从 recent_contact 消失），需要单独解析供点击后打开。
@@ -333,7 +351,7 @@ export function useWorkspaceDirectory({
       }
     }
 
-    for (const [id, row] of map) map.set(id, { ...row, deleted: true });
+    for (const [id, row] of map) map.set(id, { ...withGroupNotifyLevel(row), deleted: true });
     return map;
   }, [
     deletedUidSet,
@@ -343,6 +361,7 @@ export function useWorkspaceDirectory({
     profileByUid,
     user,
     botUids,
+    withGroupNotifyLevel,
   ]);
   const baseConversationRowsRef = useRef<Conversation[]>([]);
   const conversationRowsRef = useRef<Conversation[]>([]);
@@ -622,7 +641,10 @@ export function useWorkspaceDirectory({
       });
     }
 
-    return reconcileConversationRows(baseConversationRowsRef.current, Array.from(byId.values()));
+    return reconcileConversationRows(
+      baseConversationRowsRef.current,
+      Array.from(byId.values(), withGroupNotifyLevel),
+    );
   }, [
     recentConversationCache,
     allGroups.data,
@@ -643,6 +665,7 @@ export function useWorkspaceDirectory({
     groupAssistantEntry,
     botUids,
     outgoingConversationPreviews,
+    withGroupNotifyLevel,
   ]);
   const conversations = useMemo(() => {
     const assistantUnread = [...groupAssistantIds].reduce(
@@ -857,7 +880,9 @@ export function useWorkspaceDirectory({
     for (const detail of details)
       map.set(
         detail.groupCode,
-        recentConversationCache.projection.group(detail, map.get(detail.groupCode)),
+        withGroupNotifyLevel(
+          recentConversationCache.projection.group(detail, map.get(detail.groupCode)),
+        ),
       );
     if (details.some((detail) => Object.hasOwn(detail, 'directory'))) {
       const currentCodes = new Set(
@@ -878,6 +903,7 @@ export function useWorkspaceDirectory({
     allGroups.data,
     user,
     recentConversationCache,
+    withGroupNotifyLevel,
   ]);
 
   const profileContacts = useMemo(() => {

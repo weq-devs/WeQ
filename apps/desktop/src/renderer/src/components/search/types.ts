@@ -266,7 +266,9 @@ export function searchHitNameRank(hit: SearchHit, keyword: string): number {
     case 'file':
       return searchNameRank(keyword, hit.fileName);
     case 'collection':
-      return searchNameRank(keyword, hit.title, hit.content);
+    case 'groupFile':
+    case 'groupAlbum':
+      return hit.matchRank ?? searchNameRank(keyword, hit.title, hit.content);
     default:
       return searchNameRank(keyword, hit.title, hit.content);
   }

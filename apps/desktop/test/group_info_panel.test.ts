@@ -12,12 +12,14 @@
 import { act, createElement, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 import { GroupInfoPanel } from '@renderer/im-template/template/groupInfoPanel';
 import { TabActivity } from '@renderer/components/RetainedTabs';
+import { GroupRosterPanel } from '@renderer/components/groupProfile/GroupRosterPanel';
+import { GROUP_MEMBER_SORTS } from '../src/shared/group_member_order';
 import { formatShortDate } from '@renderer/im-template/template/format';
 
-const rankQuery = vi.hoisted(() => vi.fn());
 const avatarRender = vi.hoisted(() => vi.fn());
 const metricsRender = vi.hoisted(() => vi.fn());
 vi.mock('../src/renderer/src/components/GroupProfileMetrics', () => ({
@@ -39,7 +41,6 @@ vi.mock('../src/renderer/src/im-template/template/primitives', async (importOrig
 });
 vi.mock('../src/renderer/src/trpc/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/renderer/src/trpc/client')>()),
-  client: { account: { listGroupMembersByLevel: { query: rankQuery } } },
   trpc: {
     account: {
       getAccountConfig: { useQuery: () => ({ data: undefined }) },
@@ -139,7 +140,6 @@ function metaRow(label: string): HTMLElement | undefined {
 describe('群资料面板', () => {
   beforeEach(() => {
     globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-    rankQuery.mockReset().mockResolvedValue([]);
     avatarRender.mockClear();
     metricsRender.mockClear();
   });
@@ -255,7 +255,7 @@ describe('群资料面板', () => {
       ),
     );
     expect(open).not.toHaveBeenCalled();
-    expect(nextOpen).toHaveBeenLastCalledWith(members[0], { x: 10, y: 20 });
+    expect(nextOpen).toHaveBeenLastCalledWith(members[0], { x: 10, y: 20, trigger: rows()[0] });
     act(() => rows()[0]!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true })));
     expect(menu.mock.calls.at(-1)?.[1]).toBe(members[0]);
     const updated = members.map((member, index) =>
@@ -288,46 +288,113 @@ describe('群资料面板', () => {
     expect(metaRow('群内好友数')).toBeUndefined();
     expect(document.querySelector('.group-info-panel')?.textContent).not.toContain('未知');
   });
-  it('已退群与等级排行收进更多菜单，已退群保留原回调', () => {
+  it('更多菜单保留已退群成员，群等级由排序菜单提供', () => {
     const open = vi.fn();
     mountPanel(undefined, undefined, { onOpenLeftMembers: open });
     const actions = document.querySelector('.group-info-member-actions')!;
     const buttons = [...actions.querySelectorAll<HTMLButtonElement>('button')];
     expect(buttons.map((button) => button.getAttribute('aria-label'))).toEqual(['更多成员操作']);
     expect(buttons.every((button) => !button.textContent?.trim())).toBe(true);
-    expect(rankQuery).not.toHaveBeenCalled();
     act(() => buttons[0].click());
-    expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(4);
+    expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(3);
     act(() =>
       document.querySelector<HTMLButtonElement>('[role="menuitem"][title="已退群的成员"]')!.click(),
     );
     expect(open).toHaveBeenCalledOnce();
   });
-  it('等级排行直接查询当前群，点击未加载的成员仍能打开资料', async () => {
-    rankQuery.mockResolvedValue([
-      { uid: 'uid-rank', uin: '10002', nick: '排行成员', memberLevel: 8 },
-    ]);
-    const open = vi.fn();
-    mountPanel(undefined, undefined, { onOpenMember: open });
-    act(() => document.querySelector<HTMLButtonElement>('[aria-label="更多成员操作"]')!.click());
-    await act(async () => {
-      document
-        .querySelector<HTMLButtonElement>('[role="menuitem"][title="群成员等级排行"]')!
-        .click();
+  it('群内字段排在联系人字段之前，排序菜单可关闭群主和管理员置顶', () => {
+    const onSort = vi.fn();
+    const onPrioritizeAdmins = vi.fn();
+    const detail = { text: 'Lv8' };
+    mountPanel(undefined, undefined, {
+      memberOrder: {
+        options: GROUP_MEMBER_SORTS,
+        sort: 'memberLevel',
+        descending: true,
+        details: new Map([['uid-1', detail]]),
+        onSort,
+        onDirection: vi.fn(),
+        prioritizeAdmins: true,
+        onPrioritizeAdmins,
+      },
     });
-    expect(rankQuery).toHaveBeenCalledOnce();
-    expect(rankQuery).toHaveBeenCalledWith({ groupCode: 'g1', limit: 50, offset: 0 });
-    expect(document.querySelector('.weq-rank-groupname')?.textContent).toBe('测试群');
-    expect(document.querySelector('.weq-rank-back')).toBeNull();
-    const row = document.querySelector<HTMLElement>('.weq-rank-row')!;
-    expect(row.textContent).toContain('Lv.8');
-    act(() => row.click());
-    expect(open).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'uid-rank', uin: '10002' }),
-      expect.anything(),
+    const row = document.querySelector('.group-info-member-row')!;
+    expect(row.querySelector('.member-name-with-badge')?.textContent).toContain('群主');
+    expect(row.querySelector('.weq-directory-sort-detail')?.textContent).toBe(detail.text);
+    const trigger = document.querySelector<HTMLButtonElement>('.group-info-sort-button')!;
+    expect(trigger.getAttribute('aria-label')).toBe('排序');
+    expect(trigger.textContent).toBe('');
+    expect(trigger.hasAttribute('data-active')).toBe(true);
+    act(() => trigger.click());
+    const menu = document.querySelector('[role="dialog"][aria-label="排序"]')!;
+    const options = [...menu.querySelectorAll<HTMLButtonElement>('[role="option"]')];
+    expect(options.slice(0, 5).map((option) => option.dataset.value)).toEqual([
+      'displayName',
+      'joinedAt',
+      'lastSpeakAt',
+      'memberLevel',
+      'remark',
+    ]);
+    act(() => options[2]!.click());
+    expect(onSort).toHaveBeenCalledWith('lastSpeakAt');
+    const toggle = menu.querySelector<HTMLButtonElement>('[role="switch"]')!;
+    expect(toggle.getAttribute('aria-label')).toBe('群主和管理员始终最前');
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    act(() => toggle.click());
+    expect(onPrioritizeAdmins).toHaveBeenCalledWith(false);
+  });
+  it('切换会话并重新打开群成员列表时，恢复该群的排序字段和方向', () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    roots.push(root);
+    hosts.push(host);
+    const client = new QueryClient({ defaultOptions: { queries: { cacheTime: 0 } } });
+    const members = [
+      { ...CONVERSATION.members[0], displayName: '甲', nick: 'Alice' },
+      { ...CONVERSATION.members[0], id: 'uid-2', displayName: '乙', nick: 'Bob' },
+    ];
+    const open = (id?: string) =>
+      act(() =>
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client },
+            id
+              ? createElement(GroupRosterPanel, {
+                  conversation: { ...CONVERSATION, id, members, generated: true },
+                })
+              : null,
+          ),
+        ),
+      );
+    const showSort = () =>
+      act(() => host.querySelector<HTMLButtonElement>('button[aria-label="排序"]')!.click());
+    const selectedSort = () =>
+      document.querySelector('[aria-label="排序依据"] [aria-selected="true"]')?.textContent;
+    const values = () =>
+      [...host.querySelectorAll('.weq-directory-sort-detail')].map((row) => row.textContent);
+
+    open('clone-1');
+    showSort();
+    act(() =>
+      document.querySelector<HTMLButtonElement>('[role="option"][data-value="nick"]')!.click(),
     );
-    act(() => document.querySelector<HTMLButtonElement>('.weq-rank-close')!.click());
-    expect(document.querySelector('.weq-rank')).toBeNull();
+    act(() =>
+      [...document.querySelectorAll<HTMLButtonElement>('button')]
+        .find((button) => button.textContent === '拼音 Z–A')!
+        .click(),
+    );
+    expect(values()).toEqual(['Bob', 'Alice']);
+
+    open('clone-2');
+    showSort();
+    expect(selectedSort()).toBe('群内显示昵称');
+    open();
+    open('clone-1');
+    showSort();
+    expect(selectedSort()).toBe('昵称');
+    expect(values()).toEqual(['Bob', 'Alice']);
   });
   it('合成群不提供真实群的等级查询入口', () => {
     mountPanel(undefined, undefined, { conversation: { ...CONVERSATION, generated: true } });

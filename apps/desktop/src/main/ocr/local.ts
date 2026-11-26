@@ -271,7 +271,7 @@ export async function runLocalOcrFile(imagePath: string): Promise<OcrImageOutcom
   const blocker = localOcrBlocker();
   if (blocker) return { ok: false, error: blocker };
   const model = resolveLocalOcrModel();
-  if (!model) return { ok: false, error: '请先准备本地文字识别增强包（设置 → 增强功能 → 增强包）' };
+  if (!model) return { ok: false, error: '请先准备本地文字识别增强包（设置 → 能力 → 增强包）' };
   try {
     const r = await runLocalOcr(imagePath, model);
     return {

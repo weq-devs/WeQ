@@ -1,6 +1,7 @@
-import type { ReactElement } from 'react';
+import { useContext, type ReactElement } from 'react';
 import { ArrowRight, ArrowUpRight, HardDrive, RefreshCw } from 'lucide-react';
 import { Row, SectionHeader } from './controls';
+import { BeforeLoginSettingsContext, OPEN_ACCOUNT_SETTINGS_HINT } from './controls.shared';
 import { useTabActive } from '../RetainedTabs.shared';
 import { trpc } from '../../trpc/client';
 import '../../styles/data-maintenance.css';
@@ -21,9 +22,10 @@ export function DataMaintenanceSection({
   title?: string | null;
 }): ReactElement {
   const active = useTabActive();
+  const beforeLogin = useContext(BeforeLoginSettingsContext);
   const remote = useRemoteClient();
   const account = trpc.account.getAccountConfig.useQuery(undefined, {
-    enabled: active,
+    enabled: active && !beforeLogin,
     refetchOnMount: 'always',
     refetchOnWindowFocus: false,
     staleTime: 0,
@@ -59,14 +61,26 @@ export function DataMaintenanceSection({
               <Row
                 key={id}
                 label={label}
-                desc={unavailable ? '静态账号不可用' : undefined}
+                desc={
+                  beforeLogin
+                    ? OPEN_ACCOUNT_SETTINGS_HINT
+                    : unavailable
+                      ? '静态账号不可用'
+                      : undefined
+                }
                 control={
                   <button
                     type="button"
                     className="weq-set-btn weq-set-btn-soft"
                     data-setting-id={settingId}
                     onClick={() => onOpen(id)}
-                    disabled={!account.data || account.isFetching || account.isError || unavailable}
+                    disabled={
+                      beforeLogin ||
+                      !account.data ||
+                      account.isFetching ||
+                      account.isError ||
+                      unavailable
+                    }
                     title={unavailable ? '静态账号暂不支持本地资源维护' : undefined}
                   >
                     {actionLabel}
@@ -77,7 +91,7 @@ export function DataMaintenanceSection({
             );
           })}
       </div>
-      {!account.data && !account.isError ? (
+      {!beforeLogin && !account.data && !account.isError ? (
         <div role="status" className="weq-maintenance-status">
           正在读取当前账号…
         </div>

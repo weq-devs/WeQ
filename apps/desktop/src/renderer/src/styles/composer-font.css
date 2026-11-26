@@ -1,32 +1,15 @@
 .composer-font-panel.emoji-panel {
-  container: composer-font / inline-size;
-  grid-template-rows: auto minmax(0, 1fr) repeat(2, auto);
-}
-
-.composer-font-list {
-  display: grid;
-  grid-auto-rows: max-content;
-  align-content: start;
-  gap: 8px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .composer-font-option {
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(78px, auto) 16px;
-  align-items: center;
-  gap: 10px;
-  min-height: 64px;
-  padding: 8px 10px;
-  border: 1px solid var(--weq-border-subtle);
-  border-radius: 8px;
-  background: var(--weq-bg-surface);
-  color: var(--weq-fg-primary);
-  cursor: pointer;
 }
 
 .composer-font-option input {
   position: absolute;
+  top: 0;
+  inset-inline-start: 0;
   width: 1px;
   height: 1px;
   opacity: 0;
@@ -34,7 +17,7 @@
 
 .composer-font-option:has(input:checked) {
   border-color: var(--weq-accent-effective);
-  background: color-mix(in srgb, var(--weq-accent-effective) 8%, var(--weq-bg-surface));
+  background: color-mix(in srgb, var(--weq-accent-effective) 8%, transparent);
 }
 
 .composer-font-option:has(input:focus-visible) {
@@ -42,99 +25,34 @@
   outline-offset: -2px;
 }
 
-.composer-font-option[data-unavailable='true'] {
-  color: var(--weq-fg-muted);
-  opacity: 0.62;
+.composer-font-option:has(input:disabled) {
   cursor: default;
 }
 
-.composer-font-option > svg {
+.composer-font-option:has(input:disabled):not(:has(input:checked)) .composer-preview-name {
+  color: var(--weq-fg-muted);
+}
+
+.composer-font-check {
+  position: absolute;
+  top: 4px;
+  inset-inline-end: 4px;
   visibility: hidden;
   color: var(--weq-accent-effective);
 }
 
-.composer-font-option:has(input:checked) > svg {
+.composer-font-option:has(input:checked) .composer-font-check {
   visibility: visible;
 }
 
 .composer-font-sample {
-  position: relative;
-  display: grid;
-  height: 46px;
-  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
-  place-items: center;
-  border-radius: 5px;
-  background: var(--weq-bg-elevated);
-  font-size: 15px;
-}
-
-.composer-font-option[data-has-preview='true'] .composer-font-sample {
-  height: 88px;
-}
-
-.composer-font-sample img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
 .composer-font-option-label {
   display: grid;
-  gap: 3px;
-  max-width: 100px;
-}
-
-.composer-font-option-label small,
-.composer-font-option-label strong {
-  overflow-wrap: anywhere;
-}
-
-.composer-font-option-label strong {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.composer-font-option-label small {
-  color: var(--weq-fg-secondary);
-  font-size: 11px;
-}
-
-@container composer-font (width < 330px) {
-  .composer-font-option[data-has-preview='true'] {
-    grid-template-columns: minmax(0, 1fr) 16px;
-    row-gap: 6px;
-  }
-
-  .composer-font-option[data-has-preview='true'] .composer-font-sample {
-    grid-column: 1 / -1;
-  }
-
-  .composer-font-option[data-has-preview='true'] .composer-font-option-label {
-    max-width: none;
-  }
-}
-
-.composer-font-controls {
-  display: grid;
-  min-height: 46px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border-top: 1px solid var(--weq-border-subtle);
-  font-size: 12px;
-}
-
-.composer-font-controls > div {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  white-space: nowrap;
-}
-
-.composer-font-controls .weq-set-toggle {
-  flex: none;
+  min-width: 0;
 }
 
 .composer-font-error {

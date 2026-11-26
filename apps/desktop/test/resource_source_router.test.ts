@@ -2,6 +2,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { resourceCleanupRouter } from '../src/main/ipc/routers/resource_cleanup';
 import { mediaResourceRouter } from '../src/main/ipc/routers/media_resource';
+import { watchTaskPage } from '../src/main/task_page';
 
 const f = vi.hoisted(() => ({
   uin: '10001',
@@ -130,46 +131,61 @@ it('清理已按旧来源开始后，换实例不向新来源返回旧回执', a
   expect(f.cleanup).toHaveBeenCalledOnce();
 });
 
-it('清理启动即进入任务列表，提供逐类进度并可停止余下类别', async () => {
-  const caller = resourceCleanupRouter.createCaller({});
-  const instructions = [
-    { id: 'pic', variant: 'thumb' as const },
-    { id: 'video', variant: 'all' as const },
-  ];
-  const gate = Promise.withResolvers<void>();
-  let signal: AbortSignal | undefined;
-  f.cleanup.mockImplementationOnce(async (_items, options) => {
-    signal = options.signal;
-    options.before(instructions[0]);
-    await gate.promise;
-    const row = { ...instructions[0], removed: 1, failed: 1, freedBytes: 2 };
-    options.after(row);
-    return { freedBytes: 2, perTarget: [row] };
-  });
-  const execution = caller.cleanup({ ...source, instructions });
-  try {
-    await vi.waitFor(() => expect(f.cleanup).toHaveBeenCalledOnce());
-    const task = await caller.status(source);
-    expect(task).toMatchObject({
-      total: 2,
-      processed: 0,
-      current: 'pic · thumb',
+it.each([false, true])(
+  '清理原位显示进度和停止，离页才交接（中途离开：%s）',
+  async (leavesEarly) => {
+    const caller = resourceCleanupRouter.createCaller({});
+    const instructions = [
+      { id: 'pic', variant: 'thumb' as const },
+      { id: 'video', variant: 'all' as const },
+    ];
+    const gate = Promise.withResolvers<void>();
+    let signal: AbortSignal | undefined;
+    f.cleanup.mockImplementationOnce(async (_items, options) => {
+      signal = options.signal;
+      options.before(instructions[0]);
+      await gate.promise;
+      const row = { ...instructions[0], removed: 1, failed: 1, freedBytes: 2 };
+      options.after(row);
+      return { freedBytes: 2, perTarget: [row] };
     });
-    expect(task?.foreground).not.toBe(true);
-    await expect(caller.cleanup({ ...source, instructions })).rejects.toThrow('正在清理');
-    await caller.control({ ...source, taskId: task!.id, action: 'stop' });
-    expect(signal?.aborted).toBe(true);
+    let pageId: string | undefined;
+    const page = watchTaskPage().subscribe({
+      next: (id) => {
+        pageId = id;
+      },
+    });
+    const execution = caller.cleanup({ ...source, instructions, pageId });
+    try {
+      await vi.waitFor(() => expect(f.cleanup).toHaveBeenCalledOnce());
+      const task = await caller.status(source);
+      expect(task).toMatchObject({
+        total: 2,
+        processed: 0,
+        current: 'pic · thumb',
+      });
+      expect(task?.foreground).toBe(true);
+      if (leavesEarly) {
+        page.unsubscribe();
+        expect(await caller.status(source)).toMatchObject({ id: task?.id, foreground: false });
+      }
+      await expect(caller.cleanup({ ...source, instructions })).rejects.toThrow('正在清理');
+      await caller.control({ ...source, taskId: task!.id, action: 'stop' });
+      expect(signal?.aborted).toBe(true);
+      expect(await caller.status(source)).toMatchObject({
+        canStop: false,
+        statusLabel: '正在收尾当前类别',
+      });
+    } finally {
+      gate.resolve();
+      await execution;
+      page.unsubscribe();
+    }
     expect(await caller.status(source)).toMatchObject({
-      canStop: false,
-      statusLabel: '正在收尾当前类别',
+      status: 'cancelled',
+      processed: 1,
+      failed: 1,
+      foreground: !leavesEarly,
     });
-  } finally {
-    gate.resolve();
-    await execution;
-  }
-  expect(await caller.status(source)).toMatchObject({
-    status: 'cancelled',
-    processed: 1,
-    failed: 1,
-  });
-});
+  },
+);

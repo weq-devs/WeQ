@@ -1,12 +1,13 @@
 /**
  * 设置整页。
  *
- * 左侧一级分类，右侧二级页；旧页面与条目入口统一解析到规范位置。
+ * 左侧按设置目录分组；旧页面与条目入口统一解析到规范位置。
  */
 
 import { ReminderDot } from './ReminderBadge';
 import {
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -25,8 +26,8 @@ import {
   ChevronRight,
   CloudDownload,
   Code2,
+  FileText,
   ImageIcon,
-  LockKeyhole,
   Monitor,
   MessagesSquare,
   Moon,
@@ -34,21 +35,26 @@ import {
   Radio,
   Smile,
   Sun,
+  Type,
+  UserRound,
   X,
 } from 'lucide-react';
 import { GlobalSettingsSection } from './settings/GlobalSettingsSection';
+import { DataSaverSettings } from './settings/DataSaverSettings';
 import { HelpSection } from './settings/HelpSection';
 import { VersionSection } from './settings/VersionSection';
 import { QzoneSettingsSection } from './settings/QzoneSettingsSection';
-import { CallRecordingSection } from './settings/CallRecordingSection';
+import { CallRecordingSection, CallUdpTraceSettings } from './settings/CallRecordingSection';
 import { MailSettingsSection } from './settings/MailSettingsSection';
 import { PrivacySection } from './settings/PrivacySection';
 import { TypingStatusSettingsCard } from './settings/TypingStatusSettingsCard';
 import { AccountBasicsSection } from './settings/AccountBasicsSection';
+import { LongTermAuthorizationSection } from './settings/LongTermAuthorizationSection';
 import { ComponentAppearance } from './settings/ComponentAppearance';
 import { WindowAppearanceCard } from './settings/WindowAppearanceCard';
 import { DesktopOnly } from '../lib/target';
 import { SegmentedControl } from './SegmentedControl';
+import { EmptyState } from './EmptyState';
 import { AgentLabSection } from './settings/AgentLabSection';
 import { IntentSenseSection } from './settings/IntentSenseSection';
 import { InteractionProfileSection } from './settings/InteractionProfileSection';
@@ -65,6 +71,7 @@ import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
 import { AssistantSection } from './settings/AssistantSection';
 import { StartupSection } from './settings/StartupSection';
+import { HomeSettingsSection } from './settings/HomeSettingsSection';
 import { DataMaintenanceSection, type MaintenanceTool } from './settings/DataMaintenanceSection';
 import { DatabaseManagementSection } from './settings/DatabaseManagementSection';
 import { ResourceManagementSection } from './settings/ResourceManagementSection';
@@ -74,7 +81,12 @@ import { SlashEmojiSettings } from './settings/SlashEmojiSettings';
 import { VoiceAutoTranscribeSetting } from './settings/VoiceAutoTranscribeSetting';
 import { MessageDisplayOptions } from './settings/MessageDisplayOptions';
 import { Card, Row, SectionHeader, Toggle } from './settings/controls';
-import { SettingsNavigateContext, SettingsScopeContext } from './settings/controls.shared';
+import {
+  BeforeLoginSettingsContext,
+  OPEN_ACCOUNT_SETTINGS_HINT,
+  SettingsNavigateContext,
+  SettingsScopeContext,
+} from './settings/controls.shared';
 import { trpc } from '../trpc/client';
 import { DEFAULT_ACCENT, normalizeHex } from '../../../shared/theme_colors';
 import { AntiRecallDialog } from './AntiRecallDialog';
@@ -86,6 +98,7 @@ import { mobileBack, useMobileBack } from '../hooks/useMobileNavigation';
 import { UsagePanel } from '../views/agentlab/UsagePanel';
 import '../styles/settings-responsive.css';
 import '../styles/settings-navigation.css';
+import '../styles/mobile-web.css';
 import '../styles/app-search.css';
 import type { SettingsSearchTarget } from './settings/searchTarget';
 import { RetainedTabs, TabActivity } from './RetainedTabs';
@@ -114,284 +127,132 @@ export type { SectionId } from './settings/navigation';
 import { useThemeStore, type ThemeBackground, type ThemePreference } from '../state/theme';
 import { SharedDisplayToggle } from './settings/SharedDisplayToggle';
 import { useEnhancementUpdateBadge } from '../lib/unreadMarkers';
-import { BadgeSettingRow, ConversationListBadgeRows } from './settings/UnreadBadgeSettings';
+import {
+  BadgeSettingRow,
+  ContactAppearanceSettings,
+  ConversationListBadgeRows,
+  MainNavigationSettings,
+} from './settings/UnreadBadgeSettings';
 import { flushSettingsSaves, hasPendingSettingsSaves } from '../lib/settingsSaveQueue';
 import { ContactCardSettings } from './settings/ContactCardSettings';
 import { useRemoteClient } from '../lib/remoteClient';
+import { useMobileWebLayout } from '../hooks/useMobileWebViewport';
 import { remoteSettingAvailable } from '../../../shared/remote_capabilities';
-import { SettingsGroupIcon, SettingsPageIcon } from './settings/pageIcons';
-import { MAINTENANCE_TOOL_ICONS } from '../lib/featureIcons.shared';
+import { SettingsPageIcon } from './settings/pageIcons';
 
-const LoginAccountsIcon = MAINTENANCE_TOOL_ICONS['login-accounts'];
-
-/** 左侧导航的分区 id。导出出去是为了让别的界面能"直接打开某一屏"（例如损坏弹窗 → 数据库宽容）。 */
-interface SettingsSection {
-  id: SettingsPageId;
-  label: string;
-  render: (onOpenMaintenance: (tool: MaintenanceTool) => void) => ReactNode;
-}
-
-const SETTINGS_SECTIONS: SettingsSection[] = [
-  {
-    id: 'contact-card',
-    label: '联系人名片',
-    render: () => <ContactCardSettings />,
-  },
-  {
-    id: 'backup',
-    label: '配置备份与恢复',
-    render: () => <BackupSection />,
-  },
-  {
-    id: 'global',
-    label: '通知与提醒',
-    render: () => <GlobalSettingsSection />,
-  },
-  {
-    id: 'version',
-    label: '版本与更新',
-    render: () => <VersionSection />,
-  },
-  {
-    id: 'appearance',
-    label: '外观与布局',
-    render: () => <AppearanceSection page="theme" />,
-  },
-  {
-    id: 'privacy',
-    label: '隐私',
-    render: () => <PrivacySection />,
-  },
-  {
-    id: 'account',
-    label: '在线能力与授权',
-    render: () => <AccountBasicsSection />,
-  },
-  {
-    id: 'accounts',
-    label: 'WeQ 账号管理',
-    render: () => <GlobalSettingsSection section="accounts" />,
-  },
-  {
-    id: 'call-recording',
-    label: '通话与录音',
-    render: () => <CallRecordingSection />,
-  },
-  {
-    id: 'qzone',
-    label: 'QQ 空间',
-    render: () => <QzoneSettingsSection />,
-  },
-  {
-    id: 'mail',
-    label: 'QQ 邮箱',
-    render: () => <MailSettingsSection />,
-  },
-  {
-    id: 'database-management',
-    label: 'QQ 数据库管理',
-    render: (onOpen) => <DatabaseManagementSection onOpen={onOpen} />,
-  },
-  {
-    id: 'qq-storage',
-    label: 'QQ 资源管理',
-    render: () => <ResourceManagementSection />,
-  },
-  {
-    id: 'enhancement-packs',
-    label: '增强包',
-    render: () => <EnhancementPacksSection />,
-  },
-  {
-    id: 'resource-loading',
-    label: '资源加载',
-    render: () => (
-      <>
-        <GlobalSettingsSection section="network" />
-        <AccountBasicsSection page="media" heading={false} />
-      </>
-    ),
-  },
-  {
-    id: 'logs',
-    label: '日志与性能',
-    render: () => <LogPerformanceSettings />,
-  },
-  {
-    id: 'diagnostics',
-    label: 'QQ 高级工具',
-    render: (onOpen) => (
+const SETTINGS_PAGE_RENDERERS: Record<
+  SettingsPageId,
+  (onOpenMaintenance: (tool: MaintenanceTool) => void) => ReactNode
+> = {
+  startup: () => <StartupSection />,
+  appearance: () => <AppearanceSection page="appearance" />,
+  home: () => <HomeSettingsSection />,
+  global: () => <GlobalSettingsSection />,
+  'main-navigation': () => <MainNavigationSettings />,
+  contacts: () => <ContactAppearanceSettings />,
+  privacy: () => <PrivacySection />,
+  'chat-messages': () => <AppearanceSection page="chat-messages" />,
+  'message-display': () => <AppearanceSection page="message-display" />,
+  'message-content': () => <AppearanceSection page="message-content" />,
+  'chat-interaction': () => <AppearanceSection page="chat-interaction" />,
+  'anti-recall': () => (
+    <div className="weq-set">
+      <SectionHeader title={SETTINGS_PAGE_LABELS['anti-recall']} page="anti-recall" />
+    </div>
+  ),
+  'contact-card': () => <ContactCardSettings />,
+  'call-recording': () => <CallRecordingSection />,
+  qzone: () => <QzoneSettingsSection />,
+  mail: () => <MailSettingsSection />,
+  'enhancement-packs': () => <EnhancementPacksSection />,
+  recognition: () => <RecognitionSettingsSection />,
+  'weq-assistant': () => <WeqAssistantSettingsSection />,
+  'reply-suggestions': () => <ReplySuggestionsSection />,
+  'intent-sense': () => <IntentSenseSection />,
+  'interaction-profile': () => <InteractionProfileSection />,
+  agentlab: () => (
+    <>
+      <AgentLabSection />
       <div className="weq-set">
-        <SectionHeader title="QQ 高级工具" page="diagnostics" />
-        <Card
-          title="QQNT 抓包"
-          icon={<Radio size={15} />}
-          action={
-            <button
-              type="button"
-              className="weq-set-btn weq-set-btn-soft"
-              data-setting-id="qqnt-capture"
-              onClick={() => onOpen('capture')}
-            >
-              打开抓包
-              <ArrowUpRight size={14} aria-hidden />
-            </button>
-          }
-        />
-        <Card
-          title="登录记录与设备标识"
-          icon={<LoginAccountsIcon size={15} />}
-          settingId="qq-accounts"
-        >
-          <LoginAccountPanel />
-        </Card>
-        <SignerStatusCard />
-        <Card
-          title="Protobuf / JCE 逆向"
-          icon={<Code2 size={15} strokeWidth={1.8} />}
-          settingId="reverse-tool"
-        >
-          <ReverseTool />
-        </Card>
+        <TtsProvidersCard />
       </div>
-    ),
-  },
-  {
-    id: 'model-usage',
-    label: 'API 用量',
-    render: () => <ModelUsageSection />,
-  },
-  {
-    id: 'recognition',
-    label: '识别与转写',
-    render: () => <RecognitionSettingsSection />,
-  },
-  {
-    id: 'agentlab',
-    label: 'API 配置',
-    render: () => (
-      <>
-        <AgentLabSection />
-        <div className="weq-set">
-          <TtsProvidersCard />
-        </div>
-      </>
-    ),
-  },
-  {
-    id: 'weq-assistant',
-    label: 'WeQ 助手',
-    render: () => <WeqAssistantSettingsSection />,
-  },
-  {
-    id: 'interaction-profile',
-    label: '互动画像',
-    render: () => <InteractionProfileSection />,
-  },
-  {
-    id: 'reply-suggestions',
-    label: '推荐回复',
-    render: () => <ReplySuggestionsSection />,
-  },
-  {
-    id: 'intent-sense',
-    label: '意图感知',
-    render: () => <IntentSenseSection />,
-  },
-  {
-    id: 'mcp',
-    label: 'MCP 服务器',
-    render: () => <McpServerSection />,
-  },
-  {
-    id: 'onebot',
-    label: SETTINGS_PAGE_LABELS.onebot,
-    render: () => <OneBotSection />,
-  },
-  {
-    id: 'remote',
-    label: 'Web 与 Remote',
-    render: () => <RemoteSection />,
-  },
-  {
-    id: 'assistant',
-    label: 'QQ 公众号推送',
-    render: () => <AssistantSection />,
-  },
-  {
-    id: 'sse',
-    label: 'SSE 推送',
-    render: () => <SsePushSection />,
-  },
-  {
-    id: 'faq',
-    label: '常见问题',
-    render: () => <HelpSection page="faq" />,
-  },
-  {
-    id: 'feedback',
-    label: '反馈',
-    render: () => <HelpSection page="feedback" />,
-  },
-  {
-    id: 'chat-messages',
-    label: '会话列表',
-    render: () => <AppearanceSection page="messages" category="reading" />,
-  },
-  {
-    id: 'message-display',
-    label: '消息阅读',
-    render: () => <AppearanceSection page="messages" category="display" />,
-  },
-  {
-    id: 'chat-interaction',
-    label: '互动与防撤回',
-    render: () => (
-      <>
-        <AppearanceSection page="messages" category="sending" />
-        <TypingStatusSettingsCard />
-      </>
-    ),
-  },
-  {
-    id: 'startup',
-    label: '启动与退出',
-    render: () => <StartupSection />,
-  },
-  {
-    id: 'weq-storage',
-    label: 'WeQ 存储管理',
-    render: () => (
-      <>
-        <div className="weq-set">
-          <SectionHeader title="WeQ 存储管理" page="weq-storage" />
-        </div>
-        <GlobalSettingsSection section="storage" heading={false} />
-      </>
-    ),
-  },
-  {
-    id: 'credentials',
-    label: '凭据管理',
-    render: (onOpen) => (
-      <>
-        <AccountBasicsSection page="credentials" />
-        <div className="weq-set">
-          <Card title="密钥工具" icon={<LockKeyhole size={15} />}>
-            <DataMaintenanceSection
-              title={null}
-              onOpen={onOpen}
-              tools={['key-scan', 'other-device-key']}
-            />
-          </Card>
-        </div>
-        <div data-setting-id="external-rkey">
-          <ExternalRkeySection />
-        </div>
-      </>
-    ),
-  },
-];
+    </>
+  ),
+  'model-usage': () => <ModelUsageSection />,
+  account: () => <AccountBasicsSection />,
+  'long-term-authorization': () => (
+    <div className="weq-set">
+      <SectionHeader
+        page="long-term-authorization"
+        title={SETTINGS_PAGE_LABELS['long-term-authorization']}
+      />
+      <LongTermAuthorizationSection />
+    </div>
+  ),
+  credentials: (onOpen) => (
+    <AccountBasicsSection
+      page="credentials"
+      databaseKeyTools={
+        <DataMaintenanceSection
+          title={null}
+          onOpen={onOpen}
+          tools={['key-scan', 'other-device-key']}
+        />
+      }
+    />
+  ),
+  'qq-accounts': () => (
+    <div className="weq-set">
+      <SectionHeader title={SETTINGS_PAGE_LABELS['qq-accounts']} page="qq-accounts" />
+      <div data-setting-id="qq-accounts">
+        <LoginAccountPanel />
+      </div>
+    </div>
+  ),
+  accounts: () => <GlobalSettingsSection section="accounts" />,
+  remote: () => <RemoteSection />,
+  mcp: () => <McpServerSection />,
+  onebot: () => <OneBotSection />,
+  sse: () => <SsePushSection />,
+  assistant: () => <AssistantSection />,
+  'resource-loading': () => (
+    <>
+      <GlobalSettingsSection section="network" />
+      <AccountBasicsSection page="media" heading={false} />
+      <ExternalRkeySection />
+    </>
+  ),
+  'data-saver': () => (
+    <div className="weq-set">
+      <SectionHeader title={SETTINGS_PAGE_LABELS['data-saver']} page="data-saver" />
+      <DataSaverSettings />
+    </div>
+  ),
+  'qq-storage': () => <ResourceManagementSection />,
+  'weq-storage': () => (
+    <>
+      <div className="weq-set">
+        <SectionHeader title="WeQ 存储管理" page="weq-storage" />
+      </div>
+      <GlobalSettingsSection section="storage" heading={false} />
+    </>
+  ),
+  'database-management': (onOpen) => <DatabaseManagementSection onOpen={onOpen} />,
+  backup: () => <BackupSection />,
+  diagnostics: (onOpen) => <DiagnosticsSettingsSection onOpen={onOpen} />,
+  logs: () => <LogPerformanceSettings />,
+  version: () => <VersionSection />,
+  faq: () => <HelpSection page="faq" />,
+  feedback: () => <HelpSection page="feedback" />,
+};
+
+const DEFAULT_SETTINGS_PAGE = SETTINGS_GROUPS[0]!.sections[0]!;
+const ACCOUNT_ONLY_PAGE_DETAILS: Partial<Record<SettingsPageId, string>> = {
+  credentials: '打开 QQ 账号后，可以查看和管理该账号的数据库密钥与会话密钥。',
+  'qq-storage': '打开本机的 QQ 账号后，可以查看缓存占用、浏览和清理资源。',
+  'model-usage': '打开 QQ 账号后，可以查看该账号和应用全局的模型请求、用量与请求记录。',
+  onebot: '打开 QQ 账号后，可以为该账号配置 OneBot 连接，并查看服务状态。',
+};
 
 /** Quick-pick accent presets. First entry is the WeQ default blue. */
 const ACCENT_PRESETS = [
@@ -409,24 +270,28 @@ const ACCENT_PRESETS = [
 export function SettingsDialog(props: Parameters<typeof SettingsContent>[0]): ReactElement {
   return (
     <PageSnapshotsFallback scope="bootstrap-settings">
-      <SettingsContent {...props} />
+      <BeforeLoginSettingsContext.Provider value={props.beforeLogin ?? false}>
+        <SettingsContent {...props} />
+      </BeforeLoginSettingsContext.Provider>
     </PageSnapshotsFallback>
   );
 }
 
 function SettingsContent({
   open,
+  beforeLogin = false,
   onClose,
   initialSection,
   searchTarget,
-  onOpenMaintenance,
-  onOpenRecalls,
+  onOpenMaintenance = () => {},
+  onOpenRecalls = () => {},
   recallDetails,
   onCloseRecalls,
   isCurrentSource,
   navigationGuard,
 }: {
   open: boolean;
+  beforeLogin?: boolean;
   onClose: () => void;
   /**
    * 打开时先落到哪一屏。每次 `open` 从 false 变 true 都会重新应用 ——
@@ -434,8 +299,8 @@ function SettingsContent({
    */
   initialSection?: SectionId;
   searchTarget?: SettingsSearchTarget | null;
-  onOpenMaintenance: (tool: MaintenanceTool) => void;
-  onOpenRecalls: (kind: 'c2c' | 'group', conv: string) => void;
+  onOpenMaintenance?: (tool: MaintenanceTool) => void;
+  onOpenRecalls?: (kind: 'c2c' | 'group', conv: string) => void;
   recallDetails?: ReactNode;
   onCloseRecalls?: () => void;
   isCurrentSource?: () => boolean;
@@ -444,34 +309,32 @@ function SettingsContent({
   const notificationToast = useToastApi();
   const remote = useRemoteClient();
   const target = useMemo(
-    () => resolveSettingsTarget(searchTarget ?? { section: initialSection ?? 'startup' }),
+    () =>
+      resolveSettingsTarget(searchTarget ?? { section: initialSection ?? DEFAULT_SETTINGS_PAGE }),
     [initialSection, searchTarget],
   );
   const [linkedTarget, setLinkedTarget] = useState<SettingsSearchTarget | null>(null);
   useEffect(() => setLinkedTarget(null), [initialSection, searchTarget]);
-  const [activeId, setActiveId] = usePageState<SettingsPageId>(
+  const [savedPage, setActiveId] = usePageState<SettingsPageId | 'notification-badges'>(
     'settings:active',
     () => target.section,
-    z.custom<SettingsPageId>(
+    z.custom<SettingsPageId | 'notification-badges'>(
       (value) =>
-        typeof value === 'string' &&
-        SETTINGS_GROUPS.some((group) => group.sections.some((section) => section === value)),
+        value === 'notification-badges' ||
+        (typeof value === 'string' && Object.hasOwn(SETTINGS_PAGE_RENDERERS, value)),
     ),
   );
+  const activeId =
+    savedPage === 'notification-badges'
+      ? resolveSettingsTarget({ section: savedPage }).section
+      : savedPage;
   const packUpdate = useEnhancementUpdateBadge();
   const locked = useAppLock((state) => state.locked);
-  const navRef = useRef<HTMLElement | null>(null);
-  const [mobileCategoryOpen, setMobileCategoryOpen] = useState(
-    Boolean(initialSection || searchTarget),
-  );
-  const subnavRef = useRef<HTMLElement | null>(null);
-  const sections = SETTINGS_SECTIONS.filter((entry) => !remote || remoteSettingAvailable(entry.id));
-  const groups = SETTINGS_GROUPS.map((group) => ({
-    ...group,
-    sections: group.sections.filter((id) => sections.some((section) => section.id === id)),
-  })).filter((group) => group.sections.length > 0);
-  const group = groups.find((entry) => entry.sections.includes(activeId)) ?? groups[0]!;
-  const groupSections = group.sections.map((id) => sections.find((section) => section.id === id)!);
+  const singleColumn = useMobileWebLayout();
+  const [nav, setNav] = useState<HTMLElement | null>(null);
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(Boolean(initialSection || searchTarget));
+  const activePage = remote && !remoteSettingAvailable(activeId) ? DEFAULT_SETTINGS_PAGE : activeId;
+  const accountOnlyDetail = beforeLogin ? ACCOUNT_ONLY_PAGE_DETAILS[activePage] : undefined;
   const snapshots = usePageSnapshotReset('workspace:main:设置');
   const activeKey = usePageSnapshotKey('settings:active');
   useEffect(() => {
@@ -518,8 +381,15 @@ function SettingsContent({
   );
   const switchSection = useCallback(
     (section: SettingsPageId) => {
-      if (remote && !remoteSettingAvailable(section)) section = 'startup';
-      if (section !== activeId) requestNavigation(() => setActiveId(section));
+      if (remote && !remoteSettingAvailable(section)) section = DEFAULT_SETTINGS_PAGE;
+      if (section === activeId) {
+        setMobileDetailOpen(true);
+        return;
+      }
+      requestNavigation(() => {
+        setActiveId(section);
+        setMobileDetailOpen(true);
+      });
     },
     [activeId, requestNavigation, setActiveId, remote],
   );
@@ -533,10 +403,10 @@ function SettingsContent({
     };
   }, [open, navigationGuard, requestNavigation]);
   useMobileBack(
-    open && !closing && mobileCategoryOpen,
-    () => requestNavigation(() => setMobileCategoryOpen(false)),
+    Boolean(nav) && open && !closing && singleColumn && mobileDetailOpen,
+    () => requestNavigation(() => setMobileDetailOpen(false)),
     30,
-    () => navRef.current?.parentElement ?? null,
+    () => nav?.parentElement ?? null,
   );
   useEffect(() => {
     if (!closing) return;
@@ -552,8 +422,8 @@ function SettingsContent({
       setClosing(false);
       return;
     }
-    setActiveId('startup');
-    setMobileCategoryOpen(false);
+    setActiveId(DEFAULT_SETTINGS_PAGE);
+    setMobileDetailOpen(false);
     onClose();
     setClosing(false);
   }, [closing, snapshots, setActiveId, onClose, notificationToast]);
@@ -565,24 +435,26 @@ function SettingsContent({
   }, [guard.drafts, snapshotDraft]);
 
   useEffect(() => {
-    if (open && (initialSection || searchTarget)) switchSectionRef.current(target.section);
-    if (open) setMobileCategoryOpen(Boolean(initialSection || searchTarget));
+    if (!open) return;
+    if (initialSection || searchTarget) switchSectionRef.current(target.section);
+    else setMobileDetailOpen(false);
   }, [open, initialSection, searchTarget, target]);
 
   useEffect(() => {
-    if (open) {
-      navRef.current
+    // 多栏始终显示当前详情，回到单栏时继续显示同一页。
+    if (open && !closing && !singleColumn && !mobileDetailOpen) setMobileDetailOpen(true);
+  }, [open, closing, singleColumn, mobileDetailOpen]);
+
+  useEffect(() => {
+    if (open && (!singleColumn || !mobileDetailOpen)) {
+      nav
         ?.querySelector<HTMLElement>('.weq-settings-nav-item.is-active')
         ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-      subnavRef.current
-        ?.querySelector<HTMLElement>('.weq-settings-subnav-item.is-active')
-        ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     }
-  }, [open, activeId]);
+  }, [nav, open, activePage, mobileDetailOpen, singleColumn]);
 
   if (!open || closing) return null;
 
-  const active = sections.find((s) => s.id === activeId) ?? sections[0] ?? SETTINGS_SECTIONS[0]!;
   const requestClose = () => {
     if (hasPendingSettingsSaves())
       void flushSettingsSaves().then(() => {
@@ -602,161 +474,175 @@ function SettingsContent({
       >
         <section
           className="weq-settings-dialog weq-mobile-settings"
-          data-mobile-category={mobileCategoryOpen || undefined}
+          data-mobile-detail={mobileDetailOpen || undefined}
           role="region"
-          aria-labelledby="weq-settings-title"
+          aria-label="设置"
           onMouseDown={(e) => e.stopPropagation()}
         >
           <header className="weq-mobile-settings-header">
             <button
               type="button"
-              aria-label={mobileCategoryOpen ? '返回设置分类' : '返回'}
-              title={mobileCategoryOpen ? '返回设置分类' : '返回'}
+              aria-label={mobileDetailOpen ? '返回设置' : beforeLogin ? '关闭设置' : '返回'}
+              title={mobileDetailOpen ? '返回设置' : beforeLogin ? '关闭设置' : '返回'}
               onClick={() =>
-                // 标题写着「返回设置分类」时只回到一级分类，不经过返回栈退出设置。
-                mobileCategoryOpen
-                  ? requestNavigation(() => setMobileCategoryOpen(false))
-                  : mobileBack() || requestNavigation(onClose)
+                mobileDetailOpen
+                  ? requestNavigation(() => setMobileDetailOpen(false))
+                  : beforeLogin
+                    ? requestClose()
+                    : mobileBack() || requestNavigation(onClose)
               }
             >
               <ArrowLeft size={22} />
             </button>
-            <strong>{mobileCategoryOpen ? group.label : '设置'}</strong>
+            <strong>设置</strong>
           </header>
-          <button
-            className="weq-settings-close"
-            type="button"
-            title="关闭"
-            aria-label="关闭"
-            onClick={requestClose}
-          >
-            <X size={18} />
-          </button>
-          <nav ref={navRef} className="weq-settings-nav" aria-label="设置分类">
-            <h2 id="weq-settings-title" className="weq-settings-nav-title">
-              设置
-            </h2>
-            <ul>
-              {groups.map((s) => (
-                <li key={s.id}>
-                  <button
-                    type="button"
-                    className={`weq-settings-nav-item${s.id === group.id ? ' is-active' : ''}`}
-                    aria-current={s.id === group.id ? 'page' : undefined}
-                    onClick={() => {
-                      if (s.sections[0] === activeId) {
-                        setMobileCategoryOpen(true);
-                        return;
-                      }
-                      requestNavigation(() => {
-                        setActiveId(s.sections[0]!);
-                        setMobileCategoryOpen(true);
-                      });
-                    }}
-                  >
-                    <span className="weq-settings-nav-icon">
-                      <SettingsGroupIcon group={s.id} />
-                    </span>
-                    <span className="weq-settings-nav-label">
-                      {s.label}
-                      {packUpdate && s.sections.includes('enhancement-packs') ? (
-                        <ReminderDot
-                          className="weq-settings-update-mark"
-                          aria-label="有增强包更新"
-                        />
-                      ) : null}
-                    </span>
-                    <ChevronRight className="weq-mobile-settings-chevron" size={18} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </nav>
-          <div className="weq-settings-content">
-            <nav ref={subnavRef} className="weq-settings-subnav" aria-label={`${group.label}分类`}>
-              {groupSections.map((section) => (
+          <nav ref={setNav} className="weq-settings-nav" aria-label="设置页面">
+            <div className="weq-settings-nav-heading">
+              <h2 className="weq-settings-nav-title">设置</h2>
+              {beforeLogin && !singleColumn && (
                 <button
-                  key={section.id}
                   type="button"
-                  className={`weq-settings-subnav-item${section.id === activeId ? ' is-active' : ''}`}
-                  aria-current={section.id === activeId ? 'page' : undefined}
-                  onClick={() => switchSection(section.id)}
+                  className="weq-set-iconbtn weq-bootstrap-settings-close"
+                  aria-label="关闭设置"
+                  title="关闭设置"
+                  onClick={requestClose}
                 >
-                  <span className="weq-settings-subnav-icon" aria-hidden="true">
-                    <SettingsPageIcon page={section.id} />
-                  </span>
-                  <span className="weq-settings-subnav-label">{section.label}</span>
-                  {packUpdate && section.id === 'enhancement-packs' ? (
-                    <ReminderDot className="weq-settings-update-mark" aria-label="有增强包更新" />
-                  ) : null}
+                  <X size={18} aria-hidden />
                 </button>
-              ))}
-            </nav>
-            <div className="weq-settings-pages">
-              <TabActivity active={!locked}>
-                <PageSnapshotsFallback scope="bootstrap-settings">
-                  <RetainedTabs snapshotKey="settings" activeKey={active.id}>
-                    <RetainedSettingsPage
-                      pageId={active.id}
-                      target={linkedTarget ? resolveSettingsTarget(linkedTarget) : target}
-                      revision={linkedTarget?.revision ?? searchTarget?.revision}
-                      recordId={linkedTarget?.recordId ?? searchTarget?.recordId}
-                    >
-                      <SettingsNotificationSource section={active.id}>
-                        <SettingsScopeContext.Provider value={settingsScopeFor(active.id)}>
-                          <SettingsNavigateContext.Provider
-                            value={(section, settingId) => {
-                              const next = resolveSettingsTarget({
-                                section: section as SectionId,
-                                settingId,
-                              });
-                              requestNavigation(() => {
-                                setLinkedTarget({ ...next, revision: Date.now() });
-                                setActiveId(next.section);
-                                setMobileCategoryOpen(true);
-                              });
-                            }}
-                          >
-                            {active.id === 'chat-interaction' ? (
-                              <>
-                                {active.render(onOpenMaintenance)}
-                                <SettingsScopeContext.Provider value={null}>
-                                  <AntiRecallDialog
-                                    embedded
-                                    onClose={() => {}}
-                                    onOpenRecalls={onOpenRecalls}
-                                    recallDetails={recallDetails}
-                                    onCloseRecalls={onCloseRecalls}
-                                    isCurrentSource={isCurrentSource}
-                                  />
-                                </SettingsScopeContext.Provider>
-                              </>
-                            ) : active.id === 'global' ? (
-                              <GlobalSettingsSection
-                                notificationTarget={linkedTarget ?? searchTarget}
-                                recallNotifications={
-                                  <AntiRecallDialog
-                                    embedded
-                                    section="notifications"
-                                    onClose={() => {}}
-                                    onOpenRecalls={onOpenRecalls}
-                                    isCurrentSource={isCurrentSource}
-                                    notificationConversation={searchTarget?.conversation}
-                                    notificationRevision={searchTarget?.revision}
-                                  />
-                                }
-                              />
-                            ) : (
-                              active.render(onOpenMaintenance)
-                            )}
-                          </SettingsNavigateContext.Provider>
-                        </SettingsScopeContext.Provider>
-                      </SettingsNotificationSource>
-                    </RetainedSettingsPage>
-                  </RetainedTabs>
-                </PageSnapshotsFallback>
-              </TabActivity>
+              )}
             </div>
+            <div className="weq-settings-nav-groups">
+              {SETTINGS_GROUPS.map(({ id, label, sections }) => {
+                const pages = remote
+                  ? sections.filter((page) => remoteSettingAvailable(page))
+                  : sections;
+                if (!pages.length) return null;
+                return (
+                  <div className="weq-settings-nav-group" key={id}>
+                    <h3 className="weq-settings-nav-group-title">{label}</h3>
+                    <ul aria-label={label}>
+                      {pages.map((page) => (
+                        <li key={page}>
+                          <button
+                            type="button"
+                            className={`weq-settings-nav-item${page === activePage ? ' is-active' : ''}`}
+                            aria-current={page === activePage ? 'page' : undefined}
+                            onClick={() => switchSection(page)}
+                          >
+                            <span className="weq-settings-nav-icon" aria-hidden="true">
+                              <SettingsPageIcon page={page} />
+                            </span>
+                            <span className="weq-settings-nav-label">
+                              {SETTINGS_PAGE_LABELS[page]}
+                              {packUpdate && page === 'enhancement-packs' ? (
+                                <ReminderDot
+                                  className="weq-settings-update-mark"
+                                  aria-label="有增强包更新"
+                                />
+                              ) : null}
+                            </span>
+                            <ChevronRight
+                              className="weq-mobile-settings-chevron"
+                              size={18}
+                              aria-hidden
+                            />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
+          </nav>
+          <div className="weq-settings-pages">
+            <TabActivity active={!locked}>
+              <PageSnapshotsFallback scope="bootstrap-settings">
+                <RetainedTabs snapshotKey="settings" activeKey={activePage}>
+                  <RetainedSettingsPage
+                    pageId={activePage}
+                    target={linkedTarget ? resolveSettingsTarget(linkedTarget) : target}
+                    revision={linkedTarget?.revision ?? searchTarget?.revision}
+                    recordId={linkedTarget?.recordId ?? searchTarget?.recordId}
+                  >
+                    <SettingsNotificationSource section={activePage}>
+                      <SettingsScopeContext.Provider value={settingsScopeFor(activePage)}>
+                        <SettingsNavigateContext.Provider
+                          value={(section, settingId) => {
+                            const next = resolveSettingsTarget({
+                              section: section as SectionId,
+                              settingId,
+                            });
+                            requestNavigation(() => {
+                              setLinkedTarget({ ...next, revision: Date.now() });
+                              setActiveId(next.section);
+                              setMobileDetailOpen(true);
+                            });
+                          }}
+                        >
+                          {accountOnlyDetail ? (
+                            <div className="weq-set">
+                              <SectionHeader
+                                title={SETTINGS_PAGE_LABELS[activePage]}
+                                page={activePage}
+                                pageReset={false}
+                              />
+                              <Card>
+                                <EmptyState
+                                  icon={<UserRound />}
+                                  title="先打开 QQ 账号"
+                                  body={accountOnlyDetail}
+                                  action={
+                                    <button
+                                      type="button"
+                                      className="weq-set-btn weq-set-btn-primary"
+                                      onClick={requestClose}
+                                    >
+                                      返回账号列表
+                                    </button>
+                                  }
+                                />
+                              </Card>
+                            </div>
+                          ) : activePage === 'anti-recall' ? (
+                            <>
+                              {SETTINGS_PAGE_RENDERERS[activePage](onOpenMaintenance)}
+                              <SettingsScopeContext.Provider value={null}>
+                                <AntiRecallDialog
+                                  embedded
+                                  onClose={() => {}}
+                                  onOpenRecalls={onOpenRecalls}
+                                  recallDetails={recallDetails}
+                                  onCloseRecalls={onCloseRecalls}
+                                  isCurrentSource={isCurrentSource}
+                                />
+                              </SettingsScopeContext.Provider>
+                            </>
+                          ) : activePage === 'global' ? (
+                            <GlobalSettingsSection
+                              notificationTarget={linkedTarget ?? searchTarget}
+                              recallNotifications={
+                                <AntiRecallDialog
+                                  embedded
+                                  section="notifications"
+                                  onClose={() => {}}
+                                  onOpenRecalls={onOpenRecalls}
+                                  isCurrentSource={isCurrentSource}
+                                  notificationConversation={searchTarget?.conversation}
+                                  notificationRevision={searchTarget?.revision}
+                                />
+                              }
+                            />
+                          ) : (
+                            SETTINGS_PAGE_RENDERERS[activePage](onOpenMaintenance)
+                          )}
+                        </SettingsNavigateContext.Provider>
+                      </SettingsScopeContext.Provider>
+                    </SettingsNotificationSource>
+                  </RetainedSettingsPage>
+                </RetainedTabs>
+              </PageSnapshotsFallback>
+            </TabActivity>
           </div>
         </section>
       </WorkspacePage>
@@ -803,7 +689,7 @@ function SettingsContent({
                 className="weq-action-primary"
                 onClick={() => {
                   setPendingNavigation(null);
-                  const body = navRef.current?.parentElement?.querySelector('.weq-settings-body');
+                  const body = nav?.parentElement?.querySelector('.weq-settings-body');
                   const save = [
                     ...(body?.querySelectorAll<HTMLButtonElement>('button') ?? []),
                   ].find((button) => !button.disabled && button.textContent?.includes('保存'));
@@ -823,6 +709,46 @@ function SettingsContent({
   );
 }
 
+function DiagnosticsSettingsSection({
+  onOpen,
+}: {
+  onOpen: (tool: MaintenanceTool) => void;
+}): ReactElement {
+  const remote = useRemoteClient();
+  const beforeLogin = useContext(BeforeLoginSettingsContext);
+  return (
+    <div className="weq-set">
+      <SectionHeader title="QQ 高级工具" page="diagnostics" pageReset={!remote} />
+      <Card
+        title="QQNT 抓包"
+        icon={<Radio size={15} />}
+        action={
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft"
+            data-setting-id="qqnt-capture"
+            disabled={beforeLogin}
+            title={beforeLogin ? OPEN_ACCOUNT_SETTINGS_HINT : undefined}
+            onClick={() => onOpen('capture')}
+          >
+            打开抓包
+            <ArrowUpRight size={14} aria-hidden />
+          </button>
+        }
+      />
+      <CallUdpTraceSettings />
+      <SignerStatusCard />
+      <Card
+        title="Protobuf / JCE 逆向"
+        icon={<Code2 size={15} strokeWidth={1.8} />}
+        settingId="reverse-tool"
+      >
+        <ReverseTool />
+      </Card>
+    </div>
+  );
+}
+
 function ModelUsageSection(): ReactElement {
   return (
     <div className="weq-set weq-settings-model-usage">
@@ -834,12 +760,8 @@ function ModelUsageSection(): ReactElement {
 
 function AppearanceSection({
   page,
-  heading = true,
-  category = 'reading',
 }: {
-  page: 'theme' | 'messages';
-  heading?: boolean;
-  category?: 'reading' | 'display' | 'sending';
+  page: 'appearance' | 'chat-messages' | 'message-display' | 'message-content' | 'chat-interaction';
 }): ReactElement {
   const active = useTabActive();
   const preference = useThemeStore((state) => state.preference);
@@ -865,6 +787,13 @@ function AppearanceSection({
   const setJumpToLatestAfterSend = trpc.bootstrap.setJumpToLatestAfterSend.useMutation();
   const setShowScrollToBottomButton = trpc.bootstrap.setShowScrollToBottomButton.useMutation();
   const utils = trpc.useUtils();
+  const setDefaultMessageFont = trpc.bootstrap.setDefaultMessageFont.useMutation({
+    onSuccess: (defaultMessageFont) => {
+      utils.bootstrap.getSettings.setData(undefined, (data) =>
+        data ? { ...data, defaultMessageFont } : data,
+      );
+    },
+  });
   const [readingError, setReadingError] = useState<string | null>(null);
   const [textMarkdown, setTextMarkdown] = useState(false);
   const [linkPreview, setLinkPreviewDraft] = useState(
@@ -949,33 +878,15 @@ function AppearanceSection({
 
   return (
     <section className="weq-settings-section">
-      {heading && (
-        <SectionHeader
-          page={
-            page === 'theme'
-              ? 'appearance'
-              : category === 'reading'
-                ? 'chat-messages'
-                : category === 'sending'
-                  ? 'chat-interaction'
-                  : 'message-display'
-          }
-          title={
-            page === 'theme'
-              ? '外观与布局'
-              : category === 'reading'
-                ? '会话列表'
-                : category === 'sending'
-                  ? '互动与防撤回'
-                  : '消息阅读'
-          }
-        />
-      )}
+      <SectionHeader page={page} title={SETTINGS_PAGE_LABELS[page]} />
 
-      {page === 'theme' && (
+      {page === 'appearance' && (
         <>
+          <DesktopOnly>
+            <WindowAppearanceCard />
+          </DesktopOnly>
+
           <Card
-            title="基础模式"
             desc="控制浅色、深色与跟随系统"
             icon={<Sun size={15} strokeWidth={1.8} />}
             resetId="theme-mode"
@@ -1016,14 +927,11 @@ function AppearanceSection({
           </Card>
 
           <ComponentAppearance />
-          <DesktopOnly>
-            <WindowAppearanceCard />
-          </DesktopOnly>
         </>
       )}
-      {page === 'messages' && (
+      {page !== 'appearance' && (
         <>
-          {category === 'reading' && (
+          {page === 'chat-messages' && (
             <Card
               title="会话预览"
               icon={<MessagesSquare size={15} />}
@@ -1047,7 +955,7 @@ function AppearanceSection({
               />
             </Card>
           )}
-          {category === 'reading' && (
+          {page === 'chat-messages' && (
             <Card title="列表行为" icon={<MessagesSquare size={15} />} resetId="conversation-order">
               <Row
                 settingId="keep-conversation-position-on-hover"
@@ -1072,12 +980,12 @@ function AppearanceSection({
               />
             </Card>
           )}
-          {category === 'reading' && (
+          {page === 'chat-messages' && (
             <Card title="常规视图未读角标" icon={<Bell size={15} />} resetId="conversation-markers">
               <ConversationListBadgeRows />
             </Card>
           )}
-          {category === 'reading' && (
+          {page === 'chat-messages' && (
             <Card
               title="全部会话视图"
               icon={<MessagesSquare size={15} />}
@@ -1105,7 +1013,7 @@ function AppearanceSection({
               />
             </Card>
           )}
-          {category === 'display' && (
+          {page === 'message-display' && (
             <>
               <Card resetId="reading" icon={<BookOpen size={15} strokeWidth={1.8} />}>
                 {readingToggle(
@@ -1176,12 +1084,35 @@ function AppearanceSection({
               </Card>
             </>
           )}
-          {category === 'sending' && (
+          {page === 'chat-interaction' && (
+            <Card resetId="message-send-font" icon={<Type size={15} />}>
+              <Row
+                settingId="default-message-font"
+                control={
+                  <SegmentedControl<'plain' | 'account'>
+                    label="默认使用的字体"
+                    value={settings.data?.defaultMessageFont ?? null}
+                    disabled={!settings.data || setDefaultMessageFont.isLoading}
+                    onChange={(font) => setDefaultMessageFont.mutate({ font })}
+                    options={[
+                      { value: 'plain', label: '普通字体' },
+                      { value: 'account', label: '账号使用的字体' },
+                    ]}
+                  />
+                }
+              />
+              {setDefaultMessageFont.error ? (
+                <p role="alert">{setDefaultMessageFont.error.message}</p>
+              ) : null}
+            </Card>
+          )}
+          {page === 'chat-interaction' && (
             <Card title="表情输入" icon={<Smile size={15} />} resetId="emoji-shortcuts">
               <SlashEmojiSettings />
             </Card>
           )}
-          {category === 'sending' && (
+          {page === 'chat-interaction' && <TypingStatusSettingsCard />}
+          {page === 'chat-interaction' && (
             <Card resetId="quote-replies" icon={<MessagesSquare size={15} />}>
               <Row
                 settingId="swipe-to-quote"
@@ -1210,88 +1141,86 @@ function AppearanceSection({
               />
             </Card>
           )}
-          {category === 'display' && (
-            <Card
-              title="内容显示"
-              icon={<Monitor size={15} />}
-              settingId="custom-message-display"
-              resetId="message-content"
-            >
+          {page === 'message-content' && (
+            <>
               <MessageDisplayOptions />
-              <h4 className="weq-message-display-heading">正文与预览</h4>
-              <VoiceAutoTranscribeSetting />
-              <Row
-                settingId="text-markdown"
-                label="文本消息自动渲染为 Markdown"
-                desc={
-                  <>
-                    把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
-                    自己的功能，关闭后默认显示原文，仍可右键手动选择「显示
-                    Markdown」。单条消息的手动选择优先，QQ 原生 Markdown 消息不受影响。
-                  </>
-                }
-                control={
-                  <Toggle
-                    checked={textMarkdown}
-                    disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
-                    onChange={(next) => void onSetTextMarkdown(next)}
-                    label="文本消息自动渲染为 Markdown"
-                  />
-                }
-              />
-              <Row
-                settingId="link-preview"
-                desc="一条消息只有一个链接时，显示 QQ 已提供或本地已缓存的预览。关闭后，链接仍可点击。"
-                control={
-                  <span
-                    data-setting-fallback={
-                      !linkPreview.enabled ? 'link-preview-auto-fetch link-screenshot' : undefined
-                    }
-                  >
-                    <Toggle
-                      checked={linkPreview.enabled}
-                      disabled={settings.isLoading || setLinkPreview.isLoading}
-                      onChange={(enabled) => void onSetLinkPreview({ enabled })}
-                      label="链接预览卡片"
-                    />
-                  </span>
-                }
-              />
-              {linkPreview.enabled ? (
+              <Card title="正文与预览" icon={<FileText size={15} />}>
+                <VoiceAutoTranscribeSetting />
                 <Row
-                  settingId="link-preview-auto-fetch"
-                  indent
-                  desc="允许在浏览消息时访问链接或封面地址，补齐本地缺失的标题、简介和图片。"
+                  settingId="text-markdown"
+                  label="文本消息自动渲染为 Markdown"
+                  desc={
+                    <>
+                      把普通文本消息里的 # 标题、**加粗**、代码块等语法渲染成富文本。这是 WeQ
+                      自己的功能，关闭后默认显示原文，仍可右键手动选择「显示
+                      Markdown」。单条消息的手动选择优先，QQ 原生 Markdown 消息不受影响。
+                    </>
+                  }
+                  control={
+                    <Toggle
+                      checked={textMarkdown}
+                      disabled={settings.isLoading || setRenderTextMarkdown.isLoading}
+                      onChange={(next) => void onSetTextMarkdown(next)}
+                      label="文本消息自动渲染为 Markdown"
+                    />
+                  }
+                />
+                <Row
+                  settingId="link-preview"
+                  desc="一条消息只有一个链接时，显示 QQ 已提供或本地已缓存的预览。关闭后，链接仍可点击。"
                   control={
                     <span
-                      data-setting-fallback={!linkPreview.autoFetch ? 'link-screenshot' : undefined}
+                      data-setting-fallback={
+                        !linkPreview.enabled ? 'link-preview-auto-fetch link-screenshot' : undefined
+                      }
                     >
                       <Toggle
-                        checked={linkPreview.autoFetch}
+                        checked={linkPreview.enabled}
                         disabled={settings.isLoading || setLinkPreview.isLoading}
-                        onChange={(autoFetch) => void onSetLinkPreview({ autoFetch })}
-                        label="自动联网补全链接预览"
+                        onChange={(enabled) => void onSetLinkPreview({ enabled })}
+                        label="链接预览卡片"
                       />
                     </span>
                   }
                 />
-              ) : null}
-              {linkPreview.enabled && linkPreview.autoFetch ? (
-                <Row
-                  settingId="link-screenshot"
-                  indent
-                  desc="联网补全时，如果网页没有封面图，可在隔离窗口中打开网页并截取首屏。"
-                  control={
-                    <Toggle
-                      checked={linkPreview.screenshot}
-                      disabled={settings.isLoading || setLinkPreview.isLoading}
-                      onChange={(screenshot) => void onSetLinkPreview({ screenshot })}
-                      label="无封面时网页截图"
-                    />
-                  }
-                />
-              ) : null}
-            </Card>
+                {linkPreview.enabled ? (
+                  <Row
+                    settingId="link-preview-auto-fetch"
+                    indent
+                    desc="允许在浏览消息时访问链接或封面地址，补齐本地缺失的标题、简介和图片。"
+                    control={
+                      <span
+                        data-setting-fallback={
+                          !linkPreview.autoFetch ? 'link-screenshot' : undefined
+                        }
+                      >
+                        <Toggle
+                          checked={linkPreview.autoFetch}
+                          disabled={settings.isLoading || setLinkPreview.isLoading}
+                          onChange={(autoFetch) => void onSetLinkPreview({ autoFetch })}
+                          label="自动联网补全链接预览"
+                        />
+                      </span>
+                    }
+                  />
+                ) : null}
+                {linkPreview.enabled && linkPreview.autoFetch ? (
+                  <Row
+                    settingId="link-screenshot"
+                    indent
+                    desc="联网补全时，如果网页没有封面图，可在隔离窗口中打开网页并截取首屏。"
+                    control={
+                      <Toggle
+                        checked={linkPreview.screenshot}
+                        disabled={settings.isLoading || setLinkPreview.isLoading}
+                        onChange={(screenshot) => void onSetLinkPreview({ screenshot })}
+                        label="无封面时网页截图"
+                      />
+                    }
+                  />
+                ) : null}
+              </Card>
+            </>
           )}
         </>
       )}

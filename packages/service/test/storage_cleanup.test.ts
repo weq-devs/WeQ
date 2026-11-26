@@ -222,7 +222,7 @@ it('未知 ID、空选择、只读和不完整项目不能进入退出清除计�
   expect(selectStorageCleanupTargets(items, ['ocr', 'ocr'])).toHaveLength(1);
 });
 
-it('配置文件和诊断可明确选择清除，模型留给增强包管理，未选原件保留', async () => {
+it('配置文件和诊断可明确选择清除，未选的模型与原件保留', async () => {
   const f = fixture();
   const selected = [
     f.file('config.json'),
@@ -236,7 +236,10 @@ it('配置文件和诊断可明确选择清除，模型留给增强包管理，�
     selected.some((path) => path === item.path || path.startsWith(`${item.path}${sep}`)),
   );
   expect(targets).toHaveLength(3);
-  expect(items.find((item) => item.path === dirname(model))?.clearable).toBe(false);
+  expect(items.find((item) => item.path === dirname(model))).toMatchObject({
+    clearable: true,
+    exitOnly: true,
+  });
   expect(targets.every((item) => item.requiresExit && item.confirmation)).toBe(true);
   const result = await executeStorageCleanup({
     targets,
@@ -277,7 +280,7 @@ it('保护安装资源、维护回执及被换成符号链接的目标，其他�
   const ocr = items.find((item) => item.id === 'ocr')!;
   rmSync(ocr.path, { recursive: true });
   symlinkSync(other.root, ocr.path, process.platform === 'win32' ? 'junction' : 'dir');
-  const model = items.find((item) => item.label === '本地模型')!;
+  const model = items.find((item) => item.path === join(f.root, 'models'))!;
   const log = items.find((item) => item.label === '运行日志')!;
   const result = await executeStorageCleanup({
     targets: [ocr, model, log],

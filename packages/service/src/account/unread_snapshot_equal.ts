@@ -13,6 +13,7 @@ const snapshotFields = Object.keys({
   msgSeq: true,
   localReadSeq: true,
   markUnread: true,
+  groupNotifyLevel: true,
   storedUnreadCount: true,
   localUnreadCount: true,
   deviceRead: true,

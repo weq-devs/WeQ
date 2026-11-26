@@ -74,6 +74,12 @@ html[data-theme='dark'] .qq-voice-row .weq-media-save-controls .qq-voice-transcr
 .qq-file-action {
   flex: 0 0 36px;
 }
+.qq-file-action[data-paused='true'] {
+  flex-basis: auto;
+  inline-size: auto;
+  grid-auto-flow: column;
+  gap: 2px;
+}
 .qq-file-download-ring {
   position: relative;
   color: var(--weq-accent-effective);

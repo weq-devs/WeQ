@@ -2,7 +2,8 @@ import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { ContactMetricsService } from '../src/account/contact_metrics';
+import { ContactMetricsService, type ContactMetricRows } from '../src/account/contact_metrics';
+import type { ContactHistoryService } from '../src/account/contact_history';
 
 const roots: string[] = [];
 const services: ContactMetricsService[] = [];
@@ -96,6 +97,28 @@ it('区分真实零、未知和失败；失败保留旧值，持久化后按旧�
     value: 0,
     state: 'failed',
   });
+});
+
+it.each([false, true])('恢复排序缓存时跳过旧共同好友计数，SQLite=%s', async (sqlite) => {
+  const { path } = await setup();
+  const cell = { state: 'ready' as const, attemptedAt: 1, updatedAt: 1 };
+  const rows: ContactMetricRows = {
+    'friend:123': {
+      commonFriends: { ...cell, value: 25 },
+      level: { ...cell, value: 39 },
+    },
+    'friend:456': {
+      commonFriends: { ...cell, value: 31, source: 'commonAttributes' },
+    },
+  };
+  const history = sqlite ? ({ projections: async () => rows } as ContactHistoryService) : undefined;
+  if (!sqlite) await writeFile(path, JSON.stringify({ version: 1, rows }));
+  const reopened = new ContactMetricsService(path, () => false, undefined, history);
+  services.push(reopened);
+  const loaded = (await reopened.snapshot()).rows;
+  expect(loaded['friend:123']?.commonFriends).toBeUndefined();
+  expect(loaded['friend:123']?.level?.value).toBe(39);
+  expect(loaded['friend:456']?.commonFriends?.value).toBe(31);
 });
 
 it('移除不适用指标保留其他字段，在途旧响应不能重新写回', async () => {

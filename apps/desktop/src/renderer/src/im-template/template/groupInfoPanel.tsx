@@ -4,7 +4,7 @@ import { activateProfile, type ProfileShortcut } from '../../lib/profileClick';
 import { NumericText } from '../../components/NumericText';
 import { EmptyState } from '../../components/EmptyState';
 import {
-  Award,
+  ArrowDownUp,
   Bot,
   CalendarCheck,
   ChevronRight,
@@ -40,7 +40,13 @@ import { GroupMessageBadge } from '../../components/GroupMessageBadge';
 import { GroupProfileMetrics } from '../../components/GroupProfileMetrics';
 import { VirtualConversationBadge } from '../../components/VirtualConversationAvatar';
 import { useTabActive } from '../../components/RetainedTabs.shared';
-import { RankingModal } from '../../components/relationGraph/RankingModal';
+import { DirectorySortMenu } from '../../components/DirectorySortMenu';
+import { Toggle } from '../../components/settings/controls';
+import {
+  GROUP_MEMBER_PRIORITIZE_ADMINS_DEFAULT,
+  type GroupMemberSort,
+  type GroupMemberSortDetail,
+} from '../../../../shared/group_member_order';
 import {
   ConversationActionsMenu,
   type ConversationMenuAction,
@@ -62,8 +68,10 @@ type GroupMemberEvents = {
 const GroupMemberRow = memo(function GroupMemberRow({
   member,
   events,
+  detail,
 }: {
   member: GroupMember;
+  detail?: GroupMemberSortDetail | null;
   events: GroupMemberEvents;
 }) {
   const chatShortcut = useContext(ProfileChatShortcutContext);
@@ -71,18 +79,21 @@ const GroupMemberRow = memo(function GroupMemberRow({
     <div
       className={cn(
         'group-info-member-row',
+        detail && 'has-sort-detail',
         events.open && 'is-clickable',
         member.role === 'owner' && 'is-owner',
         member.role === 'admin' && 'is-admin',
       )}
       role={events.open ? 'button' : undefined}
       tabIndex={events.open ? 0 : undefined}
-      title={events.open ? '查看资料' : undefined}
+      title={events.open ? `查看 ${displayUserName(member)} 的资料` : undefined}
+      aria-label={events.open ? `查看 ${displayUserName(member)} 的资料` : undefined}
+      aria-description={detail?.text}
       onContextMenu={events.menu ? (event) => events.menu?.(event, member) : undefined}
       onClick={
         events.open
           ? (event) => {
-              const anchor = { x: event.clientX, y: event.clientY };
+              const anchor = { x: event.clientX, y: event.clientY, trigger: event.currentTarget };
               activateProfile(
                 event,
                 () => events.open?.(member, anchor),
@@ -99,9 +110,12 @@ const GroupMemberRow = memo(function GroupMemberRow({
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
                 const rect = event.currentTarget.getBoundingClientRect();
-                activateProfile(event, () =>
-                  events.open?.(member, { x: rect.left + rect.width / 2, y: rect.bottom }),
-                );
+                const anchor = {
+                  x: rect.left + rect.width / 2,
+                  y: rect.bottom,
+                  trigger: event.currentTarget,
+                };
+                activateProfile(event, () => events.open?.(member, anchor));
               }
             }
           : undefined
@@ -118,7 +132,9 @@ const GroupMemberRow = memo(function GroupMemberRow({
       </div>
       <span className="member-name-text">
         <span className="member-name-with-badge">
-          <span className="member-display-name">{displayUserName(member)}</span>
+          <span className="member-display-name" title={displayUserName(member)}>
+            {displayUserName(member)}
+          </span>
           <GroupMessageBadge
             member={{
               role: member.role,
@@ -127,6 +143,11 @@ const GroupMemberRow = memo(function GroupMemberRow({
             }}
           />
         </span>
+        {detail ? (
+          <span className="weq-directory-sort-detail" title={detail.title || detail.text}>
+            {detail.text}
+          </span>
+        ) : null}
       </span>
       {member.kind === 'bot' ? (
         <small className={cn('bot-badge')} aria-label="机器人" title="机器人">
@@ -142,7 +163,9 @@ function GroupMemberRows({
   onOpenMember,
   getMemberChatShortcut,
   onMemberContextMenu,
+  details,
 }: {
+  details?: ReadonlyMap<string, GroupMemberSortDetail | null>;
   members: GroupMember[];
   onOpenMember?: GroupMemberEvents['open'];
   getMemberChatShortcut?: GroupMemberEvents['openChat'];
@@ -154,12 +177,20 @@ function GroupMemberRows({
     menu: onMemberContextMenu,
   });
   return members.map((member) => (
-    <GroupMemberRow key={member.id} member={member} events={events} />
+    <GroupMemberRow
+      key={member.id}
+      member={member}
+      events={events}
+      detail={details?.get(member.id)}
+    />
   ));
 }
 
 export function GroupInfoPanel({
   membersOnly = false,
+  memberHeadingId,
+  autoFocusSearch,
+  rosterEmpty,
   layout = 'sidebar',
   hidden = false,
   closing = false,
@@ -170,6 +201,7 @@ export function GroupInfoPanel({
   loadingError,
   onRetryMembers,
   memberSearch,
+  memberOrder,
   onMemberSearchChange,
   onLoadMoreSearch,
   profileLoading,
@@ -189,6 +221,9 @@ export function GroupInfoPanel({
   onClose,
 }: {
   membersOnly?: boolean;
+  memberHeadingId?: string;
+  autoFocusSearch?: boolean;
+  rosterEmpty?: boolean;
   layout?: 'sidebar' | 'profile';
   hidden?: boolean;
   closing?: boolean;
@@ -203,6 +238,18 @@ export function GroupInfoPanel({
    * 只在已加载的成员分页里过滤。
    */
   memberSearch?: GroupMemberSearchView | null;
+  memberOrder?: {
+    options: Partial<Record<GroupMemberSort, string>>;
+    sort: GroupMemberSort;
+    descending: boolean;
+    details: ReadonlyMap<string, GroupMemberSortDetail | null>;
+    onSort: (sort: GroupMemberSort) => void;
+    onDirection: (descending: boolean) => void;
+    prioritizeAdmins?: boolean;
+    onPrioritizeAdmins?: (value: boolean) => void;
+    preparing?: boolean;
+    fill?: { running: boolean; message?: string; failed?: boolean; start: () => void };
+  };
   /** 搜索关键字变化（受控）。 */
   onMemberSearchChange?: (keyword: string) => void;
   /** 追加下一页搜索命中。 */
@@ -251,26 +298,35 @@ export function GroupInfoPanel({
       setVisible(true);
       return () => setVisible(false);
     }
-    const observer = new ResizeObserver(([entry]) =>
-      setVisible(Boolean(entry?.contentRect.width && entry.contentRect.height)),
-    );
-    observer.observe(panel);
+    const observer = new ResizeObserver(([entry]) => {
+      const border = entry?.borderBoxSize?.[0];
+      setVisible(
+        border
+          ? Boolean(border.inlineSize && border.blockSize)
+          : Boolean(entry?.contentRect.width && entry.contentRect.height),
+      );
+    });
+    observer.observe(panel, { box: 'border-box' });
     return () => {
       observer.disconnect();
       setVisible(false);
     };
   }, [active, groupId, onMemberVisibilityChange, suspended]);
-  const [rankingGroup, setRankingGroup] = useState<string | null>(null);
   const [memberMenu, setMemberMenu] = useState<{
     x: number;
     y: number;
     anchor: HTMLElement;
   } | null>(null);
   useEffect(() => {
-    setRankingGroup(null);
     setMemberMenu(null);
   }, [conversation.id, suspended, active]);
   const memberListRef = useRef<HTMLDivElement | null>(null);
+  const sortField = memberOrder?.sort;
+  const descending = memberOrder?.descending;
+  const prioritizeAdmins = memberOrder?.prioritizeAdmins;
+  useEffect(() => {
+    if (memberListRef.current) memberListRef.current.scrollTop = 0;
+  }, [conversation.id, sortField, descending, prioritizeAdmins, memberSearch?.keyword]);
   const group = conversation.group;
   const readEntranceQuestion = active && !suspended && !membersOnly && !conversation.generated;
   const { binding } = useGroupReadScope(readEntranceQuestion);
@@ -516,7 +572,7 @@ export function GroupInfoPanel({
   const memberList = (
     <section className={cn('group-info-section', 'member-list-section')}>
       <header className={cn('group-info-heading group-info-title-row')}>
-        <strong>
+        <strong id={memberHeadingId}>
           群聊成员{' '}
           {searching ? (
             <NumericText>{`${rows.length}/${memberSearch?.total ?? 0}`}</NumericText>
@@ -536,7 +592,35 @@ export function GroupInfoPanel({
           </button>
         ) : null}
         <div className="group-info-member-actions">
-          {onOpenLeftMembers || !conversation.generated ? (
+          {memberOrder ? (
+            <DirectorySortMenu
+              active={active && !suspended}
+              className="icon-button group-info-sort-button"
+              triggerIcon={<ArrowDownUp size={16} aria-hidden />}
+              highlighted={
+                memberOrder.sort !== 'displayName' ||
+                memberOrder.descending ||
+                memberOrder.prioritizeAdmins !== GROUP_MEMBER_PRIORITIZE_ADMINS_DEFAULT
+              }
+              options={memberOrder.options}
+              sort={memberOrder.sort}
+              descending={memberOrder.descending}
+              onSort={memberOrder.onSort}
+              onDirection={memberOrder.onDirection}
+            >
+              {memberOrder.onPrioritizeAdmins ? (
+                <div className="weq-directory-sort-toggle">
+                  <span>群主和管理员始终最前</span>
+                  <Toggle
+                    label="群主和管理员始终最前"
+                    checked={Boolean(memberOrder.prioritizeAdmins)}
+                    onChange={memberOrder.onPrioritizeAdmins}
+                  />
+                </div>
+              ) : null}
+            </DirectorySortMenu>
+          ) : null}
+          {onOpenLeftMembers || (!conversation.generated && !memberHeadingId) ? (
             <button
               className="icon-button"
               type="button"
@@ -557,12 +641,12 @@ export function GroupInfoPanel({
             </button>
           ) : null}
         </div>
-        {layout === 'sidebar' && onClose ? (
+        {(layout === 'sidebar' || memberHeadingId) && onClose ? (
           <button
             type="button"
             className="weq-group-sidebar-close icon-button"
-            title="关闭群聊侧栏"
-            aria-label="关闭群聊侧栏"
+            title={memberHeadingId ? '关闭群成员列表' : '关闭群聊侧栏'}
+            aria-label={memberHeadingId ? '关闭群成员列表' : '关闭群聊侧栏'}
             onClick={onClose}
           >
             <X size={16} />
@@ -573,6 +657,7 @@ export function GroupInfoPanel({
         <Search size={13} />
         <input
           type="text"
+          autoFocus={autoFocusSearch}
           value={memberSearch?.keyword ?? ''}
           placeholder={conversation.generated ? '搜索成员名称' : '搜索昵称 / 群昵称 / QQ号'}
           aria-label="搜索群成员"
@@ -591,6 +676,27 @@ export function GroupInfoPanel({
           </button>
         ) : null}
       </div>
+      {memberOrder?.fill ? (
+        <div className="group-info-member-sort-status">
+          <button
+            type="button"
+            className="weq-set-btn"
+            disabled={memberOrder.fill.running}
+            onClick={memberOrder.fill.start}
+          >
+            {memberOrder.fill.running ? '正在补取资料…' : '补取缺少的资料'}
+          </button>
+          {memberOrder.fill.message ? (
+            <small role={memberOrder.fill.failed ? 'alert' : 'status'}>
+              {memberOrder.fill.message}
+            </small>
+          ) : null}
+        </div>
+      ) : memberOrder?.preparing ? (
+        <div className="group-info-member-sort-status" role="status">
+          正在整理本地私聊记录…
+        </div>
+      ) : null}
       <div
         className={cn('group-info-member-list')}
         ref={memberListRef}
@@ -599,11 +705,13 @@ export function GroupInfoPanel({
         {searching && rows.length === 0 && !fetching ? (
           <EmptyState compact icon={<SearchX />} title="没有匹配的成员" />
         ) : null}
+        {rosterEmpty && !fetching ? <EmptyState compact title="暂无本地群成员记录" /> : null}
         <GroupMemberRows
           members={rows}
           onOpenMember={onOpenMember}
           getMemberChatShortcut={getMemberChatShortcut}
           onMemberContextMenu={onMemberContextMenu}
+          details={memberOrder?.details}
         />
         {searching && rows.length > 0 && memberSearch?.hasMore ? (
           <div className={cn('group-info-member-hint')}>
@@ -645,12 +753,6 @@ export function GroupInfoPanel({
       icon: <UserMinus size={15} />,
       action: onOpenLeftMembers,
     });
-  if (!conversation.generated)
-    memberActions.push({
-      label: '群成员等级排行',
-      icon: <Award size={15} />,
-      action: () => setRankingGroup(conversation.id),
-    });
 
   return (
     <aside
@@ -664,7 +766,13 @@ export function GroupInfoPanel({
       )}
       aria-label={layout === 'sidebar' ? '群聊侧栏' : '群聊资料'}
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && onClose && !activeFeature && !memberMenu && !rankingGroup) {
+        if (
+          event.key === 'Escape' &&
+          !event.defaultPrevented &&
+          onClose &&
+          !activeFeature &&
+          !memberMenu
+        ) {
           event.stopPropagation();
           onClose();
         }
@@ -689,38 +797,6 @@ export function GroupInfoPanel({
             onOpenMember={onOpenMember}
           />
         )
-      ) : null}
-      {rankingGroup === conversation.id && active && !suspended ? (
-        <RankingModal
-          key={conversation.id}
-          kind="memberLevel"
-          data={null}
-          fixedGroup={{
-            code: conversation.id,
-            name: group.name,
-            memberCount: group.memberCount,
-          }}
-          onClose={() => setRankingGroup(null)}
-          onOpenMember={
-            onOpenMember
-              ? (member, anchor) => {
-                  const known = conversation.members.find((item) => item.id === member.uid);
-                  onOpenMember(
-                    known ?? {
-                      id: member.uid,
-                      uin: member.uin,
-                      displayName: member.card || member.nick || member.uin || member.uid,
-                      username: member.nick || member.uid,
-                      avatarUrl: null,
-                      identityLabel: 'QQ',
-                      identityValue: member.uin || member.uid,
-                    },
-                    anchor,
-                  );
-                }
-              : undefined
-          }
-        />
       ) : null}
       {membersOnly ? (
         memberList

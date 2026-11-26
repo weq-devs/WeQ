@@ -1,4 +1,3 @@
-import { CloudDownload } from 'lucide-react';
 import {
   dataSaverBehaviorDefaults,
   type DataSaverMode,
@@ -14,7 +13,7 @@ import { useDataSaver, dataSaverModeOptions } from '../../lib/dataSaver';
 import { SegmentedControl } from '../SegmentedControl';
 import { IS_WEB } from '../../lib/target.shared';
 import { Card, Row, Toggle } from './controls';
-import { RotateCcw } from 'lucide-react';
+import { Download, Images, RotateCcw, Wifi } from 'lucide-react';
 import '../../styles/data-saver-settings.css';
 import { useContext, useEffect, useState } from 'react';
 import { SettingsResetContext } from './resetContext';
@@ -101,77 +100,85 @@ export function DataSaverSettings() {
   useClientPreferences((state) => state.tick);
   const { host, local, enabled } = useDataSaver();
   return (
-    <Card
-      title="省流量模式"
-      icon={<CloudDownload size={15} />}
-      settingId="data-saver"
-      action={
-        reset ? undefined : (
-          <button
-            data-danger="outline"
-            type="button"
-            className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
-            title="恢复省流量默认设置"
-            aria-label="恢复省流量默认设置"
-            onClick={() => {
-              void changePreference('dataSaverMode', 'auto');
-              for (const [key, value] of Object.entries(dataSaverBehaviorDefaults))
-                void changePreference(key as keyof DataSaverBehavior, value);
-            }}
-          >
-            <RotateCcw size={14} aria-hidden />
-          </button>
-        )
-      }
-    >
-      <Row
-        label="启用方式"
-        desc={`${enabled ? '正在节省流量' : '正常加载'} · 本端：${describe(local)}${IS_WEB ? ` · 宿主：${describe(host)}` : ''}`}
-        control={
-          <SegmentedControl<DataSaverMode>
-            label="省流量模式"
-            value={preferenceValue('dataSaverMode')}
-            options={dataSaverModeOptions}
-            onChange={(mode) => void changePreference('dataSaverMode', mode)}
-          />
+    <>
+      <Card
+        title="模式与网络"
+        icon={<Wifi size={15} strokeWidth={1.8} />}
+        resetId="data-saver"
+        action={
+          reset ? undefined : (
+            <button
+              data-danger="outline"
+              type="button"
+              className="weq-set-btn weq-set-btn-soft weq-set-btn-sm"
+              title="恢复省流量默认设置"
+              aria-label="恢复省流量默认设置"
+              onClick={() => {
+                void changePreference('dataSaverMode', 'auto');
+                for (const [key, value] of Object.entries(dataSaverBehaviorDefaults))
+                  void changePreference(key as keyof DataSaverBehavior, value);
+              }}
+            >
+              <RotateCcw size={14} aria-hidden />
+            </button>
+          )
         }
-      />
-      {preferenceValue('dataSaverMode') === 'auto' ? (
-        <BooleanRow name="dataSaverOnMetered" label="使用流量时自动启用" />
-      ) : null}
-      <div className="weq-data-saver-behavior">
-        <h4>省流量模式下的行为</h4>
-        <p>仅在省流量模式生效时应用，已有缓存照常使用。</p>
-      </div>
-      <h5 className="weq-data-saver-group">图片与媒体</h5>
-      <Row
-        label="聊天图片自动加载"
-        control={
-          <SegmentedControl<DataSaverBehavior['dataSaverImageLoading']>
-            label="聊天图片自动加载"
-            value={preferenceValue('dataSaverImageLoading')}
-            options={[
-              { value: 'none', label: '不自动加载' },
-              { value: 'thumbnail', label: '仅小图' },
-              { value: 'original', label: '原图' },
-            ]}
-            onChange={(value) => void changePreference('dataSaverImageLoading', value)}
-          />
-        }
-      />
-      {mediaOptions.map(([name, label]) => (
-        <BooleanRow key={name} name={name} label={label} />
-      ))}
-      <h5 className="weq-data-saver-group">下载与任务</h5>
-      {taskOptions.map(([name, label, desc]) => (
-        <BooleanRow key={name} name={name} label={label} desc={desc} />
-      ))}
-      <TransferThreshold />
-      <BooleanRow
-        name="dataSaverAutoResume"
-        label="限制解除后自动继续任务"
-        desc="仅恢复因省流量策略暂停的任务，手动暂停的任务保持暂停。"
-      />
-    </Card>
+      >
+        <Row
+          label="启用方式"
+          desc={`${enabled ? '正在节省流量' : '正常加载'} · 本端：${describe(local)}${IS_WEB ? ` · 宿主：${describe(host)}` : ''}`}
+          control={
+            <SegmentedControl<DataSaverMode>
+              label="省流量模式"
+              value={preferenceValue('dataSaverMode')}
+              options={dataSaverModeOptions}
+              onChange={(mode) => void changePreference('dataSaverMode', mode)}
+            />
+          }
+        />
+        {preferenceValue('dataSaverMode') === 'auto' ? (
+          <BooleanRow name="dataSaverOnMetered" label="使用流量时自动启用" />
+        ) : null}
+      </Card>
+      <Card
+        title="图片与媒体"
+        icon={<Images size={15} strokeWidth={1.8} />}
+        desc="省流量模式生效时按以下设置加载，已有缓存照常使用。"
+      >
+        <Row
+          label="聊天图片自动加载"
+          control={
+            <SegmentedControl<DataSaverBehavior['dataSaverImageLoading']>
+              label="聊天图片自动加载"
+              value={preferenceValue('dataSaverImageLoading')}
+              options={[
+                { value: 'none', label: '不自动加载' },
+                { value: 'thumbnail', label: '仅小图' },
+                { value: 'original', label: '原图' },
+              ]}
+              onChange={(value) => void changePreference('dataSaverImageLoading', value)}
+            />
+          }
+        />
+        {mediaOptions.map(([name, label]) => (
+          <BooleanRow key={name} name={name} label={label} />
+        ))}
+      </Card>
+      <Card
+        title="下载与任务"
+        icon={<Download size={15} strokeWidth={1.8} />}
+        desc="设置省流量期间如何暂停任务，以及限制解除后如何继续。"
+      >
+        {taskOptions.map(([name, label, desc]) => (
+          <BooleanRow key={name} name={name} label={label} desc={desc} />
+        ))}
+        <TransferThreshold />
+        <BooleanRow
+          name="dataSaverAutoResume"
+          label="限制解除后自动继续任务"
+          desc="仅恢复因省流量策略暂停的任务，手动暂停的任务保持暂停。"
+        />
+      </Card>
+    </>
   );
 }

@@ -86,7 +86,8 @@ export function useQQWriteSession(scope: string, passive = false) {
       profileUid?: string;
       memberUid?: string;
       readback?: () => Promise<boolean>;
-      readbackSuccessText?: string;
+      /** 回执决定成功提示时延后横幅，返回 null 表示本次无需成功提示。 */
+      readbackSuccessText?: string | (() => string | null);
       /** 有读回要求的开关不能在未同步时进入已提交锁定态。 */
       requireReadback?: boolean;
       source?: NotificationSource;
@@ -118,7 +119,12 @@ export function useQQWriteSession(scope: string, passive = false) {
       if (toastId === undefined) toastId = toast.push({ title, tone, durationKind });
       else toast.update(toastId, { title, tone, durationKind, loading: false });
     };
-    if (options?.refreshCaches !== false && options?.feedback !== 'failure-only')
+    const successText = options?.readbackSuccessText;
+    if (
+      options?.refreshCaches !== false &&
+      options?.feedback !== 'failure-only' &&
+      typeof successText !== 'function'
+    )
       toastId = toast.push({ title: '正在确认操作完成情况', loading: true, ttl: 0 });
     try {
       const outcome = await action(binding);
@@ -167,14 +173,17 @@ export function useQQWriteSession(scope: string, passive = false) {
             finish('已停止确认：操作对象已切换，请稍后重新读取', 'warning');
             return;
           }
-          finish(
-            readbackMatched
-              ? (options?.readbackSuccessText ?? '操作已完成')
-              : expired
+          if (readbackMatched) {
+            const title = typeof successText === 'function' ? successText() : successText;
+            if (title !== null) finish(title ?? '操作已完成', 'success');
+          } else {
+            finish(
+              expired
                 ? '确认超时，请稍后重新读取操作结果'
                 : qqWriteOutcomeText({ state: 'unconfirmed' }),
-            readbackMatched ? 'success' : 'warning',
-          );
+              'warning',
+            );
+          }
           if (options?.profileUid)
             await publishQQPeerUpdate({
               binding,

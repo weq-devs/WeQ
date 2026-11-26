@@ -146,14 +146,14 @@ try {
     ),
   );
   assert.equal(failures.length, 0, '存在未统一的普通分割线，详情见上方摘要');
-  await page.getByText('QQ 在线能力对照', { exact: true }).click();
-  assert.equal(
-    await page.locator('.weq-full-function-comparison-details').getAttribute('open'),
-    '',
-  );
-  await page.getByText('查看读取说明', { exact: true }).focus();
+  const summary = page.getByText('查看读取说明', { exact: true });
+  const details = page.locator('.weq-set-details').filter({ has: summary });
+  await summary.click();
+  assert.equal(await details.getAttribute('open'), '');
+  await summary.click();
+  await summary.focus();
   await page.keyboard.press('Enter');
-  assert.equal(await page.locator('.weq-set-details').first().getAttribute('open'), '');
+  assert.equal(await details.getAttribute('open'), '');
   assert.deepEqual(errors, []);
   console.log('折叠说明的鼠标与键盘展开通过。');
 } finally {

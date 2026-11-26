@@ -6,6 +6,7 @@ import {
 } from '../src/renderer/src/lib/developmentReloadNotice';
 import {
   DEVELOPMENT_RELOAD_APPLY,
+  DEVELOPMENT_RELOAD_DISMISS,
   DEVELOPMENT_RELOAD_QUERY,
   DEVELOPMENT_RELOAD_STATUS,
   type DevelopmentReloadStatus,
@@ -65,14 +66,15 @@ it('关闭后、重连及热替换重装均不复活同批横幅，新批次可�
   const status = { id: 'one', ready: true, restart: false };
   first.receive(status);
   const id = useToast.getState().toasts[0]!.id;
-  useToast.getState().dismiss(id);
+  useToast.getState().dismiss(id, 'manual');
+  expect(first.channel.send).toHaveBeenCalledWith(DEVELOPMENT_RELOAD_DISMISS, { id: 'one' });
   first.receive(status);
   expect(useToast.getState().leaving).toContain(id);
   useToast.getState().remove(id);
   first.dispose();
   expect(first.channel.off).toHaveBeenCalledWith(DEVELOPMENT_RELOAD_STATUS, expect.any(Function));
   const second = fixture(state);
-  second.receive(status);
+  second.receive({ ...status, dismissed: true });
   expect(useToast.getState().toasts).toHaveLength(0);
   second.receive(null);
   second.receive({ ...status, id: 'two' });

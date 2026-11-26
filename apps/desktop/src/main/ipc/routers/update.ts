@@ -21,10 +21,14 @@ import { z } from 'zod/v3';
 import { isUpdateCheckInterval } from '@weq/service/update-settings';
 import { procedure, router } from '../trpc';
 import { backgroundTasks } from '../../background_tasks';
+import { holdTaskOnPage } from '../../task_page';
 import {
   getUpdateActions,
   getUpdateState,
+  dismissUpdateBanner,
+  subscribeUpdateBanner,
   updateBus,
+  type UpdateBanner,
   type UpdateEvent,
   type UpdateProgress,
   type UpdateState,
@@ -56,6 +60,15 @@ export const updateRouter = router({
   isSupported: procedure.query(
     ({ ctx }): boolean => !ctx.authorize && getUpdateActions().supported,
   ),
+  onBanner: procedure.subscription(() =>
+    observable<UpdateBanner | null>((emit) => subscribeUpdateBanner((banner) => emit.next(banner))),
+  ),
+  dismissBanner: desktop
+    .input(z.object({ kind: z.enum(['available', 'downloaded']), latest: z.string().max(80) }))
+    .mutation(({ input }) => {
+      dismissUpdateBanner(input);
+      return true;
+    }),
 
   /** Speed-test mirrors + compare versions. Rejects if no mirror is reachable. */
   check: desktop.mutation((): Promise<UpdateState> => getUpdateActions().check(true)),
@@ -66,12 +79,16 @@ export const updateRouter = router({
    * event (so we swallow the rejection here).
    */
   download: desktop
-    .input(z.object({ foreground: z.boolean().optional() }).optional())
+    .input(
+      z
+        .object({ foreground: z.boolean().optional(), pageId: z.string().uuid().optional() })
+        .optional(),
+    )
     .mutation(({ input }): boolean => {
       const actions = getUpdateActions();
       if (!actions.supported) throw new Error('当前宿主不支持应用更新');
       actions.assertDownloadAvailable?.();
-      void actions.startDownload(input?.foreground).catch(() => {});
+      void actions.startDownload(input?.foreground, input?.pageId).catch(() => {});
       return true;
     }),
 
@@ -80,13 +97,22 @@ export const updateRouter = router({
       z.object({
         id: z.string().uuid(),
         action: z.enum(['pause', 'continue', 'retry', 'background']),
+        pageId: z.string().uuid().optional(),
       }),
     )
     .mutation(async ({ input }) => {
+      const { id, action, pageId } = input;
       const actions = getUpdateActions();
-      if (actions.getDownloadTask?.()?.id !== input.id) throw new Error('更新下载已改变，请刷新');
-      if (input.action === 'background') actions.backgroundDownload?.(input.id);
-      else await backgroundTasks.act(input.id, input.action);
+      const task = actions.getDownloadTask?.();
+      if (task?.id !== id) throw new Error('更新下载已改变，请刷新');
+      if (action === 'background') actions.backgroundDownload?.(id);
+      else {
+        await backgroundTasks.act(id, action);
+        if (task.foreground && (action === 'continue' || action === 'retry')) {
+          const handOff = () => actions.backgroundDownload?.(id);
+          if (!holdTaskOnPage(pageId, 'software-update', handOff)) handOff();
+        }
+      }
       return true;
     }),
 
@@ -112,6 +138,7 @@ export const updateRouter = router({
     return observable<UpdateEvent>((emit) => {
       const handler = (e: UpdateEvent): void => emit.next(e);
       updateBus.on('event', handler);
+      handler({ kind: 'availability', available: getUpdateState()?.hasUpdate === true });
       const task = getUpdateActions().getDownloadTask?.();
       if (task) handler({ kind: 'download-task', task });
       return () => {

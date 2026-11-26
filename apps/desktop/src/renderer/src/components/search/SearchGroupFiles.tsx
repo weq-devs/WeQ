@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ArrowLeft } from 'lucide-react';
+import { filterByName } from '../../lib/nameSearch';
 import { trpc } from '../../trpc/client';
 import { SearchResultCard } from './SearchResultCard';
 
@@ -34,9 +35,15 @@ export function SearchGroupFiles({
     row?.focus();
     selected.current = null;
   }, [group, directory.isFetching]);
-  const needle = query.trim().toLocaleLowerCase();
-  const groups = directory.data?.filter((row) =>
-    `${row.groupName}\n${row.groupCode}`.toLocaleLowerCase().includes(needle),
+  const groups = useMemo(
+    () =>
+      filterByName(
+        directory.data ?? [],
+        query,
+        (row) => [row.groupName],
+        (row, needle) => `${row.groupName}\n${row.groupCode}`.toLocaleLowerCase().includes(needle),
+      ),
+    [directory.data, query],
   );
 
   return (
@@ -82,7 +89,7 @@ export function SearchGroupFiles({
                 重试
               </button>
             </div>
-          ) : groups?.length ? (
+          ) : groups.length ? (
             <div ref={options}>
               {groups.map((row) => (
                 <SearchResultCard

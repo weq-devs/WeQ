@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod/v3';
 import {
   DEFAULT_ANTI_RECALL_CONFIG,
@@ -23,6 +25,11 @@ import { remoteRouter } from './remote';
 import { isQqSyncProxyEnabled } from '../../qq_sync/runtime';
 import { disableNativeDebugLog, nativeDebugLogStatus } from './help';
 import { updateRouter } from './update';
+import {
+  assertLogPruneConfirmed,
+  describeLogPrune,
+  planDefaultLogRetention,
+} from '../../log_retention';
 import { sharedSettingsRouter, sharedMailPreferences } from './shared_settings';
 import { isIntentModelDownloading, sharedIntentStatus } from './intent_sense';
 import { sharedAntiRecallStatus } from './anti_recall';
@@ -45,6 +52,7 @@ import {
   SETTINGS_RESET_CARDS,
   resetCards,
   planSettingsReset,
+  isLogPolicyResetItem,
   type SettingsResetCardId,
   type SettingsResetTarget,
   type SettingsResetItem,
@@ -53,7 +61,13 @@ import {
 
 const target = z
   .object({
-    page: z.custom<SettingsResetTarget['page']>((v) => SETTINGS_RESET_CARDS.some(([p]) => p === v)),
+    page: z.custom<SettingsResetTarget['page']>(
+      (v) =>
+        v === 'credentials' ||
+        v === 'qq-proxy' ||
+        v === 'qq-status-reminders' ||
+        SETTINGS_RESET_CARDS.some(([p]) => p === v),
+    ),
     card: z
       .custom<SettingsResetCardId>((v) => SETTINGS_RESET_CARDS.some(([, c]) => c === v))
       .optional(),
@@ -61,7 +75,7 @@ const target = z
   .strict();
 interface Entry extends SettingsResetItem {
   card: SettingsResetCardId;
-  apply: () => Promise<unknown>;
+  apply: (pruneConfirmation?: string | null) => Promise<unknown>;
   intentKey?: keyof typeof DEFAULT_INTENT_SENSE_CONFIG;
 }
 function identity() {
@@ -73,6 +87,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   const boot = context.bootstrap;
   if (!boot) throw new Error('配置尚未就绪');
   const config = boot.userConfig;
+  if (selected.has('enhancement-updates')) await boot.enhancements.updates.ready();
   const current = config.getSettings();
   const defaults = settingsDefaults(DEFAULT_APP_SETTINGS);
   const b = bootstrapRouter.createCaller(ctx);
@@ -113,6 +128,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
     showMsgDecoration: () => b.setShowMsgDecoration({ enabled: defaults.showMsgDecoration }),
     showMessageBubble: () => b.setShowMessageBubble({ enabled: defaults.showMessageBubble }),
     showMessageFont: () => b.setShowMessageFont({ enabled: defaults.showMessageFont }),
+    defaultMessageFont: () => b.setDefaultMessageFont({ font: defaults.defaultMessageFont }),
     renderTextMarkdown: () => b.setRenderTextMarkdown({ enabled: defaults.renderTextMarkdown }),
     linkPreview: () => b.setLinkPreview(defaults.linkPreview),
     chatImageCacheMiB: () => b.setChatImageCacheMiB({ miB: defaults.chatImageCacheMiB }),
@@ -129,24 +145,31 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       b.setQzonePublicRefreshCooldown({ minutes: defaults.qzonePublicRefreshCooldownMinutes }),
     realtimeEnabled: () => b.setRealtimeEnabled({ enabled: defaults.realtimeEnabled }),
     autoAttachQq: () => b.setAutoAttachQq({ enabled: defaults.autoAttachQq }),
-    restrictedModeIndicatorEnabled: () =>
-      b.setRestrictedModeIndicatorEnabled({ enabled: defaults.restrictedModeIndicatorEnabled }),
-    qqProxyIndicatorEnabled: () =>
-      b.setQqProxyIndicatorEnabled({ enabled: defaults.qqProxyIndicatorEnabled }),
+    qqStatusIndicatorEnabled: () =>
+      b.setQqStatusIndicatorEnabled({ enabled: defaults.qqStatusIndicatorEnabled }),
     preferCdn: () => b.setPreferCdn({ enabled: defaults.preferCdn }),
     preferRemoteCdn: () => b.setPreferCdn({ enabled: defaults.preferRemoteCdn, remote: true }),
-    logRetentionDays: () => b.setLogRetentionDays({ days: defaults.logRetentionDays }),
+    logRetentionDays: applyDefaultLogPolicy,
+    logCapacityMiB: applyDefaultLogPolicy,
     databaseReadConcurrency: () =>
       b.setDatabaseReadConcurrency({ concurrency: defaults.databaseReadConcurrency }),
     webServiceAutoStart: () => r.setWebAutoStart({ enabled: defaults.webServiceAutoStart }),
-  } satisfies Record<(typeof APP_SETTING_FIELDS)[number]['key'], () => Promise<unknown>>;
+  } satisfies Record<(typeof APP_SETTING_FIELDS)[number]['key'], Entry['apply']>;
+  async function applyDefaultLogPolicy(pruneConfirmation?: string | null) {
+    await b.setLogRetentionDays({
+      days: defaults.logRetentionDays,
+      capacityMiB: defaults.logCapacityMiB,
+      confirmPrune: !!pruneConfirmation,
+      pruneConfirmation: pruneConfirmation ?? null,
+    });
+  }
   const out: Entry[] = [];
   const definitions = new Map(SETTINGS_FIELDS.map((spec) => [spec.id, spec]));
   function bind(
     id: string,
     current: unknown,
     defaultValue: unknown,
-    apply: () => Promise<unknown>,
+    apply: Entry['apply'],
     instance?: { id: string; label: string },
   ) {
     const spec = definitions.get(id);
@@ -175,18 +198,37 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
   for (const spec of APP_SETTING_FIELDS)
     bind(spec.id, current[spec.key], defaults[spec.key], appWriters[spec.key]);
 
-  for (const key of ['autoCheck', 'autoInstall'] as const) {
+  bind(
+    'enhancement-updates:autoCheck',
+    current.enhancementUpdates.autoCheck,
+    defaults.enhancementUpdates.autoCheck,
+    () => b.setEnhancementUpdates({ autoCheck: defaults.enhancementUpdates.autoCheck }),
+  );
+  bind(
+    'enhancement-updates:autoUpdatePacks',
+    current.enhancementUpdates.autoUpdatePacks,
+    defaults.enhancementUpdates.autoUpdatePacks,
+    async () => config.setSettings({ enhancementUpdates: { autoUpdatePacks: [] } }),
+  );
+
+  if (!ctx.authorize && selected.has('startup-system')) {
+    const status = await b.getAutostartStatus();
     bind(
-      `${'enhancement-updates'}:${key}`,
-      current.enhancementUpdates[key],
-      defaults.enhancementUpdates[key],
-      () => b.setEnhancementUpdates({ [key]: defaults.enhancementUpdates[key] }),
+      'startup-system:autostart',
+      status.requiresApproval ? 'requiresApproval' : status.enabled || status.registered || false,
+      false,
+      async () => {
+        const next = await b.setAutostart({ enabled: false });
+        if (next.enabled || next.registered || next.requiresApproval)
+          throw new Error('系统登录项尚未取消');
+      },
     );
   }
 
-  if (!ctx.authorize)
-    bind('startup-system:autostart', undefined, false, () => b.setAutostart({ enabled: false }));
-
+  const runtimeNotification = defaults.notificationEvents.runtime;
+  bind('qq-status-reminders:runtime', current.notificationEvents.runtime, runtimeNotification, () =>
+    b.setNotificationEvents({ events: ['runtime'], channels: runtimeNotification }),
+  );
   if (selected.has('qq-client-sync')) {
     bind('qq-client-sync:proxy', isQqSyncProxyEnabled(boot.qqSyncRoot), false, () =>
       b.setQqProxyEnabled({ enabled: false }),
@@ -492,7 +534,7 @@ async function entries(ctx: RpcContext, selected: Set<SettingsResetCardId>): Pro
       );
     }
     const mail = sharedMailPreferences();
-    bind('notification-badges:unread', mail.showUnread, true, async () => {
+    bind('navigation-badges:unread', mail.showUnread, true, async () => {
       await shared.mail.patch({ showUnread: true });
     });
     bind('mail:unread', mail.showUnread, true, async () => {
@@ -584,23 +626,28 @@ async function preview(ctx: RpcContext, input: SettingsResetTarget) {
   // 运行开关以实际状态为准，不凭配置猜测。
   if (!ctx.authorize)
     for (const entry of all) {
-      if (entry.id === 'startup-system:autostart')
-        entry.current = (await bootstrapRouter.createCaller(ctx).getAutostartStatus()).enabled;
       if (entry.id === 'web:enabled')
         entry.current = (await remoteRouter.createCaller(ctx).webStatus()).enabled;
     }
   if (usesAccount && source !== identity())
     throw new Error('账号或数据源已切换，请重新读取恢复范围');
-  return { source, items: all };
+  const logPolicy = selected.has('logs')
+    ? planDefaultLogRetention(getAppContext().bootstrap!.userConfig.getSettings())
+    : null;
+  const items = all.map(({ apply: _apply, card: _card, intentKey: _intentKey, ...item }) => item);
+  const revision = createHash('sha256')
+    .update(JSON.stringify([source, items]))
+    .digest('hex');
+  return { source, items, entries: all, revision, logPolicy };
 }
 export const settingsResetRouter = router({
   preview: procedure.input(target).query(async ({ ctx, input }) => {
     const result = await preview(ctx, input);
     return {
       source: result.source,
-      items: result.items.map(
-        ({ apply: _apply, card: _card, intentKey: _intentKey, ...item }) => item,
-      ),
+      items: result.items,
+      revision: result.revision,
+      logPrune: describeLogPrune(result.logPolicy),
     };
   }),
   restore: procedure
@@ -608,6 +655,8 @@ export const settingsResetRouter = router({
       target
         .extend({
           source: z.string().nullable(),
+          revision: z.string(),
+          pruneConfirmation: z.string().optional(),
           directories: z.array(z.string()).default([]),
           retry: z.array(z.string()).optional(),
         })
@@ -615,16 +664,48 @@ export const settingsResetRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const result = await preview(ctx, input);
-      if (input.source !== result.source) throw new Error('账号或数据源已切换，请重新确认恢复范围');
+      if (input.source !== result.source)
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: '账号或数据源已切换，请重新确认恢复范围',
+        });
       const results: SettingsResetResult[] = [];
-      const candidates = planSettingsReset(result.items, input);
+      const retriesLogPolicy = input.retry?.some(isLogPolicyResetItem);
+      const candidates = planSettingsReset(result.entries, input);
+      if (retriesLogPolicy) {
+        // 日志时长与容量作为同一策略写入；重试也使用重新确认过的整份策略。
+        for (const entry of result.entries) {
+          if (
+            isLogPolicyResetItem(entry.id) &&
+            entry.current !== entry.defaultValue &&
+            !candidates.includes(entry)
+          )
+            candidates.push(entry);
+        }
+      }
+      if (input.revision !== result.revision)
+        throw new TRPCError({ code: 'CONFLICT', message: '设置已变化，请重新确认恢复范围。' });
+      const isLogPolicy = (item: Entry) => isLogPolicyResetItem(item.id);
+      if (candidates.some(isLogPolicy))
+        assertLogPruneConfirmed(result.logPolicy, input.pruneConfirmation);
       const completed = new Set<string>();
       for (const entry of candidates) {
         if (completed.has(entry.id)) continue;
-        const batch = entry.intentKey ? candidates.filter((item) => item.intentKey) : [entry];
+        const logPolicy = isLogPolicy(entry);
+        const batch = logPolicy
+          ? candidates.filter(isLogPolicy)
+          : entry.intentKey
+            ? candidates.filter((item) => item.intentKey)
+            : [entry];
         batch.forEach((item) => {
           completed.add(item.id);
         });
+        if (logPolicy && !result.logPolicy) {
+          batch.forEach((item) => {
+            results.push({ id: item.id, ok: true });
+          });
+          continue;
+        }
         if (input.source !== null && input.source !== identity()) {
           batch.forEach((item) => {
             results.push({ id: item.id, ok: false, error: '账号或数据源已切换，已停止后续恢复' });
@@ -639,7 +720,7 @@ export const settingsResetRouter = router({
               Object.assign(patch, { [item.intentKey!]: structuredClone(item.defaultValue) });
             if (service) await service.setConfig(patch, { preserveAnalysisResults: true });
             else await sharedSettingsRouter.createCaller(ctx).intent.setConfig(patch);
-          } else await entry.apply();
+          } else await entry.apply(logPolicy ? input.pruneConfirmation : undefined);
           batch.forEach((item) => {
             results.push({ id: item.id, ok: true });
           });

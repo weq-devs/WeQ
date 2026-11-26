@@ -769,7 +769,16 @@ export function AgentLabView({
         ) : null}
         {sel.kind === 'home' ? (
           embedded ? null : (
-            <EmptyState icon={<MessagesSquare />} title="暂无打开的克隆会话" />
+            <EmptyState
+              icon={<MessagesSquare />}
+              title="选择一段克隆对话"
+              body="从会话列表打开克隆体或群聊。"
+              action={
+                <button type="button" className="weq-set-btn" onClick={() => setCloneOpen(true)}>
+                  新建克隆
+                </button>
+              }
+            />
           )
         ) : sel.kind === 'assistant' ? (
           <AssistantPanel
@@ -834,9 +843,26 @@ export function AgentLabView({
           />
         ) : (
           <div className="weq-agentlab-chat">
-            <div className="weq-agentlab-empty" role="status">
-              <LoadingIndicator />
-            </div>
+            {personas.isError ? (
+              <EmptyState
+                icon={<MessagesSquare />}
+                title="克隆对话未能打开"
+                action={
+                  <button
+                    type="button"
+                    className="weq-set-btn"
+                    disabled={personas.isFetching}
+                    onClick={() => void personas.refetch()}
+                  >
+                    {personas.isFetching ? '正在重新读取…' : '重新读取'}
+                  </button>
+                }
+              />
+            ) : (
+              <div className="weq-agentlab-empty" role="status">
+                <LoadingIndicator>正在读取克隆体…</LoadingIndicator>
+              </div>
+            )}
           </div>
         )}
       </section>

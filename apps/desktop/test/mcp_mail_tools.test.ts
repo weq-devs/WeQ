@@ -26,8 +26,9 @@ it('reads without marking, projects only requested HTTPS links, and downloads on
     hasAttachments: true,
     to: [],
   };
-  const read = vi.fn(async () => ({
+  const preview = vi.fn(async () => ({
     ...summary,
+    bodyAvailable: true,
     html:
       '<p>数据副本已就绪</p><script>hidden</script><img src="https://files.example.test/pixel">' +
       '<a href="https://files.example.test/download?a=1&amp;b=2">数据包</a>' +
@@ -49,7 +50,7 @@ it('reads without marking, projects only requested HTTPS links, and downloads on
       await writeFile(path, 'zip');
     },
   );
-  fake.services = { mail: { read, list, attachments: { get }, download } };
+  fake.services = { mail: { preview, list, attachments: { get }, download } };
   const token = 'mcp-fixture-token';
   const port = await startMcpServer({ port: 0, token });
   const base = `http://127.0.0.1:${port}`;
@@ -84,7 +85,8 @@ it('reads without marking, projects only requested HTTPS links, and downloads on
       id: summary.id,
       linkHosts: ['files.example.test'],
     });
-    expect(read).toHaveBeenLastCalledWith(summary.id, expect.any(AbortSignal), false);
+    expect(preview).toHaveBeenLastCalledWith(summary.id, expect.any(AbortSignal));
+    expect(body.bodyAvailable).toBe(true);
     expect(body.text).toContain('数据副本已就绪');
     expect(body.text).not.toContain('hidden');
     expect(body.links).toEqual(['https://files.example.test/download?a=1&b=2']);

@@ -3,6 +3,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  claimDirectCapture,
+  ownsDirectCapture,
+  stopDirectCapture,
+} from '../src/main/capture_ownership';
 
 /**
  * UDP 抓包会话的归属与幂等语义。
@@ -119,6 +124,21 @@ describe('UDP 抓包会话', () => {
     // 旧 sessionId 不再有效。
     await expect(takeUdpDatagrams(42, { sessionId: first.sessionId })).rejects.toThrow('已失效');
     await stopUdpCapture(42, second.sessionId);
+  });
+
+  it('启动 UDP 时保留已有的同 PID TCP 直连会话', async () => {
+    const pid = 123;
+    claimDirectCapture(pid, 'account');
+    startCapture.mockClear();
+    stopCapture.mockClear();
+    try {
+      await expect(startUdpCapture(pid)).rejects.toThrow('已有另一种抓包会话');
+      expect(ownsDirectCapture(pid, 'account')).toBe(true);
+      expect(startCapture).not.toHaveBeenCalled();
+      expect(stopCapture).not.toHaveBeenCalled();
+    } finally {
+      await stopDirectCapture(pid, 'account', async () => {});
+    }
   });
 
   it('进程扫描能力可探测，且能按模块 hint 找进程', () => {

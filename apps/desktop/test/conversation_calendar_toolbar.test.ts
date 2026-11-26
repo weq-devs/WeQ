@@ -1,4 +1,4 @@
-import { act, createElement as h } from 'react';
+import { act, createElement as h, createRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { expect, it, vi } from 'vitest';
@@ -15,6 +15,7 @@ it('展开搜索即隐藏会话日历，退出搜索后恢复可用入口', () =
   document.body.append(host);
   const root = createRoot(host);
   const calendar = vi.fn();
+  const readListQuery = createRef<() => string>();
   const button = (label: string) =>
     host.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);
   try {
@@ -31,6 +32,7 @@ it('展开搜索即隐藏会话日历，退出搜索后恢复可用入口', () =
                 onVirtual: vi.fn(),
                 onCreate: vi.fn(),
                 onCalendar: calendar,
+                readListQuery,
               },
             },
             h(ConversationList, {
@@ -52,10 +54,19 @@ it('展开搜索即隐藏会话日历，退出搜索后恢复可用入口', () =
       expect(input.value).toBe('');
       expect(button('会话日历')).toBeNull();
       act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+          input,
+          'cq',
+        );
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(readListQuery.current?.()).toBe('cq');
+      act(() => {
         if (exit === 'button') button('退出搜索会话')!.click();
         else input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       });
       expect(button('会话日历')).not.toBeNull();
+      expect(readListQuery.current?.()).toBe('');
     }
     act(() => button('会话日历')!.click());
     expect(calendar).toHaveBeenCalledOnce();

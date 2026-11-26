@@ -131,6 +131,9 @@
 .weq-self-field-inputs .weq-profile-birthday-editor {
   max-width: 156px;
 }
+.weq-profile-birthday-editor .weq-date-filter {
+  min-width: 0;
+}
 .weq-profile-field-feedback {
   flex-basis: 100%;
   min-width: 0;

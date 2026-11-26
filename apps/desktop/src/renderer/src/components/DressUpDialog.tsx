@@ -9,12 +9,13 @@
  *  - **浏览排行 / 安装(气泡 / 字体 / 挂件)**:离线可用 —— 资源先走本地离线 bundle(QQ 自带
  *    那批装扮资源),商城条目还自带 material,都不需要凭证;本地没有的款点击后由后端
  *    在需要时再尝试换链,失败才报错。所以**不再按 qqOnline 禁用任何安装按钮**。
- *  - **装扮搜索**:必须有在线 QQ 实例(商城搜索接口要用在线实例取凭证)。
+ *  - **装扮搜索**:名称搜索需在线 QQ，ID 可匹配本地目录与可用素材。
  *  - **商城表情搜索**:搜索离线目录，不需要在线 QQ。
  *
  * 聊天背景与浮屏挂件一律离线可用(QQ 同款的直链 bootstrap 时已存进 config,浮屏挂件是 bundle 的)。
  */
 
+import { NumericText } from './NumericText';
 import { ToolbarLabel } from './CompactToolbar';
 import { observeCompactToolbar } from './CompactToolbar.shared';
 import {
@@ -83,6 +84,7 @@ import { pageValue } from '../lib/pageSnapshots';
 import { MarketEmojiBrowserLightbox } from '../views/export/MarketEmojiBrowserLightbox';
 import { RedPackSkinWall } from './gift/RedPackSkinWall';
 import { DressSearchForm } from './DressSearchForm';
+import { dressIdQuery, dressPreviewUrl } from '../../../shared/dress_item';
 import '../styles/dressup.css';
 import { ShimmerImage } from './ShimmerImage';
 import { DRESS_KIND_ICONS } from '../lib/featureIcons.shared';
@@ -404,13 +406,19 @@ export function DressUpDialog({
 
   // 商城目录中，回车提交关键词后从排行榜切到搜索结果。
   const searching = keyword.length > 0;
+  const idQuery = dressIdQuery(keyword);
+  const searchNeedsOnline = searching && !idQuery && !online;
   const rank = trpc.account.dressup.rank.useQuery(
     { kind: mallKind },
     { enabled: isMall && !mineOnly && !searching },
   );
   const search = trpc.account.dressup.search.useQuery(
     { kind: mallKind, keyword },
-    { enabled: isMall && !mineOnly && searching && online, retry: false },
+    {
+      enabled: isMall && !mineOnly && searching && !searchNeedsOnline,
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
   );
   const widgets = trpc.account.dressup.widgets.useQuery(undefined, {
     enabled: kind === 'background',
@@ -742,9 +750,13 @@ export function DressUpDialog({
   }, [manifest, mallKind, state.data]);
 
   const catalog = searching ? search : rank;
-  const catalogItems = (searching && !online) || catalog.error ? [] : (catalog.data?.items ?? []);
+  const catalogItems = searchNeedsOnline || catalog.error ? [] : (catalog.data?.items ?? []);
   const installedItems = mine
-    .filter((item) => item.name.toLowerCase().includes(keyword.toLowerCase()))
+    .filter((item) =>
+      idQuery
+        ? item.itemId === Number(idQuery)
+        : item.name.toLowerCase().includes(keyword.toLowerCase()),
+    )
     .map((item) => ({
       ...item,
       videoUrl: mallKind === 'callbg' ? state.data?.own.callBgVideoUrl || undefined : undefined,
@@ -790,6 +802,7 @@ export function DressUpDialog({
   ): ReactElement {
     const isActive = item.itemId === activeId;
     const busy = busyId === item.itemId;
+    const name = item.name || `#${item.itemId}`;
     const target = downloadsById.get(item.itemId);
     const key = `${mallKind}:${item.itemId}`;
     const downloading = download.savingKey === key;
@@ -807,23 +820,23 @@ export function DressUpDialog({
           imageSrc={previewSrc}
           // 通话背景本来就是动态的 —— 在视口里就直接播，静帧看不出效果。
           videoSrc={isCallBg(mallKind) && item.videoUrl ? dressUrl(item.videoUrl) : undefined}
-          alt={item.name}
+          alt={name}
         >
           {localPreview}
         </DressCardPreview>
         <div className="weq-dress-card-body">
-          <strong title={item.name}>{item.name}</strong>
+          <strong title={name}>{name}</strong>
           <small>
-            {item.labels.slice(0, 2).join(' · ') || item.mallName || (
-              <span className="weq-number weq-number-inherit">#{item.itemId}</span>
-            )}
+            {item.labels.slice(0, 2).join(' · ') ||
+              item.mallName ||
+              (item.name && <span className="weq-number weq-number-inherit">#{item.itemId}</span>)}
           </small>
         </div>
         {selecting ? (
           <button
             type="button"
             className="weq-dress-card-select"
-            aria-label={`选择 ${item.name || item.itemId}`}
+            aria-label={`选择 ${name}`}
             aria-pressed={selected}
             {...multi.itemProps(item.itemId, !target)}
             disabled={!target}
@@ -850,7 +863,7 @@ export function DressUpDialog({
               type="button"
               className="weq-dress-save"
               title="创建下载任务"
-              aria-label={`下载 ${item.name || item.itemId}`}
+              aria-label={`下载 ${name}`}
               disabled={applying || download.disabled || !target}
               onClick={() => target && void download.run(mallKind, [target], key)}
             >
@@ -1035,7 +1048,9 @@ export function DressUpDialog({
                     <details className="weq-dress-current-exceptions">
                       <summary>
                         <ChevronDown size={14} aria-hidden />
-                        {exceptions.length} 个会话单独设置
+                        <span>
+                          <NumericText>{`${exceptions.length} 个会话单独设置`}</NumericText>
+                        </span>
                       </summary>
                       <ul>
                         {exceptions.map((entry) => {
@@ -1285,12 +1300,12 @@ export function DressUpDialog({
 
     // 搜索没在线就根本不会发请求 —— 必须先讲清原因,否则会停在「加载中」不动
     // (react-query 的 disabled query 一直是 pending,不是 loading 结束)。
-    if (searching && !online) {
+    if (searchNeedsOnline) {
       return (
         <div className="weq-dress-empty is-warn">
           <WifiOff size={26} />
-          <p>搜索需要登录 QQ 客户端</p>
-          <span>登录 QQ 后可搜索商城装扮，也可以清空关键词浏览热门目录。</span>
+          <p>按名称搜索需要登录 QQ</p>
+          <span>也可以直接搜索装扮 ID。</span>
         </div>
       );
     }
@@ -1313,13 +1328,19 @@ export function DressUpDialog({
       return (
         <div className="weq-dress-empty">
           <Sparkles size={26} />
-          <p>{searching ? '没有匹配的装扮' : '没有结果'}</p>
+          <p>{idQuery ? '未找到此 ID 的可用装扮' : searching ? '没有匹配的装扮' : '没有结果'}</p>
         </div>
       );
     }
     return (
       <div className="weq-dress-grid">
-        {catalogItems.map((it) => renderCard(it, dressUrl(it.previewLargeUrl || it.previewUrl)))}
+        {catalogItems.map((item) => {
+          const preview =
+            item.previewLargeUrl ||
+            item.previewUrl ||
+            (idQuery && mallKind !== 'callbg' ? dressPreviewUrl(mallKind, item.itemId) : '');
+          return renderCard(item, dressUrl(preview));
+        })}
       </div>
     );
   }
@@ -1405,10 +1426,10 @@ export function DressUpDialog({
                 />
                 <DressSearchForm
                   label={mineOnly ? '搜索已装装扮' : '搜索装扮'}
+                  placeholder="搜索名称或 ID"
                   value={draft}
                   onChange={(value) => updateMallBrowse({ draft: value })}
                   onSearch={(value) => updateMallBrowse({ keyword: value })}
-                  disabled={!mineOnly && !online}
                   maxLength={50}
                 />
               </div>

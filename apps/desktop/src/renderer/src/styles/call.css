@@ -344,7 +344,6 @@ html[data-theme='dark'] .weq-call-card.has-backdrop .weq-call-details summary {
 }
 
 .weq-call-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
   background: color-mix(in srgb, var(--weq-fg-primary) 11%, transparent);
 }
 

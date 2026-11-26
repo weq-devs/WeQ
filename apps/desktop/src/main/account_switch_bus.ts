@@ -12,6 +12,7 @@
  * 页面）时投递出去只会石沉大海，调用方必须当场知道，不能假装成功。
  */
 
+import { accountRuntimeState } from './context/account_runtime';
 import { accountEventBus } from './context/app_context';
 
 export interface AccountSwitchRequest {
@@ -31,38 +32,40 @@ export interface AccountSwitchRequest {
  * 有上界：切号过渡期间界面被遮罩盖住、订阅可能暂时没人领，无人消费时不能让队列
  * 无限增长。超出的部分丢掉最旧的 —— 切号是「最终状态」语义，过时的目标没有意义。
  */
-const pending: AccountSwitchRequest[] = [];
+const switchRequests = accountRuntimeState(() => ({
+  pending: [] as AccountSwitchRequest[],
+  subscribers: 0,
+}));
 const QUEUE_LIMIT = 8;
-
-let subscribers = 0;
 
 /** 记下一条切号请求并唤醒订阅者。 */
 export function pushAccountSwitchRequest(request: AccountSwitchRequest): void {
-  pending.push(request);
-  if (pending.length > QUEUE_LIMIT) pending.splice(0, pending.length - QUEUE_LIMIT);
+  switchRequests().pending.push(request);
+  if (switchRequests().pending.length > QUEUE_LIMIT)
+    switchRequests().pending.splice(0, switchRequests().pending.length - QUEUE_LIMIT);
   accountEventBus.emit('accountSwitchRequested', { at: request.at });
 }
 
 /** 领走一条待处理的切号请求（无则返回 null）。 */
 export function takeAccountSwitchRequest(): AccountSwitchRequest | null {
-  return pending.shift() ?? null;
+  return switchRequests().pending.shift() ?? null;
 }
 
 /** 渲染层订阅建立 / 取消时调用，用来判断「当前有没有界面能接请求」。 */
 export function accountSwitchSubscriberOpened(): void {
-  subscribers += 1;
+  switchRequests().subscribers += 1;
 }
 
 export function accountSwitchSubscriberClosed(): void {
-  subscribers = Math.max(0, subscribers - 1);
+  switchRequests().subscribers = Math.max(0, switchRequests().subscribers - 1);
 }
 
 export function hasAccountSwitchSubscriber(): boolean {
-  return subscribers > 0;
+  return switchRequests().subscribers > 0;
 }
 
 /** 测试用：清空队列与订阅计数。 */
 export function resetAccountSwitchBus(): void {
-  pending.length = 0;
-  subscribers = 0;
+  switchRequests().pending.length = 0;
+  switchRequests().subscribers = 0;
 }

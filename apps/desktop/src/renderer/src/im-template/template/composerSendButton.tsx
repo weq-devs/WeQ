@@ -1,10 +1,20 @@
 import { useEffect, useReducer } from 'react';
 import { MessageSquareOff, SendHorizontal } from 'lucide-react';
+import { useClosingContent } from '../../hooks/useClosingContent';
 import { cn } from './classNames';
 import '../../styles/composer-send-status.css';
 import { muteCountdownText } from './composerSendButton.shared';
 
 export type ComposerSpeechRestriction = { kind: 'personal'; until: number } | { kind: 'all' };
+
+export function ComposerSendNotice({ text, scope }: { text: string | null; scope?: string }) {
+  const displayedText = useClosingContent(text, scope);
+  return (
+    <div className="composer-send-notice" role="status" data-visible={text ? '' : undefined}>
+      {displayedText ? <span aria-hidden={!text || undefined}>{displayedText}</span> : null}
+    </div>
+  );
+}
 
 export function ComposerSendButton({
   variant,

@@ -3,10 +3,14 @@ import { client, trpc } from '../trpc/client';
 import { useViewState } from '../state/view';
 import { useDialog } from '../components/Dialog.shared';
 import { useContactRefreshTask } from './useContactRefreshTask';
+import { useTabActive } from '../components/RetainedTabs.shared';
+import { useTaskPage } from './useTaskPage';
 
 /** 群交集与联系人共用同一刷新任务，只选择群成员名单范围。 */
 export function useGroupMemberRefresh() {
   const { uin, binding, ready, snapshot, active, openActiveTask } = useContactRefreshTask();
+  const pageActive = useTabActive();
+  const taskPage = useTaskPage(pageActive && ready, binding.expectedAccountConfigId);
   const utils = trpc.useUtils();
   const appliedGraph = useRef('');
   const graphRevision = snapshot.data?.relationGraphRevision ?? 0;
@@ -40,6 +44,7 @@ export function useGroupMemberRefresh() {
         target: 'groupMembers',
         range: 'all',
         missingOnly: false,
+        pageId: await taskPage(),
       });
       if (useViewState.getState().openedUin !== uin) return;
       void utils.account.contactMetrics.status.invalidate(binding);
@@ -51,13 +56,19 @@ export function useGroupMemberRefresh() {
   async function control(action: string) {
     if (!ready || !task?.taskId || acting.current || useViewState.getState().openedUin !== uin)
       return;
+    if (action !== 'pause' && action !== 'stop' && action !== 'resume' && action !== 'retry')
+      return;
     acting.current = true;
     setBusy(true);
     try {
-      await client.backgroundTasks.act.mutate({
-        id: task.taskId,
+      await client.account.contactMetrics.controlGroupMemberRefresh.mutate({
+        ...binding,
+        taskId: task.taskId,
         action,
-        scope: { uin: binding.expectedAccountUin, configId: binding.expectedAccountConfigId },
+        pageId:
+          task.foreground && (action === 'resume' || action === 'retry')
+            ? await taskPage()
+            : undefined,
       });
       await utils.account.contactMetrics.status.invalidate(binding);
     } catch (reason) {

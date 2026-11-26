@@ -183,7 +183,7 @@
 }
 /* 文件框占掉正文那一行、自己带「确认」键，主发送键让位（同 .composer.voice-open）。
      只在桌面内联形态下藏 —— 小屏文件框是浮层，主发送键还得留着。 */
-:where(html:not([data-weq-layout='single'])) .composer.flash-open > .composer-send {
+:where(html:not([data-weq-layout='single'])) .composer.flash-open > .composer-send-controls {
   display: none;
 }
 

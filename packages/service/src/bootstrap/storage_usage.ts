@@ -1,9 +1,12 @@
 import { lstat, readdir, realpath } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { CACHE_DETAILS, storageDetail, storageParts } from './storage_details';
+export { RUNTIME_CACHE_NAMES } from './storage_details';
 
 export interface StorageRoot {
   path: string;
   label: string;
+  category?: StorageUsageItem['category'];
   /** 宿主明确拥有的运行数据；安装资源不得开启。 */
   clearableAfterExit?: boolean;
   protected?: boolean;
@@ -23,13 +26,29 @@ export interface StorageUsageItem {
   excludedPaths?: string[];
   protected?: boolean;
   /** 混合目录采用细分清理，不能整目录删除。 */
-  cleanupKind?: 'dress-previews' | 'dress-shared' | 'dress-data' | 'business-data' | 'db-backup';
+  cleanupKind?:
+    | 'dress-previews'
+    | 'dress-shared'
+    | 'dress-data'
+    | 'business-data'
+    | 'scoped-data'
+    | 'db-backup';
   category?:
     | 'db-backups'
     | 'media'
     | 'dress'
     | 'cache'
     | 'persistent'
+    | 'database-validation'
+    | 'account-data'
+    | 'work-products'
+    | 'search-analysis'
+    | 'assistant-data'
+    | 'managed-qq'
+    | 'app-resources'
+    | 'desktop-data'
+    | 'diagnostics'
+    | 'updates'
     | 'program-backups'
     | 'repair-history'
     | 'repair-work'
@@ -47,23 +66,9 @@ export interface StorageUsageItem {
   /** 清理确认中需要额外告知的影响。 */
   confirmation?: string;
   requiresExit?: boolean;
+  /** 这些文件可能正被宿主持有，交给退出助手清除。 */
+  exitOnly?: boolean;
 }
-
-// 只开放无长期状态、无打开的数据库句柄的下载/解码缓存。
-const CACHE_LABELS: Readonly<Record<string, string>> = {
-  avatar: '头像缓存',
-  media: '图片/视频缓存',
-  marketface: '商城表情缓存',
-  marketpack: '商城表情包缓存',
-  voice: '语音解码缓存',
-  linkpreview: '链接预览缓存',
-  sysemoji: '系统表情缓存',
-  'favorite-emoji': '收藏表情原图缓存',
-  collection: '收藏媒体缓存',
-  qqshow: 'QQ 秀资源缓存',
-  redpack: '红包封面缓存',
-  dress_shared: '共享装扮资源缓存',
-};
 
 const DATA_LABELS: Readonly<Record<string, string>> = {
   ocr: '图片识别结果',
@@ -147,17 +152,6 @@ export const RUNTIME_DATA_NAMES: ReadonlySet<string> = new Set([
   'Web Data',
   'Web Data-journal',
   'Extension State',
-]);
-
-/** 仅包含可重新生成的桌面缓存，不包含登录、连接身份及界面偏好。 */
-export const RUNTIME_CACHE_NAMES: ReadonlySet<string> = new Set([
-  'Cache',
-  'Code Cache',
-  'GPUCache',
-  'DawnGraphiteCache',
-  'DawnWebGPUCache',
-  'GrShaderCache',
-  'ShaderCache',
 ]);
 
 const DATA_RISKS: Readonly<Record<string, string>> = {
@@ -326,6 +320,7 @@ export async function listStorageUsage(
           label: root.label,
           path: root.path,
           bytes: info.size,
+          category: root.category,
           clearable: !root.protected && root.clearableAfterExit === true && !info.isSymbolicLink(),
           requiresExit: !root.protected && root.clearableAfterExit === true,
           reason: root.clearableAfterExit
@@ -349,6 +344,7 @@ export async function listStorageUsage(
           label: root.label,
           path: root.path,
           bytes: 0,
+          category: root.category,
           clearable: false,
           reason: '目录不可读取，占用统计不完整',
           incomplete: true,
@@ -357,7 +353,7 @@ export async function listStorageUsage(
       continue;
     }
     const names = new Set(entries.map((entry) => entry.name));
-    if (root.cache && root.active) for (const name of Object.keys(CACHE_LABELS)) names.add(name);
+    if (root.cache && root.active) for (const name of Object.keys(CACHE_DETAILS)) names.add(name);
     const excluded = roots
       .filter((other) => other !== root && contains(root.path, other.path))
       .map((other) => other.path);
@@ -366,6 +362,40 @@ export async function listStorageUsage(
       if (excluded.includes(path)) continue;
       const nested = excluded.filter((other) => contains(path, other));
       const entry = entries.find((entry) => entry.name === name);
+      const detail = root.primary || root.cache ? storageDetail(name, root.cache) : undefined;
+      const category = detail?.category ?? root.category;
+      const parts =
+        detail?.layout && entry?.isDirectory()
+          ? await storageParts(path, detail.layout, nested).catch(() => undefined)
+          : undefined;
+      if (parts) {
+        for (const part of parts) {
+          const excludedPaths = part.excludedPaths.filter((excluded) =>
+            contains(part.path, excluded),
+          );
+          const size = await measureStorage(part.path, new Set(excludedPaths));
+          const info = await lstat(part.path).catch(() => undefined);
+          const clearable = !!info && !info.isSymbolicLink() && !size.incomplete && size.bytes > 0;
+          items.push({
+            ...part,
+            ...size,
+            excludedPaths,
+            id: `storage:${part.path}`,
+            category,
+            clearable,
+            requiresExit: clearable,
+            exitOnly: detail?.exitOnly,
+            cleanupKind: excludedPaths.length ? 'scoped-data' : undefined,
+            confirmation: clearable ? (part.confirmation ?? detail?.confirmation) : undefined,
+            reason: size.incomplete
+              ? '读取不完整，请刷新后重试'
+              : info?.isSymbolicLink()
+                ? '此项是链接，可在文件夹中定位'
+                : '清理前请确认影响',
+          });
+        }
+        continue;
+      }
       const previews =
         root.cache && name === 'dress' && entry?.isDirectory() && nested.length === 0
           ? await listDressPreviewFiles(path)
@@ -396,28 +426,29 @@ export async function listStorageUsage(
       const safeCache =
         name !== 'contacts' &&
         root.cache &&
-        Object.hasOwn(CACHE_LABELS, name) &&
+        Object.hasOwn(CACHE_DETAILS, name) &&
         nested.length === 0 &&
         !entry?.isSymbolicLink() &&
         (!entry || entry.isDirectory()) &&
         !size.incomplete;
       const persistent =
-        name !== 'contacts' &&
-        name !== 'models' &&
-        name !== 'enhancements' &&
         !root.protected &&
+        !detail?.layout &&
         name !== 'storage-maintenance' &&
         !['.ds_store', 'thumbs.db', 'desktop.ini'].includes(name.toLowerCase()) &&
         !safeCache &&
-        (Object.hasOwn(DATA_LABELS, name) ||
-          (root.clearableAfterExit === true && (!root.primary || RUNTIME_DATA_NAMES.has(name)))) &&
+        (Boolean(detail?.confirmation) ||
+          (!['contacts', 'models', 'enhancements'].includes(name) &&
+            (Object.hasOwn(DATA_LABELS, name) ||
+              (root.clearableAfterExit === true &&
+                (!root.primary || RUNTIME_DATA_NAMES.has(name)))))) &&
         nested.length === 0 &&
         !entry?.isSymbolicLink() &&
         !size.incomplete;
       const clearable = safeCache || persistent;
       const label =
+        detail?.label ??
         (name === 'contacts' ? '联系人与群资料历史' : undefined) ??
-        (root.cache && Object.hasOwn(CACHE_LABELS, name) ? CACHE_LABELS[name] : undefined) ??
         (Object.hasOwn(DATA_LABELS, name) ? DATA_LABELS[name] : undefined) ??
         name;
       items.push({
@@ -425,34 +456,46 @@ export async function listStorageUsage(
         label:
           root.cache && !root.active
             ? `${label}（默认目录）`
-            : !root.cache && root.label !== 'WeQ 数据'
-              ? `${root.label} / ${label}`
-              : label,
+            : root.category && !root.primary
+              ? root.label
+              : !root.cache && root.label !== 'WeQ 数据'
+                ? `${root.label} / ${label}`
+                : label,
         path,
         bytes: size.bytes,
+        category,
         excludedPaths: nested,
         protected: root.protected,
         ...(RUNTIME_DATA_NAMES.has(name) ? { management: 'backup' as const } : {}),
         clearable,
         requiresExit: persistent,
+        exitOnly: persistent && detail?.exitOnly,
         reason: persistent
           ? '清除前需确认；请保留需要的副本，占用项可重启后继续'
           : clearable
             ? name === 'dress_shared'
               ? '清理已下载的字体、气泡与挂件，保留账号装扮设置'
               : '清理后按需重新下载或生成'
-            : entry?.isSymbolicLink()
-              ? '符号链接，仅统计链接本身，不清理目标'
-              : size.incomplete
-                ? '读取不完整，暂不提供清理'
-                : name === 'models' || name === 'enhancements'
-                  ? '由增强包管理'
-                  : '持久数据或运行中资源，不在此处直接清理',
-        incomplete: size.incomplete,
+            : detail?.layout && entry?.isDirectory()
+              ? '读取明细失败，请刷新后重试。'
+              : entry?.isSymbolicLink()
+                ? '符号链接，仅统计链接本身，不清理目标'
+                : size.incomplete
+                  ? '读取不完整，暂不提供清理'
+                  : root.protected
+                    ? '这是应用本体。需要移除时，请通过系统卸载 WeQ。'
+                    : nested.length
+                      ? '其中有单独列出的目录，可分别选择对应项目清理。'
+                      : detail
+                        ? '此项由 WeQ 管理，可定位查看。'
+                        : '用途尚未识别，可定位查看。',
+        incomplete: size.incomplete || Boolean(detail?.layout && entry?.isDirectory()),
         ...(safeCache && name === 'dress_shared' ? { cleanupKind: 'dress-shared' as const } : {}),
         ...(persistent && previews ? { cleanupKind: 'dress-data' as const } : {}),
         ...(persistent && dataOnly && !previews ? { cleanupKind: 'business-data' as const } : {}),
-        ...(persistent ? { confirmation: root.confirmation ?? dataRisk(name) } : {}),
+        ...(persistent
+          ? { confirmation: detail?.confirmation ?? root.confirmation ?? dataRisk(name) }
+          : {}),
         ...(safeCache && name === 'dress_shared'
           ? {
               confirmation:

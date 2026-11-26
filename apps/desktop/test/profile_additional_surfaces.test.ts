@@ -174,7 +174,7 @@ function expectTarget(
 ) {
   expect(open).toHaveBeenLastCalledWith(
     expect.objectContaining({ identityValue: identity }),
-    { x: 40, y: 60 },
+    { x: 40, y: 60, trigger: expect.any(HTMLButtonElement) },
     expectedGroup,
   );
 }

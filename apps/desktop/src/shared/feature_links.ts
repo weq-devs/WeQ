@@ -5,11 +5,7 @@ export const OPEN_FEATURE_EVENT = 'weq:open-feature';
 
 /** 可从目录直接打开的现有入口；有群或消息参数的入口继续由工作区解析对象。 */
 export function canLinkToFeature(feature: FeatureDefinition): boolean {
-  return (
-    Boolean(feature.settingsPage) ||
-    feature.navigation === 'search' ||
-    ['messages.inbox', 'contacts.self-profile.edit', 'export.chat-history'].includes(feature.id)
-  );
+  return Boolean(feature.settingsPage) || feature.navigation === 'search';
 }
 
 export function featureLink(id: string): string {

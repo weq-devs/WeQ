@@ -1,5 +1,5 @@
 ﻿// @ts-nocheck
-import { useRef, type CSSProperties, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { useMobileWebLayout, useMobileWebViewport } from '../../hooks/useMobileWebViewport';
 import { TitleBarSearch } from '../../components/TitleBarSearch';
 import {
@@ -8,6 +8,7 @@ import {
   useWorkspaceSidecarOpen,
   useWorkspaceMobilePage,
 } from '../../components/WorkspacePages.shared';
+import { fadeInSurface } from '../../lib/surfaceMotion';
 import { cn } from './classNames';
 import { AppRail } from './rail';
 import { SidebarHeader, SidebarResizeHandle } from './sidebar';
@@ -29,6 +30,7 @@ export function ChatShell({
   activeNotice,
   contactOverviewActive = false,
   sidebarWidth,
+  settingsOpen = false,
   mainOpen,
   messageBadgeCount,
   onMessageBadgeClick,
@@ -75,6 +77,7 @@ export function ChatShell({
   activeNotice: ContactNoticeView | null;
   contactOverviewActive?: boolean;
   sidebarWidth: number;
+  settingsOpen?: boolean;
   mainOpen: boolean;
   messageBadgeCount: number;
   onMessageBadgeClick?: () => void;
@@ -83,7 +86,7 @@ export function ChatShell({
   mailBadgeCount?: number;
   mailBadgePending?: boolean;
   showTools?: boolean;
-  railFooterContent?: ReactNode | ((settingsButton: ReactNode) => ReactNode);
+  railFooterContent?: ReactNode;
   friendNoticeCount: number;
   groupNoticeCount: number;
   /** 搜索框下方的浮层（统一搜索下拉 / 最近搜索）。 */
@@ -117,12 +120,23 @@ export function ChatShell({
   const pageOpen = useWorkspacePageOpen();
   const mobilePage = useWorkspaceMobilePage();
   const root = useRef<HTMLDivElement>(null);
+  const sidebarBodyRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
   const singleColumn = useMobileWebLayout();
   const sharedShell = IS_WEB || singleColumn;
   useMobileWebViewport(root, sharedShell);
   const mainPageOpen = useWorkspaceMainPageOpen();
   const sidecarOpen = useWorkspaceSidecarOpen();
-  const sidebarHidden = mainPageOpen || (view === 'messages' && sidecarOpen);
+  const sidebarHidden = settingsOpen || mainPageOpen || (view === 'messages' && sidecarOpen);
+  // 宽屏主视图原位替换时淡入；单栏由 MobileNavigationRuntime 负责转场。
+  const previousView = useRef(view);
+  useLayoutEffect(() => {
+    if (previousView.current === view) return;
+    previousView.current = view;
+    if (singleColumn) return;
+    fadeInSurface(mainRef.current);
+    fadeInSurface(sidebarBodyRef.current);
+  }, [singleColumn, view]);
   const shellStyle = {
     '--sidebar-width': `${sidebarHidden ? 0 : sidebarWidth}px`,
   } as CSSProperties;
@@ -247,14 +261,17 @@ export function ChatShell({
           )}
         >
           {renderSidebarHeader(view)}
-          <div className={cn('sidebar-body', view === 'agentlab' && 'is-agentlab-sidebar')}>
+          <div
+            ref={sidebarBodyRef}
+            className={cn('sidebar-body', view === 'agentlab' && 'is-agentlab-sidebar')}
+          >
             {sidebarContent}
           </div>
         </aside>
         {!sidebarHidden && (
           <SidebarResizeHandle width={sidebarWidth} onWidthChange={onSidebarWidthChange} />
         )}
-        <main className={cn('chat-main', (mainOpen || pageOpen) && 'chat-main-open')}>
+        <main ref={mainRef} className={cn('chat-main', (mainOpen || pageOpen) && 'chat-main-open')}>
           {mainContent}
         </main>
       </div>

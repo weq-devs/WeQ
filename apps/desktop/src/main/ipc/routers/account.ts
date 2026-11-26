@@ -11,12 +11,15 @@
  * page, `listBefore` to page up, `listFrom` to re-read the loaded window live.
  */
 import { setTimeout as delay } from 'node:timers/promises';
-import { MESSAGE_CATEGORIES, OperationError } from '@weq/service';
+import { CONVERSATION_RECORD_TYPES, MESSAGE_CATEGORIES, OperationError } from '@weq/service';
+import { qqActionUnavailable } from '../../../shared/qq_action_availability';
 import { MsgType } from '@weq/codec/proto/msg/40900';
 
 import { z } from 'zod/v3';
 import { plainContentText } from '@weq/service/message-plain-text';
 import { setReactionWithRecent } from '../../recent_reactions';
+import { ChatFileForward } from '../../chat_file_forward';
+import { chatFileForwardInput } from '../../../shared/chat_file_forward';
 import {
   albumAccessState,
   albumSelectionInput,
@@ -118,6 +121,18 @@ import {
   type RoamingCacheChange,
 } from '../../context/app_context';
 import { assertFullModeSource, fullModeAllowed } from '../../context/full_mode';
+import {
+  listOrderedGroupMembers,
+  startGroupMemberOrderTask,
+} from '../../context/group_member_order';
+import {
+  GROUP_MEMBER_ONLINE_SORTS,
+  GROUP_MEMBER_PRIORITIZE_ADMINS_DEFAULT,
+  GROUP_MEMBER_SORTS,
+  groupMemberDefaultDescending,
+  type GroupMemberSort,
+} from '../../../shared/group_member_order';
+
 import { onlineTranscriber } from '../../online_transcribe';
 import {
   databasePerformance,
@@ -565,8 +580,8 @@ function assistantRuntime(binding: {
   assistant.bindRuntime(
     (event) => assistantBus.emit('step', { ...event, accountConfigId }),
     (id, controller) => {
-      if (controller) activeAssistantRuns.set(id, controller);
-      else activeAssistantRuns.delete(id);
+      if (controller) activeAssistantRuns().set(id, controller);
+      else activeAssistantRuns().delete(id);
     },
   );
   return assistant;
@@ -1212,6 +1227,7 @@ function unreadInfoToWire(
     latestSeq: row.latestSeq,
     deviceLatest: row.deviceLatest,
     unreadCount: row.unreadCount,
+    ...(row.groupNotifyLevel !== undefined ? { groupNotifyLevel: row.groupNotifyLevel } : {}),
     readSeq: row.readSeq,
     readError: row.readError ?? false,
     msgSeq: row.msgSeq?.toString(),
@@ -1620,13 +1636,32 @@ export const accountRouter = router({
       );
     }),
   pickedFileFinish: procedure
-    .input(browserFileBinding.extend({ uploadId: z.string().uuid() }))
+    .input(
+      browserFileBinding.extend({
+        uploadId: z.string().uuid(),
+        format: z.literal('silk').optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
       const services = requireExpectedAccount(
         input.expectedAccountUin,
         input.expectedAccountConfigId,
       );
       const path = pickedBrowserFiles.complete(services, input.uploadId);
+      if (input.format === 'silk')
+        await pickedBrowserFiles.withPaths([path], async () => {
+          const recording = await stat(path);
+          // 与 sendVoice 的一小时语音及输入端 24 kHz 单声道 PCM 一致。
+          if (recording.size > 3600 * 24_000 * 2 + 44) throw new Error('语音原稿超过一小时');
+          const { encodeFileToSilk } = await import('../../voice');
+          const { silk } = await encodeFileToSilk(path);
+          if (
+            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+            services
+          )
+            throw new Error('账号已切换，请重新选择附件');
+          await writeFile(path, silk);
+        });
       const info = await stat(path);
       if (
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
@@ -2862,7 +2897,7 @@ export const accountRouter = router({
       const runId = randomUUID();
       // 每轮任务挂一个 AbortController，供 abortAssistantRun 按 runId 掐断（用户点「停止」）。
       const ac = new AbortController();
-      activeAssistantRuns.set(runId, ac);
+      activeAssistantRuns().set(runId, ac);
       void assistant
         .chat(
           input.sessionId,
@@ -2879,7 +2914,7 @@ export const accountRouter = router({
         )
         .catch(() => {})
         .finally(() => {
-          activeAssistantRuns.delete(runId);
+          activeAssistantRuns().delete(runId);
           state.announceDrafts();
         });
       return { runId };
@@ -2889,7 +2924,7 @@ export const accountRouter = router({
   abortAssistantRun: procedure
     .input(z.object({ runId: z.string().min(1) }))
     .mutation(({ input }) => {
-      activeAssistantRuns.get(input.runId)?.abort();
+      activeAssistantRuns().get(input.runId)?.abort();
       return true;
     }),
 
@@ -2918,7 +2953,7 @@ export const accountRouter = router({
       const accountConfigId = services.accountConfig.getRecord()?.configId;
       const runId = randomUUID();
       const ac = new AbortController();
-      activeAssistantRuns.set(runId, ac);
+      activeAssistantRuns().set(runId, ac);
       void assistant
         .resumeAssistantRun(
           input.sessionId,
@@ -2932,7 +2967,7 @@ export const accountRouter = router({
           ac.signal,
         )
         .catch(() => {})
-        .finally(() => activeAssistantRuns.delete(runId));
+        .finally(() => activeAssistantRuns().delete(runId));
       return { runId };
     }),
 
@@ -3912,10 +3947,31 @@ export const accountRouter = router({
 
   getReadReportStatus: procedure.query(() => requireServices().unreadInfo.getReadReportStatus()),
 
-  /** Newest page of a conversation (open / switch-into), newest-first. */
+  /** 搜索浮窗按周读取会话日计数。 */
   conversationCalendar: procedure
-    .input(convInput)
-    .query(({ input }) => requireServices().msgs.calendar(input.kind, input.conv)),
+    .input(
+      convInput.merge(exportAccountBindingInput).extend({
+        bounds: z
+          .object({
+            start: z.number().int().nonnegative(),
+            end: z.number().int().nonnegative(),
+          })
+          .refine(({ start, end }) => end >= start && end - start < 7 * 86400)
+          .optional(),
+      }),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const days = await services.msgs.calendar(input.kind, input.conv, input.bounds);
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
+      return days;
+    }),
 
   exportCalendar: procedure
     .input(z.object({ targets: z.array(convInput) }))
@@ -3966,6 +4022,8 @@ export const accountRouter = router({
           start: z.number().int().nonnegative().optional(),
           end: z.number().int().nonnegative().optional(),
           sender: z.string().max(128).optional(),
+          senders: z.array(z.string().max(128)).optional(),
+          recordType: z.enum(CONVERSATION_RECORD_TYPES).optional(),
           keyword: z.string().max(512).optional(),
           category: z.enum(MESSAGE_CATEGORIES).optional(),
         }),
@@ -4014,6 +4072,8 @@ export const accountRouter = router({
           start: z.number().int().nonnegative().optional(),
           end: z.number().int().nonnegative().optional(),
           sender: z.string().max(128).optional(),
+          senders: z.array(z.string().max(128)).optional(),
+          recordType: z.enum(CONVERSATION_RECORD_TYPES).optional(),
           keyword: z.string().max(512).optional(),
           category: z.enum(MESSAGE_CATEGORIES).optional(),
         }),
@@ -5059,6 +5119,68 @@ export const accountRouter = router({
       return { ...result, members: result.members.map(groupMemberToWire) };
     }),
 
+  groupMemberRoster: procedure
+    .input(
+      exportAccountBindingInput.required().extend({
+        groupCode: z.string().regex(/^[1-9]\d{0,14}$/),
+        keyword: z.string().trim().max(512).default(''),
+        sort: z
+          .custom<GroupMemberSort>(
+            (value) => typeof value === 'string' && Object.hasOwn(GROUP_MEMBER_SORTS, value),
+          )
+          .default('displayName'),
+        descending: z.boolean().optional(),
+        prioritizeAdmins: z.boolean().default(GROUP_MEMBER_PRIORITIZE_ADMINS_DEFAULT),
+        limit: z.number().int().min(1).max(200).default(100),
+        offset: z.number().int().min(0).default(0),
+      }),
+    )
+    .query(({ input }) =>
+      scopedGroupRead(input, async (services) => {
+        const page = await listOrderedGroupMembers(services, {
+          ...input,
+          descending: input.descending ?? groupMemberDefaultDescending(input.sort),
+        });
+        if (
+          page.members.length &&
+          !input.offset &&
+          !input.keyword &&
+          Number(input.groupCode) <= 0xffffffff
+        )
+          void services.groupInfo.syncMemberRoles(Number(input.groupCode)).catch(() => undefined);
+        return page;
+      }),
+    ),
+
+  fillGroupMemberSort: procedure
+    .input(
+      exportAccountBindingInput.required().extend({
+        groupCode: z.string().regex(/^[1-9]\d{0,9}$/),
+        sort: z.enum(GROUP_MEMBER_ONLINE_SORTS),
+        pageId: z.string().uuid().optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const current = () =>
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+      const services = current();
+      const checkAccount = () => {
+        if (current() !== services) throw new Error('账号或数据源已切换');
+        const access = albumAccessState(requireServices());
+        if (!access.qqOnline || !access.attachEnabled)
+          throw new Error('请先连接 QQ 再补取成员资料');
+      };
+      checkAccount();
+      return startGroupMemberOrderTask(
+        services,
+        { uin: input.expectedAccountUin, configId: input.expectedAccountConfigId },
+        input.groupCode,
+        input.sort,
+        checkAccount,
+        input.pageId,
+      );
+    }),
+
   /** List members of a group. */
   listGroupMembers: procedure
     .input(
@@ -6051,6 +6173,45 @@ export const accountRouter = router({
         title: input.title,
         nodes: input.nodes as never,
       });
+    }),
+
+  /** 转发已经存在的聊天附件；只有明确确认的文件可走下载重传。 */
+  forwardChatFiles: outgoingProcedure
+    .input(
+      browserFileBinding.extend({
+        peerType: z.enum(['c2c', 'group']),
+        targetId: z.string().min(1),
+        confirmed: z.array(z.string().max(12000)).max(500).default([]),
+        content: z.discriminatedUnion('mode', [
+          z.object({ mode: z.literal('single'), source: chatFileForwardInput }),
+          z.object({
+            mode: z.literal('merged'),
+            title: z.string().optional(),
+            nodes: z.array(z.any()).min(1),
+          }),
+        ]),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const { expectedAccountUin, expectedAccountConfigId, content } = input;
+      const services = requireExpectedAccount(expectedAccountUin, expectedAccountConfigId);
+      const pid = services.accountConfig.getRecord()?.qqPid;
+      const check = () => {
+        if (
+          requireExpectedAccount(expectedAccountUin, expectedAccountConfigId) !== services ||
+          services.accountConfig.getRecord()?.qqPid !== pid
+        )
+          throw new Error('账号数据源已切换，已停止转发');
+        requireQqOnlineForAlbum(services);
+      };
+      const task = new ChatFileForward(services, input, new Set(input.confirmed), check);
+      try {
+        return content.mode === 'single'
+          ? await task.sendFile(content.source)
+          : await task.sendCard(content.nodes, content.title);
+      } finally {
+        await task.dispose();
+      }
     }),
 
   /**
@@ -7400,6 +7561,8 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      const unavailable = qqActionUnavailable.sendTuwenArk;
+      if (unavailable) throw new OperationError(unavailable, 'expected');
       requireQqOnlineForAlbum();
       const targetId = Number(input.targetId);
       if (!Number.isSafeInteger(targetId) || targetId <= 0) {
@@ -7473,6 +7636,8 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      const unavailable = qqActionUnavailable.sendGroupSignup;
+      if (unavailable) throw new OperationError(unavailable, 'expected');
       requireQqOnlineForAlbum();
       const result = await requireServices().interaction.sendGroupSignup({
         groupCode: input.groupCode,

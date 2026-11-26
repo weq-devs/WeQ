@@ -9,6 +9,7 @@ import {
   bootstrapRuntimeCacheRoot,
   blockRuntimeForBackupRecovery,
 } from './app_context';
+import { applyRestoredHostPreferences } from './backup_host_preferences';
 import { getBackupContext, applyLiveBackupContext } from './backup_context';
 import { isDbRepairBusy } from '../ipc/routers/db_repair';
 import { isIntentModelDownloading } from '../ipc/routers/intent_sense';
@@ -85,6 +86,8 @@ export function applyBackupLive(
   stage?: () => unknown,
   afterApply?: (result: NonNullable<ReturnType<typeof applyLiveBackupContext>>) => Promise<void>,
   refreshOnFailure = true,
+  desktop = true,
+  beforeApply?: () => void,
 ) {
   return runtimeMaintenance.run(() =>
     maintainDesktopStorage(async () => {
@@ -97,6 +100,7 @@ export function applyBackupLive(
       try {
         await ctx.clearAccount(true);
         await assistantResourceServer.stop();
+        beforeApply?.();
         const result = applyLiveBackupContext();
         if (result.needsRecovery) blockRuntimeForBackupRecovery(result.error || '恢复回滚尚未完成');
         if (result.status !== 'applied') throw new Error(result.error || '恢复未应用');
@@ -119,6 +123,11 @@ export function applyBackupLive(
             await ctx.applyWeqAssistant(ctx.bootstrap.userConfig.getSettings().weqAssistant);
         } catch (error) {
           result.warnings.push(`数据已恢复，助手服务未能启动：${String(error)}`);
+        }
+        try {
+          await applyRestoredHostPreferences(files.root, result, desktop);
+        } catch (error) {
+          result.warnings.push(`备份数据已恢复，本机设置回执待确认：${String(error)}`);
         }
         await afterApply?.(result);
         return result;

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { BadPageScanCheckpoint, SingleBytePageCorrection } from '@weq/native';
 import type { BadPageScanReport } from '../bad_pages';
 import { DatabaseScanUnsupportedError, type DbRepairCheckupIntegrity } from './checkup';
 import { DatabaseProgressTracker, type DatabaseWorkProgress } from './progress';
@@ -7,9 +8,15 @@ import type {
   DatabaseMaintenanceReportHeader,
   DatabaseMaintenanceReports,
 } from './maintenance_reports';
-import { DbRepairError } from './service';
+import { DbRepairError, DbRepairRollbackError, type DbRepairRequest } from './service';
 import {
+  normalizeDatabaseCheckupConcurrency,
+  databaseCanCheckQuickRepair,
   databaseReadyForRepair,
+  databaseNeedsPageLocation,
+  databaseRepairRecommendation,
+  type DatabasePageLocation,
+  type DatabaseRepairMethod,
   summarizeDatabaseMaintenance,
   type DatabaseMaintenanceRow,
   type DatabaseMaintenanceScope,
@@ -22,17 +29,36 @@ import {
 export interface DatabaseMaintenanceLease {
   id?: string;
   release(): void | Promise<void>;
+  acquireMore?(
+    targets: DbRepairTarget[],
+    signal: AbortSignal,
+    progress: (tick: DatabaseWorkProgress) => void,
+  ): Promise<void>;
   /** 锁内无法合并的 WAL 等逐库问题，不把主文件扫描冒充完整扫描。 */
   errors?: Record<string, string>;
   signal?: AbortSignal;
 }
 export interface DatabaseMaintenanceDeps {
-  acquire(targets: DbRepairTarget[], signal: AbortSignal): Promise<DatabaseMaintenanceLease>;
+  scanConcurrency?(): number;
+  sourceIdentity?(target: DbRepairTarget): string;
+  acquire(
+    targets: DbRepairTarget[],
+    signal: AbortSignal,
+    progress: (tick: DatabaseWorkProgress) => void,
+  ): Promise<DatabaseMaintenanceLease>;
   scan(
     target: DbRepairTarget,
     signal: AbortSignal,
     progress: (tick: DatabaseWorkProgress) => void,
+    resume?: { firstPage: number; onCheckpoint(checkpoint: BadPageScanCheckpoint): void },
   ): Promise<BadPageScanReport>;
+  locate?(
+    target: DbRepairTarget,
+    scan: BadPageScanReport,
+    signal: AbortSignal,
+    progress: (tick: DatabaseWorkProgress) => void,
+    quickOnly?: true,
+  ): Promise<DatabasePageLocation>;
   deep(
     target: DbRepairTarget,
     signal: AbortSignal,
@@ -48,29 +74,75 @@ export interface DatabaseMaintenanceDeps {
       strictPages?: boolean;
       allowLowSpace?: boolean;
       maintenanceId?: string;
+      method?: DatabaseRepairMethod;
+      quickBudgetBytes?: number;
+      singleByteCorrection?: SingleBytePageCorrection;
+      replacement: NonNullable<DbRepairRequest['replacement']>;
     },
   ): Promise<DbRepairRecord>;
   reports(scope: DatabaseMaintenanceScope): DatabaseMaintenanceReports;
   changed?(snapshot: DatabaseMaintenanceStatus): void;
 }
+interface RepairBatchOptions {
+  backup?: boolean;
+  backups?: Record<string, boolean>;
+  strictPages?: boolean;
+  allowLowSpace?: boolean;
+  methods?: Record<string, DatabaseRepairMethod>;
+}
+interface ScanBatch {
+  kind: 'scan' | 'checkup';
+  targets: DbRepairTarget[];
+}
+class DatabaseSourceChangedError extends Error {}
+
+interface SavedPageScan {
+  identity: string;
+  nextPage: number;
+  badPages: number[];
+  zeroPages: number[];
+}
+interface EndDecision {
+  id: string;
+  replacement?: Session['replacement'];
+  settled: Promise<void>;
+  dismiss(): void;
+}
 interface Session {
   snapshot: DatabaseMaintenanceSnapshot;
   targets: DbRepairTarget[];
+  sourceIdentities: Map<string, string>;
+  pageScans: Map<string, SavedPageScan>;
+  singleByteCorrections: Map<string, SingleBytePageCorrection>;
   lease?: DatabaseMaintenanceLease;
   abort?: AbortController;
   pending?: Promise<DatabaseMaintenanceSnapshot>;
+  scanQueue?: ScanBatch[];
   lastSaved: number;
   lastPublished: number;
   publishTimer?: ReturnType<typeof setTimeout>;
   preparation?: DatabaseProgressTracker;
   finalizedReportId?: string;
   ending?: Promise<void>;
+  endDecision?: EndDecision;
+  replacement?: { dbName: string; abort: AbortController };
+  rollbackFailure?: { row: DatabaseMaintenanceRow; error: DbRepairRollbackError };
   unsavedReports: Map<string, DatabaseMaintenanceReport>;
 }
 const keyFor = (scope: DatabaseMaintenanceScope) =>
   JSON.stringify([scope.uin, scope.configId ?? null]);
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const progressPublishIntervalMs = 1000;
+const queuedTargets = (session: Session) =>
+  session.scanQueue?.flatMap((batch) => batch.targets) ?? [];
+const requiredScanKind = (operation: DatabaseMaintenanceOperation, dbName: string) =>
+  operation.databaseScanKinds?.[dbName] ?? operation.kind;
+const pendingRow = ({ dbName }: DbRepairTarget): DatabaseMaintenanceRow => ({
+  dbName,
+  scanStatus: 'pending',
+  support: 'possible',
+  issues: [],
+});
 
 /** 维护的生命周期属于宿主，不属于窗口；每次执行各自留一份不可覆盖的历史结果。 */
 export class DatabaseMaintenance {
@@ -147,7 +219,7 @@ export class DatabaseMaintenance {
     const session = this.sessions.get(keyFor(scope));
     const operation = session?.snapshot.operation;
     if (operation?.id === id && operation.status === 'running')
-      throw new Error('这份报告仍在更新，请暂停扫描或等待执行结束后再删除。');
+      throw new Error('这份报告仍在更新，请暂停体检或等待执行结束后再删除。');
     const queue = session?.unsavedReports;
     const pending = queue?.delete(id) ?? false;
     // 正在写的同一份报告先原子落盘，再删除，避免迟到的 rename 恢复已删除的报告。
@@ -159,38 +231,58 @@ export class DatabaseMaintenance {
     scope: DatabaseMaintenanceScope,
     targets: DbRepairTarget[],
     kind: 'scan' | 'checkup',
+    requestedNames?: string[],
   ): Promise<DatabaseMaintenanceSnapshot> {
     let session = this.sessions.get(keyFor(scope));
     if (session?.ending || session?.snapshot.state === 'ending')
       throw new Error('正在结束本次维护，请等待数据库解锁。');
+    if (session?.rollbackFailure) throw new Error('请先从「维护中」重试恢复原库。');
     if (session?.pending) throw new Error('数据库维护任务正在执行，请先停止当前操作。');
     if (session?.lease?.signal?.aborted)
-      throw new Error('持续维护锁已中断，请先结束维护并重新扫描。');
-    if (!session || session.snapshot.state === 'ended') {
-      if (!targets.length) throw new Error('没有可扫描的数据库。');
-      const paths = new Set(targets.map((target) => target.dbPath));
-      if (
-        [...this.sessions.values()].some(
-          (other) =>
-            other.snapshot.state !== 'ended' &&
-            other.targets.some((target) => paths.has(target.dbPath)),
+      throw new Error('持续维护锁已中断，请先结束维护并重新体检。');
+    if (requestedNames && !session?.snapshot.locked)
+      throw new Error('本轮维护已结束，请刷新后开始体检。');
+    const existing = session?.targets ?? [];
+    const added = requestedNames
+      ? targets.filter(
+          (target) =>
+            requestedNames.includes(target.dbName) &&
+            !existing.some((row) => row.dbName === target.dbName || row.dbPath === target.dbPath),
         )
+      : [];
+    if (added.length && !session?.lease?.acquireMore)
+      throw new Error('本轮无法追加数据库，请刷新维护状态后重试。');
+    const newTargets = requestedNames
+      ? added
+      : !session || session.snapshot.state === 'ended'
+        ? targets
+        : [];
+    const paths = new Set(newTargets.map((target) => target.dbPath));
+    if (
+      [...this.sessions.values()].some(
+        (other) =>
+          other !== session &&
+          other.snapshot.state !== 'ended' &&
+          [...other.targets, ...queuedTargets(other)].some((target) => paths.has(target.dbPath)),
       )
-        throw new Error('此账号的数据源已经在维护中。');
+    )
+      throw new Error(
+        requestedNames ? '所选数据库正在另一个维护会话中使用。' : '此账号的数据源已经在维护中。',
+      );
+    if (!session || session.snapshot.state === 'ended') {
+      if (!targets.length) throw new Error('没有可体检的数据库。');
       session = {
         snapshot: {
           ...scope,
           id: randomUUID(),
           state: 'locking',
           locked: false,
-          databases: targets.map((target) => ({
-            dbName: target.dbName,
-            scanStatus: 'pending',
-            support: 'possible',
-            issues: [],
-          })),
+          databases: targets.map(pendingRow),
         },
-        targets,
+        targets: [...targets],
+        sourceIdentities: new Map(),
+        pageScans: new Map(),
+        singleByteCorrections: new Map(),
         lastSaved: 0,
         lastPublished: 0,
         unsavedReports: session?.unsavedReports ?? new Map(),
@@ -198,29 +290,128 @@ export class DatabaseMaintenance {
       this.sessions.set(keyFor(scope), session);
     }
     const current = session;
-    this.begin(current, kind, current.targets.length);
-    current.pending = this.scanSession(current, kind).finally(() => {
+    const selected = requestedNames
+      ? [...current.targets, ...added].filter((target) => requestedNames.includes(target.dbName))
+      : [...current.targets];
+    if (!selected.length) throw new Error('请选择要体检的数据库。');
+    const previousOperation = current.snapshot.operation;
+    const resumeKinds =
+      previousOperation?.status === 'cancelled' && previousOperation.kind === kind
+        ? previousOperation.databaseScanKinds
+        : undefined;
+    const otherKind = kind === 'scan' ? 'checkup' : 'scan';
+    const otherTargets = selected.filter(({ dbName }) => resumeKinds?.[dbName] === otherKind);
+    const firstBatch = selected.filter(({ dbName }) => resumeKinds?.[dbName] !== otherKind);
+    const concurrency = normalizeDatabaseCheckupConcurrency(this.deps.scanConcurrency?.());
+    current.scanQueue = [];
+    if (firstBatch.length) current.scanQueue.push({ kind, targets: firstBatch });
+    if (otherTargets.length) current.scanQueue.push({ kind: otherKind, targets: otherTargets });
+    this.begin(
+      current,
+      kind,
+      selected.length,
+      requestedNames ? selected.map((target) => target.dbName) : undefined,
+      otherTargets.length
+        ? Object.fromEntries(otherTargets.map(({ dbName }) => [dbName, otherKind]))
+        : undefined,
+    );
+    current.pending = this.scanSession(current, current.scanQueue, concurrency).finally(() => {
+      current.scanQueue = undefined;
       current.pending = undefined;
     });
     return current.pending;
   }
 
+  appendScan(
+    scope: DatabaseMaintenanceScope,
+    operationId: string,
+    targets: DbRepairTarget[],
+    names: string[],
+    kind?: 'scan' | 'checkup',
+  ): void {
+    const session = this.sessions.get(keyFor(scope));
+    const operation = session?.snapshot.operation;
+    const queue = session?.scanQueue;
+    if (
+      !session ||
+      !queue ||
+      session.ending ||
+      session.snapshot.maintenanceError ||
+      session.abort?.signal.aborted ||
+      operation?.id !== operationId ||
+      operation.kind === 'repair' ||
+      operation.status !== 'running'
+    )
+      throw new Error('本次体检已停止或完成，请重新选择要体检的数据库。');
+
+    const batchKind = kind ?? operation.kind;
+    const queued = queuedTargets(session);
+    const knownTargets = new Map(
+      [...targets, ...queued, ...session.targets].map((target) => [target.dbName, target]),
+    );
+    const batch: DbRepairTarget[] = [];
+    for (const name of new Set(names)) {
+      const target = knownTargets.get(name);
+      if (!target) continue;
+      const existing = queued.find((item) => item.dbName === name || item.dbPath === target.dbPath);
+      if (
+        existing &&
+        (batchKind === 'scan' || requiredScanKind(operation, existing.dbName) === 'checkup')
+      )
+        continue;
+      batch.push(existing ?? target);
+    }
+    if (!batch.length) return;
+    if (
+      [...this.sessions.values()].some(
+        (other) =>
+          other !== session &&
+          other.snapshot.state !== 'ended' &&
+          [...other.targets, ...queuedTargets(other)].some((target) =>
+            batch.some((item) => item.dbPath === target.dbPath),
+          ),
+      )
+    )
+      throw new Error('所选数据库正在另一个维护会话中使用。');
+
+    queue.push({ kind: batchKind, targets: batch });
+    const batchNames = batch.map(({ dbName }) => dbName);
+    const scanKinds = { ...operation.databaseScanKinds };
+    for (const name of batchNames) {
+      if (batchKind === operation.kind) delete scanKinds[name];
+      else scanKinds[name] = batchKind;
+    }
+    operation.databaseScanKinds = Object.keys(scanKinds).length ? scanKinds : undefined;
+    operation.databaseNames = [...new Set([...queued.map(({ dbName }) => dbName), ...batchNames])];
+    operation.totalDatabases = operation.databaseNames.length;
+    this.countCompleted(session);
+    this.publishStatus(session);
+  }
+
   private async scanSession(
     session: Session,
-    kind: 'scan' | 'checkup',
+    queue: ScanBatch[],
+    concurrency: number,
   ): Promise<DatabaseMaintenanceSnapshot> {
     const snapshot = session.snapshot;
     const signal = session.abort!.signal;
+    const lockProgress = (tick: DatabaseWorkProgress) => {
+      if (signal.aborted) return;
+      snapshot.operation!.currentDb = undefined;
+      snapshot.progress = session.preparation?.update('preparing', tick);
+      this.queueProgressPublish(session);
+    };
     let executionFailure: string | undefined;
     try {
       if (!session.lease) {
-        session.lease = await this.deps.acquire(session.targets, signal);
+        session.lease = await this.deps.acquire(session.targets, signal, lockProgress);
         snapshot.locked = true;
         const lease = session.lease;
         lease.signal?.addEventListener(
           'abort',
           () => {
             session.abort?.abort(lease.signal?.reason ?? new Error('持续维护锁已中断。'));
+            session.endDecision?.dismiss();
             if (!session.pending && !session.ending)
               void this.expireLease(session).catch((error: unknown) => {
                 session.snapshot.maintenanceError = errorText(error);
@@ -232,153 +423,48 @@ export class DatabaseMaintenance {
         lease.signal?.throwIfAborted();
         this.publish(session);
       }
-      snapshot.state = 'scanning';
-      for (const target of session.targets) {
+      // 当前批次完成后，为后续批次的新增库加锁。已持锁的库复用页检查结果。
+      for (const { kind, targets } of queue) {
         signal.throwIfAborted();
-        const row = snapshot.databases.find((item) => item.dbName === target.dbName)!;
-        if (row.scanStatus === 'completed') continue;
-        const tracker = this.tracker(session, row, 'scan');
-        row.scanStatus = 'running';
-        row.scanError = undefined;
-        this.tick(session, row, tracker, 'scan', { step: 'opening', message: '读取源库扫描信息' });
-        try {
-          const lockError = session.lease.errors?.[target.dbName];
-          if (lockError) throw new Error(lockError);
-          row.scan = await this.deps.scan(target, signal, (tick) =>
-            this.tick(session, row, tracker, 'scan', tick),
-          );
-          signal.throwIfAborted();
-          row.scanStatus = 'completed';
-          row.support = row.scan.plaintext
-            ? 'unsupported'
-            : row.scan.usedHmac && row.scan.badPages.length < row.scan.pageCount
-              ? 'supported'
-              : 'possible';
-          row.issues = [];
-          if (row.scan.sourceLayout === 'standard')
-            row.issues.push({
-              message: '发现旧版修复留下的标准页布局，本轮重建将迁回 QQ 页布局。',
-              support: row.support,
-            });
-          if (row.scan.plaintext)
-            row.issues.push({
-              diagnostic: false,
-              message: '此数据库为明文库，当前重建工具仅支持加密库。',
-              support: 'unsupported',
-            });
-          if (row.scan.usedHmac && row.scan.badPages.length === row.scan.pageCount)
-            row.issues.push({
-              message:
-                '全部页的签名都未通过；密钥或算法不匹配也会出现此结果，尚不能确认都是物理损坏。',
-              support: 'possible',
-            });
-          if (row.scan.badPages.length)
-            row.issues.push({
-              message: `发现 ${row.scan.badPages.length} 个页签名异常；可重建可读取的内容，坏页内容无法保证完整。`,
-              support: row.support,
-            });
-          if (row.scan.zeroPages.length)
-            row.issues.push({
-              diagnostic: false,
-              message: `发现 ${row.scan.zeroPages.length} 个全零页，需结合结构检查判断影响。`,
-              support: 'possible',
-            });
-          if (row.scan.trailingBytes)
-            row.issues.push({
-              message: `文件尾部有 ${row.scan.trailingBytes} 字节不足一页，重建不包含这部分字节。`,
-              support: 'possible',
-            });
-          row.progress = tracker.finish('completed');
-          row.scanProgress = row.progress;
-        } catch (error) {
-          row.scanStatus = signal.aborted ? 'pending' : 'failed';
-          row.scanError = errorText(error);
-          if (error instanceof DatabaseScanUnsupportedError) {
-            row.support = 'unsupported';
-            row.issues = [{ message: row.scanError, support: 'unsupported', diagnostic: false }];
-          }
-          row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
-          if (signal.aborted) throw error;
-        }
-        this.countCompleted(session);
-        this.publish(session, true);
-      }
-      if (kind === 'checkup') {
-        snapshot.state = 'checking';
-        for (const target of session.targets) {
-          signal.throwIfAborted();
-          const row = snapshot.databases.find((item) => item.dbName === target.dbName)!;
-          if (row.scanStatus !== 'completed' || row.deepStatus === 'completed') continue;
-          row.integrity = undefined;
-          row.issues = row.issues.filter((issue) => issue.stage !== 'deep');
-          const tracker = this.tracker(session, row, 'checkup');
-          row.deepStatus = 'running';
-          this.tick(session, row, tracker, 'checkup', {
-            step: 'integrity',
-            message: '检查数据库整体结构',
-          });
-          try {
-            row.integrity = await this.deps.deep(
-              row.scan?.plaintext ? { ...target, key: '' } : target,
-              signal,
-              (tick) => this.tick(session, row, tracker, 'checkup', tick),
-            );
-            signal.throwIfAborted();
-            row.deepStatus = row.integrity.ran
-              ? row.integrity.complete === false
-                ? 'partial'
-                : 'completed'
-              : 'failed';
-            if (row.integrity.ran && row.integrity.complete === false)
-              row.issues.push({
-                stage: 'deep',
-                diagnostic: false,
-                support: 'possible',
-                message: `以下结构未完成核验，当前结果不能证明相关问题已修复：${row.integrity.unverifiedTables?.join('、') || 'QQ 专用虚拟表或整体结构检查'}`,
-              });
-            if (
-              (row.integrity.ran && !row.integrity.healthy) ||
-              (!row.integrity.ran && row.integrity.corrupt)
-            )
-              row.issues.push({
-                stage: 'deep',
-                message: `结构检查发现异常${row.integrity.ran && row.integrity.corruptedTables.length ? `：${row.integrity.corruptedTables.join('、')}` : ''}；重建可恢复仍能读取的数据。`,
-                support: row.support === 'unsupported' ? 'unsupported' : 'possible',
-              });
-            row.progress = tracker.finish(row.deepStatus === 'failed' ? 'failed' : 'completed');
-          } catch (error) {
-            row.deepStatus = signal.aborted ? 'cancelled' : 'failed';
-            row.integrity = { ran: false, error: errorText(error) };
-            row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
-            if (signal.aborted) throw error;
-          }
-          this.countCompleted(session);
+        snapshot.operation!.currentScanKind = kind;
+        const added = targets.filter((target) => !session.targets.includes(target));
+        if (added.length) {
+          if (!session.lease.acquireMore)
+            throw new Error('本轮无法追加数据库，请刷新维护状态后重试。');
+          session.preparation = new DatabaseProgressTracker(snapshot.operation!.kind, '账号数据库');
+          lockProgress({ step: 'lock', message: '准备锁定新增数据库' });
+          await session.lease.acquireMore(added, signal, lockProgress);
+          session.targets.push(...added);
+          snapshot.databases.push(...added.map(pendingRow));
           this.publish(session, true);
         }
+        await this.checkDatabases(session, kind, targets, concurrency, signal);
       }
     } catch (error) {
       if (!signal.aborted) executionFailure = errorText(error);
+      if (error instanceof DatabaseSourceChangedError) {
+        executionFailure = error.message;
+        snapshot.maintenanceError = executionFailure;
+      }
     }
+    const operation = snapshot.operation!;
+    const selected = new Set(queuedTargets(session).map(({ dbName }) => dbName));
     const failures = snapshot.databases.some(
       (row) =>
-        row.scanStatus !== 'completed' || (kind === 'checkup' && row.deepStatus !== 'completed'),
+        selected.has(row.dbName) &&
+        (row.scanStatus !== 'completed' ||
+          (requiredScanKind(operation, row.dbName) === 'checkup' &&
+            row.deepStatus !== 'completed')),
     );
     const lost = session.lease?.signal?.aborted;
     if (lost) {
-      executionFailure = '持续维护锁已中断，本次结果不能继续用于修复，请主动重新开始扫描。';
-      await session.lease!.release();
-      session.lease = undefined;
-      snapshot.locked = false;
-    } else if (
-      signal.aborted &&
-      !snapshot.databases.some((row) => row.scanStatus === 'completed')
-    ) {
+      executionFailure = '持续维护锁已中断，本次结果不能继续用于修复，请主动重新开始体检。';
+      await this.releaseLease(session);
+    } else if (snapshot.maintenanceError && executionFailure) {
       try {
-        await session.lease?.release();
-        session.lease = undefined;
-        snapshot.locked = false;
+        await this.releaseLease(session);
       } catch (error) {
-        snapshot.maintenanceError = `扫描已停止，但释放维护锁失败，请重试结束维护：${errorText(error)}`;
+        snapshot.maintenanceError = `释放维护锁失败，请重试结束维护：${errorText(error)}`;
       }
     }
     this.finish(
@@ -400,26 +486,291 @@ export class DatabaseMaintenance {
     return structuredClone(snapshot);
   }
 
+  private async checkDatabases(
+    session: Session,
+    kind: 'scan' | 'checkup',
+    selected: DbRepairTarget[],
+    concurrency: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const runPhase = async (
+      check: (
+        target: DbRepairTarget,
+        row: DatabaseMaintenanceRow,
+        signal: AbortSignal,
+      ) => Promise<void>,
+    ) => {
+      const failed = new AbortController();
+      const phaseSignal = AbortSignal.any([signal, failed.signal]);
+      const rows = new Map(session.snapshot.databases.map((row) => [row.dbName, row]));
+      let next = 0;
+      const run = async () => {
+        while (!phaseSignal.aborted && next < selected.length) {
+          const target = selected[next++]!;
+          try {
+            await check(target, rows.get(target.dbName)!, phaseSignal);
+            this.countCompleted(session);
+            this.publish(session, true);
+          } catch (error) {
+            // 先停下其余检查，等所有在途子进程退出后再结算或释放维护锁。
+            failed.abort(error);
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(concurrency, selected.length) }, run));
+      phaseSignal.throwIfAborted();
+    };
+    session.snapshot.state = 'scanning';
+    await runPhase((target, row, phaseSignal) =>
+      this.scanDatabase(session, target, row, phaseSignal),
+    );
+    if (kind === 'checkup') {
+      session.snapshot.state = 'checking';
+      await runPhase((target, row, phaseSignal) =>
+        this.checkDatabaseStructure(session, target, row, phaseSignal),
+      );
+    }
+  }
+
+  private async scanDatabase(
+    session: Session,
+    target: DbRepairTarget,
+    row: DatabaseMaintenanceRow,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (row.scanStatus === 'completed') {
+      if (row.repair?.status !== 'completed' && !this.hasSameSource(session, target)) {
+        throw new DatabaseSourceChangedError('原库已发生变化。请结束维护并重新核对数据库。');
+      }
+      return;
+    }
+    const tracker = this.tracker(session, row, 'scan');
+    row.scanStatus = 'running';
+    row.scanError = undefined;
+    this.tick(session, row, tracker, 'scan', { step: 'opening', message: '读取源库信息' });
+    try {
+      const lockError = session.lease!.errors?.[target.dbName];
+      if (lockError) throw new Error(lockError);
+      const identity = this.deps.sourceIdentity?.(target);
+      const saved = session.pageScans.get(target.dbName);
+      if (saved && identity !== saved.identity) {
+        throw new DatabaseSourceChangedError('暂停期间原库发生变化，请重新开始体检。');
+      }
+      const scan = await this.scanPages(session, target, signal, identity, saved, (tick) =>
+        this.tick(session, row, tracker, 'scan', tick),
+      );
+      signal.throwIfAborted();
+      if (identity !== this.deps.sourceIdentity?.(target))
+        throw new Error('体检期间原库发生变化。');
+      session.pageScans.delete(target.dbName);
+      session.singleByteCorrections.delete(target.dbName);
+      if (identity !== undefined) session.sourceIdentities.set(target.dbName, identity);
+      row.scan = scan;
+      row.scanStatus = 'completed';
+      row.support = row.scan.plaintext
+        ? 'unsupported'
+        : row.scan.usedHmac && row.scan.badPages.length < row.scan.pageCount
+          ? 'supported'
+          : 'possible';
+      row.issues = [];
+      if (row.scan.sourceLayout === 'standard')
+        row.issues.push({
+          message: '发现旧版修复留下的标准页布局，本轮重建将迁回 QQ 页布局。',
+          support: row.support,
+        });
+      if (row.scan.plaintext)
+        row.issues.push({
+          diagnostic: false,
+          message: '此数据库为明文库，当前重建工具仅支持加密库。',
+          support: 'unsupported',
+        });
+      if (row.scan.usedHmac && row.scan.badPages.length === row.scan.pageCount)
+        row.issues.push({
+          message: '全部页的签名都未通过；密钥或算法不匹配也会出现此结果，尚不能确认都是物理损坏。',
+          support: 'possible',
+        });
+      if (row.scan.badPages.length)
+        row.issues.push({
+          message: `发现 ${row.scan.badPages.length.toLocaleString('zh-CN')} 个坏页。`,
+          support: row.support,
+        });
+      if (row.scan.zeroPages.length)
+        row.issues.push({
+          diagnostic: false,
+          message: `发现 ${row.scan.zeroPages.length} 个全零页，需结合结构检查判断影响。`,
+          support: 'possible',
+        });
+      if (row.scan.trailingBytes)
+        row.issues.push({
+          message: `文件尾部有 ${row.scan.trailingBytes} 字节不足一页，重建不包含这部分字节。`,
+          support: 'possible',
+        });
+      row.progress = tracker.finish('completed');
+      row.scanProgress = row.progress;
+    } catch (error) {
+      row.scanStatus = signal.aborted ? 'pending' : 'failed';
+      row.scanError = errorText(error);
+      if (error instanceof DatabaseScanUnsupportedError) {
+        row.support = 'unsupported';
+        row.issues = [{ message: row.scanError, support: 'unsupported', diagnostic: false }];
+      }
+      row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
+      if (signal.aborted) throw error;
+      session.pageScans.delete(target.dbName);
+      if (error instanceof DatabaseSourceChangedError) throw error;
+    }
+  }
+
+  private async checkDatabaseStructure(
+    session: Session,
+    target: DbRepairTarget,
+    row: DatabaseMaintenanceRow,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (
+      row.scanStatus !== 'completed' ||
+      (row.deepStatus === 'completed' && !databaseNeedsPageLocation(row))
+    )
+      return;
+    row.integrity = undefined;
+    row.issues = row.issues.filter((issue) => issue.stage !== 'deep');
+    const tracker = this.tracker(session, row, 'checkup');
+    row.deepStatus = 'running';
+    this.tick(session, row, tracker, 'checkup', {
+      step: 'integrity',
+      message: '检查数据库整体结构',
+    });
+    try {
+      if (row.scan && this.deps.locate && databaseNeedsPageLocation(row)) {
+        const location = await this.deps.locate(target, row.scan, signal, (tick) =>
+          this.tick(session, row, tracker, 'checkup', tick),
+        );
+        signal.throwIfAborted();
+        row.scan = { ...row.scan, affected: location.affected };
+        this.setQuickRepairEvidence(session, row, location);
+        row.locationChecked = true;
+        const located = row.scan.affected.reduce((sum, object) => sum + object.badPageCount, 0);
+        this.tick(session, row, tracker, 'checkup', {
+          step: 'mapping',
+          message: '坏页归属定位完成',
+          locatedPages: located,
+          badPages: row.scan.badPages.length,
+          status: 'completed',
+          outcome: located < row.scan.badPages.length ? 'unverified' : 'abnormal',
+        });
+      }
+      row.integrity = await this.deps.deep(
+        row.scan?.plaintext ? { ...target, key: '' } : target,
+        signal,
+        (tick) => this.tick(session, row, tracker, 'checkup', tick),
+      );
+      signal.throwIfAborted();
+      if (!this.hasSameSource(session, target)) {
+        throw new DatabaseSourceChangedError('补充检查期间原库发生变化，请重新核对数据库。');
+      }
+      row.deepStatus = row.integrity.ran
+        ? row.integrity.complete === false
+          ? 'partial'
+          : 'completed'
+        : 'failed';
+      if (row.integrity.ran && row.integrity.complete === false)
+        row.issues.push({
+          stage: 'deep',
+          diagnostic: false,
+          support: 'possible',
+          message: `以下结构未完成核验，当前结果不能证明相关问题已修复：${row.integrity.unverifiedTables?.join('、') || 'QQ 专用虚拟表或整体结构检查'}`,
+        });
+      if (
+        (row.integrity.ran && !row.integrity.healthy) ||
+        (!row.integrity.ran && row.integrity.corrupt)
+      )
+        row.issues.push({
+          stage: 'deep',
+          message: `结构检查发现异常${row.integrity.ran && row.integrity.corruptedTables.length ? `：${row.integrity.corruptedTables.join('、')}` : ''}；重建可恢复仍能读取的数据。`,
+          support: row.support === 'unsupported' ? 'unsupported' : 'possible',
+        });
+      row.progress = tracker.finish(row.deepStatus === 'failed' ? 'failed' : 'completed');
+    } catch (error) {
+      row.deepStatus = signal.aborted ? 'cancelled' : 'failed';
+      row.integrity = { ran: false, error: errorText(error) };
+      row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
+      if (signal.aborted || error instanceof DatabaseSourceChangedError) throw error;
+    }
+  }
+
+  private async scanPages(
+    session: Session,
+    target: DbRepairTarget,
+    signal: AbortSignal,
+    identity: string | undefined,
+    saved: SavedPageScan | undefined,
+    progress: (tick: DatabaseWorkProgress) => void,
+  ): Promise<BadPageScanReport> {
+    if (identity === undefined) return this.deps.scan(target, signal, progress);
+    const checkpoint = saved ?? { identity, nextPage: 1, badPages: [], zeroPages: [] };
+    const firstPage = checkpoint.nextPage;
+    const prefixBad = checkpoint.badPages.length;
+    const prefixZero = checkpoint.zeroPages.length;
+    const scan = await this.deps.scan(
+      target,
+      signal,
+      (tick) => {
+        if (firstPage > 1 && tick.step === 'pages') {
+          const badPages = prefixBad + (tick.badPages ?? 0);
+          progress({
+            ...tick,
+            badPages,
+            zeroPages: prefixZero + (tick.zeroPages ?? 0),
+            outcome: badPages > 0 ? 'abnormal' : tick.outcome,
+          });
+        } else progress(tick);
+      },
+      {
+        firstPage,
+        onCheckpoint: (batch) => {
+          if (batch.firstPage !== checkpoint.nextPage || batch.nextPage <= batch.firstPage) return;
+          checkpoint.badPages.push(...batch.badPages);
+          checkpoint.zeroPages.push(...batch.zeroPages);
+          checkpoint.nextPage = batch.nextPage;
+          session.pageScans.set(target.dbName, checkpoint);
+        },
+      },
+    );
+    if (firstPage === 1) return scan;
+    return {
+      ...scan,
+      badPages: checkpoint.badPages.slice(0, prefixBad).concat(scan.badPages),
+      zeroPages: checkpoint.zeroPages.slice(0, prefixZero).concat(scan.zeroPages),
+    };
+  }
+
   repair(
     scope: DatabaseMaintenanceScope,
     names: string[],
-    options: { backup?: boolean; strictPages?: boolean; allowLowSpace?: boolean } = {},
+    options: RepairBatchOptions = {},
   ): Promise<DatabaseMaintenanceSnapshot> {
     const session = this.sessions.get(keyFor(scope));
     if (!session?.lease || session.snapshot.state === 'ended')
-      throw new Error('请先开始扫描并保留维护锁，再修复数据库。');
+      throw new Error('请先开始体检并保留维护锁，再修复数据库。');
     if (session.ending || session.snapshot.state === 'ending')
       throw new Error('正在结束本次维护，不能开始修复。');
+    if (session.rollbackFailure) throw new Error('请先从「维护中」重试恢复原库。');
     if (session.lease.signal?.aborted)
-      throw new Error('持续维护锁已中断，请先结束维护并重新扫描。');
-    if (session.pending) throw new Error('请先停止当前扫描或体检，保留扫描结果后再修复。');
+      throw new Error('持续维护锁已中断，请先结束维护并重新体检。');
+    if (session.pending) throw new Error('请先暂停当前体检，再修复已有结果的数据库。');
     const selected = [...new Set(names)];
     if (!selected.length) throw new Error('请勾选需要修复的数据库。');
+    const methods = Object.create(null) as Record<string, DatabaseRepairMethod>;
     for (const name of selected) {
       const row = session.snapshot.databases.find((item) => item.dbName === name);
       if (row?.scanStatus !== 'completed' || !row.scan)
-        throw new Error(`${name} 尚无完整扫描结果，不能修复。`);
+        throw new Error(`${name} 尚无完整的页检查结果，不能修复。`);
       if (!databaseReadyForRepair(row)) throw new Error(`${name} 当前不支持修复。`);
+      const recommended = databaseRepairRecommendation(row);
+      const method = options.methods?.[name] ?? recommended ?? 'deep';
+      if (method === 'quick' && recommended !== 'quick' && !databaseCanCheckQuickRepair(row))
+        throw new Error(`${name} 当前没有可用的快速修复方案。`);
+      methods[name] = method;
     }
     this.begin(session, 'repair', selected.length);
     session.snapshot.operation!.databaseNames = selected;
@@ -429,7 +780,7 @@ export class DatabaseMaintenance {
         row.repair = selected.includes(row.dbName) ? { status: 'pending' } : undefined;
     }
     const current = session;
-    current.pending = this.repairSession(current, selected, options).finally(() => {
+    current.pending = this.repairSession(current, selected, { ...options, methods }).finally(() => {
       current.pending = undefined;
     });
     return current.pending;
@@ -438,7 +789,7 @@ export class DatabaseMaintenance {
   private async repairSession(
     session: Session,
     selected: string[],
-    options: { backup?: boolean; strictPages?: boolean; allowLowSpace?: boolean },
+    options: RepairBatchOptions,
   ): Promise<DatabaseMaintenanceSnapshot> {
     const snapshot = session.snapshot;
     const signal = session.abort!.signal;
@@ -452,9 +803,15 @@ export class DatabaseMaintenance {
           continue;
         }
         const tracker = this.tracker(session, row, 'repair');
-        row.repair = { status: 'running' };
+        const method = options.methods![name]!;
+        row.repair = { status: 'running', method };
+        const target = session.targets.find((item) => item.dbName === name)!;
+        const replacement = { dbName: name, abort: new AbortController() };
         try {
-          const target = session.targets.find((item) => item.dbName === name)!;
+          if (!this.hasSameSource(session, target))
+            throw new DbRepairError('changed-during-repair', '原库与体检时不同，请重新核对原库。');
+          if (method === 'quick' && !row.quickBudgetBytes)
+            await this.checkQuickRepair(session, row, target, tracker, signal);
           const record = await this.deps.repair(
             target,
             row.scan!,
@@ -470,21 +827,64 @@ export class DatabaseMaintenance {
                 tick.detail ?? { step: tick.phase, message: tick.message },
               );
             },
-            { ...options, maintenanceId: session.lease!.id },
+            {
+              backup: options.backups?.[name] ?? (method === 'quick' ? false : options.backup),
+              strictPages: method === 'deep' && options.strictPages,
+              allowLowSpace: options.allowLowSpace,
+              maintenanceId: session.lease!.id,
+              method,
+              quickBudgetBytes: method === 'quick' ? row.quickBudgetBytes : undefined,
+              ...(method === 'quick' && session.singleByteCorrections.has(name)
+                ? { singleByteCorrection: session.singleByteCorrections.get(name) }
+                : {}),
+              replacement: {
+                begin: async () => {
+                  while (session.endDecision) await session.endDecision.settled;
+                  signal.throwIfAborted();
+                  session.replacement = replacement;
+                },
+                waitForDecision: async () => {
+                  while (session.endDecision) await session.endDecision.settled;
+                },
+                signal: replacement.abort.signal,
+                leaseSignal: session.lease!.signal,
+              },
+            },
           );
-          row.repair = { status: 'completed', record };
+          row.repair = { status: 'completed', record, method };
           row.progress = tracker.finish('completed');
         } catch (error) {
+          if (error instanceof DbRepairRollbackError) {
+            session.rollbackFailure = { row, error };
+            row.repair = { status: 'failed', method, error: error.message };
+            row.progress = tracker.finish('failed');
+            for (const pending of snapshot.databases)
+              if (pending.repair?.status === 'pending')
+                pending.repair = { status: 'cancelled', error: '请先恢复原库。' };
+            break;
+          }
           if (
             !signal.aborted &&
             !session.lease?.signal?.aborted &&
             error instanceof DbRepairError &&
-            error.sourceUnchanged
+            error.sourceUnchanged &&
+            this.hasSameSource(session, target)
           ) {
             waiting = true;
-            row.repair = { status: 'waiting', error: errorText(error) };
+            const space =
+              error.code === 'insufficient-space' ||
+              error.code === 'space-margin' ||
+              !!error.storage?.warning;
+            const canDeep =
+              method === 'quick' && !space && error.code !== 'blocked' && error.code !== 'busy';
+            row.repair = {
+              status: 'waiting',
+              method,
+              error: errorText(error),
+              nextAction: space ? 'retry-space' : canDeep ? 'view-deep' : 'retry',
+            };
             if (error.storage) snapshot.storage = error.storage;
-            row.progress = tracker.finish('cancelled');
+            row.progress = tracker.finish(canDeep ? 'failed' : 'cancelled');
             for (const pending of snapshot.databases)
               if (pending.repair?.status === 'pending')
                 pending.repair = {
@@ -494,8 +894,22 @@ export class DatabaseMaintenance {
             this.countCompleted(session);
             break;
           }
-          row.repair = { status: signal.aborted ? 'cancelled' : 'failed', error: errorText(error) };
+          row.repair = {
+            status: signal.aborted ? 'cancelled' : 'failed',
+            method,
+            error: errorText(error),
+            nextAction: signal.aborted ? undefined : 'check-source',
+          };
           row.progress = tracker.finish(signal.aborted ? 'cancelled' : 'failed');
+          if (!signal.aborted && error instanceof DbRepairError) {
+            for (const pending of snapshot.databases)
+              if (pending.repair?.status === 'pending')
+                pending.repair = { status: 'cancelled', error: '请先核对原库状态。' };
+            this.countCompleted(session);
+            break;
+          }
+        } finally {
+          session.replacement = undefined;
         }
         this.countCompleted(session);
         this.publish(session, true);
@@ -505,7 +919,7 @@ export class DatabaseMaintenance {
       const lost = session.lease?.signal?.aborted;
       this.finish(
         session,
-        lost
+        lost || session.rollbackFailure
           ? 'failed'
           : signal.aborted
             ? 'cancelled'
@@ -516,12 +930,11 @@ export class DatabaseMaintenance {
                   ? 'partial'
                   : 'failed'
                 : 'completed',
-        lost ? '持续维护锁进程意外退出，已停止后续修复；已经成功的库保持不变。' : undefined,
+        session.rollbackFailure?.error.message ??
+          (lost ? '持续维护锁进程意外退出，已停止后续修复；已经成功的库保持不变。' : undefined),
       );
-      if (!waiting || signal.aborted || lost) {
-        await session.lease!.release();
-        session.lease = undefined;
-        snapshot.locked = false;
+      if (!session.ending && !session.rollbackFailure && (!waiting || signal.aborted || lost)) {
+        await this.releaseLease(session);
       }
       snapshot.state = session.lease ? 'waiting' : 'ended';
       this.publish(session, true);
@@ -530,9 +943,92 @@ export class DatabaseMaintenance {
     return structuredClone(snapshot);
   }
 
-  async stop(scope: DatabaseMaintenanceScope): Promise<DatabaseMaintenanceSnapshot | null> {
+  private async checkQuickRepair(
+    session: Session,
+    row: DatabaseMaintenanceRow,
+    target: DbRepairTarget,
+    tracker: DatabaseProgressTracker,
+    signal: AbortSignal,
+  ) {
+    const step = 'quick-repair-check';
+    this.tick(session, row, tracker, 'preparing', { step, message: '核验坏页与同卷克隆能力' });
+    let checkError: string | undefined;
+    const result = await this.deps
+      .locate?.(
+        target,
+        row.scan!,
+        signal,
+        (tick) => {
+          this.tick(session, row, tracker, 'preparing', tick);
+        },
+        true,
+      )
+      .catch((error: unknown) => {
+        checkError = errorText(error);
+        return undefined;
+      });
+    signal.throwIfAborted();
+    if (!this.hasSameSource(session, target))
+      throw new DbRepairError('changed-during-repair', '核验期间原库发生变化，请重新核对原库。');
+    if (!result?.quickBudgetBytes) {
+      const failures = {
+        'scan-ineligible': '本次页检查结果超出快速修复范围。可以查看深度修复方案。',
+        'clone-unavailable': '已核验坏页，但无法在原库所在卷创建工作副本。可以查看深度修复方案。',
+        'page-evidence-missing': '未能找到可核验的内容来修复全部坏页。可以查看深度修复方案。',
+      };
+      const error = new DbRepairError(
+        'recover-failed',
+        checkError
+          ? `快速修复条件核验失败：${checkError}`
+          : failures[result?.quickFailure ?? 'page-evidence-missing'],
+      );
+      error.sourceUnchanged = true;
+      this.tick(session, row, tracker, 'preparing', {
+        step,
+        message: '快速修复条件未满足',
+        status: 'failed',
+        detail: error.message,
+      });
+      throw error;
+    }
+    row.scan!.affected = result.affected;
+    row.locationChecked = true;
+    this.setQuickRepairEvidence(session, row, result);
+    this.tick(session, row, tracker, 'preparing', {
+      step,
+      message: '已核验坏页与同卷克隆能力',
+      status: 'completed',
+    });
+  }
+
+  private setQuickRepairEvidence(
+    session: Session,
+    row: DatabaseMaintenanceRow,
+    location: DatabasePageLocation,
+  ) {
+    row.quickBudgetBytes = location.quickBudgetBytes;
+    if (location.quickBudgetBytes && location.singleByteCorrection) {
+      session.singleByteCorrections.set(row.dbName, location.singleByteCorrection);
+    } else {
+      session.singleByteCorrections.delete(row.dbName);
+    }
+  }
+
+  private hasSameSource(session: Session, target: DbRepairTarget): boolean {
+    try {
+      return session.sourceIdentities.get(target.dbName) === this.deps.sourceIdentity?.(target);
+    } catch {
+      return false;
+    }
+  }
+
+  async stop(
+    scope: DatabaseMaintenanceScope,
+    operationId?: string,
+  ): Promise<DatabaseMaintenanceSnapshot | null> {
     const session = this.sessions.get(keyFor(scope));
-    if (!session) return null;
+    if (!session || (operationId && session.snapshot.operation?.id !== operationId)) return null;
+    session.endDecision?.dismiss();
     if (session.pending) {
       session.snapshot.operation!.stopping = true;
       session.abort!.abort(new DOMException('已停止数据库维护操作。', 'AbortError'));
@@ -541,11 +1037,50 @@ export class DatabaseMaintenance {
     }
     return this.current(scope);
   }
-  async end(scope: DatabaseMaintenanceScope): Promise<void> {
+  prepareEnd(scope: DatabaseMaintenanceScope, sessionId: string) {
     const session = this.sessions.get(keyFor(scope));
+    if (!session || session.snapshot.id !== sessionId || session.snapshot.state === 'ended')
+      return null;
+    if (session.ending || session.endDecision)
+      throw new Error('已有结束维护操作，请处理当前确认或等待解锁。');
+    // 确认框持有此决定，连接关闭或取消时继续替换。
+    let resolve!: () => void;
+    const settled = new Promise<void>((done) => {
+      resolve = done;
+    });
+    const decision: EndDecision = {
+      id: randomUUID(),
+      replacement: session.replacement,
+      settled,
+      dismiss: () => {
+        if (session.endDecision !== decision) return;
+        session.endDecision = undefined;
+        resolve();
+      },
+    };
+    session.endDecision = decision;
+    return {
+      preview: {
+        id: decision.id,
+        kind: session.snapshot.operation?.kind,
+        running: session.snapshot.operation?.status === 'running',
+        replacing: decision.replacement?.dbName,
+        restoring: session.rollbackFailure?.row.dbName,
+      },
+      dismiss: decision.dismiss,
+    };
+  }
+  async end(scope: DatabaseMaintenanceScope, decisionId?: string): Promise<void> {
+    const session = this.sessions.get(keyFor(scope));
+    const decision = session?.endDecision;
+    if (decisionId && decision?.id !== decisionId)
+      throw new Error('本次确认已失效，请重新点击「维护中」。');
     if (!session || session.snapshot.state === 'ended') return;
     if (session.ending) return session.ending;
-    if (session.snapshot.state === 'repairing') throw new Error('修复已经开始，请使用停止修复。');
+    if (!decisionId && session.snapshot.state === 'repairing')
+      throw new Error('修复已经开始，请从「维护中」确认停止。');
+    if (decisionId && decision?.replacement === session.replacement)
+      decision?.replacement?.abort.abort(new DOMException('已撤销本次数据库替换。', 'AbortError'));
     session.snapshot.state = 'ending';
     const pending = this.endSession(session);
     session.ending = pending;
@@ -553,22 +1088,46 @@ export class DatabaseMaintenance {
     return pending;
   }
   private async endSession(session: Session): Promise<void> {
+    const previousFailure = session.rollbackFailure;
     let failure: unknown;
     try {
       await this.stop(session.snapshot);
+      if (session.rollbackFailure) {
+        const { row, error } = session.rollbackFailure;
+        if (session.rollbackFailure !== previousFailure) throw error;
+        session.lease?.signal?.throwIfAborted();
+        const progress = new DatabaseProgressTracker('repair', row.dbName, Date.now, row.progress);
+        const operation = session.snapshot.operation!;
+        const currentDb = operation.currentDb;
+        operation.currentDb = row.dbName;
+        try {
+          await error.retry((tick) => {
+            if (tick.detail) this.tick(session, row, progress, tick.phase, tick.detail);
+          });
+          row.progress = progress.finish('completed');
+        } catch (error) {
+          row.progress = progress.finish('failed');
+          throw error;
+        } finally {
+          operation.currentDb = currentDb;
+          session.snapshot.progress = row.progress;
+        }
+        session.rollbackFailure = undefined;
+        row.repair = { ...row.repair!, error: '已恢复并校验修复前的数据库。' };
+        session.snapshot.operation!.error = undefined;
+        session.finalizedReportId = undefined;
+      }
     } catch (error) {
       failure = error;
     }
     try {
-      await session.lease?.release();
-      session.lease = undefined;
-      session.snapshot.locked = false;
+      if (!session.rollbackFailure) await this.releaseLease(session);
     } catch (error) {
       failure ??= error;
     } finally {
       session.ending = undefined;
       session.snapshot.state = session.lease ? 'waiting' : 'ended';
-      this.publish(session);
+      this.publish(session, true);
     }
     if (failure) throw failure;
   }
@@ -580,15 +1139,26 @@ export class DatabaseMaintenance {
     await Promise.all([...this.sessions.values()].map((session) => this.flushReports(session)));
   }
   private async expireLease(session: Session): Promise<void> {
+    await this.releaseLease(session);
+    session.snapshot.state = 'ended';
+    session.snapshot.maintenanceError =
+      '持续维护锁已中断，本次结果不能继续用于修复，请主动重新开始体检。';
+    this.publish(session);
+  }
+  private async releaseLease(session: Session): Promise<void> {
+    session.pageScans.clear();
+    session.singleByteCorrections.clear();
     await session.lease?.release();
     session.lease = undefined;
     session.snapshot.locked = false;
-    session.snapshot.state = 'ended';
-    session.snapshot.maintenanceError =
-      '持续维护锁已中断，本次结果不能继续用于修复，请主动重新开始扫描。';
-    this.publish(session);
   }
-  private begin(session: Session, kind: 'scan' | 'checkup' | 'repair', total: number) {
+  private begin(
+    session: Session,
+    kind: 'scan' | 'checkup' | 'repair',
+    total: number,
+    databaseNames?: string[],
+    databaseScanKinds?: DatabaseMaintenanceOperation['databaseScanKinds'],
+  ) {
     session.abort = new AbortController();
     session.snapshot.storage = undefined;
     session.snapshot.operation = {
@@ -598,6 +1168,8 @@ export class DatabaseMaintenance {
       startedAt: Date.now(),
       elapsedMs: 0,
       totalDatabases: total,
+      ...(databaseNames ? { databaseNames } : {}),
+      ...(databaseScanKinds ? { databaseScanKinds } : {}),
       completedDatabases: 0,
     };
     session.preparation = new DatabaseProgressTracker(kind, '账号数据库');
@@ -607,7 +1179,7 @@ export class DatabaseMaintenance {
         kind === 'repair'
           ? '准备修复所选数据库'
           : session.lease
-            ? '复用账号维护锁和已有扫描结果'
+            ? '复用账号维护锁和已有体检结果'
             : '锁定账号全部目标数据库',
     });
     this.publish(session, true);
@@ -617,7 +1189,8 @@ export class DatabaseMaintenance {
     row: DatabaseMaintenanceRow,
     kind: 'scan' | 'checkup' | 'repair',
   ) {
-    session.snapshot.operation!.currentDb = row.dbName;
+    const operation = session.snapshot.operation!;
+    if (kind === 'repair' || !operation.currentDb) operation.currentDb = row.dbName;
     return new DatabaseProgressTracker(
       kind,
       row.dbName,
@@ -633,7 +1206,12 @@ export class DatabaseMaintenance {
     tick: DatabaseWorkProgress,
   ) {
     row.progress = tracker.update(phase, tick);
-    session.snapshot.progress = row.progress;
+    if (session.snapshot.operation?.currentDb === row.dbName) {
+      session.snapshot.progress = row.progress;
+    }
+    this.queueProgressPublish(session);
+  }
+  private queueProgressPublish(session: Session) {
     // 进度管道只更新内存；广播限频并只发送摘要。
     if (session.publishTimer !== undefined) return;
     session.publishTimer = setTimeout(
@@ -653,14 +1231,14 @@ export class DatabaseMaintenance {
     op.completedDatabases = rows.filter((row) =>
       op.kind === 'repair'
         ? row.repair?.status === 'completed'
-        : op.kind === 'checkup'
+        : requiredScanKind(op, row.dbName) === 'checkup'
           ? row.deepStatus === 'completed'
           : row.scanStatus === 'completed',
     ).length;
     op.failedDatabases = rows.filter((row) =>
       op.kind === 'repair'
         ? row.repair?.status === 'failed'
-        : op.kind === 'checkup'
+        : requiredScanKind(op, row.dbName) === 'checkup'
           ? row.deepStatus === 'failed' ||
             row.deepStatus === 'partial' ||
             row.scanStatus === 'failed'
@@ -687,9 +1265,15 @@ export class DatabaseMaintenance {
     session.lastPublished = Date.now();
     if (session.ending) session.snapshot.state = 'ending';
     const op = session.snapshot.operation;
-    const row = op?.currentDb
-      ? session.snapshot.databases.find((item) => item.dbName === op.currentDb)
-      : undefined;
+    const currentDb = op?.currentDb ?? session.snapshot.progress?.dbName;
+    let row = session.snapshot.databases.find((item) => item.dbName === currentDb);
+    if (op?.status === 'running' && op.kind !== 'repair') {
+      const isChecking = (item: DatabaseMaintenanceRow) =>
+        item.scanStatus === 'running' || item.deepStatus === 'running';
+      const running = row && isChecking(row) ? row : session.snapshot.databases.find(isChecking);
+      op.currentDb = running?.dbName;
+      row = running ?? row;
+    }
     if (row?.progress) session.snapshot.progress = row.progress;
     if (op && op.status !== 'running' && session.snapshot.progress?.status === 'running')
       session.snapshot.progress =

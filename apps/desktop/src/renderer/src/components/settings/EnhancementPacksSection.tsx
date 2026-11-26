@@ -4,6 +4,8 @@ import { timeDate } from '@weq/time';
 import {
   AudioLines,
   BrainCircuit,
+  CircleArrowUp,
+  ClockArrowDown,
   Download,
   Package,
   Palette,
@@ -14,11 +16,18 @@ import {
   Play,
   Settings2,
   Sticker,
+  Wrench,
 } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
+import { useTaskPage } from '../../hooks/useTaskPage';
+import { useReadUpdateBanner } from '../../hooks/useReadUpdateBanner';
 import { useAppDialog } from '../../lib/dialogUtils';
 import type { EnhancementPackId } from '../../../../shared/enhancement_manifest';
+import {
+  canPrepareEnhancement,
+  type EnhancementBatchAction,
+} from '../../../../shared/enhancement_actions';
 import { Card, QueryError, SectionHeader, Row, Toggle } from './controls';
 import { SettingsNavigateContext } from './controls.shared';
 import { LoadingIndicator } from '../LoadingIndicator';
@@ -33,9 +42,14 @@ const ICONS = {
   dress: Palette,
   'market-emoji': Sticker,
 };
+const BATCH_ACTIONS = [
+  { mode: 'download', label: '全部下载', icon: Download },
+  { mode: 'update', label: '全部更新', icon: CircleArrowUp },
+] as const;
 
 export function EnhancementPacksSection() {
   const active = useTabActive();
+  const downloadPage = useTaskPage(active);
   const dialog = useAppDialog();
   const navigate = useContext(SettingsNavigateContext);
   const utils = trpc.useUtils();
@@ -56,6 +70,7 @@ export function EnhancementPacksSection() {
         ? 750
         : false,
   });
+  useReadUpdateBanner('enhancement-updates', active && Boolean(query.data));
   const [error, setError] = useState<string | null>(null);
   const prepare = trpc.bootstrap.prepareEnhancementPacks.useMutation();
   const remove = trpc.bootstrap.deleteEnhancementPack.useMutation();
@@ -63,7 +78,13 @@ export function EnhancementPacksSection() {
   const pause = trpc.bootstrap.pauseEnhancementPack.useMutation();
   const resume = trpc.bootstrap.resumeEnhancementPack.useMutation();
   const packs = query.data?.packs ?? [];
-  const preferences = query.data?.preferences ?? { autoCheck: true, autoInstall: false };
+  const autoCheck = query.data?.preferences.autoCheck ?? true;
+  const checkable = packs.filter(
+    (pack) =>
+      pack.check?.phase === 'waiting-network' ||
+      (pack.check?.phase !== 'checking' &&
+        !(check.isLoading && check.variables?.ids.includes(pack.id))),
+  );
   async function refresh() {
     await Promise.all([
       utils.bootstrap.enhancementPacks.invalidate(),
@@ -84,7 +105,9 @@ export function EnhancementPacksSection() {
       await refresh();
     }
   }
-  const preparePack = (id: EnhancementPackId) => prepare.mutateAsync({ ids: [id] });
+  const preparePacks = async (ids: EnhancementPackId[], mode?: EnhancementBatchAction) =>
+    prepare.mutateAsync({ ids, ...(mode ? { mode } : {}), pageId: await downloadPage() });
+  const preparePack = (id: EnhancementPackId) => preparePacks([id]);
   async function erase(id: EnhancementPackId) {
     const pack = packs.find((entry) => entry.id === id)!;
     const cancelling = pack.busy || pack.downloadTask?.status === 'paused';
@@ -99,7 +122,7 @@ export function EnhancementPacksSection() {
     <div className="weq-set">
       <SectionHeader title="增强包" page="enhancement-packs" />
       <Card
-        title="增强包自动更新"
+        title="增强包更新设置"
         icon={<Settings2 size={15} />}
         settingId="enhancement-updates"
         resetId="enhancement-updates"
@@ -109,26 +132,12 @@ export function EnhancementPacksSection() {
           control={
             <Toggle
               label="自动检查增强包更新"
-              checked={preferences.autoCheck}
+              checked={autoCheck}
               disabled={!query.data || settings.isLoading}
               onChange={(autoCheck) => void act(() => settings.mutateAsync({ autoCheck }))}
             />
           }
         />
-        {preferences.autoCheck ? (
-          <Row
-            settingId="enhancement-auto-install"
-            indent
-            control={
-              <Toggle
-                label="自动安装增强包更新"
-                checked={preferences.autoInstall}
-                disabled={!query.data || settings.isLoading}
-                onChange={(autoInstall) => void act(() => settings.mutateAsync({ autoInstall }))}
-              />
-            }
-          />
-        ) : null}
       </Card>
       {query.isLoading ? <LoadingIndicator /> : null}
       {query.error ? (
@@ -144,7 +153,46 @@ export function EnhancementPacksSection() {
           {error}
         </p>
       ) : null}
-      <Card title="增强包管理" icon={<Package size={15} />} settingId="enhancement-management">
+      <Card
+        title="增强包管理"
+        icon={<Package size={15} />}
+        settingId="enhancement-management"
+        action={
+          <div className="weq-enhancement-batch-actions">
+            {BATCH_ACTIONS.map(({ mode, label, icon: BatchIcon }) => {
+              const ids = packs
+                .filter((pack) =>
+                  canPrepareEnhancement(pack, mode, pack.downloadTask?.status === 'paused'),
+                )
+                .map(({ id }) => id);
+              return ids.length ? (
+                <button
+                  type="button"
+                  key={mode}
+                  className="weq-set-btn"
+                  disabled={prepare.isLoading}
+                  onClick={() => void act(() => preparePacks(ids, mode))}
+                >
+                  <BatchIcon size={14} aria-hidden />
+                  {label}
+                </button>
+              ) : null;
+            })}
+            {checkable.length ? (
+              <button
+                type="button"
+                className="weq-set-btn"
+                onClick={() =>
+                  void act(() => check.mutateAsync({ ids: checkable.map(({ id }) => id) }))
+                }
+              >
+                <RefreshCw size={14} aria-hidden />
+                全部检查
+              </button>
+            ) : null}
+          </div>
+        }
+      >
         <ul className="weq-enhancement-list">
           {packs.map((pack) => {
             const Icon = ICONS[pack.id];
@@ -158,6 +206,22 @@ export function EnhancementPacksSection() {
               pack.check?.phase === 'checking' ||
               (check.isLoading && check.variables?.ids.includes(pack.id));
             const checkedAt = timeDate(pack.check?.checkedAt);
+            const updatedAt = timeDate(pack.updatedAt);
+            const installedAt = timeDate(pack.installedAt);
+            const checked = pack.check?.phase === 'checked';
+            const checkingStatus =
+              pack.check?.phase === 'waiting-network'
+                ? '等待网络允许检查'
+                : checking
+                  ? '正在检查更新'
+                  : null;
+            const availableStatus = pack.needsRepair
+              ? '待补齐'
+              : checked && pack.updateAvailable
+                ? '有新版本'
+                : checked && !pack.blocker && !pack.installed
+                  ? '可下载'
+                  : null;
             const percent = operation?.total
               ? Math.min(100, Math.max(0, (operation.received / operation.total) * 100))
               : task?.progress;
@@ -171,17 +235,9 @@ export function EnhancementPacksSection() {
                   : (operation?.note ?? '正在准备')
               : waiting
                 ? (task.statusLabel ?? '等待继续')
-                : checking
-                  ? '正在检查更新'
-                  : pack.check?.phase === 'waiting-network'
-                    ? '等待网络允许检查'
-                    : pack.needsRepair
-                      ? '待补齐'
-                      : pack.check?.phase === 'checked'
-                        ? pack.updateAvailable
-                          ? '有可用更新'
-                          : '已检查'
-                        : null;
+                : (checkingStatus ??
+                  availableStatus ??
+                  (checked && !pack.blocker ? '已是最新' : null));
             const issue =
               pack.blocker ??
               operation?.error ??
@@ -198,7 +254,13 @@ export function EnhancementPacksSection() {
                   ? '更新'
                   : null;
             const primaryLabel = waiting || canPause ? (paused ? '继续' : '暂停') : prepareLabel;
-            const PrimaryIcon = waiting || canPause ? (paused ? Play : Pause) : Download;
+            const PrimaryIcon = {
+              下载: Download,
+              更新: CircleArrowUp,
+              补齐: Wrench,
+              继续: Play,
+              暂停: Pause,
+            }[primaryLabel ?? '下载'];
             return (
               <li
                 className="weq-enhancement-item"
@@ -209,19 +271,19 @@ export function EnhancementPacksSection() {
                   <Icon size={18} strokeWidth={1.8} />
                 </span>
                 <div className="weq-enhancement-main">
-                  <span className="weq-enhancement-name">{pack.name}</span>
+                  <span className="weq-enhancement-name">
+                    {pack.name}
+                    <span
+                      className="weq-enhancement-size weq-number"
+                      title={`完整包下载大小\n本地占用 ${enhancementBytes(pack.sizeOnDisk)}${pack.sharedBytes ? `，含 ${enhancementBytes(pack.sharedBytes)} 共享资源` : ''}`}
+                    >
+                      {pack.fullDownloadBytes == null
+                        ? '（大小未知）'
+                        : `（${enhancementBytes(pack.fullDownloadBytes)}）`}
+                    </span>
+                  </span>
                   <span className="weq-enhancement-description">{pack.description}</span>
                 </div>
-                <span
-                  className="weq-enhancement-size weq-number"
-                  title={
-                    pack.sharedBytes
-                      ? `含 ${enhancementBytes(pack.sharedBytes)} 共享资源`
-                      : '空间占用'
-                  }
-                >
-                  {enhancementBytes(pack.sizeOnDisk)}
-                </span>
                 <div
                   className="weq-enhancement-actions"
                   role="group"
@@ -230,7 +292,7 @@ export function EnhancementPacksSection() {
                   {primaryLabel && (!pack.busy || canPause) ? (
                     <button
                       type="button"
-                      className="weq-set-btn weq-set-btn-soft weq-enhancement-prepare"
+                      className="weq-set-btn weq-set-btn-soft"
                       title={
                         waiting || canPause
                           ? `${primaryLabel}${pack.name}`
@@ -248,27 +310,33 @@ export function EnhancementPacksSection() {
                         )
                       }
                     >
-                      <PrimaryIcon size={14} />
+                      <PrimaryIcon size={14} aria-hidden />
                     </button>
                   ) : null}
-                  <button
-                    type="button"
-                    className="weq-set-btn weq-set-btn-soft weq-enhancement-check"
-                    title={`检查${pack.name}更新`}
-                    aria-label={`检查${pack.name}更新`}
-                    onClick={() => void act(() => check.mutateAsync({ ids: [pack.id] }))}
-                  >
-                    <RefreshCw size={14} />
-                  </button>
-                  {pack.busy ||
-                  waiting ||
-                  pack.downloaded ||
-                  pack.installed ||
-                  pack.sizeOnDisk > 0 ? (
+                  {pack.installed ? (
+                    <button
+                      type="button"
+                      className="weq-set-btn weq-enhancement-auto-update"
+                      title="自动安装更新"
+                      aria-label={`${pack.name}自动安装更新`}
+                      aria-pressed={pack.autoUpdate}
+                      disabled={settings.isLoading}
+                      onClick={() =>
+                        void act(() =>
+                          settings.mutateAsync({
+                            pack: { id: pack.id, enabled: !pack.autoUpdate },
+                          }),
+                        )
+                      }
+                    >
+                      <ClockArrowDown size={14} aria-hidden />
+                    </button>
+                  ) : null}
+                  {pack.busy || waiting || pack.installed || pack.deleteBytes > 0 ? (
                     <button
                       data-danger="outline"
                       type="button"
-                      className="weq-set-btn weq-set-btn-soft weq-enhancement-delete"
+                      className="weq-set-btn weq-set-btn-soft"
                       title={`删除${pack.name}`}
                       aria-label={`删除${pack.name}`}
                       onClick={() => void erase(pack.id)}
@@ -296,15 +364,31 @@ export function EnhancementPacksSection() {
                     ) : null}
                   </div>
                 ) : null}
-                {(!pack.busy && !waiting && status) || checkedAt ? (
+                {(!pack.busy && !waiting && status) || checkedAt || pack.installed ? (
                   <div className="weq-enhancement-status" title={missing}>
-                    {!pack.busy && !waiting && status ? <span role="status">{status}</span> : null}
+                    {!pack.busy && !waiting && status ? (
+                      <span
+                        role="status"
+                        className={
+                          !checkingStatus && availableStatus ? 'weq-set-status-accent' : undefined
+                        }
+                      >
+                        {status}
+                      </span>
+                    ) : null}
+                    {updatedAt ? (
+                      <span>
+                        上次更新 <TimeLabel value={updatedAt} />
+                      </span>
+                    ) : pack.installed ? (
+                      <span>
+                        安装时间 {installedAt ? <TimeLabel value={installedAt} /> : '未记录'}
+                      </span>
+                    ) : null}
                     {checkedAt ? (
-                      <>
-                        {!pack.busy && !waiting && status ? ' · ' : null}
-                        上次成功检查：
-                        <TimeLabel value={checkedAt} />
-                      </>
+                      <span>
+                        上次成功检查 <TimeLabel value={checkedAt} />
+                      </span>
                     ) : null}
                   </div>
                 ) : null}

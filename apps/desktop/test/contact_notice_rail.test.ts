@@ -4,8 +4,45 @@ import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
+import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
+import { useUnreadMarkers } from '../src/renderer/src/lib/unreadMarkers';
 
 afterEach(() => vi.unstubAllGlobals());
+
+it('联系人导航可关闭转发，联系人页仍显示原有通知角标', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const root = createRoot(document.createElement('div'));
+  let markers: ReturnType<typeof useUnreadMarkers> | undefined;
+  const epoch = 'contact-notice-rail-fixture';
+  function ReadMarkers() {
+    markers = useUnreadMarkers();
+    return null;
+  }
+  try {
+    act(() => root.render(createElement(ReadMarkers)));
+    const update = (revision: number, requests: boolean, navigation: boolean) =>
+      act(() =>
+        acceptPreferences(
+          {
+            epoch,
+            revision,
+            records: {},
+            values: { showContactRequestBadge: requests, showContactNavigationBadge: navigation },
+          },
+          false,
+        ),
+      );
+    update(1, true, true);
+    expect(markers).toMatchObject({ requests: true, contactNavigation: true });
+    update(2, true, false);
+    expect(markers).toMatchObject({ requests: true, contactNavigation: false });
+    update(3, false, true);
+    expect(markers).toMatchObject({ requests: false, contactNavigation: false });
+  } finally {
+    act(() => root.unmount());
+    acceptPreferences({ epoch, revision: 4, records: {}, values: {} }, false);
+  }
+});
 
 it('联系人入口显示通知红点而非数字，查看清除后移除', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

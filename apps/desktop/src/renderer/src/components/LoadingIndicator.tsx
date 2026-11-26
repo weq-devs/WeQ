@@ -13,14 +13,20 @@ export function LoadingIndicator({ children = '加载中…' }: { children?: Rea
   );
 }
 
-export function PanelLoading({ startup = false }: { startup?: boolean }) {
+export function PanelLoading({
+  startup = false,
+  children = '正在加载…',
+}: {
+  startup?: boolean;
+  children?: ReactNode;
+}) {
   return (
     <div
       className="weq-panel-loading"
       role="status"
       data-weq-startup-pending={startup || undefined}
     >
-      <LoadingIndicator>正在加载…</LoadingIndicator>
+      <LoadingIndicator>{children}</LoadingIndicator>
     </div>
   );
 }

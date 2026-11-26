@@ -156,12 +156,16 @@ export class QqDebugCopyManager {
       return match?.[2] === executable ? [Number(match[1])] : [];
     });
   }
-  private async quitSource(): Promise<void> {
+  private async quitSource(expectedPid?: number): Promise<void> {
     const source = this.options.source();
     if (!source || resolve(source) === resolve(this.path))
       throw new Error('未能确认普通 QQ 的安装位置，请重新检查。');
     await this.version(source);
+    if (expectedPid !== undefined && (await this.pids()).length)
+      throw new Error('QQ 调试副本已打开，请重新检查。');
     const pids = await this.sourcePids(source);
+    if (expectedPid !== undefined && (pids.length !== 1 || pids[0] !== expectedPid))
+      throw new Error('普通 QQ 的运行状态已变化，请重新检查。');
     this.phase = 'quitting';
     // 仅显式切换时请求原安装主进程退出，不匹配同名应用、不升级为 SIGKILL。
     if (pids.length) await this.command('/bin/kill', ['-TERM', ...pids.map(String)]);
@@ -337,7 +341,7 @@ export class QqDebugCopyManager {
     }
     return { ...result, phase: this.phase };
   }
-  async perform(action: QqDebugCopyAction): Promise<QqDebugCopyStatus> {
+  async perform(action: QqDebugCopyAction, expectedSourcePid?: number): Promise<QqDebugCopyStatus> {
     if ((this.options.platform ?? process.platform) !== 'darwin')
       throw new Error('仅 macOS 支持 QQ 调试副本。');
     if (this.busy) throw new Error('正在处理 QQ 调试副本，请等待当前操作完成。');
@@ -382,7 +386,7 @@ export class QqDebugCopyManager {
             }
           }
         } else await this.verify(this.path);
-        if (action === 'switch') await this.quitSource();
+        if (action === 'switch') await this.quitSource(expectedSourcePid);
         if (
           action === 'launch' ||
           action === 'open' ||
@@ -391,7 +395,10 @@ export class QqDebugCopyManager {
         ) {
           this.phase = 'launching';
           const activate =
-            action === 'activate' || (action === 'switch' && (await this.pids()).length > 0);
+            action === 'activate' ||
+            (action === 'switch' &&
+              expectedSourcePid === undefined &&
+              (await this.pids()).length > 0);
           const env = { ...process.env };
           delete env.ELECTRON_RUN_AS_NODE;
           const opened = await this.run(

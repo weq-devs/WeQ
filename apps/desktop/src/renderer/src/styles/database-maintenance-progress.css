@@ -16,7 +16,8 @@
   gap: 12px;
   min-width: 0;
 }
-.weq-db-progress-heading strong {
+.weq-db-progress-name {
+  font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 14px;
   overflow-wrap: anywhere;
 }
@@ -44,7 +45,7 @@
   background: var(--weq-border-subtle);
 }
 .weq-db-progress-stage > details > summary,
-.weq-db-progress-table > summary {
+.weq-db-progress-substeps > summary {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -90,24 +91,24 @@
 }
 .weq-db-progress-stage .weq-db-progress-entry {
   display: block;
-  padding: 12px 0 4px 36px;
+  padding: 6px 0 4px 36px;
 }
 .weq-db-progress-stage .weq-db-progress-entry::before {
   display: none;
 }
-.weq-db-progress-table {
+.weq-db-progress-substeps {
   margin: 4px 0 0 36px;
 }
-.weq-db-progress-table > summary {
+.weq-db-progress-substeps > summary {
   gap: 8px;
   min-height: 32px;
   padding: 4px 6px;
   border-radius: 4px;
 }
-.weq-db-progress-table > summary:hover {
+.weq-db-progress-substeps > summary:hover {
   background: var(--weq-bg-surface);
 }
-.weq-db-progress-table .weq-db-progress-entry {
+.weq-db-progress-substeps .weq-db-progress-entry {
   padding: 6px 6px 8px 26px;
 }
 .weq-db-progress-batch {
@@ -184,19 +185,35 @@
 .weq-db-progress-entry-body {
   display: grid;
   align-content: start;
-  gap: 8px;
+  gap: 4px;
   min-width: 0;
-  padding-top: 3px;
 }
-.weq-db-progress-step > span {
+.weq-db-progress-step-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 2px 10px;
   min-width: 0;
-  overflow-wrap: anywhere;
   font-weight: 500;
 }
-.weq-db-progress-step > strong {
-  flex: 0 1 auto;
-  max-width: 50%;
+.weq-db-progress-step-heading > span:first-child {
+  flex: none;
+  max-width: 100%;
   overflow-wrap: anywhere;
+}
+.weq-db-progress-step-heading > .weq-db-progress-object {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-db-progress-count {
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.weq-db-progress-step > strong {
+  flex: none;
+  white-space: nowrap;
   font-size: 12px;
   font-weight: 500;
   color: var(--weq-fg-secondary);
@@ -337,6 +354,11 @@ html[data-theme='dark'] .weq-db-progress-entry.is-current .weq-db-progress-node 
   }
   .weq-db-progress-expand button {
     min-height: 44px;
+  }
+}
+@media (max-width: 480px) {
+  .weq-db-progress-step-heading {
+    flex-wrap: wrap;
   }
 }
 @media (prefers-reduced-motion: reduce) {

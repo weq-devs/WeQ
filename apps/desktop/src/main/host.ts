@@ -4,6 +4,7 @@
  * before any router runs.
  */
 
+import { type AccountRuntime, currentAccountRuntime } from './context/account_runtime';
 import { app, dialog, shell, nativeImage, Notification } from 'electron';
 import { makeSolidPng } from '@weqbot/protocol';
 import { applicationBadgeBitmap } from '../shared/message_notifications';
@@ -24,6 +25,7 @@ import { appImageRelaunchCommand } from './linux_window_backend';
 let startup: AppAutostart | null = null;
 let applicationRestart: AbortController | undefined;
 const messageNotifications = new Set<Notification>();
+const accountBadges = new Map<AccountRuntime, number>();
 
 export function cancelApplicationRestart(): void {
   applicationRestart?.abort();
@@ -143,9 +145,9 @@ function desktopStorageRoots(): StorageRoot[] {
         ? process.env.LOCALAPPDATA || join(home, 'AppData', 'Local')
         : process.env.XDG_CACHE_HOME || join(home, '.cache');
   const roots: StorageRoot[] = [
-    { path: app.getPath('userData'), label: '桌面运行数据' },
-    { path: app.getPath('sessionData'), label: '浏览器会话数据' },
-    { path: app.getPath('logs'), label: '桌面日志' },
+    { path: app.getPath('userData'), label: '桌面运行数据', category: 'desktop-data' },
+    { path: app.getPath('sessionData'), label: '浏览器会话数据', category: 'desktop-data' },
+    { path: app.getPath('logs'), label: '桌面日志', category: 'diagnostics' },
     ...[
       ...new Set([
         'weq-updates',
@@ -153,12 +155,16 @@ function desktopStorageRoots(): StorageRoot[] {
         'weq-updater',
         `${app.getName().replace(/[\\/]/g, '')}-updater`,
       ]),
-    ].map((name) => ({ path: join(cache, name), label: '更新下载数据' })),
+    ].map((name) => ({
+      path: join(cache, name),
+      label: '更新下载数据',
+      category: 'updates' as const,
+    })),
   ];
   if (process.platform === 'darwin') {
     roots.push(
-      { path: join(cache, 'app.weq.desktop'), label: '桌面系统缓存' },
-      { path: join(cache, 'app.weq.desktop.ShipIt'), label: '更新安装数据' },
+      { path: join(cache, 'app.weq.desktop'), label: '桌面系统缓存', category: 'desktop-data' },
+      { path: join(cache, 'app.weq.desktop.ShipIt'), label: '更新安装数据', category: 'updates' },
     );
   }
   if (app.isPackaged) {
@@ -169,6 +175,7 @@ function desktopStorageRoots(): StorageRoot[] {
           ? join(dirname(appPath), '..', '..')
           : process.env.APPIMAGE || dirname(app.getPath('exe')),
       label: '应用安装资源',
+      category: 'app-resources',
       protected: true,
     });
   }
@@ -177,7 +184,14 @@ function desktopStorageRoots(): StorageRoot[] {
 
 export const electronHost: HostBridge = {
   setApplicationBadge(count) {
-    if (process.platform !== 'win32') return app.setBadgeCount(count);
+    if (process.platform !== 'win32') {
+      const owner = currentAccountRuntime();
+      if (count > 0) accountBadges.set(owner, count);
+      else accountBadges.delete(owner);
+      return app.setBadgeCount(
+        [...accountBadges.values()].reduce((total, value) => total + value, 0),
+      );
+    }
     const window = getMainWindow();
     if (!window || window.isDestroyed()) return false;
     const red = nativeImage
@@ -205,10 +219,13 @@ export const electronHost: HostBridge = {
       messageNotifications.delete(notification);
       console.warn('[message-notifications] 系统未展示通知', error);
     });
-    notification.on('click', () => {
-      electronHost.showMainWindow?.();
-      onClick();
-    });
+    notification.on(
+      'click',
+      currentAccountRuntime().bind(() => {
+        electronHost.showMainWindow?.();
+        onClick();
+      }),
+    );
     notification.show();
     while (messageNotifications.size > 20) {
       const first = messageNotifications.values().next().value!;

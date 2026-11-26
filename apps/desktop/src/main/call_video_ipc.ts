@@ -11,7 +11,8 @@
  * 只注册一次；没有进行中的通话时直接丢弃（视频帧不需要排队，过期的画面没有意义）。
  */
 
-import { ipcMain, MessageChannelMain, type WebContents } from 'electron';
+import { accountIpc } from './window_account_runtime';
+import { MessageChannelMain, type WebContents } from 'electron';
 import { getLogger } from '@weq/service';
 import {
   CALL_VIDEO_FRAME_CHANNEL,
@@ -42,7 +43,7 @@ function asBytes(value: unknown): Uint8Array | null {
 }
 
 export function registerCallVideoIpc(mainContents: () => WebContents | undefined): void {
-  ipcMain.on(CALL_VIDEO_FRAME_CHANNEL, (_event, raw: unknown) => {
+  accountIpc.on(CALL_VIDEO_FRAME_CHANNEL, (_event, raw: unknown) => {
     if (!raw || typeof raw !== 'object') return;
     const frame = raw as Partial<CallVideoFrame>;
     const y = asBytes(frame.y);
@@ -57,7 +58,7 @@ export function registerCallVideoIpc(mainContents: () => WebContents | undefined
   });
   const isMainFrame = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) =>
     event.sender === mainContents() && event.senderFrame === event.sender.mainFrame;
-  ipcMain.handle(CALL_VIDEO_ENCODED_CHANNEL, (event, raw: unknown) => {
+  accountIpc.handle(CALL_VIDEO_ENCODED_CHANNEL, (event, raw: unknown) => {
     if (!isMainFrame(event) || !raw || typeof raw !== 'object') return false;
     const frame = raw as { data?: unknown; keyframe?: unknown; captureId?: unknown };
     const data = asBytes(frame.data);
@@ -70,7 +71,7 @@ export function registerCallVideoIpc(mainContents: () => WebContents | undefined
       return false;
     return findCallManager()?.pushEncodedVideoFrame(data, frame.keyframe, frame.captureId) ?? false;
   });
-  ipcMain.handle(GROUP_VIDEO_PUSH_CHANNEL, async (event, raw: unknown) => {
+  accountIpc.handle(GROUP_VIDEO_PUSH_CHANNEL, async (event, raw: unknown) => {
     if (!isMainFrame(event) || !raw || typeof raw !== 'object') return;
     const { id, data, secondary, keyframe } = raw as Partial<GroupVideoFrame>;
     if (
@@ -90,7 +91,7 @@ export function registerCallVideoIpc(mainContents: () => WebContents | undefined
   });
 
   let stopDelivery: (() => void) | undefined;
-  ipcMain.on(GROUP_VIDEO_SUBSCRIBE_CHANNEL, (event, id: unknown, subscription: unknown) => {
+  accountIpc.on(GROUP_VIDEO_SUBSCRIBE_CHANNEL, (event, id: unknown, subscription: unknown) => {
     const frame = event.senderFrame;
     if (!frame || !isMainFrame(event) || typeof id !== 'string' || typeof subscription !== 'number')
       return;

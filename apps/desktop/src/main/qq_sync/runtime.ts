@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { getLogger, updateRuntimeDiagnostics } from '@weq/service';
 import { resolveChildWorkerPath } from '../worker_path';
 import {
   DEFAULT_QQ_SYNC_PORT,
@@ -263,19 +264,19 @@ export async function qqSyncStatus(root: string) {
       port = config.port;
       enabled = config.enabled !== false;
       const status = await requestProxy<SyncProxyStatus>(config, { op: 'status' }, 1000);
-      return {
+      return recordProxyStatus({
         ...status,
         enabled: status.enabled ?? enabled,
         port: status.port ?? port,
         error: status.error ?? '',
-      };
+      });
     }
   } catch (cause) {
     const failure = cause as NodeJS.ErrnoException;
     const unavailable = ['ENOENT', 'ECONNREFUSED'].includes(failure.code ?? '');
     error = unavailable ? (enabled ? 'QQ 同步代理尚未启动' : '') : failure.message;
   }
-  return {
+  return recordProxyStatus({
     running: false,
     enabled,
     port,
@@ -285,5 +286,30 @@ export async function qqSyncStatus(root: string) {
     delivered: 0,
     pid: 0,
     error,
-  };
+  });
+}
+
+function recordProxyStatus<T extends SyncProxyStatus>(status: T): T {
+  const state = !status.running
+    ? status.enabled === false && !status.error
+      ? 'disabled'
+      : 'unavailable'
+    : status.accounts.length > 0
+      ? 'connected'
+      : status.connecting
+        ? 'connecting'
+        : 'listening';
+  const details = {
+    state,
+    protocolVersion: status.protocolVersion,
+    error: status.error || undefined,
+  } as const;
+  if (updateRuntimeDiagnostics('qqProxy', details)) {
+    getLogger()[details.error ? 'warn' : 'info']('QQ 代理连接状态变化', {
+      scope: 'qq-sync',
+      event: 'qq-proxy-state',
+      ...details,
+    });
+  }
+  return status;
 }

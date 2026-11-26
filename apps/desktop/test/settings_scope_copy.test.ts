@@ -10,6 +10,13 @@ import { resolveSettingsTarget } from '../src/renderer/src/components/settings/n
 import type { SettingsResetItem } from '../src/shared/settings_reset';
 
 const api = vi.hoisted(() => ({ preview: vi.fn(), restore: vi.fn() }));
+const platform = vi.hoisted(() => ({ web: false }));
+vi.mock('../src/renderer/src/lib/target.shared', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/renderer/src/lib/target.shared')>()),
+  get IS_WEB() {
+    return platform.web;
+  },
+}));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: { useUtils: () => ({}) },
   client: {
@@ -25,13 +32,33 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   api.preview.mockReset();
   api.restore.mockReset();
+  platform.web = false;
 });
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
   vi.unstubAllGlobals();
 });
 
-it('恢复预览省略全局标签，保留账号和设备标签且不改变范围数据', async () => {
+it('普通 Web 的只读页隐藏恢复入口，含可恢复字段的页面仍有入口', () => {
+  platform.web = true;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  cleanups.push(() => {
+    act(() => root.unmount());
+    host.remove();
+  });
+  const render = (page: string) =>
+    act(() => root.render(h(SettingsResetProvider, { page }, h(SettingsResetButton))));
+  for (const page of ['remote', 'version']) {
+    render(page);
+    expect(host.querySelector('button')).toBeNull();
+  }
+  render('startup');
+  expect(host.querySelector('button')).not.toBeNull();
+});
+
+it('恢复预览明确电脑与账号范围，省略全局标签', async () => {
   const items: SettingsResetItem[] = [
     { id: 'shared', label: '通用设置', scope: '全局', current: true, defaultValue: false },
     { id: 'account', label: '账号设置', scope: '当前账号', current: true, defaultValue: false },
@@ -52,7 +79,7 @@ it('恢复预览省略全局标签，保留账号和设备标签且不改变范�
   expect(rows[0]!.querySelector('small')).toBeNull();
   expect(rows.slice(1).map((row) => row.querySelector('small')?.textContent)).toEqual([
     '当前账号',
-    '此设备',
+    '运行 WeQ 的电脑',
   ]);
   expect(host.querySelector('[role="dialog"]')?.textContent).not.toContain('全局');
   expect(items.map((item) => item.scope)).toEqual(['全局', '当前账号', '此设备']);

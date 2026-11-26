@@ -93,7 +93,9 @@ export const useWorkspaceMenu = create<WorkspaceMenuState>((set) => ({
         taskOpenRequest: state.taskOpenRequest + Number(hasNewTask),
         readTaskResults: readResults,
         readTaskResultsByScope: { ...state.readTaskResultsByScope, [taskScope]: readResults },
-        running: taskItems.filter((item) => item.activity === 'running').length,
+        running: taskItems.filter(
+          (item) => item.activity === 'running' && item.showRunningBadge !== false,
+        ).length,
         unreadFailed: unreadResults.filter((item) => item.failed).length,
         finished: unreadResults.length,
       };

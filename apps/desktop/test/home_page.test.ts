@@ -171,15 +171,14 @@ describe('主页显示与偏好', () => {
       view.close();
     }
   });
-  it('主页合并到启动页，搜索可定位屏蔽词', () => {
-    expect(SETTINGS_GROUPS[0]!.sections[0]).toBe('startup');
-    expect(SETTINGS_GROUPS[0]!.sections).not.toContain('home');
+  it('主页独立成页，搜索可定位屏蔽词', () => {
+    expect(SETTINGS_GROUPS.find(({ id }) => id === 'appearance')?.sections).toContain('home');
     expect(searchAppEntries('一言屏蔽词')[0]?.target).toMatchObject({
-      section: 'startup',
+      section: 'home',
       settingId: 'home-blocked-words',
     });
     expect(searchAppEntries('优先展示 QQ 秀')[0]?.target).toMatchObject({
-      section: 'startup',
+      section: 'home',
       settingId: 'home-prefer-qqshow',
     });
   });

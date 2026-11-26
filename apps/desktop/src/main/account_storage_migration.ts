@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { legacyWeqAccountBackup, type UserConfig, writeFileAtomicSync } from '@weq/service';
+import { type UserConfig, writeFileAtomicSync } from '@weq/service';
 import { accountIsRunning, savedInstanceAccounts } from './account_instances';
 
 const SCOPED_CACHE = [
@@ -30,59 +30,6 @@ const SCOPED_CACHE = [
 
 export function accountStorageMigrationPath(root: string): string {
   return join(root, 'account-storage-migration.json');
-}
-
-export function accountStorageMigrationSummary(
-  root: string,
-): { imported: number; differences: number } | null {
-  try {
-    const report = JSON.parse(readFileSync(accountStorageMigrationPath(root), 'utf8'));
-    if (
-      report.version !== 1 ||
-      !Array.isArray(report.imported) ||
-      !Array.isArray(report.differences)
-    )
-      return null;
-    if (!report.imported.length && !report.differences.length) return null;
-    return { imported: report.imported.length, differences: report.differences.length };
-  } catch {
-    return null;
-  }
-}
-
-export function legacyAccountSources(root: string) {
-  const directory = join(root, 'instances');
-  if (!metadata(directory)?.isDirectory()) return [];
-  return readdirSync(directory, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && /^[a-f\d]{24}$/.test(entry.name))
-    .flatMap((entry) => {
-      const old = join(directory, entry.name, 'data');
-      if (!metadata(old)?.isDirectory()) return [];
-      const accounts = savedInstanceAccounts(old);
-      if (!accounts.length) return [];
-      return [
-        {
-          id: entry.name,
-          label: accounts
-            .map((account) => `${account.displayName || account.uin} · ${account.uin}`)
-            .join('、'),
-          lastLoginAt: Math.max(...accounts.map((account) => account.lastLoginAt || 0)),
-        },
-      ];
-    })
-    .sort((a, b) => b.lastLoginAt - a.lastLoginAt);
-}
-
-export function readLegacyAccountBackup(root: string, id: string): Buffer {
-  if (!legacyAccountSources(root).some((source) => source.id === id))
-    throw new Error('旧窗口数据源已不可用。');
-  const old = join(root, 'instances', id, 'data');
-  const config = readConfig(join(old, 'config.json'));
-  const cache =
-    config.cacheDirOverride && isAbsolute(config.cacheDirOverride)
-      ? config.cacheDirOverride
-      : join(old, 'cache');
-  return legacyWeqAccountBackup(old, cache, savedInstanceAccounts(old));
 }
 
 function metadata(path: string) {
@@ -160,7 +107,7 @@ function addMissing(current: object, source: object): object {
   return result;
 }
 
-/** 在打开账号和维护共享目录之前运行一次，原窗口目录保留作恢复来源。 */
+/** 在打开账号和维护共享目录之前运行一次，保留原窗口目录。 */
 export function migrateAccountStorage(root: string): void {
   const receipt = accountStorageMigrationPath(root);
   if (metadata(receipt)?.isFile()) return;

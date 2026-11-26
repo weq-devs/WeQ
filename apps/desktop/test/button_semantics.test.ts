@@ -36,7 +36,7 @@ it.each([
   ['components/settings/RemotePanel.tsx', 'onClick={onCopy}'],
   ['components/settings/McpServerSection.tsx', 'copiedConfig'],
   ['components/settings/OneBotSection.tsx', '复制地址'],
-  ['components/settings/BackupSection.tsx', 'setPreview(null)}'],
+  ['components/settings/BackupSection.tsx', 'data-setting-id="backup-import"'],
   ['components/QqDebugCopyPermissions.tsx', 'onClick={onClose}'],
   ['components/RestrictedQqAction.tsx', 'setSettingsOpen(true)'],
 ])('普通入口和辅助操作不显式升级为主动作：%s', (file, marker) => {
@@ -51,8 +51,7 @@ it.each([
   ['components/settings/SsePushSection.tsx', '<Save size={13}'],
   ['components/settings/TypingStatusSettingsCard.tsx', 'onSave()'],
   ['components/settings/BackupSection.tsx', '导出备份'],
-  ['components/settings/BackupSection.tsx', '确认恢复'],
-  ['components/settings/RemotePanel.tsx', 'onDecide(request.id, true)'],
+  ['components/settings/RemotePanel.tsx', 'onReview(request.id)'],
   ['components/tasks/ScheduleSettings.tsx', '保存设置'],
   ['components/qq-actions/GroupJoinSettings.tsx', '保存加群方式'],
   ['views/agentlab/NewGroupModal.tsx', 'type="submit"'],

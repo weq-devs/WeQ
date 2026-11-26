@@ -266,7 +266,7 @@ function MessageBubbleBody({
   hideDeletedBadge?: boolean;
   /**
    * Recall reviser's display name — shown in the 撤回 tag when an admin recalled
-   * someone else's message (`recall.sameSender === false`). Resolved by the
+   * someone else's message with a known revoker. Resolved by the
    * parent from `message.recall.revokeUid`.
    */
   recallRevokerName?: string;
@@ -404,11 +404,13 @@ function MessageBubbleBody({
   ).recall;
   const recallText = !recall
     ? null
-    : recall.sameSender
-      ? mine
-        ? '你撤回了这条消息'
-        : '对方撤回了这条消息'
-      : `${recallRevokerName?.trim() || '管理员'} 撤回了这条消息`;
+    : !recall.revokeUid
+      ? '这条消息已被撤回'
+      : recall.sameSender
+        ? mine
+          ? '你撤回了这条消息'
+          : '对方撤回了这条消息'
+        : `${recallRevokerName?.trim() || '管理员'} 撤回了这条消息`;
   useEffect(
     () => setReeditArmed(false),
     [message.id, optimistic, optimisticRejected, recall?.recallTs],
@@ -644,8 +646,8 @@ function MessageBubbleBody({
     const rect = event.currentTarget.getBoundingClientRect();
     const anchor =
       event.detail === 0
-        ? { x: rect.left, y: rect.bottom }
-        : { x: event.clientX, y: event.clientY };
+        ? { x: rect.left, y: rect.bottom, trigger: event.currentTarget }
+        : { x: event.clientX, y: event.clientY, trigger: event.currentTarget };
     activateProfile(
       event,
       () => onAvatarClick?.(sender, anchor),
@@ -758,6 +760,7 @@ function MessageBubbleBody({
         conversation.generated && !message.generatedPending ? message.id : undefined
       }
       data-weq-select-id={selectionMode ? message.id : undefined}
+      data-weq-selection-id={selectionMode ? message.id : undefined}
       // 普通模式给 -1：不进 Tab 顺序，但允许聊天区用方向键把焦点落到消息上。
       tabIndex={selectionMode ? 0 : -1}
       onPointerDown={handlePointerDown}

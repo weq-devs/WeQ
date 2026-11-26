@@ -1,4 +1,4 @@
-import { act, createElement, type ComponentProps, type CSSProperties, type ReactNode } from 'react';
+import { act, createElement, type ComponentProps, type CSSProperties } from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createRoot } from 'react-dom/client';
@@ -476,8 +476,7 @@ describe('主聊天区域的频道私聊', () => {
         mailBadgeCount: 2,
         onOpenSettings: settings,
         activeRailItem: 'settings',
-        footerContent: (settingsButton: ReactNode) =>
-          createElement('div', { 'aria-label': '应用控制' }, settingsButton),
+        footerContent: createElement('button', { 'aria-label': '菜单' }),
         onOpenCollection: collection,
         onOpenDressUp: dress,
         onOpenProfile: noop,
@@ -498,8 +497,7 @@ describe('主聊天区域的频道私聊', () => {
       const settingsButton = f.host.querySelector<HTMLButtonElement>(
         '.rail-footer [aria-label="设置"]',
       )!;
-      expect(settingsButton.parentElement?.getAttribute('aria-label')).toBe('应用控制');
-      expect(settingsButton.classList.contains('weq-rail-control')).toBe(true);
+      expect(settingsButton.nextElementSibling?.getAttribute('aria-label')).toBe('菜单');
       expect(settingsButton.getAttribute('aria-current')).toBe('page');
       expect(settingsButton.closest('[inert]')).toBeNull();
       act(() => settingsButton.click());

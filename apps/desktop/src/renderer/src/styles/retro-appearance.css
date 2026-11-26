@@ -23,7 +23,6 @@ html[data-component-style='retro'][data-theme] body
     .app-rail,
     .sidebar,
     .weq-settings-nav,
-    .weq-settings-subnav,
     .weq-page-head,
     .weq-mobile-header,
     .weq-profile-page-toolbar,
@@ -57,7 +56,6 @@ html[data-component-style='retro'][data-theme] body
     .emoji-tabs > button,
     .weq-rail-button,
     .weq-settings-nav-item,
-    .weq-settings-subnav-item,
     .weq-cvs-nav-item,
     .weq-profile-directory > button,
     .weq-mail-folders > button,
@@ -289,8 +287,8 @@ html[data-component-style='retro'][data-theme]:where(
     :not([data-weq-layout='single'], [data-weq-mobile-client='true'])
   )
   .composer:has(> .composer-editor:not(.composer-row-hidden))
-  > .composer-send {
-  right: calc(var(--composer-side-inset) + 8px);
+  > .composer-send-controls {
+  inset-inline-end: calc(var(--composer-side-inset) + 8px);
 }
 
 html[data-component-style='retro'][data-theme]
@@ -309,6 +307,11 @@ html[data-component-style='retro'][data-theme]
   border-radius: 0;
   background: color-mix(in srgb, var(--weq-bg-elevated) 82%, transparent);
   box-shadow: var(--weq-retro-well);
+}
+
+html[data-component-style='retro'][data-theme] .weq-style-option[aria-checked='true'] {
+  border-color: var(--weq-accent-ink);
+  background: color-mix(in srgb, var(--weq-accent-effective) 12%, var(--weq-bg-elevated));
 }
 
 html[data-component-style='retro'][data-theme]

@@ -134,12 +134,7 @@
   cursor: pointer;
   transition:
     border-color 140ms ease,
-    background-color 140ms ease,
-    transform 140ms ease;
-}
-
-.weq-export-report-button:hover:not(:disabled) {
-  transform: translateY(-1px);
+    background-color 140ms ease;
 }
 
 .weq-export-report-button.is-soft {
@@ -157,6 +152,10 @@
   border: 1px solid var(--weq-accent-solid);
   color: var(--weq-accent-solid-foreground, var(--primary-foreground));
   background: var(--weq-accent-solid);
+}
+
+.weq-export-report-button.is-primary:hover:not(:disabled) {
+  background: var(--weq-accent-solid-hover, var(--weq-accent-solid));
 }
 
 .weq-export-report-button:focus-visible {

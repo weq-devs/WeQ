@@ -66,6 +66,15 @@ function fieldToJson(schema: z.ZodTypeAny): Record<string, unknown> {
       out.type = 'array';
       out.items = fieldToJson((core as unknown as { _def: { type: z.ZodTypeAny } })._def.type);
       break;
+    case 'ZodRecord': {
+      const value = (core as z.ZodRecord<z.ZodString, z.ZodTypeAny>).valueSchema;
+      out.type = 'object';
+      out.additionalProperties =
+        (value as { _def?: { typeName?: string } })._def?.typeName === 'ZodUnknown'
+          ? true
+          : fieldToJson(value);
+      break;
+    }
     case 'ZodObject':
       Object.assign(out, objectToParameters(core as z.ZodObject<z.ZodRawShape>));
       break;

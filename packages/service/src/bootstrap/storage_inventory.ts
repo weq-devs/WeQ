@@ -7,16 +7,6 @@ import { measureStorage, RUNTIME_CACHE_NAMES, type StorageUsageItem } from './st
 
 const REPAIR_NAMES = new Set(['db_repair', 'db-repair', 'dbfix', 'dbfix2']);
 const CONFIG_NAMES = new Set(['config', 'config.json']);
-const MEDIA_NAMES = new Set(['avatar', 'media', 'voice', 'linkpreview', 'collection']);
-const DRESS_NAMES = new Set([
-  'dress',
-  'dress_shared',
-  'qqshow',
-  'redpack',
-  'marketface',
-  'marketpack',
-  'sysemoji',
-]);
 const SYSTEM_NAMES = new Set(['.ds_store', 'thumbs.db', 'desktop.ini']);
 type BackupLink = { historyPath: string; recordId: string };
 
@@ -185,7 +175,7 @@ async function splitProgramBackups(base: StorageUsageItem): Promise<StorageUsage
   const result: StorageUsageItem[] = [];
   for (const entry of await scopedEntries(base, base.path)) {
     const path = join(base.path, entry.name);
-    const item = itemAt(base, path, `历史程序修补备份 · ${entry.name}`);
+    const item = itemAt(base, path, '旧版程序备份');
     Object.assign(item, await measureItem(base, path));
     const meta = entry.isDirectory() ? await json(join(path, 'before.json')) : null;
     const files = Array.isArray(meta?.files) ? meta.files : [];
@@ -214,6 +204,7 @@ async function splitProgramBackups(base: StorageUsageItem): Promise<StorageUsage
       at && /(?:Z|[+-]\d{2}:\d{2})$/.test(at) && Number.isFinite(Date.parse(at))
         ? `${eventTimeFormatter.format(new Date(at))}（北京时间）`
         : at;
+    if (time) item.label = `旧版程序备份 · ${time}`;
     item.reason = time ? `备份时间：${time}` : '未识别的程序备份，仅统计占用';
     item.confirmation =
       '将删除这组旧程序文件备份，不能再用它恢复当时的安装状态；不删除数据库备份、聊天数据或当前程序。';
@@ -226,13 +217,17 @@ function classify(item: StorageUsageItem): StorageUsageItem {
   const name = basename(item.path);
   const base = {
     ...item,
-    category: 'unknown' as StorageUsageItem['category'],
+    category: item.category ?? ('unknown' as const),
     management: 'cleanup' as const,
     action: 'none' as StorageUsageItem['action'],
   };
-  if (CONFIG_NAMES.has(name))
+  const legacyWindow = item.category === 'desktop-data' && item.exitOnly;
+  if (!legacyWindow && CONFIG_NAMES.has(name))
     return { ...base, management: 'backup', action: item.clearable ? 'data' : 'none' };
-  if (name === 'anti_recall' || name === 'restore' || name.startsWith('config.json.'))
+  if (
+    !legacyWindow &&
+    (name === 'anti_recall' || name === 'restore' || name.startsWith('config.json.'))
+  )
     return { ...base, management: 'backup', clearable: false, requiresExit: false };
   if (item.management === 'backup' || item.label.startsWith('桌面运行数据')) {
     if (RUNTIME_CACHE_NAMES.has(name))
@@ -247,7 +242,7 @@ function classify(item: StorageUsageItem): StorageUsageItem {
   }
   if (name === 'remote-network')
     return { ...base, management: 'runtime', clearable: false, requiresExit: false };
-  if (name === 'flash')
+  if (!legacyWindow && name === 'flash')
     return {
       ...base,
       label: '历史闪传下载与任务',
@@ -258,11 +253,15 @@ function classify(item: StorageUsageItem): StorageUsageItem {
   if (item.clearable && !item.requiresExit)
     return {
       ...base,
-      category: MEDIA_NAMES.has(name) ? 'media' : DRESS_NAMES.has(name) ? 'dress' : 'cache',
+      category: item.category ?? 'cache',
       action: 'cache',
     };
   if (item.clearable || ['models', 'ocr', 'agentlab', 'export', 'logs'].includes(name))
-    return { ...base, category: 'persistent', action: item.clearable ? 'data' : 'none' };
+    return {
+      ...base,
+      category: item.category ?? 'persistent',
+      action: item.clearable ? 'data' : 'none',
+    };
   return { ...base, clearable: false };
 }
 

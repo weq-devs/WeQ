@@ -6,10 +6,11 @@ import { SettingsDialog } from '../../src/renderer/src/components/SettingsDialog
 import { DialogHost } from '../../src/renderer/src/components/Dialog';
 import { WorkspacePages, WorkspaceContent } from '../../src/renderer/src/components/WorkspacePages';
 import { useSettingsNavigation } from '../../src/renderer/src/hooks/useSettingsNavigation';
-import { useThemeStore } from '../../src/renderer/src/state/theme';
+import { ensureThemeInitialized, useThemeStore } from '../../src/renderer/src/state/theme';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
 
+ensureThemeInitialized();
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 const launchedTools: string[] = [];
 Object.assign(window, { settingsNavigationQa: { theme: useThemeStore, launchedTools } });
@@ -40,7 +41,13 @@ function Fixture() {
             {open && (
               <SettingsDialog
                 open
-                initialSection={location.search === '?display=1' ? 'message-display' : 'onebot'}
+                initialSection={
+                  location.search === '?default=1'
+                    ? undefined
+                    : location.search === '?display=1'
+                      ? 'message-content'
+                      : 'onebot'
+                }
                 onClose={() => setOpen(false)}
                 navigationGuard={navigation.guard}
                 onOpenMaintenance={(tool) => launchedTools.push(tool)}

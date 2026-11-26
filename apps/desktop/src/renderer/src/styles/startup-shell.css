@@ -30,7 +30,7 @@
 .weq-shell-actions button {
   -webkit-app-region: no-drag;
 }
-.weq-shell-actions :is(.weq-shell-log-btn, .weq-shell-close-btn) {
+.weq-shell-actions :is(.weq-shell-log-btn, .weq-shell-settings-btn, .weq-shell-close-btn) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -44,7 +44,7 @@
   background: transparent;
   cursor: pointer;
 }
-.weq-shell-actions :is(.weq-shell-log-btn, .weq-shell-close-btn):hover {
+.weq-shell-actions :is(.weq-shell-log-btn, .weq-shell-settings-btn, .weq-shell-close-btn):hover {
   color: var(--weq-fg-primary);
   background: color-mix(in srgb, var(--weq-fg-primary) 8%, transparent);
 }
@@ -52,14 +52,40 @@
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 2px;
 }
+.weq-shell-settings-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.weq-home-shell .weq-bootstrap-settings > .weq-workspace-page-fallback {
+  position: absolute;
+  inset: 32px 0 0;
+}
+.weq-bootstrap-settings::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 32px;
+  -webkit-app-region: drag;
+}
+.weq-bootstrap-settings .weq-mobile-settings-header {
+  --weq-window-safe-top: 0px;
+}
+.weq-bootstrap-settings .weq-settings-nav-heading:has(.weq-bootstrap-settings-close) {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 2px 14px 0;
+}
+.weq-bootstrap-settings
+  .weq-settings-nav-heading:has(.weq-bootstrap-settings-close)
+  .weq-settings-nav-title {
+  margin: 0 8px;
+}
+
 @media (max-width: 520px) {
   .weq-shell-actions .weq-restricted-indicator span {
     display: none;
   }
-}
-
-/* 账号页底部有常驻的账号操作栏；右下角通知不能压在「添加账号 / 导入备份」上。
-   只在启动工作区抬高（任何 .weq-select 都算），不影响主界面。 */
-body:has(.weq-home-shell .weq-select) .weq-toast-host:not(.is-web) {
-  bottom: 104px;
 }

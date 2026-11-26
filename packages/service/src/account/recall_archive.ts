@@ -267,7 +267,7 @@ export class RecallArchive {
       if (!recalled) {
         message.recall = {
           revokeUid: recall.revokeUid,
-          sameSender: recall.revokeUid === message.senderUid,
+          sameSender: Boolean(recall.revokeUid) && recall.revokeUid === message.senderUid,
           recallTs: recall.at,
         };
         await this.nt.executeSqlWrite(

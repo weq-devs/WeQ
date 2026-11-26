@@ -56,7 +56,17 @@ createRoot(document.getElementById('root')!).render(
                 throw new Error('合成恢复失败，可重新确认');
               },
               inventory: async () => ({
-                accounts: [],
+                accounts: [
+                  { configId: '10001', uin: '10001', displayName: '测试账号' },
+                  {
+                    configId: '10001_1234abcd',
+                    uin: '10001',
+                    displayName: '测试账号',
+                    static: true,
+                  },
+                ],
+                activeConfigId: '10001',
+                canActivateServices: true,
                 cloneScopes: [],
                 restore: {
                   pending: null,
