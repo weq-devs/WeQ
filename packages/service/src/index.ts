@@ -1091,6 +1091,13 @@ export {
   toExportedMessage,
   elementToText,
   elementsToText,
+  resolveGroupSenderPage,
+  type GroupPageSenderMessage,
+  type GroupPageSenderMember,
+  type GroupPageSenderDeps,
+  type GroupPageSenderResult,
+  type GroupPageSenderDiagnostic,
+  type ProjectedGroupPageSender,
   messageToText,
   formatTime,
 } from './account/export';

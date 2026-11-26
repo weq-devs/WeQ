@@ -78,6 +78,19 @@ const detailRows = vi.hoisted(() => {
   };
 });
 const browseGroup = vi.hoisted(() => vi.fn());
+const getMembersByUids = vi.hoisted(() =>
+  vi.fn(
+    async (_group: bigint, _uids: string[]) =>
+      [] as Array<{
+        uid: string;
+        groupCode: bigint;
+        uin: bigint;
+        card: string;
+        nick: string;
+        adminFlag: number;
+      }>,
+  ),
+);
 const dataline = vi.hoisted(() => ({
   hasTable: vi.fn(async () => true),
   listNewestHistory: vi.fn(),
@@ -93,9 +106,10 @@ vi.mock('../src/main/context/app_context', async () => {
         getSelfProfile: profileRead,
         getCachedSelfProfile: profileCache.read,
         nicksByUids: async () => ({}),
+        profilesByUids: async () => [],
       },
       recentContacts: { getRecentContact: async () => recentContacts },
-      groupInfo: { listAllGroups: async () => [] },
+      groupInfo: { listAllGroups: async () => [], getMembersByUids },
       msgs: Object.assign(
         new MsgService({
           groupMsgs: { listBySeqsInPartition: detailRows.groupBySeq, browse: browseGroup },
@@ -139,6 +153,32 @@ it('聊天翻页把同序号边界的原始 ID 与时间传回存储层', async 
   expect(page).toMatchObject({ hasMore: false, messages: [{ msgId: '9007199254740992' }] });
   expect(await tool.run({ ...args, before: '2' })).toMatchObject({ hasMore: false, messages: [] });
   expect(legacyBefore).toHaveBeenLastCalledWith('123', 2n, 2);
+});
+
+it('uses the group card for a message sender and deduplicates the member lookup', async () => {
+  const tool = AI_TOOLS.find((item) => item.name === 'get_messages')!;
+  const [message] = await localMessagePage();
+  const sender = { ...message!, senderUid: 'u_other', senderUin: 2n };
+  localMessagePage.mockResolvedValueOnce([sender, { ...sender, msgId: sender.msgId - 1n }]);
+  getMembersByUids.mockResolvedValueOnce([
+    {
+      uid: 'u_other',
+      groupCode: 123n,
+      uin: 2n,
+      card: '群名片',
+      nick: '全局昵称',
+      adminFlag: 0,
+    },
+  ]);
+  const result = await tool.run({
+    kind: 'group',
+    conv: '123',
+    limit: 2,
+    before: '',
+    includeIds: false,
+  });
+  expect(result).toMatchObject({ messages: [{ sender: '群名片' }, { sender: '群名片' }] });
+  expect(getMembersByUids).toHaveBeenLastCalledWith(123n, ['u_other']);
 });
 
 it('按北京时间读取历史日期并在同秒消息之间继续翻页', async () => {
