@@ -760,6 +760,7 @@ function MessageBubbleBody({
         conversation.generated && !message.generatedPending ? message.id : undefined
       }
       data-weq-select-id={selectionMode ? message.id : undefined}
+      data-weq-selection-id={selectionMode ? message.id : undefined}
       // 普通模式给 -1：不进 Tab 顺序，但允许聊天区用方向键把焦点落到消息上。
       tabIndex={selectionMode ? 0 : -1}
       onPointerDown={handlePointerDown}

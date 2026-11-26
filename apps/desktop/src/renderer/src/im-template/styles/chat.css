@@ -593,24 +593,26 @@
   gap: 10px;
 }
 
-/* 键盘把焦点落到某条消息时，只给气泡/正文描边，不整行拉一条通栏轮廓。 */
-.message-line:focus-visible {
+/* 普通模式描边正文，多选模式描边勾选标记。 */
+.message-line[tabindex]:focus-visible,
+.weq-system-message-row[tabindex]:focus-visible {
   outline: none;
 }
 
-.message-line:focus-visible .message-content {
+.message-line:not(.selection-mode):focus-visible .message-content {
   outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
   outline-offset: 2px;
 }
 
-.weq-system-message-row:focus-visible {
-  outline: none;
-}
-
-.weq-system-message-row:focus-visible .weq-system-message-content {
+.weq-system-message-row:not(.selection-mode):focus-visible .weq-system-message-content {
   outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
   outline-offset: 2px;
   border-radius: 6px;
+}
+
+:is(.message-line, .weq-system-message-row).selection-mode:focus-visible > .message-select-mark {
+  outline: 2px solid var(--weq-accent-ink, var(--weq-accent-effective));
+  outline-offset: 2px;
 }
 
 .message-line.mine {
