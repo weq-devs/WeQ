@@ -4,7 +4,7 @@
  * `@weq/service` 的 `CallSession` 只描述状态机与报文编排，UDP、编解码、信令
  * 三样都靠注入。这个模块负责把真实实现接上：
  *
- *   - **UDP**：`node:dgram` 的 udp4 套接字，绑定随机端口；
+ *   - **UDP**：`node:dgram` 的双栈 UDP 套接字，绑定随机端口；
  *   - **编解码**：nt_helper 的 `openCallCodec` / `encodeCallFrame` / `decodeCallFrame`
  *     （用的是 QQ 自带的那一版 Opus，标准 libopus 与它不互通）；
  *   - **信令**：`@weqbot/protocol` 的 `startC2CCall` / `endC2CCall`，借已登记的
@@ -61,10 +61,11 @@ const REPLAY_FRAMES = 600;
 
 // ─────────────────────────── UDP ───────────────────────────
 
-/** `node:dgram` 的 udp4 套接字适配成 `CallSession` 要的形状。 */
+/** 将双栈 UDP 套接字适配成 `CallSession` 要的形状。 */
 class NodeUdpTransport implements UdpTransport {
   private socket: dgram.Socket | null = null;
   private p2pSocket: dgram.Socket | null = null;
+  private unreachableHandler?: Parameters<NonNullable<UdpTransport['onUnreachable']>>[0];
 
   /** 数据报观察者（通话 UDP 落盘用）；发送 / 接收各喂一份。 */
   sink: ((datagram: TracedDatagram) => void) | null = null;
@@ -108,18 +109,18 @@ class NodeUdpTransport implements UdpTransport {
   send(data: Uint8Array, port: number, address: string): void {
     const socket = [8000, 8001, 8800].includes(port) ? this.socket : this.p2pSocket;
     if (!socket) return;
-    // 落盘要的是「实际发出去的这条」，所以在选好 socket 之后、发送之前记。
+    // 落盘记录交给套接字的发送尝试，包括系统拒绝发送的包。
     this.trace('c2s', socket, data, address, port);
     // 直接拷一份：dgram 的回调可能在原缓冲被复写之后才跑。
     const buffer = Buffer.from(data);
     // udp6 套接字发纯 IPv4 目标时，部分平台需要显式映射成 ::ffff: 形式。
     const target = address.includes(':') ? address : `::ffff:${address}`;
     socket.send(buffer, 0, buffer.length, port, target, (error) => {
-      // 发送失败以前是静默吞掉的：地址不可达 / 套接字类型不匹配时
-      // 上层完全看不出「对方为什么收不到」。这里至少留一条日志。
-      if (error) {
-        logger.warn('UDP 发送失败', { address, port, error: error.message });
-      }
+      if (!error || (socket !== this.socket && socket !== this.p2pSocket)) return;
+      const { code } = error as NodeJS.ErrnoException;
+      if (code === 'ENETUNREACH' || code === 'EHOSTUNREACH' || code === 'EADDRNOTAVAIL') {
+        this.unreachableHandler?.(error, address, port);
+      } else logger.warn('UDP 发送失败', { address, port, error: error.message });
     });
   }
 
@@ -150,6 +151,10 @@ class NodeUdpTransport implements UdpTransport {
 
   onError(handler: (error: Error) => void): void {
     this.watch((socket) => socket.on('error', handler));
+  }
+
+  onUnreachable(handler: NonNullable<NodeUdpTransport['unreachableHandler']>): void {
+    this.unreachableHandler = handler;
   }
 
   /**
@@ -419,6 +424,7 @@ export class CallManager extends EventEmitter {
         close: () => transport.close(),
         onMessage: (handler) => transport.onMessage(handler),
         onError: (handler) => transport.onError(handler),
+        onUnreachable: (handler) => transport.onUnreachable(handler),
       },
       codec,
       videoEncoder: videoEncoder ?? undefined,

@@ -12,6 +12,7 @@ import {
   VideoSubType,
   buildGcsHead,
   buildGcsPacket,
+  parseGcsPacket,
   parseVideoPacket,
   pbBytes,
   pbVarint,
@@ -24,17 +25,18 @@ const SELF_UIN = 10001;
 const PEER_UIN = 10002;
 const ROOM_ID = 777n;
 const SERVER = { ip: '192.0.2.1', port: 8000, type: 1 };
+const IPV6_SERVER = { ip: '2001:db8::1', port: 8000, type: 2 };
 
 vi.mock('@weq/service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@weq/service')>()),
   protocolSignaling: () => ({
-    start: async () => ({
+    start: async ({ peerUid }: { peerUid: string }) => ({
       room: {
         roomId: ROOM_ID,
         sessionId: 88n,
         relationId: 1,
         authKey: new Uint8Array(80).fill(1),
-        servers: [SERVER],
+        servers: peerUid === 'u_ipv4_fallback' ? [IPV6_SERVER, SERVER] : [SERVER],
       },
       authToken: 1234,
     }),
@@ -53,7 +55,14 @@ class OfflineSocket extends EventEmitter {
     return { address: '::', port: 51348 };
   }
 
-  send(data: Uint8Array): void {
+  send(
+    data: Uint8Array,
+    _offset: number,
+    _length: number,
+    _port: number,
+    _address: string,
+    _callback: (error: Error) => void,
+  ): void {
     this.sent.push(data);
   }
 
@@ -148,7 +157,7 @@ function setup() {
     return manager.pushEncodedVideoFrame(data, key, captureId);
   }
 
-  return { manager, open, close, control, connect, pushFrame };
+  return { manager, open, close, control, createSocket, connect, pushFrame };
 }
 
 afterEach(async () => {
@@ -159,6 +168,25 @@ afterEach(async () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
   }
+});
+
+it('桌面套接字通报 IPv6 不可达后，无需推进定时器即可向 IPv4 发送认证', async () => {
+  const { manager, control, createSocket } = setup();
+  createSocket.mockReturnValueOnce(control as unknown as dgram.Socket);
+  const send = vi.spyOn(control, 'send');
+  await manager.start({ ...callParams, peerUid: 'u_ipv4_fallback' });
+
+  const auth = () =>
+    send.mock.calls.filter(([packet]) => parseGcsPacket(packet)?.bodyType === GcsBodyType.authReq);
+  expect(auth().map(([, , , , address]) => address)).toEqual([IPV6_SERVER.ip, IPV6_SERVER.ip]);
+  const unavailable = Object.assign(new Error('send ENETUNREACH'), { code: 'ENETUNREACH' });
+  for (const [, , , , , callback] of auth()) callback(unavailable);
+  expect(auth().map(([, , , , address]) => address)).toEqual([
+    IPV6_SERVER.ip,
+    IPV6_SERVER.ip,
+    `::ffff:${SERVER.ip}`,
+    `::ffff:${SERVER.ip}`,
+  ]);
 });
 
 describe('私聊摄像头发送', () => {

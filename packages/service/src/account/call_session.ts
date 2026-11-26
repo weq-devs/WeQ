@@ -224,6 +224,8 @@ export interface UdpTransport {
   onMessage(handler: (data: Uint8Array, from: { address: string; port: number }) => void): void;
   /** 套接字错误。 */
   onError(handler: (error: Error) => void): void;
+  /** 系统明确判定目标不可达，套接字仍可发往其它地址。 */
+  onUnreachable?(handler: (error: Error, address: string, port: number) => void): void;
 }
 
 /** 编解码能力。native 侧实现；测试里可以换成恒等变换。 */
@@ -446,6 +448,10 @@ function normalizeHost(address: string): string {
   return mapped;
 }
 
+function endpointKey(address: string, port: number): string {
+  return `[${normalizeHost(address)}]:${port}`;
+}
+
 /**
  * 16 字节 IPv6 → 标准文本形式。
  *
@@ -621,6 +627,8 @@ export class CallSession {
 
   private gcs: CallServer | null = null;
   private relays: CallServer[] = [];
+  private pushedRelays: CallServer[] = [];
+  private readonly unreachable = new Set<string>();
 
   private startedAt: number | null = null;
   private connectedAt: number | null = null;
@@ -961,6 +969,9 @@ export class CallSession {
       // 3. UDP
       this.opts.transport.onMessage((data, from) => this.handlePacket(data, from));
       this.opts.transport.onError((error) => this.fail(error.message));
+      this.opts.transport.onUnreachable?.((error, address, port) =>
+        this.handleUnreachable(error, address, port),
+      );
       await this.opts.transport.bind();
       // P2P 端点公告要用这个端口（见 sendPeerJoinReport）。
       this.localPort = this.opts.transport.localPort?.() ?? 0;
@@ -1018,14 +1029,12 @@ export class CallSession {
     const isGcsPort = (server: CallServer) => server.port === 8000 || server.port === 8001;
     const preferred = servers.filter(isGcsPort);
     const fallback = servers.filter((server) => !isGcsPort(server));
-    this.gcsCandidates = [...preferred, ...fallback];
-    this.gcs =
-      preferred.find((s) => s.ip === CallSession.goodGcsIp) ??
-      preferred[0] ??
-      this.gcsCandidates.find((s) => s.ip === CallSession.goodGcsIp) ??
-      this.gcsCandidates[0] ??
-      null;
-    this.gcsIndex = Math.max(0, this.gcsCandidates.indexOf(this.gcs!));
+    const cached = (preferred.length ? preferred : fallback).find(
+      (server) => server.ip === CallSession.goodGcsIp,
+    );
+    this.gcsCandidates = [...preferred, ...fallback].filter((server) => server !== cached);
+    if (cached) this.gcsCandidates.unshift(cached);
+    this.gcs = this.gcsCandidates[0] ?? null;
     this.log?.debug('服务器表', {
       total: servers.length,
       ipv6: servers.filter((s) => s.ip.includes(':')).length,
@@ -1033,21 +1042,48 @@ export class CallSession {
       picked: this.gcs ? `${this.gcs.ip}:${this.gcs.port}` : 'none',
     });
 
-    // 中继通道注册用前两台（按原始顺序，去重）。
-    const seen = new Set<string>();
-    this.relays = [];
-    for (const server of servers) {
-      const key = `${server.ip}:${server.port}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      this.relays.push(server);
-      if (this.relays.length >= 2) break;
-    }
     // 服务器表里的地址全部当作「服务端 / 中继节点」，后面按 IP 排除。
     // 它们换端口再发包时，`rememberPeerSource` 才挡得住。
     this.relayHosts.clear();
     for (const server of servers) this.noteRelayHost(server.ip);
-    if (this.gcs) this.noteRelayHost(this.gcs.ip);
+  }
+
+  private selectRelays(): CallServer[] {
+    const servers = this.room?.servers ?? [];
+    const gcsIsIpv6 = normalizeHost(this.gcs?.ip ?? '').includes(':');
+    const sameFamily = (server: CallServer) => normalizeHost(server.ip).includes(':') === gcsIsIpv6;
+    // 进房前优先使用已认证的地址族，收到服务端的专用中继地址后优先使用它们。
+    const ordered = [
+      ...this.pushedRelays,
+      ...servers.filter(sameFamily),
+      ...servers.filter((s) => !sameFamily(s)),
+    ];
+    const seen = new Set(this.unreachable);
+    const selected: CallServer[] = [];
+    for (const server of ordered) {
+      const key = endpointKey(server.ip, server.port);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      selected.push(server);
+      if (selected.length >= (this.pushedRelays.length || 2)) break;
+    }
+    return selected;
+  }
+
+  private handleUnreachable(error: Error, address: string, port: number): void {
+    if (this.state === 'ending' || this.state === 'ended' || this.state === 'failed') return;
+    const key = endpointKey(address, port);
+    if (this.unreachable.has(key)) return;
+    this.unreachable.add(key);
+    this.log?.warn('UDP 目标不可达', { address, port, error: error.message });
+
+    if (!this.authAcked && this.gcs?.port === port && sameHost(this.gcs.ip, address)) {
+      this.tryNextGcs();
+    }
+    const previous = this.relays;
+    if (!previous.some((relay) => relay.port === port && sameHost(relay.ip, address))) return;
+    this.relays = this.selectRelays();
+    this.sendRelayGetIn(this.relays.filter((relay) => !previous.includes(relay)));
   }
 
   /** 候选 GCS 地址，按尝试顺序。 */
@@ -1198,19 +1234,34 @@ export class CallSession {
     this.clearGcsRetry();
     this.gcsRetryTimer = this.timers.setTimeout(() => {
       this.gcsRetryTimer = null;
-      if (this.authAcked) return;
-      if (this.gcsIndex + 1 >= this.gcsCandidates.length) {
-        // 全部试过还是不通：留着当前这台继续心跳，可能是回包慢。
-        this.log?.warn('所有 GCS 候选都没有认证回包');
+      if (!this.authAcked) this.tryNextGcs();
+    }, 3000);
+  }
+
+  private tryNextGcs(): void {
+    this.clearGcsRetry();
+    const next = this.gcsCandidates.findIndex(
+      (server, index) =>
+        index > this.gcsIndex && !this.unreachable.has(endpointKey(server.ip, server.port)),
+    );
+    if (next === -1) {
+      if (
+        this.gcsCandidates.every((server) =>
+          this.unreachable.has(endpointKey(server.ip, server.port)),
+        )
+      ) {
+        this.fail('通话服务器地址均不可达');
         return;
       }
-      this.gcsIndex++;
-      this.gcs = this.gcsCandidates[this.gcsIndex]!;
-      this.log?.debug('切换 GCS', { ip: this.gcs.ip, port: this.gcs.port });
-      this.sendAuth();
-      this.sendRelayGetIn();
-      this.sendCodecInit();
-    }, 3000);
+      // 等待仍可能到达的认证回包，沿用通话超时收尾。
+      this.log?.warn('所有 GCS 候选都没有认证回包');
+      return;
+    }
+    this.gcsIndex = next;
+    this.gcs = this.gcsCandidates[next]!;
+    this.log?.debug('切换 GCS', { ip: this.gcs.ip, port: this.gcs.port });
+    this.sendAuth();
+    this.sendCodecInit();
   }
 
   private clearGcsRetry(): void {
@@ -1220,11 +1271,11 @@ export class CallSession {
     }
   }
 
-  private sendRelayGetIn(): void {
+  private sendRelayGetIn(relays = this.relays): void {
     if (!this.room) return;
     // 序号在同一通内恒定（GET_IN 与保活共用），不能每次重发都换一个。
     if (this.relaySeq === 0) this.relaySeq = this.nextPeerSeq();
-    for (const server of this.relays) {
+    for (const server of relays) {
       this.sendTo(
         buildRelayGetIn({
           roomId: this.room.roomId,
@@ -1454,13 +1505,30 @@ export class CallSession {
     if (stx === AUDIO_STX) {
       this.rememberPeerSource(from);
       this.handleAudio(data);
-    } else if (stx === GCS_STX) this.handleGcs(data);
+    } else if (stx === GCS_STX) this.handleGcs(data, from);
     else if (stx === RELAY_STX) this.handleRelay(data, from);
   }
 
-  private handleGcs(data: Uint8Array): void {
+  private handleGcs(data: Uint8Array, from: { address: string; port: number }): void {
     const packet = parseGcsPacket(data);
     if (!packet) return;
+    if (packet.bodyType === GcsBodyType.authRsp) {
+      if (
+        this.authAcked ||
+        this.teardownPromise ||
+        this.unreachable.has(endpointKey(from.address, from.port))
+      )
+        return;
+      // 超时轮换后，上一台仍可能回包。以实际完成认证的候选为准。
+      const server = this.gcsCandidates.find(
+        (candidate, index) =>
+          index <= this.gcsIndex &&
+          candidate.port === from.port &&
+          sameHost(candidate.ip, from.address),
+      );
+      if (!server) return;
+      this.gcs = server;
+    }
 
     // 认证回包里的会话时间戳，之后所有包都要带。
     if (packet.sessionTs !== 0) this.sessionTs = packet.sessionTs;
@@ -1575,7 +1643,9 @@ export class CallSession {
       relayCandidates.push({ ip: formatIpv4Fixed(ip), port, type });
     }
     if (relayCandidates.length > 0 && this.authToken > 0) {
-      this.relays = relayCandidates;
+      this.pushedRelays = relayCandidates;
+      for (const relay of relayCandidates) this.noteRelayHost(relay.ip);
+      this.relays = this.selectRelays();
       this.sendRelayGetIn();
       if (!this.relayTimer) this.startRelayKeepalive();
     }
@@ -1898,6 +1968,7 @@ export class CallSession {
     this.authAcked = true;
     this.clearGcsRetry();
     if (this.gcs) CallSession.goodGcsIp = this.gcs.ip;
+    this.relays = this.selectRelays();
     // relay token 通常在后续 bt=9 才下发；拿到 token 后再注册并开始保活。
     if (this.authToken > 0) {
       this.sendRelayGetIn();

@@ -212,7 +212,9 @@ class FakeTransport implements UdpTransport {
   }
   onError(): void {}
   deliver(data: Uint8Array): void {
-    this.messageHandler?.(data, { address: '1.2.3.4', port: 8000 });
+    const target =
+      parseGcsPacket(data)?.bodyType === GcsBodyType.authRsp ? this.sent[0] : undefined;
+    this.deliverFrom(data, target ?? { address: '1.2.3.4', port: 8000 });
   }
   /** 从指定来源投递（模拟对端直连发包）。 */
   deliverFrom(data: Uint8Array, from: { address: string; port: number }): void {
