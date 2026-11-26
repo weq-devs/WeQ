@@ -5,6 +5,7 @@ import { trpc } from '../../trpc/client';
 import { useQQWriteSession } from '../../hooks/useQQWriteSession';
 import { QQWriteTextRow, QQWriteSelectRow } from '../QQWriteControls';
 import { DisplaySelfProfileField as SelfProfileField } from '../ProfileDisplaySettings';
+import { NumericText } from '../NumericText';
 import type { SelfProfileFields } from '../SelfProfileFields';
 import { BirthdayEditor, RegionEditor } from './EditableSelfProfileEditors';
 
@@ -48,6 +49,7 @@ export function useEditableSelfProfileFields() {
   const disabled = !a.available || a.busy || !profile.data || Boolean(profile.error);
   const errors = profile.data?.errors ?? {};
   const cached = local.data?.uin.toString() === a.binding?.expectedAccountUin ? local.data : null;
+  const email = errors.email || profile.error ? null : profile.data?.email;
   const regionText = (path: string[] | null | undefined) =>
     formatQqRegion(path, directory.data?.regions);
   const feedback = (
@@ -88,6 +90,9 @@ export function useEditableSelfProfileFields() {
       <SelfProfileField
         label="生日"
         displayField="birthday"
+        renderValue={(value) =>
+          typeof value === 'string' ? <NumericText>{value}</NumericText> : (value ?? '尚未读取')
+        }
         value={
           profile.data?.birthday ||
           (cached?.birthMonth
@@ -136,13 +141,14 @@ export function useEditableSelfProfileFields() {
       <SelfProfileField
         label="邮箱"
         displayField="email"
-        value={
-          errors.email || profile.error
-            ? '读取失败'
-            : profile.data
-              ? profile.data.email || '未设置'
-              : null
+        renderValue={(value) =>
+          email ? (
+            <span className="weq-number weq-number-inherit">{email}</span>
+          ) : (
+            (value ?? '尚未读取')
+          )
         }
+        value={errors.email || profile.error ? '读取失败' : profile.data ? email || '未设置' : null}
         disabled={disabled}
       >
         <QQWriteTextRow
