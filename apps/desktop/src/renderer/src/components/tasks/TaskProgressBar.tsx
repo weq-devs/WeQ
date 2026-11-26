@@ -26,7 +26,15 @@ export function TaskProgressBar({
         aria-label={label}
         aria-valuetext={valueText ?? (indeterminate ? '进度未知' : undefined)}
       />
-      {indeterminate ? <span className="weq-task-progress-indicator" aria-hidden /> : null}
+      {indeterminate ? (
+        <span className="weq-task-progress-indicator" aria-hidden />
+      ) : (
+        <span
+          className="weq-task-progress-fill"
+          style={{ transform: `scaleX(${progress / 100})` }}
+          aria-hidden
+        />
+      )}
     </span>
   );
 }

@@ -464,7 +464,7 @@ function MediaPreviewItemBody({
     viewport?.addEventListener('resize', measure);
     return () => viewport?.removeEventListener('resize', measure);
   }, [ownerDocument, measure]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const player = video.current;
     if (!active) player?.pause();
     return () => {

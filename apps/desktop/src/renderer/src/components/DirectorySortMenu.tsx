@@ -6,12 +6,14 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useOverlayAnchor } from '../lib/overlayAnchor.shared';
-import { useOverlayLayer } from '../lib/overlayStack';
+import { OVERLAY_BASE_LAYER, useOverlayLayer } from '../lib/overlayStack';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
+import { useExitMotion } from '../hooks/useExitMotion';
 import { SegmentedControl } from './SegmentedControl';
 import '../styles/form-select.css';
 import '../styles/contact-directory-order.css';
@@ -149,6 +151,12 @@ export function DirectoryMenu({
   const open = active && !disabled && anchor !== null;
   const { position } = useOverlayAnchor(surface, open, true, anchor ?? undefined);
   const layer = useOverlayLayer(open);
+  const present = useExitMotion(surface, open);
+  const lastPlacement = useRef<{ document: Document; position: CSSProperties | undefined }>(null);
+  useLayoutEffect(() => {
+    if (open && anchor) lastPlacement.current = { document: anchor.ownerDocument, position };
+  }, [open, anchor, position]);
+  const portalDocument = anchor?.ownerDocument ?? lastPlacement.current?.document;
   useSurfaceEscapeDismissal(panel, dismiss, open);
 
   useLayoutEffect(() => {
@@ -201,13 +209,20 @@ export function DirectoryMenu({
           </>
         )}
       </button>
-      {open && anchor
+      {present && active && !disabled && portalDocument
         ? createPortal(
             <div
               ref={surface}
               className="weq-directory-menu-layer"
               data-weq-escape-surface=""
-              style={{ ...position, zIndex: layer }}
+              data-weq-surface-motion="fade"
+              data-closing={!open || undefined}
+              aria-hidden={!open || undefined}
+              inert={!open}
+              style={{
+                ...(open ? position : lastPlacement.current?.position),
+                zIndex: open ? layer : OVERLAY_BASE_LAYER,
+              }}
             >
               <section
                 id={panelId}
@@ -219,7 +234,7 @@ export function DirectoryMenu({
                 {children}
               </section>
             </div>,
-            anchor.ownerDocument.body,
+            portalDocument.body,
           )
         : null}
     </>

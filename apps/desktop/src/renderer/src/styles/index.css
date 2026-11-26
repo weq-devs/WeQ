@@ -1084,6 +1084,11 @@ html[data-theme='dark'] .weq-shimmer-block {
     }
   }
 
+  [data-weq-surface-motion='fade'][data-closing] {
+    opacity: 0;
+    transition: opacity var(--weq-motion-exit) ease-in;
+  }
+
   /* hidden 和 inert 立即退出焦点和浮层处理，display 在淡出完成后离散切换。 */
   :is([data-weq-surface-motion='fade'], [data-weq-surface-motion='exit'])[hidden] {
     opacity: 0;
@@ -1097,13 +1102,48 @@ html[data-theme='dark'] .weq-shimmer-block {
   }
 }
 
+.weq-surface-exiting,
+.weq-surface-exiting * {
+  pointer-events: none !important;
+  animation: none !important;
+  transition: none !important;
+}
+
+/* 短折叠组共用一套网格轨道，可保留内容到收拢结束。 */
+.weq-disclosure-panel {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+}
+.weq-disclosure-panel > div {
+  display: flow-root;
+  min-height: 0;
+  overflow: clip;
+}
+[data-weq-disclosure][data-closing] .weq-disclosure-panel,
+.weq-disclosure-panel[data-closing] {
+  grid-template-rows: minmax(0, 0fr);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .weq-disclosure-panel {
+    transition: grid-template-rows var(--weq-motion-enter) var(--weq-motion-ease);
+    @starting-style {
+      grid-template-rows: minmax(0, 0fr);
+    }
+  }
+  [data-weq-disclosure][data-closing] .weq-disclosure-panel,
+  .weq-disclosure-panel[data-closing] {
+    transition: grid-template-rows var(--weq-motion-exit) ease-in;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .weq-dialog-layer > .weq-modal.weq-anim-pop {
     animation: none;
   }
 }
 
-/* 灯箱：遮罩淡入 + 舞台轻微放大。关闭仍是即时（媒体预览的卸载由调用方掌握）。 */
+/* 灯箱：遮罩淡入 + 舞台轻微放大。 */
 .weq-lightbox-layer {
   animation: weq-lightbox-in var(--weq-motion-enter) ease-out both;
 }

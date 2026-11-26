@@ -19,8 +19,37 @@ import { IS_WEB } from '../../lib/target.shared';
 import { changePreference } from '../../lib/clientPreferences';
 import type { SettingsSearchTarget } from './searchTarget';
 import { resolveSettingsTarget } from './navigation';
+import { useExitMotion } from '../../hooks/useExitMotion';
+import { TabActivity } from '../RetainedTabs';
 import '../../styles/notification-event-settings.css';
 import { NOTIFICATION_SETTING_IDS } from './NotificationEventSettings.shared';
+
+function NotificationEventRows({
+  expanded,
+  skipEntrance,
+  children,
+}: {
+  expanded: boolean;
+  skipEntrance: boolean;
+  children: () => ReactNode;
+}) {
+  const rows = useRef<HTMLTableSectionElement>(null);
+  const present = useExitMotion(rows, expanded);
+  if (!present) return null;
+  return (
+    <tbody
+      ref={rows}
+      className="weq-notification-event-rows"
+      data-weq-disclosure=""
+      data-closing={!expanded || undefined}
+      data-instant={expanded && skipEntrance ? '' : undefined}
+      inert={!expanded}
+      aria-hidden={!expanded || undefined}
+    >
+      <TabActivity active={expanded}>{children()}</TabActivity>
+    </tbody>
+  );
+}
 
 export function NotificationEventSettings({
   recallScope,
@@ -53,6 +82,7 @@ export function NotificationEventSettings({
   const mutation = trpc.bootstrap.setNotificationEvents.useMutation();
   const utils = trpc.useUtils();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [locatedGroup, setLocatedGroup] = useState<string>();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const values = normalizeNotificationEvents(query.data?.notificationEvents);
@@ -69,7 +99,11 @@ export function NotificationEventSettings({
           settingId === `notification-${event}` || settingId === NOTIFICATION_SETTING_IDS[event],
       ),
     );
-    if (group) setExpanded((previous) => new Set([...previous, group.id]));
+    if (group) {
+      // 设置搜索需要在定位时读到完整行高。
+      setLocatedGroup(group.id);
+      setExpanded((previous) => new Set([...previous, group.id]));
+    }
   }, [target]);
   const save = async (
     events: readonly NotificationEvent[],
@@ -122,74 +156,90 @@ export function NotificationEventSettings({
           </tr>
         </thead>
         {NOTIFICATION_GROUPS.map((group) => (
-          <tbody key={group.id}>
-            <tr className="weq-notification-group">
-              <th scope="row">
-                <button
-                  type="button"
-                  aria-expanded={expanded.has(group.id)}
-                  onClick={() =>
-                    setExpanded((previous) => {
-                      const next = new Set(previous);
-                      if (next.has(group.id)) next.delete(group.id);
-                      else next.add(group.id);
-                      return next;
-                    })
-                  }
-                >
-                  <ChevronRight
-                    size={14}
-                    aria-hidden
-                    className={expanded.has(group.id) ? 'is-expanded' : ''}
-                  />
-                  {group.label}
-                </button>
-              </th>
-              {(['banner', 'system'] as const).map((channel) => (
-                <td key={channel}>
-                  <Toggle
-                    {...notificationGroupState(group.events, channel, values)}
-                    label={`${group.label}：${channel === 'banner' ? '应用内横幅通知' : '系统通知'}`}
-                    disabled={!query.data || Boolean(query.error) || saving}
-                    onChange={(enabled) => void save(group.events, channel, enabled)}
-                  />
-                </td>
-              ))}
-            </tr>
-            {expanded.has(group.id) &&
-              group.events.map((event) => (
-                <Fragment key={event}>
+          <Fragment key={group.id}>
+            <tbody>
+              <tr className="weq-notification-group">
+                <th scope="row">
+                  <button
+                    type="button"
+                    aria-expanded={expanded.has(group.id)}
+                    onClick={() => {
+                      setLocatedGroup(undefined);
+                      setExpanded((previous) => {
+                        const next = new Set(previous);
+                        if (next.has(group.id)) next.delete(group.id);
+                        else next.add(group.id);
+                        return next;
+                      });
+                    }}
+                  >
+                    <ChevronRight
+                      size={14}
+                      aria-hidden
+                      className={expanded.has(group.id) ? 'is-expanded' : ''}
+                    />
+                    {group.label}
+                  </button>
+                </th>
+                {(['banner', 'system'] as const).map((channel) => (
+                  <td key={channel}>
+                    <Toggle
+                      {...notificationGroupState(group.events, channel, values)}
+                      label={`${group.label}：${channel === 'banner' ? '应用内横幅通知' : '系统通知'}`}
+                      disabled={!query.data || Boolean(query.error) || saving}
+                      onChange={(enabled) => void save(group.events, channel, enabled)}
+                    />
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+            <NotificationEventRows
+              expanded={expanded.has(group.id)}
+              skipEntrance={locatedGroup === group.id}
+            >
+              {() =>
+                group.events.map((event) => (
                   <tr
+                    key={event}
                     data-setting-id={NOTIFICATION_SETTING_IDS[event] ?? `notification-${event}`}
                     data-setting-fallback={`notification-${event}`}
                     className="weq-notification-event"
                   >
                     <th scope="row">
-                      <span>
-                        {NOTIFICATION_LABELS[event]}
-                        {isScopedNotificationEvent(event) ? (
-                          <NotificationScopeEditor event={event} />
-                        ) : event === 'recall' ? (
-                          recallScope
-                        ) : null}
-                      </span>
+                      <div className="weq-disclosure-panel">
+                        <div>
+                          <span className="weq-notification-event-label">
+                            {NOTIFICATION_LABELS[event]}
+                            {isScopedNotificationEvent(event) ? (
+                              <NotificationScopeEditor event={event} />
+                            ) : event === 'recall' ? (
+                              recallScope
+                            ) : null}
+                          </span>
+                        </div>
+                      </div>
                     </th>
                     {(['banner', 'system'] as const).map((channel) => (
                       <td key={channel}>
-                        {supportsNotificationChannel(event, channel) ? (
-                          <Toggle
-                            checked={values[event][channel]}
-                            label={`${NOTIFICATION_LABELS[event]}：${channel === 'banner' ? '应用内横幅通知' : '系统通知'}`}
-                            disabled={!query.data || Boolean(query.error) || saving}
-                            onChange={(enabled) => void save([event], channel, enabled)}
-                          />
-                        ) : null}
+                        <div className="weq-disclosure-panel">
+                          <div>
+                            {supportsNotificationChannel(event, channel) ? (
+                              <Toggle
+                                checked={values[event][channel]}
+                                label={`${NOTIFICATION_LABELS[event]}：${channel === 'banner' ? '应用内横幅通知' : '系统通知'}`}
+                                disabled={!query.data || Boolean(query.error) || saving}
+                                onChange={(enabled) => void save([event], channel, enabled)}
+                              />
+                            ) : null}
+                          </div>
+                        </div>
                       </td>
                     ))}
                   </tr>
-                </Fragment>
-              ))}
-          </tbody>
+                ))
+              }
+            </NotificationEventRows>
+          </Fragment>
         ))}
       </table>
       {query.error && (

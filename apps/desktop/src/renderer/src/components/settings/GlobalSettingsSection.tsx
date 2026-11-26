@@ -40,6 +40,7 @@ import {
 import type { StorageUsageItem } from '@weq/service';
 import { client, trpc } from '../../trpc/client';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
+import { useExitMotion } from '../../hooks/useExitMotion';
 import { useDialog } from '../Dialog.shared';
 import { useToast } from '../Toast.shared';
 import { LoadingIndicator } from '../LoadingIndicator';
@@ -73,6 +74,32 @@ function backupDescription(item: StorageUsageItem): string | null {
       ? `${eventTimeFormatter.format(new Date(at))}（北京时间）`
       : at || '时间未知';
   return `${date} · ${status === 'linked' ? '已关联修复记录' : status === 'orphan' ? '无关联修复记录' : '未识别备份'}`;
+}
+
+function StorageGroupItems({
+  id,
+  expanded,
+  children,
+}: {
+  id: string;
+  expanded: boolean;
+  children: () => ReactNode;
+}) {
+  const panel = useRef<HTMLDivElement>(null);
+  const present = useExitMotion(panel, expanded);
+  return (
+    <div
+      ref={panel}
+      id={id}
+      className="weq-disclosure-panel"
+      hidden={!present}
+      inert={!expanded}
+      aria-hidden={!expanded || undefined}
+      data-closing={!expanded || undefined}
+    >
+      {present ? <div>{children()}</div> : null}
+    </div>
+  );
 }
 
 export function GlobalSettingsSection({
@@ -737,9 +764,9 @@ export function GlobalSettingsSection({
                         </span>
                       </button>
                     </h4>
-                    <div id={panelId} hidden={!expanded}>
-                      {expanded && entries.map(({ item, members }) => storageItem(item, members))}
-                    </div>
+                    <StorageGroupItems id={panelId} expanded={expanded}>
+                      {() => entries.map(({ item, members }) => storageItem(item, members))}
+                    </StorageGroupItems>
                   </section>
                 );
               })

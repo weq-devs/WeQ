@@ -39,12 +39,12 @@ export function prefersReducedMotion(element: Element | null | undefined): boole
 export function fadeInSurface(
   element: Element | null | undefined,
   { from = 0.86, duration = surfaceMotionTiming.switch }: { from?: number; duration?: number } = {},
-): void {
-  const target = element instanceof HTMLElement ? element : null;
-  if (!target || typeof target.animate !== 'function' || prefersReducedMotion(target)) return;
-  const animation = target.animate([{ opacity: from }, { opacity: 1 }], {
+): Animation | undefined {
+  if (!element || typeof element.animate !== 'function' || prefersReducedMotion(element)) return;
+  const animation = element.animate([{ opacity: from }, { opacity: 1 }], {
     duration,
     easing: 'ease-out',
   });
   void animation.finished.catch(() => {});
+  return animation;
 }

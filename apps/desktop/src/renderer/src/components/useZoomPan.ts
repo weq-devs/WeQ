@@ -12,7 +12,14 @@
  * 监听，以便 preventDefault 阻止页面滚动）、以及要展开到元素上的样式与事件。
  */
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 8;
@@ -95,7 +102,7 @@ export function useZoomPan(
     reset();
     return () => endDrag.current?.();
   }, [resetKey, reset]);
-  useEffect(() => () => endDrag.current?.(), [el]);
+  useLayoutEffect(() => () => endDrag.current?.(), [el]);
 
   /** 以 (clientX, clientY) 为锚点缩放到 nextScale，锚点在屏幕上保持不动。 */
   const zoomAt = useCallback(

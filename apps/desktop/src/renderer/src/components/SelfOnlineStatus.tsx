@@ -65,6 +65,7 @@ export function SelfOnlineStatus({
       )}
       {open && session.binding ? (
         <OverlayLayer
+          fade
           presentation="popover"
           anchor={trigger.current}
           anchorPlacement="side"

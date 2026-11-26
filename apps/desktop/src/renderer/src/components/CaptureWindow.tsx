@@ -4,6 +4,7 @@ import { LockKeyhole, Radio, X } from 'lucide-react';
 import { useToolWindow } from '../hooks/useCompositionWindow';
 import { useQQReadActivity } from '../hooks/useQQAutoRefresh';
 import { IS_WEB } from '../lib/target.shared';
+import { useTabPanelMotion } from '../hooks/useTabPanelMotion';
 import { readWithRetry } from '../lib/autoRead';
 import { RenderDocumentContext } from '../lib/renderDocument';
 import { useCaptureWindow } from '../state/captureWindow';
@@ -57,6 +58,7 @@ function CaptureWindowPanel({
 }) {
   /** 两个抓包面板：TCP（QQNT / OIDB，按账号）与 UDP（按进程，不解析协议）。 */
   const [tab, setTab] = useState<'tcp' | 'udp'>(initialTab ?? 'tcp');
+  const { panel: tabPanel } = useTabPanelMotion(tab);
   useEffect(() => {
     if (initialTab) setTab(initialTab);
   }, [initialTab]);
@@ -157,7 +159,7 @@ function CaptureWindowPanel({
           retrying={loading}
         />
       ) : null}
-      <div className="weq-capture-window-content">
+      <div ref={tabPanel} className="weq-capture-window-content">
         {tab === 'udp' ? (
           <UdpCapturePanel />
         ) : (

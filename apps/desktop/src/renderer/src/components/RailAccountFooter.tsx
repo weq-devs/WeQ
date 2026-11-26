@@ -420,6 +420,7 @@ export function RailAccountFooter({
       {typeof children === 'function' ? children(controls) : controls}
       {open ? (
         <OverlayLayer
+          fade
           presentation="popover"
           anchor={wrapRef.current}
           className="weq-rail-account-layer"
@@ -551,6 +552,7 @@ export function RailAccountFooter({
       ) : null}
       {ctxMenu && (
         <OverlayLayer
+          fade
           presentation="popover"
           anchor={ctxMenu.anchor}
           className="weq-rail-account-context-layer"

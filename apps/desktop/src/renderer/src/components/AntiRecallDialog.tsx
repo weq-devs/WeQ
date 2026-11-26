@@ -3,6 +3,7 @@ import * as timeFormat from '@weq/time';
 /** 防撤回方式、保护范围与记录；设置页摘要和会话工具共用后端状态。 */
 
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
+import { useTabPanelMotion } from '../hooks/useTabPanelMotion';
 import {
   Archive,
   Database,
@@ -166,6 +167,7 @@ export function AntiRecallDialog({
   const utils = trpc.useUtils();
 
   const [tab, setTab] = useState<Tab>('protect');
+  const { panel: tabPanel, rememberScroll } = useTabPanelMotion(tab, true);
   const [editor, setEditor] = useState<Tab | null>(null);
   const active = useTabActive();
   const currentActivity = useRef(active);
@@ -888,7 +890,11 @@ export function AntiRecallDialog({
             role="tab"
             aria-selected={tab === t.id}
             className={cn('weq-ar-tab', tab === t.id && 'is-on')}
-            onClick={() => setTab(t.id)}
+            onClick={() => {
+              if (t.id === tab) return;
+              rememberScroll();
+              setTab(t.id);
+            }}
           >
             <t.icon size={15} />
             {t.label}
@@ -896,7 +902,7 @@ export function AntiRecallDialog({
         ))}
       </div>
 
-      <div className="group-keyword-body weq-ar-body">
+      <div ref={tabPanel} className="group-keyword-body weq-ar-body">
         {tab === 'protect' ? (
           <>
             <Card title="保护规则" icon={<ListFilter size={15} strokeWidth={1.8} />}>

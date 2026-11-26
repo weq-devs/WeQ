@@ -136,7 +136,7 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
           </p>
         ) : null}
       </Card>
-      <RetainedTabs snapshotKey="resource-management" activeKey={currentView}>
+      <RetainedTabs snapshotKey="resource-management" activeKey={currentView} animateSwitch>
         <div key={currentView} className="weq-resource-panel" data-resource-panel={currentView}>
           {currentView === 'overview' ? (
             <>

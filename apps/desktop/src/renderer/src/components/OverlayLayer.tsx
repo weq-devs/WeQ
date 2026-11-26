@@ -35,6 +35,7 @@
 import { createPortal } from 'react-dom';
 import {
   useCallback,
+  useLayoutEffect,
   useRef,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
@@ -49,6 +50,7 @@ import {
   type OverlayAnchor,
 } from '../lib/overlayAnchor.shared';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
+import { fadeRemovedSurface } from '../lib/surfaceExit';
 import { WorkspacePage } from './WorkspacePages';
 import { useTabActive } from './RetainedTabs.shared';
 import { useRenderDocument } from '../lib/renderDocument';
@@ -73,6 +75,8 @@ export type OverlayLayerProps = {
   title?: string;
   /** 是否激活。为假时整层不渲染，也不占层级。 */
   open?: boolean;
+  /** 业务子树随关闭立即卸载，短暂淡出浮层画面。 */
+  fade?: boolean;
   /** 点遮罩空白处 / 按 Esc 时调用。不传则两种关闭都不响应。 */
   onClose?: () => void;
   dismissOnOutside?: boolean;
@@ -145,10 +149,16 @@ function OpenOverlayLayer({
   profileCard = false,
   profileTrigger,
   portalTarget,
+  fade = false,
 }: Omit<OverlayLayerProps, 'open'>): ReactElement {
   const document = useRenderDocument();
   const { layer, scope } = useOverlayLayerScope(true);
   const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!fade || profileCard) return;
+    const element = ref.current;
+    return () => fadeRemovedSurface(element);
+  }, [fade, profileCard]);
   useMobileWebViewport(ref, IS_WEB);
   const placement = useOverlayAnchor(
     ref,
@@ -203,6 +213,7 @@ function OpenOverlayLayer({
         placement.position && 'is-anchored-popover',
       )}
       role={role}
+      data-weq-surface-motion={fade && !profileCard ? 'enter' : undefined}
       style={{
         position: 'fixed',
         inset: IS_WEB ? undefined : 0,
