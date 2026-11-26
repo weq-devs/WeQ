@@ -4119,17 +4119,6 @@ html[data-theme='dark'] .chat-empty-logo {
   padding: 4px 2px 14px;
 }
 
-/* 切会话的交叉过渡层：换正文的那一帧把旧正文的 DOM 快照铺在消息区上方淡出，
- * 同时新正文淡入。位置与尺寸由 useConversationCrossfade 按消息区实际矩形写入，
- * 底色与 .chat-main 相同，避免两层文字互相透出。 */
-.weq-chat-crossfade-layer {
-  position: absolute;
-  z-index: 1;
-  overflow: hidden;
-  pointer-events: none;
-  background: var(--chat-surface);
-}
-
 .chat-skeleton-time {
   align-self: center;
   width: 110px;

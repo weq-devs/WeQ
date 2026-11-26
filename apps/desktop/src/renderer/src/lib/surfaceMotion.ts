@@ -4,7 +4,7 @@
  * 元素级的弹窗、菜单、Toast 动效由 CSS 关键帧负责（见 `styles/index.css` 的
  * `weq-anim-*`）。这里只补 CSS 做不到的两件事：
  *
- * 1. **内容原地替换**：主视图、会话切换时 DOM 节点不重建，CSS 动画不会重放，
+ * 1. **内容原地替换**：主视图切换时 DOM 节点不重建，CSS 动画不会重放，
  *    只能用 Web Animations 在切换后跑一次淡入（与 `MobileNavigationRuntime`
  *    手机端返回同一套 120ms 做法）。
  * 2. **统一的减少动态效果判断**：新动效必须和现有 113 处 `prefers-reduced-motion`

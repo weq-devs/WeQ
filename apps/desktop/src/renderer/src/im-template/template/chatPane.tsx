@@ -246,7 +246,6 @@ export type BubbleVideoSendPayload = {
 };
 import { ComposerQuoteBar, type ComposerQuote } from './composerQuote';
 import { useClosingContent } from '../../hooks/useClosingContent';
-import { useConversationCrossfade } from '../../hooks/useConversationCrossfade';
 import { composerQuoteToken, quoteBlockReason, quoteFromMessage } from './composerQuote.shared';
 import type { LocationCardPayload } from './locationCardPanel';
 import type { ArkContactSource, ArkLocationProvider, ArkPayload } from './arkCards';
@@ -362,7 +361,7 @@ import { shouldShowMessageTime } from './messageTime.shared';
 import { MessageGapDivider, MessageLoadFailure } from './messageGap';
 import { isSeqBetween, messageGapCount } from './messageGap.shared';
 import { defaultConversationPreference } from './preferences';
-import { Avatar, EmptyState } from './primitives';
+import { Avatar, ChatMessagesSkeleton, EmptyState } from './primitives';
 import type {
   Conversation,
   ConversationPreference,
@@ -1864,13 +1863,6 @@ function ChatPaneContent({
     onConsumeUnreadDock,
     user,
     visibleMessages,
-  });
-
-  // 切会话时正文要等新会话首屏回来才替换；替换那一帧用旧正文快照做交叉淡出淡入。
-  useConversationCrossfade({
-    scope: conversation?.id,
-    scrollRef: messageScrollRef,
-    content: visibleMessages,
   });
   const canOpenImportant = conversation?.type === 'group' && !restrictedSource;
   function openImportantMessages() {
@@ -6775,9 +6767,12 @@ function ChatPaneContent({
                 <div className="weq-message-marquee" aria-hidden style={marquee.box} />
               ) : null}
               {loading && visibleMessages.length === 0 ? (
-                <span className="sr-only" role="status">
-                  正在加载消息
-                </span>
+                <>
+                  <span className="sr-only" role="status">
+                    正在加载消息
+                  </span>
+                  <ChatMessagesSkeleton />
+                </>
               ) : visibleMessages.length === 0 && !loadingNewer && !loadError ? (
                 (emptyTimeline ?? (
                   <EmptyState
