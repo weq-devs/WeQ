@@ -1,4 +1,10 @@
 import { transferPercent, type TransferProgress } from '../../../shared/transfer_progress';
+import { IS_WEB } from './target.shared';
+
+export function outgoingTransferProgress(progress: TransferProgress | undefined, toHost?: boolean) {
+  if (progress?.phase === 'to-host' && (!IS_WEB || !toHost)) return undefined;
+  return progress ?? (IS_WEB && toHost ? { phase: 'to-host' as const } : undefined);
+}
 
 export function transferLabel(progress: TransferProgress): string {
   switch (progress.phase) {

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { ServerSavePrompt } from '../components/ServerSavePrompt';
 import { useAppDialog } from '../lib/dialogUtils';
 import { IS_WEB } from '../lib/target.shared';
-import { notifyTaskCreated } from '../lib/taskNotifications';
+import { rememberTaskCreated } from '../lib/taskNotifications';
 import { client, trpc } from '../trpc/client';
 import { useExportSavePolicy } from './useExportSavePolicy';
 
@@ -31,7 +31,7 @@ export function useDressDownload() {
         savePolicy: policy,
       });
       if (!taskId || !save.isCurrent()) return false;
-      notifyTaskCreated(taskId, '正在下载装扮');
+      rememberTaskCreated(taskId);
       void utils.account.listExportTasks.invalidate().catch(() => {});
       return true;
     } catch (error) {

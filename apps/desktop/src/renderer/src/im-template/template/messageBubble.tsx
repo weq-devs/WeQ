@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { MessageSelectionMark } from '../../components/MessageSelectionMark';
 import { TransferRing } from '../../components/TransferRing';
-import { transferLabel } from '../../lib/transferPresentation';
+import { outgoingTransferProgress, transferLabel } from '../../lib/transferPresentation';
 import { useTransferProgress } from '../../lib/transferActivity';
 import { FEATURE_ICONS } from '../../lib/featureIcons.shared';
 import {
@@ -143,12 +143,8 @@ function OutgoingSendProgress({
   outgoingToHost,
 }: Pick<Message, 'transferId' | 'outgoingToHost'>) {
   const transfer = useTransferProgress(transferId);
-  const toHost = IS_WEB && outgoingToHost && (!transfer || transfer.phase === 'to-host');
-  const progress = toHost
-    ? (transfer ?? { phase: 'to-host' as const })
-    : transfer?.phase === 'to-host'
-      ? undefined
-      : transfer;
+  const progress = outgoingTransferProgress(transfer, outgoingToHost);
+  const toHost = progress?.phase === 'to-host';
   const label = progress ? transferLabel(progress) : '发送中';
   const monitor = toHost ? (
     <Monitor className="weq-message-send-host" size={10} aria-hidden />

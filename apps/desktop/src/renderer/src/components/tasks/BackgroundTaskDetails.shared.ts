@@ -27,6 +27,7 @@ export const BACKGROUND_TASK_LABELS = {
   backup: '备份与恢复',
   'favorite-import': '收藏表情导入',
   forward: '逐条转发',
+  'send-media': '传输',
   'album-upload': '群相册上传',
   resource: '资源管理',
 };
@@ -42,6 +43,7 @@ export const BACKGROUND_TASK_ICONS = {
   backup: ArchiveRestore,
   'favorite-import': SmilePlus,
   forward: Forward,
+  'send-media': Upload,
   'album-upload': Upload,
   resource: HardDrive,
 };

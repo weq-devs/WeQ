@@ -98,15 +98,18 @@ it('多个目标并行发送且群内保序，一个目标失败不会阻塞其�
     await vi.waitFor(() => expect(events).toContain('second:media'));
     expect(events).toContain('second:text');
     expect(events).not.toContain('qa-group:media');
-    expect(useToast.getState().toasts).toHaveLength(2);
+    expect(useToast.getState().toasts.map((toast) => toast.event)).toEqual(['taskFailure']);
+    expect(
+      localBackgroundTasks.snapshot().find((entry) => entry.name === target.name)?.status,
+    ).toBe('running');
   } finally {
     release?.();
     await task.done;
   }
   expect(events).toEqual(['qa-group:text', 'second:text', 'second:media', 'qa-group:media']);
-  expect(useToast.getState().toasts.map((toast) => toast.tone)).toEqual(['success', 'warning']);
+  expect(useToast.getState().toasts.map((toast) => toast.tone)).toEqual(['warning', 'success']);
   const failed = localBackgroundTasks.snapshot().find((entry) => entry.name === second.name)!;
-  expect(useToast.getState().toasts[1]!.source?.target).toEqual({
+  expect(useToast.getState().toasts[0]!.source?.target).toEqual({
     kind: 'task',
     id: `background:window:${failed.id}`,
   });
@@ -295,9 +298,10 @@ it('只停止一个目标，不跳转也不停止其他群；所有队列结束�
         onOpenTarget: open,
       });
     });
-    act(() =>
-      document.querySelector<HTMLButtonElement>('[data-forward-target="qa-group"] button')!.click(),
-    );
+    const taskFor = (name: string) =>
+      localBackgroundTasks.snapshot().find((entry) => entry.name === name)!;
+    expect(useToast.getState().toasts).toEqual([]);
+    await act(async () => localBackgroundTasks.act(taskFor(target.name).id, 'stop'));
     expect(open).not.toHaveBeenCalled();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
@@ -309,15 +313,9 @@ it('只停止一个目标，不跳转也不停止其他群；所有队列结束�
       'second',
     ]);
     expect(task!.controller.signal.aborted).toBe(false);
-    expect(document.querySelector('[data-forward-target="qa-group"]')?.textContent).toContain(
-      '转发已停止',
-    );
-    expect(document.querySelector('[data-forward-target="second"]')?.textContent).toContain(
-      '转发完成',
-    );
+    expect(taskFor(target.name)).toMatchObject({ status: 'cancelled', statusLabel: '转发已停止' });
+    expect(taskFor(second.name)).toMatchObject({ status: 'completed', statusLabel: '转发完成' });
     await act(async () => vi.advanceTimersByTimeAsync(3500));
-    expect(document.querySelector('[data-forward-target="second"]')).toBeNull();
-    expect(document.querySelector('[data-forward-target="qa-group"]')).toBeNull();
     expect(vi.getTimerCount()).toBe(0);
   } finally {
     task?.controller.abort();
@@ -512,7 +510,7 @@ it('单条转发隐藏间隔与抖动，保留失败策略和重试设置', () =
   }
 });
 
-it('先展示预估，卸载配置窗仍转发，等待与完成时均可点击横幅跳转', async () => {
+it('卸载配置窗后从任务查看持续进度与目标，完成时才提醒', async () => {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
@@ -560,33 +558,31 @@ it('先展示预估，卸载配置窗仍转发，等待与完成时均可点击�
     );
     expect(close).toHaveBeenCalledOnce();
     expect(document.querySelector('.weq-sequential-forward')).toBeNull();
-    expect(document.querySelector('.weq-forward-banner')).not.toBeNull();
-    expect(document.querySelector('.weq-forward-time')?.textContent).toContain(
-      '已进行 0 秒 / 预计用时 7 秒',
-    );
-    expect(document.querySelector('.weq-forward-count')?.textContent).toContain('0 / 2 条');
-    act(() => document.querySelector<HTMLButtonElement>('.weq-toast-open')!.click());
+    const currentTask = () =>
+      localBackgroundTasks.snapshot().find((entry) => entry.name === target.name)!;
+    expect(useToast.getState().toasts).toEqual([]);
+    expect(currentTask().note).toContain('已进行 0 秒 / 预计用时 7 秒');
+    expect(currentTask().note).toContain('0 / 2 条');
+    await act(async () => localBackgroundTasks.act(currentTask().id, 'open'));
     expect(open).toHaveBeenCalledWith(target);
-    expect(document.querySelector('.weq-toast button[aria-label="关闭"]')).toBeNull();
     expect(send).not.toHaveBeenCalled();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
     expect(send).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('.weq-forward-time')?.textContent).toContain('已进行 2 秒');
+    expect(currentTask().note).toContain('已进行 2 秒');
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[0]?.[2].aborted).toBe(false);
-    expect(document.querySelector('.weq-forward-banner')?.textContent).toContain('转发完成');
-    expect(document.querySelector('.weq-forward-time')?.textContent).toContain('已进行 7 秒');
-    expect(document.querySelector('.weq-forward-count')?.textContent).toContain('2 / 2 条');
+    expect(currentTask()).toMatchObject({ status: 'completed', statusLabel: '转发完成' });
+    expect(currentTask().note).toContain('已进行 7 秒');
+    expect(currentTask().note).toContain('2 / 2 条');
+    expect(useToast.getState().toasts.map((toast) => toast.event)).toEqual(['taskComplete']);
     expect(document.querySelector('.weq-toast button[aria-label="关闭"]')).not.toBeNull();
-    expect(document.querySelector('.weq-toast')).not.toBeNull();
-    expect(document.querySelector('.weq-toast-footer')).not.toBeNull();
     act(() => document.querySelector<HTMLButtonElement>('.weq-toast-open')!.click());
-    expect(open).toHaveBeenCalledWith(target);
+    expect(open).toHaveBeenCalledTimes(2);
     await act(async () => vi.advanceTimersByTimeAsync(3500));
     expect(document.querySelector('.weq-toast')).toBeNull();
   } finally {

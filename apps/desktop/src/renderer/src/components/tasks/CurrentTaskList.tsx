@@ -836,8 +836,13 @@ export function CurrentTaskList({
       status: task.status,
       statusLabel: task.statusLabel,
       progress: task.progress,
+      outgoingTransfer: task.outgoingTransfer,
+      transfer: task.kind === 'send-media',
       note: display.context,
-      metrics: task.kind === 'contacts' && task.status !== 'failed' ? task.note : undefined,
+      metrics:
+        task.kind === 'forward' || (task.kind === 'contacts' && task.status !== 'failed')
+          ? task.note
+          : undefined,
       icon: <Icon size={16} />,
       quickActions: actions.length ? <TaskQuickActions actions={actions} /> : null,
       detail: (
@@ -1000,7 +1005,9 @@ export function CurrentTaskList({
     </Fragment>
   );
   const selectedTask = ordered.find((task) => task.id === selectedId);
-  const ended = paged ? ordered.filter(isEnded) : [];
+  const transfers = ordered.filter((task) => task.transfer);
+  const otherTasks = ordered.filter((task) => !task.transfer);
+  const ended = paged ? otherTasks.filter(isEnded) : [];
   const list = (
     <section
       className={`weq-current-tasks is-${layout}${!items.length ? ' is-empty' : ''}`}
@@ -1062,7 +1069,15 @@ export function CurrentTaskList({
       {items.length ? (
         <div className="weq-current-task-columns">
           <div className="weq-current-task-list">
-            {(paged ? ordered.filter((task) => !isEnded(task)) : ordered).map(renderRow)}
+            {transfers.length ? (
+              <section aria-label="传输">
+                <header className="weq-task-ended-head">
+                  <h3>传输</h3>
+                </header>
+                {transfers.map(renderRow)}
+              </section>
+            ) : null}
+            {(paged ? otherTasks.filter((task) => !isEnded(task)) : otherTasks).map(renderRow)}
             {ended.length ? (
               <section aria-label="已结束任务">
                 <header className="weq-task-ended-head">

@@ -17,7 +17,7 @@ import { QzoneMediaNavigationContext } from '../lib/qzoneNavigation';
 import { isOrdinaryQzonePost, type QzoneHomeAlbumMedia } from '../lib/qzonePublic';
 import { albumMediaUrl } from '../lib/resourceUrl';
 import { IS_WEB } from '../lib/target.shared';
-import { notifyTaskCreated } from '../lib/taskNotifications';
+import { rememberTaskCreated } from '../lib/taskNotifications';
 import { useTransferProgress } from '../lib/transferActivity';
 import { client } from '../trpc/client';
 import { QzoneAlbumPreviewAction } from './qzoneShared';
@@ -150,7 +150,7 @@ export function QzoneVideoGrid({
         items,
         savePolicy: policy,
       });
-      if (taskId && save.isCurrent()) notifyTaskCreated(taskId, '正在导出空间视频');
+      if (taskId && save.isCurrent()) rememberTaskCreated(taskId);
     } catch (reason) {
       if (save.isCurrent())
         pushToast({

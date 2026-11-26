@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { CalendarTaskNavigationContext } from '../lib/calendarNavigation';
+import { onNotificationNavigation } from '../lib/notificationNavigation.shared';
 import { getCloneTasks, subscribeCloneTasks } from '../views/agentlab/cloneTaskStore';
 import type { GeneratedSearchHit } from './search/types';
 import type { ToolSearchRequest } from './search/appSearchCatalog';
@@ -291,6 +292,15 @@ export function WorkspaceTools({
     setExpanded(false);
   };
   const close = () => setOpen(false);
+  useEffect(
+    () =>
+      onNotificationNavigation((target) => {
+        if (target.kind !== 'conversation' || !target.dismissTaskPanel) return;
+        closeMenu();
+        setExpanded(false);
+      }),
+    [closeMenu],
+  );
   const toolPage = mobile && tool !== 'analysis-reports';
   const ctx: WorkspaceContext = workspace ?? {
     view: 'messages',

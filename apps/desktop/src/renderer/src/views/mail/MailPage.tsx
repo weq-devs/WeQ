@@ -56,7 +56,7 @@ import { SYSTEM_MAIL_FOLDERS } from '@weq/service/mail-wire';
 import { useDialog } from '../../components/Dialog.shared';
 import { CheckPill } from '../../components/settings/controls';
 import { useToastApi } from '../../components/Toast.shared';
-import { notifyTaskCreated } from '../../lib/taskNotifications';
+import { rememberTaskCreated } from '../../lib/taskNotifications';
 import type { MailApi } from './api';
 import { MailBody } from './MailBody';
 import { MailComposer } from './MailComposer';
@@ -629,7 +629,7 @@ export function MailPage({
         });
         if (!policy || controller.signal.aborted || !save.isCurrent()) return;
         const taskId = await api.save(id, policy, binding.expectedAccountConfigId);
-        if (mounted.current && save.isCurrent()) notifyTaskCreated(taskId, '正在保存邮件附件');
+        if (mounted.current && save.isCurrent()) rememberTaskCreated(taskId);
       }
     } catch (error) {
       if (mounted.current && save.isCurrent() && !controller.signal.aborted)

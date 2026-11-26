@@ -73,7 +73,7 @@ const state = vi.hoisted(() => ({
   })),
 }));
 vi.mock('../src/renderer/src/lib/taskNotifications', () => ({
-  notifyTaskCreated: state.accepted,
+  rememberTaskCreated: state.accepted,
 }));
 // 只替换缓存分页的数据边界，卡片、灯箱与公共保存控件走真实组件。
 vi.mock('../src/renderer/src/views/cache/CacheShared', async (importOriginal) => ({

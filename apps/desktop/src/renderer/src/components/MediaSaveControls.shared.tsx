@@ -8,7 +8,7 @@ import { IS_WEB } from '../lib/target.shared';
 import { useRenderDocument } from '../lib/renderDocument';
 import { useToast } from './Toast.shared';
 import { taskNotificationSource } from '../lib/notificationNavigation.shared';
-import { notifyTaskCreated } from '../lib/taskNotifications';
+import { rememberTaskCreated } from '../lib/taskNotifications';
 import '../styles/media-save.css';
 
 function sourceKey(source: MediaSaveSource): string {
@@ -213,7 +213,7 @@ export function useMediaSave({
       }
       if (!op.taskId || !current()) return { taskId: op.taskId, cancelled: true };
       if (foreground) record(op.key, { taskId: op.taskId, status: 'running' });
-      else notifyTaskCreated(op.taskId, IS_WEB ? '正在准备媒体下载' : '正在保存媒体');
+      else rememberTaskCreated(op.taskId);
       if (!IS_WEB && !foreground) return { taskId: op.taskId };
       const deadline = Date.now() + 15 * 60_000;
       while (current() && (foreground || Date.now() < deadline)) {

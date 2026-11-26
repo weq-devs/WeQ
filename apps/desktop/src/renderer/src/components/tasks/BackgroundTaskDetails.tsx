@@ -26,6 +26,7 @@ import { backgroundTaskNavigation } from './backgroundTaskNavigation';
 import { TaskActivityLog } from './TaskActivityLog';
 import { TaskQuickActions, type TaskQuickAction } from './TaskQuickActions';
 import { TaskProgressDetails } from './TaskProgressDetails';
+import { useOutgoingTaskProgress } from '../../lib/transferActivity';
 import { DatabaseMaintenanceProgress } from '../DatabaseMaintenanceProgress';
 import { usePageDataCache } from '../PageSnapshots.shared';
 import '../../styles/export.css';
@@ -47,7 +48,9 @@ export function BackgroundTaskActionIcon({ id }: { id: string }) {
               ? Download
               : id === 'install'
                 ? RotateCw
-                : FolderOpen;
+                : id === 'open-message'
+                  ? ExternalLink
+                  : FolderOpen;
   return <Icon size={14} aria-hidden />;
 }
 
@@ -90,6 +93,7 @@ function TaskDetails({
   cloneLog?: ReactNode;
 }) {
   const { task } = entry;
+  const outgoing = useOutgoingTaskProgress(task);
   const openCalendarTask = useContext(CalendarTaskNavigationContext);
   const canManageTask = !IS_WEB || task.kind !== 'update';
   const cache = usePageDataCache();
@@ -232,10 +236,16 @@ function TaskDetails({
           name={task.name}
           display={backgroundTaskDisplay(task)}
           status={task.status}
-          statusLabel={task.statusLabel}
-          progress={task.progress}
-          showProgress={task.kind !== 'calendar'}
-          note={task.kind === 'contacts' && task.subtasks?.length ? undefined : task.note}
+          statusLabel={outgoing?.label ?? task.statusLabel}
+          progress={outgoing?.percent ?? task.progress}
+          showProgress={
+            task.kind !== 'calendar' && (task.kind !== 'send-media' || task.status === 'running')
+          }
+          note={
+            task.kind === 'contacts' && task.subtasks?.length
+              ? undefined
+              : (outgoing?.counts ?? task.note)
+          }
           startedAt={task.startedAt}
           finishedAt={task.finishedAt}
           actions={actions}

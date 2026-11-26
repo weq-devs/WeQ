@@ -180,6 +180,7 @@ import { useToast, sourceToastPush, type Toast } from '../components/Toast.share
 import {
   notificationContent,
   notificationSource,
+  openNotificationSource,
   restoreNotificationSource,
   onNotificationNavigation,
   conversationNotificationSource,
@@ -246,6 +247,7 @@ import {
 } from '../lib/localOutgoing';
 import { useFailedOutgoingRemoval } from '../hooks/useFailedOutgoingRemoval';
 import { OutgoingQueue } from '../lib/outgoingQueue';
+import { outgoingMediaSend, useOutgoingTransferTasks } from '../hooks/useOutgoingTransferTasks';
 import { newOutgoingRequestId, useOutgoingReceipts } from '../hooks/useOutgoingReceipts';
 import { useTransferActivity } from '../lib/transferActivity';
 import { TransferActivityProvider } from '../components/TransferActivityProvider';
@@ -656,7 +658,10 @@ const RelationGraphView = lazy(() =>
 const workspaceLoading = <PanelLoading />;
 
 type PreparedChatFont = Awaited<ReturnType<typeof client.account.prepareChatFont.query>>;
-type FontAwareSubmission = ComposerSubmission & { preparedChatFont?: PreparedChatFont };
+type FontAwareSubmission = ComposerSubmission & {
+  preparedChatFont?: PreparedChatFont;
+  mediaSend?: OptimisticMessage['mediaSend'];
+};
 type SentChatFileForward = Extract<
   Awaited<ReturnType<typeof client.account.forwardChatFiles.mutate>>,
   { status: 'sent' }
@@ -5792,6 +5797,11 @@ function MainWorkspace(): ReactElement {
     !dressUpOpen &&
     !interactionViewportLocked &&
     (!mobileLayout || !mobileConversationList);
+  useOutgoingTransferTasks(
+    optimisticMessages,
+    pinSession.binding,
+    messagesTabActive && readViewportActive ? selectedConversation?.id : undefined,
+  );
   const readPolicy = useRef({ readSettingsReady, readThroughViewport, readViewportActive });
   readPolicy.current = { readSettingsReady, readThroughViewport, readViewportActive };
   const applyUnreadRows = useCallback(
@@ -7773,7 +7783,18 @@ function MainWorkspace(): ReactElement {
       });
       return;
     }
-    shell.openConversation(target.id);
+    openNotificationSource(
+      notificationSource(
+        {
+          kind: 'conversation',
+          conversationKind: target.kind,
+          conv: target.id,
+          dismissTaskPanel: true,
+        },
+        '打开转发目标会话',
+        pinSession.binding,
+      ),
+    );
   };
   repeatContext.current = selectedConversation?.id ?? null;
   useEffect(() => {
@@ -8114,6 +8135,11 @@ function MainWorkspace(): ReactElement {
     const preparingFont = Boolean(
       fontRequest && sendAccess.data?.qqOnline && sendAccess.data.attachEnabled,
     );
+    submission.mediaSend = outgoingMediaSend(
+      render.elements,
+      { name: conversationRowName(conversation), type: conversation.type },
+      scope,
+    );
     submission.pictures = outgoingPicturePreviews(render.elements);
     // 会话切换时输入框会释放自己的持有，已发气泡仍需要这些 Blob。
     const urls = new Set(
@@ -8129,6 +8155,7 @@ function MainWorkspace(): ReactElement {
         afterSeq: submission.afterSeq,
         ...render,
         composerDraft: submission.draft,
+        mediaSend: submission.mediaSend,
         preparingFont,
         state: 'queued',
         at: submission.at ?? Date.now(),
@@ -8166,6 +8193,7 @@ function MainWorkspace(): ReactElement {
                 state: 'sending',
                 preparingFont: item.preparingFont || (preparingFont && !fontPreparation),
                 hostReceived: false,
+                transferId: undefined,
                 error: undefined,
               }
             : item,
@@ -8177,7 +8205,7 @@ function MainWorkspace(): ReactElement {
           const result = await fontPreparation;
           if ('error' in result) {
             fontPreparation = undefined;
-            if (isCurrent()) {
+            if (isCurrent() && !submission.mediaSend) {
               const pushToast = sourceToastPush(conversationNotificationSource(conversation));
               pushToast({
                 tone: 'error',
@@ -8236,23 +8264,26 @@ function MainWorkspace(): ReactElement {
       pushToast({ tone: 'warning', durationKind: 'success', message: '没有选中的会话' });
       throw new Error('no conversation');
     }
+    let mediaSend = submission?.mediaSend;
     if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled) {
-      pushToast({
-        tone: 'warning',
-        message: 'QQ 未在线或处于完全离线模式',
-        detail: '发送消息需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
-      });
-      throw new Error('qq offline');
+      if (!mediaSend)
+        pushToast({
+          tone: 'warning',
+          message: 'QQ 未在线或处于完全离线模式',
+          detail: '发送消息需要在线 QQ 实例，请先登录 QQ 并退出完全离线模式后重试。',
+        });
+      throw new Error(mediaSend ? '请登录 QQ 并退出完全离线模式后重试' : 'qq offline');
     }
     const target = sendTargetOf(conversation);
     if (!target) {
-      pushToast({
-        tone: 'warning',
-        message: '这个会话不支持发送消息',
-        durationKind: 'success',
-        detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
-      });
-      throw new Error('unsupported conversation');
+      if (!mediaSend)
+        pushToast({
+          tone: 'warning',
+          message: '这个会话不支持发送消息',
+          durationKind: 'success',
+          detail: '服务号 / 公众号这类聚合会话不能作为发送目标。',
+        });
+      throw new Error(mediaSend ? '这个会话不支持发送附件' : 'unsupported conversation');
     }
 
     // 正文回显与请求共用字体快照，目录、媒体和提及仍在回显后准备。
@@ -8264,6 +8295,11 @@ function MainWorkspace(): ReactElement {
       const render = repeated
         ? { body, elements: repeated.elements }
         : buildOptimisticRender({ body, locals: locals ?? [], superStickers: new Map() });
+      mediaSend = outgoingMediaSend(
+        render.elements,
+        { name: conversationRowName(conversation), type: conversation.type },
+        messageScopeRef.current,
+      );
       const fontRequest = outgoingFontRequest(target, render.elements);
       if (fontRequest)
         preparedChatFont = await prepareOutgoingFont(
@@ -8278,6 +8314,7 @@ function MainWorkspace(): ReactElement {
         convId: conversation.id,
         afterSeq: outgoingAfterSeq(conversation.id),
         body: render.body,
+        mediaSend,
         elements: render.elements,
         decoration: preparedChatFont ? outgoingFontDecoration(preparedChatFont) : undefined,
         ...(!repeated ? { composerDraft: { body, locals } } : {}),
@@ -8368,13 +8405,7 @@ function MainWorkspace(): ReactElement {
         if (target.tempGroupCode) {
           // 私聊文件走的是 trans0x211 路由（c2c 专用），临时会话还没验证过对应的文件
           // 管线：与其发一条大概率被拒的 c2c 文件，不如如实说清楚。
-          pushToast({
-            tone: 'warning',
-            message: '群临时会话暂不支持发文件',
-            durationKind: 'success',
-            detail: '文件走的是私聊专用的 trans0x211 管线，临时会话还没有对应实现。',
-          });
-          throw new Error('temp session file unsupported');
+          throw new Error('群临时会话暂不支持发文件');
         }
         const sendFile = (source: { path: string } | { uploadId: string }) =>
           client.account.sendFile.mutate({
@@ -8468,11 +8499,7 @@ function MainWorkspace(): ReactElement {
     } catch (error) {
       const reason = composerSendError(error);
       patchOptimistic({ state: 'failed', error: reason });
-      pushToast({
-        tone: 'error',
-        message: '发送失败',
-        detail: reason,
-      });
+      if (!mediaSend) pushToast({ tone: 'error', message: '发送失败', detail: reason });
       throw error;
     } finally {
       if (transferId) transferActivity?.setLocal(transferId);
@@ -8482,7 +8509,7 @@ function MainWorkspace(): ReactElement {
     if (!outcome.ok) {
       const reason = outcome.errMsg || outcome.hint || '服务端拒绝了这条消息';
       patchOptimistic({ state: 'failed', error: reason });
-      pushToast({ tone: 'error', message: '发送失败', detail: reason });
+      if (!mediaSend) pushToast({ tone: 'error', message: '发送失败', detail: reason });
       throw new Error(reason);
     }
 
@@ -8552,13 +8579,18 @@ function MainWorkspace(): ReactElement {
         return next;
       });
     }
-    patchOptimistic({ ...keys, state: 'sent' });
+    patchOptimistic({
+      ...keys,
+      ...(mediaSend && rejected ? { seqRejected: true } : {}),
+      state: 'sent',
+    });
     if (rejected) {
-      pushToast({
-        tone: 'warning',
-        message: '这条消息可能未被服务端接收',
-        detail: '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。请让对方确认。',
-      });
+      if (!mediaSend)
+        pushToast({
+          tone: 'warning',
+          message: '这条消息可能未被服务端接收',
+          detail: '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。请让对方确认。',
+        });
       throw new Error('服务端未分配消息序号，未确认发送成功');
     }
   }
@@ -8740,6 +8772,12 @@ function MainWorkspace(): ReactElement {
       {
         id: optimisticId,
         transferId,
+        mediaSend: {
+          scope,
+          subject: payload.name || '闪照',
+          conversationName: conversationRowName(conversation),
+          conversationKind: target.peerType,
+        },
         convId: conversation.id,
         body: FLASH_PHOTO_PLACEHOLDER_TEXT,
         afterSeq: outgoingAfterSeq(conversation.id),
@@ -8787,24 +8825,17 @@ function MainWorkspace(): ReactElement {
             : {}),
           ...(outcome.random !== undefined ? { random: outcome.random } : {}),
         }),
+        seqRejected: isSeqRejected({
+          ...outcome,
+          peerType: target.peerType,
+          targetId: target.targetId,
+        }),
         state: 'sent',
       });
-      if (isSeqRejected({ ...outcome, peerType: target.peerType, targetId: target.targetId })) {
-        pushToast({
-          tone: 'warning',
-          message: '这条闪照可能未被服务端接收',
-          detail: '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。',
-        });
-      }
     } catch (error) {
       patchOptimistic({
         state: 'failed',
         error: error instanceof Error ? error.message : String(error),
-      });
-      pushToast({
-        tone: 'error',
-        message: '发送失败',
-        detail: error instanceof Error ? error.message : String(error),
       });
       throw error;
     } finally {
@@ -8864,10 +8895,18 @@ function MainWorkspace(): ReactElement {
       payload.file ?? new Blob([bytes], { type: 'video/mp4' }),
     );
     const optimisticId = `optimistic-${mfId('bub')}`;
+    const transferId = newOutgoingRequestId();
     setOptimisticMessages((current) => [
       ...current,
       {
         id: optimisticId,
+        transferId,
+        mediaSend: {
+          scope,
+          subject: payload.name || '泡泡视频',
+          conversationName: conversationRowName(conversation),
+          conversationKind: target.peerType,
+        },
         convId: conversation.id,
         body: '[泡泡消息]',
         afterSeq: outgoingAfterSeq(conversation.id),
@@ -8904,6 +8943,7 @@ function MainWorkspace(): ReactElement {
         ...outgoingReceipt(optimisticId),
         expectedAccountUin: user.identityValue,
         expectedAccountConfigId,
+        transferId,
         peerType: target.peerType,
         targetId: target.targetId,
         elements: toIpcElements([
@@ -8932,24 +8972,17 @@ function MainWorkspace(): ReactElement {
             : {}),
           ...(outcome.random !== undefined ? { random: outcome.random } : {}),
         }),
+        seqRejected: isSeqRejected({
+          ...outcome,
+          peerType: target.peerType,
+          targetId: target.targetId,
+        }),
         state: 'sent',
       });
-      if (isSeqRejected({ ...outcome, peerType: target.peerType, targetId: target.targetId })) {
-        pushToast({
-          tone: 'warning',
-          message: '这条泡泡消息可能未被服务端接收',
-          detail: '服务端回了成功但没有分配消息序号，这通常意味着它静默丢弃了这条。',
-        });
-      }
     } catch (error) {
       patchOptimistic({
         state: 'failed',
         error: error instanceof Error ? error.message : String(error),
-      });
-      pushToast({
-        tone: 'error',
-        message: '发送失败',
-        detail: error instanceof Error ? error.message : String(error),
       });
       throw error;
     } finally {

@@ -1,5 +1,3 @@
-import { Square } from 'lucide-react';
-import { TaskProgressBar } from './tasks/TaskProgressBar';
 import type { Message } from '../im-template/template/types';
 import type { MfTarget } from './mergeForward/model';
 import {
@@ -12,15 +10,10 @@ import {
   type ForwardOptions,
 } from '../lib/sequentialForward';
 import { useToast } from './Toast.shared';
-import {
-  taskNotificationSource,
-  notificationSource,
-  openNotificationSource,
-} from '../lib/notificationNavigation.shared';
+import { taskNotificationSource, notificationSource } from '../lib/notificationNavigation.shared';
 import { localBackgroundTasks, rememberWindowTask } from '../state/backgroundTasks';
 import { singleChatFile } from '../lib/chatFileForward';
 import type { BackgroundTaskScope } from '../../../shared/background_task';
-import '../styles/sequential-forward.css';
 
 /** 各目标独立并行，目标内等待逐条回执；生命周期独立于已关闭的配置弹窗。 */
 export function startSequentialForward({
@@ -64,7 +57,6 @@ export function startSequentialForward({
         : []),
     ];
     let label = '正在转发';
-    let finished = false;
     const startedAt = Date.now();
     const taskId = localBackgroundTasks.start({
       kind: 'forward',
@@ -84,97 +76,31 @@ export function startSequentialForward({
         label: '停止向此会话发送',
         run: () => {
           local.abort();
-          localBackgroundTasks.update(taskId, { statusLabel: '停止收尾中' });
+          label = '停止收尾中';
+          localBackgroundTasks.update(taskId, { statusLabel: label });
         },
       },
       openAction,
     ]);
-    const progress = () => {
+    const update = (finished = false) => {
       const elapsed = Math.max(0, Date.now() - startedAt);
       const completed = sent + failed;
-      const expected = finished
-        ? elapsed
-        : configuredWaitMs + (completed ? (sendSpentMs / completed) * messages.length : 0);
-      return (
-        <span className="weq-forward-banner" data-forward-target={target.id}>
-          <span className="weq-forward-banner-label">
-            {label} · {target.name}
-          </span>
-          <span className="weq-forward-banner-progress">
-            <TaskProgressBar
-              value={
-                finished ? 100 : expected ? Math.min((elapsed / expected) * 100, 99) : undefined
-              }
-              label="逐条转发时间进度"
-            />
-            <span className="weq-forward-time">
-              <span>
-                已进行{' '}
-                <span className="weq-number weq-number-inherit">
-                  {formatForwardDuration(
-                    (finished ? Math.ceil(elapsed / 1000) : Math.floor(elapsed / 1000)) * 1000,
-                  )}
-                </span>
-              </span>
-              {' / '}
-              <span>
-                预计用时{' '}
-                {expected || finished ? (
-                  <span className="weq-number weq-number-inherit">
-                    {formatForwardDuration(Math.ceil(expected / 1000) * 1000)}
-                  </span>
-                ) : (
-                  '待估'
-                )}
-              </span>
-            </span>
-            <span className="weq-forward-count">
-              已处理 <span className="weq-number weq-number-inherit">{completed}</span> /{' '}
-              {<span className="weq-number weq-number-inherit">{messages.length}</span>} 条 · 成功{' '}
-              <span className="weq-number weq-number-inherit">{sent}</span> · 失败{' '}
-              <span className="weq-number weq-number-inherit">{failed}</span>
-            </span>
-            {!finished ? (
-              <button
-                type="button"
-                title="停止向此会话发送"
-                aria-label="停止向此会话发送"
-                onClick={() => local.abort()}
-              >
-                <Square size={14} />
-              </button>
-            ) : null}
-          </span>
-        </span>
-      );
-    };
-    const id = toast.push({
-      event: 'progress',
-      taskId: `background:window:${taskId}`,
-      title: progress(),
-      ttl: 0,
-      dismissible: false,
-      source: conversationSource,
-      action: {
-        label: conversationSource.label,
-        source: conversationSource,
-        icon: 'conversation',
-        run: () => {
-          void openNotificationSource(conversationSource);
-        },
-      },
-    });
-    const update = () => {
-      toast.update(id, { title: progress() });
+      const expected =
+        configuredWaitMs + (completed ? (sendSpentMs / completed) * messages.length : 0);
+      const time = formatForwardDuration(Math.floor(elapsed / 1000) * 1000);
+      const estimate = expected ? formatForwardDuration(Math.ceil(expected / 1000) * 1000) : '待估';
+      const counts = `已处理 ${completed} / ${messages.length} 条 · 成功 ${sent} · 失败 ${failed}`;
       localBackgroundTasks.update(taskId, {
-        progress: ((sent + failed) / messages.length) * 100,
-        note: `${label} · 已处理 ${sent + failed} / ${messages.length} · 成功 ${sent} · 失败 ${failed}`,
+        progress: (completed / messages.length) * 100,
+        statusLabel: label,
+        note: `${counts} · 已进行 ${time}${finished ? '' : ` / 预计用时 ${estimate}`}`,
         details: receiptDetails(),
       });
+      return counts;
     };
     update();
     rememberWindowTask(taskId);
-    const clock = setInterval(update, 1000);
+    const clock = setInterval(() => update(), 1000);
     let stopped: string | null = null;
     try {
       await forwardSequentially(messages, options, {
@@ -229,13 +155,21 @@ export function startSequentialForward({
       clearInterval(clock);
       controller.signal.removeEventListener('abort', abort);
     }
-    finished = true;
-    label = stopped ? '转发已停止' : '转发完成';
-    update();
+    const cancelled = local.signal.aborted;
+    const partial = failed > 0 && sent > 0;
+    label = cancelled
+      ? '转发已停止'
+      : partial
+        ? '部分完成'
+        : stopped || failed
+          ? '转发失败'
+          : '转发完成';
+    const counts = update(true);
     localBackgroundTasks.finish(
       taskId,
       local.signal.aborted ? 'cancelled' : stopped || failed ? 'failed' : 'completed',
       {
+        statusLabel: label,
         details: [stopped, ...receiptDetails(), ...failures].filter((line): line is string =>
           Boolean(line),
         ),
@@ -243,15 +177,17 @@ export function startSequentialForward({
     );
     localBackgroundTasks.setActions(taskId, [openAction]);
     rememberWindowTask(taskId);
-    toast.update(id, {
-      event: failed ? 'taskFailure' : stopped ? 'success' : 'taskComplete',
-      source: failed ? taskSource : conversationSource,
+    const problem = failed > 0 || Boolean(stopped && !cancelled);
+    toast.push({
+      taskId: `background:window:${taskId}`,
+      event: problem ? 'taskFailure' : cancelled ? 'success' : 'taskComplete',
+      source: problem ? taskSource : conversationSource,
       tone: stopped || failed ? 'warning' : 'success',
-      durationKind: failed || (stopped && !local.signal.aborted) ? 'failure' : 'success',
-      title: progress(),
+      durationKind: problem ? 'failure' : 'success',
+      title: `${label}：${target.name}`,
+      summary: counts,
       detail: [stopped, ...failures].filter(Boolean).join('\n') || undefined,
-      ttl: 0,
-      dismissible: true,
+      ...(problem ? { ttl: 0 } : {}),
     });
   };
   const done = Promise.all(targets.map(run)).then(() => undefined);

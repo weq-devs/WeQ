@@ -5,7 +5,7 @@ import { normalizeNotificationEvents } from '@weq/service/notification-settings'
 import { useTaskNotifications } from '../src/renderer/src/hooks/useTaskNotifications';
 import { TaskNotificationTracker } from '../src/renderer/src/lib/taskNotificationState';
 import { taskNotificationKey } from '../src/renderer/src/lib/taskNotificationPresentation';
-import { notifyTaskCreated } from '../src/renderer/src/lib/taskNotifications';
+import { rememberTaskCreated } from '../src/renderer/src/lib/taskNotifications';
 import { notificationSource } from '../src/renderer/src/lib/notificationNavigation.shared';
 import type { WorkspaceTaskIndicator } from '../src/renderer/src/lib/workspaceIndicators';
 import { useWorkspaceMenu } from '../src/renderer/src/state/workspaceMenu';
@@ -106,17 +106,14 @@ it('打开列表立即移除旧普通横幅，失败和等待处理不被吞掉�
   expect(useToast.getState().leaving).toContain(useToast.getState().toasts[0]?.id);
 });
 
-it('轻量保存受理、通用进度和完成沿用同一条，迟到的受理不覆盖结果', async () => {
+it('轻量保存受理与执行保持静默，只在任务结束时提醒', async () => {
   render([]);
-  act(() => notifyTaskCreated('save', '正在保存合成文件'));
-  const id = useToast.getState().toasts[0]?.id;
-  render([task()]);
-  expect(useToast.getState().toasts).toHaveLength(1);
-  expect(useToast.getState().toasts[0]?.id).toBe(id);
+  act(() => rememberTaskCreated('save'));
+  render([task({ showProgressNotification: false })]);
+  expect(useToast.getState().toasts).toEqual([]);
   await act(async () => render([task({ activity: 'finished' })]));
-  act(() => notifyTaskCreated('save', '迟到的受理'));
+  act(() => rememberTaskCreated('save'));
   expect(useToast.getState().toasts[0]).toMatchObject({
-    id,
     event: 'taskComplete',
     loading: false,
   });
@@ -124,11 +121,14 @@ it('轻量保存受理、通用进度和完成沿用同一条，迟到的受理�
 });
 
 it('受理早于首次任务快照时仍接上完成状态，不重放历史任务', () => {
-  act(() => notifyTaskCreated('save', '正在保存合成文件'));
-  render([task({ activity: 'finished' }), task({ id: 'old', activity: 'finished' })]);
+  act(() => rememberTaskCreated('fresh-save'));
+  render([
+    task({ id: 'export:fresh-save', activity: 'finished' }),
+    task({ id: 'old', activity: 'finished' }),
+  ]);
   expect(useToast.getState().toasts).toHaveLength(1);
   expect(useToast.getState().toasts[0]?.event).toBe('taskComplete');
-  expect(useToast.getState().toasts[0]?.key).toBe(taskNotificationKey(scope, 'export:save'));
+  expect(useToast.getState().toasts[0]?.key).toBe(taskNotificationKey(scope, 'export:fresh-save'));
 });
 
 it('列表留在失焦窗口不抑制后台完成，重新聚焦清除已在列表展示的成功结果', async () => {

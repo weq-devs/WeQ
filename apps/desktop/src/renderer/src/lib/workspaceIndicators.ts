@@ -22,6 +22,7 @@ export interface WorkspaceTaskIndicator {
   notificationHandled?: boolean;
   showProgressNotification?: boolean;
   showRunningBadge?: boolean;
+  transfer?: boolean;
   showResultBadge?: boolean;
   /** 记录与提醒照常保留，但后台步骤不抢占当前界面。 */
   autoOpenTaskList?: boolean;
@@ -41,9 +42,15 @@ export function workspaceIndicator(running: number, finished: number) {
   return running > 0 ? 'running' : finished > 0 ? 'finished' : null;
 }
 
-export function workspaceTaskBadge(running: number, finished: number, unreadFailed = 0) {
+export function workspaceTaskBadge(
+  running: number,
+  finished: number,
+  unreadFailed = 0,
+  transfers = 0,
+) {
   const description = [
-    running ? `${running} 项任务进行中` : '',
+    transfers ? `${transfers} 项传输中` : '',
+    running > transfers ? `${running - transfers} 项任务进行中` : '',
     finished ? `${finished} 项任务结果未查看` : '',
     unreadFailed ? `其中 ${unreadFailed} 项任务失败` : '',
   ]
@@ -102,6 +109,7 @@ export function summarizeWorkspaceTasks({
         | 'clonePersonaId'
         | 'automaticUpdate'
         | 'statusLabel'
+        | 'outgoingTransfer'
       >
     >)[];
 }) {
@@ -168,7 +176,6 @@ export function summarizeWorkspaceTasks({
       result: `${task.status}:${task.updatedAt ?? ''}`,
       failed: task.status === 'failed',
       autoOpenTaskList: false,
-      showProgressNotification: false,
     });
   }
   if (scanning && !roaming.some((job) => job.planning))
@@ -218,10 +225,12 @@ export function summarizeWorkspaceTasks({
           : undefined,
       notificationHandled:
         task.kind === 'forward' ||
+        task.kind === 'send-media' ||
         task.destination === 'db-checkup' ||
         (!!task.automaticUpdate && ['completed', 'cancelled'].includes(task.status) && !failed),
-      showProgressNotification: task.automaticUpdate ? false : undefined,
-      showRunningBadge: task.automaticUpdate ? false : undefined,
+      showRunningBadge:
+        task.automaticUpdate || task.outgoingTransfer?.inConversation ? false : undefined,
+      transfer: task.kind === 'send-media',
       showResultBadge: task.kind !== 'update' && (!task.automaticUpdate || failed),
       paused: task.status === 'paused',
       waiting: task.automaticUpdate && task.status === 'paused' && task.statusLabel === '等待继续',
@@ -241,6 +250,7 @@ export function summarizeWorkspaceTasks({
     finished: items.filter((item) => item.activity === 'finished' && item.showResultBadge !== false)
       .length,
     failed: items.filter((item) => item.failed && item.showResultBadge !== false).length,
-    items,
+    // 可从任务入口找回的进度统一留在任务中。
+    items: items.map((item) => ({ ...item, showProgressNotification: false })),
   };
 }

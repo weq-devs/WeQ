@@ -4,6 +4,7 @@ import type { WorkspaceTaskIndicator } from '../lib/workspaceIndicators';
 import { useToast } from '../components/Toast.shared';
 import { useWorkspaceMenu } from '../state/workspaceMenu';
 import { notificationSource } from '../lib/notificationNavigation.shared';
+import { takeTaskStarts } from '../lib/taskNotifications';
 import {
   taskNotificationForeground,
   taskNotificationKey,
@@ -47,9 +48,12 @@ export function useTaskNotifications(
           toast.resolve(item.key);
       previousScope.current = scope;
     }
-    const startedKeys = new Set(
-      toast.toasts.filter((item) => item.event === 'progress').map((item) => item.key),
-    );
+    const started = ready
+      ? takeTaskStarts(
+          scope,
+          items.map((item) => item.id),
+        )
+      : undefined;
     if (visible)
       for (const item of toast.toasts)
         if (
@@ -60,11 +64,7 @@ export function useTaskNotifications(
     for (const { task, event, phase } of tracker.current.update(scope, items, ready, {
       visible,
       autoOpen: foreground && !hidden,
-      started: new Set(
-        items
-          .filter((task) => startedKeys.has(taskNotificationKey(scope, task.id)))
-          .map((task) => task.id),
-      ),
+      started,
     })) {
       if (!event) {
         toast.resolve(taskNotificationKey(scope, task.id));

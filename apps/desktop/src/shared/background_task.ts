@@ -11,6 +11,7 @@ export type BackgroundTaskKind =
   | 'backup'
   | 'favorite-import'
   | 'forward'
+  | 'send-media'
   | 'album-upload'
   | 'resource';
 
@@ -33,6 +34,7 @@ export interface BackgroundTask {
   foreground?: boolean;
   /** 增强包后台自动更新仅在失败或需要继续时提醒。 */
   automaticUpdate?: boolean;
+  outgoingTransfer?: { id?: string; toHost: boolean; inConversation: boolean };
   destination?: 'db-checkup' | 'enhancement-packs' | 'group-intersection';
   status: BackgroundTaskStatus;
   statusLabel?: string;
@@ -78,6 +80,7 @@ export function backgroundTaskDisplay(
     backup: '备份与恢复',
     'favorite-import': '导入收藏表情',
     forward: '逐条转发消息',
+    'send-media': '发送附件',
     'album-upload': '上传群相册视频',
     resource: '资源任务',
   }[task.kind];
@@ -224,7 +227,7 @@ export class BackgroundTaskRegistry {
     }));
   }
 
-  /** 业务自身持久化的任务恢复原身份和时间，避免重启后重复提醒已读结果。 */
+  /** 复用业务记录的身份和时间。 */
   project(task: BackgroundTask, actions: BackgroundTaskAction[]) {
     this.autoLogs.delete(task.id);
     this.checkpoints.delete(task.id);
@@ -261,13 +264,24 @@ export class BackgroundTaskRegistry {
   remove(id: string, expected?: BackgroundTask) {
     const task = this.tasks.find((item) => item.id === id);
     if (!task || task.status === 'running' || (expected && task !== expected)) return false;
+    this.discard(task);
+    return true;
+  }
+
+  /** 业务回显已确认或移除时，撤下它在任务列表中的投影。 */
+  discardProjection(id: string) {
+    const task = this.tasks.find((item) => item.id === id);
+    if (task?.kind === 'send-media') this.discard(task);
+  }
+
+  private discard(task: BackgroundTask) {
+    const { id } = task;
     this.tasks = this.tasks.filter((item) => item !== task);
     this.actions.delete(id);
     this.autoLogs.delete(id);
     this.checkpoints.delete(id);
     this.released.delete(id);
     this.emit();
-    return true;
   }
 
   private change(id: string, update: (task: BackgroundTask) => BackgroundTask) {

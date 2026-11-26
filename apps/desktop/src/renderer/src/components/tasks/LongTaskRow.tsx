@@ -4,6 +4,7 @@ import { TaskProgressBar } from './TaskProgressBar';
 import { NumericText } from '../NumericText';
 import { taskCreatedLabel } from '@weq/service/task-display';
 import { TaskName } from './TaskName';
+import { useOutgoingTaskProgress } from '../../lib/transferActivity';
 import { type LongTaskItem, longTaskProgress, LABELS } from './LongTaskRow.shared';
 
 export function LongTaskRow({
@@ -28,7 +29,8 @@ export function LongTaskRow({
     cancelled: Ban,
   }[task.status];
   const showProgress = !pageLink || task.status === 'running';
-  const progress = showProgress ? longTaskProgress(task.progress) : undefined;
+  const outgoing = useOutgoingTaskProgress(task);
+  const progress = showProgress ? longTaskProgress(outgoing?.percent ?? task.progress) : undefined;
   const row = (
     <button
       type="button"
@@ -48,6 +50,7 @@ export function LongTaskRow({
             {[
               task.kind,
               task.note,
+              outgoing?.counts,
               !pageLink && task.createdAt ? taskCreatedLabel(task.createdAt) : undefined,
             ]
               .filter(Boolean)
@@ -66,7 +69,7 @@ export function LongTaskRow({
       <span className="weq-long-task-state">
         <span>
           <Icon size={14} aria-hidden />
-          {task.statusLabel ?? LABELS[task.status]}
+          {outgoing?.label ?? task.statusLabel ?? LABELS[task.status]}
         </span>
         {progress !== undefined ? (
           <small>

@@ -416,6 +416,12 @@ export type PendingScrollRestore = {
 export type OptimisticMessage = {
   hostReceived?: boolean;
   transferId?: string;
+  mediaSend?: {
+    scope: string;
+    subject: string;
+    conversationName: string;
+    conversationKind: 'group' | 'c2c';
+  };
   id: string;
   /** 目标会话 id（模板层 Conversation.id）。 */
   convId: string;
