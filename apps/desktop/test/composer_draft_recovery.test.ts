@@ -107,3 +107,24 @@ it('相同正文的新编辑基准不会被旧保存回执确认掉', () => {
   store.confirm('a', 'peer', '正文', 'old');
   expect(store.loadSnapshots('a')).toEqual({ peer: { body: '正文', baseVersion: 'new' } });
 });
+
+it('连续输入复用已校验的草稿，收到其他窗口更新后重新读取', () => {
+  let invalidate!: (name: string | null) => void;
+  const first = createComposerDraftRecovery(localStorage, (listener) => {
+    invalidate = listener;
+  });
+  const original = '正文'.repeat(2000) + '\n[[chat:elem:fixture]]';
+  first.write('a', 'peer', original, 'base\n1');
+  const read = vi.spyOn(localStorage, 'getItem');
+  first.write('a', 'peer', `${original}末`, 'base\n1');
+  expect(read).not.toHaveBeenCalled();
+  const second = createComposerDraftRecovery(localStorage);
+  expect(second.loadSnapshots('a').peer).toEqual({ body: `${original}末`, baseVersion: 'base\n1' });
+  second.write('a', 'peer', '另一窗口正文', 'later');
+  invalidate(localStorage.key(0));
+  read.mockClear();
+  first.write('a', 'peer', `${original}末`, 'base\n1');
+  expect(read).toHaveBeenCalledTimes(1);
+  first.confirm('a', 'peer', '另一窗口正文', 'later');
+  expect(second.load('a').peer).toBe(`${original}末`);
+});

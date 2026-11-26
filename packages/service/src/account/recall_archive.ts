@@ -17,6 +17,15 @@ const NATIVE_PAGE_ROWS = 128;
 const WRITE_ROWS = 64;
 const PENDING_KIND = "CASE WHEN json_valid(payload) THEN json_extract(payload,'$.kind') END";
 const PENDING_CONV = "CASE WHEN json_valid(payload) THEN json_extract(payload,'$.conv') END";
+const retentionTables = [
+  {
+    table: 'recall_snapshot',
+    index: 'recall_snapshot_unrecalled_age',
+    at: 'observed',
+    limit: 10_000,
+  },
+  { table: 'recall_pending', index: 'recall_pending_age', at: 'at', limit: 1_000 },
+] as const;
 
 function stringify(value: unknown): string {
   return JSON.stringify(value, (_key, item) =>
@@ -117,11 +126,69 @@ export class RecallArchive {
         `CREATE INDEX IF NOT EXISTS recall_pending_scope ON recall_pending(${PENDING_KIND},${PENDING_CONV},at)`,
         null,
       );
+      await this.prepareRetention();
     })().catch((error) => {
       this.ready = undefined;
       throw error;
     });
     await this.ready;
+  }
+
+  private async prepareRetention() {
+    await this.nt.executeSqlWrite(
+      this.path,
+      'CREATE TABLE IF NOT EXISTS recall_retention (source TEXT PRIMARY KEY, rows INTEGER NOT NULL)',
+    );
+    for (const { table } of retentionTables) {
+      const snapshot = table === 'recall_snapshot';
+      const triggers: [name: string, event: string, when: string, delta: string][] = [
+        ['insert', 'AFTER INSERT', snapshot ? ' WHEN new.recalled=0' : '', '1'],
+        ['delete', 'AFTER DELETE', snapshot ? ' WHEN old.recalled=0' : '', '-1'],
+      ];
+      if (snapshot)
+        triggers.push([
+          'update',
+          'AFTER UPDATE OF recalled',
+          ' WHEN (old.recalled=0)<>(new.recalled=0)',
+          '(new.recalled=0)-(old.recalled=0)',
+        ]);
+      for (const [name, event, when, delta] of triggers)
+        await this.nt.executeSqlWrite(
+          this.path,
+          `CREATE TRIGGER IF NOT EXISTS ${table}_retention_${name} ${event} ON ${table}${when}
+           BEGIN UPDATE recall_retention SET rows=rows+(${delta}) WHERE source='${table}'; END`,
+        );
+      // 只在旧库迁入时统计一次。计数和每次插入、删除、归档在同一 SQLite 事务内变化。
+      await this.nt.executeSqlWrite(
+        this.path,
+        `INSERT OR IGNORE INTO recall_retention(source,rows)
+         SELECT '${table}', (SELECT COUNT(*) FROM ${table}${snapshot ? ' WHERE recalled=0' : ''})
+         WHERE NOT EXISTS (SELECT 1 FROM recall_retention WHERE source='${table}')`,
+      );
+    }
+  }
+
+  private async trimRetention() {
+    const now = Date.now();
+    for (const { table, index, at, limit } of retentionTables) {
+      const snapshot = table === 'recall_snapshot';
+      const where = snapshot ? 'WHERE recalled=0' : '';
+      const condition = snapshot ? 'recalled=0 AND ' : '';
+      const expired = snapshot ? now - 7 * 86400_000 : Math.floor(now / 1000) - 7 * 86400;
+      // 只沿年龄索引读取已过期或确实多出的最旧记录。容量以内时 LIMIT 为 0。
+      await this.nt.executeSqlWrite(
+        this.path,
+        `DELETE FROM ${table} WHERE rowid IN (
+           SELECT rowid FROM ${table} INDEXED BY ${index} WHERE ${condition}${at}<?
+           UNION ALL SELECT rowid FROM (
+             SELECT rowid FROM ${table} INDEXED BY ${index} ${where}
+             ORDER BY ${at}, rowid
+             LIMIT MAX(0, (SELECT rows FROM recall_retention WHERE source='${table}') - ?)
+           )
+         )`,
+        [expired, limit],
+      );
+    }
   }
   private enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.writes
@@ -198,29 +265,7 @@ export class RecallArchive {
           throw error;
         }
       }
-      await this.nt.executeSqlWrite(
-        this.path,
-        `DELETE FROM recall_snapshot WHERE rowid IN (
-          SELECT rowid FROM recall_snapshot INDEXED BY recall_snapshot_unrecalled_age
-            WHERE recalled=0 AND observed<?
-          UNION ALL SELECT rowid FROM (
-            SELECT rowid FROM recall_snapshot INDEXED BY recall_snapshot_unrecalled_age WHERE recalled=0
-              ORDER BY observed DESC, rowid DESC LIMIT -1 OFFSET 10000
-          )
-        )`,
-        [Date.now() - 7 * 86400000],
-      );
-      await this.nt.executeSqlWrite(
-        this.path,
-        `DELETE FROM recall_pending WHERE rowid IN (
-          SELECT rowid FROM recall_pending INDEXED BY recall_pending_age WHERE at<?
-          UNION ALL SELECT rowid FROM (
-            SELECT rowid FROM recall_pending INDEXED BY recall_pending_age
-              ORDER BY at DESC, rowid DESC LIMIT -1 OFFSET 1000
-          )
-        )`,
-        [Math.floor(Date.now() / 1000) - 7 * 86400],
-      );
+      await this.trimRetention();
     });
   }
 

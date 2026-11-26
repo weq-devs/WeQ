@@ -65,6 +65,36 @@ it('留存容量与过期修剪保留已撤回正文，同刻新增优先保留'
   ).toEqual([{ identity: 'retained' }]);
 });
 
+it('旧库迁入已有留存计数，撤回归档后给下一条快照腾出位置', async () => {
+  const f = setup();
+  await f.archive.observe([]);
+  const sql = fixtureDb(f.path);
+  for (const { name } of sql
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'recall_%_retention_%'",
+    )
+    .all())
+    sql.exec(`DROP TRIGGER "${name}"`);
+  sql.exec('DROP TABLE recall_retention');
+  const now = Date.now();
+  sql
+    .prepare(
+      `INSERT INTO recall_snapshot VALUES ('c2c:u_peer:42:u_peer:77','c2c','u_peer','9001',42,'u_peer','8',?,0,?)`,
+    )
+    .run(now, JSON.stringify(f.original));
+  sql
+    .prepare('INSERT INTO recall_pending VALUES (?,?,?)')
+    .run('pending', Math.floor(now / 1000), JSON.stringify(f.recall));
+
+  const reopened = new RecallArchive(f.nt, f.path, () => true, f.notify);
+  await reopened.observe([]);
+  const counts = sql.prepare('SELECT rows FROM recall_retention ORDER BY source');
+  expect(counts.all()).toEqual([{ rows: 1 }, { rows: 1 }]);
+  await reopened.observe([f.original]);
+  expect(counts.all()).toEqual([{ rows: 0 }, { rows: 0 }]);
+  expect(f.notify).toHaveBeenCalledOnce();
+});
+
 it('新增原文只匹配相关会话，重开后仍能恢复已经写入但未匹配的旧记录', async () => {
   const f = setup();
   const archive = new RecallArchive(f.nt, f.path, () => true, f.notify);

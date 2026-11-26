@@ -434,6 +434,18 @@ async function verifyCrossfade(page, url) {
     await old.waitFor({ state: 'detached' });
     await live.getByText('这段聊天记录暂时无法加载', { exact: true }).waitFor();
   }
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.goto(`${url}?entry&count=63&no-intent`);
+  const tail = live.locator('[data-message-id="row-1063"]');
+  await tail.waitFor();
+  await tail.evaluate((row) => {
+    row.append(...Array.from({ length: 1500 }, () => document.createElement('span')));
+  });
+  await begin();
+  await live.getByRole('status').filter({ hasText: '正在加载消息' }).waitFor();
+  assert.equal(await old.count(), 0);
+  await page.evaluate(() => window.timelineTest.entryStage(2));
+  await live.locator('[data-message-id="row-1002"]').waitFor();
 }
 try {
   await run();
