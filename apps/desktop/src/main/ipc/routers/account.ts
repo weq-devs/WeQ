@@ -1636,13 +1636,32 @@ export const accountRouter = router({
       );
     }),
   pickedFileFinish: procedure
-    .input(browserFileBinding.extend({ uploadId: z.string().uuid() }))
+    .input(
+      browserFileBinding.extend({
+        uploadId: z.string().uuid(),
+        format: z.literal('silk').optional(),
+      }),
+    )
     .mutation(async ({ input }) => {
       const services = requireExpectedAccount(
         input.expectedAccountUin,
         input.expectedAccountConfigId,
       );
       const path = pickedBrowserFiles.complete(services, input.uploadId);
+      if (input.format === 'silk')
+        await pickedBrowserFiles.withPaths([path], async () => {
+          const recording = await stat(path);
+          // 与 sendVoice 的一小时语音及输入端 24 kHz 单声道 PCM 一致。
+          if (recording.size > 3600 * 24_000 * 2 + 44) throw new Error('语音原稿超过一小时');
+          const { encodeFileToSilk } = await import('../../voice');
+          const { silk } = await encodeFileToSilk(path);
+          if (
+            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+            services
+          )
+            throw new Error('账号已切换，请重新选择附件');
+          await writeFile(path, silk);
+        });
       const info = await stat(path);
       if (
         requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services

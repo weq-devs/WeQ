@@ -40,7 +40,7 @@ export function startSequentialForward({
 }): { controller: AbortController; done: Promise<void> } {
   validateForwardOptions(options);
   if (messages.some((message) => forwardMessageBlockReason(message)))
-    throw new Error('请先确认跳过不可等价重发的消息');
+    throw new Error('所选消息已变化，请重新选择并转发');
   if (!messages.length || !targets.length) throw new Error('没有可发送的消息或目标');
   const controller = new AbortController();
   const toast = useToast.getState();

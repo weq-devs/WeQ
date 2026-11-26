@@ -80,6 +80,7 @@ import { messageFavoriteEmojiUrl } from '../../lib/messageFavoriteEmoji';
 import { ConversationDirectoryContext } from '../../lib/conversationDirectory';
 import { useMultiSelection } from '../../hooks/useMultiSelection';
 import { useMessageSelectionFlow } from '../../hooks/useMessageSelectionFlow';
+import { useMessageBatchReview } from '../../hooks/useMessageBatchReview';
 import { messageImageAvailable, useMessageImage } from '../../hooks/useMessageImage';
 import { selectionGapId, parseSelectionGap, type SelectionGap } from '../../lib/messageSelection';
 import { createSelectionGapIndex } from '../../lib/selectionGapIndex';
@@ -137,7 +138,7 @@ import { groupPermission, recallPermission } from '@weq/service/qq-permissions';
 import { canDiscardFailedMessage, isUnpositionedFailure } from '../../lib/localOutgoing';
 import {
   messageBatchBlockReason,
-  partitionMessageBatch,
+  messageBatchLabels,
   type MessageBatchAction,
 } from '../../lib/messageBatchAction';
 import { MessageBatchActionDialog } from '../../components/MessageBatchActionDialog';
@@ -750,8 +751,8 @@ export type ChatPaneProps = {
   /** Restore one WeQ-deleted message (the overlay's hover button). */
   onRestoreMessage?: (msgId: string) => Promise<void>;
   /** 多选「合并转发」：把选中的消息交给应用层开合并转发灯箱。 */
-  onMergeForward?: (messages: Message[], conversation: Conversation) => void;
-  onAddToComposition?: (messages: Message[]) => void;
+  onMergeForward?: (messages: Message[], conversation: Conversation) => Promise<boolean>;
+  onAddToComposition?: (messages: Message[], conversation?: Conversation) => void;
   onForwardMessages?: (messages: Message[], conversation: Conversation) => void;
   /**
    * 打开会话时从 msg_unread_info_table 读进内存的未读/高亮快照。上层在「读一次
@@ -1996,8 +1997,8 @@ function ChatPaneContent({
       if (recallScopeRef.current === recallScope) recallScopeRef.current = null;
     };
   }, [recallScope]);
-  const restorableSelection = selectionFlow.selectedMessages.filter(
-    (message) => deletedKeys.has(deletionIdentity(message.id)) || message.deletedKind === 'weq',
+  const selectionHasDeleted = selectionFlow.selectedMessages.some(
+    (message) => deletedKeys.has(deletionIdentity(message.id)) || message.deletedKind,
   );
   const selectionBlockedReason = selectionFlow.busy
     ? '正在加载所选范围'
@@ -2006,15 +2007,27 @@ function ChatPaneContent({
       : recallBusy
         ? '正在撤回所选消息'
         : null;
-  const [batchAction, setBatchAction] = useState<{
-    action: MessageBatchAction;
-    batch: ReturnType<typeof partitionMessageBatch>;
-  } | null>(null);
-  useEffect(() => {
-    setBatchAction(null);
-  }, [conversation?.id, user.id, tabActive, selectionMode]);
-  async function performBatchAction(action: MessageBatchAction, messages: Message[]) {
-    setBatchAction(null);
+  const batchReview = useMessageBatchReview(recallScope);
+  const reviewSelected = useStableCallback(
+    async (
+      action: MessageBatchAction,
+      picked?: Message[],
+      assess?: Parameters<typeof batchReview.ask>[2],
+    ) => {
+      const messages = picked ?? (await selectionFlow.prepare(messageBatchLabels[action]));
+      if (!messages?.length || recallScopeRef.current !== recallScope) return null;
+      const accepted = await batchReview.ask(action, messages, {
+        deleted: (message) => deletedKeys.has(deletionIdentity(message.id)),
+        ...assess,
+      });
+      return recallScopeRef.current === recallScope ? accepted : null;
+    },
+  );
+  async function performBatchAction(
+    action: 'export' | 'analysis' | 'delete' | 'recall' | 'restore',
+    messages: Message[],
+    approvedWarnings: ReadonlySet<string>,
+  ) {
     setContextMenu(null);
     if (!conversation || !tabActive || selectionBlockedReason || !selectionMode) return;
     if (action === 'export') exportMessageIds(messages.map((message) => message.id));
@@ -2025,7 +2038,8 @@ function ChatPaneContent({
           target,
           messages.map((message) => message.id),
         );
-    } else if (action === 'recall') await recallSelectedMessages(messages);
+    } else if (action === 'recall') await recallSelectedMessages(messages, approvedWarnings);
+    else if (action === 'restore') await restoreSelectedMessages(messages);
     else {
       if (deletionBusy) return;
       const hidden = await confirmMessageDeletion(messages.length);
@@ -2052,11 +2066,11 @@ function ChatPaneContent({
       }
     }
   }
-  async function restoreSelectedMessages() {
-    if (!onRestoreMessage || deletionBusy || !restorableSelection.length) return;
+  async function restoreSelectedMessages(messages: Message[]) {
+    if (!onRestoreMessage || deletionBusy || !messages.length) return;
     setDeletionBusy(true);
     const restored: string[] = [];
-    for (const message of restorableSelection) {
+    for (const message of messages) {
       if (actionScopeRef.current !== actionScope) break;
       try {
         await onRestoreMessage(message.id);
@@ -2075,34 +2089,25 @@ function ChatPaneContent({
     setContextMenu(null);
     let progressId: number | undefined;
     try {
-      const picked = messages ?? (await selectionFlow.prepare('意图感知'));
+      let picked = messages ?? (await selectionFlow.prepare('意图感知'));
       if (intentRun.current !== run || !picked?.length) return;
-      let targets = picked.filter(
-        (message) =>
-          !grayTipOf(message) && !isLocalOutgoingMessage(message) && messageHasIntentText(message),
-      );
-      setIntentBusy(true);
-      const batch = picked.length > 1;
-      if (batch && targets.length) {
+      const batch = !messages;
+      if (batch) {
         const cached = await client.account.intentSense.listMessageAnalyses.query({
           kind: intentKind,
           conv: intentConv,
         });
         if (intentRun.current !== run) return;
-        const analyzed = new Set(cached.map((result) => result.msgId));
-        if (picked.every((message) => analyzed.has(message.id))) {
-          const confirmed = await useDialog
-            .getState()
-            .confirm(
-              '重新分析消息意图？',
-              `所选 ${picked.length} 条消息均已有结果，是否重新分析？`,
-              {
-                okLabel: '重新分析',
-              },
-            );
-          if (!confirmed || intentRun.current !== run) return;
-        } else targets = targets.filter((message) => !analyzed.has(message.id));
+        picked = await reviewSelected('intent', picked, {
+          analyzed: new Set(cached.map((result) => result.msgId)),
+        });
+        if (intentRun.current !== run || !picked?.length) return;
       }
+      const targets = picked.filter(
+        (message) =>
+          !grayTipOf(message) && !isLocalOutgoingMessage(message) && messageHasIntentText(message),
+      );
+      setIntentBusy(true);
       if (batch)
         progressId = pushToast({
           tone: 'info',
@@ -2197,33 +2202,39 @@ function ChatPaneContent({
       }
     }
   }
-  async function requestBatchAction(action: MessageBatchAction) {
+  async function requestBatchAction(
+    action: 'export' | 'analysis' | 'delete' | 'recall' | 'restore',
+  ) {
     if (selectionBlockedReason || !selectedIds.size) return;
-    const picked = await selectionFlow.prepare(
-      action === 'export'
-        ? '导出'
-        : action === 'analysis'
-          ? '分析'
-          : action === 'recall'
-            ? '撤回'
-            : '删除',
-    );
-    if (!picked?.length) return;
-    if (action === 'recall' && recallScopeRef.current !== recallScope) return;
-    const batch = partitionMessageBatch(
-      picked,
-      action,
-      action === 'recall'
-        ? (message) => {
-            const availability = latestRecallAvailability.current(message);
-            return availability.show
-              ? availability.reason
-              : '没有权限撤回这条消息，或该记录属于系统消息';
-          }
-        : undefined,
-    );
-    if (batch.unsupported.length) setBatchAction({ action, batch });
-    else performBatchAction(action, batch.supported);
+    const approvedWarnings = new Set<string>();
+    const picked = await reviewSelected(action, undefined, {
+      assess:
+        action === 'recall'
+          ? (message) => {
+              if (
+                grayTipOf(message) ||
+                message.recall ||
+                message.deletedKind ||
+                deletedKeys.has(deletionIdentity(message.id))
+              )
+                return undefined;
+              const availability = latestRecallAvailability.current(message);
+              if (!availability.show) return { label: '没有撤回权限的消息' };
+              if (availability.reason)
+                return { label: availability.reason, detail: availability.reason };
+              if (availability.warning) {
+                approvedWarnings.add(message.id);
+                return {
+                  label: '超过通常撤回时限的消息',
+                  include: false,
+                  detail: availability.warning,
+                };
+              }
+              return null;
+            }
+          : undefined,
+    });
+    if (picked?.length) await performBatchAction(action, picked, approvedWarnings);
   }
   const multi = useMultiSelection({
     ids: selectionOrder,
@@ -2276,7 +2287,7 @@ function ChatPaneContent({
       pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
       return;
     }
-    const picked = await selectionFlow.prepare('复制');
+    const picked = await reviewSelected('text');
     if (!picked?.length) return;
     try {
       const copied = await writeMentionClipboard(
@@ -2295,14 +2306,14 @@ function ChatPaneContent({
         detail: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [conversation, selectionFlow.prepare, user, pushToast, selectionBlockedReason]);
+  }, [conversation, reviewSelected, user, pushToast, selectionBlockedReason]);
   const copySelectedMessagesRich = useCallback(async () => {
     if (!conversation) return;
     if (selectionBlockedReason) {
       pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
       return;
     }
-    const picked = await selectionFlow.prepare('复制');
+    const picked = await reviewSelected('rich');
     if (!picked?.length) return;
     const value = messageRichClipboard(
       picked.map((message) => ({
@@ -2331,7 +2342,7 @@ function ChatPaneContent({
         detail: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [conversation, selectionFlow.prepare, user, pushToast, selectionBlockedReason]);
+  }, [conversation, reviewSelected, user, pushToast, selectionBlockedReason]);
   useLayoutEffect(() => {
     if (!tabActive || !selectionMode) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -3654,7 +3665,10 @@ function ChatPaneContent({
   const latestRecallAvailability = useRef(recallAvailability);
   latestRecallAvailability.current = recallAvailability;
 
-  async function recallSelectedMessages(messages: Message[]) {
+  async function recallSelectedMessages(
+    messages: Message[],
+    approvedWarnings: ReadonlySet<string>,
+  ) {
     if (
       !recallBinding ||
       recallScopeRef.current !== recallScope ||
@@ -3685,7 +3699,11 @@ function ChatPaneContent({
       let failed = 0;
       for (const message of messages) {
         if (!current()) break;
-        const ok = await latestRecallMessageFor.current(message, { binding, quiet: true });
+        const ok = await latestRecallMessageFor.current(message, {
+          binding,
+          quiet: true,
+          confirmedTimeWarning: approvedWarnings.has(message.id),
+        });
         if (ok) processed.push(message.id);
         else {
           failed++;
@@ -5502,8 +5520,9 @@ function ChatPaneContent({
     }
     const picked = await selectionFlow.prepare('合并转发');
     if (!picked?.length) return;
-    exitSelection();
-    onMergeForward?.(picked, conversation);
+    const scope = recallScope;
+    const accepted = await onMergeForward?.(picked, conversation);
+    if (accepted && recallScopeRef.current === scope) exitSelection();
   }
 
   async function forwardSelected() {
@@ -5514,7 +5533,7 @@ function ChatPaneContent({
 
   async function addSelectedToComposition() {
     const picked = await selectionFlow.prepare('添加到素材库');
-    if (picked?.length) onAddToComposition?.(picked);
+    if (picked?.length) onAddToComposition?.(picked, conversation ?? undefined);
   }
 
   function deleteSelectedMessages() {
@@ -5526,7 +5545,7 @@ function ChatPaneContent({
       pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
       return;
     }
-    const picked = await selectionFlow.prepare('复制');
+    const picked = await reviewSelected('json');
     if (!picked?.length) return;
     const payload = picked.map((message) => {
       const sender = resolveMessageSender(message, conversation as Conversation, user);
@@ -6382,7 +6401,7 @@ function ChatPaneContent({
       pushToast({ tone: 'warning', durationKind: 'success', title: selectionBlockedReason });
       return;
     }
-    const picked = await selectionFlow.prepare('复制图片');
+    const picked = await reviewSelected('image');
     const source = messageScrollRef.current;
     if (!source || !picked?.length) return;
     const positions = new Map(visibleMessages.map(({ id }, index) => [id, index]));
@@ -7433,14 +7452,14 @@ function ChatPaneContent({
               >
                 <Trash2 size={17} />
               </button>
-              {onRestoreMessage && restorableSelection.length > 0 ? (
+              {onRestoreMessage && selectionHasDeleted ? (
                 <button
                   type="button"
                   className="selection-action"
                   aria-label="恢复所选已删除消息"
                   title="恢复所选已删除消息"
                   disabled={deletionBusy || Boolean(selectionBlockedReason)}
-                  onClick={() => void restoreSelectedMessages()}
+                  onClick={() => requestBatchAction('restore')}
                 >
                   <RotateCcw size={17} />
                 </button>
@@ -7513,14 +7532,14 @@ function ChatPaneContent({
               }
             />
           ) : null}
-          {batchAction ? (
+          {batchReview.review ? (
             <MessageBatchActionDialog
-              {...batchAction}
+              {...batchReview.review}
               conversation={conversation}
               user={user}
-              renderers={messageRenderers}
-              onClose={() => setBatchAction(null)}
-              onContinue={(messages) => performBatchAction(batchAction.action, messages)}
+              renderMessage={(message) => <MessageRow {...timelineMessageAppearance(message)} />}
+              onClose={() => batchReview.finish(null)}
+              onContinue={batchReview.finish}
             />
           ) : null}
           <ComposerResizeHandle

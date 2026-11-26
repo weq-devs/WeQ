@@ -3,12 +3,68 @@ import { forwardUnsupportedReason, type RepeatElement } from './messageRepeat';
 import type { Message } from '../im-template/template/types';
 import { outgoingActionBlockReason } from './messageSelection';
 import { singleChatFile } from './chatFileForward';
+import { localKeyOf, resolveComposerMedia } from '../im-template/template/composerSend';
+import {
+  composerTextToElements,
+  elementsToComposerText,
+} from '../im-template/template/draftElements';
+import { grayTipOf } from '../im-template/template/messageRow.shared';
+import { localFileUrl } from './resourceUrl';
+
+/** 转发保留发送失败的草稿。逐条转发移除只在来源会话内有效的引用。 */
+export function failedForwardDraft(
+  message: Message,
+  keepReply = false,
+): NonNullable<Message['composerDraft']> | null {
+  const draft = message.optimistic === 'failed' ? message.composerDraft : undefined;
+  if (!draft) return null;
+  const elements = (composerTextToElements(draft.body) as Record<string, unknown>[]).filter(
+    (element) => keepReply || element.kind !== 'reply',
+  );
+  const body = elementsToComposerText(elements);
+  if (!body.trim()) return null;
+  const locals = new Map(draft.locals?.map((local) => [local.key, local]));
+  for (const element of elements) {
+    if (!['pic', 'video', 'ptt', 'file'].includes(String(element.kind))) continue;
+    if (element.kind === 'ptt' && (element.isAiVoice || element.source === 'ai-voice')) continue;
+    const key = localKeyOf(element);
+    const local = key && locals.get(key);
+    if (local && (local.path || local.bytes?.length || local.file?.size)) continue;
+    if (key && element.kind === 'pic' && key === element.localPath) continue;
+    return null;
+  }
+  return { body, locals: draft.locals };
+}
+
+export async function resolveFailedForwardMedia(draft: NonNullable<Message['composerDraft']>) {
+  const locals = await resolveComposerMedia(draft.body, draft.locals);
+  const keys = new Set(
+    (composerTextToElements(draft.body) as Record<string, unknown>[]).map(localKeyOf),
+  );
+  const paths = new Set(
+    locals.flatMap((local) => (local.path && keys.has(local.key) ? [local.path] : [])),
+  );
+  for (const path of paths) {
+    // 复用已授权附件的预览链路，只检查是否明确找不到本机附件。
+    const response = await fetch(localFileUrl(path), { method: 'HEAD' }).catch(() => undefined);
+    if (response?.status === 404 || response?.status === 410)
+      throw new Error('找不到本机附件，请重新选择原文件');
+  }
+  return locals;
+}
 
 export function forwardContentBlockReason(message: Message): string | null {
   return singleChatFile(message) ? null : forwardUnsupportedReason(message.qqElements ?? []);
 }
 
 export function forwardMessageBlockReason(message: Message): string | null {
+  if (message.generatedPending) return '消息仍在生成';
+  if (grayTipOf(message)) return '系统提示无法转发';
+  if (message.optimistic === 'failed') {
+    if (message.composerDraft) return failedForwardDraft(message) ? null : '原稿或附件不可用';
+    return forwardContentBlockReason(message);
+  }
+  if (message.optimistic === 'queued') return '消息正在等待发送';
   return outgoingActionBlockReason(message) ?? forwardContentBlockReason(message);
 }
 

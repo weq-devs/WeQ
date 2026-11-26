@@ -2,6 +2,8 @@ import { act, createElement, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { SequentialForwardDialog } from '../src/renderer/src/components/SequentialForwardDialog';
+import { MessageBatchActionDialog } from '../src/renderer/src/components/MessageBatchActionDialog';
+import { reviewMessageBatch } from '../src/renderer/src/lib/messageBatchAction';
 import { startSequentialForward } from '../src/renderer/src/components/SequentialForwardTask';
 import { ToastHost } from '../src/renderer/src/components/Toast';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
@@ -110,7 +112,7 @@ it('多个目标并行发送且群内保序，一个目标失败不会阻塞其�
   });
 });
 
-it('不可等价发送的整条消息在发送前确认并可预览，取消不会发出任何消息', async () => {
+it('先在分组弹窗筛掉系统提示，可取消并展开预览，再只把确认的消息交给转发', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -127,37 +129,55 @@ it('不可等价发送的整条消息在发送前确认并可预览，取消不�
       },
     ],
   };
-  try {
-    act(() =>
-      root.render(
-        createElement(SequentialForwardDialog, {
-          messages: [messages[0]!, ignored],
+  const failed = { ...messages[0]!, id: 'failed', optimistic: 'failed' as const };
+  const batch = reviewMessageBatch([messages[0]!, ignored, failed], 'forward');
+  function Review() {
+    const [stage, setStage] = useState<
+      import('../src/renderer/src/im-template/template/types').Message[] | null
+    >();
+    if (stage === null) return null;
+    return stage
+      ? createElement(SequentialForwardDialog, {
+          messages: stage,
           targets: [target],
           onSend: send,
-          onClose: vi.fn(),
+          onClose: () => setStage(null),
           onOpenTarget: vi.fn(),
-        }),
-      ),
+        })
+      : createElement(MessageBatchActionDialog, {
+          action: 'forward',
+          batch,
+          user: { ...demo.user, identityValue: '' },
+          onContinue: setStage,
+          onClose: () => setStage(null),
+        });
+  }
+  const confirm = () => document.querySelector<HTMLButtonElement>('[data-weq-dialog-confirm]')!;
+  try {
+    act(() => root.render(createElement(Review)));
+    expect(document.querySelector('.weq-mf-target')).toBeNull();
+    const [tip] = document.querySelectorAll('details');
+    act(() => {
+      tip!.open = true;
+      tip!.dispatchEvent(new Event('toggle'));
+    });
+    expect(document.querySelector('[aria-label="系统提示"]')?.textContent).toContain('甲戳了戳乙');
+    expect(
+      document.querySelector('[aria-label="系统提示"] .weq-system-message-row'),
+    ).not.toBeNull();
+    const toggle = document.querySelector<HTMLButtonElement>('[role="switch"]')!;
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    act(() => toggle.click());
+    expect(confirm().textContent).toContain('1 条');
+    expect(send).not.toHaveBeenCalled();
+    act(() => confirm().click());
+    expect(document.querySelector('.weq-message-batch-dialog')).toBeNull();
+    expect(document.querySelector('.weq-mf-target')).not.toBeNull();
+    expect(document.querySelector('.weq-sequential-forward')?.textContent).not.toContain(
+      '无法转发',
     );
     act(() => document.querySelector<HTMLButtonElement>('.weq-mf-target')!.click());
-    act(() =>
-      document.querySelector<HTMLButtonElement>('.weq-sequential-forward footer button')!.click(),
-    );
-    expect(send).not.toHaveBeenCalled();
-    expect(document.querySelector('.weq-forward-ignored')?.textContent).toContain('甲戳了戳乙');
-    expect(document.querySelector('.weq-forward-ignored')?.textContent).toContain('grayTipPoke');
-    expect(
-      document.querySelector('.weq-forward-ignored .weq-private-preview-scroll'),
-    ).not.toBeNull();
-    expect(document.querySelector('.weq-forward-ignored .weq-preview-system-row')).not.toBeNull();
-    act(() => document.querySelector<HTMLButtonElement>('[aria-label="返回转发设置"]')!.click());
-    expect(send).not.toHaveBeenCalled();
-    act(() =>
-      document.querySelector<HTMLButtonElement>('.weq-sequential-forward footer button')!.click(),
-    );
-    await act(async () =>
-      document.querySelector<HTMLButtonElement>('[data-forward-confirm-ignore]')!.click(),
-    );
+    await act(async () => confirm().click());
     expect(send).toHaveBeenCalledOnce();
     expect(send.mock.calls[0]?.[0]).toEqual(messages[0]);
   } finally {
@@ -216,35 +236,37 @@ it('未选目标就显示时分秒预估，多个并行目标不增加预估，�
   }
 });
 
-it('全部消息均需跳过时仍可预览，但不能创建发送队列', () => {
+it('全是无法转发的消息时只显示可展开的说明和关闭动作', () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const send = vi.fn();
+  const proceed = vi.fn();
+  const close = vi.fn();
   try {
     act(() =>
       root.render(
-        createElement(SequentialForwardDialog, {
-          messages: [{ ...messages[0]!, qqElements: [{ type: 'call', data: {} }] }],
-          targets: [target],
-          onSend: send,
-          onClose: vi.fn(),
-          onOpenTarget: vi.fn(),
+        createElement(MessageBatchActionDialog, {
+          action: 'forward',
+          batch: reviewMessageBatch(
+            [{ ...messages[0]!, qqElements: [{ type: 'call', data: {} }] }],
+            'forward',
+          ),
+          user: demo.user,
+          onContinue: proceed,
+          onClose: close,
         }),
       ),
     );
     expect(document.querySelector('.weq-mf-target')).toBeNull();
-    expect(
-      document.querySelector<HTMLButtonElement>('.weq-sequential-forward footer button')?.disabled,
-    ).toBe(true);
-    act(() => document.querySelector<HTMLButtonElement>('.weq-forward-ignored-summary')!.click());
-    expect(document.querySelector('.weq-private-preview-scroll')).not.toBeNull();
-    expect(
-      document.querySelector<HTMLButtonElement>('[data-forward-confirm-ignore]')?.disabled,
-    ).toBe(true);
-    expect(send).not.toHaveBeenCalled();
-    expect(useToast.getState().toasts).toHaveLength(0);
+    expect(document.querySelector('summary')?.textContent).toContain('无法转发');
+    const actions = document.querySelectorAll<HTMLButtonElement>(
+      '.weq-message-batch-dialog footer button',
+    );
+    expect(actions).toHaveLength(1);
+    act(() => actions[0]!.click());
+    expect(close).toHaveBeenCalledOnce();
+    expect(proceed).not.toHaveBeenCalled();
   } finally {
     act(() => root.unmount());
     host.remove();
