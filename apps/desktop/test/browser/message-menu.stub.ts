@@ -30,6 +30,14 @@ const faces = [
       { id: '76', desc: '赞' },
       { id: '66', desc: '爱心' },
       { id: '14', desc: '微笑' },
+      { id: '392', desc: '龙年快乐' },
+    ],
+  },
+  {
+    unicode: true,
+    items: [
+      { id: '👍', desc: '竖拇指', glyph: '👍' },
+      { id: '👍🏻', desc: '带肤色的赞', glyph: '👍🏻' },
     ],
   },
 ];
@@ -48,6 +56,6 @@ export const trpc = {
         }),
       },
     },
-    emojiPanel: { overview: { useQuery: () => ({ data: { faces }, isLoading: false }) } },
+    emojiPanel: { catalog: { useQuery: () => ({ data: { faces }, isLoading: false }) } },
   },
 };

@@ -1652,12 +1652,13 @@ html[data-theme='dark'] .avatar-context-submenu {
 
 /* ---- 贴表情选择面板（ReactionPicker）------------------------------------ */
 .reaction-picker {
+  --reaction-icon-size: 24px;
   position: fixed;
   z-index: 46;
   display: flex;
   flex-direction: column;
-  width: 328px;
-  max-height: 320px;
+  width: min(328px, calc(100vw - 16px));
+  max-height: min(320px, calc(100vh - 16px));
   overflow: hidden;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 8px;
@@ -1681,16 +1682,14 @@ html[data-theme='dark'] .avatar-context-submenu {
 
 .reaction-picker-grid {
   display: grid;
-  grid-template-columns: repeat(10, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(32px, 1fr));
   gap: 2px;
 }
 
 .reaction-picker-cell {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
+  display: grid;
+  place-items: center;
+  height: 32px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -1704,17 +1703,17 @@ html[data-theme='dark'] .avatar-context-submenu {
   background: #f1f1f1;
 }
 
-.reaction-picker-cell img,
-.reaction-picker-cell .emoji-glyph {
+.reaction-picker-cell img {
   display: block;
-  width: 20px;
-  height: 20px;
-  font-size: 18px;
-  line-height: 20px;
+  width: var(--reaction-icon-size);
+  height: var(--reaction-icon-size);
+  object-fit: contain;
 }
 
-.reaction-picker-cell img {
-  object-fit: contain;
+.reaction-picker-glyph {
+  font-size: var(--reaction-icon-size);
+  font-variant-emoji: emoji;
+  line-height: 1;
 }
 
 .details-toggle-row {
