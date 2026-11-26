@@ -1,9 +1,11 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { client, trpc } from '../../trpc/client';
 import { useQQAutoRefresh, useQQReadActivity } from '../../hooks/useQQAutoRefresh';
 import type { QQWriteBinding } from '../../hooks/useQQWriteSession';
-import type { NoticeOperation } from '../../lib/contactNotice';
+import { groupNoticeReadId, type NoticeOperation } from '../../lib/contactNotice';
+import { createUnreadTargetRefresh } from '../../lib/unreadRefresh';
+import type { GroupJoinRequest } from '../../im-template/template/types';
 import { useQQAction } from './shared.shared';
 
 /** 同一弹窗共用两类收件箱，卡片不逐个发起在线读取。 */
@@ -72,7 +74,85 @@ export function useOnlineNoticeInbox(enabled: boolean, binding: QQWriteBinding |
 
 type GroupInboxKind = 'group' | 'filteredGroup';
 
-export function useGroupNoticeInbox(enabled: boolean, binding: QQWriteBinding | null) {
+/** 群通知页只在对应收件箱出现新待审批申请后补读。 */
+function usePendingGroupInboxRefresh(
+  visible: boolean,
+  binding: QQWriteBinding | null,
+  localNotices: readonly GroupJoinRequest[] | undefined,
+  operations: readonly NoticeOperation[],
+  selfUid: string | undefined,
+) {
+  const utils = trpc.useUtils();
+  const uin = binding?.expectedAccountUin;
+  const configId = binding?.expectedAccountConfigId;
+  type Box = { chatType: 2; uid: GroupInboxKind };
+  const refresh = useRef<ReturnType<typeof createUnreadTargetRefresh<Box>> | undefined>(undefined);
+  const previous = useRef<
+    | {
+        uin?: string;
+        configId?: string;
+        ids: Set<string>;
+      }
+    | undefined
+  >(undefined);
+  useEffect(() => {
+    if (!visible || !uin || !configId) return;
+    const queue = createUnreadTargetRefresh<Box>(
+      async (boxes) => {
+        await Promise.allSettled(
+          boxes.map(({ uid: kind }) =>
+            utils.account.qqActions.requestInbox.invalidate(
+              { expectedAccountUin: uin, expectedAccountConfigId: configId, kind },
+              { exact: true },
+              { cancelRefetch: false },
+            ),
+          ),
+        );
+        return true;
+      },
+      undefined,
+      2,
+      5000,
+    );
+    refresh.current = queue;
+    return () => {
+      refresh.current = undefined;
+      queue.dispose();
+    };
+  }, [visible, uin, configId, utils]);
+
+  useEffect(() => {
+    if (!visible || !localNotices) {
+      previous.current = undefined;
+      return;
+    }
+    const pending = localNotices.filter(
+      (notice) =>
+        notice.action === '申请加入' &&
+        notice.handleState === 'pending' &&
+        !(selfUid && notice.user.id === selfUid) &&
+        !(uin && notice.user.identityLabel === 'QQ' && notice.user.identityValue === uin),
+    );
+    const before = previous.current;
+    previous.current = { uin, configId, ids: new Set(pending.map(groupNoticeReadId)) };
+    if (!before || before.uin !== uin || before.configId !== configId) return;
+    const known = new Set(operations.map((operation) => operation.noticeId));
+    const changes = new Set<GroupInboxKind>();
+    for (const notice of pending) {
+      const id = groupNoticeReadId(notice);
+      if (!before.ids.has(id) && !known.has(id))
+        changes.add(notice.isDoubt ? 'filteredGroup' : 'group');
+    }
+    refresh.current?.request([...changes].map((uid) => ({ chatType: 2, uid })));
+  }, [visible, uin, configId, localNotices, operations, selfUid]);
+}
+
+export function useGroupNoticeInbox(
+  enabled: boolean,
+  binding: QQWriteBinding | null,
+  localNotices?: readonly GroupJoinRequest[],
+  selfUid?: string,
+) {
   const activity = useQQReadActivity(enabled && Boolean(binding));
   const utils = trpc.useUtils();
   const options = {
@@ -90,15 +170,21 @@ export function useGroupNoticeInbox(enabled: boolean, binding: QQWriteBinding | 
     { ...binding!, kind: 'filteredGroup' },
     options,
   );
-  const operations = useMemo<NoticeOperation[]>(
-    () => [
+  const operations = useMemo<NoticeOperation[]>(() => {
+    const handled = new Set(
+      (localNotices ?? [])
+        .filter((notice) => notice.handleState === 'agreed' || notice.handleState === 'refused')
+        .map(groupNoticeReadId),
+    );
+    const pending = [
       ...(normal.data?.operations ?? []).map((r): NoticeOperation => ({ ...r, kind: 'group' })),
       ...(filtered.data?.operations ?? []).map(
         (r): NoticeOperation => ({ ...r, kind: 'filteredGroup' }),
       ),
-    ],
-    [normal.data?.operations, filtered.data?.operations],
-  );
+    ];
+    return pending.filter(({ noticeId }) => !noticeId || !handled.has(noticeId));
+  }, [normal.data?.operations, filtered.data?.operations, localNotices]);
+  usePendingGroupInboxRefresh(activity.enabled, binding, localNotices, operations, selfUid);
   const action = useMutation(
     async ({
       account,
@@ -127,14 +213,20 @@ export function useGroupNoticeInbox(enabled: boolean, binding: QQWriteBinding | 
         });
         return;
       }
+      const errors: unknown[] = [];
       for (const kind of ['group', 'filteredGroup'] as const) {
         const key = { ...account, kind };
-        const data = await client.account.qqActions.requestInbox.query({
-          ...key,
-          manual: kind === 'group',
-        });
-        utils.account.qqActions.requestInbox.setData(key, data);
+        try {
+          const data = await client.account.qqActions.requestInbox.query({
+            ...key,
+            manual: kind === 'group',
+          });
+          utils.account.qqActions.requestInbox.setData(key, data);
+        } catch (error) {
+          errors.push(error);
+        }
       }
+      if (errors.length) throw errors[0];
     },
   );
   const actionHere =

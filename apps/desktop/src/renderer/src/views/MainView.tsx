@@ -3149,6 +3149,8 @@ function MainWorkspace(): ReactElement {
   const groupNoticeInbox = useGroupNoticeInbox(
     pinSession.available && shell.view === 'contacts' && shell.contactNotice === 'group',
     pinSession.binding,
+    groupNotifies.data ? groupRequests : undefined,
+    user?.uid,
   );
   const { ids: friendNoticeIds } = useMemo(
     () => noticeBadgeList(contactRequests, friendNoticeInbox.operations),

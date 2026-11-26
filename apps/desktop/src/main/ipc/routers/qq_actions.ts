@@ -69,6 +69,9 @@ const sequence = z
   );
 const groupInboxBinding = requestInboxBinding.extend({ cursor: sequence.optional() });
 const groupInboxQuery = groupInboxBinding.extend({ manual: z.boolean().optional() });
+const GROUP_INBOX_PAGE_LIMIT = 3;
+const GROUP_APPROVAL_FRESH_MS = 10 * 60_000;
+const GROUP_APPROVAL_CACHE_LIMIT = 1000;
 const uid = z.string().regex(/^u_[A-Za-z0-9_-]+$/);
 const album = group.extend({ albumId: id });
 const videoInput = album.extend({
@@ -165,7 +168,7 @@ export function createQQActionsRouter(
   const videoStaging = new AlbumVideoStaging();
   const pending = new WeakMap<
     QQActionServices,
-    Map<string, { request: GroupRequest; expires: number }>
+    Map<string, { request: GroupRequest; cursor?: string; freshUntil: number; pid?: number | null }>
   >();
   const write = async (
     input: QQWriteBinding,
@@ -242,15 +245,14 @@ export function createQQActionsRouter(
         readSequence: null,
       };
     const filtered = kind === 'filteredGroup';
+    const pid = s.accountConfig.getRecord()?.qqPid;
     const inbox = await s.groupNotify.fetchOnlineInbox({
       filtered,
-      maxPages: options.maxPages ?? 3,
+      maxPages: options.maxPages ?? GROUP_INBOX_PAGE_LIMIT,
       cursor: options.cursor ? BigInt(options.cursor) : undefined,
       manual: options.manual,
     });
     const cache = pending.get(s) ?? new Map();
-    for (const [key, value] of cache) if (value.expires < Date.now()) cache.delete(key);
-    if (cache.size > 1000) cache.clear();
     pending.set(s, cache);
     const self = s.accountWrite.selfIdentity();
     const operations = inbox.requests
@@ -267,7 +269,12 @@ export function createQQActionsRouter(
       .map((request) => {
         const token = randomUUID();
         const sequence = (request.rawSequence ?? request.sequence).toString();
-        cache.set(token, { request, expires: Date.now() + 600000 });
+        cache.set(token, {
+          request,
+          cursor: options.cursor,
+          freshUntil: Date.now() + GROUP_APPROVAL_FRESH_MS,
+          pid,
+        });
         return {
           token,
           noticeId: groupNoticeSequenceId(sequence, filtered),
@@ -281,6 +288,7 @@ export function createQQActionsRouter(
           groupName: request.groupName || String(request.groupId),
         };
       });
+    while (cache.size > GROUP_APPROVAL_CACHE_LIMIT) cache.delete(cache.keys().next().value!);
     return {
       operations,
       readSequence: inbox.readSequence?.toString() ?? null,
@@ -1399,7 +1407,7 @@ export function createQQActionsRouter(
     ),
     requestInbox: procedure.input(groupInboxQuery).query(async ({ input }) => {
       const inbox = await read(input, (s) =>
-        loadRequestInbox(s, input.kind, { ...input, maxPages: 1 }),
+        loadRequestInbox(s, input.kind, { ...input, maxPages: input.cursor ? 1 : undefined }),
       );
       if (
         !input.cursor &&
@@ -1467,9 +1475,36 @@ export function createQQActionsRouter(
           }
           const cache = pending.get(s),
             entry = cache?.get(i.token);
-          if (!entry || entry.expires < Date.now()) throw new Error('申请已过期，请刷新');
+          if (!entry || entry.request.filtered !== (i.kind === 'filteredGroup'))
+            throw new Error('申请已过期，请刷新');
+          let request = entry.request;
+          if (Date.now() >= entry.freshUntil || entry.pid !== s.accountConfig.getRecord()?.qqPid) {
+            const { requests } = await s.groupNotify.fetchOnlineInbox({
+              filtered: request.filtered,
+              cursor: entry.cursor ? BigInt(entry.cursor) : undefined,
+              maxPages: entry.cursor ? 1 : GROUP_INBOX_PAGE_LIMIT,
+            });
+            current();
+            const refreshed = requests.find(
+              (candidate) =>
+                candidate.state === 1 &&
+                candidate.filtered === request.filtered &&
+                candidate.groupId === request.groupId &&
+                candidate.eventType === request.eventType &&
+                (candidate.rawSequence ?? candidate.sequence).toString() ===
+                  (request.rawSequence ?? request.sequence).toString() &&
+                (candidate.target.uid && request.target.uid
+                  ? candidate.target.uid === request.target.uid
+                  : candidate.target.uin > 0 && candidate.target.uin === request.target.uin),
+            );
+            if (!refreshed) {
+              cache?.delete(i.token);
+              throw new Error('这条申请已变化，请刷新群通知。');
+            }
+            request = refreshed;
+          }
           cache?.delete(i.token);
-          return s.groupNotify.handleOnlineRequest(entry.request, i.approve, i.reason);
+          return s.groupNotify.handleOnlineRequest(request, i.approve, i.reason);
         }),
       ),
     todoLocalList: procedure.input(group).query(async ({ input: i }) => {

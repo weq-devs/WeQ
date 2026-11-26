@@ -958,6 +958,48 @@ describe('主动操作的账号与参数边界', () => {
       f.caller.request({ ...binding, kind: 'group', token: r!.token, approve: true }),
     ).rejects.toThrow('过期');
   });
+  it.each([true, false])(
+    '群申请缓存到期后只审批同一条仍待处理的申请（匹配 %s）',
+    async (matches) => {
+      const now = vi.spyOn(Date, 'now').mockReturnValue(100_000);
+      try {
+        const f = fixture();
+        const [row] = await f.caller.requests({ ...binding, kind: 'group' });
+        const {
+          requests: [original],
+        } = await f.s.groupNotify.fetchOnlineInbox();
+        expect(original).toBeDefined();
+        now.mockReturnValue(700_001);
+        const updated = {
+          ...original!,
+          target: matches ? original!.target : { ...original!.target, uid: 'u_other' },
+          operateTransInfo: new Uint8Array([9]),
+        };
+        f.s.groupNotify.fetchOnlineInbox.mockResolvedValueOnce({
+          requests: [updated],
+          readSequence: 50n,
+        });
+        const approve = f.caller.request({
+          ...binding,
+          kind: 'group',
+          token: row!.token,
+          approve: true,
+        });
+        if (matches) {
+          await expect(approve).resolves.toEqual({ state: 'accepted' });
+          expect(f.s.groupNotify.handleOnlineRequest.mock.calls).toEqual([[updated, true, '']]);
+          await expect(
+            f.caller.request({ ...binding, kind: 'group', token: row!.token, approve: true }),
+          ).rejects.toThrow();
+        } else {
+          await expect(approve).rejects.toThrow('已变化');
+          expect(f.s.groupNotify.handleOnlineRequest).not.toHaveBeenCalled();
+        }
+      } finally {
+        now.mockRestore();
+      }
+    },
+  );
   it('申请列表排除退群通知与自己发出的加群申请，并返回卡片匹配标识', async () => {
     const f = fixture();
     const {

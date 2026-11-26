@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useGroupNoticeInbox } from '../src/renderer/src/components/qq-actions/RequestActions.shared';
 import { useContactNoticeUpdates } from '../src/renderer/src/hooks/useContactNoticeUpdates';
 import type { QQWriteBinding } from '../src/renderer/src/hooks/useQQWriteSession';
+import type { GroupJoinRequest } from '../src/renderer/src/im-template/template/types';
 
 const f = vi.hoisted(() => ({
   subscribe: vi.fn(),
@@ -14,7 +15,7 @@ const f = vi.hoisted(() => ({
     account: {
       listBuddyRequests: { invalidate: vi.fn() },
       listGroupNotifies: { invalidate: vi.fn() },
-      qqActions: { requestInbox: { invalidate: vi.fn() } },
+      qqActions: { requestInbox: { invalidate: vi.fn(), setData: vi.fn() } },
     },
   },
 }));
@@ -176,6 +177,9 @@ it('群通知只在打开时读取；空闲期间无轮询，在线刷新失败�
   const root = createRoot(document.createElement('div'));
   const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
   let inbox: ReturnType<typeof useGroupNoticeInbox> | undefined;
+  f.utils.account.qqActions.requestInbox.setData.mockImplementation((key, data) =>
+    queryClient.setQueryData(['group-inbox', key], data),
+  );
   f.queryInbox.mockResolvedValue({ operations: [{ token: 'request' }], canReportRead: false });
   function Reader({ open }: { open: boolean }) {
     inbox = useGroupNoticeInbox(open, binding);
@@ -198,9 +202,63 @@ it('群通知只在打开时读取；空闲期间无轮询，在线刷新失败�
   f.queryInbox.mockRejectedValueOnce(new Error('服务端限制'));
   act(() => inbox?.onRefresh?.());
   await tick(61_000);
-  expect(f.queryInbox).toHaveBeenCalledTimes(3);
+  expect(f.queryInbox.mock.calls.slice(2).map(([input]) => input.kind)).toEqual([
+    'group',
+    'filteredGroup',
+  ]);
   expect(inbox?.error).toBe('服务端限制');
   expect(inbox?.operations).toHaveLength(2);
+});
+
+it('可见群通知只补读新增待审批记录所在的收件箱，处理完成后隐藏旧审批入口', async () => {
+  const queryClient = new QueryClient();
+  const root = createRoot(document.createElement('div'));
+  const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
+  let inbox: ReturnType<typeof useGroupNoticeInbox> | undefined;
+  const incoming = {
+    id: 'group-request',
+    sequence: '123',
+    action: '申请加入',
+    handleState: 'pending',
+    isDoubt: true,
+    user: { id: 'u_applicant', identityLabel: 'QQ', identityValue: '10002' },
+  } as GroupJoinRequest;
+  f.queryInbox.mockResolvedValue({ operations: [], canReportRead: false });
+  f.utils.account.qqActions.requestInbox.invalidate.mockImplementation((key) =>
+    queryClient.invalidateQueries(['group-inbox', key]),
+  );
+  function Reader({ localNotices }: { localNotices: GroupJoinRequest[] }) {
+    inbox = useGroupNoticeInbox(true, binding, localNotices);
+    return null;
+  }
+  const render = (localNotices: GroupJoinRequest[]) =>
+    act(() =>
+      root.render(h(QueryClientProvider, { client: queryClient }, h(Reader, { localNotices }))),
+    );
+  cleanups.push(() => {
+    act(() => root.unmount());
+    queryClient.clear();
+  });
+  render([]);
+  await tick(1);
+  expect(f.queryInbox).toHaveBeenCalledTimes(2);
+  f.queryInbox.mockResolvedValueOnce({
+    operations: [{ token: 'new-application', noticeId: 'group-notify-seq:filtered:123' }],
+    canReportRead: false,
+  });
+  render([incoming]);
+  render([{ ...incoming }]);
+  await tick(1);
+  expect(f.queryInbox.mock.calls.map(([input]) => input.kind)).toEqual([
+    'group',
+    'filteredGroup',
+    'filteredGroup',
+  ]);
+  expect(inbox?.operations.map(({ token }) => token)).toEqual(['new-application']);
+  render([{ ...incoming, handleState: 'agreed' }]);
+  await tick(61_000);
+  expect(f.queryInbox).toHaveBeenCalledTimes(3);
+  expect(inbox?.operations).toEqual([]);
 });
 
 it('同源重绘不重建订阅，换源后清理定时器并拒绝旧订阅的迟到通知', async () => {

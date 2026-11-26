@@ -27,15 +27,29 @@ const GROUP_REQUEST_PAGE_SIZE = 50;
 /** 拉取时翻页上限，防止服务端不给空 cookie 导致死循环。 */
 const GROUP_REQUEST_MAX_PAGES = 20;
 const logger = getLogger().child({ scope: 'group-notice' });
-const explicitRestriction =
-  /(?:操作|请求|访问)(?:过于|太|过)?频繁|频率(?:超限|限制)|(?:账号|帐号)(?:已|被|暂时)*(?:封禁|冻结|受限|限制)|too many requests|rate limit(?:ed| exceeded)?|account (?:is )?(?:restricted|suspended|frozen)/i;
+/** 应用只在后续有实际需求时再读；这段时间用于合并失败后的触发。 */
+const GROUP_NOTICE_RATE_LIMIT_PAUSE_MS = 60_000;
+const rateLimited =
+  /(?:操作|请求|访问)(?:过于|太|过)?频繁|频率(?:超限|限制)|too many requests|\brate limit(?:ed| exceeded)?\b/i;
+const accountRestricted =
+  /(?:账号|帐号)(?:已|被|暂时)*(?:封禁|冻结|受限|限制)|account (?:is )?(?:restricted|suspended|frozen)/i;
+type GroupNoticeOperation =
+  | 'normal-list'
+  | 'filtered-list'
+  | 'read-report'
+  | 'normal-approval'
+  | 'filtered-approval';
 
 type GroupInbox = Omit<GroupRequestPage, 'cookie' | 'rawCookie'> & { nextCursor?: bigint };
 
 export class GroupNotifyService {
   private readReports: Promise<unknown> = Promise.resolve();
   private readonly inboxPages = new Map<string, Promise<GroupRequestPage>>();
-  private restriction?: OperationError;
+  private readonly rateLimits = new Map<
+    GroupNoticeOperation,
+    { until: number; error: OperationError }
+  >();
+  private accountRestriction?: OperationError;
 
   constructor(
     private readonly session: AccountSession,
@@ -159,8 +173,9 @@ export class GroupNotifyService {
   ): Promise<GroupRequestPage> {
     const { nt, resolvePid } = this.online!;
     if (resolvePid() !== pid) throw new Error('QQ 运行时已切换，请重新打开群通知。');
-    const restriction = this.restriction;
-    if (restriction && (!manual || filtered || cookie !== 0n)) throw restriction;
+    const operation = filtered ? 'filtered-list' : 'normal-list';
+    const accountRestriction = this.accountRestriction;
+    this.assertOnlineOperation(operation, manual && !filtered && cookie === 0n);
     const key = `${pid}:${filtered}:${cookie}`;
     const inflight = this.inboxPages.get(key);
     if (inflight) return inflight;
@@ -174,25 +189,46 @@ export class GroupNotifyService {
       try {
         const page = await request.invoke(nt, pid, { count: GROUP_REQUEST_PAGE_SIZE, cookie });
         if (resolvePid() !== pid) throw new Error('QQ 运行时已切换，请重新打开群通知。');
-        if (restriction && this.restriction === restriction) this.restriction = undefined;
+        if (accountRestriction && this.accountRestriction === accountRestriction)
+          this.accountRestriction = undefined;
         return page;
       } catch (error) {
-        throw this.onOnlineError(error);
+        throw this.onOnlineError(operation, error);
       }
     })().finally(() => this.inboxPages.delete(key));
     this.inboxPages.set(key, task);
     return task;
   }
 
-  private onOnlineError(error: unknown): unknown {
-    if (!(error instanceof Error) || !explicitRestriction.test(error.message)) return error;
-    this.restriction = new OperationError(
-      'QQ 暂时限制了群通知在线操作。请在 QQ 确认可用后，再手动刷新群通知。',
-      'expected',
-      { cause: error },
-    );
-    logger.warn('QQ 群通知在线操作已暂停', { event: 'group-notice-restricted' });
-    return this.restriction;
+  private assertOnlineOperation(operation: GroupNoticeOperation, verifyAccount = false) {
+    if (this.accountRestriction && !verifyAccount) throw this.accountRestriction;
+    const limit = this.rateLimits.get(operation);
+    if (!limit) return;
+    if (Date.now() < limit.until) throw limit.error;
+    this.rateLimits.delete(operation);
+  }
+
+  private onOnlineError(operation: GroupNoticeOperation, error: unknown): unknown {
+    if (!(error instanceof Error)) return error;
+    if (accountRestricted.test(error.message)) {
+      this.accountRestriction = new OperationError(
+        'QQ 提示账号受限。请在 QQ 确认可用后，再手动刷新群通知。',
+        'expected',
+        { cause: error },
+      );
+      logger.warn('QQ 群通知因账号限制暂停', { event: 'group-notice-restricted', operation });
+      return this.accountRestriction;
+    }
+    if (!rateLimited.test(error.message)) return error;
+    const failure = new OperationError('QQ 提示该操作过于频繁，请稍后再试。', 'expected', {
+      cause: error,
+    });
+    this.rateLimits.set(operation, {
+      until: Date.now() + GROUP_NOTICE_RATE_LIMIT_PAUSE_MS,
+      error: failure,
+    });
+    logger.warn('QQ 群通知操作暂时限流', { event: 'group-notice-rate-limited', operation });
+    return failure;
   }
 
   /** 每次仅提交界面提供的序号。较晚到达的通知仍由 QQ 保留为未读。 */
@@ -200,11 +236,12 @@ export class GroupNotifyService {
     const report = this.readReports.then(async () => {
       if (!this.online) return undefined;
       assertCurrent();
+      this.assertOnlineOperation('read-report');
       const { nt, resolvePid } = this.online;
       const pid = resolvePid();
       const before = await this.fetchOnlineInbox({ maxPages: 1 });
       assertCurrent();
-      if (this.restriction) throw this.restriction;
+      this.assertOnlineOperation('read-report');
       if (resolvePid() !== pid) return undefined;
       if (before.readSequence === undefined || before.latestSequence === undefined)
         return before.readSequence;
@@ -214,8 +251,8 @@ export class GroupNotifyService {
       try {
         await ReportGroupNoticeRead.invoke(nt, pid, sequence);
       } catch (error) {
-        const failure = this.onOnlineError(error);
-        if (this.restriction) throw failure;
+        const failure = this.onOnlineError('read-report', error);
+        if (failure !== error) throw failure;
         assertCurrent();
         const after = await this.fetchOnlineInbox({ maxPages: 1 });
         assertCurrent();
@@ -241,7 +278,8 @@ export class GroupNotifyService {
     reason = '',
   ): Promise<void> {
     if (!this.online) throw new Error('该账号当前不在线，无法处理加群请求。');
-    if (this.restriction) throw this.restriction;
+    const operation = request.filtered ? 'filtered-approval' : 'normal-approval';
+    this.assertOnlineOperation(operation);
     const { nt, resolvePid } = this.online;
     const eventType = groupRequestOperationType(request.eventType) ?? request.eventType;
     await SetGroupRequest.invoke(nt, resolvePid(), {
@@ -253,7 +291,7 @@ export class GroupNotifyService {
       filtered: request.filtered,
       ...(request.operateTransInfo ? { operateTransInfo: request.operateTransInfo } : {}),
     }).catch((error: unknown) => {
-      throw this.onOnlineError(error);
+      throw this.onOnlineError(operation, error);
     });
   }
 }
