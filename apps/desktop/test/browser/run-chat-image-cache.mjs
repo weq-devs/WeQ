@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
@@ -73,7 +74,7 @@ try {
   );
   await page.waitForFunction(() => document.querySelectorAll('[data-images] img').length === 3);
   await page.waitForFunction(
-    () => document.querySelectorAll('[data-images] img[src]').length === 3,
+    () => document.querySelectorAll('[data-images] .weq-image-placeholder').length === 3,
   );
   const output = process.env.WEQ_IMAGE_CACHE_ARTIFACTS;
   if (output) await mkdir(output, { recursive: true });
@@ -108,6 +109,19 @@ try {
       await page.screenshot({ path: resolve(output, `placeholder-${theme}-${width}.png`) });
   }
   await page.setViewportSize({ width: 1280, height: 900 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.evaluate(() => {
+    const images = document.querySelector('[data-images]');
+    // Measure the commit that removes the placeholder, not the settled frame.
+    const observer = new MutationObserver(() => {
+      const image = images.querySelector('img.qq-media-image');
+      if (!image?.naturalWidth || image.parentElement.querySelector('.weq-image-placeholder'))
+        return;
+      window.firstReadyImageOpacity = getComputedStyle(image).opacity;
+      observer.disconnect();
+    });
+    observer.observe(images, { childList: true, subtree: true });
+  });
   releaseImages();
   const loaded = () =>
     page.waitForFunction(
@@ -118,6 +132,7 @@ try {
         ),
     );
   await loaded();
+  assert.equal(await page.evaluate(() => window.firstReadyImageOpacity), '1');
   const baseline = requests;
   for (let i = 0; i < 25; i++) {
     await page.evaluate(() => window.scrollTo(0, 1800));
@@ -133,7 +148,7 @@ try {
   await loaded();
   const input = page.getByRole('spinbutton', { name: '图片预览内存预算' });
   await input.fill('0');
-  await page.getByRole('button', { name: '保存图片预览内存预算' }).click();
+  await input.press('Enter');
   await page.evaluate(() => window.scrollTo(0, 1800));
   await page.waitForFunction(() =>
     [...document.querySelectorAll('[data-images] img')].every((img) => !img.hasAttribute('src')),
@@ -153,6 +168,7 @@ try {
   console.log(
     JSON.stringify({
       realMessageImages: 3,
+      visibleWhenPlaceholderRemoved: true,
       placeholderLayouts: 4,
       scrollRounds: 25,
       noReloadWithinBudget: true,

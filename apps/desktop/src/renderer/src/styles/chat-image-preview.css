@@ -25,18 +25,6 @@
   max-height: 80%;
 }
 
-/* 图片就绪时从 0 淡到 1（opacity 由 ShimmerImage 内联控制），占位块同时撤下，
-   两者叠在一起就是一次短交叉。缓存命中时首帧就是 1，不会多闪一下。 */
-.weq-shimmer-image {
-  transition: opacity 120ms ease-out;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .weq-shimmer-image {
-    transition: none;
-  }
-}
-
 .weq-image-placeholder {
   position: absolute;
   inset: 0;

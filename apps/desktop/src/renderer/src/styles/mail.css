@@ -1017,7 +1017,7 @@ html[data-privacy] .weq-mail-text-editor {
 
 /* 邮件按页加载，新到的一页整批淡入；列表本身不重建，翻页时只动新增行。 */
 .weq-mail-row {
-  animation: weq-list-item-in var(--weq-motion-enter) var(--weq-motion-ease) both;
+  animation: weq-list-item-in var(--weq-motion-enter) var(--weq-motion-ease);
 }
 
 @media (prefers-reduced-motion: reduce) {

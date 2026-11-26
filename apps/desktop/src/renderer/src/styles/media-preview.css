@@ -51,12 +51,6 @@
   padding: 0;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .qq-media-wrap > img,
-  .qq-media-video-poster {
-    transition: opacity 120ms ease-out;
-  }
-}
 button.qq-media-wrap {
   cursor: zoom-in;
 }

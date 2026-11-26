@@ -63,11 +63,11 @@ html[data-theme='dark'] .weq-workspace-sidecar {
 /* 工作区页面进场：页面节点随打开重建，CSS 动画因此只在真的打开时跑一次。
  * 侧栏附属页（群相册、群文件、成员分析…）从右侧滑入，和主区换页区分开。 */
 .weq-workspace-page {
-  animation: weq-page-in var(--weq-motion-page) var(--weq-motion-ease) both;
+  animation: weq-page-in var(--weq-motion-page) var(--weq-motion-ease);
 }
 
 .weq-workspace-sidecar-page {
-  animation: weq-sidecar-in var(--weq-motion-enter) var(--weq-motion-ease) both;
+  animation: weq-sidecar-in var(--weq-motion-enter) var(--weq-motion-ease);
 }
 
 @media (prefers-reduced-motion: reduce) {

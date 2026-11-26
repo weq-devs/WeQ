@@ -266,7 +266,7 @@
 
 /* 公告正文随选中项替换，换一条就是一次新的内容入场。 */
 .weq-announcement-article {
-  animation: weq-list-item-in var(--weq-motion-enter) var(--weq-motion-ease) both;
+  animation: weq-list-item-in var(--weq-motion-enter) var(--weq-motion-ease);
 }
 
 @media (prefers-reduced-motion: reduce) {

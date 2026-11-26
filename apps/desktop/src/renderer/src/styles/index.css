@@ -985,8 +985,8 @@ html[data-theme='dark'] .weq-shimmer-block {
  * 群资料侧栏、图片灯箱、转发浮窗、邮件行）此前是直接出现或直接替换，这里补上统一的
  * 进场节奏。数值与 `lib/surfaceMotion.ts` 的 `surfaceMotionTiming` 一致，改一处同步另一处。
  *
- * 全部只动 opacity / transform（合成层属性），不参与布局；`to` 帧回到 `transform: none`，
- * 因此动画结束后不会给 `position: fixed` 的后代留下新的包含块。
+ * opacity / transform 不改变布局尺寸。含 transform 的进场不保留末帧，避免动画结束后
+ * 仍为 position: fixed 的后代建立新的包含块。
  */
 :root {
   --weq-motion-switch: 120ms;
@@ -1067,7 +1067,7 @@ html[data-theme='dark'] .weq-shimmer-block {
   animation: weq-lightbox-in var(--weq-motion-enter) ease-out both;
 }
 .weq-lightbox-stage {
-  animation: weq-lightbox-stage-in var(--weq-motion-page) var(--weq-motion-ease) both;
+  animation: weq-lightbox-stage-in var(--weq-motion-page) var(--weq-motion-ease);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -14457,7 +14457,7 @@ html[data-theme='dark'] .weq-provider-modal {
     border-color 0.15s,
     box-shadow 0.15s;
   /* 收藏按页拉取，新到的一页整批淡入。 */
-  animation: weq-list-item-in var(--weq-motion-enter) var(--weq-motion-ease) both;
+  animation: weq-list-item-in var(--weq-motion-enter) var(--weq-motion-ease);
 }
 
 @media (prefers-reduced-motion: reduce) {

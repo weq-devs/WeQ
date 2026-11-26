@@ -25,7 +25,7 @@
   color: var(--weq-fg-primary);
   box-shadow: var(--weq-shadow-card);
   /* 用了 Modal 卡片类名的浮窗要挡住那套 pop 动效，自己按「窗口」进场一次。 */
-  animation: weq-window-in var(--weq-motion-enter) var(--weq-motion-ease) both;
+  animation: weq-window-in var(--weq-motion-enter) var(--weq-motion-ease);
   backdrop-filter: none;
   -webkit-app-region: no-drag;
 }

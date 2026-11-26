@@ -128,15 +128,15 @@ export function ChatShell({
   const mainPageOpen = useWorkspaceMainPageOpen();
   const sidecarOpen = useWorkspaceSidecarOpen();
   const sidebarHidden = settingsOpen || mainPageOpen || (view === 'messages' && sidecarOpen);
-  // 主视图切换会把侧栏正文和主区内容一起换掉，但外层节点不变，CSS 动画不会重放；
-  // 这里在提交后补一次 120ms 淡入，让「整块换页」有方向感又不拖慢操作。
+  // 宽屏主视图原位替换时淡入；单栏由 MobileNavigationRuntime 负责转场。
   const previousView = useRef(view);
   useLayoutEffect(() => {
     if (previousView.current === view) return;
     previousView.current = view;
+    if (singleColumn) return;
     fadeInSurface(mainRef.current);
     fadeInSurface(sidebarBodyRef.current);
-  }, [view]);
+  }, [singleColumn, view]);
   const shellStyle = {
     '--sidebar-width': `${sidebarHidden ? 0 : sidebarWidth}px`,
   } as CSSProperties;

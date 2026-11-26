@@ -105,18 +105,12 @@ export function WorkspaceContent({ children }: { children: ReactNode }) {
     context?.pages.filter((page) => !page.suspended && page.placement === 'sidecar') ?? [];
   const mainOpen = mainPages.some((page) => page.id === context?.active);
   const base = useRef<HTMLDivElement>(null);
-  const sidecar = useRef<HTMLElement>(null);
-  const previous = useRef({ mainOpen, sidecarOpen: sidecars.length > 0 });
-  // 页面关闭时底层内容立刻回到视野；页面本身已经卸载，没法做退场，改为让「回到底层」
-  // 这一下也走同一条淡入，进出两端才对称。侧栏收起后同理。
+  const previousMainOpen = useRef(mainOpen);
+  // 主页面关闭时淡入重新露出的底层；侧栏关闭则直接恢复主区宽度。
   useLayoutEffect(() => {
-    const state = { mainOpen, sidecarOpen: sidecars.length > 0 };
-    const before = previous.current;
-    previous.current = state;
-    if (!before.mainOpen && state.mainOpen) return;
-    if (before.mainOpen && !state.mainOpen) fadeInSurface(base.current, { from: 0.9 });
-    if (before.sidecarOpen && !state.sidecarOpen) fadeInSurface(sidecar.current, { from: 0.9 });
-  }, [mainOpen, sidecars.length]);
+    if (previousMainOpen.current && !mainOpen) fadeInSurface(base.current, { from: 0.9 });
+    previousMainOpen.current = mainOpen;
+  }, [mainOpen]);
   return (
     <div className="weq-workspace-content">
       <div className="weq-workspace-split">
@@ -127,7 +121,6 @@ export function WorkspaceContent({ children }: { children: ReactNode }) {
           </div>
         </div>
         <aside
-          ref={sidecar}
           className="weq-workspace-sidecar"
           hidden={!sidecars.length || mainOpen}
           aria-label="会话附属内容"
