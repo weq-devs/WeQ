@@ -877,10 +877,9 @@ export class CallSession {
    * 协议上**没有**「开」和「关」两种包：两者都是同一条空体 `subType=4`，
    * 连发两次防丢包。所以这里只做「发控制包 + 切换本端发送状态」。
    *
-   * 打开后真正发画面要等 `videoEncoder` 吐帧（见 {@link pumpVideo}）；
-   * 没有注入编码器时只发控制包，对端会显示「等待对方画面」。
+   * 从语音切到视频时，调用方可在开启发送的同时交给会话一个已打开的编码器。
    */
-  setCamera(enabled: boolean): void {
+  setCamera(enabled: boolean, encoder?: CallVideoEncoder): void {
     this.log?.info('setCamera 请求', {
       enabled,
       state: this.state,
@@ -896,6 +895,7 @@ export class CallSession {
       this.log?.warn('setCamera 被拒：状态已是目标值', { enabled });
       return;
     }
+    if (enabled && encoder) this.videoEncoder ??= encoder;
     this.videoSending = enabled;
     if (enabled) this.startVideoState();
     this.sendVideoControl();
@@ -2361,7 +2361,8 @@ export class CallSession {
   }
 
   private async pumpVideo(): Promise<void> {
-    if (!this.videoSending || this.state !== 'connected') return;
+    const timer = this.videoTimer;
+    if (timer === null || !this.videoSending || this.state !== 'connected') return;
     const encoder = this.videoEncoder;
     if (!encoder) {
       // 没有编码器：控制包已经发了，对端会显示「等待对方画面」。
@@ -2373,6 +2374,8 @@ export class CallSession {
 
     try {
       const hevc = await encoder.next();
+      // 关摄像头或挂断会取消当前循环。快速重开时也要丢掉上一轮的编码结果。
+      if (this.videoTimer !== timer) return;
       if (hevc && hevc.length > 0) {
         this.sentVideoFrames++;
         if (this.sentVideoFrames <= 3 || this.sentVideoFrames % 30 === 0) {
@@ -2394,7 +2397,7 @@ export class CallSession {
       this.log?.warn('编码一帧视频失败', { error });
     }
 
-    if (!this.videoSending) return;
+    if (this.videoTimer !== timer) return;
     this.videoTimer = this.timers.setTimeout(() => {
       void this.pumpVideo();
     }, VIDEO_PUMP_MS);

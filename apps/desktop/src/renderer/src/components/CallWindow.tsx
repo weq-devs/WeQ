@@ -400,7 +400,7 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
   /**
    * 摄像头开关。
    *
-   * 主进程只发控制信令并切发送状态；画面由渲染层的采集管线推过去。
+   * 主进程准备好编码器后开启发送，渲染层再开始采集画面。
    *
    * ⚠️ 共享屏幕时这个键**只切回摄像头、不关视频** —— 按钮提示写的是「关闭共享
    * （回到摄像头）」，用户点它期待的是切回摄像头继续通话，而不是画面整个没了。
@@ -420,8 +420,20 @@ export function CallWindow({ initial, onClose }: { initial: CallInfo; onClose: (
     }
     cameraPending.current = true;
     const next = !info.videoSending;
-    setCamera.mutate({ enabled: next }, { onSettled: () => (cameraPending.current = false) });
-  }, [info.videoSending, screenSharing, setCamera]);
+    setCamera.mutate(
+      { enabled: next },
+      {
+        onError: (error) => {
+          notificationToast.push({
+            tone: 'warning',
+            message: '无法打开摄像头',
+            detail: error.message,
+          });
+        },
+        onSettled: () => (cameraPending.current = false),
+      },
+    );
+  }, [info.videoSending, screenSharing, setCamera, notificationToast]);
 
   /**
    * 屏幕共享开关（与摄像头互斥的切换式）。

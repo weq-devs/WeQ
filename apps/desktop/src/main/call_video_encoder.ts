@@ -98,7 +98,7 @@ export class NativeVideoEncoder implements CallVideoEncoder {
   /** 当前采集源（摄像头 / 屏幕共享）。只用于日志与重配判断。 */
   private source: VideoSource = 'camera';
 
-  /** 打开 native 编码器。`CallSession.start` 里调。 */
+  /** 打开 native 编码器。 */
   async open(): Promise<void> {
     await this.nt.openVideoEncoder(
       this.modulesDir,
@@ -283,12 +283,16 @@ export class NativeVideoEncoder implements CallVideoEncoder {
   close(): void {
     if (!this.opened) return;
     this.opened = false;
-    this.queue.length = 0;
+    this.clearFrames();
     try {
       this.nt.closeVideoEncoder();
     } catch (error) {
       logger.warn('关闭视频编码器失败', { error });
     }
+  }
+
+  clearFrames(): void {
+    this.queue.length = 0;
   }
 
   /** 当前队列深度（调试用）。 */

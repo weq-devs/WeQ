@@ -151,12 +151,12 @@ export const callRouter = router({
   /**
    * 开 / 关本端摄像头。
    *
-   * 只切发送状态并发控制信令；画面由渲染层采集后推过来。
+   * 开启时等编码器就绪后再发控制信令。画面由渲染层采集后推过来。
    */
-  setCamera: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
+  setCamera: procedure.input(z.object({ enabled: z.boolean() })).mutation(async ({ input }) => {
     const manager = findCallManager();
     if (!manager) return { ok: false };
-    return { ok: manager.setCamera(input.enabled) };
+    return { ok: await manager.setCamera(input.enabled) };
   }),
 
   /**

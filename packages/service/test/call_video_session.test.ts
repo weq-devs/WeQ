@@ -7,7 +7,7 @@
  *   3. 开关摄像头发的是**同一条**空体控制包（连发两次）。
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   CallSession,
   type CallAudioCodec,
@@ -934,6 +934,26 @@ describe('发送视频', () => {
     ctx.session.setCamera(false);
     await ctx.timers.advanceAsync(200);
     expect(ctx.transport.media(VideoSubType.max).length).toBe(before);
+  });
+
+  it('快速关闭再开启时丢弃上一轮尚未完成的编码结果', async () => {
+    const encoder = new FakeVideoEncoder(1);
+    const pending = Promise.withResolvers<Uint8Array | null>();
+    const next = vi.spyOn(encoder, 'next').mockReturnValueOnce(pending.promise);
+    const ctx = makeSession({ videoEncoder: encoder });
+    await connect(ctx);
+    ctx.session.setCamera(true);
+    await ctx.timers.advanceAsync(10);
+    expect(next).toHaveBeenCalledTimes(1);
+    ctx.session.setCamera(false);
+    ctx.session.setCamera(true);
+    pending.resolve(new Uint8Array([0, 0, 0, 1, 0x26, 0x01, 0x80]));
+    await Promise.resolve();
+    expect(ctx.transport.media(VideoSubType.max)).toHaveLength(0);
+
+    await ctx.timers.advanceAsync(10);
+    expect(next).toHaveBeenCalledTimes(2);
+    expect(ctx.transport.media(VideoSubType.max)).toHaveLength(1);
   });
 
   it('没接通时开摄像头是空操作', async () => {

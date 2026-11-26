@@ -316,8 +316,10 @@ export class CallManager extends EventEmitter {
   /** 每秒推进一次通话时长。通话中状态不变，光靠状态推送时长会停在 00:00。 */
   private durationTimer: ReturnType<typeof setInterval> | null = null;
 
-  /** 视频编码器（只有视频通话才非 null）。 */
+  /** 已打开的视频编码器。语音通话首次开摄像头时才创建。 */
   private videoEncoder: NativeVideoEncoder | null = null;
+  private openingVideoEncoder: Promise<NativeVideoEncoder | null> | null = null;
+  private cameraRequested = false;
   /**
    * 从**最近一个关键帧**开始的一段连续帧（新订阅者补发用）。
    *
@@ -364,7 +366,8 @@ export class CallManager extends EventEmitter {
   }
 
   get busy(): boolean {
-    return this.session !== null;
+    // t265 是进程级单例。挂断后也要等尚在打开的实例完成清理，下一通才能复用它。
+    return this.session !== null || this.openingVideoEncoder !== null;
   }
 
   /**
@@ -382,7 +385,7 @@ export class CallManager extends EventEmitter {
 
   /** 发起一路通话。已有通话在跑时直接报错，由界面提示先挂断。 */
   async start(params: StartCallParams): Promise<ActiveCallInfo> {
-    if (this.session) throw new Error('当前已有通话，请先挂断');
+    if (this.busy) throw new Error('当前已有通话，请先挂断');
 
     const modulesDir = this.resolveModulesDir();
     if (!modulesDir) throw new Error('找不到 QQ 的 AVSDK 目录，无法初始化语音编解码器');
@@ -391,8 +394,7 @@ export class CallManager extends EventEmitter {
     // 收发的每条数据报都先喂给落盘器；没开开关时 `udpTrace` 为 null，开销接近于零。
     transport.sink = (datagram) => this.udpTrace?.record(datagram);
     const codec = new NativeCallCodec(this.nt, modulesDir);
-    // 视频编码器只在发起视频通话时建：它要打开 QQ 自带的那一版 x265，
-    // 纯语音通话没必要付这个开销。
+    // 直接视频接通就开始采集，提前打开编码器。语音通话在开摄像头时再打开。
     const videoEncoder =
       params.media === 'video' ? new NativeVideoEncoder(this.nt, modulesDir) : null;
     if (videoEncoder) await videoEncoder.open();
@@ -419,8 +421,6 @@ export class CallManager extends EventEmitter {
         onError: (handler) => transport.onError(handler),
       },
       codec,
-      // 视频编码器：只有发起视频通话时才建。采在渲染层、编在主进程，
-      // 中间靠 pushVideoFrame 把 I420 推进来。
       videoEncoder: videoEncoder ?? undefined,
       logger,
     });
@@ -513,17 +513,18 @@ export class CallManager extends EventEmitter {
   async hangup(): Promise<void> {
     const session = this.session;
     if (!session) return;
+    this.cameraRequested = false;
     // 先收录音再拆会话：`session.hangup()` 之后不会再有音频帧进来，录音的时长
     // 才是准的；反过来则会在最后一帧之后继续补静音。
     await this.finalizeRecording();
     await session.hangup();
-    this.cleanup();
+    if (this.session === session) this.cleanup();
   }
 
   /**
    * 渲染层推来一帧 I420（摄像头采集）。
    *
-   * 只有视频通话且本端摄像头开着时才吃 —— 关摄像头后队列里的旧帧也不该再发。
+   * 只在本端视频发送开启时接收，关闭后丢弃未发送的采集帧。
    */
   pushVideoFrame(y: Uint8Array, u: Uint8Array, v: Uint8Array): boolean {
     const session = this.session;
@@ -559,25 +560,52 @@ export class CallManager extends EventEmitter {
   /**
    * 开 / 关本端摄像头。
    *
-   * 只发控制信令并切换发送状态；画面要靠 `CallSession` 里注入的编码器吐帧，
-   * 采集由渲染层负责。
+   * 等编码器就绪后再发开启信令，采集由渲染层负责。
    */
-  setCamera(enabled: boolean): boolean {
+  async setCamera(enabled: boolean): Promise<boolean> {
     const session = this.session;
-    if (!session) return false;
-    const before = session.snapshot();
-    session.setCamera(enabled);
-    const after = session.snapshot();
-    logger.info('切换摄像头', {
-      enabled,
-      state: before.state,
-      videoSending: `${before.videoSending} -> ${after.videoSending}`,
-      roomId: after.roomId,
-    });
-    // 关摄像头时顺手把采集源复位回摄像头：下次再打开应该回到摄像头，而不是
-    // 接着共享屏幕（用户点「关摄像头」的意思是「不发了」，不是「换成共享」）。
-    if (!enabled) void this.resetVideoSource();
+    if (session?.snapshot().state !== 'connected') return false;
+    this.cameraRequested = enabled;
+    if (enabled) {
+      const encoder = this.videoEncoder ?? (await this.openCameraEncoder(session));
+      if (!encoder || !this.cameraRequested || this.session !== session) return false;
+      if (session.snapshot().state !== 'connected') return false;
+      session.setCamera(true, encoder);
+    } else {
+      session.setCamera(false);
+      this.videoEncoder?.clearFrames();
+      // 下次打开时从摄像头采集。
+      void this.resetVideoSource();
+    }
     return true;
+  }
+
+  private openCameraEncoder(session: CallSession): Promise<NativeVideoEncoder | null> {
+    if (this.openingVideoEncoder) return this.openingVideoEncoder;
+    const modulesDir = this.resolveModulesDir();
+    if (!modulesDir) throw new Error('找不到 QQ 的 AVSDK 目录，无法初始化视频编码器');
+    const encoder = new NativeVideoEncoder(this.nt, modulesDir);
+    const canSend = () =>
+      this.cameraRequested && this.session === session && session.snapshot().state === 'connected';
+    this.openingVideoEncoder = encoder
+      .open()
+      .then(() => {
+        if (!canSend()) {
+          encoder.close();
+          return null;
+        }
+        this.videoEncoder = encoder;
+        return encoder;
+      })
+      .catch((error: unknown) => {
+        if (!canSend()) return null;
+        logger.warn('打开视频编码器失败', { error });
+        throw error;
+      })
+      .finally(() => {
+        this.openingVideoEncoder = null;
+      });
+    return this.openingVideoEncoder;
   }
 
   /**
@@ -784,10 +812,13 @@ export class CallManager extends EventEmitter {
   dispose(): void {
     const session = this.session;
     if (!session) return;
+    this.cameraRequested = false;
     void this.finalizeRecording()
       .catch(() => {})
       .then(() => session.hangup())
-      .finally(() => this.cleanup());
+      .finally(() => {
+        if (this.session === session) this.cleanup();
+      });
   }
 
   private publishState(snapshot: CallSnapshot): void {
@@ -853,6 +884,7 @@ export class CallManager extends EventEmitter {
     this.transport?.close();
     this.videoEncoder?.close();
     this.videoEncoder = null;
+    this.cameraRequested = false;
     this.replayBuffer = [];
     this.session = null;
     this.transport = null;
