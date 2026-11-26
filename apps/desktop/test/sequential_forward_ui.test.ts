@@ -9,6 +9,10 @@ import { ToastHost } from '../src/renderer/src/components/Toast';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { DEFAULT_FORWARD_OPTIONS } from '../src/renderer/src/lib/sequentialForward';
 import {
+  resolveForwardReplyPrefix,
+  sequentialReplyTargets,
+} from '../src/renderer/src/lib/sequentialForwardReply';
+import {
   ForwardedConversationsDialog,
   MergeForwardTargets,
 } from '../src/renderer/src/components/mergeForward/MergeForwardTargets';
@@ -75,6 +79,132 @@ const messages = [
     ],
   },
 ];
+
+const quotedMessage = { ...messages[0]!, msgSeq: '70', clientSeq: '9' };
+const replyElement = {
+  type: 'reply',
+  data: {
+    origMsgSeq: 70,
+    origElements: [{ type: 'text', data: { textContent: '原文' } }],
+  },
+};
+const replyMessage = {
+  ...messages[0]!,
+  id: 'reply',
+  qqElements: [replyElement, ...messages[0]!.qqElements],
+};
+
+it('分别把每个目标的发送回执用于同批引用，前一条失败时没有新引用目标', async () => {
+  const second = { ...target, id: 'second', conv: '888' };
+  const failed = { ...target, id: 'failed', conv: '999' };
+  const seen = new Map<string, number | undefined>();
+  const task = startSequentialForward({
+    messages: [quotedMessage, replyMessage],
+    targets: [target, second, failed],
+    scope: { uin: 'fixture', configId: 'fixture-config' },
+    sourceKind: 'group',
+    options: DEFAULT_FORWARD_OPTIONS,
+    onOpenTarget: vi.fn(),
+    onSend: async (message, destination, _signal, receipt) => {
+      if (message.id === replyMessage.id) {
+        seen.set(destination.id, receipt?.groupSequence);
+        return;
+      }
+      if (destination.id === failed.id) throw new Error('发送失败');
+      return { groupSequence: destination.id === target.id ? 101 : 202 };
+    },
+  });
+  await task.done;
+  expect(seen).toEqual(
+    new Map([
+      [target.id, 101],
+      [second.id, 202],
+      [failed.id, undefined],
+    ]),
+  );
+});
+
+it('私聊引用按发送方序号和身份匹配，避免同序号的其他人或其他会话', () => {
+  const original = { ...quotedMessage, senderUid: 'sender-a', sendTime: '100' };
+  const wrongSender = { ...original, id: 'other', senderUid: 'sender-b' };
+  const wrongChat = { ...original, id: 'other-chat', conversationId: 'other-chat' };
+  const older = { ...original, id: 'older', sendTime: '90' };
+  const reply = {
+    ...replyMessage,
+    qqElements: [
+      { type: 'reply', data: { origMsgSeq: 9, origSenderUid: 'sender-a', origMsgTime: 100 } },
+    ],
+  };
+  expect(sequentialReplyTargets([original, wrongSender, wrongChat, older, reply], 'c2c')).toEqual(
+    new Map([[reply.id, original.id]]),
+  );
+  expect(sequentialReplyTargets([wrongSender, wrongChat, older, reply], 'c2c').size).toBe(0);
+});
+
+it('优先引用本批发送，再查原消息，无法定位时仅按开关附摘录', async () => {
+  const original = vi.fn(async () => ({ sequence: 9, index: 70 }));
+  const options = {
+    data: replyElement.data,
+    kind: 'c2c' as const,
+    uin: '123',
+    includeExcerpt: true,
+  };
+  const forwarded = await resolveForwardReplyPrefix({
+    ...options,
+    receipt: { privateSequence: 300, clientSequence: 21, timestamp: 100 },
+    original,
+  });
+  expect(forwarded?.element).toMatchObject({ kind: 'reply', origMsgSeq: 21, origSenderUin: 123 });
+  expect(forwarded?.preview.data?.origMsgIndex).toBe(300);
+  expect(original).not.toHaveBeenCalled();
+  const existing = await resolveForwardReplyPrefix({
+    ...options,
+    receipt: { privateSequence: 300 },
+    original,
+  });
+  expect(existing?.element).toMatchObject({ kind: 'reply', origMsgSeq: 9 });
+  expect(original).toHaveBeenCalledOnce();
+  expect((await resolveForwardReplyPrefix(options))?.element).toEqual({
+    kind: 'text',
+    textContent: '> 原文\n',
+  });
+  expect(await resolveForwardReplyPrefix({ ...options, includeExcerpt: false })).toBeUndefined();
+});
+
+it('引用摘录默认关闭，打开后随本次确认提交', () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const onContinue = vi.fn();
+  try {
+    act(() =>
+      root.render(
+        createElement(MessageBatchActionDialog, {
+          action: 'forward',
+          batch: reviewMessageBatch([quotedMessage, replyMessage], 'forward'),
+          user: demo.user,
+          onContinue,
+          onClose: vi.fn(),
+        }),
+      ),
+    );
+    const [include, excerpt] = document.querySelectorAll<HTMLButtonElement>('[role="switch"]');
+    const proceed = document.querySelector<HTMLButtonElement>('[data-weq-dialog-confirm]')!;
+    act(() => proceed.click());
+    expect(onContinue).toHaveBeenLastCalledWith([quotedMessage, replyMessage], false);
+    act(() => excerpt!.click());
+    act(() => proceed.click());
+    expect(onContinue).toHaveBeenLastCalledWith([quotedMessage, replyMessage], true);
+    act(() => include!.click());
+    expect(excerpt!.disabled).toBe(true);
+    act(() => proceed.click());
+    expect(onContinue).toHaveBeenLastCalledWith([quotedMessage], false);
+  } finally {
+    act(() => root.unmount());
+    host.remove();
+  }
+});
 
 it('多个目标并行发送且群内保序，一个目标失败不会阻塞其他目标', async () => {
   const second = { ...target, id: 'second', conv: '888', name: '第二目标群' };

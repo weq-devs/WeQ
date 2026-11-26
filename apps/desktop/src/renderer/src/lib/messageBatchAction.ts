@@ -4,6 +4,9 @@ import { isLocalOutgoingMessage } from './messageSelection';
 import { grayTipOf } from '../im-template/template/messageRow.shared';
 import { messageHasIntentText } from './intentTimeline';
 import { forwardMessageBlockReason } from './sequentialForward';
+import { forwardReplyData } from './sequentialForwardReply';
+
+export const forwardReplyGroupLabel = '引用消息';
 
 export const messageBatchLabels = {
   export: '导出',
@@ -113,8 +116,12 @@ function reviewMessage(
   if (action === 'forward') {
     const reason = forwardMessageBlockReason(message);
     if (reason) return blocked(reason, failed ? '原稿或附件不可用' : (status ?? reason));
-    if (!status && message.qqElements?.some(({ type }) => type === 'reply'))
-      return { label: '引用消息', include: true, detail: '仅转发正文' };
+    if (forwardReplyData(message))
+      return {
+        label: forwardReplyGroupLabel,
+        include: true,
+        detail: '优先引用本次转发的消息，其次引用目标会话中的原消息。',
+      };
   }
   if (action === 'merge' && gray) return blocked();
   if (action === 'export' || action === 'analysis' || action === 'delete') {

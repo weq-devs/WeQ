@@ -86,6 +86,15 @@
   padding: 0 8px 8px;
 }
 
+.weq-message-batch-reply-excerpt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px 12px 32px;
+  color: var(--weq-fg-secondary);
+}
+
 .weq-message-batch-expanded > p,
 .weq-message-batch-note {
   margin: 0 0 8px;

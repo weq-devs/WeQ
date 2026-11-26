@@ -371,7 +371,13 @@ export type Message = {
   /** 原始消息 ID；展示 ID 可能带漫游来源前缀，用于可靠身份对账。 */
   msgId?: string;
   /** 转发内部的展示快照，不是可用 getRawElements 回读的会话消息。 */
-  forwardSnapshot?: { carrierId: string; kind: 'c2c' | 'group'; conv: string; resId?: string };
+  forwardSnapshot?: {
+    carrierId: string;
+    kind: 'c2c' | 'group';
+    conv: string;
+    resId?: string;
+    replyTargetId?: string;
+  };
   conversationId: string;
   senderId: string;
   senderUid?: string;

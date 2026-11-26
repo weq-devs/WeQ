@@ -11,7 +11,8 @@ import {
   formatForwardDuration,
   forwardMessageContent,
 } from '../lib/sequentialForward';
-import { startSequentialForward } from './SequentialForwardTask';
+import { startSequentialForward, type SequentialForwardSend } from './SequentialForwardTask';
+import type { ForwardChatKind } from '../lib/sequentialForwardReply';
 import { trpc } from '../trpc/client';
 import '../styles/sequential-forward.css';
 
@@ -27,6 +28,7 @@ const unknownUser: User = {
 export function SequentialForwardDialog({
   messages,
   targets,
+  sourceKind,
   onSend,
   onClose,
   onOpenTarget,
@@ -34,7 +36,8 @@ export function SequentialForwardDialog({
 }: {
   messages: readonly Message[];
   targets: MfTarget[];
-  onSend: (message: Message, target: MfTarget, signal: AbortSignal) => Promise<void>;
+  sourceKind?: ForwardChatKind;
+  onSend: SequentialForwardSend;
   onClose: () => void;
   onOpenTarget: (target: MfTarget) => void;
   user?: User;
@@ -68,6 +71,7 @@ export function SequentialForwardDialog({
         scope: { uin: accountConfig.data.uin, configId: accountConfig.data.configId },
         messages,
         targets: picked,
+        sourceKind,
         options: { ...options },
         onSend,
         onOpenTarget,

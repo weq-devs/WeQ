@@ -6,6 +6,7 @@ import { MessageRow } from '../im-template/template/messageRow';
 import type { Conversation, Message, User } from '../im-template/template/types';
 import type { MessageRenderer } from '../im-template/template/messageRenderers';
 import {
+  forwardReplyGroupLabel,
   messageBatchLabels,
   type MessageBatchAction,
   type reviewMessageBatch,
@@ -35,7 +36,7 @@ export function MessageBatchActionDialog({
   renderers?: MessageRenderer[];
   deleted?: (message: Message) => boolean;
   renderMessage?: (message: Message) => ReactNode;
-  onContinue: (messages: Message[]) => void;
+  onContinue: (messages: Message[], includeReplyExcerpt: boolean) => void;
   onClose: () => void;
 }) {
   const id = useId();
@@ -59,6 +60,11 @@ export function MessageBatchActionDialog({
   const [included, setIncluded] = useState(
     () => new Set(batch.groups.filter((group) => group.include).map((group) => group.key)),
   );
+  const [includeReplyExcerpt, setIncludeReplyExcerpt] = useState(false);
+  const replyGroup =
+    action === 'forward'
+      ? batch.groups.find(({ label }) => label === forwardReplyGroupLabel)
+      : null;
   const possible = batch.rows.some(({ group }) => !group || group.include !== undefined);
   const selected = batch.rows.flatMap(({ message, group }) =>
     !group || included.has(group.key) ? [message] : [],
@@ -114,6 +120,11 @@ export function MessageBatchActionDialog({
                     group={group}
                     checked={included.has(group.key)}
                     blockedLabel={blockedLabel}
+                    replyExcerpt={
+                      group === replyGroup
+                        ? { checked: includeReplyExcerpt, onChange: setIncludeReplyExcerpt }
+                        : undefined
+                    }
                     onToggle={() => {
                       setIncluded((previous) => {
                         const next = new Set(previous);
@@ -153,7 +164,15 @@ export function MessageBatchActionDialog({
           className="weq-set-btn weq-set-btn-primary"
           data-weq-dialog-confirm
           disabled={possible && !selected.length}
-          onClick={possible ? () => onContinue(selected) : onClose}
+          onClick={
+            possible
+              ? () =>
+                  onContinue(
+                    selected,
+                    includeReplyExcerpt && !!replyGroup && included.has(replyGroup.key),
+                  )
+              : onClose
+          }
         >
           {possible ? `继续（${selected.length} 条）` : '关闭'}
         </button>
@@ -166,12 +185,14 @@ function MessageBatchGroup({
   group,
   checked,
   blockedLabel,
+  replyExcerpt,
   onToggle,
   renderMessage,
 }: {
   group: Group;
   checked: boolean;
   blockedLabel: string;
+  replyExcerpt?: { checked: boolean; onChange: (checked: boolean) => void };
   onToggle: () => void;
   renderMessage: (message: Message) => ReactNode;
 }) {
@@ -228,6 +249,22 @@ function MessageBatchGroup({
         >
           <span />
         </button>
+      ) : null}
+      {replyExcerpt ? (
+        <div className="weq-message-batch-reply-excerpt">
+          <span aria-hidden>无法跳转时附上引用摘录</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={replyExcerpt.checked && checked}
+            aria-label="无法跳转时附上引用摘录"
+            className={`switch-control${replyExcerpt.checked && checked ? ' on' : ''}`}
+            disabled={!checked}
+            onClick={() => replyExcerpt.onChange(!replyExcerpt.checked)}
+          >
+            <span />
+          </button>
+        </div>
       ) : null}
     </div>
   );

@@ -18,12 +18,25 @@ import {
 } from '../state/backgroundTasks';
 import { singleChatFile } from '../lib/chatFileForward';
 import type { BackgroundTaskScope } from '../../../shared/background_task';
+import {
+  sequentialReplyTargets,
+  type ForwardChatKind,
+  type ForwardReceipt,
+} from '../lib/sequentialForwardReply';
+
+export type SequentialForwardSend = (
+  message: Message,
+  target: MfTarget,
+  signal: AbortSignal,
+  quotedReceipt?: ForwardReceipt,
+) => Promise<ForwardReceipt | undefined> | Promise<void>;
 
 /** 各目标独立并行，目标内等待逐条回执；生命周期独立于已关闭的配置弹窗。 */
 export function startSequentialForward({
   messages,
   targets,
   options,
+  sourceKind,
   onSend,
   onOpenTarget,
   scope,
@@ -31,7 +44,8 @@ export function startSequentialForward({
   messages: readonly Message[];
   targets: readonly MfTarget[];
   options: ForwardOptions;
-  onSend: (message: Message, target: MfTarget, signal: AbortSignal) => Promise<void>;
+  sourceKind?: ForwardChatKind;
+  onSend: SequentialForwardSend;
   onOpenTarget: (target: MfTarget) => void;
   scope: BackgroundTaskScope;
 }): { controller: AbortController; done: Promise<void> } {
@@ -43,6 +57,8 @@ export function startSequentialForward({
   const toast = useToast.getState();
   const wait = estimateForwardDuration(messages.map(forwardMessageContent), options, 1);
   const configuredWaitMs = (wait.minMs + wait.maxMs) / 2;
+  const replyTargets = sequentialReplyTargets(messages, sourceKind);
+  const quotedIds = new Set(replyTargets.values());
   const run = async (target: MfTarget) => {
     const local = new AbortController();
     const abort = () => local.abort();
@@ -54,6 +70,7 @@ export function startSequentialForward({
     let lastError = '';
     const failures: string[] = [];
     const receipts = new Map<number, string>();
+    const sentForReplies = new Map<string, ForwardReceipt>();
     const receiptDetails = () => [
       ...[...receipts].map(([index, state]) => `第 ${index + 1} 条：${state}`),
       ...(receipts.size < messages.length
@@ -118,7 +135,14 @@ export function startSequentialForward({
         send: async (message) => {
           const start = Date.now();
           try {
-            await onSend(message, target, local.signal);
+            const quotedId = replyTargets.get(message.id);
+            const receipt = await onSend(
+              message,
+              target,
+              local.signal,
+              quotedId ? sentForReplies.get(quotedId) : undefined,
+            );
+            if (receipt && quotedIds.has(message.id)) sentForReplies.set(message.id, receipt);
           } catch (error) {
             lastError = error instanceof Error ? error.message : String(error);
             throw error;

@@ -128,6 +128,16 @@ import { useStableCallback } from '../hooks/useStableCallback';
 import { useMessageBatchReview } from '../hooks/useMessageBatchReview';
 import { MessageBatchActionDialog } from '../components/MessageBatchActionDialog';
 import type { MessageBatchDecision } from '../lib/messageBatchAction';
+import {
+  forwardReplyData,
+  forwardReplyLookup,
+  matchesForwardReply,
+  originalForwardReplyTarget,
+  resolveForwardReplyPrefix,
+  type ForwardChatKind,
+  type ForwardReceipt,
+  type ForwardReplyPrefix,
+} from '../lib/sequentialForwardReply';
 import { grayTipOf } from '../im-template/template/messageRow.shared';
 import { useMailNavigation } from '../hooks/useMailNavigation';
 import { useMobilePageSettled } from '../hooks/useMobilePageSettled';
@@ -3523,6 +3533,7 @@ function MainWorkspace(): ReactElement {
   const forwardReviewScopeRef = useRef(forwardReviewScope);
   forwardReviewScopeRef.current = forwardReviewScope;
   const forwardReview = useMessageBatchReview(forwardReviewScope);
+  const forwardReplyExcerpt = useRef(false);
   const [forwardReviewSource, setForwardReviewSource] = useState<Conversation>();
   const forwardPreparation = useRef(false);
   const deletedIdentities = useMemo(
@@ -7728,11 +7739,14 @@ function MainWorkspace(): ReactElement {
     account: string;
     configId?: string;
     messages: Message[];
+    sourceKind?: ForwardChatKind;
+    includeReplyExcerpt: boolean;
   } | null>(null);
   const openSequentialForward = useStableCallback(
     async (messages: Message[], conversation?: Conversation) => {
       if (forwardPreparation.current || forwardReview.review) return;
       forwardPreparation.current = true;
+      forwardReplyExcerpt.current = false;
       const scope = forwardReviewScopeRef.current;
       const prepared = new Map<string, NonNullable<Message['composerDraft']>>();
       const assessments = new Map<string, MessageBatchDecision>();
@@ -7767,6 +7781,13 @@ function MainWorkspace(): ReactElement {
         setForwardBatch({
           account: user.identityValue,
           configId,
+          sourceKind:
+            conversation?.type === 'group'
+              ? 'group'
+              : conversation?.type === 'direct'
+                ? 'c2c'
+                : undefined,
+          includeReplyExcerpt: forwardReplyExcerpt.current,
           messages: structuredClone(
             accepted.map((message) => {
               const draft = prepared.get(message.id);
@@ -7928,12 +7949,54 @@ function MainWorkspace(): ReactElement {
     return resolveMentionLabels(elements, people);
   }
 
+  async function resolveOriginalForwardReply(
+    message: Message,
+    kind: ForwardChatKind,
+    conv: string,
+    data: Record<string, unknown>,
+    expectedAccountUin: string,
+    expectedAccountConfigId: string | undefined,
+    isCurrent: () => boolean,
+  ) {
+    const lookup = forwardReplyLookup(kind, data);
+    let seq = lookup.index ? String(lookup.index) : null;
+    if (!seq && lookup.clientSeq && (lookup.senderUin || lookup.sendTime)) {
+      seq = await client.account.resolveReplySeq.query({
+        conv,
+        clientSeq: String(lookup.clientSeq),
+        senderUin: lookup.senderUin ? String(lookup.senderUin) : undefined,
+        sendTime: lookup.sendTime ? String(lookup.sendTime) : undefined,
+      });
+    }
+    if (!seq || !isCurrent()) return;
+    const { items } = await client.account.readSelectionRange.query({
+      kind,
+      conv,
+      startSeq: seq,
+      endSeq: seq,
+      limit: 2,
+      expectedAccountUin,
+      expectedAccountConfigId,
+    });
+    if (!isCurrent()) return;
+    const matches = items.filter(
+      (row) =>
+        row.msgId !== (message.msgId ?? message.id) &&
+        !row.deletedKind &&
+        !row.recall &&
+        !grayTipOf(row) &&
+        matchesForwardReply(kind, data, row),
+    );
+    if (matches.length === 1) return originalForwardReplyTarget(kind, matches[0]!);
+  }
+
   async function forwardMessage(
     message: Message,
     target: MfTarget,
     signal: AbortSignal,
     account = forwardBatch?.account,
     expectedAccountConfigId?: string,
+    reply?: { receipt?: ForwardReceipt; includeExcerpt: boolean; sourceKind?: ForwardChatKind },
   ) {
     const scope = messageScopeRef.current;
     const isCurrent = () =>
@@ -7946,18 +8009,7 @@ function MainWorkspace(): ReactElement {
     const destination = conversations.find((item) => item.id === target.id);
     if (!destination || destination.type === 'merged') throw new Error('目标会话已不存在');
     const draft = failedForwardDraft(message);
-    if (draft) {
-      await sendMessage(
-        draft.body,
-        draft.locals,
-        undefined,
-        destination,
-        isCurrent,
-        expectedAccountConfigId,
-      );
-      return;
-    }
-    const file = singleChatFile(message);
+    const file = draft ? undefined : singleChatFile(message);
     if (file) {
       const peer = sendTargetOf(destination);
       if (!peer || peer.tempGroupCode) throw new Error('此会话暂不支持转发文件');
@@ -8007,17 +8059,54 @@ function MainWorkspace(): ReactElement {
         const keys = expectedKeysOf({ peerType: peer.peerType, ...sent.file, ok: true });
         if (keys.seqRejected) throw new Error('QQ 未分配消息序号，文件转发结果未确认');
         patch({ state: 'sent', fileSync: { fileId: sent.file.fileId, existingMsgIds }, ...keys });
+        return sent.file;
       } catch (error) {
         patch({ state: 'failed', error: composerSendError(error) });
         throw error;
       }
-      return;
     }
-    // 引用指针属于来源会话，不能指向目标会话中同序号的另一条消息。
+    const quote = reply && forwardReplyData(message);
+    const kind = destination.type === 'group' ? 'group' : 'c2c';
+    const prefix =
+      quote && reply && account
+        ? await resolveForwardReplyPrefix({
+            data: quote,
+            kind,
+            uin: account,
+            receipt: reply.receipt,
+            includeExcerpt: reply.includeExcerpt,
+            original:
+              !message.forwardSnapshot &&
+              message.conversationId === destination.id &&
+              reply.sourceKind === kind
+                ? () =>
+                    resolveOriginalForwardReply(
+                      message,
+                      kind,
+                      destination.id,
+                      quote,
+                      account,
+                      expectedAccountConfigId,
+                      isCurrent,
+                    ).catch(() => undefined)
+                : undefined,
+          })
+        : undefined;
+    if (draft)
+      return sendMessage(
+        draft.body,
+        draft.locals,
+        undefined,
+        destination,
+        isCurrent,
+        expectedAccountConfigId,
+        undefined,
+        prefix,
+      );
     const source = (
       (message as Message & { qqElements?: RepeatElement[] }).qqElements ?? []
     ).filter((element) => element.type !== 'reply');
-    await sendMessage(
+    return sendMessage(
       messageBody(source),
       undefined,
       {
@@ -8027,6 +8116,8 @@ function MainWorkspace(): ReactElement {
       destination,
       isCurrent,
       expectedAccountConfigId,
+      undefined,
+      prefix,
     );
   }
 
@@ -8268,7 +8359,8 @@ function MainWorkspace(): ReactElement {
     isCurrent = () => repeatContext.current === selectedConversation?.id,
     expectedAccountConfigId = pinSession.binding?.expectedAccountConfigId,
     submission?: FontAwareSubmission,
-  ): Promise<void> {
+    forwardPrefix?: ForwardReplyPrefix,
+  ): Promise<ForwardReceipt | undefined> {
     if (!isCurrent()) throw new Error('账号或会话已切换，未发送');
     const conversation = destination ?? selectedConversation;
     const pushToast = sourceToastPush(conversationNotificationSource(conversation));
@@ -8303,10 +8395,12 @@ function MainWorkspace(): ReactElement {
     const optimisticId = submission?.id ?? `optimistic-${mfId('msg')}`;
     let preparedChatFont = submission?.preparedChatFont;
     if (submission) submission.started = true;
-    if (!submission) {
-      const render = repeated
+    const render = submission
+      ? undefined
+      : repeated
         ? { body, elements: repeated.elements }
         : buildOptimisticRender({ body, locals: locals ?? [], superStickers: new Map() });
+    if (render) {
       mediaSend = outgoingMediaSend(
         render.elements,
         { name: conversationRowName(conversation), type: conversation.type },
@@ -8364,6 +8458,8 @@ function MainWorkspace(): ReactElement {
       hint?: string;
       groupSequence?: number;
       privateSequence?: number;
+      clientSequence?: number;
+      timestamp?: number;
       random?: number;
       fileHash?: string;
       fileName?: string;
@@ -8383,6 +8479,11 @@ function MainWorkspace(): ReactElement {
           ? await repeated.plan()
           : repeated.plan
         : buildComposerSendPlan({ body, locals: locals ?? [], superStickers });
+      if (forwardPrefix && render && plan.kind === 'elements') {
+        plan = { ...plan, elements: [forwardPrefix.element, ...plan.elements] };
+        const elements = [forwardPrefix.preview, ...render.elements];
+        patchOptimistic({ elements, body: messageBody(elements) });
+      }
       if (
         plan.kind === 'file' ||
         (plan.kind === 'elements' &&
@@ -8553,7 +8654,7 @@ function MainWorkspace(): ReactElement {
         }),
         state: 'sent',
       });
-      return;
+      return outcome;
     }
     if (plan.kind === 'aiVoice' || plan.kind === 'flashTransfer') {
       // AI 声聊回执提供音频哈希，QQ 的正式语音元素也携带该文件标识。
@@ -8605,6 +8706,7 @@ function MainWorkspace(): ReactElement {
         });
       throw new Error('服务端未分配消息序号，未确认发送成功');
     }
+    return outcome;
   }
 
   /** 发起通话。群聊先选择邀请对象。 */
@@ -12204,15 +12306,15 @@ function MainWorkspace(): ReactElement {
             onClose={compositionWindow.close}
             onForward={forwardMergeDraft}
             onOpenTarget={openForwardTarget}
-            onSend={(message, target, signal, binding) =>
-              forwardMessage(
+            onSend={async (message, target, signal, binding) => {
+              await forwardMessage(
                 message,
                 target,
                 signal,
                 user.identityValue,
                 binding.expectedAccountConfigId,
-              )
-            }
+              );
+            }}
           />
           {floatingPreview ? conversationPreviewContent : null}
           {specialPreview && messageBindingRef.current ? (
@@ -12269,7 +12371,10 @@ function MainWorkspace(): ReactElement {
               renderers={messageRenderers}
               deleted={(message) => deletedIdentities.has(deletionIdentity(message.id))}
               onClose={() => forwardReview.finish(null)}
-              onContinue={forwardReview.finish}
+              onContinue={(messages, includeReplyExcerpt) => {
+                forwardReplyExcerpt.current = includeReplyExcerpt;
+                forwardReview.finish(messages);
+              }}
             />
           ) : null}
           {forwardBatch &&
@@ -12279,8 +12384,20 @@ function MainWorkspace(): ReactElement {
               messages={forwardBatch.messages}
               user={user}
               targets={mergeForwardTargets}
-              onSend={(message, target, signal) =>
-                forwardMessage(message, target, signal, forwardBatch.account, forwardBatch.configId)
+              sourceKind={forwardBatch.sourceKind}
+              onSend={(message, target, signal, receipt) =>
+                forwardMessage(
+                  message,
+                  target,
+                  signal,
+                  forwardBatch.account,
+                  forwardBatch.configId,
+                  {
+                    receipt,
+                    includeExcerpt: forwardBatch.includeReplyExcerpt,
+                    sourceKind: forwardBatch.sourceKind,
+                  },
+                )
               }
               onOpenTarget={openForwardTarget}
               onClose={() => setForwardBatch(null)}
