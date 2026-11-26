@@ -7,6 +7,7 @@
  *   3. 开关摄像头发的是**同一条**空体控制包（连发两次）。
  */
 
+import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
   CallSession,
@@ -46,6 +47,7 @@ import {
   buildVideoSubHeader,
   parseGcsPacket,
   pbGetBytes,
+  pbGetVarint,
   parseVideoPacket,
   pbBytes,
   pbVarint,
@@ -464,6 +466,44 @@ describe('视频通话信令', () => {
     await ctx.session.start();
     expect(ctx.signaling.startedWith).toEqual([expect.objectContaining({ media: 'audio' })]);
   });
+
+  it.each(['audio', 'video'] as const)(
+    '%s 会话发送 QQ 样本中的入房、中继和状态能力声明',
+    async (media) => {
+      const ctx = makeSession({
+        media,
+        servers: [
+          { ip: '192.0.2.1', port: 8000, type: 1 },
+          { ip: '192.0.2.2', port: 8800, type: 2 },
+        ],
+      });
+      await connect(ctx);
+      const authPackets = ctx.transport.sent
+        .map(({ data }) => parseGcsPacket(data))
+        .filter((packet) => packet?.bodyType === GcsBodyType.authReq);
+      expect(authPackets).toHaveLength(2);
+      for (const packet of authPackets) {
+        const body = packet!.body;
+        expect(body).toHaveLength(618);
+        // 两通官方 QQ 的完整能力 body 一致，摘要覆盖内层编码条目与所有顶层字段。
+        expect(createHash('sha256').update(body).digest('hex')).toBe(
+          '0a45eaa387873c187e7f39a43ea4b887ce45eff87156c1734b2567b829b882d2',
+        );
+      }
+
+      const relay = ctx.transport.sent.find(({ data }) => data[0] === RELAY_STX);
+      expect(relay).toBeDefined();
+      expect(Array.from(relay!.data.subarray(53, 57))).toEqual([0x02, 0x0f, 0x27, 0x51]);
+
+      await ctx.timers.advanceAsync(2000);
+      const status = ctx.transport.sent
+        .map(({ data }) => parseGcsPacket(data))
+        .find((packet) => packet?.bodyType === GcsBodyType.statusReport);
+      expect(status).toBeDefined();
+      expect(pbGetVarint(status!.body, 120)).toBe(2566957248);
+      expect(pbGetVarint(status!.body, 120)).toBe(pbGetVarint(authPackets[0]!.body, 11));
+    },
+  );
 });
 
 describe('接收视频', () => {
