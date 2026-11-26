@@ -349,6 +349,7 @@ export function createAccountImagePort(expectedAccount: object): AiImagePort {
       current();
       return prepared;
     },
+    canSendDirect: (feature, endpoint) => current().canSendDirect(feature, endpoint),
     revision: (feature) => current().revision(feature),
   };
 }

@@ -45,14 +45,19 @@ import {
   ApiHttpError,
   isApiCancellation,
   apiErrorMessage,
+  apiErrorExcerpt,
   pickMessageText,
   imageOutcomeAnnotation,
+  imageRequestContent,
+  directImageBudget,
+  isImageInputRejected,
   ConversationContextCompactor,
   estimateContextTokens,
   type AgentLabEndpoint,
   type AgentLabModelSelection,
   normalizeModelSelection,
   type AgentLabUsage,
+  type AiContentPart,
 } from '@weq/agentlab';
 import type { TokenUsageStore } from './agentlab_usage';
 import type { ConversationStore, ConversationTurn } from './agentlab_conversation';
@@ -428,8 +433,10 @@ interface AssistantAttachment {
 function assistantImageContent(text: string, outcomes: AiImageOutcome[], ids: string[]): string {
   return [
     text,
-    ...outcomes.map((outcome, index) =>
-      imageOutcomeAnnotation({ ...outcome, id: ids[index] ?? outcome.id }),
+    ...outcomes.flatMap((outcome, index) =>
+      outcome.status === 'direct'
+        ? []
+        : [imageOutcomeAnnotation({ ...outcome, id: ids[index] ?? outcome.id })],
     ),
   ]
     .filter(Boolean)
@@ -1580,12 +1587,14 @@ export class AssistantService {
       );
       const toolTokens = estimateContextTokens(JSON.stringify(specs));
       const preparedImages = new WeakMap<ApiMessage, string>();
+      const directImages = new WeakMap<ApiMessage, string | AiContentPart[]>();
       const attachmentIds = new WeakMap<ApiMessage, string[]>();
       const imageToolResults = new Map<
         string,
         Awaited<ReturnType<AssistantService['analyzeAttachedImage']>>
       >();
       let nextImageId = 0;
+      let allowDirectImages = true;
       for (let loop = 0; loop < TOOL_LOOP_LIMIT; loop += 1) {
         throwIfAborted(ac.signal);
         this.consumeSupplements(sessionId, state);
@@ -1600,6 +1609,7 @@ export class AssistantService {
         );
         const prefix = state.partialText ?? '';
         const sourceMessages = this.buildRoundMessages(state, capabilityGuidance);
+        const latestUser = sourceMessages.findLast((message) => message.role === 'user');
         if (prefix) {
           sourceMessages.push(
             { role: 'assistant', content: prefix },
@@ -1612,6 +1622,7 @@ export class AssistantService {
         }
         const roundMessages: ApiMessage[] = [];
         const attachments = new Map<string, AssistantAttachment>();
+        let sentDirectImages = false;
         for (const message of sourceMessages) {
           const {
             images: refs,
@@ -1631,7 +1642,9 @@ export class AssistantService {
             attachmentIds.set(message, ids);
           }
           let content = preparedImages.get(message);
-          if (content === undefined) {
+          let directContent =
+            allowDirectImages && message === latestUser ? directImages.get(message) : undefined;
+          if (content === undefined && !directContent) {
             if (
               outcomes?.length === refs.length &&
               outcomes.every(
@@ -1646,20 +1659,35 @@ export class AssistantService {
                 feature: 'assistant',
                 text,
                 images: refs,
+                ...(allowDirectImages && message === latestUser
+                  ? { endpoint, direct: true, directBudget: directImageBudget() }
+                  : {}),
                 signal: ac.signal,
               });
               content = assistantImageContent(text, prepared.outcomes, ids);
-              this.rememberImageOutcomes(sessionId, state.taskId, message, prepared.outcomes);
+              if (prepared.directImages?.length) {
+                directContent = imageRequestContent(
+                  content,
+                  prepared.directImages.map((image) => ({
+                    ...image,
+                    id: ids[refs.findIndex((ref) => ref.id === image.id)] ?? image.id,
+                  })),
+                );
+                directImages.set(message, directContent);
+              } else {
+                this.rememberImageOutcomes(sessionId, state.taskId, message, prepared.outcomes);
+              }
               const report = prepared.outcomes.flatMap((outcome) => outcome.notes).join('\n');
               if (report && message.imageReport !== report)
                 record({ kind: 'thinking', text: report });
               message.imageReport = report;
             }
-            preparedImages.set(message, content);
+            if (!directContent) preparedImages.set(message, content);
           }
           for (const [index, image] of refs.entries())
             attachments.set(ids[index]!, { image, message, ids });
-          roundMessages.push({ ...plain, content });
+          sentDirectImages ||= Boolean(directContent);
+          roundMessages.push({ ...plain, content: directContent ?? content });
         }
         // 最后一轮强制关闭工具，逼模型给出文字结论，避免"用尽轮数"硬中断。
         const allowTools = specs.length > 0 && loop < TOOL_LOOP_LIMIT - 1;
@@ -1669,19 +1697,33 @@ export class AssistantService {
         if (mailbox) mailbox.request = requestController;
         const requestSignal = AbortSignal.any([ac.signal, requestController.signal]);
         let response: Awaited<ReturnType<AssistantService['callApiStream']>>;
+        let streamed = false;
         try {
           response = await this.callApiStream(
             endpoint,
             roundMessages,
             allowTools ? roundSpecs : [],
             (step) => {
-              if (!requestSignal.aborted) emit(step);
+              if (requestSignal.aborted) return;
+              if (step.kind === 'text_delta' || step.kind === 'reasoning_delta') streamed = true;
+              emit(step);
             },
             requestSignal,
           );
         } catch (error) {
           ac.signal.throwIfAborted();
           if (requestController.signal.aborted && this.consumeSupplements(sessionId, state)) {
+            loop--;
+            continue;
+          }
+          if (
+            sentDirectImages &&
+            !requestSignal.aborted &&
+            !streamed &&
+            isImageInputRejected(error)
+          ) {
+            allowDirectImages = false;
+            record({ kind: 'thinking', text: '模型未接受随请求发送的图片，改用图片解读后继续。' });
             loop--;
             continue;
           }
@@ -2583,8 +2625,10 @@ export class AssistantService {
     };
     const res = await requestResponse(withReasoning);
     if (!res.ok || !res.body) {
-      const detail = await rejectResponse(res);
-      throw new Error(httpErrorMessage(res.status, detail));
+      const detail = apiErrorExcerpt(await rejectResponse(res));
+      throw new Error(httpErrorMessage(res.status, detail), {
+        cause: new ApiHttpError('/chat/completions', res.status, detail),
+      });
     }
 
     let content = '';

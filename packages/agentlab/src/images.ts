@@ -1,5 +1,5 @@
 import type { AgentLabEndpoint } from './types';
-import { requestApiJson } from './api_usage';
+import { ApiHttpError, requestApiJson } from './api_usage';
 import { pickMessageText } from './http';
 import { requestChatCompletionStream } from './extract_stream';
 import { ImageRecognitionRequests } from './image_requests';
@@ -37,6 +37,59 @@ export interface AiImageRef {
 export type AiContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string } };
+export interface AiDirectImage {
+  id: string;
+  url: string;
+}
+
+export function directImageBudget() {
+  let count = 0;
+  let size = 0;
+  return (url: string) => {
+    // 限制整次请求中原图的数量和 Base64 体积，超出时仍可使用图片解读。
+    if (count >= 8 || size + url.length > 12 * 1024 * 1024) return false;
+    count++;
+    size += url.length;
+    return true;
+  };
+}
+
+export function imageRequestContent(text: string, images: readonly AiDirectImage[]) {
+  if (!images.length) return text;
+  return [
+    { type: 'text', text },
+    ...images.flatMap<AiContentPart>(({ id, url }) => [
+      { type: 'text', text: `[图片 ${id}]` },
+      { type: 'image_url', image_url: { url } },
+    ]),
+  ] satisfies AiContentPart[];
+}
+
+export function isImageInputRejected(error: unknown): boolean {
+  const http = error instanceof ApiHttpError ? error : error instanceof Error ? error.cause : null;
+  if (http instanceof ApiHttpError && http.status === 413) return true;
+  const detail =
+    http instanceof ApiHttpError && [400, 415, 422, 501].includes(http.status)
+      ? http.detail
+      : error instanceof Error && error.message.startsWith('模型服务错误：')
+        ? error.message
+        : '';
+  return (
+    (/(?:image|vision|multimodal|图片|图像|视觉|多模态)/i.test(detail) &&
+      /unsupported|not support|invalid|too (?:large|many)|limit|exceed|must|不支持|无效|超过|过大|上限/i.test(
+        detail,
+      )) ||
+    /content.{0,80}(?:expected|must be|should be)(?: a)? string/i.test(detail)
+  );
+}
+
+function sameImageEndpoint(vision: AgentLabEndpoint, chat: AgentLabEndpoint): boolean {
+  return (
+    vision.model === chat.model &&
+    vision.baseUrl.replace(/\/+$/, '') === chat.baseUrl.replace(/\/+$/, '') &&
+    vision.apiKey === chat.apiKey
+  );
+}
 export interface AiImageOutcome {
   id: string;
   mode: AiImageMode;
@@ -48,6 +101,7 @@ export interface AiPreparedInput {
   images?: AiImageRef[];
   text: string;
   content: string | AiContentPart[];
+  directImages?: AiDirectImage[];
   outcomes: AiImageOutcome[];
 }
 export interface AiImageProgress {
@@ -64,6 +118,8 @@ export interface AiImagePort {
     images?: AiImageRef[];
     endpoint?: AgentLabEndpoint;
     direct?: boolean;
+    directBudget?: ReturnType<typeof directImageBudget>;
+    preferCached?: boolean;
     signal?: AbortSignal;
     forceOcr?: boolean;
     refresh?: boolean;
@@ -71,6 +127,7 @@ export interface AiImagePort {
     onProgress?(progress: AiImageProgress): void;
     onOutput?: AgentLabEndpoint['onOutput'];
   }): Promise<AiPreparedInput>;
+  canSendDirect?(feature: AiImageFeature, endpoint: AgentLabEndpoint): boolean;
   revision?(feature?: AiImageFeature): string;
 }
 export function normalizeImagePreferences(value: unknown): AiImagePreferences {
@@ -163,6 +220,16 @@ export class AiImageProcessor implements AiImagePort {
   revision(feature?: AiImageFeature) {
     return this.deps.revision?.(feature) ?? '';
   }
+  canSendDirect(feature: AiImageFeature, endpoint: AgentLabEndpoint): boolean {
+    if (this.deps.mode(feature) !== 'vision') return false;
+    try {
+      const vision = this.deps.vision({ feature });
+      return vision !== null && sameImageEndpoint(vision, endpoint);
+    } catch {
+      // 配置不可用时交给 prepare 按现有流程回退 OCR。
+      return false;
+    }
+  }
   async prepare(input: Parameters<AiImagePort['prepare']>[0]): Promise<AiPreparedInput> {
     input.signal?.throwIfAborted();
     if (this.active >= 4) {
@@ -192,7 +259,7 @@ export class AiImageProcessor implements AiImagePort {
   private async run(input: Parameters<AiImagePort['prepare']>[0]): Promise<AiPreparedInput> {
     const images = (input.images ?? []).map((image) => ({ ...image }));
     const outcomes: AiImageOutcome[] = [];
-    const parts: AiContentPart[] = [{ type: 'text', text: input.text }];
+    const directImages: AiDirectImage[] = [];
     const annotations: string[] = [];
     const mode = input.forceOcr ? 'ocr' : this.deps.mode(input.feature);
     for (const image of images) {
@@ -231,20 +298,6 @@ export class AiImageProcessor implements AiImagePort {
           report('load', '正在读取图片（必要时下载）');
           const loaded = await this.deps.load(image, input.signal);
           input.signal?.throwIfAborted();
-          const same =
-            input.endpoint &&
-            endpoint.model === input.endpoint.model &&
-            endpoint.baseUrl.replace(/\/+$/, '') === input.endpoint.baseUrl.replace(/\/+$/, '') &&
-            endpoint.apiKey === input.endpoint.apiKey;
-          if (same && input.direct && !input.refresh && !input.question?.trim()) {
-            parts.push(
-              { type: 'text', text: `[图片 ${image.id}]` },
-              { type: 'image_url', image_url: { url: loaded.dataUrl } },
-            );
-            outcome.status = 'direct';
-            complete();
-            continue;
-          }
           // 通用描述不含用户问题，问题相关答案不得污染内容缓存。
           const question = input.question?.trim();
           const key = JSON.stringify([
@@ -254,6 +307,32 @@ export class AiImageProcessor implements AiImagePort {
             ...(question ? [question] : []),
           ]);
           report('cache', '正在检查图片解读缓存');
+          const canSendDirect =
+            input.direct &&
+            input.endpoint &&
+            sameImageEndpoint(endpoint, input.endpoint) &&
+            !input.refresh &&
+            !question;
+          if (canSendDirect) {
+            const cached = input.preferCached
+              ? (this.descriptions.get(key) ?? (await this.deps.cached?.(key).catch(() => null)))
+              : null;
+            input.signal?.throwIfAborted();
+            if (cached) {
+              report('cache', '已命中图片解读缓存，无需请求视觉模型');
+              outcome.status = 'read';
+              outcome.text = cached;
+              annotations.push(imageOutcomeAnnotation(outcome));
+              complete();
+              continue;
+            }
+            if (input.directBudget?.(loaded.dataUrl) ?? true) {
+              directImages.push({ id: image.id, url: loaded.dataUrl });
+              outcome.status = 'direct';
+              complete();
+              continue;
+            }
+          }
           if (!input.refresh && this.requests.has(key)) report('vision', '正在等待同图分析');
           const output = input.onOutput ?? endpoint.onOutput;
           const description = await this.requests.run(
@@ -327,7 +406,12 @@ export class AiImageProcessor implements AiImagePort {
       complete();
     }
     const text = [input.text, ...annotations].filter(Boolean).join('\n');
-    parts[0] = { type: 'text', text };
-    return { text, content: parts.length > 1 ? parts : text, outcomes, images };
+    return {
+      text,
+      content: imageRequestContent(text, directImages),
+      ...(directImages.length ? { directImages } : {}),
+      outcomes,
+      images,
+    };
   }
 }
