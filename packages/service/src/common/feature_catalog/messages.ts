@@ -169,13 +169,7 @@ export const MESSAGE_FEATURES = [
   messageFeature('send', '发送消息', '从输入区发送文本、媒体、文件和适用的卡片。', {
     context: ['account', 'conversation'],
     navigation: 'context',
-    tools: [
-      'send_text_message',
-      'send_media_message',
-      'send_file_message',
-      'send_rich_message',
-      'send_tuwen_ark',
-    ],
+    tools: ['send_text_message', 'send_media_message', 'send_file_message', 'send_rich_message'],
     docs: ['guide/chat-view.md'],
   }),
   messageFeature('voice.transcribe', '语音转文字', '从语音消息查看已有文字或发起转写。', {

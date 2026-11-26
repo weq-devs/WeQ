@@ -12,6 +12,7 @@
  */
 import { setTimeout as delay } from 'node:timers/promises';
 import { CONVERSATION_RECORD_TYPES, MESSAGE_CATEGORIES, OperationError } from '@weq/service';
+import { qqActionUnavailable } from '../../../shared/qq_action_availability';
 import { MsgType } from '@weq/codec/proto/msg/40900';
 
 import { z } from 'zod/v3';
@@ -7541,6 +7542,8 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      const unavailable = qqActionUnavailable.sendTuwenArk;
+      if (unavailable) throw new OperationError(unavailable, 'expected');
       requireQqOnlineForAlbum();
       const targetId = Number(input.targetId);
       if (!Number.isSafeInteger(targetId) || targetId <= 0) {
@@ -7614,6 +7617,8 @@ export const accountRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
+      const unavailable = qqActionUnavailable.sendGroupSignup;
+      if (unavailable) throw new OperationError(unavailable, 'expected');
       requireQqOnlineForAlbum();
       const result = await requireServices().interaction.sendGroupSignup({
         groupCode: input.groupCode,

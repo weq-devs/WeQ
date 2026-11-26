@@ -21,7 +21,6 @@ export const MCP_WRITE_TOOLS: ReadonlySet<string> = new Set([
   'send_text_message',
   'send_poke',
   'set_message_reaction',
-  'send_group_signup',
 ]);
 
 const READ_ONLY_TOOLS = new Set([

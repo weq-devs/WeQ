@@ -22,6 +22,7 @@ import { fullModeAllowed } from '../../context/full_mode';
 import { resolveResource } from '../../resource';
 import { procedure, router } from '../trpc';
 import { PROJECT_GROUP_IDS } from '../../../shared/project_groups';
+import { qqActionUnavailable } from '../../../shared/qq_action_availability';
 import { bundleFeedbackFiles } from './help';
 
 const logger = getLogger().child({ scope: 'group-feedback' });
@@ -240,6 +241,8 @@ export const groupFeedbackRouter = router({
       }): Promise<
         { ok: true } | { ok: false; reason: 'offline' | 'offline-mode' | 'send'; message: string }
       > => {
+        const unavailable = qqActionUnavailable.sendTuwenArk;
+        if (unavailable) return { ok: false, reason: 'send', message: unavailable };
         if (!PROJECT_GROUP_IDS.includes(input.groupId)) {
           return { ok: false, reason: 'send', message: '该群不在项目交流群列表中' };
         }

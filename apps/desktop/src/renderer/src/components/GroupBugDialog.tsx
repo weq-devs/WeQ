@@ -9,6 +9,7 @@
  */
 
 import { NumericText } from './NumericText';
+import { qqActionUnavailable } from '../../../shared/qq_action_availability';
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import {
   Bug,
@@ -500,12 +501,13 @@ export function GroupBugDialog({
             <div className="weq-group-bug-send-row">
               <p className="weq-group-bug-hint">
                 <Github size={12} aria-hidden />
-                以图文卡片形式发到群里，点击即可打开对应页面。
+                {qqActionUnavailable.sendTuwenArk ??
+                  '以图文卡片形式发到群里，点击即可打开对应页面。'}
               </p>
               <button
                 type="button"
                 className="weq-group-bug-btn weq-group-bug-btn-primary"
-                disabled={submittingArk}
+                disabled={submittingArk || Boolean(qqActionUnavailable.sendTuwenArk)}
                 onClick={() => void submitIssueArk()}
               >
                 {submittingArk ? (

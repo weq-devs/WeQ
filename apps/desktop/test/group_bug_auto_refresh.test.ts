@@ -104,6 +104,11 @@ it('进入已有事项自动加载，前台更新保留选择，读取失败保�
   expect(rpc.list).not.toHaveBeenCalled();
   await act(async () => host.querySelectorAll<HTMLButtonElement>('[role="tab"]')[1]!.click());
   expect(rpc.list).toHaveBeenCalledTimes(1);
+  const arkSendButton = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent?.trim() === '发送到群聊',
+  );
+  expect(arkSendButton?.disabled).toBe(true);
+  await act(async () => arkSendButton?.click());
   const picker = () => host.querySelector<HTMLSelectElement>('[aria-label="选择 issue/PR"]')!;
   act(() => {
     picker().value = '2';

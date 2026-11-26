@@ -43,6 +43,7 @@ import {
   X,
 } from 'lucide-react';
 import { cn } from './classNames';
+import { qqActionUnavailable } from '../../../../shared/qq_action_availability';
 import { QqArk } from '../../components/ark/QqArk';
 import {
   ARK_JSON_TEMPLATE,
@@ -678,7 +679,11 @@ export function ArkPanel({
       {/* 没有标题栏：一行 tab 就是全部头部（图标 + 两三个字的标签），关闭按钮贴在行尾。
           面板本来就不高，少一行就少 38px，也少一堆字。 */}
       <nav className={cn('ark-tabs')} role="tablist">
-        {ARK_TABS.filter((item) => item.id !== 'miniApp' || onPrepareMiniApp).map((item) => {
+        {ARK_TABS.filter(({ id }) => {
+          if (id === 'signup') return !qqActionUnavailable.sendGroupSignup;
+          if (id === 'tuwen') return !qqActionUnavailable.sendTuwenArk;
+          return id !== 'miniApp' || onPrepareMiniApp;
+        }).map((item) => {
           const Icon = item.icon;
           return (
             <button

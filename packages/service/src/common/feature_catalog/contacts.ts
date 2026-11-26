@@ -102,9 +102,7 @@ export const CONTACT_GROUP_FEATURES = [
     tools: ['get_group_essence'],
     docs: ['guide/album-qzone.md#feature-groups.essence'],
   }),
-  group('sign', '群打卡', '在群聊侧栏打开原有打卡入口。', {
-    tools: ['send_group_signup'],
-  }),
+  group('sign', '群打卡', '在群聊侧栏打开原有打卡入口。'),
   group('files', '群文件', '在绑定当前群的资源窗口浏览文件夹与文件。', {
     aliases: ['群共享文件', '群文件夹'],
     navigation: 'search',

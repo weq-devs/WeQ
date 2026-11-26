@@ -1177,20 +1177,17 @@ describe('主动操作的账号与参数边界', () => {
 });
 
 describe('在线管理员权限', () => {
-  it('只允许群主给当前管理员修改逐项权限，目标号码由服务端解析', async () => {
+  it('群主也无法提交暂不可用的管理员逐项权限修改', async () => {
     const f = fixture();
-    const targetUid = 'u_test';
-    await expect(
-      f.caller.setGroupAdminPermissions({ ...group, targetUid, recallMemberMessage: false }),
-    ).rejects.toThrow('群主');
-    expect(f.s.groupModeration.setAdminPermissions).not.toHaveBeenCalled();
     f.s.groupInfo.operationContext.mockResolvedValue({ role: 'owner', targetRole: 'admin' });
     await expect(
-      f.caller.setGroupAdminPermissions({ ...group, targetUid, recallMemberMessage: false }),
-    ).resolves.toEqual({ state: 'accepted' });
-    expect(f.s.groupModeration.setAdminPermissions).toHaveBeenCalledWith(123, 10002, targetUid, {
-      recallMemberMessage: false,
-    });
+      f.caller.setGroupAdminPermissions({
+        ...group,
+        targetUid: 'u_test',
+        recallMemberMessage: false,
+      }),
+    ).rejects.toThrow('QQ 暂不支持');
+    expect(f.s.groupModeration.setAdminPermissions).not.toHaveBeenCalled();
   });
   it('权限页查询返回本人逐项限制，单成员收取验证另行修改', async () => {
     const f = fixture();

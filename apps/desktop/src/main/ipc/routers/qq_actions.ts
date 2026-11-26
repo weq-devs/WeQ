@@ -15,6 +15,7 @@ import { isIncomingPendingBuddyRequest } from '@weq/service/buddy-request';
 import {
   FAVORITE_EMOJI_MAX_ARCHIVE_BYTES,
   FAVORITE_EMOJI_MAX_ITEMS,
+  OperationError,
   type PanelFavItem,
 } from '@weq/service';
 import type { AccountServices } from '../../context/app_context';
@@ -35,6 +36,7 @@ import { readFavoriteEmojiMedia } from './favorite_emoji_media';
 import { runResumableExport } from '../../resumable_exports';
 import { groupNoticeSequenceId, type NoticeOperationWire } from '../../../shared/contact_notices';
 import { sameGroupTags } from '../../../shared/group_tags';
+import { qqActionUnavailable } from '../../../shared/qq_action_availability';
 import { albumMediaDeleteAllowed, qqResourceOwnedBy } from '@weq/service/qq-permissions';
 
 const binding = z.object({
@@ -797,8 +799,10 @@ export function createQQActionsRouter(
           kickMemberPerDay: z.number().int().min(0).max(200).optional(),
         }),
       )
-      .mutation(({ input: i }) =>
-        write(i, async (s, current) => {
+      .mutation(({ input: i }) => {
+        const unavailable = qqActionUnavailable.setGroupAdminPermissions;
+        if (unavailable) throw new OperationError(unavailable, 'expected');
+        return write(i, async (s, current) => {
           const userId = await adminTarget(s, i.groupId, i.targetUid);
           const before = await s.groupInfo.adminPermissions(i.groupId, userId);
           current();
@@ -814,8 +818,8 @@ export function createQQActionsRouter(
             ...(i.kickMember === undefined ? {} : { kickMember: i.kickMember }),
             ...(i.kickMemberPerDay === undefined ? {} : { kickMemberPerDay: i.kickMemberPerDay }),
           });
-        }),
-      ),
+        });
+      }),
     groupAdminReceiveVerify: procedure
       .input(group.extend({ targetUid: uid }))
       .query(({ input: i }) =>
