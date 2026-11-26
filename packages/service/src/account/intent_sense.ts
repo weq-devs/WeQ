@@ -46,7 +46,9 @@ import { analyzePragmatics, calibrateIntentSense, type IntentContextTurn } from 
 import { getLogger, logErrorContext } from '../common/logger';
 import {
   buildSuggestionPrompt,
+  suggestionMediaReplyFilter,
   suggestionMentions,
+  suggestionSenderIsSelf,
   type SuggestionElement,
   type SuggestionMessage,
   type SuggestionPerson,
@@ -420,7 +422,7 @@ function fileSafe(key: string): string {
 type SenseElement = SuggestionElement;
 
 /** 消息 → 供分析的文本；图片与商城表情再由共用图片管线补全内容。 */
-function elementsToSenseText(elements: SenseElement[]): string {
+function elementsToSenseText(elements: SenseElement[], includeImageMarkers = true): string {
   const parts: string[] = [];
   for (const el of elements) {
     if (el.kind === 'text' || el.kind === 'at') {
@@ -429,9 +431,9 @@ function elementsToSenseText(elements: SenseElement[]): string {
     } else if (el.kind === 'face') {
       const t = String(el.faceText ?? '').trim();
       if (t) parts.push(t);
-    } else if (el.kind === 'pic') {
+    } else if (includeImageMarkers && el.kind === 'pic') {
       parts.push('[图片]');
-    } else if (el.kind === 'mface') {
+    } else if (includeImageMarkers && el.kind === 'mface') {
       parts.push('[表情包]');
     }
   }
@@ -676,7 +678,7 @@ export class IntentSenseService {
     {
       lastMsgId: string;
       at: number;
-      round: ReplySuggestionHistoryEntry;
+      round: ReplySuggestionHistoryEntry | null;
       trace?: ReplySuggestionTrace;
     }
   >();
@@ -1763,8 +1765,7 @@ export class IntentSenseService {
     }
     if (!id) return null;
     const current = this.suggestionCache.get(key);
-    if (current && current.round.id === id)
-      return { entry: current.round, trace: current.trace ?? null };
+    if (current?.round?.id === id) return { entry: current.round, trace: current.trace ?? null };
     const entry = this.suggestionHistoryFor(kind, conv).data.find((entry) => entry.id === id);
     if (!entry) return null;
     const raw = readJsonFile(this.suggestionTracePath(kind, conv, id));
@@ -1928,7 +1929,8 @@ export class IntentSenseService {
       if (!current()) return [];
       if (rows.length === 0) return [];
       const last = rows[rows.length - 1] as SenseRow;
-      if (last.mine && !this.config.suggestAfterSelf && !manualRefresh) {
+      const self = { uid: this.session.selfUid, uin: this.session.context.uin?.toString() };
+      if (suggestionSenderIsSelf(last, self) && !this.config.suggestAfterSelf && !manualRefresh) {
         this.suggestionCache.delete(key);
         return [];
       }
@@ -1939,7 +1941,7 @@ export class IntentSenseService {
         cachedHit.lastMsgId === last.msgId &&
         Date.now() - cachedHit.at < this.config.suggestionCacheSeconds * 1000
       ) {
-        result.round = cachedHit.round;
+        result.round = cachedHit.round ?? undefined;
         details.entry = cachedHit.round;
         details.trace = cachedHit.trace ?? null;
         // 缓存命中没有新轮次，仍打开实际结果的详情。
@@ -1949,7 +1951,7 @@ export class IntentSenseService {
           stage: '已复用缓存',
           updatedAt: Date.now(),
         };
-        return cachedHit.round.suggestions;
+        return cachedHit.round?.suggestions ?? [];
       }
 
       const trace = details.trace!;
@@ -1979,8 +1981,10 @@ export class IntentSenseService {
         this.updateSuggestionProgress(
           details,
           'completed',
-          '生成完成',
-          `本轮生成完成，共 ${suggestions.length} 条候选。`,
+          suggestions.length ? '生成完成' : '未生成候选',
+          suggestions.length
+            ? `本轮生成完成，共 ${suggestions.length} 条候选。`
+            : '本轮没有合适的候选。',
         );
         const round = this.recordSuggestions(
           kind,
@@ -2007,13 +2011,13 @@ export class IntentSenseService {
         if (round) {
           details.entry = round;
           result.round = round;
-          this.suggestionCache.set(key, {
-            lastMsgId: last.msgId,
-            at: round.createdAt,
-            round,
-            trace,
-          });
         }
+        this.suggestionCache.set(key, {
+          lastMsgId: last.msgId,
+          at: round?.createdAt ?? Date.now(),
+          round,
+          trace,
+        });
         return suggestions;
       };
 
@@ -2072,7 +2076,7 @@ export class IntentSenseService {
         kind,
         rows,
         people,
-        self: { uid: this.session.selfUid, uin: this.session.context.uin?.toString() },
+        self,
         now: Date.now() / 1000,
         count: this.config.suggestionCount,
         targetChars: this.config.suggestionTargetChars,
@@ -2142,23 +2146,29 @@ export class IntentSenseService {
         this.lastSuggestionApiError = null;
         const parsed = extractJsonBlock(pickMessageText(body.choices?.[0]?.message)) as {
           summary?: unknown;
-          replies?: unknown[];
+          replies?: unknown;
         } | null;
-        const suggestions: ReplySuggestion[] = (parsed?.replies ?? [])
+        const replies = Array.isArray(parsed?.replies) ? parsed.replies : null;
+        const suggestions: ReplySuggestion[] = (replies ?? [])
           .map((r): ReplySuggestion | null => {
-            if (typeof r === 'string') return { text: r };
+            if (typeof r === 'string') return r.trim() ? { text: r.trim() } : null;
             const o = r as { text?: unknown; tone?: unknown } | null;
-            if (!o || typeof o.text !== 'string' || !o.text) return null;
-            return { text: o.text, tone: typeof o.tone === 'string' ? o.tone : undefined };
+            if (!o || typeof o.text !== 'string' || !o.text.trim()) return null;
+            return { text: o.text.trim(), tone: typeof o.tone === 'string' ? o.tone : undefined };
           })
-          .filter((r): r is ReplySuggestion => r !== null)
-          .slice(0, this.config.suggestionCount);
-        if (suggestions.length === 0) {
+          .filter((r): r is ReplySuggestion => r !== null);
+        if (suggestions.length === 0 && replies?.length !== 0) {
           trace.error = '模型未返回有效候选，本轮使用本地候选。';
           return fallbackLocal();
         }
+        const groundedSuggestions = suggestions.filter(suggestionMediaReplyFilter(rows));
+        if (groundedSuggestions.length < suggestions.length)
+          log(
+            '检查候选',
+            `已略过 ${suggestions.length - groundedSuggestions.length} 条缺少聊天依据的附件状态或重发建议。`,
+          );
         return complete(
-          suggestions,
+          groundedSuggestions.slice(0, this.config.suggestionCount),
           'api',
           typeof parsed?.summary === 'string' ? parsed.summary.trim() || undefined : undefined,
         );
@@ -2315,49 +2325,44 @@ export class IntentSenseService {
     const prepared: SenseRow[] = [];
     for (const { row, images } of selected) {
       signal?.throwIfAborted();
+      if (!images.length) {
+        prepared.push(row);
+        continue;
+      }
       const finished = new Set<string>();
       const started = new Map<string, number>();
-      prepared.push(
-        images.length
-          ? {
-              ...row,
-              text: (
-                await this.opts.images.prepare({
-                  feature,
-                  text: elementsToSenseText(
-                    row.elementsRaw.filter(
-                      (element) => element.kind !== 'pic' && element.kind !== 'mface',
-                    ),
-                  ),
-                  images,
-                  signal,
-                  onProgress: onImageLog
-                    ? (progress) => {
-                        if (signal?.aborted) return;
-                        const index = images.findIndex((image) => image.id === progress.imageId);
-                        const label = index < 0 ? '' : `第 ${offset + index + 1}/${total} 张：`;
-                        let elapsed = '';
-                        if (progress.imageId) {
-                          if (!started.has(progress.imageId))
-                            started.set(progress.imageId, Date.now());
-                          if (progress.stage === 'complete' && !finished.has(progress.imageId)) {
-                            finished.add(progress.imageId);
-                            completed++;
-                            elapsed = `（耗时 ${((Date.now() - started.get(progress.imageId)!) / 1000).toFixed(1)} 秒）`;
-                          }
-                        }
-                        report(
-                          `${label}${progress.text}${elapsed}`,
-                          progress.stage === 'fallback' || progress.outcome?.status === 'failed'
-                            ? 'warn'
-                            : 'info',
-                        );
-                      }
-                    : undefined,
-                })
-              ).text,
+      const input = await this.opts.images.prepare({
+        feature,
+        text: elementsToSenseText(row.elementsRaw, false),
+        images,
+        signal,
+        onProgress: onImageLog
+          ? (progress) => {
+              if (signal?.aborted) return;
+              const index = images.findIndex((image) => image.id === progress.imageId);
+              const label = index < 0 ? '' : `第 ${offset + index + 1}/${total} 张：`;
+              let elapsed = '';
+              if (progress.imageId) {
+                if (!started.has(progress.imageId)) started.set(progress.imageId, Date.now());
+                if (progress.stage === 'complete' && !finished.has(progress.imageId)) {
+                  finished.add(progress.imageId);
+                  completed++;
+                  elapsed = `（耗时 ${((Date.now() - started.get(progress.imageId)!) / 1000).toFixed(1)} 秒）`;
+                }
+              }
+              const failed = progress.outcome?.status === 'failed';
+              const reason = failed ? progress.outcome?.notes.at(-1) : undefined;
+              report(
+                `${label}${progress.text}${elapsed}${reason ? `：${reason}` : ''}`,
+                progress.stage === 'fallback' || failed ? 'warn' : 'info',
+              );
             }
-          : row,
+          : undefined,
+      });
+      prepared.push(
+        feature === 'suggestions'
+          ? { ...row, imageOutcomes: input.outcomes }
+          : { ...row, text: input.text },
       );
       // 兼容未提供细分进度的图片处理端口，仍按实际返回结果推进总进度。
       for (const image of images) {
@@ -2397,7 +2402,7 @@ export class IntentSenseService {
         senderUid: m.senderUid,
         senderUin: m.senderUin.toString(),
         sendTime: Number(m.sendTime),
-        text: elementsToSenseText(m.elements),
+        text: elementsToSenseText(m.elements, feature !== 'suggestions'),
         elementsRaw: m.elements,
       };
     };
@@ -2413,6 +2418,10 @@ export class IntentSenseService {
               }
             : {}),
           ...(element.type === 'face' ? { faceText: element.data.faceText } : {}),
+          ...(element.type === 'ark' ? { arkData: element.data.arkData } : {}),
+          ...(element.type === 'markdown'
+            ? { markdownTextSummary: element.data.markdownTextSummary }
+            : {}),
         }),
       );
       return {
@@ -2428,7 +2437,7 @@ export class IntentSenseService {
           senderUid: message.senderUid,
           senderUin: message.senderUin,
           sendTime: Number(message.sendTime),
-          text: elementsToSenseText(elements),
+          text: elementsToSenseText(elements, feature !== 'suggestions'),
           elementsRaw: elements,
         },
       };
