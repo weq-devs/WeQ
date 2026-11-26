@@ -1,5 +1,5 @@
 /**
- * 通话视频的**采集管线**（渲染层）：`MediaStream → canvas → I420 → pushVideoFrame`。
+ * 通话视频采集管线（渲染层）：`MediaStream → canvas → WebCodecs H.264 → 主进程`。
  *
  * 摄像头（`useCallCamera`）与屏幕共享（`useCallScreen`）只有「怎么拿到 `MediaStream`」
  * 不一样，拿到之后的一切完全相同 —— 所以这一段抽在这里，两个 hook 共用，避免
@@ -7,14 +7,8 @@
  *
  * ```text
  * MediaStream → <video> → 按目标尺寸 drawImage 到 canvas
- *   → getImageData(RGBA) → rgbaToI420 → pushVideoFrame 推给主进程
+ *   → VideoFrame → H.264 Annex B → 推给主进程封包
  * ```
- *
- * ## 为什么不直接把 MediaStreamTrack 交给主进程
- *
- * 编码必须用 QQ 自带的 `t265`（在主进程里，走 native），而渲染层拿不到它。
- * 中间就只能传像素。传 I420 而不是 RGBA，是因为 `t265` 吃 I420，省掉主进程侧
- * 再做一次颜色空间转换。
  *
  * ## 为什么用递归 setTimeout 而不是 requestVideoFrameCallback
  *
@@ -34,6 +28,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { trpc } from '../trpc/client';
 import type { VideoProfile } from '../../../shared/call_video_profile';
 import { fitWithin } from '../../../shared/call_video_profile';
+import { h264EncoderConfig } from '../lib/callVideo';
 import { startRemoteMedia, needsNativeRemoteMedia } from '../lib/remoteMedia';
 
 /** 单帧失败后最多连续报几次日志，避免刷屏。 */
@@ -54,6 +49,7 @@ export interface CaptureState {
 export interface CaptureOptions {
   /** 是否采集。false 时立即停止并关掉轨道（摄像头指示灯随之熄灭）。 */
   enabled: boolean;
+  captureId: string;
   /** 编码档位。 */
   profile: VideoProfile;
   /**
@@ -80,6 +76,7 @@ export interface CaptureOptions {
 export function useVideoCapture(options: CaptureOptions): CaptureState {
   const {
     enabled,
+    captureId,
     profile,
     openStream,
     unsupportedMessage,
@@ -102,7 +99,7 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
   /** 每帧都要用的尺寸，放 ref 里免得闭包读到旧值。 */
   const sizeRef = useRef({ width: 0, height: 0 });
 
-  const push = trpc.call.pushVideoFrame.useMutation();
+  const push = trpc.call.pushEncodedVideoFrame.useMutation();
   // mutation 对象每次渲染都是新的引用，放进 effect 依赖会让采集反复重启。
   // 用 ref 固定住，effect 只依赖 enabled / 尺寸 / 帧率。
   const pushRef = useRef(push);
@@ -116,10 +113,13 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
   /** 每次重启递增，用来判定「这次回调还属于当前这一轮」。 */
   const generation = useRef(0);
   const nativeController = useRef<AbortController | null>(null);
+  const encoderRef = useRef<VideoEncoder | null>(null);
 
   /** 停掉采集与定时器。 */
   const stop = useCallback(() => {
     generation.current++;
+    if (encoderRef.current?.state !== 'closed') encoderRef.current?.close();
+    encoderRef.current = null;
     nativeController.current?.abort();
     nativeController.current = null;
     if (timerRef.current !== null) {
@@ -146,6 +146,74 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
 
     const current = ++generation.current;
     const cancelled = () => generation.current !== current;
+    let encoder: VideoEncoder | null = null;
+    let sending = false;
+    let encoding = false;
+    let frameIndex = 0;
+
+    const fail = (error: unknown) => {
+      if (cancelled()) return;
+      stop();
+      setState({
+        active: false,
+        error: error instanceof Error ? error.message : String(error),
+        video: null,
+        width: 0,
+        height: 0,
+      });
+    };
+
+    const startEncoder = async (width: number, height: number) => {
+      if (typeof VideoEncoder === 'undefined') throw new Error('当前设备不支持 H.264 编码');
+      const config = h264EncoderConfig(width, height, profile.fps, profile.bitrateKbps * 1000);
+      if (!(await VideoEncoder.isConfigSupported(config)).supported)
+        throw new Error('当前设备不支持 H.264 编码');
+      if (cancelled()) return;
+      encoder = new VideoEncoder({
+        output: (chunk) => {
+          encoding = false;
+          if (cancelled()) return;
+          const data = new Uint8Array(chunk.byteLength);
+          chunk.copyTo(data);
+          const frame = { data, keyframe: chunk.type === 'key', captureId };
+          sending = true;
+          const bridge = window.weq?.callVideo;
+          const result = bridge?.pushEncodedFrame
+            ? bridge.pushEncodedFrame(frame)
+            : pushRef.current.mutateAsync(frame).then((value) => value.ok);
+          void result
+            .then((ok) => {
+              if (!ok) frameIndex = 0;
+            })
+            .catch((error: unknown) => {
+              frameIndex = 0;
+              if (!cancelled()) setState((previous) => ({ ...previous, error: String(error) }));
+            })
+            .finally(() => {
+              sending = false;
+            });
+        },
+        error: (error) => {
+          fail(error);
+        },
+      });
+      encoderRef.current = encoder;
+      encoder.configure(config);
+    };
+
+    const encodeCanvas = (canvas: HTMLCanvasElement) => {
+      if (encoder?.state !== 'configured' || sending || encoding || encoder.encodeQueueSize) return;
+      const frame = new VideoFrame(canvas, { timestamp: Math.round(performance.now() * 1000) });
+      try {
+        encoding = true;
+        encoder.encode(frame, { keyFrame: frameIndex++ % profile.keyint === 0 });
+      } catch (error) {
+        encoding = false;
+        fail(error);
+      } finally {
+        frame.close();
+      }
+    };
 
     void (async () => {
       try {
@@ -157,6 +225,8 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
           preview.height = profile.height;
           const context = preview.getContext('2d');
           if (!context) throw new Error('无法创建摄像头预览');
+          await startEncoder(preview.width, preview.height);
+          if (cancelled()) return;
           const source = document.createElement('canvas');
           const sourceContext = source.getContext('2d');
           if (!sourceContext) throw new Error('无法读取摄像头画面');
@@ -177,16 +247,10 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
                 pixels.data.set(bytes);
                 sourceContext.putImageData(pixels, 0, 0);
                 context.drawImage(source, 0, 0, preview.width, preview.height);
-                const frame = rgbaToI420(
-                  context.getImageData(0, 0, preview.width, preview.height).data,
-                  preview.width,
-                  preview.height,
-                );
-                pushRef.current.mutate(frame);
+                encodeCanvas(preview);
               },
               error: (error) => {
-                if (!cancelled())
-                  setState({ active: false, error, video: null, width: 0, height: 0 });
+                fail(error);
               },
             },
             controller.signal,
@@ -202,7 +266,7 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
           return;
         }
         if (!navigator.mediaDevices?.getUserMedia) {
-          setState({ active: false, error: unsupportedMessage, video: null, width: 0, height: 0 });
+          fail(unsupportedMessage);
           return;
         }
         const stream = await openStreamRef.current({
@@ -251,18 +315,13 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
         // `willReadFrequently` 让浏览器用 CPU 后端，避免每次 getImageData 都从
         // GPU 回读 —— 我们要的就是像素数据。实测 720p 下快 3~4 ms/帧。
         ctxRef.current = canvas.getContext('2d', { willReadFrequently: true });
+        await startEncoder(size.width, size.height);
+        if (cancelled()) return;
 
         setState({ active: true, error: null, video, ...size });
         scheduleNext();
       } catch (error) {
-        if (cancelled()) return;
-        setState({
-          active: false,
-          error: error instanceof Error ? error.message : String(error),
-          video: null,
-          width: 0,
-          height: 0,
-        });
+        fail(error);
       }
     })();
 
@@ -311,7 +370,7 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
       }, delay);
     }
 
-    /** 抓一帧、转 I420、推给主进程。 */
+    /** 抓一帧并交给 WebCodecs 编码。 */
     function captureOnce(): void {
       const video = videoRef.current;
       const canvas = canvasRef.current;
@@ -323,32 +382,16 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
       if (width <= 0 || height <= 0) return;
 
       ctx.drawImage(video, 0, 0, width, height);
-      const rgba = ctx.getImageData(0, 0, width, height).data;
-      const { y, u, v } = rgbaToI420(rgba, width, height);
+      encodeCanvas(canvas);
       pushCount.current++;
-      // Electron 走二进制 IPC（结构化克隆，一帧 ~0.2 ms）；tRPC + superjson 会把
-      // 平面展开成十进制文本（一帧几十 ms），帧率一高渲染层主线程就被吃满。
-      // web 构建（apps/web 复用同一份 renderer）没有这个桥，回退到 tRPC。
-      const bridge = window.weq?.callVideo;
-      if (bridge) {
-        bridge.pushFrame({ y, u, v });
-        return;
-      }
-      // 只在首批帧失败时报错：持续失败会刷屏，但完全静默又没法排查。
-      pushRef.current.mutate(
-        { y, u, v },
-        {
-          onError: (error) => {
-            if (pushCount.current <= MAX_ERROR_LOGS) console.error('[call] 推送视频帧失败', error);
-          },
-        },
-      );
     }
 
     return () => {
       nativeController.current?.abort();
       nativeController.current = null;
       generation.current++;
+      if (encoder && encoder.state !== 'closed') encoder.close();
+      if (encoderRef.current === encoder) encoderRef.current = null;
       if (timerRef.current !== null) {
         window.clearTimeout(timerRef.current);
         timerRef.current = null;
@@ -363,9 +406,12 @@ export function useVideoCapture(options: CaptureOptions): CaptureState {
     // profile 是对象，逐字段列依赖，避免上游每次渲染新建对象导致反复重启。
   }, [
     enabled,
+    captureId,
     profile.width,
     profile.height,
     profile.fps,
+    profile.bitrateKbps,
+    profile.keyint,
     profile.captureWidth,
     profile.captureHeight,
     stop,

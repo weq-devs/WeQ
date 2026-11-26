@@ -30,6 +30,7 @@ import {
   type CallRecordingEntry,
 } from '../../call_recording_store';
 import { systemAudioCapability } from '../../call_system_audio';
+import { CALL_VIDEO_ENCODED_MAX_BYTES } from '../../../shared/call_video_ipc';
 import type { ActiveCallInfo, CallEvent } from '../../call';
 import type { VideoStreamInfo } from '@weq/service';
 
@@ -159,6 +160,20 @@ export const callRouter = router({
     return { ok: await manager.setCamera(input.enabled) };
   }),
 
+  pushEncodedVideoFrame: procedure
+    .input(
+      z.object({ data: z.instanceof(Uint8Array), keyframe: z.boolean(), captureId: z.string() }),
+    )
+    .mutation(({ input }) => {
+      if (!input.data.length || input.data.length > CALL_VIDEO_ENCODED_MAX_BYTES)
+        return { ok: false };
+      return {
+        ok:
+          findCallManager()?.pushEncodedVideoFrame(input.data, input.keyframe, input.captureId) ??
+          false,
+      };
+    }),
+
   /**
    * 切换本端画面来源：摄像头 ↔ 屏幕共享。
    *
@@ -242,6 +257,7 @@ export const callRouter = router({
       keyframe: boolean;
       /** 16 位帧序号；渲染层据此判断喂入是否连续（见 useCallVideo）。 */
       frameIndex: number;
+      codec?: 'hevc' | 'h264';
       info: VideoStreamInfo | null;
     }>((emit) => {
       const manager = findCallManager();
@@ -261,6 +277,7 @@ export const callRouter = router({
           timestamp: frame.timestamp,
           keyframe: frame.isKeyframe,
           frameIndex: frame.frameIndex,
+          codec: frame.codec,
           info: frame.info,
         });
       }
@@ -274,6 +291,7 @@ export const callRouter = router({
           timestamp: event.timestamp,
           keyframe: event.keyframe,
           frameIndex: event.frameIndex,
+          codec: event.codec,
           info: event.info,
         });
       };

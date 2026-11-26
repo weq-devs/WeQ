@@ -59,6 +59,7 @@ import {
   buildVideoState,
   buildVideoSubHeader,
   extractHevc,
+  hasAnnexBStartCode,
   parseAudioFrame,
   parseAudioHeader,
   parseCallEvent,
@@ -135,6 +136,8 @@ export interface CallSnapshot {
   receivedFrames: number;
   /** 本端摄像头是否开着（发视频中）。 */
   videoSending: boolean;
+  /** 每次开始发送或切换来源时改变，用于丢弃过期采集帧。 */
+  videoCaptureId: string;
   /** 对端摄像头是否开着（收到对端视频流）。 */
   videoReceiving: boolean;
   /** 收到的视频帧数。 */
@@ -189,8 +192,8 @@ export interface VideoStreamInfo {
   height: number;
   /** HEVC profile（1 = Main）。 */
   profile: number;
-  /** 编码格式，目前只认 hevc。 */
-  codec: 'hevc';
+  /** 编码格式。 */
+  codec: 'hevc' | 'h264';
   /** 编码帧率（可选）。 */
   fps?: number;
   /** 目标码率（kbps，可选）。 */
@@ -241,6 +244,8 @@ export interface CallAudioCodec {
  * 只关心「给我一帧 Annex B」。
  */
 export interface CallVideoEncoder {
+  /** 编码帧由外部主动推送，无需轮询 next。 */
+  readonly externalFrames?: boolean;
   /**
    * 取下一帧 Annex B 裸流；没有新画面时返回 null（不发包）。
    *
@@ -308,6 +313,7 @@ export interface VideoFramePayload {
    */
   frameIndex: number;
   isKeyframe: boolean;
+  codec?: 'hevc' | 'h264';
   /** 真实帧时间戳（毫秒）。 */
   timestamp: number;
   /** 视频规格（只在关键帧上更新）。 */
@@ -626,6 +632,8 @@ export class CallSession {
   // 视频
   private readonly videoAssembler = new VideoFrameAssembler();
   private videoSending = false;
+  private videoCaptureId = crypto.randomUUID();
+  private videoNeedsKeyframe = true;
   private videoReceiving = false;
   private receivedVideoFrames = 0;
   /** 最后一帧视频到达的时刻（毫秒），用于「对端静默停流」的兜底判断。 */
@@ -719,6 +727,9 @@ export class CallSession {
   private videoInfo: VideoStreamInfo | null = null;
   /** 视频帧序号（写进 sub-header，每帧 +1）。 */
   private videoFrameIndex = 0;
+  /** H.264 的 IDR 开启新组，gidx 从 0 起计数。 */
+  private videoH264Group = 0;
+  private videoH264FrameInGroup = 0;
   /** 视频分片序号（每片 +1，整通不重置）。 */
   private videoSeq = 0;
   /**
@@ -801,6 +812,7 @@ export class CallSession {
       sentFrames: this.sentFrames,
       receivedFrames: this.receivedFrames,
       videoSending: this.videoSending,
+      videoCaptureId: this.videoCaptureId,
       videoReceiving: this.videoReceiving,
       receivedVideoFrames: this.receivedVideoFrames,
       videoInfo: this.videoInfo,
@@ -839,6 +851,8 @@ export class CallSession {
    */
   setVideoSource(source: CallVideoSource): void {
     if (this.videoSource === source) return;
+    this.videoCaptureId = crypto.randomUUID();
+    this.videoNeedsKeyframe = true;
     this.videoSource = source;
     this.log?.info('本端视频采集源', { source, profile: this.localVideoProfile() });
     this.emit();
@@ -851,6 +865,8 @@ export class CallSession {
    * 这里只负责让状态对得上。
    */
   setVideoEncoding(): void {
+    this.videoCaptureId = crypto.randomUUID();
+    this.videoNeedsKeyframe = true;
     this.log?.info('本端视频规格更新', { profile: this.localVideoProfile() });
     this.emit();
   }
@@ -897,10 +913,12 @@ export class CallSession {
     }
     if (enabled && encoder) this.videoEncoder ??= encoder;
     this.videoSending = enabled;
+    this.videoCaptureId = crypto.randomUUID();
+    this.videoNeedsKeyframe = true;
     if (enabled) this.startVideoState();
     this.sendVideoControl();
     if (enabled) {
-      this.videoFrameIndex = 0;
+      if (!this.videoEncoder?.externalFrames) this.videoFrameIndex = 0;
       this.startVideoLoop();
       this.startVideoKeepalive();
     } else {
@@ -2027,6 +2045,8 @@ export class CallSession {
     // 这里在 emit 之前切，界面上接通的那一刻就已经是「本端在发视频」。
     if (this.opts.media === 'video' && !this.videoSending) {
       this.videoSending = true;
+      this.videoCaptureId = crypto.randomUUID();
+      this.videoNeedsKeyframe = true;
       this.sendVideoControl();
       this.videoFrameIndex = 0;
       this.startVideoLoop();
@@ -2170,6 +2190,8 @@ export class CallSession {
     }
 
     const hevc = extractHevc(frame);
+    const codec = frame.frameData[3] === 0x05 ? 'h264' : 'hevc';
+    if (this.videoInfo && this.videoInfo.codec !== codec) this.videoInfo = null;
     // 前几帧把组帧结果打出来：拼不上 / 剥不出裸流是「收到包但没画面」的典型原因。
     if (this.receivedVideoFrames <= 5 || this.receivedVideoFrames % 50 === 0) {
       this.log?.info('视频帧组装', {
@@ -2183,7 +2205,7 @@ export class CallSession {
       });
     }
     // 只在关键帧上读规格，避免每帧都解析 SPS。
-    if (hevc && frame.isKeyframe) {
+    if (hevc && frame.isKeyframe && codec === 'hevc') {
       const info = readHevcInfo(hevc);
       if (info && !this.videoInfo) {
         this.videoInfo = info;
@@ -2197,6 +2219,7 @@ export class CallSession {
       fidx: frame.fidx,
       frameIndex: frame.frameIndex,
       isKeyframe: frame.isKeyframe,
+      codec,
       timestamp: frame.timestamp,
       info: this.videoInfo,
       hevc,
@@ -2345,6 +2368,7 @@ export class CallSession {
    * 轮询兜住：比最慢的帧间隔小一个量级，又不会把主进程拖满。
    */
   private startVideoLoop(): void {
+    if (this.videoEncoder?.externalFrames) return;
     if (this.videoTimer !== null) return;
     const pump = () => {
       this.videoTimer = this.timers.setTimeout(() => {
@@ -2403,52 +2427,71 @@ export class CallSession {
     }, VIDEO_PUMP_MS);
   }
 
-  /**
-   * 把一帧 Annex B 裸流切包发出去。
-   *
-   * 20 字节 sub-header + 裸流等分切包，每片一个 `0x5b subType=2` 包。单个 UDP
-   * 载荷约 1200 字节（IPv6 路径下更大，但 1200 是安全值）。
-   *
-   * 三个字段按实测填（见 {@link buildVideoSubHeader}）：
-   * - `[2]=0x00`（c2s 方向，不是 0x03）；
-   * - `[8:12]` 帧 PTS = 距接通时刻的毫秒数（不是 `Date.now()`）；
-   * - `[12:16]` 接通时定下的会话基准 tick。
-   */
-  private sendVideoFrame(hevc: Uint8Array): void {
+  /** 发送渲染层编码完成的 Annex B 视频帧。 */
+  pushEncodedVideoFrame(data: Uint8Array, keyframe: boolean): boolean {
+    if (!this.videoSending || this.state !== 'connected' || !hasAnnexBStartCode(data)) return false;
+    const types = splitHevcNals(data).map((nal) => nal.data[0]! & 0x1f);
+    const hasIdr = types.includes(5);
+    if (keyframe !== hasIdr || (!hasIdr && !types.includes(1))) return false;
+    if (this.videoNeedsKeyframe && (!hasIdr || !types.includes(7) || !types.includes(8)))
+      return false;
+    if (!hasIdr && this.videoH264FrameInGroup > 255) return false;
+    if (hasIdr) {
+      this.videoH264Group = (this.videoH264Group + 1) & 0xff;
+      this.videoH264FrameInGroup = 0;
+    }
+    this.sendVideoFrame(data, 'h264', keyframe);
+    this.videoH264FrameInGroup++;
+    this.videoNeedsKeyframe = false;
+    return true;
+  }
+
+  /** 将一帧 Annex B 裸流封成私聊视频 UDP 分片。 */
+  private sendVideoFrame(
+    data: Uint8Array,
+    codec: 'hevc' | 'h264' = 'hevc',
+    encodedKeyframe?: boolean,
+  ): void {
     const now = this.timers.now();
     const ptsMs = this.connectedAt === null ? 0 : now - this.connectedAt;
     // `[16:20]` 要提前知道片数，所以先按「sub-header + 裸流」的总长估一次。
     // 实测取值是 `0..totalPkg-1` 里的一个值（不是 `totalPkg-1` 定值），语义未
     // 还原，用随机值对齐分布。
-    const packetCount = videoPacketCount(VIDEO_SUBHEADER_LEN + hevc.length);
+    const packetCount = videoPacketCount(VIDEO_SUBHEADER_LEN + data.length);
     this.videoFrameFragment = packetCount <= 1 ? 0 : Math.floor(Math.random() * packetCount);
-    // 关键帧要额外带 RS-FEC 校验片（见 buildVideoPackets 的 `fec`）。判定与
-    // `[6:8]` 的质量档同源：都看这帧里有没有 IRAP NAL。
-    const keyframe = splitHevcNals(hevc).some((nal) => isIrapNalType(nal.type));
+    const keyframe = encodedKeyframe ?? splitHevcNals(data).some((nal) => isIrapNalType(nal.type));
     const subHeader = buildVideoSubHeader({
       direction: 'c2s',
-      frameIndex: this.videoFrameIndex,
+      codec,
+      // 原版 H.264 以 IDR 和每第 3 个 P 帧为参考点，后续三帧携带同一参考号。
+      frameIndex:
+        codec === 'h264'
+          ? Math.floor(Math.max(0, this.videoH264FrameInGroup - 1) / 3) * 3
+          : this.videoFrameIndex,
       timestampMs: ptsMs,
       peerVideoBase: this.peerVideoBase,
       // `[6:8]`：对端只拿它做统计，按真实分布抽样即可（见 sampleVideoFrameQuality）。
       quality: sampleVideoFrameQuality(keyframe),
       fragment: this.videoFrameFragment,
     });
-    const frameData = new Uint8Array(subHeader.length + hevc.length);
+    const frameData = new Uint8Array(subHeader.length + data.length);
     frameData.set(subHeader, 0);
-    frameData.set(hevc, subHeader.length);
+    frameData.set(data, subHeader.length);
 
     const packets = buildVideoPackets({
       frameData,
       // 16 位帧序号：包头里的 gidx/fidx 由它拆出。只写 gidx 会在第 256 帧回绕、
       // 帧序号倒退，对端按序号判连续性时会当成乱序而丢帧。
       frameIndex: this.videoFrameIndex,
+      ...(codec === 'h264' ? { gidx: this.videoH264FrameInGroup, fidx: this.videoH264Group } : {}),
       sessionTs: this.sessionTs,
       // tick 帧内恒定；seq 由 buildVideoPackets 按片递增。
       tick: this.tick(),
       seq: this.videoSeq,
-      // 关键帧带 RS(5,3) 校验片；普通帧不发（实测 QQ 也只有关键帧带）。
-      fec: keyframe,
+      // QQ H.264 在多分片 IDR 和组内每第 3 个 P 帧添加一片校验。
+      fec: keyframe || (codec === 'h264' && this.videoH264FrameInGroup % 3 === 0),
+      codec,
+      keyframe,
     });
     this.videoSeq += packets.length;
     for (const packet of packets) this.sendMedia(packet);

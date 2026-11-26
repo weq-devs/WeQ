@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GroupVideoDelivery } from '../../../shared/call_video_ipc';
 import type { GroupVideoTransport } from '../lib/groupVideoTransport';
+import { h264EncoderConfig } from '../lib/callVideo';
 
 const PRIMARY = { width: 640, height: 360, bitrate: 500_000 };
 const SECONDARY = { width: 192, height: 144, bitrate: 120_000 };
@@ -49,13 +50,7 @@ export function useGroupCamera(
     };
     const encode = async (profile: typeof PRIMARY, track: 'data' | 'secondary') => {
       if (typeof VideoEncoder === 'undefined') throw new Error('当前设备不支持 H.264 编码');
-      const options: VideoEncoderConfig = {
-        ...profile,
-        codec: 'avc1.64001f',
-        avc: { format: 'annexb' },
-        framerate: FPS,
-        latencyMode: 'realtime',
-      };
+      const options = h264EncoderConfig(profile.width, profile.height, FPS, profile.bitrate);
       if (!(await VideoEncoder.isConfigSupported(options)).supported)
         throw new Error('当前设备不支持 H.264 编码');
       if (stopped) return undefined;

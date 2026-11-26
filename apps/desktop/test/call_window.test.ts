@@ -64,6 +64,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
       },
       resizeVideo: { useMutation: () => ({ mutate: mocks.resizeVideo, isPending: false }) },
       pushVideoFrame: { useMutation: () => ({ mutate: vi.fn(), isPending: false }) },
+      pushEncodedVideoFrame: { useMutation: () => ({ mutateAsync: vi.fn() }) },
       startRecording: {
         useMutation: () => ({ mutateAsync: mocks.startRecording, isLoading: false }),
       },

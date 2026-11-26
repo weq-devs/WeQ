@@ -15,6 +15,8 @@ import { ipcMain, MessageChannelMain, type WebContents } from 'electron';
 import { getLogger } from '@weq/service';
 import {
   CALL_VIDEO_FRAME_CHANNEL,
+  CALL_VIDEO_ENCODED_CHANNEL,
+  CALL_VIDEO_ENCODED_MAX_BYTES,
   GROUP_VIDEO_PORT_CHANNEL,
   GROUP_VIDEO_PUSH_CHANNEL,
   GROUP_VIDEO_SUBSCRIBE_CHANNEL,
@@ -55,6 +57,19 @@ export function registerCallVideoIpc(mainContents: () => WebContents | undefined
   });
   const isMainFrame = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) =>
     event.sender === mainContents() && event.senderFrame === event.sender.mainFrame;
+  ipcMain.handle(CALL_VIDEO_ENCODED_CHANNEL, (event, raw: unknown) => {
+    if (!isMainFrame(event) || !raw || typeof raw !== 'object') return false;
+    const frame = raw as { data?: unknown; keyframe?: unknown; captureId?: unknown };
+    const data = asBytes(frame.data);
+    if (
+      !data?.length ||
+      data.length > CALL_VIDEO_ENCODED_MAX_BYTES ||
+      typeof frame.keyframe !== 'boolean' ||
+      typeof frame.captureId !== 'string'
+    )
+      return false;
+    return findCallManager()?.pushEncodedVideoFrame(data, frame.keyframe, frame.captureId) ?? false;
+  });
   ipcMain.handle(GROUP_VIDEO_PUSH_CHANNEL, async (event, raw: unknown) => {
     if (!isMainFrame(event) || !raw || typeof raw !== 'object') return;
     const { id, data, secondary, keyframe } = raw as Partial<GroupVideoFrame>;

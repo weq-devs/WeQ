@@ -18,7 +18,7 @@ import {
 } from '@weqbot/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CallManager } from '../src/main/call';
-import { CAMERA_PROFILE } from '../src/shared/call_video_profile';
+import { WebVideoEncoder } from '../src/main/call_video_encoder';
 
 const SELF_UIN = 10001;
 const PEER_UIN = 10002;
@@ -84,12 +84,35 @@ const callParams = {
   peerUin: String(PEER_UIN),
   peerUid: 'u_peer',
 };
-const keyframe = [0, 0, 0, 1, 0x26, 0x01, 0x80];
-const followingFrame = [0, 0, 0, 1, 0x02, 0x01, 0x80];
+const keyframe = Uint8Array.from([
+  0,
+  0,
+  0,
+  1,
+  0x67,
+  0x64,
+  0,
+  0x1f,
+  0,
+  0,
+  0,
+  1,
+  0x68,
+  0x80,
+  0,
+  0,
+  0,
+  1,
+  0x65,
+  ...new Array(2200).fill(0x81),
+]);
+const followingFrame = Uint8Array.from([0, 0, 0, 1, 0x41, ...new Array(2200).fill(0x81)]);
 let activeManager: CallManager | undefined;
 
 function setup() {
   vi.useFakeTimers();
+  const open = vi.spyOn(WebVideoEncoder.prototype, 'open');
+  const close = vi.spyOn(WebVideoEncoder.prototype, 'close');
   const control = new OfflineSocket();
   const createSocket = vi
     .spyOn(dgram, 'createSocket')
@@ -100,7 +123,6 @@ function setup() {
     encodeCallFrame: vi.fn(() => Buffer.from([1])),
     openVideoEncoder: vi.fn(async () => {}),
     closeVideoEncoder: vi.fn(),
-    encodeVideoFrame: vi.fn(() => ({ data: Buffer.from(followingFrame), keyframe: false })),
   };
   const platform = { qqWrapperNodePath: () => '/fixture/qq/wrapper.node' } as Platform;
   const manager = new CallManager(nt as unknown as NtHelperBinding, platform);
@@ -118,12 +140,15 @@ function setup() {
     expect(manager.current()?.state).toBe('connected');
   }
 
-  function pushCameraFrame() {
-    const y = new Uint8Array(CAMERA_PROFILE.width * CAMERA_PROFILE.height);
-    return manager.pushVideoFrame(y, new Uint8Array(y.length / 4), new Uint8Array(y.length / 4));
+  function pushFrame(
+    data: Uint8Array,
+    key: boolean,
+    captureId = manager.current()?.videoCaptureId ?? '',
+  ) {
+    return manager.pushEncodedVideoFrame(data, key, captureId);
   }
 
-  return { manager, nt, control, connect, pushCameraFrame };
+  return { manager, open, close, control, connect, pushFrame };
 }
 
 afterEach(async () => {
@@ -138,54 +163,71 @@ afterEach(async () => {
 
 describe('私聊摄像头发送', () => {
   it('语音接通后首次开启，编码器就绪再发控制包和连续视频帧', async () => {
-    const { manager, nt, control, connect, pushCameraFrame } = setup();
+    const { manager, open, close, control, connect, pushFrame } = setup();
     await connect();
-    expect(nt.openVideoEncoder).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
 
     const ready = Promise.withResolvers<void>();
-    nt.openVideoEncoder.mockReturnValueOnce(ready.promise);
+    open.mockReturnValueOnce(ready.promise);
     const opening = manager.setCamera(true);
     expect(manager.current()?.videoSending).toBe(false);
     expect(control.media(VIDEO_CTRL_SUB_TYPE)).toHaveLength(0);
-    expect(pushCameraFrame()).toBe(false);
+    expect(pushFrame(keyframe, true)).toBe(false);
 
     ready.resolve();
     await expect(opening).resolves.toBe(true);
-    const { width, height, fps } = CAMERA_PROFILE;
+    const { width, height, fps } = { width: 320, height: 240, fps: 10 };
     expect(manager.current()).toMatchObject({
       videoSending: true,
       videoProfile: { width, height, fps },
     });
     expect(control.media(VIDEO_CTRL_SUB_TYPE)).toHaveLength(2);
 
-    nt.encodeVideoFrame.mockReturnValueOnce({ data: Buffer.from(keyframe), keyframe: true });
-    for (let index = 0; index < 3; index++) {
-      expect(pushCameraFrame()).toBe(true);
-      await vi.advanceTimersByTimeAsync(10);
-    }
-
+    expect(pushFrame(followingFrame, false)).toBe(false);
+    expect(pushFrame(keyframe, true)).toBe(true);
+    expect(pushFrame(followingFrame, false)).toBe(true);
+    expect(pushFrame(followingFrame, false)).toBe(true);
+    expect(pushFrame(followingFrame, false)).toBe(true);
+    expect(pushFrame(followingFrame, false)).toBe(true);
     const assembler = new VideoFrameAssembler();
     const frames = control.media(VideoSubType.max).flatMap((packet) => {
       const parsed = parseVideoPacket(packet);
       const frame = parsed && assembler.push(parsed, 0);
-      return frame ? [Array.from(frame.frameData.subarray(frame.frameData[0]))] : [];
+      return frame ? [frame] : [];
     });
-    expect(frames).toEqual([keyframe, followingFrame, followingFrame]);
+    expect(frames).toHaveLength(5);
+    expect(frames.map((frame) => frame.isKeyframe)).toEqual([true, false, false, false, false]);
+    expect(frames.map(({ gidx, fidx }) => [gidx, fidx])).toEqual([
+      [0, 1],
+      [1, 1],
+      [2, 1],
+      [3, 1],
+      [4, 1],
+    ]);
+    expect(frames.map((frame) => frame.frameData[1])).toEqual([0, 0, 0, 0, 3]);
+    expect(frames.every((frame) => frame.frameData[3] === 5)).toBe(true);
+    expect(frames[0]!.frameData.subarray(20, 20 + keyframe.length)).toEqual(keyframe);
+    expect(frames[1]!.frameData.subarray(20, 20 + followingFrame.length)).toEqual(followingFrame);
+    const packets = control.media(VideoSubType.max);
+    expect(packets.some((packet) => packet[4] === 2 && packet[19] === 0)).toBe(true);
+    expect(packets.some((packet) => packet[4] === 3 && packet[19] === 1)).toBe(true);
 
-    expect(pushCameraFrame()).toBe(true);
+    const oldCaptureId = manager.current()!.videoCaptureId;
     await manager.setCamera(false);
     await manager.setCamera(true);
-    await vi.advanceTimersByTimeAsync(10);
-    expect(nt.encodeVideoFrame).toHaveBeenCalledTimes(3);
-    expect(nt.openVideoEncoder).toHaveBeenCalledTimes(1);
+    expect(pushFrame(keyframe, true, oldCaptureId)).toBe(false);
+    expect(pushFrame(followingFrame, false)).toBe(false);
+    expect(pushFrame(keyframe, true)).toBe(true);
+    expect(parseVideoPacket(control.media(VideoSubType.max).at(-1)!)?.rtp.fidx).toBe(2);
+    expect(open).toHaveBeenCalledTimes(1);
     await manager.hangup();
-    expect(nt.closeVideoEncoder).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalled();
   });
 
   it('编码器打开失败时保持通话和摄像头关闭，随后可以重试', async () => {
-    const { manager, nt, control, connect } = setup();
+    const { manager, open, control, connect } = setup();
     await connect();
-    nt.openVideoEncoder.mockRejectedValueOnce(new Error('测试初始化失败'));
+    open.mockRejectedValueOnce(new Error('测试初始化失败'));
     await expect(manager.setCamera(true)).rejects.toThrow('测试初始化失败');
     expect(manager.current()).toMatchObject({ state: 'connected', videoSending: false });
     expect(control.media(VIDEO_CTRL_SUB_TYPE)).toHaveLength(0);
@@ -194,27 +236,27 @@ describe('私聊摄像头发送', () => {
   });
 
   it('并发请求复用一次初始化，关闭可以取消尚未完成的开启', async () => {
-    const { manager, nt, control, connect } = setup();
+    const { manager, open, close, control, connect } = setup();
     await connect();
     const ready = Promise.withResolvers<void>();
-    nt.openVideoEncoder.mockReturnValueOnce(ready.promise);
+    open.mockReturnValueOnce(ready.promise);
     const first = manager.setCamera(true);
     const second = manager.setCamera(true);
-    expect(nt.openVideoEncoder).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledTimes(1);
     await manager.setCamera(false);
     ready.resolve();
     await expect(Promise.all([first, second])).resolves.toEqual([false, false]);
     expect(manager.current()?.videoSending).toBe(false);
     expect(control.media(VIDEO_CTRL_SUB_TYPE)).toHaveLength(0);
-    expect(nt.closeVideoEncoder).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
     await expect(manager.setCamera(true)).resolves.toBe(true);
   });
 
   it('挂断后清理迟到的编码器，清理完成后可以发起新通话', async () => {
-    const { manager, nt, control, connect } = setup();
+    const { manager, open, close, control, connect } = setup();
     await connect();
     const ready = Promise.withResolvers<void>();
-    nt.openVideoEncoder.mockReturnValueOnce(ready.promise);
+    open.mockReturnValueOnce(ready.promise);
     const opening = manager.setCamera(true);
     await manager.hangup();
     expect(manager.current()).toBeNull();
@@ -223,19 +265,18 @@ describe('私聊摄像头发送', () => {
     ready.resolve();
     await expect(opening).resolves.toBe(false);
     expect(manager.busy).toBe(false);
-    expect(nt.closeVideoEncoder).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(1);
     expect(control.media(VIDEO_CTRL_SUB_TYPE)).toHaveLength(0);
     await connect();
     expect(manager.current()?.videoSending).toBe(false);
   });
 
   it('直接视频仍在拨号时打开编码器，接通后自动发送', async () => {
-    const { manager, nt, control, connect, pushCameraFrame } = setup();
+    const { manager, open, control, connect, pushFrame } = setup();
     await connect('video');
-    expect(nt.openVideoEncoder).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledTimes(1);
     expect(manager.current()?.videoSending).toBe(true);
-    expect(pushCameraFrame()).toBe(true);
-    await vi.advanceTimersByTimeAsync(10);
-    expect(control.media(VideoSubType.max)).toHaveLength(1);
+    expect(pushFrame(keyframe, true)).toBe(true);
+    expect(control.media(VideoSubType.max).length).toBeGreaterThan(0);
   });
 });

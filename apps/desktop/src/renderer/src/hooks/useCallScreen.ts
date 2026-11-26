@@ -59,11 +59,12 @@ function isUserCancel(error: unknown): boolean {
  */
 export function useCallScreen(options: {
   enabled: boolean;
+  captureId: string;
   profile?: VideoProfile;
   /** 用户主动结束共享（系统栏 / 浏览器内置控件）时调用。 */
   onEnded?: () => void;
 }): CallScreenState {
-  const { enabled, profile = SCREEN_PROFILE, onEnded } = options;
+  const { enabled, captureId, profile = SCREEN_PROFILE, onEnded } = options;
 
   const openStream = useCallback(async (target: { width: number; height: number; fps: number }) => {
     // 约束直接带给采集端：让它在 PipeWire / ScreenCaptureKit 那一层就交出目标
@@ -84,6 +85,7 @@ export function useCallScreen(options: {
 
   return useVideoCapture({
     enabled,
+    captureId,
     profile,
     openStream,
     unsupportedMessage: '当前环境不支持屏幕共享',

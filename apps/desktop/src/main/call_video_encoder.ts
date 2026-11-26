@@ -52,6 +52,61 @@ const DUMP_FRAMES = Number.parseInt(process.env.WEQ_CALL_VIDEO_DUMP_FRAMES ?? '5
 /** 队列上限：2 帧（约 160 ms @ 12 fps 摄像头档 / 约 130 ms @ 15 fps 共享档）。 */
 const MAX_QUEUED = 2;
 
+const H264_CAMERA_PROFILE: VideoProfile = {
+  width: 320,
+  height: 240,
+  fps: 10,
+  bitrateKbps: 200,
+  keyint: 10,
+  allIntra: false,
+  captureWidth: 320,
+  captureHeight: 240,
+};
+
+/** 渲染层负责 H.264 编码，主进程只维护采集规格。 */
+export class WebVideoEncoder implements CallVideoEncoder {
+  readonly externalFrames = true;
+  private source: VideoSource = 'camera';
+  private currentProfile = H264_CAMERA_PROFILE;
+
+  async open(): Promise<void> {}
+
+  async next(): Promise<null> {
+    return null;
+  }
+
+  pushFrame(_frame: I420Frame): boolean {
+    return false;
+  }
+
+  info(): VideoStreamInfo {
+    const { width, height, fps, bitrateKbps, keyint, allIntra } = this.currentProfile;
+    return { width, height, fps, bitrateKbps, keyint, allIntra, profile: 100, codec: 'h264' };
+  }
+
+  get currentSource(): VideoSource {
+    return this.source;
+  }
+
+  async setSource(source: VideoSource): Promise<VideoProfile> {
+    if (source === this.source) return this.currentProfile;
+    this.source = source;
+    this.currentProfile =
+      source === 'camera' ? H264_CAMERA_PROFILE : { ...profileFor('screen'), allIntra: false };
+    return this.currentProfile;
+  }
+
+  async resize(width: number, height: number): Promise<void> {
+    const w = width - (width % 2);
+    const h = height - (height % 2);
+    if (w > 0 && h > 0) this.currentProfile = { ...this.currentProfile, width: w, height: h };
+  }
+
+  clearFrames(): void {}
+
+  close(): void {}
+}
+
 interface I420Frame {
   y: Uint8Array;
   u: Uint8Array;

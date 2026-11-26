@@ -34,7 +34,7 @@ import {
   type VideoFramePayload,
 } from '@weq/service';
 import { CallRecorder, type RecordingSnapshot } from './call_recorder';
-import { NativeVideoEncoder } from './call_video_encoder';
+import { WebVideoEncoder } from './call_video_encoder';
 import {
   CallRecordingStore,
   recordingsRootFor,
@@ -296,6 +296,7 @@ export type CallEvent =
        * 且要等到下一个关键帧才恢复。见 useCallVideo 的 continuity 检查。
        */
       frameIndex: number;
+      codec?: 'hevc' | 'h264';
       info: VideoStreamInfo | null;
     }
   /** 录音收尾完成（含内部收尾：对端挂断 / 被踢 / 崩溃）。 */
@@ -317,8 +318,8 @@ export class CallManager extends EventEmitter {
   private durationTimer: ReturnType<typeof setInterval> | null = null;
 
   /** 已打开的视频编码器。语音通话首次开摄像头时才创建。 */
-  private videoEncoder: NativeVideoEncoder | null = null;
-  private openingVideoEncoder: Promise<NativeVideoEncoder | null> | null = null;
+  private videoEncoder: WebVideoEncoder | null = null;
+  private openingVideoEncoder: Promise<WebVideoEncoder | null> | null = null;
   private cameraRequested = false;
   /**
    * 从**最近一个关键帧**开始的一段连续帧（新订阅者补发用）。
@@ -394,9 +395,8 @@ export class CallManager extends EventEmitter {
     // 收发的每条数据报都先喂给落盘器；没开开关时 `udpTrace` 为 null，开销接近于零。
     transport.sink = (datagram) => this.udpTrace?.record(datagram);
     const codec = new NativeCallCodec(this.nt, modulesDir);
-    // 直接视频接通就开始采集，提前打开编码器。语音通话在开摄像头时再打开。
-    const videoEncoder =
-      params.media === 'video' ? new NativeVideoEncoder(this.nt, modulesDir) : null;
+    // 渲染层负责编码，主进程维护本端视频规格。
+    const videoEncoder = params.media === 'video' ? new WebVideoEncoder() : null;
     if (videoEncoder) await videoEncoder.open();
     this.videoEncoder = videoEncoder;
     const session = new CallSession({
@@ -483,6 +483,7 @@ export class CallManager extends EventEmitter {
         timestamp: frame.timestamp,
         keyframe: frame.isKeyframe,
         frameIndex: frame.frameIndex,
+        codec: frame.codec,
         info: frame.info,
       } satisfies CallEvent);
     });
@@ -553,8 +554,12 @@ export class CallManager extends EventEmitter {
     const ny = norm(y);
     const nu = norm(u);
     const nv = norm(v);
-    encoder.pushFrame({ y: ny, u: nu, v: nv });
-    return true;
+    return encoder.pushFrame({ y: ny, u: nu, v: nv });
+  }
+
+  pushEncodedVideoFrame(data: Uint8Array, keyframe: boolean, captureId: string): boolean {
+    if (this.session?.snapshot().videoCaptureId !== captureId) return false;
+    return this.session?.pushEncodedVideoFrame(data, keyframe) ?? false;
   }
 
   /**
@@ -580,11 +585,9 @@ export class CallManager extends EventEmitter {
     return true;
   }
 
-  private openCameraEncoder(session: CallSession): Promise<NativeVideoEncoder | null> {
+  private openCameraEncoder(session: CallSession): Promise<WebVideoEncoder | null> {
     if (this.openingVideoEncoder) return this.openingVideoEncoder;
-    const modulesDir = this.resolveModulesDir();
-    if (!modulesDir) throw new Error('找不到 QQ 的 AVSDK 目录，无法初始化视频编码器');
-    const encoder = new NativeVideoEncoder(this.nt, modulesDir);
+    const encoder = new WebVideoEncoder();
     const canSend = () =>
       this.cameraRequested && this.session === session && session.snapshot().state === 'connected';
     this.openingVideoEncoder = encoder
@@ -626,15 +629,16 @@ export class CallManager extends EventEmitter {
    */
   async setVideoSource(source: VideoSource): Promise<VideoProfile | null> {
     const session = this.session;
-    const encoder = this.videoEncoder;
-    if (!session || !encoder) return null;
+    if (!session) return null;
     if (session.snapshot().state !== 'connected') {
       logger.warn('切换采集源被拒：通话未接通', { source });
       return null;
     }
+    if (!this.videoEncoder && !(await this.setCamera(true))) return null;
+    const encoder = this.videoEncoder;
+    if (!encoder || this.session !== session) return null;
     const profile = await encoder.setSource(source);
-    // 编码器重建后队列与规格都变了，让会话重新读一次（界面与状态快照都用它）。
-    session.setVideoEncoding();
+    if (this.session !== session || session.snapshot().state !== 'connected') return null;
     // 共享屏幕必然要发画面：原本摄像头关着就一起打开。
     if (!session.snapshot().videoSending) session.setCamera(true);
     session.setVideoSource(source);
@@ -670,8 +674,7 @@ export class CallManager extends EventEmitter {
     await encoder.setSource('camera').catch((error: unknown) => {
       logger.warn('复位采集源失败', { error: error instanceof Error ? error.message : error });
     });
-    if (this.session && this.videoEncoder) {
-      this.session.setVideoEncoding();
+    if (this.session && this.videoEncoder === encoder) {
       this.session.setVideoSource('camera');
     }
   }
@@ -910,7 +913,7 @@ export class CallManager extends EventEmitter {
     if (!last) return; // 还没见过关键帧，先不缓存
     // 16 位序号会回绕，按模判断是否正好 +1。
     const continuous = (frame.frameIndex - last.frameIndex + 65536) % 65536 === 1;
-    if (!continuous) {
+    if (!continuous || frame.codec !== last.codec) {
       this.replayBuffer = [];
       return;
     }

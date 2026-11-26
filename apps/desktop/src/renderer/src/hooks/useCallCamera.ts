@@ -22,10 +22,11 @@ export type CallCameraState = CaptureState;
  */
 export function useCallCamera(options: {
   enabled: boolean;
+  captureId: string;
   profile?: VideoProfile;
   onEnded?: () => void;
 }): CallCameraState {
-  const { enabled, profile = CAMERA_PROFILE, onEnded } = options;
+  const { enabled, captureId, profile = CAMERA_PROFILE, onEnded } = options;
 
   const openStream = useCallback(async (target: { width: number; height: number; fps: number }) => {
     // 调试用：按 label 或 deviceId 指定摄像头。
@@ -67,6 +68,7 @@ export function useCallCamera(options: {
 
   return useVideoCapture({
     enabled,
+    captureId,
     profile,
     openStream,
     unsupportedMessage: '当前环境不支持摄像头采集',

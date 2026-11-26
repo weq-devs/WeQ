@@ -28,7 +28,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { acceptsFrame, payloadForDecoder, toAccessUnit } from '../lib/callVideo';
+import { acceptsFrame, avcCodec, payloadForDecoder, toAccessUnit } from '../lib/callVideo';
 import { trpc } from '../trpc/client';
 
 /**
@@ -108,6 +108,11 @@ export function useCallVideo(options: {
   });
 
   const decoderRef = useRef<VideoDecoder | null>(null);
+  const codecRef = useRef<'hevc' | 'h264' | null>(null);
+  const decoderGeneration = useRef(0);
+  const subscriptionGeneration = useRef(0);
+  const decoderQueue = useRef<Promise<void>>(Promise.resolve());
+  const queuedFrames = useRef(0);
   /**
    * 当前旋转角度的最新值。
    *
@@ -150,18 +155,15 @@ export function useCallVideo(options: {
   const lastFrameIndex = useRef<number | null>(null);
   /** 已经因为断帧而进入「等关键帧」状态（只用于日志去重）。 */
   const awaitingKeyframe = useRef(false);
-  /**
-   * 是否正在异步建解码器。
-   *
-   * `ensureDecoder` 里有 `await VideoDecoder.isConfigSupported`，期间后续帧的
-   * `onData` 会并发进来并重复触发重建 —— 第二次重建会 `close()` 掉第一次刚建
-   * 好的解码器，导致「只解出第一帧」。见 `onData` 里的详细说明。
-   */
-  const buildingDecoder = useRef(false);
-
   /** 建 / 重建解码器。 */
   const ensureDecoder = useCallback(
-    async (width: number, height: number): Promise<VideoDecoder | null> => {
+    async (
+      width: number,
+      height: number,
+      codec: 'hevc' | 'h264',
+      avc: string | undefined,
+      generation: number,
+    ): Promise<VideoDecoder | null> => {
       if (typeof VideoDecoder === 'undefined') {
         setState((prev) => ({ ...prev, supported: false }));
         return null;
@@ -175,37 +177,43 @@ export function useCallVideo(options: {
       // 形态 —— 传 Annex B 直接判不支持，传正确的 hvcC 也会首帧 Decoder error。
       let config: VideoDecoderConfig | null = null;
       const tried: string[] = [];
-      for (const codec of HEVC_CODEC_CANDIDATES) {
+      const candidates = codec === 'h264' ? (avc ? [avc] : []) : HEVC_CODEC_CANDIDATES;
+      for (const candidateCodec of candidates) {
         const candidate: VideoDecoderConfig = {
-          codec,
-          codedWidth: width || 320,
-          codedHeight: height || 184,
+          codec: candidateCodec,
+          ...(codec === 'hevc' ? { codedWidth: width || 320, codedHeight: height || 184 } : {}),
           optimizeForLatency: true,
         };
         try {
           const support = await VideoDecoder.isConfigSupported(candidate);
-          tried.push(`${codec}:${support.supported ? 'ok' : 'no'}`);
+          if (generation !== decoderGeneration.current) return null;
+          tried.push(`${candidateCodec}:${support.supported ? 'ok' : 'no'}`);
           if (support.supported) {
             config = candidate;
             break;
           }
         } catch (error) {
-          tried.push(`${codec}:err(${String(error)})`);
+          tried.push(`${candidateCodec}:err(${String(error)})`);
         }
       }
       if (!config) {
         // 把试过的候选连同报错一起抛给界面：只说「不支持」没法排查。
-        trace('error', '所有 HEVC 候选都不支持', { tried, width, height });
+        if (generation !== decoderGeneration.current) return null;
+        trace('error', '视频解码器不支持', { tried, width, height, codec });
         setState((prev) => ({
           ...prev,
           supported: false,
-          error: `当前环境不支持 H.265 解码（试过 ${HEVC_CODEC_CANDIDATES.length} 种）`,
+          error: `当前环境不支持 ${codec === 'h264' ? 'H.264' : 'H.265'} 解码`,
         }));
         return null;
       }
-      decoderRef.current?.close();
+      if (decoderRef.current?.state !== 'closed') decoderRef.current?.close();
       const decoder = new VideoDecoder({
         output: (frame) => {
+          if (generation !== decoderGeneration.current) {
+            frame.close();
+            return;
+          }
           // ⚠️ **尺寸要在 `frame.close()` 之前读。** close() 会把 VideoFrame 的
           // 所有属性重置为 0 —— 在它之后读 `displayWidth` 拿到的是 0。
           const width = frame.displayWidth;
@@ -232,6 +240,7 @@ export function useCallVideo(options: {
           );
         },
         error: (error) => {
+          if (generation !== decoderGeneration.current) return;
           trace('error', '解码器错误', { error: String(error) });
           setState((prev) => ({ ...prev, error: String(error) }));
         },
@@ -246,7 +255,10 @@ export function useCallVideo(options: {
 
   useEffect(() => {
     if (!enabled) {
-      decoderRef.current?.close();
+      subscriptionGeneration.current++;
+      decoderGeneration.current++;
+      codecRef.current = null;
+      if (decoderRef.current?.state !== 'closed') decoderRef.current?.close();
       decoderRef.current = null;
       configured.current = false;
       paramSets.current = [];
@@ -261,109 +273,122 @@ export function useCallVideo(options: {
   trpc.call.onCallVideo.useSubscription(undefined, {
     enabled,
     onData: (frame) => {
-      void (async () => {
-        // 先拆 NAL 再判断关键帧。
-        //
-        // ⚠️ 不能用主进程传的 `frame.keyframe`：订阅是在「对端开始发视频」的
-        // 状态推送之后才建立的，而**首个关键帧往往已经在那之前到达**——用它
-        // 判断会导致 `!configured && !keyframe` 永远成立，解码器根本建不起来。
-        // 改用自己从 NAL 类型判出来的结果：只要这一帧里真的带了 IRAP 就能起解。
-        const au = toAccessUnit(frame.hevc);
-        if (!au.data) return;
-        // 见到参数集就记下来：解码器重建后要拿它补在最前面（见 paramSets 的注释）。
-        if (au.params.length > 0) paramSets.current = au.params;
-        if (!configured.current && !au.keyframe) return;
-
-        // ⚠️ **连续性检查：关键帧之后，帧序号必须连续。**
-        //
-        // HEVC 的 P 帧依赖前序参考帧。跳帧后继续喂 delta，Chromium 硬解会拒绝
-        // 这些「无参考帧」的帧，但**内部状态被污染**，继续输出错乱的 YUV ——
-        // 2026-10-26 实测整屏纯绿（RGB `[0,88,0]`，R/B 恒为 0），直到下一个
-        // 关键帧（约 15 秒后）才重新同步。
-        //
-        // 主进程侧已经改为「整段补发连续帧」（见 `CallManager.replayBuffer`），
-        // 正常情况下这里不会触发。它保留作为**安全网**：网络丢包、补发与实时流
-        // 的衔接缝隙、对端中途重启编码，都可能造成序号断裂。
-        //
-        // 触发时丢弃本帧并等下一个关键帧 —— 会短暂冻画面，但好过整屏绿。
-        const previousIndex = lastFrameIndex.current;
-        if (!acceptsFrame(previousIndex, frame.frameIndex, au.keyframe)) {
-          if (!awaitingKeyframe.current) {
-            awaitingKeyframe.current = true;
-            trace('warn', '帧序号不连续，丢弃直到下一个关键帧', {
-              previous: previousIndex,
-              current: frame.frameIndex,
-              gap: ((frame.frameIndex - (previousIndex ?? 0) + 65536) % 65536) >>> 0,
-            });
-          }
-          return;
-        }
-        if (au.keyframe) awaitingKeyframe.current = false;
-        lastFrameIndex.current = frame.frameIndex;
-
-        const existing = decoderRef.current;
-        const rebuilt = !existing || existing.state === 'closed';
-        let decoder = existing;
-        if (rebuilt) {
-          // ⚠️ **必须互斥。** `onData` 是同步回调，但这里是 async 函数 —— 帧 N
-          // 在 `await ensureDecoder()` 期间，帧 N+1 的 `onData` 已经进来了，
-          // 它看到的 `decoderRef.current` 仍是 null，于是也走 `rebuilt` 分支，
-          // 再次 `await ensureDecoder()`。而 `ensureDecoder` 第一件事就是
-          // `decoderRef.current?.close()` —— **它会把帧 N 刚建好的解码器关掉**。
+      if (queuedFrames.current >= 512) return;
+      const queuedGeneration = subscriptionGeneration.current;
+      queuedFrames.current++;
+      decoderQueue.current = decoderQueue.current
+        .then(async () => {
+          if (queuedGeneration !== subscriptionGeneration.current) return;
+          // 先拆 NAL 再判断关键帧。
           //
-          // 结果：帧 N 的 `decode()` 落到一个已关闭的解码器上（或被丢弃），
-          // 帧 N+1 建的新解码器又没收到关键帧（`configured=false` + 后续全是
-          // delta 帧），此后每一帧都在 `if (!configured.current) return` 处被
-          // 丢掉 —— 表现就是「解出第一帧，画面永久停住」。
-          //
-          // 用一个在建标记挡住并发重建：谁先拿到谁建，其余帧直接返回等下一帧。
-          if (buildingDecoder.current) return;
-          buildingDecoder.current = true;
-          try {
-            decoder = await ensureDecoder(frame.info?.width ?? 320, frame.info?.height ?? 184);
-          } finally {
-            buildingDecoder.current = false;
-          }
-          if (!decoder) return;
-          configured.current = false;
-          // 一直挂到真的喂出一帧为止 —— 重建点落在 delta 帧上时，那帧会被下面
-          // 的「未配置跳过 delta」丢掉，标记得留着给下一个关键帧用。
-          needsParamSets.current = true;
-        }
-        if (decoder?.state !== 'configured') return;
-
-        if (au.keyframe) configured.current = true;
-        if (!configured.current) return;
-
-        // 这一帧自己不带参数集时补上缓存的 —— 新解码器和「只有首帧带参数集」的
-        // 码流都靠它。实测缺了会一直 `A key frame is required`。
-        const payload = payloadForDecoder(au, paramSets.current, needsParamSets.current);
-        if (!payload) return;
-        if (needsParamSets.current) needsParamSets.current = false;
-
-        try {
-          decoder.decode(
-            new EncodedVideoChunk({
-              type: au.keyframe ? 'key' : 'delta',
-              timestamp: frame.timestamp * 1000,
-              data: payload,
-            }),
-          );
-        } catch (error) {
-          decodeFailures.current++;
-          trace('warn', 'decode() 抛错', {
-            failures: decodeFailures.current,
-            error: String(error),
-          });
-          setState((prev) => ({ ...prev, error: String(error) }));
-          if (decodeFailures.current > 3) {
-            decoder.close();
+          // ⚠️ 不能用主进程传的 `frame.keyframe`：订阅是在「对端开始发视频」的
+          // 状态推送之后才建立的，而**首个关键帧往往已经在那之前到达**——用它
+          // 判断会导致 `!configured && !keyframe` 永远成立，解码器根本建不起来。
+          // 改用自己从 NAL 类型判出来的结果：只要这一帧里真的带了 IRAP 就能起解。
+          const codec = frame.codec ?? 'hevc';
+          if (codecRef.current !== codec) {
+            codecRef.current = codec;
+            decoderGeneration.current++;
+            if (decoderRef.current?.state !== 'closed') decoderRef.current?.close();
             decoderRef.current = null;
             configured.current = false;
-            decodeFailures.current = 0;
+            paramSets.current = [];
+            lastFrameIndex.current = null;
+            needsParamSets.current = false;
+            setState({ supported: true, active: false, width: 0, height: 0, error: null });
           }
-        }
-      })();
+          const generation = decoderGeneration.current;
+          const au = toAccessUnit(frame.hevc, codec);
+          if (!au.data) return;
+          // 见到参数集就记下来：解码器重建后要拿它补在最前面（见 paramSets 的注释）。
+          if (au.params.length > 0) paramSets.current = au.params;
+          if (!configured.current && !au.keyframe) return;
+
+          // ⚠️ **连续性检查：关键帧之后，帧序号必须连续。**
+          //
+          // HEVC 的 P 帧依赖前序参考帧。跳帧后继续喂 delta，Chromium 硬解会拒绝
+          // 这些「无参考帧」的帧，但**内部状态被污染**，继续输出错乱的 YUV ——
+          // 2026-10-26 实测整屏纯绿（RGB `[0,88,0]`，R/B 恒为 0），直到下一个
+          // 关键帧（约 15 秒后）才重新同步。
+          //
+          // 主进程侧已经改为「整段补发连续帧」（见 `CallManager.replayBuffer`），
+          // 正常情况下这里不会触发。它保留作为**安全网**：网络丢包、补发与实时流
+          // 的衔接缝隙、对端中途重启编码，都可能造成序号断裂。
+          //
+          // 触发时丢弃本帧并等下一个关键帧 —— 会短暂冻画面，但好过整屏绿。
+          const previousIndex = lastFrameIndex.current;
+          if (!acceptsFrame(previousIndex, frame.frameIndex, au.keyframe)) {
+            if (!awaitingKeyframe.current) {
+              awaitingKeyframe.current = true;
+              trace('warn', '帧序号不连续，丢弃直到下一个关键帧', {
+                previous: previousIndex,
+                current: frame.frameIndex,
+                gap: ((frame.frameIndex - (previousIndex ?? 0) + 65536) % 65536) >>> 0,
+              });
+            }
+            return;
+          }
+          if (au.keyframe) awaitingKeyframe.current = false;
+          lastFrameIndex.current = frame.frameIndex;
+
+          const existing = decoderRef.current;
+          const rebuilt = !existing || existing.state === 'closed';
+          let decoder = existing;
+          if (rebuilt) {
+            // 帧按顺序排队，建解码器期间到达的帧会继续等待。
+            decoder = await ensureDecoder(
+              frame.info?.width ?? 320,
+              frame.info?.height ?? 184,
+              codec,
+              avcCodec(paramSets.current),
+              generation,
+            );
+            if (!decoder || generation !== decoderGeneration.current) return;
+            configured.current = false;
+            // 一直挂到真的喂出一帧为止 —— 重建点落在 delta 帧上时，那帧会被下面
+            // 的「未配置跳过 delta」丢掉，标记得留着给下一个关键帧用。
+            needsParamSets.current = true;
+          }
+          if (decoder?.state !== 'configured') return;
+
+          if (au.keyframe) configured.current = true;
+          if (!configured.current) return;
+
+          // 这一帧自己不带参数集时补上缓存的 —— 新解码器和「只有首帧带参数集」的
+          // 码流都靠它。实测缺了会一直 `A key frame is required`。
+          const payload = payloadForDecoder(au, paramSets.current, needsParamSets.current);
+          if (!payload) return;
+          if (needsParamSets.current) needsParamSets.current = false;
+
+          try {
+            decoder.decode(
+              new EncodedVideoChunk({
+                type: au.keyframe ? 'key' : 'delta',
+                timestamp: frame.timestamp * 1000,
+                data: payload,
+              }),
+            );
+          } catch (error) {
+            decodeFailures.current++;
+            trace('warn', 'decode() 抛错', {
+              failures: decodeFailures.current,
+              error: String(error),
+            });
+            setState((prev) => ({ ...prev, error: String(error) }));
+            if (decodeFailures.current > 3) {
+              decoder.close();
+              decoderRef.current = null;
+              configured.current = false;
+              decodeFailures.current = 0;
+            }
+          }
+        })
+        .catch((error: unknown) => {
+          trace('error', '处理视频帧失败', { error: String(error) });
+        })
+        .finally(() => {
+          queuedFrames.current--;
+        });
     },
     onError: (error) => {
       trace('error', '视频订阅出错', { error: String(error) });
@@ -373,7 +398,9 @@ export function useCallVideo(options: {
 
   useEffect(() => {
     return () => {
-      decoderRef.current?.close();
+      subscriptionGeneration.current++;
+      decoderGeneration.current++;
+      if (decoderRef.current?.state !== 'closed') decoderRef.current?.close();
       decoderRef.current = null;
     };
   }, []);

@@ -42,6 +42,8 @@ import {
   buildGcsPacket,
   buildVideoControl,
   buildVideoKeepalive,
+  buildVideoPackets,
+  buildVideoSubHeader,
   parseGcsPacket,
   pbGetBytes,
   parseVideoPacket,
@@ -50,6 +52,53 @@ import {
   videoFrameIndex,
   VideoStateCode,
 } from '@weqbot/protocol';
+
+describe('私聊 H.264 封包', () => {
+  it('P 帧使用异或校验，丢失数据片时不会把校验片当成完整帧', () => {
+    const header = buildVideoSubHeader({
+      direction: 'c2s',
+      codec: 'h264',
+      frameIndex: 1,
+      timestampMs: 10,
+      peerVideoBase: 0,
+    });
+    const data = new Uint8Array(2300).fill(0x81);
+    data.set([0, 0, 0, 1, 0x41]);
+    const frame = new Uint8Array(header.length + data.length);
+    frame.set(header);
+    frame.set(data, header.length);
+    const packets = buildVideoPackets({
+      frameData: frame,
+      frameIndex: 1,
+      sessionTs: 1,
+      tick: 1,
+      seq: 1,
+      fec: true,
+      codec: 'h264',
+      keyframe: false,
+    });
+    const parsed = packets.map((packet) => parseVideoPacket(packet)!);
+    expect(parsed[0]!.rtp.totalFec).toBe(1);
+    expect(packets.every((packet) => packet[4] === 3)).toBe(true);
+    const parity = parsed.at(-1)!.payload;
+    const xor = new Uint8Array(parity.length);
+    for (const part of parsed.slice(0, -1)) {
+      for (let i = 0; i < part.payload.length; i++) xor[i] = xor[i]! ^ part.payload[i]!;
+    }
+    expect(parity).toEqual(xor);
+    const incomplete = new VideoFrameAssembler();
+    for (const part of parsed.slice(1)) expect(incomplete.push(part)).toBeNull();
+    const assembler = new VideoFrameAssembler();
+    const frames = parsed.flatMap((part) => {
+      const result = assembler.push(part);
+      return result ? [result] : [];
+    });
+    expect(frames).toHaveLength(1);
+    expect(frames[0]!.isKeyframe).toBe(false);
+    expect(frames[0]!.frameData[3]).toBe(5);
+    expect(assembler.pendingCount).toBe(0);
+  });
+});
 
 // ─────────────────────────── 测试替身 ───────────────────────────
 
