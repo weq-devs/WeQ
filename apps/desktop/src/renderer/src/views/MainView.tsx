@@ -316,6 +316,7 @@ import {
   groupInfoQueries,
 } from '../lib/groupMemberRefresh';
 import { GrayTipNamesContext } from '../lib/grayTipProfile';
+import { FileTransferTipScopeContext } from '../components/GrayTipFileRecvMessage';
 import { useDressSkin } from '../hooks/useDressSkin';
 import { injectFontCss } from '../lib/msgDecorationStyle';
 import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
@@ -12995,10 +12996,24 @@ function MainWorkspace(): ReactElement {
       </GroupResourceNavigationContext.Provider>
     </ConversationSettingsNavigationContext.Provider>,
   );
+  const fileTransferTipScope = useMemo(
+    () =>
+      messageScope && selectedUid && openedUin && configId
+        ? {
+            kind: isGroup ? ('group' as const) : ('c2c' as const),
+            conv: selectedUid,
+            expectedAccountUin: openedUin,
+            expectedAccountConfigId: configId,
+          }
+        : null,
+    [messageScope, selectedUid, openedUin, configId, isGroup],
+  );
   return (
     <ProfileChatShortcutContext.Provider value={profileChatShortcut}>
       <GrayTipNamesContext.Provider value={previewDisplayNames}>
-        {workspace}
+        <FileTransferTipScopeContext.Provider value={fileTransferTipScope}>
+          {workspace}
+        </FileTransferTipScopeContext.Provider>
       </GrayTipNamesContext.Provider>
     </ProfileChatShortcutContext.Provider>
   );

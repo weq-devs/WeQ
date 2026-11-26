@@ -295,6 +295,7 @@ import {
   guildDirectMsgToWire,
   type ChatMsgWire,
 } from '../serde';
+import { resolveFileTransferTip } from '../file_transfer_tip';
 
 /**
  * 闪传封面图大小上限（1 MB）。
@@ -4330,6 +4331,30 @@ export const accountRouter = router({
           )
         : (seq?.toString() ?? null);
     }),
+
+  fileTransferTipOriginal: procedure
+    .input(
+      convInput.merge(exportAccountBindingInput.required()).extend({
+        tipId: z.string().regex(/^-?[1-9]\d{0,19}$/),
+        tipSeq: z.number().int().min(1).max(0xffffffff),
+      }),
+    )
+    .query(({ input }) =>
+      readMessageScope(
+        input,
+        async () => {
+          const record = requireServices().accountConfig.getRecord();
+          const rows = await fetchBefore(input.kind, input.conv, BigInt(input.tipSeq) + 1n, 200, {
+            deferReplyMedia: true,
+          });
+          return resolveFileTransferTip(rows, input.tipId, String(input.tipSeq), {
+            uid: record?.uid ?? '',
+            uin: input.expectedAccountUin,
+          });
+        },
+        'background',
+      ),
+    ),
 
   /** The page just older than `beforeSeq` (scroll up), newest-first. */
   listBefore: procedure
