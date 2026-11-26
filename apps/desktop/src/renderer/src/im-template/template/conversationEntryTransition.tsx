@@ -113,6 +113,7 @@ export class ConversationEntryTransition extends Component<Props> {
     const entering = scroll.animate([{ opacity: 0 }, { opacity: 1 }], timing);
     this.entering = entering;
     this.leaving = this.previousFrame?.layer.animate([{ opacity: 1 }, { opacity: 0 }], timing);
+    void this.leaving?.finished.catch(() => {});
     const finish = () => {
       if (this.entering === entering) this.stop();
     };

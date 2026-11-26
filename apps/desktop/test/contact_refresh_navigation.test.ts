@@ -43,6 +43,16 @@ vi.mock('../src/renderer/src/components/Dialog.shared', () => ({
     h('div', { role: 'dialog', 'aria-labelledby': labelledBy }, children),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: {
+    backgroundTasks: {
+      onTaskPage: {
+        subscribe: (_: unknown, handler: { onData(id: string): void }) => {
+          handler.onData('contact-refresh-page');
+          return { unsubscribe() {} };
+        },
+      },
+    },
+  },
   trpc: {
     useUtils: () => ({
       account: {

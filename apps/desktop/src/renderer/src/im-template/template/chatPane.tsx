@@ -2089,8 +2089,9 @@ function ChatPaneContent({
     setContextMenu(null);
     let progressId: number | undefined;
     try {
-      let picked = messages ?? (await selectionFlow.prepare('意图感知'));
-      if (intentRun.current !== run || !picked?.length) return;
+      const selected = messages ?? (await selectionFlow.prepare('意图感知'));
+      if (intentRun.current !== run || !selected?.length) return;
+      let picked = selected;
       const batch = !messages;
       if (batch) {
         const cached = await client.account.intentSense.listMessageAnalyses.query({
@@ -2098,15 +2099,17 @@ function ChatPaneContent({
           conv: intentConv,
         });
         if (intentRun.current !== run) return;
-        picked = await reviewSelected('intent', picked, {
+        const accepted = await reviewSelected('intent', selected, {
           analyzed: new Set(cached.map((result) => result.msgId)),
         });
-        if (intentRun.current !== run || !picked?.length) return;
+        if (intentRun.current !== run || !accepted?.length) return;
+        picked = accepted;
       }
       const targets = picked.filter(
         (message) =>
           !grayTipOf(message) && !isLocalOutgoingMessage(message) && messageHasIntentText(message),
       );
+      const skipped = selected.length - targets.length;
       setIntentBusy(true);
       if (batch)
         progressId = pushToast({
@@ -2114,7 +2117,7 @@ function ChatPaneContent({
           loading: true,
           dismissible: false,
           title: `正在分析消息意图 0/${targets.length}`,
-          detail: `跳过 ${picked.length - targets.length} 条已有结果或不可分析的消息`,
+          detail: `跳过 ${skipped} 条已有结果或不可分析的消息`,
         });
       setManualIntentPending({
         scope: `${intentKind}:${intentConv}`,
@@ -2147,7 +2150,7 @@ function ChatPaneContent({
           if (progressId !== undefined)
             useToast.getState().update(progressId, {
               title: `正在分析消息意图 ${succeeded + failed}/${targets.length}`,
-              detail: `成功 ${succeeded} 条，失败 ${failed} 条，跳过 ${picked.length - targets.length} 条`,
+              detail: `成功 ${succeeded} 条，失败 ${failed} 条，跳过 ${skipped} 条`,
             });
           setManualIntentPending((current) => {
             if (current?.run !== run) return current;
@@ -2170,7 +2173,7 @@ function ChatPaneContent({
               ? '意图感知完成'
               : '没有可分析的消息',
           detail: [
-            `成功 ${succeeded} 条，失败 ${failed} 条，跳过 ${picked.length - targets.length} 条`,
+            `成功 ${succeeded} 条，失败 ${failed} 条，跳过 ${skipped} 条`,
             ...failureReasons,
           ].join('\n'),
         } as const;

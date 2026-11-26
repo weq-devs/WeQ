@@ -17,6 +17,16 @@ vi.mock('../src/renderer/src/hooks/useExportSavePolicy', () => ({
   }),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
+  client: {
+    backgroundTasks: {
+      onTaskPage: {
+        subscribe: (_: unknown, handler: { onData(id: string): void }) => {
+          handler.onData('media-preview-page');
+          return { unsubscribe() {} };
+        },
+      },
+    },
+  },
   trpc: {
     useUtils: () => ({}),
     account: {
