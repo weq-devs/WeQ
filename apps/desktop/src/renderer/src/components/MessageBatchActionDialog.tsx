@@ -1,6 +1,6 @@
 import { useId, useRef, useState, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronRight, X } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { Modal } from './Dialog';
 import { MessageRow } from '../im-template/template/messageRow';
 import type { Conversation, Message, User } from '../im-template/template/types';
@@ -99,9 +99,6 @@ export function MessageBatchActionDialog({
           <h3 id={id} className="weq-dialog-title">
             {title}
           </h3>
-          <button type="button" className="weq-dialog-x" aria-label="关闭" onClick={onClose}>
-            <X size={16} aria-hidden />
-          </button>
         </div>
         <div className="weq-dialog-body weq-message-batch-groups">
           <ForwardKindContext.Provider
