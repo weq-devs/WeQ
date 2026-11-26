@@ -11,9 +11,17 @@
 
 import { ToolbarLabel } from './CompactToolbar';
 import { observeCompactToolbar } from './CompactToolbar.shared';
-import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react';
 import { Check, Copy, LogOut, X } from 'lucide-react';
 import type { OcrBlock } from '@weqbot/protocol';
+import { useSurfaceRemovalFade } from '../hooks/useSurfaceRemovalFade';
 import { useSurfaceEscapeDismissal } from '../lib/surfaceEscape';
 
 /** 面板与视口边缘的最小间距（拖动时的夹取边界）。 */
@@ -33,6 +41,9 @@ export interface OcrTextPanelProps {
 
 export function OcrTextPanel({ blocks, source, cached, onExit }: OcrTextPanelProps): ReactElement {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const stopDrag = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => () => stopDrag.current?.(), []);
+  useSurfaceRemovalFade(panelRef);
   useSurfaceEscapeDismissal(panelRef, onExit, true);
   const [pos, setPos] = useState(() => ({
     x: Math.max(EDGE, window.innerWidth - PANEL_WIDTH - 28),
@@ -46,7 +57,9 @@ export function OcrTextPanel({ blocks, source, cached, onExit }: OcrTextPanelPro
     if (event.button !== 0) return;
     event.stopPropagation();
     event.preventDefault();
+    stopDrag.current?.();
     const panel = panelRef.current;
+    const view = panel?.ownerDocument.defaultView ?? window;
     const startRect = panel?.getBoundingClientRect();
     const startX = event.clientX;
     const startY = event.clientY;
@@ -54,19 +67,21 @@ export function OcrTextPanel({ blocks, source, cached, onExit }: OcrTextPanelPro
     const height = startRect?.height ?? 0;
 
     const onMove = (ev: MouseEvent): void => {
-      const maxX = window.innerWidth - PANEL_WIDTH - EDGE;
-      const maxY = window.innerHeight - height - EDGE;
+      const maxX = view.innerWidth - PANEL_WIDTH - EDGE;
+      const maxY = view.innerHeight - height - EDGE;
       setPos({
         x: Math.min(Math.max(EDGE, origin.x + ev.clientX - startX), Math.max(EDGE, maxX)),
         y: Math.min(Math.max(EDGE, origin.y + ev.clientY - startY), Math.max(EDGE, maxY)),
       });
     };
     const onUp = (): void => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      view.removeEventListener('mousemove', onMove);
+      view.removeEventListener('mouseup', onUp);
+      stopDrag.current = null;
     };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    stopDrag.current = onUp;
+    view.addEventListener('mousemove', onMove);
+    view.addEventListener('mouseup', onUp);
   }, []);
 
   // 视口变小时把面板拉回可见范围，免得拖完再缩窗口就找不着了。
@@ -94,6 +109,7 @@ export function OcrTextPanel({ blocks, source, cached, onExit }: OcrTextPanelPro
   return (
     <div
       ref={panelRef}
+      data-weq-surface-motion="enter"
       data-weq-escape-surface
       className="weq-ocr-panel"
       style={{ left: pos.x, top: pos.y }}

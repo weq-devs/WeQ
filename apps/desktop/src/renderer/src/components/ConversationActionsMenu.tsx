@@ -155,6 +155,7 @@ export function ConversationActionsMenu({
   );
   return (
     <OverlayLayer
+      fade
       presentation="popover"
       onClose={onClose}
       className="weq-conversation-actions-layer"

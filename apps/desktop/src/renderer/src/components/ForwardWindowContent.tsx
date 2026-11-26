@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from 'react';
 import { X } from 'lucide-react';
+import { useSurfaceRemovalFade } from '../hooks/useSurfaceRemovalFade';
 import { client } from '../trpc/client';
 import { LoadingIndicator } from './LoadingIndicator';
 import { AvatarPicture } from './AvatarPicture';
@@ -136,6 +137,11 @@ function ForwardWindowFrame({
   const setRecords = useForwardStore((s) => s.setRecords);
   const setError = useForwardStore((s) => s.setError);
   const surface = useRef<HTMLElement>(null);
+  const canShowExit = useCallback(
+    () => !useForwardStore.getState().windows.some(({ id }) => id === win.id),
+    [win.id],
+  );
+  useSurfaceRemovalFade(surface, { pinToViewport: true, canShow: canShowExit });
   const dismissBody = useRef<(() => boolean) | null>(null);
   const [viewport, setViewport] = useState(() => visibleViewport());
   useEffect(() => {

@@ -1,4 +1,5 @@
 import { prefersReducedMotion, surfaceMotionTiming } from './surfaceMotion';
+import { OVERLAY_BASE_LAYER } from './overlayStack';
 
 /** 放在布局清理中调用，真正卸载后才接入不可交互的画面。 */
 export function fadeRemovedSurface(
@@ -6,14 +7,16 @@ export function fadeRemovedSurface(
   {
     prepare,
     canShow,
+    pinToViewport = false,
   }: {
     prepare?: (source: HTMLElement, snapshot: HTMLElement) => void;
     canShow?: () => boolean;
+    pinToViewport?: boolean;
   } = {},
 ) {
   const document = element?.ownerDocument;
   const view = document?.defaultView;
-  const parent = element?.parentElement;
+  const parent = pinToViewport ? document?.body : element?.parentElement;
   if (
     !element?.isConnected ||
     !parent ||
@@ -34,6 +37,20 @@ export function fadeRemovedSurface(
   snapshot.setAttribute('aria-hidden', 'true');
   snapshot.removeAttribute('data-weq-surface-motion');
   snapshot.classList.add('weq-surface-exiting');
+  if (pinToViewport) {
+    const { left, top, width, height } = element.getBoundingClientRect();
+    Object.assign(snapshot.style, {
+      position: 'fixed',
+      inset: `${top}px auto auto ${left}px`,
+      width: `${width}px`,
+      height: `${height}px`,
+      maxWidth: 'none',
+      maxHeight: 'none',
+      boxSizing: 'border-box',
+      transform: 'none',
+      zIndex: String(OVERLAY_BASE_LAYER),
+    });
+  }
   const targets = snapshot.querySelectorAll<HTMLElement>('*');
   const scroll = [...element.querySelectorAll<HTMLElement>('*')].flatMap((node, index) => {
     const target = targets[index];
@@ -42,6 +59,12 @@ export function fadeRemovedSurface(
       : [];
   });
   prepare?.(element, snapshot);
+  // 退出画面不可重启播放器，也不参与页面的 id 查找。
+  snapshot.removeAttribute('id');
+  for (const child of snapshot.querySelectorAll('[id]')) {
+    if (child.namespaceURI === snapshot.namespaceURI) child.removeAttribute('id');
+  }
+  for (const child of snapshot.querySelectorAll('audio, video, iframe')) child.remove();
 
   queueMicrotask(() => {
     // StrictMode 的清理演练不会移除原节点。

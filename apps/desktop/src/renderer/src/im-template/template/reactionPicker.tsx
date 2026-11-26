@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useSurfaceRemovalFade } from '../../hooks/useSurfaceRemovalFade';
 import { reactionItems } from '../../lib/reactionItems';
 import { trpc } from '../../trpc/client';
 import { cn } from './classNames';
@@ -19,6 +20,7 @@ export function ReactionPicker({
   originElement?: HTMLElement | null;
 }) {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  useSurfaceRemovalFade(panelRef);
   const catalog = trpc.account.emojiPanel.catalog.useQuery(undefined, { staleTime: 30_000 });
   const faces = catalog.data?.faces;
   const cells = useMemo(() => reactionItems(faces ?? []), [faces]);
@@ -76,6 +78,7 @@ export function ReactionPicker({
       ref={panelRef}
       className={cn('reaction-picker')}
       style={{ left: anchor.x, top: anchor.y }}
+      data-weq-surface-motion="enter"
       role="dialog"
       tabIndex={-1}
       aria-label="贴表情"

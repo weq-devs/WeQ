@@ -1,3 +1,4 @@
+import { useTabPanelMotion } from '../hooks/useTabPanelMotion';
 import { NumericText } from './NumericText';
 import { eventTimeFormatter } from '@weq/time';
 /**
@@ -297,6 +298,11 @@ export function WonderfulToolsDialog({
     ? initialTool
     : (visibleTools[0]?.id ?? 'capture');
   const [activeTool, setActiveTool] = useState<ToolId>(selectedTool);
+  const { panel: toolPane, rememberScroll: rememberToolScroll } = useTabPanelMotion<HTMLElement>(
+    activeTool,
+    true,
+    '.weq-wtools-pane-body',
+  );
   const activity = useQQReadActivity(open, { onlineOnly: false });
   const readEnabled = useRef(activity.enabled);
   readEnabled.current = activity.enabled;
@@ -583,6 +589,7 @@ export function WonderfulToolsDialog({
                       aria-selected={activeTool === tool.id}
                       className={`weq-wtools-nav-item${activeTool === tool.id ? ' is-active' : ''}`}
                       onClick={() => {
+                        rememberToolScroll();
                         setActiveTool(tool.id);
                         setResult(null);
                         setScanningUin(null);
@@ -603,7 +610,7 @@ export function WonderfulToolsDialog({
               </aside>
 
               {/* 右栏：工具界面 */}
-              <section className="weq-wtools-pane">
+              <section ref={toolPane} className="weq-wtools-pane">
                 {activeTool === 'key-scan' ? (
                   <>
                     <header className="weq-wtools-pane-head">

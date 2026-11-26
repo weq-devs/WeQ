@@ -7,6 +7,7 @@
  *   - 反馈 bug   BugReportPanel（hexdump / gh / QQ 群）
  */
 
+import { useTabPanelMotion } from '../../hooks/useTabPanelMotion';
 import { useState, type ReactElement } from 'react';
 import { SettingsPageIcon } from './pageIcons';
 import LogPerformanceSettings from './LogPerformanceSettings';
@@ -26,6 +27,11 @@ const HELP_TABS: ReadonlyArray<{ id: HelpTabId; label: string; icon: ReactElemen
 export function HelpSection({ page }: { page?: HelpTabId } = {}): ReactElement {
   const [tab, setTab] = useState<HelpTabId>('logs');
   const active = page ?? tab;
+  const { panel: helpBody, rememberScroll: rememberHelpScroll } = useTabPanelMotion(
+    page ? 'settings-page' : active,
+    true,
+    '.weq-settings-body, .weq-modal',
+  );
 
   return (
     <div className="weq-help">
@@ -38,7 +44,10 @@ export function HelpSection({ page }: { page?: HelpTabId } = {}): ReactElement {
               role="tab"
               aria-selected={tab === t.id}
               className={`weq-help-tab${tab === t.id ? ' is-active' : ''}`}
-              onClick={() => setTab(t.id)}
+              onClick={() => {
+                rememberHelpScroll();
+                setTab(t.id);
+              }}
             >
               {t.icon}
               {t.label}
@@ -46,7 +55,7 @@ export function HelpSection({ page }: { page?: HelpTabId } = {}): ReactElement {
           ))}
         </div>
       ) : null}
-      <div className="weq-help-body" role={page ? undefined : 'tabpanel'}>
+      <div ref={helpBody} className="weq-help-body" role={page ? undefined : 'tabpanel'}>
         {active === 'logs' ? <LogPerformanceSettings /> : null}
         {active === 'faq' ? <FaqPanel /> : null}
         {active === 'feedback' ? <BugReportPanel /> : null}

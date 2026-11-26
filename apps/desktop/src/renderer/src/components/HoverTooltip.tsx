@@ -6,6 +6,7 @@ import { useRestrictedMode } from '../state/restrictedMode';
 import { restrictedActionTitle } from '../lib/restrictedMode';
 import { shouldDismissHoverHint } from '../lib/hoverHint';
 import { usePrivacyStore } from '../state/privacy';
+import { useExitMotion } from '../hooks/useExitMotion';
 
 // Half Chromium's 500 ms default; native title timing itself is not configurable.
 const HOVER_DELAY_MS = 250;
@@ -21,9 +22,12 @@ export function HoverTooltip() {
   const window = document.defaultView ?? globalThis.window;
   const [tooltip, setTooltip] = useState<Tooltip | null>(null);
   const bubble = useRef<HTMLDivElement>(null);
+  const present = useExitMotion(bubble, Boolean(tooltip));
+  const lastTooltip = useRef<Tooltip | null>(null);
   useLayoutEffect(() => {
     const element = bubble.current;
     if (!element || !tooltip) return;
+    lastTooltip.current = tooltip;
     const bounds = element.getBoundingClientRect();
     element.style.left = `${Math.max(8, Math.min(tooltip.x, window.innerWidth - bounds.width - 8))}px`;
     const below = tooltip.y + bounds.height <= window.innerHeight - 8;
@@ -277,6 +281,10 @@ export function HoverTooltip() {
     };
     const unsubscribePrivacy = usePrivacyStore.subscribe((state, previous) => {
       if (state.effective === previous.effective) return;
+      lastTooltip.current = null;
+      if (!owner) {
+        for (const animation of bubble.current?.getAnimations?.() ?? []) animation.cancel();
+      }
       for (const element of body.querySelectorAll('[title=""][aria-label]')) {
         const entry = titles.get(element);
         if (entry?.label === undefined || element.getAttribute('aria-label') !== entry.label)
@@ -332,16 +340,20 @@ export function HoverTooltip() {
     };
   }, [document, window]);
 
-  return tooltip
+  const shown = tooltip ?? lastTooltip.current;
+  return present && shown
     ? createPortal(
         <div
           ref={bubble}
           id={TOOLTIP_ID}
           className="weq-hover-tooltip"
           role="tooltip"
-          style={{ left: tooltip.x, top: tooltip.y }}
+          data-weq-surface-motion="fade"
+          data-closing={!tooltip || undefined}
+          aria-hidden={!tooltip || undefined}
+          style={{ left: shown.x, top: shown.y }}
         >
-          {tooltip.text}
+          {shown.text}
         </div>,
         document.body,
       )

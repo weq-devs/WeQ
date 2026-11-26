@@ -231,7 +231,6 @@
   border-radius: 12px;
   border: 1px solid var(--weq-border-subtle);
   background: color-mix(in srgb, var(--weq-fg-primary) 4%, transparent);
-  animation: weq-call-drawer-in 160ms ease;
 }
 
 .weq-call-drawer-group {
@@ -455,17 +454,6 @@
   }
 }
 
-@keyframes weq-call-drawer-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
 /* ── 深色模式：独立一套值，不是浅色取反 ── */
 html[data-theme='dark'] .weq-call-recording-card {
   background: color-mix(in srgb, #fff 6%, transparent);
@@ -507,8 +495,7 @@ html[data-theme='dark'] .weq-call-seg-item.is-on {
   .weq-call-recording-dot {
     animation: none;
   }
-  .weq-call-recording-card,
-  .weq-call-drawer-body {
+  .weq-call-recording-card {
     animation: none;
   }
   .weq-call-drawer-chevron,

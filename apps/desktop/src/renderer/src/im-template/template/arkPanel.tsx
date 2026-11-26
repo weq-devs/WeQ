@@ -19,6 +19,7 @@
  * --im-color-line），主题色与深浅模式自动跟随，见 styles/ark-panel.css。
  */
 
+import { useSurfaceRemovalFade } from '../../hooks/useSurfaceRemovalFade';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTabActive } from '../../components/RetainedTabs.shared';
@@ -425,6 +426,7 @@ export function ArkPanel({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  useSurfaceRemovalFade(rootRef);
 
   // 好友 / 群
   const [friendId, setFriendId] = useState('');

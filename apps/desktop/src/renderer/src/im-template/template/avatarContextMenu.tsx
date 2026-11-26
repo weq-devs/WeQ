@@ -12,7 +12,9 @@ import {
   Award,
   UserMinus,
 } from 'lucide-react';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
+import { useSurfaceRemovalFade } from '../../hooks/useSurfaceRemovalFade';
+import { useTabPanelMotion } from '../../hooks/useTabPanelMotion';
 import type { User } from './types';
 import { cn } from './classNames';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
@@ -96,8 +98,9 @@ export function AvatarContextMenu({
   moderationBlockedReason?: string | null;
   unmuteBlockedReason?: string | null;
 }) {
-  const menuRef = useRef<HTMLDivElement | null>(null);
+  const { panel: menuRef } = useTabPanelMotion(JSON.stringify([state.sender.id, state.x, state.y]));
   const active = useTabActive();
+  useSurfaceRemovalFade(menuRef, { enabled: active });
   useSurfaceOutside(menuRef, onClose, active);
   const [muteOpen, setMuteOpen] = useState(false);
   const moderationDisabled = Boolean(moderationBlockedReason);
@@ -126,11 +129,12 @@ export function AvatarContextMenu({
       Math.max(state.y, margin),
       Math.max(margin, window.innerHeight - rect.height - margin),
     )}px`;
-  }, [state.x, state.y, muteOpen]);
+  }, [state.x, state.y, muteOpen, menuRef]);
 
   return (
     <div
       ref={menuRef}
+      data-weq-surface-motion="enter"
       role="menu"
       className={cn('message-context-menu', 'avatar-context-menu')}
       style={{ left: state.x, top: state.y }}

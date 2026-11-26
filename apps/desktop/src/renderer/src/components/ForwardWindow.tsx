@@ -21,6 +21,7 @@ import {
 } from '../state/forwardWindow';
 import { OverlayLayerContext, useOverlayLayerScope } from '../lib/overlayStack';
 import { useSurfaceEscape } from '../lib/surfaceEscape';
+import { useSurfaceRemovalFade } from '../hooks/useSurfaceRemovalFade';
 import { visibleViewport } from '../lib/visibleViewport';
 import { LoadingIndicator } from './LoadingIndicator';
 import { parseArkMultiMsg } from './ForwardWindow.shared';
@@ -34,6 +35,11 @@ const Content = lazy(() =>
 
 function PendingWindow({ win }: { win: ForwardWindowState }) {
   const surface = useRef<HTMLElement>(null);
+  const canShowExit = useCallback(
+    () => !useForwardStore.getState().windows.some(({ id }) => id === win.id),
+    [win.id],
+  );
+  useSurfaceRemovalFade(surface, { pinToViewport: true, canShow: canShowExit });
   const close = useForwardStore((s) => s.close);
   const raise = useForwardStore((s) => s.bringToFront);
   useSurfaceEscape(surface, () => close(win.id), true, false);

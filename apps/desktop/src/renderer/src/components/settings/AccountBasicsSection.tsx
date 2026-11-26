@@ -1,3 +1,4 @@
+import { AnimatedDetails } from '../AnimatedDetails';
 import { NumericText } from '../NumericText';
 import { preciseTimeFormatter as eventTimeFormatter } from '@weq/time';
 /**
@@ -799,7 +800,7 @@ export function AccountBasicsSection({
               </div>
             }
           />
-          <details className="weq-set-details">
+          <AnimatedDetails className="weq-set-details">
             <summary>
               <ChevronDown size={13} aria-hidden />
               安卓 chatpic 备份教程（点击展开）
@@ -841,7 +842,7 @@ export function AccountBasicsSection({
                 chatthumb），而不是它的父目录。
               </p>
             </div>
-          </details>
+          </AnimatedDetails>
         </Card>
       )}
     </div>

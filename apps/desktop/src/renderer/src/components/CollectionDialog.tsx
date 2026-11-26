@@ -1,3 +1,4 @@
+import { useTabPanelMotion } from '../hooks/useTabPanelMotion';
 import { accountGatewayPath } from '../lib/accountGateway';
 import { filterByName } from '../lib/nameSearch';
 import { ToolbarLabel } from './CompactToolbar';
@@ -637,6 +638,7 @@ export function CollectionDialog({
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = usePageState('collection:query', '', pageValue.string);
   const [kind, setKind] = usePageState('collection:kind', 'all', pageValue.string);
+  const { panel: kindPanel, rememberScroll: rememberKindScroll } = useTabPanelMotion(kind, true);
   const [page, setPage] = useState(0);
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<CollectionItemWire | null>(null);
@@ -1299,7 +1301,10 @@ export function CollectionDialog({
                 role="tab"
                 aria-selected={kind === k.id}
                 className={`weq-collection-chip${kind === k.id ? ' is-active' : ''}`}
-                onClick={() => setKind(k.id)}
+                onClick={() => {
+                  rememberKindScroll();
+                  setKind(k.id);
+                }}
               >
                 {k.label}
                 <span className="weq-collection-chip-n">
@@ -1315,7 +1320,7 @@ export function CollectionDialog({
             onClose={() => setExportSelection(null)}
           />
         ) : null}
-        <div className="weq-collection-body">
+        <div ref={kindPanel} className="weq-collection-body">
           {selected ? (
             <section className="weq-col-detail">
               <div className="weq-col-detail-meta">

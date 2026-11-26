@@ -27,6 +27,7 @@
  * 面板自己不碰 trpc / 协议；样式见 styles/flash-composer.css，颜色全走主题 token。
  */
 
+import { useSurfaceRemovalFade } from '../../hooks/useSurfaceRemovalFade';
 import { ToolbarLabel } from '../../components/CompactToolbar';
 import { observeCompactToolbar } from '../../components/CompactToolbar.shared';
 import { NumericText } from '../../components/NumericText';
@@ -190,6 +191,9 @@ export function FlashComposer({
   const tabActive = useTabActive();
   const lightboxLayer = useOverlayLayer(tabActive && lightbox);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const coverRef = useRef<HTMLDivElement>(null);
+  useSurfaceRemovalFade(rootRef, { pinToViewport: true });
+  useSurfaceRemovalFade(coverRef, { enabled: lightbox && tabActive });
   const coverInputRef = useRef<HTMLInputElement | null>(null);
   const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const sendButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -508,6 +512,7 @@ export function FlashComposer({
       {lightbox && tabActive
         ? createPortal(
             <div
+              ref={coverRef}
               className={cn('flash-lightbox')}
               style={{ zIndex: lightboxLayer }}
               role="dialog"

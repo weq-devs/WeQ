@@ -13,7 +13,8 @@
  */
 
 import { NumericText } from '../NumericText';
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import { AnimatedDisclosure } from '../AnimatedDisclosure';
 import { ChevronDown, Settings2 } from 'lucide-react';
 
 export interface CallSettingsDrawerProps {
@@ -42,6 +43,7 @@ export function CallSettingsDrawer({
   onOpenSettings,
 }: CallSettingsDrawerProps) {
   const [open, setOpen] = useState(false);
+  const bodyId = useId();
 
   return (
     <div className={`weq-call-drawer${open ? ' is-open' : ''}`}>
@@ -50,12 +52,13 @@ export function CallSettingsDrawer({
         className="weq-call-drawer-toggle"
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
+        aria-controls={bodyId}
       >
         <ChevronDown size={14} className="weq-call-drawer-chevron" aria-hidden />
         <span>通话信息</span>
       </button>
 
-      {open ? (
+      <AnimatedDisclosure id={bodyId} open={open}>
         <div className="weq-call-drawer-body">
           <section className="weq-call-drawer-group is-meta">
             <dl className="weq-call-drawer-meta">
@@ -111,7 +114,7 @@ export function CallSettingsDrawer({
             </span>
           </section>
         </div>
-      ) : null}
+      </AnimatedDisclosure>
     </div>
   );
 }

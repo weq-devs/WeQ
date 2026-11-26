@@ -15,6 +15,7 @@
  * 聊天背景与浮屏挂件一律离线可用(QQ 同款的直链 bootstrap 时已存进 config,浮屏挂件是 bundle 的)。
  */
 
+import { useTabPanelMotion } from '../hooks/useTabPanelMotion';
 import { NumericText } from './NumericText';
 import { ToolbarLabel } from './CompactToolbar';
 import { observeCompactToolbar } from './CompactToolbar.shared';
@@ -347,6 +348,7 @@ export function DressUpDialog({
     setSelectedKind(next);
   }
   const kind = developmentDressTools ? (explicitKind.current ?? selectedKind) : 'background';
+  const { panel: dressPanel } = useTabPanelMotion(kind);
   const [mallBrowsing, setMallBrowsing] = usePageState('dress-up:mall', {}, mallBrowseSchema);
   const [emojiDraft, setEmojiDraft] = usePageState('dress-up:emoji-draft', '', pageValue.string);
   const [emojiKeyword, setEmojiKeyword] = usePageState(
@@ -786,6 +788,14 @@ export function DressUpDialog({
     onStart: () => setSelectionMode(true),
     onExit: () => setSelectionMode(false),
   });
+  const selectionRoot = multi.rootProps.ref;
+  const setDressPanel = useCallback(
+    (node: HTMLDivElement | null) => {
+      dressPanel.current = node;
+      if (isMall) selectionRoot(node);
+    },
+    [dressPanel, isMall, selectionRoot],
+  );
 
   /**
    * @param previewSrc 已经解析好的预览图 src(可直接进 `<img>`)。空串 = 无预览。
@@ -1380,6 +1390,7 @@ export function DressUpDialog({
           aria-labelledby={`weq-dress-tab-${kind}`}
           className="weq-dress-panel"
           {...(isMall ? multi.rootProps : {})}
+          ref={setDressPanel}
         >
           {state.error && (isMall || kind === 'usage' || kind === 'background') ? (
             <div className="weq-dress-notice is-bad">

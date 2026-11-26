@@ -1,8 +1,16 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { useOverlayAnchor } from '../lib/overlayAnchor.shared';
-import { useOverlayLayer } from '../lib/overlayStack';
+import { OVERLAY_BASE_LAYER, useOverlayLayer } from '../lib/overlayStack';
 import { useRenderDocument } from '../lib/renderDocument';
+import { useExitMotion } from '../hooks/useExitMotion';
 import '../styles/qzone-actions.css';
 
 export function HoverPopover({
@@ -30,6 +38,11 @@ export function HoverPopover({
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const placement = useOverlayAnchor(layer, open, true, anchor.current);
   const zIndex = useOverlayLayer(open);
+  const present = useExitMotion(layer, open);
+  const lastPosition = useRef<CSSProperties | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (open) lastPosition.current = placement.position;
+  }, [open, placement.position]);
   const cancelClose = () => {
     clearTimeout(closeTimer.current);
     closeTimer.current = undefined;
@@ -134,14 +147,21 @@ export function HoverPopover({
       >
         {typeof trigger === 'function' ? trigger(open) : trigger}
       </div>
-      {open || keepMounted
+      {present || keepMounted
         ? createPortal(
             <div
               ref={layer}
               className={`${classPrefix}-layer`}
               data-weq-surface
-              hidden={!open}
-              style={{ ...placement.position, zIndex }}
+              data-weq-surface-motion="fade"
+              data-closing={!open || undefined}
+              hidden={!present}
+              inert={!open}
+              aria-hidden={!open || undefined}
+              style={{
+                ...(open ? placement.position : lastPosition.current),
+                zIndex: open ? zIndex : OVERLAY_BASE_LAYER,
+              }}
             >
               <div
                 className={`${classPrefix}-popover`}

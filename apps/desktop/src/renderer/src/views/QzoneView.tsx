@@ -77,6 +77,7 @@ import { QzoneTime } from '../components/QzoneTime';
 import { QzoneWriteActions, type QzoneLikeChange } from '../components/qq-actions/MediaActions';
 import { withQQAccountScope } from '../components/qq-actions/shared.shared';
 import { pushMobileBack, useMobileBack } from '../hooks/useMobileNavigation';
+import { useTabPanelMotion } from '../hooks/useTabPanelMotion';
 import { QzoneEmoji, QzoneInlineText } from '../components/QzoneEmoji';
 import {
   projectQzoneFeed,
@@ -3693,6 +3694,11 @@ function FeedTimeline({
       ? 'like'
       : interactionTab;
   const relatedShown = related?.filter((item) => item.activity.kind === selectedInteractionTab);
+  const { panel: interactionPanel, rememberScroll: rememberInteractionScroll } = useTabPanelMotion(
+    selectedInteractionTab,
+    true,
+    '.weq-qzn-scroll',
+  );
   const shown = useMemo(
     () =>
       (kind === 'friends' ? feeds : undefined)?.flatMap((feed) => {
@@ -3790,7 +3796,10 @@ function FeedTimeline({
                 aria-selected={selectedInteractionTab === value}
                 aria-controls={relatedPanel}
                 tabIndex={selectedInteractionTab === value ? 0 : -1}
-                onClick={() => setInteractionTab(value)}
+                onClick={() => {
+                  rememberInteractionScroll();
+                  setInteractionTab(value);
+                }}
                 onKeyDown={(event) => {
                   const next =
                     event.key === 'ArrowRight'
@@ -3804,6 +3813,7 @@ function FeedTimeline({
                             : null;
                   if (next === null) return;
                   event.preventDefault();
+                  rememberInteractionScroll();
                   setInteractionTab(relatedTabs[next]!.value);
                   event.currentTarget.parentElement
                     ?.querySelectorAll<HTMLButtonElement>('[role="tab"]')
@@ -3821,6 +3831,7 @@ function FeedTimeline({
             ))}
           </div>
           <div
+            ref={interactionPanel}
             id={relatedPanel}
             role="tabpanel"
             aria-label={relatedTabs.find((item) => item.value === selectedInteractionTab)?.label}

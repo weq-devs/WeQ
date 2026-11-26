@@ -1,3 +1,4 @@
+import { AnimatedDetails } from '../AnimatedDetails';
 import { NumericText } from '../NumericText';
 import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
@@ -155,7 +156,7 @@ export function BackupExportOptions({
   ) => (
     <BackupOption {...toggle(id)} disabled={disabled || accounts.length === 0}>
       {enabled(id) ? (
-        <details open={selection[key].length === 0 || undefined}>
+        <AnimatedDetails open={selection[key].length === 0 || undefined}>
           <BackupDisclosure>
             <NumericText>
               {selection[key].length ? `已选 ${selection[key].length} 个数据来源` : '选择数据来源'}
@@ -166,7 +167,7 @@ export function BackupExportOptions({
             picked={selection[key]}
             onChange={(ids) => onChange({ ...selection, [key]: ids })}
           />
-        </details>
+        </AnimatedDetails>
       ) : null}
     </BackupOption>
   );
@@ -203,7 +204,7 @@ export function BackupExportOptions({
         ) : null}
       </BackupOption>
       {scoped('database', 'databaseConfigIds')}
-      <details className="weq-backup-option">
+      <AnimatedDetails className="weq-backup-option">
         <BackupDisclosure>
           本机设置与布局<NumericText>{deviceCount ? ` · 已选 ${deviceCount} 项` : ''}</NumericText>
         </BackupDisclosure>
@@ -212,9 +213,9 @@ export function BackupExportOptions({
           <BackupOption {...toggle('paths')} />
           <BackupOption {...toggle('device')} />
         </div>
-      </details>
+      </AnimatedDetails>
       {scoped('drafts', 'draftConfigIds')}
-      <details className="weq-backup-option">
+      <AnimatedDetails className="weq-backup-option">
         <BackupDisclosure>
           助手与克隆数据<NumericText>{agentCount ? ` · 已选 ${agentCount} 项` : ''}</NumericText>
         </BackupDisclosure>
@@ -233,7 +234,7 @@ export function BackupExportOptions({
           ) : null}
           {!cloneAccounts.length ? <p className="weq-set-note">暂无助手或克隆数据。</p> : null}
         </div>
-      </details>
+      </AnimatedDetails>
     </fieldset>
   );
 }

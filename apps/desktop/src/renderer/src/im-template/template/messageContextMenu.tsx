@@ -39,6 +39,8 @@ import { forwardContentBlockReason } from '../../lib/sequentialForward';
 import { parseFlashShareCode } from '../../lib/flashShare';
 import { messageMediaTarget } from '../../lib/messageMediaTarget';
 import { useSurfaceOutside } from '../../lib/surfaceOutside';
+import { useSurfaceRemovalFade } from '../../hooks/useSurfaceRemovalFade';
+import { useTabPanelMotion } from '../../hooks/useTabPanelMotion';
 import { OverlayLayerContext, useOverlayLayerScope } from '../../lib/overlayStack';
 import { useRenderDocument } from '../../lib/renderDocument';
 import { useTabActive } from '../../components/RetainedTabs.shared';
@@ -194,7 +196,8 @@ export function MessageContextMenu(props: Props) {
   const roaming = Boolean(props.metadataPrecision && showsRoamingSource(message));
   const hasMetadata = Boolean(time || seq || roaming);
   const originElement = state.originElement;
-  const menuRef = useRef<HTMLDivElement>(null);
+  const { panel: menuRef } = useTabPanelMotion(JSON.stringify([message.id, state.x, state.y]));
+  useSurfaceRemovalFade(menuRef, { enabled: tabActive });
   const focusedIndex = useRef(0);
   const restoreFocus = useRef(true);
   const returnFocusTo = useRef<HTMLElement | null>(null);
@@ -208,7 +211,7 @@ export function MessageContextMenu(props: Props) {
       [...(menuRef.current?.querySelectorAll<HTMLButtonElement>('button') ?? [])].filter(
         (button) => getComputedStyle(button).display !== 'none',
       ),
-    [],
+    [menuRef],
   );
 
   useEffect(() => {
@@ -245,7 +248,7 @@ export function MessageContextMenu(props: Props) {
           previousFocus.focus({ preventScroll: true });
       });
     };
-  }, [message.id, originElement, buttons, document, window, tabActive]);
+  }, [message.id, originElement, buttons, document, window, tabActive, menuRef]);
 
   useLayoutEffect(() => {
     const el = menuRef.current;
@@ -274,7 +277,7 @@ export function MessageContextMenu(props: Props) {
       observer.disconnect();
       window.removeEventListener('resize', place);
     };
-  }, [state.x, state.y, state.variant, showReactions, window, tabActive]);
+  }, [state.x, state.y, state.variant, showReactions, window, tabActive, menuRef]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === 'Escape' || event.key === 'Tab') {
@@ -399,6 +402,7 @@ export function MessageContextMenu(props: Props) {
         <div
           ref={menuRef}
           hidden={!tabActive}
+          data-weq-surface-motion="enter"
           role="menu"
           aria-label="消息操作"
           aria-describedby={hasMetadata ? metadataId : undefined}

@@ -1,3 +1,4 @@
+import { AnimatedDetails } from '../AnimatedDetails';
 import { useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { TRPCClientError } from '@trpc/client';
 import { SETTINGS_FIELDS } from '@weq/service/settings-catalog';
@@ -380,10 +381,10 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                         {dialog.items.find((entry) => entry.id === item.id)?.label}
                         ：未能恢复，可重试。
                         {item.error ? (
-                          <details className="weq-settings-reset-detail">
+                          <AnimatedDetails className="weq-settings-reset-detail">
                             <summary>技术详情</summary>
                             <pre>{item.error}</pre>
-                          </details>
+                          </AnimatedDetails>
                         ) : null}
                       </p>
                     ))}
@@ -396,10 +397,10 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                       ? '恢复默认设置没有完成，请重试。'
                       : '没能读取要恢复的设置项，请重试。'}
                   </p>
-                  <details className="weq-settings-reset-detail">
+                  <AnimatedDetails className="weq-settings-reset-detail">
                     <summary>技术详情</summary>
                     <pre>{error}</pre>
-                  </details>
+                  </AnimatedDetails>
                 </div>
               ) : null}
             </div>

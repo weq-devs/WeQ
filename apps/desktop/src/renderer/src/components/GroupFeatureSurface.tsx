@@ -67,6 +67,7 @@ export function GroupFeatureSurface({
       presentation={presentation}
       anchor={anchor}
       anchorPlacement="side"
+      fade={presentation === 'popover'}
       consumeOutsidePress={presentation !== 'popover'}
       className={
         presentation === 'popover' ? `weq-group-feature-layer ${className ?? ''}` : className

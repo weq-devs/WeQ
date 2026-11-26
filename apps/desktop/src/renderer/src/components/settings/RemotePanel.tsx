@@ -1,3 +1,4 @@
+import { AnimatedDetails } from '../AnimatedDetails';
 import { NumericText } from '../NumericText';
 import { RemoteDeviceDetails, RemoteDeviceTime } from '../RemoteDeviceDetails';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -456,7 +457,7 @@ export function RemotePanel({
                     </span>
                   </div>
                   {device.scope === 'web:access' && onAccountAccess && (
-                    <details className="weq-remote-device-details weq-remote-account-access">
+                    <AnimatedDetails className="weq-remote-device-details weq-remote-account-access">
                       <summary>
                         <ChevronRight size={14} />
                         访问权限
@@ -504,7 +505,7 @@ export function RemotePanel({
                           />
                         );
                       })}
-                    </details>
+                    </AnimatedDetails>
                   )}
                   <RemoteDeviceDetails device={device} />
                 </div>

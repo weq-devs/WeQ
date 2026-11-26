@@ -23,6 +23,7 @@
  * 下单后会拿到一张二维码：真正付款由手机 QQ 用当前账号拉起支付页，扫码只是回退。
  */
 
+import { useSurfaceRemovalFade } from '../../hooks/useSurfaceRemovalFade';
 import { NumericText } from '../../components/NumericText';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
@@ -218,6 +219,8 @@ export function RedPacketPanel({
   // 切换类型时封面上的字会换成另一个字段（祝福语 ↔ 口令），不经过 onChange，
   // 所以补一个跟着字走的 effect；输入时 onChange 里那次重算负责**立刻**反馈。
   const coverRef = useRef<HTMLTextAreaElement | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useSurfaceRemovalFade(rootRef);
   useEffect(() => {
     if (coverRef.current) autoGrow(coverRef.current);
   }, [coverText, coverPlaceholder]);
@@ -226,6 +229,7 @@ export function RedPacketPanel({
     <div
       className={cn('redpacket-panel')}
       ref={(node) => {
+        rootRef.current = node;
         if (panelRef) panelRef.current = node;
       }}
       role="dialog"

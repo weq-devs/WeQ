@@ -54,11 +54,10 @@ function ToolModal({
   const active = useTabActive();
   useModalBackground(ref, active);
   return (
-    <OverlayLayer presentation="modal" className="weq-tool-scrim" onClose={onClose}>
+    <OverlayLayer fade presentation="modal" className="weq-tool-scrim" onClose={onClose}>
       <section
         ref={ref}
         className="weq-tool-modal"
-        data-weq-surface-motion="enter"
         role="dialog"
         aria-modal="true"
         aria-label={title}
