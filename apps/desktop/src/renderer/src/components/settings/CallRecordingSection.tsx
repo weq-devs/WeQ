@@ -12,6 +12,7 @@ import { useContext, type ReactElement } from 'react';
 import { FolderOpen, Info, PhoneCall, Radio, Waypoints } from 'lucide-react';
 import { trpc } from '../../trpc/client';
 import { useTabActive } from '../RetainedTabs.shared';
+import { SegmentedControl } from '../SegmentedControl';
 import { useToast } from '../Toast.shared';
 import { Card, Row, SectionHeader, Toggle } from './controls';
 import { SettingsNavigateContext } from './controls.shared';
@@ -82,21 +83,13 @@ export function CallRecordingSection(): ReactElement {
           label="录音来源"
           desc={MODE_OPTIONS.find((option) => option.value === mode)?.hint}
           control={
-            <div className="weq-set-seg" role="radiogroup" aria-label="录音来源">
-              {MODE_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={mode === option.value}
-                  className={`weq-set-seg-item${mode === option.value ? ' is-on' : ''}`}
-                  disabled={setSettings.isLoading || !config}
-                  onClick={() => setSettings.mutate({ mode: option.value })}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              label="录音来源"
+              value={mode}
+              options={MODE_OPTIONS}
+              disabled={setSettings.isLoading || !config}
+              onChange={(mode) => setSettings.mutate({ mode })}
+            />
           }
         />
         <Row

@@ -1178,14 +1178,6 @@ html[data-weq-input='touch'] .weq-exp-dialog-close {
   color: var(--weq-fg-primary);
 }
 
-.weq-exp-range .weq-segmented {
-  display: flex;
-}
-
-.weq-exp-range .weq-segmented > button {
-  flex: 0 0 auto;
-}
-
 .weq-exp-range-summary {
   display: flex;
   align-items: center;

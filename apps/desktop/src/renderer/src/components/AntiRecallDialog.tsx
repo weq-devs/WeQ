@@ -24,6 +24,7 @@ import { trpc } from '../trpc/client';
 import { useDialog } from './Dialog.shared';
 import { useToast } from './Toast.shared';
 import { LoadingIndicator } from './LoadingIndicator';
+import { SegmentedControl } from './SegmentedControl';
 import { QqProxySettingsLink } from './QqProxyConnection';
 import { Card, Row, QueryError, SettingsScopeBadge } from './settings/controls';
 import { ConversationPicker } from '../views/export/ConversationPicker';
@@ -433,21 +434,13 @@ export function AntiRecallDialog({
         <Row
           label="保护范围"
           control={
-            <div className="weq-set-seg" role="radiogroup" aria-label="防撤回保护范围">
-              {SCOPE_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={mode === option.value}
-                  className={cn('weq-set-seg-item', mode === option.value && 'is-on')}
-                  disabled={busy || !status.data}
-                  onClick={() => void onSetScope(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              label="防撤回保护范围"
+              value={mode}
+              options={SCOPE_OPTIONS}
+              disabled={busy || !status.data}
+              onChange={(scope) => void onSetScope(scope)}
+            />
           }
         />
       )}

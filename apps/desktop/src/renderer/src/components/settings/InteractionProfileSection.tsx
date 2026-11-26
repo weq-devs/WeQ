@@ -61,31 +61,28 @@ export function InteractionProfileSection() {
         <>
           <Row
             settingId="profile-engine"
+            settingFallback={
+              status.data
+                ? status.data.profileEngine === 'api'
+                  ? 'profile-local-model'
+                  : status.data.profileEngine === 'local'
+                    ? 'profile-api-model intent-tuning-profileTemperature intent-tuning-profileModelTopics'
+                    : 'profile-api-model profile-local-model'
+                : undefined
+            }
             label="运行方式"
             control={
-              <span
-                data-setting-fallback={
-                  status.data
-                    ? status.data.profileEngine === 'api'
-                      ? 'profile-local-model'
-                      : status.data.profileEngine === 'local'
-                        ? 'profile-api-model intent-tuning-profileTemperature intent-tuning-profileModelTopics'
-                        : 'profile-api-model profile-local-model'
-                    : undefined
-                }
-              >
-                <SegmentedControl
-                  label="互动画像运行方式"
-                  disabled={disabled}
-                  value={status.data?.profileEngine ?? null}
-                  onChange={(profileEngine) => void patch({ profileEngine })}
-                  options={[
-                    { value: 'api', label: 'API 模型' },
-                    { value: 'local', label: '本地模型' },
-                    { value: 'heuristic', label: '本地统计' },
-                  ]}
-                />
-              </span>
+              <SegmentedControl
+                label="互动画像运行方式"
+                disabled={disabled}
+                value={status.data?.profileEngine ?? null}
+                onChange={(profileEngine) => void patch({ profileEngine })}
+                options={[
+                  { value: 'api', label: 'API 模型' },
+                  { value: 'local', label: '本地模型' },
+                  { value: 'heuristic', label: '本地统计' },
+                ]}
+              />
             }
           />
           {status.data?.profileEngine === 'api' ? (

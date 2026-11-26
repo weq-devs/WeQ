@@ -5461,51 +5461,6 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
   align-items: center;
 }
 
-/* Segmented single-select (e.g. 空闲自动锁定时长). */
-.weq-set-seg {
-  display: inline-flex;
-  padding: 2px;
-  gap: 2px;
-  border-radius: 8px;
-  border: 1px solid rgba(0, 153, 255, 0.18);
-  background: rgba(0, 153, 255, 0.05);
-}
-
-.weq-set-seg-item {
-  padding: 4px 10px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #51677c;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.4;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    color 140ms ease,
-    background-color 140ms ease;
-}
-
-.weq-set-seg-item:hover:not(:disabled):not(.is-on) {
-  color: #0f2d4c;
-  background: rgba(255, 255, 255, 0.6);
-}
-
-.weq-set-seg-item.is-on {
-  color: #ffffff;
-  background: #0099ff;
-}
-
-.weq-set-seg-item:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.weq-set-seg-item svg.is-spin {
-  animation: weq-set-spin 0.8s linear infinite;
-}
-
 @keyframes weq-set-spin {
   to {
     transform: rotate(360deg);

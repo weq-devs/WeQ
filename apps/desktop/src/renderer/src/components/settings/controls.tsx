@@ -264,6 +264,7 @@ export function SettingsStatusBadge({
  */
 export function Row({
   settingId,
+  settingFallback,
   label,
   desc,
   control,
@@ -271,6 +272,7 @@ export function Row({
   remoteUnsupported = false,
 }: {
   settingId?: string;
+  settingFallback?: string;
   label?: ReactNode;
   desc?: ReactNode;
   control: ReactNode;
@@ -282,7 +284,11 @@ export function Row({
   const rowLabel = label === undefined ? definition?.label : label;
   if (remote && (remoteUnsupported || !remoteSettingAvailable('', settingId))) return null;
   return (
-    <div className={`weq-set-row${indent ? ' is-indent' : ''}`} data-setting-id={settingId}>
+    <div
+      className={`weq-set-row${indent ? ' is-indent' : ''}`}
+      data-setting-id={settingId}
+      data-setting-fallback={settingFallback}
+    >
       <div className="weq-set-row-main">
         <span className="weq-set-row-label">{rowLabel}</span>
         {desc ? <span className="weq-set-row-desc">{desc}</span> : null}
