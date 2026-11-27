@@ -700,13 +700,10 @@ export async function resolveChatImageFile(
     behavior.dataSaverImageLoading !== 'original'
   ) {
     const small = q.get('small');
-    const thumbnail =
-      small && small !== q.get('orig')
-        ? await services.mediaDownload.thumbnail?.(small, false, signal)
-        : null;
-    return thumbnail
-      ? { path: thumbnail, variant: 'thumb' as const }
-      : { path: null, variant: 'unknown' as const, deferred: true };
+    if (!small || small === q.get('orig'))
+      return { path: null, variant: 'unknown' as const, deferred: true };
+    const thumbnail = await services.mediaDownload.thumbnail?.(small, false, signal);
+    return { path: thumbnail ?? null, variant: 'thumb' as const };
   }
   const transfer = originalOnly
     ? transferIdInput.safeParse(q.get('transferId') ?? undefined)
@@ -1096,7 +1093,11 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
           if (deferred)
             return new Response('省流量模式：点击加载', {
               status: 409,
-              headers: { 'Cache-Control': 'no-store', 'X-WeQ-Media-State': 'deferred' },
+              headers: {
+                'Cache-Control': 'no-store',
+                'X-WeQ-Media-State': 'deferred',
+                'Access-Control-Expose-Headers': 'X-WeQ-Media-State',
+              },
             });
           return path ? await respond(path) : notFound('pic not found');
         }

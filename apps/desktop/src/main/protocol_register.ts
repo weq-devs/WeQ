@@ -54,7 +54,7 @@ export function registerMediaThumbnailIpc(): void {
       const response = await handleMediaRequest(new Request(parsed, { signal: controller.signal }));
       if (!response.ok || controller.signal.aborted) {
         await response.body?.cancel();
-        return null;
+        return response.headers.get('X-WeQ-Media-State') === 'deferred' ? 'deferred' : null;
       }
       return { bytes: await response.arrayBuffer(), type: response.headers.get('Content-Type') };
     } finally {

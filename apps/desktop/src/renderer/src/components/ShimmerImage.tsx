@@ -59,7 +59,7 @@ export function ShimmerImage({
   mediaLoading?: boolean;
   remoteImageSrc?: string | null;
   abortableThumbnail?: boolean;
-  onThumbnailError?: () => void;
+  onThumbnailError?: (state: 'deferred' | 'failed') => void;
   reuseRemoteCache?: boolean;
 }): ReactElement {
   const [loaded, setLoaded] = useState(false);
@@ -147,9 +147,9 @@ export function ShimmerImage({
       displayedSrc !== transportSrc &&
       (displayedSrc.startsWith('blob:') || displayedSrc.startsWith('data:')),
   );
-  const reportThumbnailError = useEffectEvent(() => {
+  const reportThumbnailError = useEffectEvent((state: 'deferred' | 'failed') => {
     setFailed(true);
-    onThumbnailError?.();
+    onThumbnailError?.(state);
   });
   useEffect(() => {
     if (!enabled) {
@@ -180,9 +180,9 @@ export function ShimmerImage({
         // Safari 移除图片节点后仍可继续读原响应，显式取消 fetch 才会释放电脑端队列。
         const blob = await fetchChatThumbnail(proxyUrl, signal);
         if (signal.aborted) return;
-        if (!blob) {
+        if (!blob || blob === 'deferred') {
           setFetched({ key: requestKey, blob: null, source: 'error' });
-          reportThumbnailError();
+          reportThumbnailError(blob === 'deferred' ? 'deferred' : 'failed');
           return;
         }
         setFetched({ key: requestKey, blob, source: 'proxy' });
@@ -276,9 +276,7 @@ export function ShimmerImage({
         <span
           className="weq-image-placeholder"
           role={showRing ? undefined : 'img'}
-          aria-label={
-            failed ? `${alt || '图片'}未加载${limited ? '（省流量模式）' : ''}` : alt || '图片'
-          }
+          aria-label={failed ? `${alt || '图片'}未加载` : alt || '图片'}
         >
           {showRing ? (
             <MediaLoadingRing label="正在加载图片" />

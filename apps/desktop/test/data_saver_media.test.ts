@@ -176,6 +176,22 @@ it('省流量缩图缺失不偷偷下载原图，显式点击仍使用现有下�
   );
   expect(state.download).toHaveBeenCalledOnce();
 });
+it('省流量下有小图地址但取图失败时返回失败，也不回退原图', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-thumbnail-policy-'));
+  roots.push(root);
+  state.mediaDownload = new MediaDownloadService(
+    { getRecord: () => null } as unknown as AccountConfigService,
+    root,
+  );
+  const fetch = vi.fn(async (_input: RequestInfo | URL) => new Response(null, { status: 404 }));
+  vi.stubGlobal('fetch', fetch);
+  const small = 'https://gchat.qpic.cn/fixture.png';
+  const params = new URLSearchParams({ name: 'x', token: 'token', v: 'thumb', ds: '1', small });
+  const response = await handleMediaRequest(new Request(`weq-media://pic?${params}`));
+  expect(response.status).toBe(404);
+  expect(response.headers.has('X-WeQ-Media-State')).toBe(false);
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual([small]);
+});
 it('预览自动获取原图仍受宿主的省流量状态约束', async () => {
   const url = 'weq-media://pic?token=token&v=original&intent=interactive&ds=1';
   expect((await handleMediaRequest(new Request(`${url}&autoOriginal=1`))).status).toBe(409);
