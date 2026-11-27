@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { AlbumVideoStaging } from '../src/main/ipc/routers/album_video_staging';
 
 describe('Web 视频流式暂存', () => {
-  it('重启后按已提交偏移复核前缀，交给写操作的句柄不能再次恢复', async () => {
+  it('在途发送禁止恢复，明确拒绝后可以恢复同一份完整暂存', async () => {
     const root = await mkdtemp(join(tmpdir(), 'weq-transfer-checkpoint-'));
     const create = () =>
       new AlbumVideoStaging(60000, {
@@ -37,7 +37,11 @@ describe('Web 视频流式暂存', () => {
       const path = await restarted.consume(owner, id);
       expect(await readFile(path)).toEqual(Buffer.of(1, 2, 3, 4, 5));
       await expect(create().resume(owner, id)).rejects.toThrow('失效');
-      await restarted.discard(owner, id, true);
+      await restarted.releaseRejected(owner, id);
+      const resumed = create();
+      expect((await resumed.resume(owner, id)).offset).toBe(5);
+      expect(await resumed.consume(owner, id)).toBe(path);
+      await resumed.discard(owner, id, true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

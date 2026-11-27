@@ -7328,6 +7328,7 @@ export const accountRouter = router({
           ...(input.tempGroupCode ? { tempGroupCode: input.tempGroupCode } : {}),
           elements: elements as never,
           random: input.random,
+          isStagedSource: (path) => pickedBrowserFiles.ownsCompletePath(services, path),
           ...(input.preparedChatFont !== undefined
             ? { preparedChatFont: input.preparedChatFont }
             : {}),
@@ -7422,6 +7423,14 @@ export const accountRouter = router({
       const path = input.uploadId
         ? await browserFiles.consume(services, input.uploadId)
         : input.path!;
+      const managed =
+        Boolean(input.uploadId) || pickedBrowserFiles.ownsCompletePath(services, path);
+      const staged = managed
+        ? await services.mediaDownload.sentMedia?.stage(path, true).catch((error: unknown) => {
+            console.warn('[发送附件] 保留宿主暂存失败', error);
+          })
+        : undefined;
+      let retainedForRetry = false;
       try {
         const host = input.uploadId ? null : getHost();
         const keepSource =
@@ -7430,7 +7439,7 @@ export const accountRouter = router({
           services.messageSend.sendFile({
             peerType: input.peerType,
             targetId: input.targetId,
-            path,
+            path: staged?.path ?? path,
             ...(input.fileName ? { fileName: input.fileName } : {}),
             ...(input.folderId ? { folderId: input.folderId } : {}),
             ...(input.transferId
@@ -7451,6 +7460,12 @@ export const accountRouter = router({
             },
           }),
         );
+        if (outcome.ok && staged)
+          await staged
+            .publish('file', outcome.md5Hex, [outcome.fileId], outcome.fileName)
+            .catch((error: unknown) => {
+              console.warn('[发送附件] 已发缓存写入失败', error);
+            });
         if (outcome.ok && keepSource)
           services.fileResource.rememberSentFile(
             outcome.fileId,
@@ -7458,9 +7473,21 @@ export const accountRouter = router({
             outcome.fileSize,
             path.trim(),
           );
+        if (!outcome.ok && input.uploadId && (outcome.scene === 'group' || outcome.result)) {
+          try {
+            await browserFiles.releaseRejected(services, input.uploadId);
+            retainedForRetry = true;
+          } catch (error) {
+            console.warn('[发送附件] 保留重试暂存失败', error);
+          }
+        }
         return outcome;
       } finally {
-        if (input.uploadId) await browserFiles.discard(services, input.uploadId, true);
+        await staged?.discard();
+        if (input.uploadId && !retainedForRetry)
+          await browserFiles.discard(services, input.uploadId, true).catch((error: unknown) => {
+            console.warn('[发送附件] 暂存回收失败', error);
+          });
       }
     }),
 

@@ -101,6 +101,32 @@ it('不自动加载仅允许现有缓存，携带小图地址也不发起下载'
   expect(response.status).toBe(409);
   expect(state.download).not.toHaveBeenCalled();
 });
+it('省流量不自动联网时仍可凭内容哈希读取此前已发的图片', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-sent-picture-'));
+  roots.push(root);
+  state.mediaDownload = new MediaDownloadService(
+    {
+      getConfigId: () => 'fixture',
+      getRecord: () => ({ configId: 'fixture' }),
+    } as unknown as AccountConfigService,
+    root,
+  );
+  const bytes = await sharp({ create: { width: 3, height: 3, channels: 3, background: '#454545' } })
+    .png()
+    .toBuffer();
+  const digest = createHash('md5').update(bytes).digest('hex');
+  const sent = (await state.mediaDownload.sentMedia?.stage(bytes))!;
+  await sent.publish('pic', digest, ['sent-token']);
+  await sent.discard();
+  const fetch = vi.fn();
+  vi.stubGlobal('fetch', fetch);
+  updateTransferPolicy('always', UNKNOWN_NETWORK, { dataSaverImageLoading: 'none' });
+  const url = `weq-media://pic?token=readback-token&md5=${digest}&ds=1&cacheOnly=1`;
+  const response = await handleMediaRequest(new Request(url));
+  expect(response.status).toBe(200);
+  expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+  expect(fetch).not.toHaveBeenCalled();
+});
 it('选择自动原图时使用完整在线下载链路，不再强制仅小图', async () => {
   updateTransferPolicy('always', UNKNOWN_NETWORK, { dataSaverImageLoading: 'original' });
   await handleMediaRequest(new Request('weq-media://pic?t=1&name=x&token=token&ds=1'));

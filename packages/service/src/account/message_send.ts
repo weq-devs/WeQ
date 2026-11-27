@@ -71,6 +71,7 @@ import { getLogger } from '../common/logger';
 import { bundledSystemFaceText, suppliedSystemFaceText } from '../common/system_face_text';
 import { toGapMessage, type GapFetchedMessage } from './gap_history';
 import type { MediaDownloadService } from './media_download';
+import type { SentMediaKind, StagedSentMedia } from './sent_media_cache';
 
 const logger = getLogger().child({ scope: 'message-send' });
 
@@ -243,6 +244,8 @@ export interface SendMediaParams {
 
 export interface SendElementsParams {
   beforeSend?: () => void;
+  /** 宿主暂存由调用方持有读取租期，可以直接保留同一个磁盘文件。 */
+  isStagedSource?: (path: string) => boolean;
   onUploadProgress?: MediaSendContext['onUploadProgress'];
   onUploaded?: () => void;
   peerType: SendPeerType;
@@ -545,7 +548,8 @@ export class MessageSendService {
     private readonly currentChatFontId?: () => number | undefined,
     private readonly sendWithQqFont: () => boolean = () => true,
     private readonly currentChatBubbleId?: () => number | undefined,
-    private readonly mediaDownload?: Pick<MediaDownloadService, 'download'>,
+    private readonly mediaDownload?: Pick<MediaDownloadService, 'download'> &
+      Partial<Pick<MediaDownloadService, 'sentMedia'>>,
     private readonly authorizeGroup?: (groupId: number, uploadFile: boolean) => Promise<void>,
     /**
      * 「个性装扮」里选用的聊天字体 itemId（0 / 缺省 = 未选）。
@@ -582,6 +586,56 @@ export class MessageSendService {
         },
       };
     });
+  }
+
+  private async prepareSentMedia(elements: SendElement[], params: SendElementsParams) {
+    const staged = new Map<number, { kind: SentMediaKind; file: StagedSentMedia }>();
+    if (!elements.some((element) => isSendUploadElement(element))) return staged;
+    const cache = this.mediaDownload?.sentMedia;
+    if (!cache) return staged;
+    let uploadIndex = -1;
+    for (const [index, element] of elements.entries()) {
+      if (!isSendUploadElement(element)) continue;
+      uploadIndex++;
+      if (element.kind === 'flashPhoto' || element.fingerprint) continue;
+      const { source } = element;
+      try {
+        const file = await cache.stage(
+          source,
+          typeof source === 'string' && params.isStagedSource?.(source),
+        );
+        if (!file) continue;
+        const kind = element.kind === 'image' ? 'pic' : element.kind === 'record' ? 'ptt' : 'video';
+        staged.set(uploadIndex, { file, kind });
+        elements[index] = { ...element, source: file.path };
+      } catch (error) {
+        logger.warn('已发媒体暂存失败', { event: 'sent-media-stage', error: String(error) });
+      }
+    }
+    return staged;
+  }
+
+  private async retainSentMedia(
+    staged: Map<number, { kind: SentMediaKind; file: StagedSentMedia }>,
+    uploads: SendMediaUploadReport[],
+    elements: GapFetchedMessage['elements'],
+  ) {
+    for (const [index, { kind, file }] of staged) {
+      const report = uploads[index];
+      if (!report) continue;
+      const tokens = elements.flatMap((element) => {
+        if (element.type !== kind || element.type === 'file') return [];
+        const digest = element.type === 'pic' ? element.data.md5 : element.data.md5Bytes;
+        return digest?.toLowerCase() === report.md5Hex.toLowerCase() && element.data.fileToken
+          ? [element.data.fileToken]
+          : [];
+      });
+      try {
+        await file.publish(kind, report.md5Hex, tokens);
+      } catch (error) {
+        logger.warn('已发媒体缓存写入失败', { event: 'sent-media-cache', error: String(error) });
+      }
+    }
   }
 
   private withForwardImageFallback(nodes: SendForwardNodeInput[]): SendForwardNodeInput[] {
@@ -1245,8 +1299,11 @@ export class MessageSendService {
             ...(fontRaw !== undefined ? { fontId2Raw: fontRaw } : {}),
           };
 
-    const uploads: SendMediaUploadReport[] = [];
     params.beforeSend?.();
+    const outgoing = this.withImageFallback(elements);
+    const staged = await this.prepareSentMedia(outgoing, params);
+    const discardStaging = () =>
+      Promise.all([...staged.values()].map(({ file }) => file.discard()));
     const receipt = await sendMessage(guardedNative(this.nt, params.beforeSend), pid, {
       ...(device
         ? {
@@ -1267,7 +1324,7 @@ export class MessageSendService {
       ...(!device && !groupTemp && target.scene === 'c2c' && target.uid
         ? { userUid: target.uid }
         : {}),
-      elements: this.withImageFallback(elements),
+      elements: outgoing,
       random: params.random,
       // 显式携带当前字体原值；服务器历史回填字体不代表实时推送也带字体。
       ...(dress ? { dress } : {}),
@@ -1287,35 +1344,34 @@ export class MessageSendService {
             },
           }
         : {}),
-      // 秒传命中在服务层也记一笔：下次再做同类排查，日志里能直接看出「有没有传字节」。
-      ...(needUpload
-        ? {
-            onUpload: (report: SendMediaUploadReport) => {
-              uploads.push(report);
-              logger.info(
-                report.fastUpload
-                  ? `媒体秒传命中（服务端已有同 md5 资源，未上传字节）: ${report.fileName}`
-                  : `媒体已上传: ${report.fileName}`,
-                {
-                  event: 'media-upload-summary',
-                  kind: report.kind,
-                  md5: report.md5Hex,
-                  fileSize: report.fileSize,
-                  fastUpload: report.fastUpload,
-                },
-              );
-            },
-          }
-        : {}),
+    }).catch(async (error: unknown) => {
+      await discardStaging();
+      throw error;
     });
 
+    const uploads = receipt.uploads;
+    for (const report of uploads) {
+      logger.info(
+        report.fastUpload
+          ? `媒体秒传命中（服务端已有同 md5 资源，未上传字节）: ${report.fileName}`
+          : `媒体已上传: ${report.fileName}`,
+        {
+          event: 'media-upload-summary',
+          kind: report.kind,
+          md5: report.md5Hex,
+          fileSize: report.fileSize,
+          fastUpload: report.fastUpload,
+        },
+      );
+    }
     const outcome = toOutcome(receipt, target, uploads);
     if (outcome.ok && currentFontId !== undefined && fontRaw === undefined) {
       outcome.hint = '消息已发送；尚未同步到当前字体的可靠原值，本次按普通字体发送。';
     }
     const sequence = target.peerType === 'group' ? receipt.groupSequence : receipt.privateSequence;
     // 设备由 dataline 表同步接管，不写入普通私聊的漫游缓存。
-    if (!device && outcome.ok && sequence > 0 && this.retainSent) {
+    const retainMessage = !device && outcome.ok && sequence > 0 ? this.retainSent : undefined;
+    if (outcome.ok && (retainMessage || staged.size)) {
       try {
         const request = decode(SEND_MESSAGE_REQUEST, receipt.requestBytes) as Record<
           string,
@@ -1343,11 +1399,13 @@ export class MessageSendService {
           target.peerType === 'group' ? String(target.uin) : target.uid || target.targetId,
           decodeMessage(raw),
         );
+        await this.retainSentMedia(staged, uploads, message.elements);
+        if (!retainMessage) return outcome;
         // 特殊互动元素尚未被收侧解码器支持时，保留原来的乐观预览等待 QQ 同步。
         if (message.elements.length < elements.length) return outcome;
         const voice = params.voiceTranscript && message.elements.find((el) => el.type === 'ptt');
         if (voice && voice.type === 'ptt') voice.data.pttTranscript = params.voiceTranscript;
-        await this.retainSent({
+        await retainMessage({
           ...message,
           ...(previewBubbleId || (currentFontId !== undefined && fontRaw !== undefined)
             ? {
@@ -1373,8 +1431,10 @@ export class MessageSendService {
           error: String(error),
         });
         outcome.hint = `${outcome.hint ? `${outcome.hint}；` : ''}消息已发送，但本地保存失败。`;
+      } finally {
+        await discardStaging();
       }
-    }
+    } else await discardStaging();
     if (!outcome.ok) {
       logger.warn('send message rejected', {
         event: 'send-message-rejected',

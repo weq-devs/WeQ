@@ -197,11 +197,13 @@ function MediaBody({
   sendTimeMs,
   msgId,
   gridTile,
+  isSender,
 }: {
   element: RenderElement;
   sendTimeMs: number;
   msgId: string;
   gridTile?: boolean;
+  isSender?: boolean;
 }): ReactNode {
   const data = element.data ?? {};
   const conv = useContext(ConvContext);
@@ -222,6 +224,7 @@ function MediaBody({
           msgId={ownerMsgId}
           fwd={fwd}
           gridTile={gridTile}
+          preferLocal={isSender && !fwd}
         />
       );
     case 'video':
@@ -425,7 +428,9 @@ function ElementNode({
   callConv?: CallConv | null;
 }): ReactNode {
   if (element.type && MEDIA_KINDS.has(element.type)) {
-    return <MediaNode element={element} sendTimeMs={sendTimeMs} msgId={msgId} />;
+    return (
+      <MediaNode element={element} sendTimeMs={sendTimeMs} msgId={msgId} isSender={isSender} />
+    );
   }
   if (element.type === 'face') {
     return <FaceNode data={element.data ?? {}} size={INLINE_SIZE} isSender={isSender} />;
@@ -528,7 +533,13 @@ function renderElementNodes(
         tiles.push(
           <MediaItemIndexContext.Provider key={mediaPosition} value={mediaPosition}>
             <div className="qq-image-grid-tile">
-              <MediaNode element={picture} sendTimeMs={sendTimeMs} msgId={msgId} gridTile />
+              <MediaNode
+                element={picture}
+                sendTimeMs={sendTimeMs}
+                msgId={msgId}
+                isSender={isSender}
+                gridTile
+              />
             </div>
           </MediaItemIndexContext.Provider>,
         );
@@ -1130,7 +1141,7 @@ function QqMessageContentBody({
     if ((lone.type && BORDERLESS_MEDIA.has(lone.type)) || isChatVideoAttachment(lone)) {
       return (
         <div className={cn('message-content', 'sticker-only')}>
-          <MediaNode element={lone} sendTimeMs={sendTimeMs} msgId={msgId} />
+          <MediaNode element={lone} sendTimeMs={sendTimeMs} msgId={msgId} isSender={isSender} />
         </div>
       );
     }

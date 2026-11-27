@@ -11,6 +11,7 @@ import { handleMediaRequest } from '../src/main/media_protocol';
 const state = vi.hoisted(() => ({
   root: '',
   source: null as string | null,
+  sentVideo: null as string | null,
   localAttachment: null as string | null,
   sign: vi.fn(),
   signFile: vi.fn(),
@@ -18,6 +19,12 @@ const state = vi.hoisted(() => ({
 vi.mock('../src/main/context/app_context', () => {
   const makeServices = () => ({
     fileSearch: { findFile: async () => ({ source: state.source }) },
+    mediaDownload: {
+      sentMedia: {
+        find: (kind: string, token: string) =>
+          kind === 'video' && token === 'synthetic-video' ? state.sentVideo : null,
+      },
+    },
     msgs: {
       getRawElements: async () => ({
         kind: 'group',
@@ -58,6 +65,7 @@ const movUrl = 'weq-media://file?name=clip.MOV&token=synthetic-file&msgId=41&con
 beforeEach(async () => {
   state.root = await mkdtemp(join(tmpdir(), 'weq-video-preview-'));
   state.source = null;
+  state.sentVideo = null;
   state.localAttachment = null;
   state.sign.mockReset().mockResolvedValue('https://fixture.invalid/video.mp4');
   state.signFile.mockReset().mockResolvedValue('https://fixture.invalid/attachment');
@@ -95,6 +103,15 @@ it('Web／Remote 传送已缓存视频也不登记下载任务', async () => {
   expect(response.status).toBe(200);
   expect(Buffer.from(await response.arrayBuffer()).equals(bytes)).toBe(true);
   expect(activity).not.toHaveBeenCalled();
+});
+
+it('已发视频可从本地缓存续播，不请求 QQ 的签名地址', async () => {
+  state.sentVideo = join(state.root, 'sent.mp4');
+  await writeFile(state.sentVideo, bytes.subarray(0, 64));
+  const response = await handleMediaRequest(new Request(url, { headers: { Range: 'bytes=5-9' } }));
+  expect(response.status).toBe(206);
+  expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes.subarray(5, 10));
+  expect(state.sign).not.toHaveBeenCalled();
 });
 
 it('同一播放来源连续寻址只签一次，缓存签名被拒时重新签发', async () => {

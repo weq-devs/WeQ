@@ -658,6 +658,9 @@ export async function resolveChatImageFile(
   if (path) return { path, variant: path === source ? ('original' as const) : ('thumb' as const) };
   const backup = resolveChatpicFallback(q.get('md5') ?? '', originalOnly);
   if (backup) return { path: backup, variant: 'unknown' as const };
+  const token = q.get('token') ?? '';
+  const sent = services.mediaDownload.sentMedia?.find('pic', token, md5 ?? '');
+  if (sent) return { path: sent, variant: 'original' as const };
   if (previewOnly) {
     const small = q.get('small');
     const thumbnail =
@@ -667,7 +670,6 @@ export async function resolveChatImageFile(
     check();
     return { path: thumbnail ?? null, variant: 'thumb' as const };
   }
-  const token = q.get('token') ?? '';
   const cached = services.mediaDownload.cachedFile(token);
   if (cached) {
     if (stickerMd5) await services.mediaDownload.rememberChatSticker(stickerMd5, cached, signal);
@@ -1122,7 +1124,8 @@ async function routeMediaRequest(request: Request, cacheVideo?: boolean): Promis
           if (!attachment) {
             const { source } = await services.fileSearch.findFile(tMs, name, 'video');
             mediaBinding.getStore()?.();
-            if (source) return fileResponse(source);
+            const local = source ?? services.mediaDownload?.sentMedia?.find('video', token);
+            if (local) return fileResponse(local);
           }
 
           const msgId = q.get('msgId') ?? '';

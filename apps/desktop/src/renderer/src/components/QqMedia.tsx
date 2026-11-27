@@ -214,6 +214,7 @@ export function QqImage({
   fwd,
   interactive = true,
   gridTile = false,
+  preferLocal = false,
 }: {
   data: Data;
   sendTimeMs: number;
@@ -222,6 +223,7 @@ export function QqImage({
   fwd?: ForwardRef;
   interactive?: boolean;
   gridTile?: boolean;
+  preferLocal?: boolean;
 }) {
   const limited = useDataSaver((state) => state.enabled);
   const behavior = useDataSaver((state) => state.behavior);
@@ -296,6 +298,10 @@ export function QqImage({
   if (localPreviewUrl) candidates.push(localPreviewUrl);
   const localSrc = localPath ? localFileUrl(localPath) : '';
   if (localSrc && localSrc !== localPreviewUrl) candidates.push(localSrc);
+  if (preferLocal && !localPreviewUrl && !localSrc && (cdnSrc || directThumbnail))
+    candidates.push(
+      mediaUrl('pic', { ...params, localOnly: 1, ...(wantThumbnail ? { v: 'thumb' } : {}) }),
+    );
   if (cdnSrc) candidates.push(cdnSrc);
   if (!candidates.includes(proxySrc)) candidates.push(proxySrc);
   if ((!limited || loadMedia) && !isAnimatedEmoji)

@@ -26,6 +26,7 @@ import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs } from './user_config';
 import { getLogger, logErrorContext } from '../common/logger';
 import { scopedNetworkAllowed } from '../common/network_scope';
+import { SentMediaCache } from './sent_media_cache';
 import {
   ManagedDownload,
   TransferDeferredError,
@@ -165,6 +166,7 @@ export class MediaDownloadService {
   private readonly downloading = new Map<string, Transfer>();
   private readonly chatStickers = new Map<string, string>();
   private readonly logger = getLogger().child({ scope: 'media-download' });
+  private outgoing?: { accountId: string; cache: SentMediaCache };
 
   constructor(
     private readonly accountConfig: AccountConfigService,
@@ -173,10 +175,20 @@ export class MediaDownloadService {
     private readonly allowOnline: () => boolean = () => true,
   ) {}
 
+  get sentMedia(): SentMediaCache | undefined {
+    const accountId = this.accountConfig.getConfigId?.();
+    if (!accountId) return undefined;
+    if (this.outgoing?.accountId !== accountId)
+      this.outgoing = { accountId, cache: new SentMediaCache(this.cacheDir, accountId) };
+    return this.outgoing.cache;
+  }
+
   cachedFile(fileToken: string, ext = ''): string | null {
     if (!fileToken) return null;
     const path = join(this.cacheDir, `${hashToken(fileToken)}${ext}`);
-    return existsSync(path) ? path : null;
+    if (existsSync(path)) return path;
+    const kind = ext === '.silk' ? 'ptt' : ext === '.mp4' ? 'video' : ext === '' ? 'pic' : null;
+    return kind ? (this.sentMedia?.find(kind, fileToken) ?? null) : null;
   }
 
   cachedChatSticker(md5: string): string | null {
@@ -296,12 +308,13 @@ export class MediaDownloadService {
     opts.signal?.throwIfAborted();
     if (!fileToken) return null;
     const path = join(this.cacheDir, `${hashToken(fileToken)}${opts.ext ?? ''}`);
-    if (existsSync(path)) {
+    const cached = this.cachedFile(fileToken, opts.ext);
+    if (cached) {
       this.logger.debug('media cache hit', {
         event: 'media-cache-hit',
         mediaId: hashToken(fileToken).slice(0, 16),
       });
-      return path;
+      return cached;
     }
     if (opts.localOnly || !this.allowOnline() || !scopedNetworkAllowed()) return null;
     return this.consume(

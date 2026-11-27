@@ -8698,6 +8698,7 @@ function MainWorkspace(): ReactElement {
             (uploadId) => sendFile({ uploadId }),
             reportToHost,
             `${target.peerType}:${target.targetId}`,
+            (result) => !result.ok && (result.scene === 'group' || Boolean(result.result)),
           );
         }
       } else if (plan.kind === 'voice') {
