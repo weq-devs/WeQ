@@ -154,6 +154,7 @@ import { enhancementProcedures } from './enhancements';
 import { startEnhancementDownloads } from '../../enhancements/tasks';
 import { ENHANCEMENT_PACK_IDS } from '../../../shared/enhancement_manifest';
 import { assertRuntimeFilesIdle, runtimeFileBusyPaths } from '../../context/runtime_files';
+import { isDbRepairBusy } from './db_repair';
 import { runtimeMaintenance } from '../../runtime_maintenance';
 import { resolveSignerWrapper } from '../../context/signer_target';
 import { launchQq, qqRestartInProgress, restartQq, runningQqCount } from '../../qq_launch';
@@ -163,6 +164,11 @@ import {
   QQ_DEBUG_COPY_PERMISSION_ACTIONS,
 } from '../../../shared/qq_debug_copy';
 import { checkQqDataAccess, QQ_DATA_ACCESS_SETTINGS } from '../../qq_data_access';
+import {
+  applyNativeQqReadOnly,
+  assertQqOutputPathAllowed,
+  saveQqCapabilityPreference,
+} from '../../qq_output_path';
 import { macLaunchApplication } from '../../mac_launch_application';
 import { refreshWindowControls } from '../../window_controls_events';
 import {
@@ -439,8 +445,11 @@ async function setQqCapabilityMode(mode: QqCapabilityMode, disconnectProxy = fal
     const stopProxy = mode !== 'complete' && proxyEnabled && (current !== mode || disconnectProxy);
     if (stopProxy && !disconnectProxy && (await qqSyncStatus(root)).tunnels)
       return { status: 'confirm-disconnect' as const };
-    if (mode === 'read-only' && current !== mode) assertQqDatabaseWritesIdle();
-    if (current !== mode) userConfig.setSettings({ qqCapabilityMode: mode });
+    if (mode === 'read-only' && current !== mode) {
+      assertQqDatabaseWritesIdle();
+      if (isDbRepairBusy()) throw new Error('请结束当前数据库维护后再切换到只读模式。');
+    }
+    if (current !== mode) saveQqCapabilityPreference(mode);
     let proxyError: string | undefined;
     try {
       if (mode === 'complete') {
@@ -1008,6 +1017,7 @@ export const bootstrapRouter = router({
       mode: 'preset',
       directory: host.exportRoot ? resolveExportSaveDirectory(host.exportRoot, selected) : selected,
     });
+    if (policy.directory) assertQqOutputPathAllowed(policy.directory);
     return config.setSettings({ exportSaveMode: policy.mode, defaultExportDir: policy.directory });
   }),
 
@@ -1053,6 +1063,7 @@ export const bootstrapRouter = router({
   setDefaultExportDir: procedure
     .input(z.object({ dir: z.string().min(1).nullable() }))
     .mutation(({ input }) => {
+      if (input.dir) assertQqOutputPathAllowed(input.dir);
       requireBootstrap().userConfig.setSettings({ defaultExportDir: input.dir });
       return true;
     }),
@@ -1063,6 +1074,7 @@ export const bootstrapRouter = router({
   pickDefaultExportDir: procedure.mutation(async (): Promise<string | null> => {
     const picked = await getHost().pickDirectory({ title: '选择默认导出保存文件夹' });
     if (!picked) return null;
+    assertQqOutputPathAllowed(picked);
     requireBootstrap().userConfig.setSettings({ defaultExportDir: picked });
     return picked;
   }),
@@ -1165,13 +1177,13 @@ export const bootstrapRouter = router({
   setAutoAttachQq: procedure.input(z.object({ enabled: z.boolean() })).mutation(({ input }) => {
     const { userConfig } = requireBootstrap();
     if (userConfig.getSetting('autoAttachQq') !== input.enabled)
-      userConfig.setSettings({
-        qqCapabilityMode: input.enabled
+      saveQqCapabilityPreference(
+        input.enabled
           ? isQqSyncProxyEnabled(requireBootstrap().qqSyncRoot)
             ? 'complete'
             : 'online'
           : 'local',
-      });
+      );
     return true;
   }),
 
@@ -3009,6 +3021,7 @@ export const bootstrapRouter = router({
           const host = getHost();
           const items = await requireBootstrap().userConfig.listStorageUsage(storageRoots());
           const targets = selectStorageCleanupTargets(items, input.ids);
+          for (const target of targets) assertQqOutputPathAllowed(target.path);
           if (!host.clearStorageNow || !host.clearStorageAfterExit) {
             if (input.afterExit || targets.some((item) => item.requiresExit))
               throw new Error('请在电脑桌面端清除所选数据');
@@ -3076,7 +3089,10 @@ export const bootstrapRouter = router({
     // `E:\备份\QQ`, …). Only fix the common off-by-one pick — the per-account
     // directory itself — by walking up to its parent.
     const root = normalizeQqDataRoot(picked);
-    requireBootstrap().globalConfig.setTencentFilesRootOverride(root);
+    const boot = requireBootstrap();
+    if (boot.userConfig.getSetting('qqCapabilityMode') === 'read-only')
+      applyNativeQqReadOnly(requirePlatform(), boot.userConfig, true, root);
+    boot.globalConfig.setTencentFilesRootOverride(root);
     logger.info('set QQ data dir override', {
       event: 'pick-root-accepted',
       picked,

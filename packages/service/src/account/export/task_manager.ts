@@ -718,6 +718,7 @@ export interface MediaDeps {
   fetchForward?: (resId: string) => Promise<import('../forward').FetchedForwardRecord[]>;
   exportSavePolicy?: () => ExportSavePolicy;
   resolveSaveDirectory?: (directory: string) => string;
+  withOutputWrite?: <T>(path: string, write: () => Promise<T>) => Promise<T>;
   avatarCache?: AvatarCacheService;
   avatarLocal?: (
     uin: string,
@@ -1335,14 +1336,12 @@ export class ExportTaskManager extends EventEmitter {
       ...(previousSavedAt !== undefined ? { savedAt: previousSavedAt } : {}),
     };
     this.saveTasks();
-    const saving = saveExportOutput(
-      task,
-      selectedFile ? { filePath: target, unique } : target,
-      undefined,
-      {
+    const write = () =>
+      saveExportOutput(task, selectedFile ? { filePath: target, unique } : target, undefined, {
         requireExistingDirectory: true,
-      },
-    )
+      });
+    const saving = Promise.resolve()
+      .then(() => (this.deps.withOutputWrite ? this.deps.withOutputWrite(target, write) : write()))
       .then((path) => {
         task.save = {
           policy: task.save?.policy ?? policy,

@@ -111,6 +111,7 @@ import { createSourceSearchQuery } from '../source_search';
 import { createLocalModelResources } from './local_model_resources';
 import { createEnhancementResources } from '../enhancements/resources';
 import { createSearchIndexRetirement } from '../source_search_retirement';
+import { applyNativeQqReadOnly, withQqOutputWrite } from '../qq_output_path';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
 import {
@@ -1701,6 +1702,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     logDir: getLogDir(),
   });
   const userConfig = files.config;
+  readDataRootOverride = () => userConfig.read().tencentFilesRootOverride ?? null;
   const proxyEnabled = isQqSyncProxyEnabled(qqSyncRoot);
   try {
     userConfig.migrateQqCapabilityMode(proxyEnabled);
@@ -1708,6 +1710,15 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     logger.warn('QQ 能力档位迁移未保存，下次启动时重试', logErrorContext(error));
   }
   configureQqDatabaseReadOnly(() => userConfig.getSetting('qqCapabilityMode') === 'read-only');
+  if (qqDatabaseReadOnly()) {
+    try {
+      applyNativeQqReadOnly(platform, userConfig, true);
+    } catch (error) {
+      const message = (error as Error).message;
+      state.cached = unavailableContext({ kind: 'damaged', status: null, message }, message);
+      return state.cached;
+    }
+  }
   if (proxyEnabled || userConfig.getSetting('qqCapabilityMode') === 'complete') {
     void logRequest('qq-sync', 'qqSync.startProxy', 'operation', async () => {
       try {
@@ -1732,7 +1743,6 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         return path ? readFileSync(path, 'utf-8') : null;
       },
     });
-  readDataRootOverride = () => userConfig.read().tencentFilesRootOverride ?? null;
   readUidFromConfig = (uin: string): string | null => {
     for (const rec of userConfig.listAccountConfigs()) {
       if (rec.uin === uin && rec.uid) return rec.uid;
@@ -1910,6 +1920,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       const base = this.platform;
       if (!base) throw new Error('原生组件尚未就绪');
       const platform = base;
+      if (qqDatabaseReadOnly()) applyNativeQqReadOnly(platform, userConfig, true, metadata.dataDir);
       cancelAnnualReportWarmup();
       invalidateAccountTools(this.account);
       cancelAssistantRuns();
@@ -2556,6 +2567,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
               const root = getHost().exportRoot;
               return root ? resolveExportSaveDirectory(root, directory) : directory;
             },
+            withOutputWrite: withQqOutputWrite,
             // Cache-first avatar resolution for the 导出头像 option.
             guildDirect,
             avatarCache: bootstrap.avatarCache,
@@ -2722,7 +2734,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             gapHistory,
           },
         ),
-        dbDecrypt: new DbDecryptService(session, platform),
+        dbDecrypt: new DbDecryptService(session, platform, withQqOutputWrite),
         dbExplorer: new DbExplorerService(session, platform),
         antiRecall,
         // 意图感知：api 引擎复用 agentlab provider 端点解析；本地 Laya 引擎的
@@ -3086,6 +3098,8 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     ): Promise<void> {
       const backup = await resolveBackupLocation(dirPath);
       if (!backup) throw new Error('未找到 QQ 账号数据库目录');
+      if (this.platform && qqDatabaseReadOnly())
+        applyNativeQqReadOnly(this.platform, userConfig, true, backup.dbDir);
       const openedAt = performance.now();
       retireFullModeSource(this);
       dirPath = backup.dbDir;
@@ -3543,6 +3557,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
               const root = getHost().exportRoot;
               return root ? resolveExportSaveDirectory(root, directory) : directory;
             },
+            withOutputWrite: withQqOutputWrite,
             avatarCache: bootstrap.avatarCache,
             mediaDownload,
             mediaUrl,
@@ -3675,7 +3690,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             gapHistory,
           },
         ),
-        dbDecrypt: new DbDecryptService(session, staticPlatform),
+        dbDecrypt: new DbDecryptService(session, staticPlatform, withQqOutputWrite),
         dbExplorer: new DbExplorerService(session, staticPlatform),
         antiRecall,
         // 静态账号同样给意图感知（只读分析，不发消息）。
@@ -4156,7 +4171,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       // 停用本进程的资源服务；会话行的删除仍需要开着账号，best-effort。
       if (!config.enabled) {
         await assistantResourceServer.stop();
-        if (this.account && this.platform) {
+        if (this.account && this.platform && !qqDatabaseReadOnly()) {
           // 静态账号禁止往原生 nt_data 写助手头像（见下方开启路径的说明）。
           const svc = new WeqAssistantService(
             this.account,
@@ -4200,7 +4215,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
       // 4) 注入/刷新 QQ 库里的卡片：ensureMapping + 逐条补卡 + rewriteArkPort
       //    （存量卡片端口刷成当前实际端口）+ 会话列表预览。需要开着账号，
       //    best-effort：失败只记日志，不阻断开关。
-      if (this.account && this.platform) {
+      if (this.account && this.platform && !qqDatabaseReadOnly()) {
         // 静态账号禁止往原生 nt_data 写助手头像：库来自别处，uin 却可能与本机某个
         // 在线账号相同，写进去就污染了别人的数据。
         const svc = new WeqAssistantService(

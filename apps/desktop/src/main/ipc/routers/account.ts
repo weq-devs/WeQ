@@ -50,6 +50,7 @@ import {
   requireResourceSource,
   assertResourceSource,
 } from './resource_source';
+import { saveQqCapabilityPreference } from '../../qq_output_path';
 import { messageExportFormatInput } from '../../../shared/message_export_format';
 import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
 import {
@@ -9705,8 +9706,7 @@ export const accountRouter = router({
       if (!host.account) throw new Error('当前未打开账号');
       assertFullModeSource(host, host.account);
       const { userConfig } = requireBootstrap();
-      if (!userConfig.getSettings().autoAttachQq)
-        userConfig.setSettings({ qqCapabilityMode: 'online' });
+      if (!userConfig.getSettings().autoAttachQq) saveQqCapabilityPreference('online');
       return { requested: true };
     }),
 

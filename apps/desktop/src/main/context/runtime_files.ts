@@ -17,6 +17,8 @@ import { isIntentModelDownloading } from '../ipc/routers/intent_sense';
 import { assistantResourceServer } from '../weq_assistant/server';
 import { runtimeMaintenance } from '../runtime_maintenance';
 import { maintainDesktopStorage } from '../desktop_storage';
+import { assertQqDatabaseWritesIdle } from '@weq/db';
+import { applyNativeQqReadOnly } from '../qq_output_path';
 
 export function assertRuntimeFilesIdle(): void {
   if (isDbRepairBusy()) throw new Error('数据库修复或回滚仍在进行，请等待完成');
@@ -101,11 +103,23 @@ export function applyBackupLive(
       try {
         await ctx.clearAccount(true);
         await assistantResourceServer.stop();
+        assertQqDatabaseWritesIdle();
         beforeApply?.();
         const oldMode = files.ok ? files.config.getSetting('qqCapabilityMode') : undefined;
         const result = applyLiveBackupContext();
         if (result.needsRecovery) blockRuntimeForBackupRecovery(result.error || '恢复回滚尚未完成');
         if (result.status !== 'applied') throw new Error(result.error || '恢复未应用');
+        if (files.ok && ctx.platform) {
+          const mode = files.config.getSetting('qqCapabilityMode');
+          if (mode === 'read-only' || oldMode === 'read-only') {
+            try {
+              applyNativeQqReadOnly(ctx.platform, files.config, mode === 'read-only');
+            } catch (error) {
+              if (mode === 'read-only') blockRuntimeForBackupRecovery((error as Error).message);
+              throw error;
+            }
+          }
+        }
         if (files.ok) {
           const reset = files.config.read().performanceRecordingResetRevision;
           if (reset !== undefined && reset !== resetBefore) dataSaverSession.clearTemporary();

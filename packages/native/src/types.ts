@@ -1074,6 +1074,7 @@ export interface NtHelperBinding {
   /** 有界多连接读取；旧组件缺少此入口时维持串行调度。 */
   executeDatabaseRead?(input: DatabaseReadRequest): Promise<DatabaseReadResult>;
   configureDatabaseReads?(concurrency: number): void;
+  configureQqReadOnlyRoots?(roots: string[]): boolean;
   cancelDatabaseRead?(requestId: string): boolean;
   executeSql(dbPath: string, sql: string, params?: SqlValue[] | null): Promise<SqlRow[]>;
   /** 可中断的有界只读查询；旧组件缺少此能力时不得退回普通长查询。 */

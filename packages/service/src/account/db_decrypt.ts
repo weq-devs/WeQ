@@ -81,6 +81,7 @@ export class DbDecryptService {
   constructor(
     private readonly session: AccountSession,
     private readonly platform: Platform,
+    private readonly withOutputWrite?: <T>(path: string, write: () => Promise<T>) => Promise<T>,
   ) {}
 
   listDatabases(): Promise<AccountDbFile[]> {
@@ -111,6 +112,11 @@ export class DbDecryptService {
   }
 
   async decryptDatabases(opts: DbDecryptOptions): Promise<DbDecryptResult[]> {
+    const run = () => this.decryptToDirectory(opts);
+    return this.withOutputWrite ? this.withOutputWrite(opts.outputDir, run) : run();
+  }
+
+  private async decryptToDirectory(opts: DbDecryptOptions): Promise<DbDecryptResult[]> {
     opts.signal?.throwIfAborted();
     if (opts.items.length === 0) return [];
     mkdirSync(opts.outputDir, { recursive: true });

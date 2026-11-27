@@ -21,7 +21,7 @@ export function assertQqDatabaseWriteAllowed(): void {
 }
 
 export function assertQqDatabaseWritesIdle(): void {
-  if (activeQqWrites > 0) throw new Error('QQ 数据库正在写入，请等待当前操作完成后再切换。');
+  if (activeQqWrites > 0) throw new Error('正在修改 QQ 数据，请等待当前操作完成后再切换。');
 }
 
 /** 包住一次写入或必须完整执行的多步修改，以便在切入只读前确认它已经结束。 */

@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod/v3';
+import { assertQqDatabaseWriteAllowed, withQqDatabaseWrite } from '@weq/db';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { backgroundTasks, taskError } from '../../background_tasks';
@@ -68,15 +69,16 @@ const cleanupPlan = z.object({
 type CleanupPlan = z.infer<typeof cleanupPlan>;
 
 export function retryResourceCleanup(id: string, scope: BackgroundTaskScope, raw: unknown) {
+  assertQqDatabaseWriteAllowed();
   const plan = cleanupPlan.parse(raw);
   const source = { expectedAccountUin: scope.uin, expectedAccountConfigId: scope.configId };
   const services = requireResourceSource(source);
   if (getAppContext().accountIsStatic) throw new Error('静态账号不提供本地资源清理。');
   if (taskOf(runs.get(services)?.id ?? '')?.status === 'running')
     throw new Error('正在清理本地资源，请等待本批完成');
-  void executeCleanup({ ...source, instructions: plan.instructions }, { id, plan }).catch(
-    () => undefined,
-  );
+  void withQqDatabaseWrite(() =>
+    executeCleanup({ ...source, instructions: plan.instructions }, { id, plan }),
+  ).catch(() => undefined);
 }
 
 async function executeCleanup(
@@ -273,5 +275,7 @@ export const resourceCleanupRouter = router({
    * only removes original / preview files (ignored for non-split targets). Unknown
    * ids are silently dropped by the service's whitelist.
    */
-  cleanup: procedure.input(cleanupInput).mutation(({ input }) => executeCleanup(input)),
+  cleanup: procedure
+    .input(cleanupInput)
+    .mutation(({ input }) => withQqDatabaseWrite(() => executeCleanup(input))),
 });

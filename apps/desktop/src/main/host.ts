@@ -6,6 +6,7 @@
 
 import { type AccountRuntime, currentAccountRuntime } from './context/account_runtime';
 import { getAppContext } from './context/app_context';
+import { assertQqOutputPathAllowed } from './qq_output_path';
 import { app, dialog, shell, nativeImage, Notification } from 'electron';
 import { makeSolidPng } from '@weqbot/protocol';
 import { applicationBadgeBitmap } from '../shared/message_notifications';
@@ -306,6 +307,7 @@ export const electronHost: HostBridge = {
         : undefined,
     });
     if (result.canceled || !result.filePath) return null;
+    assertQqOutputPathAllowed(result.filePath);
     dialogLocations().remember(key, result.filePath);
     return { path: result.filePath, downloadId: null };
   },
