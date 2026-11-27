@@ -746,10 +746,6 @@
   background: #f1f2f4;
 }
 
-:where(html[data-weq-layout='single']) .chat-pane.with-group-info {
-  grid-template-columns: minmax(0, 1fr);
-}
-
 :where(html[data-weq-layout='single']) .chat-pane:has(.composer > .emoji-panel),
 :where(html[data-weq-layout='single']) .chat-pane:has(.composer > .composer-plus-panel) {
   --composer-height: var(--mobile-composer-panel-height, 336px) !important;
@@ -827,10 +823,7 @@
 
 /* 移动端把跳转坞放在顶栏正下方、贴右边缘。 */
 :where(html[data-weq-layout='single']) .chat-pane .weq-chat-jump-stack {
-  top: calc(var(--chat-header-height) + 10px);
-}
-:where(html[data-weq-layout='single']) .chat-pane .weq-chat-jump-stack,
-:where(html[data-weq-layout='single']) .chat-pane.with-group-info .weq-chat-jump-stack {
+  top: 10px;
   right: 12px;
 }
 

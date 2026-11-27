@@ -1,4 +1,4 @@
-.chat-pane.with-message-history {
+:where(html:not([data-weq-layout='single'])) .chat-pane.with-message-history {
   grid-template-columns: minmax(0, 1fr) var(--weq-message-history-width);
 }
 .chat-pane.with-message-history > .chat-header {
@@ -7,9 +7,6 @@
 .chat-pane.with-message-history > .message-scroll,
 .chat-pane.with-message-history > .composer {
   grid-column: 1;
-}
-.chat-pane.with-message-history .weq-chat-jump-stack {
-  right: calc(var(--weq-message-history-width) + 24px);
 }
 .weq-message-history-panel {
   grid-column: 2;
@@ -23,7 +20,6 @@
   background: var(--weq-bg-surface);
   border-left: 1px solid var(--weq-border-subtle);
   font-size: 13px;
-  z-index: 1;
 }
 .weq-message-history-panel[hidden],
 .weq-history-filter-panel[hidden] {
@@ -32,6 +28,7 @@
 
 .chat-pane > .weq-message-history-panel {
   position: absolute;
+  z-index: var(--weq-chat-side-panel-layer);
   grid-area: auto;
   inset: var(--chat-header-height) 0 0 auto;
   width: var(--weq-message-history-width);
@@ -269,12 +266,6 @@ button.weq-history-summary:hover {
   border: 1px solid var(--weq-border-subtle);
   border-radius: 8px 8px 0 0;
   padding-bottom: env(safe-area-inset-bottom, 0px);
-}
-:where(html[data-weq-layout='single']) .chat-pane.with-message-history {
-  grid-template-columns: minmax(0, 1fr);
-}
-:where(html[data-weq-layout='single']) .chat-pane.with-message-history .weq-chat-jump-stack {
-  right: 12px;
 }
 html[data-theme='dark'] .weq-important-row:hover,
 html[data-theme='dark'] button.weq-history-summary:hover {

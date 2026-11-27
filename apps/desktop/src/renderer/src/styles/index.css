@@ -4540,7 +4540,7 @@ html[data-theme='dark'] .app-shell .rail-footer .weq-rail-privacy-btn {
 }
 
 .weq-message-scrollbar {
-  z-index: 46;
+  z-index: 6;
 }
 
 .weq-group-members-scrollbar {

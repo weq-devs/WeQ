@@ -549,10 +549,6 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
   --composer-toggle-extra-offset: 28px;
 }
 
-.chat-pane:has(> .weq-int-suggest) > .new-message-pill {
-  bottom: calc(var(--composer-height, 190px) + 40px);
-}
-
 .chat-pane:has(> .weq-int-suggest.is-history-open) {
   --weq-int-history-height: min(
     var(--weq-int-history-content-height, 0px),
@@ -565,10 +561,6 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
     calc(var(--weq-int-history-height) + 28px)
     var(--composer-height, 190px);
 }
-.chat-pane:has(> .weq-int-suggest.is-history-open) > .new-message-pill {
-  bottom: calc(var(--composer-height, 190px) + 40px + var(--weq-int-history-height));
-}
-
 .chat-pane:has(> .weq-chat-backdrop) > .weq-int-suggest {
   background: color-mix(in srgb, var(--weq-bg-surface) 82%, transparent);
 }
