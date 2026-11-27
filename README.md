@@ -97,11 +97,18 @@ start.bat         # Windows
 开始运行：
 
 ```bash
-git clone https://github.com/weq-devs/WeQ   # 克隆仓库代码
+git clone --recurse-submodules https://github.com/weq-devs/WeQ   # 克隆仓库代码及子模块
 cd WeQ
 git switch dev             # 开发基于 dev，main 为发布分支
 
 pnpm dev                   # 自动补齐依赖、native 和必要构建，启动开发服务器
+```
+
+已经克隆但子模块为空时，先补检出再安装依赖；`vendor/weqbot` 的包属于 pnpm workspace，缺了它 `pnpm install` 会直接失败：
+
+```bash
+git submodule update --init --recursive
+pnpm install
 ```
 
 源码开发使用 Node.js 24 LTS（最低 24），并使用根 `package.json` 锁定的 `pnpm@12.8.1`；首次构建远程网络辅助程序需要 Go。默认无需 Rust，本地 native 模式才需要其编译工具链。来源配置与缓存行为见[一行命令开发启动](./docs/develop/dev-startup.md)。
