@@ -159,7 +159,7 @@ it('空间视频从所点封面预览，可切换相邻媒体，导出只提交�
     expectedAccountUin: '10001',
     expectedAccountConfigId: mocks.configId,
     hostUin: '10002',
-    items: [{ id: '2', name: '乙', url: videos[1]!.videoUrl }],
+    items: [{ id: '2', name: '乙', url: videos[1]!.videoUrl, video: true }],
     savePolicy: { mode: 'before' },
   });
 });

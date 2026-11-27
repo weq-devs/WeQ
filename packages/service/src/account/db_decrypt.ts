@@ -5,6 +5,7 @@
  * exports selected databases through the native bulk decrypt helpers.
  */
 
+import type { ExportCheckpoint } from './export/checkpoint';
 import { constants as fsConstants, mkdirSync } from 'node:fs';
 import { copyFile, link, lstat, mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { basename, extname, join, resolve } from 'node:path';
@@ -70,6 +71,7 @@ export interface DbDecryptOptions {
   concurrency?: number;
   signal?: AbortSignal;
   onProgress?: (current: number, total: number) => void;
+  checkpoint?: Pick<ExportCheckpoint, 'file'>;
 }
 
 const DEFAULT_CONCURRENCY = 3;
@@ -133,60 +135,70 @@ export class DbDecryptService {
       async (item) => {
         opts.signal?.throwIfAborted();
         const outPath = outputPath(opts.outputDir, item.name, item.dbPath);
-        let stagingDir: string | null = null;
-        try {
-          await assertOutputAvailable(outPath);
-          // 先在私有临时目录完成解密，禁止 native 写入已有目标或半成品覆盖旧导出。
-          stagingDir = await mkdtemp(join(opts.outputDir, '.weq-decrypt-'));
-          const staged = join(stagingDir, basename(outPath));
-          if (isPlainSqliteDb(item.dbPath)) {
-            await exportInChild(item.dbPath, staged, { method: 'copy' }, opts.signal);
-          } else {
-            const guild = isGuildDb(item.dbPath);
-            const login = isLoginDb(item.dbPath);
-            const key = guild
-              ? this.platform.native.ntHelper.getGuildDbKey(item.dbPath, this.session.context.uin)
-              : login
-                ? LOGIN_DB_KEY
-                : this.session.context.dbKey;
-            const algo =
-              guild || login
-                ? await resolveAlgo(this.platform.native.ntHelper, item.dbPath, key)
-                : algoFor(this.session.context, item.dbPath);
-            if (login && !algo) throw new Error('login.db 密钥不正确，无法解密');
-            opts.signal?.throwIfAborted();
-            await exportInChild(
-              item.dbPath,
-              staged,
-              {
-                ntHelperPath,
-                key,
-                algo,
-                method: selectDatabaseDecryptMethod(item.dbPath, opts.mode),
-              },
-              opts.signal,
-            );
-          }
-          opts.signal?.throwIfAborted();
-          // 排他发布：两个并发导出即使都通过了存在性检查，也只会有一个成功。
-          await publishOutputWithoutOverwrite(staged, outPath);
-          return { name: item.name, dbPath: item.dbPath, outPath, ok: true };
-        } catch (e) {
-          opts.signal?.throwIfAborted();
-          return {
-            name: item.name,
-            dbPath: item.dbPath,
-            outPath,
-            ok: false,
-            error: e instanceof Error ? e.message : String(e),
-          };
-        } finally {
+        const decrypt = async (): Promise<DbDecryptResult> => {
+          let stagingDir: string | null = null;
           try {
-            if (stagingDir) await rm(stagingDir, { recursive: true, force: true });
+            await assertOutputAvailable(outPath);
+            // 先在私有临时目录完成解密，禁止 native 写入已有目标或半成品覆盖旧导出。
+            stagingDir = await mkdtemp(join(opts.outputDir, '.weq-decrypt-'));
+            const staged = join(stagingDir, basename(outPath));
+            if (isPlainSqliteDb(item.dbPath)) {
+              await exportInChild(item.dbPath, staged, { method: 'copy' }, opts.signal);
+            } else {
+              const guild = isGuildDb(item.dbPath);
+              const login = isLoginDb(item.dbPath);
+              const key = guild
+                ? this.platform.native.ntHelper.getGuildDbKey(item.dbPath, this.session.context.uin)
+                : login
+                  ? LOGIN_DB_KEY
+                  : this.session.context.dbKey;
+              const algo =
+                guild || login
+                  ? await resolveAlgo(this.platform.native.ntHelper, item.dbPath, key)
+                  : algoFor(this.session.context, item.dbPath);
+              if (login && !algo) throw new Error('login.db 密钥不正确，无法解密');
+              opts.signal?.throwIfAborted();
+              await exportInChild(
+                item.dbPath,
+                staged,
+                {
+                  ntHelperPath,
+                  key,
+                  algo,
+                  method: selectDatabaseDecryptMethod(item.dbPath, opts.mode),
+                },
+                opts.signal,
+              );
+            }
+            opts.signal?.throwIfAborted();
+            // 排他发布：两个并发导出即使都通过了存在性检查，也只会有一个成功。
+            await publishOutputWithoutOverwrite(staged, outPath);
+            return { name: item.name, dbPath: item.dbPath, outPath, ok: true };
+          } catch (e) {
+            opts.signal?.throwIfAborted();
+            return {
+              name: item.name,
+              dbPath: item.dbPath,
+              outPath,
+              ok: false,
+              error: e instanceof Error ? e.message : String(e),
+            };
           } finally {
-            completed += 1;
-            opts.onProgress?.(completed, items.length);
+            if (stagingDir) await rm(stagingDir, { recursive: true, force: true });
           }
+        };
+        try {
+          return opts.checkpoint
+            ? await opts.checkpoint.file(
+                ['database', opts.mode, item.dbPath],
+                outPath,
+                decrypt,
+                (result) => result.ok,
+              )
+            : await decrypt();
+        } finally {
+          completed += 1;
+          opts.onProgress?.(completed, items.length);
         }
       },
       opts.signal,

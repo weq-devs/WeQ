@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ExportTaskManager, exportOutputFileName, type MsgService } from '@weq/service';
 import { annualReportRouter } from '../src/main/ipc/routers/annual_report';
+import { backgroundTasks } from '../src/main/background_tasks';
+import { runResumableExport } from '../src/main/resumable_exports';
 import { annualReportExportOutput } from '../src/shared/annual_report_export';
 const state = vi.hoisted(() => ({
   configId: 'source-a',
@@ -15,11 +17,14 @@ const state = vi.hoisted(() => ({
   afterPick: null as (() => void) | null,
   pdf: vi.fn(async (_html: string) => Buffer.from('synthetic-pdf')),
   png: vi.fn(async (_html: string) => Buffer.from('synthetic-png')),
+  slides: vi.fn(async () => [Buffer.from('synthetic-slide')]),
 }));
 vi.mock('../src/main/context/app_context', () => ({
+  requirePlatform: () => ({ appDataRoot: () => state.root }),
+  accountRuntimeCacheRoot: () => state.root,
   getAppContext: () => ({
     services: state.services,
-    account: { context: { uin: '10001' } },
+    account: { context: { uin: '10001' }, msgDbPath: '/fixture/msg.db' },
     bootstrap: {
       userConfig: {
         getSettings: () => ({ exportSaveMode: 'preset', defaultExportDir: state.root }),
@@ -38,6 +43,7 @@ vi.mock('@weq/service', async (original) => ({
     pickDirectory: async () => state.root,
     renderHtmlToPdf: state.pdf,
     renderHtmlToLongPng: state.png,
+    renderHtmlToSlidesPng: state.slides,
   }),
 }));
 let manager: ExportTaskManager;
@@ -55,11 +61,69 @@ beforeEach(() => {
   state.configId = 'source-a';
   state.pdf.mockReset().mockResolvedValue(Buffer.from('synthetic-pdf'));
   state.png.mockReset().mockResolvedValue(Buffer.from('synthetic-png'));
+  state.slides.mockReset().mockResolvedValue([Buffer.from('synthetic-slide')]);
   manager = new ExportTaskManager({} as MsgService, join(state.root, 'tasks'));
   state.services = {
     exportManager: manager,
-    accountConfig: { getRecord: () => ({ configId: state.configId }) },
+    accountConfig: { getRecord: () => ({ uin: '10001', configId: state.configId }) },
   };
+});
+
+it('报告捕获中断后新管理器读取原始快照，不需要重新选择或生成 HTML', async () => {
+  state.pdf.mockRejectedValueOnce(new Error('合成的捕获中断'));
+  const taskId = (await exporter('pdf')({
+    ...input,
+    savePolicy: { mode: 'before', directory: state.root },
+  }))!;
+  await vi.waitFor(() => expect(manager.getTask(taskId)?.status).toBe('failed'));
+  const resumed = new ExportTaskManager({} as MsgService, join(state.root, 'tasks'), {
+    resumeResource: (request, context) =>
+      runResumableExport(
+        state.services as Parameters<typeof runResumableExport>[0],
+        request,
+        context,
+        () => {},
+      ),
+  });
+  expect(resumed.resumeTask(taskId)).toBe(true);
+  await vi.waitFor(() => expect(resumed.getTask(taskId)?.save?.status).toBe('saved'));
+  expect(state.pdf.mock.calls).toEqual([[input.html], [input.html]]);
+  expect(readFileSync(resumed.getTask(taskId)!.filePath!, 'utf8')).toBe('synthetic-pdf');
+});
+
+it('分享到空间时可以续做未提交的准备阶段，发表结果不明时保留回执', async () => {
+  const uploadQzoneImage = vi.fn(async () => ({ richval: 'synthetic-richval' }));
+  const publishQzone = vi.fn(async () => {
+    throw new Error('合成的发表回执丢失');
+  });
+  Object.assign(state.services, {
+    profile: { getSelfProfile: async () => ({ nick: '合成账号' }) },
+    webQuery: { uploadQzoneImage, publishQzone },
+  });
+  state.slides.mockRejectedValueOnce(new Error('合成的渲染失败'));
+  const { taskId } = await annualReportRouter.createCaller({}).shareQzone({
+    ...input,
+    content: '合成说说',
+    slideIndexes: [0],
+    ugcRight: 1,
+  });
+  const task = () => backgroundTasks.snapshot().find((row) => row.id === taskId);
+  try {
+    expect(task()).toMatchObject({ status: 'paused', actions: [{ id: 'continue' }] });
+    expect(uploadQzoneImage).not.toHaveBeenCalled();
+    await backgroundTasks.act(taskId, 'continue');
+    await vi.waitFor(() =>
+      expect(task()).toMatchObject({
+        status: 'failed',
+        needsConfirmation: true,
+        actions: [],
+      }),
+    );
+    expect(uploadQzoneImage).toHaveBeenCalledOnce();
+    expect(publishQzone).toHaveBeenCalledOnce();
+  } finally {
+    backgroundTasks.remove(taskId);
+  }
 });
 afterEach(() => rmSync(state.root, { recursive: true, force: true }));
 const formats = ['html', 'pdf', 'png'] as const;

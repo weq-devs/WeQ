@@ -18,7 +18,7 @@ import { downloadTaskReceipt, downloadTaskSnapshot } from './download_task_recei
 import { collectAlbumMedia } from './account_resource_exports';
 
 const receiptSchema = downloadTaskReceipt.extend({
-  kind: z.enum(['clone', 'favorite-import', 'resource', 'album-upload']),
+  kind: z.enum(['clone', 'favorite-import', 'resource', 'album-upload', 'contacts', 'qzone-share']),
   name: z.string(),
   display: z
     .object({
@@ -32,6 +32,8 @@ const receiptSchema = downloadTaskReceipt.extend({
     .optional(),
   details: z.array(z.string()).optional(),
   clonePersonaId: z.string().optional(),
+  qzonePost: z.object({ uin: z.string(), tid: z.string() }).optional(),
+  needsConfirmation: z.boolean().optional(),
   request: z.unknown().optional(),
 });
 type Receipt = z.infer<typeof receiptSchema>;
@@ -74,7 +76,9 @@ export function recordAccountTask(taskId: string, scope?: BackgroundTaskScope, r
       (task.kind !== 'clone' &&
         task.kind !== 'favorite-import' &&
         task.kind !== 'resource' &&
-        task.kind !== 'album-upload')
+        task.kind !== 'album-upload' &&
+        task.kind !== 'contacts' &&
+        task.kind !== 'qzone-share')
     )
       return;
     const { store, session } = owner;
@@ -85,6 +89,8 @@ export function recordAccountTask(taskId: string, scope?: BackgroundTaskScope, r
       display: task.display,
       details: task.details?.slice(0, 1000),
       clonePersonaId: task.clonePersonaId,
+      qzonePost: task.qzonePost,
+      needsConfirmation: task.needsConfirmation,
       request: snapshot ?? request ?? store.data.find((item) => item.id === taskId)?.request,
     };
     const next = [...store.data.filter((item) => item.id !== taskId), receipt];
@@ -172,6 +178,9 @@ function verifiedClone(receipt: Receipt) {
 export function restoreRecordedTasks(
   scope: BackgroundTaskScope,
   retryClone?: (id: string, scope: BackgroundTaskScope, request: unknown) => Promise<void>,
+  retryContacts?: (id: string, scope: BackgroundTaskScope, request: unknown) => void,
+  retryShare?: (id: string, scope: BackgroundTaskScope, request: unknown) => void,
+  retryCleanup?: (id: string, scope: BackgroundTaskScope, request: unknown) => void,
 ) {
   const owner = storeFor(scope);
   if (!owner) return;
@@ -180,6 +189,8 @@ export function restoreRecordedTasks(
   restored.set(session, ids);
   for (const receipt of store.data) {
     if (!retryClone && receipt.kind !== 'album-upload') continue;
+    if (!retryContacts && receipt.kind === 'contacts') continue;
+    if (!retryShare && receipt.kind === 'qzone-share') continue;
     if (ids.has(receipt.id)) continue;
     ids.add(receipt.id);
     const { request, ...saved } = receipt;
@@ -187,24 +198,49 @@ export function restoreRecordedTasks(
     const abandoned = saved.status === 'running' && !committed;
     const video =
       saved.kind === 'album-upload' ? albumVideoReceipt.safeParse(request).data : undefined;
-    const uncertain = abandoned && (saved.kind === 'favorite-import' || video?.submitted);
+    const shareReady =
+      saved.kind === 'qzone-share' &&
+      typeof request === 'object' &&
+      request !== null &&
+      'phase' in request &&
+      request.phase === 'ready';
+    const cleanupReady =
+      saved.kind === 'resource' &&
+      typeof request === 'object' &&
+      request !== null &&
+      'type' in request &&
+      request.type === 'cleanup';
+    const uncertain =
+      abandoned &&
+      (saved.kind === 'favorite-import' ||
+        video?.submitted ||
+        (saved.kind === 'qzone-share' && !shareReady));
+    const interruptedContacts = abandoned && saved.kind === 'contacts';
     const status = committed
       ? 'completed'
       : abandoned
-        ? uncertain
+        ? uncertain || interruptedContacts || shareReady || cleanupReady
           ? 'paused'
           : 'failed'
         : saved.status;
     const note = abandoned
       ? saved.kind === 'clone'
         ? '上次构建已中断，可手动重新执行。'
-        : video
-          ? video.submitted
-            ? '上次上传已中断，请在原相册核对结果。'
-            : '宿主退出前尚未提交视频。'
-          : uncertain
-            ? '上次导入已中断，请刷新 QQ 收藏核对可能已提交的项目。'
-            : '上次清理已中断，请重新扫描剩余资源，再选择清理范围。'
+        : saved.kind === 'qzone-share'
+          ? shareReady
+            ? '上次分享已中断，可以从已确认的阶段继续。'
+            : '上次提交的结果待核对，请检查 QQ 空间。'
+          : interruptedContacts
+            ? '上次读取已中断，继续时补取仍缺少的资料。'
+            : video
+              ? video.submitted
+                ? '上次上传已中断，请在原相册核对结果。'
+                : '宿主退出前尚未提交视频。'
+              : uncertain
+                ? '上次导入已中断，请刷新 QQ 收藏核对可能已提交的项目。'
+                : cleanupReady
+                  ? '上次清理已中断，可以重扫原范围并继续未完成的类别。'
+                  : '上次清理已中断，请重新扫描剩余资源，再选择清理范围。'
       : committed
         ? '已在原数据源找到保存完成的克隆体。'
         : saved.note;
@@ -225,6 +261,38 @@ export function restoreRecordedTasks(
       });
     if (saved.kind === 'clone' && status === 'completed')
       actions.push({ id: 'view-clone', label: '查看克隆体', run: () => undefined });
+    if (retryShare && shareReady && status === 'paused')
+      actions.push({
+        id: 'continue',
+        label: '继续分享到 QQ 空间',
+        run: () => {
+          if (getAppContext().account !== session) throw new Error('请回到原账号和数据源继续');
+          return retryShare(saved.id, scope, request);
+        },
+      });
+    if (retryCleanup && cleanupReady && ['paused', 'cancelled', 'failed'].includes(status))
+      actions.push({
+        id: status === 'paused' ? 'continue' : 'retry',
+        label: '继续清理剩余范围',
+        run: () => {
+          if (getAppContext().account !== session) throw new Error('请回到原账号和数据源继续');
+          return retryCleanup(saved.id, scope, request);
+        },
+      });
+    if (
+      retryContacts &&
+      saved.kind === 'contacts' &&
+      (status === 'paused' || status === 'failed') &&
+      request
+    )
+      actions.push({
+        id: status === 'paused' ? 'continue' : 'retry',
+        label: '继续补取',
+        run: () => {
+          if (getAppContext().account !== session) throw new Error('请回到原账号和数据源继续');
+          return retryContacts(saved.id, scope, request);
+        },
+      });
     if (saved.kind === 'favorite-import' && status !== 'completed') {
       const candidates = favoriteReceipt.safeParse(request);
       if (candidates.success && candidates.data.length)
@@ -297,11 +365,19 @@ export function restoreRecordedTasks(
           saved.foreground &&
           !(saved.kind === 'favorite-import' && status !== 'completed') &&
           !(video && status !== 'completed') &&
+          !(saved.kind === 'contacts' && status !== 'completed') &&
           !(saved.kind === 'resource' && abandoned),
         scope,
         status,
         note,
-        statusLabel: uncertain ? '结果待核对' : abandoned ? '已中断' : saved.statusLabel,
+        needsConfirmation: saved.needsConfirmation || Boolean(uncertain),
+        statusLabel: uncertain
+          ? '结果待核对'
+          : shareReady && status === 'paused'
+            ? '等待继续分享'
+            : abandoned
+              ? '已中断'
+              : saved.statusLabel,
         actions: [],
       },
       actions,

@@ -308,7 +308,14 @@ import {
 import {
   MergeForwardRejected,
   MergeForwardUnconfirmed,
+  runMergeForwardTask,
 } from '../components/mergeForward/mergeForwardTask';
+import { startSequentialForward } from '../components/SequentialForwardTask';
+import {
+  ForwardNotSubmitted,
+  registerForwardResumeHandler,
+  type ForwardPlan,
+} from '../lib/forwardContinuation';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { conversationWindowKey } from '../lib/conversationWindowCache';
 import { firstPageKey } from '../lib/conversationFirstPage';
@@ -8053,11 +8060,12 @@ function MainWorkspace(): ReactElement {
       !signal.aborted &&
       scope === messageScopeRef.current &&
       account === useViewState.getState().openedUin;
-    if (!isCurrent()) throw new Error('账号已切换或转发已停止');
+    if (!isCurrent()) throw new ForwardNotSubmitted('账号已切换或转发已停止');
     const reason = forwardMessageBlockReason(message);
-    if (reason) throw new Error(reason);
+    if (reason) throw new ForwardNotSubmitted(reason);
     const destination = conversations.find((item) => item.id === target.id);
-    if (!destination || destination.type === 'merged') throw new Error('目标会话已不存在');
+    if (!destination || destination.type === 'merged')
+      throw new ForwardNotSubmitted('目标会话已不存在');
     const draft = failedForwardDraft(message);
     const file = draft ? undefined : singleChatFile(message);
     if (file) {
@@ -8170,6 +8178,53 @@ function MainWorkspace(): ReactElement {
       prefix,
     );
   }
+
+  const resumeForwardRef = useRef<(id: string, plan: ForwardPlan) => Promise<void>>(() =>
+    Promise.resolve(),
+  );
+  resumeForwardRef.current = (id, plan) => {
+    const { uin, configId: source } = plan.scope;
+    if (!source || uin !== user.identityValue || source !== configId)
+      throw new Error('请回到原账号和数据源继续。');
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled)
+      throw new Error('请先连接 QQ 再继续。');
+    if (plan.kind === 'merged') {
+      const sourceScope = messageScopeRef.current;
+      return runMergeForwardTask({
+        draft: plan.draft,
+        targets: plan.targets,
+        binding: { expectedAccountUin: uin, expectedAccountConfigId: source },
+        send: forwardMergeDraft,
+        isCurrent: () =>
+          sourceScope === messageScopeRef.current && uin === useViewState.getState().openedUin,
+        resume: { id, plan },
+      }).then(() => undefined);
+    }
+    if (!conversations.some((item) => item.id === plan.target.id && item.type !== 'merged'))
+      throw new Error('目标会话尚未加载或已不存在。');
+    return startSequentialForward({
+      scope: plan.scope,
+      targets: [plan.target],
+      messages: plan.messages,
+      options: plan.options,
+      sourceKind: plan.sourceKind,
+      includeExcerpt: plan.includeExcerpt,
+      onOpenTarget: openForwardTarget,
+      onSend: (message, target, signal, receipt) =>
+        forwardMessage(message, target, signal, uin, source, {
+          receipt,
+          includeExcerpt: plan.includeExcerpt,
+          sourceKind: plan.sourceKind,
+        }),
+      resume: { id, plan },
+    }).done;
+  };
+  useEffect(() => {
+    if (configId)
+      return registerForwardResumeHandler({ uin: user.identityValue, configId }, (id, plan) =>
+        resumeForwardRef.current(id, plan),
+      );
+  }, [configId, user.identityValue]);
 
   function outgoingFontRequest(
     target: ReturnType<typeof sendTargetOf>,
@@ -12437,6 +12492,7 @@ function MainWorkspace(): ReactElement {
               user={user}
               targets={mergeForwardTargets}
               sourceKind={forwardBatch.sourceKind}
+              includeExcerpt={forwardBatch.includeReplyExcerpt}
               onSend={(message, target, signal, receipt) =>
                 forwardMessage(
                   message,

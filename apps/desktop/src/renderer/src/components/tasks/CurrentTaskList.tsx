@@ -223,6 +223,7 @@ export function CurrentTaskList({
       canRemove?: boolean;
       resume?: Pick<TaskQuickAction, 'label' | 'icon' | 'disabled'> & {
         refresh: () => Promise<unknown>;
+        run?: () => Promise<unknown>;
       };
     } = {},
   ) => {
@@ -256,6 +257,10 @@ export function CurrentTaskList({
           disabled: resume.disabled,
           run: async () => {
             if (!scopeIsCurrent()) return;
+            if (resume.run) {
+              await resume.run();
+              return;
+            }
             const resumed = await archive.resume(ref);
             if (!scopeIsCurrent()) return;
             await resume.refresh();
@@ -1000,7 +1005,7 @@ export function CurrentTaskList({
             }
           : undefined,
     };
-    const resume = entry.source === 'host' ? backgroundResumeAction(task) : undefined;
+    const resume = entry.source !== 'saved' ? backgroundResumeAction(task) : undefined;
     const taskArchive = canManageTask
       ? manage(
           taskRef,
@@ -1014,6 +1019,10 @@ export function CurrentTaskList({
               label: resume.label,
               icon: <BackgroundTaskActionIcon id={resume.id} />,
               refresh: () => background.query.refetch(),
+              run:
+                entry.source === 'window'
+                  ? () => localBackgroundTasks.act(task.id, resume.id)
+                  : undefined,
             },
             onRemoved: () => {
               if (entry.source === 'window' && localBackgroundTasks.remove(task.id))

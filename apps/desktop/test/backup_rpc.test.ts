@@ -120,6 +120,26 @@ function fixture() {
   const routes = router(backupProcedures);
   return { root, caller: routes.createCaller({}), routes, host };
 }
+it('备份重启后仅本设备能取回原文件，变动后拒绝签发新链接', async () => {
+  const f = fixture();
+  f.host.exportRoot = f.root;
+  const downloadClient = crypto.randomUUID();
+  const other = crypto.randomUUID();
+  const saved = await f.caller.backupExport({ parts: ['settings'], downloadClient });
+  expect(saved?.downloadUrl).toBe('/synthetic-download');
+  context.current = bootstrapWeqBackupFiles(f.root);
+  expect((await f.caller.backupInventory({ downloadClient })).previousDownload).toEqual({
+    name: 'synthetic.zip',
+  });
+  expect(
+    (await f.caller.backupInventory({ downloadClient: other })).previousDownload,
+  ).toBeUndefined();
+  await expect(f.caller.backupDownloadExport({ downloadClient })).resolves.toEqual({
+    url: '/synthetic-download',
+  });
+  writeFileSync(saved!.path, Buffer.alloc(readFileSync(saved!.path).length));
+  await expect(f.caller.backupDownloadExport({ downloadClient })).rejects.toThrow('文件已变化');
+});
 it('全局恢复在日志删除范围变化后要求重新确认，确认后才设置默认策略并删除', async () => {
   const f = fixture();
   const config = context.current!.config!;

@@ -227,6 +227,7 @@ it('导出先展示选项，按默认选择提交后 Web 直接下载', async ()
     ).toBe('false');
     await ui.click('保存备份');
     expect(exportBackup).toHaveBeenCalledWith({
+      downloadClient: expect.any(String),
       selection: {
         sections: ['appearance', 'preferences', 'account'],
         accountConfigIds: ['10001'],

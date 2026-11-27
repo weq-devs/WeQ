@@ -3,6 +3,14 @@ import {
   rememberWindowTask,
   recordForwardTask,
 } from '../../state/backgroundTasks';
+import {
+  canContinueForward,
+  deleteForwardPlan,
+  forwardResumeAction,
+  runNewForwardPlan,
+  writeForwardPlan,
+  type MergeForwardPlan,
+} from '../../lib/forwardContinuation';
 import { useToast } from '../Toast.shared';
 import { notificationSource } from '../../lib/notificationNavigation.shared';
 import type { ForwardedConversationTarget, MfDraft, MfTarget } from './model';
@@ -24,71 +32,145 @@ export async function runMergeForwardTask({
   binding,
   send,
   isCurrent,
+  resume,
 }: {
   draft: MfDraft;
   targets: MfTarget[];
   binding: CompositionBinding;
   send: SendMergeForward;
   isCurrent: () => boolean;
+  resume?: { id: string; plan: MergeForwardPlan };
 }) {
   const title = targets.length === 1 ? targets[0]!.name : `${targets.length} 个会话`;
   const scope = { uin: binding.expectedAccountUin, configId: binding.expectedAccountConfigId };
-  const id = localBackgroundTasks.start({
-    kind: 'forward',
-    name: title,
-    scope,
-    display: { action: '合并转发消息', subject: title },
-  });
+  const id =
+    resume?.id ??
+    localBackgroundTasks.start({
+      kind: 'forward',
+      name: title,
+      scope,
+      display: { action: '合并转发消息', subject: title },
+    });
   const sent: ForwardedConversationTarget[] = [];
   const rejected: MfTarget[] = [];
   const unconfirmed: MfTarget[] = [];
   const reports: string[] = [];
-  let stopped = 0;
-  rememberWindowTask(id);
-  for (const target of targets) {
-    if (!isCurrent()) {
-      reports.push(`${target.name}：未发送`);
-      stopped++;
-      continue;
-    }
-    localBackgroundTasks.update(id, { statusLabel: `正在转发到「${target.name}」` });
+  let plan = resume?.plan;
+  if (!plan && navigator.locks) {
     try {
-      const result = await send(draft, target, binding, true);
-      if (result === false) {
-        reports.push(`${target.name}：已跳过`);
-        stopped++;
-      } else {
+      const candidate: MergeForwardPlan = {
+        version: 1,
+        kind: 'merged',
+        scope,
+        draft,
+        entries: targets.map(() => ({ state: 'pending' })),
+        targets: targets.map(({ id, kind, conv, name }) => ({
+          id,
+          kind,
+          conv,
+          name,
+          avatarUrl: null,
+        })),
+      };
+      writeForwardPlan(id, candidate);
+      plan = candidate;
+    } catch {
+      // 无法保留草稿时仍可完成本次转发。
+    }
+  }
+  let stopped = 0;
+  localBackgroundTasks.resume(id);
+  localBackgroundTasks.setActions(id, []);
+  rememberWindowTask(id);
+  const execute = async () => {
+    for (const [index, target] of targets.entries()) {
+      const entry = plan?.entries[index];
+      if (entry?.state === 'sent') {
+        sent.push(entry.targetSeq ? { ...target, seq: entry.targetSeq } : target);
         reports.push(`${target.name}：已发送`);
-        sent.push(
-          typeof result === 'object' && result.seq ? { ...target, seq: result.seq } : target,
+        continue;
+      }
+      if (entry?.state === 'submitting' || entry?.state === 'unconfirmed') {
+        unconfirmed.push(target);
+        reports.push(`${target.name}：结果待核对，继续时已跳过`);
+        continue;
+      }
+      if (entry?.state === 'skipped' || !isCurrent()) {
+        reports.push(`${target.name}：未发送`);
+        stopped++;
+        continue;
+      }
+      if (plan && entry) {
+        entry.state = 'submitting';
+        try {
+          writeForwardPlan(id, plan);
+        } catch {
+          entry.state = 'pending';
+          reports.push('续作记录暂时无法保存，已停止后续转发。');
+          break;
+        }
+      }
+      localBackgroundTasks.update(id, { statusLabel: `正在转发到「${target.name}」` });
+      try {
+        const result = await send(draft, target, binding, true);
+        if (result === false) {
+          if (entry) entry.state = 'skipped';
+          reports.push(`${target.name}：已跳过`);
+          stopped++;
+        } else {
+          const seq = typeof result === 'object' ? result.seq : undefined;
+          if (entry) {
+            entry.state = 'sent';
+            entry.targetSeq = seq;
+          }
+          reports.push(`${target.name}：已发送`);
+          sent.push(seq ? { ...target, seq } : target);
+        }
+      } catch (error) {
+        const explicit = error instanceof MergeForwardRejected;
+        if (entry) entry.state = explicit ? 'pending' : 'unconfirmed';
+        (explicit ? rejected : unconfirmed).push(target);
+        reports.push(
+          `${target.name}：${explicit ? '未发送' : '结果待核对'} · ${error instanceof Error ? error.message : String(error)}`,
         );
       }
-    } catch (error) {
-      const explicit = error instanceof MergeForwardRejected;
-      (explicit ? rejected : unconfirmed).push(target);
-      reports.push(
-        `${target.name}：${explicit ? '未发送' : '结果待核对'} · ${error instanceof Error ? error.message : String(error)}`,
-      );
+      localBackgroundTasks.update(id, {
+        progress: ((index + 1) / targets.length) * 100,
+        details: reports.slice(),
+      });
+      rememberWindowTask(id);
+      if (plan) {
+        try {
+          writeForwardPlan(id, plan);
+        } catch {
+          reports.push('续作记录暂时无法保存，已停止后续转发。');
+          break;
+        }
+      }
     }
-    localBackgroundTasks.update(id, {
-      progress: (reports.length / targets.length) * 100,
-      details: reports.slice(),
-    });
-    rememberWindowTask(id);
-  }
+  };
+  await (plan && !resume ? runNewForwardPlan(id, execute) : execute());
+  const canContinue = canContinueForward(plan);
   const problem = rejected.length || unconfirmed.length;
-  const status =
-    sent.length === targets.length ? 'completed' : problem || sent.length ? 'failed' : 'cancelled';
+  const status = canContinue
+    ? 'paused'
+    : sent.length === targets.length
+      ? 'completed'
+      : problem || sent.length
+        ? 'failed'
+        : 'cancelled';
   const label =
-    status === 'completed'
-      ? '转发完成'
-      : sent.length
-        ? '部分完成'
-        : unconfirmed.length
-          ? '结果待核对'
-          : status === 'cancelled'
-            ? '已停止转发'
-            : '转发失败';
+    status === 'paused'
+      ? '等待继续转发'
+      : status === 'completed'
+        ? '转发完成'
+        : sent.length
+          ? '部分完成'
+          : unconfirmed.length
+            ? '结果待核对'
+            : status === 'cancelled'
+              ? '已停止转发'
+              : '转发失败';
   localBackgroundTasks.finish(id, status, {
     statusLabel: label,
     needsConfirmation: unconfirmed.length > 0,
@@ -96,9 +178,13 @@ export async function runMergeForwardTask({
     forwardTargets: [...sent, ...unconfirmed],
     details: reports,
   });
+  if (canContinue) localBackgroundTasks.setActions(id, [forwardResumeAction(id, scope, 'merged')]);
   rememberWindowTask(id);
-  void recordForwardTask(id);
-  if (status === 'failed' && isCurrent())
+  if (!canContinue) {
+    deleteForwardPlan(id);
+    void recordForwardTask(id);
+  }
+  if ((status === 'failed' || (canContinue && problem)) && isCurrent())
     useToast.getState().push({
       taskId: `background:window:${id}`,
       event: 'taskFailure',
@@ -110,5 +196,5 @@ export async function runMergeForwardTask({
         binding,
       ),
     });
-  return { sent, rejected, unconfirmed };
+  return { sent, rejected: canContinue ? [] : rejected, unconfirmed };
 }

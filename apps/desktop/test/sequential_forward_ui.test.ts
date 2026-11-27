@@ -9,6 +9,11 @@ import { ToastHost } from '../src/renderer/src/components/Toast';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { DEFAULT_FORWARD_OPTIONS } from '../src/renderer/src/lib/sequentialForward';
 import {
+  readForwardPlan,
+  writeForwardPlan,
+  type SequentialForwardPlan,
+} from '../src/renderer/src/lib/forwardContinuation';
+import {
   resolveForwardReplyPrefix,
   sequentialReplyTargets,
 } from '../src/renderer/src/lib/sequentialForwardReply';
@@ -93,6 +98,53 @@ const replyMessage = {
   id: 'reply',
   qqElements: [replyElement, ...messages[0]!.qqElements],
 };
+
+it('中断后只发送未提交项，保留原目标引用及结果未知的条目', async () => {
+  const stored = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => stored.set(key, value),
+    removeItem: (key: string) => stored.delete(key),
+  });
+  const scope = { uin: 'fixture', configId: 'original' };
+  const id = localBackgroundTasks.start({ kind: 'forward', name: target.name, scope });
+  localBackgroundTasks.finish(id, 'paused');
+  const plan: SequentialForwardPlan = {
+    version: 1,
+    kind: 'sequential',
+    scope,
+    target,
+    messages: [quotedMessage, { ...messages[0]!, id: 'unknown' }, replyMessage],
+    entries: [
+      { state: 'sent', receipt: { groupSequence: 151 } },
+      { state: 'submitting' },
+      { state: 'pending' },
+    ],
+    options: { ...DEFAULT_FORWARD_OPTIONS, maxAttempts: 3 },
+    sourceKind: 'group',
+    includeExcerpt: true,
+  };
+  writeForwardPlan(id, plan);
+  expect(readForwardPlan(id, { ...scope, configId: 'other' })).toBeUndefined();
+  const onSend = vi.fn(async (_message, _target, _signal, receipt) => {
+    expect(receipt).toEqual({ groupSequence: 151 });
+    expect(readForwardPlan(id, scope)?.entries[2]?.state).toBe('submitting');
+    throw new Error('合成的未知回执');
+  });
+  await startSequentialForward({
+    ...plan,
+    targets: [target],
+    onSend,
+    onOpenTarget: vi.fn(),
+    resume: { id, plan },
+  }).done;
+  expect(onSend.mock.calls.map(([message]) => message.id)).toEqual([replyMessage.id]);
+  expect(localBackgroundTasks.snapshot().find((task) => task.id === id)).toMatchObject({
+    needsConfirmation: true,
+    details: expect.arrayContaining(['第 2 条：结果待核对，继续时已跳过']),
+  });
+  expect(readForwardPlan(id, scope)).toBeUndefined();
+});
 
 it('分别把每个目标的发送回执用于同批引用，前一条失败时没有新引用目标', async () => {
   const second = { ...target, id: 'second', conv: '888' };

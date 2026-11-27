@@ -389,6 +389,42 @@ async function copyResponse(
 
 type MediaResumeRequest = Extract<ResumableResourceRequest, { type: 'media-file' }>;
 
+function recoverableMedia(source: MediaSaveSource): MediaResumeRequest['source'] | undefined {
+  if (source.kind === 'group-file') return source;
+  if (source.kind === 'chat-file')
+    return /^[1-9]\d{0,19}$/.test(source.msgId) && (source.name || source.token)
+      ? source
+      : undefined;
+  const reference = toProtocolAssetUrl(source.url);
+  if (!reference) return;
+  const url = new URL(reference);
+  if (url.protocol !== 'weq-media:' || url.username || url.password) return;
+  const locator =
+    url.hostname === 'pic'
+      ? Boolean(url.searchParams.get('token') || url.searchParams.get('md5'))
+      : ['video', 'ptt'].includes(url.hostname) &&
+        /^[1-9]\d{0,19}$/.test(url.searchParams.get('msgId') ?? '');
+  if (!locator) return;
+  // 续作保留原消息或素材身份，由当前账号重新取媒体。不持久化带令牌的上游链接。
+  for (const key of [...url.searchParams.keys()])
+    if (
+      ![
+        't',
+        'name',
+        'token',
+        'md5',
+        'recv',
+        'msgId',
+        'conv',
+        'fwdMsgId',
+        'fwdKind',
+        'fwdResId',
+      ].includes(key)
+    )
+      url.searchParams.delete(key);
+  return { kind: 'url', url: url.href, name: source.name };
+}
+
 async function planUrlMedia(
   url: string,
   name: string | undefined,
@@ -441,18 +477,14 @@ export async function runResumableMediaFile(
 ) {
   if (basename(request.fileName) !== request.fileName || ['.', '..', ''].includes(request.fileName))
     throw new Error('原文件输出名称无效。');
-  const source = sourceInput.parse(request.source);
-  if (
-    source.kind === 'url' ||
-    (source.kind === 'chat-file' &&
-      (source.token || source.fwdKind || source.fwdMsgId || source.fwdResId))
-  )
-    throw new Error('原文件没有可复用的来源身份，请重新选择。');
+  const source = recoverableMedia(sourceInput.parse(request.source));
+  if (!source) throw new Error('原文件没有可复用的来源身份，请重新选择。');
   return savePlannedMedia(
     await planSource(services, source, check),
     request.fileName,
     context,
     check,
+    source.kind === 'url' ? extname(request.fileName).slice(1) : undefined,
   );
 }
 
@@ -541,17 +573,7 @@ export const mediaSaveRouter = router({
     }
     const fileName = exportOutputFileName(output);
     const source = selected.source;
-    const recoverable =
-      source.kind === 'group-file'
-        ? source
-        : source.kind === 'chat-file' &&
-            source.name &&
-            !source.token &&
-            !source.fwdKind &&
-            !source.fwdMsgId &&
-            !source.fwdResId
-          ? { kind: source.kind, msgId: source.msgId, name: source.name, conv: source.conv }
-          : undefined;
+    const recoverable = recoverableMedia(source);
     const resume: MediaResumeRequest | undefined = recoverable
       ? { type: 'media-file', source: recoverable, fileName }
       : undefined;

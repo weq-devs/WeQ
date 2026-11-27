@@ -4,11 +4,15 @@ import {
   OperationError,
   qzoneFeedSearchRecord,
   writeFileAtomic,
+  type ResourceExportRunContext,
   type ResourceExportSummary,
+  type ResumableResourceRequest,
 } from '@weq/service';
 import { QZONE_SHARE_CATEGORIES, type QzoneShareCategory } from '@weqbot/protocol/web';
 import { z } from 'zod/v3';
 import { open } from 'node:fs/promises';
+import { basename, extname, join } from 'node:path';
+import { ExportCheckpointError } from '@weq/service/export-checkpoint';
 import { rememberQzoneAlbums, rememberQzonePosts } from '../../search_content';
 import { withQzonePaginationTimeout } from '@weq/service/qzone-pagination';
 import { withDatabasePriority } from '@weq/db';
@@ -45,6 +49,7 @@ const videoExportInput = exportAccountBindingInput.required().extend({
       z.object({
         id: z.string().regex(/^[a-zA-Z0-9_-]{1,256}$/),
         name: z.string().min(1),
+        video: z.boolean().optional(),
         url: z
           .string()
           .url()
@@ -66,6 +71,99 @@ const videoExportInput = exportAccountBindingInput.required().extend({
 const pending = new Map<string, { services: AccountServices; controller: AbortController }>();
 const publishing = new WeakSet<AccountServices>();
 const archiveWriting = new WeakSet<AccountServices>();
+
+export async function runQzoneVideoResource(
+  services: AccountServices,
+  request: Extract<ResumableResourceRequest, { type: 'qzone-videos' }>,
+  context: ResourceExportRunContext,
+  check: () => void,
+  initial?: z.infer<typeof videoExportInput>['items'],
+  single?: Awaited<ReturnType<typeof planUrlMediaExport>> | null,
+): Promise<ResourceExportSummary> {
+  const { directory, signal, checkpoint } = context;
+  const { hostUin, items } = request;
+  const initialUrls = new Map(initial?.map(({ id, url }) => [id, url]));
+  const lookup = async () => {
+    const urls = new Map<string, { videoUrl: string; coverUrl: string }>();
+    const pending = new Set(items.map(({ id }) => id));
+    for (let offset: number | null = 0; offset !== null && offset <= 100000 && pending.size; ) {
+      check();
+      signal.throwIfAborted();
+      const page = await services.webQuery.qzoneVideos(hostUin, offset, signal);
+      check();
+      for (const row of page.items) if (pending.delete(row.id)) urls.set(row.id, row);
+      if (page.next !== null && page.next <= offset) throw new Error('QQ 空间视频分页未推进。');
+      offset = page.next;
+    }
+    return urls;
+  };
+  let live: ReturnType<typeof lookup> | undefined;
+  const used = new Set<string>();
+  const failed: ResourceExportSummary['failed'] = [];
+  let ok = 0;
+  context.progress(0, items.length);
+  for (const [index, item] of items.entries()) {
+    check();
+    signal.throwIfAborted();
+    const target = transferTarget('qzone-video', hostUin, item.id);
+    let fileName = item.name;
+    let success = false;
+    try {
+      const resolve = async () => {
+        if (single) return single;
+        const row = !initialUrls.has(item.id)
+          ? (await (live ??= lookup())).get(item.id)
+          : undefined;
+        const url = initialUrls.get(item.id) ?? (item.video ? row?.videoUrl : row?.coverUrl);
+        if (!url) throw new Error('空间中已找不到原视频或封面。');
+        return planUrlMediaExport(
+          `weq-media://album?${new URLSearchParams({ src: url })}`,
+          item.name,
+          check,
+          signal,
+        );
+      };
+      let prepared: Awaited<ReturnType<typeof resolve>> | undefined;
+      const planName = async () =>
+        request.fileName ?? uniqueFilename((prepared = await resolve()).fileName, used);
+      fileName = checkpoint
+        ? await checkpoint.run(['qzone-video-name', item.id], planName)
+        : await planName();
+      if (basename(fileName) !== fileName || ['.', '..', ''].includes(fileName))
+        throw new Error('原文件输出名称无效。');
+      used.add(fileName.toLowerCase());
+      const download = async () => {
+        const media = prepared ?? (await resolve());
+        if (extname(fileName).toLowerCase() !== extname(media.fileName).toLowerCase())
+          throw new Error('原视频或封面的文件格式已变化。');
+        await media.run(
+          {
+            directory,
+            signal,
+            progress() {},
+            transferProgress: (received, total) =>
+              context.transferProgress?.(received, total, target),
+          },
+          fileName,
+        );
+      };
+      if (checkpoint)
+        await checkpoint.file(['qzone-video', item.id], join(directory, fileName), download);
+      else await download();
+      ok++;
+      success = true;
+    } catch (reason) {
+      check();
+      signal.throwIfAborted();
+      if (reason instanceof ExportCheckpointError) throw reason;
+      failed.push({ fileName, error: reason instanceof Error ? reason.message : String(reason) });
+    } finally {
+      context.transferItemFinished?.(target, success);
+    }
+    context.progress(index + 1, items.length);
+  }
+  return { total: items.length, ok, failed, fileName: request.fileName };
+}
 
 function online(selfUin: string): AccountServices {
   const ctx = getAppContext();
@@ -384,8 +482,17 @@ export const qzoneRouter = router({
       check,
     );
     if (!policy) return null;
+    const resume = items.every(({ video }) => typeof video === 'boolean')
+      ? {
+          type: 'qzone-videos' as const,
+          hostUin: input.hostUin,
+          items: items.map(({ id, name, video }) => ({ id, name, video: Boolean(video) })),
+          fileName: single?.fileName,
+        }
+      : undefined;
     return services.exportManager.startResourceExport({
       kind: 'media',
+      resume,
       name: single?.output.name ?? 'QQ 空间视频',
       transferTarget: [
         transferTarget('qzone-videos', input.hostUin),
@@ -401,6 +508,7 @@ export const qzoneRouter = router({
       savePolicy: policy,
       output: single?.output,
       run: async (context) => {
+        if (resume) return runQzoneVideoResource(services, resume, context, check, items, single);
         if (single) return single.run(context);
         const used = new Set<string>();
         const failed: ResourceExportSummary['failed'] = [];

@@ -3,9 +3,12 @@ import type { WeqBackupSection, WeqSelectiveBackup } from '@weq/service/backup-c
 import { client } from '../../trpc/client';
 import '../../styles/backup.css';
 export const backupApi = {
-  inventory: () => client.bootstrap.backupInventory.query(),
+  inventory: (downloadClient?: string) =>
+    client.bootstrap.backupInventory.query(downloadClient ? { downloadClient } : undefined),
   export: (input: Parameters<typeof client.bootstrap.backupExport.mutate>[0]) =>
     client.bootstrap.backupExport.mutate(input),
+  download: (downloadClient: string) =>
+    client.bootstrap.backupDownloadExport.mutate({ downloadClient }),
   pick: () => client.bootstrap.backupPick.mutate(),
   begin: (name: string, bytes: number) =>
     client.bootstrap.backupBeginUpload.mutate({ name, bytes }),

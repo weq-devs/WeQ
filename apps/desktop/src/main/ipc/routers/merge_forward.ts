@@ -11,6 +11,7 @@
 
 import { join, relative, isAbsolute, dirname } from 'node:path';
 import { realpath, rm } from 'node:fs/promises';
+import { deserialize, serialize } from 'node:v8';
 import { compositionMediaSource } from '../../composition_media';
 import { z } from 'zod/v3';
 import {
@@ -18,9 +19,15 @@ import {
   MergeForwardDraftStore,
   writeCompositionBundle,
   getHost,
+  type ResourceExportRunContext,
 } from '@weq/service';
 import { exportSavePolicyInput, prepareExportDestination } from './export_save';
-import { getAppContext, requireBootstrap, requirePlatform } from '../../context/app_context';
+import {
+  getAppContext,
+  requireBootstrap,
+  requirePlatform,
+  type AccountServices,
+} from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { boundClientState } from './client_state';
 
@@ -163,13 +170,52 @@ function trustDraftMedia(nodes: readonly unknown[]): void {
   for (const path of collectMediaPaths(nodes)) fileResource.trustPath(path);
 }
 
+export async function runCompositionResource(
+  services: AccountServices,
+  context: ResourceExportRunContext,
+  check: () => void,
+) {
+  if (!context.stagedInput) throw new Error('合成记录快照不可用。');
+  const snapshot = draftInput.parse(deserialize(context.stagedInput));
+  const configId = services.accountConfig.getRecord()?.configId;
+  if (!configId) throw new Error('原数据源未打开。');
+  const root = join(requirePlatform().appDataRoot(), 'merge-forward', configId, 'archive');
+  check();
+  const downloaded = join(context.directory, '.source-media');
+  const inside = async (base: string, path: string) => {
+    try {
+      const rel = relative(await realpath(base), await realpath(path));
+      return rel !== '..' && !rel.startsWith('../') && !rel.startsWith('..\\') && !isAbsolute(rel);
+    } catch {
+      return false;
+    }
+  };
+  try {
+    return await writeCompositionBundle(
+      snapshot,
+      context,
+      async (path) => {
+        check();
+        return (
+          (await inside(join(root, 'media'), path)) ||
+          (await inside(downloaded, path)) ||
+          Boolean(await services.fileResource.resolveLocalFile(path))
+        );
+      },
+      (segment, node, signal) => compositionMediaSource(segment, node, downloaded, signal, check),
+    );
+  } finally {
+    await rm(downloaded, { recursive: true, force: true });
+  }
+}
+
 export const mergeForwardRouter = router({
   exportWorkspace: procedure
     .input(
       accountBinding.extend({ draft: draftInput, savePolicy: exportSavePolicyInput.optional() }),
     )
     .mutation(async ({ input }) => {
-      const { services, root } = boundArchive(input);
+      const { services } = boundArchive(input);
       const snapshot = structuredClone(input.draft);
       const check = () => {
         if (boundArchive(input).services !== services) throw new Error('账号已切换');
@@ -188,41 +234,9 @@ export const mergeForwardRouter = router({
         kind: 'composition',
         name: snapshot.title || '合成记录',
         savePolicy: policy,
-        run: async (context) => {
-          check();
-          const downloaded = join(context.directory, '.source-media');
-          const inside = async (base: string, path: string) => {
-            try {
-              const rel = relative(await realpath(base), await realpath(path));
-              return (
-                rel !== '..' &&
-                !rel.startsWith('../') &&
-                !rel.startsWith('..\\') &&
-                !isAbsolute(rel)
-              );
-            } catch {
-              return false;
-            }
-          };
-          try {
-            return await writeCompositionBundle(
-              snapshot,
-              context,
-              async (path) => {
-                check();
-                return (
-                  (await inside(join(root, 'media'), path)) ||
-                  (await inside(downloaded, path)) ||
-                  Boolean(await services.fileResource.resolveLocalFile(path))
-                );
-              },
-              (segment, node, signal) =>
-                compositionMediaSource(segment, node, downloaded, signal, check),
-            );
-          } finally {
-            await rm(downloaded, { recursive: true, force: true });
-          }
-        },
+        resume: { type: 'composition' },
+        stagedInput: serialize(snapshot),
+        run: (context) => runCompositionResource(services, context, check),
       });
       return { canceled: false as const, taskId };
     }),

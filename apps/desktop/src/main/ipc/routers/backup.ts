@@ -22,6 +22,11 @@ import {
 } from '@weq/service';
 import { getBackupContext } from '../../context/backup_context';
 import { getAppContext, retryBackupRecovery } from '../../context/app_context';
+import {
+  recentBackupDownload,
+  recordBackupDownload,
+  resolveBackupDownload,
+} from '../../backup_download_receipt';
 import { procedure } from '../trpc';
 import { observable } from '@trpc/server/observable';
 import { runtimeMaintenance } from '../../runtime_maintenance';
@@ -66,6 +71,16 @@ const selective = z.object({
   includeServiceTokens: z.boolean(),
 });
 const client = z.record(z.string()).default({});
+const backupDownloadClient = z.object({ downloadClient: z.string().uuid().optional() });
+
+function backupDownloadOwner(client: string) {
+  const { account, services } = getAppContext();
+  return JSON.stringify([
+    account?.context.uin,
+    services?.accountConfig.getRecord()?.configId,
+    client,
+  ]);
+}
 
 function ready() {
   const ctx = getBackupContext();
@@ -102,9 +117,13 @@ export const backupProcedures = {
         toastDurations: ctx.ok ? ctx.config.getSettings().toastDurations : undefined,
       };
     }),
-  backupInventory: procedure.query(({ ctx }) => {
+  backupInventory: procedure.input(backupDownloadClient.optional()).query(({ ctx, input }) => {
     const { backups } = ready();
     const host = getHost();
+    const previousDownload =
+      host.exportRoot && input?.downloadClient
+        ? recentBackupDownload(backups.root, backupDownloadOwner(input.downloadClient))
+        : undefined;
     return {
       ...backups.inventory(),
       activeConfigId: getAppContext().services?.accountConfig.getConfigId() ?? null,
@@ -113,13 +132,20 @@ export const backupProcedures = {
       canRestart: Boolean(host.restartApplication),
       maxArchiveBytes: WEQ_BACKUP_LIMITS.maxArchiveBytes,
       chunkBytes: 65536,
+      ...(previousDownload ? { previousDownload } : {}),
     };
   }),
   backupExport: procedure
-    .input(z.union([z.object({ selection: selective, client }), selection.extend({ client })]))
+    .input(
+      z.union([
+        backupDownloadClient.extend({ selection: selective, client }),
+        selection.merge(backupDownloadClient).extend({ client }),
+      ]),
+    )
     .mutation(async ({ input, ctx: request }) => {
       const ctx = ready(),
         host = getHost();
+      const owner = input.downloadClient ? backupDownloadOwner(input.downloadClient) : undefined;
       const timestamp = eventTimeFormatter.format(new Date()).replace(/[^0-9]/g, '');
       const target = await host.pickSaveTarget({
         locationKey: 'weq-backup',
@@ -137,6 +163,18 @@ export const backupProcedures = {
           : ctx.backups.snapshot(input, input.client);
       await writeWeqBackupExclusive(target.path, snapshot.archive);
       const download = host.registerDownload?.(target.path, basename(target.path), 'file');
+      if (
+        host.exportRoot &&
+        download &&
+        input.downloadClient &&
+        owner === backupDownloadOwner(input.downloadClient)
+      ) {
+        try {
+          recordBackupDownload(ctx.backups.root, owner, target.path, snapshot.archive);
+        } catch (error) {
+          console.warn('[配置备份] 取回回执保存失败', error);
+        }
+      }
       return {
         id: ctx.backups.rememberExport(target.path),
         path: target.path,
@@ -144,6 +182,19 @@ export const backupProcedures = {
         canReveal: host.canReveal,
         summary: snapshot.summary,
       };
+    }),
+  backupDownloadExport: procedure
+    .input(z.object({ downloadClient: z.string().uuid() }))
+    .mutation(async ({ input }) => {
+      const { backups } = ready();
+      const host = getHost();
+      if (!host.exportRoot || !host.registerDownload)
+        throw new Error('请从生成备份时的浏览器重新下载。');
+      const owner = backupDownloadOwner(input.downloadClient);
+      const { path, name } = await resolveBackupDownload(backups.root, host.exportRoot, owner);
+      if (owner !== backupDownloadOwner(input.downloadClient))
+        throw new Error('账号或数据源已切换。');
+      return host.registerDownload(path, name, 'file');
     }),
   backupPick: procedure.mutation(async () => {
     const ctx = ready();

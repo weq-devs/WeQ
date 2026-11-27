@@ -622,6 +622,104 @@ export async function resolveQzoneAlbumDownload(
   return { url, fileName };
 }
 
+export async function runResumableQzoneAlbumMedia(
+  services: AccountServices,
+  request: Extract<ResumableResourceRequest, { type: 'qzone-album-media' }>,
+  context: ResourceExportRunContext,
+  check: () => void,
+  initial?: z.infer<typeof qzoneAlbumMediaItemInput>[],
+  single?: { url: string; fileName: string },
+) {
+  requireOnlineQqForWeb(services);
+  const { directory, signal, checkpoint } = context;
+  const { hostUin, topicId, items } = request;
+  const initialByKey = new Map(initial?.map((item) => [item.picKey, item]));
+  const used = new Set<string>();
+  const failed: Array<{ fileName: string; error: string }> = [];
+  let live: Promise<Map<string, z.infer<typeof qzoneAlbumMediaItemInput>>> | undefined;
+  const lookup = async () => {
+    const remaining = new Set(items.map((item) => item.key));
+    const found = new Map<string, z.infer<typeof qzoneAlbumMediaItemInput>>();
+    const seen = new Set<string>();
+    for (let offset = 0, page = 0; remaining.size && page < 10000; page++) {
+      check();
+      signal.throwIfAborted();
+      const { photos } = await services.webQuery.getQzoneAlbumPhotos(
+        hostUin,
+        topicId,
+        offset,
+        QZONE_ALBUM_PAGE_SIZE,
+      );
+      check();
+      signal.throwIfAborted();
+      if (!photos?.length) break;
+      const before = seen.size;
+      offset += photos.length;
+      for (const photo of photos) {
+        seen.add(qzoneAlbumMediaKey(photo));
+        const url = photo.url || photo.thumbUrl;
+        if (photo.picKey && url && remaining.delete(photo.picKey))
+          found.set(photo.picKey, { ...photo, id: photo.id || photo.picKey, url });
+      }
+      if (seen.size === before) throw new Error('相册分页重复，未找到剩余媒体。');
+    }
+    return found;
+  };
+  await mkdir(directory, { recursive: true });
+  let ok = 0;
+  context.progress(0, items.length);
+  for (const [index, item] of items.entries()) {
+    check();
+    signal.throwIfAborted();
+    const target = albumMediaTransferTarget(hostUin, topicId, item.key);
+    let fileName = item.name || `媒体-${index + 1}`;
+    let success = false;
+    try {
+      const resolve = async () => {
+        if (single) return single;
+        const row = initialByKey.get(item.key) ?? (await (live ??= lookup())).get(item.key);
+        if (!row || Boolean(row.isVideo) !== item.isVideo)
+          throw new Error('相册中已找不到原媒体，请重新选择。');
+        return resolveQzoneAlbumDownload(services, request, { ...row, name: item.name }, index);
+      };
+      let source: { url: string; fileName: string } | undefined;
+      const planName = async () =>
+        request.fileName ?? uniqueFilename((source = await resolve()).fileName, used);
+      fileName = checkpoint
+        ? await checkpoint.run(['qzone-album-media-name', index, item.key], planName)
+        : await planName();
+      if (basename(fileName) !== fileName || ['.', '..', ''].includes(fileName))
+        throw new Error('原文件输出名称无效。');
+      used.add(fileName.toLowerCase());
+      const path = join(directory, fileName);
+      const download = async () => {
+        const resolved = source ?? (await resolve());
+        check();
+        signal.throwIfAborted();
+        if (extname(fileName).toLowerCase() !== extname(resolved.fileName).toLowerCase())
+          throw new Error('相册媒体的可用格式已变化，请重新选择。');
+        await downloadAlbumUrl(resolved.url, path, signal, (received, total) =>
+          context.transferProgress?.(received, total || undefined, target),
+        );
+        check();
+      };
+      if (checkpoint) await checkpoint.file(['qzone-album-media', index, item.key], path, download);
+      else await download();
+      ok++;
+      success = true;
+    } catch (error) {
+      signal.throwIfAborted();
+      check();
+      if (error instanceof ExportCheckpointError) throw error;
+      failed.push({ fileName, error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      context.transferItemFinished?.(target, success);
+    }
+    context.progress(ok + failed.length, items.length);
+  }
+  return { total: items.length, ok, failed, fileName: request.fileName };
+}
+
 /** 迁移既有整本相册分页导出，选择范围仍是用户明确勾选的相册。 */
 export async function exportSelectedQzoneAlbums(
   services: AccountServices,
@@ -872,7 +970,12 @@ export async function exportGroupFiles(
 
 export async function runResumableAlbumResource(
   services: AccountServices,
-  request: Exclude<ResumableResourceRequest, { type: 'mail' | 'favorite-emoji' | 'media-file' }>,
+  request: Extract<
+    ResumableResourceRequest,
+    {
+      type: 'group-files' | 'group-albums' | 'qzone-albums' | 'album-references';
+    }
+  >,
   context: ResourceExportRunContext,
   check: () => void,
 ) {
