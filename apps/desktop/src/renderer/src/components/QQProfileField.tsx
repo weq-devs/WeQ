@@ -177,7 +177,10 @@ function QQProfileFieldEditor({
     (field === 'friendRemark' ? remark.error : field === 'friendCategory' ? roster.error : null);
   const categories = roster.data?.categories;
   const categoryOptions = categories
-    ? [{ id: 0, name: '默认分组' }, ...categories.filter((row) => row.id !== 0)]
+    ? [
+        categories.find((row) => row.id === 0) ?? { id: 0, name: '默认分组' },
+        ...categories.filter((row) => row.id !== 0),
+      ]
     : undefined;
   const categoryId =
     roster.data?.friends.find((row) => row.uid === target)?.categoryId ?? peer.data?.categoryId;
