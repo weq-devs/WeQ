@@ -36,6 +36,7 @@ const receipt = z.object({
     })
     .optional(),
   status: z.enum(['completed', 'failed', 'cancelled']),
+  progress: z.number().finite().optional(),
   statusLabel: z.string().max(400).optional(),
   needsConfirmation: z.boolean().optional(),
   note: z.string().max(4000).optional(),
