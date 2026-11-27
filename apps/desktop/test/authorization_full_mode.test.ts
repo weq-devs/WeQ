@@ -26,6 +26,7 @@ const f = vi.hoisted(() => {
     host,
     settings,
     webContents,
+    settingsContents: { mainFrame: {} },
     mainFrame,
     status: vi.fn(),
     install: vi.fn(),
@@ -39,6 +40,9 @@ vi.mock('electron', () => ({
 }));
 vi.mock('../src/main/main_window', () => ({
   getMainWindow: () => ({ webContents: f.webContents }),
+}));
+vi.mock('../src/main/bootstrap_settings_window', () => ({
+  getBootstrapSettingsWindow: () => ({ webContents: f.settingsContents }),
 }));
 vi.mock('../src/main/context/app_context', () => ({ getAppContext: () => f.host }));
 vi.mock('../src/main/authorization/install', () => ({
@@ -77,3 +81,14 @@ it.each(['status', 'install'] as const)(
     expect(f.host.refreshRkeysNow).not.toHaveBeenCalled();
   },
 );
+
+it('独立设置窗的主页面可读取长期授权状态', () => {
+  const ready = { state: 'ready' };
+  f.status.mockReturnValueOnce(ready);
+  registerLongTermAuthorizationIpc();
+  const status = f.handlers.get('authorization:status')!;
+  expect(() => status({ sender: f.settingsContents, senderFrame: {} })).toThrow();
+  expect(status({ sender: f.settingsContents, senderFrame: f.settingsContents.mainFrame })).toEqual(
+    ready,
+  );
+});

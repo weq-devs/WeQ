@@ -727,7 +727,6 @@ html[data-theme] .weq-account-workspace .weq-action-soft:disabled {
   justify-content: space-between;
   padding: 16px 20px;
 }
-/* 打开账号页的两个开关：与设置页同一套 Toggle，标签左对齐、开关靠右。 */
 .weq-login-options {
   display: flex;
   flex-direction: column;
@@ -747,6 +746,9 @@ html[data-theme] .weq-account-workspace .weq-action-soft:disabled {
   color: var(--weq-fg-secondary);
   font-size: 13px;
   line-height: 1.4;
+}
+.weq-login-capability-select {
+  width: 176px;
 }
 /* 两个开关的说明合成一行，开关保持同一水平线，不再随说明行数上下错位。 */
 .weq-login-options-hint {

@@ -1,12 +1,15 @@
-import type { ComponentProps } from 'react';
+import { createElement, type ComponentProps } from 'react';
 import { lazyPanel, lazyRetainedPanel } from '../lib/lazyPanel';
 import { surfaceLoading } from './DeferredSurfaceLoading.shared';
+import { PanelLoading } from './LoadingIndicator';
+
+const settingsLoading = surfaceLoading('设置', { presentation: 'page', standalone: true });
 
 export const SettingsDialog = lazyPanel<
   ComponentProps<typeof import('./SettingsDialog').SettingsDialog>
 >(
   () => import('./SettingsDialog').then((m) => ({ default: m.SettingsDialog })),
-  surfaceLoading('设置', { presentation: 'page', standalone: true }),
+  (props) => (props.nativeWindow ? createElement(PanelLoading) : settingsLoading(props)),
 );
 export const DataMaintenanceDialog = lazyPanel<
   ComponentProps<typeof import('./settings/DataMaintenanceDialog').DataMaintenanceDialog>

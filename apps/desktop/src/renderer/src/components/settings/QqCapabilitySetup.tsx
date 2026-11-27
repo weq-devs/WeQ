@@ -12,7 +12,7 @@ import { useRestrictedMode } from '../../state/restrictedMode';
 import { restrictionReasons } from '../../lib/restrictedMode';
 import { IS_WEB } from '../../lib/target.shared';
 import { AnimatedDetails } from '../AnimatedDetails';
-import { useDialog } from '../Dialog.shared';
+import { useQqCapabilityChange } from '../../hooks/useQqCapabilityChange';
 import { LongTermAuthorizationLink } from '../LongTermAuthorizationLink';
 import { QqDebugCopyDialog } from '../QqDebugCopyDialog';
 import { QqProxyRecovery } from '../QqProxyConnection';
@@ -58,12 +58,8 @@ function useQqCapabilityStatus(onlineEnabled: boolean) {
 }
 
 export function QqCapabilitySetup({ mode }: { mode?: QqCapabilityMode }) {
-  const confirm = useDialog((state) => state.confirm);
-  const utils = trpc.useUtils();
   const id = useId();
-  const [changing, setChanging] = useState(false);
-  const [error, setError] = useState('');
-  const change = trpc.bootstrap.setQqCapabilityMode.useMutation();
+  const { changing, error, select } = useQqCapabilityChange(mode);
   const onlineEnabled = mode !== undefined && qqCapabilityAllowsOnline(mode);
   const status = useQqCapabilityStatus(onlineEnabled);
   let statusNote: string | undefined;
@@ -74,35 +70,6 @@ export function QqCapabilitySetup({ mode }: { mode?: QqCapabilityMode }) {
       statusNote = status.accessError
         ? '暂时无法确认当前账号的 QQ 登录状态。'
         : '正在检查当前账号的 QQ 登录状态…';
-    }
-  }
-
-  async function select(next: QqCapabilityMode, retry = false) {
-    if (!mode || changing || (mode === next && !retry)) return;
-    setChanging(true);
-    setError('');
-    try {
-      let result = await change.mutateAsync({ mode: next });
-      if (result.status === 'confirm-disconnect') {
-        const accepted = await confirm(
-          '关闭 QQ 代理',
-          '关闭后，正在使用代理的 QQ 连接会断开。请先在 QQ 登录窗口的「网络设置」中恢复直连。',
-          { okLabel: '关闭代理' },
-        );
-        if (!accepted) return;
-        result = await change.mutateAsync({ mode: next, disconnectProxy: true });
-      }
-      if (result.status === 'saved' && result.proxyError) setError(result.proxyError);
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      await Promise.all([
-        utils.bootstrap.getSettings.invalidate(),
-        utils.bootstrap.getFullModeState.invalidate(),
-        utils.account.getGroupAlbumAccessState.invalidate(),
-        utils.bootstrap.getQqClientSyncStatus.invalidate(),
-      ]);
-      setChanging(false);
     }
   }
 

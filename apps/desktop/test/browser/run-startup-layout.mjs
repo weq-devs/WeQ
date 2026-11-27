@@ -47,14 +47,20 @@ try {
   await page.addInitScript((platform) => {
     window.windowCloseRequests = 0;
     window.windowControlRequests = [];
-    window.windowLayoutRequests = [];
+    window.bootstrapSettingsRequests = 0;
+    window.bootstrapSettingsClose = () => {};
     window.browserCloseRequests = 0;
     window.close = () => window.browserCloseRequests++;
     window.electron = {
       process: { platform },
       ipcRenderer: {
-        invoke: async (channel, layout) => {
-          if (channel === 'window:set-layout') window.windowLayoutRequests.push(layout);
+        invoke: async (channel) => {
+          if (channel === 'bootstrap-settings:open') window.bootstrapSettingsRequests++;
+        },
+        on: (channel, listener) => {
+          if (channel === 'bootstrap-settings:request-close')
+            window.bootstrapSettingsClose = listener;
+          return () => {};
         },
         send: (channel) => {
           window.windowControlRequests.push(channel);
@@ -271,7 +277,10 @@ try {
     await page.setViewportSize({ width: 440, height: 680 });
     const settings = page.getByRole('button', { name: '设置', exact: true });
     await settings.click();
-    await page.waitForFunction(() => window.windowLayoutRequests.includes('chat'));
+    await page.waitForFunction(() => window.bootstrapSettingsRequests === 1);
+    await page.getByRole('heading', { name: '打开账号', exact: true }).waitFor();
+    const accountPage = page.url();
+    await page.goto(`${accountPage}?surface=settings`);
     const nav = page.getByRole('navigation', { name: '设置页面' });
     await nav.getByRole('button', { name: '凭据管理' }).click();
     const returnToAccounts = page.getByRole('button', { name: '返回账号列表' });
@@ -289,25 +298,18 @@ try {
     await nav.getByRole('button', { name: '日志与性能' }).click();
     await page.getByRole('button', { name: '打开应用日志文件夹' }).click();
     assert.equal(await page.evaluate(() => window.logDirOpened), 1);
-    const closeSettings = page.getByRole('button', { name: '关闭设置' });
-    const heading = await nav.getByRole('heading', { name: '设置', exact: true }).boundingBox();
-    const closeButton = await closeSettings.boundingBox();
-    assert(
-      Math.abs(heading.y + heading.height / 2 - closeButton.y - closeButton.height / 2) <= 1,
-      `关闭按钮与设置标题垂直居中：标题 ${heading.y}/${heading.height}，按钮 ${closeButton.y}/${closeButton.height}`,
-    );
-    await closeSettings.click();
+    assert.equal(await page.getByRole('button', { name: '关闭设置', exact: true }).count(), 0);
+    await page.evaluate(() => window.bootstrapSettingsClose());
     await page.waitForFunction(() =>
-      document.activeElement?.classList.contains('weq-shell-settings-btn'),
+      window.windowControlRequests.includes('bootstrap-settings:close'),
     );
-    assert.deepEqual(await page.evaluate(() => window.windowLayoutRequests.slice(-3)), [
-      'settings',
-      'chat',
-      'home',
-    ]);
-    await settings.click();
+    await page.reload();
     await nav.getByRole('button', { name: '凭据管理' }).click();
     await returnToAccounts.click();
+    await page.waitForFunction(() =>
+      window.windowControlRequests.includes('bootstrap-settings:close'),
+    );
+    await page.goto(accountPage);
     await page.getByRole('heading', { name: '打开账号', exact: true }).waitFor();
     await page.setViewportSize({ width: 552, height: 852 });
   }

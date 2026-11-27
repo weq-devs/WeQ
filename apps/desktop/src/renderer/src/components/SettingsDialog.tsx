@@ -288,6 +288,7 @@ export function SettingsDialog(props: Parameters<typeof SettingsContent>[0]): Re
 function SettingsContent({
   open,
   beforeLogin = false,
+  nativeWindow = false,
   onClose,
   initialSection,
   searchTarget,
@@ -300,6 +301,7 @@ function SettingsContent({
 }: {
   open: boolean;
   beforeLogin?: boolean;
+  nativeWindow?: boolean;
   onClose: () => void;
   /**
    * 打开时先落到哪一屏。每次 `open` 从 false 变 true 都会重新应用 ——
@@ -461,8 +463,6 @@ function SettingsContent({
     }
   }, [nav, open, activePage, mobileDetailOpen, singleColumn]);
 
-  if (!open || closing) return null;
-
   const requestClose = () => {
     if (hasPendingSettingsSaves())
       void flushSettingsSaves().then(() => {
@@ -470,6 +470,17 @@ function SettingsContent({
       });
     else guard.requestClose();
   };
+  const nativeCloseRef = useRef(requestClose);
+  nativeCloseRef.current = requestClose;
+  useEffect(() => {
+    if (!nativeWindow || !open) return;
+    const ipc = window.electron?.ipcRenderer;
+    const off = ipc?.on('bootstrap-settings:request-close', () => nativeCloseRef.current());
+    ipc?.send('bootstrap-settings:close-ready');
+    return off;
+  }, [nativeWindow, open]);
+
+  if (!open || closing) return null;
 
   return (
     <DraftCloseContext.Provider value={guard.drafts}>
@@ -488,36 +499,27 @@ function SettingsContent({
           onMouseDown={(e) => e.stopPropagation()}
         >
           <header className="weq-mobile-settings-header">
-            <button
-              type="button"
-              aria-label={mobileDetailOpen ? '返回设置' : beforeLogin ? '关闭设置' : '返回'}
-              title={mobileDetailOpen ? '返回设置' : beforeLogin ? '关闭设置' : '返回'}
-              onClick={() =>
-                mobileDetailOpen
-                  ? requestNavigation(() => setMobileDetailOpen(false))
-                  : beforeLogin
-                    ? requestClose()
-                    : mobileBack() || requestNavigation(onClose)
-              }
-            >
-              <ArrowLeft size={22} />
-            </button>
+            {(!nativeWindow || mobileDetailOpen) && (
+              <button
+                type="button"
+                aria-label={mobileDetailOpen ? '返回设置' : beforeLogin ? '关闭设置' : '返回'}
+                title={mobileDetailOpen ? '返回设置' : beforeLogin ? '关闭设置' : '返回'}
+                onClick={() =>
+                  mobileDetailOpen
+                    ? requestNavigation(() => setMobileDetailOpen(false))
+                    : beforeLogin
+                      ? requestClose()
+                      : mobileBack() || requestNavigation(onClose)
+                }
+              >
+                <ArrowLeft size={22} />
+              </button>
+            )}
             <strong>设置</strong>
           </header>
           <nav ref={setNav} className="weq-settings-nav" aria-label="设置页面">
             <div className="weq-settings-nav-heading">
               <h2 className="weq-settings-nav-title">设置</h2>
-              {beforeLogin && !singleColumn && (
-                <button
-                  type="button"
-                  className="weq-set-iconbtn weq-bootstrap-settings-close"
-                  aria-label="关闭设置"
-                  title="关闭设置"
-                  onClick={requestClose}
-                >
-                  <X size={18} aria-hidden />
-                </button>
-              )}
             </div>
             <div className="weq-settings-nav-groups">
               {SETTINGS_NAV_GROUPS.map(({ id, label, sections }) => {

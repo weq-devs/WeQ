@@ -2,6 +2,7 @@ import { act, createElement as h, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { AutoEnterTarget, KeyEvent } from '@weq/service';
+import type { QqCapabilityMode } from '@weq/service/qq-capability-mode';
 import { LoginPanel } from '../src/renderer/src/views/bootstrap/LoginPanel';
 import { useDialog } from '../src/renderer/src/components/Dialog.shared';
 import type { UiAccount } from '../src/renderer/src/views/bootstrap/types';
@@ -14,18 +15,24 @@ const f = vi.hoisted(() => ({
   clearAuto: vi.fn(),
   unsubscribe: vi.fn(),
   qr: vi.fn(),
-  openCapabilitySettings: vi.fn(),
-  setAttach: vi.fn(),
+  setCapability: vi.fn(),
   invalidate: vi.fn(),
-  settings: { autoAttachQq: false, startupReadOnly: false },
+  settings: { qqCapabilityMode: 'local' as QqCapabilityMode, startupReadOnly: false },
   event: (_event: KeyEvent) => {},
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
-    useUtils: () => ({ bootstrap: { getSettings: { invalidate: f.invalidate } } }),
+    useUtils: () => ({
+      bootstrap: {
+        getSettings: { invalidate: f.invalidate },
+        getFullModeState: { invalidate: f.invalidate },
+        getQqClientSyncStatus: { invalidate: f.invalidate },
+      },
+      account: { getGroupAlbumAccessState: { invalidate: f.invalidate } },
+    }),
     bootstrap: {
       getSettings: { useQuery: () => ({ data: f.settings }) },
-      setAutoAttachQq: { useMutation: () => ({ mutate: f.setAttach, isLoading: false }) },
+      setQqCapabilityMode: { useMutation: () => ({ mutateAsync: f.setCapability }) },
     },
   },
   client: {
@@ -64,6 +71,11 @@ beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.clearAllMocks();
   f.settings.startupReadOnly = false;
+  f.settings.qqCapabilityMode = 'local';
+  f.setCapability.mockReset().mockImplementation(async ({ mode }: { mode: QqCapabilityMode }) => {
+    f.settings.qqCapabilityMode = mode;
+    return { status: 'saved', mode };
+  });
   f.test.mockResolvedValue({
     success: true,
     algo: { pageHmacAlgorithm: 'sha1', kdfHmacAlgorithm: 'sha1' },
@@ -97,7 +109,6 @@ function Harness({
       mode: panelMode,
       selected,
       accounts: empty ? [] : accounts,
-      onOpenCapabilitySettings: f.openCapabilitySettings,
       onSelect: (account) => {
         setSelected(account);
         setPanelMode('new');
@@ -241,11 +252,32 @@ it('未保存密钥也能打开并自动获取，没有独立密钥按钮', asyn
   await click('打开账号');
   expect(f.qr).toHaveBeenCalledWith({ uin: '10001' });
 });
-it('账号打开页的档位入口打开共用设置，自动进入仍单独设置', async () => {
+it('账号打开页直接选择带说明的档位，自动进入仍单独设置', async () => {
   await mount('existing');
   expect(host.querySelectorAll('.weq-login-options [role="switch"]')).toHaveLength(1);
-  await click('选择档位');
-  expect(f.openCapabilitySettings).toHaveBeenCalledOnce();
+  await click('QQ 能力档位');
+  const options = [...document.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]')];
+  expect(options).toHaveLength(4);
+  expect(options.every((option) => option.querySelector('small')?.textContent)).toBe(true);
+  await act(async () =>
+    options.find((option) => option.textContent?.startsWith('只读模式'))!.click(),
+  );
+  expect(f.setCapability).toHaveBeenCalledWith({ mode: 'read-only' });
+  expect(host.querySelector('[role="combobox"]')?.textContent).toBe('只读模式');
+});
+
+it('选档遇到正在使用的代理时，取消确认会保留完整模式', async () => {
+  f.settings.qqCapabilityMode = 'complete';
+  f.setCapability.mockResolvedValueOnce({ status: 'confirm-disconnect' });
+  const confirm = vi.spyOn(useDialog.getState(), 'confirm').mockResolvedValue(false);
+  await mount('existing');
+  await click('QQ 能力档位');
+  await act(async () =>
+    document.querySelector<HTMLElement>('[role="option"][data-value="local"]')!.click(),
+  );
+  expect(confirm).toHaveBeenCalledOnce();
+  expect(f.setCapability.mock.calls).toEqual([[{ mode: 'local' }]]);
+  expect(host.querySelector('[role="combobox"]')?.textContent).toBe('完整模式');
 });
 
 it('自动获取失败后手动输入新密钥可验证打开，无须修改已保存账号', async () => {
