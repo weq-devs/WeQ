@@ -10385,7 +10385,7 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
 }
 
 .weq-agentlab-field .weq-select-trigger,
-.weq-agentlab-field input,
+.weq-agentlab-field input:where(:not([type='checkbox'], [type='radio'], [type='range'])),
 .weq-agentlab-field textarea {
   width: 100%;
   border: 1px solid var(--weq-border-subtle);
@@ -10397,14 +10397,18 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
 }
 
 .weq-agentlab-field .weq-select-trigger,
-.weq-agentlab-field input {
+.weq-agentlab-field input:where(:not([type='checkbox'], [type='radio'], [type='range'])) {
   min-height: 40px;
   padding: 0 12px;
 }
 
+.weq-agentlab-field input[type='range'] {
+  width: 100%;
+}
+
 /* 选中输入框：边框统一走主题色（聊天 composer / 各配置面板 / 克隆体设置）。 */
 .weq-agentlab-field .weq-select-trigger:focus,
-.weq-agentlab-field input:focus,
+.weq-agentlab-field input:where(:not([type='checkbox'], [type='radio'], [type='range'])):focus,
 .weq-agentlab-field textarea:focus {
   outline: none;
   border-color: var(--weq-accent-effective);
@@ -11696,7 +11700,7 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
 .weq-clone-config > * {
   flex-shrink: 0;
 }
-.weq-clone-config input,
+.weq-clone-config input:where(:not([type='checkbox'], [type='radio'], [type='range'])),
 .weq-clone-config textarea {
   width: 100%;
   border: 1px solid var(--weq-border-subtle);
@@ -11708,7 +11712,7 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
   font-size: 13px;
   resize: vertical;
 }
-.weq-clone-config input:focus,
+.weq-clone-config input:where(:not([type='checkbox'], [type='radio'], [type='range'])):focus,
 .weq-clone-config textarea:focus,
 .weq-clone-config .weq-select-trigger:focus {
   outline: none;
@@ -12047,7 +12051,7 @@ html[data-theme='dark'] .weq-forward-row-name:where(:not(.message-name)) {
   resize: vertical;
 }
 .weq-persona-form textarea:focus,
-.weq-persona-form input:focus {
+.weq-persona-form input:where(:not([type='checkbox'], [type='radio'], [type='range'])):focus {
   outline: none;
   border-color: var(--weq-accent-effective);
 }

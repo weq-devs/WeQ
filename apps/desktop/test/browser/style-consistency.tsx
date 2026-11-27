@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { Check, ExternalLink, Heart, Sparkles } from 'lucide-react';
+import { ExternalLink, Heart, Sparkles } from 'lucide-react';
 import { QqArk } from '../../src/renderer/src/components/ark/QqArk';
 import { GrayTipXmlMessage } from '../../src/renderer/src/components/GrayTipXmlMessage';
 import { QqMessageContent } from '../../src/renderer/src/components/QqMessageContent';
@@ -82,7 +82,6 @@ function Fixture() {
           <div className="style-fixture-controls">
             <label className="weq-ft-check" title="闪传选择">
               <input type="checkbox" defaultChecked aria-label="选择合成文件" />
-              <Check className="weq-ft-check-mark" size={12} />
             </label>
             <button type="button" className="weq-set-chk is-on">
               <span className="weq-set-chk-box" />

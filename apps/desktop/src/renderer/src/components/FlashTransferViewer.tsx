@@ -26,7 +26,6 @@ import { useSearchTargetFocus } from '../hooks/useSearchTargetFocus';
 import {
   ArrowLeft,
   ChevronRight,
-  Check,
   Download,
   FolderOpen,
   ListTodo,
@@ -969,12 +968,6 @@ export function FlashTransferViewer({
                           disabled={starting || !ready || isAncestorSelected(file.path)}
                           aria-label={`选择 ${file.name}`}
                           readOnly
-                        />
-                        <Check
-                          className="weq-ft-check-mark"
-                          size={12}
-                          strokeWidth={3}
-                          aria-hidden
                         />
                       </label>
                       {file.isDir || (ZIP_RE.test(file.name) && !current.zipFileId && ready) ? (
