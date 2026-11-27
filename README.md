@@ -22,7 +22,7 @@ WeQ 是面向 QQ NT 的聊天记录管理工具。打开本机 QQ 账号或导�
 
 | 聊天记录导出 | 年度报告 |
 | --- | --- |
-| ![选择导出范围、格式和媒体](./.github/readme-assets/image-20260911054056426.png) | ![WeQ 年度报告封面](./.github/readme-assets/image-20260911054626863.png) |
+| ![选择导出范围、格式和媒体](./.github/readme-assets/export.png) | ![WeQ 年度报告封面](./.github/readme-assets/annual-report.png) |
 
 ## 在浏览器和手机上使用
 
