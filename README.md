@@ -1,8 +1,12 @@
+![WeQ 横幅](./resources/brand/banner.png)
+
 # WeQ
 
 WeQ 是面向 QQ NT 的聊天记录管理工具。打开本机 QQ 账号或导入备份，即可浏览、搜索和导出聊天记录，也可以生成聊天分析和年度报告。
 
 **[下载桌面版](https://github.com/weq-devs/WeQ/releases)** · [快速上手](https://weq-devs.github.io/WeqDocs/guide/getting-started) · [文档站](https://weq-devs.github.io/WeqDocs/)
+
+微信聊天记录的导出和分析可使用 [WeChatDataAnalysis](https://github.com/LifeArchiveProject/WeChatDataAnalysis)。
 
 ![WeQ 聊天界面](./.github/readme-assets/chat.png)
 
@@ -45,5 +49,3 @@ pnpm dev
 [问题反馈](https://github.com/weq-devs/WeQ/issues) · [QQ 交流群](https://qm.qq.com/q/ysMZoAcC1a) · [更新日志](./CHANGELOG.md) · [免责声明与使用说明](https://weq-devs.github.io/WeqDocs/guide/disclaimer) · [许可协议](./LICENSE)
 
 感谢 [NapNeko 团队](https://github.com/NapNeko)、[webark-im-template](https://github.com/dogxii/webark-im-template)、[QQBackup](https://github.com/QQBackup) 和所有 [WeQ 贡献者](https://github.com/weq-devs/WeQ/graphs/contributors)提供的实现参考、聊天界面模板和资料。
-
-微信聊天记录的导出和分析可使用 [WeChatDataAnalysis](https://github.com/LifeArchiveProject/WeChatDataAnalysis)。
