@@ -362,6 +362,8 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   field('profile-basic', 'imageMode', 'ai-images-profile', '图片处理偏好', 'runtime'),
   field('performance-recording', 'mode', 'performance-monitor', '性能记录档位', 'runtime'),
   field('logs', 'nativeDebug', 'native-debug-log', '原生调试日志', 'runtime', { scope: '此设备' }),
+  field('voice-online', 'priority', 'voice-recognition-priority', '语音转写优先使用', 'runtime'),
+  field('ocr-online', 'priority', 'ocr-recognition-priority', '图片文字识别优先使用', 'runtime'),
   field('voice-online', 'concurrency', 'voice-online-concurrency', '转录并发', 'runtime'),
   field('ocr-online', 'concurrency', 'ocr-online-concurrency', '识别并发', 'runtime'),
   field('ocr-online', 'prefilter', 'ocr-prefilter-enabled', 'OCR 前先筛图', 'runtime'),

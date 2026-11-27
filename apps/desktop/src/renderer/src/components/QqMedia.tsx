@@ -1245,6 +1245,12 @@ export function QqVoice({
   const transcribeError =
     (storedTranscript ? null : transcribe.error) ??
     (result && !result.success ? (result.error ?? '识别失败') : null);
+  const method =
+    result?.success && !result.automatic && result.source
+      ? result.source === 'qq'
+        ? 'QQ 在线'
+        : '本地模型'
+      : null;
   const emotion = result?.emotion ?? null;
   const events = (result?.events ?? []).map(
     (event) => `${event.emoji ? `${event.emoji} ` : ''}${event.label}`,
@@ -1408,8 +1414,9 @@ export function QqVoice({
             error={Boolean(transcribeError)}
             onCollapse={() => transcribe.setCollapsed(true)}
           >
-            {!transcribeError && (emotion || events.length > 0) ? (
+            {!transcribeError && (method || emotion || events.length > 0) ? (
               <div className="qq-voice-tone">
+                {method ? <span className="qq-voice-tone-chip">{method}</span> : null}
                 {emotion ? (
                   <span className="qq-voice-tone-chip is-emotion">
                     {emotion.emoji ? `${emotion.emoji} ` : ''}

@@ -225,6 +225,8 @@ export interface ExportOptions {
    * 漏包 / 过期的再用本地模型补全。
    */
   onlineTranscribe: boolean;
+  /** 即时导出确认时从全局偏好填入。 */
+  voicePriority?: 'local' | 'qq';
   /** 在线转写的并发请求数（默认 5）。 */
   onlineConcurrency: number;
   /**
@@ -238,6 +240,8 @@ export interface ExportOptions {
    * 前提是 QQ 在线且有发包物料；关掉就是纯本地识别。
    */
   onlineOcr: boolean;
+  /** 即时导出确认时从全局偏好填入。 */
+  ocrPriority?: 'local' | 'qq';
   /** 在线识别的并发请求数（默认 5）。 */
   ocrConcurrency: number;
   /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */

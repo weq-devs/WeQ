@@ -49,9 +49,29 @@ export function useVoiceTranscription(input: VoiceTranscriptionInput, automatic 
       ? { expectedAccountUin: accountUin, expectedAccountConfigId: config.data.configId }
       : null;
   const modelId = settings.data?.voiceTranscribe.modelId ?? '';
-  const available = Boolean(binding && modelId && input.name && Number.isFinite(input.t));
+  const messageReady = Boolean(binding && input.name && Number.isFinite(input.t));
+  const canCheckOnline =
+    messageReady &&
+    Boolean(settings.data) &&
+    !modelId &&
+    !input.forward &&
+    /^\d+$/.test(input.msgId);
+  const online = trpc.account.getGroupAlbumAccessState.useQuery(undefined, {
+    enabled: canCheckOnline,
+    staleTime: 5000,
+  });
+  const source = online.data?.source;
+  const onlineReady =
+    canCheckOnline &&
+    online.data?.voiceOnlineAvailable &&
+    source?.expectedAccountUin === binding?.expectedAccountUin &&
+    source?.expectedAccountConfigId === binding?.expectedAccountConfigId;
+  const available = messageReady && Boolean(modelId || onlineReady);
   const shouldResume =
-    available && automatic && Boolean(settings.data?.voiceTranscribe.autoTranscribe);
+    messageReady &&
+    Boolean(modelId) &&
+    automatic &&
+    Boolean(settings.data?.voiceTranscribe.autoTranscribe);
   const queryKey = [...getQueryKey(trpc.account), 'voiceTranscription', binding, modelId, input];
   const query = useQuery<VoiceTranscriptionState>({
     queryKey,
@@ -59,7 +79,8 @@ export function useVoiceTranscription(input: VoiceTranscriptionInput, automatic 
       const auto = !manual.current;
       manual.current = false;
       return queueVoiceTranscription(signal!, async () => {
-        if (!binding || !available) throw new Error('请先在设置中下载本地语音模型');
+        if (!binding || (auto ? !modelId : !available))
+          throw new Error('需要 QQ 在线或可用的本地语音模型');
         let result: VoiceTranscriptionResult;
         try {
           const reply = await client.account.transcribeVoice.mutate({

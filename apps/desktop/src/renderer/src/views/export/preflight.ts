@@ -130,10 +130,7 @@ export async function preflightVoiceTranscribe(dialog: AppDialogApi): Promise<bo
       )
     )
       return true;
-    await dialog.info(
-      '本地语音转写未就绪',
-      '请前往「设置 → 应用 → 增强包」准备「本地语音转写」，或改用其他可用路线。',
-    );
+    await dialog.info('本地语音转写未就绪', '请前往「设置 → 应用 → 增强包」准备「本地语音转写」。');
   } catch (e) {
     dialog.error('检查语音模型失败', e instanceof Error ? e.message : String(e));
   }
@@ -150,7 +147,7 @@ export async function preflightOnlineTranscribe(dialog: AppDialogApi): Promise<b
     return false;
   }
   if (!armed) {
-    await dialog.info('QQ 在线转写未就绪', '请返回导出设置重新准备 QQ 在线转写，或改用本地转写。');
+    await dialog.info('QQ 在线转写未就绪', '请返回导出设置重新准备 QQ 在线转写。');
     return false;
   }
   return true;
@@ -238,13 +235,13 @@ export async function ocrReadiness(): Promise<OcrReadiness> {
 
 export async function preflightOcrImages(dialog: AppDialogApi, online: boolean): Promise<boolean> {
   const ready = await ocrReadiness();
-  if (online ? !ready.onlineCapable : !ready.localReady) {
+  if (!(ready.localReady || (online && ready.onlineCapable))) {
     await dialog.info(
       online ? 'QQ 在线识别未就绪' : '本地文字识别未就绪',
       online
-        ? '请确认 QQ 已登录并启用 QQ 在线能力，或改用本地识别。'
+        ? '请确认 QQ 已登录并启用 QQ 在线能力。也可以在增强包中准备本地文字识别。'
         : ready.localEngineBlocker ||
-            '请前往「设置 → 应用 → 增强包」准备「本地文字识别」，或改用 QQ 在线识别。',
+            '请在「设置 → 应用 → 增强包」准备「本地文字识别」，或登录 QQ 并启用 QQ 在线能力。',
     );
     return false;
   }

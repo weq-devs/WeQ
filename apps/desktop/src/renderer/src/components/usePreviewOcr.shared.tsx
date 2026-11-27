@@ -67,12 +67,11 @@ export function usePreviewOcr(
   );
   const available = Boolean(context && (online || state?.ocrLocalModelId || cache.data?.hit));
   const canRun = result ? Boolean(context && (online || state?.ocrLocalModelId)) : available;
-  const hint = online
-    ? '识别图片里的文字（在线）'
-    : state?.ocrLocalModelId
-      ? '识别图片里的文字（本地模型）'
-      : cache.data?.hit
-        ? '读取本机缓存的识别结果'
+  const hint =
+    cache.data?.hit && !result
+      ? '读取已有识别结果'
+      : online || state?.ocrLocalModelId
+        ? '识别图片里的文字'
         : state?.ocrLocalBlocker || '需要在线 QQ 或可用的本地识别模型';
   async function run() {
     if (!context || busy || !canRun) return;

@@ -420,6 +420,8 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ),
   ...(
     [
+      ['ocr-recognition-priority', '图片文字识别优先使用'],
+      ['voice-recognition-priority', '语音转写优先使用'],
       ['ocr-online-concurrency', '识别并发'],
       ['voice-online-concurrency', '转录并发'],
     ] as const

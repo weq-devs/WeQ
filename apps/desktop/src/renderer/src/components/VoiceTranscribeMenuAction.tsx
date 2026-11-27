@@ -21,7 +21,9 @@ function VoiceAction({
   return (
     <MessageMenuButton
       type="button"
-      title={voice.busy ? '正在转写语音' : voice.available ? label : '请先在设置中下载本地语音模型'}
+      title={
+        voice.busy ? '正在转写语音' : voice.available ? label : '需要 QQ 在线或可用的本地语音模型'
+      }
       disabled={!voice.available || voice.busy}
       onClick={() => {
         voice.run();

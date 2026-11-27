@@ -17,6 +17,20 @@ export interface ExportAuthorizationState {
 }
 export type ExportAuthorizationIndicatorState = { needed: boolean; request: () => void };
 
+function applyRecognitionAvailability(
+  options: ExportOptions,
+  state: ExportAuthorizationState,
+): ExportOptions {
+  const online = state.access.qqOnline && state.access.attachEnabled;
+  return {
+    ...options,
+    ...(options.voicePriority
+      ? { onlineTranscribe: options.transcribeVoice && online && state.capture.available }
+      : {}),
+    ...(options.ocrPriority ? { onlineOcr: options.ocrImages && online } : {}),
+  };
+}
+
 export function exportAuthorizationPlan(options: ExportOptions, state: ExportAuthorizationState) {
   const capture = options.transcribeVoice && options.onlineTranscribe && !state.armed;
   const online = state.access.qqOnline && state.access.attachEnabled;
@@ -86,7 +100,8 @@ export function useExportAuthorization(
     await client.account.onlineTranscribeDisarm.mutate();
   }, []);
   const preparing = useRef(false);
-  const captureNeeded = options.transcribeVoice && options.onlineTranscribe;
+  const captureNeeded =
+    options.transcribeVoice && (options.onlineTranscribe || options.voicePriority);
   const requests = useRestrictedMode((s) => s.requests);
   useEffect(() => {
     if (!captureNeeded) void releaseCapture().catch(() => {});
@@ -102,7 +117,7 @@ export function useExportAuthorization(
     if (!enabled) return;
     let disposed = false;
     const refresh = () => {
-      void readReadiness(captureNeeded)
+      void readReadiness(Boolean(captureNeeded))
         .then((value) => {
           if (!disposed) setState(value);
         })
@@ -142,8 +157,8 @@ export function useExportAuthorization(
     if (!enabled) return value;
     if (
       !value.completeMessages &&
-      !(value.transcribeVoice && value.onlineTranscribe) &&
-      !(value.ocrImages && value.onlineOcr) &&
+      !(value.transcribeVoice && (value.onlineTranscribe || value.voicePriority)) &&
+      !(value.ocrImages && (value.onlineOcr || value.ocrPriority)) &&
       !(
         value.exportMedia &&
         (value.completeMedia || value.downloadVideo || value.downloadFile || value.downloadPtt)
@@ -153,9 +168,12 @@ export function useExportAuthorization(
     if (resolve.current || busy || preparing.current) return null;
     preparing.current = true;
     try {
-      const current = await readReadiness(value.transcribeVoice && value.onlineTranscribe);
+      const current = await readReadiness(
+        value.transcribeVoice && Boolean(value.onlineTranscribe || value.voicePriority),
+      );
       if (!alive.current) return null;
       setState(current);
+      value = applyRecognitionAvailability(value, current);
       const plan = exportAuthorizationPlan(value, current);
       if (!plan.needed) return value;
       known.current = new Set(
@@ -224,7 +242,9 @@ export function useExportAuthorization(
       if (alive.current) setBusy(false);
     }
   }
-  const plan = state ? exportAuthorizationPlan(options, state) : undefined;
+  const plan = state
+    ? exportAuthorizationPlan(applyRecognitionAvailability(options, state), state)
+    : undefined;
   const pendingPlan = pending ? exportAuthorizationPlan(pending.options, pending.state) : undefined;
   return {
     needsElevation: Boolean(plan?.elevate),

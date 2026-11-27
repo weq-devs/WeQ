@@ -669,10 +669,6 @@ export class MsgService {
 
   // ---- raw / modify --------------------------------------------------------
 
-  /**
-   * Get all raw elements of a message by msgId (not filtered by renderer).
-   * Searches C2C-shaped tables (c2c / dataline / service assistant) and Group.
-   */
   /** Online voice recognition supports messages from ordinary private and group chats. */
   async getChatMessageForVoice(msgId: bigint): Promise<RenderC2cMsg | RenderGroupMsg | null> {
     const [privateRows, groupRows] = await Promise.all([
@@ -683,6 +679,10 @@ export class MsgService {
     return groupRows[0] ? renderGroup(groupRows[0]) : null;
   }
 
+  /**
+   * Get all raw elements of a message by msgId (not filtered by renderer).
+   * Searches C2C-shaped tables (c2c / dataline / service assistant) and Group.
+   */
   async getRawElements(
     msgId: bigint,
   ): Promise<{ elements: Element[]; kind: 'c2c' | 'group' } | null> {

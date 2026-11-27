@@ -268,6 +268,7 @@ export interface OcrStageDeps {
   filterModelId?: () => string | null;
   /** 在线识别一张图（缺省或未注入 = 纯本地）。 */
   online?: OcrOnlineImageFn;
+  priority?: 'local' | 'qq';
   /** 在线并发（默认 5）。 */
   onlineConcurrency?: number;
   /** 在线连续失败上限（默认 {@link OCR_ONLINE_FAILURE_LIMIT}）。 */
@@ -690,12 +691,58 @@ export async function ocrFoundImages(
       for (const resolve of verdictResolvers.values()) resolve(true);
     });
 
-  // ---- 2. 在线优先（从新到旧，连续失败即放弃）----
-  //
-  // 筛图那边还没筛完也没关系：worker 会先等自己那张图的结论（见 `verdicts`），结论说
-  // 「没文字」就跳过这张（不进结果、也不算失败）。
-  const onlineQueue: MediaRef[] = (
-    onlineFn ? [...localCandidates.filter(canGoOnline), ...onlineOnlyRefs] : []
+  const localErrors = new Map<string, string>();
+  const localPending = () =>
+    ocrQueue.filter((ref) => !(ref.fileName in results) && !filteredOut.has(ref.fileName));
+  const recognizeLocal = async () => {
+    const localRunnable = localPending().filter((ref) => ref.path);
+    if (!localFn || !localRunnable.length) return;
+    onLog?.(`本地模型识别：${localRunnable.length} 张（并发 ${deps.localConcurrency ?? 2}）`);
+    await mapLimit(localRunnable, deps.localConcurrency ?? 2, async (ref) => {
+      try {
+        const r = await localFn(ref.path!);
+        if (r.ok) {
+          const text = textOf(r);
+          results[ref.fileName] = {
+            text,
+            source: 'local',
+            ...(r.width ? { width: r.width } : {}),
+            ...(r.height ? { height: r.height } : {}),
+            ...(r.elapsedMs !== undefined ? { elapsedMs: r.elapsedMs } : {}),
+            ...(r.blocks ? { blocks: r.blocks } : {}),
+          };
+          quiet.log(
+            `已识别 ${ref.fileName}（本地·${text.length} 字）` +
+              (r.elapsedMs !== undefined ? `，${Math.round(r.elapsedMs)}ms` : ''),
+          );
+          // 结果按模型分格存：换了识别模型不会命中旧结果（宁可重跑，也别拿差一档的旧文字）。
+          if (r.modelId) await writeCachedText(ref, `local:${r.modelId}`, r);
+        } else {
+          localErrors.set(ref.fileName, r.error ?? '本地识别失败');
+          quiet.log(`本地识别失败 ${ref.fileName}：${r.error ?? '未知错误'}`, 'warn');
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        localErrors.set(ref.fileName, message);
+        quiet.log(`本地识别异常 ${ref.fileName}：${message}`, 'warn');
+      } finally {
+        if (ref.fileName in results) settle(ref.fileName);
+      }
+    });
+  };
+
+  if (deps.priority === 'local') {
+    await filterTask;
+    await recognizeLocal();
+  }
+
+  // 在线 worker 等各自的筛图结论，并跳过本地已识别的图。
+  const onlineQueue = (
+    onlineFn
+      ? [...localCandidates.filter(canGoOnline), ...onlineOnlyRefs].filter(
+          (ref) => !(ref.fileName in results) && !filteredOut.has(ref.fileName),
+        )
+      : []
   ).sort(byNewest);
   let onlineCount = 0;
   let timeoutCount = 0;
@@ -812,60 +859,21 @@ export async function ocrFoundImages(
   // 筛图那趟到此必须收尾：筛掉的图要算进统计，本地兜底的候选也得排除它们。
   await filterTask;
 
-  // ---- 3. 本地兜底：在线没拿到（含被放弃）的、且本机有本体的图 ----
+  if (deps.priority !== 'local') await recognizeLocal();
+
   const failures: MediaFailure[] = [];
-  const accounted = new Set<string>();
-  const localPending = ocrQueue.filter(
-    (ref) => !(ref.fileName in results) && !filteredOut.has(ref.fileName),
-  );
-  const localRunnable = localPending.filter((ref) => ref.path);
-
-  if (localFn && localRunnable.length > 0) {
-    onLog?.(`本地模型识别：${localRunnable.length} 张（并发 ${deps.localConcurrency ?? 2}）`);
-    await mapLimit(localRunnable, deps.localConcurrency ?? 2, async (ref) => {
-      try {
-        const r = await localFn(ref.path!);
-        if (r.ok) {
-          const text = textOf(r);
-          results[ref.fileName] = {
-            text,
-            source: 'local',
-            ...(r.width ? { width: r.width } : {}),
-            ...(r.height ? { height: r.height } : {}),
-            ...(r.elapsedMs !== undefined ? { elapsedMs: r.elapsedMs } : {}),
-            ...(r.blocks ? { blocks: r.blocks } : {}),
-          };
-          quiet.log(
-            `已识别 ${ref.fileName}（本地·${text.length} 字）` +
-              (r.elapsedMs !== undefined ? `，${Math.round(r.elapsedMs)}ms` : ''),
-          );
-          // 结果按模型分格存：换了识别模型不会命中旧结果（宁可重跑，也别拿差一档的旧文字）。
-          if (r.modelId) await writeCachedText(ref, `local:${r.modelId}`, r);
-        } else {
-          pushFailure(failures, ref.fileName, r.error ?? '本地识别失败');
-          accounted.add(ref.fileName);
-          quiet.log(`本地识别失败 ${ref.fileName}：${r.error ?? '未知错误'}`, 'warn');
-        }
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        pushFailure(failures, ref.fileName, message);
-        accounted.add(ref.fileName);
-        quiet.log(`本地识别异常 ${ref.fileName}：${message}`, 'warn');
-      } finally {
-        settle(ref.fileName);
-      }
-    });
-  }
-
+  const unresolved = localPending();
   // 两条腿都没能给结果的：如实记失败（并说清是哪一条腿缺席）。
-  const noLocalModel = localPending.filter((ref) => ref.path && !localFn).length;
-  const noLocalFile = localPending.filter((ref) => !ref.path).length;
-  for (const ref of localPending) {
-    if (ref.fileName in results || accounted.has(ref.fileName)) continue;
+  const noLocalModel = unresolved.filter((ref) => ref.path && !localFn).length;
+  const noLocalFile = unresolved.filter((ref) => !ref.path).length;
+  for (const ref of unresolved) {
     pushFailure(
       failures,
       ref.fileName,
-      ref.path ? '没有可用的本地识别模型（在线识别也没成功）' : '在线识别没成功，本地也没有这张图',
+      localErrors.get(ref.fileName) ??
+        (ref.path
+          ? '没有可用的本地识别模型（在线识别也没成功）'
+          : '在线识别没成功，本地也没有这张图'),
     );
     settle(ref.fileName);
   }

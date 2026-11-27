@@ -2581,9 +2581,10 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
               import('../voice').then((m) => m.decodeSilkToFile(silk, dest)),
             // Voice → text transcription (shared closure; see transcribeSilk above).
             transcribe: transcribeSilk,
+            voiceModelReady: voiceReady,
             // 在线转写（QQ 服务端 ASR）：导出前由 IPC arm 抓包会话，导出时优先走它，
             // 漏包 / 过期的语音由上面的本地模型补全。
-            onlineTranscribe: onlineTranscriber.transcribe,
+            onlineTranscribe: onlineTranscriber.transcribeFor(String(session.context.uin)),
             // 图片文字识别（导出时自动 OCR）：本地 PP-OCR（onnxruntime 原生，住在
             // app 侧）+ 筛图 + 在线的 0xe07_0。三条都按需注入 —— 本地模型没下好时
             // 闭包会自己返回失败，导出阶段据此回退 / 记失败。

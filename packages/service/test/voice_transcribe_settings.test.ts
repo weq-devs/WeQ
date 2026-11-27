@@ -2,7 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { snapshotWeqSettings, validateWeqAppSettings } from '../src/bootstrap/backup_settings';
 import { configFixture } from './support/user_config';
 
-describe('语音消息自动转文字设置', () => {
+describe('识别与转写设置', () => {
+  it('旧配置补入两个独立的优先级，备份保留选择', () => {
+    const f = configFixture({ settings: { voiceTranscribe: { modelId: 'legacy-model' } } });
+    expect(f.open().getSettings().voiceTranscribe.priority).toBe('local');
+    expect(f.open().getSettings().ocr.priority).toBe('qq');
+    f.service.setSettings({ voiceTranscribe: { priority: 'qq' }, ocr: { priority: 'local' } });
+    const backup = snapshotWeqSettings(f.open().getSettings());
+    expect(backup.voiceTranscribe.priority).toBe('qq');
+    expect(backup.ocr.priority).toBe('local');
+    const restored = configFixture();
+    restored.service.setSettings(backup);
+    expect(restored.open().getSettings().voiceTranscribe.priority).toBe('qq');
+    expect(restored.open().getSettings().ocr.priority).toBe('local');
+    expect(() => validateWeqAppSettings({ ocr: { priority: 'other' } })).toThrow();
+  });
+
   it('旧配置默认关闭，独立持久化且不丢失模型选择', () => {
     const f = configFixture({ settings: { voiceTranscribe: { modelId: 'legacy-model' } } });
     expect(f.open().getSettings().voiceTranscribe.autoTranscribe).toBe(false);

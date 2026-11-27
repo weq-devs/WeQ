@@ -64,8 +64,6 @@ import {
   type Schedule,
 } from './types';
 
-type RecognitionMode = 'off' | 'local' | 'qq';
-
 function SettingsLink({ section, children }: { section: SettingsSection; children: ReactNode }) {
   return (
     <button
@@ -80,83 +78,36 @@ function SettingsLink({ section, children }: { section: SettingsSection; childre
 
 function RecognitionRow({
   label,
-  mode,
+  checked,
   outcome,
-  localReady,
-  localBlocker,
+  needsModel,
   modelLink,
-  onlineBlocker,
-  onlineReady,
-  scheduled,
   disabled,
   onChange,
 }: {
   label: string;
-  mode: RecognitionMode;
+  checked: boolean;
   outcome: string;
-  localReady: boolean | undefined;
-  localBlocker?: string | null;
+  needsModel?: boolean;
   modelLink: SettingsSection;
-  onlineBlocker?: string;
-  onlineReady: boolean;
-  scheduled?: boolean;
   disabled: boolean;
-  onChange: (mode: RecognitionMode) => void;
+  onChange: (checked: boolean) => void;
 }) {
-  const localHint = localBlocker || (localReady === false ? '本地模型未就绪' : undefined);
-  const onlineHint =
-    mode === 'qq' && !onlineBlocker
-      ? [
-          !onlineReady && '开始导出时准备 QQ 在线能力。',
-          localReady
-            ? 'QQ 在线未取得结果时用本地模型补齐。'
-            : 'QQ 在线未取得结果时没有本地模型可回退。',
-        ]
-          .filter(Boolean)
-          .join('')
-      : scheduled
-        ? undefined
-        : onlineBlocker;
   return (
     <Row
       label={label}
       desc={
         <>
           {outcome}
-          {localHint ? (
+          {needsModel ? (
             <>
               {' '}
-              {localHint}。 <SettingsLink section={modelLink}>查看增强包</SettingsLink>
-            </>
-          ) : null}
-          {onlineHint ? (
-            <>
-              {' '}
-              {onlineHint}
-              {mode !== 'qq' || onlineBlocker ? '。' : ''}
+              <SettingsLink section={modelLink}>查看增强包</SettingsLink>
             </>
           ) : null}
         </>
       }
-      control={
-        <SegmentedControl<RecognitionMode>
-          label={label}
-          value={mode}
-          disabled={disabled}
-          options={[
-            { value: 'off', label: '关闭' },
-            { value: 'local', label: '本地', disabled: localReady !== true, title: localHint },
-            {
-              value: 'qq',
-              label: 'QQ 在线优先',
-              hidden: scheduled,
-              disabled: Boolean(onlineBlocker),
-              title: onlineBlocker,
-            },
-          ]}
-          onChange={onChange}
-        />
-      }
+      control={<Toggle label={label} checked={checked} disabled={disabled} onChange={onChange} />}
     />
   );
 }
@@ -175,6 +126,8 @@ function normalizeLightboxOptions(partial?: Partial<ExportOptions>): ExportOptio
     // 在线路线只用于本次导出。
     onlineTranscribe: false,
     onlineOcr: false,
+    voicePriority: undefined,
+    ocrPriority: undefined,
   };
   const content = normalizeExportContent(options.content, options);
   return { ...options, profile: 'full', content, ...exportContentFlags(content) };
@@ -394,8 +347,13 @@ export function ExportLightbox({
     );
   const noMessageBackfill = variant === 'guild' || localMessagesOnly;
   const contentPolicy = normalizeExportContent(opts.content, opts, noMessageBackfill);
-  const authorizationOptions =
-    noMessageBackfill && opts.completeMessages ? { ...opts, completeMessages: false } : opts;
+  const authorizationOptions: ExportOptions = {
+    ...opts,
+    // 在确认导出前也能预览是否需要授权。实际优先级在确认时读取。
+    voicePriority: isScheduled ? undefined : 'local',
+    ocrPriority: isScheduled ? undefined : 'qq',
+    completeMessages: !noMessageBackfill && opts.completeMessages,
+  };
   /** 在线功能在确认导出时授权；选择开关本身不启动抓包。 */
   const authorization = useExportAuthorization(
     authorizationOptions,
@@ -415,20 +373,6 @@ export function ExportLightbox({
     });
     return () => onAuthorizationChange?.(null);
   }, [authorization.needsElevation, onAuthorizationChange]);
-  const access = authorization.state?.access;
-  const qqOnlineAvailable = Boolean(access?.qqOnline && access.attachEnabled);
-  const onlineVoiceAvailable = qqOnlineAvailable && authorization.state?.capture?.available;
-  const onlineOcrReady = Boolean(
-    access?.hasA2 && access.hasD2 && access.hasD2Key && access.hasGuid,
-  );
-  const onlineBlocker = !access
-    ? '正在检查 QQ 在线状态'
-    : !access.qqOnline
-      ? '请先登录该账号的 QQ 客户端'
-      : !access.attachEnabled
-        ? '请先启用 QQ 在线能力'
-        : undefined;
-
   /** 该变体可选的格式。 */
   const formatOptions = useMemo(
     () =>
@@ -575,6 +519,10 @@ export function ExportLightbox({
           : isMessageFlow
             ? {
                 ...opts,
+                voicePriority: isScheduled
+                  ? undefined
+                  : (settings?.voiceTranscribe?.priority ?? 'local'),
+                ocrPriority: isScheduled ? undefined : (settings?.ocr?.priority ?? 'qq'),
                 ocrConcurrency: settings?.ocr?.onlineConcurrency ?? opts.ocrConcurrency,
                 onlineConcurrency:
                   settings?.voiceTranscribe?.onlineConcurrency ?? opts.onlineConcurrency,
@@ -945,44 +893,31 @@ export function ExportLightbox({
                       ) : (
                         <RecognitionRow
                           label="图片文字识别"
-                          mode={opts.ocrImages ? (opts.onlineOcr ? 'qq' : 'local') : 'off'}
+                          checked={opts.ocrImages}
                           outcome="将识别出的文字与消息一起保存。"
-                          localReady={localOcrReady}
-                          localBlocker={models?.engineBlocker}
-                          modelLink="enhancementText"
-                          onlineBlocker={onlineBlocker}
-                          onlineReady={onlineOcrReady}
-                          disabled={submitting || confirming || authorization.busy}
-                          onChange={(mode) =>
-                            patch({ ocrImages: mode !== 'off', onlineOcr: mode === 'qq' })
+                          needsModel={
+                            opts.ocrImages &&
+                            localOcrReady === false &&
+                            authorization.state?.access.qqOnline === false &&
+                            !models?.engineBlocker
                           }
+                          modelLink="enhancementText"
+                          disabled={submitting || confirming || authorization.busy}
+                          onChange={(ocrImages) => patch({ ocrImages })}
                         />
                       )}
                       <RecognitionRow
                         label="语音转写"
-                        mode={
-                          opts.transcribeVoice
-                            ? !isScheduled && opts.onlineTranscribe
-                              ? 'qq'
-                              : 'local'
-                            : 'off'
-                        }
+                        checked={opts.transcribeVoice}
                         outcome="先使用已有转写，再处理没有文字的语音。"
-                        localReady={localVoiceReady}
+                        needsModel={
+                          opts.transcribeVoice &&
+                          localVoiceReady === false &&
+                          (isScheduled || authorization.state?.access.qqOnline === false)
+                        }
                         modelLink="enhancementVoice"
-                        onlineBlocker={
-                          onlineBlocker ||
-                          (!onlineVoiceAvailable ? '当前环境无法使用 QQ 在线转写' : undefined)
-                        }
-                        onlineReady={authorization.state?.armed === true}
-                        scheduled={isScheduled}
                         disabled={submitting || confirming || authorization.busy}
-                        onChange={(mode) =>
-                          patch({
-                            transcribeVoice: mode !== 'off',
-                            onlineTranscribe: mode === 'qq',
-                          })
-                        }
+                        onChange={(transcribeVoice) => patch({ transcribeVoice })}
                       />
                     </Card>
                   </div>

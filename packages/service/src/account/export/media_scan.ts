@@ -22,7 +22,7 @@
 
 import { readdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
-import type { MsgService } from '../msg';
+import type { MsgService, RenderC2cMsg, RenderGroupMsg } from '../msg';
 import type { RenderElement } from '../msg_view';
 import type { RoamMessageSource } from './message_source';
 import { iterateConv } from './sender_resolve';
@@ -283,6 +283,35 @@ export const PRIVATE_FILE_TTL_SEC = 7 * 24 * 3600;
  * > 0, stamps file refs with a synthetic expiry of `sendTime + fileTtlSec`
  * (files have no real TTL field) so expired files drop out of the work-list.
  */
+export function findChatVoiceRef(
+  message: RenderC2cMsg | RenderGroupMsg,
+  name: string,
+  token: string,
+): MediaRef | undefined {
+  const refs: MediaRef[] = [];
+  const group = 'targetGroupCode' in message;
+  collectFromElements(
+    message.elements,
+    message.msgId.toString(),
+    message.msgSeq.toString(),
+    Number(message.sendTime),
+    refs,
+    0,
+    {
+      senderUin: message.senderUin.toString(),
+      peerUin: group ? message.targetGroupCode : message.targetUin.toString(),
+      isGroup: group,
+    },
+  );
+  return refs.find(
+    (ref) =>
+      ref.kind === 'ptt' &&
+      !ref.forwardMsgId &&
+      ref.fileName === name &&
+      (!token || ref.fileToken === token),
+  );
+}
+
 function collectFromElements(
   els: RenderElement[],
   msgId: string,

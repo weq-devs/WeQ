@@ -2658,7 +2658,10 @@ export class UserConfigService {
       modelResources: resources,
       voiceTranscribe: {
         modelId: resources.voice,
-        priority: recognitionPriority(patch.voiceTranscribe?.priority, current.voiceTranscribe.priority),
+        priority: recognitionPriority(
+          patch.voiceTranscribe?.priority,
+          current.voiceTranscribe.priority,
+        ),
         onlineConcurrency: recognitionConcurrency(
           patch.voiceTranscribe?.onlineConcurrency,
           current.voiceTranscribe.onlineConcurrency,
