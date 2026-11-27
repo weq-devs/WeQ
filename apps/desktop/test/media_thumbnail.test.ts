@@ -42,6 +42,7 @@ it('时间线请求缩略图，灯箱区分本地原图、缩略图和主动下�
   expect(new URL(image.src).searchParams.get('v')).toBe('thumb');
   expect(image.loading).toBe('lazy');
   expect(image.decoding).toBe('async');
+  await act(async () => image.dispatchEvent(new Event('load')));
   await act(async () => image.click());
   const item = state.open.mock.calls[0]![0].items[0];
   expect(new URL(item.src).searchParams.get('preview')).toBe('1');
@@ -66,6 +67,7 @@ it.each(['fixture.gif', 'fixture.png'])(
     const image = host.querySelector('img')!;
     expect(new URL(image.src).searchParams.get('recv')).toBe('1');
     expect(new URL(image.src).searchParams.has('v')).toBe(false);
+    await act(async () => image.dispatchEvent(new Event('load')));
     await act(async () => image.click());
     expect(state.open).toHaveBeenCalledTimes(1);
     const item = state.open.mock.calls[0]![0].items[0];
@@ -98,6 +100,7 @@ it('已回读的图片点开仍显示本地原图，保存时请求 QQ 原图', 
   });
   const image = host.querySelector('img')!;
   expect(image.src).toBe('blob:sent-photo');
+  await act(async () => image.dispatchEvent(new Event('load')));
   await act(async () => image.click());
   const item = state.open.mock.calls[0]![0].items[0];
   expect(item.src).toBe('blob:sent-photo');

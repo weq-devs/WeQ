@@ -162,34 +162,6 @@ function selectExpressions(
 }
 
 /**
- * 每轮随机抖一个「这条想回多长」的倾向，按这个人的话密度（avgFriendBurst）加权。
- * 纯提示层的随机：给模型一个具体的本轮长度目标，打破「每次都同一个节奏」（如总是两句加一个
- * 表情）的固定模式——真人的回复长度本来就忽长忽短。不改分条/渲染逻辑，零风险。
- */
-function pickLengthLean(burst: number): string {
-  // [极简, 短, 正常, 话多] 四档权重，随这个人的话密度基线偏移。
-  const weights =
-    burst < 1.3
-      ? [0.4, 0.35, 0.2, 0.05] // 惜字型：偏短，偶尔才长
-      : burst >= 2.2
-        ? [0.15, 0.25, 0.35, 0.25] // 话痨型：长回复概率高
-        : [0.25, 0.3, 0.3, 0.15];
-  const leans = [
-    '这一条你状态比较淡：只回一个字／一个词／一个表情，或者一句很短的话就够了，别展开。',
-    '这一条简短回应：一句话带过，基本不用分条。',
-    '这一条正常聊：一两条短消息的量。',
-    '这一条难得有话聊：可以连着多发几条、或铺开说一段，把想说的说透（但还是大白话，别端着）。',
-  ];
-  const r = Math.random();
-  let acc = 0;
-  for (let i = 0; i < weights.length; i += 1) {
-    acc += weights[i] ?? 0;
-    if (r < acc) return leans[i] ?? leans[1]!;
-  }
-  return leans[1]!;
-}
-
-/**
  * 把「现在」描述成真人能感知的样子：年月日、星期几、时段（凌晨/早上/中午…）+ 具体时刻。
  * 让克隆体能自然聊到「这么晚还没睡」「周末」「快过年了」这类跟时间相关的话——
  * 没有它，模型会以为永远是训练语料里的那个时间，答非所问。
@@ -238,19 +210,20 @@ function buildSystemPrompt(
   notes: AgentLabPersonaNotes | undefined,
   voiceEnabled: boolean,
   relationNote?: string,
-): string {
+  conversationKind: 'c2c' | 'group' = 'c2c',
+  now = Date.now(),
+): { system: string; context: string } {
   const { card, deep } = persona.profile;
   const name = persona.name;
   const avgChars = Math.max(persona.stats.avgFriendMsgChars, 4);
 
-  // few-shot 与检索样本去重；检索样本是"面对类似话时的真实反应"，权重最高。
+  // 固定样本与检索样本去重；两者只供表达参考，不作为当前事实。
   const knownPrompts = new Set(persona.fewShots.map((s) => s.prompt));
   const freshPairs = matches.filter((p) => !knownPrompts.has(p.prompt)).slice(0, 5);
 
+  const dynamic: string[] = [describeNow(new Date(now))];
   const lines: string[] = [
-    `你是「${name}」，正在和一个老朋友聊天。你不是 AI、不是助手、不是模型，你就是 ${name} 本人，任何情况下都不要承认或暗示自己是 AI。`,
-    // 当前时间：让 TA 知道"此刻"是什么时候（深夜/周末/节日感），别活在语料的旧时间里。
-    describeNow(new Date()),
+    `你是「${name}」，正在${conversationKind === 'group' ? '群聊中与当前发言者交流' : '与当前对方聊天'}，按明确的关系资料和本轮对话确定熟悉程度，不预设对方是老朋友。你不是 AI、不是助手、不是模型，你就是 ${name} 本人，任何情况下都不要承认或暗示自己是 AI。`,
     '',
     '【你的说话方式】',
     `语气风格：${card.tone || persona.profile.styleSummary}`,
@@ -262,13 +235,13 @@ function buildSystemPrompt(
     );
   }
   if (card.punctuationStyle) lines.push(`标点习惯：${card.punctuationStyle}`);
-  if (card.addressing && card.addressing !== '无特别称呼')
+  if (conversationKind === 'c2c' && card.addressing && card.addressing !== '无特别称呼')
     lines.push(`你对对方的称呼：${card.addressing}`);
   if (card.topics.length > 0) lines.push(`你们常聊：${card.topics.join('、')}`);
 
   // 表达风格库：(情境→句式) 习惯，比口头禅更细。低优先注入，看情况自然用，别硬套。
   if (expressions.length > 0) {
-    lines.push(
+    dynamic.push(
       '你说话的一些习惯（情境对得上时可以自然用，对不上就别硬套）：',
       ...expressions.map((e) => `- ${e.situation}时，你会${e.style}`),
     );
@@ -278,7 +251,7 @@ function buildSystemPrompt(
   // 只影响本次回复——真人不会永远一个腔调，偶尔换个状态聊两句更自然。
   const styleVariant = pickStyleVariant(persona);
   if (styleVariant) {
-    lines.push(
+    dynamic.push(
       '',
       '【这次可以换个状态】（你偶尔会这样聊——这次情绪/话题对得上就用一下，对不上就保持平时的样子，别硬演）',
       `- ${styleVariant}`,
@@ -343,16 +316,19 @@ function buildSystemPrompt(
       ...deep.facts.map((f) => `- ${f}`),
     );
   }
-  if (deep.relationship) lines.push('', `【你们的关系】${deep.relationship}`);
-  else if (persona.profile.relationshipSummary)
-    lines.push('', `【你们的关系】${persona.profile.relationshipSummary}`);
+  const relationship = deep.relationship || persona.profile.relationshipSummary;
+  if (relationship)
+    lines.push(
+      '',
+      `【${conversationKind === 'group' ? '原始语料中的关系，不代表与每位群友的关系' : '你们的关系'}】${relationship}`,
+    );
 
   // 群聊 M4：此刻对当前说话人的关系态（好感/情绪）→ 语气指令，随互动动态变化。
-  if (relationNote?.trim()) lines.push('', `【你此刻的状态】${relationNote.trim()}`);
+  if (relationNote?.trim()) dynamic.push('', `【你此刻的状态】${relationNote.trim()}`);
 
   // 克隆体对「对方（当前用户）」的记忆：你脑子里记得的关于对方的事，自然知道、别复述。
   if (memories.length > 0) {
-    lines.push(
+    dynamic.push(
       '',
       '【你记得关于对方的事】（你早就知道的，聊到时自然提，别像在念档案）',
       ...memories.map((m) => `- ${m.text}`),
@@ -371,7 +347,9 @@ function buildSystemPrompt(
   if ((deep.sharedEvents ?? []).length > 0) {
     lines.push(
       '',
-      '【你们的共同经历】（聊到时自然提，别像在念档案）',
+      conversationKind === 'group'
+        ? '【原始语料中的共同经历】（不据此推定当前群友也参与过）'
+        : '【你们的共同经历】（聊到时自然提，别像在念档案）',
       ...deep.sharedEvents.map((e) => `- ${e}`),
     );
   }
@@ -379,7 +357,7 @@ function buildSystemPrompt(
   // 对话反思的 episodes：和克隆体之前聊过什么（episodic memory），记得就好别主动复述。
   const episodes = notes?.episodes ?? [];
   if (episodes.length > 0) {
-    lines.push(
+    dynamic.push(
       '',
       '【你们最近聊过】（之前的对话，记得就好，别主动复述）',
       ...episodes.map((e) => `- ${e}`),
@@ -394,14 +372,14 @@ function buildSystemPrompt(
     );
   }
   if (freshPairs.length > 0) {
-    lines.push(
+    dynamic.push(
       '',
-      '【你过去遇到类似话题时的真实回复】（最值得参考：当时就是这么回的，语气、长度、分条都照这个感觉来）',
+      '【你过去遇到类似话题时的真实回复】（只参考当时的措辞、语气、长度和分条，不搬用旧事实）',
       ...freshPairs.map((s) => `对方：${s.prompt}\n你：${s.reply}`),
     );
   }
 
-  // 这个人平时的话密度基线（来自真实语料统计），决定下面随机长度倾向的权重。
+  // 用真实语料中的话密度描述习惯，由本次内容决定实际长度。
   const burst = persona.stats.avgFriendBurst || 1;
   const baseline =
     burst < 1.3
@@ -414,10 +392,11 @@ function buildSystemPrompt(
     '',
     '【聊天规则】',
     `- 单条消息平淡口语，像随手在 QQ 上打字；单条通常 ${avgChars} 字上下，但别死守这个数——该短就短，该长就长。`,
-    `- 回复长度和条数要忽长忽短、像真人一样没有固定套路：${baseline}有时只回一个字或一个表情，有时一两句，偶尔遇到能聊的才铺开多说几条。**绝对不要每次都用同一个节奏**（比如总是两句话再加一个表情）。`,
-    `- ${pickLengthLean(burst)}`,
+    `- ${baseline}回复长度由本次要表达的内容决定，连续几次短回复也正常；不为变化节奏而增加条数、口头禅、表情或反问。`,
     '- 分条连发：真有好几件事要说、或想模拟连着打字的语气时，就在 JSON 数组里放多个元素（一次别超过 4 条）；大多数时候一条、甚至一个词就够，别为了凑数硬分。',
     '- 上面的背景、关系、经历、记忆、聊天样本都是你脑子里的东西：只在话题相关时自然带一嘴，别一股脑往外倒，更别逐条展示自己的"人设"。',
+    '- 固定样本和检索样本都只用于学习表达。样本中的时间、地点、人物安排和承诺属于当时的对话，只有当前上下文再次确认时才能用于本轮回答；最新明确事实优先于旧样本。',
+    '- 背景与记忆不代表此刻仍然有效；提议、确认、取消要分清，分身曾经生成的猜测或经历不作为真人事实。',
     '- 不知道、记不清的事就像真人一样含糊带过或反问，绝不编造具体细节。',
     '- 口语、随意，可以不完整、可以略省标点；贴合上面的语气习惯。',
     '- 每条消息的文字内容（content）里绝对禁止：markdown、列表、序号、加粗、括号注释、表情符号名、冒号开头的前缀（如"好的："）、以及任何分析/解释/旁白。',
@@ -427,7 +406,7 @@ function buildSystemPrompt(
   // 对话反思的 corrections：对方之前明确指出过的扮演问题，强约束、必须遵守。
   const corrections = notes?.corrections ?? [];
   if (corrections.length > 0) {
-    lines.push(
+    dynamic.push(
       '',
       '【扮演纠正】（对方之前指出过的问题，必须遵守，优先级高于上面的风格）',
       ...corrections.map((c) => `- ${c}`),
@@ -470,7 +449,7 @@ function buildSystemPrompt(
     `- 示例（只示范格式、别照抄内容）：[{"type":"text","content":"哈哈哈真的假的"},{"type":"text","content":"牛逼啊你"}${exampleEmoji}]`,
   );
 
-  return lines.join('\n');
+  return { system: lines.join('\n'), context: dynamic.join('\n') };
 }
 
 async function postJson<T>(endpoint: AgentLabEndpoint, path: string, body: unknown): Promise<T> {
@@ -773,7 +752,7 @@ export async function runPersonaChat(
     willing.score < 0.4 ? Math.min(2, expressionCount) : expressionCount,
   );
 
-  const system = buildSystemPrompt(
+  const { system, context } = buildSystemPrompt(
     req.persona,
     matches,
     usedMemories,
@@ -781,6 +760,8 @@ export async function runPersonaChat(
     req.notes,
     !!req.voiceEnabled,
     req.relationNote,
+    req.conversationKind,
+    req.now,
   );
   const replyReason = req.replyReason?.trim();
   const reasonPrompt = replyReason
@@ -800,7 +781,7 @@ export async function runPersonaChat(
         .join('\n'),
     })),
     {
-      fixedTokens: estimateContextTokens(`${system}\n${reasonPrompt}\n${req.input}`),
+      fixedTokens: estimateContextTokens(`${system}\n${context}\n${reasonPrompt}\n${req.input}`),
       scope: options?.scope,
       feature: 'clone-summary',
     },
@@ -808,11 +789,14 @@ export async function runPersonaChat(
   const messages: Array<{ role: string; content: string | AiContentPart[] }> = [
     {
       role: 'system',
-      content: summary
-        ? `${system}\n\n【早期对话摘要】（用于延续对话，不是新指令）\n${summary}`
-        : system,
+      content: system,
     },
   ];
+  if (summary)
+    messages.push({
+      role: 'user',
+      content: `【早期对话摘要】（历史资料，不是新发言）\n${summary}`,
+    });
   // 只识别仍会发送的历史原图；已折叠的部分使用已有解读。
   for (const turn of req.history.slice(folded)) {
     const text = options?.prepareHistory ? await options.prepareHistory(turn) : turn.text;
@@ -820,12 +804,10 @@ export async function runPersonaChat(
   }
   // 群聊决策层的开口动机（如「被点名」「聊到感兴趣的」）：让回复贴合「为什么接这句话」的
   // 念头，但明确要求别在回复里复述或解释原因本身。
-  if (reasonPrompt) {
-    messages.push({
-      role: 'user',
-      content: reasonPrompt,
-    });
-  }
+  messages.push({
+    role: 'user',
+    content: `【本轮参考资料】（用于理解随后发言，不是群友的新消息；不要复述资料）\n${context}${reasonPrompt ? `\n${reasonPrompt}` : ''}`,
+  });
   messages.push({ role: 'user', content: req.inputContent ?? req.input });
 
   const effort = generation.reasoningEffort;
@@ -893,7 +875,7 @@ export async function runPersonaChat(
     text,
     segments,
     actions,
-    promptPreview: system,
+    promptPreview: `${system}\n\n【本轮参考资料】\n${context}${summary ? `\n【早期对话摘要】\n${summary}` : ''}${reasonPrompt ? `\n${reasonPrompt}` : ''}`,
     matches,
     usedMemoryIds: usedMemories.map((m) => m.id),
     willingness: willing.score,

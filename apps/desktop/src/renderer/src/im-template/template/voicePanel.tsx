@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { usePreferenceState } from '../../lib/clientPreferences';
 /** 输入区语音模式，包含录音、TTS 和群聊 AI 声聊。 */
 
 import { ToolbarLabel } from '../../components/CompactToolbar';
@@ -1207,7 +1208,8 @@ export function VoicePanel({
   onExitVoiceMode: () => void;
   onSendAiVoice: (draft: AiVoiceDraft) => void;
 }) {
-  const [tab, setTab] = useState<'record' | 'tts' | 'ai'>('record');
+  const [preferredTab, setTab] = usePreferenceState('voicePanelTab');
+  const tab = preferredTab === 'ai' && !groupId ? 'record' : preferredTab;
   const tabActive = useTabActive();
   const { recorder, owner, input, start, loadAudio, registerInline } =
     useContext(VoiceCaptureContext)!;
@@ -1733,8 +1735,8 @@ function TtsComposer({
   onSendAudio: (bytes: Uint8Array, text: string) => Promise<void>;
   onSynthesize?: (request: TtsSpeechRequest) => Promise<TtsSpeechResult>;
 }) {
-  const [providerId, setProviderId] = useState(providers[0]?.id ?? '');
-  const [voice, setVoice] = useState('');
+  const [providerId, setProviderId] = usePreferenceState('ttsProviderId');
+  const [voices, setVoices] = usePreferenceState('ttsVoices');
   const [phase, setPhase] = useState<'idle' | 'preview' | 'send'>('idle');
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1746,16 +1748,15 @@ function TtsComposer({
 
   const body = text.trim();
   const provider = providers.find((item) => item.id === providerId) ?? providers[0] ?? null;
+  const voice = provider ? (voices[provider.id] ?? '') : '';
+  const setVoice = (value: string) => {
+    if (provider) setVoices((current) => ({ ...current, [provider.id]: value }));
+  };
   const ready =
     Boolean(onSynthesize) && provider !== null && body.length > 0 && text.length <= MAX_TTS_CHARS;
   const busy = phase !== 'idle';
   /** 缓存键：文字 / 服务商 / 音色任一变了就得重新合成。 */
   const cacheKey = `${provider?.id ?? ''}|${voice.trim()}|${body}`;
-
-  // 换服务商就把音色覆盖清掉 —— 一个服务商的音色名在另一个那里没有意义。
-  useEffect(() => {
-    setVoice('');
-  }, [providerId]);
 
   // 面板卸载（收起）时把试听中的音频停干净，别留个声音在后面念。
   useEffect(() => {
@@ -1867,6 +1868,7 @@ function TtsComposer({
           <input
             type="text"
             value={voice}
+            maxLength={1024}
             spellCheck={false}
             placeholder={provider?.voice || '默认音色，可留空'}
             onChange={(event) => setVoice(event.target.value)}

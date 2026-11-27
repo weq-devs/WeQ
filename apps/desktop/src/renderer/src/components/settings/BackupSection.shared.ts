@@ -9,12 +9,19 @@ export const backupApi = {
     client.bootstrap.backupExport.mutate(input),
   download: (downloadClient: string) =>
     client.bootstrap.backupDownloadExport.mutate({ downloadClient }),
+  resumeExport: (downloadClient: string) =>
+    client.bootstrap.backupResumeExport.mutate({ downloadClient }),
   pick: () => client.bootstrap.backupPick.mutate(),
-  begin: (name: string, bytes: number) =>
-    client.bootstrap.backupBeginUpload.mutate({ name, bytes }),
-  chunk: (id: string, offset: number, data: string) =>
-    client.bootstrap.backupUploadChunk.mutate({ id, offset, data }),
-  finish: (id: string) => client.bootstrap.backupFinishUpload.mutate({ id }),
+  begin: (name: string, bytes: number, uploadClient?: string) =>
+    client.bootstrap.backupBeginUpload.mutate({ name, bytes, uploadClient }),
+  resumeUpload: (id: string, uploadClient: string) =>
+    client.bootstrap.backupResumeUpload.mutate({ id, uploadClient }),
+  discardUpload: (id: string, uploadClient: string) =>
+    client.bootstrap.backupDiscardUpload.mutate({ id, uploadClient }),
+  chunk: (id: string, offset: number, data: string, uploadClient?: string) =>
+    client.bootstrap.backupUploadChunk.mutate({ id, offset, data, uploadClient }),
+  finish: (id: string, uploadClient?: string, name?: string) =>
+    client.bootstrap.backupFinishUpload.mutate({ id, uploadClient, name }),
   prepare: (sourceId: string, choice: WeqRestoreChoice) =>
     client.bootstrap.backupPrepare.mutate({ sourceId, ...choice }),
   stage: (previewId: string) => client.bootstrap.backupStage.mutate({ previewId }),

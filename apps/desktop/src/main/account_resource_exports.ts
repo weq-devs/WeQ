@@ -677,14 +677,21 @@ export async function runResumableQzoneAlbumMedia(
     try {
       const resolve = async () => {
         if (single) return single;
-        const row = initialByKey.get(item.key) ?? (await (live ??= lookup())).get(item.key);
+        let row = initialByKey.get(item.key);
+        if (!row) {
+          live ??= lookup();
+          row = (await live).get(item.key);
+        }
         if (!row || Boolean(row.isVideo) !== item.isVideo)
           throw new Error('相册中已找不到原媒体，请重新选择。');
         return resolveQzoneAlbumDownload(services, request, { ...row, name: item.name }, index);
       };
       let source: { url: string; fileName: string } | undefined;
-      const planName = async () =>
-        request.fileName ?? uniqueFilename((source = await resolve()).fileName, used);
+      const planName = async () => {
+        if (request.fileName) return request.fileName;
+        source = await resolve();
+        return uniqueFilename(source.fileName, used);
+      };
       fileName = checkpoint
         ? await checkpoint.run(['qzone-album-media-name', index, item.key], planName)
         : await planName();

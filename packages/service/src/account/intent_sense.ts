@@ -2559,6 +2559,7 @@ export class IntentSenseService {
       return {
         msgId: m.msgId.toString(),
         msgSeq: m.msgSeq.toString(),
+        clientSeq: 'clientSeq' in m && m.clientSeq ? m.clientSeq.toString() : undefined,
         mine,
         senderUid: m.senderUid,
         senderUin: m.senderUin.toString(),
@@ -2571,7 +2572,9 @@ export class IntentSenseService {
       const elements = message.elements.map(
         (element): SenseElement => ({
           kind: element.type,
-          ...(element.type === 'pic' || element.type === 'mface' ? { ...element.data } : {}),
+          ...(element.type === 'pic' || element.type === 'mface' || element.type === 'reply'
+            ? { ...element.data }
+            : {}),
           ...(element.type === 'text' || element.type === 'at'
             ? {
                 textContent: element.data.textContent,

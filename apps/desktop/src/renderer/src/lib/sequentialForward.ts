@@ -79,27 +79,8 @@ export function partitionForwardMessages<T extends Message>(messages: readonly T
   return { sendable, ignored };
 }
 
-export interface ForwardOptions {
-  mode: 'fixed' | 'text' | 'original';
-  intervalMs: number;
-  msPerCharacter: number;
-  nonTextMs: number;
-  /** -1 表示不限制；界面以秒编辑，内部仍以毫秒计时。 */
-  maxIntervalMs: number;
-  jitterMs: number;
-  maxAttempts: number;
-  failure: 'skip' | 'abort';
-}
-export const DEFAULT_FORWARD_OPTIONS: ForwardOptions = {
-  mode: 'fixed',
-  intervalMs: 0,
-  msPerCharacter: 1000,
-  nonTextMs: 5000,
-  maxIntervalMs: -1,
-  jitterMs: 0,
-  maxAttempts: 1,
-  failure: 'skip',
-};
+export { DEFAULT_FORWARD_OPTIONS, type ForwardOptions } from '@weq/service/client-preferences';
+import { validForwardOptions, type ForwardOptions } from '@weq/service/client-preferences';
 export interface ForwardContent {
   text: string;
   nonText: boolean;
@@ -126,20 +107,7 @@ export function forwardMessageContent(message: {
 }
 
 export function validateForwardOptions(options: ForwardOptions): void {
-  if (
-    !['fixed', 'text', 'original'].includes(options.mode) ||
-    !['skip', 'abort'].includes(options.failure) ||
-    !Number.isInteger(options.maxAttempts) ||
-    options.maxAttempts < 1 ||
-    options.maxAttempts > 20 ||
-    !Number.isInteger(options.maxIntervalMs) ||
-    options.maxIntervalMs < -1 ||
-    options.maxIntervalMs > 3_600_000 ||
-    [options.intervalMs, options.msPerCharacter, options.nonTextMs, options.jitterMs].some(
-      (value) => !Number.isFinite(value) || value < 0 || value > 3_600_000,
-    )
-  )
-    throw new Error('转发参数无效');
+  if (!validForwardOptions(options)) throw new Error('转发参数无效');
 }
 
 export function forwardDelay(

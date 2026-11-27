@@ -19,6 +19,10 @@ const mock = vi.hoisted(() => ({
   remark: '旧备注',
   groupName: '原群名',
   categoryId: 1,
+  categories: [
+    { id: 1, name: '朋友' },
+    { id: 2, name: '同学' },
+  ],
   fail: false,
   readError: false,
   confirm: true,
@@ -54,10 +58,7 @@ vi.mock('../src/renderer/src/trpc/client', () => {
       };
     if (name === 'friendRemarkState') return { remark: mock.remark };
     return {
-      categories: [
-        { id: 1, name: '朋友' },
-        { id: 2, name: '同学' },
-      ],
+      categories: mock.categories,
       friends: [{ uid: 'u_peer', categoryId: mock.categoryId }],
     };
   };
@@ -150,6 +151,10 @@ beforeEach(() => {
     remark: '旧备注',
     groupName: '原群名',
     categoryId: 1,
+    categories: [
+      { id: 1, name: '朋友' },
+      { id: 2, name: '同学' },
+    ],
     fail: false,
     readError: false,
     confirm: true,
@@ -278,30 +283,43 @@ it('权限确认普通成员不能改名时直接显示群名，不打开编辑�
   ]);
   expect(mock.writes).not.toHaveBeenCalled();
 });
-it('好友分组原行下拉选择并核对所选分组', async () => {
-  render('friendCategory', '朋友');
-  await click('编辑好友分组');
-  await act(async () => {
-    const select = host.querySelector('select')!;
-    select.value = '2';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-  await click('保存好友分组');
-  expect(mock.writes).toHaveBeenLastCalledWith('friendCategory', {
-    ...mock.binding,
-    uid: 'u_peer',
-    categoryId: 2,
-  });
-  expect(button('编辑好友分组').textContent).toBe('同学');
-  await click('编辑好友分组');
-  await act(async () => {
-    const select = host.querySelector('select')!;
-    select.value = '0';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-  await click('保存好友分组');
-  expect(button('编辑好友分组').textContent).toBe('默认分组');
-});
+it.each([undefined, '常联系的人'])(
+  '好友分组保留默认分组名称 %s，选择后按 ID 保存',
+  async (name) => {
+    if (name !== undefined) mock.categories.push({ id: 0, name });
+    render('friendCategory', '朋友');
+    await click('编辑好友分组');
+    const defaultOptions = Array.from(host.querySelector('select')!.options).filter(
+      (option) => option.value === '0',
+    );
+    expect(defaultOptions.map((option) => option.textContent)).toEqual([name ?? '默认分组']);
+    await act(async () => {
+      const select = host.querySelector('select')!;
+      select.value = '2';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await click('保存好友分组');
+    expect(mock.writes).toHaveBeenLastCalledWith('friendCategory', {
+      ...mock.binding,
+      uid: 'u_peer',
+      categoryId: 2,
+    });
+    expect(button('编辑好友分组').textContent).toBe('同学');
+    await click('编辑好友分组');
+    await act(async () => {
+      const select = host.querySelector('select')!;
+      select.value = '0';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await click('保存好友分组');
+    expect(mock.writes).toHaveBeenLastCalledWith('friendCategory', {
+      ...mock.binding,
+      uid: 'u_peer',
+      categoryId: 0,
+    });
+    expect(button('编辑好友分组').textContent).toBe(name ?? '默认分组');
+  },
+);
 it('头部分组不渲染正文行，保存失败保留选择，取消后还原名称', async () => {
   render('friendCategory', '朋友', true);
   expect(host.querySelector('.weq-profile-data-row')).toBeNull();

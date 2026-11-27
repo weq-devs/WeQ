@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { EventEmitter } from 'node:events';
 import { mkdtemp, rm, writeFile, readFile, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -23,13 +24,15 @@ import { createQQActionsRouter, type QQActionServices } from '../src/main/ipc/ro
 import { backgroundTasks } from '../src/main/background_tasks';
 import { albumVideoPublished } from '../src/main/account_task_receipts';
 
+const platform = vi.hoisted(() => ({ appDataRoot: vi.fn() }));
 vi.mock('../src/main/account_task_receipts', async (original) => ({
   ...(await original<typeof import('../src/main/account_task_receipts')>()),
   recordAccountTask: () => vi.fn(),
 }));
-vi.mock('../src/main/context/app_context', async (original) => ({
-  ...(await original<typeof import('../src/main/context/app_context')>()),
+vi.mock('../src/main/context/app_context', () => ({
+  accountEventBus: new EventEmitter(),
   getAppContext: () => ({ account: null, services: null }),
+  requirePlatform: () => platform,
 }));
 
 const binding = { expectedAccountUin: '10001', expectedAccountConfigId: 'source-a' };
@@ -381,6 +384,8 @@ describe('收藏包导入路由', () => {
       { trustPath: vi.fn(), untrustPath: vi.fn() },
     );
     f.s.favoriteEmojiImport = manager;
+    const root = await mkdtemp(join(tmpdir(), 'weq-favorite-import-'));
+    platform.appDataRoot.mockReturnValue(root);
     try {
       const view = await manager.prepare(archive.archive, () => {});
       await f.caller.favoriteImportStart({
@@ -421,6 +426,8 @@ describe('收藏包导入路由', () => {
     } finally {
       release();
       await manager.dispose();
+      platform.appDataRoot.mockReset();
+      await rm(root, { recursive: true, force: true });
     }
   });
 });

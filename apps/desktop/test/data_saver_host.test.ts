@@ -1,6 +1,17 @@
 // @vitest-environment node
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
+import {
+  ManagedDownload,
+  transferActivity,
+  type TransferActivity,
+} from '@weq/service/managed-download';
 import { dataSaverSession } from '@weq/service/transfer-policy';
+import { backgroundTasks } from '../src/main/background_tasks';
+import { taskArchiveStore } from '../src/main/task_archive';
+import { backgroundResult, isTaskArchived } from '../src/shared/task_archive';
 import {
   dataSaverStatus,
   hostDataSaver,
@@ -8,14 +19,21 @@ import {
   reportDataSaverTasks,
   setTemporaryDataSaver,
   closeDataSaverWindow,
+  startTransferPolicy,
 } from '../src/main/data_saver';
 
-const fixture = vi.hoisted(() => ({ exports: [{ status: 'running' }], fail: false, builds: 0 }));
+const fixture = vi.hoisted(() => ({
+  root: '',
+  exports: [{ status: 'running' }],
+  fail: false,
+  builds: 0,
+}));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({
+    platform: fixture.root ? { appDataRoot: () => fixture.root } : undefined,
     bootstrap: { userConfig: { getSharedPreference: () => ({ dataSaverMode: 'always' }) } },
     services: {
-      accountConfig: { getRecord: () => ({ configId: 'fixture' }) },
+      accountConfig: { getRecord: () => ({ uin: '10001', configId: 'fixture' }) },
       exportManager: { listTasks: () => fixture.exports },
       roamingBackfill: {
         list: () => {
@@ -36,6 +54,45 @@ afterEach(() => {
   fixture.exports = [{ status: 'running' }];
   reportDataSaverTasks('window', 0);
   vi.useRealTimers();
+});
+
+it('原图下载成功后归档到原数据源，失败回执仍可重试', () => {
+  startTransferPolicy();
+  fixture.root = mkdtempSync(join(tmpdir(), 'weq-original-archive-'));
+  const taskIds: string[] = [];
+  try {
+    for (const failed of [false, true]) {
+      const id = globalThis.crypto.randomUUID();
+      taskIds.push(id);
+      const event: TransferActivity = {
+        id: `download-${id}`,
+        name: '下载聊天媒体',
+        paused: false,
+        reasons: [],
+        received: 0,
+        total: 10,
+        transfer: new ManagedDownload({
+          activityResume: { id, request: { type: 'chat-original', token: 'synthetic' } },
+        }),
+      };
+      const archive = taskArchiveStore(fixture.root, 'fixture');
+      const key = `background:host:${id}`;
+      transferActivity.emit('state', event);
+      expect(archive.get(key)).toBeUndefined();
+      transferActivity.emit('state', {
+        ...event,
+        ...(failed ? { error: '模拟下载失败' } : { done: true, received: 10 }),
+      });
+      const task = backgroundTasks.snapshot().find((item) => item.id === id)!;
+      expect(task.status).toBe(failed ? 'failed' : 'completed');
+      expect(isTaskArchived(archive.get(key), backgroundResult(task))).toBe(!failed);
+      if (failed) expect(task.actions).toEqual([{ id: 'retry', label: '继续下载原图' }]);
+    }
+  } finally {
+    for (const id of taskIds) backgroundTasks.remove(id);
+    rmSync(fixture.root, { recursive: true, force: true });
+    fixture.root = '';
+  }
 });
 
 it('窗口任务与宿主任务合计，读取失败、断连及新增任务均不能提前恢复', async () => {

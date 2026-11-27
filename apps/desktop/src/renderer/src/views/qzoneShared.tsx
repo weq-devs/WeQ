@@ -13,10 +13,11 @@ import { NumericText } from '../components/NumericText';
 import { useContext, useEffect, useRef, useState, type ReactElement } from 'react';
 import { CircleDot, Loader2, Pause, Play, VideoOff, Images, RefreshCw } from 'lucide-react';
 import { MediaPreview, type PreviewMedia } from '../components/MediaPreview';
-import { albumMediaUrl } from '../lib/resourceUrl';
+import { albumMediaUrl, interactiveMediaUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from '../components/ShimmerImage';
 import { MediaLoadingRing, MediaTransferBadge } from '../components/TransferRing';
 import { useVideoBuffering } from '../hooks/useVideoBuffering';
+import { useAlbumMediaLoadAction, useMediaLoadAction } from '../hooks/useMediaLoadAction';
 import { mediaTransferTarget } from '../../../shared/transfer_progress';
 import { qzoneMediaSource, qzonePictureKey } from '../lib/qzone';
 import { QzoneMediaNavigationContext } from '../lib/qzoneNavigation';
@@ -154,11 +155,29 @@ export function QzoneVideo({
   const player = useRef<HTMLVideoElement>(null);
   const src = qzoneMediaSource(video.videoUrl);
   const cover = qzoneMediaSource(video.coverUrl);
+  const [unusableCover, setUnusableCover] = useState<string>();
+  const label = liveMediaLabel(video.isLivePhoto === true, typePending);
+  const hasCover = Boolean(cover && cover !== unusableCover);
+  const coverMedia = useAlbumMediaLoadAction(
+    cover ? albumMediaUrl(cover) : '',
+    `空间${label} ${index + 1}`,
+  );
+  const videoMedia = useMediaLoadAction(
+    src ? albumMediaUrl(src) : '',
+    `空间${label} ${index + 1}`,
+    false,
+  );
+  const action = hasCover ? coverMedia : videoMedia;
+  const inlineSource =
+    src && (playing || videoMedia.requested) ? interactiveMediaUrl(videoMedia.src) : undefined;
   const previewSrc = src || cover;
   const progressTarget = previewSrc
     ? mediaTransferTarget({ kind: 'url', url: albumMediaUrl(previewSrc) })
     : undefined;
-  const buffering = useVideoBuffering(src ?? '', active && playing);
+  const buffering = useVideoBuffering(
+    inlineSource ?? '',
+    active && (playing || videoMedia.loading),
+  );
   const live = video.isLivePhoto === true;
   useEffect(() => {
     if (!active) setPlaying(false);
@@ -177,67 +196,69 @@ export function QzoneVideo({
       current = false;
       element.pause();
     };
-  }, [playing, src]);
+  }, [playing, inlineSource]);
+  const actionLabel = action.ready
+    ? !live && !typePending && src
+      ? `播放空间视频 ${index + 1}`
+      : `查看空间${label} ${index + 1}`
+    : action.label;
   return (
     <div className="weq-qzn-video">
       <button
         type="button"
         className="weq-qzn-video-open weq-media-frame"
         disabled={!src && !cover}
-        aria-label={
-          live
-            ? `查看空间实况照片 ${index + 1}`
-            : typePending
-              ? `查看空间媒体 ${index + 1}`
-              : src
-                ? `播放空间视频 ${index + 1}`
-                : `空间${video.isLivePhoto === true ? '实况照片' : '视频'} ${index + 1} 暂无播放地址`
-        }
-        title={
-          typePending
-            ? '查看媒体'
-            : src
-              ? video.isLivePhoto === true
-                ? '查看实况照片'
-                : '播放视频'
-              : '此媒体暂时没有可播放地址'
-        }
-        onClick={onOpen}
+        aria-label={actionLabel}
+        aria-busy={action.loading || undefined}
+        title={actionLabel}
+        onClick={() => action.activate(onOpen)}
       >
-        {cover ? (
+        {hasCover ? (
           <ShimmerImage
-            src={albumMediaUrl(cover)}
-            alt={`${live ? '实况照片' : typePending ? '媒体封面' : '视频封面'} ${index + 1}`}
-            loading="lazy"
+            src={coverMedia.src}
+            alt={`${label}封面 ${index + 1}`}
+            loading={coverMedia.loading ? 'eager' : 'lazy'}
             mediaLoading
+            reuseRemoteCache
+            onLoad={coverMedia.onLoad}
+            onError={() => {
+              coverMedia.onError();
+              if (src && cover && coverMedia.requested) setUnusableCover(cover);
+            }}
           />
         ) : (
-          <span className="weq-qzn-video-placeholder">
-            {live ? '实况照片' : typePending ? '媒体' : '视频'}
-          </span>
+          !videoMedia.ready && <span className="weq-qzn-video-placeholder">{label}</span>
         )}
-        {playing ? (
+        {inlineSource ? (
           <video
-            key={src}
+            key={inlineSource}
             ref={player}
-            src={src ? albumMediaUrl(src) : undefined}
+            src={inlineSource}
             muted
             playsInline
+            preload="auto"
             {...buffering.events}
+            onLoadedData={videoMedia.onLoad}
             onEnded={() => {
               buffering.events.onEnded();
               setPlaying(false);
             }}
             onError={() => {
               buffering.events.onError();
+              videoMedia.onError();
               setPlaying(false);
               setPlayError(true);
             }}
           />
         ) : null}
+        {action.hint ? (
+          <span className="weq-media-load-hint" aria-hidden>
+            {action.hint}
+          </span>
+        ) : null}
         {buffering.waiting && <MediaLoadingRing label="正在缓冲视频" />}
         <MediaTransferBadge target={progressTarget} />
-        {!live && !typePending ? (
+        {!live && !typePending && (action.ready || !src) ? (
           <span className="weq-qzn-video-play">
             {src ? <Play size={20} /> : <VideoOff size={20} />}
           </span>
@@ -264,28 +285,44 @@ export function QzoneVideo({
   );
 }
 
+function liveMediaLabel(live: boolean, typePending: boolean) {
+  return live ? '实况照片' : typePending ? '媒体' : '视频';
+}
+
 function Picture({ url, index, onOpen }: { url: string; index: number; onOpen: () => void }) {
   const [loadedUrl, setLoadedUrl] = useState<string>();
   const displayUrl = loadedUrl ?? url;
-  const src = albumMediaUrl(displayUrl);
+  const media = useAlbumMediaLoadAction(albumMediaUrl(displayUrl), `空间图片 ${index + 1}`);
   return (
     <button
       type="button"
       className="weq-qzn-picture weq-media-frame"
-      aria-label={`查看空间图片 ${index + 1}`}
-      onClick={onOpen}
+      aria-label={media.label}
+      title={media.label}
+      aria-busy={media.loading || undefined}
+      onClick={() => media.activate(onOpen)}
     >
       <ShimmerImage
-        src={src}
+        src={media.src}
         alt={`空间图片 ${index + 1}`}
-        loading="lazy"
+        loading={media.loading ? 'eager' : 'lazy'}
         mediaLoading
-        onLoad={() => setLoadedUrl(displayUrl)}
+        reuseRemoteCache
+        onLoad={() => {
+          setLoadedUrl(displayUrl);
+          media.onLoad();
+        }}
         onError={() => {
           if (displayUrl !== url) setLoadedUrl(undefined);
+          else media.onError();
         }}
       />
-      <MediaTransferBadge target={mediaTransferTarget({ kind: 'url', url: src })} />
+      {media.hint ? (
+        <span className="weq-media-load-hint" aria-hidden>
+          {media.hint}
+        </span>
+      ) : null}
+      <MediaTransferBadge target={mediaTransferTarget({ kind: 'url', url: media.src })} />
     </button>
   );
 }

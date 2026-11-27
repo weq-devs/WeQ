@@ -105,15 +105,39 @@ export async function stageAccountFile(
       throw new Error('账号已切换，请重新选择附件');
   };
   check();
-  const { id, binaryChunks } = await client.account.pickedFileStart.mutate({
-    ...binding,
-    size: file.size,
-    name: file.name,
-  });
+  const key = `weq-picked-file-transfer-v1:${JSON.stringify([binding.expectedAccountConfigId, file.name, format])}`;
+  const saved = readUploadReceipt(key);
+  let resumed: Awaited<ReturnType<typeof client.account.pickedFileResume.mutate>> = null;
+  if (saved && sameUploadFile(saved, file)) {
+    resumed = await client.account.pickedFileResume.mutate({ ...binding, uploadId: saved.id });
+    if (
+      resumed &&
+      (resumed.size !== file.size ||
+        resumed.prefixHash !== (await uploadPrefixHash(file, resumed.offset, check)))
+    ) {
+      await client.account.pickedFileDiscard.mutate({ ...binding, uploadId: saved.id });
+      resumed = null;
+    }
+  }
+  check();
+  const stage =
+    resumed ??
+    (await client.account.pickedFileStart.mutate({
+      ...binding,
+      size: file.size,
+      name: file.name,
+    }));
+  const { id, binaryChunks } = stage;
+  const canResume = rememberUpload(key, id, file);
+  let finishing = false;
   try {
-    onProgress?.(0, file.size);
+    onProgress?.(resumed?.offset ?? 0, file.size);
     check();
-    for (let offset = 0; offset < file.size; offset += BROWSER_FILE_CHUNK_BYTES) {
+    for (
+      let offset = resumed?.offset ?? 0;
+      offset < file.size;
+      offset += BROWSER_FILE_CHUNK_BYTES
+    ) {
       check();
       const part = file.slice(offset, offset + BROWSER_FILE_CHUNK_BYTES);
       const next =
@@ -125,6 +149,8 @@ export async function stageAccountFile(
       onProgress?.(next.offset, file.size);
     }
     check();
+    finishing = true;
+    forgetUpload(key);
     const completed = await client.account.pickedFileFinish.mutate({
       ...binding,
       uploadId: id,
@@ -136,7 +162,10 @@ export async function stageAccountFile(
       uploadId: id,
     };
   } catch (error) {
-    await client.account.pickedFileDiscard.mutate({ ...binding, uploadId: id }).catch(() => {});
+    if (finishing || !canResume || signal?.aborted) {
+      forgetUpload(key);
+      await client.account.pickedFileDiscard.mutate({ ...binding, uploadId: id }).catch(() => {});
+    }
     throw error;
   }
 }
@@ -186,3 +215,10 @@ async function stageLegacyChunk(
     base64: btoa(binary),
   });
 }
+import {
+  forgetUpload,
+  readUploadReceipt,
+  rememberUpload,
+  sameUploadFile,
+  uploadPrefixHash,
+} from './uploadContinuation';

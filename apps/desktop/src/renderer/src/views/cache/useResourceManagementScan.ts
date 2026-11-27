@@ -15,6 +15,43 @@ const initial = (): ScanData => ({
   error: null,
   revision: 0,
 });
+const receiptKey = 'weq-resource-scan-v1';
+type ScanReceipt = { source: ResourceSource; updatedAt: number; stats: ScanData['stats'] };
+
+function readScanReceipt(source: ResourceSource) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(receiptKey) ?? 'null') as ScanReceipt | null;
+    if (
+      saved?.source.expectedAccountUin === source.expectedAccountUin &&
+      saved.source.expectedAccountConfigId === source.expectedAccountConfigId &&
+      Date.now() - saved.updatedAt <= 10 * 60_000 &&
+      saved.stats.every(
+        (row, index) => row.key === RESOURCE_CATEGORIES[index]?.key && row.complete !== false,
+      )
+    )
+      return saved.stats;
+  } catch {
+    /* 未取得本设备的扫描回执。 */
+  }
+  return [];
+}
+
+function writeScanReceipt(source: ResourceSource, stats: ScanData['stats']) {
+  try {
+    if (stats.length)
+      localStorage.setItem(
+        receiptKey,
+        JSON.stringify({
+          source,
+          stats,
+          updatedAt: Date.now(),
+        } satisfies ScanReceipt),
+      );
+    else localStorage.removeItem(receiptKey);
+  } catch {
+    /* 本页仍可继续扫描。 */
+  }
+}
 
 /** 页面扫描只反馈页内状态，不登记后台任务；隐藏时停止续扫并丢弃迟到响应。 */
 export function useResourceManagementScan(source: ResourceSource | null, enabled: boolean) {
@@ -45,8 +82,8 @@ export function useResourceManagementScan(source: ResourceSource | null, enabled
   }, []);
   useEffect(() => {
     needed.current = true;
-    completed.current = [];
-    setData(initial());
+    completed.current = binding ? readScanReceipt(binding) : [];
+    setData({ ...initial(), stats: completed.current });
   }, [binding]);
   const run = useCallback(async () => {
     if (!mounted.current || !active.current || !binding || latest.current !== binding) return;
@@ -71,6 +108,7 @@ export function useResourceManagementScan(source: ResourceSource | null, enabled
         }
         const stats = [...completed.current, stat];
         completed.current = stats;
+        writeScanReceipt(binding, stats);
         setData((old) => ({ ...old, stats }));
       }
       if (!current()) return;
@@ -82,6 +120,7 @@ export function useResourceManagementScan(source: ResourceSource | null, enabled
         throw new Error('清理范围统计不完整，请重新扫描后再清理');
       }
       needed.current = false;
+      writeScanReceipt(binding, []);
       setData((old) => ({
         ...old,
         targets,
@@ -110,6 +149,7 @@ export function useResourceManagementScan(source: ResourceSource | null, enabled
     if (!mounted.current || latest.current !== binding) return;
     needed.current = true;
     completed.current = [];
+    if (binding) writeScanReceipt(binding, []);
     await run();
   }, [binding, run]);
   return binding

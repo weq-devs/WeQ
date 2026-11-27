@@ -2396,6 +2396,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         ),
         accountConfig,
         annualReport: new AnnualReportService(session, {
+          pageCacheDirectory: join(userConfig.cacheDir('annual-report'), exportConfigId),
           preferences: userConfig.getSharedPreference('annualReport'),
           resolveDressNames: createDressNameResolver(dressInstall),
           qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {
@@ -3371,6 +3372,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         }),
         accountConfig,
         annualReport: new AnnualReportService(session, {
+          pageCacheDirectory: join(userConfig.cacheDir('annual-report'), exportConfigId),
           preferences: userConfig.getSharedPreference('annualReport'),
           resolveDressNames: createDressNameResolver(dressInstall),
           qzone: createReportQzoneCapability(webQuery, session.context.uin, () => {

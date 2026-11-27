@@ -9,10 +9,12 @@ import { getUpdateActions } from '../../update/state';
 import { watchTaskPage } from '../../task_page';
 import { forgetEnhancementTask } from '../../enhancements/tasks';
 import { forgetRecordedTask, restoreRecordedTasks } from '../../account_task_receipts';
-import { retryRecordedClone } from './account';
+import { accountRouter, retryRecordedClone } from './account';
 import { retryGroupMemberOrderTask } from '../../context/group_member_order';
 import { removeQzoneShareSource, retryQzoneShare } from './annual_report';
 import { retryResourceCleanup } from './resource_cleanup';
+import { removeFavoriteImportSource } from '../../favorite_import_resume';
+import { retryOriginalDownload } from '../../data_saver';
 import {
   forgetDirectIntentDownload,
   restoreDirectIntentDownload,
@@ -26,13 +28,25 @@ export const backgroundTasksRouter = router({
   list: procedure.input(scope).query(async ({ input }) => {
     restoreDirectIntentDownload();
     if (input?.configId) {
-      restoreRecordedTasks(
-        input,
-        retryRecordedClone,
-        retryGroupMemberOrderTask,
-        retryQzoneShare,
-        retryResourceCleanup,
-      );
+      restoreRecordedTasks(input, {
+        retryClone: retryRecordedClone,
+        retryContacts: retryGroupMemberOrderTask,
+        retryShare: retryQzoneShare,
+        retryCleanup: retryResourceCleanup,
+        retryFavorite: (id, scope) =>
+          accountRouter.createCaller({}).qqActions.favoriteImportResume({
+            expectedAccountUin: scope.uin,
+            expectedAccountConfigId: scope.configId!,
+            taskId: id,
+          }),
+        retryAlbumVideo: (id, scope) =>
+          accountRouter.createCaller({}).qqActions.albumVideoResumeTask({
+            expectedAccountUin: scope.uin,
+            expectedAccountConfigId: scope.configId!,
+            taskId: id,
+          }),
+        retryOriginal: retryOriginalDownload,
+      });
       restoreCalendarTasks(input);
       await restoreAnalysisReportTasks({
         expectedAccountUin: input.uin,
@@ -99,6 +113,9 @@ export async function removeHostBackgroundTask(task: BackgroundTask, web: boolea
   if (task.kind === 'model' && task.display?.action === '下载意图模型')
     forgetDirectIntentDownload(task.id);
   if (task.kind === 'qzone-share') await removeQzoneShareSource(task);
+  if (task.kind === 'clone') getAppContext().services?.agentLab.forgetBuildCheckpoint?.(task.id);
+  if (task.kind === 'favorite-import' && task.scope?.configId)
+    await removeFavoriteImportSource(task.scope.configId, task.id);
   if (task.kind === 'analysis' && task.reportId) {
     await hideAnalysisReportTask(task.reportId);
     backgroundTasks.remove(task.id, task);

@@ -111,10 +111,12 @@ export async function runQzoneVideoResource(
     try {
       const resolve = async () => {
         if (single) return single;
-        const row = !initialUrls.has(item.id)
-          ? (await (live ??= lookup())).get(item.id)
-          : undefined;
-        const url = initialUrls.get(item.id) ?? (item.video ? row?.videoUrl : row?.coverUrl);
+        let url = initialUrls.get(item.id);
+        if (!url) {
+          live ??= lookup();
+          const row = (await live).get(item.id);
+          url = item.video ? row?.videoUrl : row?.coverUrl;
+        }
         if (!url) throw new Error('空间中已找不到原视频或封面。');
         return planUrlMediaExport(
           `weq-media://album?${new URLSearchParams({ src: url })}`,
@@ -124,8 +126,11 @@ export async function runQzoneVideoResource(
         );
       };
       let prepared: Awaited<ReturnType<typeof resolve>> | undefined;
-      const planName = async () =>
-        request.fileName ?? uniqueFilename((prepared = await resolve()).fileName, used);
+      const planName = async () => {
+        if (request.fileName) return request.fileName;
+        prepared = await resolve();
+        return uniqueFilename(prepared.fileName, used);
+      };
       fileName = checkpoint
         ? await checkpoint.run(['qzone-video-name', item.id], planName)
         : await planName();
@@ -760,7 +765,7 @@ export const qzoneRouter = router({
       }
 
       check();
-      const path = pickedBrowserFiles.acquire(services, input.uploadId);
+      const path = await pickedBrowserFiles.consume(services, input.uploadId);
       try {
         const handle = await open(path, 'r');
         let bytes: Buffer;

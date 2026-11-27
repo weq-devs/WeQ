@@ -108,6 +108,7 @@ beforeEach(() => {
     exportManager: manager,
     agentLab: {
       assetRoot: root,
+      getPersona: (id: string) => (id === botRequest.personaId ? { id } : null),
       getPersonaRecord: () => ({
         persona: { id: botRequest.personaId, name: '合成克隆', models: { chat: chatModel } },
         pairs: [],
@@ -189,7 +190,7 @@ it('机器人整包进入公共任务，原打包器产物和运行配置均保�
   const result = await accountRouter.createCaller({}).exportAgentLabPersona(botRequest);
   if (result.canceled) throw new Error('不应取消');
   const task = await finished(result.taskId);
-  expect(task.status).toBe('completed');
+  expect(task.status, task.error).toBe('completed');
   await vi.waitFor(() => expect(task.save?.status).toBe('saved'));
   const config = JSON.parse(readFileSync(join(task.save!.path!, 'files', 'config.json'), 'utf8'));
   expect(config.adapter.wsUrl).toBe(botRequest.wsUrl);

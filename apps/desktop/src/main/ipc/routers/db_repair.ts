@@ -481,6 +481,39 @@ export const dbRepairRouter = router({
     };
   }),
   maintenance: procedure.input(accountRef).query(({ input }) => databaseMaintenance.status(input)),
+  resumeReport: procedure.input(reportRef).mutation(async ({ input }) => {
+    assertNotRestoring();
+    const report = await savedReport(input, input.reportId);
+    if (report.operation.status !== 'interrupted') throw new Error('此报告没有中断的工作。');
+    if (databaseMaintenance.status(input)?.locked)
+      throw new Error('请先结束当前维护后继续中断的报告。');
+    const operation = report.operation;
+    const fromRepair = operation.kind === 'repair';
+    const kind = operation.kind === 'scan' ? 'scan' : 'checkup';
+    const named = new Set(
+      operation.databaseNames ??
+        report.databases.filter((row) => !fromRepair || row.repair).map(({ dbName }) => dbName),
+    );
+    const remaining = report.databases.filter((row) => {
+      if (!named.has(row.dbName)) return false;
+      if (fromRepair) return row.repair?.status !== 'completed';
+      const desired = operation.databaseScanKinds?.[row.dbName] ?? kind;
+      return (
+        row.scanStatus !== 'completed' || (desired === 'checkup' && row.deepStatus !== 'completed')
+      );
+    });
+    if (!remaining.length) throw new Error('这份报告已没有待检查的数据库。');
+    const targets = remaining.map(({ dbName }) => service.resolveTarget(input.uin, dbName));
+    return summarizeDatabaseMaintenance(
+      await databaseMaintenance.scan(
+        input,
+        targets,
+        kind,
+        undefined,
+        fromRepair ? undefined : operation.databaseScanKinds,
+      ),
+    );
+  }),
   scanAccount: procedure
     .input(
       accountRef.extend({

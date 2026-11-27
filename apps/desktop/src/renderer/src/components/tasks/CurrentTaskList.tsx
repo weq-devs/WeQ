@@ -609,7 +609,7 @@ export function CurrentTaskList({
     const jobArchive = manage(
       { id: `roaming:${job.id}`, result: roamingResult(job) },
       taskDisplayTitle(display),
-      { manual: roamingArchivePolicy(job.status) },
+      roamingArchivePolicy(job),
       {
         resume: job.status === 'paused' && resumeAction ? { ...resumeAction, refresh } : undefined,
       },

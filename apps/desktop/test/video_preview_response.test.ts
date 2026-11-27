@@ -200,7 +200,9 @@ it('拖动后复用已读片段，开放区间校验版本再只请求剩余部�
     client.abort();
     await read.cancel();
 
-    const hit = await videoPreviewResponse(url, path, request({ Range: 'bytes=10-17' }));
+    const hit = await networkScope.run({ restricted: true, intent: 'prefetch' }, () =>
+      videoPreviewResponse(url, path, request({ Range: 'bytes=10-17' })),
+    );
     expect(hit.headers.get('cache-control')).toBe('no-store');
     expect(hit.headers.get('content-range')).toBe(`bytes 10-17/${sample.length}`);
     expect(Buffer.from(await hit.arrayBuffer())).toEqual(sample.subarray(10, 18));

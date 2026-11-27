@@ -51,6 +51,7 @@ beforeEach(() => {
     exportManager: manager,
     mail: {
       attachments: {
+        exportReference: () => undefined,
         get: (id: string) => {
           if (id !== attachmentId) throw new MailFailure('business', '附件已失效');
           return attachment;

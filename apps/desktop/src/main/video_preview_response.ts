@@ -24,7 +24,6 @@ export async function videoPreviewResponse(
   cacheVideo = true,
   scope?: string,
 ): Promise<Response> {
-  if (!scopedNetworkAllowed()) return new Response('省流量模式：点击加载', { status: 409 });
   check();
   request.signal.throwIfAborted();
   const requestedRange = request.headers.get('range');
@@ -37,6 +36,7 @@ export async function videoPreviewResponse(
       request.signal.throwIfAborted();
     });
   if (cached) return new ManagedDownload().response(cached);
+  if (!scopedNetworkAllowed()) return new Response('省流量模式：点击加载', { status: 409 });
   const controller = new AbortController();
   let keepCancelledRange: (() => void) | undefined;
   const abort = () => {

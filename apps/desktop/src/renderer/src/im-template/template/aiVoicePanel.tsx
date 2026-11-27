@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { usePreferenceState } from '../../lib/clientPreferences';
 /** 在线 AI 声聊的声线、样音与发送控件，共用语音模式的草稿文本。 */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
@@ -28,7 +29,7 @@ export function AiVoiceControls({
   onSend: (draft: AiVoiceDraft) => void;
   sendRef: RefObject<HTMLButtonElement | null>;
 }) {
-  const [requestedVoiceId, setVoiceId] = useState('');
+  const [requestedVoiceId, setVoiceId] = usePreferenceState('aiVoiceId');
   const session = useQQAction(`ai-voice-catalog:${groupId ?? ''}`);
   const catalog = trpc.account.qqActions.aiVoiceCatalog.useQuery(
     { ...session.binding!, groupId: groupId ?? 0 },

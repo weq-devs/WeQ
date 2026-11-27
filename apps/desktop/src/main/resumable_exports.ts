@@ -1,8 +1,10 @@
 import { lstat, open, statfs, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
+import { deserialize } from 'node:v8';
 import {
   exportOnlineFavoriteEmojiBundle,
   assertDestinationCapacity,
+  buildBotExport,
   getHost,
   requireDevelopmentDressTools,
   saveExportOutput,
@@ -67,10 +69,45 @@ export async function runResumableExport(
     const { runCompositionResource } = await import('./ipc/routers/merge_forward');
     return runCompositionResource(services, context, current);
   }
+  if (request.type === 'persona-bot') {
+    if (!('agentLab' in services) || !context.stagedInput)
+      throw new Error('原克隆体或机器人输入不可用。');
+    type Input = Parameters<typeof buildBotExport>[0];
+    const snapshot = deserialize(context.stagedInput) as Omit<Input, 'outDir'>;
+    if (
+      snapshot?.persona?.id !== request.personaId ||
+      !services.agentLab.getPersona(request.personaId)
+    )
+      throw new Error('原克隆体已不可用，请重新选择。');
+    const build = () => buildBotExport({ ...snapshot, outDir: context.directory });
+    const result = context.checkpoint
+      ? await context.checkpoint.file(['persona-bot', request.personaId], context.directory, build)
+      : await build();
+    current();
+    context.signal.throwIfAborted();
+    return {
+      total: 1,
+      ok: 1,
+      failed: [],
+      onPublished: (directory, taskId) => {
+        current();
+        services.agentLab.recordExport(request.personaId, {
+          ...result.webui,
+          taskId,
+          outDir: directory,
+          exportedAt: Date.now(),
+        });
+      },
+    };
+  }
   if (request.type === 'dress-download') {
     if (!('msgDecoration' in services)) throw new Error('账号资源服务不可用，无法继续导出。');
     requireDevelopmentDressTools();
     const { runDressDownload } = await import('./ipc/routers/dressup_download');
+    const resolve =
+      request.kind === 'callbg'
+        ? (await import('./ipc/routers/dressup')).resolveCallBackground
+        : undefined;
     return runDressDownload(
       services,
       request.kind,
@@ -78,6 +115,7 @@ export async function runResumableExport(
       request.bundleName,
       context,
       current,
+      resolve ? (id, video) => resolve(services, id, video) : undefined,
     );
   }
   if (request.type === 'qzone-videos') {

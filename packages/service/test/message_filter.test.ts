@@ -107,14 +107,28 @@ it('会话搜索将发送者取并集，再与关键词和分类组合', () => {
   );
 });
 
-it('会话分类区分图片表情、转发记录、其他卡片和纯文本', () => {
-  const categorize = (
-    elements: RenderElement[],
-    recordType: 'media' | 'emoji' | 'forward' | 'linkCard' | 'other',
-  ) => matchesMessageFilter({ ...message, elements }, { recordType });
-  const imageEmoji = [{ type: 'pic', data: { subType: 1 } } as RenderElement];
-  expect(categorize(imageEmoji, 'emoji')).toBe(true);
-  expect(categorize(imageEmoji, 'media')).toBe(false);
+it('全局和会话内搜索的表情筛选只匹配图片表情', () => {
+  const fixtures = [
+    { element: { type: 'pic', data: { subType: 1 } }, emoji: true, image: false },
+    { element: { type: 'mface', data: { emojiPackId: 123 } }, emoji: true, image: false },
+    { element: { type: 'pic', data: { subType: 0 } }, emoji: false, image: true },
+    { element: { type: 'face', data: { faceId: 14, subType: 1 } }, emoji: false, image: false },
+    { element: { type: 'face', data: { faceId: 128522, subType: 1 } }, emoji: false, image: false },
+    { element: { type: 'emojiBounce', data: { emojiBounceId: 14 } }, emoji: false, image: false },
+    { element: { type: 'text', data: { textContent: '😊' } }, emoji: false, image: false },
+  ];
+  for (const { element, emoji, image } of fixtures) {
+    const row = { ...message, elements: [element as RenderElement] };
+    expect(matchesMessageFilter(row, { category: 'emoji' }), element.type).toBe(emoji);
+    expect(matchesMessageFilter(row, { recordType: 'emoji' }), element.type).toBe(emoji);
+    expect(matchesMessageFilter(row, { category: 'image' }), element.type).toBe(image);
+    expect(matchesMessageFilter(row, { recordType: 'media' }), element.type).toBe(image);
+  }
+});
+
+it('会话分类区分转发记录、其他卡片和纯文本', () => {
+  const categorize = (elements: RenderElement[], recordType: 'forward' | 'linkCard' | 'other') =>
+    matchesMessageFilter({ ...message, elements }, { recordType });
   const ark = (app: string): RenderElement => ({
     type: 'ark',
     data: { arkData: JSON.stringify({ app }) },

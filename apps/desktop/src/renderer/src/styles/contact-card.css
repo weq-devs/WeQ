@@ -544,14 +544,19 @@ html[data-theme='dark'] .weq-contact-card {
   gap: 6px;
   min-height: 32px;
   padding: 0 14px;
-  border: 1px solid var(--weq-border-subtle);
+  border-width: 1px;
+  border-style: solid;
   border-radius: 6px;
-  background: transparent;
-  color: var(--weq-fg-secondary);
   cursor: pointer;
 }
 
-.weq-contact-actions .weq-contact-secondary:hover {
+.weq-contact-actions .weq-contact-secondary:not(.weq-set-btn-primary) {
+  border-color: var(--weq-border-subtle);
+  background: transparent;
+  color: var(--weq-fg-secondary);
+}
+
+.weq-contact-actions .weq-contact-secondary:not(.weq-set-btn-primary):hover {
   border-color: color-mix(in srgb, var(--weq-accent-effective) 40%, transparent);
   color: var(--weq-accent-effective);
 }

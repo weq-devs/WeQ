@@ -23,6 +23,8 @@ import {
   parseEnhancementCatalogForHost,
 } from '../src/shared/enhancement_release';
 import { backgroundTasks } from '../src/main/background_tasks';
+import { taskArchiveStore } from '../src/main/task_archive';
+import { backgroundResult, isTaskArchived } from '../src/shared/task_archive';
 import { watchTaskPage } from '../src/main/task_page';
 import {
   enhancementDownloadTask,
@@ -1191,13 +1193,23 @@ it.each([false, true])(
     expect(backgroundTasks.snapshot()).toEqual([]);
   },
 );
-it('自动安装已安装的更新，登记任务，未安装或明确删除的包不自动安装', async () => {
+it('自动安装已安装的更新，成功后归档，未安装或明确删除的包不自动安装', async () => {
   const f = await fixture();
+  const directory = join(f.root, 'enhancements');
+  restoreEnhancementTasks(f.packs, directory, f.root);
   f.config.setSettings({ enhancementUpdates: { autoUpdatePacks: ['dress'] } });
   await f.controller.check(['dress'], true);
   await f.packs.wait();
   expect(f.ensure).toHaveBeenCalledTimes(1);
   expect(backgroundTasks.snapshot()).toMatchObject([{ name: '装扮', automaticUpdate: true }]);
+  const store = taskArchiveStore(f.root);
+  await vi.waitFor(() => {
+    const task = backgroundTasks.snapshot()[0]!;
+    expect(task.status).toBe('completed');
+    expect(isTaskArchived(store.get(`background:host:${task.id}`), backgroundResult(task))).toBe(
+      true,
+    );
+  });
   const empty = await fixture(false);
   empty.config.setSettings({ enhancementUpdates: { autoUpdatePacks: ['dress'] } });
   await empty.controller.check(['dress'], true);

@@ -6,10 +6,12 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { ExportCheckpoint } from './export/checkpoint';
 import type { AccountSession } from '@weq/account';
 import {
   AgentLabStore,
@@ -1139,6 +1141,7 @@ export class AgentLabService extends EventEmitter {
         embeddingEndpoint,
         history,
         historyScope: JSON.stringify(['group', groupId, member.memberId]),
+        conversationKind: 'group',
         input: inputText,
         now: Date.now(),
         relationNote,
@@ -2118,12 +2121,12 @@ export class AgentLabService extends EventEmitter {
     return true;
   }
 
-  async buildFromC2c(input: BuildFromC2cInput): Promise<AgentLabPersona> {
-    return this.executeBuild(input);
+  async buildFromC2c(input: BuildFromC2cInput, taskId?: string): Promise<AgentLabPersona> {
+    return this.executeBuild(input, undefined, taskId);
   }
 
   /** 原位重训，只替换训练产物，保留用户配置和独立存储的聊天、记忆及群聊关系。 */
-  async refreshFromC2c(personaId: string): Promise<AgentLabPersona> {
+  async refreshFromC2c(personaId: string, taskId?: string): Promise<AgentLabPersona> {
     const previous = this.store.getPersona(personaId)?.persona;
     if (!previous) throw new Error('克隆体已不存在');
     if (previous.sourceKind !== 'c2c') throw new Error('仅支持更新好友克隆');
@@ -2140,23 +2143,27 @@ export class AgentLabService extends EventEmitter {
         mode: previous.training?.mode ?? 'private',
       },
       previous,
+      taskId,
     );
   }
 
   private async executeBuild(
     input: BuildFromC2cInput,
     previous?: AgentLabPersona,
+    taskId?: string,
   ): Promise<AgentLabPersona> {
     if (this.closed) throw new Error('账号已关闭，无法创建或更新克隆体');
     if (this.buildingPersonas.has(input.personaId)) throw new Error('该克隆体正在创建或更新中');
-    this.buildingPersonas.add(input.personaId);
     const controller = new AbortController();
+    const checkpoint = taskId ? this.buildCheckpoint(taskId, controller.signal) : undefined;
+    this.buildingPersonas.add(input.personaId);
     this.buildControllers.set(input.personaId, controller);
-    const pending = this.runBuild(input, previous);
+    const pending = this.runBuild(input, previous, checkpoint);
     this.buildPromises.add(pending);
     this.buildsByPersona.set(input.personaId, pending);
     try {
       const persona = await pending;
+      if (taskId) this.forgetBuildCheckpoint(taskId);
       this.emitProgress(input.personaId, '完成', 100, { done: true });
       return persona;
     } catch (error) {
@@ -2176,9 +2183,25 @@ export class AgentLabService extends EventEmitter {
     }
   }
 
+  private buildCheckpoint(taskId: string, signal?: AbortSignal) {
+    if (!/^[a-f0-9-]{36}$/i.test(taskId)) throw new Error('克隆构建任务标识无效。');
+    return new ExportCheckpoint(join(this.rootDir, 'build-resume', taskId), signal);
+  }
+
+  forgetBuildCheckpoint(taskId: string) {
+    try {
+      rmSync(this.buildCheckpoint(taskId).directory, { recursive: true, force: true });
+    } catch (error) {
+      this.logger.warn('克隆构建临时文件清理失败', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async runBuild(
     input: BuildFromC2cInput,
     previous?: AgentLabPersona,
+    checkpoint?: ExportCheckpoint,
   ): Promise<AgentLabPersona> {
     this.emitProgress(input.personaId, '准备中', 2);
     const usageCtx = { personaId: input.personaId, scope: 'build' as const };
@@ -2186,6 +2209,11 @@ export class AgentLabService extends EventEmitter {
     const embeddingEndpoint = input.models.embedding
       ? this.resolveWithUsage(input.models.embedding, 'embedding', usageCtx)
       : null;
+    const definition = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+    const step = <T>(key: unknown, run: () => Promise<T>) =>
+      checkpoint ? checkpoint.run(['clone-build-v1', definition, key], run) : run();
+    const modelStep = <T>(name: string, version: string, run: () => Promise<T>) =>
+      step([name, chatEndpoint.modelIdentity ?? chatEndpoint.model, version], run);
     const selfUin = this.session.context.uin;
     const selfProfile = await this.session.profileInfo.getProfileByUin(BigInt(selfUin));
     const peerProfile = await this.session.profileInfo.getProfile(input.targetUid);
@@ -2200,9 +2228,8 @@ export class AgentLabService extends EventEmitter {
 
     // 1) 私聊语料（翻页拉取，受总消息上限约束；capHit 供后面的语音兜底判断）。
     this.emitProgress(input.personaId, '拉取聊天记录', 8);
-    const { msgs: rawMsgs, capHit } = await this.collectC2cMessages(
-      part,
-      input.limit ?? C2C_CORPUS_CAP,
+    const { msgs: rawMsgs, capHit } = await step('私聊语料', () =>
+      this.collectC2cMessages(part, input.limit ?? C2C_CORPUS_CAP),
     );
     chatEndpoint.signal?.throwIfAborted();
 
@@ -2240,7 +2267,9 @@ export class AgentLabService extends EventEmitter {
       this.emitProgress(input.personaId, '私聊语料不足，群里补采风格', 50);
     }
     const groupStyleMessages = needGroup
-      ? await this.collectGroupStyleMessages(input.targetUid, input.personaId, chatEndpoint.signal)
+      ? await step('群聊语料', () =>
+          this.collectGroupStyleMessages(input.targetUid, input.personaId, chatEndpoint.signal),
+        )
       : [];
 
     // 语音参考兜底（group 模式）：语音不分私聊/群聊、一视同仁——只要还没攒够参考音频就继续补。
@@ -2273,11 +2302,8 @@ export class AgentLabService extends EventEmitter {
     if (input.autoName && artifacts.corpusText.trim()) {
       this.emitProgress(input.personaId, '让克隆体自己起名', 60);
       try {
-        const suggested = await suggestPersonaName(
-          chatEndpoint,
-          peerName,
-          artifacts.stats,
-          artifacts.corpusText,
+        const suggested = await modelStep('训练名', hashKey(artifacts.corpusText), () =>
+          suggestPersonaName(chatEndpoint, peerName, artifacts.stats, artifacts.corpusText),
         );
         if (suggested) trainingName = suggested.slice(0, 20);
       } catch {
@@ -2319,6 +2345,9 @@ export class AgentLabService extends EventEmitter {
     let expressions: AgentLabExpression[] = [];
     let styleVariants: string[] = [];
     if (artifacts.corpusText.trim()) {
+      const version = hashKey(
+        JSON.stringify([trainingName, artifacts.turns, artifacts.corpusText]),
+      );
       const extraction = new AbortController();
       const endpoint = {
         ...chatEndpoint,
@@ -2332,20 +2361,30 @@ export class AgentLabService extends EventEmitter {
         // card / fewShots / expressions / styleVariants 用「最近优先」的 corpusText 一次性提；
         // deep 用全量历史 map-reduce（分块提取 + 合并），更全且不丢早期信息。
         const critical = [
-          extractPersonaCard(endpoint, trainingName, artifacts.stats, artifacts.corpusText),
-          extractFewShots(endpoint, trainingName, artifacts.stats, artifacts.corpusText),
+          modelStep('画像', version, () =>
+            extractPersonaCard(endpoint, trainingName, artifacts.stats, artifacts.corpusText),
+          ),
+          modelStep('问答示例', version, () =>
+            extractFewShots(endpoint, trainingName, artifacts.stats, artifacts.corpusText),
+          ),
         ] as const;
         work = [...critical];
         const [card, shots] = await Promise.all(critical);
         endpoint.signal.throwIfAborted();
         const optional = [
-          extractExpressions(endpoint, trainingName, artifacts.stats, artifacts.corpusText),
-          extractStyleVariants(endpoint, trainingName, artifacts.stats, artifacts.corpusText),
-          this.extractDeepProfileMapReduce(
-            endpoint,
-            trainingName,
-            artifacts.turns,
-            input.personaId,
+          modelStep('常用表达', version, () =>
+            extractExpressions(endpoint, trainingName, artifacts.stats, artifacts.corpusText),
+          ),
+          modelStep('说话风格', version, () =>
+            extractStyleVariants(endpoint, trainingName, artifacts.stats, artifacts.corpusText),
+          ),
+          modelStep('深入画像', version, () =>
+            this.extractDeepProfileMapReduce(
+              endpoint,
+              trainingName,
+              artifacts.turns,
+              input.personaId,
+            ),
           ),
         ] as const;
         work = [...optional];
@@ -2379,9 +2418,11 @@ export class AgentLabService extends EventEmitter {
     if (pairs.length > 0 && embeddingEndpoint) {
       this.emitProgress(input.personaId, '构建向量索引', 80);
       try {
-        const vectors = await embedTexts(
-          embeddingEndpoint,
-          pairs.map((pair) => `${pair.prompt}\n${pair.reply}`),
+        const inputs = pairs.map((pair) => `${pair.prompt}\n${pair.reply}`);
+        const hash = createHash('sha256').update(JSON.stringify(inputs)).digest('hex');
+        const vectors = await step(
+          ['向量', embeddingEndpoint.modelIdentity ?? embeddingEndpoint.model, hash],
+          () => embedTexts(embeddingEndpoint, inputs),
         );
         pairs.forEach((pair, index) => {
           pair.embedding = vectors[index];
@@ -2408,7 +2449,9 @@ export class AgentLabService extends EventEmitter {
     let scenarioSummary = '';
     if (voiceWindows.length > 0) {
       try {
-        scenarioSummary = await summarizeVoiceScenario(chatEndpoint, trainingName, voiceWindows);
+        scenarioSummary = await modelStep('语音场景', hashKey(JSON.stringify(voiceWindows)), () =>
+          summarizeVoiceScenario(chatEndpoint, trainingName, voiceWindows),
+        );
       } catch {
         // 语音场景总结失败不阻断克隆。
       }

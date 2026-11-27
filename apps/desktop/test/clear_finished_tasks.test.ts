@@ -3,10 +3,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { backgroundTasks } from '../src/main/background_tasks';
+import { archiveCompletedTask, backgroundTasks } from '../src/main/background_tasks';
 import { taskArchiveRouter } from '../src/main/ipc/routers/task_archive';
 import { TaskArchiveStore } from '../src/main/task_archive';
+import type { BackgroundTask } from '../src/shared/background_task';
 import { exportTaskResult } from '../src/shared/export_task_result';
+import { backgroundResult, isTaskArchived } from '../src/shared/task_archive';
 
 const fixture = vi.hoisted(() => ({
   root: '',
@@ -29,7 +31,7 @@ const fixture = vi.hoisted(() => ({
     task.status = 'pending';
     return true;
   }),
-  roaming: [{ id: 'check', status: 'paused', updatedAt: 2 }],
+  roaming: [{ id: 'check', status: 'paused', updatedAt: 2, targets: [] as object[], observed: 0 }],
   startRoaming: vi.fn(),
   flash: [{ id: 'download', status: 'failed', interrupted: true, canRetry: true, finishedAt: 2 }],
   retryFlash: vi.fn((_id: string, _options?: { background?: boolean }) => Promise.resolve(true)),
@@ -137,6 +139,94 @@ it('迁移旧归档后，活动订阅只发变更摘要，明细仍可按结果�
     expect(reopened.get('export:file')?.result).toBe('completed:saved:1');
   } finally {
     subscription.unsubscribe();
+  }
+});
+
+it('完成后立即归档的应用回执跨数据源共享，账号回执只在原数据源显示', async () => {
+  const model = backgroundTasks.start({ kind: 'model', name: '模型', foreground: true });
+  const original = backgroundTasks.start({
+    kind: 'resource',
+    name: '原图',
+    scope: { uin: binding.expectedAccountUin, configId: binding.expectedAccountConfigId },
+  });
+  const next = vi.fn();
+  const before = await caller.summaries(binding);
+  const subscription = (await caller.changes(binding)).subscribe({ next });
+  try {
+    archiveCompletedTask(fixture.root, model);
+    expect(await caller.list(binding)).toEqual({});
+    backgroundTasks.finish(model, 'completed', { details: ['模型已可用'] });
+    backgroundTasks.finish(original, 'completed');
+    archiveCompletedTask(fixture.root, model);
+    archiveCompletedTask(fixture.root, original);
+    const modelRow = backgroundTasks.snapshot().find((task) => task.id === model)!;
+    const modelRef = { id: `background:host:${model}`, result: backgroundResult(modelRow) };
+    const originalKey = `background:host:${original}`;
+    expect(next.mock.calls.map(([event]) => event.revision)).toEqual([
+      before.revision,
+      before.revision + 1,
+      before.revision + 2,
+    ]);
+    expect((await caller.list(binding))[originalKey]?.archivedAt).toEqual(expect.any(Number));
+    fixture.configId = 'other-source';
+    const other = { ...binding, expectedAccountConfigId: fixture.configId };
+    const otherEntries = await caller.list(other);
+    expect(Object.keys(otherEntries)).toEqual([modelRef.id]);
+    expect(isTaskArchived(otherEntries[modelRef.id], modelRef.result)).toBe(true);
+    expect((await caller.change({ ...other, action: 'restore', tasks: [modelRef] })).changed).toBe(
+      1,
+    );
+    fixture.configId = binding.expectedAccountConfigId;
+    archiveCompletedTask(fixture.root, model);
+    expect((await caller.list(binding))[modelRef.id]).toMatchObject({ restored: true });
+    expect((await change('archive', modelRef)).changed).toBe(1);
+    backgroundTasks.remove(model);
+    expect(await caller.detail({ ...binding, ...modelRef })).toMatchObject({
+      details: ['模型已可用'],
+    });
+    expect(await caller.remove({ ...binding, task: modelRef })).toBe(true);
+    expect((await caller.list(binding))[modelRef.id]).toMatchObject({ deleted: true });
+  } finally {
+    subscription.unsubscribe();
+    backgroundTasks.remove(model);
+    backgroundTasks.remove(original);
+  }
+});
+
+it('仅完整且有结果的任务接受已读自动归档', async () => {
+  const tasks = [
+    { kind: 'album-upload', groupAlbum: { groupCode: '123', albumId: 'album' } },
+    { kind: 'favorite-import' },
+    { kind: 'calendar' },
+    { kind: 'album-upload' },
+    { kind: 'favorite-import', needsConfirmation: true },
+    { kind: 'calendar', subtasks: [{ label: '日期', done: 1, total: 2, failed: 1 }] },
+    { kind: 'update' },
+  ] satisfies Pick<BackgroundTask, 'kind' | 'groupAlbum' | 'needsConfirmation' | 'subtasks'>[];
+  const ids = tasks.map((task) => backgroundTasks.start({ ...task, name: task.kind }));
+  const jobs = [
+    { id: 'single', status: 'completed', targets: [{}], observed: 1, updatedAt: 1 },
+    { id: 'empty', status: 'completed', targets: [{}], observed: 0, updatedAt: 1 },
+    { id: 'batch', status: 'completed', targets: [{}, {}], observed: 1, updatedAt: 1 },
+    { id: 'partial', status: 'partial', targets: [{}], observed: 1, updatedAt: 1 },
+  ];
+  fixture.roaming.push(...jobs);
+  try {
+    for (const id of ids) backgroundTasks.finish(id, 'completed');
+    const refs = ids.map((id) => ({
+      id: `background:host:${id}`,
+      result: backgroundResult(backgroundTasks.snapshot().find((task) => task.id === id)!),
+    }));
+    const roaming = jobs.map(({ id, status }) => ({ id: `roaming:${id}`, result: `${status}:1` }));
+    expect(await caller.list(binding)).toEqual({});
+    expect((await change('auto', ...refs, ...roaming)).changed).toBe(4);
+    expect(Object.keys(await caller.list(binding))).toEqual([
+      ...refs.slice(0, 3).map(({ id }) => id),
+      roaming[0]!.id,
+    ]);
+  } finally {
+    for (const id of ids) backgroundTasks.remove(id);
+    fixture.roaming.splice(1);
   }
 });
 

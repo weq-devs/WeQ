@@ -9,6 +9,13 @@ import { usePrivacyStore } from '../../state/privacy';
 import { FormSelect } from '../FormSelect';
 import { BackupDisclosure, BackupExportOptions } from './BackupExportOptions';
 import { backupClientId } from '../../lib/backupClientRestore';
+import {
+  forgetUpload,
+  readUploadReceipt,
+  rememberUpload,
+  sameUploadFile,
+  uploadPrefixHash,
+} from '../../lib/uploadContinuation';
 import { useToast } from '../Toast.shared';
 import { Card, SectionHeader } from './controls';
 import { BeforeLoginSettingsContext } from './controls.shared';
@@ -47,7 +54,7 @@ function downloadClient() {
   }
 }
 
-function openBackupDownload(url: string) {
+function openBackupDownload(document: Document, url: string) {
   const link = document.createElement('a');
   link.href = url;
   link.download = '';
@@ -135,6 +142,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   const [error, setError] = useState<string | null>(null);
   const acting = useRef(false);
   const sourceId = useRef<string | null>(null);
+  const [backupUploadFile, setBackupUploadFile] = useState<File | null>(null);
   const generation = useRef(0);
   const alive = useRef(true);
   const input = useRef<HTMLInputElement>(null);
@@ -243,41 +251,74 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   async function upload(file: File): Promise<Source> {
     if (!inventory || file.size < 1 || file.size > inventory.maxArchiveBytes)
       throw new Error('请选择不超过 260 MiB 的非空 WeQ 备份');
-    const id = await api.begin(file.name, file.size);
-    sourceId.current = id;
+    const uploadClient = downloadClient();
+    const uploadKey = `weq-backup-transfer-v1:${inventory.activeConfigId ?? ''}`;
+    const stored = uploadClient ? readUploadReceipt(uploadKey) : undefined;
+    const current = () => {
+      if (!alive.current) throw new Error('备份上传已停止');
+    };
+    let resumed: Awaited<ReturnType<BackupApi['resumeUpload']>> = null;
+    if (stored && uploadClient) {
+      if (sameUploadFile(stored, file)) {
+        resumed = await api.resumeUpload(stored.id, uploadClient);
+        if (
+          resumed &&
+          (resumed.size !== file.size ||
+            resumed.prefixHash !== (await uploadPrefixHash(file, resumed.offset, current)))
+        ) {
+          await api.discardUpload(stored.id, uploadClient);
+          resumed = null;
+        }
+      } else {
+        await api.discardUpload(stored.id, uploadClient);
+      }
+    }
+    current();
+    const id = resumed?.id ?? (await api.begin(file.name, file.size, uploadClient));
+    if (uploadClient) rememberUpload(uploadKey, id, file);
+    else sourceId.current = id;
     try {
-      for (let offset = 0; offset < file.size; offset += inventory.chunkBytes) {
-        if (!alive.current) throw new Error('备份上传已取消');
+      for (let offset = resumed?.offset ?? 0; offset < file.size; ) {
+        current();
         const bytes = new Uint8Array(
           await file.slice(offset, offset + inventory.chunkBytes).arrayBuffer(),
         );
-        if (!alive.current) throw new Error('备份上传已取消');
+        current();
         let binary = '';
         for (const byte of bytes) binary += String.fromCharCode(byte);
-        await api.chunk(id, offset, btoa(binary));
-        if (alive.current)
-          setBusy(
-            `正在上传 ${Math.min(100, Math.round(((offset + bytes.length) / file.size) * 100))}%`,
-          );
+        const next = await api.chunk(id, offset, btoa(binary), uploadClient);
+        if (next !== offset + bytes.length) throw new Error('宿主备份上传偏移不一致。');
+        offset = next;
+        if (alive.current) setBusy(`正在上传 ${Math.round((offset / file.size) * 100)}%`);
       }
-      if (!alive.current) throw new Error('备份上传已取消');
+      current();
       setBusy('正在校验备份内容');
-      return await api.finish(id);
+      const source = await api.finish(id, uploadClient, file.name);
+      if (uploadClient) forgetUpload(uploadKey);
+      if (alive.current) setBackupUploadFile(null);
+      return source;
     } finally {
-      if (sourceId.current === id) sourceId.current = null;
-      await api.dispose(id).catch(() => {});
+      if (!uploadClient) {
+        if (sourceId.current === id) sourceId.current = null;
+        await api.dispose(id).catch(() => {});
+      }
     }
   }
 
   async function exportBackup(selection: WeqSelectiveBackup) {
     await settlePreferenceWrites();
-    const out = await api.export({
-      selection,
-      client: selection.sections.includes('layout') ? snapshotWeqClientLayout(localStorage) : {},
-      downloadClient: downloadClient(),
-    });
+    const out = await api
+      .export({
+        selection,
+        client: selection.sections.includes('layout') ? snapshotWeqClientLayout(localStorage) : {},
+        downloadClient: downloadClient(),
+      })
+      .catch((error: unknown) => {
+        void refresh().catch(() => undefined);
+        throw error;
+      });
     if (!out || !alive.current) return false;
-    if (out.downloadUrl) openBackupDownload(out.downloadUrl);
+    if (out.downloadUrl) openBackupDownload(document, out.downloadUrl);
     setDownloadUrl(out.downloadUrl);
     setExportMessage(out.downloadUrl ? '备份已生成。' : `已保存到 ${out.path}`);
     toast({
@@ -293,7 +334,18 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
     const clientId = downloadClient();
     if (!clientId) throw new Error('此浏览器没有保留下载记录。');
     const result = await api.download(clientId);
-    if (alive.current) openBackupDownload(result.url);
+    if (alive.current) openBackupDownload(document, result.url);
+  }
+
+  async function resumeBackupExport() {
+    const clientId = downloadClient();
+    if (!clientId) throw new Error('此设备没有保留备份生成记录。');
+    const result = await api.resumeExport(clientId);
+    if (!alive.current) return;
+    if (result.downloadUrl) openBackupDownload(document, result.downloadUrl);
+    setDownloadUrl(result.downloadUrl);
+    setExportMessage(result.downloadUrl ? '备份已生成。' : `已保存到 ${result.path}`);
+    await refresh();
   }
 
   async function refreshImport(nextMap: Record<string, string>, activate: boolean) {
@@ -467,8 +519,10 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           onChange={(e) => {
             const file = e.target.files?.[0];
             e.target.value = '';
-            if (file && !importBlocked)
+            if (file && !importBlocked) {
+              setBackupUploadFile(file);
               void act('正在读取备份', () => prepareImport(() => upload(file)));
+            }
           }}
         />
         <div className="weq-backup-actions weq-backup-file-actions">
@@ -498,6 +552,27 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           </button>
         </div>
         <p className="weq-set-note">选择要保存的设置和数据，生成一份可在 WeQ 导入的 ZIP。</p>
+        {inventory?.interruptedExport ? (
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft"
+            disabled={Boolean(busy)}
+            onClick={() => void act('正在继续生成备份', resumeBackupExport)}
+          >
+            继续生成备份
+          </button>
+        ) : null}
+        {backupUploadFile && !busy ? (
+          <button
+            type="button"
+            className="weq-set-btn weq-set-btn-soft"
+            onClick={() =>
+              void act('正在继续上传', () => prepareImport(() => upload(backupUploadFile)))
+            }
+          >
+            继续上传备份
+          </button>
+        ) : null}
         {exportMessage || inventory?.previousDownload ? (
           <p className="weq-set-note" role="status">
             {exportMessage ?? '备份已生成。'}{' '}

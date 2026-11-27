@@ -1,3 +1,9 @@
+import { menuPreferenceDefaults, menuPreferenceValidators } from './menu_preferences';
+export {
+  DEFAULT_FORWARD_OPTIONS,
+  validForwardOptions,
+  type ForwardOptions,
+} from './menu_preferences';
 import {
   DEFAULT_SEARCH_CATEGORIES,
   SEARCH_SOURCES,
@@ -28,6 +34,7 @@ export const CHAT_JUMP_MODE_KEYS = [
 
 export const preferenceDefaults = {
   ...dataSaverBehaviorDefaults,
+  ...menuPreferenceDefaults,
   dataSaverMode: 'auto' as import('./data_saver').DataSaverMode,
   autoDownloadPreviewOriginal: false,
   contactOrder: {} as Record<string, unknown>,
@@ -177,7 +184,9 @@ export function validatePreferencePatch(value: unknown): asserts value is Prefer
   if (!isRecord(value)) throw new Error('偏好必须是对象');
   for (const [key, entry] of Object.entries(value)) {
     let valid = false;
-    if (key === 'dataSaverMode') valid = ['auto', 'always', 'never'].includes(String(entry));
+    if (Object.hasOwn(menuPreferenceValidators, key))
+      valid = menuPreferenceValidators[key as keyof typeof menuPreferenceValidators](entry);
+    else if (key === 'dataSaverMode') valid = ['auto', 'always', 'never'].includes(String(entry));
     else if (key === 'dataSaverImageLoading')
       valid = ['none', 'thumbnail', 'original'].includes(String(entry));
     else if (key === 'dataSaverLargeMiB')

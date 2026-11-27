@@ -92,6 +92,13 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+function markCoversLoaded() {
+  return act(async () => {
+    for (const image of host.querySelectorAll('.weq-qzn-video-open img'))
+      image.dispatchEvent(new Event('load'));
+  });
+}
+
 describe('空间实况展示', () => {
   it('补齐同一张照片时保留已加载缩略图，原缩略图失效时才切源', async () => {
     const thumbnailUrl = 'https://a1.qpic.cn/psc?/album/photo.one!/c&ek=1';
@@ -110,27 +117,33 @@ describe('空间实况展示', () => {
     await act(async () => thumbnail.dispatchEvent(new Event('error')));
     expect(host.querySelector('img')?.src).toBe(originalUrl);
   });
-  it('省流量暂缓图片后保留占位和预览入口，而不是替换成不可点击的错误文本', async () => {
+  it('省流量缺图点击原位加载，失败在同一入口重试，显示后再打开预览', async () => {
     const policy = useDataSaver.getState();
     useDataSaver.setState({ enabled: true });
     try {
       await act(async () =>
         root.render(h(QzoneMediaGrid, { images: ['https://a.qpic.cn/still.jpg'] })),
       );
-      const thumbnail = host.querySelector('img')!;
-      await act(async () => thumbnail.dispatchEvent(new Event('error')));
-      expect(thumbnail.style.opacity).toBe('0');
-      expect(host.querySelector('.weq-shimmer-block')).toBeNull();
-      expect(host.querySelector('.weq-image-placeholder')?.getAttribute('aria-label')).toBe(
-        '空间图片 1未加载（省流量模式）',
-      );
-      const open = host.querySelector<HTMLButtonElement>('[aria-label="查看空间图片 1"]')!;
-      expect(open.disabled).toBe(false);
-      await act(async () => open.click());
+      const tile = host.querySelector<HTMLButtonElement>('.weq-qzn-picture')!;
+      const emit = (event: string) =>
+        act(async () => tile.querySelector('img')!.dispatchEvent(new Event(event)));
+      await emit('error');
+      expect(tile.getAttribute('aria-label')).toBe('加载空间图片 1');
+      await act(async () => tile.click());
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(tile.getAttribute('aria-busy')).toBe('true');
+      await emit('error');
+      expect(tile.getAttribute('aria-label')).toBe('重试加载空间图片 1');
+      expect(host.querySelectorAll('button')).toHaveLength(1);
+      await act(async () => tile.click());
+      await emit('load');
+      expect(tile.querySelector('img')?.style.opacity).not.toBe('0');
+      await act(async () => tile.click());
       expect(document.querySelector('.weq-lightbox-stage img')).not.toBeNull();
       await act(async () =>
         document.querySelector<HTMLButtonElement>('[aria-label="关闭预览"]')!.click(),
       );
+      expect(tile.querySelector('img')?.style.opacity).not.toBe('0');
     } finally {
       await act(async () => useDataSaver.setState(policy));
     }
@@ -152,6 +165,7 @@ describe('空间实况展示', () => {
     expect(player.controls).toBe(false);
     expect(player.play).toHaveBeenCalled();
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+    await markCoversLoaded();
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="查看空间实况照片 1"]')!.click(),
     );
@@ -196,6 +210,7 @@ describe('空间实况展示', () => {
       { videoId: 'normal', isLivePhoto: false },
     ]);
     await act(async () => root.render(h(QzoneMediaGrid, { images: [], videos, target })));
+    await markCoversLoaded();
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="查看空间实况照片 1"]')!.click(),
     );
@@ -235,6 +250,7 @@ describe('空间实况展示', () => {
       }),
     );
     await act(async () => root.render(h(QzoneMediaGrid, { images: [], videos, target })));
+    await markCoversLoaded();
     expect(host.querySelectorAll('img')).toHaveLength(2);
     expect(host.querySelector('.weq-qzn-video-play')).toBeNull();
     await act(async () =>
@@ -261,6 +277,7 @@ describe('空间实况展示', () => {
         .querySelector('.weq-qzn-pictures')!
         .firstElementChild?.classList.contains('weq-qzn-video'),
     ).toBe(true);
+    await markCoversLoaded();
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="查看空间实况照片 1"]')!.click(),
     );
@@ -269,6 +286,7 @@ describe('空间实况展示', () => {
   it('页面收到视频上的 Esc 时，即使冒泡被截断也能关闭最上层预览', async () => {
     mocks.query.mockResolvedValue([{ videoId: 'normal', isLivePhoto: false }]);
     await act(async () => root.render(h(QzoneMediaGrid, { images: [], videos: [videos[1]!] })));
+    await markCoversLoaded();
     await act(async () => host.querySelector<HTMLButtonElement>('.weq-qzn-video-open')!.click());
     const player = document.querySelector('video')!;
     player.tabIndex = 0;
@@ -281,6 +299,7 @@ describe('空间实况展示', () => {
   });
   it('原生播放器通过指针取得焦点后立即归还预览，不留下媒体焦点框', async () => {
     await act(async () => root.render(h(QzoneMediaGrid, { images: [], videos: [videos[1]!] })));
+    await markCoversLoaded();
     await act(async () => host.querySelector<HTMLButtonElement>('.weq-qzn-video-open')!.click());
     const player = document.querySelector('video')!;
     player.tabIndex = 0;
@@ -296,6 +315,7 @@ describe('空间实况展示', () => {
   });
   it('键盘进入播放器时保留原生控件焦点', async () => {
     await act(async () => root.render(h(QzoneMediaGrid, { images: [], videos: [videos[1]!] })));
+    await markCoversLoaded();
     await act(async () => host.querySelector<HTMLButtonElement>('.weq-qzn-video-open')!.click());
     const player = document.querySelector('video')!;
     player.tabIndex = 0;
@@ -327,6 +347,7 @@ describe('空间实况展示', () => {
       host.querySelector<HTMLButtonElement>('[aria-label="重试播放实况照片"]')!.click(),
     );
     expect(play).toHaveBeenCalledTimes(2);
+    await markCoversLoaded();
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="查看空间实况照片 1"]')!.click(),
     );
@@ -343,6 +364,7 @@ describe('空间实况展示', () => {
     expect(host.querySelector('video')?.getAttribute('src')).toBe(
       'https://photovideo.photo.qq.com/live.mp4',
     );
+    await markCoversLoaded();
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[aria-label="查看空间实况照片 1"]')!.click(),
     );
@@ -352,6 +374,7 @@ describe('空间实况展示', () => {
   });
   it('上层对话框存在时 Esc 不会穿透关闭预览', async () => {
     await act(async () => root.render(h(QzoneMediaGrid, { images: [], videos: [videos[1]!] })));
+    await markCoversLoaded();
     await act(async () => host.querySelector<HTMLButtonElement>('.weq-qzn-video-open')!.click());
     const top = document.createElement('div');
     top.setAttribute('role', 'dialog');

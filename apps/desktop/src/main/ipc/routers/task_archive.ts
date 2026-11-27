@@ -2,7 +2,7 @@ import { observable } from '@trpc/server/observable';
 import { z } from 'zod/v3';
 import { backgroundTasks } from '../../background_tasks';
 import { getAppContext, requirePlatform } from '../../context/app_context';
-import { taskArchiveStore } from '../../task_archive';
+import { storedTaskSnapshot, TaskArchiveView } from '../../task_archive';
 import { backgroundTaskVisible, type BackgroundTask } from '../../../shared/background_task';
 import { exportTaskResult } from '../../../shared/export_task_result';
 import {
@@ -101,7 +101,7 @@ function scopedArchive(input: Binding) {
   return {
     services,
     scope: { uin: input.expectedAccountUin, configId: input.expectedAccountConfigId },
-    store: taskArchiveStore(requirePlatform().appDataRoot(), input.expectedAccountConfigId),
+    store: new TaskArchiveView(requirePlatform().appDataRoot(), input.expectedAccountConfigId),
   };
 }
 
@@ -149,7 +149,7 @@ function resolveTarget(
     return (
       job && {
         result: roamingResult(job),
-        manual: roamingArchivePolicy(job.status),
+        ...roamingArchivePolicy(job),
         resume:
           job.status === 'paused'
             ? () => {
@@ -186,7 +186,11 @@ function resolveTarget(
   if (ref.id.startsWith('background:host:')) {
     const task = backgroundTasks.snapshot().find((row) => row.id === identity[1]);
     if (task) {
-      if ((task.kind === 'update' && web) || task.foreground || !backgroundTaskVisible(task, scope))
+      if (
+        (task.kind === 'update' && web) ||
+        (task.foreground && (!saved || backgroundResult(saved) !== ref.result)) ||
+        !backgroundTaskVisible(task, scope)
+      )
         return undefined;
       const resume = backgroundResumeAction(task);
       return {
@@ -214,20 +218,6 @@ function resolveTarget(
     snapshot: task,
     needsConfirmation: task.needsConfirmation,
   };
-}
-
-function storedSnapshot(task: BackgroundTask | undefined): BackgroundTask | undefined {
-  return (
-    task && {
-      ...task,
-      actions: [],
-      // 下载票据和临时窗口标识没有跨重启用途。
-      download: undefined,
-      ownerId: undefined,
-      logs: task.logs?.slice(-200),
-      details: task.details?.slice(0, 2000),
-    }
-  );
 }
 
 async function prepare(input: Binding, refs: readonly TaskRef[]) {
@@ -259,12 +249,9 @@ export const taskArchiveRouter = router({
     }),
   changes: procedure.input(clientAccountBinding).subscription(({ input }) => {
     const { store } = scopedArchive(input);
-    return observable<TaskArchiveChange>((emit) => {
-      const version = store.version();
-      const unsubscribe = store.subscribe((change) => emit.next(change));
-      emit.next(version);
-      return unsubscribe;
-    });
+    return observable<TaskArchiveChange>((emit) =>
+      store.subscribe((change) => emit.next(change), true),
+    );
   }),
   changed: procedure.input(clientAccountBinding).subscription(({ input }) => {
     const { store } = scopedArchive(input);
@@ -283,7 +270,7 @@ export const taskArchiveRouter = router({
       const web = Boolean(ctx.authorize);
       const patch: Record<string, TaskArchiveEntry> = {};
       for (const ref of input.tasks) {
-        if (store.busy.has(ref.id)) continue;
+        if (store.storeFor(ref.id).busy.has(ref.id)) continue;
         const previous = store.get(ref.id);
         const sameResult = previous?.result === ref.result;
         if (input.action === 'restore') {
@@ -299,7 +286,7 @@ export const taskArchiveRouter = router({
             (previous?.snapshot && previous.snapshot.updatedAt >= snapshot.updatedAt)
           )
             continue;
-          patch[ref.id] = { result: ref.result, snapshot: storedSnapshot(snapshot) };
+          patch[ref.id] = { result: ref.result, snapshot: storedTaskSnapshot(snapshot) };
           continue;
         }
         const target = resolveTarget(context, ref, web);
@@ -316,7 +303,7 @@ export const taskArchiveRouter = router({
               ...(sameResult ? previous : {}),
               result: ref.result,
               verified: true,
-              snapshot: storedSnapshot(target.snapshot),
+              snapshot: storedTaskSnapshot(target.snapshot),
             };
           continue;
         }
@@ -334,7 +321,7 @@ export const taskArchiveRouter = router({
           archivedAt: Date.now(),
           seen: input.action === 'auto' || (sameResult ? previous.seen : undefined),
           restored: undefined,
-          snapshot: storedSnapshot(target.snapshot),
+          snapshot: storedTaskSnapshot(target.snapshot),
         };
       }
       const delta = store.update(patch);
@@ -346,18 +333,19 @@ export const taskArchiveRouter = router({
       const ref = input.task;
       const context = await prepare(input, [ref]);
       const { store } = context;
-      if (store.busy.has(ref.id) || !isTaskArchived(store.get(ref.id), ref.result))
+      const { busy } = store.storeFor(ref.id);
+      if (busy.has(ref.id) || !isTaskArchived(store.get(ref.id), ref.result))
         return { resumed: false };
       const target = resolveTarget(context, ref, Boolean(ctx.authorize));
       if (!target?.manual || target.result !== ref.result || !target.resume)
         return { resumed: false };
       // 续作成功后才移除归档；等待业务接受续作时，防止同时恢复或删除同一条记录。
-      store.busy.add(ref.id);
+      busy.add(ref.id);
       try {
         if (!(await target.resume())) return { resumed: false };
         return { resumed: true, delta: store.update({ [ref.id]: null }) };
       } finally {
-        store.busy.delete(ref.id);
+        busy.delete(ref.id);
       }
     }),
   remove: procedure
@@ -366,28 +354,33 @@ export const taskArchiveRouter = router({
       const ref = input.task;
       const context = await prepare(input, [ref]);
       const { store } = context;
+      const { busy } = store.storeFor(ref.id);
       const previous = store.get(ref.id);
       if (
         !isTaskArchived(previous, ref.result) ||
-        store.busy.has(ref.id) ||
+        busy.has(ref.id) ||
         (ctx.authorize && previous?.snapshot?.kind === 'update')
       )
         return false;
       const target = resolveTarget(context, ref, Boolean(ctx.authorize));
       if (target && (!target.manual || target.result !== ref.result)) return false;
       // 同一条记录的恢复、归档、续作和删除不能交错。
-      store.busy.add(ref.id);
+      busy.add(ref.id);
       try {
         if (target?.remove && !(await target.remove())) return false;
         store.update({
           [ref.id]:
-            ref.id.startsWith('background:window:') || ref.id.startsWith('clone:')
+            ref.id.startsWith('background:window:') ||
+            ref.id.startsWith('clone:') ||
+            (ref.id.startsWith('background:host:') &&
+              previous?.snapshot &&
+              !previous.snapshot.scope)
               ? { result: ref.result, deleted: true }
               : null,
         });
         return true;
       } finally {
-        store.busy.delete(ref.id);
+        busy.delete(ref.id);
       }
     }),
 });

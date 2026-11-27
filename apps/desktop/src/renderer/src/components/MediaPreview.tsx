@@ -35,6 +35,7 @@ import {
   useRenderDocument,
 } from '../lib/renderDocument';
 import { mediaRetryUrl } from '../lib/mediaRetryUrl';
+import { notifyMediaCached } from '../lib/mediaCacheArrival';
 import { NotificationSourceProvider } from '../lib/notificationNavigation';
 import { notificationSource } from '../lib/notificationNavigation.shared';
 import { openMediaPreview } from './mediaPreviewStore.shared';
@@ -710,6 +711,7 @@ function MediaPreviewItemBody({
                   if (latestEvent.current !== eventKey) return;
                   recordImageSize(eventKey, event.currentTarget);
                   setStatus('ready');
+                  notifyMediaCached(event.currentTarget.ownerDocument, previewSrc);
                   measure();
                 }}
                 onError={() => {
@@ -741,6 +743,7 @@ function MediaPreviewItemBody({
                 draggable={false}
                 onLoad={(event) => {
                   if (originalRequest.phase !== 'download') return;
+                  notifyMediaCached(event.currentTarget.ownerDocument, originalRequest.url);
                   const { id } = originalRequest;
                   const update = (phase: OriginalImageRequest['phase']) =>
                     setRequest((current) => (current?.id === id ? { ...current, phase } : current));

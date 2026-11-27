@@ -1,7 +1,8 @@
+import { usePreferenceState } from '../../lib/clientPreferences';
 import { EmptyState } from '../../components/EmptyState';
 import { NumericText } from '../../components/NumericText';
 import { useMemo, useState } from 'react';
-import { StructuredExportControls, type StructuredExportOptions } from './StructuredExportControls';
+import { StructuredExportControls } from './StructuredExportControls';
 import { structuredExportOptions } from './StructuredExportControls.shared';
 import { Download, RefreshCw, Search, Sparkles, Users, MessagesSquare } from 'lucide-react';
 import type {
@@ -94,11 +95,9 @@ export function GeneratedExportPane({
       : {};
   });
   const [keyword, setKeyword] = useState('');
-  const [formats, setFormats] = useState(new Set<BackendFormat>(['json']));
-  const [structured, setStructured] = useState<StructuredExportOptions>({
-    profile: 'basic',
-    incrementalSupport: false,
-  });
+  const [savedFormats, setSavedFormats] = usePreferenceState('generatedExportFormats');
+  const formats = new Set(savedFormats);
+  const [structured, setStructured] = usePreferenceState('generatedExportDetails');
   const [busy, setBusy] = useState(false);
   const report = useExportReportDialog();
   const [error, setError] = useState('');
@@ -437,7 +436,9 @@ export function GeneratedExportPane({
         {error ? <p role="alert">{error}</p> : null}
         <StructuredExportControls
           domain="generatedParameters"
-          onRequireJson={() => setFormats((current) => new Set(current).add('json'))}
+          onRequireJson={() =>
+            setSavedFormats((current) => [...new Set([...current, 'json' as const])])
+          }
           options={structured}
           formats={[...formats]}
           disabled={busy}
@@ -448,7 +449,7 @@ export function GeneratedExportPane({
         <CheckPillGroup<BackendFormat>
           options={FORMATS.map((format) => ({ value: format, label: format.toUpperCase() }))}
           selected={[...formats]}
-          onChange={(next) => setFormats(new Set(next))}
+          onChange={(next) => setSavedFormats(next)}
           disabled={busy}
         />
         <div className="weq-save-action-group">

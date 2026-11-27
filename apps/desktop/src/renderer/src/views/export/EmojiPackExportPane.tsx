@@ -1,3 +1,4 @@
+import { usePreferenceState } from '../../lib/clientPreferences';
 /**
  * 导出表情包面板（导出中心 · emojipack 模式）。
  *
@@ -82,7 +83,7 @@ export function EmojiPackExportPane({
   const summary = trpc.account.emojiPack.summary.useQuery(undefined, { staleTime: 20_000 });
   const [selected, setSelected] = useState<Set<EmojiExportScope>>(new Set(['own', 'received']));
   const [submitting, setSubmitting] = useState(false);
-  const [format, setFormat] = useState<EmojiPackExportFormat>('directory');
+  const [format, setFormat] = usePreferenceState('emojiPackExportFormat');
   const favoriteBackup = format === 'favorite-zip';
 
   const data = summary.data as { own: EmojiScopeSummary; received: EmojiScopeSummary } | undefined;

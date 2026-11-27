@@ -147,6 +147,23 @@ export class FavoriteEmojiImportSession {
     return structuredClone(session.view);
   }
 
+  snapshotSelection(token: string, keys: readonly string[]) {
+    const session = this.require(token);
+    const selected = new Set(keys);
+    const items = session.items.filter(({ key }) => selected.has(key));
+    if (
+      session.view.phase !== 'ready' ||
+      selected.size !== keys.length ||
+      items.length !== keys.length ||
+      items.some(
+        ({ key }) =>
+          !session.view.items.some((item) => item.key === key && item.disposition === 'ready'),
+      )
+    )
+      throw new Error('请选择可导入且不重复的表情');
+    return items;
+  }
+
   start(
     token: string,
     keys: readonly string[],
@@ -154,6 +171,7 @@ export class FavoriteEmojiImportSession {
       run: () => Promise<FavoriteEmojiImportResult>,
     ) => Promise<FavoriteEmojiImportResult>,
     observe?: (view: FavoriteEmojiImportPreview) => void,
+    journal?: (result: FavoriteEmojiImportResult) => void,
   ): FavoriteEmojiImportPreview {
     const session = this.require(token);
     if (session.view.phase !== 'ready') throw new Error('此收藏包已提交或过期，请重新选择文件');
@@ -184,6 +202,7 @@ export class FavoriteEmojiImportSession {
           runFavoriteEmojiImport(session.items, snapshot, this.emoji, {
             current: () => this.check(session),
             signal: session.abort.signal,
+            journal,
             progress: (result) => {
               session.view.result = result;
               notify();

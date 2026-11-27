@@ -8662,6 +8662,7 @@ function MainWorkspace(): ReactElement {
             isCurrent,
             (uploadId) => sendFile({ uploadId }),
             reportToHost,
+            `${target.peerType}:${target.targetId}`,
           );
         }
       } else if (plan.kind === 'voice') {

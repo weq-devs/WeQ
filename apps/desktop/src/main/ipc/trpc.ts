@@ -42,7 +42,7 @@ const accountWindowOnly = new Set([
   'bootstrap.applyBackupLive',
 ]);
 const hostAccountAdmin =
-  /^(?:remote\.|wonderfulTools\.|dbRepair\.|bootstrap\.(?:readConfig|listAccounts|listAccountConfigs|resolveQqPid|probeOnline|dbFileSizes|ntDataSizes|accountDirSizeProgress|testDatabaseKey|verifyAccountKey|fetchAccount|quickLogin|qrLogin|rebuildAccount|backup(?:Export|DownloadExport|Inventory|Pick|BeginUpload|UploadChunk|FinishUpload|Prepare|Stage|Defaults|Apply|Cancel)|getMcp|setMcp|regenerateMcp|listMcpAgentTargets|installMcpToAgents))/;
+  /^(?:remote\.|wonderfulTools\.|dbRepair\.|bootstrap\.(?:readConfig|listAccounts|listAccountConfigs|resolveQqPid|probeOnline|dbFileSizes|ntDataSizes|accountDirSizeProgress|testDatabaseKey|verifyAccountKey|fetchAccount|quickLogin|qrLogin|rebuildAccount|backup(?:Export|ResumeExport|DownloadExport|Inventory|Pick|BeginUpload|ResumeUpload|DiscardUpload|UploadChunk|FinishUpload|Prepare|Stage|Defaults|Apply|Cancel)|getMcp|setMcp|regenerateMcp|listMcpAgentTargets|installMcpToAgents))/;
 export const procedure = t.procedure.use(({ ctx, next, path, type, rawInput }) => {
   const runtime = ctx.accountRuntime ?? currentAccountRuntime();
   return runtime.run(async () => {

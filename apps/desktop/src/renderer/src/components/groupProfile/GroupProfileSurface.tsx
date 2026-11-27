@@ -116,7 +116,7 @@ function GroupProfileBody({
     <button
       title={embedded ? '打开会话' : '查看消息'}
       type="button"
-      className="weq-contact-secondary"
+      className={embedded ? 'weq-contact-secondary weq-set-btn-primary' : 'weq-contact-secondary'}
       onClick={() => {
         if (!embedded) close();
         if (onOpenChat) onOpenChat();

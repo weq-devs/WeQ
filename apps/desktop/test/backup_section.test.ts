@@ -618,7 +618,7 @@ it('组件关闭后迟到文件被释放，不把旧选择留作可确认输入'
   expect(f.api.stage).not.toHaveBeenCalled();
 });
 
-it('浏览器备份传输不创建任务，关闭页面后等待在途分片并清理暂存，不执行恢复', async () => {
+it('浏览器备份传输关闭后保留可续作暂存，不提交余下分片或执行恢复', async () => {
   const f = fixture();
   let release!: (value: number) => void;
   const api: typeof backupApi = {
@@ -646,7 +646,7 @@ it('浏览器备份传输不创建任务，关闭页面后等待在途分片并�
   expect(localBackgroundTasks.snapshot()).toEqual([]);
   expect(api.chunk).toHaveBeenCalledOnce();
   expect(api.finish).not.toHaveBeenCalled();
-  expect(f.api.dispose).toHaveBeenCalledWith('synthetic-upload');
+  expect(f.api.dispose).not.toHaveBeenCalledWith('synthetic-upload');
   expect(f.api.stage).not.toHaveBeenCalled();
 });
 
@@ -696,7 +696,7 @@ it('浏览器分片上传完成后自动校验并显示确认，不创建任务'
   });
   await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
   expect(api.chunk).toHaveBeenCalledOnce();
-  expect(api.finish).toHaveBeenCalledWith('synthetic-upload');
+  expect(api.finish).toHaveBeenCalledWith('synthetic-upload', expect.any(String), 'synthetic.zip');
   expect(document.querySelector('[role="dialog"]')?.textContent).toContain('synthetic.zip');
   expect(f.api.prepare).toHaveBeenCalledOnce();
   expect(f.api.stage).not.toHaveBeenCalled();

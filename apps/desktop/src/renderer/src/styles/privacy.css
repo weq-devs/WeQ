@@ -180,7 +180,7 @@ html[data-privacy]
   .weq-lightbox-image,
   .weq-ocr-cover,
   .weq-qzal-album-meta > strong,
-  .weq-qzal-album-cover > img,
+  .weq-qzal-album-cover > :is(img, video),
   .group-album-media-name,
   .weq-rank-groupname,
   .weq-ov-paircard-name,

@@ -17992,7 +17992,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   background: color-mix(in srgb, var(--weq-fg-primary) 6%, transparent);
 }
 
-.weq-qzal-album-cover > img {
+.weq-qzal-album-cover > :is(img, video) {
   position: absolute;
   inset: 0;
   display: block;
@@ -18151,7 +18151,7 @@ html[data-theme='dark'] .weq-applock-bind-success small {
   width: 100%;
 }
 
-.weq-qzal-media-thumb img {
+.weq-qzal-media-thumb > :is(img, video) {
   display: block;
   width: 100%;
   aspect-ratio: 1 / 1;

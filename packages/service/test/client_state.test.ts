@@ -43,6 +43,52 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('跨端偏好与功能状态', () => {
+  it('菜单偏好落盘后恢复，非法选项或任务内容不覆盖已保存值', () => {
+    const state = store();
+    const choices = {
+      forwardOptions: {
+        mode: 'text',
+        intervalMs: 250,
+        msPerCharacter: 80,
+        nonTextMs: 600,
+        maxIntervalMs: 9000,
+        jitterMs: 50,
+        maxAttempts: 3,
+        failure: 'abort',
+      },
+      forwardReplyExcerpt: true,
+      voicePanelTab: 'tts',
+      ttsProviderId: 'provider-b',
+      ttsVoices: { 'provider-a': 'voice-a', 'provider-b': 'voice-b' },
+      aiVoiceId: 'voice-two',
+      emojiPanelTab: 'fav',
+      groupAlbumSort: 'count',
+      exportIntegrityReport: true,
+      collectionExportFormat: 'xlsx',
+      collectionExportDetails: { extra: { collectionProperties: false } },
+      mailExportFormat: 'jsonl.gz',
+      mailExportDetails: { extra: { mailProperties: false } },
+      generatedExportFormats: ['txt', 'jsonl'],
+      generatedExportDetails: { extra: { generatedParameters: false } },
+      groupFileExportArchive: { metadataFormat: 'none', extra: { resourceProperties: false } },
+      emojiPackExportFormat: 'favorite-zip',
+    };
+    state.patch(choices);
+    expect(new ClientStateStore(state.path).snapshot().values).toEqual(choices);
+    for (const patch of [
+      { forwardOptions: { ...choices.forwardOptions, intervalMs: Number.NaN } },
+      { forwardOptions: { ...choices.forwardOptions, maxAttempts: 0 } },
+      { forwardOptions: { ...choices.forwardOptions, targets: ['unexpected'] } },
+      { forwardOptions: { ...choices.forwardOptions, jitterMs: 3_600_001 } },
+      { generatedExportFormats: ['unsupported'] },
+      { emojiPanelTab: 'unknown' },
+      { groupFileExportArchive: { metadataFormat: 'csv' } },
+      { collectionExportDetails: { cids: ['unexpected'] } },
+    ]) {
+      expect(() => state.patch(patch)).toThrow('无效的共享偏好');
+      expect(new ClientStateStore(state.path).snapshot().values).toEqual(choices);
+    }
+  });
   it('生成会话的免打扰与其他通知范围独立持久化', () => {
     const state = store();
     const key = generatedMuteKey('virtual:persona:one');

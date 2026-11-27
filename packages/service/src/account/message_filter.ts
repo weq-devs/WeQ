@@ -98,11 +98,11 @@ export function isChatVideoAttachment(element: ClassifiedElement): boolean {
 
 function categoryOf(element: ClassifiedElement): MessageCategory {
   if (element.type === 'text' || element.type === 'at') return 'text';
-  if (element.type === 'pic') return 'image';
+  if (element.type === 'pic') return Number(element.data?.subType) === 1 ? 'emoji' : 'image';
+  if (element.type === 'mface') return 'emoji';
   if (element.type === 'video') return 'video';
   if (element.type === 'ptt') return 'voice';
   if (['file', 'onlineFile', 'onlineFolder'].includes(element.type ?? '')) return 'file';
-  if (['face', 'mface', 'emojiBounce'].includes(element.type ?? '')) return 'emoji';
   if (element.type?.startsWith('grayTip')) return 'system';
   return 'other';
 }
@@ -131,7 +131,6 @@ export function conversationRecordTypeOf(element: ClassifiedElement): Conversati
     (element.type === 'ark' && parseArkData(element.data?.arkData)?.app === 'com.tencent.multimsg')
   )
     return 'forward';
-  if (element.type === 'pic' && Number(element.data?.subType) === 1) return 'emoji';
   const category = categoryOf(element);
   if (category === 'image' || category === 'video') return 'media';
   if (category === 'emoji' || category === 'voice' || category === 'file') return category;

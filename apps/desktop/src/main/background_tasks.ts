@@ -1,6 +1,13 @@
 import { BackgroundTaskRegistry, type BackgroundTask } from '../shared/background_task';
+import { archiveCompletedBackgroundTask } from './task_archive';
 
 export const backgroundTasks = new BackgroundTaskRegistry();
+
+export function archiveCompletedTask(root: string | undefined, id: string) {
+  if (!root) return;
+  const task = backgroundTasks.snapshot().find((entry) => entry.id === id);
+  if (task) archiveCompletedBackgroundTask(root, task);
+}
 
 export function taskError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

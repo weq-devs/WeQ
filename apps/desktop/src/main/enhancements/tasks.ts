@@ -7,7 +7,7 @@ import {
   type EnhancementBatchAction,
 } from '../../shared/enhancement_actions';
 import type { EnhancementPacks, PackOperation } from './packs';
-import { backgroundTasks, taskError } from '../background_tasks';
+import { archiveCompletedTask, backgroundTasks, taskError } from '../background_tasks';
 import {
   downloadTaskReceipt,
   downloadTaskSnapshot,
@@ -45,6 +45,7 @@ const enhancementReceipt = downloadTaskReceipt.extend({
 });
 const enhancementReceipts = z.record(z.enum(ENHANCEMENT_PACK_IDS), enhancementReceipt);
 const stores = new WeakMap<PreparationTaskPort, JsonStore<z.infer<typeof enhancementReceipts>>>();
+const archiveRoots = new WeakMap<PreparationTaskPort, string>();
 
 function presentation(name: string, action: string) {
   return {
@@ -55,8 +56,17 @@ function presentation(name: string, action: string) {
   };
 }
 
-export function restoreEnhancementTasks(packs: EnhancementPacks, directory: string) {
+function archiveWhenReady(id: EnhancementPackId, action: string) {
+  return action === '更新增强包' || id === 'text' || id === 'voice' || id === 'intent';
+}
+
+export function restoreEnhancementTasks(
+  packs: EnhancementPacks,
+  directory: string,
+  archiveRoot?: string,
+) {
   if (stores.has(packs)) return;
+  if (archiveRoot) archiveRoots.set(packs, archiveRoot);
   const store = new JsonStore<z.infer<typeof enhancementReceipts>>(
     join(directory, 'download-tasks.json'),
     () => ({}),
@@ -102,6 +112,7 @@ export function restoreEnhancementTasks(packs: EnhancementPacks, directory: stri
           ]
         : [],
     );
+    if (archiveWhenReady(id, saved.action)) archiveCompletedTask(archiveRoot, saved.id);
   }
 }
 
@@ -350,6 +361,7 @@ export function trackEnhancementPreparation(
       backgroundTasks.resume(taskId);
       backgroundTasks.finish(taskId, 'completed', { note: '增强包已就绪' });
       backgroundTasks.setActions(taskId, []);
+      if (archiveWhenReady(id, action)) archiveCompletedTask(archiveRoots.get(packs), taskId);
     } catch (error) {
       backgroundTasks.resume(taskId);
       backgroundTasks.finish(taskId, 'failed', { note: taskError(error) });

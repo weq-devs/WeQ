@@ -83,6 +83,7 @@ export class ManagedDownload {
       state?: (state: DownloadState) => void;
       name?: string;
       activityPageId?: string;
+      activityResume?: { id: string; request: unknown };
       /** 没有任务入口的缓存填充不等待手动继续。 */
       deferOnPolicyPause?: boolean;
       signal?: AbortSignal;
@@ -103,6 +104,9 @@ export class ManagedDownload {
   }
   get activityPageId() {
     return this.options.activityPageId;
+  }
+  get activityResume() {
+    return this.options.activityResume;
   }
   pause() {
     this.gate.pause();

@@ -195,6 +195,7 @@ export function QzoneVideoGrid({
               name={tile.name}
               cover={tile.cover ? albumMediaUrl(tile.cover) : ''}
               coverAlt="视频"
+              videoPreviewSource={tile.source ? albumMediaUrl(tile.source) : ''}
               subtitle={
                 <>
                   <QzoneTime value={tile.uploadedAt} interactive={false} />

@@ -1,6 +1,6 @@
 import { act, createElement, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SequentialForwardDialog } from '../src/renderer/src/components/SequentialForwardDialog';
 import { MessageBatchActionDialog } from '../src/renderer/src/components/MessageBatchActionDialog';
 import { reviewMessageBatch } from '../src/renderer/src/lib/messageBatchAction';
@@ -11,6 +11,7 @@ import { DEFAULT_FORWARD_OPTIONS } from '../src/renderer/src/lib/sequentialForwa
 import {
   readForwardPlan,
   writeForwardPlan,
+  type MergeForwardPlan,
   type SequentialForwardPlan,
 } from '../src/renderer/src/lib/forwardContinuation';
 import {
@@ -22,13 +23,45 @@ import {
   MergeForwardTargets,
 } from '../src/renderer/src/components/mergeForward/MergeForwardTargets';
 import { MergeForwardDialog } from '../src/renderer/src/components/mergeForward/MergeForwardDialog';
+import { runMergeForwardTask } from '../src/renderer/src/components/mergeForward/mergeForwardTask';
 import { createEmptyDraft, createNode } from '../src/renderer/src/components/mergeForward/model';
-import { bindAccountState } from '../src/renderer/src/lib/clientPreferences';
+import {
+  acceptPreferences,
+  settlePreferenceWrites,
+  bindAccountState,
+  preferenceValue,
+} from '../src/renderer/src/lib/clientPreferences';
 import { backgroundTaskNavigation } from '../src/renderer/src/components/tasks/backgroundTaskNavigation';
 import { onNotificationNavigation } from '../src/renderer/src/lib/notificationNavigation.shared';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { localBackgroundTasks } from '../src/renderer/src/state/backgroundTasks';
 
+const preferences = vi.hoisted(() => ({ revision: 0, values: {} as Record<string, unknown> }));
+// 深层组件的动态导入可能使用真实 tRPC 客户端；离线链路也返回同一份保存回执。
+vi.mock('@transport', async () => {
+  const { observable } = await import('@trpc/server/observable');
+  return {
+    createLinks: () => [
+      () =>
+        ({ op }: { op: { path: string; input: Record<string, unknown> } }) =>
+          observable((observer) => {
+            if (op.path !== 'clientState.patch') throw new Error(`未模拟的请求：${op.path}`);
+            preferences.values = { ...preferences.values, ...op.input };
+            observer.next({
+              result: {
+                data: {
+                  epoch: 'menu-test',
+                  revision: ++preferences.revision,
+                  values: preferences.values,
+                  records: {},
+                },
+              },
+            });
+            observer.complete();
+          }),
+    ],
+  };
+});
 vi.mock('../src/renderer/src/trpc/client', () => {
   const proxy = (path: string[] = []): unknown =>
     new Proxy(() => proxy(), {
@@ -44,11 +77,38 @@ vi.mock('../src/renderer/src/trpc/client', () => {
     });
   return {
     trpc: proxy(),
-    client: proxy(),
+    client: {
+      account: proxy(['account']),
+      bootstrap: { notifyConfiguredEvent: { mutate: async () => false } },
+      clientState: {
+        patch: {
+          mutate: async (patch: Record<string, unknown>) => {
+            preferences.values = { ...preferences.values, ...patch };
+            return {
+              epoch: 'menu-test',
+              revision: ++preferences.revision,
+              values: preferences.values,
+              records: {},
+            };
+          },
+        },
+      },
+    },
   };
 });
 
-afterEach(() => {
+beforeEach(() => {
+  preferences.values = {};
+  acceptPreferences({
+    epoch: 'menu-test',
+    revision: ++preferences.revision,
+    values: {},
+    records: {},
+  });
+});
+
+afterEach(async () => {
+  await settlePreferenceWrites();
   for (const task of localBackgroundTasks.snapshot()) {
     localBackgroundTasks.finish(task.id, 'cancelled');
     localBackgroundTasks.remove(task.id);
@@ -146,6 +206,46 @@ it('中断后只发送未提交项，保留原目标引用及结果未知的条�
   expect(readForwardPlan(id, scope)).toBeUndefined();
 });
 
+it('合并转发恢复时只向尚未提交的会话发送，保留其他会话的结果', async () => {
+  const stored = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => stored.set(key, value),
+    removeItem: (key: string) => stored.delete(key),
+  });
+  const scope = { uin: 'fixture', configId: 'original' };
+  const id = localBackgroundTasks.start({ kind: 'forward', name: target.name, scope });
+  localBackgroundTasks.finish(id, 'paused');
+  const unknown = { ...target, id: 'unknown', conv: '222', name: '待核对' };
+  const remaining = { ...target, id: 'remaining', conv: '333', name: '未提交' };
+  const plan: MergeForwardPlan = {
+    version: 1,
+    kind: 'merged',
+    scope,
+    draft: createEmptyDraft(),
+    targets: [target, unknown, remaining],
+    entries: [{ state: 'sent', targetSeq: '70' }, { state: 'submitting' }, { state: 'pending' }],
+  };
+  writeForwardPlan(id, plan);
+  const send = vi.fn(async () => ({ seq: '71' }));
+  const result = await runMergeForwardTask({
+    draft: plan.draft,
+    targets: plan.targets,
+    binding: { expectedAccountUin: scope.uin, expectedAccountConfigId: scope.configId },
+    send,
+    isCurrent: () => true,
+    resume: { id, plan },
+  });
+  expect(send).toHaveBeenCalledOnce();
+  expect(send).toHaveBeenCalledWith(plan.draft, remaining, expect.any(Object), true);
+  expect(result.unconfirmed).toEqual([unknown]);
+  expect(result.sent).toEqual([
+    { ...target, seq: '70' },
+    { ...remaining, seq: '71' },
+  ]);
+  expect(readForwardPlan(id, scope)).toBeUndefined();
+});
+
 it('分别把每个目标的发送回执用于同批引用，前一条失败时没有新引用目标', async () => {
   const second = { ...target, id: 'second', conv: '888' };
   const failed = { ...target, id: 'failed', conv: '999' };
@@ -223,7 +323,7 @@ it('优先引用本批发送，再查原消息，无法定位时仅按开关附�
   expect(await resolveForwardReplyPrefix({ ...options, includeExcerpt: false })).toBeUndefined();
 });
 
-it('引用摘录默认关闭，打开后随本次确认提交', () => {
+it('引用摘录默认关闭，打开后随本次确认提交', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -253,6 +353,7 @@ it('引用摘录默认关闭，打开后随本次确认提交', () => {
     act(() => proceed.click());
     expect(onContinue).toHaveBeenLastCalledWith([quotedMessage], false);
   } finally {
+    await act(async () => settlePreferenceWrites());
     act(() => root.unmount());
     host.remove();
   }
@@ -372,7 +473,7 @@ it('先在分组弹窗筛掉系统提示，可取消并展开预览，再只把�
   }
 });
 
-it('未选目标就显示时分秒预估，多个并行目标不增加预估，默认不限间隔且失败继续', () => {
+it('未选目标就显示时分秒预估，多个并行目标不增加预估，默认不限间隔且失败继续', async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   const host = document.createElement('div');
   document.body.append(host);
@@ -417,6 +518,7 @@ it('未选目标就显示时分秒预估，多个并行目标不增加预估，�
       '1 小时 1 分钟 1 秒',
     );
   } finally {
+    await act(async () => settlePreferenceWrites());
     act(() => root.unmount());
     host.remove();
   }
@@ -828,4 +930,56 @@ it('等待期间可以停止，不再发送下一条；失败保留原因且不�
     'failed',
   ]);
   expect(localBackgroundTasks.snapshot().at(-1)?.details?.join('')).toContain('合成失败');
+});
+
+it('关闭转发窗保留有效偏好，未完成的数字输入不覆盖保存值，目标重新选择', async () => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const props = {
+    messages,
+    targets: [target],
+    onSend: vi.fn(),
+    onOpenTarget: vi.fn(),
+    onClose: vi.fn(),
+  };
+  const mount = () => root.render(createElement(SequentialForwardDialog, props));
+  try {
+    await act(async () => mount());
+    await act(async () => document.querySelector<HTMLButtonElement>('.weq-mf-target')!.click());
+    await act(async () =>
+      document.querySelectorAll<HTMLButtonElement>('[aria-label="间隔方式"] button')[1]!.click(),
+    );
+    const input = [...document.querySelectorAll('label')]
+      .find((label) => label.textContent?.includes('每字间隔'))!
+      .querySelector('input')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
+        input,
+        '0.125',
+      );
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(preferenceValue('forwardOptions')).toMatchObject({ mode: 'text', msPerCharacter: 125 });
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(input.value).toBe('');
+    expect(preferenceValue('forwardOptions').msPerCharacter).toBe(125);
+    await act(async () => root.render(null));
+    await act(async () => mount());
+    const restored = [...document.querySelectorAll('label')]
+      .find((label) => label.textContent?.includes('每字间隔'))!
+      .querySelector('input')!;
+    expect(restored.value).toBe('0.125');
+    expect(
+      document.querySelector<HTMLButtonElement>('.weq-sequential-forward footer button')!.disabled,
+    ).toBe(true);
+    expect(props.onSend).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
 });

@@ -1,3 +1,4 @@
+import { usePreferenceState } from '../lib/clientPreferences';
 import { NumericText } from './NumericText';
 import { useMemo, useRef, useState } from 'react';
 import { Forward, X } from 'lucide-react';
@@ -6,7 +7,8 @@ import { MergeForwardTargets } from './mergeForward/MergeForwardTargets';
 import type { MfTarget } from './mergeForward/model';
 import type { Message, User } from '../im-template/template/types';
 import {
-  DEFAULT_FORWARD_OPTIONS,
+  validateForwardOptions,
+  type ForwardOptions,
   estimateForwardDuration,
   formatForwardDuration,
   forwardMessageContent,
@@ -46,7 +48,19 @@ export function SequentialForwardDialog({
 }) {
   const accountConfig = trpc.account.getAccountConfig.useQuery();
   const [selected, setSelected] = useState(new Set<string>());
-  const [options, setOptions] = useState(DEFAULT_FORWARD_OPTIONS);
+  const [savedOptions, saveOptions] = usePreferenceState('forwardOptions');
+  const [draftOptions, setDraftOptions] = useState<ForwardOptions | null>(null);
+  const options = draftOptions ?? savedOptions;
+  function setOptions(next: ForwardOptions) {
+    try {
+      validateForwardOptions(next);
+    } catch {
+      setDraftOptions(next);
+      return;
+    }
+    setDraftOptions(null);
+    saveOptions(next);
+  }
   const [error, setError] = useState('');
   const submitted = useRef(false);
   const [started, setStarted] = useState(false);
