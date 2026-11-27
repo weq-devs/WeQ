@@ -131,7 +131,7 @@ export function ChatMessagePrewarmSettings() {
   return (
     <Row
       settingId="chat-message-prewarm"
-      desc="用于桌面长聊天空闲时提前准备完整消息。按消息行和媒体像素估算。设为 0 关闭预热。"
+      desc="用于桌面长聊天提前准备完整消息。按消息行和媒体像素估算。设为 0 关闭预热。"
       control={
         <MemoryBudgetInput
           label="完整消息预热内存预算"
