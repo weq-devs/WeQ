@@ -1,3 +1,4 @@
+import { assertQqFileWriteAllowed } from '@weq/db';
 import {
   isQqCapabilityMode,
   legacyQqCapabilityMode,
@@ -183,6 +184,10 @@ function ensureDirectory(path: string): void {
   syncDirectory(parent);
 }
 function move(from: string, to: string): void {
+  assertQqFileWriteAllowed([
+    { path: from, tree: true },
+    { path: to, tree: true },
+  ]);
   renameSync(from, to);
   syncDirectory(dirname(from));
   if (dirname(from) !== dirname(to)) syncDirectory(dirname(to));

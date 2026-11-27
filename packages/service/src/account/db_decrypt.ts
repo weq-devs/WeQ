@@ -1,3 +1,4 @@
+import { withQqFileWrite } from '@weq/db';
 /**
  * Database decrypt service for the current QQ account.
  *
@@ -81,7 +82,6 @@ export class DbDecryptService {
   constructor(
     private readonly session: AccountSession,
     private readonly platform: Platform,
-    private readonly withOutputWrite?: <T>(path: string, write: () => Promise<T>) => Promise<T>,
   ) {}
 
   listDatabases(): Promise<AccountDbFile[]> {
@@ -112,8 +112,7 @@ export class DbDecryptService {
   }
 
   async decryptDatabases(opts: DbDecryptOptions): Promise<DbDecryptResult[]> {
-    const run = () => this.decryptToDirectory(opts);
-    return this.withOutputWrite ? this.withOutputWrite(opts.outputDir, run) : run();
+    return withQqFileWrite(opts.outputDir, () => this.decryptToDirectory(opts));
   }
 
   private async decryptToDirectory(opts: DbDecryptOptions): Promise<DbDecryptResult[]> {

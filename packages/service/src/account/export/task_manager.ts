@@ -92,7 +92,7 @@ import {
   watchTransferPolicy,
 } from '../../common/transfer_policy';
 import { MessageJournal } from './message_journal';
-import { isLikelyCorruptionError, withDatabaseWorkload } from '@weq/db';
+import { beginQqFileWrite, isLikelyCorruptionError, withDatabaseWorkload } from '@weq/db';
 import {
   DatabaseRecoveryGate,
   DatabaseRecoveryStopped,
@@ -718,7 +718,6 @@ export interface MediaDeps {
   fetchForward?: (resId: string) => Promise<import('../forward').FetchedForwardRecord[]>;
   exportSavePolicy?: () => ExportSavePolicy;
   resolveSaveDirectory?: (directory: string) => string;
-  withOutputWrite?: <T>(path: string, write: () => Promise<T>) => Promise<T>;
   avatarCache?: AvatarCacheService;
   avatarLocal?: (
     uin: string,
@@ -1340,8 +1339,7 @@ export class ExportTaskManager extends EventEmitter {
       saveExportOutput(task, selectedFile ? { filePath: target, unique } : target, undefined, {
         requireExistingDirectory: true,
       });
-    const saving = Promise.resolve()
-      .then(() => (this.deps.withOutputWrite ? this.deps.withOutputWrite(target, write) : write()))
+    const saving = write()
       .then((path) => {
         task.save = {
           policy: task.save?.policy ?? policy,
@@ -2811,7 +2809,18 @@ export class ExportTaskManager extends EventEmitter {
     const aborted = (): boolean => abort.signal.aborted;
     const paused = (): boolean => this.tasks.get(id)?.status === 'paused';
 
+    let finishWrite: (() => void) | undefined;
     try {
+      const explicitTargets = [
+        task.outputDirectory,
+        task.bundleDir,
+        task.filePath,
+        task.directOutput?.journalDirectory,
+        ...Object.values(task.archiveTargets ?? {}),
+        task.save?.policy.filePath,
+        task.save?.policy.directory,
+      ].filter((path): path is string => Boolean(path));
+      finishWrite = beginQqFileWrite(explicitTargets);
       const sourceStamp = task.guild
         ? this.deps.guildDirect?.exportSourceStamp?.()
         : this.msgs.exportSourceStamp?.(task.kind, task.conv);
@@ -4497,6 +4506,7 @@ export class ExportTaskManager extends EventEmitter {
       }
       this.log(id, 'task', `导出失败：${task.error}`, 'error');
     } finally {
+      finishWrite?.();
       if (aborted() && !paused()) task.status = 'cancelled';
       if (paused()) {
         const journal = this.journals.get(id);

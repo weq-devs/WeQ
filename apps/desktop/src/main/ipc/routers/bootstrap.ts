@@ -14,7 +14,7 @@
  */
 import { OperationError, developmentDressToolsEnabled, MAX_LOG_RETENTION_DAYS } from '@weq/service';
 import { isHistoryCapacityMiB, type HistoryCapacityMiB } from '@weq/service/settings-catalog';
-import { assertQqDatabaseWritesIdle, measureDatabaseStartup } from '@weq/db';
+import { assertQqFileWriteAllowed, measureDatabaseStartup } from '@weq/db';
 import { QQ_CAPABILITY_MODES, type QqCapabilityMode } from '@weq/service/qq-capability-mode';
 import { emitSettingsChanged } from '@weq/service/settings-changes';
 
@@ -164,11 +164,7 @@ import {
   QQ_DEBUG_COPY_PERMISSION_ACTIONS,
 } from '../../../shared/qq_debug_copy';
 import { checkQqDataAccess, QQ_DATA_ACCESS_SETTINGS } from '../../qq_data_access';
-import {
-  applyNativeQqReadOnly,
-  assertQqOutputPathAllowed,
-  saveQqCapabilityPreference,
-} from '../../qq_output_path';
+import { applyNativeQqReadOnly, saveQqCapabilityPreference } from '../../qq_output_path';
 import { macLaunchApplication } from '../../mac_launch_application';
 import { refreshWindowControls } from '../../window_controls_events';
 import {
@@ -445,10 +441,8 @@ async function setQqCapabilityMode(mode: QqCapabilityMode, disconnectProxy = fal
     const stopProxy = mode !== 'complete' && proxyEnabled && (current !== mode || disconnectProxy);
     if (stopProxy && !disconnectProxy && (await qqSyncStatus(root)).tunnels)
       return { status: 'confirm-disconnect' as const };
-    if (mode === 'read-only' && current !== mode) {
-      assertQqDatabaseWritesIdle();
-      if (isDbRepairBusy()) throw new Error('请结束当前数据库维护后再切换到只读模式。');
-    }
+    if (mode === 'read-only' && current !== mode && isDbRepairBusy())
+      throw new Error('请结束当前数据库维护后再切换到只读模式。');
     if (current !== mode) saveQqCapabilityPreference(mode);
     let proxyError: string | undefined;
     try {
@@ -1017,7 +1011,7 @@ export const bootstrapRouter = router({
       mode: 'preset',
       directory: host.exportRoot ? resolveExportSaveDirectory(host.exportRoot, selected) : selected,
     });
-    if (policy.directory) assertQqOutputPathAllowed(policy.directory);
+    if (policy.directory) assertQqFileWriteAllowed(policy.directory);
     return config.setSettings({ exportSaveMode: policy.mode, defaultExportDir: policy.directory });
   }),
 
@@ -1063,7 +1057,7 @@ export const bootstrapRouter = router({
   setDefaultExportDir: procedure
     .input(z.object({ dir: z.string().min(1).nullable() }))
     .mutation(({ input }) => {
-      if (input.dir) assertQqOutputPathAllowed(input.dir);
+      if (input.dir) assertQqFileWriteAllowed(input.dir);
       requireBootstrap().userConfig.setSettings({ defaultExportDir: input.dir });
       return true;
     }),
@@ -1074,7 +1068,7 @@ export const bootstrapRouter = router({
   pickDefaultExportDir: procedure.mutation(async (): Promise<string | null> => {
     const picked = await getHost().pickDirectory({ title: '选择默认导出保存文件夹' });
     if (!picked) return null;
-    assertQqOutputPathAllowed(picked);
+    assertQqFileWriteAllowed(picked);
     requireBootstrap().userConfig.setSettings({ defaultExportDir: picked });
     return picked;
   }),
@@ -3021,7 +3015,7 @@ export const bootstrapRouter = router({
           const host = getHost();
           const items = await requireBootstrap().userConfig.listStorageUsage(storageRoots());
           const targets = selectStorageCleanupTargets(items, input.ids);
-          for (const target of targets) assertQqOutputPathAllowed(target.path);
+          assertQqFileWriteAllowed(targets.map(({ path }) => ({ path, tree: true })));
           if (!host.clearStorageNow || !host.clearStorageAfterExit) {
             if (input.afterExit || targets.some((item) => item.requiresExit))
               throw new Error('请在电脑桌面端清除所选数据');

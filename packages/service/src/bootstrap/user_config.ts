@@ -92,6 +92,9 @@ import { writeFileAtomicSync } from '../common/atomic_write';
 import { withSharedConfigLock } from './shared_config_lock';
 import { diffSettings, emitSettingsChanged, type SettingsChange } from '../common/settings_changes';
 import {
+  assertQqFileWriteAllowed,
+  beginQqFileWrite,
+  qqFileWriteTouchesData,
   configureDatabaseReadConcurrency,
   normalizeDatabaseReadConcurrency,
   DEFAULT_DATABASE_READ_CONCURRENCY,
@@ -2210,6 +2213,7 @@ export class UserConfigService {
 
   cacheDir(category: string): string {
     const dir = join(this.cacheBaseDir(), category);
+    assertQqFileWriteAllowed({ path: dir, tree: true });
     mkdirSync(dir, { recursive: true });
     return dir;
   }
@@ -2915,7 +2919,13 @@ export class UserConfigService {
 
   cacheBaseDir(): string {
     const o = this.read().cacheDirOverride;
-    return o?.trim() ? o : this.defaultCacheBase();
+    if (!o?.trim()) return this.defaultCacheBase();
+    if (
+      this.getSetting('qqCapabilityMode') === 'read-only' &&
+      qqFileWriteTouchesData({ path: o, tree: true })
+    )
+      return this.defaultCacheBase();
+    return o;
   }
   appDataRoot(): string {
     return this.root;
@@ -2924,10 +2934,11 @@ export class UserConfigService {
   getCacheDirInfo(): { effective: string; override: string | null; default: string } {
     const def = this.defaultCacheBase();
     const o = this.read().cacheDirOverride ?? null;
-    return { effective: o?.trim() ? o : def, override: o, default: def };
+    return { effective: this.cacheBaseDir(), override: o, default: def };
   }
 
   setCacheDirOverride(dir: string | null): void {
+    if (dir?.trim()) assertQqFileWriteAllowed({ path: dir, tree: true });
     this.write({ cacheDirOverride: dir?.trim() ? dir : null });
     this.logger.info('updated cache directory override', {
       event: 'set-cache-dir-override',
@@ -2983,7 +2994,9 @@ export class UserConfigService {
     for (const item of targets) {
       const { id, path: dir } = item;
       if (!existsSync(dir)) continue;
+      let finishWrite: (() => void) | undefined;
       try {
+        finishWrite = beginQqFileWrite({ path: dir, tree: true });
         if (item.cleanupKind === 'dress-previews') {
           const previews = await listDressPreviewFiles(dir);
           if (previews.incomplete) throw new Error('装扮预览目录读取不完整，未清理');
@@ -3011,6 +3024,8 @@ export class UserConfigService {
           dir,
           ...logErrorContext(error),
         });
+      } finally {
+        finishWrite?.();
       }
     }
     this.logger.info('cleared weq cache', {

@@ -55,6 +55,7 @@ import { messageExportFormatInput } from '../../../shared/message_export_format'
 import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
 import {
   withDatabaseRequest,
+  withQqFileWrite,
   assertDatabaseWritable,
   assertQqDatabaseWriteAllowed,
   qqDatabaseReadOnly,
@@ -9306,7 +9307,7 @@ export const accountRouter = router({
         extension: extname(name).slice(1),
       });
       if (!target) return null;
-      await service.saveMediaAs(input.id, target.path);
+      await withQqFileWrite(target.path, () => service.saveMediaAs(input.id, target.path));
       return { downloadId: target.downloadId, name };
     }),
 

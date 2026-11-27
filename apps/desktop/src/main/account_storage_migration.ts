@@ -13,6 +13,8 @@ import { dirname, isAbsolute, join, relative } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { type UserConfig, writeFileAtomicSync } from '@weq/service';
 import { accountIsRunning, savedInstanceAccounts } from './account_instances';
+import { assertQqFileWriteAllowed } from '@weq/db';
+import { configureStartupQqFilePolicy } from './context/startup_qq_file_policy';
 
 const SCOPED_CACHE = [
   'agentlab',
@@ -63,6 +65,7 @@ function migrateEntry(source: string, destination: string, difference: () => voi
     difference();
     return;
   }
+  assertQqFileWriteAllowed({ path: destination, tree: true });
   mkdirSync(dirname(destination), { recursive: true, mode: 0o700 });
   const staging = join(dirname(destination), `.account-migration-${randomUUID()}`);
   try {
@@ -75,6 +78,10 @@ function migrateEntry(source: string, destination: string, difference: () => voi
         throw new Error(`旧账号状态包含链接或特殊文件：${relative(source, path)}`);
       },
     });
+    assertQqFileWriteAllowed([
+      { path: staging, tree: true },
+      { path: destination, tree: true },
+    ]);
     renameSync(staging, destination);
   } finally {
     rmSync(staging, { recursive: true, force: true });
@@ -111,6 +118,7 @@ function addMissing(current: object, source: object): object {
 export function migrateAccountStorage(root: string): void {
   const receipt = accountStorageMigrationPath(root);
   if (metadata(receipt)?.isFile()) return;
+  configureStartupQqFilePolicy(root);
   const oldRoot = join(root, 'instances');
   const entries = metadata(oldRoot)?.isDirectory()
     ? readdirSync(oldRoot, { withFileTypes: true })

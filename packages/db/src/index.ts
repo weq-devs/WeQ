@@ -131,3 +131,11 @@ export {
   onDatabaseMaintenanceChange,
   DATABASE_MAINTENANCE_MESSAGE,
 } from './maintenance';
+
+export {
+  assertQqFileWriteAllowed,
+  beginQqFileWrite,
+  configureQqFileWriteRoots,
+  qqFileWriteTouchesData,
+  withQqFileWrite,
+} from './qq_files';

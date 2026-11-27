@@ -65,6 +65,7 @@ import {
   GroupNotifyStatus,
   MessageReadIndexDb,
   configureQqDatabaseReadOnly,
+  configureQqFileWriteRoots,
   databaseUnderMaintenance,
   qqDatabaseReadOnly,
   withDatabasePriority,
@@ -111,7 +112,7 @@ import { createSourceSearchQuery } from '../source_search';
 import { createLocalModelResources } from './local_model_resources';
 import { createEnhancementResources } from '../enhancements/resources';
 import { createSearchIndexRetirement } from '../source_search_retirement';
-import { applyNativeQqReadOnly, withQqOutputWrite } from '../qq_output_path';
+import { activeQqDataRoots, applyNativeQqReadOnly } from '../qq_output_path';
 import type { VoiceTagDisplay } from '../transcribe/tags';
 import { onlineTranscriber } from '../online_transcribe';
 import {
@@ -1710,6 +1711,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     logger.warn('QQ 能力档位迁移未保存，下次启动时重试', logErrorContext(error));
   }
   configureQqDatabaseReadOnly(() => userConfig.getSetting('qqCapabilityMode') === 'read-only');
+  configureQqFileWriteRoots(() => activeQqDataRoots(platform, userConfig, state.cached));
   if (qqDatabaseReadOnly()) {
     try {
       applyNativeQqReadOnly(platform, userConfig, true);
@@ -2567,7 +2569,6 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
               const root = getHost().exportRoot;
               return root ? resolveExportSaveDirectory(root, directory) : directory;
             },
-            withOutputWrite: withQqOutputWrite,
             // Cache-first avatar resolution for the 导出头像 option.
             guildDirect,
             avatarCache: bootstrap.avatarCache,
@@ -2734,7 +2735,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             gapHistory,
           },
         ),
-        dbDecrypt: new DbDecryptService(session, platform, withQqOutputWrite),
+        dbDecrypt: new DbDecryptService(session, platform),
         dbExplorer: new DbExplorerService(session, platform),
         antiRecall,
         // 意图感知：api 引擎复用 agentlab provider 端点解析；本地 Laya 引擎的
@@ -3557,7 +3558,6 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
               const root = getHost().exportRoot;
               return root ? resolveExportSaveDirectory(root, directory) : directory;
             },
-            withOutputWrite: withQqOutputWrite,
             avatarCache: bootstrap.avatarCache,
             mediaDownload,
             mediaUrl,
@@ -3690,7 +3690,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             gapHistory,
           },
         ),
-        dbDecrypt: new DbDecryptService(session, staticPlatform, withQqOutputWrite),
+        dbDecrypt: new DbDecryptService(session, staticPlatform),
         dbExplorer: new DbExplorerService(session, staticPlatform),
         antiRecall,
         // 静态账号同样给意图感知（只读分析，不发消息）。

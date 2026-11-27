@@ -24,14 +24,21 @@ export function assertQqDatabaseWritesIdle(): void {
   if (activeQqWrites > 0) throw new Error('正在修改 QQ 数据，请等待当前操作完成后再切换。');
 }
 
-/** 包住一次写入或必须完整执行的多步修改，以便在切入只读前确认它已经结束。 */
-export async function withQqDatabaseWrite<T>(run: () => Promise<T>): Promise<T> {
+export function beginQqWrite(): () => void {
   assertQqDatabaseWriteAllowed();
   activeQqWrites++;
+  return () => {
+    activeQqWrites--;
+  };
+}
+
+/** 包住一次写入或必须完整执行的多步修改，以便在切入只读前确认它已经结束。 */
+export async function withQqDatabaseWrite<T>(run: () => Promise<T>): Promise<T> {
+  const finish = beginQqWrite();
   try {
     return await run();
   } finally {
-    activeQqWrites--;
+    finish();
   }
 }
 

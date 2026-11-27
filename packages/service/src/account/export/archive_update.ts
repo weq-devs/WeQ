@@ -1,3 +1,4 @@
+import { assertQqFileWriteAllowed, withQqFileWrite } from '@weq/db';
 import assert from 'node:assert/strict';
 import { createReadStream } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
@@ -14,6 +15,18 @@ const recordKey = (value: JsonObject) => `${value.id}\0${value.revision}`;
 
 /** 正式数据就是基线；索引丢失可流扫重建，既有未知字段不经展示模型重建。 */
 export async function updateArchiveFile(
+  target: string,
+  incoming: string,
+  format: 'json' | 'jsonl' | 'jsonl.gz',
+  signal?: AbortSignal,
+  resourceRoots?: { target: string; incoming: string },
+): Promise<{ archiveId: string; entries: number; messageCount: number }> {
+  return withQqFileWrite([target, resourceRoots?.target ?? dirname(target)], () =>
+    publishArchiveUpdate(target, incoming, format, signal, resourceRoots),
+  );
+}
+
+async function publishArchiveUpdate(
   target: string,
   incoming: string,
   format: 'json' | 'jsonl' | 'jsonl.gz',
@@ -263,6 +276,7 @@ export async function updateArchiveFile(
         );
       }
       await unchanged();
+      assertQqFileWriteAllowed([temporary, target]);
       await rename(temporary, target);
     }
     await syncArchiveDirectory(dirname(target));

@@ -6,7 +6,12 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod/v3';
-import { assertQqDatabaseWriteAllowed, maintainDatabases, withQqDatabaseWrite } from '@weq/db';
+import {
+  assertQqDatabaseWriteAllowed,
+  assertQqFileWriteAllowed,
+  maintainDatabases,
+  withQqDatabaseWrite,
+} from '@weq/db';
 import {
   ACCOUNT_HEALTH_DATABASES,
   DatabaseMaintenance,
@@ -49,7 +54,6 @@ import {
 import { procedure as baseProcedure, router } from '../trpc';
 import { runDatabaseMaintenanceWorker } from '../../db_maintenance_worker_client';
 import { DatabaseMaintenanceLock } from '../../db_maintenance_lock';
-import { assertQqOutputPathAllowed } from '../../qq_output_path';
 
 const logger = getLogger().child({ scope: 'db-repair' });
 const repairSource = new AsyncLocalStorage<string | undefined>();
@@ -112,7 +116,7 @@ const deps: DbRepairDeps = {
   cacheDir: (...segments) => requireBootstrap().userConfig.cacheDir(join(...segments)),
   scratchDir: () => {
     const path = requireBootstrap().userConfig.getDbRepairCacheDir();
-    if (path) assertQqOutputPathAllowed(path);
+    if (path) assertQqFileWriteAllowed(path);
     return path;
   },
   storageStreaming: () => !!requirePlatform().native.ntHelper.recoverDatabaseStreaming,
@@ -728,7 +732,7 @@ export const dbRepairRouter = router({
     const picked = await getHost().pickDirectory({ title: '选择备份与修复工作区位置' });
     assertCacheIdle();
     if (picked) {
-      assertQqOutputPathAllowed(picked);
+      assertQqFileWriteAllowed(picked);
       requireBootstrap().userConfig.setDbRepairCacheDir(picked);
     }
     return { override: requireBootstrap().userConfig.getDbRepairCacheDir() };
@@ -804,14 +808,10 @@ export const dbRepairRouter = router({
     ),
   deleteBackup: procedure.input(recordRef).mutation(({ input }) => {
     assertIdle();
-    const backup = service.history(input.uin).find(input.recordId)?.backupPath;
-    if (backup) assertQqOutputPathAllowed(dirname(backup));
     return service.deleteBackup(input.uin, input.recordId);
   }),
   deleteRecord: procedure.input(recordRef).mutation(({ input }) => {
     assertIdle();
-    const backup = service.history(input.uin).find(input.recordId)?.backupPath;
-    if (backup) assertQqOutputPathAllowed(dirname(backup));
     return service.deleteRecord(input.uin, input.recordId);
   }),
   revealReport: procedure.input(recordRef).mutation(async ({ input }) => {

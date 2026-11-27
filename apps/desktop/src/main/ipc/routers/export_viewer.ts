@@ -1,3 +1,4 @@
+import { withQqFileWrite } from '@weq/db';
 import { constants } from 'node:fs';
 import { copyFile } from 'node:fs/promises';
 import { dirname, extname } from 'node:path';
@@ -261,7 +262,9 @@ export const exportViewerRouter = router({
       if ((await viewerMedia(input.id, input.path)) !== source)
         throw new Error('导出媒体已不可用，请重新打开导出。');
       try {
-        await copyFile(source, target.path, constants.COPYFILE_EXCL);
+        await withQqFileWrite(target.path, () =>
+          copyFile(source, target.path, constants.COPYFILE_EXCL),
+        );
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === 'EEXIST')
           throw new Error('目标文件已存在，请另选文件名。');

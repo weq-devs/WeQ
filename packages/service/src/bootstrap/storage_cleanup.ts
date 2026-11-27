@@ -1,3 +1,4 @@
+import { beginQqFileWrite } from '@weq/db';
 import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
@@ -105,6 +106,7 @@ export async function executeStorageCleanup(
     freedBytes: plan.previousResult?.freedBytes ?? 0,
   };
   for (const item of plan.targets) {
+    let finishWrite: (() => void) | undefined;
     let beforeBytes: number | undefined;
     const excluded = item.cleanupKind === 'scoped-data' ? (item.excludedPaths ?? []) : [];
     const measure = () => measureStorage(item.path, new Set(excluded));
@@ -137,6 +139,7 @@ export async function executeStorageCleanup(
       await rejectLinkedAncestors(path);
       // 用同一规范路径检查保护范围，避免短路径别名绕过受保护文件的判断。
       const canonicalTarget = await realpath(path);
+      finishWrite = beginQqFileWrite({ path: canonicalTarget, tree: true });
       const canonicalExclusions = await Promise.all(excluded.map(canonicalPathOrMissing));
       for (const protectedPath of [...plan.protectedPaths, dirname(plan.reportPath)]) {
         const protectedTarget = await canonicalPathOrMissing(resolve(protectedPath));
@@ -218,6 +221,8 @@ export async function executeStorageCleanup(
           (error as NodeJS.ErrnoException).code ?? '',
         ),
       });
+    } finally {
+      finishWrite?.();
     }
   }
   await mkdir(dirname(plan.reportPath), { recursive: true });

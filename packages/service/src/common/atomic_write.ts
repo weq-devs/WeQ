@@ -1,3 +1,4 @@
+import { assertQqFileWriteAllowed, withQqFileWrite } from '@weq/db';
 /**
  * 原子写小工具：写 `.tmp` 再 `rename` 覆盖目标（同目录 rename 在主流文件系统上是原子的）。
  *
@@ -26,6 +27,14 @@ export async function writeFileAtomic(
   data: string | Uint8Array | Iterable<string>,
   { createParent = true } = {},
 ): Promise<void> {
+  return withQqFileWrite(path, () => writeAtomic(path, data, createParent));
+}
+
+async function writeAtomic(
+  path: string,
+  data: string | Uint8Array | Iterable<string>,
+  createParent: boolean,
+): Promise<void> {
   const parent = dirname(path);
   if (createParent) await mkdir(parent, { recursive: true });
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
@@ -36,6 +45,7 @@ export async function writeFileAtomic(
     await file.sync();
     await file.close();
     file = undefined;
+    assertQqFileWriteAllowed([tmp, path]);
     await rename(tmp, path);
     try {
       const dir = await open(parent, 'r');
@@ -59,6 +69,7 @@ export async function writeFileAtomic(
  * 失败时抛原始错误（调用方现有的 try/catch 兜底策略不变）。
  */
 export function writeFileAtomicSync(path: string, data: string | Uint8Array): void {
+  assertQqFileWriteAllowed(path);
   const parent = dirname(path);
   mkdirSync(parent, { recursive: true });
   const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
@@ -70,6 +81,7 @@ export function writeFileAtomicSync(path: string, data: string | Uint8Array): vo
     fsyncSync(fd);
     closeSync(fd);
     fd = null;
+    assertQqFileWriteAllowed([tmp, path]);
     renameSync(tmp, path);
     // Best effort: persist the directory entry on filesystems that support it.
     try {

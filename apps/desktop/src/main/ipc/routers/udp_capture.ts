@@ -1,3 +1,4 @@
+import { withQqFileWrite } from '@weq/db';
 /**
  * 通用 UDP 抓包 router。
  *
@@ -290,7 +291,7 @@ export const udpCaptureRouter = router({
           extension: input.format,
         });
         if (!target) return { saved: false, canceled: true };
-        await writeFile(target.path, bytes);
+        await withQqFileWrite(target.path, () => writeFile(target.path, bytes));
         return {
           saved: true,
           path: target.path,
@@ -315,7 +316,7 @@ export const udpCaptureRouter = router({
           extension: 'pcapng',
         });
         if (!target) return { saved: false, canceled: true };
-        await copyFile(source, target.path);
+        await withQqFileWrite(target.path, () => copyFile(source, target.path));
         return { saved: true, path: target.path, downloadId: target.downloadId };
       } catch (error) {
         return { saved: false, error: error instanceof Error ? error.message : String(error) };

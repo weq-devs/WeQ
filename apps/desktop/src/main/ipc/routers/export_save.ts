@@ -12,7 +12,7 @@ import {
 } from '@weq/service';
 import { dirname, join } from 'node:path';
 import { lstat, mkdir } from 'node:fs/promises';
-import { assertQqOutputPathAllowed } from '../../qq_output_path';
+import { assertQqFileWriteAllowed } from '@weq/db';
 import {
   copyExportSavePolicy,
   resolveExportSaveDirectory,
@@ -115,7 +115,7 @@ export async function prepareExportDestination(
       ? resolveExportSaveDirectory(host.exportRoot, directory ?? '')
       : directory;
     if (!directory) throw new Error('保存目录不可用，请重新选择。');
-    assertQqOutputPathAllowed(directory);
+    assertQqFileWriteAllowed(directory);
     if (host.exportRoot) await mkdir(directory, { recursive: true });
     if (!(await lstat(directory).catch(() => null))?.isDirectory())
       throw new Error('保存目录不可用，请重新选择。');
@@ -130,7 +130,7 @@ export async function prepareExportDestination(
       : filePath;
     const validated = copyExportSavePolicy({ mode, filePath, uniqueFileName });
     filePath = validated.filePath!;
-    assertQqOutputPathAllowed(filePath);
+    assertQqFileWriteAllowed(filePath);
     if (host.exportRoot) await mkdir(dirname(filePath), { recursive: true });
     if (!(await lstat(dirname(filePath)).catch(() => null))?.isDirectory())
       throw new Error('保存目录不可用，请重新选择。');
