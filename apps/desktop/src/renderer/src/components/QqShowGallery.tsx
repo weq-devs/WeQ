@@ -4,7 +4,7 @@
  * 数据来源不是 `0xFE1_3`（它只回当前形象），而是直接枚举 CDN 上的历史版本号：
  * `images/<uin>/<n>.png`，n 从 101 起单调递增，每次保存形象 +1、旧版长期留存。
  * 主进程的 `account.dressup.qqShowGallery` 订阅负责并发探测，**命中一张推一张**，
- * 这里接到就渲染，不攒到最后。
+ * 这里按探测批次追加，已经显示的卡片不随新结果换位。
  *
  * 判定结尾靠「连续 10 个序号都取不到」（见 `@weq/service` 的 `scanQqShowGallery`）：
  * 号段中间的偶发缺号不会误停，但也因此**不保证 100% 完整** —— 界面上如实写出来。
@@ -60,7 +60,7 @@ export function QqShowGallery({
   const [truncated, setTruncated] = useState(false);
   const [runId, setRunId] = useState(0);
 
-  const subRef = useRef<{ unsubscribe(): void } | null>(null);
+  const stopRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     setItems([]);
@@ -70,47 +70,63 @@ export function QqShowGallery({
     setTruncated(false);
     setRunning(true);
 
+    const seen = new Set<number>();
+    let pending: GalleryItem[] = [];
+    let stopped = false;
+    const flush = () => {
+      if (!pending.length) return;
+      const batch = pending.sort((a, b) => a.revision - b.revision);
+      pending = [];
+      setItems((previous) => [...previous, ...batch]);
+    };
     const sub = client.account.dressup.qqShowGallery.subscribe(
       { uin },
       {
         onData: (event) => {
+          if (stopped) return;
           if (event.kind === 'item') {
-            setItems((prev) => {
-              // 主进程已按 md5 去重；这里再挡一次「同一序号重复推」。
-              if (prev.some((item) => item.revision === event.item.revision)) return prev;
-              return [...prev, event.item].sort((a, b) => b.revision - a.revision);
-            });
-            setScanned(event.scanned);
-            setCeiling(event.ceiling);
+            if (!seen.has(event.item.revision)) {
+              seen.add(event.item.revision);
+              pending.push(event.item);
+            }
             return;
           }
+          flush();
+          setScanned(event.scanned);
           if (event.kind === 'progress') {
-            setScanned(event.scanned);
             setCeiling(event.ceiling);
             return;
           }
           setRunning(false);
-          setScanned(event.scanned);
           setTruncated(event.truncated);
           if (event.error) setError(event.error);
         },
         onError: (cause) => {
+          if (stopped) return;
+          flush();
           setRunning(false);
           setError(cause instanceof Error ? cause.message : String(cause));
         },
       },
     );
-    subRef.current = sub;
-    return () => {
+    const unsubscribe = () => {
+      if (stopped) return;
+      stopped = true;
       sub.unsubscribe();
-      subRef.current = null;
+    };
+    stopRef.current = () => {
+      unsubscribe();
+      flush();
+      setRunning(false);
+    };
+    return () => {
+      unsubscribe();
+      stopRef.current = null;
     };
   }, [uin, runId]);
 
   const stop = useCallback(() => {
-    subRef.current?.unsubscribe();
-    subRef.current = null;
-    setRunning(false);
+    stopRef.current?.();
   }, []);
 
   const open = useCallback(
@@ -129,7 +145,7 @@ export function QqShowGallery({
     [name],
   );
 
-  const highest = items[0]?.revision ?? currentRevision;
+  const current = currentRevision ?? items.at(-1)?.revision;
   const ceilingLabel = `已确认到 #${ceiling > 0 ? ceiling : '—'}`;
 
   return (
@@ -234,7 +250,7 @@ export function QqShowGallery({
                   key={item.md5}
                   type="button"
                   className={`weq-qqshow-gallery-card${
-                    item.revision === highest ? ' is-current' : ''
+                    item.revision === current ? ' is-current' : ''
                   }`}
                   onClick={() => open(item)}
                   title={`查看大图 · #${item.revision}`}
@@ -254,7 +270,7 @@ export function QqShowGallery({
                     <strong>
                       #<span className="weq-number weq-number-inherit">{item.revision}</span>
                     </strong>
-                    {item.revision === highest ? <em>当前</em> : null}
+                    {item.revision === current ? <em>当前</em> : null}
                   </span>
                 </button>
               ))}

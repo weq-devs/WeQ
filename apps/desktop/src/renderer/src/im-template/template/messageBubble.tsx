@@ -794,6 +794,15 @@ function MessageBubbleBody({
             optimistic === 'queued',
           ],
           ['.message-actions', message.actions],
+          [
+            '.message-content, .weq-message-heading',
+            msgBubbleId,
+            msgFontId,
+            sender.memberLevel,
+            sender.customTitle,
+            sender.levelName,
+            sender.role,
+          ],
         ]}
       />
       {selectionMode ? <MessageSelectionMark selected={selected ?? false} /> : null}

@@ -16,6 +16,9 @@
   min-width: 0;
 }
 .weq-contact-self-status-row {
+  display: flex;
+  align-items: flex-start;
+  block-size: 26px;
   padding: 0 12px 8px 78px;
 }
 html[data-density='compact'] .weq-contact-self-status-row {

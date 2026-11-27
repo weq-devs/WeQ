@@ -142,22 +142,6 @@
   text-align: start;
 }
 
-.weq-contact-profile-v2 .weq-contact-qqshow {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  width: min(132px, 100%);
-  height: 144px;
-  border-radius: 0;
-}
-
-.weq-contact-profile-v2 .weq-contact-qqshow img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  object-position: left center;
-}
-
 .weq-contact-dress-assets {
   display: flex;
   flex-wrap: wrap;

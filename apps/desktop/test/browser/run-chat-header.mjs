@@ -343,7 +343,44 @@ try {
   await page.getByRole('menu', { name: '消息', exact: true }).waitFor();
   if (output && focused) await page.screenshot({ path: resolve(output, 'desktop-messages.png') });
   await page.keyboard.press('Escape');
-  await page.evaluate(() => window.chatHeaderQa.alignment(true));
+  const titleBox = () => page.locator('.chat-title-text').boundingBox();
+  const assertStable = (before, after, label) =>
+    assert(
+      before &&
+        after &&
+        ['x', 'y', 'width', 'height'].every((key) => Math.abs(before[key] - after[key]) <= 1),
+      `${label}：${JSON.stringify({ before, after })}`,
+    );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await more().waitFor();
+  const groupTitle = await titleBox();
+  await page.evaluate(() => window.chatHeaderQa.showLuckyChar(true));
+  await page.locator('img[title^="幸运字符"]').waitFor({ state: 'attached' });
+  assertStable(groupTitle, await titleBox(), '群名随幸运字符出现而移动');
+  await page.evaluate(() => window.chatHeaderQa.showLuckyChar(false));
+  await page.locator('img[title^="幸运字符"]').waitFor({ state: 'detached' });
+  assertStable(groupTitle, await titleBox(), '群名随幸运字符移除而移动');
+  await page.evaluate(() => {
+    window.chatHeaderQa.alignment(true);
+    window.chatHeaderQa.statusReady(false);
+  });
+  for (const width of [390, 510]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.evaluate((width) => {
+      document.documentElement.dataset.weqLayout = width === 390 ? 'single' : 'split';
+    }, width);
+    await page.getByText('在线 - 今日天气', { exact: true }).first().waitFor({ state: 'detached' });
+    const before = await titleBox();
+    await page.evaluate(() => window.chatHeaderQa.statusReady(true));
+    await page.locator('.chat-title .weq-online-status:visible').waitFor();
+    assertStable(before, await titleBox(), '昵称随在线状态出现而移动');
+    await page.evaluate(() => window.chatHeaderQa.statusReady(false));
+    await page.getByText('在线 - 今日天气', { exact: true }).first().waitFor({ state: 'detached' });
+    assertStable(before, await titleBox(), '昵称随在线状态移除而移动');
+  }
+  await page.setViewportSize({ width: 1180, height: 844 });
+  await page.evaluate(() => window.chatHeaderQa.statusReady(true));
+  await page.locator('.chat-status-desktop .weq-online-status').waitFor();
   for (const componentStyle of ['default', 'qqnt']) {
     for (const theme of ['light', 'dark']) {
       await page.evaluate(

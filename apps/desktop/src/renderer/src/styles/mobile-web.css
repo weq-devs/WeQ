@@ -343,13 +343,10 @@ html:where([data-weq-layout='single'])[data-component-style][data-theme]
 :where(html[data-weq-layout='single']) .weq-web-shell .chat-status-mobile {
   display: flex;
   align-items: center;
+  flex: 0 0 16px;
   max-width: 100%;
   min-width: 0;
   line-height: 16px;
-}
-
-:where(html[data-weq-layout='single']) .weq-web-shell .chat-status-mobile:empty {
-  display: none;
 }
 
 :where(html[data-weq-layout='single']) .weq-web-shell .chat-status-mobile > span {

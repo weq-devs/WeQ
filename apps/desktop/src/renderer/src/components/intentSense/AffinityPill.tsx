@@ -2,7 +2,7 @@
  * 好感度胶囊 —— 私聊会话头部右上角常驻（chat-actions 首位）。
  *
  * 数据走 intentSense.getProfile（与画像 Dialog 同源），档位变化时图标与配色
- * 一起切换并重放 bump 动画（key=tier 触发 remount）。点击直达联系人页的互动画像
+ * 一起切换并重放 bump 动画。点击直达联系人页的互动画像
  * 分区，复用详情导航。群聊 / 功能未开启时由挂载方（chatPane）负责不渲染。
  */
 
@@ -71,12 +71,11 @@ export function AffinityPill({
     prevTier.current = tier;
   }, [tier]);
 
-  if (!active) return null;
+  if (!active) return <span className="weq-affinity-slot" aria-hidden />;
 
   return (
     <button
       type="button"
-      key={tier}
       className={`weq-affinity-pill tier-${tier ?? 'unrated'}${profile.isLoading ? ' weq-int-pill-loading' : ''}${bumped ? ' is-bumped' : ''}`}
       title={
         tier === null

@@ -72,12 +72,12 @@
     margin-left: 0;
   }
 
-  .app-title-bar:has(.weq-titlebar-search.is-persistent) .weq-title-online-status {
+  .app-title-bar:has(.weq-titlebar-search.is-persistent) .weq-title-online-status-slot {
     display: none;
   }
 
   .app-title-bar:has(.weq-titlebar-search.is-persistent) .app-title-bar-nick,
-  .app-title-bar:has(.weq-titlebar-search.is-persistent) .app-title-bar-vip-badge,
+  .app-title-bar:has(.weq-titlebar-search.is-persistent) .app-title-bar-vip-slot,
   .weq-titlebar-restriction .weq-restricted-indicator span {
     display: none;
   }

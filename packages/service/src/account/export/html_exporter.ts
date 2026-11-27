@@ -337,6 +337,16 @@ function bundlePath(el: RenderElement): string | undefined {
   return (el.data as { exportPath?: string }).exportPath;
 }
 
+function mediaBoxStyle(width: number, height: number, maxWidth: number, maxHeight: number): string {
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0)
+    return '';
+  const displayWidth = Math.max(
+    1,
+    Math.round(Math.min(width, maxWidth, (maxHeight * width) / height)),
+  );
+  return ` style="width:min(${displayWidth}px,100%);aspect-ratio:${width}/${height}"`;
+}
+
 /**
  * Render one built-in system-emoji (faceElement) face.
  *   - Unicode-glyph faces (faceId is a code point) → the glyph as text.
@@ -418,13 +428,14 @@ function renderElement(
           ? `<small class="cap">${escapeHtml(el.data.fileName)}</small>`
           : '';
       const img = p
-        ? `<img class="${cls}" loading="lazy" src="${escapeHtml(p)}" alt="${isEmoji ? '表情' : '图片'}">`
+        ? `<img class="${cls}"${mediaBoxStyle(el.data.imgWidth, el.data.imgHeight, isEmoji ? 90 : 240, isEmoji ? 90 : 280)} loading="lazy" src="${escapeHtml(p)}" alt="${isEmoji ? '表情' : '图片'}">`
         : `<span class="ph">${isEmoji ? '[表情]' : '[图片]'}</span>`;
       return cap ? `<span class="pic-wrap">${img}${cap}</span>` : img;
     }
     case 'video': {
       const p = bundlePath(el);
-      if (p) return `<video class="media" controls preload="none" src="${escapeHtml(p)}"></video>`;
+      if (p)
+        return `<video class="media"${mediaBoxStyle(el.data.videoWidth, el.data.videoHeight, 240, 280)} controls preload="none" src="${escapeHtml(p)}"></video>`;
       return '<span class="ph">[视频]</span>';
     }
     case 'ptt': {
@@ -724,8 +735,9 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .face-emoji.mface{width:96px;height:96px;vertical-align:top;max-width:38%;margin:2px 0}
 @media(max-width:560px){.face-emoji.mface{width:72px;height:72px}}
 .face-glyph{font-size:1.25em;line-height:1;vertical-align:-0.15em}
-.media{width:auto;height:auto;max-width:min(240px,100%);max-height:280px;object-fit:contain;align-self:flex-start;border-radius:6px;display:block;margin:3px 0}
-.media.emoji{max-width:90px;max-height:90px}
+.media{width:min(120px,100%);height:auto;aspect-ratio:5/4;max-width:min(240px,100%);max-height:280px;object-fit:contain;align-self:flex-start;border-radius:6px;display:block;margin:3px 0}
+.media.emoji{width:min(90px,100%);aspect-ratio:1;max-width:90px;max-height:90px}
+video.media{width:min(200px,100%);aspect-ratio:5/3}
 .voice{display:inline-flex;flex-direction:column;gap:2px}.voice audio{height:34px}
 .pic-wrap{display:inline-flex;flex-direction:column;align-items:flex-start;max-width:100%;gap:2px}
 .cap{color:var(--sub)}

@@ -95,7 +95,14 @@ export function OnlineStatus({
       content
     );
   if (!status || status.typeName === '未知' || (status.uid && status.uid !== uid))
-    return fallbackText ? wrap(<span className={statusClassName}>{fallbackText}</span>) : null;
+    return fallbackText
+      ? wrap(
+          <span className={statusClassName} title={fallbackText}>
+            {fallbackText}
+          </span>,
+          fallbackText,
+        )
+      : null;
 
   const customText =
     status.type === 10 && status.subType === 2000 ? status.customStatus?.text?.trim() : '';

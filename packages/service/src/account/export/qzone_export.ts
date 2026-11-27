@@ -601,9 +601,9 @@ const QZONE_HTML_STYLE = `
   .pictures { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 6px; margin-top: 10px; }
   .pictures.is-one { grid-template-columns: minmax(0, 1fr); }
   .pictures a { display: block; border-radius: 8px; overflow: hidden; background: #eef2f7; }
-  .pictures img { display: block; width: auto; height: auto; max-width: 100%; max-height: 720px; object-fit: contain; }
+  .pictures img { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; max-height: 720px; object-fit: contain; }
   .pictures video.media-video { display: block; width: 100%; height: 210px; object-fit: contain; background: #0d1117; border-radius: 8px; }
-  .pictures.is-one video.media-video { height: auto; max-height: 720px; }
+  .pictures.is-one video.media-video { height: auto; aspect-ratio: 16 / 9; max-height: 720px; }
   .pictures a.video-link { position: relative; }
   .video-play { position: absolute; inset: 0; display: grid; place-items: center; font-size: 22px; color: #fff; background: rgb(0 0 0 / 0.32); }
   .pictures .ph { display: block; padding: 84px 0; text-align: center; color: #8b98a8; }

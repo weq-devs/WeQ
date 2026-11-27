@@ -199,7 +199,7 @@
   min-width: 0;
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr);
-  grid-template-rows: auto auto;
+  grid-template-rows: minmax(26px, auto) 18px;
   column-gap: 10px;
 }
 :where(html[data-weq-layout='single']) .weq-mobile-account.weq-self-identity-link {

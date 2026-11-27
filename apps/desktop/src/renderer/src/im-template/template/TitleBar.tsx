@@ -62,16 +62,19 @@ export function TitleBar({
           <SelfProfileAvatar key={`${user.id}:${user.identityValue}`} user={user} group={group}>
             <span className="app-title-bar-nick">{displayUserName(user)}</span>
           </SelfProfileAvatar>
-          {/* 会员徽标：独立兄弟节点，不嵌进昵称 —— 那个 span 自带 ellipsis 会把它裁掉。 */}
-          <VipBadge key={user.identityValue} />
+          <span className="app-title-bar-vip-slot">
+            <VipBadge key={user.identityValue} />
+          </span>
           {user.uid && (
-            <OnlineStatus
-              key={user.uid}
-              uid={user.uid}
-              selfUin={user.identityValue}
-              className="weq-title-online-status"
-              refetchInterval={15_000}
-            />
+            <span className="weq-title-online-status-slot">
+              <OnlineStatus
+                key={user.uid}
+                uid={user.uid}
+                selfUin={user.identityValue}
+                className="weq-title-online-status"
+                refetchInterval={15_000}
+              />
+            </span>
           )}
           {user.signature && (
             <span className="app-title-bar-signature" title={user.signature}>

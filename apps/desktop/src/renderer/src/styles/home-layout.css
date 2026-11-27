@@ -7,10 +7,6 @@ html .weq-chathome-content {
   container-type: size;
   position: relative;
   z-index: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: safe center;
   flex: 1;
   width: 100%;
   min-height: 0;
@@ -30,17 +26,26 @@ html .weq-chathome-inner {
     var(--weq-orb-size) /
     2
   );
-  flex-shrink: 0;
+  --weq-home-tag-clearance: 0px;
   min-width: 0;
   gap: clamp(12px, 3cqh, 24px);
+  margin-inline: auto;
+  padding-block-start: max(
+    var(--weq-home-tag-clearance),
+    calc((100cqh - var(--weq-orb-size)) / 2 - 48px)
+  );
+}
+html .weq-chathome.has-tag-ring .weq-chathome-inner {
+  --weq-home-tag-clearance: var(--weq-home-tag-overhang);
 }
 html .weq-chathome-hero {
   width: 100%;
   min-width: 0;
-  gap: calc(var(--weq-home-tag-overhang) + 16px);
+  gap: calc(var(--weq-home-tag-clearance) + 16px);
+  padding-block-end: var(--weq-home-tag-clearance);
 }
-html .weq-chathome.is-notags .weq-chathome-hero {
-  gap: 16px;
+html .weq-chathome-hero:has(.weq-chathome-greet) {
+  padding-block-end: 0;
 }
 /* 保持原舞台与标签圆环不变，完整全身像等比收进中央。 */
 html .weq-chathome-qqshow {
@@ -49,12 +54,6 @@ html .weq-chathome-qqshow {
   width: 100%;
   height: 100%;
   object-fit: contain;
-}
-html .weq-chathome:not(.is-notags) .weq-chathome-stage {
-  margin-top: calc(var(--weq-home-tag-overhang) + 8px);
-}
-html .weq-chathome.is-nogreeting:not(.is-notags) .weq-chathome-stage {
-  margin-bottom: calc(var(--weq-home-tag-overhang) + 8px);
 }
 html .weq-chathome .weq-tag {
   width: var(--weq-home-tag-size);
@@ -72,6 +71,17 @@ html .weq-chathome-verse,
 html .weq-chathome-from {
   overflow-wrap: anywhere;
 }
+html .weq-chathome-verse {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+}
+html .weq-chathome-verse > span {
+  grid-area: 1 / 1;
+}
+html .weq-chathome-verse-measure {
+  visibility: hidden;
+}
 @media (prefers-reduced-motion: reduce) {
   html .weq-chathome-caret {
     animation: none;
@@ -88,10 +98,7 @@ html .weq-chathome-from {
     gap: 10px;
   }
   html .weq-chathome-hero {
-    gap: calc(var(--weq-home-tag-overhang) + 10px);
-  }
-  html .weq-chathome:not(.is-notags) .weq-chathome-stage {
-    margin-top: calc(var(--weq-home-tag-overhang) + 4px);
+    gap: calc(var(--weq-home-tag-clearance) + 10px);
   }
   html .weq-chathome-hitokoto {
     min-height: 0;

@@ -187,28 +187,34 @@ export function ContactIdentity({
         <ContactFieldHistoryButton field="avatar" label="头像" />
         <div className="weq-profile-heading">
           <div className="weq-contact-title-line">
-            <SelfProfileSlot field="nickname" inline renderValue={renderName}>
-              {renderName(title)}
-            </SelfProfileSlot>
-            <ContactFieldHistoryButton field="nick" label="昵称" />
+            <div className="weq-contact-name-line">
+              <SelfProfileSlot field="nickname" inline renderValue={renderName}>
+                {renderName(title)}
+              </SelfProfileSlot>
+              <ContactFieldHistoryButton field="nick" label="昵称" />
+            </div>
             {showStatus ? (
-              /^u_/.test(person.uid || person.id) ? (
-                <OnlineStatus
-                  uid={person.uid || person.id}
-                  showBaseStatus
-                  fallbackText={fallbackStatus}
-                  selfUin={relationship === 'self' ? person.identityValue : undefined}
-                />
-              ) : relationship === 'self' ? (
-                <SelfOnlineStatus uin={person.identityValue}>
-                  <span className="weq-contact-status">{fallbackStatus}</span>
-                </SelfOnlineStatus>
-              ) : (
-                <span className="weq-contact-status">{fallbackStatus}</span>
-              )
-            ) : null}
-            {showStatus && !self ? (
-              <ContactFieldHistoryButton field="status" label="在线状态" />
+              <div className="weq-contact-status-line">
+                {/^u_/.test(person.uid || person.id) ? (
+                  <OnlineStatus
+                    uid={person.uid || person.id}
+                    showBaseStatus
+                    fallbackText={fallbackStatus}
+                    selfUin={relationship === 'self' ? person.identityValue : undefined}
+                  />
+                ) : relationship === 'self' ? (
+                  <SelfOnlineStatus uin={person.identityValue}>
+                    <span className="weq-contact-status" title={fallbackStatus}>
+                      {fallbackStatus}
+                    </span>
+                  </SelfOnlineStatus>
+                ) : (
+                  <span className="weq-contact-status" title={fallbackStatus}>
+                    {fallbackStatus}
+                  </span>
+                )}
+                {!self ? <ContactFieldHistoryButton field="status" label="在线状态" /> : null}
+              </div>
             ) : null}
           </div>
           <div className="weq-contact-meta">
@@ -345,27 +351,39 @@ function ContactPendant({ person }: { person: ProfilePerson }) {
 }
 
 function QqShowRow({ person }: { person: ProfilePerson }) {
-  const hasHistory = useContactFieldHistoryAvailable('QQ 秀');
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const query = useContactQqShow(person.identityValue);
   const url = query.data?.hasShow ? query.data.url : null;
-  if (!url) return hasHistory ? <ContactRow label="QQ 秀" value={null} /> : null;
   return (
     <>
       <ContactRow label="QQ 秀">
-        <button
-          type="button"
-          className="weq-contact-qqshow weq-media-frame"
-          ref={anchor}
-          title="查看 QQ 秀展柜"
-          aria-label="查看 QQ 秀展柜"
-          onClick={() => setOpen((value) => !value)}
-        >
-          <ShimmerImage src={qqShowUrl(url, query.data?.expiresAt)} alt="当前 QQ 秀" />
-        </button>
+        <div className="weq-contact-qqshow-slot">
+          {url ? (
+            <button
+              type="button"
+              className="weq-contact-qqshow weq-media-frame"
+              ref={anchor}
+              title="查看 QQ 秀展柜"
+              aria-label="查看 QQ 秀展柜"
+              onClick={() => setOpen((value) => !value)}
+            >
+              <ShimmerImage src={qqShowUrl(url, query.data?.expiresAt)} alt="当前 QQ 秀" />
+            </button>
+          ) : (
+            <span className="weq-contact-qqshow-state">
+              {query.isFetching
+                ? '读取中…'
+                : query.isError
+                  ? '读取失败'
+                  : query.data
+                    ? '暂无当前形象'
+                    : '尚未读取'}
+            </span>
+          )}
+        </div>
       </ContactRow>
-      {open ? (
+      {open && url ? (
         <QqShowGallery
           uin={person.identityValue}
           anchor={anchor.current}

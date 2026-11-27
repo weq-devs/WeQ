@@ -48,6 +48,7 @@ const server = await createServer({
   root,
   plugins: [react(), tailwind()],
   define: { 'import.meta.env.VITE_WEQ_TARGET': JSON.stringify('web') },
+  optimizeDeps: { entries: ['test/browser/home-backdrop.html'] },
   resolve: {
     alias: [
       {
@@ -212,6 +213,31 @@ try {
         assert.equal(await page.locator('.weq-chathome-qqshow').count(), 0);
       }
     }
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(
+    `http://127.0.0.1:${server.httpServer.address().port}/test/browser/home-backdrop.html?show=ready&delayed`,
+  );
+  const greeting = page.locator('.weq-chathome-greet');
+  const stage = page.locator('.weq-chathome-stage');
+  await greeting.waitFor();
+  const baseline = [await stage.boundingBox(), await greeting.boundingBox()];
+  for (const [phase, populated] of [
+    [1, '.weq-chathome-qqshow'],
+    [2, '.weq-tag'],
+    [3, '.weq-chathome-hitokoto'],
+  ]) {
+    await page.evaluate(
+      (detail) => window.dispatchEvent(new CustomEvent('weq-home-fixture-phase', { detail })),
+      phase,
+    );
+    await page
+      .locator(populated)
+      .first()
+      .waitFor({ state: phase === 2 ? 'attached' : 'visible' });
+    const actual = [await stage.boundingBox(), await greeting.boundingBox()];
+    assert.deepEqual(actual, baseline, `首页内容到达阶段 ${phase} 改变了舞台或问候语位置`);
   }
   console.log(JSON.stringify({ report, errors }));
   assert.deepEqual(errors, []);

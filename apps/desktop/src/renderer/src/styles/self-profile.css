@@ -28,9 +28,30 @@
   outline-offset: 1px;
 }
 
+.weq-title-online-status-slot,
+.app-title-bar-vip-slot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: start;
+  align-items: center;
+  flex: 0 1 var(--weq-title-slot-width);
+  inline-size: var(--weq-title-slot-width);
+  min-inline-size: 0;
+  block-size: 20px;
+}
+
+.weq-title-online-status-slot {
+  --weq-title-slot-width: 128px;
+}
+
+.app-title-bar-vip-slot {
+  --weq-title-slot-width: 66px;
+  overflow: hidden;
+}
+
 .weq-title-online-status {
   min-width: 0;
-  max-width: 160px;
+  max-width: 100%;
 }
 
 .weq-title-online-status > svg,

@@ -39,7 +39,7 @@ html[data-theme='dark'] .weq-qqshow-gallery-scrim {
   display: flex;
   flex-direction: column;
   width: min(880px, calc(100vw - 64px));
-  max-height: min(760px, calc(100vh - 88px));
+  height: min(760px, calc(100dvh - 88px));
   border: 1px solid var(--weq-border-subtle);
   border-radius: 18px;
   background: var(--weq-bg-surface);
@@ -49,7 +49,7 @@ html[data-theme='dark'] .weq-qqshow-gallery-scrim {
 
 .weq-qqshow-gallery-popover .weq-qqshow-gallery {
   width: min(520px, calc(100vw - 24px));
-  max-height: min(560px, calc(100dvh - 24px));
+  height: min(560px, calc(100dvh - 24px));
   border-radius: 8px;
 }
 

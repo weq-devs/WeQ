@@ -1176,7 +1176,7 @@ function QqMessageContentBody({
   //
   // 卡片挂在气泡下面（而不是取代气泡）—— 同语音转录的处理：原文始终看得见，卡片只是
   // 附加信息。数据优先取 QQ 自己扫出来的 urlVerify（本地就有，不出网），没有才让
-  // QqLinkCard 去抓；两个都没有它返回 null，只剩气泡里那条蓝链接。
+  // QqLinkCard 查询预览，并在补入卡片时保留聊天阅读位置。
   const soleLinkCard = ((): ReactNode => {
     if (!linkPreviewOn) return null;
     if (meaningful.length === 0 || !meaningful.every((element) => element.type === 'text'))

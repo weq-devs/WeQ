@@ -6607,16 +6607,26 @@ function ChatPaneContent({
                 <Sparkles size={12} />
               </small>
             ) : null}
-            {conversation.type === 'group' && conversation.group.luckyChar ? (
-              <img
-                className={cn('lucky-char-badge')}
-                src={dressUrl(
-                  `https://tianquan.gtimg.cn/groupluckyword/item/${conversation.group.luckyChar.id}/pic-${conversation.group.luckyChar.litCount}.png`,
-                )}
-                alt=""
-                title={`幸运字符 · 已点亮 ${conversation.group.luckyChar.litCount} 人`}
-                referrerPolicy="no-referrer"
-              />
+            {conversation.type === 'group' && !conversation.generated ? (
+              <span className="lucky-char-slot">
+                {conversation.group.luckyChar ? (
+                  <img
+                    className="lucky-char-badge"
+                    src={dressUrl(
+                      `https://tianquan.gtimg.cn/groupluckyword/item/${conversation.group.luckyChar.id}/pic-${conversation.group.luckyChar.litCount}.png`,
+                    )}
+                    alt=""
+                    title={`幸运字符 · 已点亮 ${conversation.group.luckyChar.litCount} 人`}
+                    referrerPolicy="no-referrer"
+                    onError={(event) => {
+                      event.currentTarget.hidden = true;
+                    }}
+                    onLoad={(event) => {
+                      event.currentTarget.hidden = false;
+                    }}
+                  />
+                ) : null}
+              </span>
             ) : null}
           </>
         }

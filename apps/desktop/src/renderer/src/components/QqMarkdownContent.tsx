@@ -25,6 +25,7 @@ import { openLink } from '../lib/linkify';
 import { imageSizeHint, normalizeBotMarkdown } from './qqBotMarkdown';
 import { remarkQqHighlight, remarkQqLineBreaks } from './qqMarkdownPlugins';
 import { useDataSaver } from '../lib/dataSaver';
+import { messageMediaSize } from '../lib/chatMediaSize';
 
 const REMARK_PLUGINS = [remarkGfm, remarkQqLineBreaks, remarkQqHighlight];
 const PLUGINS = { code: shikiCodeHighlighter };
@@ -50,30 +51,30 @@ function MarkdownImage({ src, alt, ...rest }: JSX.IntrinsicElements['img']): Rea
   );
   const [requested, setRequested] = useState<string>();
   if (!src) return null;
+  const hint = imageSizeHint(alt);
   if (limited && requested !== src && /^(?:https?:)?\/\//i.test(src))
     return (
       <button type="button" className="qq-link" onClick={() => setRequested(src)}>
-        {alt && !imageSizeHint(alt) ? `加载图片（${alt}）` : '加载图片'}
+        {alt && !hint ? `加载图片（${alt}）` : '加载图片'}
       </button>
     );
-  const hint = imageSizeHint(alt);
+  const { width, height } = hint
+    ? { width: hint.width, height: hint.height || hint.width }
+    : messageMediaSize('pic', {});
   return (
     <img
       {...rest}
       src={src}
       alt={alt ?? ''}
-      width={hint?.width}
-      height={hint?.height}
-      style={
-        hint
-          ? {
-              width: hint.width,
-              maxWidth: '100%',
-              height: 'auto',
-              aspectRatio: hint.height ? `${hint.width} / ${hint.height}` : undefined,
-            }
-          : undefined
-      }
+      width={width}
+      height={height}
+      style={{
+        width,
+        maxWidth: '100%',
+        height: 'auto',
+        aspectRatio: `${width} / ${height}`,
+        objectFit: 'contain',
+      }}
     />
   );
 }
