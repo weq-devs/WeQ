@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ImgHTMLAttributes } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ImgHTMLAttributes } from 'react';
 import { collectionImageUrl } from '../lib/resourceUrl';
 import { useDataSaver } from '../lib/dataSaver';
 
@@ -6,12 +6,18 @@ import { useDataSaver } from '../lib/dataSaver';
 export function CollectionImage({
   originalSrc,
   onLoad,
+  style,
   ...props
 }: Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & { originalSrc: string }) {
   const ref = useRef<HTMLImageElement>(null);
   const [visible, setVisible] = useState(false);
+  const [ready, setReady] = useState(false);
   useDataSaver((state) => (state.enabled ? state.behavior.dataSaverImageLoading : null));
   const [dimensions, setDimensions] = useState<{ width: number; height: number } | null>(null);
+  const src = visible ? collectionImageUrl(originalSrc, true) : undefined;
+  useLayoutEffect(() => {
+    setReady(Boolean(src && ref.current?.complete && ref.current.naturalWidth));
+  }, [src]);
   useEffect(() => {
     const image = ref.current;
     if (!image) return;
@@ -44,11 +50,13 @@ export function CollectionImage({
       ref={ref}
       width={dimensions?.width ?? props.width}
       height={dimensions?.height ?? props.height}
-      src={visible ? collectionImageUrl(originalSrc, true) : undefined}
+      src={src}
       loading="lazy"
       decoding="async"
+      style={ready ? style : { ...style, visibility: 'hidden' }}
       onLoad={(event) => {
         const image = event.currentTarget;
+        if (src) setReady(true);
         if (image.naturalWidth && image.naturalHeight)
           setDimensions({ width: image.naturalWidth, height: image.naturalHeight });
         onLoad?.(event);

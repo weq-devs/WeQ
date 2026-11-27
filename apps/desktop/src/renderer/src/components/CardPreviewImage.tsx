@@ -1,7 +1,18 @@
-import { useState } from 'react';
+import { useState, type ImgHTMLAttributes } from 'react';
 import { useDataSaver } from '../lib/dataSaver';
 import { inlineImageUrl, interactiveMediaUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from './ShimmerImage';
+
+function CardImage(props: ImgHTMLAttributes<HTMLImageElement>) {
+  const [ready, setReady] = useState(false);
+  return (
+    <img
+      {...props}
+      style={ready ? undefined : { visibility: 'hidden' }}
+      onLoad={() => setReady(true)}
+    />
+  );
+}
 
 export function CardPreviewImage({
   src,
@@ -27,7 +38,8 @@ export function CardPreviewImage({
   const fallback = fallbackSrc ? inlineImageUrl(fallbackSrc, 'link-preview') : '';
   const fallbackUrl = requested === automatic ? interactiveMediaUrl(fallback) : fallback;
   const url = failedPrimary === primary && fallbackUrl ? fallbackUrl : primary;
-  if (limited && failed === url)
+  if (failed === url) {
+    if (!limited && hideUnavailable) return null;
     return (
       <button
         type="button"
@@ -43,7 +55,7 @@ export function CardPreviewImage({
         {label}
       </button>
     );
-  if (hideUnavailable && failed === url) return null;
+  }
   const props = {
     className,
     src: url,
@@ -57,6 +69,6 @@ export function CardPreviewImage({
   return mediaLoading ? (
     <ShimmerImage key={url} {...props} mediaLoading />
   ) : (
-    <img key={url} {...props} />
+    <CardImage key={url} {...props} />
   );
 }

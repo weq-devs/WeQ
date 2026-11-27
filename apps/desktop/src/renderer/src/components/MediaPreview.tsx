@@ -703,6 +703,7 @@ function MediaPreviewItemBody({
                 ref={image}
                 className="weq-lightbox-image"
                 src={mediaRetryUrl(previewSrc, attempt)}
+                style={imagePixels ? undefined : { visibility: 'hidden' }}
                 alt={item.title || '图片'}
                 draggable={false}
                 onLoad={(event) => {
