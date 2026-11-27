@@ -1,7 +1,10 @@
 import type { FavoriteEmojiImportPreview } from '@weq/service';
 import { backgroundTasks } from './background_tasks';
 
-export function updateFavoriteImportTask(id: string, view: FavoriteEmojiImportPreview) {
+export function updateFavoriteImportTask(
+  id: string,
+  view: Pick<FavoriteEmojiImportPreview, 'result' | 'phase' | 'error' | 'cancelling'>,
+) {
   const items = view.result?.items ?? [];
   const processed = items.filter((item) => item.state !== 'not-run').length;
   const confirmed = items.filter(

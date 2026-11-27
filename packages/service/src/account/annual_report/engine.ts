@@ -1,6 +1,6 @@
 import type { AccountSession } from '@weq/account';
 import { withDatabasePriority } from '@weq/db';
-import { AnnualReportCache, scopeKey } from './cache';
+import { AnnualReportCache, ReportPageFiles, reportDatabaseRevision, scopeKey } from './cache';
 import { createReportQueries } from './queries';
 import { ALL_TIME_YEAR, currentReportYear, normalizeReportYear } from './time';
 import { findReportPage, reportPages } from './pages';
@@ -23,6 +23,7 @@ const DEFAULT_PREFERENCES = DEFAULT_ANNUAL_REPORT_PREFERENCES;
 export type AnnualReportServiceOptions = {
   scope?: ReportScope;
   dataRevision?: string;
+  pageCacheDirectory?: string;
   preferences?: Partial<AnnualReportPreferences>;
   /**
    * 装扮款名解析器（可选）。名字的两个来源（账号已装清单 / 仓库静态商城榜单）都在
@@ -48,6 +49,8 @@ export class AnnualReportService {
   private readonly queries: ReturnType<typeof createReportQueries>;
   private readonly scope: ReportScope;
   private readonly dataRevision: string;
+  private readonly diskRevision?: string;
+  private readonly disk?: ReportPageFiles;
   private preferences: AnnualReportPreferences;
   /** Memoized selectable periods; keyed by dataRevision. */
   private availableYearsCache: { key: string; years: number[] } | null = null;
@@ -58,6 +61,10 @@ export class AnnualReportService {
   ) {
     this.scope = options.scope ?? DEFAULT_REPORT_SCOPE;
     this.dataRevision = options.dataRevision ?? session.msgDbPath;
+    if (options.pageCacheDirectory) {
+      this.diskRevision = reportDatabaseRevision(session.msgDbPath);
+      if (this.diskRevision) this.disk = new ReportPageFiles(options.pageCacheDirectory);
+    }
     this.queries = createReportQueries(this.session, {
       resolveDressNames: options.resolveDressNames,
       resolveEmojiNames: options.resolveEmojiNames,
@@ -183,14 +190,35 @@ export class AnnualReportService {
 
     const request = withDatabasePriority(
       'background',
-      () =>
-        this.computePage(
+      async () => {
+        const disk =
+          this.disk &&
+          page.cacheable !== false &&
+          this.diskRevision === reportDatabaseRevision(this.session.msgDbPath)
+            ? this.disk
+            : undefined;
+        const diskKey = JSON.stringify([key, this.diskRevision]);
+        const saved = await disk?.read(diskKey, pageId, page.manifest.version);
+        this.lifetime.signal.throwIfAborted();
+        if (saved) {
+          this.cache.setPage(key, saved);
+          return saved;
+        }
+        const result = await this.computePage(
           normalizedYear,
           pageId,
           page.manifest.version,
           key,
           page.cacheable !== false,
-        ),
+        );
+        if (
+          disk &&
+          result.status !== 'error' &&
+          this.diskRevision === reportDatabaseRevision(this.session.msgDbPath)
+        )
+          await disk.save(diskKey, result).catch(() => undefined);
+        return result;
+      },
       this.lifetime.signal,
     );
     this.cache.setInFlight(key, request);

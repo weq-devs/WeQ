@@ -140,6 +140,26 @@ it('备份重启后仅本设备能取回原文件，变动后拒绝签发新链�
   writeFileSync(saved!.path, Buffer.alloc(readFileSync(saved!.path).length));
   await expect(f.caller.backupDownloadExport({ downloadClient })).rejects.toThrow('文件已变化');
 });
+it('生成备份失败后原设备可继续，保存冲突不会覆盖原文件', async () => {
+  const f = fixture();
+  f.host.exportRoot = f.root;
+  const downloadClient = crypto.randomUUID();
+  const target = join(f.root, 'synthetic.zip');
+  writeFileSync(target, '合成的已有文件');
+  await expect(f.caller.backupExport({ parts: ['settings'], downloadClient })).rejects.toThrow();
+  expect(readFileSync(target, 'utf8')).toBe('合成的已有文件');
+  context.current = bootstrapWeqBackupFiles(f.root);
+  expect((await f.caller.backupInventory({ downloadClient })).interruptedExport).toEqual({
+    name: 'synthetic.zip',
+  });
+  await expect(f.caller.backupResumeExport({ downloadClient })).rejects.toThrow('已有不同文件');
+  rmSync(target);
+  await expect(f.caller.backupResumeExport({ downloadClient })).resolves.toMatchObject({
+    path: target,
+    downloadUrl: '/synthetic-download',
+  });
+  expect((await f.caller.backupInventory({ downloadClient })).interruptedExport).toBeUndefined();
+});
 it('全局恢复在日志删除范围变化后要求重新确认，确认后才设置默认策略并删除', async () => {
   const f = fixture();
   const config = context.current!.config!;

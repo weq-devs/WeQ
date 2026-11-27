@@ -207,6 +207,15 @@ async function findDressById(
   };
 }
 
+export async function resolveCallBackground(
+  services: AccountServices,
+  itemId: number,
+  video: boolean,
+) {
+  const item = await findDressById(services, 'callbg', itemId);
+  return video ? item?.videoUrl : item?.previewLargeUrl || item?.previewUrl;
+}
+
 /**
  * 排除的挂件。
  *
@@ -721,6 +730,7 @@ export const dressupRouter = router({
             z.object({
               itemId: z.number().int().positive(),
               name: z.string().max(512),
+              video: z.boolean().optional(),
               mediaUrl: z
                 .string()
                 .url()
@@ -778,11 +788,11 @@ export const dressupRouter = router({
       if (!policy) return null;
       check();
       const resume =
-        kind !== 'callbg'
+        kind !== 'callbg' || items.every((item) => typeof item.video === 'boolean')
           ? {
               type: 'dress-download' as const,
               kind,
-              items: items.map(({ itemId, name }) => ({ itemId, name })),
+              items: items.map(({ itemId, name, video }) => ({ itemId, name, video })),
               bundleName,
             }
           : undefined;

@@ -11,6 +11,7 @@
  * page, `listBefore` to page up, `listFrom` to re-read the loaded window live.
  */
 import { setTimeout as delay } from 'node:timers/promises';
+import { serialize } from 'node:v8';
 import { CONVERSATION_RECORD_TYPES, MESSAGE_CATEGORIES, OperationError } from '@weq/service';
 import { qqActionUnavailable } from '../../../shared/qq_action_availability';
 import { MsgType } from '@weq/codec/proto/msg/40900';
@@ -59,8 +60,8 @@ import {
   registerFlashDownloadOutput,
   startFlashDownloads,
 } from './flash_save';
-import { FileUploadStaging } from './album_video_staging';
-import { pickedBrowserFiles } from '../../browser_files';
+import { FileUploadStaging, StagedUploadUnavailable } from './album_video_staging';
+import { accountUploadPersistence, pickedBrowserFiles } from '../../browser_files';
 import { saveAnalyticsFromWeb } from '../../analytics_save';
 import { webNotices, type WebNoticeEvent } from '../../web/notices';
 import {
@@ -245,7 +246,6 @@ import {
   COMPOSE_IMAGE_EXTENSIONS,
   getHost,
   getVoiceModel,
-  buildBotExport,
   probeBotWebUi,
   prepareFavoriteEmojiElements,
   checkAccountDatabaseHealth,
@@ -1277,7 +1277,27 @@ const browserFiles = new FileUploadStaging(30 * 60000, {
   maxBytes: BROWSER_FILE_MAX_BYTES,
   prefix: 'weq-browser-file-',
   fileName: 'attachment',
+  persistence: accountUploadPersistence('outgoing-file-transfer'),
 });
+
+const resumeBrowserFileInput = browserFileBinding.extend({ uploadId: z.string().uuid() });
+
+async function resumeBrowserUpload(
+  staging: FileUploadStaging,
+  input: z.infer<typeof resumeBrowserFileInput>,
+) {
+  const current = () =>
+    requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId);
+  const services = current();
+  try {
+    const resumed = await staging.resume(services, input.uploadId);
+    if (current() !== services) throw new Error('账号已切换，请重新选择附件。');
+    return resumed;
+  } catch (error) {
+    if (error instanceof StagedUploadUnavailable) return null;
+    throw error;
+  }
+}
 
 async function importantGroupPreviews(
   account: NonNullable<ReturnType<typeof getAppContext>['account']>,
@@ -1403,7 +1423,7 @@ async function executeRecordedClone(
   };
   const retry = {
     id: 'retry',
-    label: '重新执行',
+    label: '继续构建',
     run: () => {
       if (getAppContext().services !== services) throw new Error('请回到原账号和数据源继续');
       return retryRecordedClone(id, scope, request);
@@ -1430,8 +1450,8 @@ async function executeRecordedClone(
   try {
     save();
     const result = await (request.type === 'create'
-      ? agentLab.buildFromC2c(request.params)
-      : agentLab.refreshFromC2c(personaId));
+      ? agentLab.buildFromC2c(request.params, id)
+      : agentLab.refreshFromC2c(personaId, id));
     backgroundTasks.finish(id, 'completed', { note: '克隆体已保存' });
     backgroundTasks.setActions(id, [
       { id: 'view-clone', label: '查看克隆体', run: () => undefined },
@@ -1620,6 +1640,10 @@ export const accountRouter = router({
       )),
       binaryChunks: true as const,
     })),
+  pickedFileResume: procedure.input(resumeBrowserFileInput).mutation(async ({ input }) => {
+    const resumed = await resumeBrowserUpload(pickedBrowserFiles, input);
+    return resumed ? { ...resumed, binaryChunks: true as const } : null;
+  }),
   pickedFileChunk: procedure
     .input(
       browserFileBinding.extend({
@@ -2232,31 +2256,16 @@ export const accountRouter = router({
       );
       if (!policy) return { canceled: true as const };
       check();
-      let botResult: Awaited<ReturnType<typeof buildBotExport>> | undefined;
+      const resume = { type: 'persona-bot' as const, personaId: input.personaId };
       const taskId = await services.exportManager.startResourceExport({
         kind: 'persona-bot',
+        resume,
+        stagedInput: serialize(buildInput),
         name: `${safeName}-bot`,
         display: { action: '导出克隆机器人', subject: safeName },
         savePolicy: policy,
         includeIntegrityReport: input.includeIntegrityReport,
-        run: async ({ directory, signal }) => {
-          check();
-          signal.throwIfAborted();
-          botResult = await buildBotExport({ ...buildInput, outDir: directory });
-          check();
-          signal.throwIfAborted();
-          return { total: 1, ok: 1, failed: [] };
-        },
-        onPublished: (directory) => {
-          check();
-          if (!botResult) throw new Error('机器人产物尚未生成');
-          svc.recordExport(input.personaId, {
-            ...botResult.webui,
-            taskId,
-            outDir: directory,
-            exportedAt: Date.now(),
-          });
-        },
+        run: (context) => runResumableExport(services, resume, context, check),
       });
       return { canceled: false as const, taskId };
     }),
@@ -7200,6 +7209,9 @@ export const accountRouter = router({
       requireQqOnlineForAlbum(services);
       return browserFiles.start(services, input.size);
     }),
+  browserFileResume: procedure
+    .input(resumeBrowserFileInput)
+    .mutation(({ input }) => resumeBrowserUpload(browserFiles, input)),
   browserFileChunk: procedure
     .input(
       browserFileBinding.extend({
@@ -7259,7 +7271,9 @@ export const accountRouter = router({
       requireQqOnlineForAlbum(services);
       const sourceConfigId = services.accountConfig.getRecord()?.configId;
       const sourcePid = services.accountConfig.getRecord()?.qqPid;
-      const path = input.uploadId ? browserFiles.acquire(services, input.uploadId) : input.path!;
+      const path = input.uploadId
+        ? await browserFiles.consume(services, input.uploadId)
+        : input.path!;
       try {
         const host = input.uploadId ? null : getHost();
         const keepSource =

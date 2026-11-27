@@ -769,6 +769,7 @@ export function DressUpDialog({
         .map((item) => ({
           itemId: item.itemId,
           name: item.name,
+          ...(mallKind === 'callbg' ? { video: Boolean(item.videoUrl) } : {}),
           mediaUrl:
             mallKind === 'callbg'
               ? item.videoUrl || item.previewLargeUrl || item.previewUrl

@@ -20,6 +20,7 @@ interface DownloadItem {
   itemId: number;
   name: string;
   mediaUrl?: string;
+  video?: boolean;
 }
 
 export async function runDressDownload(
@@ -29,15 +30,19 @@ export async function runDressDownload(
   bundleName: string,
   context: ResourceExportRunContext,
   check: () => void,
+  resolveCallBackground?: (id: number, video: boolean) => Promise<string | undefined>,
 ): Promise<ResourceExportSummary> {
   const { directory, signal, progress, checkpoint } = context;
   async function saveItem(item: DownloadItem, target: string): Promise<string> {
     check();
     signal.throwIfAborted();
     if (kind === 'callbg') {
-      if (!item.mediaUrl) throw new Error('通话背景素材地址不可用');
+      const url =
+        item.mediaUrl ?? (await resolveCallBackground?.(item.itemId, Boolean(item.video)));
+      check();
+      if (!url) throw new Error('通话背景素材地址不可用');
       return downloadUrlMedia(
-        item.mediaUrl,
+        url,
         `WeQ-通话背景-${item.itemId} ${item.name}`,
         {
           directory: target,

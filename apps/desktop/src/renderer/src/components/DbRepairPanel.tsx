@@ -452,9 +452,9 @@ export function DbRepairPanel({
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   };
-  const startScan = (kind: ScanKind, dbNames: string[]) =>
+  const startScan = (kind: ScanKind, dbNames: string[], resumeReportId?: string) =>
     act(async () => {
-      if (!dbNames.length) return;
+      if (!dbNames.length && !resumeReportId) return;
       window.electron?.ipcRenderer.send('db-repair:scope', scope);
       setTab('report');
       setOpenedCheck(undefined);
@@ -469,10 +469,19 @@ export function DbRepairPanel({
         setLive(null);
         setFocused(account?.dbName);
       }
-      const request = { kind, dbNames, previousOperationId: operation?.id, resuming: paused };
+      const request = {
+        kind,
+        dbNames,
+        previousOperationId: operation?.id,
+        resuming: paused || Boolean(resumeReportId),
+      };
       setStarting(request);
       try {
-        updateLive(await scan.mutateAsync({ ...scope, kind, dbNames }));
+        updateLive(
+          resumeReportId
+            ? await client.dbRepair.resumeReport.mutate({ ...scope, reportId: resumeReportId })
+            : await scan.mutateAsync({ ...scope, kind, dbNames }),
+        );
         await refresh();
       } finally {
         setStarting((current) => (current === request ? null : current));
@@ -2050,6 +2059,23 @@ export function DbRepairPanel({
                         </span>
                       </div>
                       <div className="weq-dbm-history-actions">
+                        {item.operation.status === 'interrupted' &&
+                        item.operation.completedDatabases < item.operation.totalDatabases ? (
+                          <button
+                            type="button"
+                            className="weq-set-btn weq-set-btn-sm"
+                            disabled={locked || running || Boolean(starting)}
+                            onClick={() =>
+                              void startScan(
+                                item.operation.kind === 'scan' ? 'scan' : 'checkup',
+                                item.operation.databaseNames ?? [],
+                                item.id,
+                              )
+                            }
+                          >
+                            {item.operation.kind === 'repair' ? '复查未完成的库' : '继续体检'}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           className="weq-set-btn weq-set-btn-sm"

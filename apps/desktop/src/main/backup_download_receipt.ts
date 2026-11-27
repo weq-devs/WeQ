@@ -12,6 +12,38 @@ const receipt = z.object({
   bytes: z.number().int().positive(),
 });
 type Receipt = z.infer<typeof receipt>;
+const generation = z.object({
+  owner: z.string(),
+  path: z.string(),
+  input: z.unknown(),
+  hash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+});
+type Generation = z.infer<typeof generation>;
+
+function generationStore(root: string) {
+  return new JsonStore<Generation[]>(join(root, 'config', 'backup-generation.json'), () => [], {
+    normalize: (value) => z.array(generation).parse(value),
+  });
+}
+
+export function pendingBackupGeneration(root: string, owner: string) {
+  return generationStore(root).data.find((row) => row.owner === owner);
+}
+
+export function saveBackupGeneration(root: string, owner: string, draft: Generation | null) {
+  const store = generationStore(root);
+  const remaining = store.data.filter((row) => row.owner !== owner);
+  store.replace(draft ? [...remaining.slice(-15), draft] : remaining);
+}
+
+export async function backupFileHash(path: string) {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest('hex');
+}
 
 function storeFor(root: string) {
   return new JsonStore<Receipt[]>(join(root, 'config', 'backup-downloads.json'), () => [], {
@@ -50,8 +82,6 @@ export async function resolveBackupDownload(root: string, exportRoot: string, ow
     info.size !== saved.bytes
   )
     throw new Error('备份文件已变化，请重新导出。');
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(path)) hash.update(chunk);
-  if (hash.digest('hex') !== saved.hash) throw new Error('备份文件已变化，请重新导出。');
+  if ((await backupFileHash(path)) !== saved.hash) throw new Error('备份文件已变化，请重新导出。');
   return { path, name: basename(saved.path) };
 }

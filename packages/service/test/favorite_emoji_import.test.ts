@@ -53,6 +53,20 @@ function server() {
 }
 
 describe('收藏包导入执行', () => {
+  it('先保存正在提交的条目，续作记录写失败时这一项仍未提交', async () => {
+    const { items } = await fixture();
+    const s = server();
+    const original = s.ids();
+    const result = await runFavoriteEmojiImport(items, [items[0]!.key], s.port, {
+      current: () => {},
+      journal: (result) => {
+        if (result.inFlightKey) throw new Error('合成的续作记录写失败');
+      },
+    });
+    expect(s.ids()).toEqual(original);
+    expect(result.items[0]?.state).toBe('failed');
+    expect(s.port.modifyFavoriteDesc).not.toHaveBeenCalled();
+  });
   it('使用目标账号新 ID，逆序置前恢复来源顺序，原有项相对顺序不变', async () => {
     const { items, images } = await fixture();
     const s = server();

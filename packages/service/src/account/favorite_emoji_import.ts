@@ -51,6 +51,7 @@ export async function runFavoriteEmojiImport(
     current: () => void;
     signal?: AbortSignal;
     progress?: (result: FavoriteEmojiImportResult) => void;
+    journal?: (result: FavoriteEmojiImportResult) => void;
   },
 ): Promise<FavoriteEmojiImportResult> {
   const keys = new Set(selectedKeys);
@@ -78,8 +79,10 @@ export async function runFavoriteEmojiImport(
     })),
     stopped: null,
   };
-  const notify = () =>
+  const notify = () => {
+    options.journal?.(result);
     options.progress?.({ ...result, items: result.items.map((item) => ({ ...item })) });
+  };
   const current = () => {
     try {
       options.signal?.throwIfAborted();

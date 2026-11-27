@@ -530,6 +530,7 @@ export interface TaskProgress {
 }
 
 export interface ResourceExportSummary {
+  onPublished?(directory: string, taskId: string): void;
   metadata?: ResourceDirectoryEntry[];
   fileName?: string;
   total: number;
@@ -550,6 +551,7 @@ export type ResumableResourceRequest =
   | { type: 'annual-report'; extension: 'html' | 'pdf' | 'png'; fileName: string }
   | { type: 'analytics-report'; fileName: string }
   | { type: 'composition' }
+  | { type: 'persona-bot'; personaId: string }
   | { type: 'decoration'; fileName: string }
   | {
       type: 'qzone-videos';
@@ -559,8 +561,8 @@ export type ResumableResourceRequest =
     }
   | {
       type: 'dress-download';
-      kind: 'bubble' | 'font' | 'widget';
-      items: Array<{ itemId: number; name: string }>;
+      kind: 'bubble' | 'font' | 'widget' | 'callbg';
+      items: Array<{ itemId: number; name: string; video?: boolean }>;
       bundleName: string;
     }
   | { type: 'market-image'; packId: string; hash: string; name: string; fileName: string }
@@ -2352,6 +2354,7 @@ export class ExportTaskManager extends EventEmitter {
         if (output) task.filePath = join(bundle.finalDir, 'files', summary.fileName!);
         else task.bundleDir = bundle.finalDir;
         onPublished?.(join(bundle.finalDir, 'files'));
+        summary.onPublished?.(join(bundle.finalDir, 'files'), task.id);
       }
       const counts = summary.contents ?? summary;
       task.current = stage.current = counts.ok;

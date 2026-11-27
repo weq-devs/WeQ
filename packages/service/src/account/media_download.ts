@@ -66,6 +66,7 @@ export interface DownloadOptions {
   originalUrl?: string;
   /** 仅用户明确请求查看原图时，可在任务列表继续被策略暂停的传输。 */
   reportActivity?: boolean;
+  activityTaskId?: string;
   activity?: {
     pageId: string;
     onState(state: DownloadState, resume?: () => void): void;
@@ -363,6 +364,7 @@ export class MediaDownloadService {
     };
     let source = 'unavailable';
     let externalCandidateCount = 0;
+    const taskId = opts.activityTaskId ?? globalThis.crypto.randomUUID();
     const fetchCandidate = (url: string, stage: string) =>
       tryFetch(
         url,
@@ -373,6 +375,20 @@ export class MediaDownloadService {
         signal,
         opts.reportActivity,
         opts.activity,
+        opts.reportActivity
+          ? {
+              id: taskId,
+              request: {
+                type: 'chat-original',
+                token: fileToken,
+                originalUrl: /^\/(?!\/)[^?#]*$/.test(opts.originalUrl ?? '')
+                  ? opts.originalUrl
+                  : undefined,
+                ext: opts.ext,
+                rkeyTypes: opts.rkeyTypes,
+              },
+            }
+          : undefined,
       );
     let bytes: number | null = null;
     for (const candidate of urls) {
@@ -469,6 +485,7 @@ async function tryFetch(
   signal: AbortSignal,
   reportActivity = false,
   activity?: DownloadOptions['activity'],
+  activityResume?: ManagedDownload['activityResume'],
 ): Promise<number | null> {
   const check = () => {
     signal.throwIfAborted();
@@ -481,6 +498,7 @@ async function tryFetch(
     const transfer = new ManagedDownload({
       name: reportActivity ? '下载聊天媒体' : undefined,
       activityPageId: activity?.pageId,
+      activityResume,
       state:
         activity &&
         ((state) => activity.onState(state, state.paused ? () => transfer.continue() : undefined)),

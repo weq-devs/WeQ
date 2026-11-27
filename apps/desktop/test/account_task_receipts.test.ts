@@ -62,7 +62,7 @@ it('旧克隆构建只恢复回执，用户重跑沿用原任务并能停止；�
         },
       ]),
     );
-    restoreRecordedTasks(scope, retryRecordedClone);
+    restoreRecordedTasks(scope, { retryClone: retryRecordedClone });
     expect(agentLab.buildFromC2c).not.toHaveBeenCalled();
     expect(backgroundTasks.snapshot().find((task) => task.id === id)).toMatchObject({
       status: 'failed',
@@ -73,7 +73,7 @@ it('旧克隆构建只恢复回执，用户重跑沿用原任务并能停止；�
     expect(agentLab.buildFromC2c).not.toHaveBeenCalled();
     record.configId = scope.configId;
     await backgroundTasks.act(id, 'retry');
-    expect(agentLab.buildFromC2c).toHaveBeenCalledWith(params);
+    expect(agentLab.buildFromC2c).toHaveBeenCalledWith(params, id);
     await backgroundTasks.act(id, 'stop');
     await vi.waitFor(() =>
       expect(backgroundTasks.snapshot().find((task) => task.id === id)?.status).toBe('cancelled'),

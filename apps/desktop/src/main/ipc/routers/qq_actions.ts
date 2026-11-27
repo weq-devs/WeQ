@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { open } from 'node:fs/promises';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import { z } from 'zod/v3';
 import { observeUpload, transferIdInput } from './transfer_progress';
@@ -16,22 +16,32 @@ import {
   FAVORITE_EMOJI_MAX_ARCHIVE_BYTES,
   FAVORITE_EMOJI_MAX_ITEMS,
   OperationError,
+  runFavoriteEmojiImport,
   type PanelFavItem,
 } from '@weq/service';
-import type { AccountServices } from '../../context/app_context';
+import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import type { QQWriteBinding } from './qq_write';
 import { exportSavePolicyInput } from './export_save';
-import { AlbumVideoStaging } from './album_video_staging';
+import { AlbumVideoStaging, StagedUploadUnavailable } from './album_video_staging';
 import { backgroundTasks, taskError } from '../../background_tasks';
 import { runtimeMaintenance } from '../../runtime_maintenance';
 import {
   albumVideoPublished,
   lastAlbumVideoTask,
+  readRecordedAccountRequest,
   recordAccountTask,
   type AlbumVideoReceipt,
 } from '../../account_task_receipts';
 import { updateFavoriteImportTask } from '../../favorite_import_task';
+import {
+  favoriteImportPlan,
+  makeFavoriteImportPlan,
+  pendingFavoriteImports,
+  readFavoriteImportSource,
+  removeFavoriteImportSource,
+  updateFavoriteImportPlan,
+} from '../../favorite_import_resume';
 import { readFavoriteEmojiMedia } from './favorite_emoji_media';
 import { runResumableExport } from '../../resumable_exports';
 import { groupNoticeSequenceId, type NoticeOperationWire } from '../../../shared/contact_notices';
@@ -85,6 +95,7 @@ const videoInput = album.extend({
 });
 const oneVideo = (value: { path?: string; uploadId?: string }) =>
   Boolean(value.path) !== Boolean(value.uploadId);
+const videoPublishInput = videoInput.extend({ requestId: z.string().uuid() }).refine(oneVideo);
 const videoTaskInput = album.extend({ taskId: z.string().uuid() });
 const media = album.extend({ mediaId: id, batchId: z.string().regex(/^\d+$/) });
 const accepted = { state: 'accepted' as const };
@@ -165,7 +176,23 @@ export function createQQActionsRouter(
       save: ReturnType<typeof recordAccountTask>;
     }
   >();
-  const videoStaging = new AlbumVideoStaging();
+  const videoStaging = new AlbumVideoStaging(30 * 60_000, {
+    label: '视频',
+    minBytes: 16,
+    maxBytes: Number.MAX_SAFE_INTEGER,
+    prefix: 'weq-album-video-',
+    fileName: 'video.mp4',
+    persistence: {
+      root: () => {
+        const root = getAppContext().platform?.appDataRoot?.();
+        return root ? join(root, 'cache', 'album-video-transfer') : undefined;
+      },
+      ownerKey: (owner) => {
+        const record = (owner as QQActionServices).accountConfig.getRecord();
+        return record?.configId ? JSON.stringify([record.uin, record.configId]) : undefined;
+      },
+    },
+  });
   const pending = new WeakMap<
     QQActionServices,
     Map<string, { request: GroupRequest; cursor?: string; freshUntil: number; pid?: number | null }>
@@ -201,6 +228,89 @@ export function createQQActionsRouter(
     if (resolve(input) !== s) throw new Error('账号已切换，请刷新');
     return result;
   };
+
+  function resumeFavoriteImport(input: QQWriteBinding, id: string) {
+    assertWritable?.(input);
+    const services = resolve(input);
+    if (busy.has(services)) throw new Error('请等待当前 QQ 操作完成');
+    const scope = { uin: input.expectedAccountUin, configId: input.expectedAccountConfigId };
+    const task = backgroundTasks
+      .snapshot()
+      .find(
+        (row) =>
+          row.id === id &&
+          row.kind === 'favorite-import' &&
+          row.status !== 'running' &&
+          row.scope?.configId === scope.configId &&
+          row.scope.uin === scope.uin,
+      );
+    if (!task) throw new Error('收藏导入任务已改变，请刷新。');
+    let plan = favoriteImportPlan.parse(readRecordedAccountRequest(id, scope));
+    const keys = pendingFavoriteImports(plan);
+    if (!keys.length) throw new Error('没有尚未提交的表情。');
+    const save = recordAccountTask(id, scope);
+    const stop = new AbortController();
+    backgroundTasks.resume(id);
+    backgroundTasks.setActions(id, [
+      {
+        id: 'stop',
+        label: '停止后续导入',
+        run: () => {
+          stop.abort();
+        },
+      },
+    ]);
+    const work = write(input, async (currentServices, check) => {
+      const items = await readFavoriteImportSource(scope.configId, id);
+      check();
+      const outcome = await runFavoriteEmojiImport(items, keys, currentServices.emoji, {
+        current: check,
+        signal: stop.signal,
+        journal: (result) => {
+          const next = updateFavoriteImportPlan(plan, result);
+          save(next);
+          plan = next;
+        },
+        progress: (result) =>
+          updateFavoriteImportTask(id, {
+            result: { ...result, items: plan.items },
+            phase: 'running',
+            error: null,
+            cancelling: stop.signal.aborted,
+          }),
+      });
+      updateFavoriteImportTask(id, {
+        result: { ...outcome, items: plan.items },
+        phase: 'finished',
+        error: null,
+        cancelling: stop.signal.aborted,
+      });
+    });
+    void work
+      .catch((error) => {
+        backgroundTasks.finish(id, 'failed', { note: taskError(error) });
+      })
+      .finally(() => {
+        if (pendingFavoriteImports(plan).length) {
+          backgroundTasks.setActions(id, [
+            {
+              id: 'retry',
+              label: '继续导入未提交的表情',
+              run: () => resumeFavoriteImport(input, id),
+            },
+          ]);
+        } else {
+          backgroundTasks.setActions(id, []);
+          void removeFavoriteImportSource(scope.configId, id).catch(() => undefined);
+        }
+        try {
+          save(plan);
+        } catch (error) {
+          console.warn('[收藏导入] 回执保存失败', error);
+        }
+      });
+    return true;
+  }
 
   async function loadRequestInbox(
     s: QQActionServices,
@@ -346,8 +456,9 @@ export function createQQActionsRouter(
     let videoId: string | null = null;
     await write(input, async (services, current) => {
       const path = input.uploadId
-        ? videoStaging.acquire(services, input.uploadId)
+        ? videoStaging.complete(services, input.uploadId)
         : await services.fileResource.resolveLocalFile(input.path!);
+      let consumed = false;
       try {
         current();
         if (!path) throw new Error('视频文件未授权或已不可用，请重新选择');
@@ -358,6 +469,10 @@ export function createQQActionsRouter(
         const cover = Buffer.from(input.coverBase64, 'base64');
         if (cover.toString('base64') !== input.coverBase64) throw new Error('媒体编码无效');
         current();
+        if (input.uploadId) {
+          await videoStaging.consume(services, input.uploadId);
+          consumed = true;
+        }
         sending?.();
         const result = await services.webQuery.uploadGroupAlbumVideo({
           groupId: String(input.groupId),
@@ -373,7 +488,7 @@ export function createQQActionsRouter(
         });
         videoId = result.videoId;
       } finally {
-        if (input.uploadId)
+        if (input.uploadId && consumed)
           await videoStaging
             .discard(services, input.uploadId, true)
             .catch((error: unknown) => console.warn('[群相册] 清理视频暂存失败', error));
@@ -386,14 +501,46 @@ export function createQQActionsRouter(
     uin: input.expectedAccountUin,
     configId: input.expectedAccountConfigId,
   });
-  const albumTask = (input: z.infer<typeof album>) => {
+  const albumTask = (input: z.infer<typeof album>): ReturnType<typeof lastAlbumVideoTask> => {
     resolveStatus(input);
-    return lastAlbumVideoTask(albumScope(input), String(input.groupId), input.albumId);
+    return lastAlbumVideoTask(
+      albumScope(input),
+      String(input.groupId),
+      input.albumId,
+      (taskId, scope) =>
+        resumeAlbumVideo(
+          { expectedAccountUin: scope.uin, expectedAccountConfigId: scope.configId! },
+          taskId,
+        ),
+    );
   };
 
-  function startAlbumVideo(input: z.infer<typeof videoInput> & { requestId: string }) {
+  async function resumeAlbumVideo(input: QQWriteBinding, id: string): Promise<string> {
+    const scope = albumScope(input);
+    const receipt = readRecordedAccountRequest(id, scope) as AlbumVideoReceipt | undefined;
+    if (!receipt || receipt.submitted || !receipt.prepared)
+      throw new Error('之前的上传结果需要核对。');
+    const prepared = videoPublishInput.parse(receipt.prepared);
+    if (
+      !prepared.uploadId ||
+      prepared.expectedAccountUin !== scope.uin ||
+      prepared.expectedAccountConfigId !== scope.configId ||
+      prepared.requestId !== receipt.requestId
+    )
+      throw new Error('上传记录已改变，请重新选择视频。');
+    const existing = albumTask(prepared);
+    if (existing?.id !== id || existing.status === 'running')
+      throw new Error('上传批次已改变，请刷新相册。');
+    const services = resolve(prepared);
+    await videoStaging.restoreComplete(services, prepared.uploadId);
+    if (resolve(prepared) !== services) throw new Error('账号或数据源已切换。');
+    return startAlbumVideo(prepared, id);
+  }
+
+  function startAlbumVideo(input: z.infer<typeof videoPublishInput>, existingId?: string): string {
     const previous = albumTask(input);
-    if (previous?.ownerId === input.requestId) return previous.id;
+    if (!existingId && previous?.ownerId === input.requestId) return previous.id;
+    if (existingId && previous?.id !== existingId) throw new Error('上传批次已改变，请刷新相册。');
     if (previous?.status === 'running') throw new Error('这个相册正在上传视频');
     assertWritable?.(input);
     const services = resolve(input);
@@ -404,22 +551,27 @@ export function createQQActionsRouter(
       ...groupAlbum,
       requestId: input.requestId,
       submitted: false,
+      prepared: input.uploadId ? input : undefined,
     };
-    const taskId = backgroundTasks.start({
-      kind: 'album-upload',
-      scope,
-      groupAlbum,
-      ownerId: input.requestId,
-      foreground: true,
-      name: input.fileName,
-      display: {
-        action: '上传群相册视频',
-        subject: input.fileName,
-        context: `群 ${input.groupId} · 相册 ${input.albumId}`,
-        fileName: true,
-      },
-      statusLabel: '正在准备上传',
-    });
+    const taskId =
+      existingId ??
+      backgroundTasks.start({
+        kind: 'album-upload',
+        scope,
+        groupAlbum,
+        ownerId: input.requestId,
+        foreground: true,
+        name: input.fileName,
+        display: {
+          action: '上传群相册视频',
+          subject: input.fileName,
+          context: `群 ${input.groupId} · 相册 ${input.albumId}`,
+          fileName: true,
+        },
+        statusLabel: '正在准备上传',
+      });
+    backgroundTasks.resume(taskId);
+    backgroundTasks.setActions(taskId, []);
     const save = recordAccountTask(taskId, scope);
     const current = () => {
       if (resolve(input) !== services) throw new Error('请回到原账号和数据源核对');
@@ -446,8 +598,9 @@ export function createQQActionsRouter(
         const videoId = await runtimeMaintenance.operation(
           () =>
             uploadAlbumVideo(input, () => {
-              save({ ...receipt, submitted: true });
+              save({ ...receipt, submitted: true, prepared: undefined });
               receipt.submitted = true;
+              receipt.prepared = undefined;
               backgroundTasks.update(taskId, { statusLabel: '正在上传到 QQ 并发布' });
             }),
           '上传群相册视频',
@@ -468,13 +621,30 @@ export function createQQActionsRouter(
         }
         throw new Error('暂未在该相册读到原视频，可稍后继续核对。');
       } catch (error) {
-        backgroundTasks.finish(taskId, receipt.submitted ? 'paused' : 'failed', {
-          statusLabel: receipt.submitted ? '上传结果待核对' : undefined,
-          note: taskError(error),
-        });
+        backgroundTasks.finish(
+          taskId,
+          receipt.submitted || receipt.prepared ? 'paused' : 'failed',
+          {
+            statusLabel: receipt.submitted
+              ? '上传结果待核对'
+              : receipt.prepared
+                ? '等待继续上传'
+                : undefined,
+            needsConfirmation: receipt.submitted,
+            note: taskError(error),
+          },
+        );
         if (receipt.videoId)
           backgroundTasks.setActions(taskId, [
             { id: 'verify', label: '核对上传结果', run: verify },
+          ]);
+        if (!receipt.submitted && receipt.prepared)
+          backgroundTasks.setActions(taskId, [
+            {
+              id: 'continue',
+              label: '继续上传到 QQ',
+              run: () => resumeAlbumVideo(input, taskId),
+            },
           ]);
         try {
           save(receipt);
@@ -614,6 +784,17 @@ export function createQQActionsRouter(
     albumVideoStart: procedure
       .input(binding.extend({ size: z.number().int().safe().min(16) }))
       .mutation(({ input }) => videoStaging.start(resolve(input), input.size)),
+    albumVideoResume: procedure
+      .input(binding.extend({ uploadId: z.string().uuid() }))
+      .mutation(async ({ input }) => {
+        const services = resolve(input);
+        const resumed = await videoStaging.resume(services, input.uploadId).catch((error) => {
+          if (error instanceof StagedUploadUnavailable) return null;
+          throw error;
+        });
+        if (resolve(input) !== services) throw new Error('账号已切换，已停止视频暂存');
+        return resumed;
+      }),
     albumVideoChunk: procedure
       .input(
         binding.extend({
@@ -643,8 +824,11 @@ export function createQQActionsRouter(
       videoId: await uploadAlbumVideo(input),
     })),
     albumVideoPublish: procedure
-      .input(videoInput.extend({ requestId: z.string().uuid() }).refine(oneVideo))
+      .input(videoPublishInput)
       .mutation(({ input }) => startAlbumVideo(input)),
+    albumVideoResumeTask: procedure
+      .input(binding.extend({ taskId: z.string().uuid() }))
+      .mutation(({ input }) => resumeAlbumVideo(input, input.taskId)),
     albumVideoStatus: procedure.input(album).query(({ input }) => {
       const task = albumTask(input);
       if (!task) return null;
@@ -658,6 +842,7 @@ export function createQQActionsRouter(
         note,
         foreground,
         canVerify: actions.some((action) => action.id === 'verify'),
+        canContinue: actions.some((action) => action.id === 'continue' || action.id === 'retry'),
       };
     }),
     albumVideoBackground: procedure.input(videoTaskInput).mutation(({ input }) => {
@@ -1206,9 +1391,10 @@ export function createQQActionsRouter(
           keys: z.array(z.string().min(1).max(64)).min(1).max(FAVORITE_EMOJI_MAX_ITEMS),
         }),
       )
-      .mutation(({ input: i }) => {
+      .mutation(async ({ input: i }) => {
         const s = resolve(i);
         if (busy.has(s)) throw new Error('请等待当前 QQ 操作完成');
+        assertWritable?.(i);
         const scope = { uin: i.expectedAccountUin, configId: i.expectedAccountConfigId };
         const id = backgroundTasks.start({
           kind: 'favorite-import',
@@ -1218,13 +1404,20 @@ export function createQQActionsRouter(
           scope,
         });
         const save = recordAccountTask(id, scope);
+        busy.add(s);
         try {
-          save();
+          let plan = await makeFavoriteImportPlan(
+            scope.configId,
+            id,
+            s.favoriteEmojiImport.snapshotSelection(i.token, i.keys),
+          );
+          if (resolve(i) !== s) throw new Error('账号或数据源已切换，请重新选择收藏包。');
+          assertWritable?.(i);
+          save(plan);
           const view = s.favoriteEmojiImport.start(
             i.token,
             i.keys,
             async (run) => {
-              busy.add(s);
               try {
                 return await run();
               } finally {
@@ -1233,13 +1426,23 @@ export function createQQActionsRouter(
             },
             (view) => {
               updateFavoriteImportTask(id, view);
-              save(
-                view.result?.items.flatMap((item, index) =>
-                  item.md5 && (item.state !== 'not-run' || item.key === view.result?.inFlightKey)
-                    ? [{ index: index + 1, md5: item.md5 }]
-                    : [],
-                ),
-              );
+              save(plan);
+              if (view.phase === 'finished') {
+                if (pendingFavoriteImports(plan).length)
+                  backgroundTasks.setActions(id, [
+                    {
+                      id: 'retry',
+                      label: '继续导入未提交的表情',
+                      run: () => resumeFavoriteImport(i, id),
+                    },
+                  ]);
+                else void removeFavoriteImportSource(scope.configId, id).catch(() => undefined);
+              }
+            },
+            (result) => {
+              const next = updateFavoriteImportPlan(plan, result);
+              save(next);
+              plan = next;
             },
           );
           backgroundTasks.setActions(id, [
@@ -1255,6 +1458,8 @@ export function createQQActionsRouter(
           favoriteImports.set(s, { token: i.token, id, save });
           return view;
         } catch (error) {
+          busy.delete(s);
+          await removeFavoriteImportSource(scope.configId, id).catch(() => undefined);
           backgroundTasks.finish(id, 'failed', { note: taskError(error) });
           try {
             save();
@@ -1264,6 +1469,9 @@ export function createQQActionsRouter(
           throw error;
         }
       }),
+    favoriteImportResume: procedure
+      .input(binding.extend({ taskId: z.string().uuid() }))
+      .mutation(({ input }) => resumeFavoriteImport(input, input.taskId)),
     favoriteImportBackground: procedure
       .input(binding.extend({ token: z.string().uuid() }))
       .mutation(({ input: i }) => {

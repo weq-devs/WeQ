@@ -1,9 +1,47 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { access, readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { AlbumVideoStaging } from '../src/main/ipc/routers/album_video_staging';
 
 describe('Web 视频流式暂存', () => {
+  it('重启后按已提交偏移复核前缀，交给写操作的句柄不能再次恢复', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'weq-transfer-checkpoint-'));
+    const create = () =>
+      new AlbumVideoStaging(60000, {
+        label: '附件',
+        minBytes: 1,
+        maxBytes: 16,
+        fileName: 'attachment',
+        prefix: 'weq-fixture-',
+        persistence: { root: () => root, ownerKey: (owner) => (owner as { key: string }).key },
+      });
+    const first = create();
+    const original = { key: 'original-account' };
+    const prefix = Buffer.of(1, 2, 3);
+    try {
+      const { id } = await first.start(original, 5, 'upload.json');
+      await first.append(original, id, 0, prefix);
+      const restarted = create();
+      await expect(restarted.resume({ key: 'other-account' }, id)).rejects.toThrow('失效');
+      const owner = { ...original };
+      await expect(restarted.resume(owner, id)).resolves.toEqual({
+        id,
+        offset: 3,
+        size: 5,
+        prefixHash: createHash('sha256').update(prefix).digest('hex'),
+      });
+      await restarted.append(owner, id, 3, Buffer.of(4, 5));
+      const path = await restarted.consume(owner, id);
+      expect(await readFile(path)).toEqual(Buffer.of(1, 2, 3, 4, 5));
+      await expect(create().resume(owner, id)).rejects.toThrow('失效');
+      await restarted.discard(owner, id, true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it('并发创建也遵守数量和总容量上限，删除时撤销附件信任', async () => {
     const store = new AlbumVideoStaging(60000, {
       label: '附件',
