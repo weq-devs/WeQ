@@ -15,9 +15,11 @@
 ## 开发环境
 
 - **Node.js 和 pnpm** 使用 [`package.json`](./package.json) 的 `engines` 与 `packageManager` 声明。依赖和锁文件通过 pnpm 管理。
+- **Git 子模块**：`docs` 与 `vendor/weqbot` 是子模块，克隆时带 `--recurse-submodules`，或事后执行 `git submodule update --init --recursive`。`vendor/weqbot` 的 `protocol`、`control` 等包属于 pnpm workspace，未检出时 `pnpm install` 会因找不到工作区包而失败。
 - **Go**：用于首次或源码更新时构建远程网络辅助程序，版本要求见 `tools/remote-network/go.mod`。本地 native 源码模式另外需要其平台对应的 Rust/Cargo 和系统编译工具链。
 
 ```bash
+git clone --recurse-submodules https://github.com/weq-devs/WeQ
 pnpm dev           # 自动补依赖、准备 native 与构建，然后启动桌面开发
 pnpm dev --prepare-only # 只准备开发环境，不启动应用
 ```
