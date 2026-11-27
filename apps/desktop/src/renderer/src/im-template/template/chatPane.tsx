@@ -7076,10 +7076,11 @@ function ChatPaneContent({
           加载更早消息…
         </div>
       ) : null}
+      <span className="sr-only" role="status">
+        {locatingMessage ? '正在定位消息' : ''}
+      </span>
       {locatingMessage ? (
-        <div className="weq-conversation-loading is-older" role="status">
-          正在加载目标消息…
-        </div>
+        <div className="weq-conversation-loading is-locating" aria-hidden />
       ) : null}
       {loadingNewer ? (
         <div className="weq-conversation-loading" role="status" aria-label="正在加载后续消息">
