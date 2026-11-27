@@ -12,10 +12,11 @@ import {
   ShowMessageSeqContext,
   messageSequence,
   showsRoamingSource,
+  type MessageProvenanceSource,
 } from './MessageProvenance.shared';
 
 type MessageMetadataSource = Partial<
-  Pick<Message, 'msgSeq' | 'createdAt' | 'source' | 'sourceFormat' | 'localSent' | 'recall'>
+  Pick<Message, 'msgSeq' | 'createdAt' | 'sourceFormat'> & MessageProvenanceSource
 >;
 
 export function MessageSequenceLabel({

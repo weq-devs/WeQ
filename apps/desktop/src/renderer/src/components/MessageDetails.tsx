@@ -245,11 +245,15 @@ export function MessageDetails({
   const missingRecord =
     snapshot || message.forwardSnapshot
       ? '转发包里的消息没有独立的数据库记录'
-      : message.source === 'roaming'
-        ? '这条消息来自漫游缓存'
-        : target
-          ? '找不到这条消息的数据库记录'
-          : '此来源没有可查看的 QQ 数据库记录';
+      : message.livePush
+        ? '这条消息来自 QQ 实时推送'
+        : message.localSent
+          ? '这条消息保存在 WeQ 的发送缓存中'
+          : message.source === 'roaming'
+            ? '这条消息来自漫游缓存'
+            : target
+              ? '找不到这条消息的数据库记录'
+              : '此来源没有可查看的 QQ 数据库记录';
 
   const copy = async (value: string) => {
     try {

@@ -402,6 +402,8 @@ export type Message = {
   source?: 'roaming';
   sourceFormat?: 'native' | 'protocol';
   localSent?: boolean;
+  sentFromWeq?: true;
+  livePush?: true;
   decoration?: {
     bubbleId: number;
     fontId: number;

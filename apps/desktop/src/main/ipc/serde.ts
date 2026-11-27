@@ -277,6 +277,8 @@ export interface OnlineStatusWire extends FormattedOnlineStatus {}
 export interface ChatMsgWire {
   cachedBubbles?: import('@weq/service').MessageBubbleSkin[];
   localSent?: boolean;
+  sentFromWeq?: true;
+  livePush?: true;
   sourceFormat?: 'native' | 'protocol';
   source?: 'roaming';
   ntSeqVerified?: boolean;

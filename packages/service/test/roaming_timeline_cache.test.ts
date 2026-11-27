@@ -503,8 +503,75 @@ describe('offline roaming timeline cache pages', () => {
       const after = await reopened.query(kind, conv, 1, 20000, kind === 'c2c');
       expect(after).toHaveLength(1);
       expect(after[0]!.msgId).toBe('90000000001');
+      expect(after[0]!.sentFromWeq).toBe(true);
       expect(after[0]!.decoration?.fontId).toBe(32002);
       expect(after[0]!.decoration?.bubbleId).toBe(0);
+    },
+  );
+  it.each(['protocol', 'native'] as const)(
+    '重开后识别 %s 正式记录，即使发送快照在另一页',
+    async (sourceFormat) => {
+      const { cache, path, nt } = setup();
+      const sent: GapFetchedMessage = {
+        ...message(42, 'c2c', true),
+        msgId: '1234',
+        msgRandom: '1234',
+        localSent: true,
+        sourceFormat: 'protocol',
+      };
+      const history = {
+        ...sent,
+        sourceFormat,
+        ...(sourceFormat === 'native' ? { nativeRaw: { elements: [] } } : {}),
+        msgId: '90001',
+        sendTime: '1700000001',
+        localSent: undefined,
+      };
+      const otherSender = { ...history, msgId: '90002', senderUid: 'u_other' };
+      const otherRandom = { ...history, msgId: '90003', msgRandom: '5678' };
+      const otherConv = { ...history, conv: 'u_other_peer' };
+      await cache.store([sent, history, otherSender, otherRandom, otherConv]);
+      const reopened = new RoamMsgCacheDb(nt, path);
+      const read = (conv: string, limit: number) =>
+        reopened.query('c2c', conv, 42, 42, true, limit);
+
+      const shown = await read(sent.conv, 3);
+      expect(shown.map((row) => [row.msgId, row.sentFromWeq])).toEqual([
+        ['90001', true],
+        ['90002', undefined],
+        ['90003', undefined],
+      ]);
+      expect(await read(sent.conv, 10)).toEqual(shown);
+      expect((await read(otherConv.conv, 1))[0]?.sentFromWeq).toBeUndefined();
+    },
+  );
+  it.each([false, true])(
+    '同 ID 云端回填和发送快照任一先到都保留正式正文（先回填=%s）',
+    async (first) => {
+      const { cache, path, nt } = setup();
+      const sent: GapFetchedMessage = {
+        ...message(42, 'c2c', true),
+        msgId: '1234',
+        msgRandom: '1234',
+        localSent: true,
+        sourceFormat: 'protocol',
+        elements: [{ type: 'text', data: { textContent: '发送回显' } }],
+      };
+      const history: GapFetchedMessage = {
+        ...sent,
+        localSent: undefined,
+        elements: [{ type: 'text', data: { textContent: '来自 QQ 的完整正文' } }],
+      };
+      for (const row of first ? [history, sent] : [sent, history]) await cache.store([row]);
+      await cache.store([sent, { ...history, elements: [] }, { ...history, ntSeqVerified: false }]);
+      const reopened = new RoamMsgCacheDb(nt, path);
+      const rows = await reopened.query('c2c', sent.conv, 42, 42, true);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        localSent: true,
+        sentFromWeq: true,
+        elements: history.elements,
+      });
     },
   );
   it('reads group cache pages in either direction, including cache-only history', async () => {

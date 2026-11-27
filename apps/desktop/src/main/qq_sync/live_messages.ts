@@ -339,6 +339,7 @@ export function decodeLivePush(body: Uint8Array, selfUid: string, selfUin: strin
         ...(temporary ? { msgSeq: String(head.ntMsgSeq) } : {}),
         elements,
         sourceFormat: 'protocol',
+        livePush: true,
         // 群聊实时推送已校验普通正文的会话序号；历史漫游不沿用这个确认。
         ntSeqVerified: group ? true : row.ntSeqVerified,
         msgRandom: String(head.msgId),

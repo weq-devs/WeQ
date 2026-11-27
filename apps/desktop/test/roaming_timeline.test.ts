@@ -132,7 +132,7 @@ describe('roaming timeline projection', () => {
       mergeRoamingTimeline('group', [local], [{ ...remote, senderUid: 'u_other' }]),
     ).toHaveLength(2);
   });
-  it('replaces a persisted sent row when a live roaming batch carries its server ID', () => {
+  it('云端副本补齐正式 ID 后仍保留 WeQ 发送身份，原库到达时接管同一条', () => {
     const sent = row(120, {
       source: 'roaming',
       sourceFormat: 'protocol',
@@ -141,7 +141,54 @@ describe('roaming timeline projection', () => {
       senderUid: 'u_me',
     });
     const remote = { ...sent, localSent: undefined, msgId: '900000001' };
-    expect(mergeRoamingTimeline('group', [sent], [remote])).toEqual([remote]);
+    const enriched = { ...remote, sentFromWeq: true };
+    expect(mergeRoamingTimeline('group', [sent], [remote])).toEqual([enriched]);
+    expect(mergeRoamingTimeline('group', [remote], [sent])).toEqual([enriched]);
+
+    const original = { ...remote, source: undefined, sourceFormat: undefined };
+    expect(mergeRoamingTimeline('group', [original], [remote, sent])).toEqual([original]);
+  });
+  it('实时推送先接管发送气泡，历史副本和 QQ 原库陆续到达时维持一条', () => {
+    const sent = row(120, {
+      source: 'roaming',
+      sourceFormat: 'protocol',
+      localSent: true,
+      msgRandom: '1234',
+      senderUid: 'u_me',
+      ntSeqVerified: true,
+    });
+    const live = { ...sent, localSent: undefined, livePush: true as const };
+    const shown = mergeRoamingTimeline('c2c', [sent], [live]);
+    expect(shown).toEqual([{ ...live, sentFromWeq: true }]);
+
+    const legacy = { ...sent, sourceFormat: undefined, localSent: undefined };
+    expect(mergeRoamingTimeline('c2c', shown, [legacy])).toEqual(shown);
+
+    const history = { ...live, livePush: undefined, msgId: '900000001' };
+    const enriched = mergeRoamingTimeline('c2c', shown, [history]);
+    expect(enriched).toEqual([{ ...history, sentFromWeq: true }]);
+
+    const original = { ...history, source: undefined, sourceFormat: undefined };
+    expect(mergeRoamingTimeline('c2c', [original], [...enriched, live])).toEqual([original]);
+  });
+  it('只用可信私聊序号继承发送身份并去重', () => {
+    const sent = row(120, {
+      source: 'roaming',
+      sourceFormat: 'protocol',
+      localSent: true,
+      msgRandom: '1234',
+      senderUid: 'u_me',
+      ntSeqVerified: true,
+    });
+    const history = { ...sent, localSent: undefined, msgId: '900000001' };
+    const unverified = { ...history, ntSeqVerified: false };
+    const otherSender = { ...history, senderUid: 'u_other' };
+    expect(mergeRoamingTimeline('c2c', [sent], [unverified])).toEqual([sent]);
+    expect(mergeRoamingTimeline('c2c', [], [{ ...sent, ntSeqVerified: false }, history])).toEqual([
+      history,
+    ]);
+    expect(mergeRoamingTimeline('c2c', [sent], [otherSender])).toHaveLength(2);
+    expect(mergeRoamingTimeline('c2c', [sent], [otherSender])).toContainEqual(otherSender);
   });
   it('旧版转写改变 random 后，用音频和原消息元数据收掉发送缓存', () => {
     const voice = { type: 'ptt', data: { fileName: `${'a'.repeat(32)}.amr` } };

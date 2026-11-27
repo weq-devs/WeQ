@@ -39,11 +39,21 @@ const direct = demo.conversations.find((item) => item.type === 'direct')!;
 const message = { ...demo.messages[0]!, createdAt: '2026-10-16T23:35:11Z', msgSeq: '42' };
 const text = (html: string) => new DOMParser().parseFromString(html, 'text/html').body.textContent;
 
-it.each<{ origin: string; retained?: true; localSent?: true; showsRoaming: boolean }>([
+it.each<{
+  origin: string;
+  retained?: true;
+  localSent?: true;
+  sentFromWeq?: true;
+  livePush?: true;
+  showsRoaming: boolean;
+}>([
   { origin: '防撤回副本', retained: true, showsRoaming: false },
   { origin: '本机发送缓存', localSent: true, showsRoaming: false },
+  { origin: '已对账的发送消息', sentFromWeq: true, showsRoaming: false },
+  { origin: 'QQ 实时推送', livePush: true, showsRoaming: false },
   { origin: '拉取的历史', showsRoaming: true },
-])('按实际来源标注消息（$origin）', ({ retained, localSent, showsRoaming }) => {
+])('按实际来源标注消息（$origin）', (testCase) => {
+  const { retained, localSent, sentFromWeq, livePush, showsRoaming } = testCase;
   const wire = roamingMsgToWire({
     sourceFormat: 'protocol',
     kind: 'c2c',
@@ -55,6 +65,8 @@ it.each<{ origin: string; retained?: true; localSent?: true; showsRoaming: boole
     sendTime: '1700000000',
     ntSeqVerified: true,
     localSent,
+    sentFromWeq,
+    livePush,
     elements: [{ type: 'text', data: { textContent: '撤回前原文' } }],
     recall: {
       revokeUid: 'u_peer',

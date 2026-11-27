@@ -87,6 +87,8 @@ export type ServiceAccountWire = {
 
 export type MessageWire = {
   localSent?: boolean;
+  sentFromWeq?: true;
+  livePush?: true;
   sourceFormat?: 'native' | 'protocol';
   source?: 'roaming';
   ntSeqVerified?: boolean;
@@ -141,6 +143,8 @@ export type MessageWire = {
 export type ChatMsgWire = {
   cachedBubbles?: MessageBubbleSkin[];
   localSent?: boolean;
+  sentFromWeq?: true;
+  livePush?: true;
   sourceFormat?: 'native' | 'protocol';
   source?: 'roaming';
   ntSeqVerified?: boolean;

@@ -5,6 +5,8 @@ export interface TimelineRow {
   sendTime?: string;
   msgRandom?: string;
   localSent?: boolean;
+  sentFromWeq?: true;
+  livePush?: true;
   senderUid?: string;
   elements?: readonly unknown[];
   msgId: string;
@@ -33,6 +35,12 @@ export function timelineRowKey(row: TimelineRow): string {
 export function timelineMessageIdentity(row: TimelineRow): string | null {
   return row.msgRandom && row.msgRandom !== '0' && row.senderUid
     ? `${row.msgSeq}:${row.msgRandom}:${row.senderUid}`
+    : null;
+}
+
+export function verifiedTimelineIdentity(kind: 'c2c' | 'group', row: TimelineRow): string | null {
+  return (kind === 'group' || row.ntSeqVerified === true) && timelineSeq(row.msgSeq) !== null
+    ? timelineMessageIdentity(row)
     : null;
 }
 
@@ -112,17 +120,24 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
   const candidates = [...protectedRows, ...cachedRows].filter(
     (row) => row.recall || !protectedKeys.has(identity(row)),
   );
-  const syncedIdentities = new Set(
-    candidates
-      .filter((row) => !row.localSent)
-      .map(identity)
-      .filter(Boolean),
-  );
+  const sentIdentities = new Set<string>();
+  const syncedIdentities = new Set<string>();
+  const historyIdentities = new Set<string>();
+  for (const row of candidates) {
+    const key = verifiedTimelineIdentity(kind, row);
+    if (!key) continue;
+    if (row.localSent || row.sentFromWeq) sentIdentities.add(key);
+    if (row.localSent || !row.sourceFormat) continue;
+    syncedIdentities.add(key);
+    if (!row.livePush) historyIdentities.add(key);
+  }
   for (const row of candidates) {
     const seq = timelineSeq(row.msgSeq);
+    const key = identity(row);
     if (
       seq === null ||
-      (row.localSent && identity(row) !== null && syncedIdentities.has(identity(row))) ||
+      (row.localSent && key !== null && syncedIdentities.has(key)) ||
+      (row.livePush && key !== null && historyIdentities.has(key)) ||
       (kind === 'c2c' && row.ntSeqVerified !== true) ||
       (options.min !== undefined && seq < options.min) ||
       (options.max !== undefined && seq > options.max) ||
@@ -130,7 +145,7 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
         (row.sourceFormat
           ? localIds.has(row.msgId) ||
             (row.sourceFormat === 'protocol' &&
-              (localIdentities.has(identity(row)) ||
+              (localIdentities.has(key) ||
                 (row.localSent && localVoices.has(sentVoiceIdentity(row)))))
           : localSeqs.has(row.msgSeq) ||
             nativeRandoms.has(
@@ -140,7 +155,13 @@ export function mergeRoamingTimeline<T extends TimelineRow>(
     )
       continue;
     added.add(row.sourceFormat ? `${row.msgSeq}:${row.msgId}` : row.msgSeq);
-    result.push({ ...row, source: 'roaming' });
+    result.push({
+      ...row,
+      source: 'roaming',
+      ...(!row.localSent && !row.sentFromWeq && key !== null && sentIdentities.has(key)
+        ? { sentFromWeq: true }
+        : {}),
+    });
   }
   result.sort((a, b) => {
     const order = compareMessageOrder(a, b);

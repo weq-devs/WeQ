@@ -130,6 +130,7 @@ it('只接收当前账号的实时普通文本，私聊采用 NT 会话序号', 
     ['group', '70001', '100', '7'],
     ['c2c', 'u_peer', '110', '7'],
   ]);
+  expect(rows.every((row) => row.livePush === true)).toBe(true);
   expect(rows[0]?.elements).toMatchObject([{ type: 'text', data: { textContent: 'hello' } }]);
 });
 

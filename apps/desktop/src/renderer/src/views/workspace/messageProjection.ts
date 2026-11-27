@@ -27,6 +27,8 @@ export function toMessageWire(w: ChatMsgWire): MessageWire {
   seedMessageBubbles(w.cachedBubbles);
   return {
     localSent: w.localSent,
+    sentFromWeq: w.sentFromWeq,
+    livePush: w.livePush,
     sourceFormat: w.sourceFormat,
     source: w.source,
     ntSeqVerified: w.ntSeqVerified,
@@ -244,6 +246,8 @@ export function messageToTemplate(
     id: timelineRowKey(message),
     sourceFormat: message.sourceFormat,
     localSent: message.localSent,
+    sentFromWeq: message.sentFromWeq,
+    livePush: message.livePush,
     conversationId: conversation.id,
     senderId: sender.id,
     senderUid: message.senderUid,
