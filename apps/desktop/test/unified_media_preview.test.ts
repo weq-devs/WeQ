@@ -175,7 +175,8 @@ it('空间视频从所点封面预览，可切换相邻媒体，导出只提交�
 
 it('聊天灯箱命中本地原图时不显示下载，缺失时可从缩略图查看原图并重试', async () => {
   const pic = { type: 'pic', data: { fileToken: 'fixture', fileSize: 197453 } };
-  const chat = galleryMedia([{ msgId: '4', sendTime: 1, elements: [pic, pic] }]);
+  const moved = { ...pic, data: { ...pic.data, localPath: '/synthetic/moved.png' } };
+  const chat = galleryMedia([{ msgId: '4', sendTime: 1, elements: [pic, moved] }]);
   const transfers = new TransferActivity();
   act(() =>
     root.render(
@@ -196,6 +197,10 @@ it('聊天灯箱命中本地原图时不显示下载，缺失时可从缩略图�
   load();
   expect(viewOriginal()).toBeUndefined();
   act(() => button('下一项媒体').click());
+  expect(request().get('path')).toBe('/synthetic/moved.png');
+  fail();
+  expect(request().get('localOnly')).toBe('1');
+  expect(viewOriginal()).toBeUndefined();
   fail();
   load();
   expect(request().get('preview')).toBe('1');

@@ -321,9 +321,10 @@ function MediaPreviewItemBody({
   const current = resolvedItem ?? item;
   const original = item.originalImage;
   const taskPage = useTaskPage(active && Boolean(original), item.key);
+  const localOriginals = [original?.localSrc, original?.cachedSrc].filter(Boolean);
   const sources = [
     ...new Set(
-      [original?.cachedSrc, current.src, ...(item.fallbackSources ?? [])]
+      [...localOriginals, current.src, ...(item.fallbackSources ?? [])]
         .filter((value): value is string => Boolean(value))
         .map(interactiveMediaUrl),
     ),
@@ -440,7 +441,7 @@ function MediaPreviewItemBody({
     },
     [],
   );
-  const canFetchOriginal = Boolean(original && sourceIndex > 0);
+  const canFetchOriginal = Boolean(original && sourceIndex >= localOriginals.length);
   useEffect(() => {
     if (active && autoOriginal && !dataSaver && canFetchOriginal && !originalRequest && original)
       startOriginal(item.key, original.src, true);

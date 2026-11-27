@@ -42,6 +42,7 @@ import { openMediaPreview } from './mediaPreviewStore.shared';
 import {
   chatBlobImageSaveSource,
   chatFileSaveSource,
+  chatImageLocalPath,
   chatImagePreviewSources,
   type ChatVideoAttachment,
   MediaBrowseContext,
@@ -81,7 +82,6 @@ import { useVideoBuffering } from '../hooks/useVideoBuffering';
 import { useMediaLoadAction } from '../hooks/useMediaLoadAction';
 import { notifyMediaCached, watchMediaCache } from '../lib/mediaCacheArrival';
 import { intrinsicMediaSize, messageMediaSize, type MediaSize } from '../lib/chatMediaSize';
-import { cleanNtPath } from './mergeForward/model';
 import '../styles/media-preview.css';
 
 type Data = Record<string, unknown>;
@@ -272,7 +272,7 @@ export function QqImage({
   // 老图片 / CDN 抽风都会 onError 落回上面这条代理路径，再失败才是「未找到」占位。
   const cdn = useCdn();
   // 发送中的 Blob 和 QQ 回读带回的本地路径都优先复用，文件仍由主进程校验后读取。
-  const localPath = cleanNtPath(str(data, 'localPath') || str(data, 'filePath'));
+  const localPath = chatImageLocalPath(data);
   const localPreviewUrl = str(data, 'localPreviewUrl');
   const previewSize = useMediaPreviewSize(
     'pic',
@@ -430,14 +430,14 @@ export function QqImage({
                   if (!loading) retry();
                   return;
                 }
-                const preview =
-                  isAnimatedEmoji || localPath ? undefined : chatImagePreviewSources(data, params);
+                const preview = isAnimatedEmoji ? undefined : chatImagePreviewSources(data, params);
+                const displayedFallback = localSrc && source !== localSrc ? [src] : [];
                 if (
                   galleryOpen?.(previewKey, event.currentTarget.ownerDocument, {
                     src: preview?.src ?? previewSrc,
                     originalImage: preview?.originalImage,
                     ocr: ocrContext,
-                    fallbackSources: preview ? [] : [originalProxySrc, proxySrc],
+                    fallbackSources: preview ? displayedFallback : [originalProxySrc, proxySrc],
                     progressTarget,
                   })
                 )
@@ -454,7 +454,7 @@ export function QqImage({
                       ocr: ocrContext,
                       progressTarget,
                       fallbackSources: preview
-                        ? []
+                        ? displayedFallback
                         : [
                             ...candidates
                               .slice(srcIndex + 1)
