@@ -640,7 +640,7 @@ export function QqVideo({
     ),
     attempt,
   );
-  const buffering = useVideoBuffering(videoSrc, tabActive && playing);
+  const buffering = useVideoBuffering(videoSrc, tabActive && bubble && playing);
 
   // bubble mode: auto-play muted loop, no controls, fill the circle container.
   if (bubble) {
@@ -710,9 +710,7 @@ export function QqVideo({
     );
   }
 
-  // Click → play inline. The media protocol locates the original on disk or
-  // completes it via OIDB (msgId + conv let the host resolve the download URL);
-  // a spinner covers the gap until the <video> can render its first frame.
+  // 普通原位播放由原生控件显示缓冲提示；无控件的圆形视频使用上方的缓冲圈。
   if (playing) {
     return (
       <div className="weq-video-preview-wrap">
@@ -725,22 +723,16 @@ export function QqVideo({
             src={videoSrc}
             controls
             autoPlay
-            {...buffering.events}
-            onCanPlay={() => {
-              buffering.events.onCanPlay();
-              setReadyVideo(videoSrc);
-            }}
+            onCanPlay={() => setReadyVideo(videoSrc)}
             onLoadedMetadata={(event) => {
               const { videoWidth, videoHeight } = event.currentTarget;
               if (!w || !h) previewSize.remember(videoWidth, videoHeight);
             }}
             onError={() => {
-              buffering.events.onError();
               setVideoBroken(true);
               setPlaying(false);
             }}
           />
-          {buffering.waiting && <MediaLoadingRing label="正在缓冲视频" />}
         </div>
         <MediaTransferBadge target={progressTarget} />
         {expandButton}
