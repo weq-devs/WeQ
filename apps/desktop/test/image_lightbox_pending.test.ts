@@ -200,7 +200,7 @@ it('占位图片失败后换成真实消息时重新取图，不继承旧的缺�
       await vi.dynamicImportSettled();
     });
   }
-  expect(host.querySelector('.qq-media-missing')?.getAttribute('aria-label')).toBe('点击重试加载');
+  expect(host.querySelector('button[aria-label="重试加载图片"]')).not.toBeNull();
   await mount({ fileName: 'image.png', fileToken: 'ready-token' });
   expect(host.querySelector('.qq-media-missing')).toBeNull();
   expect(new URL(host.querySelector('img')!.src).searchParams.get('token')).toBe('ready-token');

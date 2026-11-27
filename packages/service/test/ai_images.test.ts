@@ -703,7 +703,7 @@ it('停止图片 OCR 后，迟到结果不再推进字符进度或覆盖已停�
     expect(service.stopSuggestions('c2c', 'peer')).toBe(true);
   } finally {
     release();
-    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(pending).resolves.toEqual([]);
   }
   const details = service.getSuggestionDetails('c2c', 'peer');
   expect(details?.progress?.status).toBe('stopped');

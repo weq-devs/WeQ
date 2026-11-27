@@ -3,10 +3,8 @@ import { Braces, Copy, Database, FileJson, ListTree, Pencil, X } from 'lucide-re
 import { formatDateTime } from '@weq/time';
 import { client, trpc } from '../trpc/client';
 import type { Message, Conversation, User } from '../im-template/template/types';
-import {
-  messageCardElements,
-  type MessageDetailsSelection,
-} from '../im-template/template/messageContextMenu';
+import type { MessageDetailsSelection } from '../im-template/template/messageContextMenu';
+import { messageCardElements } from '../im-template/template/messageContextMenu.shared';
 import { copyTextToClipboard } from '../im-template/template/clipboard';
 import { renderDefaultMessageContent } from '../im-template/template/messageRenderers';
 import { messageContentText } from '../lib/messageClipboard';

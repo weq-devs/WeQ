@@ -78,7 +78,10 @@ const data: Record<string, unknown> = {
   getAssistantSessionGeneration: {},
   assistantQueue: queue,
   getAssistantResumeState: { resumable: false },
-  getSettings: { aiImages: { assistant: 'vision', cloneChat: 'vision' } },
+  getSettings: {
+    qqCapabilityMode: 'local',
+    aiImages: { assistant: 'vision', cloneChat: 'vision' },
+  },
   overview: {
     faces: [
       {
@@ -234,7 +237,10 @@ function proxy(path: string[] = []): unknown {
     get: (_target, key) => {
       const name = path.at(-1)!;
       if (key === 'useQuery')
-        return (_input: unknown, options?: { enabled?: boolean }) => {
+        return (
+          _input: unknown,
+          options?: { enabled?: boolean; select?: (value: unknown) => unknown },
+        ) => {
           useSyncExternalStore(
             (listener) => {
               updates.add(listener);
@@ -242,8 +248,10 @@ function proxy(path: string[] = []): unknown {
             },
             () => revision,
           );
+          const value =
+            options?.enabled === false && name !== 'getSettings' ? undefined : data[name];
           return {
-            data: options?.enabled === false ? undefined : data[name],
+            data: value !== undefined && options?.select ? options.select(value) : value,
             isLoading: false,
             isFetching: false,
             isSuccess: true,

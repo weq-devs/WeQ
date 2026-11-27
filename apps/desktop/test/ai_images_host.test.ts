@@ -127,7 +127,7 @@ it('商城表情复用聊天页取图服务后识别，不误走普通图片下�
   });
   expect(result.outcomes[0]?.status).toBe('read');
   expect(result.text).toContain('local-a');
-  expect(state.market).toHaveBeenCalledWith('123', 'ab'.repeat(16));
+  expect(state.market).toHaveBeenCalledWith('123', 'ab'.repeat(16), false);
   expect(state.retrieve).not.toHaveBeenCalled();
   expect(state.online).not.toHaveBeenCalled();
 });

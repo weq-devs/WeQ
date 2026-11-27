@@ -18,13 +18,15 @@ vi.mock('../src/main/context/app_context', async () => {
       getLocalModelId: () => null,
     },
   });
+  const platform = { native: { ntHelper: { hasSsoSession: fixture.hasSsoSession } } };
   return {
     requireBootstrap: bootstrap,
+    requirePlatform: () => platform,
     getAppContext: () => ({
       bootstrap: bootstrap(),
       services: fixture.services,
       account: { context: { uin: '10001' } },
-      platform: { native: { ntHelper: { hasSsoSession: fixture.hasSsoSession } } },
+      platform,
       onlineCredentialsPending: () => false,
       onlineCredentialsIssue: () => null,
       ensureOnlineCredentials: fixture.ensureOnlineCredentials,

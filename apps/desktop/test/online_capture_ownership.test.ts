@@ -66,7 +66,7 @@ it('转写拉帧始终带原会话 ID，被工具窗口替换后回退而不读�
   const transcriber = new OnlineVoiceTranscriber();
   await transcriber.arm('10001');
   f.read.mockRejectedValue(new Error('抓包会话已被替换'));
-  const result = await transcriber.transcribe(
+  const result = await transcriber.transcribeFor('10001')(
     [
       {
         fileName: 'synthetic.amr',

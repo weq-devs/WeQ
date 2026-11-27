@@ -159,7 +159,7 @@ it('省流量下未加载的相册图保留静态占位，解除限制后恢复�
     expect(deferred.style.opacity).toBe('0');
     expect(host.querySelector('.weq-shimmer-block')).toBeNull();
     expect(host.querySelector('.weq-image-placeholder')?.getAttribute('aria-label')).toBe(
-      '精选图片未加载（省流量模式）',
+      '精选图片未加载',
     );
     act(() => useDataSaver.setState({ enabled: false }));
     const current = host.querySelector('img')!;
