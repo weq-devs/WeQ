@@ -44,7 +44,6 @@
 
 .weq-message-detail-body-header time {
   display: block;
-  font-size: 12px;
   color: var(--weq-fg-secondary);
 }
 
@@ -73,8 +72,18 @@
 
 .weq-message-detail-table code,
 .weq-message-detail-data pre {
-  font-size: 12px;
+  font-size: inherit;
   overflow-wrap: anywhere;
+}
+
+.weq-message-detail-content
+  :is(
+    .weq-decoration-card-label,
+    .weq-decoration-card-id,
+    .weq-editor-title h3,
+    .weq-editor-title code
+  ) {
+  font-size: inherit;
 }
 
 .weq-message-detail-blob {

@@ -12,6 +12,7 @@ import { useRenderDocument } from '../lib/renderDocument';
 import type { ForwardRecordWire } from '../state/forwardWindow';
 import { MessageDecorationCard } from './MessageDecorationCard';
 import { MsgElementEditor } from './MsgElementEditor';
+import { NumericText } from './NumericText';
 import { QqMessageContent } from './QqMessageContent';
 import { SegmentedControl } from './SegmentedControl';
 import { EmptyState } from './EmptyState';
@@ -67,13 +68,29 @@ function encodeJson(value: unknown) {
   );
 }
 
-function RawField({ value }: { value: MessageFieldValue }) {
+function isNumericValue(value: string | number) {
+  return typeof value === 'number' || /^[+-]?\d+(?:\.\d+)?(?:e[+-]?\d+)?$/i.test(value);
+}
+
+function RawField({ value, isNickname }: { value: MessageFieldValue; isNickname: boolean }) {
   const [open, setOpen] = useState(false);
   if (value === null) return <code>NULL</code>;
-  if (typeof value !== 'object') return <code>{value === '' ? '""' : value}</code>;
+  if (typeof value !== 'object') {
+    return (
+      <code
+        className={
+          !isNickname && isNumericValue(value) ? 'weq-number weq-number-inherit' : undefined
+        }
+      >
+        {value === '' ? '""' : value}
+      </code>
+    );
+  }
   return (
     <details onToggle={(event) => setOpen(event.currentTarget.open)}>
-      <summary>{value.bytes.toLocaleString('zh-CN')} 字节 · 十六进制</summary>
+      <summary>
+        <NumericText>{value.bytes.toLocaleString('zh-CN')}</NumericText> 字节 · 十六进制
+      </summary>
       {open ? <code className="weq-message-detail-blob">{value.data}</code> : null}
     </details>
   );
@@ -93,6 +110,9 @@ function Metadata({ record, snapshot }: { record: MessageRecordFields; snapshot?
       <tbody>
         {Object.entries(record.columns).map(([field, value]) => {
           const { name, display } = describe(field, value, record);
+          const isNickname = snapshot === true && field === 'sendNick';
+          const numericDisplay =
+            display !== undefined && !isNickname && (display !== value || isNumericValue(display));
           return (
             <tr key={field}>
               <th scope="row">
@@ -102,11 +122,15 @@ function Metadata({ record, snapshot }: { record: MessageRecordFields; snapshot?
                     <br />
                   </>
                 ) : null}
-                <code>{field}</code>
+                <code
+                  className={isNumericValue(field) ? 'weq-number weq-number-inherit' : undefined}
+                >
+                  {field}
+                </code>
               </th>
-              <td>{display ?? '—'}</td>
+              <td>{numericDisplay ? <NumericText>{display}</NumericText> : (display ?? '—')}</td>
               <td>
-                <RawField value={value} />
+                <RawField value={value} isNickname={isNickname} />
               </td>
             </tr>
           );
@@ -136,6 +160,7 @@ export function MessageDetails({
   onClose: () => void;
 }) {
   const { message, cardElements } = selection;
+  const senderName = message.sender?.displayName || snapshot?.sendNick;
   const [tab, setTab] = useState<Tab>('body');
   const [section, setSection] = useState<Section>(
     selection.cardElements.length ? 'card' : 'elements',
@@ -268,12 +293,10 @@ export function MessageDetails({
             <div className="weq-message-detail-body">
               <div className="weq-message-detail-body-header">
                 <div>
-                  <strong>
-                    {message.sender?.displayName || snapshot?.sendNick || message.senderId}
-                  </strong>
+                  <strong>{senderName || <NumericText>{message.senderId}</NumericText>}</strong>
                   {message.createdAt ? (
                     <time dateTime={message.createdAt}>
-                      {formatDateTime(message.createdAt, 'second')}
+                      <NumericText>{formatDateTime(message.createdAt, 'second')}</NumericText>
                     </time>
                   ) : null}
                 </div>
