@@ -17,16 +17,18 @@ import { networkFetch } from '@weq/network';
  */
 
 import { createHash } from 'node:crypto';
-import { readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { UserConfigService } from './user_config';
 import { scopedNetworkAllowed } from '../common/network_scope';
+import { writeFileAtomic } from '../common/atomic_write';
 
 /** Cache subdirectory for organizing different media types. */
 export type CacheSubdir =
   | 'avatar'
   | 'dress'
   | 'collection'
+  | 'album'
   | 'linkpreview'
   | 'qqshow'
   | 'gift'
@@ -89,6 +91,15 @@ function contentTypeForExt(ext: string): string {
   }
 }
 
+/** QQ 同一装扮的两档预览图，用较小或较大的已有副本就地兜底。 */
+function otherDressPreview(url: string): string | undefined {
+  const image =
+    /^(https:\/\/tianquan\.gtimg\.cn\/(?:card|faceAddon|screen)\/item\/[\da-f]+\/newPreview)([12])(\.(?:png|apng|jpe?g|gif|webp))$/i.exec(
+      url,
+    );
+  return image ? `${image[1]}${image[2] === '1' ? '2' : '1'}${image[3]}` : undefined;
+}
+
 /**
  * 各缓存子目录的磁盘 TTL。
  *
@@ -109,10 +120,13 @@ function contentTypeForExt(ext: string): string {
  */
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
+const ALBUM_IMAGE_MAX_BYTES = 32 * 1024 * 1024;
+const ALBUM_CACHE_BUDGET = 512 * 1024 * 1024;
 
 const TTL_BY_SUBDIR: Record<CacheSubdir, number> = {
   avatar: HOUR_MS,
   collection: 7 * DAY_MS,
+  album: 7 * DAY_MS,
   linkpreview: 7 * DAY_MS,
   dress: 30 * DAY_MS,
   qqshow: 30 * DAY_MS,
@@ -128,6 +142,8 @@ export function ttlForSubdir(subdir: CacheSubdir): number {
 export class MediaCacheService {
   /** De-dupe concurrent fetches of the same upstream URL. */
   private readonly inFlight = new Map<string, Promise<MediaBlob>>();
+  private albumAddedBytes = ALBUM_IMAGE_MAX_BYTES;
+  private albumTrim?: Promise<void>;
 
   constructor(private readonly userConfig: Pick<UserConfigService, 'cacheDir'>) {}
 
@@ -167,6 +183,11 @@ export class MediaCacheService {
     ) {
       const local = await this.getLocal(url, subdir);
       if (local) return local;
+      const alternate = subdir === 'dress' && otherDressPreview(url);
+      if (alternate) {
+        const preview = await this.getLocal(alternate, subdir);
+        if (preview) return preview;
+      }
       throw new Error('省流量模式已暂缓自动加载');
     }
     if (!isHttpUrl(url)) {
@@ -202,6 +223,58 @@ export class MediaCacheService {
       }
     }
     return null;
+  }
+
+  /** 相册代理保留原始 Referer、状态码和视频 Range，只缓存完整且可识别的图片。 */
+  async storeAlbumImage(url: string, bytes: Buffer, contentType: string): Promise<void> {
+    if (!isHttpUrl(url) || !bytes.length || bytes.length > ALBUM_IMAGE_MAX_BYTES) return;
+    const type = contentType.split(';', 1)[0]?.toLowerCase();
+    if (
+      !type ||
+      !['image/png', 'image/apng', 'image/jpeg', 'image/gif', 'image/webp'].includes(type)
+    )
+      return;
+    const ext = extFor(type === 'image/apng' ? 'image/png' : type, url);
+    const dir = this.cacheDir('album');
+    try {
+      await writeFileAtomic(`${this.basePath(url, 'album')}.${ext}`, bytes);
+    } catch {
+      // 磁盘不可写不影响这次显示。
+      return;
+    }
+    this.albumAddedBytes += bytes.length;
+    if (this.albumTrim || this.albumAddedBytes < ALBUM_IMAGE_MAX_BYTES) return;
+    this.albumAddedBytes = 0;
+    this.albumTrim = this.trimAlbumCache(dir)
+      .catch(() => {})
+      .finally(() => {
+        this.albumTrim = undefined;
+      });
+  }
+
+  private async trimAlbumCache(dir: string) {
+    const entries: Array<{ path: string; size: number; mtime: number }> = [];
+    let total = 0;
+    for (const name of await readdir(dir)) {
+      if (!/^[\da-f]{40}\.(?:png|jpg|gif|webp)$/.test(name)) continue;
+      const path = join(dir, name);
+      const info = await stat(path).catch(() => null);
+      if (!info?.isFile()) continue;
+      entries.push({ path, size: info.size, mtime: info.mtimeMs });
+      total += info.size;
+    }
+    if (total <= ALBUM_CACHE_BUDGET) return;
+    entries.sort((a, b) => a.mtime - b.mtime);
+    for (const entry of entries) {
+      if (total <= ALBUM_CACHE_BUDGET) break;
+      if (
+        await unlink(entry.path).then(
+          () => true,
+          () => false,
+        )
+      )
+        total -= entry.size;
+    }
   }
 
   /**

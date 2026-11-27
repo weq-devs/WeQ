@@ -1,4 +1,4 @@
-import { ImageOff, Maximize, RefreshCw, ZoomIn, ZoomOut } from 'lucide-react';
+import { ImageOff, Maximize, ZoomIn, ZoomOut } from 'lucide-react';
 import { TransferRing } from './TransferRing';
 import type { ZoomPan } from './useZoomPan';
 import '../styles/media-preview.css';
@@ -15,38 +15,31 @@ export function MediaLoadStatus({
   onRetry: () => void;
 }) {
   if (status === 'ready') return null;
-  return (
-    <div
-      className={`weq-media-load-status${status === 'error' ? ' weq-media-load-error' : ''}`}
-      role="status"
-    >
-      {status === 'loading' ? (
-        <TransferRing progress={{ phase: 'preparing' }} label={`正在加载${kind}`} size={24} />
-      ) : (
+  if (status === 'error')
+    return (
+      <button
+        type="button"
+        className="weq-media-load-status weq-media-load-error"
+        aria-label={`重试加载${kind}`}
+        onClick={(event) => {
+          event.currentTarget
+            .closest('.weq-lightbox-layer')
+            ?.querySelector<HTMLButtonElement>('.weq-lightbox-close')
+            ?.focus({ preventScroll: true });
+          onRetry();
+        }}
+      >
         <ImageOff size={24} aria-hidden />
-      )}
-      <span>
-        {status === 'loading'
-          ? `正在加载${kind}…`
-          : `${kind}暂时无法${kind === '视频' ? '播放' : '加载'}`}
-      </span>
-      {status === 'error' ? (
-        <button
-          type="button"
-          className="weq-lightbox-action"
-          aria-label={`重试加载${kind}`}
-          onClick={(event) => {
-            event.currentTarget
-              .closest('.weq-lightbox-layer')
-              ?.querySelector<HTMLButtonElement>('.weq-lightbox-close')
-              ?.focus({ preventScroll: true });
-            onRetry();
-          }}
-        >
-          <RefreshCw size={16} aria-hidden />
-          重试
-        </button>
-      ) : null}
+        <span>
+          {kind}暂时无法{kind === '视频' ? '播放' : '加载'}
+        </span>
+        <span>点击重试加载</span>
+      </button>
+    );
+  return (
+    <div className="weq-media-load-status" role="status">
+      <TransferRing progress={{ phase: 'preparing' }} label={`正在加载${kind}`} size={24} />
+      <span>正在加载{kind}…</span>
     </div>
   );
 }

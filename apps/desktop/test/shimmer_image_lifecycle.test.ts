@@ -10,9 +10,56 @@ import { MessageImageContext } from '../src/renderer/src/lib/messageImageContext
 import { thumbnailPolicyRequest } from '../src/renderer/src/lib/resourceUrl';
 
 const initialPolicy = useDataSaver.getState();
+const remote = vi.hoisted(() => ({ active: false }));
+vi.mock('../src/renderer/src/lib/remoteClient', async (original) => ({
+  ...(await original<typeof import('../src/renderer/src/lib/remoteClient')>()),
+  isRemoteClient: () => remote.active,
+}));
 afterEach(() => {
+  remote.active = false;
   useDataSaver.setState(initialPolicy);
   vi.unstubAllGlobals();
+});
+
+it('Remote 开启省流量后用同账号的已有图片，不向电脑或 QQ 请求', async () => {
+  remote.active = true;
+  useDataSaver.setState({ enabled: true });
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  const scope = '["12345","source-a"]';
+  const seen: URL[] = [];
+  const fetch = vi.fn(async (path: string) => {
+    const url = new URL(path, location.origin);
+    const header = { 'x-weq-data-cache': '1' };
+    if (url.pathname === '/_weq-remote-local/cache')
+      return Response.json({ generation: '0' }, { headers: header });
+    if (url.pathname !== '/_weq-remote-local/cache/media')
+      throw new Error('unexpected network request');
+    const source = new URL(url.searchParams.get('source')!, location.origin);
+    seen.push(source);
+    return source.searchParams.has('ds')
+      ? new Response(null, { status: 404 })
+      : new Response(new Blob(['picture'], { type: 'image/png' }), { headers: header });
+  });
+  vi.stubGlobal('fetch', fetch);
+  const host = document.createElement('div');
+  const root = createRoot(host);
+  try {
+    await act(async () =>
+      root.render(
+        h(ShimmerImage, {
+          src: `/_media/album?${new URLSearchParams({ src: 'https://a.qpic.cn/photo', weqCacheScope: scope, _weq_retry: '1' })}`,
+          reuseRemoteCache: true,
+        }),
+      ),
+    );
+    expect(seen.map((url) => url.searchParams.has('ds'))).toEqual([true, false]);
+    expect(seen.every((url) => url.searchParams.get('weqCacheScope') === scope)).toBe(true);
+    expect(seen.every((url) => !url.searchParams.has('_weq_retry'))).toBe(true);
+    expect(host.querySelector('img')?.src).toMatch(/^blob:/);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  } finally {
+    await act(async () => root.unmount());
+  }
 });
 
 function stubVisibility(initial: DocumentVisibilityState) {

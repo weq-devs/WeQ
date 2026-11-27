@@ -61,6 +61,7 @@ import {
   managedMediaDownload as downloadUrlToFile,
   resolveChatpicFile,
   developmentDressToolsEnabled,
+  mediaSignature,
   favoriteEmojiFileRevision,
   chatpicRelPaths,
   type AvatarLocalFile,
@@ -424,11 +425,6 @@ function flashPicUpstreamUrl(token: string, spec: string): string | null {
 }
 
 async function albumRemoteResponse(src: string): Promise<Response> {
-  if (!scopedNetworkAllowed())
-    return new Response('省流量模式：点击加载', {
-      status: 409,
-      headers: { 'Cache-Control': 'no-store' },
-    });
   if (!/^https?:\/\//i.test(src)) return notFound('album image needs remote url');
   const target = new URL(src);
   const host = target.hostname.toLowerCase();
@@ -453,6 +449,18 @@ async function albumRemoteResponse(src: string): Promise<Response> {
   // Range 转发给上游（否则一律回 200 全量 = 不可 seek 流，demuxer 打不开 moov 在
   // 末尾的文件，报 DEMUXER_ERROR_COULD_NOT_OPEN）。上游 CDN 支持 206。
   const incoming = currentRequest.getStore();
+  const range = incoming?.headers.get('range');
+  const cache = getAppContext().bootstrap?.avatarCache;
+  const local = !range && (await cache?.getLocal(src, 'album'));
+  if (local)
+    return new Response(new Uint8Array(local.data), {
+      headers: { 'Content-Type': local.contentType, 'Cache-Control': 'public, max-age=86400' },
+    });
+  if (!scopedNetworkAllowed())
+    return new Response('省流量模式：点击加载', {
+      status: 409,
+      headers: { 'Cache-Control': 'no-store', 'X-WeQ-Media-State': 'deferred' },
+    });
   const headers: Record<string, string> = {
     // Referer 的协议必须跟目标一致：Chromium 禁止 https→http 的 referrer 降级,
     // 撞上就是 ERR_BLOCKED_BY_CLIENT(资料卡精选图片走的 ugc.qpic.cn 只有 http)。
@@ -460,7 +468,6 @@ async function albumRemoteResponse(src: string): Promise<Response> {
     'User-Agent':
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari/537.36',
   };
-  const range = incoming?.headers.get('range');
   if (range) headers.Range = range;
   const res = await networkFetch(src, { headers, signal: incoming?.signal });
   if (!res.ok) return new Response(`album image http ${res.status}`, { status: res.status });
@@ -487,6 +494,9 @@ async function albumRemoteResponse(src: string): Promise<Response> {
   // 图片则重新组装：qpic 带 `connection: keep-alive` 这类逐跳头,原样回传会让
   // Chromium 的协议处理器直接 ERR_UNEXPECTED。只挑必要的头。
   const body = await res.arrayBuffer();
+  const bytes = Buffer.from(body);
+  if (cache && res.status === 200 && !range && mediaSignature(bytes, 'image'))
+    await cache.storeAlbumImage(src, bytes, contentType);
   return new Response(body, {
     status: 200,
     headers: { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=86400' },

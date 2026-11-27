@@ -7,6 +7,7 @@ import type { NtHelperBinding } from '@weq/native';
 import type { TrpcNative } from '@weqbot/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DressSharedCache } from '../src/account/dress_shared_cache';
+import { networkScope } from '../src/common/network_scope';
 import { ninePatch } from './support/nine_patch';
 import {
   configureDressIndexResources,
@@ -62,6 +63,21 @@ async function fixture(pid: number | (() => number) = 42) {
 }
 
 describe('索引与装扮素材缓存分开处理', () => {
+  it('省流量先查本地装扮地址，未缓存的气泡配置和挂件底图不联网', async () => {
+    const { cache, native } = await fixture();
+    const query = vi.fn(() => ({ url: 'https://cdn.invalid/part', size: 10 }));
+    native.queryDressResourceUrl = query;
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const part = await networkScope.run({ restricted: true, intent: 'prefetch' }, () =>
+      Promise.all([cache.bubbleConfigFile(11), cache.pendantStaticFile(12)]),
+    );
+    expect(part).toEqual([null, null]);
+    expect(query).toHaveBeenCalledWith('bubble', '11', 'config.json');
+    expect(query).toHaveBeenCalledWith('widget', '12', 'aio_50.png');
+    expect(fetch).not.toHaveBeenCalled();
+    expect(protocol.bubble).not.toHaveBeenCalled();
+  });
   it('已经缓存的气泡立即返回，不触发索引下载或在线换链', async () => {
     const { root, cache } = await fixture();
     await mkdir(join(root, 'bubbles'), { recursive: true });

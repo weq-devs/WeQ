@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import sharp from 'sharp';
@@ -12,11 +13,13 @@ import { ManagedDownload, transferActivity } from '@weq/service/managed-download
 import { backgroundTasks } from '../src/main/background_tasks';
 import { startTransferPolicy } from '../src/main/data_saver';
 import { watchTaskPage } from '../src/main/task_page';
+import { MediaCacheService } from '@weq/service';
 setupImageWorker();
 const state = vi.hoisted(() => ({
   source: null as string | null,
   thumb: null as string | null,
   download: vi.fn(async () => null as string | null),
+  cache: undefined as MediaCacheService | undefined,
 }));
 vi.mock('../src/main/context/app_context', () => ({
   getAppContext: () => ({
@@ -25,6 +28,7 @@ vi.mock('../src/main/context/app_context', () => ({
       mediaDownload: { download: state.download, cachedFile: () => null },
     },
     bootstrap: {
+      avatarCache: state.cache,
       userConfig: {
         getSharedPreference: () => ({ dataSaverMode: 'auto' }),
         getSettings: () => ({}),
@@ -36,8 +40,54 @@ const roots: string[] = [];
 afterEach(async () => {
   updateTransferPolicy('auto', UNKNOWN_NETWORK);
   state.source = state.thumb = null;
+  state.cache = undefined;
   state.download.mockClear();
+  vi.unstubAllGlobals();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
+});
+it('空间图片首次点击联网后，省流量仍能用原位地址读取本地图片', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-album-policy-'));
+  roots.push(root);
+  state.cache = new MediaCacheService({ cacheDir: (category) => join(root, category) });
+  const bytes = await sharp({ create: { width: 3, height: 3, channels: 3, background: '#454545' } })
+    .png()
+    .toBuffer();
+  const fetch = vi.fn(
+    async () => new Response(new Uint8Array(bytes), { headers: { 'Content-Type': 'image/png' } }),
+  );
+  vi.stubGlobal('fetch', fetch);
+  updateTransferPolicy('always', UNKNOWN_NETWORK);
+  const url = `weq-media://album?${new URLSearchParams({ src: 'https://a.qpic.cn/fixture.png', ds: '1' })}`;
+  const get = (suffix = '') => handleMediaRequest(new Request(`${url}${suffix}`));
+  expect((await get()).status).toBe(409);
+  expect(fetch).not.toHaveBeenCalled();
+  expect((await get('&intent=interactive')).status).toBe(200);
+  expect(Buffer.from(await (await get()).arrayBuffer())).toEqual(bytes);
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
+it('挂件预览只取同款的已有尺寸，另一款不会误命中', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'weq-dress-policy-'));
+  roots.push(root);
+  state.cache = new MediaCacheService({ cacheDir: (category) => join(root, category) });
+  const preview = (id: number, version: number) =>
+    `https://tianquan.gtimg.cn/faceAddon/item/${id}/newPreview${version}.png`;
+  const hash = createHash('sha1').update(preview(101576, 1)).digest('hex');
+  const bytes = await sharp({ create: { width: 3, height: 3, channels: 3, background: '#454545' } })
+    .png()
+    .toBuffer();
+  await mkdir(join(root, 'dress'));
+  await writeFile(join(root, 'dress', `${hash}.png`), bytes);
+  const fetch = vi.fn();
+  vi.stubGlobal('fetch', fetch);
+  updateTransferPolicy('always', UNKNOWN_NETWORK);
+  const get = (id: number) =>
+    handleMediaRequest(
+      new Request(`weq-media://dress?${new URLSearchParams({ src: preview(id, 2), ds: '1' })}`),
+    );
+  expect(Buffer.from(await (await get(101576)).arrayBuffer())).toEqual(bytes);
+  expect((await get(101577)).status).toBe(404);
+  expect(fetch).not.toHaveBeenCalled();
 });
 it('不自动加载仅允许现有缓存，携带小图地址也不发起下载', async () => {
   updateTransferPolicy('always', UNKNOWN_NETWORK, { dataSaverImageLoading: 'none' });

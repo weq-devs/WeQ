@@ -29,6 +29,7 @@ import {
   useRef,
   useState,
   type ReactElement,
+  type ReactNode,
   type SetStateAction,
 } from 'react';
 import { useContentMultiSelect } from '../state/contentSelection.shared';
@@ -40,12 +41,18 @@ import { ArrowLeft, Check, Images, Inbox, Loader2, Play, X, RefreshCw } from 'lu
 import { Modal } from './Dialog';
 import type { QzoneAlbumRequest, QzoneMediaDestination } from '../lib/qzoneNavigation';
 import { client } from '../trpc/client';
-import { albumMediaUrl } from '../lib/resourceUrl';
+import { albumMediaUrl, interactiveMediaUrl } from '../lib/resourceUrl';
 import { ShimmerImage } from './ShimmerImage';
+import { useAlbumMediaLoadAction } from '../hooks/useMediaLoadAction';
 import { QzoneAlbumTile } from './QzoneAlbumTile';
 import { QzoneTime } from './QzoneTime';
 import { MediaPreview, type PreviewMedia } from './MediaPreview';
-import { MediaTransferBadge, TransferRing, TransferSummary } from './TransferRing';
+import {
+  MediaLoadingRing,
+  MediaTransferBadge,
+  TransferRing,
+  TransferSummary,
+} from './TransferRing';
 import { useTransferProgress } from '../lib/transferActivity';
 import {
   albumMediaTransferTarget,
@@ -82,6 +89,111 @@ interface QzoneAlbumPhotoWire {
   picKey: string;
   width: number;
   height: number;
+}
+
+function QzoneAlbumMediaButton({
+  photo,
+  onOpen,
+  prepareVideo,
+  caption,
+  indicator,
+}: {
+  photo: QzoneAlbumPhotoWire;
+  onOpen: (src?: string) => void;
+  prepareVideo?: PreviewMedia['load'];
+  caption: ReactNode;
+  indicator: ReactNode;
+}) {
+  const [unusableThumb, setUnusableThumb] = useState<string>();
+  const [video, setVideo] = useState<{ phase: 'loading' | 'failed' | 'ready'; src?: string }>();
+  const raw = photo.thumbUrl && unusableThumb !== photo.thumbUrl ? photo.thumbUrl : photo.url;
+  const media = useAlbumMediaLoadAction(
+    raw ? albumMediaUrl(raw) : '',
+    photo.isVideo ? '视频封面' : '相册图片',
+  );
+  const videoFallback = photo.isVideo && (!raw || Boolean(media.hint && media.requested));
+  const loading = videoFallback ? video?.phase === 'loading' : media.loading;
+  const hint =
+    videoFallback && video?.phase === 'failed'
+      ? '点击重试加载'
+      : !loading && video?.phase !== 'ready'
+        ? media.hint
+        : undefined;
+  const title = !videoFallback
+    ? media.label
+    : video?.phase === 'ready'
+      ? '查看视频'
+      : video?.phase === 'failed'
+        ? '重试加载视频'
+        : loading
+          ? '正在加载视频'
+          : '加载视频';
+  async function activate() {
+    if (!videoFallback) {
+      media.activate(onOpen);
+      return;
+    }
+    if (video?.phase === 'ready') {
+      onOpen(video.src);
+      return;
+    }
+    if (loading) return;
+    setVideo({ phase: 'loading' });
+    try {
+      const source = await prepareVideo?.(Boolean(video));
+      if (!source?.src || source.kind !== 'video') throw new Error('视频没有可播放地址');
+      setVideo({ phase: 'loading', src: interactiveMediaUrl(source.src) });
+    } catch {
+      setVideo({ phase: 'failed' });
+    }
+  }
+  return (
+    <button
+      type="button"
+      className="weq-qzal-media-body"
+      aria-busy={loading || undefined}
+      aria-label={photo.name ? `${title}：${photo.name}` : title}
+      title={title}
+      onClick={() => void activate()}
+    >
+      <span className="weq-qzal-media-thumb weq-media-frame">
+        {videoFallback && video?.src ? (
+          <video
+            key={video.src}
+            src={video.src}
+            muted
+            playsInline
+            preload="auto"
+            onLoadedData={() => setVideo({ phase: 'ready', src: video.src })}
+            onError={() => setVideo({ phase: 'failed' })}
+          />
+        ) : (
+          <ShimmerImage
+            src={media.src || undefined}
+            alt="相册媒体"
+            loading={media.loading ? 'eager' : 'lazy'}
+            mediaLoading
+            reuseRemoteCache
+            referrerPolicy="no-referrer"
+            onLoad={media.onLoad}
+            onError={() => {
+              media.onError();
+              if (!photo.isVideo && media.requested && photo.url && raw !== photo.url)
+                setUnusableThumb(photo.thumbUrl);
+            }}
+          />
+        )}
+        {videoFallback && loading ? <MediaLoadingRing label="正在加载视频" /> : null}
+        {hint ? (
+          <span className="weq-media-load-hint" aria-hidden>
+            {hint}
+          </span>
+        ) : null}
+        {!videoFallback || video?.phase === 'ready' ? indicator : null}
+      </span>
+      {caption}
+    </button>
+  );
 }
 
 /** Native placeholder IDs are not unique; keep selections tied to the actual media. */
@@ -1124,7 +1236,9 @@ export function MediaView({
     [photos, selfUin, hostUin, topicId, runDetail, cancelDetail],
   );
 
-  function openMedia(photo: QzoneAlbumPhotoWire, _row: string): void {
+  const [preparedVideo, setPreparedVideo] = useState<{ key: string; src: string }>();
+  function openMedia(photo: QzoneAlbumPhotoWire, src?: string): void {
+    setPreparedVideo(src ? { key: photoKey(photo), src } : undefined);
     setPreview(photos.indexOf(photo));
   }
   const toolbar = onJumpToAlbum ? null : (
@@ -1139,7 +1253,15 @@ export function MediaView({
     <div className="weq-qzal-media-view">
       {preview !== null ? (
         <MediaPreview
-          items={previewItems}
+          items={
+            preparedVideo
+              ? previewItems.map((item) =>
+                  item.key === preparedVideo.key
+                    ? { ...item, src: preparedVideo.src, load: undefined }
+                    : item,
+                )
+              : previewItems
+          }
           initialIndex={preview}
           onClose={() => {
             setPreview(null);
@@ -1191,7 +1313,6 @@ export function MediaView({
           <div className="weq-qzal-media-grid" {...rootProps}>
             {photos.map((photo, index) => {
               const row = rowKey(index);
-              const proxied = albumMediaUrl(photo.thumbUrl || photo.url);
               const checked = !onJumpToAlbum && selected.has(row);
               const detail = details[row];
               return (
@@ -1212,49 +1333,45 @@ export function MediaView({
                       {checked ? <Check size={12} strokeWidth={2.6} /> : null}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="weq-qzal-media-body"
-                    onClick={() => void openMedia(photo, row)}
-                  >
-                    <span className="weq-qzal-media-thumb weq-media-frame">
-                      <ShimmerImage
-                        src={proxied}
-                        alt="相册媒体"
-                        loading="lazy"
-                        mediaLoading
-                        referrerPolicy="no-referrer"
-                      />
-                      <MediaTransferBadge
-                        target={albumMediaTransferTarget(hostUin, topicId, row)}
-                      />
-                      {photo.isVideo ? (
-                        <span className="weq-qzal-media-play" aria-hidden>
-                          {videoResolving === row ? (
-                            <TransferRing
-                              progress={{ phase: 'preparing' }}
-                              label="正在读取视频"
-                              size={16}
-                            />
-                          ) : (
-                            <Play size={18} />
-                          )}
+                  <QzoneAlbumMediaButton
+                    photo={photo}
+                    onOpen={(src) => openMedia(photo, src)}
+                    prepareVideo={photo.isVideo ? previewItems[index]?.load : undefined}
+                    indicator={
+                      <>
+                        <MediaTransferBadge
+                          target={albumMediaTransferTarget(hostUin, topicId, row)}
+                        />
+                        {photo.isVideo ? (
+                          <span className="weq-qzal-media-play" aria-hidden>
+                            {videoResolving === row ? (
+                              <TransferRing
+                                progress={{ phase: 'preparing' }}
+                                label="正在读取视频"
+                                size={16}
+                              />
+                            ) : (
+                              <Play size={18} />
+                            )}
+                          </span>
+                        ) : null}
+                      </>
+                    }
+                    caption={
+                      <span className="weq-qzal-media-caption">
+                        <span className="weq-qzal-media-name">
+                          {detail?.name || photo.name || '未命名'}
                         </span>
-                      ) : null}
-                    </span>
-                    <span className="weq-qzal-media-caption">
-                      <span className="weq-qzal-media-name">
-                        {detail?.name || photo.name || '未命名'}
+                        {detail?.width && detail.height ? (
+                          <small>
+                            <span className="weq-number weq-number-inherit">{detail.width}</span> ×{' '}
+                            <span className="weq-number weq-number-inherit">{detail.height}</span>
+                          </small>
+                        ) : null}
+                        <QzoneTime value={photo.uploadTime} interactive={false} />
                       </span>
-                      {detail?.width && detail.height ? (
-                        <small>
-                          <span className="weq-number weq-number-inherit">{detail.width}</span> ×{' '}
-                          <span className="weq-number weq-number-inherit">{detail.height}</span>
-                        </small>
-                      ) : null}
-                      <QzoneTime value={photo.uploadTime} interactive={false} />
-                    </span>
-                  </button>
+                    }
+                  />
                 </div>
               );
             })}

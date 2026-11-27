@@ -10,11 +10,6 @@
 .qq-media-image-preview-wrap > button {
   grid-area: 1 / 1;
 }
-.qq-media-image-preview-wrap > .qq-media-retry {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
-}
 
 /* 独立媒体贴齐行框底边，组内间距由消息列表提供。 */
 .message-line:is([data-message-group], [data-grouped-dress-bubble]) .sticker-only
@@ -54,6 +49,10 @@
 button.qq-media-wrap {
   cursor: zoom-in;
 }
+.qq-media-action[data-load-action],
+button.qq-media-missing {
+  cursor: pointer;
+}
 button.qq-media-wrap > :is(img, .qq-media-missing) {
   pointer-events: none;
 }
@@ -68,31 +67,9 @@ button.qq-media-wrap > :is(img, .qq-media-missing) {
   padding: 0;
   border: 0;
 }
-.qq-media-action:focus-visible,
-.qq-media-retry:focus-visible {
+.qq-media-action:focus-visible {
   outline: 2px solid var(--weq-accent-effective);
   outline-offset: 3px;
-}
-.qq-media-retry {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: 32px;
-  min-width: 32px;
-  padding: 4px 8px;
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 6px;
-  color: var(--weq-fg-primary);
-  background: var(--weq-bg-surface);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.qq-media-missing:has(.qq-media-retry) {
-  flex-direction: row;
-  gap: 6px;
-  padding: 8px;
 }
 .qq-media-play-error {
   margin: 4px 0 0;
@@ -116,7 +93,16 @@ button.qq-media-wrap > :is(img, .qq-media-missing) {
   pointer-events: none;
 }
 .weq-media-load-error {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
   pointer-events: auto;
+}
+.weq-media-load-error:focus-visible {
+  outline: 2px solid var(--weq-accent-effective);
+  outline-offset: -2px;
 }
 .weq-media-zoom-controls {
   display: flex;
@@ -155,25 +141,4 @@ button.qq-media-wrap > :is(img, .qq-media-missing) {
   .weq-media-zoom-controls .weq-lightbox-action {
     width: 44px;
   }
-}
-.qq-media-missing.qq-media-deferred {
-  background: var(--weq-bg-surface);
-  border-color: var(--weq-border-subtle);
-  color: var(--weq-fg-primary);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.qq-media-deferred:hover:not(:disabled),
-.qq-media-deferred:focus-visible {
-  border-color: var(--weq-accent-effective);
-  outline: 2px solid var(--weq-accent-effective);
-  outline-offset: 2px;
-}
-
-html[data-theme='dark'] .qq-media-missing.qq-media-deferred {
-  background: var(--weq-bg-surface);
-  border-color: var(--weq-border-strong);
-  color: var(--weq-fg-primary);
 }

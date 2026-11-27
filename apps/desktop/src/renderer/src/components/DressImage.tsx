@@ -1,4 +1,4 @@
-import { useContext, useEffect, type ImgHTMLAttributes } from 'react';
+import { useContext, useEffect, useEffectEvent, type ImgHTMLAttributes } from 'react';
 import { useAvatarImage } from '../hooks/useAvatarImage';
 import { CdnContext } from '../lib/cdn';
 import { useDataSaver } from '../lib/dataSaver';
@@ -10,10 +10,20 @@ type Props = ImgHTMLAttributes<HTMLImageElement> & {
   src: string;
   placeholder?: boolean;
   onUnavailable?: () => void;
+  onLoadFailed?: () => void;
+  reuseRemoteCache?: boolean;
 };
 
 /** 名片和挂件沿用原电脑地址；只有新版 Remote 将公开图片变成缓存优先的请求。 */
-export function DressImage({ src, placeholder, onUnavailable, ...rest }: Props) {
+export function DressImage({
+  src,
+  placeholder,
+  onUnavailable,
+  onLoadFailed,
+  reuseRemoteCache,
+  onError,
+  ...rest
+}: Props) {
   const { remote, remoteDress } = useContext(CdnContext);
   const candidate = remote && src.startsWith('https://tianquan.gtimg.cn/') ? dressUrl(src) : src;
   const proxy =
@@ -22,10 +32,25 @@ export function DressImage({ src, placeholder, onUnavailable, ...rest }: Props) 
       : null;
   const publicImage = proxy && publicDressImage(proxy);
   const fallback = publicImage ? candidate : src;
-  if (remoteDress && publicImage)
-    return <CachedDressImage src={fallback} onUnavailable={onUnavailable} {...rest} />;
-  if (placeholder) return <ShimmerImage src={fallback} {...rest} />;
-  return <img src={fallback} {...rest} alt={rest.alt ?? ''} />;
+  if (remoteDress && publicImage && proxy.searchParams.get('intent') !== 'interactive')
+    return (
+      <CachedDressImage
+        src={fallback}
+        onUnavailable={onUnavailable}
+        onLoadFailed={onLoadFailed}
+        onError={onError}
+        {...rest}
+      />
+    );
+  const failed: Props['onError'] = (event) => {
+    onError?.(event);
+    onLoadFailed?.();
+  };
+  if (placeholder)
+    return (
+      <ShimmerImage src={fallback} reuseRemoteCache={reuseRemoteCache} onError={failed} {...rest} />
+    );
+  return <img src={fallback} onError={failed} {...rest} alt={rest.alt ?? ''} />;
 }
 
 function CachedDressImage({
@@ -33,14 +58,19 @@ function CachedDressImage({
   onError,
   onLoad,
   onUnavailable,
+  onLoadFailed,
   ...rest
 }: Omit<Props, 'placeholder'>) {
   const allowed = useDataSaver((state) => !state.enabled || state.behavior.dataSaverDress);
   const source = `${thumbnailPolicyRequest(src).src}&_weq_dress_direct=${allowed ? '1' : '0'}`;
   const image = useAvatarImage(source);
+  const reportFailure = useEffectEvent(() => {
+    onLoadFailed?.();
+    if (allowed) onUnavailable?.();
+  });
   useEffect(() => {
-    if (image.failed && allowed) onUnavailable?.();
-  }, [image.failed, allowed, onUnavailable]);
+    if (image.failed) reportFailure();
+  }, [image.failed, allowed, source]);
   return (
     <img
       {...rest}

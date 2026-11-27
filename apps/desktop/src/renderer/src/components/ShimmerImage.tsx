@@ -38,6 +38,7 @@ import {
 } from '../lib/remoteDataCache';
 import { fetchChatThumbnail } from '../lib/chatThumbnail';
 import { MessageImageContext } from '../lib/messageImageContext';
+import { isRemoteClient } from '../lib/remoteClient';
 
 const noSubscription = () => () => {};
 
@@ -51,6 +52,7 @@ export function ShimmerImage({
   remoteImageSrc,
   abortableThumbnail = false,
   onThumbnailError,
+  reuseRemoteCache = false,
   ...rest
 }: ImgHTMLAttributes<HTMLImageElement> & {
   suspendOffscreen?: boolean;
@@ -58,6 +60,7 @@ export function ShimmerImage({
   remoteImageSrc?: string | null;
   abortableThumbnail?: boolean;
   onThumbnailError?: () => void;
+  reuseRemoteCache?: boolean;
 }): ReactElement {
   const [loaded, setLoaded] = useState(false);
   const limited = useDataSaver((state) => state.enabled);
@@ -76,6 +79,18 @@ export function ShimmerImage({
   const src = request.src
     ? resourceForRenderDocument(remoteCachedResource(request.src), ownerDocument)
     : request.src;
+  const remoteLocal = reuseRemoteCache && isRemoteClient() && request.src?.startsWith('/_media/');
+  let cacheSource = request.src;
+  if (remoteLocal && cacheSource?.includes('_weq_retry=')) {
+    const url = new URL(cacheSource, location.origin);
+    url.searchParams.delete('_weq_retry');
+    cacheSource = url.pathname + url.search;
+  }
+  // Remote 的旧壳会把刷新戳当作新文件。节点和请求状态用原戳，媒体传输用稳定地址。
+  const transportSrc =
+    cacheSource !== request.src && cacheSource
+      ? resourceForRenderDocument(remoteCachedResource(cacheSource), ownerDocument)
+      : src;
   const cache = useContext(ChatImageCacheContext);
   const cacheKey = JSON.stringify([src, rest.srcSet]);
   const retained = useSyncExternalStore(
@@ -86,17 +101,19 @@ export function ShimmerImage({
     suspendOffscreen && cache ? cache.subscribe : noSubscription,
     () => cache?.stats().limit ?? 0,
   );
-  const active = messageImage || (tabActive && visible);
+  const readLocal = limited && Boolean(remoteLocal);
+  const observeLoading = (mediaLoading || readLocal) && rest.loading === 'lazy';
+  const active = messageImage || (tabActive && ((!suspendOffscreen && !observeLoading) || visible));
   const enabled = !suspendOffscreen || active || retained;
   const directUrl = limited ? null : remoteImageSrc;
-  const proxyUrl = abortableThumbnail && !rest.srcSet ? src : undefined;
-  const managed = Boolean(directUrl || proxyUrl);
-  const requestKey = JSON.stringify([cacheKey, directUrl, proxyUrl]);
+  const proxyUrl = abortableThumbnail && !rest.srcSet ? transportSrc : undefined;
+  const managed = Boolean(directUrl || proxyUrl || readLocal);
+  const requestKey = JSON.stringify([cacheKey, directUrl, proxyUrl, readLocal]);
   const cachedSource = managed && retained ? cache?.source(cacheKey) : undefined;
   const [fetched, setFetched] = useState<{
     key: string;
     blob: Blob | null;
-    source?: 'proxy' | 'error';
+    source?: 'local' | 'proxy' | 'error';
   }>();
   const result = fetched?.key === requestKey ? fetched : undefined;
   const blob = result?.blob;
@@ -121,13 +138,13 @@ export function ShimmerImage({
         ? asset?.src
         : result.source === 'error'
           ? undefined
-          : src
+          : transportSrc
       : cachedSource
-    : src;
+    : transportSrc;
   const showingBlob = Boolean(
     managed &&
       displayedSrc &&
-      displayedSrc !== src &&
+      displayedSrc !== transportSrc &&
       (displayedSrc.startsWith('blob:') || displayedSrc.startsWith('data:')),
   );
   const reportThumbnailError = useEffectEvent(() => {
@@ -143,9 +160,12 @@ export function ShimmerImage({
     const controller = new AbortController();
     const { signal } = controller;
     void (async () => {
-      const source = request.src;
+      const source = cacheSource;
       const status = directUrl && source ? await remoteDataCacheStatus() : undefined;
-      const local = status && source ? await readRemoteCachedMedia(source, signal) : undefined;
+      const local =
+        (status || readLocal) && source
+          ? await readRemoteCachedMedia(source, signal, readLocal)
+          : undefined;
       if (signal.aborted) return;
       const direct =
         local?.blob ?? (directUrl ? await requestRemoteImage(directUrl, signal) : null);
@@ -153,7 +173,7 @@ export function ShimmerImage({
         void putRemoteCachedMedia(source, direct, status);
       if (signal.aborted) return;
       if (direct || !proxyUrl) {
-        setFetched({ key: requestKey, blob: direct });
+        setFetched({ key: requestKey, blob: direct, source: local ? 'local' : undefined });
         return;
       }
       try {
@@ -175,14 +195,14 @@ export function ShimmerImage({
     active,
     directUrl,
     proxyUrl,
+    readLocal,
     managed,
     requestKey,
-    request.src,
+    cacheSource,
     cachedSource,
     enabled,
     result,
   ]);
-  const observeLoading = mediaLoading && rest.loading === 'lazy';
   const showRing =
     mediaLoading &&
     tabActive &&
@@ -287,7 +307,10 @@ export function ShimmerImage({
         }}
         onError={(event) => {
           if (!enabled) return;
-          if (directUrl && showingBlob && result?.source !== 'proxy') {
+          if (
+            showingBlob &&
+            (result?.source === 'local' || (directUrl && result?.source !== 'proxy'))
+          ) {
             setFetched({ key: requestKey, blob: null });
             return;
           }
