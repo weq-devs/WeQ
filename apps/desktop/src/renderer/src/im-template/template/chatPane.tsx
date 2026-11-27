@@ -391,6 +391,7 @@ import {
   composerHeightDefault,
   composerHeightMin,
   composerHeightMax,
+  composerPanelHeightMin,
 } from './composerLayout';
 const groupInfoCollapsedStorageKey = 'chat-template.layout.groupInfoCollapsed';
 const composerCollapsedStorageKey = 'chat-template.layout.composerCollapsed';
@@ -6312,19 +6313,23 @@ function ChatPaneContent({
       setLocationCardOpen(false);
     },
   };
-  // 输入区高度固定：语音条内联时就装在正文那一行里，不再临时抬高（避免开录音时
-  // 整个聊天区往下跳）。面板内容装不下时它自己在内部滚动。
-  //
+  // 引用和附件至少留下同样的一行正文，替换正文的面板则有独立的最小高度。
+  const composerPanelReplacesEditor =
+    pendingSuperEmoji !== null || voicePanelActive || flashPanelInline;
+  const composerContentMinHeight = composerPanelReplacesEditor
+    ? composerPanelHeightMin
+    : composerHeightMin + (mediaAttachments.length > 0 ? 76 : hasQuote ? 38 : 0);
+  const desktopComposerHeight = Math.max(
+    composerContentMinHeight,
+    Math.min(composerHeight, composerPaneHeight ? composerPaneHeight * 0.35 : composerHeight),
+  );
   // 收起时只清空网格占位，保留输入区原高用于退出过渡。把手和新消息提示随占位移动。
   // 多选时输入区让位给操作条 —— 只留一条矮栏（即使输入区本来是收起的也要露出来）。
   const expandedComposerHeight = selectionMode
     ? 64
     : !composerVisible
       ? 0
-      : Math.min(
-          composerHeight,
-          composerPaneHeight ? Math.max(96, composerPaneHeight * 0.35) : composerHeight,
-        ) + composerExtensionsHeight;
+      : desktopComposerHeight + composerExtensionsHeight;
   const paneStyle = {
     '--composer-height': `${composerCollapsed && !selectionMode ? 0 : expandedComposerHeight}px`,
     '--desktop-composer-height': `${expandedComposerHeight}px`,
@@ -7334,6 +7339,9 @@ function ChatPaneContent({
           inert={composerCollapsed && !selectionMode && !compactHeader}
           className={cn(
             'composer',
+            !composerPanelReplacesEditor &&
+              desktopComposerHeight === composerContentMinHeight &&
+              'single-line-editor',
             hasComposerExtensions && !selectionMode && 'has-extensions',
             pendingSuperEmoji && 'has-single-send',
             mediaAttachments.length > 0 && 'has-media-attachments',
@@ -7594,8 +7602,8 @@ function ChatPaneContent({
             />
           ) : null}
           <ComposerResizeHandle
-            height={composerHeight}
-            minHeight={composerHeightMin}
+            height={desktopComposerHeight}
+            minHeight={composerContentMinHeight}
             maxHeight={composerHeightMax}
             onHeightChange={updateComposerHeight}
           />
@@ -8011,10 +8019,7 @@ function ChatPaneContent({
           ) : null}
           <div
             ref={composerEditorRef}
-            className={cn(
-              'composer-editor',
-              (pendingSuperEmoji || voicePanelActive || flashPanelInline) && 'composer-row-hidden',
-            )}
+            className={cn('composer-editor', composerPanelReplacesEditor && 'composer-row-hidden')}
             role="textbox"
             aria-multiline="true"
             aria-label="消息"

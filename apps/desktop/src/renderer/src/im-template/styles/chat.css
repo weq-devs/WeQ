@@ -2548,6 +2548,17 @@ html[data-theme='dark'] .member-role-badge.admin {
   inset-inline: var(--composer-side-inset);
 }
 
+:where(html:not([data-weq-layout='single'], [data-weq-mobile-client='true']))
+  .composer.single-line-editor {
+  > .composer-editor {
+    line-height: 32px;
+  }
+
+  > .composer-send-controls {
+    bottom: 16px;
+  }
+}
+
 .composer-send {
   display: inline-flex;
   width: auto;
