@@ -227,28 +227,61 @@ export class MediaDownloadService {
       writeMedia(path, transferSignal, async () => {
         transferSignal.throwIfAborted();
         if (existsSync(path)) return path;
-        if (!this.allowOnline()) return null;
-        try {
-          await mkdir(this.cacheDir, { recursive: true });
-          await new ManagedDownload({
-            signal: transferSignal,
-            maxBytes: 512 * 1024,
-            validate: async (_path, response, size) => {
-              transferSignal.throwIfAborted();
-              if (
-                !this.allowOnline() ||
-                !size ||
-                !(response.headers.get('content-type') ?? '').startsWith('image/')
-              )
-                throw new Error('缩略图不可用');
-            },
-          }).file(url.href, path);
-          return this.allowOnline() ? path : null;
-        } catch {
-          return null;
-        }
+        return this.downloadThumbnail(url, path, transferSignal);
       }),
     );
+  }
+
+  private async downloadThumbnail(url: URL, path: string, signal: AbortSignal) {
+    const tried = new Set<string>();
+    const fetchCandidate = async (candidate: URL) => {
+      signal.throwIfAborted();
+      if (!this.allowOnline() || tried.has(candidate.href)) return false;
+      tried.add(candidate.href);
+      try {
+        await mkdir(this.cacheDir, { recursive: true });
+        await new ManagedDownload({
+          signal,
+          maxBytes: 512 * 1024,
+          validate: async (_path, response, size) => {
+            signal.throwIfAborted();
+            if (
+              !this.allowOnline() ||
+              !size ||
+              !(response.headers.get('content-type') ?? '').startsWith('image/')
+            )
+              throw new Error('缩略图不可用');
+          },
+        }).file(candidate.href, path);
+        return this.allowOnline();
+      } catch {
+        signal.throwIfAborted();
+        return false;
+      }
+    };
+    const type = thumbnailRkeyType(url);
+    if (type === undefined) return (await fetchCandidate(url)) ? path : null;
+
+    const fetchWithRkeys = async (keys: DownloadRkey[]) => {
+      for (const key of keys) {
+        const value = new URLSearchParams(key.rkey).get('rkey');
+        if (!value) continue;
+        const signed = new URL(url);
+        signed.searchParams.set('rkey', value);
+        if (await fetchCandidate(signed)) return true;
+      }
+      return false;
+    };
+    if (await fetchWithRkeys(this.validRkeys([type]))) return path;
+    if (url.searchParams.get('rkey') && (await fetchCandidate(url))) return path;
+    if (!this.externalRkey || !this.allowOnline()) return null;
+    try {
+      const keys = await bounded(this.externalRkey.resolveRkeys([type], signal), signal);
+      return (await fetchWithRkeys(keys)) ? path : null;
+    } catch {
+      signal.throwIfAborted();
+      return null;
+    }
   }
 
   /**
@@ -482,6 +515,21 @@ export class MediaDownloadService {
 
 function isAllDigits(s: string): boolean {
   return /^\d+$/.test(s);
+}
+
+/** QQ 消息里的小图常只有相对路径。补同场景票据时保留原 fileid 和 spec。 */
+function thumbnailRkeyType(url: URL): number | undefined {
+  if (
+    url.origin !== MEDIA_HOST ||
+    url.pathname !== '/download' ||
+    !url.searchParams.get('fileid') ||
+    !/^(?:198|720)$/.test(url.searchParams.get('spec') ?? '')
+  )
+    return undefined;
+  const appid = url.searchParams.get('appid');
+  if (appid === '1406') return PRIVATE_IMAGE_RKEY_TYPE;
+  if (appid === '1407') return GROUP_IMAGE_RKEY_TYPE;
+  return undefined;
 }
 
 /** `originalUrl` is usually a host-relative path; join it onto the media host. */
