@@ -1,3 +1,4 @@
+import { usePreferenceState } from '../lib/clientPreferences';
 import { useId, useRef, useState, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronRight } from 'lucide-react';
@@ -60,7 +61,7 @@ export function MessageBatchActionDialog({
   const [included, setIncluded] = useState(
     () => new Set(batch.groups.filter((group) => group.include).map((group) => group.key)),
   );
-  const [includeReplyExcerpt, setIncludeReplyExcerpt] = useState(false);
+  const [includeReplyExcerpt, setIncludeReplyExcerpt] = usePreferenceState('forwardReplyExcerpt');
   const replyGroup =
     action === 'forward'
       ? batch.groups.find(({ label }) => label === forwardReplyGroupLabel)

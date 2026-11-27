@@ -1,3 +1,4 @@
+import { usePreferenceState } from '../../lib/clientPreferences';
 import { useEffect, useId, useRef, useState } from 'react';
 import { Download, ShieldCheck, X } from 'lucide-react';
 import { Modal } from '../../components/Dialog';
@@ -7,7 +8,7 @@ import { ExportReportControl } from './ExportReportControl';
 /** 没有配置弹窗的批量入口使用同一份确认面板。取消或卸载时不创建任务。 */
 export function useExportReportDialog() {
   const [open, setOpen] = useState(false);
-  const [checked, setChecked] = useState(false);
+  const [checked, setChecked] = usePreferenceState('exportIntegrityReport');
   const resolve = useRef<((value: boolean | null) => void) | null>(null);
   const titleId = useId();
   useEffect(
@@ -26,7 +27,6 @@ export function useExportReportDialog() {
   return {
     choose: (): Promise<boolean | null> => {
       if (resolve.current) return Promise.resolve(null);
-      setChecked(false);
       setOpen(true);
       return new Promise((done) => {
         resolve.current = done;
@@ -62,7 +62,7 @@ export function useExportReportDialog() {
             <ShieldCheck size={14} aria-hidden />
             {checked
               ? '报告只描述本次导出的完整性，不代表已取得全部服务端历史。'
-              : '默认不生成报告；需要核对导出结果时建议开启。'}
+              : '本次不生成报告；需要核对导出结果时可以开启。'}
           </p>
           <div className="weq-export-report-actions">
             <button

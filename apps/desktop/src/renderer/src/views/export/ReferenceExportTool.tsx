@@ -1,3 +1,4 @@
+import { usePreferenceState } from '../../lib/clientPreferences';
 import { useRef, useState } from 'react';
 import { Download, CheckCheck, FlipHorizontal2, X, Check, Loader2 } from 'lucide-react';
 import { client } from '../../trpc/client';
@@ -20,7 +21,8 @@ export function ReferenceExportTool({
     ...new Map(initial.map((item) => [contentReferenceKey(item), { ...item }])).values(),
   ]);
   const [selected, setSelected] = useState(() => new Set(pool.map(contentReferenceKey)));
-  const [includeIntegrityReport, setIncludeIntegrityReport] = useState(false);
+  const [includeIntegrityReport, setIncludeIntegrityReport] =
+    usePreferenceState('exportIntegrityReport');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);

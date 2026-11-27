@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore, type Dispatch, type SetStateAction } from 'react';
 import {
   legacyPreferenceKeys,
   displayPreferenceKeys,
@@ -155,6 +155,25 @@ export function changePreference<K extends PreferenceKey>(
   const done = () => preferenceWrites.delete(operation);
   void operation.then(done, done);
   return operation;
+}
+
+/** 与共享缓存、未完成写入及跨端更新使用同一份值；修改时读取最新值。 */
+export function usePreferenceState<K extends PreferenceKey>(
+  key: K,
+): [PreferenceValues[K], Dispatch<SetStateAction<PreferenceValues[K]>>] {
+  useClientPreferences((state) => state.tick);
+  const set = useCallback<Dispatch<SetStateAction<PreferenceValues[K]>>>(
+    (action) => {
+      const current = preferenceValue(key);
+      const value =
+        typeof action === 'function'
+          ? (action as (previous: PreferenceValues[K]) => PreferenceValues[K])(current)
+          : action;
+      if (!Object.is(value, current)) void changePreference(key, value);
+    },
+    [key],
+  );
+  return [preferenceValue(key), set];
 }
 
 export function readingPositionJumpMode() {
