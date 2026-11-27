@@ -15,20 +15,14 @@ import { useProfileResolver } from '../hooks/useProfileResolver';
 import { useAppDialog } from '../lib/dialogUtils';
 import { QqAvatar } from '../components/QqAvatar';
 import { GroupMosaicAvatar } from '../components/GroupMosaicAvatar';
-import {
-  NewCloneModal,
-  type BuddyOption,
-  type FlatModels,
-  type StartCloneArgs,
-} from './agentlab/NewCloneModal';
-import { getCloneTasks, startCloneTask } from './agentlab/cloneTaskStore';
+import type { FlatModels } from './agentlab/NewCloneModal';
+import { CloneCreationDialog, type CloneCreationRequest } from './agentlab/CloneCreationDialog';
 import { PersonaSettingsModal } from './agentlab/PersonaSettingsModal';
 import { personaUpdatedAt } from './agentlab/personaUpdatedAt';
 import { AssistantPanel } from './agentlab/AssistantPanel';
 import { buildFaceMap } from './agentlab/ChatBubble.shared';
 import type { FaceContext } from './agentlab/ChatBubble';
 import { CloneChatPanel } from './agentlab/CloneChatPanel';
-import { NewGroupModal, type GroupPersonaOption } from './agentlab/NewGroupModal';
 import { GroupChatPanel } from './agentlab/GroupChatPanel';
 import type { GeneratedSearchHit } from '../components/search/types';
 import '../styles/agentlab-workspace.css';
@@ -252,25 +246,14 @@ export function AgentLabView({
   mode = 'clones',
   searchTarget,
   openTarget,
-  createRequest,
-  createFriendUids,
-  openGroupRequest,
   embedded = false,
   onBackToDirectory,
-  onConversationCreated,
 }: {
   mode?: 'clones' | 'assistant';
   searchTarget?: GeneratedSearchHit | null;
   openTarget?: { kind: 'persona' | 'group'; id: string; revision: number } | null;
-  /** 新建克隆请求的版本号；用 revision 区分「再点一次也要重新打开」。 */
-  createRequest?: { revision: number; friendUids?: string[] } | null;
-  /** 兼容旧调用：单独传好友 uid 列表（与 createRequest 二选一）。 */
-  createFriendUids?: string[];
-  /** 新建克隆体群聊请求的版本号。 */
-  openGroupRequest?: number;
   embedded?: boolean;
   onBackToDirectory?: () => void;
-  onConversationCreated?: (target: { kind: 'persona' | 'group'; id: string }) => void;
 }): ReactElement {
   const dialog = useAppDialog();
   const utils = trpc.useUtils();
@@ -279,7 +262,6 @@ export function AgentLabView({
   const personas = trpc.account.listAgentLabPersonas.useQuery();
   const deletePersona = trpc.account.deleteAgentLabPersona.useMutation();
   const groups = trpc.account.listAgentLabGroups.useQuery();
-  const createGroup = trpc.account.createAgentLabGroup.useMutation();
   const deleteAssistantSession = trpc.account.deleteAssistantSession.useMutation();
   const selfProfile = trpc.account.getSelfProfile.useQuery();
   const systemFaces = trpc.account.getSystemFaces.useQuery(undefined, { staleTime: Infinity });
@@ -289,9 +271,7 @@ export function AgentLabView({
     () => (buddies.data ?? []).map((item) => item.uid).filter(Boolean),
     [buddies.data],
   );
-  // 好友资料必须按 IPC 的单次上限（200）分批补全：以前这里一次性传 slice(0, 300)，
-  // 好友数一过 200 整条查询就被 schema 打回，profileByUid 变空 Map，所有克隆体
-  // 因为拿不到 uin 而回落成默认灰头像。分块交给统一的 profile resolver。
+  // 好友资料按 IPC 的单次上限分批补全，避免克隆体头像回落成默认灰头像。
   const { profileByUid: buddyProfiles, resolveProfiles } =
     useProfileResolver<AgentLabProfileWire>(NO_PRIMED_PROFILES);
   useEffect(() => {
@@ -313,20 +293,6 @@ export function AgentLabView({
   const personaList = useMemo(
     () => (personas.data ?? []).filter((p): p is NonNullable<typeof p> => Boolean(p)),
     [personas.data],
-  );
-
-  const buddyOptions: BuddyOption[] = useMemo(
-    () =>
-      (buddies.data ?? []).map((item) => {
-        const p = profileByUid.get(item.uid);
-        return {
-          uid: item.uid,
-          uin: p?.uin || item.uin || '',
-          label: p?.label || item.uin || item.uid,
-          avatarUrl: p?.avatarUrl,
-        };
-      }),
-    [buddies.data, profileByUid],
   );
 
   const flatModels: FlatModels = useMemo(() => {
@@ -390,16 +356,7 @@ export function AgentLabView({
     enabled: sel.kind === 'assistant',
   });
   const assistantSessions = assistantSessionsQuery.data ?? [];
-  const [cloneOpen, setCloneOpen] = useState(false);
-  const [clonePreselect, setClonePreselect] = useState<string[]>([]);
-  useEffect(() => {
-    if (!createRequest) return;
-    setClonePreselect(createRequest.friendUids ?? createFriendUids ?? []);
-    setCloneOpen(true);
-  }, [createRequest, createFriendUids]);
-  useEffect(() => {
-    if (openGroupRequest) setGroupOpen(true);
-  }, [openGroupRequest]);
+  const [creationRequest, setCreationRequest] = useState<CloneCreationRequest | null>(null);
   const [appliedOpenTarget, setAppliedOpenTarget] = usePageState<string | null>(
     'agentlab:open-target',
     null,
@@ -417,7 +374,6 @@ export function AgentLabView({
       navKey: navSeq.current,
     });
   }, [openTarget, openTargetKey, appliedOpenTarget, setAppliedOpenTarget, searchTarget, setSel]);
-  const [groupOpen, setGroupOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement>();
   const [memberSettingsId, setMemberSettingsId] = useState<string | null>(null);
@@ -527,47 +483,6 @@ export function AgentLabView({
       );
     } catch (error) {
       dialog.error('删除失败', error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  // 由配置弹窗发起构建：关弹窗 → 模块级 store 登记后台任务并打开统一列表。
-  // 构建脱离本组件，切走再回来任务态仍在。完成后由主界面刷新共享克隆体列表。
-  function startClone(args: StartCloneArgs): void {
-    setCloneOpen(false);
-    void startCloneTask(args).then(() => {
-      if (
-        getCloneTasks().some(
-          (task) => task.personaId === args.params.personaId && task.status === 'done',
-        )
-      ) {
-        void utils.account.listAgentLabPersonas.invalidate();
-        onConversationCreated?.({ kind: 'persona', id: args.params.personaId });
-      }
-    });
-  }
-
-  const groupPersonaOptions: GroupPersonaOption[] = useMemo(
-    () =>
-      personaList.map((p) => ({
-        id: p.id,
-        name: p.name,
-        // 好友资料还没补全（或好友已被删）时用后端随 persona 下发的 sourceUin 兜底。
-        uin: profileByUid.get(p.sourceId)?.uin || p.sourceUin,
-        sourceTitle: p.sourceTitle,
-      })),
-    [personaList, profileByUid],
-  );
-
-  async function onCreateGroup(args: { name: string; personaIds: string[] }): Promise<void> {
-    try {
-      const { group } = await createGroup.mutateAsync(args);
-      setGroupOpen(false);
-      await utils.account.listAgentLabGroups.invalidate();
-      navSeq.current += 1;
-      setSel({ kind: 'group', id: group.id, sessionId: null, navKey: navSeq.current });
-      onConversationCreated?.({ kind: 'group', id: group.id });
-    } catch (error) {
-      dialog.error('建群失败', error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -712,7 +627,10 @@ export function AgentLabView({
                 );
               })}
               {/* 列表末尾常驻新建：列表为空时它就是唯一的行（替代「还没有克隆体。」）。 */}
-              <button className="weq-agentlab-newclone" onClick={() => setCloneOpen(true)}>
+              <button
+                className="weq-agentlab-newclone"
+                onClick={() => setCreationRequest({ kind: 'persona' })}
+              >
                 <Plus size={15} /> 新建克隆
               </button>
             </div>
@@ -746,7 +664,10 @@ export function AgentLabView({
                   />
                 );
               })}
-              <button className="weq-agentlab-newclone" onClick={() => setGroupOpen(true)}>
+              <button
+                className="weq-agentlab-newclone"
+                onClick={() => setCreationRequest({ kind: 'group' })}
+              >
                 <Plus size={15} /> 新建群聊
               </button>
             </div>
@@ -774,7 +695,11 @@ export function AgentLabView({
               title="选择一段克隆对话"
               body="从会话列表打开克隆体或群聊。"
               action={
-                <button type="button" className="weq-set-btn" onClick={() => setCloneOpen(true)}>
+                <button
+                  type="button"
+                  className="weq-set-btn"
+                  onClick={() => setCreationRequest({ kind: 'persona' })}
+                >
                   新建克隆
                 </button>
               }
@@ -867,22 +792,13 @@ export function AgentLabView({
         )}
       </section>
 
-      {cloneOpen ? (
-        <NewCloneModal
-          buddies={buddyOptions}
-          initialSelectedUids={clonePreselect}
-          flatModels={flatModels}
-          onClose={() => setCloneOpen(false)}
-          onStart={(args) => void startClone(args)}
-        />
-      ) : null}
-
-      {groupOpen ? (
-        <NewGroupModal
-          personas={groupPersonaOptions}
-          creating={createGroup.isLoading}
-          onClose={() => setGroupOpen(false)}
-          onCreate={(args) => void onCreateGroup(args)}
+      {creationRequest ? (
+        <CloneCreationDialog
+          request={creationRequest}
+          profiles={buddyProfiles}
+          resolveProfiles={resolveProfiles}
+          onClose={() => setCreationRequest(null)}
+          onGroupCreated={openGroup}
         />
       ) : null}
 

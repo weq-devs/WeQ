@@ -365,10 +365,12 @@ import {
   DressUpDialog,
   GroupBugDialog,
   AgentLabView,
+  CloneCreationDialog,
   AssistantConversationPane,
   GuildDirectDialog,
   AnnualReportView,
 } from '../components/lazyWorkspaces';
+import type { CloneCreationRequest } from './agentlab/CloneCreationDialog';
 import { useSettingsMaintenance } from '../hooks/useSettingsMaintenance';
 import { useConversationMessageRecords } from '../hooks/useConversationMessageRecords';
 import {
@@ -10148,23 +10150,16 @@ function MainWorkspace(): ReactElement {
       ),
     );
   }
-  const [cloneCreateRequest, setCloneCreateRequest] = useState<{
-    revision: number;
-    friendUids?: string[];
+  const [cloneCreation, setCloneCreation] = useState<{
+    scope: string;
+    request: CloneCreationRequest;
   } | null>(null);
   function handleCreateClone(friendUids?: string[]): void {
-    flushAllDirtyDrafts();
-    setSettingsOpen(false);
-    setMobileConversationList(false);
-    setCloneCreateRequest((current) => ({
-      revision: (current?.revision ?? 0) + 1,
-      friendUids,
-    }));
-    changeConversationView('clone', conversationView === 'regular');
-    setSpecialChat(null);
-    shell.switchView('agentlab');
+    setCloneCreation({ scope: messageScope, request: { kind: 'persona', friendUids } });
   }
-  const [cloneGroupRequest, setCloneGroupRequest] = useState(0);
+  function handleCreateCloneGroup(): void {
+    setCloneCreation({ scope: messageScope, request: { kind: 'group' } });
+  }
   const [overviewCalendar, setOverviewCalendar] = useState<{
     query: string;
     task?: CalendarTaskOpening & { accountScope: string };
@@ -10828,13 +10823,8 @@ function MainWorkspace(): ReactElement {
         revision: (previous?.revision ?? 0) + 1,
       }));
     } else if (target.kind === 'clone-create') {
-      if (target.group) {
-        flushAllDirtyDrafts();
-        setCloneGroupRequest((current) => current + 1);
-        changeConversationView('clone', conversationView === 'regular');
-        setSpecialChat(null);
-        shell.switchView('agentlab');
-      } else handleCreateClone();
+      if (target.group) handleCreateCloneGroup();
+      else handleCreateClone();
     } else if (target.kind === 'self-profile') {
       if (shell.view === 'messages') flushAllDirtyDrafts();
       setMemberCard(null);
@@ -11675,18 +11665,7 @@ function MainWorkspace(): ReactElement {
                         <AgentLabView
                           searchTarget={cloneSearchTarget}
                           openTarget={virtualOpen}
-                          createRequest={cloneCreateRequest}
-                          openGroupRequest={cloneGroupRequest}
                           embedded
-                          onConversationCreated={(target) => {
-                            setVirtualOpen({ ...target, revision: Date.now() });
-                            setConversationLocate({
-                              id: `virtual:${target.kind}:${target.id}`,
-                              revision: Date.now(),
-                            });
-                            setSearchViewOrigin(null);
-                            setConversationView('clone');
-                          }}
                           onBackToDirectory={() => {
                             if (mobileLayout) {
                               setMobileConversationList(true);
@@ -12564,6 +12543,16 @@ function MainWorkspace(): ReactElement {
               />
             ) : null,
           )}
+          {cloneCreation?.scope === messageScope ? (
+            <CloneCreationDialog
+              request={cloneCreation.request}
+              profiles={profileByUid}
+              resolveProfiles={resolveProfiles}
+              onClose={() =>
+                setCloneCreation((current) => (current === cloneCreation ? null : current))
+              }
+            />
+          ) : null}
           {overviewCalendar && (!calendarTask || calendarTask.accountScope === messageScope) ? (
             <ConversationOverviewCalendar
               key={calendarTask?.taskId}
@@ -13092,14 +13081,7 @@ function MainWorkspace(): ReactElement {
                               shell.switchView('agentlab');
                             },
                             onCreate: handleCreateClone,
-                            onCreateGroup: () => {
-                              flushAllDirtyDrafts();
-                              setMobileConversationList(false);
-                              setCloneGroupRequest((current) => current + 1);
-                              changeConversationView('clone', conversationView === 'regular');
-                              setSpecialChat(null);
-                              shell.switchView('agentlab');
-                            },
+                            onCreateGroup: handleCreateCloneGroup,
                           })}
                         >
                           <FriendDirectoryControls>
