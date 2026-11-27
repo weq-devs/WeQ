@@ -17,7 +17,6 @@ const cases = [
   ['components/settings/ExternalRkeySection.tsx', '请先填写服务器地址与 access_token。'],
   ['components/compose/RecalledMessagesModal.tsx', '未找到该消息'],
   ['components/mergeForward/MergeForwardDialog.tsx', '先选择会话'],
-  ['views/annual-report/QzoneShareLightbox.tsx', '上一次分享还没发完'],
   ['im-template/template/chatPane.tsx', 'SVG 按文件发送'],
   ['im-template/template/chatPane.tsx', '请先补全或取消所选消息缺口'],
   ['im-template/template/chatPane.tsx', '闪照只能发送图片'],
@@ -27,7 +26,6 @@ const cases = [
   ['views/MainView.tsx', '请撤销最近一次标记'],
   ['views/MainView.tsx', '没有选中的会话'],
   ['views/MainView.tsx', 'AI 声聊只支持群聊'],
-  ['views/MainView.tsx', '群临时会话暂不支持发文件'],
   ['views/MainView.tsx', '请选择不超过 4096 个具体会话'],
   ['views/MainView.tsx', '请先切回转发时的账号再打开对话'],
 ] as const;

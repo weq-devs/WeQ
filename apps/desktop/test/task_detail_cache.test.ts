@@ -70,6 +70,8 @@ it.each(['background', 'flash'] as const)(
                         entry: { source: 'host', task: { ...task, updatedAt: revision } },
                         scope: { uin: 'synthetic', configId },
                         refresh: async () => {},
+                        managementActions: [],
+                        archived: false,
                       })
                     : h(FlashTaskLog, {
                         key: configId,

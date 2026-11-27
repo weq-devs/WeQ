@@ -23,15 +23,21 @@ it.each(['Enter', 'Escape'])('系统子窗中的确认框及 %s 留在该窗口�
         ownerDocument: popup.document as unknown as Document,
       });
     });
-    expect(document.querySelector('.weq-message-modal')).toBeNull();
-    expect(popup.document.querySelector('.weq-message-modal')).not.toBeNull();
+    expect(document.querySelector('.weq-dialog-layer:not([inert]) .weq-message-modal')).toBeNull();
+    expect(
+      popup.document.querySelector('.weq-dialog-layer:not([inert]) .weq-message-modal'),
+    ).not.toBeNull();
     act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key, cancelable: true })));
-    expect(popup.document.querySelector('.weq-message-modal')).not.toBeNull();
+    expect(
+      popup.document.querySelector('.weq-dialog-layer:not([inert]) .weq-message-modal'),
+    ).not.toBeNull();
     act(() => {
       popup.document.dispatchEvent(new popup.KeyboardEvent('keydown', { key, cancelable: true }));
     });
     await expect(result!).resolves.toBe(key === 'Enter');
-    expect(popup.document.querySelector('.weq-message-modal')).toBeNull();
+    expect(
+      popup.document.querySelector('.weq-dialog-layer:not([inert]) .weq-message-modal'),
+    ).toBeNull();
   } finally {
     act(() => root.unmount());
     popup.close();
@@ -54,7 +60,9 @@ it('关闭所属系统子窗会结束等待中的确认，不影响之后主窗�
     act(() => popup.dispatchEvent(new popup.Event('beforeunload')));
     await expect(result!).resolves.toBe(false);
     act(() => useDialog.getState().showInfo('已完成', '合成主窗口提示'));
-    expect(document.querySelector('.weq-message-modal')).not.toBeNull();
+    expect(
+      document.querySelector('.weq-dialog-layer:not([inert]) .weq-message-modal'),
+    ).not.toBeNull();
     act(() => popup.dispatchEvent(new popup.Event('unload')));
     expect(useDialog.getState().current?.title).toBe('已完成');
   } finally {

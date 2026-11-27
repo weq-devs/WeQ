@@ -3323,7 +3323,10 @@ export const accountRouter = router({
         write,
       );
       if (written && saved.ok && getAppContext().services === services)
-        dbEventBus.emit('changed', { at: Date.now(), draftChanged: true } satisfies MessageDbNotice);
+        dbEventBus.emit('changed', {
+          at: Date.now(),
+          draftChanged: true,
+        } satisfies MessageDbNotice);
       return saved;
     }),
 

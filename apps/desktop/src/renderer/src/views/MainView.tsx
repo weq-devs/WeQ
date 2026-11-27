@@ -121,7 +121,10 @@ import {
 } from '../lib/startupQueries';
 import { useContactOnlineStatuses } from '../hooks/useContactOnlineStatuses';
 import { useContactNoticeUpdates } from '../hooks/useContactNoticeUpdates';
-import { useGroupNoticeInbox, useOnlineNoticeInbox } from '../components/qq-actions/RequestActions.shared';
+import {
+  useGroupNoticeInbox,
+  useOnlineNoticeInbox,
+} from '../components/qq-actions/RequestActions.shared';
 import { CONTACT_NOTICE_LIMIT } from '../../../shared/contact_notices';
 import { useEventContextValue } from '../hooks/useEventContextValue';
 import { useStableCallback } from '../hooks/useStableCallback';
@@ -330,7 +333,6 @@ import {
   groupInfoQueries,
 } from '../lib/groupMemberRefresh';
 import { GrayTipNamesContext } from '../lib/grayTipProfile';
-import { FileTransferTipScopeContext } from '../components/GrayTipFileRecvMessage';
 import { useDressSkin } from '../hooks/useDressSkin';
 import { injectFontCss } from '../lib/msgDecorationStyle';
 import { useDevelopmentDressTools } from '../hooks/useDevelopmentDressTools';
@@ -639,7 +641,12 @@ import {
   type MentionIdentity,
 } from '../lib/mentionIdentity';
 import { qqMessageRenderer } from '../components/QqMessageContent.shared';
-import { ReplyJumpContext, ForwardKindContext, ConvContext } from '../state/messageContext';
+import {
+  FileTransferTipScopeContext,
+  ReplyJumpContext,
+  ForwardKindContext,
+  ConvContext,
+} from '../state/messageContext';
 import type { ReplyJumpTarget } from '../components/QqMessageContent';
 
 const AnalysisReportPage = lazyPanel<

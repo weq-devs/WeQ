@@ -4,7 +4,6 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { TitleBarSearch } from '../src/renderer/src/components/TitleBarSearch';
 import { SearchDropdown } from '../src/renderer/src/components/search/SearchDropdown';
-import { useSearchDismissal } from '../src/renderer/src/hooks/useSearchDismissal';
 import {
   CATEGORY_META,
   SEARCH_CATEGORY_ORDER,
@@ -30,7 +29,11 @@ it.each(['initial', 'outside', 'escape', 'selection'])(
         query,
         onQueryChange: setQuery,
         onSearchFocus,
-        results: h('button', { role: 'option', type: 'button' }, '合成结果'),
+        results: h(
+          'button',
+          { role: 'option', type: 'button', 'data-search-hit-key': 'fixture' },
+          '合成结果',
+        ),
       });
     }
     try {
@@ -150,11 +153,14 @@ it('已聚焦输入框清空后保留搜索范围及选择，点击外部仍收�
     const [focused, setFocused] = useState(false);
     const [dismissed, setDismissed] = useState(false);
     const [categories, setCategories] = useState<SearchCategory[]>([SEARCH_CATEGORY_ORDER[0]!]);
-    useSearchDismissal(query, focused, setDismissed, setFocused);
     return h(TitleBarSearch, {
       persistent: true,
       query,
       onQueryChange: setQuery,
+      onSearchDismiss: () => {
+        setFocused(false);
+        setDismissed(true);
+      },
       onSearchFocus: () => {
         setFocused(true);
         setDismissed(false);

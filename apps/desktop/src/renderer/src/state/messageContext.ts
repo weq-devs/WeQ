@@ -63,3 +63,12 @@ export interface ForwardCarrier {
 export const ForwardCarrierContext = createContext<ForwardCarrier | null>(null);
 
 export { replyJumpContext as ReplyJumpContext };
+
+export type FileTransferTipScope = {
+  kind: 'c2c' | 'group';
+  conv: string;
+  expectedAccountUin: string;
+  expectedAccountConfigId: string;
+};
+const fileTransferTipScopeContext = createContext<FileTransferTipScope | null>(null);
+export { fileTransferTipScopeContext as FileTransferTipScopeContext };

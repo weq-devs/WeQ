@@ -42,6 +42,7 @@ import { acceptPreferences } from '../src/renderer/src/lib/clientPreferences';
 import { ConversationDirectoryContext } from '../src/renderer/src/lib/conversationDirectory';
 import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { elementToToken } from '../src/renderer/src/im-template/template/draftElements';
+import { pageSnapshots } from '../src/renderer/src/lib/pageSnapshots';
 import { releaseObjectUrl } from '../src/renderer/src/lib/objectUrl';
 
 beforeAll(() => LazyGapMessagesModal.preload());
@@ -624,6 +625,8 @@ afterEach(() => {
   f.readCurrent = undefined;
   f.markReadReply = undefined;
   f.atLatest = true;
+  // 先把排队的页面快照写进本用例的 Storage，避免下个用例恢复本次选择。
+  pageSnapshots.flush();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();

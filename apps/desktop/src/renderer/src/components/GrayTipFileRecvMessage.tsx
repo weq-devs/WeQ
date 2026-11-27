@@ -1,17 +1,13 @@
-import { createContext, useContext } from 'react';
+import { useContext } from 'react';
 import type { Conversation, Message } from '../im-template/template/types';
 import { displayUserName } from '../im-template/template/user';
 import { formatBytes } from '../lib/format';
-import { ReplyJumpContext } from '../state/messageContext';
+import {
+  FileTransferTipScopeContext,
+  ReplyJumpContext,
+  type FileTransferTipScope,
+} from '../state/messageContext';
 import { trpc } from '../trpc/client';
-
-type FileTransferTipScope = {
-  kind: 'c2c' | 'group';
-  conv: string;
-  expectedAccountUin: string;
-  expectedAccountConfigId: string;
-};
-export const FileTransferTipScopeContext = createContext<FileTransferTipScope | null>(null);
 
 interface GrayTipFileRecvMessageProps {
   conversation?: Conversation;

@@ -64,8 +64,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
   client: { bootstrap: { notifyConfiguredEvent: { mutate: async () => true } } },
   trpc: {
     taskArchive: {
-      list: { useQuery: () => ({ data: {} }) },
-      changed: { useSubscription: () => {} },
+      summaries: {
+        useQuery: () => ({ data: { generation: 'fixture', revision: 0, entries: {} } }),
+      },
+      changes: { useSubscription: () => {} },
     },
     backgroundTasks: { list: { useQuery: () => ({ data: [] }) } },
     useUtils: () => ({}),

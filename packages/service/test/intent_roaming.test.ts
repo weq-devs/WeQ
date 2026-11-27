@@ -206,10 +206,10 @@ it('API 分析保留漫游身份，并发送正确的正文与独立上文', asy
   expect(result).toMatchObject({ msgId: 'roaming:protocol:2:77', engine: 'api', mine: false });
   expect(f.analyze).not.toHaveBeenCalled();
   const input = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
-  expect(JSON.parse(input.messages[1].content).messages[0]).toMatchObject({
-    text: '漫游正文2',
-    context: [{ speaker: '对方', text: '本地上文' }],
-  });
+  const { turns, messages } = JSON.parse(input.messages[1].content);
+  expect(messages).toHaveLength(1);
+  expect(turns[messages[0].turn]).toEqual(['对方', '漫游正文2']);
+  expect(messages[0].context.map((index: number) => turns[index])).toEqual([['对方', '本地上文']]);
 });
 
 it('自己的漫游消息遵循自己发送后分析开关，缓存故障不阻断本地分析', async () => {

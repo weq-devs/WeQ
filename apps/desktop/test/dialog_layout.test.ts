@@ -36,12 +36,12 @@ describe('公共消息框的受限布局', () => {
 
   it.each(['showInfo', 'showError'] as const)('全局 %s 提示使用居中非模态面板', (method) => {
     act(() => useDialog.getState()[method]('清除完成', '已清除 2 项任务。'));
-    const modal = document.querySelector('.weq-message-modal')!;
+    const modal = document.querySelector('.weq-dialog-layer:not([inert]) .weq-message-modal')!;
     expect(modal.closest('.weq-centered-panel.weq-nonmodal-layer')).not.toBeNull();
     expect(modal.closest('.is-popover, .is-anchored-popover')).toBeNull();
     expect(modal.hasAttribute('aria-modal')).toBe(false);
     act(() => modal.querySelector<HTMLButtonElement>('.weq-dialog-foot button')!.click());
-    expect(document.querySelector('.weq-message-modal')).toBeNull();
+    expect(document.querySelector('.weq-dialog-layer:not([inert]) .weq-message-modal')).toBeNull();
   });
 
   it.each([false, true])('长文案确认仍准确返回选择：%s', async (accepted) => {
@@ -57,7 +57,7 @@ describe('公共消息框的受限布局', () => {
     const selector = accepted ? '.weq-action-primary' : '.weq-action-soft';
     act(() => document.querySelector<HTMLButtonElement>(`.weq-dialog-foot ${selector}`)!.click());
     expect(await pending!).toBe(accepted);
-    expect(document.querySelector('.weq-message-modal')).toBeNull();
+    expect(document.querySelector('.weq-dialog-layer:not([inert]) .weq-message-modal')).toBeNull();
   });
 
   it('密码框保留专有样式、空值禁用和取消语义', async () => {
@@ -76,6 +76,6 @@ describe('公共消息框的受限布局', () => {
   it('不改变其它模态内容的布局契约', () => {
     act(() => root.render(createElement(Modal, { className: 'synthetic-custom' }, '其它合成内容')));
     expect(document.querySelector('.synthetic-custom')).not.toBeNull();
-    expect(document.querySelector('.weq-message-modal')).toBeNull();
+    expect(document.querySelector('.weq-dialog-layer:not([inert]) .weq-message-modal')).toBeNull();
   });
 });

@@ -124,7 +124,7 @@ it('真实草稿在自动保存后确认，前导零等值编辑不重复提交�
   expect(pageSnapshots.hasDrafts('a')).toBe(false);
   expect(useToast.getState().toasts).toHaveLength(0);
 });
-it('并行的慢保存合用一个横幅，最后一笔完成后收起', async () => {
+it('并行的慢保存在原位分别显示进度，完成一笔不影响另一笔', async () => {
   let finishA!: () => void;
   let finishB!: () => void;
   const a = fixture(() => new Promise<void>((resolve) => (finishA = resolve)));
@@ -135,15 +135,14 @@ it('并行的慢保存合用一个横幅，最后一笔完成后收起', async (
   await act(async () => vi.advanceTimersByTimeAsync(600));
   expect(a.writes).toEqual([['a', 2]]);
   expect(b.writes).toEqual([['b', 4]]);
-  await act(async () => vi.advanceTimersByTimeAsync(299));
-  expect(useToast.getState().toasts).toHaveLength(0);
-  await act(async () => vi.advanceTimersByTimeAsync(1));
-  expect(useToast.getState().toasts).toHaveLength(1);
-  const id = useToast.getState().toasts[0]!.id;
+  const status = (field: typeof a) =>
+    field.input().closest('.weq-autosave')?.querySelector('[role="status"]')?.textContent;
+  expect([status(a), status(b)]).toEqual(['保存中…', '保存中…']);
   await act(async () => finishA());
-  expect(useToast.getState().leaving).not.toContain(id);
+  expect([status(a), status(b)]).toEqual(['', '保存中…']);
   await act(async () => finishB());
-  expect(useToast.getState().leaving).toContain(id);
+  expect([status(a), status(b)]).toEqual(['', '']);
+  expect(useToast.getState().toasts).toHaveLength(0);
 });
 it('输入法组合期间与回车确认候选时不写入，组合结束后才保存', async () => {
   const f = fixture();

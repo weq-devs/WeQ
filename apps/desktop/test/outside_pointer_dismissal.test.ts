@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { ReactionPicker } from '../src/renderer/src/im-template/template/reactionPicker';
-import { useSearchDismissal } from '../src/renderer/src/hooks/useSearchDismissal';
+import { TitleBarSearch } from '../src/renderer/src/components/TitleBarSearch';
 import { focusComposerEnd } from '../src/renderer/src/im-template/template/composer.shared';
 import { AppRail } from '../src/renderer/src/im-template/template/rail';
 import { SidebarHeader } from '../src/renderer/src/im-template/template/sidebarHeader';
@@ -222,22 +222,28 @@ it.each(['mouse', 'touch', 'pen'])('贴表情在%s外部按下被拦截冒泡时
 });
 
 it('搜索下拉在外部按下被阻止默认行为和冒泡时仍收起，内部按下不收起', () => {
-  const dismissed = vi.fn(),
-    focused = vi.fn();
-  function Probe() {
-    useSearchDismissal('合成搜索', true, dismissed, focused);
-    return h('div', { className: 'weq-search-dropdown' });
-  }
-  const host = mount(h(Probe));
-  press(host.firstElementChild!);
+  const dismissed = vi.fn();
+  const host = mount(
+    h(TitleBarSearch, {
+      persistent: true,
+      query: '合成搜索',
+      onQueryChange: vi.fn(),
+      onSearchDismiss: dismissed,
+      results: h('div', { className: 'weq-search-dropdown' }),
+    }),
+  );
+  act(() => host.querySelector('input')!.focus());
+  const result = document.querySelector('.weq-search-dropdown')!;
+  expect(result).not.toBeNull();
+  press(result);
   expect(dismissed).not.toHaveBeenCalled();
   host.addEventListener('pointerdown', (event) => {
     event.preventDefault();
     event.stopPropagation();
   });
   press(host);
-  expect(dismissed).toHaveBeenCalledWith(true);
-  expect(focused).toHaveBeenCalledWith(false);
+  expect(dismissed).toHaveBeenCalledOnce();
+  expect(host.querySelector('input')!.value).toBe('合成搜索');
 });
 
 function obstructOutside(host: HTMLElement) {

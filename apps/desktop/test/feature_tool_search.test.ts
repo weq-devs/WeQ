@@ -29,6 +29,12 @@ vi.mock('../src/renderer/src/hooks/useQQAutoRefresh', () => ({
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
+    taskArchive: {
+      changes: { useSubscription: () => {} },
+      summaries: {
+        useQuery: () => ({ data: { generation: 'fixture', revision: 0, entries: {} } }),
+      },
+    },
     useUtils: vi.fn(),
     account: {
       listExportTasks: { useQuery: () => ({ data: [] }) },

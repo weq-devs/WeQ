@@ -14,12 +14,18 @@ import type { StartCloneArgs } from '../src/renderer/src/views/agentlab/NewClone
 
 const mocks = vi.hoisted(() => ({
   build: vi.fn(async () => {}),
+  archive: vi.fn(async () => ({ changed: 1 })),
   unsubscribe: vi.fn(),
   subscribe: vi.fn(),
 }));
 vi.mock('../src/renderer/src/trpc/client', () => ({
   trpc: {
-    useUtils: () => ({}),
+    taskArchive: {
+      summaries: {
+        useQuery: () => ({ data: { generation: 'fixture', revision: 0, entries: {} } }),
+      },
+    },
+    useUtils: () => ({ taskArchive: { summaries: { invalidate: vi.fn() } } }),
     account: {
       roamingBackfill: { list: { useQuery: () => ({ data: { jobs: [] } }) } },
       flashListDownloadTasks: { useQuery: () => ({ data: [] }) },
@@ -28,6 +34,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     },
   },
   client: {
+    taskArchive: { change: { mutate: mocks.archive } },
     account: {
       buildAgentLabFromC2c: { mutate: mocks.build },
       onAgentLabBuildProgress: {
@@ -191,10 +198,10 @@ it('批量克隆立即全部进入列表，失败结果仍保留且不会重新�
   expect(getCloneTasks()[1]?.error).toBe('合成失败');
   expect(useWorkspaceMenu.getState().taskOpenRequest).toBe(openRequest + 2);
 });
-it('统一任务列表按账号展示克隆任务，完成后可打开克隆体或移除记录', async () => {
-  await startCloneTask(args('克隆甲'));
+it('统一任务列表按账号展示克隆任务，完成后可打开克隆体或归档记录', async () => {
+  await startCloneTask({ ...args('clone-a'), meta: { name: '克隆甲', uin: '', mode: 'private' } });
   useViewState.setState({ openedUin: 'fixture-b' });
-  await startCloneTask(args('克隆乙'));
+  await startCloneTask({ ...args('clone-b'), meta: { name: '克隆乙', uin: '', mode: 'private' } });
   useViewState.setState({ openedUin: 'fixture-a' });
   const host = document.createElement('div');
   document.body.append(host);
@@ -207,26 +214,30 @@ it('统一任务列表按账号展示克隆任务，完成后可打开克隆体�
   act(() =>
     root.render(
       h(CurrentTaskList, {
+        layout: 'compact',
         exports: [],
         renderExport: () => null,
         onOpenClone: open,
+        cleanupBinding: { expectedAccountUin: 'fixture-a', expectedAccountConfigId: 'live' },
       }),
     ),
   );
   expect(host.textContent).toContain('克隆甲');
   expect(host.textContent).not.toContain('克隆乙');
-  act(() =>
-    [...document.querySelectorAll<HTMLButtonElement>('button')]
-      .find((button) => button.textContent?.includes('查看克隆体'))!
-      .click(),
-  );
-  expect(open).toHaveBeenCalledWith('克隆甲');
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="查看克隆体"]')!.click());
+  expect(open).toHaveBeenCalledWith('clone-a');
   act(() => host.querySelector<HTMLButtonElement>('[aria-label="更多操作"]')!.click());
-  act(() =>
+  await act(async () =>
     [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-      .find((button) => button.textContent?.includes('移除任务'))!
+      .find((button) => button.textContent?.includes('归档'))!
       .click(),
   );
-  expect(host.textContent).toContain('暂无任务');
-  expect(getCloneTasks().map((task) => task.personaId)).toEqual(['克隆乙']);
+  expect(mocks.archive).toHaveBeenCalledWith(
+    expect.objectContaining({
+      expectedAccountUin: 'fixture-a',
+      expectedAccountConfigId: 'live',
+      action: 'archive',
+      tasks: [expect.objectContaining({ id: 'clone:clone-a' })],
+    }),
+  );
 });

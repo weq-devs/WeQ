@@ -6,7 +6,7 @@ import { GrayTipPokeMessage } from '../src/renderer/src/components/GrayTipPokeMe
 import { GrayTipGroupMessage } from '../src/renderer/src/components/GrayTipGroupMessage';
 import { GrayTipXmlMessage } from '../src/renderer/src/components/GrayTipXmlMessage';
 import { GrayTipRevokeMessage } from '../src/renderer/src/components/GrayTipRevokeMessage';
-import { FileTransferTipScopeContext } from '../src/renderer/src/components/GrayTipFileRecvMessage';
+import { FileTransferTipScopeContext } from '../src/renderer/src/state/messageContext';
 import { ReplyJumpContext } from '../src/renderer/src/state/messageContext';
 import { GrayTipLine } from '../src/renderer/src/im-template/template/messageRow';
 import { GrayTipNamesContext, grayTipProfileTarget } from '../src/renderer/src/lib/grayTipProfile';

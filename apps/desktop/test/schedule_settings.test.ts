@@ -5,7 +5,6 @@ import { ScheduleSettings } from '../src/renderer/src/components/tasks/ScheduleS
 import {
   DEFAULT_OPTIONS,
   FULL_FORMATS,
-  CHATLAB_FORMATS,
   type ScheduledTask,
 } from '../src/renderer/src/views/export/types';
 
@@ -112,6 +111,7 @@ describe('定时任务设置', () => {
           schedule: { ...schedule.schedule, mode: 'interval' },
           format: 'json',
           formats: ['json', 'html'],
+          chatlab: false,
         },
       });
       expect(fixture.mutate.mock.calls[0]![0].patch).not.toHaveProperty('conversations');
@@ -122,16 +122,30 @@ describe('定时任务设置', () => {
     }
   });
 
-  it.each([false, true])('格式沿用原导出能力，ChatLab=%s 不额外开放其它格式', (chatlab) => {
+  it.each([false, true])('ChatLab=%s 时独立显示并保存 ChatLab 格式', (chatlab) => {
     const host = document.createElement('div');
     const root = createRoot(host);
     try {
       act(() => root.render(h(ScheduleSettings, { schedule: { ...schedule, chatlab } })));
-      // 设置页直接按后端格式值大写显示（jsonl.gz → JSONL.GZ），不再套用导出页的中文标签。
+      const choices = [...host.querySelectorAll('fieldset [role="checkbox"]')];
+      expect(choices.map((choice) => choice.textContent)).toEqual(
+        FULL_FORMATS.map(({ label }) => label),
+      );
       expect(
-        [...host.querySelectorAll('fieldset [role="checkbox"]')].map((label) => label.textContent),
-      ).toEqual((chatlab ? CHATLAB_FORMATS : FULL_FORMATS).map((item) => item.value.toUpperCase()));
-      expect(host.textContent).not.toContain('VCARD');
+        choices
+          .filter((choice) => choice.getAttribute('aria-checked') === 'true')
+          .map((choice) => choice.textContent),
+      ).toEqual(chatlab ? ['HTML', 'ChatLab JSON'] : ['JSON', 'HTML']);
+      act(() =>
+        host
+          .querySelector('form')!
+          .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })),
+      );
+      expect(fixture.mutate.mock.calls[0]![0].patch).toMatchObject({
+        format: chatlab ? 'chatlab.json' : 'json',
+        formats: [chatlab ? 'chatlab.json' : 'json', 'html'],
+        chatlab: false,
+      });
     } finally {
       act(() => root.unmount());
     }
