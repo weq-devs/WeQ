@@ -8,6 +8,7 @@ import { RetainedTabs, TabActivity } from '../RetainedTabs';
 import { useTabActive } from '../RetainedTabs.shared';
 import { SegmentedControl } from '../SegmentedControl';
 import { Card, SectionHeader, QueryError } from './controls';
+import { SETTINGS_PAGE_LABELS } from './navigation';
 import { EmptyState } from '../EmptyState';
 import { PanelLoading } from '../LoadingIndicator';
 import { CacheView } from '../../views/cache/CacheView';
@@ -37,7 +38,7 @@ export function ResourceManagementSection({ favoriteRevision }: { favoriteRevisi
       : null;
   return (
     <div className="weq-set weq-resources-settings">
-      <SectionHeader title="QQ 资源管理" page="qq-storage" />
+      <SectionHeader title={SETTINGS_PAGE_LABELS['qq-storage']} page="qq-storage" />
       {account.error ? (
         <QueryError
           message={account.error.message}

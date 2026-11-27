@@ -728,7 +728,11 @@ function DiagnosticsSettingsSection({
   const beforeLogin = useContext(BeforeLoginSettingsContext);
   return (
     <div className="weq-set">
-      <SectionHeader title="QQ 高级工具" page="diagnostics" pageReset={!remote} />
+      <SectionHeader
+        title={SETTINGS_PAGE_LABELS.diagnostics}
+        page="diagnostics"
+        pageReset={!remote}
+      />
       <Card
         title="QQNT 抓包"
         icon={<Radio size={15} />}

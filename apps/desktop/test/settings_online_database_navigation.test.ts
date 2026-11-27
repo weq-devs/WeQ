@@ -8,7 +8,7 @@ import {
 import { resetCards } from '../src/shared/settings_reset';
 
 it('QQ 在线能力与数据库管理都归 QQ，在线能力在首位', () => {
-  expect(SETTINGS_PAGE_LABELS.account).toBe('QQ 在线能力');
+  expect(SETTINGS_PAGE_LABELS.account).toBe('能力档位');
   expect(settingsGroupFor('account').id).toBe('qq');
   expect(settingsGroupFor('database-management').sections[0]).toBe('account');
 });

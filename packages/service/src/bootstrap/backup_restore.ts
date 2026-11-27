@@ -580,7 +580,7 @@ function selectiveServiceNames(bundle: WeqBackupBundle): string[] {
     host?.remoteEnabled ? 'Remote' : '',
     host?.tailscaleEnabled ? 'Tailscale' : '',
     host?.qqProxyEnabled ? 'QQ 代理' : '',
-    record(services.weqAssistant) && services.weqAssistant.enabled ? 'QQ 公众号推送' : '',
+    record(services.weqAssistant) && services.weqAssistant.enabled ? '公众号本地推送' : '',
     record(external.mcp) && external.mcp.enabled ? 'MCP' : '',
     record(external.oneBotByUin) &&
     Object.values(external.oneBotByUin).some(
@@ -723,7 +723,7 @@ function configPlan(
           delete imported.weqAssistant.enabled;
           if (record(settings.weqAssistant) && settings.weqAssistant.enabled === true) {
             delete imported.weqAssistant.port;
-            skipped.push('QQ 公众号推送正在运行，保留端口');
+            skipped.push('公众号本地推送正在运行，保留端口');
           }
         }
       }

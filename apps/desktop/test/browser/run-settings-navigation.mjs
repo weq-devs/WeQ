@@ -160,7 +160,7 @@ try {
         }
       }
       const qqItems = nav.getByRole('list', { name: 'QQ', exact: true }).getByRole('button');
-      assert.equal(await qqItems.first().textContent(), 'QQ 在线能力');
+      assert.equal(await qqItems.first().textContent(), '能力档位');
       assert.deepEqual(
         (
           await nav
@@ -232,7 +232,7 @@ try {
       assert.equal(await page.locator('.weq-message-modal').count(), 0);
       await openSetting(page, '反馈');
       assert((await feedbackBody.inputValue()).includes('## 错误的功能描述'));
-      await openSetting(page, 'QQ 数据库管理');
+      await openSetting(page, '数据库管理');
       await page.locator('.weq-settings-body [data-setting-id="database-manager"]').waitFor();
       assert.equal(
         await page.getByRole('spinbutton', { name: '数据库读取并发上限', exact: true }).count(),
@@ -243,7 +243,7 @@ try {
         await page.locator('.weq-settings-nav-item').getByText('性能监视', { exact: true }).count(),
         0,
       );
-      await openSetting(page, 'QQ 高级工具');
+      await openSetting(page, '高级工具');
       await page
         .locator('.weq-settings-body')
         .getByText('Protobuf / JCE 逆向', { exact: true })
@@ -254,7 +254,7 @@ try {
       );
       if (output)
         await page.screenshot({ path: resolve(output, `advanced-tools-${width}-${theme}.png`) });
-      await openSetting(page, 'QQ 登录管理');
+      await openSetting(page, '登录管理');
       const loginRecords = page.locator('.weq-settings-body [data-setting-id="qq-accounts"]');
       await loginRecords.scrollIntoViewIfNeeded();
       await loginRecords.getByText('合成登录账号', { exact: true }).waitFor();
@@ -358,12 +358,12 @@ try {
       .locator('.weq-settings-nav-label')
       .allTextContents();
     assert(!remoteLabels.includes('长期授权'));
-    assert(!remoteLabels.includes('QQ 登录管理'));
+    assert(!remoteLabels.includes('登录管理'));
     assert(remoteLabels.includes('WeQ 账号管理'));
     await openSetting(remotePage, '资源加载');
     assert.equal(await remotePage.locator('[data-setting-id="external-chatpic"]').count(), 0);
     assert.equal(await remotePage.locator('[data-setting-id="linked-resources"]').count(), 0);
-    await openSetting(remotePage, 'QQ 高级工具');
+    await openSetting(remotePage, '高级工具');
     assert.equal(await remotePage.locator('[data-setting-id="qq-accounts"]').count(), 0);
     assert.equal(await remotePage.locator('[data-setting-id="reverse-tool"]').count(), 1);
   }

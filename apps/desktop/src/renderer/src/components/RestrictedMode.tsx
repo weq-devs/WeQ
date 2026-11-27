@@ -639,7 +639,7 @@ export function RestrictedModeHost() {
               target: { kind: 'setting', section: 'diagnostics', settingId: 'signer-status' },
             }),
             detail: signer.data
-              ? `sign core RVA ${signer.data.signCoreRva === null ? '未定位' : `0x${signer.data.signCoreRva.toString(16)}`}，VM ${signer.data.vmRva === null ? '未定位' : `0x${signer.data.vmRva.toString(16)}`}。QQ 更新或 wrapper.node 被替换后需要重新扫描；可在「设置 → QQ → QQ 高级工具 → 签名器」里手动重扫。`
+              ? `sign core RVA ${signer.data.signCoreRva === null ? '未定位' : `0x${signer.data.signCoreRva.toString(16)}`}，VM ${signer.data.vmRva === null ? '未定位' : `0x${signer.data.vmRva.toString(16)}`}。QQ 更新或 wrapper.node 被替换后需要重新扫描；可在「设置 → QQ → 高级工具 → 签名器」里手动重扫。`
               : undefined,
           });
         }

@@ -72,7 +72,7 @@ describe('设置的两级导航', () => {
   ] as const)('旧页面 %s 和搜索仍可定位对应卡片', (section, keyword, settingId) => {
     expect(resolveSettingsTarget({ section })).toMatchObject({ section: 'account', settingId });
     expect(searchAppEntries(keyword)[0]).toMatchObject({
-      path: '设置 / QQ / QQ 在线能力',
+      path: '设置 / QQ / 能力档位',
       target: { kind: 'setting', section: 'account', settingId },
     });
   });
@@ -142,14 +142,14 @@ describe('设置的两级导航', () => {
   });
 
   it.each([
-    ['诊断工具', 'QQ 高级工具', 'QQ'],
-    ['QQ 协议工具', 'QQ 高级工具', 'QQ'],
-    ['QQ 设备标识与登录账号', 'QQ 登录管理', 'QQ'],
+    ['诊断工具', '高级工具', 'QQ'],
+    ['QQ 协议工具', '高级工具', 'QQ'],
+    ['QQ 设备标识与登录账号', '登录管理', 'QQ'],
     ['QQ 账号管理', '设备标识与登录账号', 'QQ'],
     ['QQ 登录记录管理', '设备标识与登录账号', 'QQ'],
     ['登录账号列表', '设备标识与登录账号', 'QQ'],
-    ['数据库宽容', 'QQ 数据库管理', 'QQ'],
-    ['资源目录管理', 'QQ 资源管理', 'QQ'],
+    ['数据库宽容', '数据库管理', 'QQ'],
+    ['资源目录管理', '资源管理', 'QQ'],
     ['已保存的 provider', '已保存的服务商', 'AI'],
     ['优先使用 CDN', '优先直连 QQ 加载图片', '通用'],
     ['媒体来源', '资源加载', '通用'],

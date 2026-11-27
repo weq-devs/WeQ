@@ -62,7 +62,7 @@ const pageDetails: Partial<
     docs: ['guide/settings.md'],
   },
   assistant: {
-    summary: '配置 QQ 公众号推送及资源服务，WeQ 运行期间提供资源。',
+    summary: '配置公众号本地推送及资源服务，WeQ 运行期间提供资源。',
     docs: ['guide/settings.md'],
   },
   backup: {

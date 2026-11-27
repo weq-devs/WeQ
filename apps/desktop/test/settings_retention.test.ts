@@ -394,7 +394,7 @@ describe('设置二级页现场与活动生命周期', () => {
       expect(f.onClose).toHaveBeenCalledOnce();
       f.render(undefined, undefined, 1);
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-        'QQ 在线能力',
+        '能力档位',
       );
       f.render('mcp', undefined, 2);
       expect(f.body().querySelector('[aria-label="MCP 端口"]')).not.toBeNull();
@@ -496,7 +496,7 @@ describe('设置二级页现场与活动生命周期', () => {
       expect(f.onClose).toHaveBeenCalledOnce();
       f.render(undefined, undefined, 1);
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-        'QQ 在线能力',
+        '能力档位',
       );
       f.render('mcp');
       expect(f.body().querySelector<HTMLInputElement>('[aria-label="MCP 端口"]')!.value).toBe(

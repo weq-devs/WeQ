@@ -101,7 +101,7 @@ try {
         assert.equal(await page.locator('.weq-maintenance-entry').count(), 0);
       };
       if (!rkeyOnly) {
-        await openSetting('QQ 高级工具');
+        await openSetting('高级工具');
         assert.deepEqual(
           await page.locator('.weq-settings-body .weq-set-card-title').allTextContents(),
           ['QQNT 抓包', '通话抓包', '签名器（wrapper.node）', 'Protobuf / JCE 逆向'],
@@ -110,7 +110,7 @@ try {
         if (output)
           await page.screenshot({ path: resolve(output, `capture-${width}-${theme}.png`) });
         if (advancedOnly) {
-          await openSetting('QQ 登录管理');
+          await openSetting('登录管理');
           const loginRecords = page.locator('[data-setting-id="qq-accounts"]');
           await loginRecords.scrollIntoViewIfNeeded();
           await loginRecords.getByText('合成登录账号', { exact: true }).waitFor();
@@ -193,7 +193,7 @@ try {
       assert.equal(await rkeyCard.locator('form').count(), 0);
       assert.equal(await page.locator('.weq-message-modal').count(), 0);
       if (!rkeyOnly) {
-        await openSetting('QQ 数据库管理');
+        await openSetting('数据库管理');
         await checkButton('database-repair', '打开修复工具', '数据库检查与修复', 'db-repair');
         if (output)
           await page.screenshot({ path: resolve(output, `repair-${width}-${theme}.png`) });

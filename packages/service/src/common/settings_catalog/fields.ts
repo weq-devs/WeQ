@@ -394,7 +394,7 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
   }),
   field('sse-targets', 'enabled', 'sse-targets', 'SSE 推送', 'runtime', { stopsService: true }),
   field('sse-tuning', 'tuning', 'sse-tuning', 'SSE 推送调优', 'runtime'),
-  field('assistant', 'enabled', 'assistant-service', 'QQ 公众号推送', 'runtime', {
+  field('assistant', 'enabled', 'assistant-service', '公众号本地推送', 'runtime', {
     stopsService: true,
   }),
   field('web', 'enabled', 'web-enabled', '本机浏览器访问', 'runtime', {

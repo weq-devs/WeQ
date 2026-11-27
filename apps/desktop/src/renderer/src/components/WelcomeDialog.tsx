@@ -137,7 +137,7 @@ export function WelcomeDialog(): ReactElement | null {
                 <span>允许扫描 QQ 内存</span>
                 <small>
                   凭证只在本机处理，不上传；Linux / macOS 首次可能需要一次管理员密码。随时可在
-                  「设置 → QQ → QQ 在线能力」关闭。
+                  「设置 → QQ → 能力档位」关闭。
                 </small>
               </div>
               <Toggle

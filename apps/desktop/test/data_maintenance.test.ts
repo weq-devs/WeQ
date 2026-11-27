@@ -518,7 +518,7 @@ describe('设置的数据与维护', () => {
         ].find((button) => button.getAttribute('aria-label') === '关闭')!;
         act(() => back.click());
         expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toBe(
-          'QQ 数据库管理',
+          '数据库管理',
         );
         expect(document.querySelectorAll('.weq-workspace-page')).toHaveLength(1);
         expect(document.querySelectorAll('[role="dialog"], [aria-modal="true"]')).toHaveLength(0);

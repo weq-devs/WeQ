@@ -67,7 +67,7 @@ export function StartupSection() {
     try {
       if (!enabled && (await assistant.refetch())?.data?.enabled) {
         const keep = await confirm(
-          'QQ 公众号推送仍处于启用状态',
+          '公众号本地推送仍处于启用状态',
           '关闭登录自启后，下次登录系统不会自动打开 WeQ，推文卡片需要手动启动 WeQ 后才能加载。是否保留登录自启？',
           { okLabel: '保留自启', cancelLabel: '仍关闭自启', tone: 'warning' },
         );
