@@ -91,6 +91,9 @@ const fixture = vi.hoisted(() => ({
     }),
   ),
   deleteArchive: vi.fn(async () => true),
+  resumeArchive: vi.fn(async (_input: { task: { id: string; result: string } }) => ({
+    resumed: true,
+  })),
   invalidate: vi.fn(),
   info: vi.fn(),
   error: vi.fn(),
@@ -165,6 +168,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     taskArchive: {
       change: { mutate: fixture.changeArchive },
       remove: { mutate: fixture.deleteArchive },
+      resume: { mutate: fixture.resumeArchive },
     },
     account: {
       roamingBackfill: {
@@ -1076,7 +1080,7 @@ describe('统一当前任务', () => {
     }
   });
 
-  it('批量归档保留待保存、保存中和暂停任务，归档写入失败时保留记录', async () => {
+  it('批量归档已结束任务，保留保存中和暂停任务，写入失败可重试', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     const root = createRoot(host);
@@ -1117,11 +1121,72 @@ describe('统一当前任务', () => {
       expect(fixture.changeArchive.mock.lastCall?.[0]).toMatchObject({
         ...binding,
         action: 'archive',
-        tasks: [{ id: 'export:failed' }, { id: 'export:saved' }],
+        tasks: [{ id: 'export:pending-save' }, { id: 'export:failed' }, { id: 'export:saved' }],
       });
       expect(fixture.deleteArchive).not.toHaveBeenCalled();
     } finally {
       act(() => root.unmount());
+    }
+  });
+
+  it('暂停导出可单独归档，从归档页可取消归档或直接继续', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const task: UiTask = {
+      id: 'resume-export',
+      name: '可续作导出',
+      kind: 'c2c',
+      format: 'json',
+      status: 'paused',
+      canResume: true,
+      progress: 10,
+      current: 1,
+      total: 10,
+    };
+    const ref = { id: `export:${task.id}`, result: 'paused::' };
+    const binding = {
+      expectedAccountUin: fixture.accountId,
+      expectedAccountConfigId: 'fixture-config',
+    };
+    const render = (archived: boolean) =>
+      act(() =>
+        root.render(
+          h(CurrentTaskList, {
+            archived,
+            layout: 'compact',
+            exports: [task],
+            cleanupBinding: binding,
+            renderExport: () => null,
+          }),
+        ),
+      );
+    const row = () =>
+      [...host.querySelectorAll('.weq-long-task')].find((item) =>
+        item.textContent?.includes(task.name),
+      )!.parentElement!;
+    try {
+      render(false);
+      await clickQuick(row(), '归档');
+      expect(fixture.changeArchive).toHaveBeenLastCalledWith({
+        ...binding,
+        action: 'archive',
+        tasks: [ref],
+      });
+      fixture.archive = { [ref.id]: { result: ref.result, archivedAt: 1 } };
+      render(true);
+      await clickQuick(row(), '取消归档');
+      expect(fixture.changeArchive).toHaveBeenLastCalledWith({
+        ...binding,
+        action: 'restore',
+        tasks: [ref],
+      });
+      await clickQuick(row(), '继续导出');
+      expect(fixture.resumeArchive).toHaveBeenCalledWith({ ...binding, task: ref });
+    } finally {
+      act(() => root.unmount());
+      host.remove();
     }
   });
 

@@ -1,6 +1,5 @@
 import type { ExportTask, FlashDownloadBatch, RoamingJobStatus } from '@weq/service';
 import type { BackgroundTask } from './background_task';
-import { isRoamingJobComplete } from './roaming_task_status';
 
 export interface TaskArchiveEntry {
   result: string;
@@ -27,6 +26,7 @@ export function isTaskArchived(entry: TaskArchiveEntry | undefined, result: stri
 export function exportArchivePolicy(
   task: Pick<ExportTask, 'status' | 'save' | 'databaseRecovery'> &
     Partial<Pick<ExportTask, 'resource' | 'databaseRecoveryRecords'>> & {
+      isFinalizing?: boolean;
       generatedResources?: { missing: number };
       generatedResourceReport?: ExportTask['generatedResourceReport'];
     },
@@ -34,10 +34,10 @@ export function exportArchivePolicy(
   const saved = task.save?.status === 'saved';
   const complete = task.status === 'completed';
   const manual =
-    !task.databaseRecovery &&
-    task.save?.status !== 'pending' &&
+    task.status !== 'pending' &&
+    task.status !== 'running' &&
     task.save?.status !== 'saving' &&
-    (complete ? saved : task.status === 'failed' || task.status === 'cancelled');
+    !task.isFinalizing;
   const light =
     task.resource?.kind === 'media' ||
     task.resource?.kind === 'market-image' ||
@@ -48,7 +48,9 @@ export function exportArchivePolicy(
     auto:
       manual &&
       complete &&
+      saved &&
       light &&
+      !task.databaseRecovery &&
       !task.databaseRecoveryRecords?.length &&
       !(
         task.generatedResources?.missing ||
@@ -70,7 +72,7 @@ export function flashArchivePolicy(
   task: Pick<FlashDownloadBatch, 'interrupted' | 'status' | 'files' | 'resolutionErrors'>,
 ) {
   return {
-    manual: !task.interrupted && ['done', 'failed', 'cancelled'].includes(task.status),
+    manual: ['done', 'failed', 'cancelled'].includes(task.status),
     auto:
       !task.interrupted &&
       task.status === 'done' &&
@@ -81,24 +83,28 @@ export function flashArchivePolicy(
 }
 
 export function roamingArchivePolicy(status: RoamingJobStatus) {
-  return isRoamingJobComplete(status) || status === 'failed' || status === 'cancelled';
+  return status !== 'running' && status !== 'pausing';
 }
 
 export function backgroundArchivePolicy(
   task: Pick<BackgroundTask, 'status' | 'kind' | 'reportId' | 'subtasks' | 'needsConfirmation'>,
 ) {
-  const manual =
-    !task.needsConfirmation && ['completed', 'failed', 'cancelled'].includes(task.status);
   return {
-    manual,
+    manual: task.status !== 'running',
     auto:
-      manual &&
+      !task.needsConfirmation &&
       task.status === 'completed' &&
       (task.kind === 'forward' ||
         task.kind === 'qzone-share' ||
         (task.kind === 'analysis' && Boolean(task.reportId))) &&
       !task.subtasks?.some((part) => part.failed),
   };
+}
+
+export function backgroundResumeAction(task: Pick<BackgroundTask, 'status' | 'actions'>) {
+  return task.status === 'paused'
+    ? task.actions.find((action) => action.id === 'resume' || action.id === 'continue')
+    : undefined;
 }
 
 export function backgroundResult(task: Pick<BackgroundTask, 'status' | 'updatedAt'>) {

@@ -71,6 +71,12 @@ export function useTaskArchive(binding: TaskArchiveBinding | null | undefined, e
       }
       return changed;
     },
+    async resume(task: TaskArchiveRef) {
+      if (!binding) return false;
+      const { resumed, delta } = await client.taskArchive.resume.mutate({ ...binding, task });
+      if (delta) await updateSummaries(utils, binding, delta);
+      return resumed;
+    },
     async remove(task: TaskArchiveRef) {
       if (!binding) return false;
       const removed = await client.taskArchive.remove.mutate({ ...binding, task });

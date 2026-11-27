@@ -1367,7 +1367,7 @@ export class ExportTaskManager extends EventEmitter {
             Boolean(
               task.journalPath || (task.archiveId && task.incrementalSupport && task.current > 0),
             ),
-          isFinalizing: this.finalizing.has(task.id),
+          isFinalizing: this.isTaskFinalizing(task.id),
           ...(canResume
             ? {
                 resumeMode:
@@ -1383,6 +1383,10 @@ export class ExportTaskManager extends EventEmitter {
 
   getTask(id: string): ExportTask | null {
     return this.tasks.get(id) ?? null;
+  }
+
+  isTaskFinalizing(id: string): boolean {
+    return this.finalizing.has(id);
   }
 
   backgroundResourceTask(id: string, unfinishedOnly = false): boolean {

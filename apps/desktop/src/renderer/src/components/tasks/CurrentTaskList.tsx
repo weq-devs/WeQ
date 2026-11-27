@@ -74,6 +74,7 @@ import { TaskDetailPage } from './TaskDetailPage';
 import { useTaskArchive, type TaskArchiveRef } from '../../hooks/useTaskArchive';
 import {
   backgroundArchivePolicy,
+  backgroundResumeAction,
   backgroundResult,
   exportArchivePolicy,
   flashArchivePolicy,
@@ -197,16 +198,21 @@ export function CurrentTaskList({
     policy: {
       manual: boolean;
       auto?: boolean;
-      canConfirmDelivery?: boolean;
       needsConfirmation?: boolean;
     },
-    onRemoved?: () => void,
-    hasCachedOutput = false,
+    options: {
+      onRemoved?: () => void;
+      hasCachedOutput?: boolean;
+      canRemove?: boolean;
+      resume?: Pick<TaskQuickAction, 'label' | 'icon' | 'disabled'> & {
+        refresh: () => Promise<unknown>;
+      };
+    } = {},
   ) => {
+    const { onRemoved, hasCachedOutput, canRemove = true, resume } = options;
     const saved = archive.entries[ref.id];
     const isArchived = isTaskArchived(saved, ref.result);
-    const delivered = saved?.result === ref.result && saved.delivered === true;
-    const manual = policy.manual || Boolean(policy.canConfirmDelivery && delivered);
+    const manual = policy.manual;
     const auto = Boolean(policy.auto && !(saved?.result === ref.result && saved.restored));
     management.set(ref.id, { ref, isArchived, manual, auto });
     const actions: TaskQuickAction[] = [];
@@ -225,19 +231,34 @@ export function CurrentTaskList({
       });
     }
     if (isArchived && archived) {
-      actions.push(
-        {
-          id: 'restore',
-          label: '恢复到当前任务',
-          icon: <ArchiveRestore size={14} />,
-          secondary: true,
+      if (resume)
+        actions.push({
+          id: 'resume',
+          label: resume.label,
+          icon: resume.icon,
+          disabled: resume.disabled,
           run: async () => {
             if (!scopeIsCurrent()) return;
-            if (!(await archive.change('restore', [ref])))
-              showInfo('暂时无法恢复', '任务状态已变化，请查看最新任务状态。');
+            const resumed = await archive.resume(ref);
+            if (!scopeIsCurrent()) return;
+            await resume.refresh();
+            if (!resumed && scopeIsCurrent())
+              showInfo('暂时无法继续', '任务仍在收尾或状态已变化，请查看最新任务状态。');
           },
+        });
+      actions.push({
+        id: 'restore',
+        label: '取消归档',
+        icon: <ArchiveRestore size={14} />,
+        secondary: true,
+        run: async () => {
+          if (!scopeIsCurrent()) return;
+          if (!(await archive.change('restore', [ref])))
+            showInfo('暂时无法取消归档', '任务状态已变化，请查看最新任务状态。');
         },
-        {
+      });
+      if (canRemove)
+        actions.push({
           id: 'delete',
           label: '彻底删除',
           icon: <Trash2 size={14} />,
@@ -267,8 +288,7 @@ export function CurrentTaskList({
               utils.account.flashListDownloadTasks.invalidate(),
             ]);
           },
-        },
-      );
+        });
     } else if (!isArchived && manual) {
       actions.push({
         id: 'archive',
@@ -296,12 +316,25 @@ export function CurrentTaskList({
       task.status === 'completed' &&
       (task.save?.status === 'failed' || task.save?.status === 'interrupted');
     const missing = (task.generatedResources?.missing ?? task.resource?.failed ?? 0) > 0;
+    const resumeAction = task.canResume && {
+      id: 'resume',
+      label: taskResumeActionLabel(task),
+      icon:
+        task.resumeMode === 'restart' ? <RefreshCw size={14} aria-hidden /> : <Play size={14} />,
+      disabled: saving || task.isFinalizing,
+    };
     const archiveState = manage(
       exportTaskResult(task),
       taskDisplayTitle(display),
-      task.isFinalizing ? { manual: false } : exportArchivePolicy(task),
-      undefined,
-      task.status === 'completed' && task.save?.status !== 'saved',
+      exportArchivePolicy(task),
+      {
+        hasCachedOutput: task.status === 'completed' && task.save?.status !== 'saved',
+        canRemove: !task.databaseRecovery,
+        resume:
+          task.status === 'paused' && resumeAction
+            ? { ...resumeAction, refresh: () => utils.account.listExportTasks.invalidate() }
+            : undefined,
+      },
     );
     const actions: TaskQuickAction[] = [];
     if (exportActions) {
@@ -353,17 +386,9 @@ export function CurrentTaskList({
           disabled: task.isFinalizing,
           run: () => exportActions.pause(task),
         });
-      if (task.canResume)
+      if (resumeAction)
         actions.push({
-          id: 'resume',
-          label: taskResumeActionLabel(task),
-          icon:
-            task.resumeMode === 'restart' ? (
-              <RefreshCw size={14} aria-hidden />
-            ) : (
-              <Play size={14} />
-            ),
-          disabled: saving || task.isFinalizing,
+          ...resumeAction,
           run: () => exportActions.resume(task),
         });
       if (['pending', 'running', 'paused', 'failed'].includes(task.status))
@@ -469,8 +494,10 @@ export function CurrentTaskList({
       },
       task.name,
       { manual: status !== 'running' },
-      () => {
-        if (getCloneTasks().includes(task)) dismissCloneTask(task.personaId);
+      {
+        onRemoved: () => {
+          if (getCloneTasks().includes(task)) dismissCloneTask(task.personaId);
+        },
       },
     );
     actions.push(...clone.actions);
@@ -517,34 +544,38 @@ export function CurrentTaskList({
           await refresh();
         },
       });
-    if (['planned', 'paused', 'failed', 'partial', 'cancelled'].includes(job.status))
-      actions.push({
-        id: 'resume',
-        label: job.planning
-          ? '继续检查'
-          : job.status === 'planned'
-            ? '开始补全'
-            : job.status === 'partial' || job.status === 'cancelled'
-              ? '重试未补区间'
-              : '继续',
-        icon:
-          job.status === 'cancelled' || job.status === 'partial' ? (
-            <RefreshCw size={14} aria-hidden />
-          ) : (
-            <Play size={14} />
-          ),
-        disabled:
-          busy ||
-          roaming.data?.historyVersion !== 2 ||
-          ['native500', 'sso500'].includes(job.options.transport ?? ''),
-        run: async () => {
-          await client.account.roamingBackfill.start.mutate({
-            id: job.id,
-            retryRemaining: job.status === 'partial' || job.status === 'cancelled',
-          });
-          await refresh();
-        },
-      });
+    const resumeAction = ['planned', 'paused', 'failed', 'partial', 'cancelled'].includes(
+      job.status,
+    )
+      ? {
+          id: 'resume',
+          label: job.planning
+            ? '继续检查'
+            : job.status === 'planned'
+              ? '开始补全'
+              : job.status === 'partial' || job.status === 'cancelled'
+                ? '重试未补区间'
+                : '继续',
+          icon:
+            job.status === 'cancelled' || job.status === 'partial' ? (
+              <RefreshCw size={14} aria-hidden />
+            ) : (
+              <Play size={14} />
+            ),
+          disabled:
+            busy ||
+            roaming.data?.historyVersion !== 2 ||
+            ['native500', 'sso500'].includes(job.options.transport ?? ''),
+          run: async () => {
+            await client.account.roamingBackfill.start.mutate({
+              id: job.id,
+              retryRemaining: job.status === 'partial' || job.status === 'cancelled',
+            });
+            await refresh();
+          },
+        }
+      : undefined;
+    if (resumeAction) actions.push(resumeAction);
     if (!complete && job.status !== 'cancelled')
       actions.push({
         id: 'cancel',
@@ -560,6 +591,9 @@ export function CurrentTaskList({
       { id: `roaming:${job.id}`, result: roamingResult(job) },
       taskDisplayTitle(display),
       { manual: roamingArchivePolicy(job.status) },
+      {
+        resume: job.status === 'paused' && resumeAction ? { ...resumeAction, refresh } : undefined,
+      },
     );
     const rowActions =
       archived || jobArchive.isArchived ? jobArchive.actions : [...actions, ...jobArchive.actions];
@@ -670,11 +704,25 @@ export function CurrentTaskList({
     const flashRef = { id: `flash:${task.id}`, result: flashResult(task) };
     const downloadPolicy = flashArchivePolicy(task);
     const needsDevice = (IS_WEB || task.browserOutput) && task.status === 'done';
-    const flashArchive = manage(flashRef, taskDisplayTitle(display), {
-      manual: downloadPolicy.manual && !needsDevice,
-      auto: downloadPolicy.auto && !needsDevice,
-      canConfirmDelivery: downloadPolicy.manual && needsDevice,
-    });
+    const retryAction = {
+      id: 'retry',
+      label: retryLabel,
+      icon: <RefreshCw size={14} aria-hidden />,
+      disabled: !cleanupBinding,
+      run: retryFlash,
+    };
+    const flashArchive = manage(
+      flashRef,
+      taskDisplayTitle(display),
+      { ...downloadPolicy, auto: downloadPolicy.auto && !needsDevice },
+      {
+        canRemove: !task.interrupted,
+        resume:
+          task.interrupted && task.canRetry
+            ? { ...retryAction, refresh: () => utils.account.flashListDownloadTasks.invalidate() }
+            : undefined,
+      },
+    );
     const takeFlash = async (fileId?: string) => {
       if (!cleanupBinding || openingFlashRef.current) return;
       openingFlashRef.current = task.id;
@@ -714,7 +762,7 @@ export function CurrentTaskList({
       }
     };
     const actions: TaskQuickAction[] =
-      running || task.status === 'pending' || task.interrupted
+      !flashArchive.isArchived && (running || task.status === 'pending' || task.interrupted)
         ? [
             {
               id: 'cancel',
@@ -727,14 +775,7 @@ export function CurrentTaskList({
             },
           ]
         : [];
-    if (task.canRetry && !archived && !flashArchive.isArchived)
-      actions.unshift({
-        id: 'retry',
-        label: retryLabel,
-        icon: <RefreshCw size={14} aria-hidden />,
-        disabled: !cleanupBinding,
-        run: retryFlash,
-      });
+    if (task.canRetry && !archived && !flashArchive.isArchived) actions.unshift(retryAction);
     if (running || task.status === 'pending')
       actions.unshift({
         id: 'pause',
@@ -914,7 +955,7 @@ export function CurrentTaskList({
       receipt:
         entry.source === 'window' &&
         (task.kind === 'forward' || task.kind === 'album-upload' || task.kind === 'send-media') &&
-        (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled')
+        task.status !== 'running'
           ? {
               ...task,
               kind: task.kind,
@@ -924,6 +965,7 @@ export function CurrentTaskList({
             }
           : undefined,
     };
+    const resume = entry.source === 'host' ? backgroundResumeAction(task) : undefined;
     const taskArchive = canManageTask
       ? manage(
           taskRef,
@@ -932,10 +974,17 @@ export function CurrentTaskList({
             ...backgroundArchivePolicy(task),
             needsConfirmation: task.needsConfirmation,
           },
-          () => {
-            if (entry.source === 'window' && localBackgroundTasks.remove(task.id))
-              forgetWindowTask(task.id);
-            if (task.clonePersonaId) dismissCloneTask(task.clonePersonaId);
+          {
+            resume: resume && {
+              label: resume.label,
+              icon: <BackgroundTaskActionIcon id={resume.id} />,
+              refresh: () => background.query.refetch(),
+            },
+            onRemoved: () => {
+              if (entry.source === 'window' && localBackgroundTasks.remove(task.id))
+                forgetWindowTask(task.id);
+              if (task.clonePersonaId) dismissCloneTask(task.clonePersonaId);
+            },
           },
         )
       : { actions: [], isArchived: false };
@@ -1127,7 +1176,10 @@ export function CurrentTaskList({
     selectedResult?.ref.result,
   ]);
   const hasError = exportError || roaming.error || flash.error || background.error || archive.error;
-  const archivable = [...management.values()].filter((row) => row.manual && !row.isArchived);
+  const archivable = visibleItems.flatMap((task) => {
+    const row = management.get(task.id);
+    return isEnded(task) && row?.manual && !row.isArchived ? [row] : [];
+  });
   const cleanupDisabled = clearing || loading || !cleanupBinding || !archivable.length;
   const clearFinished = async () => {
     if (clearingRef.current || cleanupDisabled) return;

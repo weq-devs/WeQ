@@ -35,7 +35,7 @@ function summarize(entry: TaskArchiveEntry): TaskArchiveEntry {
 }
 
 export class TaskArchiveStore {
-  readonly deleting = new Set<string>();
+  readonly busy = new Set<string>();
   private readonly listeners = new Set<(change: TaskArchiveChange) => void>();
   private database?: DatabaseSync;
   private idle?: ReturnType<typeof setTimeout>;
@@ -189,7 +189,7 @@ export function archiveViewedTask(store: TaskArchiveStore, id: string, result: s
   try {
     const row = store.get(id);
     if (
-      store.deleting.has(id) ||
+      store.busy.has(id) ||
       isTaskArchived(row, result) ||
       (row?.result === result && row.restored)
     )
