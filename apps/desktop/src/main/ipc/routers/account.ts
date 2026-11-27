@@ -2364,7 +2364,7 @@ export const accountRouter = router({
           .map((persona) => persona.sourceId),
       ),
     ];
-    // 九宫格合成头像要的是 QQ 号（CDN 头像按 uin 拼），克隆体只存了源好友 uid。
+    // 合成头像用 QQ 号。仍存在的克隆体优先使用当前源好友的头像。
     const uinByUid = new Map<string, string>();
     if (sourceUids.length > 0) {
       try {
@@ -2387,23 +2387,23 @@ export const accountRouter = router({
       (turn) => turn.senderKind !== 'user',
     );
     return groups.map((group) => {
-      const members = services.agentLab
-        .getGroupDetail(group.id)
-        ?.members.filter((member) => member.kind === 'persona');
-      const memberUins = (members ?? [])
-        .map((member) => {
-          const persona = personasById.get(member.memberId);
-          if (persona?.sourceKind !== 'c2c' || !persona.sourceId) return '';
-          return uinByUid.get(persona.sourceId) ?? '';
-        })
-        .filter(Boolean);
+      const members = services.agentLab.getGroupDetail(group.id)?.members ?? [];
+      const memberUins = members.flatMap((member) => {
+        const persona = personasById.get(member.memberId);
+        const uin =
+          member.kind === 'user'
+            ? member.memberId
+            : ((persona?.sourceKind === 'c2c' ? uinByUid.get(persona.sourceId) : undefined) ??
+              member.avatarUin);
+        return uin && /^[1-9]\d*$/.test(uin) ? [uin] : [];
+      });
       return {
         ...group,
         ...latestGeneratedActivity(
           histories.get(group.id)!,
           (senderId) =>
             personasById.get(senderId)?.name ??
-            members?.find((member) => member.memberId === senderId)?.displayName,
+            members.find((member) => member.memberId === senderId)?.displayName,
         ),
         draftPreview: generatedDraftSummary(drafts.get(`virtual:clone:group:${group.id}`)),
         memberUins,
