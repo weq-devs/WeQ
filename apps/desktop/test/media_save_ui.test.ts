@@ -1,12 +1,14 @@
 import { act, createElement as h, useEffect, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { ExportSavePolicy } from '@weq/service';
+import { decodeElement, ElementType } from '@weq/codec';
+import { toRenderElements, type ExportSavePolicy } from '@weq/service';
 import { MediaSourceSave } from '../src/renderer/src/components/MediaSaveControls';
 import { useMediaSave } from '../src/renderer/src/components/MediaSaveControls.shared';
 import { TransferActivityProvider } from '../src/renderer/src/components/TransferActivityProvider';
 import { mediaTransferTarget, type ActiveTransfer } from '../src/shared/transfer_progress';
 import { QqFile, QqVoice } from '../src/renderer/src/components/QqMedia';
+import { QqMessageContent } from '../src/renderer/src/components/QqMessageContent';
 import { GroupFileDialog } from '../src/renderer/src/components/GroupFileDialog';
 import { MediaPreviewHost } from '../src/renderer/src/components/mediaPreviewStore';
 import { openMediaPreview } from '../src/renderer/src/components/mediaPreviewStore.shared';
@@ -440,6 +442,24 @@ it.each([false, true])('网页文件卡可把电脑缓存下载到当前设备�
     source: { kind: 'url', name: 'report.txt' },
   });
   expect(state.download).toHaveBeenCalledOnce();
+});
+
+it('QQ 传输失败的文件显示原文，并保留保存入口', async () => {
+  state.web = true;
+  const transferErrorText = '对方取消了文件传输';
+  const elements = toRenderElements([
+    decodeElement({
+      elementType: ElementType.FILE,
+      fileName: 'report.mov',
+      fileSize: 1024,
+      transferErrorText,
+    }),
+  ]);
+  const view = await mount(h(QqMessageContent, { elements, sendTimeMs: 1, msgId: '123' }));
+  expect(view.host.textContent).toContain(transferErrorText);
+  expect(view.host.querySelector<HTMLButtonElement>('[aria-label="保存文件"]')?.disabled).toBe(
+    false,
+  );
 });
 it('单按钮保存取消，不修改偏好、不退出控件或清理原资源', async () => {
   const view = await mount();

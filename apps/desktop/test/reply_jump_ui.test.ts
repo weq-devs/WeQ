@@ -2,6 +2,8 @@ import { act, createElement as h, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Storage } from 'happy-dom';
 import { afterEach, expect, it, vi } from 'vitest';
+import { decodeElement, ElementType } from '@weq/codec';
+import { toRenderElements } from '@weq/service';
 import { ChatPane } from '../src/renderer/src/im-template/template/chatPane';
 import { createTemplateDemoData } from './support/templateDemoData';
 import { QqMessageContent } from '../src/renderer/src/components/QqMessageContent';
@@ -62,6 +64,7 @@ function mount({
   previewElements = [media],
   imageData = {} as Record<string, unknown>,
   bodyImage = false,
+  replyTextSummary = '',
 } = {}) {
   vi.useFakeTimers();
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -78,6 +81,9 @@ function mount({
         {
           type: 'reply',
           data: {
+            ...toRenderElements([
+              decodeElement({ elementType: ElementType.REPLY, replyTextSummary }),
+            ])[0]?.data,
             origMsgSeq: seq,
             origMsgTime: 1700000000,
             origElements: previewElements.map((type) =>
@@ -145,6 +151,14 @@ function mount({
   });
   return { host, jump, scroll, navigate };
 }
+
+it.each([
+  { previewElements: [], expected: 'QQ 保存的原文摘要' },
+  { previewElements: ['text'], expected: '图文说明' },
+])('引用优先显示已有正文，缺正文时显示 QQ 摘要', ({ previewElements, expected }) => {
+  const { host } = mount({ previewElements, replyTextSummary: ' QQ 保存的原文摘要 ' });
+  expect(host.querySelector('.qq-reply-quote-body')?.textContent).toBe(expected);
+});
 
 it.each(['.qq-reply-quote-arrow', '.qq-reply-quote-sender'])(
   '点击 %s 后的消息刷新不会把引用跳转拉回底部',

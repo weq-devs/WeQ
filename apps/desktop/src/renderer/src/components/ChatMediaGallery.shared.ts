@@ -103,8 +103,9 @@ export function chatVideoAttachment(
   data: Record<string, unknown>,
   identity: Pick<ChatFileSource, 'msgId' | 'conv' | 'fwdMsgId' | 'fwdKind' | 'fwdResId'>,
 ): ChatVideoAttachment | undefined {
-  const { fileName: name } = data;
-  if (!isMovFileName(name)) return undefined;
+  const { fileName: name, transferErrorText } = data;
+  if (!isMovFileName(name) || (typeof transferErrorText === 'string' && transferErrorText.trim()))
+    return undefined;
   const path =
     !identity.msgId && !identity.fwdResId && typeof data.localPath === 'string' && data.localPath;
   if (path) {

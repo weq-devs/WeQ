@@ -971,6 +971,10 @@ export function QqFile({
   }, [transferring, busy, checkLocal, active, refetchLocations]);
   const working = busy || (downloading && !opensFile);
   const showSave = !opensFile && hasMessage && (!checkLocal || locations.isFetched);
+  const errorText = error
+    ? `${error.action === 'open' ? '打开' : '保存'}失败：${error.message}`
+    : str(data, 'transferErrorText').trim();
+  const showError = !downloading && !working && !paused && Boolean(errorText);
   const onClick = (saveOnly = false): void => {
     if (working) return;
     setError(null);
@@ -1021,7 +1025,7 @@ export function QqFile({
     >
       <MessageLayoutChange
         anchor={fileRef}
-        details={[['.qq-media-file-size', working, downloading, error?.action, error?.message]]}
+        details={[['.qq-media-file-size', working, downloading, showError, errorText]]}
       />
       <button
         type="button"
@@ -1042,7 +1046,8 @@ export function QqFile({
             {name || '[文件]'}
           </span>
           <span
-            className={cn('qq-media-file-size', error && !downloading && 'qq-media-file-error')}
+            className={cn('qq-media-file-size', showError && 'qq-media-file-error')}
+            title={showError ? errorText : undefined}
           >
             {downloading ? (
               <span className="qq-media-file-status">
@@ -1054,8 +1059,8 @@ export function QqFile({
               </span>
             ) : paused ? (
               '下载已暂停'
-            ) : error ? (
-              `${error.action === 'open' ? '打开' : '保存'}失败：${error.message}`
+            ) : showError ? (
+              errorText
             ) : (
               <span className="weq-number">{formatSize(size)}</span>
             )}

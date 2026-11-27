@@ -726,6 +726,7 @@ function ReplyQuote({
     ? (data.origElements as RenderElement[])
     : [];
   const previewEls = replyPreviewElements(origElements);
+  const summary = typeof data.replyTextSummary === 'string' ? data.replyTextSummary.trim() : '';
   const senderName = localReply?.senderName || origSenderDisplay(data);
   const quoteTimeMs = quoteSendTimeMs(data, sendTimeMs);
   // Pass both 40003 candidates; the host picks by conversation kind. Verified
@@ -789,7 +790,7 @@ function ReplyQuote({
               />
             ))
           ) : (
-            <span>引用消息</span>
+            <span>{summary || '引用消息'}</span>
           )}
           {canJump ? (
             <ArrowUp className="qq-reply-quote-arrow" size={12} strokeWidth={2.4} aria-hidden />
