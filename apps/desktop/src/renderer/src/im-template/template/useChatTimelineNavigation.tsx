@@ -91,7 +91,7 @@ export function useChatTimelineNavigation({
     [conversation?.id, conversation?.type, onConsumeUnreadDock],
   );
   const entryVisibility = useMemo(
-    () => ({ navigationKey, ids: new Set<string>(), sequences: new Set<string>() }),
+    () => ({ importantIds: new Set<string>(), unreadRows: new Map<string, string>() }),
     [navigationKey],
   );
   const replyViews = useMemo(
@@ -116,17 +116,19 @@ export function useChatTimelineNavigation({
         scope.onConsumeUnreadDock(seqs, kind);
         return;
       }
+      const keys = kind ? seqs.map((seq) => `${kind}:${seq}`) : seqs;
       setVisited((current) => {
         const previous = current?.scope === scope ? current.seqs : undefined;
-        return seqs.every((seq) => previous?.has(seq))
+        return keys.every((key) => previous?.has(key))
           ? current
-          : { scope, seqs: new Set([...(previous ?? []), ...seqs]) };
+          : { scope, seqs: new Set([...(previous ?? []), ...keys]) };
       });
     },
     [],
   );
   const isVisited = useCallback(
-    (stop: UnreadDockStop) => visitedStops?.has(stop.seq),
+    (stop: UnreadDockStop) =>
+      visitedStops?.has(stop.seq) || visitedStops?.has(`${unreadDockKind(stop)}:${stop.seq}`),
     [visitedStops],
   );
   const locateTask = useRef<{
@@ -683,38 +685,33 @@ export function useChatTimelineNavigation({
   const dockImportantRemaining =
     unreadDock?.stops.filter((stop) => stop.kind !== 'unread' && !isVisited(stop)).length ?? 0;
 
-  const dockTargets = useMemo(() => {
-    const pending = unreadDock?.stops.filter((stop) => !isVisited(stop));
+  const unreadSeq = unreadStop?.seq;
+  const unreadTargetId = useMemo(
+    () => (unreadSeq ? unreadTimelineBoundary(visibleMessages, unreadSeq) : undefined),
+    [visibleMessages, unreadSeq],
+  );
+  const importantTargets = useMemo(() => {
+    const pending = unreadDock?.stops.filter((stop) => stop.kind !== 'unread' && !isVisited(stop));
     if (!pending?.length) return undefined;
-    const pendingBySeq = new Map(
-      pending.filter(({ kind }) => kind !== 'unread').map((stop) => [stop.seq, stop]),
-    );
-    const idsBySeq: [string, string][] = [];
+    const pendingBySeq = new Map(pending.map((stop) => [stop.seq, stop]));
     const candidates = new Map<string, (typeof messages)[number][]>();
     for (const message of messages) {
       const stop = message.msgSeq ? pendingBySeq.get(message.msgSeq) : undefined;
-      if (!stop || stop.kind === 'unread') continue;
+      if (!stop) continue;
       const rows = candidates.get(stop.seq);
       if (rows) rows.push(message);
       else candidates.set(stop.seq, [message]);
     }
+    const seqsById = new Map<string, string[]>();
     for (const [seq, rows] of candidates) {
       const row = findUnreadMessage(rows, seq, pendingBySeq.get(seq)?.identity);
-      if (row) idsBySeq.push([seq, row.id]);
-    }
-    const unreadSeq = pending.find((stop) => stop.kind === 'unread')?.seq;
-    if (unreadSeq) {
-      const id = unreadTimelineBoundary(visibleMessages, unreadSeq);
-      if (id) idsBySeq.push([unreadSeq, id]);
-    }
-    const seqsById = new Map<string, string[]>();
-    for (const [seq, id] of idsBySeq) {
-      const seqs = seqsById.get(id);
+      if (!row) continue;
+      const seqs = seqsById.get(row.id);
       if (seqs) seqs.push(seq);
-      else seqsById.set(id, [seq]);
+      else seqsById.set(row.id, [seq]);
     }
     return seqsById;
-  }, [messages, visibleMessages, unreadDock, isVisited]);
+  }, [messages, unreadDock, isVisited]);
   const interactionConversationId = conversation?.id;
   const interactionConversationType = conversation?.type;
   const interactionTargets = useMemo(() => {
@@ -795,19 +792,24 @@ export function useChatTimelineNavigation({
       (!entryPending && (loading || loadingNewer))
     )
       return;
-    const observeDock = unreadDockViewportActive && (entryPending || Boolean(dockTargets?.size));
+    const observeDock =
+      unreadDockViewportActive &&
+      (entryPending || unreadTargetId !== undefined || Boolean(importantTargets?.size));
     if (unreadDockViewportActive && !entryPending && unreadDock) {
-      const seen = new Set(
-        unreadDock.stops
-          .filter(({ kind, seq }) => kind === 'unread' && entryVisibility.sequences.has(seq))
-          .map(({ seq }) => seq),
-      );
-      if (dockTargets)
-        for (const [id, seqs] of dockTargets)
-          if (entryVisibility.ids.has(id)) for (const seq of seqs) seen.add(seq);
+      const { importantIds, unreadRows } = entryVisibility;
+      if (
+        unreadSeq &&
+        ((unreadTargetId !== undefined && unreadRows.has(unreadTargetId)) ||
+          Array.from(unreadRows.values()).includes(unreadSeq))
+      )
+        visitStops(navigationKey, [unreadSeq], 'unread');
+      const seen = new Set<string>();
+      if (importantTargets)
+        for (const [id, seqs] of importantTargets)
+          if (importantIds.has(id)) for (const seq of seqs) seen.add(seq);
       visitStops(navigationKey, [...seen]);
-      entryVisibility.ids.clear();
-      entryVisibility.sequences.clear();
+      importantIds.clear();
+      unreadRows.clear();
     }
     const observeRead = viewportReadEnabled && !loading && !loadingNewer;
     const observeFollow =
@@ -870,6 +872,7 @@ export function useChatTimelineNavigation({
         locate?.scope === navigationKey && locate.preserveNearbyStops ? locate : null;
       const dockVisibleIds = new Set<string>();
       const dockSeen = new Set<string>();
+      let firstUnreadSeen = false;
       const visibleReplies = new Set<string>();
       const seenReplies: string[] = [];
       let nextDockCheck = Infinity;
@@ -911,8 +914,13 @@ export function useChatTimelineNavigation({
       };
       for (const [target, { id, seq, readable, reply }] of rows) {
         const trackDock = observeDock && (!importantJump || importantJump.target?.id === id);
-        const stops = trackDock ? dockTargets?.get(id) : undefined;
-        const trackEntry = trackDock && entryPending && seq && !entryVisibility.ids.has(id);
+        const trackUnread =
+          trackDock &&
+          id === unreadTargetId &&
+          (!importantJump || importantJump.target?.seq === unreadSeq);
+        const stops = trackDock ? importantTargets?.get(id) : undefined;
+        const trackEntry =
+          trackDock && entryPending && seq && !entryVisibility.importantIds.has(id);
         const trackReply =
           reply && seq && !replyViews.reported.has(seq) && !replyViews.pending.has(seq)
             ? seq
@@ -924,10 +932,26 @@ export function useChatTimelineNavigation({
           readable &&
           followRead.current?.scope === navigationKey &&
           followRead.current.id === id;
-        if (!(readNow && readable) && !stops && !trackEntry && !trackReply && !follow) continue;
+        if (
+          !(readNow && readable) &&
+          !trackUnread &&
+          !stops &&
+          !trackEntry &&
+          !trackReply &&
+          !follow
+        )
+          continue;
         const rect = target.getBoundingClientRect();
         const shown = Math.min(rect.bottom, bounds.bottom) - Math.max(rect.top, bounds.top);
         const readablyVisible = shown > 0 && shown >= Math.min(rect.height, bounds.height) / 2;
+        if (readablyVisible) {
+          if (trackUnread) firstUnreadSeen = true;
+          if (trackEntry && seq && !entryVisibility.unreadRows.has(id)) {
+            entryVisibility.unreadRows.set(id, seq);
+            if (entryVisibility.unreadRows.size > 512)
+              entryVisibility.unreadRows.delete(entryVisibility.unreadRows.keys().next().value!);
+          }
+        }
         if (follow && readablyVisible) {
           followRead.current = undefined;
           current.onReadCurrentConversation?.(current.conversation, undefined, seq);
@@ -949,12 +973,11 @@ export function useChatTimelineNavigation({
           if (remaining > 0) nextDockCheck = Math.min(nextDockCheck, remaining);
           else {
             if (trackEntry && seq) {
-              entryVisibility.ids.add(id);
-              entryVisibility.sequences.add(seq);
-              while (entryVisibility.ids.size > 512)
-                entryVisibility.ids.delete(entryVisibility.ids.values().next().value!);
-              while (entryVisibility.sequences.size > 512)
-                entryVisibility.sequences.delete(entryVisibility.sequences.values().next().value!);
+              entryVisibility.importantIds.add(id);
+              if (entryVisibility.importantIds.size > 512)
+                entryVisibility.importantIds.delete(
+                  entryVisibility.importantIds.values().next().value!,
+                );
             }
             if (stops)
               for (const stop of stops)
@@ -973,6 +996,7 @@ export function useChatTimelineNavigation({
       }
       if (observeDock) {
         for (const id of dockSince.keys()) if (!dockVisibleIds.has(id)) dockSince.delete(id);
+        if (firstUnreadSeen && unreadSeq) visitStops(navigationKey, [unreadSeq], 'unread');
         visitStops(navigationKey, [...dockSeen]);
       }
       for (const seq of replySince.keys()) if (!visibleReplies.has(seq)) replySince.delete(seq);
@@ -1072,7 +1096,7 @@ export function useChatTimelineNavigation({
             {
               root: scroll,
               threshold:
-                observeRead || observeReplies || observeFollow
+                observeDock || observeRead || observeReplies || observeFollow
                   ? [Number.EPSILON, 0.5]
                   : Number.EPSILON,
             },
@@ -1130,7 +1154,7 @@ export function useChatTimelineNavigation({
           reply ||
           (seq &&
             (entryPending || observeRead || (observeFollow && followRead.current?.id === id))) ||
-          (observeDock && dockTargets?.has(id))
+          (observeDock && (id === unreadTargetId || importantTargets?.has(id)))
         )
           next.set(target, { id, report: shouldReport, seq, readable, reply });
       }
@@ -1178,10 +1202,12 @@ export function useChatTimelineNavigation({
     tabActive,
     unreadDock,
     unreadDockViewportActive,
+    unreadSeq,
+    unreadTargetId,
     viewportRead,
     viewportReadEnabled,
     viewportReadVersion,
-    dockTargets,
+    importantTargets,
     interactionTargets,
     onSeeInteractions,
     onSeeReplies,
