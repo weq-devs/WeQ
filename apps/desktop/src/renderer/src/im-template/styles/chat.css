@@ -367,7 +367,6 @@
   display: flex;
   flex: 0 3 auto;
   min-width: 0;
-  max-width: min(160px, 42%);
   align-items: center;
 }
 
