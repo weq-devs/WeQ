@@ -34,10 +34,12 @@ export function QqProxySettingsLink({
 export function QqProxyRecovery({
   onLaunch,
   needsCurrentLogin,
+  original,
   children,
 }: {
   onLaunch: () => void;
   needsCurrentLogin: boolean;
+  original?: boolean;
   children?: ReactNode;
 }) {
   const active = useTabActive();
@@ -49,7 +51,11 @@ export function QqProxyRecovery({
     retry: false,
   });
   const running = !qqProcess.isError && qqProcess.data?.running === true;
-  const canRestart = running && !needsCurrentLogin && qqProcess.data?.canRestart === true;
+  const canRestart =
+    running &&
+    !needsCurrentLogin &&
+    qqProcess.data?.canRestart === true &&
+    !(original && qqProcess.data.switchingToDebugCopy);
   const refresh = () => {
     void qqProcess.refetch();
     onLaunch();
@@ -73,7 +79,7 @@ export function QqProxyRecovery({
           className="weq-set-btn weq-set-btn-primary"
           onClick={() => {
             restart.reset();
-            launch.mutate({ newInstance: running });
+            launch.mutate({ newInstance: running, ...(original ? { original } : {}) });
           }}
           disabled={busy}
           aria-busy={opening}

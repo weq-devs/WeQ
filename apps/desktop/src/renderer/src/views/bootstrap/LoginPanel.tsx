@@ -21,7 +21,7 @@ import { client, trpc } from '../../trpc/client';
 import { Modal } from '../../components/Dialog';
 import { useDialog } from '../../components/Dialog.shared';
 import { Toggle } from '../../components/settings/controls';
-import { IS_MAC } from '../../lib/target.shared';
+import { QQ_CAPABILITY_MODE_LABELS } from '@weq/service/qq-capability-mode';
 import type { AutoEnterTarget } from '@weq/service';
 import { accountSource } from './AccountSelector.shared';
 import { QqAvatar } from '../../components/QqAvatar';
@@ -50,6 +50,7 @@ export function LoginPanel({
   autoTarget,
   onEntered,
   onBusyChange,
+  onOpenCapabilitySettings,
   qrActionHost,
   qrActionDisabled = false,
   emptyContent,
@@ -62,6 +63,7 @@ export function LoginPanel({
   autoTarget: AutoEnterTarget | null;
   onEntered: (uin: string) => void;
   onBusyChange?: (busy: boolean) => void;
+  onOpenCapabilitySettings?: () => void;
   qrActionHost?: HTMLElement | null;
   qrActionDisabled?: boolean;
   emptyContent?: ReactElement;
@@ -69,11 +71,6 @@ export function LoginPanel({
 }): ReactElement {
   const showError = useDialog((s) => s.showError);
   const settings = trpc.bootstrap.getSettings.useQuery();
-  const utils = trpc.useUtils();
-  const autoAttach = trpc.bootstrap.setAutoAttachQq.useMutation({
-    onSuccess: () => utils.bootstrap.getSettings.invalidate(),
-    onError: (e) => showError('设置失败', e.message),
-  });
 
   const [key, setKey] = useState('');
   /**
@@ -112,7 +109,7 @@ export function LoginPanel({
   } | null>(null);
   const subRef = useRef<Sub | null>(null);
   const occupied = busy || qr !== null;
-  const working = occupied || disabled || autoAttach.isLoading;
+  const working = occupied || disabled;
   useEffect(() => {
     onBusyChange?.(occupied);
     return () => onBusyChange?.(false);
@@ -398,11 +395,6 @@ export function LoginPanel({
     }
   }
 
-  /** 「启用 QQ 在线能力」的说明：窄/矮窗口里收成 title，不在页面上占行。 */
-  const fullModeHint = IS_MAC
-    ? '开启后自动读取 QQ 进程采集凭证；SIP 开启时改用「QQ 调试副本」。'
-    : '开启后自动读取登录中的 QQ 进程，采集 rKey / ClientKey 等凭证以启用在线能力。';
-
   function onAction(): void {
     if (!working) void enter();
   }
@@ -528,19 +520,22 @@ export function LoginPanel({
                 label="下次打开自动进入该账号"
               />
             </div>
-            <div className="weq-login-option">
-              <span className="weq-login-option-label" title={fullModeHint}>
-                启用 QQ 在线能力
-              </span>
-              <Toggle
-                checked={settings.data?.autoAttachQq ?? false}
-                disabled={working || !settings.data || autoAttach.isLoading}
-                onChange={(next) => autoAttach.mutate({ enabled: next })}
-                label="启用 QQ 在线能力"
-              />
-            </div>
+            {onOpenCapabilitySettings && (
+              <div className="weq-login-option">
+                <span className="weq-login-option-label">QQ 能力档位</span>
+                <button
+                  type="button"
+                  className="weq-set-btn weq-set-btn-sm"
+                  onClick={onOpenCapabilitySettings}
+                  disabled={working}
+                >
+                  {settings.data?.qqCapabilityMode
+                    ? QQ_CAPABILITY_MODE_LABELS[settings.data.qqCapabilityMode]
+                    : '选择档位'}
+                </button>
+              </div>
+            )}
           </div>
-          <p className="weq-login-options-hint">{fullModeHint}</p>
         </>
       ) : (
         emptyContent

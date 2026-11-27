@@ -494,7 +494,7 @@ export function MessageDetails({
                     ) : null}
                   </div>
                 ) : null}
-                {editing && target && localRecord && revision ? (
+                {editing && canEdit && target && localRecord && revision ? (
                   <MsgElementEditor
                     embedded
                     msgId={target.msgId}

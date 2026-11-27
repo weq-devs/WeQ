@@ -1,12 +1,14 @@
 import { useSyncExternalStore } from 'react';
 import { normalizeNotificationEvents } from '@weq/service/notification-settings';
-import { trpc as baseTrpc, client as baseClient } from './qq-debug-copy.stub';
+import { qqCapabilityAllowsOnline, type QqCapabilityMode } from '@weq/service/qq-capability-mode';
+import { trpc as baseTrpc, client as baseClient, setOnlineFixture } from './qq-debug-copy.stub';
 
 const params = new URLSearchParams(location.search);
 const listeners = new Set<() => void>();
 let settings = {
   realtimeEnabled: true,
   autoAttachQq: true,
+  qqCapabilityMode: 'online' as QqCapabilityMode,
   qqStatusIndicatorEnabled: true,
   databaseReadConcurrency: 4,
   notificationEvents: normalizeNotificationEvents(undefined),
@@ -48,6 +50,7 @@ const bootstrap = new Proxy(Reflect.get(baseTrpc as object, 'bootstrap'), {
       return {
         useQuery: () => ({
           data: params.has('sip-error') ? undefined : !params.has('sip-off'),
+          isError: params.has('sip-error'),
           error: params.has('sip-error') ? new Error('合成的 SIP 检测失败') : null,
           refetch: async () => ({}),
         }),
@@ -59,14 +62,30 @@ const bootstrap = new Proxy(Reflect.get(baseTrpc as object, 'bootstrap'), {
           refetch: async () => ({ data: settings }),
         }),
       };
-    if (key === 'setAutoAttachQq' || key === 'setQqStatusIndicatorEnabled')
+    if (key === 'setQqCapabilityMode')
+      return {
+        useMutation: () => ({
+          mutateAsync: async ({ mode }: { mode: QqCapabilityMode }) => {
+            saves.push(mode);
+            settings = {
+              ...settings,
+              qqCapabilityMode: mode,
+              autoAttachQq: qqCapabilityAllowsOnline(mode),
+            };
+            setOnlineFixture({ attachEnabled: settings.autoAttachQq });
+            for (const listener of listeners) listener();
+            return { status: 'saved', mode };
+          },
+        }),
+      };
+    if (key === 'setQqStatusIndicatorEnabled')
       return {
         useMutation: () => ({
           mutateAsync: async ({ enabled }: { enabled: boolean }) => {
             saves.push(String(key));
             settings = {
               ...settings,
-              [key === 'setAutoAttachQq' ? 'autoAttachQq' : 'qqStatusIndicatorEnabled']: enabled,
+              qqStatusIndicatorEnabled: enabled,
             };
             for (const listener of listeners) listener();
           },

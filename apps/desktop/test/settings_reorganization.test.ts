@@ -2,11 +2,13 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Storage } from 'happy-dom';
+import { DEFAULT_APP_SETTINGS } from '@weq/service';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsDialog, type SectionId } from '../src/renderer/src/components/SettingsDialog';
 import { HelpSection } from '../src/renderer/src/components/settings/HelpSection';
 import type { SettingsSearchTarget } from '../src/renderer/src/components/settings/searchTarget';
 import { useUpdateStore } from '../src/renderer/src/state/update';
+import type { QqCapabilityMode } from '@weq/service/qq-capability-mode';
 import { useViewState } from '../src/renderer/src/state/view';
 import { SETTINGS_ITEM_TARGETS } from '../src/renderer/src/components/settings/navigation';
 import { SETTINGS_RESET_CARDS } from '../src/shared/settings_reset';
@@ -19,13 +21,17 @@ const conditional = vi.hoisted(() => ({
       }
     | undefined,
   save: vi.fn(),
+  mode: undefined as QqCapabilityMode | undefined,
   platform: 'linux',
   sip: true as boolean | null,
 }));
 
 vi.mock('../src/renderer/src/trpc/client', () => {
   const queryData = (name: string) => {
-    if (name === 'getSettings') return conditional.settings;
+    if (name === 'getSettings')
+      return conditional.mode === undefined
+        ? conditional.settings
+        : { ...DEFAULT_APP_SETTINGS, ...conditional.settings, qqCapabilityMode: conditional.mode };
     if (name === 'systemInfo') return { platformKind: conditional.platform };
     if (name === 'sipEnabled') return conditional.sip;
     if (name === 'getAccountConfig')
@@ -77,6 +83,7 @@ afterEach(() => {
   conditional.settings = undefined;
   conditional.save.mockReset();
   conditional.platform = 'linux';
+  conditional.mode = undefined;
   conditional.sip = true;
   vi.unstubAllGlobals();
 });
@@ -209,47 +216,18 @@ describe('设置归位后的实际页面', () => {
       f.close();
     }
   });
-  it('QQ 在线能力页包含代理、同步和状态提醒，长期授权单列', () => {
-    conditional.platform = 'darwin';
+  it('档位页默认展示四档与状态提醒，完整档提供连接卡片，长期授权和数据库管理单列', () => {
+    conditional.mode = 'local';
     const f = mount('account');
     const titles = () =>
       [...f.body().querySelectorAll('.weq-set-card-title')].map((node) => node.textContent);
     try {
-      expect(titles()).toEqual(['在线能力', '代理连接', '同步与实时更新', '状态提醒']);
-      expect(f.body().querySelector('h3')?.textContent).toBe('能力档位');
-      const overview = f.body().querySelector('[data-setting-id="full-features"]')!;
-      const routes = f.body().querySelector('[data-setting-id="full-feature-routes"]')!;
-      expect(overview).not.toBeNull();
-      expect(overview.classList.contains('weq-set-card')).toBe(true);
-      expect(overview.textContent).not.toContain('自动启用与提醒');
-      expect(overview.querySelector('.weq-set-card-title .weq-set-card-icon svg')).not.toBeNull();
-      expect(routes.closest('.weq-set-card')).toBe(overview);
-      expect(
-        f.body().querySelector('[data-setting-id="auto-full-mode"]')?.closest('.weq-set-card'),
-      ).toBe(overview);
-      expect(overview.querySelector('[data-setting-id="long-term-authorization"]')).toBeNull();
-      for (const label of ['QQ 调试副本路线', '原版 QQ 路线'])
-        expect(routes.querySelector(`section[aria-label="${label}"]`)).not.toBeNull();
-      expect(overview.textContent).toContain('发送消息');
-      expect(routes.textContent).toContain('QQ 调试副本');
-      expect(routes.textContent).toContain('原版 QQ');
-      expect(routes.textContent).toContain('无需关闭 SIP');
-      expect(routes.textContent).toContain('需关闭 SIP');
-      expect(routes.textContent).toContain('启用方式（macOS）');
-      expect(routes.textContent).not.toContain('当前系统');
-      expect(routes.querySelector('[data-setting-id="long-term-authorization"]')).toBeNull();
-      expect(f.body().textContent).not.toContain('完整模式');
-      expect(f.body().querySelector('.weq-set-card .weq-set-card')).toBeNull();
-      const ordered = ['full-features', 'auto-full-mode', 'full-feature-routes'];
-      const nodes = ordered.map((id) => f.body().querySelector(`[data-setting-id="${id}"]`)!);
-      for (let i = 1; i < nodes.length; i++)
-        expect(
-          nodes[i - 1]!.compareDocumentPosition(nodes[i]!) & Node.DOCUMENT_POSITION_FOLLOWING,
-        ).not.toBe(0);
+      expect(titles()).toEqual(['QQ 能力档位', '状态提醒']);
+      expect(f.body().querySelectorAll('[role="radio"]')).toHaveLength(4);
+      conditional.mode = 'complete';
+      f.render('account');
+      expect(titles()).toContain('连接本机 QQ');
       expect(f.body().querySelector('[data-setting-id="qq-status-indicator"]')).not.toBeNull();
-      expect(f.body().querySelector('[data-setting-id="database-read-concurrency"]')).toBeNull();
-      expect(f.body().querySelector('[aria-label="启用 QQ 代理"]')).not.toBeNull();
-      expect(f.body().textContent).toContain('在线能力受限时通知');
       f.render('long-term-authorization');
       expect(titles()).toEqual(['长期授权']);
       expect(f.body().querySelector('[aria-label="恢复本页默认设置"]')).toBeNull();
@@ -259,32 +237,6 @@ describe('设置归位后的实际页面', () => {
         f.body().querySelector('[data-setting-id="database-read-concurrency"]'),
       ).not.toBeNull();
       expect(titles()).toEqual(['数据库浏览', '监听与读取', '数据库检查与修复']);
-      conditional.platform = 'linux';
-      f.render('account');
-      expect(titles()).toEqual(['在线能力', '代理连接', '同步与实时更新', '状态提醒']);
-      expect(f.body().querySelector('[data-setting-id="qq-debug-copy"]')).toBeNull();
-      expect(f.body().textContent).not.toContain('SIP');
-      expect(f.body().querySelector('[data-setting-id="full-features"]')).not.toBeNull();
-      expect(f.body().querySelector('[aria-label="启用 QQ 在线能力"]')).not.toBeNull();
-    } finally {
-      f.close();
-    }
-  });
-  it.each([true, false, null])('按 SIP 检测结果标明适用于本机的路线：%s', (sip) => {
-    conditional.platform = 'darwin';
-    conditional.sip = sip;
-    const f = mount('account');
-    try {
-      const current = f.body().querySelectorAll('[data-applicable="true"]');
-      expect(current).toHaveLength(sip === null ? 0 : 1);
-      if (sip !== null) {
-        expect(current[0]?.getAttribute('aria-label')).toBe(
-          sip ? 'QQ 调试副本路线' : '原版 QQ 路线',
-        );
-        expect(current[0]?.textContent).toContain(
-          sip ? '无需关闭 SIP（适用于本机）' : '需关闭 SIP（适用于本机）',
-        );
-      }
     } finally {
       f.close();
     }
@@ -295,13 +247,14 @@ describe('设置归位后的实际页面', () => {
     ['qq-debug-copy', 'account'],
     ['long-term-authorization', 'long-term-authorization'],
     ['qq-proxy-connection', 'account'],
-    ['qq-client-sync', 'account'],
+    ['qq-client-sync', 'account', 'qq-proxy-connection'],
     ['auto-full-mode', 'account'],
     ['restricted-mode-indicator', 'account', 'qq-status-indicator'],
     ['qq-proxy-indicator', 'account', 'qq-status-indicator'],
     ['restricted-mode-banner', 'global'],
   ])('旧在线能力与授权入口 %s 定位到 %s', async (settingId, page, id = settingId) => {
     conditional.platform = 'darwin';
+    conditional.mode = 'complete';
     const f = mount('account');
     try {
       await act(async () => f.render('account', { section: 'account', settingId, revision: 1 }));

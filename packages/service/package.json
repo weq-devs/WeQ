@@ -7,6 +7,7 @@
     "./analysis-report": "./src/common/analysis_report.ts",
     "./task-display": "./src/common/task_display.ts",
     "./notification-settings": "./src/common/notification_settings.ts",
+    "./qq-capability-mode": "./src/common/qq_capability_mode.ts",
     "./qq-permissions": "./src/common/qq_permissions.ts",
     "./data-saver": "./src/common/data_saver.ts",
     "./network-scope": "./src/common/network_scope.ts",

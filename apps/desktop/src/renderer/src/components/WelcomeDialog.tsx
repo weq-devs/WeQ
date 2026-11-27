@@ -137,7 +137,7 @@ export function WelcomeDialog(): ReactElement | null {
                 <span>允许扫描 QQ 内存</span>
                 <small>
                   凭证只在本机处理，不上传；Linux / macOS 首次可能需要一次管理员密码。随时可在
-                  「设置 → QQ → 能力档位」关闭。
+                  「设置 → QQ → 能力档位」切换。
                 </small>
               </div>
               <Toggle
@@ -174,7 +174,7 @@ export function WelcomeDialog(): ReactElement | null {
             {acknowledge.isLoading ? (
               <Loader2 size={14} strokeWidth={2} className="animate-spin" aria-hidden />
             ) : null}
-            {allowMemoryScan ? '开启 QQ 在线能力并开始使用' : '以离线模式开始使用'}
+            {allowMemoryScan ? '开启 QQ 在线能力并开始使用' : '以本地模式开始使用'}
           </button>
         </footer>
       </div>

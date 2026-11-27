@@ -23,8 +23,12 @@ import { AccountQqSync } from '../qq_sync/account';
 import type { LiveMessage } from '../qq_sync/live_messages';
 import { GroupReactionWatch } from '../qq_sync/group_reaction_watch';
 import { coalesceLiveDbWatch, createLiveMessageObservers } from '../qq_sync/live_db_watch';
-import { ensureQqSyncProxy, isQqSyncProxyEnabled, qqSyncStatus } from '../qq_sync/runtime';
-import { readAccountQqSync } from '../qq_sync/preferences';
+import {
+  ensureQqSyncProxy,
+  isQqSyncProxyEnabled,
+  qqSyncStatus,
+  setQqSyncProxyEnabled,
+} from '../qq_sync/runtime';
 import { runResumableExport } from '../resumable_exports';
 import { sharedPreferencePersistence } from '@weq/service/shared-preferences';
 import { onSettingsChanged } from '@weq/service/settings-changes';
@@ -60,7 +64,9 @@ import {
   AnnualReportIndexDb,
   GroupNotifyStatus,
   MessageReadIndexDb,
+  configureQqDatabaseReadOnly,
   databaseUnderMaintenance,
+  qqDatabaseReadOnly,
   withDatabasePriority,
   waitForDatabaseQuiet,
 } from '@weq/db';
@@ -927,6 +933,7 @@ export function closeSalvageConnections(ctx: AppContext): number {
  */
 function warmAnnualReportIndex(ctx: AppContext, session: AccountSession, platform: Platform): void {
   cancelAnnualReportWarmup();
+  if (qqDatabaseReadOnly()) return;
   const controller = new AbortController();
   runtimeState().annualIndexController = controller;
   const logger = getLogger().child({ scope: 'database-index' });
@@ -1694,10 +1701,18 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     logDir: getLogDir(),
   });
   const userConfig = files.config;
-  if (isQqSyncProxyEnabled(qqSyncRoot)) {
+  const proxyEnabled = isQqSyncProxyEnabled(qqSyncRoot);
+  try {
+    userConfig.migrateQqCapabilityMode(proxyEnabled);
+  } catch (error) {
+    logger.warn('QQ 能力档位迁移未保存，下次启动时重试', logErrorContext(error));
+  }
+  configureQqDatabaseReadOnly(() => userConfig.getSetting('qqCapabilityMode') === 'read-only');
+  if (proxyEnabled || userConfig.getSetting('qqCapabilityMode') === 'complete') {
     void logRequest('qq-sync', 'qqSync.startProxy', 'operation', async () => {
       try {
-        await ensureQqSyncProxy(qqSyncRoot);
+        if (proxyEnabled) await ensureQqSyncProxy(qqSyncRoot);
+        else await setQqSyncProxyEnabled(qqSyncRoot, true);
       } finally {
         await qqSyncStatus(qqSyncRoot);
       }
@@ -2220,11 +2235,10 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         session,
         nt: platform.native.ntHelper,
         proxyEnabled: () => isQqSyncProxyEnabled(qqSyncRoot),
-        enabled: () => this.account === session && readAccountQqSync(this).enabled,
+        enabled: () =>
+          this.account === session && userConfig.getSetting('qqCapabilityMode') === 'complete',
         liveEnabled: () =>
-          this.account === session &&
-          userConfig.getSetting('realtimeEnabled') &&
-          readAccountQqSync(this).liveMessages,
+          this.account === session && userConfig.getSetting('qqCapabilityMode') === 'complete',
         allowLiveMessage: (row) => !deletedMsgs.isHiddenCached(row),
         onLiveMessages: (messages) => {
           if (this.account !== session) return;
@@ -4267,11 +4281,23 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
     },
   };
 
-  let onlineEnabled = userConfig.getSettings().autoAttachQq;
+  let onlineEnabled = userConfig.getSetting('autoAttachQq');
+  let capabilityMode = userConfig.getSetting('qqCapabilityMode');
   state.stopFullModeSettings = onSettingsChanged(
     currentAccountRuntime().bind((change) => {
+      if (!change || change.fields.includes('qqCapabilityMode')) {
+        ctx.services?.qqClientSync?.refreshLive();
+        const mode = userConfig.getSetting('qqCapabilityMode');
+        if (mode === 'read-only' && capabilityMode !== mode) {
+          cancelAnnualReportWarmup();
+          ctx.services?.unreadInfo.suspendReadChanges();
+        }
+        if (capabilityMode === 'read-only' && mode !== capabilityMode)
+          ctx.services?.antiRecall.reconcileTriggersWhenWritable();
+        capabilityMode = mode;
+      }
       if (change && !change.fields.includes('autoAttachQq')) return;
-      const enabled = userConfig.getSettings().autoAttachQq;
+      const enabled = userConfig.getSetting('autoAttachQq');
       if (onlineEnabled === enabled) return;
       onlineEnabled = enabled;
       if (enabled) return;

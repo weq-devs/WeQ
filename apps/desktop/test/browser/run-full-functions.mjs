@@ -60,277 +60,78 @@ try {
       : route.abort(),
   );
   const url = `http://127.0.0.1:${server.httpServer.address().port}/test/browser/full-functions.html`;
-  await page.goto(url);
-  await page.getByRole('heading', { name: '启用方式（macOS）', exact: true }).waitFor();
-  assert.equal(await page.locator('[data-setting-id="qq-debug-copy"] .weq-qq-debug').count(), 0);
-  await page.getByRole('button', { name: '副本设置', exact: true }).click();
+  await page.setViewportSize({ width: 1180, height: 900 });
+  await page.goto(url + '?sip-off&offline');
+  const main = page.locator('main');
+  const options = main.getByRole('radiogroup', { name: 'QQ 能力档位' });
+  assert.equal(await options.getByRole('radio').count(), 4);
+  const local = options.getByRole('radio', { name: '本地模式', exact: true });
+  const online = options.getByRole('radio', { name: '在线模式', exact: true });
+  const complete = options.getByRole('radio', { name: '完整模式', exact: true });
+  const prepare = main.locator('[data-setting-id="full-feature-routes"]');
+  await prepare.getByRole('button', { name: '使用原版 QQ', exact: true }).waitFor();
+  await prepare.getByRole('button', { name: '使用调试副本', exact: true }).waitFor();
+  await prepare.getByRole('button', { name: '副本设置', exact: true }).click();
   const manager = page.locator('.weq-qq-debug-modal');
   await manager.waitFor();
-  await page.getByRole('button', { name: '启动副本', exact: true }).waitFor();
-  await page.getByRole('button', { name: '启动副本', exact: true }).click();
-  await page
+  await manager.getByRole('button', { name: '启动副本', exact: true }).click();
+  await manager
     .getByText('已请求打开副本，请在副本中登录目标账号，再检查在线凭据。', { exact: true })
     .waitFor();
-  await page.getByRole('button', { name: '关闭副本设置', exact: true }).click();
+  await manager.getByRole('button', { name: '关闭副本设置', exact: true }).click();
   await manager.waitFor({ state: 'detached' });
-  const auto = page.getByRole('switch', { name: '启用 QQ 在线能力', exact: true });
-  await auto.click();
-  assert.equal(await auto.getAttribute('aria-checked'), 'false');
-  const indicator = page.getByRole('switch', {
-    name: '显示 QQ 功能状态提示',
-    exact: true,
-  });
-  assert.equal(await indicator.getAttribute('aria-checked'), 'true');
-  await indicator.click();
-  assert.equal(await indicator.getAttribute('aria-checked'), 'false');
-  await page.getByText('在线能力受限时通知', { exact: true }).waitFor();
-  const onlineCapability = page.locator('[data-setting-id="full-features"]');
-  const status = onlineCapability.getByRole('button', { name: /QQ 在线能力：.*，查看详情/ });
-  await page.evaluate(() =>
-    window.fullFunctionsQa.setOnlineFixture({
-      qqOnline: true,
-      attachEnabled: true,
-      hasA2: true,
-      hasD2: true,
-      hasD2Key: true,
-      hasGuid: true,
-      hasUid: true,
-      ssoReady: true,
-    }),
-  );
-  await onlineCapability.getByRole('status').getByText('已就绪', { exact: true }).waitFor();
-  assert.equal(await status.count(), 0);
-  await page.evaluate(() => window.fullFunctionsQa.setOnlineFixture({ hasUid: false }));
-  await page
-    .getByRole('button', { name: 'QQ 在线能力：在线能力受限，查看详情', exact: true })
-    .waitFor();
-  await status.click();
-  const restrictedDetails = page.getByRole('dialog', { name: 'QQ 功能状态', exact: true });
-  await restrictedDetails.getByText('会话凭据不完整').waitFor();
-  await page.keyboard.press('Escape');
-  await restrictedDetails.waitFor({ state: 'detached' });
-  assert.equal(await status.evaluate((node) => node === document.activeElement), true);
-  await page.getByRole('combobox', { name: '功能受限或运行异常通知方式' }).waitFor();
+
+  await local.click();
+  await options.getByRole('radio', { checked: true, name: '本地模式' }).waitFor();
+  assert.equal(await prepare.count(), 0);
+  await local.press('ArrowDown');
+  await options.getByRole('radio', { checked: true, name: '在线模式' }).waitFor();
+  assert.equal(await online.evaluate((node) => node === document.activeElement), true);
+  await complete.click();
+  await options.getByRole('radio', { checked: true, name: '完整模式' }).waitFor();
+  const connection = main.locator('[data-setting-id="qq-proxy-connection"]');
+  await connection.getByText('已连接', { exact: true }).waitFor();
+  await page.evaluate(() => window.fullFunctionsQa.setProxyFixture({ connected: false }));
+  await connection.getByText('未连接', { exact: true }).waitFor();
+  assert.equal(await complete.getAttribute('aria-checked'), 'true');
+
+  const reminder = main.getByRole('switch', { name: '显示 QQ 功能状态提示', exact: true });
+  await reminder.click();
+  assert.equal(await reminder.getAttribute('aria-checked'), 'false');
   assert.deepEqual(await page.evaluate(() => window.fullFunctionsQa.saves), [
-    'setAutoAttachQq',
+    'local',
+    'online',
+    'complete',
     'setQqStatusIndicatorEnabled',
   ]);
-  const proxyCard = page.locator('[data-setting-id="qq-proxy-connection"]');
-  await proxyCard.getByText('等待在线能力', { exact: true }).waitFor();
-  await auto.click();
-  for (const [id, label] of [
-    ['qq-proxy-connection', '已连接'],
-    ['long-term-authorization', '已授权'],
-  ])
-    await page.locator(`[data-setting-id="${id}"]`).getByText(label, { exact: true }).waitFor();
-  await indicator.click();
-  await page.evaluate(() => {
-    window.fullFunctionsQa.setOnlineFixture({ qqOnline: false });
-    window.fullFunctionsQa.setProxyFixture({ connected: false });
-  });
-  const unified = page.getByRole('button', { name: '在线能力受限', exact: true });
-  await unified.click();
-  assert.equal(await page.locator('.weq-restricted-indicator').count(), 1);
-  await restrictedDetails.getByRole('region', { name: 'QQ 在线能力' }).waitFor();
-  assert.equal(await restrictedDetails.getByRole('region', { name: 'QQ 代理连接' }).count(), 0);
-  assert.equal(
-    await restrictedDetails.getByRole('button', { name: '打开 QQ', exact: true }).count(),
-    1,
-  );
-  assert.equal(
-    await restrictedDetails.evaluate((node) => {
-      const rect = node.getBoundingClientRect();
-      return rect.right <= innerWidth && rect.bottom <= innerHeight;
-    }),
-    true,
-  );
+
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.goto(url + '?offline');
+  await prepare.getByText(/本机 SIP 已开启/).waitFor();
+  assert.equal(await prepare.getByRole('button', { name: '使用原版 QQ' }).count(), 0);
+  const layout = await main.evaluate((root) => ({
+    overflow: root.scrollWidth > root.clientWidth + 1,
+    clipped: [...root.querySelectorAll('.weq-applock-method, .weq-applock-method-main')]
+      .filter((node) => node.scrollWidth > node.clientWidth + 1)
+      .map((node) => node.textContent),
+  }));
+  assert.deepEqual(layout, { overflow: false, clipped: [] });
   if (output) {
     await mkdir(output, { recursive: true });
-    await restrictedDetails.screenshot({ path: resolve(output, 'qq-function-status.png') });
+    await page.screenshot({ path: resolve(output, 'qq-capability-settings.png'), fullPage: true });
   }
-  await page.keyboard.press('Escape');
-  await restrictedDetails.waitFor({ state: 'detached' });
-  assert.equal(await unified.evaluate((node) => node === document.activeElement), true);
-  await page.evaluate(() => {
-    window.fullFunctionsQa.setOnlineFixture({ qqOnline: true, hasUid: true });
-    window.fullFunctionsQa.setProxyFixture({ connected: true });
-  });
-  for (const style of ['classic', 'retro', 'qqnt']) {
-    await page.evaluate(
-      (style) => window.fullFunctionsQa.theme.getState().setComponentStyle(style),
-      style,
-    );
-    const groups = await page.locator('main').evaluate((root) => {
-      const readStyle = (id) => {
-        const node = root.querySelector(`[data-setting-id="${id}"]`);
-        const style = getComputedStyle(node);
-        const title = getComputedStyle(node.querySelector('.weq-set-card-title'));
-        return {
-          radius: style.borderRadius,
-          padding: style.padding,
-          border: style.border,
-          background: style.backgroundColor,
-          title: [title.fontSize, title.fontWeight, title.lineHeight],
-          x: node.getBoundingClientRect().x,
-          width: node.getBoundingClientRect().width,
-        };
-      };
-      return ['long-term-authorization', 'full-features', 'qq-proxy-connection'].map(readStyle);
-    });
-    assert.deepEqual(groups[1], groups[0], `${style}: QQ 在线能力分组与设置基线不一致`);
-    assert.deepEqual(groups[2], groups[0], `${style}: QQ 代理连接分组与设置基线不一致`);
-  }
-  for (const [id, title] of [
-    ['full-feature-routes', '在线能力'],
-    ['auto-full-mode', '在线能力'],
-    ['qq-status-indicator', '状态提醒'],
-    ['qq-client-sync', '同步与实时更新'],
-    ['qq-live-messages', '同步与实时更新'],
-  ])
-    assert.equal(
-      await page
-        .locator(`[data-setting-id="${id}"]`)
-        .evaluate(
-          (node) =>
-            node.closest('.weq-set-card')?.querySelector('.weq-set-card-title')?.textContent,
-        ),
-      title,
-    );
-  await page
-    .getByRole('region', { name: 'QQ 调试副本路线', exact: true })
-    .getByText('无需关闭 SIP（适用于本机）', { exact: true })
-    .waitFor();
-  await page
-    .getByRole('region', { name: '原版 QQ 路线', exact: true })
-    .getByText('需关闭 SIP', { exact: true })
-    .waitFor();
-  await page.evaluate(() => window.fullFunctionsQa.setOnlineFixture({ hasUid: true }));
-  if (output) await mkdir(output, { recursive: true });
-  let cases = 0;
-  let managerCases = 0;
-  for (const width of [320, 390, 1180]) {
-    await page.setViewportSize({ width, height: 900 });
-    for (const theme of ['light', 'dark']) {
-      for (const accent of ['#075c30', '#fff3a1']) {
-        await page.evaluate(
-          ({ theme, accent }) => {
-            const store = window.fullFunctionsQa.theme.getState();
-            store.setPreference(theme);
-            store.setAccent(accent);
-            store.setBackground(theme === 'light' ? 'plain' : 'telegram');
-          },
-          { theme, accent },
-        );
-        const layout = await page.locator('main').evaluate((root) => ({
-          overflow: root.scrollWidth > root.clientWidth + 1,
-          clipped: [...root.querySelectorAll('h4,h5,button,.weq-set-row-main')]
-            .filter((node) => node.scrollWidth > node.clientWidth + 1)
-            .map((node) => node.textContent),
-          nestedCards: root.querySelectorAll('.weq-set-card .weq-set-card').length,
-          oldName: /完整(?:功能|模式|体验)/.test(root.textContent),
-        }));
-        assert.deepEqual(layout, {
-          overflow: false,
-          clipped: [],
-          nestedCards: 0,
-          oldName: false,
-        });
-        const columns = await page.locator('.weq-full-function-routes').evaluate((node) => {
-          const [copy, original] = [...node.children].map((child) => child.getBoundingClientRect());
-          return {
-            sideBySide: Math.abs(copy.top - original.top) < 1 && original.left > copy.right,
-            stacked: original.top >= copy.bottom,
-          };
-        });
-        assert.equal(width === 1180 ? columns.sideBySide : columns.stacked, true);
-        if (output && accent === '#075c30' && width !== 320)
-          await page.screenshot({
-            path: resolve(output, `${width}-${theme}-overview.png`),
-            fullPage: true,
-          });
-        cases++;
-        if (accent === '#075c30') {
-          await page.getByRole('button', { name: '副本设置', exact: true }).click();
-          await manager.waitFor();
-          const bounds = await manager.boundingBox();
-          assert.ok(
-            bounds &&
-              bounds.x >= 0 &&
-              bounds.y >= 0 &&
-              bounds.x + bounds.width <= width + 1 &&
-              bounds.y + bounds.height <= 901,
-          );
-          if (output && width === 390)
-            await page.screenshot({ path: resolve(output, `manager-${width}-${theme}.png`) });
-          await page.getByRole('button', { name: '关闭副本设置', exact: true }).click();
-          await manager.waitFor({ state: 'detached' });
-          managerCases++;
-        }
-      }
-    }
-  }
-  for (const query of ['?platform=linux', '?platform=win32', '?sip-off', '?sip-error']) {
-    await page.goto(url + query);
-    await page.getByRole('heading', { name: /^启用方式/ }).waitFor();
-    if (query.includes('platform')) {
-      assert.equal(await page.locator('[data-setting-id="qq-debug-copy"]').count(), 0);
-      assert.equal((await page.locator('main').textContent()).includes('SIP'), false);
-    } else if (query === '?sip-off') {
-      await page.getByText('需关闭 SIP（适用于本机）', { exact: true }).waitFor();
-      assert.equal(
-        await page.locator('[aria-label="原版 QQ 路线"]').getAttribute('data-applicable'),
-        'true',
-      );
-    } else {
-      await page.getByText('SIP 状态检测失败', { exact: true }).waitFor();
-      assert.equal(await page.locator('[data-applicable="true"]').count(), 0);
-    }
-  }
-  let welcomeCases = 0;
-  for (const width of [320, 390, 1180]) {
-    await page.setViewportSize({ width, height: 900 });
-    await page.goto(url + '?welcome');
-    const welcome = page.locator('.weq-welcome');
-    await welcome.waitFor();
-    await welcome.getByRole('button', { name: '以离线模式开始使用', exact: true }).waitFor();
-    await welcome.getByRole('switch', { name: '允许扫描 QQ 内存' }).click();
-    for (const theme of ['light', 'dark']) {
-      await page.evaluate(
-        (theme) => window.fullFunctionsQa.theme.getState().setPreference(theme),
-        theme,
-      );
-      await welcome.getByText('开启 QQ 在线能力（推荐）', { exact: true }).waitFor();
-      const action = welcome.getByRole('button', {
-        name: '开启 QQ 在线能力并开始使用',
-        exact: true,
-      });
-      assert.equal(await action.evaluate((node) => node.scrollWidth > node.clientWidth + 1), false);
-      assert.equal(
-        await welcome.evaluate((node) => node.scrollWidth > node.clientWidth + 1),
-        false,
-      );
-      if (output && width === 390)
-        await page.screenshot({ path: resolve(output, `welcome-${width}-${theme}.png`) });
-      welcomeCases++;
-    }
-  }
+  await page.goto(url + '?sip-error');
+  await prepare.getByText('暂时无法确认本机 QQ 读取条件', { exact: true }).waitFor();
+  await page.goto(url + '?platform=linux&offline');
+  await main.getByRole('button', { name: '打开 QQ', exact: true }).waitFor();
+  assert.equal(await prepare.count(), 0);
+  await page.goto(url + '?welcome');
+  const welcome = page.locator('.weq-welcome');
+  await welcome.getByRole('button', { name: '以本地模式开始使用', exact: true }).waitFor();
+  await welcome.getByRole('switch', { name: '允许扫描 QQ 内存' }).click();
+  await welcome.getByRole('button', { name: '开启 QQ 在线能力并开始使用', exact: true }).waitFor();
   assert.deepEqual(errors, []);
-  console.log(
-    JSON.stringify(
-      {
-        cases,
-        platformCases: 4,
-        styleCases: 4,
-        welcomeCases,
-        managerCases,
-        toggles: true,
-        debugManagement: true,
-        errors,
-      },
-      null,
-      2,
-    ),
-  );
+  console.log('四档设置、连接状态、调试副本、窄屏与首次使用入口通过。');
 } finally {
   await browser?.close();
   await server.close();

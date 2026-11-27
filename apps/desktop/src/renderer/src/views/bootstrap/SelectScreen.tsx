@@ -30,9 +30,11 @@ import '../../styles/bootstrap-select.css';
 export function SelectScreen({
   install,
   onOpenSettings,
+  onOpenCapabilitySettings,
 }: {
   install: GlobalInstallInfo;
   onOpenSettings?: () => void;
+  onOpenCapabilitySettings?: () => void;
 }): ReactElement {
   const remote = useRemoteClient();
   const mode = useViewState((s) => s.selectMode);
@@ -212,6 +214,7 @@ export function SelectScreen({
               autoTarget={autoTarget.data ?? null}
               onEntered={onEntered}
               onBusyChange={setBusy}
+              onOpenCapabilitySettings={onOpenCapabilitySettings}
               disabled={busy || backupBusy || (dataDenied && !selected?.static)}
               qrActionHost={adding ? qrActionHost : null}
               qrActionDisabled={dataDenied || historical.isLoading}

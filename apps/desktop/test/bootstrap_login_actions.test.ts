@@ -14,6 +14,7 @@ const f = vi.hoisted(() => ({
   clearAuto: vi.fn(),
   unsubscribe: vi.fn(),
   qr: vi.fn(),
+  openCapabilitySettings: vi.fn(),
   setAttach: vi.fn(),
   invalidate: vi.fn(),
   settings: { autoAttachQq: false, startupReadOnly: false },
@@ -96,6 +97,7 @@ function Harness({
       mode: panelMode,
       selected,
       accounts: empty ? [] : accounts,
+      onOpenCapabilitySettings: f.openCapabilitySettings,
       onSelect: (account) => {
         setSelected(account);
         setPanelMode('new');
@@ -239,16 +241,13 @@ it('未保存密钥也能打开并自动获取，没有独立密钥按钮', asyn
   await click('打开账号');
   expect(f.qr).toHaveBeenCalledWith({ uin: '10001' });
 });
-it('启用 QQ 在线能力与自动进入同一行，复用账号内设置', async () => {
-  f.settings.autoAttachQq = true;
+it('账号打开页的档位入口打开共用设置，自动进入仍单独设置', async () => {
   await mount('existing');
-  const options = host.querySelectorAll<HTMLButtonElement>('.weq-login-options [role="switch"]');
-  expect(options).toHaveLength(2);
-  expect(options[1]!.getAttribute('aria-checked')).toBe('true');
-  await act(async () => options[1]!.click());
-  expect(f.setAttach).toHaveBeenCalledWith({ enabled: false });
-  f.settings.autoAttachQq = false;
+  expect(host.querySelectorAll('.weq-login-options [role="switch"]')).toHaveLength(1);
+  await click('选择档位');
+  expect(f.openCapabilitySettings).toHaveBeenCalledOnce();
 });
+
 it('自动获取失败后手动输入新密钥可验证打开，无须修改已保存账号', async () => {
   f.test.mockResolvedValueOnce({ success: false });
   await mount('existing');

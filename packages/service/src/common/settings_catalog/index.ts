@@ -36,7 +36,7 @@ const previousPageItems: Readonly<Record<string, readonly string[]>> = {
     'contact-unread-count',
     ...MENU_BADGE_SETTINGS.map(([, id]) => id),
   ],
-  'qq-proxy': ['qq-proxy-connection', 'qq-live-messages', 'qq-client-sync'],
+  'qq-proxy': ['qq-proxy-connection'],
   'qq-status-reminders': ['qq-status-indicator', 'qq-online-notification'],
 };
 

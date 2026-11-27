@@ -1,7 +1,13 @@
 import type { AccountSession } from '@weq/account';
 import { classifyChatType, isDatalineSelfUid, isDatalineUid } from '@weq/codec';
 import { MsgType } from '@weq/codec/proto/msg/40900';
-import { measureMessageWork, withDatabasePriority, type DatabasePriority } from '@weq/db';
+import {
+  assertQqDatabaseWriteAllowed,
+  measureMessageWork,
+  qqDatabaseReadOnly,
+  withDatabasePriority,
+  type DatabasePriority,
+} from '@weq/db';
 import type { NtHelperBinding } from '@weq/native';
 import {
   ReportRead,
@@ -196,7 +202,7 @@ export class UnreadInfoService {
 
   /** 逐条确认只供横幅使用，不改未读计数或 QQ 水位。 */
   recordReplyViews(uid: string, sequences: readonly string[]): void {
-    if (this.disposed) return;
+    if (this.disposed || qqDatabaseReadOnly()) return;
     const viewed = this.viewedReplies.get(uid) ?? new Set<string>();
     const size = viewed.size;
     for (const seq of sequences) viewed.add(seq);
@@ -505,8 +511,27 @@ export class UnreadInfoService {
     this.lastReport = { state: 'disabled' };
   }
 
+  suspendReadChanges(): void {
+    this.localResetRevision++;
+    this.cancelReports();
+    this.writes.clear();
+    clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+    for (const [key, version] of this.targetVersions) this.targetVersions.set(key, version + 1);
+    const changed: UnreadInfoTarget[] = [];
+    for (const pending of this.pushedUnread.values()) {
+      if (!pending.readThrough) continue;
+      pending.readThrough = undefined;
+      pending.replaying = false;
+      changed.push(pending.target);
+    }
+    this.clearProxyReads();
+    this.publish(changed);
+  }
+
   /** 只清除 WeQ 覆盖值，不回退 QQ 小表或服务器已经确认的已读位置。 */
   async clearLocalReadRecords(): Promise<void> {
+    assertQqDatabaseWriteAllowed();
     if (this.disposed) throw new Error('账号已关闭');
     this.localResetRevision++;
     this.manualRevision++;
@@ -923,7 +948,8 @@ export class UnreadInfoService {
     const previous = this.writeTasks.get(key);
     const task = (async () => {
       await previous?.catch(() => {});
-      if (this.disposed || version !== this.targetVersions.get(key)) return undefined;
+      if (this.disposed || qqDatabaseReadOnly() || version !== this.targetVersions.get(key))
+        return undefined;
       return run();
     })();
     this.writeTasks.set(key, task);
@@ -935,7 +961,7 @@ export class UnreadInfoService {
   }
 
   private queueWrite(target: UnreadInfoTarget, version: number, run: () => Promise<void>): void {
-    if (this.localOptions?.readOnly || this.disposed) return;
+    if (this.localOptions?.readOnly || this.disposed || qqDatabaseReadOnly()) return;
     if (version !== this.targetVersions.get(this.key(target))) return;
     this.writes.set(this.key(target), run);
     if (this.retryTimer) return;
@@ -970,6 +996,7 @@ export class UnreadInfoService {
     latestSeq?: string,
     devicePosition?: string,
   ): Promise<boolean> {
+    if (qqDatabaseReadOnly()) return false;
     if (devicePosition !== undefined)
       return (await this.markDeviceConversationRead(chatType, uid, devicePosition)).changed;
     if (!this.usesLocalReadState(chatType)) return false;
@@ -982,6 +1009,7 @@ export class UnreadInfoService {
   }
 
   private async saveLocalRead(target: UnreadInfoTarget, sequence: string): Promise<boolean> {
+    if (qqDatabaseReadOnly()) return false;
     const changed = this.local.markRead(target.chatType, target.uid, sequence);
     if (changed) {
       this.manualRevision++;
@@ -993,13 +1021,16 @@ export class UnreadInfoService {
   }
 
   async setReadState(targets: UnreadInfoTarget[], unread: boolean) {
+    assertQqDatabaseWriteAllowed();
     const resetRevision = this.localResetRevision;
     const unique = [...new Map(targets.map((target) => [this.key(target), target])).values()];
     const snapshots = await this.readSnapshots(unique);
     if (this.disposed || snapshots.some((row) => row.readError))
       throw new Error('未读状态读取失败，请稍后重试');
     if (!unread && unique.some((target) => target.chatType === 2)) await this.important.flush();
-    if (resetRevision !== this.localResetRevision) throw new Error('已读记录已清除，请重新操作');
+    assertQqDatabaseWriteAllowed();
+    if (resetRevision !== this.localResetRevision)
+      throw new Error('会话阅读状态已切换，请重新操作');
     this.manualRevision++;
     this.cancelReports();
     for (const target of unique) {
@@ -1081,13 +1112,19 @@ export class UnreadInfoService {
   }
 
   private async restoreLocalRead(row: ManualReadEntry) {
-    if (!row.change || !this.local.restoreManualRead(row.chatType, row.uid, row.change)) return;
+    if (
+      qqDatabaseReadOnly() ||
+      !row.change ||
+      !this.local.restoreManualRead(row.chatType, row.uid, row.change)
+    )
+      return;
     this.manualRevision++;
     await this.project([row]);
     this.publish([row]);
   }
 
   async undoReadState(undoToken: string) {
+    assertQqDatabaseWriteAllowed();
     const resetRevision = this.localResetRevision;
     const changes = this.readHistory.get(undoToken);
     if (!changes || this.disposed) throw new Error('撤销记录已失效');
@@ -1160,13 +1197,15 @@ export class UnreadInfoService {
    * recent-contact watermark when omitted.
    */
   async markRead(chatType: number, uid: string, latestSeq?: string): Promise<boolean> {
+    if (qqDatabaseReadOnly()) return false;
     const resetRevision = this.localResetRevision;
     const sequence = await this.readSequence(chatType, uid, latestSeq);
     if (sequence === undefined || resetRevision !== this.localResetRevision) return false;
     const target = { chatType, uid };
     // 清除未读状态前先落盘提醒，写入失败时保留 QQ 原始提醒供重试。
     if (chatType === 2) await this.important.flush();
-    if (this.disposed || resetRevision !== this.localResetRevision) return false;
+    if (this.disposed || qqDatabaseReadOnly() || resetRevision !== this.localResetRevision)
+      return false;
     const version = this.bumpTarget(target);
     const local = this.usesLocalReadState(chatType) && (await this.saveLocalRead(target, sequence));
     if (this.localOptions?.readOnly) return local;
@@ -1203,6 +1242,7 @@ export class UnreadInfoService {
     latestSeq?: string,
     options?: { manual?: boolean; write?: false; devicePosition?: string },
   ): Promise<{ changed: boolean; report: ReadReportStatus }> {
+    if (qqDatabaseReadOnly()) return { changed: false, report: { state: 'disabled' } };
     if (classifyChatType(chatType) === 'dataline' && isDatalineUid(uid)) {
       if (options?.write !== false && options?.devicePosition)
         return this.markDeviceConversationRead(chatType, uid, options.devicePosition);
@@ -1324,6 +1364,7 @@ export class UnreadInfoService {
   ): Promise<{ changed: boolean; report: ReadReportStatus }> {
     const skipped = { changed: false, report: { state: 'skipped' as const } };
     if (
+      qqDatabaseReadOnly() ||
       !isDatalineUid(uid) ||
       classifyChatType(chatType) !== 'dataline' ||
       !validDeviceReadPosition(position)
@@ -1357,6 +1398,7 @@ export class UnreadInfoService {
     }
     if (
       this.disposed ||
+      qqDatabaseReadOnly() ||
       resetRevision !== this.localResetRevision ||
       generation !== this.generation
     )
@@ -1404,7 +1446,8 @@ export class UnreadInfoService {
     valid: () => boolean,
     manual = false,
   ): Promise<ReadReportStatus> {
-    if (this.localOptions?.readOnly || this.disposed || !valid()) return { state: 'unavailable' };
+    if (this.localOptions?.readOnly || this.disposed || qqDatabaseReadOnly() || !valid())
+      return { state: 'unavailable' };
     const report = this.report;
     if (!report) return { state: 'disabled' };
     if (

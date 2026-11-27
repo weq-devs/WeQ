@@ -1,3 +1,4 @@
+import { isQqCapabilityMode } from '../common/qq_capability_mode';
 import { isHistoryCapacityMiB } from '../common/settings_catalog/history';
 import {
   MAX_DATABASE_CHECKUP_CONCURRENCY,
@@ -39,7 +40,7 @@ export type WeqAppBackupSettings = Omit<
   sharedPreferences: Omit<SharedPreferences, 'assistant'>;
   voiceTranscribe: Pick<
     AppSettings['voiceTranscribe'],
-    'modelId' | 'autoTranscribe' | 'onlineConcurrency'
+    'modelId' | 'autoTranscribe' | 'onlineConcurrency' | 'priority'
   >;
 };
 type PartialSettings<T> = T extends object ? { [K in keyof T]?: PartialSettings<T[K]> } : T;
@@ -79,6 +80,7 @@ export function snapshotWeqSettings(settings: AppSettings): WeqAppBackupSettings
     ),
     voiceTranscribe: {
       modelId: voiceTranscribe.modelId,
+      priority: voiceTranscribe.priority,
       autoTranscribe: voiceTranscribe.autoTranscribe,
       onlineConcurrency: voiceTranscribe.onlineConcurrency,
     },
@@ -312,6 +314,7 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     qqShowCacheDays,
     restrictedModeIndicatorEnabled,
     qqProxyIndicatorEnabled,
+    qqCapabilityMode,
     updateCheckIntervalMinutes,
     enhancementUpdates,
     quitConfirmSuppressed,
@@ -324,6 +327,8 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     sendWithDressFont,
     ...scalarSettings
   } = input;
+  if (qqCapabilityMode !== undefined && !isQqCapabilityMode(qqCapabilityMode))
+    fail('settings.qqCapabilityMode');
   // 旧备份允许携带已退役字段，但不再将它写回正式设置。
   if (Object.hasOwn(input, 'quitConfirmSuppressed') && typeof quitConfirmSuppressed !== 'boolean')
     fail('settings.quitConfirmSuppressed');
@@ -554,6 +559,8 @@ export function validateWeqAppSettings(value: unknown): asserts value is WeqAppB
     ['ocr', ocr],
     ['voiceTranscribe', voice],
   ] as const) {
+    if (config?.priority !== undefined && config.priority !== 'local' && config.priority !== 'qq')
+      fail(`settings.${key}.priority`);
     if (config?.onlineConcurrency !== undefined)
       number(config.onlineConcurrency, `settings.${key}.onlineConcurrency`, 1, 32);
   }

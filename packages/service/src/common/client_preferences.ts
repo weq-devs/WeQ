@@ -259,6 +259,8 @@ export function newerReadPosition(next: string, previous = '0'): boolean {
 }
 export const isDirectoryReadKey = (key: string) =>
   /^(persona|clone-group|assistant|official|service|guild):.{1,960}$/.test(key);
+export const isQqDirectoryReadKey = (key: string) =>
+  /^(?:unread:|initialized:)?(?:official|service|guild)(?::|$)/.test(key);
 export const directoryUnreadKey = (key: string) => `unread:${key}`;
 export const generatedMuteKey = (id: string) => `mute:${id}`;
 

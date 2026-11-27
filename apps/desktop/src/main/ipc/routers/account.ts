@@ -52,7 +52,13 @@ import {
 } from './resource_source';
 import { messageExportFormatInput } from '../../../shared/message_export_format';
 import { exportContentPolicyInput, exportExtraInput } from '../../../shared/export_content';
-import { withDatabaseRequest, assertDatabaseWritable, measureDatabaseStartup } from '@weq/db';
+import {
+  withDatabaseRequest,
+  assertDatabaseWritable,
+  assertQqDatabaseWriteAllowed,
+  qqDatabaseReadOnly,
+  measureDatabaseStartup,
+} from '@weq/db';
 import { cardDisplayNames } from './card_display_names';
 import { readContactSpecialCare } from './contact_special_care';
 import {
@@ -190,6 +196,7 @@ import type {
 import {
   directoryUnreadKey,
   isDirectoryReadKey,
+  isQqDirectoryReadKey,
   messageReadPosition,
   newerReadPosition,
   validReadPosition,
@@ -1268,6 +1275,8 @@ function applyConversationRead(
   devicePosition?: string,
 ): ReturnType<AccountServices['unreadInfo']['markReadAndReport']> {
   const ctx = getAppContext();
+  if (qqDatabaseReadOnly())
+    return Promise.resolve({ changed: false, report: { state: 'disabled' } });
   if (ctx.accountIsStatic && !ctx.accountIsAndroidBackup)
     return (
       devicePosition === undefined
@@ -1575,7 +1584,7 @@ export const accountRouter = router({
           input.expectedAccountUin,
           input.expectedAccountConfigId,
         );
-        interactionBadges.acknowledge(input.ids, input.bannerOnly);
+        if (!qqDatabaseReadOnly()) interactionBadges.acknowledge(input.ids, input.bannerOnly);
       }),
   }),
   noticeRead: noticeRead.router,
@@ -3813,6 +3822,11 @@ export const accountRouter = router({
         input.expectedAccountUin,
         input.expectedAccountConfigId,
       );
+      if (
+        input.targets.length ||
+        input.directoryTargets.some(({ key }) => isQqDirectoryReadKey(key))
+      )
+        assertQqDatabaseWriteAllowed();
       if (input.directoryTargets.length) {
         const state = currentDraftState();
         let changes: DirectoryReadChange[] = [];
@@ -3855,6 +3869,8 @@ export const accountRouter = router({
       const services = requireExpectedAccount(input.expectedAccountUin);
       const local = directoryReadUndo.get(services);
       if (local?.token === input.undoToken) {
+        if (local.qqToken || local.changes.some(({ key }) => isQqDirectoryReadKey(key)))
+          assertQqDatabaseWriteAllowed();
         const state = currentDraftState();
         const restored = state.undoDirectoryReadState(local.changes);
         reportOfficialDirectoryReads(
@@ -3948,6 +3964,7 @@ export const accountRouter = router({
     .mutation(async ({ input }) => {
       const { chatType, uid, visibleSeqs, expectedAccountUin, expectedAccountConfigId } = input;
       const services = requireExpectedAccount(expectedAccountUin, expectedAccountConfigId);
+      if (qqDatabaseReadOnly()) return { changed: false, report: { state: 'disabled' as const } };
       const sequence = await services.unreadInfo.visibleReadSequence(chatType, uid, visibleSeqs);
       if (
         sequence === undefined ||
@@ -3970,6 +3987,7 @@ export const accountRouter = router({
     .mutation(({ input }) => {
       const { expectedAccountUin, expectedAccountConfigId, uid, sequences } = input;
       const services = requireExpectedAccount(expectedAccountUin, expectedAccountConfigId);
+      if (qqDatabaseReadOnly()) return { recorded: false };
       services.unreadInfo.recordReplyViews(uid, sequences);
       return { recorded: true };
     }),
@@ -9672,7 +9690,8 @@ export const accountRouter = router({
       if (!host.account) throw new Error('当前未打开账号');
       assertFullModeSource(host, host.account);
       const { userConfig } = requireBootstrap();
-      if (!userConfig.getSettings().autoAttachQq) userConfig.setSettings({ autoAttachQq: true });
+      if (!userConfig.getSettings().autoAttachQq)
+        userConfig.setSettings({ qqCapabilityMode: 'online' });
       return { requested: true };
     }),
 

@@ -99,7 +99,7 @@ export const APP_SETTING_FIELDS = (
       '自动刷新冷却期',
     ],
     ['realtime', 'realtimeEnabled', 'realtime-enabled', '数据库监听'],
-    ['attach', 'autoAttachQq', 'auto-full-mode', '启用 QQ 在线能力'],
+    ['attach', 'qqCapabilityMode', 'auto-full-mode', 'QQ 能力档位'],
     [
       'qq-status-reminders',
       'qqStatusIndicatorEnabled',
@@ -336,16 +336,6 @@ export const RUNTIME_SETTING_FIELDS: readonly SettingField[] = [
     '在线能力受限时通知',
     'runtime',
   ),
-  field('qq-client-sync', 'proxy', 'qq-proxy-connection', 'QQ 代理', 'runtime', {
-    scope: '此设备',
-    stopsService: true,
-  }),
-  field('qq-client-sync', 'enabled', 'qq-client-sync', '自动同步本人消息与已读', 'runtime', {
-    scope: '当前账号',
-  }),
-  field('qq-client-sync', 'live', 'qq-live-messages', '通过 QQ 代理加速实时更新', 'runtime', {
-    scope: '当前账号',
-  }),
   field('app-lock', 'enabled', 'app-lock', '启用应用锁', 'runtime'),
   field('app-lock', 'method', 'unlock-method', '解锁方式', 'runtime'),
   field('message-content', 'autoTranscribe', 'auto-transcribe-voice', '语音自动转文字', 'runtime'),

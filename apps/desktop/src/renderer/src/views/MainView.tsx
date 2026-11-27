@@ -1206,6 +1206,9 @@ function MainWorkspace(): ReactElement {
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
+  const qqReadOnly = displaySettings.data?.qqCapabilityMode === 'read-only';
+  const qqReadOnlyRef = useRef(qqReadOnly);
+  qqReadOnlyRef.current = qqReadOnly;
   const profileAccount = pinSession.binding?.expectedAccountUin;
   const profileSource = pinSession.binding?.expectedAccountConfigId;
   useEffect(() => {
@@ -3205,11 +3208,12 @@ function MainWorkspace(): ReactElement {
     [groupRequests, groupNoticeInbox.operations, user],
   );
   const { readSequence, canReportRead } = groupNoticeInbox;
-  const viewingContactNotices = messageActivity.enabled && shell.view === 'contacts';
+  const viewingContactNotices = !qqReadOnly && messageActivity.enabled && shell.view === 'contacts';
   const reportViewedGroupNotices = useStableCallback((sequence: string) => {
     const binding = pinSession.binding;
     if (
       !binding ||
+      qqReadOnly ||
       !canReportRead ||
       readSequence == null ||
       BigInt(sequence) <= BigInt(readSequence)
@@ -5907,6 +5911,7 @@ function MainWorkspace(): ReactElement {
         conv.type === 'group' ? (2 as const) : (unreadChatType(conv.chatType ?? 1) ?? 1);
       const isCurrent = ({ visibleSeqs, throughSeq }: AutoRead) =>
         Boolean(binding) &&
+        !qqReadOnlyRef.current &&
         readPolicy.current.readSettingsReady &&
         readPolicy.current.readThroughViewport === Boolean(visibleSeqs) &&
         ((!visibleSeqs && !throughSeq && chatType !== 8 && chatType !== 134) ||
@@ -6013,13 +6018,14 @@ function MainWorkspace(): ReactElement {
   const confirmVisibleReplies = useCallback(
     async (uid: string, sequences: string[]) => {
       const binding = messageBindingRef.current;
-      if (!binding) return false;
+      if (!binding || qqReadOnlyRef.current) return false;
       const source = messageScopeRef.current;
       const stillCurrent = () =>
         messageScopeRef.current === source &&
         selectionRef.current?.kind === 'group' &&
         selectionRef.current.id === uid &&
         messagesTabActiveRef.current &&
+        !qqReadOnlyRef.current &&
         readPolicy.current.readViewportActive &&
         document.visibilityState !== 'hidden';
       const result = await retryConversationRead(
@@ -6188,7 +6194,7 @@ function MainWorkspace(): ReactElement {
     }
   }
   useReadStateUndo(
-    readUndo?.accountUin === openedUin && messagesTabActive && !readStateBusy,
+    !qqReadOnly && readUndo?.accountUin === openedUin && messagesTabActive && !readStateBusy,
     () => void undoConversationReadState(),
     readUndo?.action,
   );
@@ -6420,7 +6426,7 @@ function MainWorkspace(): ReactElement {
         unread,
       });
 
-      if (!readPolicy.current.readThroughViewport)
+      if (!qqReadOnlyRef.current && !readPolicy.current.readThroughViewport)
         request.autoRead = { snapshot: info, revision: startedAt };
       finishSnapshot(dock, {
         readSeq: info.readSeq,
@@ -10640,7 +10646,7 @@ function MainWorkspace(): ReactElement {
       onLoadMore={deletions.loadMore}
       error={deletions.error}
       onRetry={() => void deletions.retry()}
-      onRestore={(msgId) => handleRestoreMessage(msgId, deletedConv)}
+      onRestore={qqReadOnly ? undefined : (msgId) => handleRestoreMessage(msgId, deletedConv)}
       onLocate={(seq, messageId) => {
         const target = convFetchKey(deletedConv);
         if (mobileLayout) closeConversationRecords();
@@ -11847,7 +11853,9 @@ function MainWorkspace(): ReactElement {
                                   )
                                 : undefined
                             }
-                            onSeeInteractions={interactionBadges.acknowledge}
+                            onSeeInteractions={
+                              qqReadOnly ? undefined : interactionBadges.acknowledge
+                            }
                             conversationPrefs={conversationPrefs}
                             drafts={drafts}
                             query={shell.query}
@@ -11896,8 +11904,10 @@ function MainWorkspace(): ReactElement {
                             onSentSpeechDraft={clearSentSpeechDraft}
                             onDraftClear={(_conversationId) => updateDraft(_conversationId, '')}
                             onBackConversation={shell.backConversation}
-                            onMessageRecordEdited={handleMessageRecordEdited}
-                            onDeleteMessage={handleDeleteMessage}
+                            onMessageRecordEdited={
+                              qqReadOnly ? undefined : handleMessageRecordEdited
+                            }
+                            onDeleteMessage={qqReadOnly ? undefined : handleDeleteMessage}
                             onDismissUnsentMessage={dismissUnsentOutgoing}
                             onOpenGroupAlbums={handleOpenGroupAlbums}
                             onOpenGroupFiles={handleOpenGroupFiles}
@@ -11959,8 +11969,10 @@ function MainWorkspace(): ReactElement {
                             }}
                             deletedIds={deletedIds}
                             hiddenDeletedIds={hiddenDeletedIds}
-                            onRestoreMessage={(msgId) =>
-                              handleRestoreMessage(msgId, selectedConversation)
+                            onRestoreMessage={
+                              qqReadOnly
+                                ? undefined
+                                : (msgId) => handleRestoreMessage(msgId, selectedConversation)
                             }
                             unreadDock={unreadSelectionId === null ? null : unreadDock}
                             unreadDockEntryPending={
@@ -13001,8 +13013,9 @@ function MainWorkspace(): ReactElement {
                               }));
                             },
                             onRoaming: handleRoamingTargets,
-                            onReadState: (rows, unread) =>
-                              void changeConversationReadState(rows, unread),
+                            onReadState: qqReadOnly
+                              ? undefined
+                              : (rows, unread) => void changeConversationReadState(rows, unread),
                             readStateBusy,
                             onVisibleConversations: prefetchVisibleConversations,
                             onConversationIntent: (row) => {

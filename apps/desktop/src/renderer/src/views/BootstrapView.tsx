@@ -75,6 +75,7 @@ export function BootstrapView(): ReactElement {
   /** 非 null 时 splash 显示预热进度条（自动进入的第二段）。 */
   const [warmup, setWarmup] = useState<WarmupProgress | null>(null);
   const [backupOpen, setBackupOpen] = useState(false);
+  const [capabilitySettings, setCapabilitySettings] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const accountScreen = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -414,13 +415,24 @@ export function BootstrapView(): ReactElement {
   return (
     <BootstrapShell ready showWindowActions={false}>
       <div ref={accountScreen} hidden={settingsOpen} className="h-full">
-        <SelectScreen install={install.data} onOpenSettings={() => setSettingsOpen(true)} />
+        <SelectScreen
+          install={install.data}
+          onOpenSettings={() => {
+            setCapabilitySettings(false);
+            setSettingsOpen(true);
+          }}
+          onOpenCapabilitySettings={() => {
+            setCapabilitySettings(true);
+            setSettingsOpen(true);
+          }}
+        />
       </div>
       {settingsOpen && (
         <div className="weq-bootstrap-settings weq-web-shell">
           <SettingsDialog
             open
             beforeLogin
+            initialSection={capabilitySettings ? 'account' : undefined}
             onClose={() => {
               setSettingsOpen(false);
               setWindowLayout('home');

@@ -1,3 +1,4 @@
+import { assertQqDatabaseWriteAllowed, qqDatabaseReadOnly } from '@weq/db';
 /** 防撤回设置与记录的共用路由，供桌面、Web 和 Remote 使用。 */
 import { DEFAULT_ANTI_RECALL_CONFIG, OperationError } from '@weq/service';
 
@@ -52,6 +53,7 @@ export async function sharedAntiRecallStatus(): Promise<AntiRecallStatus> {
     targets: [],
     notifyTargets: [],
     installed: [],
+    databaseReadOnly: qqDatabaseReadOnly(),
     qqRunning: false,
   };
 }
@@ -66,6 +68,9 @@ export const antiRecallSettingsProcedures = {
         ctx.services.qqClientSync?.refresh();
         return status;
       }
+      const status = await sharedAntiRecallStatus();
+      if (input.method === 'database' || (status.enabled && status.method === 'database'))
+        assertQqDatabaseWriteAllowed();
       requireBootstrap().userConfig.patchSharedPreference('antiRecall', {
         enabled: input.method !== 'off',
         ...(input.method === 'off' ? {} : { method: input.method }),

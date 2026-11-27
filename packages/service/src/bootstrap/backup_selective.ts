@@ -30,6 +30,7 @@ const DEVICE_FIELDS = [
   'startupPage',
   'showWindowOnAutostart',
   'autoAttachQq',
+  'qqCapabilityMode',
   'realtimeEnabled',
   'databaseReadConcurrency',
   'databaseCheckupConcurrency',

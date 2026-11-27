@@ -1,3 +1,4 @@
+import { assertQqDatabaseWriteAllowed } from '@weq/db';
 /**
  * MsgService — fetch the messages of one conversation by seq cursor.
  *
@@ -672,6 +673,16 @@ export class MsgService {
    * Get all raw elements of a message by msgId (not filtered by renderer).
    * Searches C2C-shaped tables (c2c / dataline / service assistant) and Group.
    */
+  /** Online voice recognition supports messages from ordinary private and group chats. */
+  async getChatMessageForVoice(msgId: bigint): Promise<RenderC2cMsg | RenderGroupMsg | null> {
+    const [privateRows, groupRows] = await Promise.all([
+      this.session.c2cMsgs.listByMsgIds([msgId]),
+      this.session.groupMsgs.listByMsgIds([msgId]),
+    ]);
+    if (privateRows[0]) return renderC2c(privateRows[0]);
+    return groupRows[0] ? renderGroup(groupRows[0]) : null;
+  }
+
   async getRawElements(
     msgId: bigint,
   ): Promise<{ elements: Element[]; kind: 'c2c' | 'group' } | null> {
@@ -1004,6 +1015,7 @@ export class MsgService {
 
   /** 漫游来源仅标记 WeQ 缓存，绝不将缓存身份送入 QQ 原库。 */
   deleteCachedSentMessage(message: GapFetchedMessage, hidden = false): boolean {
+    assertQqDatabaseWriteAllowed();
     if (
       !this.deleted ||
       !/^[1-9]\d*$/.test(message.msgSeq) ||
@@ -1025,6 +1037,7 @@ export class MsgService {
   }
 
   restoreCachedSentMessage(messageId: string, kind: 'c2c' | 'group', conv: string): boolean {
+    assertQqDatabaseWriteAllowed();
     const match = /^roaming:(?:(?:native|protocol):)?([1-9]\d*):(-?\d+)$/.exec(messageId);
     if (!match || !this.deleted) return false;
     let restored = false;

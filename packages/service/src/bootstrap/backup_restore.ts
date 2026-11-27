@@ -1,9 +1,15 @@
+import {
+  isQqCapabilityMode,
+  legacyQqCapabilityMode,
+  qqCapabilityAllowsOnline,
+} from '../common/qq_capability_mode';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDefaultModelSelection } from '@weq/agentlab';
 import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -681,6 +687,17 @@ function restoreHostPaths(
   return { ...host, paths };
 }
 
+function localQqProxyEnabled(root: string): boolean {
+  try {
+    const config: unknown = JSON.parse(
+      readFileSync(join(root, 'qq-client-sync', 'config.json'), 'utf8'),
+    );
+    return record(config) && config.enabled !== false;
+  } catch {
+    return false;
+  }
+}
+
 function configPlan(
   current: Record<string, unknown>,
   files: readonly WeqBackupFile[],
@@ -689,6 +706,7 @@ function configPlan(
   selective: boolean,
   host: WeqBackupHost | undefined,
   warnings: string[],
+  root: string,
 ): Record<string, unknown> | null {
   if (choice.defaults)
     return weqDefaultsConfig(current as UserConfig, choice.defaults) as Record<string, unknown>;
@@ -736,6 +754,22 @@ function configPlan(
         skipped.push('应用锁需在目标设备确认解锁方式');
       }
     }
+    if (
+      !isQqCapabilityMode(imported.qqCapabilityMode) &&
+      typeof imported.autoAttachQq === 'boolean'
+    )
+      imported.qqCapabilityMode = legacyQqCapabilityMode(
+        imported.autoAttachQq,
+        host?.services?.qqProxyEnabled ?? localQqProxyEnabled(root),
+      );
+    if (isQqCapabilityMode(imported.qqCapabilityMode))
+      imported.autoAttachQq = qqCapabilityAllowsOnline(imported.qqCapabilityMode);
+    if (!isQqCapabilityMode(settings.qqCapabilityMode))
+      settings.qqCapabilityMode = legacyQqCapabilityMode(
+        settings.autoAttachQq === true ||
+          (settings.autoAttachQq === undefined && settings.autoInjectQq === true),
+        localQqProxyEnabled(root),
+      );
     settings = merge(
       // 旧备份缺字段时保留本机值；恢复默认提交完整默认快照，仍会显式覆盖。
       selective ? settings : merge(snapshotWeqSettings(DEFAULT_APP_SETTINGS), settings),
@@ -1081,6 +1115,7 @@ function prepare(
     selective,
     host,
     result.warnings,
+    root,
   );
   const typingByScope = new Map<
     string,

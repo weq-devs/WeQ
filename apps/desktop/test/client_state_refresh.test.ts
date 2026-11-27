@@ -142,18 +142,19 @@ it('另一端切换本地模型后同时刷新资源选择和本地引擎', asyn
   expect(mocks.snapshot).not.toHaveBeenCalled();
 });
 
-it('收到其他端的 QQ 在线能力开关变更时立即刷新能力状态', async () => {
+it('收到其他端的 QQ 档位变更时立即刷新能力和代理状态', async () => {
   const { event } = await fixture();
   await act(async () =>
     event!({
       revision: 1,
       section: 'preferences',
-      settings: { fields: ['autoAttachQq'], groups: [], clientFields: [] },
+      settings: { fields: ['qqCapabilityMode'], groups: [], clientFields: [] },
     }),
   );
   expect(mocks.invalidations).toEqual([
     'bootstrap.getSettings',
     'bootstrap.getFullModeState',
+    'bootstrap.getQqClientSyncStatus',
     'account.getGroupAlbumAccessState',
   ]);
 });

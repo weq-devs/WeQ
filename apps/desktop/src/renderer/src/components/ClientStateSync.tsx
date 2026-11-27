@@ -59,8 +59,13 @@ function invalidateModelSettings(utils: SettingsUtils) {
 
 function invalidateSettingsChange(utils: SettingsUtils, change?: SettingsChange) {
   void utils.bootstrap.getSettings.invalidate();
-  if (!change || change.fields.includes('autoAttachQq')) {
+  if (
+    !change ||
+    change.fields.includes('qqCapabilityMode') ||
+    change.fields.includes('autoAttachQq')
+  ) {
     void utils.bootstrap.getFullModeState.invalidate();
+    void utils.bootstrap.getQqClientSyncStatus.invalidate();
     void utils.account.getGroupAlbumAccessState.invalidate();
   }
   if (!change) {

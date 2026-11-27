@@ -1,3 +1,4 @@
+import { isQqSyncProxyEnabled, setQqSyncProxyEnabled } from '../qq_sync/runtime';
 import { join } from 'node:path';
 import { getLogger, recordWeqRestoreWarnings } from '@weq/service';
 import { finishPerformanceRecordingReset } from '@weq/service/performance';
@@ -101,6 +102,7 @@ export function applyBackupLive(
         await ctx.clearAccount(true);
         await assistantResourceServer.stop();
         beforeApply?.();
+        const oldMode = files.ok ? files.config.getSetting('qqCapabilityMode') : undefined;
         const result = applyLiveBackupContext();
         if (result.needsRecovery) blockRuntimeForBackupRecovery(result.error || '恢复回滚尚未完成');
         if (result.status !== 'applied') throw new Error(result.error || '恢复未应用');
@@ -124,8 +126,23 @@ export function applyBackupLive(
         } catch (error) {
           result.warnings.push(`数据已恢复，助手服务未能启动：${String(error)}`);
         }
+        const proxyActivationRequested = result.hostPending?.activateServices !== false;
         try {
           await applyRestoredHostPreferences(files.root, result, desktop);
+          const boot = ctx.bootstrap;
+          if (
+            proxyActivationRequested &&
+            oldMode !== 'complete' &&
+            boot?.userConfig.getSetting('qqCapabilityMode') === 'complete' &&
+            !isQqSyncProxyEnabled(boot.qqSyncRoot)
+          ) {
+            try {
+              await setQqSyncProxyEnabled(boot.qqSyncRoot, true);
+            } catch (error) {
+              result.warnings.push(`QQ 能力已恢复为完整模式，代理尚未启动：${String(error)}`);
+              recordWeqRestoreWarnings(files.root, result);
+            }
+          }
         } catch (error) {
           result.warnings.push(`备份数据已恢复，本机设置回执待确认：${String(error)}`);
         }

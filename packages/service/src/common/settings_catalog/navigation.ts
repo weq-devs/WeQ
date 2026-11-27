@@ -827,28 +827,21 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   {
     id: 'qq-proxy-connection',
     section: 'account',
-    label: '代理连接',
-    aliases: ['QQ 代理连接', '本机 QQ 同步', 'QQ 同步代理', '代理端口', '设置代理'],
-    from: ['account', 'qq-proxy'],
-  },
-  {
-    id: 'qq-sync-and-live',
-    section: 'account',
-    label: '同步与实时更新',
-    from: ['account', 'qq-proxy'],
-  },
-  {
-    id: 'qq-live-messages',
-    section: 'account',
-    label: '通过 QQ 代理加速实时更新',
-    aliases: ['通过 QQ 代理实时接收消息', '消息直推', '实时收信', '代理性能优化'],
-    from: ['account', 'qq-proxy'],
-  },
-  {
-    id: 'qq-client-sync',
-    section: 'account',
-    label: '自动同步本人消息与已读',
-    aliases: ['补投本人消息'],
+    label: '连接本机 QQ',
+    aliases: [
+      '代理连接',
+      'QQ 代理连接',
+      '本机 QQ 同步',
+      'QQ 同步代理',
+      '代理端口',
+      '设置代理',
+      '同步与实时更新',
+      '通过 QQ 代理加速实时更新',
+      '代理实时接收消息',
+      '消息直推',
+      '自动同步本人消息与已读',
+      '补投本人消息',
+    ],
     from: ['account', 'qq-proxy'],
   },
   {
@@ -1352,6 +1345,8 @@ export function resolveSettingsTarget(target: SettingsTarget): ResolvedSettingsT
       ['关联资源目录', '关联本机媒体目录'].includes(target.item ?? ''))
   )
     return { section: 'resource-loading' };
+  if (['qq-live-messages', 'qq-client-sync', 'qq-sync-and-live'].includes(target.settingId ?? ''))
+    return { section: 'account', settingId: 'qq-proxy-connection' };
   const targetId =
     target.settingId === 'restricted-mode-indicator' || target.settingId === 'qq-proxy-indicator'
       ? 'qq-status-indicator'

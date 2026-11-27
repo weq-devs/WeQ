@@ -778,7 +778,7 @@ it('受限详情可直接打开在线能力设置，且不触发启用', () => {
   try {
     act(() => useRestrictedMode.getState().setOpen(true));
     const button = [...f.host.querySelectorAll('button')].find(
-      (action) => action.textContent === '在线能力设置',
+      (action) => action.textContent === 'QQ 能力档位',
     );
     expect(button).toBeDefined();
     act(() => button!.click());

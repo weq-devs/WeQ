@@ -6,7 +6,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { observable } from '@trpc/server/observable';
 import { z } from 'zod/v3';
-import { maintainDatabases } from '@weq/db';
+import { maintainDatabases, withQqDatabaseWrite } from '@weq/db';
 import {
   ACCOUNT_HEALTH_DATABASES,
   DatabaseMaintenance,
@@ -569,20 +569,22 @@ export const dbRepairRouter = router({
         allowLowSpace: z.boolean().optional(),
       }),
     )
-    .mutation(async ({ input }) => {
-      assertNotRestoring();
-      closedAccountDuringRun = false;
-      try {
-        return {
-          snapshot: summarizeDatabaseMaintenance(
-            await databaseMaintenance.repair(input, input.dbNames, input),
-          ),
-          closedAccount: closedAccountDuringRun,
-        };
-      } finally {
+    .mutation(({ input }) =>
+      withQqDatabaseWrite(async () => {
+        assertNotRestoring();
         closedAccountDuringRun = false;
-      }
-    }),
+        try {
+          return {
+            snapshot: summarizeDatabaseMaintenance(
+              await databaseMaintenance.repair(input, input.dbNames, input),
+            ),
+            closedAccount: closedAccountDuringRun,
+          };
+        } finally {
+          closedAccountDuringRun = false;
+        }
+      }),
+    ),
   stopMaintenance: procedure
     .input(accountRef.extend({ operationId: z.string().min(1).optional() }))
     .mutation(async ({ input }) => {
@@ -754,38 +756,40 @@ export const dbRepairRouter = router({
   ),
   restore: procedure
     .input(recordRef.extend({ force: z.boolean().optional() }))
-    .mutation(async ({ input }) => {
-      assertIdle();
-      closedAccountDuringRun = false;
-      try {
-        pendingRestore = service.restore(input.uin, input.recordId, {
-          force: input.force,
-          progress: (dbName, step) => {
-            restoreActivity = { scope: input, progress: { dbName, step } };
-            progressBus.emit('restore');
-          },
-        });
-        const record = await pendingRestore;
-        return {
-          ok: true as const,
-          record,
-          closedAccount: closedAccountDuringRun,
-        };
-      } catch (error) {
-        logger.warn('database restore failed', { error: String(error) });
-        return {
-          ok: false as const,
-          error: error instanceof Error ? error.message : String(error),
-          code: error instanceof DbRepairError ? error.code : 'recover-failed',
-          closedAccount: closedAccountDuringRun,
-        };
-      } finally {
-        pendingRestore = undefined;
-        restoreActivity = null;
-        progressBus.emit('restore');
+    .mutation(({ input }) =>
+      withQqDatabaseWrite(async () => {
+        assertIdle();
         closedAccountDuringRun = false;
-      }
-    }),
+        try {
+          pendingRestore = service.restore(input.uin, input.recordId, {
+            force: input.force,
+            progress: (dbName, step) => {
+              restoreActivity = { scope: input, progress: { dbName, step } };
+              progressBus.emit('restore');
+            },
+          });
+          const record = await pendingRestore;
+          return {
+            ok: true as const,
+            record,
+            closedAccount: closedAccountDuringRun,
+          };
+        } catch (error) {
+          logger.warn('database restore failed', { error: String(error) });
+          return {
+            ok: false as const,
+            error: error instanceof Error ? error.message : String(error),
+            code: error instanceof DbRepairError ? error.code : 'recover-failed',
+            closedAccount: closedAccountDuringRun,
+          };
+        } finally {
+          pendingRestore = undefined;
+          restoreActivity = null;
+          progressBus.emit('restore');
+          closedAccountDuringRun = false;
+        }
+      }),
+    ),
   deleteBackup: procedure.input(recordRef).mutation(({ input }) => {
     assertIdle();
     return service.deleteBackup(input.uin, input.recordId);

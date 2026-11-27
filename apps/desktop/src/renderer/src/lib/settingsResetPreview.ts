@@ -1,3 +1,4 @@
+import { isQqCapabilityMode, QQ_CAPABILITY_MODE_LABELS } from '@weq/service/qq-capability-mode';
 import {
   CONTACT_CARD_FIELDS,
   CONTACT_GROUP_FIELDS,
@@ -86,6 +87,8 @@ export function describeLogPruneImpact({ expiredFiles, capacityFiles }: LogPrune
 
 /** 只显示产品用语，不把未知配置序列化后交给用户阅读。 */
 export function formatResetValue(value: unknown, id = ''): string {
+  if (id === 'attach:qqCapabilityMode' && isQqCapabilityMode(value))
+    return QQ_CAPABILITY_MODE_LABELS[value];
   if (id === 'startup-system:autostart' && value === 'requiresApproval') return '等待系统批准';
   if (id === 'app-lock:method') {
     if (value === 'totp') return 'WeQ 验证器';

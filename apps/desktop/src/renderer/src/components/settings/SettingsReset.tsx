@@ -176,8 +176,7 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
         refresh.push(utils.help.getNativeDebugLog.invalidate(), utils.help.logStorage.invalidate());
       }
       if (cards.has('onebot')) refresh.push(utils.bootstrap.getOneBotStatus.invalidate());
-      if (cards.has('qq-client-sync'))
-        refresh.push(utils.bootstrap.getQqClientSyncStatus.invalidate());
+      if (cards.has('attach')) refresh.push(utils.bootstrap.getQqClientSyncStatus.invalidate());
       if (cards.has('sse-targets') || cards.has('sse-tuning'))
         refresh.push(utils.bootstrap.getSsePushStatus.invalidate());
       if (cards.has('startup-system'))
@@ -349,7 +348,9 @@ export function SettingsResetProvider({ page, children }: { page: string; childr
                   。
                 </p>
               ) : null}
-              {changed.some((item) => item.id === 'qq-client-sync:proxy') ? (
+              {changed.some(
+                (item) => item.id === 'attach:qqCapabilityMode' && item.current === 'complete',
+              ) ? (
                 <p>停用 QQ 代理前，请先在 QQ 的「网络设置」中恢复直连。</p>
               ) : null}
               {directories.length ? <p>仅更改目录设置，不迁移或删除已有文件。</p> : null}

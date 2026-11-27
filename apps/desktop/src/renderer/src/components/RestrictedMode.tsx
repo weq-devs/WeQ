@@ -822,7 +822,7 @@ export function RestrictedModeHost() {
       }}
     >
       <Settings size={14} aria-hidden />
-      在线能力设置
+      QQ 能力档位
     </button>
   );
   const proxySettings = settingsSection !== 'proxy' && (
