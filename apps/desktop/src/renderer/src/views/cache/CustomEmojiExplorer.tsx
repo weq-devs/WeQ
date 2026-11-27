@@ -58,7 +58,11 @@ function cemojiSrc(
   });
 }
 
-export function CustomEmojiExplorer(): ReactElement {
+export function CustomEmojiExplorer({
+  favoriteRevision,
+}: {
+  favoriteRevision?: number;
+} = {}): ReactElement {
   const visible = useTabActive();
   const scopes = trpc.account.customEmoji.listScopes.useQuery(undefined, { enabled: visible });
   const scopeList = useMemo<CustomEmojiScopeInfo[]>(
@@ -72,7 +76,12 @@ export function CustomEmojiExplorer(): ReactElement {
     [scopeList],
   );
 
-  const [active, setActive] = useState<CustomEmojiScope | 'favorite'>('recv');
+  const [active, setActive] = useState<CustomEmojiScope | 'favorite'>(
+    favoriteRevision === undefined ? 'recv' : 'favorite',
+  );
+  useEffect(() => {
+    if (favoriteRevision !== undefined) setActive('favorite');
+  }, [favoriteRevision]);
 
   // Auto-select the first present scope once the summary lands (if the current
   // one turned out empty).
@@ -88,6 +97,7 @@ export function CustomEmojiExplorer(): ReactElement {
       <div className="weq-cache-avatar-tabs">
         <button
           type="button"
+          data-setting-id="favorite-emoji"
           className={`weq-cache-avatar-tab${active === 'favorite' ? ' is-on' : ''}`}
           onClick={() => setActive('favorite')}
         >

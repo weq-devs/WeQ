@@ -5,7 +5,7 @@ import {
 } from '../../state/backgroundTasks';
 import { useToast } from '../Toast.shared';
 import { notificationSource } from '../../lib/notificationNavigation.shared';
-import type { MfDraft, MfTarget } from './model';
+import type { ForwardedConversationTarget, MfDraft, MfTarget } from './model';
 import type { CompositionBinding } from './workspaceModel';
 
 export class MergeForwardRejected extends Error {}
@@ -16,7 +16,7 @@ export type SendMergeForward = (
   target: MfTarget,
   binding?: CompositionBinding,
   taskFeedback?: boolean,
-) => Promise<undefined | boolean>;
+) => Promise<undefined | boolean | { seq?: string }>;
 
 export async function runMergeForwardTask({
   draft,
@@ -39,7 +39,7 @@ export async function runMergeForwardTask({
     scope,
     display: { action: '合并转发消息', subject: title },
   });
-  const sent: MfTarget[] = [];
+  const sent: ForwardedConversationTarget[] = [];
   const rejected: MfTarget[] = [];
   const unconfirmed: MfTarget[] = [];
   const reports: string[] = [];
@@ -53,12 +53,15 @@ export async function runMergeForwardTask({
     }
     localBackgroundTasks.update(id, { statusLabel: `正在转发到「${target.name}」` });
     try {
-      if ((await send(draft, target, binding, true)) === false) {
+      const result = await send(draft, target, binding, true);
+      if (result === false) {
         reports.push(`${target.name}：已跳过`);
         stopped++;
       } else {
         reports.push(`${target.name}：已发送`);
-        sent.push(target);
+        sent.push(
+          typeof result === 'object' && result.seq ? { ...target, seq: result.seq } : target,
+        );
       }
     } catch (error) {
       const explicit = error instanceof MergeForwardRejected;

@@ -40,6 +40,7 @@ export interface RoamingTargetPlan extends RoamingTarget {
   ranges: RoamingInterval[];
   remaining: RoamingInterval[];
   pending: RoamingInterval[];
+  firstObservedSeq?: string;
 }
 export interface RoamingAttempt {
   id: string;
@@ -203,6 +204,7 @@ export function roamingJobSummary(job: RoamingJob) {
       plannedSeqs: count(target.ranges),
       remainingSeqs: count(target.remaining),
       pendingSeqs: count(target.pending),
+      firstObservedSeq: target.firstObservedSeq,
     })),
     plannedSeqs: planned,
     remainingSeqs: remaining,
@@ -342,6 +344,9 @@ export class RoamingBackfillManager {
           if (
             key(target) !== key(job.options.targets[index]!) ||
             target.name !== job.options.targets[index]!.name ||
+            (target.firstObservedSeq !== undefined &&
+              (typeof target.firstObservedSeq !== 'string' ||
+                !validAnchor(target.firstObservedSeq))) ||
             subtractRoamingIntervals(target.remaining, target.ranges).length ||
             subtractRoamingIntervals(target.pending, target.remaining).length
           )
@@ -754,14 +759,14 @@ export class RoamingBackfillManager {
           }));
           const previous = count(target.remaining);
           job.unparsedOrEmpty += unresolved;
-          job.unparsedOrEmpty += rows.filter(
-            (row) =>
-              (row.elements.length === 0 ||
-                row.elements.some((element) => element.type === 'unknown')) &&
-              target.remaining.some(
-                (r) => Number(row.msgSeq) >= r.start && Number(row.msgSeq) <= r.end,
-              ),
-          ).length;
+          for (const row of rows) {
+            const seq = Number(row.msgSeq);
+            if (!target.remaining.some((range) => seq >= range.start && seq <= range.end)) continue;
+            if (!target.firstObservedSeq || seq < Number(target.firstObservedSeq))
+              target.firstObservedSeq = String(seq);
+            if (!row.elements.length || row.elements.some((element) => element.type === 'unknown'))
+              job.unparsedOrEmpty++;
+          }
           target.remaining = subtractRoamingIntervals(target.remaining, covered);
           job.observed += previous - count(target.remaining);
           target.pending = subtractRoamingIntervals(

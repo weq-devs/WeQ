@@ -169,7 +169,7 @@ export function CacheView({
   selection,
   revision = 0,
 }: {
-  selection?: { category: string };
+  selection?: { category: string; favoriteRevision?: number };
   revision?: number;
 } = {}): ReactElement {
   const [active, setActive] = usePageState<string>(
@@ -285,7 +285,7 @@ export function CacheView({
             ) : activeCategory.id === 'marketPack' ? (
               <MarketPackExplorer />
             ) : activeCategory.id === 'customEmoji' ? (
-              <CustomEmojiExplorer />
+              <CustomEmojiExplorer favoriteRevision={selection?.favoriteRevision} />
             ) : activeCategory.id === 'relatedEmoji' ? (
               <RelatedEmojiExplorer />
             ) : activeCategory.id === 'fileDir' ? (

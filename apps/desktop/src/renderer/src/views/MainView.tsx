@@ -2888,34 +2888,35 @@ function MainWorkspace(): ReactElement {
     groupMemberResults,
   );
   const [analysisReports, setAnalysisReports] = useState<AnalysisReportRequest[]>([]);
+  const openAnalysisReport = useStableCallback(async (id: string) => {
+    const binding = messageBindingRef.current;
+    const scope = messageScopeRef.current;
+    const isCurrent = () =>
+      messageScopeRef.current === scope &&
+      useViewState.getState().openedUin === binding?.expectedAccountUin &&
+      !useAppLock.getState().locked;
+    if (!scope || !binding || !isCurrent()) return false;
+    const saved = await client.account.analysisReports.get.query({ ...binding, id });
+    if (!isCurrent()) return false;
+    const request = restoredAnalysisRequest(saved.request);
+    if (!request) throw new Error('暂时无法读取这份分析报告。');
+    setAnalysisReports((previous) => [
+      ...previous.filter((report) => report.id !== request.id),
+      request,
+    ]);
+    return true;
+  });
   useEffect(() => {
     const open = (event: Event) => {
       const id: unknown = (event as CustomEvent<unknown>).detail;
       if (typeof id !== 'string') return;
-      const expected = useViewState.getState().openedUin;
-      void client.account.getAccountConfig
-        .query()
-        .then(async (config) => {
-          if (!config || config.uin !== expected || expected !== useViewState.getState().openedUin)
-            return;
-          const saved = await client.account.analysisReports.get.query({
-            id,
-            expectedAccountUin: config.uin,
-            expectedAccountConfigId: config.configId,
-          });
-          if (expected !== useViewState.getState().openedUin) return;
-          const request = restoredAnalysisRequest(saved.request);
-          if (request)
-            setAnalysisReports((previous) => [
-              ...previous.filter((report) => report.id !== request.id),
-              request,
-            ]);
-        })
-        .catch((error: unknown) => console.error('[analysis-reports] 无法打开报告', error));
+      void openAnalysisReport(id).catch((error: unknown) =>
+        console.error('[analysis-reports] 无法打开报告', error),
+      );
     };
     window.addEventListener('weq:open-saved-analysis', open);
     return () => window.removeEventListener('weq:open-saved-analysis', open);
-  }, []);
+  }, [openAnalysisReport]);
   const [analysisRequest, setAnalysisRequest] = useState<AnalysisToolRequest | null>(null);
   const [roamingRequest, setRoamingRequest] = useState<{
     targets: RoamingTarget[];
@@ -4054,7 +4055,7 @@ function MainWorkspace(): ReactElement {
               '请让对方确认；若没有，重发一次。',
           });
         }
-        return true;
+        return { seq: cardKeys.seq };
       } catch (error) {
         if (!(error instanceof MergeForwardUnconfirmed))
           patch({ state: 'failed', error: error instanceof Error ? error.message : String(error) });
@@ -10857,7 +10858,7 @@ function MainWorkspace(): ReactElement {
       jumpToConvSeq(
         destination.kind,
         destination.id,
-        undefined,
+        destination.seq,
         false,
         undefined,
         destination.messageId,
@@ -11990,6 +11991,7 @@ function MainWorkspace(): ReactElement {
                 accountScope={messageScope}
                 footerControls={controls}
                 onOpenCalendarTask={openCalendarTask}
+                onOpenAnalysisReport={openAnalysisReport}
                 onOpenAssistant={(target) => {
                   changeConversationView('assistant');
                   if (target?.sessionId) openAssistantConversation(target.sessionId, target);

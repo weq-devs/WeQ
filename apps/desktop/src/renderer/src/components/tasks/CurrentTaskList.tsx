@@ -1,7 +1,15 @@
 import { ToolbarLabel } from '../CompactToolbar';
 import { observeCompactToolbar } from '../CompactToolbar.shared';
 import { NumericText } from '../NumericText';
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  Fragment,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import { useTabActive } from '../RetainedTabs.shared';
 import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import {
@@ -86,6 +94,11 @@ import {
 import { exportTaskResult } from '../../../../shared/export_task_result';
 import { cloneTaskResult } from '../../lib/workspaceIndicators';
 import { taskNotificationForeground } from '../../lib/taskNotificationPresentation';
+import { TaskResultNavigationContext } from '../../lib/taskResultNavigation';
+import {
+  notificationSource,
+  openNotificationSource,
+} from '../../lib/notificationNavigation.shared';
 
 export type TaskLayout = 'inline' | 'compact' | 'split' | 'page';
 
@@ -142,6 +155,8 @@ export function CurrentTaskList({
   const showError = useDialog((state) => state.showError);
   const confirm = useDialog((state) => state.confirm);
   const showInfo = useDialog((state) => state.showInfo);
+  const resultNavigation = useContext(TaskResultNavigationContext);
+  const openingResult = useRef<string | null>(null);
   const [clearing, setClearing] = useState(false);
   const [cleanupMenu, setCleanupMenu] = useState<{ x: number; y: number } | null>(null);
   const [openingFlash, setOpeningFlash] = useState<string | null>(null);
@@ -443,17 +458,12 @@ export function CurrentTaskList({
           .join(' · ') || undefined,
       icon: taskIcon(task),
       detail: renderExport(task, archiveState.actions, archived || archiveState.isArchived),
-      quickActions:
-        actions.length || archiveState.actions.length ? (
-          <TaskQuickActions
-            actions={[
-              ...(archived || archiveState.isArchived
-                ? actions.filter((action) => !['pause', 'resume', 'cancel'].includes(action.id))
-                : actions),
-              ...archiveState.actions,
-            ]}
-          />
-        ) : null,
+      quickActions: [
+        ...(archived || archiveState.isArchived
+          ? actions.filter((action) => !['pause', 'resume', 'cancel'].includes(action.id))
+          : actions),
+        ...archiveState.actions,
+      ],
     };
   });
   const hostClones = new Set(background.tasks.map(({ task }) => task.clonePersonaId));
@@ -473,6 +483,7 @@ export function CurrentTaskList({
         run: () => onOpenClone(task.personaId),
       });
     }
+    const resultAction = actions[0];
     const status =
       task.status === 'done' ? 'completed' : task.status === 'error' ? 'failed' : 'running';
     const clone = manage(
@@ -511,7 +522,8 @@ export function CurrentTaskList({
       status: task.status === 'done' ? 'completed' : task.status === 'error' ? 'failed' : 'running',
       progress: task.percent,
       icon: <Users size={16} />,
-      quickActions: task.status !== 'running' ? <TaskQuickActions actions={actions} /> : null,
+      quickActions: task.status !== 'running' ? actions : undefined,
+      resultAction,
       detail: (
         <div>
           <TaskProgressDetails
@@ -607,6 +619,26 @@ export function CurrentTaskList({
           : job.status === 'partial'
             ? 'completed'
             : job.status;
+    const target = job.targets.length === 1 ? job.targets[0] : undefined;
+    const resultAction =
+      job.status === 'completed' && job.observed > 0 && target && cleanupBinding
+        ? {
+            label: '查看补回的消息',
+            run: () =>
+              openNotificationSource(
+                notificationSource(
+                  {
+                    kind: 'conversation',
+                    conversationKind: target.kind,
+                    conv: target.conv,
+                    seq: target.firstObservedSeq,
+                  },
+                  '查看补回的消息',
+                  cleanupBinding,
+                ),
+              ),
+          }
+        : undefined;
     items.push({
       id: `roaming:${job.id}`,
       name: taskDisplayTitle(display),
@@ -644,7 +676,8 @@ export function CurrentTaskList({
           />
         </div>
       ),
-      quickActions: <TaskQuickActions actions={rowActions} />,
+      quickActions: rowActions,
+      resultAction,
     });
   }
   if (roaming.data?.scanning && !roaming.data.jobs.some((job) => job.planning)) {
@@ -837,7 +870,7 @@ export function CurrentTaskList({
       note: single ? task.filesetName : `${task.filesetName} · ${formatSize(task.fileSize)}`,
       metrics: `${formatSize(task.downloadedBytes)} / ${formatSize(task.fileSize)}`,
       icon: <Download size={16} />,
-      quickActions: <TaskQuickActions actions={actions} />,
+      quickActions: actions,
       detail: (
         <div>
           <TaskProgressDetails
@@ -1024,6 +1057,32 @@ export function CurrentTaskList({
         },
       }));
     const navigation = backgroundTaskNavigation(task);
+    let resultAction: LongTaskItem['resultAction'];
+    if (
+      task.status === 'completed' &&
+      !task.needsConfirmation &&
+      !task.subtasks?.some((part) => part.failed)
+    ) {
+      if (['forward', 'album-upload', 'qzone-share', 'favorite-import'].includes(task.kind))
+        resultAction =
+          navigation ??
+          (task.kind === 'forward' ? actions.find(({ id }) => id === 'open') : undefined);
+      else if (task.kind === 'calendar' && resultNavigation?.openCalendar) {
+        const open = resultNavigation.openCalendar;
+        resultAction = { label: '打开会话日历', run: () => open(task.id) };
+      } else if (task.kind === 'clone' && task.clonePersonaId && onOpenClone) {
+        const id = task.clonePersonaId;
+        resultAction = { label: '查看克隆体', run: () => onOpenClone(id) };
+      } else if (
+        task.kind === 'analysis' &&
+        task.reportId &&
+        resultNavigation?.openAnalysisReport
+      ) {
+        const id = task.reportId;
+        const open = resultNavigation.openAnalysisReport;
+        resultAction = { label: '查看报告', run: () => open(id) };
+      }
+    }
     if (
       navigation &&
       (entry.source !== 'window' ||
@@ -1062,7 +1121,8 @@ export function CurrentTaskList({
           ? task.note
           : undefined,
       icon: <Icon size={16} />,
-      quickActions: actions.length ? <TaskQuickActions actions={actions} /> : null,
+      quickActions: actions,
+      resultAction,
       detail: (
         <BackgroundTaskDetails
           key={task.id}
@@ -1130,10 +1190,9 @@ export function CurrentTaskList({
         )?.result
       : undefined,
   );
-  const acknowledge = useRef<() => void>(() => {});
-  acknowledge.current = () => {
-    if (!selectedResult || !scopeIsCurrent() || !taskNotificationForeground()) return;
-    const { ref, auto, isArchived } = selectedResult;
+  const acknowledgeResult = (result: typeof selectedResult) => {
+    if (!result || !scopeIsCurrent() || !taskNotificationForeground()) return;
+    const { ref, auto, isArchived } = result;
     useWorkspaceMenu.getState().readTask(scope, ref.id, ref.result);
     if (
       !auto ||
@@ -1147,6 +1206,8 @@ export function CurrentTaskList({
         showError('未能自动归档', error instanceof Error ? error.message : String(error));
     });
   };
+  const acknowledge = useRef<() => void>(() => {});
+  acknowledge.current = () => acknowledgeResult(selectedResult);
   useEffect(() => {
     if (
       !visible ||
@@ -1213,27 +1274,51 @@ export function CurrentTaskList({
       if (mounted.current) setClearing(false);
     }
   };
-  const renderRow = (task: LongTaskItem) => (
-    <Fragment
-      key={`${cleanupBinding?.expectedAccountUin ?? accountId}:${cleanupBinding?.expectedAccountConfigId ?? ''}:${task.id}`}
-    >
-      <LongTaskRow
-        task={task}
-        active={task.id === selectedId}
-        pageLink={paged}
-        showQuickActions={layout === 'compact'}
-        onSelect={() => {
-          useWorkspaceMenu.setState({ taskFocusId: null });
-          heldResult.current = null;
-          setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
-          if (layout === 'compact') onOpenDetail?.();
-        }}
-      />
-      {layout === 'inline' && task.id === selectedId ? (
-        <div className="weq-long-task-detail">{task.detail}</div>
-      ) : null}
-    </Fragment>
-  );
+  const openTaskResult = async (
+    task: LongTaskItem,
+    action: NonNullable<LongTaskItem['resultAction']>,
+  ) => {
+    if (!scopeIsCurrent() || openingResult.current) return;
+    openingResult.current = task.id;
+    try {
+      const operation = action.run();
+      const opened = operation instanceof Promise ? await operation : operation;
+      if (opened === false || !scopeIsCurrent()) return;
+      acknowledgeResult(management.get(task.id));
+      resultNavigation?.dismiss();
+    } catch (error) {
+      if (scopeIsCurrent())
+        showError('无法打开任务结果', error instanceof Error ? error.message : String(error));
+    } finally {
+      openingResult.current = null;
+    }
+  };
+  const renderRow = (task: LongTaskItem) => {
+    const openDetails = () => {
+      useWorkspaceMenu.setState({ taskFocusId: null });
+      heldResult.current = null;
+      setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
+      if (layout === 'compact') onOpenDetail?.();
+    };
+    const resultAction = task.resultAction;
+    return (
+      <Fragment
+        key={`${cleanupBinding?.expectedAccountUin ?? accountId}:${cleanupBinding?.expectedAccountConfigId ?? ''}:${task.id}`}
+      >
+        <LongTaskRow
+          task={task}
+          active={task.id === selectedId}
+          pageLink={paged}
+          showQuickActions={layout === 'compact'}
+          onSelect={resultAction ? () => void openTaskResult(task, resultAction) : openDetails}
+          onOpenDetails={resultAction ? openDetails : undefined}
+        />
+        {layout === 'inline' && task.id === selectedId ? (
+          <div className="weq-long-task-detail">{task.detail}</div>
+        ) : null}
+      </Fragment>
+    );
+  };
   const selectedTask = ordered.find((task) => task.id === selectedId);
   const transfers = ordered.filter((task) => task.transfer);
   const otherTasks = ordered.filter((task) => !task.transfer);

@@ -1,4 +1,4 @@
-import { Ban, CircleAlert, CircleCheck, Clock, Loader2, Pause } from 'lucide-react';
+import { Ban, CircleAlert, CircleCheck, Clock, ListTodo, Loader2, Pause } from 'lucide-react';
 import '../../styles/long-tasks.css';
 import { TaskProgressBar } from './TaskProgressBar';
 import { NumericText } from '../NumericText';
@@ -6,17 +6,20 @@ import { taskCreatedLabel } from '@weq/service/task-display';
 import { TaskName } from './TaskName';
 import { useOutgoingTaskProgress } from '../../lib/transferActivity';
 import { type LongTaskItem, longTaskProgress, LABELS } from './LongTaskRow.shared';
+import { TaskQuickActions, type TaskQuickAction } from './TaskQuickActions';
 
 export function LongTaskRow({
   task,
   active,
   onSelect,
+  onOpenDetails,
   showQuickActions = false,
   pageLink = false,
 }: {
   task: LongTaskItem;
   active: boolean;
   onSelect: () => void;
+  onOpenDetails?: () => void;
   showQuickActions?: boolean;
   pageLink?: boolean;
 }) {
@@ -35,7 +38,9 @@ export function LongTaskRow({
     <button
       type="button"
       className={`weq-long-task is-${task.status}${active ? ' is-selected' : ''}`}
-      aria-expanded={pageLink ? undefined : active}
+      aria-expanded={pageLink || task.resultAction ? undefined : active}
+      aria-label={task.resultAction ? `${task.resultAction.label} · ${task.name}` : undefined}
+      title={task.resultAction?.label}
       onClick={onSelect}
     >
       <span className="weq-long-task-icon" aria-hidden>
@@ -79,14 +84,23 @@ export function LongTaskRow({
       </span>
     </button>
   );
-  return showQuickActions && task.quickActions ? (
+  const actions: TaskQuickAction[] = showQuickActions ? [...(task.quickActions ?? [])] : [];
+  if (onOpenDetails)
+    actions.unshift({
+      id: 'task-details',
+      label: '任务详情',
+      icon: <ListTodo size={14} aria-hidden />,
+      showLabel: true,
+      run: onOpenDetails,
+    });
+  return actions.length ? (
     <div
       className={`weq-long-task-entry${active ? ' is-selected' : ''}`}
       role="group"
       aria-label={task.name}
     >
       {row}
-      {task.quickActions}
+      <TaskQuickActions actions={actions} />
     </div>
   ) : (
     row

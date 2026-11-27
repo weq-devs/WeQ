@@ -61,6 +61,10 @@ const receipt = z.object({
         name: z.string().max(400),
         kind: z.enum(['c2c', 'group']),
         conv: z.string().max(200),
+        seq: z
+          .string()
+          .regex(/^[1-9]\d{0,9}$/)
+          .optional(),
       }),
     )
     .max(200)

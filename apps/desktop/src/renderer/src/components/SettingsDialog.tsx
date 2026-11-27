@@ -142,7 +142,10 @@ import { SettingsPageIcon } from './settings/pageIcons';
 
 const SETTINGS_PAGE_RENDERERS: Record<
   SettingsPageId,
-  (onOpenMaintenance: (tool: MaintenanceTool) => void) => ReactNode
+  (
+    onOpenMaintenance: (tool: MaintenanceTool) => void,
+    target?: SettingsSearchTarget | null,
+  ) => ReactNode
 > = {
   startup: () => <StartupSection />,
   appearance: () => <AppearanceSection page="appearance" />,
@@ -228,7 +231,11 @@ const SETTINGS_PAGE_RENDERERS: Record<
       <DataSaverSettings />
     </div>
   ),
-  'qq-storage': () => <ResourceManagementSection />,
+  'qq-storage': (_, target) => (
+    <ResourceManagementSection
+      favoriteRevision={target?.settingId === 'favorite-emoji' ? target.revision : undefined}
+    />
+  ),
   'weq-storage': () => (
     <>
       <div className="weq-set">
@@ -634,7 +641,10 @@ function SettingsContent({
                               }
                             />
                           ) : (
-                            SETTINGS_PAGE_RENDERERS[activePage](onOpenMaintenance)
+                            SETTINGS_PAGE_RENDERERS[activePage](
+                              onOpenMaintenance,
+                              linkedTarget ?? searchTarget,
+                            )
                           )}
                         </SettingsNavigateContext.Provider>
                       </SettingsScopeContext.Provider>

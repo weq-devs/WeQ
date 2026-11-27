@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { z } from 'zod/v3';
 import { usePageState } from '../PageSnapshots.shared';
 import { BarChart3, FolderOpen, HardDrive, Layers, Trash2 } from 'lucide-react';
@@ -22,7 +22,7 @@ import '../../styles/settings-resources.css';
 
 type ResourceView = 'overview' | 'cleanup' | 'browse';
 
-export function ResourceManagementSection() {
+export function ResourceManagementSection({ favoriteRevision }: { favoriteRevision?: number }) {
   const active = useTabActive();
   const uin = useViewState((state) => state.openedUin);
   const account = trpc.account.getAccountConfig.useQuery(undefined, {
@@ -58,6 +58,7 @@ export function ResourceManagementSection() {
           <ResourceManagementBody
             key={JSON.stringify([source.expectedAccountUin, source.expectedAccountConfigId])}
             source={source}
+            favoriteRevision={favoriteRevision}
           />
         </TabActivity>
       ) : !account.error ? (
@@ -67,7 +68,13 @@ export function ResourceManagementSection() {
   );
 }
 
-function ResourceManagementBody({ source }: { source: ResourceSource }) {
+function ResourceManagementBody({
+  source,
+  favoriteRevision,
+}: {
+  source: ResourceSource;
+  favoriteRevision?: number;
+}) {
   const remote = useRemoteClient();
   const activity = useQQReadActivity(true, { onlineOnly: false });
   const [view, setView] = usePageState<ResourceView>(
@@ -77,7 +84,12 @@ function ResourceManagementBody({ source }: { source: ResourceSource }) {
   );
   const currentView = remote && view === 'cleanup' ? 'overview' : view;
   const [busy, setBusy] = useState(false);
-  const [selection, setSelection] = useState<{ category: string }>();
+  const [selection, setSelection] = useState<{ category: string; favoriteRevision?: number }>();
+  useEffect(() => {
+    if (favoriteRevision === undefined) return;
+    setSelection({ category: 'customEmoji', favoriteRevision });
+    setView('browse');
+  }, [favoriteRevision, setView]);
   const scan = useResourceManagementScan(source, activity.enabled);
   if (!scan) return null;
   const snapshot = { ...scan, cleanupRunning: busy };

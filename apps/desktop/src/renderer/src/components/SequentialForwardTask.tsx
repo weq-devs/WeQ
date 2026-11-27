@@ -17,6 +17,7 @@ import {
   recordForwardTask,
 } from '../state/backgroundTasks';
 import { singleChatFile } from '../lib/chatFileForward';
+import { expectedOutgoingKeys } from '../lib/outgoingAcknowledgment';
 import type { BackgroundTaskScope } from '../../../shared/background_task';
 import {
   sequentialReplyTargets,
@@ -68,6 +69,7 @@ export function startSequentialForward({
     let failed = 0;
     let sendSpentMs = 0;
     let lastError = '';
+    let firstSeq: string | undefined;
     const failures: string[] = [];
     const receipts = new Map<number, string>();
     const sentForReplies = new Map<string, ForwardReceipt>();
@@ -84,6 +86,7 @@ export function startSequentialForward({
       name: target.name,
       scope,
       display: { action: '逐条转发消息', subject: target.name },
+      forwardTargets: [target],
     });
     const taskSource = notificationSource(
       { kind: 'task', id: `background:window:${taskId}` },
@@ -143,6 +146,12 @@ export function startSequentialForward({
               quotedId ? sentForReplies.get(quotedId) : undefined,
             );
             if (receipt && quotedIds.has(message.id)) sentForReplies.set(message.id, receipt);
+            if (message === messages[0]) {
+              firstSeq = expectedOutgoingKeys({ ...receipt, peerType: target.kind }).seq;
+              localBackgroundTasks.update(taskId, {
+                forwardTargets: [{ ...target, seq: firstSeq }],
+              });
+            }
           } catch (error) {
             lastError = error instanceof Error ? error.message : String(error);
             throw error;
@@ -200,7 +209,7 @@ export function startSequentialForward({
       local.signal.aborted ? 'cancelled' : stopped || failed ? 'failed' : 'completed',
       {
         statusLabel: label,
-        forwardTargets: [target],
+        forwardTargets: [{ ...target, seq: firstSeq }],
         details: [stopped, ...receiptDetails(), ...failures].filter((line): line is string =>
           Boolean(line),
         ),
