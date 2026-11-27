@@ -5,7 +5,7 @@
  *   1. `info` —— QQ 随消息保存的元数据，标题和描述直接画，封面优先读本地缓存。
  *   2. LinkPreviewService —— 先读本地预览，允许联网补全时才抓元数据及图片。
  *
- * 站点资料返回时保留时间线的阅读位置，封面在固定大小的缩略图内更新。
+ * 站点资料和封面陆续返回时保留时间线的阅读位置。
  *
  * 视觉沿用 ARK 卡片那一套 class（weq-ark-*），因为它们在聊天流里已经是「卡片」的既定
  * 语言，没必要再造一套。
@@ -19,7 +19,6 @@ import { linkPreviewImageUrl } from '../lib/resourceUrl';
 import { openLink } from '../lib/linkify';
 import { useDataSaver } from '../lib/dataSaver';
 import { LinkPreviewContext } from '../state/messageAppearance';
-import { ShimmerImage } from './ShimmerImage';
 import { MessageLayoutChange } from './MessageExpansion';
 
 /** 卡片实际需要的几个字段，抹平「QQ 自带」与「自己抓」两种来源。 */
@@ -98,7 +97,7 @@ export const QqLinkCard = memo(function QqLinkCard({
     <span ref={anchor} className="weq-link-card-layout">
       <MessageLayoutChange
         anchor={anchor}
-        details={[['.weq-link-card', Boolean(card)]]}
+        details={[['.weq-link-card', Boolean(card), card?.title, card?.desc, Boolean(card?.cover)]]}
         animateLayout={false}
       />
       {card ? (
@@ -110,22 +109,21 @@ export const QqLinkCard = memo(function QqLinkCard({
           onClick={(event) => void openLink(card.url, event.currentTarget.ownerDocument)}
         >
           <span className="weq-ark-content">
-            <span className="weq-link-copy">
-              <span className="weq-ark-title">{card.title || card.url}</span>
-              <span className="weq-ark-desc weq-link-desc">{card.desc}</span>
-            </span>
-            <span className="weq-link-cover weq-media-frame" aria-hidden>
-              {card.cover ? (
-                <ShimmerImage
+            <span className="weq-ark-title">{card.title || card.url}</span>
+            {card.cover ? (
+              <>
+                {card.desc ? <span className="weq-ark-desc weq-link-desc">{card.desc}</span> : null}
+                <img
+                  className="weq-ark-preview-big"
                   src={card.cover}
                   alt=""
                   loading="lazy"
                   style={card.imageKind === 'shot' ? { objectPosition: 'top' } : undefined}
                 />
-              ) : (
-                <Link2 size={20} />
-              )}
-            </span>
+              </>
+            ) : (
+              <span className="weq-ark-desc weq-link-desc">{card.desc || card.url}</span>
+            )}
           </span>
           <span className="weq-ark-footer">
             <Link2 size={12} className="weq-link-footer-icon" />

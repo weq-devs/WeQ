@@ -51,9 +51,16 @@ try {
   });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.route('**/*', (route) =>
-    new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
-  );
+  await page.route('**/*', (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get('src')?.includes('/groupluckyword/')) {
+      return route.fulfill({
+        contentType: 'image/svg+xml',
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"/>',
+      });
+    }
+    return url.hostname === '127.0.0.1' ? route.continue() : route.abort();
+  });
   await page.goto(
     `http://127.0.0.1:${server.httpServer.address().port}/test/browser/chat-header.html`,
   );
@@ -344,22 +351,16 @@ try {
   if (output && focused) await page.screenshot({ path: resolve(output, 'desktop-messages.png') });
   await page.keyboard.press('Escape');
   const titleBox = () => page.locator('.chat-title-text').boundingBox();
-  const assertStable = (before, after, label) =>
-    assert(
-      before &&
-        after &&
-        ['x', 'y', 'width', 'height'].every((key) => Math.abs(before[key] - after[key]) <= 1),
-      `${label}：${JSON.stringify({ before, after })}`,
-    );
   await page.setViewportSize({ width: 390, height: 844 });
   await more().waitFor();
   const groupTitle = await titleBox();
   await page.evaluate(() => window.chatHeaderQa.showLuckyChar(true));
-  await page.locator('img[title^="幸运字符"]').waitFor({ state: 'attached' });
-  assertStable(groupTitle, await titleBox(), '群名随幸运字符出现而移动');
+  const luckyChar = page.locator('img[title^="幸运字符"]');
+  await luckyChar.waitFor({ state: 'visible' });
+  assert(groupTitle.width > (await titleBox()).width, '有幸运字符时，群名应与徽标共享空间');
   await page.evaluate(() => window.chatHeaderQa.showLuckyChar(false));
-  await page.locator('img[title^="幸运字符"]').waitFor({ state: 'detached' });
-  assertStable(groupTitle, await titleBox(), '群名随幸运字符移除而移动');
+  await luckyChar.waitFor({ state: 'detached' });
+  assert(Math.abs(groupTitle.width - (await titleBox()).width) <= 1, '无幸运字符时群名应收回空间');
   await page.evaluate(() => {
     window.chatHeaderQa.alignment(true);
     window.chatHeaderQa.statusReady(false);
@@ -370,17 +371,38 @@ try {
       document.documentElement.dataset.weqLayout = width === 390 ? 'single' : 'split';
     }, width);
     await page.getByText('在线 - 今日天气', { exact: true }).first().waitFor({ state: 'detached' });
-    const before = await titleBox();
+    const status = page.locator(width === 390 ? '.chat-status-mobile' : '.chat-status-desktop');
+    assert((await status.boundingBox()) === null, '无状态时应收起会话状态栏');
     await page.evaluate(() => window.chatHeaderQa.statusReady(true));
     await page.locator('.chat-title .weq-online-status:visible').waitFor();
-    assertStable(before, await titleBox(), '昵称随在线状态出现而移动');
     await page.evaluate(() => window.chatHeaderQa.statusReady(false));
     await page.getByText('在线 - 今日天气', { exact: true }).first().waitFor({ state: 'detached' });
-    assertStable(before, await titleBox(), '昵称随在线状态移除而移动');
+    assert((await status.boundingBox()) === null, '状态移除后应释放会话标题栏空间');
   }
   await page.setViewportSize({ width: 1180, height: 844 });
+  const account = page.locator('.app-title-bar-user');
+  const accountGap = (left, right) =>
+    account.evaluate(
+      (node, [left, right]) => {
+        const a = node.querySelector(left).getBoundingClientRect();
+        const b = node.querySelector(right).getBoundingClientRect();
+        return b.left - a.right;
+      },
+      [left, right],
+    );
+  const compactGap = (gap) => gap >= 0 && gap <= 12;
+  assert(
+    compactGap(await accountGap('.app-title-bar-nick', '.app-title-bar-signature')),
+    '没有会员徽标和状态时，签名应紧随昵称',
+  );
   await page.evaluate(() => window.chatHeaderQa.statusReady(true));
   await page.locator('.chat-status-desktop .weq-online-status').waitFor();
+  await account.locator('.weq-title-online-status').waitFor();
+  assert(
+    compactGap(await accountGap('.app-title-bar-nick', '.weq-title-online-status')) &&
+      compactGap(await accountGap('.weq-title-online-status', '.app-title-bar-signature')),
+    '短状态应按内容占宽，状态两侧不应出现大空隙',
+  );
   for (const componentStyle of ['default', 'qqnt']) {
     for (const theme of ['light', 'dark']) {
       await page.evaluate(

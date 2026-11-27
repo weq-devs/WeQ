@@ -361,17 +361,12 @@ html[data-theme='dark'] .weq-intent-popover {
 
 /* ── 好感度胶囊（chat header 右上角）────────────────────────────────── */
 
-.weq-affinity-slot,
-.weq-affinity-pill {
-  flex: 0 0 96px;
-  inline-size: 96px;
-}
-
 .weq-affinity-pill {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   height: 26px;
+  min-width: 92px;
   justify-content: center;
   box-sizing: border-box;
   padding: 0 11px;
@@ -940,13 +935,8 @@ html[data-theme='dark'] .weq-affinity-pill.tier-unrated {
 /* 窄屏：头部工具按钮会被撑成 36px 圆形，文字胶囊会把标题挤没，
    这里只留图标与分数，点击行为不变。 */
 @media (max-width: 720px) {
-  .weq-affinity-slot,
   .weq-affinity-pill {
-    flex-basis: 36px;
     width: 36px;
-  }
-
-  .weq-affinity-pill {
     min-width: 36px;
     height: 36px;
     justify-content: center;

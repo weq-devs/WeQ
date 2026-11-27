@@ -7,7 +7,9 @@ import { ContentSelectionProvider } from '../../src/renderer/src/state/contentSe
 import { ConversationDirectoryContext } from '../../src/renderer/src/lib/conversationDirectory';
 import { PROJECT_GROUP_IDS } from '../../src/shared/project_groups';
 import { ChatHeader } from '../../src/renderer/src/components/ChatHeader';
+import { TitleBar } from '../../src/renderer/src/im-template/template/TitleBar';
 import { MobileWebNavigation } from '../../src/renderer/src/components/MobileWebNavigation';
+import { rpcFixture } from './trpc.stub';
 import '../../src/renderer/src/styles/index.css';
 import '../../src/renderer/src/styles/mobile-web.css';
 import '../../src/renderer/src/styles/workspace-tools.css';
@@ -71,8 +73,12 @@ function Fixture() {
   });
   if (alignment) {
     const status = <FixtureStatus ready={statusReady} />;
+    rpcFixture.set('account.getOnlineStatus.useQuery', () => ({
+      data: statusReady ? { type: 10, typeName: '在线', displayStatus: '在线' } : undefined,
+    }));
     return (
       <div className="weq-web-shell">
+        <TitleBar user={{ ...demo.user, uid: 'u_fixture_self', signature: '测试签名' }} />
         <section className="chat-pane">
           <ChatHeader
             title={<span className="chat-title-text">用于验证标题截断的合成联系人名称</span>}

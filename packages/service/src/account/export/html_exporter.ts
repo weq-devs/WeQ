@@ -344,7 +344,7 @@ function mediaBoxStyle(width: number, height: number, maxWidth: number, maxHeigh
     1,
     Math.round(Math.min(width, maxWidth, (maxHeight * width) / height)),
   );
-  return ` style="width:min(${displayWidth}px,100%);aspect-ratio:${width}/${height}"`;
+  return ` style="width:min(${displayWidth}px,100%);aspect-ratio:auto ${width}/${height}"`;
 }
 
 /**
@@ -735,9 +735,8 @@ body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system
 .face-emoji.mface{width:96px;height:96px;vertical-align:top;max-width:38%;margin:2px 0}
 @media(max-width:560px){.face-emoji.mface{width:72px;height:72px}}
 .face-glyph{font-size:1.25em;line-height:1;vertical-align:-0.15em}
-.media{width:min(120px,100%);height:auto;aspect-ratio:5/4;max-width:min(240px,100%);max-height:280px;object-fit:contain;align-self:flex-start;border-radius:6px;display:block;margin:3px 0}
-.media.emoji{width:min(90px,100%);aspect-ratio:1;max-width:90px;max-height:90px}
-video.media{width:min(200px,100%);aspect-ratio:5/3}
+.media{width:auto;height:auto;max-width:min(240px,100%);max-height:280px;object-fit:contain;align-self:flex-start;border-radius:6px;display:block;margin:3px 0}
+.media.emoji{max-width:90px;max-height:90px}
 .voice{display:inline-flex;flex-direction:column;gap:2px}.voice audio{height:34px}
 .pic-wrap{display:inline-flex;flex-direction:column;align-items:flex-start;max-width:100%;gap:2px}
 .cap{color:var(--sub)}

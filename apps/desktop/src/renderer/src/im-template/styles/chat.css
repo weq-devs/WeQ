@@ -364,14 +364,14 @@
 }
 
 .chat-status-desktop {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  justify-items: start;
-  flex: 0 0 clamp(56px, 24%, 144px);
+  display: flex;
+  flex: 0 3 auto;
   min-width: 0;
+  max-width: min(160px, 42%);
   align-items: center;
 }
 
+.chat-status-desktop:empty,
 .chat-status-mobile {
   display: none;
 }

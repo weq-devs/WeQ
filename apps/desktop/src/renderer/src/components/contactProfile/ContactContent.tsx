@@ -208,11 +208,11 @@ export function ContactIdentity({
                       {fallbackStatus}
                     </span>
                   </SelfOnlineStatus>
-                ) : (
+                ) : fallbackStatus ? (
                   <span className="weq-contact-status" title={fallbackStatus}>
                     {fallbackStatus}
                   </span>
-                )}
+                ) : null}
                 {!self ? <ContactFieldHistoryButton field="status" label="在线状态" /> : null}
               </div>
             ) : null}
@@ -351,44 +351,32 @@ function ContactPendant({ person }: { person: ProfilePerson }) {
 }
 
 function QqShowRow({ person }: { person: ProfilePerson }) {
+  const hasHistory = useContactFieldHistoryAvailable('QQ 秀');
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement>(null);
   const query = useContactQqShow(person.identityValue);
   const url = query.data?.hasShow ? query.data.url : null;
+  if (!url) return hasHistory ? <ContactRow label="QQ 秀" value={null} /> : null;
   return (
     <>
       <ContactRow label="QQ 秀">
-        <div className="weq-contact-qqshow-slot">
-          {url ? (
-            <button
-              type="button"
-              className="weq-contact-qqshow weq-media-frame"
-              ref={anchor}
-              title="查看 QQ 秀展柜"
-              aria-label="查看 QQ 秀展柜"
-              onClick={() => setOpen((value) => !value)}
-            >
-              <ShimmerImage src={qqShowUrl(url, query.data?.expiresAt)} alt="当前 QQ 秀" />
-            </button>
-          ) : (
-            <span className="weq-contact-qqshow-state">
-              {query.isFetching
-                ? '读取中…'
-                : query.isError
-                  ? '读取失败'
-                  : query.data
-                    ? '暂无当前形象'
-                    : '尚未读取'}
-            </span>
-          )}
-        </div>
+        <button
+          type="button"
+          className="weq-contact-qqshow weq-media-frame"
+          ref={anchor}
+          title="查看 QQ 秀展柜"
+          aria-label="查看 QQ 秀展柜"
+          onClick={() => setOpen((value) => !value)}
+        >
+          <ShimmerImage src={qqShowUrl(url, query.data?.expiresAt)} alt="当前 QQ 秀" />
+        </button>
       </ContactRow>
-      {open && url ? (
+      {open ? (
         <QqShowGallery
           uin={person.identityValue}
           anchor={anchor.current}
           name={displayUserName(person)}
-          currentRevision={url ? Number(/\/(\d+)\.png/.exec(url)?.[1]) || null : null}
+          currentRevision={Number(/\/(\d+)\.png/.exec(url)?.[1]) || null}
           onClose={() => {
             setOpen(false);
             anchor.current?.focus({ preventScroll: true });

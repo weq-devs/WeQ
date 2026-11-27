@@ -71,7 +71,7 @@ export function AffinityPill({
     prevTier.current = tier;
   }, [tier]);
 
-  if (!active) return <span className="weq-affinity-slot" aria-hidden />;
+  if (!active) return null;
 
   return (
     <button

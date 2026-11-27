@@ -222,7 +222,8 @@ try {
   const greeting = page.locator('.weq-chathome-greet');
   const stage = page.locator('.weq-chathome-stage');
   await greeting.waitFor();
-  const baseline = [await stage.boundingBox(), await greeting.boundingBox()];
+  const stageBaseline = await stage.boundingBox();
+  let greetingBaseline = await greeting.boundingBox();
   for (const [phase, populated] of [
     [1, '.weq-chathome-qqshow'],
     [2, '.weq-tag'],
@@ -236,8 +237,14 @@ try {
       .locator(populated)
       .first()
       .waitFor({ state: phase === 2 ? 'attached' : 'visible' });
-    const actual = [await stage.boundingBox(), await greeting.boundingBox()];
-    assert.deepEqual(actual, baseline, `首页内容到达阶段 ${phase} 改变了舞台或问候语位置`);
+    const currentGreeting = await greeting.boundingBox();
+    assert.deepEqual(await stage.boundingBox(), stageBaseline, `首页阶段 ${phase} 移动了舞台`);
+    if (phase === 2) {
+      assert.ok(currentGreeting.y > greetingBaseline.y, '标签出现后问候语应让出标签环所需空间');
+      greetingBaseline = currentGreeting;
+    } else {
+      assert.deepEqual(currentGreeting, greetingBaseline, `首页阶段 ${phase} 移动了问候语`);
+    }
   }
   console.log(JSON.stringify({ report, errors }));
   assert.deepEqual(errors, []);

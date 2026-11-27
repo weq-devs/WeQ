@@ -53,7 +53,7 @@ function ReadState({
         <ContactInlineError message="读取失败" onRetry={() => void retry()} retrying={fetching} />
       </ContactRow>
     );
-  return <ContactRow label={label} value="暂无当前资料" />;
+  return null;
 }
 export function ContactOnlineOccupation({ uin }: { uin: string }) {
   const query = useDetails(uin);

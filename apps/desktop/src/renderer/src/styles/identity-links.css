@@ -199,7 +199,7 @@
   min-width: 0;
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr);
-  grid-template-rows: minmax(26px, auto) 18px;
+  grid-template-rows: auto auto;
   column-gap: 10px;
 }
 :where(html[data-weq-layout='single']) .weq-mobile-account.weq-self-identity-link {
@@ -234,6 +234,13 @@
   align-self: start;
   position: relative;
   pointer-events: auto;
+}
+:where(html[data-weq-layout='single'])
+  .weq-mobile-self-identity:has(> .weq-mobile-identity:empty)
+  .weq-mobile-account
+  > strong {
+  grid-row: 1 / 3;
+  align-self: center;
 }
 :where(html[data-weq-layout='single'])
   .weq-mobile-header:has(.weq-titlebar-search.is-expanded)

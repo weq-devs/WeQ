@@ -99,24 +99,19 @@ body {
   height: 12px;
 }
 
-.lucky-char-slot {
-  --lucky-char-size: 30px;
-  flex: 0 0 var(--lucky-char-size);
-  inline-size: var(--lucky-char-size);
-  block-size: var(--lucky-char-size);
-}
-
 .lucky-char-badge {
-  inline-size: 100%;
-  block-size: 100%;
+  display: inline-block;
+  flex: none;
+  width: 48px;
+  height: 48px;
   border-radius: 4px;
   object-fit: contain;
   vertical-align: middle;
   user-select: none;
 }
 
-:where(html[data-weq-layout='single']) .lucky-char-slot {
-  --lucky-char-size: 22px;
+.lucky-char-badge[hidden] {
+  display: none;
 }
 
 input,

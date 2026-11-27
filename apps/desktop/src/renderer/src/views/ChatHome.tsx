@@ -157,7 +157,7 @@ export function ChatHome({
   return (
     <section
       className={`weq-chathome weq-anim-fade${hasBackdrop ? ' is-onphoto' : ''}${
-        home.showTags ? ' has-tag-ring' : ''
+        tags.length > 0 ? ' has-tag-ring' : ''
       }`}
     >
       <CardBackdrop imageUrl={cardUrl} videoUrl={cardVideoUrl} />

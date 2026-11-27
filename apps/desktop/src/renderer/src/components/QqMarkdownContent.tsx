@@ -25,7 +25,6 @@ import { openLink } from '../lib/linkify';
 import { imageSizeHint, normalizeBotMarkdown } from './qqBotMarkdown';
 import { remarkQqHighlight, remarkQqLineBreaks } from './qqMarkdownPlugins';
 import { useDataSaver } from '../lib/dataSaver';
-import { messageMediaSize } from '../lib/chatMediaSize';
 
 const REMARK_PLUGINS = [remarkGfm, remarkQqLineBreaks, remarkQqHighlight];
 const PLUGINS = { code: shikiCodeHighlighter };
@@ -58,21 +57,19 @@ function MarkdownImage({ src, alt, ...rest }: JSX.IntrinsicElements['img']): Rea
         {alt && !hint ? `加载图片（${alt}）` : '加载图片'}
       </button>
     );
-  const { width, height } = hint
-    ? { width: hint.width, height: hint.height || hint.width }
-    : messageMediaSize('pic', {});
+  if (!hint) return <img {...rest} src={src} alt={alt ?? ''} />;
   return (
     <img
       {...rest}
       src={src}
       alt={alt ?? ''}
-      width={width}
-      height={height}
+      width={hint.width}
+      height={hint.height}
       style={{
-        width,
+        width: hint.width,
         maxWidth: '100%',
         height: 'auto',
-        aspectRatio: `${width} / ${height}`,
+        aspectRatio: hint.height ? `${hint.width} / ${hint.height}` : undefined,
         objectFit: 'contain',
       }}
     />

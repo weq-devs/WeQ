@@ -195,7 +195,11 @@ html[data-theme='dark'] .weq-contact-card {
 }
 
 .weq-contact-status-line {
-  block-size: 20px;
+  min-block-size: 20px;
+}
+
+.weq-contact-status-line:empty {
+  display: none;
 }
 
 .weq-contact-status-line > :is(.weq-self-online-status, span) {
@@ -353,25 +357,10 @@ html[data-theme='dark'] .weq-contact-card {
   display: contents;
 }
 
-.weq-profile-data-row:has(> .weq-profile-data-value > .weq-contact-qqshow-slot) {
-  align-items: center;
-}
-
-.weq-contact-qqshow-slot {
-  display: flex;
-  align-items: center;
-  block-size: 48px;
-}
-
-.weq-contact-qqshow-state {
-  color: var(--weq-fg-secondary);
-  white-space: nowrap;
-}
-
 .weq-contact-qqshow {
   display: block;
-  width: 48px;
-  height: 100%;
+  width: 100%;
+  height: 132px;
   padding: 0;
   border: 0;
   border-radius: 8px;
@@ -380,7 +369,7 @@ html[data-theme='dark'] .weq-contact-card {
 }
 
 .weq-contact-qqshow img {
-  width: 100%;
+  max-width: 100%;
   height: 100%;
   object-fit: contain;
 }

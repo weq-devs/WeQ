@@ -4117,7 +4117,6 @@ html[data-theme='dark'] .app-title-bar-user {
   font-style: italic;
   font-family: Georgia, 'Nimbus Roman No9 L', 'Songti SC', 'KaiTi', '楷体', serif;
   color: #5c7c99;
-  margin-left: 12px;
   max-width: 280px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -8891,7 +8890,6 @@ html[data-theme='dark'] .message-line.mine .message-content .qq-at-element {
   font-weight: 600;
 }
 
-/* 链接卡片在标题、描述和封面陆续返回时保持同一尺寸。 */
 .weq-link-card-layout {
   display: contents;
 }
@@ -8901,40 +8899,11 @@ html[data-theme='dark'] .message-line.mine .message-content .qq-at-element {
   text-align: start;
 }
 .weq-link-card .weq-ark-content {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px;
-  align-items: center;
-  gap: 8px;
-}
-.weq-link-copy {
-  block-size: 64px;
-  overflow: hidden;
+  display: block;
   overflow-wrap: anywhere;
-}
-.weq-link-card .weq-ark-title {
-  margin-bottom: 4px;
-}
-.weq-link-copy:has(.weq-link-desc:not(:empty)) .weq-ark-title {
-  -webkit-line-clamp: 1;
 }
 .weq-link-card .weq-link-desc {
   margin-bottom: 0;
-  -webkit-line-clamp: 2;
-}
-.weq-link-cover {
-  display: grid;
-  place-items: center;
-  inline-size: 64px;
-  block-size: 64px;
-  overflow: hidden;
-  border-radius: 6px;
-  background: var(--weq-bg-app);
-  color: var(--weq-fg-muted);
-}
-.weq-link-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 .weq-link-card .weq-ark-footer > span {
   overflow: hidden;

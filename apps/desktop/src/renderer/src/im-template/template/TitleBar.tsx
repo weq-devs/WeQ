@@ -62,19 +62,15 @@ export function TitleBar({
           <SelfProfileAvatar key={`${user.id}:${user.identityValue}`} user={user} group={group}>
             <span className="app-title-bar-nick">{displayUserName(user)}</span>
           </SelfProfileAvatar>
-          <span className="app-title-bar-vip-slot">
-            <VipBadge key={user.identityValue} />
-          </span>
+          <VipBadge key={user.identityValue} />
           {user.uid && (
-            <span className="weq-title-online-status-slot">
-              <OnlineStatus
-                key={user.uid}
-                uid={user.uid}
-                selfUin={user.identityValue}
-                className="weq-title-online-status"
-                refetchInterval={15_000}
-              />
-            </span>
+            <OnlineStatus
+              key={user.uid}
+              uid={user.uid}
+              selfUin={user.identityValue}
+              className="weq-title-online-status"
+              refetchInterval={15_000}
+            />
           )}
           {user.signature && (
             <span className="app-title-bar-signature" title={user.signature}>
