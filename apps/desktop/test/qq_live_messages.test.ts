@@ -2,11 +2,20 @@
 import { expect, it, vi } from 'vitest';
 import { ELEM, encode, MSG_PUSH_ENVELOPE, PIC_COMMON_PB, PTT_COMMON_PB } from '@weqbot/protocol';
 import { buildClientReadNotify } from '@weqbot/protocol/qq-sync';
+import { MSG_CONTENT } from '../../../vendor/weqbot/packages/protocol/src/msg/schemas';
 import {
   FRIEND_RECALL,
+  FRIEND_REQUEST,
   GENERAL_GRAY_TIP,
   GROUP_ADMIN,
+  GROUP_INVITATION,
+  GROUP_INVITE,
+  GROUP_JOIN,
+  GROUP_MUTE,
+  GROUP_NOTIFY_BODY,
   GROUP_REACT,
+  INPUT_STATUS_NOTIFY,
+  NEW_FRIEND,
 } from '../../../vendor/weqbot/packages/protocol/src/push/schemas';
 import { mergeRoamingTimeline } from '@weq/service/roaming-timeline';
 import { decodeLivePush, LiveMessages } from '../src/main/qq_sync/live_messages';
@@ -30,6 +39,83 @@ const rawPrivate = {
 };
 const body = (...messages: unknown[]) => encode(MSG_PUSH_ENVELOPE, { messages });
 
+it('将好友、群和输入状态通知分派给业务层，忽略其他账号及过期的输入状态', () => {
+  const notice = (msgType: number, subType: number, msgContent: Uint8Array, at = now) => ({
+    contentHead: { msgType, subType, timestamp: at / 1000 },
+    body: { msgContent },
+  });
+  const essence = encode(GROUP_NOTIFY_BODY, {
+    groupUin: 70001,
+    essenceMessage: { msgSequence: 100, setFlag: 1, timestamp: now / 1000 },
+  });
+  const wrappedEssence = Buffer.alloc(7 + essence.length);
+  wrappedEssence.writeUInt16BE(essence.length, 5);
+  wrappedEssence.set(essence, 7);
+  const input = (toUid: string) =>
+    encode(INPUT_STATUS_NOTIFY, {
+      fromUid: 'u_peer',
+      toUid,
+      notifyItem: { eventType: 3 },
+    });
+  const friend = (targetUid: string) =>
+    encode(FRIEND_REQUEST, {
+      info: { targetUid, sourceUid: 'u_new' },
+    });
+  const result = decodeLivePush(
+    body(
+      notice(528, 35, friend(self)),
+      notice(528, 35, friend('u_other')),
+      ...[179, 226].map((subType) =>
+        notice(
+          528,
+          subType,
+          encode(NEW_FRIEND, {
+            info: { uid: `u_friend${subType}`, toUid: self },
+          }),
+        ),
+      ),
+      notice(84, 0, encode(GROUP_JOIN, { groupUin: 70001, targetUid: 'u_peer' })),
+      notice(87, 0, encode(GROUP_INVITE, { groupUin: 70002, invitorUid: 'u_peer' })),
+      notice(
+        525,
+        0,
+        encode(GROUP_INVITATION, {
+          cmd: 87,
+          info: { inner: { groupUin: 70003, targetUid: self, invitorUid: 'u_peer' } },
+        }),
+      ),
+      notice(528, 277, input(self)),
+      notice(528, 277, input('u_other')),
+      notice(528, 277, input(self), now - 7000),
+      notice(
+        732,
+        12,
+        encode(GROUP_MUTE, {
+          groupUin: 70001,
+          data: { state: { targetUid: self, duration: 60 } },
+        }),
+      ),
+      notice(732, 21, wrappedEssence),
+      rawGroup,
+    ),
+    self,
+    account,
+    now,
+  );
+  expect(result.updates.business).toEqual([
+    { kind: 'friend-request', uid: 'u_new' },
+    { kind: 'friend-add', uid: 'u_friend179' },
+    { kind: 'friend-add', uid: 'u_friend226' },
+    { kind: 'group-request', groupCode: '70001' },
+    { kind: 'group-request', groupCode: '70002' },
+    { kind: 'group-request', groupCode: '70003' },
+    { kind: 'input-status', uid: 'u_peer', speaking: true, expiresAt: now + 6000 },
+    { kind: 'group-mute', groupCode: '70001', uid: self, duration: 60, at: now },
+    { kind: 'group-essence', groupCode: '70001', sequence: '100', active: true, at: now },
+  ]);
+  expect(result.rows.map((row) => row.msgSeq)).toEqual(['100']);
+});
+
 it('只接收当前账号的实时普通文本，私聊采用 NT 会话序号', () => {
   const unknown = { ...rawPrivate, contentHead: { ...rawPrivate.contentHead, c2cCmd: 73 } };
   const old = { ...rawGroup, contentHead: { ...rawGroup.contentHead, timestamp: now / 1000 - 31 } };
@@ -47,7 +133,51 @@ it('只接收当前账号的实时普通文本，私聊采用 NT 会话序号', 
   expect(rows[0]?.elements).toMatchObject([{ type: 'text', data: { textContent: 'hello' } }]);
 });
 
-it('提前投影普通引用、单图及可定位语音，缺字段、特殊媒体和未知混排留给落库', () => {
+it('将临时会话、跨端本人消息和私聊文件路由到正确会话', () => {
+  const file = encode(MSG_CONTENT, {
+    notOnlineFile: { fileName: 'notes.txt', fileUuid: 'file-id', fileSize: 10n },
+  });
+  const rows = decodeLivePush(
+    body(
+      {
+        ...rawPrivate,
+        contentHead: { ...rawPrivate.contentHead, msgType: 141 },
+        responseHead: { ...rawPrivate.responseHead, forward: { tempGroupUin: 70001 } },
+      },
+      {
+        ...rawPrivate,
+        contentHead: { ...rawPrivate.contentHead, ntMsgSeq: 111 },
+        responseHead: { fromUid: self, fromUin: Number(account), toUid: 'u_peer', toUin: 10002 },
+      },
+      {
+        ...rawPrivate,
+        contentHead: { ...rawPrivate.contentHead, msgType: 529, ntMsgSeq: 112 },
+        body: { msgContent: file },
+      },
+      { ...rawPrivate, responseHead: { ...rawPrivate.responseHead, toUid: 'u_other' } },
+    ),
+    self,
+    account,
+    now,
+  ).rows;
+  expect(rows).toMatchObject([
+    {
+      kind: 'c2c',
+      conv: 'u_peer',
+      msgSeq: '110',
+      livePeer: { temporary: true, tempSourceGroupCode: '70001' },
+    },
+    { kind: 'c2c', conv: 'u_peer', msgSeq: '111', senderUid: self },
+    {
+      kind: 'c2c',
+      conv: 'u_peer',
+      msgSeq: '112',
+      elements: [{ type: 'file', data: { fileName: 'notes.txt' } }],
+    },
+  ]);
+});
+
+it('提前投影引用、多图、表情和可定位语音，缺字段和无法解码的媒体留给落库', () => {
   const reply = {
     replyElement: {
       origMsgSeq: [90],
@@ -120,6 +250,8 @@ it('提前投影普通引用、单图及可定位语音，缺字段、特殊媒�
         data: { fileToken: 'voice-token', pttDuration: 5, waveform: [], livePending: true },
       },
     ],
+    [{ type: 'pic' }, { type: 'pic' }],
+    [{ type: 'pic' }, { type: 'face' }],
     [{ type: 'text' }],
   ]);
 });

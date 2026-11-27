@@ -24,6 +24,7 @@ import type { ChatSidebarContent } from '../src/renderer/src/im-template/templat
 import { ConversationList } from '../src/renderer/src/im-template/template/conversationLists';
 import type { GroupSearchHit } from '../src/renderer/src/components/search/types';
 import type { MessageDbNotice, MessagePageStage } from '../src/shared/message_read';
+import type { QqLiveBusinessBatch, QqLivePeer } from '../src/shared/qq_live_business';
 import { publishQQPeerUpdate } from '../src/renderer/src/lib/qqPeerUpdates';
 import type { GapMessagesModal } from '../src/renderer/src/components/compose/GapMessagesModal';
 import {
@@ -81,6 +82,13 @@ type TestMessage = {
   recall?: { revokeUid: string; sameSender: boolean; recallTs: number };
 };
 type UnreadInput = { targets: Array<{ chatType: number; uid: string }>; watermarksOnly?: boolean };
+type TestLiveConversation = {
+  kind: 'c2c' | 'group';
+  conv: string;
+  live: true;
+  livePeer: QqLivePeer;
+  messages: TestMessage[];
+};
 
 const f = vi.hoisted(() => ({
   refreshing: false,
@@ -121,6 +129,9 @@ const f = vi.hoisted(() => ({
   readCurrent: undefined as (() => void) | undefined,
   markReadReply: undefined as (() => Promise<void>) | undefined,
   dbChanged: undefined as ((notice?: MessageDbNotice) => void) | undefined,
+  liveBusiness: undefined as ((batch: QqLiveBusinessBatch) => void) | undefined,
+  liveConversation: undefined as ((change: TestLiveConversation) => void) | undefined,
+  peerTyping: undefined as string | undefined,
   notificationSubscriptions: { group: [], conversation: [] } as Record<
     'group' | 'conversation',
     Array<{ notify: () => void; unsubscribe: () => void }>
@@ -368,7 +379,12 @@ vi.mock('../src/renderer/src/trpc/client', () => {
             input: { conv: string },
             handlers: {
               onData: (
-                data: MessagePageStage<TestMessage> | UnreadInput['targets'] | { at?: number },
+                data:
+                  | MessagePageStage<TestMessage>
+                  | UnreadInput['targets']
+                  | { at?: number }
+                  | QqLiveBusinessBatch
+                  | TestLiveConversation,
               ) => void;
             },
           ) => {
@@ -387,6 +403,8 @@ vi.mock('../src/renderer/src/trpc/client', () => {
               f.dbChanged = (notice) => handlers.onData(notice ?? {});
             if (path.at(-1) === 'onUnreadChanged')
               f.unreadChanged = (targets) => handlers.onData(targets);
+            if (path.at(-1) === 'onQqLiveBusiness') f.liveBusiness = handlers.onData;
+            if (path.at(-1) === 'onRoamingMessages') f.liveConversation = handlers.onData;
             return { unsubscribe: vi.fn() };
           };
         return proxy([...path, String(key)]);
@@ -491,6 +509,7 @@ vi.mock('../src/renderer/src/im-template/template/chatMainContent', async (impor
     ChatMainContent: (props: ComponentProps<typeof ChatMainContent>) => {
       f.jump = useContext(ReplyJumpContext);
       f.messages = props.messages;
+      f.peerTyping = props.peerTyping;
       f.send = props.onSend;
       f.readCurrent = () => {
         if (props.activeConversation) props.onReadCurrentConversation?.(props.activeConversation);
@@ -594,6 +613,9 @@ afterEach(() => {
   f.unreadFailures = 0;
   f.unreadReply = undefined;
   f.dbChanged = undefined;
+  f.liveBusiness = undefined;
+  f.liveConversation = undefined;
+  f.peerTyping = undefined;
   f.notificationSubscriptions = { group: [], conversation: [] };
   f.notificationReads = { group: 0, conversation: 0 };
   f.groupJumps = [];
@@ -3212,6 +3234,86 @@ it('未读请求有失败批次时主列表和群助手仍显示成功结果，�
     client.clear();
     host.remove();
     f.recent.splice(0, filler.length);
+  }
+});
+
+it('代理首条私聊先进入列表，输入状态只显示给当前对方并随切换清理', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubGlobal('localStorage', new Storage());
+  useViewState.getState().setOpenedUin('90001');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const select = (id: string) =>
+    act(async () =>
+      [...host.querySelectorAll<HTMLButtonElement>('nav button')]
+        .find((button) => button.textContent === id)!
+        .click(),
+    );
+  try {
+    await act(async () =>
+      root.render(
+        h(QueryClientProvider, { client }, h(ContentSelectionProvider, null, h(MainView))),
+      ),
+    );
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-messages]')!.click());
+    await select('u_peer');
+    const expiresAt = Date.now() + 3000;
+    const typing = (uid: string) =>
+      act(async () =>
+        f.liveBusiness?.({
+          events: [{ kind: 'input-status', uid, speaking: false, expiresAt }],
+        }),
+      );
+    await typing('u_other');
+    expect(f.peerTyping).toBeUndefined();
+    await typing('u_peer');
+    expect(f.peerTyping).toBe('对方正在输入…');
+    await select('10001');
+    expect(f.peerTyping).toBeUndefined();
+    await select('u_peer');
+    expect(f.peerTyping).toBeUndefined();
+    await typing('u_peer');
+    await act(async () => vi.advanceTimersByTimeAsync(3000));
+    expect(f.peerTyping).toBeUndefined();
+
+    const first: TestLiveConversation = {
+      kind: 'c2c',
+      conv: 'u_new',
+      live: true,
+      livePeer: { peerUin: '20022', peerName: '新会话', temporary: true },
+      messages: [
+        {
+          source: 'roaming',
+          ntSeqVerified: true,
+          msgId: '9',
+          msgSeq: '1',
+          msgRandom: '9',
+          sendTime: '1794200001',
+          senderUid: 'u_new',
+          senderUin: '20022',
+          elements: [{ type: 'text', data: { textContent: '第一条' } }],
+        },
+      ],
+    };
+    await act(async () => {
+      f.liveConversation?.(first);
+      f.liveConversation?.(first);
+    });
+    const rows = () =>
+      JSON.parse(host.querySelector('[data-previews]')!.textContent!).filter(
+        (row: { id: string }) => row.id === 'u_new',
+      );
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]?.lastMessage.body).toBe('第一条');
+    await act(async () => vi.advanceTimersByTimeAsync(30_000));
+    expect(rows()).toHaveLength(0);
+  } finally {
+    act(() => root.unmount());
+    client.clear();
+    host.remove();
   }
 });
 

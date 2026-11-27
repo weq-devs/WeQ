@@ -20,6 +20,7 @@
 
 import { setTimeout as delay } from 'node:timers/promises';
 import { AccountQqSync } from '../qq_sync/account';
+import type { LiveMessage } from '../qq_sync/live_messages';
 import { GroupReactionWatch } from '../qq_sync/group_reaction_watch';
 import { coalesceLiveDbWatch, createLiveMessageObservers } from '../qq_sync/live_db_watch';
 import { ensureQqSyncProxy, isQqSyncProxyEnabled, qqSyncStatus } from '../qq_sync/runtime';
@@ -262,6 +263,7 @@ import { mountGroupInfoWatch } from '../group_info_watch';
 import { mountContactNoticeWatch } from '../contact_notice_watch';
 import { CONTACT_NOTICE_LIMIT } from '../../shared/contact_notices';
 import type { MessageDbNotice } from '../../shared/message_read';
+import type { QqLiveBusinessBatch, QqLivePeer } from '../../shared/qq_live_business';
 import { ContactDirectoryRuntime } from './contact_metrics';
 
 /**
@@ -289,6 +291,7 @@ export interface RoamingCacheChange {
   conv: string;
   messages: GapFetchedMessage[];
   live?: true;
+  livePeer?: QqLivePeer;
   recallPatch?: true;
 }
 
@@ -2225,8 +2228,9 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
         allowLiveMessage: (row) => !deletedMsgs.isHiddenCached(row),
         onLiveMessages: (messages) => {
           if (this.account !== session) return;
-          state.groupKeyword?.observeLiveText(messages);
-          const byConversation = new Map<string, GapFetchedMessage[]>();
+          const incoming = messages.filter((row) => row.senderUid !== session.selfUid);
+          state.groupKeyword?.observeLiveText(incoming);
+          const byConversation = new Map<string, LiveMessage[]>();
           for (const row of messages) {
             const key = `${row.kind}:${row.conv}`;
             const rows = byConversation.get(key);
@@ -2234,31 +2238,32 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             else byConversation.set(key, [row]);
           }
           for (const rows of byConversation.values()) {
-            const { kind, conv } = rows[0]!;
+            const { kind, conv, livePeer } = rows[rows.length - 1]!;
             this.services?.unreadInfo.observeLiveUnread(
               { chatType: kind === 'group' ? 2 : 1, uid: conv },
-              rows.map((row) => row.msgSeq),
+              rows.filter((row) => row.senderUid !== session.selfUid).map((row) => row.msgSeq),
             );
             dbEventBus.emit('roaming', {
               session,
               kind,
               conv,
-              messages: rows,
+              messages: rows.map(({ livePeer: _livePeer, ...row }) => row),
               live: true,
+              livePeer,
             } satisfies RoamingCacheChange);
           }
-          if (dbEventBus.listenerCount('live-message-notice')) {
+          if (incoming.length && dbEventBus.listenerCount('live-message-notice')) {
             dbEventBus.emit('live-message-notice', {
               session,
               observedAt: Date.now(),
-              messages: messages.map((row) => ({
+              messages: incoming.map((row) => ({
                 row,
                 groupKeyword: state.groupKeyword?.matchObservedLiveText(row),
               })),
             } satisfies LiveMessageNoticeBatch);
           }
         },
-        onLiveUpdates: ({ reads, groups, reactions, interactions }) => {
+        onLiveUpdates: ({ reads, groups, reactions, interactions, business }) => {
           if (this.account !== session) return;
           this.services?.unreadInfo.observeProxyReads(reads);
           this.services?.interactionBadges.observeProxyConversations(interactions);
@@ -2267,6 +2272,10 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
           const at = Date.now();
           for (const { groupCode, directory } of groups)
             dbEventBus.emit('group-info-changed', { at, groupCode, directory });
+          if (business.length)
+            dbEventBus.emit('qq-live-business', session, {
+              events: business,
+            } satisfies QqLiveBusinessBatch);
         },
         onLiveClosed: () => {
           proxyReactions.clearPending();
@@ -2274,6 +2283,9 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
             this.services?.unreadInfo.clearProxyReads();
             this.services?.interactionBadges.clearProxyConversations();
             state.groupKeyword?.clearProxyMatches();
+            dbEventBus.emit('qq-live-business', session, {
+              disconnected: true,
+            } satisfies QqLiveBusinessBatch);
           }
         },
         current: () => {

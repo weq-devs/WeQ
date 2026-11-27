@@ -37,6 +37,7 @@ export function ChatMainContent({
   groupWorkspaceLocation,
   activeConversation,
   messages,
+  peerTyping,
   composerActions,
   messageRenderers,
   profileActions: _profileActions,
@@ -146,6 +147,7 @@ export function ChatMainContent({
   ChatPaneProps,
   | 'user'
   | 'messages'
+  | 'peerTyping'
   | 'composerActions'
   | 'messageRenderers'
   | 'loadError'
@@ -348,6 +350,7 @@ export function ChatMainContent({
 
   return (
     <ChatPane
+      peerTyping={peerTyping}
       user={user}
       conversation={activeConversation}
       messages={messages}

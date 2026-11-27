@@ -95,6 +95,22 @@ describe('精华操作共享回执', () => {
     store.reconcile(source, 123, [], 1001, [], 1001);
     expect(useQQEssence.getState().receipts[key]).toBeUndefined();
   });
+  it('代理精华变化立即投影，旧推送不能覆盖取消，也不借用不存在的 random', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(3000);
+    const other = essenceSource({
+      expectedAccountUin: '10001',
+      expectedAccountConfigId: 'source-b',
+    });
+    const store = useQQEssence.getState();
+    store.observe(source, 123, 42, true, 1000);
+    expect(useQQEssence.getState().receipts[key]).toMatchObject({ enabled: true });
+    expect(useQQEssence.getState().receipts[key].random).toBeUndefined();
+    store.observe(source, 123, 42, false, 2000);
+    store.observe(source, 123, 42, true, 1000);
+    expect(essenceActive(useQQEssence.getState().receipts, source, 123, 42, true)).toBe(false);
+    expect(essenceActive(useQQEssence.getState().receipts, other, 123, 42, true)).toBe(true);
+  });
   it('回执有界过期，之后恢复读取结果；在途锁不被回收', () => {
     vi.useFakeTimers();
     vi.setSystemTime(1000);

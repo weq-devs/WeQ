@@ -263,6 +263,7 @@ import {
   type MessagePageOptions,
 } from '@weq/service';
 import type { GroupInfoChange } from '../../group_info_watch';
+import type { QqLiveBusinessBatch, QqLivePeer } from '../../../shared/qq_live_business';
 import type { GroupReactionStates } from '../../qq_sync/group_reaction_watch';
 import {
   buddyRequestToWire,
@@ -6682,6 +6683,7 @@ export const accountRouter = router({
         conv: string;
         messages: ChatMsgWire[];
         live?: true;
+        livePeer?: QqLivePeer;
         recallPatch?: true;
       }>((emit) => {
         const handler = (change: RoamingCacheChange) => {
@@ -6695,6 +6697,7 @@ export const accountRouter = router({
             kind: change.kind,
             conv: change.conv,
             live: change.live,
+            livePeer: change.livePeer,
             recallPatch: change.recallPatch,
             messages: withMessageBubbles(
               change.messages.map(roamingMsgToWire),
@@ -6758,6 +6761,22 @@ export const accountRouter = router({
       emit.next({ kind: 'friend' });
       emit.next({ kind: 'group' });
       return () => dbEventBus.off('contact-notices-changed', handler);
+    });
+  }),
+
+  /** 同账号 QQ 代理解析出的业务推送与断线事件。 */
+  onQqLiveBusiness: procedure.input(exportAccountBindingInput).subscription(({ input }) => {
+    const services = requireExpectedAccount(
+      input.expectedAccountUin,
+      input.expectedAccountConfigId,
+    );
+    const session = getAppContext().account;
+    return observable<QqLiveBusinessBatch>((emit) => {
+      const handler = (source: unknown, batch: QqLiveBusinessBatch) => {
+        if (source === session && getAppContext().services === services) emit.next(batch);
+      };
+      dbEventBus.on('qq-live-business', handler);
+      return () => dbEventBus.off('qq-live-business', handler);
     });
   }),
 

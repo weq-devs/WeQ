@@ -65,6 +65,7 @@ import type {
 } from './workspace/types';
 import { useWorkspaceDrafts } from './workspace/useWorkspaceDrafts';
 import { useWorkspaceDirectory } from './workspace/useWorkspaceDirectory';
+import { useLiveRecentContacts } from './workspace/useLiveRecentContacts';
 import {
   mergeUnsequencedInteractionRows,
   useConversationInteractionBadges,
@@ -120,6 +121,7 @@ import {
 } from '../lib/startupQueries';
 import { useContactOnlineStatuses } from '../hooks/useContactOnlineStatuses';
 import { useContactNoticeUpdates } from '../hooks/useContactNoticeUpdates';
+import { useQqLiveBusiness } from '../hooks/useQqLiveBusiness';
 import {
   useGroupNoticeInbox,
   useOnlineNoticeInbox,
@@ -1051,7 +1053,7 @@ function MainWorkspace(): ReactElement {
 
   // Flatten the paginated recent-contact pages into one list for the memos
   // below (the sidebar can scroll-load more pages past the first window).
-  const rawRecentContactsData = useMemo<RecentContactWire[]>(
+  const nativeRecentContacts = useMemo<RecentContactWire[]>(
     () =>
       hydrateRecentContactPreviews(
         mergeRecentContactPages([
@@ -1061,6 +1063,10 @@ function MainWorkspace(): ReactElement {
         recentContactPreviewRows,
       ),
     [contacts.data, recentHead.data, recentContactPreviewRows],
+  );
+  const { rows: rawRecentContactsData, observe: observeLiveRecentContact } = useLiveRecentContacts(
+    nativeRecentContacts,
+    messageScope,
   );
   const [observedContactPreviews, setObservedContactPreviews] = useState<
     ReadonlyMap<string, ObservedContactPreview>
@@ -1412,6 +1418,14 @@ function MainWorkspace(): ReactElement {
               observeContactPreview(previous, contact, latest),
             );
           }
+          if (change.livePeer) {
+            const latest = latestContactPreviewMessage(
+              { targetUid: change.conv, chatType: change.kind === 'group' ? 2 : 1, sendTime: '0' },
+              incoming,
+              canPreviewContactMessage,
+            );
+            if (latest) observeLiveRecentContact(change.kind, change.conv, change.livePeer, latest);
+          }
         } else if (change.recallPatch) {
           const contact = recentContactsForPush.current.get(change.conv);
           if (!contact || incoming.some((row) => BigInt(row.msgSeq) >= BigInt(contact.msgSeq)))
@@ -1444,6 +1458,7 @@ function MainWorkspace(): ReactElement {
     utils,
     messageScope,
     conversationWindows,
+    observeLiveRecentContact,
     refreshRecentHead,
     refreshRecentTargets,
     setLoaded,
@@ -3300,6 +3315,11 @@ function MainWorkspace(): ReactElement {
       ? deletedConversationsById.get(shell.activeConversationId)
       : undefined);
   const selectedUid = selectedConversation?.id ?? '';
+  const qqPeerTyping = useQqLiveBusiness(
+    pinSession.binding,
+    selectedConversation?.type === 'direct' && shell.view === 'messages' ? selectedUid : '',
+    user?.uid ?? '',
+  );
   const selectedUidRef = useRef(selectedUid);
   selectedUidRef.current = selectedUid;
   const messagesTabActive = shell.view === 'messages' && !arkFeedState && !specialChat;
@@ -11715,6 +11735,7 @@ function MainWorkspace(): ReactElement {
                               activeConversation?.type === 'merged' ? undefined : activeConversation
                             }
                             messages={templateMessages}
+                            peerTyping={qqPeerTyping}
                             messageRenderers={messageRenderers}
                             loadingMessages={loadingInitialMessages}
                             locatingMessage={locatingMessage}
