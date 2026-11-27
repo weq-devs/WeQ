@@ -17,6 +17,9 @@ export function getBackupContext(): WeqFileStartup {
   if (!current) throw new Error('文件配置尚未初始化');
   return current;
 }
+export function getInitializedAppDataRoot(): string | undefined {
+  return current?.ok ? current.root : undefined;
+}
 export function resetBackupContextForRecovery(): string {
   if (!current || current.ok) throw new Error('当前不需要重试备份恢复');
   const root = current.root;

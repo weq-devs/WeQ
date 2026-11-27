@@ -15,6 +15,7 @@ import {
 import { exportAllMailMessages, exportMailMessages, MailFailure } from '@weq/service/mail';
 import { runResumableAlbumResource, runResumableQzoneAlbumMedia } from './account_resource_exports';
 import type { AccountServices } from './context/app_context';
+import { runResumableMediaFile } from './media_save';
 
 /** 仅保存内容选择；恢复时重新使用当前账号的邮箱和表情服务，不持久化登录凭据。 */
 export async function runResumableExport(
@@ -235,10 +236,8 @@ export async function runResumableExport(
   }
   if (request.type !== 'favorite-emoji') {
     if (!('groupFile' in services)) throw new Error('账号资源服务不可用，无法继续导出。');
-    if (request.type === 'media-file') {
-      const { runResumableMediaFile } = await import('./ipc/routers/media_save');
+    if (request.type === 'media-file')
       return runResumableMediaFile(services, request, context, current);
-    }
     if (request.type === 'qzone-album-media')
       return runResumableQzoneAlbumMedia(services, request, context, current);
     return runResumableAlbumResource(services, request, context, current);

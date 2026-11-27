@@ -1,5 +1,5 @@
 import type { AccountServices } from '../context/app_context';
-import { planFileMedia } from '../ipc/routers/media_save';
+import { planFileMedia } from '../media_save';
 import { handleMediaRequest } from '../media_protocol';
 import { createMcpDownloadRoute } from './media_download';
 
