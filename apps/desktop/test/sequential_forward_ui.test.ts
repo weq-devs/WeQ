@@ -11,6 +11,7 @@ import { DEFAULT_FORWARD_OPTIONS } from '../src/renderer/src/lib/sequentialForwa
 import {
   readForwardPlan,
   writeForwardPlan,
+  type MergeForwardPlan,
   type SequentialForwardPlan,
 } from '../src/renderer/src/lib/forwardContinuation';
 import {
@@ -22,6 +23,7 @@ import {
   MergeForwardTargets,
 } from '../src/renderer/src/components/mergeForward/MergeForwardTargets';
 import { MergeForwardDialog } from '../src/renderer/src/components/mergeForward/MergeForwardDialog';
+import { runMergeForwardTask } from '../src/renderer/src/components/mergeForward/mergeForwardTask';
 import { createEmptyDraft, createNode } from '../src/renderer/src/components/mergeForward/model';
 import { bindAccountState } from '../src/renderer/src/lib/clientPreferences';
 import { backgroundTaskNavigation } from '../src/renderer/src/components/tasks/backgroundTaskNavigation';
@@ -143,6 +145,46 @@ it('中断后只发送未提交项，保留原目标引用及结果未知的条�
     needsConfirmation: true,
     details: expect.arrayContaining(['第 2 条：结果待核对，继续时已跳过']),
   });
+  expect(readForwardPlan(id, scope)).toBeUndefined();
+});
+
+it('合并转发恢复时只向尚未提交的会话发送，保留其他会话的结果', async () => {
+  const stored = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => stored.set(key, value),
+    removeItem: (key: string) => stored.delete(key),
+  });
+  const scope = { uin: 'fixture', configId: 'original' };
+  const id = localBackgroundTasks.start({ kind: 'forward', name: target.name, scope });
+  localBackgroundTasks.finish(id, 'paused');
+  const unknown = { ...target, id: 'unknown', conv: '222', name: '待核对' };
+  const remaining = { ...target, id: 'remaining', conv: '333', name: '未提交' };
+  const plan: MergeForwardPlan = {
+    version: 1,
+    kind: 'merged',
+    scope,
+    draft: createEmptyDraft(),
+    targets: [target, unknown, remaining],
+    entries: [{ state: 'sent', targetSeq: '70' }, { state: 'submitting' }, { state: 'pending' }],
+  };
+  writeForwardPlan(id, plan);
+  const send = vi.fn(async () => ({ seq: '71' }));
+  const result = await runMergeForwardTask({
+    draft: plan.draft,
+    targets: plan.targets,
+    binding: { expectedAccountUin: scope.uin, expectedAccountConfigId: scope.configId },
+    send,
+    isCurrent: () => true,
+    resume: { id, plan },
+  });
+  expect(send).toHaveBeenCalledOnce();
+  expect(send).toHaveBeenCalledWith(plan.draft, remaining, expect.any(Object), true);
+  expect(result.unconfirmed).toEqual([unknown]);
+  expect(result.sent).toEqual([
+    { ...target, seq: '70' },
+    { ...remaining, seq: '71' },
+  ]);
   expect(readForwardPlan(id, scope)).toBeUndefined();
 });
 
