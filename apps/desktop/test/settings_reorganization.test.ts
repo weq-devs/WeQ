@@ -379,7 +379,7 @@ describe('设置归位后的实际页面', () => {
       expect(f.body().querySelector('[data-setting-id="prefer-cdn"]')).toBeNull();
       expect(f.body().textContent).not.toContain('公众号本地推送');
       const remote = f.body().querySelector('.weq-remote')!;
-      const toggle = remote.querySelector('[aria-label="允许远程连接"]')!;
+      const toggle = remote.querySelector('[aria-label="允许 Remote 连接"]')!;
       const addresses = remote.querySelector('.weq-remote-addresses')!;
       expect(toggle.compareDocumentPosition(addresses) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(
         0,
@@ -978,14 +978,19 @@ describe('设置归位后的实际页面', () => {
     }
   });
 
-  it('Web 与 Remote 保留 remote 深链', () => {
+  it('两项服务各有独立设置页，Remote 保留旧深链', () => {
     const f = mount('remote');
     try {
       expect(f.host.querySelector('.weq-settings-nav-item.is-active')?.textContent).toContain(
-        'Web 与 Remote',
+        'Remote 服务器',
       );
       expect(f.body().querySelector('.weq-remote-settings')).not.toBeNull();
-      expect(f.body().querySelector('.weq-set-title')?.textContent).toBe('Web 与 Remote');
+      expect(f.body().querySelector('.weq-set-title')?.textContent).toBe('Remote 服务器');
+      expect(f.body().querySelector('[data-setting-id="web-enabled"]')).toBeNull();
+      f.render('browser-access');
+      expect(f.body().querySelector('.weq-set-title')?.textContent).toBe('浏览器访问');
+      expect(f.body().querySelector('[data-setting-id="web-enabled"]')).not.toBeNull();
+      expect(f.body().querySelector('[data-setting-id="remote-enabled"]')).toBeNull();
       f.render('sse');
       expect(f.body().querySelector('.weq-set-title')?.textContent).toBe('SSE 推送');
     } finally {

@@ -12,43 +12,53 @@ import { useRemotePairingReview } from '../RemoteRequests.shared';
 export function RemoteSection() {
   return (
     <div className="weq-set weq-remote-settings">
-      <SectionHeader title="Web 与 Remote" page="remote" />
+      <SectionHeader title="Remote 服务器" page="remote" />
       {IS_WEB ? (
-        <p className="weq-remote-muted">请在电脑客户端管理本机浏览器访问与远程连接。</p>
+        <p className="weq-remote-muted">请在电脑客户端管理远程连接和已配对设备。</p>
       ) : (
-        <>
-          <LocalBrowserSection />
-          <RemoteConnectionSection />
-        </>
+        <RemoteConnectionSection />
       )}
     </div>
   );
 }
 
-function useEntryActions(active: boolean, refetch: () => Promise<unknown>) {
+export function BrowserAccessSection() {
+  return (
+    <div className="weq-set weq-remote-settings">
+      <SectionHeader title="浏览器访问" page="browser-access" />
+      {IS_WEB ? (
+        <p className="weq-remote-muted">请在电脑客户端管理本机浏览器访问。</p>
+      ) : (
+        <LocalBrowserSection />
+      )}
+    </div>
+  );
+}
+
+function useEntryActions(active: boolean, refetch: () => Promise<unknown>, title: string) {
   const activity = useRef(active);
   activity.current = active;
   const actingRef = useRef(false);
   const [acting, setActing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pushToast = useToast((state) => state.push);
-  async function act(action: () => Promise<unknown>) {
+  async function act<T>(action: () => Promise<T>): Promise<T | undefined> {
     if (actingRef.current) return;
     actingRef.current = true;
     setActing(true);
     setError(null);
     try {
-      await action();
+      const result = await action();
       if (activity.current) await refetch();
+      return result;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
-      // 与网络轮询的异常 toast 共用 key，同一原因只保留一条横幅。
       pushToast({
         tone: 'error',
-        title: 'WeQ Remote 操作失败',
+        title: `${title}操作失败`,
         message,
-        key: 'remote-service-error',
+        key: title === 'WeQ Remote' ? 'remote-service-error' : 'browser-access-error',
       });
     } finally {
       actingRef.current = false;
@@ -105,7 +115,7 @@ function LocalBrowserSection() {
   });
   const webToggle = trpc.remote.setWebEnabled.useMutation();
   const autoStart = trpc.remote.setWebAutoStart.useMutation();
-  const { acting, error, act } = useEntryActions(active, web.refetch);
+  const { acting, error, act } = useEntryActions(active, web.refetch, '本机浏览器访问');
   const secret = useSecretCopy(active, '访问令牌已复制');
   const busy = webToggle.isLoading || autoStart.isLoading || acting || secret.copying;
   const message = error || secret.error || web.error?.message || web.data?.error;
@@ -114,6 +124,7 @@ function LocalBrowserSection() {
       <Card icon={<Globe size={17} />} title="本机浏览器访问">
         <div className="weq-remote-web-controls">
           <Row
+            settingId="web-enabled"
             label="允许本机浏览器访问"
             control={
               <Toggle
@@ -125,6 +136,7 @@ function LocalBrowserSection() {
             }
           />
           <Row
+            settingId="web-autostart"
             label="启动 WeQ 时自动允许本机浏览器访问"
             control={
               <Toggle
@@ -183,7 +195,7 @@ function RemoteConnectionSection() {
     refetchInterval: active ? 1500 : false,
     retry: false,
   });
-  const { acting, error, act } = useEntryActions(active, status.refetch);
+  const { acting, error, act } = useEntryActions(active, status.refetch, 'WeQ Remote');
   const secret = useSecretCopy(active, '配对链接已复制');
   const toggle = trpc.remote.setEnabled.useMutation();
   const login = trpc.remote.openLogin.useMutation();
@@ -192,7 +204,6 @@ function RemoteConnectionSection() {
   const revoke = trpc.remote.revoke.useMutation();
   const accounts = trpc.remote.accounts.useQuery(undefined, { enabled: active });
   const grant = trpc.remote.setAccountConfigIds.useMutation();
-  const [qr, setQr] = useState<{ qr: string; expiresAt: number; pairingURL?: string } | null>(null);
   const busy =
     toggle.isLoading ||
     tailscale.isLoading ||
@@ -220,52 +231,20 @@ function RemoteConnectionSection() {
       key: 'remote-service-error',
     });
   }, [status.data?.network.error, pushToast]);
-  useEffect(() => {
-    if (!qr) return;
-    if (!active || !status.data?.enabled || status.data.invitationExpiresAt !== qr.expiresAt) {
-      setQr(null);
-      return;
-    }
-    const timer = window.setTimeout(() => setQr(null), Math.max(0, qr.expiresAt - Date.now()));
-    return () => window.clearTimeout(timer);
-  }, [qr, status.data, active]);
   return (
     <RemotePanel
       data={status.data}
-      qr={qr}
       busy={busy || status.isLoading}
       error={error || secret.error || status.error?.message || null}
-      onToggle={(enabled) =>
-        void act(async () => {
-          setQr(null);
-          await toggle.mutateAsync({ enabled });
-        })
-      }
+      onToggle={(enabled) => void act(() => toggle.mutateAsync({ enabled }))}
       onLogin={() => void act(() => login.mutateAsync())}
-      onTailscale={(enabled) =>
-        void act(async () => {
-          setQr(null);
-          await tailscale.mutateAsync({ enabled });
-        })
-      }
-      onChangeNetwork={() =>
-        void act(async () => {
-          setQr(null);
-          await changeNetwork.mutateAsync();
-        })
-      }
-      onInvite={(bootstrap) =>
-        void act(async () => {
-          setQr(null);
-          // 不把入网 Key 和二维码留在 React Query mutation cache 中。
-          const result = await client.remote.invite.mutate(bootstrap);
-          const fresh = await status.refetch();
-          if (fresh.data?.invitationExpiresAt === result.expiresAt) setQr(result);
-        })
-      }
+      onTailscale={(enabled) => void act(() => tailscale.mutateAsync({ enabled }))}
+      onChangeNetwork={() => void act(() => changeNetwork.mutateAsync())}
+      // 不把入网密钥和二维码留在 React Query mutation cache 中。
+      onInvite={(input) => act(() => client.remote.invite.mutate(input))}
       onReview={(id) => useRemotePairingReview.setState({ id })}
       onRevoke={(id) => void act(() => revoke.mutateAsync({ id }))}
-      onCopy={() => void secret.copy(async () => qr?.pairingURL ?? '')}
+      onCopy={(url) => void secret.copy(async () => url)}
       accounts={accounts.data}
       accountError={accounts.error?.message}
       onAccountAccess={(id, configIds) => void act(() => grant.mutateAsync({ id, configIds }))}

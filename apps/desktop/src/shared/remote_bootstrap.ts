@@ -51,8 +51,15 @@ export const remoteAuthKeySchema = z
 export const remoteInviteInput = z
   .union([
     z
-      .object({ authKey: remoteAuthKeySchema, singleUseConfirmed: z.literal(true).optional() })
+      .object({
+        mode: z.literal('tailscale').optional(),
+        authKey: remoteAuthKeySchema,
+        singleUseConfirmed: z.literal(true).optional(),
+      })
       .strict(),
     z.object({ endpoint: z.string().url() }).strict(),
+    z.object({ mode: z.enum(['lan', 'existing']) }).strict(),
   ])
   .optional();
+
+export type RemoteInviteInput = z.infer<typeof remoteInviteInput>;

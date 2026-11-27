@@ -17,14 +17,6 @@
   color: var(--weq-fg-primary);
   min-width: 0;
 }
-.weq-remote-band {
-  padding: 18px 0;
-  border-bottom: 1px solid var(--weq-border-subtle);
-}
-.weq-remote-address-band {
-  display: grid;
-  gap: 14px;
-}
 .weq-remote-addresses,
 .weq-remote-network-controls,
 .weq-remote-pair-actions {
@@ -41,69 +33,91 @@
   color: var(--weq-fg-secondary);
 }
 .weq-remote-key-form {
+  display: grid;
+  gap: 16px;
   padding: 20px;
   min-width: 0;
   color: var(--weq-fg-primary);
+}
+.weq-remote-key-form :is(h3, h4, p) {
+  margin: 0;
 }
 .weq-remote-key-form h3 {
   font-size: 16px;
   font-weight: 600;
   line-height: 1.5;
-  margin: 0;
 }
-.weq-remote-modes {
+.weq-remote-key-form h4 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.weq-remote-pair-routes {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
-  padding-bottom: 20px;
-}
-.weq-remote-modes button,
-.weq-remote-phone-modes button {
   min-width: 0;
-  min-height: 42px;
-  padding: 6px 4px;
-  overflow-wrap: anywhere;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.weq-remote-pair-routes legend {
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.weq-remote-pair-routes label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
   border: 1px solid var(--weq-border-strong);
-  border-radius: 6px;
-  color: var(--weq-fg-secondary);
-  background: transparent;
+  border-radius: 8px;
   cursor: pointer;
 }
-.weq-remote-modes button[aria-pressed='true'],
-.weq-remote-phone-modes button[aria-pressed='true'] {
-  color: var(--weq-accent-effective);
-  background: color-mix(in srgb, var(--weq-accent-effective) 12%, transparent);
+.weq-remote-pair-routes label:has(input:checked) {
   border-color: var(--weq-accent-effective);
+  background: color-mix(in srgb, var(--weq-accent-effective) 10%, transparent);
 }
-.weq-remote-phone-modes {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px;
-  max-width: 100%;
-}
-.weq-remote-phone-choice {
-  margin-bottom: 18px;
-}
-.weq-remote .weq-remote-phone-choice .weq-set-row-ctrl {
-  flex: 1;
-  min-width: 0;
-  max-width: 320px;
-}
-.weq-remote .weq-remote-phone-choice .weq-set-row-main {
+.weq-remote-pair-routes input {
   flex: none;
+  margin-top: 3px;
+  accent-color: var(--weq-accent-effective);
 }
-.weq-remote-bootstrap .weq-select-trigger {
-  min-width: 0;
-  max-width: 100%;
-  padding: 8px;
-  color: var(--weq-fg-primary);
-  background: var(--weq-bg-surface);
-  border: 1px solid var(--weq-border-strong);
-  border-radius: 6px;
+.weq-remote-pair-routes small {
+  display: block;
+  margin-top: 2px;
+  color: var(--weq-fg-secondary);
 }
-.weq-remote-heading,
+.weq-remote-pair-computer,
+.weq-remote-key-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.weq-remote-pair-computer {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--weq-border-subtle);
+}
+.weq-remote-pair-computer p {
+  margin-top: 3px;
+}
+.weq-remote-network-details summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--weq-fg-secondary);
+  cursor: pointer;
+}
+.weq-remote-network-details[open] summary > svg {
+  transform: rotate(90deg);
+}
+.weq-remote-network-details .weq-disclosure-panel > div {
+  padding-top: 8px;
+}
+.weq-remote-pair-footer {
+  justify-content: flex-end;
+}
 .weq-remote-web-actions,
-.weq-remote-state,
 .weq-remote-request,
 .weq-remote-device {
   display: flex;
@@ -141,47 +155,11 @@
 .weq-remote-copy-token {
   min-width: 142px;
 }
-.weq-remote > .weq-remote-band {
-  padding: 0 0 18px;
-}
-.weq-remote > .weq-remote-band:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
-}
-.weq-remote-heading {
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-.weq-remote h4 {
-  font-size: 14px;
-  font-weight: 600;
-  margin: 0;
-}
-.weq-remote-heading > span,
 .weq-remote-muted,
 .weq-remote-pair p,
 .weq-remote-device-main > span {
   color: var(--weq-fg-secondary);
   font-size: 12px;
-}
-.weq-remote-state {
-  padding: 12px 0;
-}
-.weq-remote-state > svg {
-  color: var(--weq-accent-effective);
-  flex-shrink: 0;
-}
-.weq-remote-state > div {
-  display: grid;
-  gap: 5px;
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-}
-.weq-remote-state code {
-  font-size: 12px;
-  overflow-wrap: anywhere;
-  color: var(--weq-fg-secondary);
 }
 .weq-remote-pair {
   display: grid;
@@ -197,15 +175,12 @@
   object-fit: contain;
   border-radius: 6px;
 }
-.weq-remote-empty {
-  min-height: 104px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  color: var(--weq-fg-muted);
-  font-size: 13px;
+.weq-remote-pair > div {
+  display: grid;
+  gap: 6px;
+}
+.weq-remote-pair > div > button {
+  justify-self: start;
 }
 .weq-remote-request,
 .weq-remote-device {
@@ -356,7 +331,7 @@ html[data-theme='dark'] .weq-remote-device-details dd {
 .weq-remote-bootstrap {
   display: grid;
   gap: 10px;
-  margin: 12px 0 20px;
+  margin: 0;
   font-size: 12px;
   color: var(--weq-fg-secondary);
   overflow-wrap: anywhere;
@@ -396,12 +371,6 @@ html[data-theme='dark'] .weq-remote-device-details dd {
   gap: 4px;
   justify-self: start;
 }
-html[data-theme='dark'] .weq-remote-band {
-  border-color: var(--weq-border-strong);
-}
-html[data-theme='dark'] .weq-remote-settings > .weq-remote {
-  border-top-color: var(--weq-border-strong);
-}
 @media (max-width: 620px) {
   .weq-remote-web-actions {
     flex-direction: column;
@@ -417,5 +386,8 @@ html[data-theme='dark'] .weq-remote-settings > .weq-remote {
   }
   .weq-remote-pair > div {
     text-align: center;
+  }
+  .weq-remote-pair > div > button {
+    justify-self: center;
   }
 }

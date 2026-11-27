@@ -44,7 +44,8 @@ export const SETTINGS_PAGE_LABELS = {
   'qq-storage': '资源管理',
   'resource-loading': '资源加载',
   'data-saver': '省流量模式',
-  remote: 'Web 与 Remote',
+  'browser-access': '浏览器访问',
+  remote: 'Remote 服务器',
   mcp: 'MCP 服务器',
   onebot: 'OneBot',
   sse: 'SSE 推送',
@@ -145,7 +146,7 @@ export const SETTINGS_GROUPS: Array<{
   {
     id: 'services',
     label: '服务',
-    sections: ['remote', 'mcp', 'onebot', 'sse', 'assistant'],
+    sections: ['browser-access', 'remote', 'mcp', 'onebot', 'sse', 'assistant'],
   },
   {
     id: 'app',
@@ -744,21 +745,35 @@ export const SETTINGS_ITEM_TARGETS: readonly ItemRedirect[] = [
   ),
   ...(
     [
-      ['web-enabled', '允许本机浏览器访问', '启用 Web 服务'],
-      ['web-autostart', '启动 WeQ 时自动允许本机浏览器访问', '启动 WeQ 时自动开启 Web 服务'],
-      ['remote-enabled', '允许远程连接', 'WeQ Remote', '远程访问'],
-      ['remote-lan', '局域网 IP', '局域网地址'],
-      ['remote-tailscale', 'Tailscale IP', 'Tailscale', '跨网络连接', '内网穿透'],
-      ['remote-pairing', '配对手机', '设备配对', '手机配对', '配对二维码'],
-      ['remote-devices', '已配对设备', '设备授权', '撤销设备授权'],
+      ['web-enabled', 'browser-access', '允许本机浏览器访问', '启用 Web 服务'],
+      [
+        'web-autostart',
+        'browser-access',
+        '启动 WeQ 时自动允许本机浏览器访问',
+        '启动 WeQ 时自动开启 Web 服务',
+      ],
+      ['remote-enabled', 'remote', '允许 Remote 连接', '允许远程连接', '远程访问'],
+      ['remote-lan', 'remote', '网络详情', '局域网 IP', '局域网地址'],
+      [
+        'remote-tailscale',
+        'remote',
+        '跨网络连接',
+        '电脑端 Tailscale',
+        'Tailscale IP',
+        'Tailscale 地址',
+        'Tailscale',
+        '内网穿透',
+      ],
+      ['remote-pairing', 'remote', '配对新设备', '配对手机', '设备配对', '手机配对', '配对二维码'],
+      ['remote-devices', 'remote', '已配对设备', '已配对手机', '设备授权', '撤销设备授权'],
     ] as const
   ).map(
-    ([id, label, ...aliases]): ItemRedirect => ({
+    ([id, section, label, ...aliases]): ItemRedirect => ({
       id,
-      section: 'remote',
+      section,
       label,
       aliases,
-      from: ['remote'],
+      from: section === 'remote' ? ['remote'] : [section, 'remote'],
       desktopOnly: true,
     }),
   ),

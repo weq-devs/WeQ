@@ -14,7 +14,11 @@ import {
   settingDefinition,
   globalSettingsDefaults,
 } from '../src/common/settings_catalog';
-import { SETTINGS_RESET_CARDS, planSettingsReset } from '../src/common/settings_catalog/reset';
+import {
+  SETTINGS_RESET_CARDS,
+  planSettingsReset,
+  resetCards,
+} from '../src/common/settings_catalog/reset';
 import { SETTINGS_KEYWORDS } from '../src/common/settings_catalog/keywords';
 
 describe('设置统一注册表', () => {
@@ -96,6 +100,20 @@ describe('设置统一注册表', () => {
     expect(planSettingsReset(items, { retry: [] })).toEqual([]);
     expect(() => planSettingsReset(items, { retry: ['foreign'] })).toThrow('不属于当前范围');
     expect(() => planSettingsReset(items, { directories: ['foreign'] })).toThrow('不属于当前范围');
+  });
+
+  it('浏览器设置与 Remote 的搜索和恢复范围独立，旧浏览器卡片仍能恢复', () => {
+    expect(listSettings({ page: 'browser-access' }).map(({ id }) => id)).toEqual([
+      'web-enabled',
+      'web-autostart',
+    ]);
+    expect(listSettings({ page: 'remote' }).map(({ id }) => id)).toContain('remote-pairing');
+    expect(listSettings({ page: 'remote' }).map(({ id }) => id)).not.toContain('web-enabled');
+    expect(resetCards({ page: 'remote' }).map(([, card]) => card)).toEqual(['remote']);
+    expect(resetCards({ page: 'browser-access' }).map(([, card]) => card)).toEqual(['web']);
+    expect(resetCards({ page: 'remote', card: 'web' })).toEqual(
+      resetCards({ page: 'browser-access' }),
+    );
   });
 
   it('全局恢复按同一策略选择偏好、API 与连接配置，不修改输入', () => {

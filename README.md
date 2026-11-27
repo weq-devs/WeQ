@@ -89,7 +89,7 @@ start.bat         # Windows
 终端会打印地址和访问令牌，浏览器打开即可。默认只监听本机；
 **对外暴露前请先读 [apps/web/README.md](./apps/web/README.md)**。
 
-已运行桌面版时，也可从「设置 → 服务 → Web 与 Remote」开启内置 Web，复用当前账号，
+已运行桌面版时，也可从「设置 → 服务 → 浏览器访问」开启内置 Web，复用当前账号，
 无需再启动独立 Node 服务。手机连接与两种 Web 宿主的能力边界见[Web 服务与手机连接](./docs/guide/remote-web.md)。
 
 #### 开发者指南

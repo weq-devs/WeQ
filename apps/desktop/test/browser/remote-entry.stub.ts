@@ -66,6 +66,8 @@ export const trpc = {
     changeNetwork: noop,
     decide: noop,
     revoke: noop,
+    accounts: query(() => []),
+    setAccountConfigIds: noop,
   },
 };
 export const client = { remote: { webToken: { mutate: async () => 'synthetic-token' } } };

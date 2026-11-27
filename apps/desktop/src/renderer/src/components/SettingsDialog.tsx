@@ -65,7 +65,7 @@ import { RecognitionSettingsSection } from './settings/RecognitionSettingsSectio
 import { EnhancementPacksSection } from './settings/EnhancementPacksSection';
 import { McpServerSection } from './settings/McpServerSection';
 import { OneBotSection } from './settings/OneBotSection';
-import { RemoteSection } from './settings/RemoteSection';
+import { BrowserAccessSection, RemoteSection } from './settings/RemoteSection';
 import { BackupSection } from './settings/BackupSection';
 import { ExternalRkeySection } from './settings/ExternalRkeySection';
 import { SsePushSection } from './settings/SsePushSection';
@@ -213,6 +213,7 @@ const SETTINGS_PAGE_RENDERERS: Record<
     </div>
   ),
   accounts: () => <GlobalSettingsSection section="accounts" />,
+  'browser-access': () => <BrowserAccessSection />,
   remote: () => <RemoteSection />,
   mcp: () => <McpServerSection />,
   onebot: () => <OneBotSection />,

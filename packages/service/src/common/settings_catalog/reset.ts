@@ -81,8 +81,8 @@ export const SETTINGS_RESET_CARDS = [
   ['resource-loading', 'chat-memory', '聊天内存预算'],
   ['resource-loading', 'rkey', '外部 rKey 服务器'],
   ['data-saver', 'data-saver', '启用方式与行为'],
-  ['remote', 'web', '本机浏览器访问'],
-  ['remote', 'remote', 'WeQ Remote'],
+  ['browser-access', 'web', '本机浏览器访问'],
+  ['remote', 'remote', 'Remote 服务器'],
   ['mcp', 'mcp', '服务开关'],
   ['onebot', 'onebot', '网络配置'],
   ['sse', 'sse-targets', '已配置的推送目标'],
@@ -138,6 +138,7 @@ export function planSettingsReset<
   );
 }
 const previousResetPages: Partial<Record<SettingsResetCardId, SettingsPageId>> = {
+  web: 'remote',
   home: 'startup',
   'message-content': 'message-display',
   'recall-scope': 'chat-interaction',

@@ -27,8 +27,12 @@ const pageDetails: Partial<
     docs: ['guide/settings.md'],
     tools: ['get_web_tokens', 'get_client_key', 'get_download_rkeys', 'get_ptlogin_jump_url'],
   },
+  'browser-access': {
+    summary: '启停本机浏览器访问，查看地址、复制访问令牌和设置自动启动。',
+    docs: ['guide/remote-web.md'],
+  },
   remote: {
-    summary: '查看本机浏览器访问地址，配对手机和管理已配对设备。',
+    summary: '启停 WeQ Remote、配对设备和管理跨网络连接。',
     docs: ['guide/remote-web.md'],
   },
   mcp: {
