@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SETTINGS_PAGE_LABELS,
   SETTINGS_GROUPS,
+  SETTINGS_NAV_GROUPS,
   resolveSettingsTarget,
   settingsGroupFor,
   type SectionId,
@@ -29,8 +30,7 @@ describe('设置重构的规范目标与旧入口分流', () => {
   );
 
   it('各设置组按指定顺序展示，各设置页只出现一次', () => {
-    expect(SETTINGS_GROUPS.map((group) => group.label)).toEqual([
-      '能力',
+    expect(SETTINGS_NAV_GROUPS.map((group) => group.label)).toEqual([
       '通用',
       '外观',
       '聊天',
@@ -55,20 +55,23 @@ describe('设置重构的规范目标与旧入口分流', () => {
       'contact-card',
     ]);
     expect(settingsGroupFor('privacy').sections).toEqual([
+      'enhancement-packs',
+      'long-term-authorization',
       'privacy',
       'weq-storage',
       'accounts',
       'backup',
     ]);
-    expect(settingsGroupFor('qzone').sections).toEqual([
-      'qzone',
-      'mail',
+    expect(settingsGroupFor('account').sections).toEqual([
+      'account',
       'credentials',
       'qq-accounts',
       'qq-storage',
       'database-management',
       'diagnostics',
     ]);
+    expect(SETTINGS_NAV_GROUPS.flatMap((group) => group.sections)).not.toContain('qzone');
+    expect(SETTINGS_NAV_GROUPS.flatMap((group) => group.sections)).not.toContain('mail');
     const sections = SETTINGS_GROUPS.flatMap((group) => group.sections);
     expect(sections).toHaveLength(Object.keys(SETTINGS_PAGE_LABELS).length);
     expect(new Set(sections)).toEqual(new Set(Object.keys(SETTINGS_PAGE_LABELS)));

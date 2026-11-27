@@ -1,4 +1,4 @@
-import { SETTINGS_ITEM_TARGETS, settingsGroupFor, SETTINGS_PAGE_LABELS } from './navigation';
+import { SETTINGS_ITEM_TARGETS, settingsPagePath, SETTINGS_PAGE_LABELS } from './navigation';
 import { SETTINGS_KEYWORDS } from './keywords';
 import { SETTINGS_FIELDS } from './fields';
 import { CONTACT_REQUEST_BADGE_SETTING, MENU_BADGE_SETTINGS } from '../client_preferences';
@@ -13,7 +13,7 @@ export * from './history';
 export const SETTINGS_CATALOG = SETTINGS_ITEM_TARGETS.map((item) => ({
   ...item,
   aliases: [...new Set([...(item.aliases ?? []), ...(SETTINGS_KEYWORDS[item.id] ?? [])])],
-  path: ['设置', settingsGroupFor(item.section).label, SETTINGS_PAGE_LABELS[item.section]],
+  path: settingsPagePath(item.section),
   fields: SETTINGS_FIELDS.filter((field) => field.settingId === item.id),
 }));
 

@@ -7,10 +7,10 @@ import {
 } from '../src/renderer/src/components/settings/navigation';
 import { resetCards } from '../src/shared/settings_reset';
 
-it('QQ 在线能力归能力，数据库监听和读取归 QQ 数据库管理', () => {
+it('QQ 在线能力与数据库管理都归 QQ，在线能力在首位', () => {
   expect(SETTINGS_PAGE_LABELS.account).toBe('QQ 在线能力');
-  expect(settingsGroupFor('account').id).toBe('capabilities');
-  expect(settingsGroupFor('database-management').sections).not.toContain('account');
+  expect(settingsGroupFor('account').id).toBe('qq');
+  expect(settingsGroupFor('database-management').sections[0]).toBe('account');
 });
 
 it.each([

@@ -132,7 +132,7 @@ export async function preflightVoiceTranscribe(dialog: AppDialogApi): Promise<bo
       return true;
     await dialog.info(
       '本地语音转写未就绪',
-      '请前往「设置 → 能力 → 增强包」准备「本地语音转写」，或改用其他可用路线。',
+      '请前往「设置 → 应用 → 增强包」准备「本地语音转写」，或改用其他可用路线。',
     );
   } catch (e) {
     dialog.error('检查语音模型失败', e instanceof Error ? e.message : String(e));
@@ -244,7 +244,7 @@ export async function preflightOcrImages(dialog: AppDialogApi, online: boolean):
       online
         ? '请确认 QQ 已登录并启用 QQ 在线能力，或改用本地识别。'
         : ready.localEngineBlocker ||
-            '请前往「设置 → 能力 → 增强包」准备「本地文字识别」，或改用 QQ 在线识别。',
+            '请前往「设置 → 应用 → 增强包」准备「本地文字识别」，或改用 QQ 在线识别。',
     );
     return false;
   }
@@ -254,7 +254,7 @@ export async function preflightOcrImages(dialog: AppDialogApi, online: boolean):
       ready.localEngineBlocker ? '无法使用本地筛图' : '未下载筛图模型',
       ready.localEngineBlocker
         ? `${ready.localEngineBlocker}本次将跳过筛图，每张图片都会送进识别模型。是否继续导出？`
-        : '本次将跳过筛图。可在「设置 → 能力 → 增强包」准备「本地文字识别」。是否继续导出？',
+        : '本次将跳过筛图。可在「设置 → 应用 → 增强包」准备「本地文字识别」。是否继续导出？',
       { okLabel: '继续导出', cancelLabel: '返回', tone: 'warning' },
     );
     if (!ok) return false;

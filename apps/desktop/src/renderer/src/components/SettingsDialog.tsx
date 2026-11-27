@@ -116,7 +116,7 @@ import { RetainedSettingsPage } from './settings/RetainedSettingsPage';
 import LogPerformanceSettings from './settings/LogPerformanceSettings';
 import { useAppLock } from '../state/lock';
 import {
-  SETTINGS_GROUPS,
+  SETTINGS_NAV_GROUPS,
   SETTINGS_PAGE_LABELS,
   resolveSettingsTarget,
   settingsScopeFor,
@@ -253,7 +253,7 @@ const SETTINGS_PAGE_RENDERERS: Record<
   feedback: () => <HelpSection page="feedback" />,
 };
 
-const DEFAULT_SETTINGS_PAGE = SETTINGS_GROUPS[0]!.sections[0]!;
+const DEFAULT_SETTINGS_PAGE: SettingsPageId = 'account';
 const ACCOUNT_ONLY_PAGE_DETAILS: Partial<Record<SettingsPageId, string>> = {
   credentials: '打开 QQ 账号后，可以查看和管理该账号的数据库密钥与会话密钥。',
   'qq-storage': '打开本机的 QQ 账号后，可以查看缓存占用、浏览和清理资源。',
@@ -519,7 +519,7 @@ function SettingsContent({
               )}
             </div>
             <div className="weq-settings-nav-groups">
-              {SETTINGS_GROUPS.map(({ id, label, sections }) => {
+              {SETTINGS_NAV_GROUPS.map(({ id, label, sections }) => {
                 const pages = remote
                   ? sections.filter((page) => remoteSettingAvailable(page))
                   : sections;

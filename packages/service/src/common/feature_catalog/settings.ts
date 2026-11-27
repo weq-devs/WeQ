@@ -2,7 +2,7 @@ import {
   SETTINGS_CATALOG,
   SETTINGS_PAGE_ALIASES,
   SETTINGS_PAGE_LABELS,
-  settingsGroupFor,
+  settingsPagePath,
   type SettingsPageId,
 } from '../settings_catalog';
 import type { FeatureDefinition } from './model';
@@ -89,7 +89,7 @@ export const SETTINGS_PAGE_FEATURES = (Object.keys(SETTINGS_PAGE_LABELS) as Sett
       aliases: [page, ...(SETTINGS_PAGE_ALIASES[page] ?? [])],
       settingsPage: page,
       page,
-      path: ['设置', settingsGroupFor(page).label, SETTINGS_PAGE_LABELS[page]],
+      path: settingsPagePath(page),
       ...pageDetails[page],
     }) satisfies FeatureDefinition & { page: SettingsPageId; path: string[] },
 );

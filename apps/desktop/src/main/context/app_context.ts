@@ -1813,7 +1813,7 @@ export function initAppContext(fileRoot?: string, hostRoot?: string): AppContext
   // change between 进入 and 使用 is honoured). Factored here to avoid duplication.
   const transcribeSilk = async (silkPath: string): Promise<TranscribeSilkResult> => {
     const modelId = userConfig.getLocalModelId('voice');
-    if (!modelId) return { ok: false, error: '请先到「设置 → 能力 → 增强包」准备本地语音转写' };
+    if (!modelId) return { ok: false, error: '请先到「设置 → 应用 → 增强包」准备本地语音转写' };
     const model = getVoiceModel(modelId);
     if (!model) return { ok: false, error: '转录模型不存在' };
     const status = bootstrap.voiceTranscribe.getModelStatus(modelId);

@@ -140,7 +140,6 @@ try {
       assert.equal(await page.locator('.weq-settings-dialog > .weq-settings-close').count(), 0);
       if (width <= 760) await page.getByRole('button', { name: '返回设置', exact: true }).click();
       assert.deepEqual(await nav.getByRole('heading', { level: 3 }).allTextContents(), [
-        '能力',
         '通用',
         '外观',
         '聊天',
@@ -151,7 +150,6 @@ try {
         '关于',
       ]);
       for (const [group, labels] of [
-        ['能力', ['QQ 在线能力']],
         ['聊天', ['通话与录音', '识别与转写']],
         ['外观', ['主题与布局', '主页', '主导航', '消息', '联系人', '联系人名片']],
         ['关于', ['版本与更新', '常见问题', '反馈']],
@@ -160,6 +158,20 @@ try {
         for (const name of labels) {
           assert.equal(await list.getByRole('button', { name, exact: true }).count(), 1);
         }
+      }
+      const qqItems = nav.getByRole('list', { name: 'QQ', exact: true }).getByRole('button');
+      assert.equal(await qqItems.first().textContent(), 'QQ 在线能力');
+      assert.deepEqual(
+        (
+          await nav
+            .getByRole('list', { name: '应用', exact: true })
+            .getByRole('button')
+            .allTextContents()
+        ).slice(0, 2),
+        ['增强包', '长期授权'],
+      );
+      for (const name of ['QQ 空间', 'QQ 邮箱']) {
+        assert.equal(await nav.getByRole('button', { name, exact: true }).count(), 0);
       }
       if (width <= 760) await openSetting(page, 'OneBot');
       if (width > 760) {

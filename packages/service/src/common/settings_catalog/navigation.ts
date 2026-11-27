@@ -83,12 +83,12 @@ export type SectionId =
   | 'updates'
   | 'daemon';
 
-export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: SettingsPageId[] }> = [
-  {
-    id: 'capabilities',
-    label: '能力',
-    sections: ['account', 'long-term-authorization', 'enhancement-packs'],
-  },
+export const SETTINGS_GROUPS: Array<{
+  id: string;
+  label: string;
+  sections: SettingsPageId[];
+  sidebar?: false;
+}> = [
   {
     id: 'general',
     label: '通用',
@@ -139,8 +139,7 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
     id: 'qq',
     label: 'QQ',
     sections: [
-      'qzone',
-      'mail',
+      'account',
       'credentials',
       'qq-accounts',
       'qq-storage',
@@ -151,10 +150,20 @@ export const SETTINGS_GROUPS: Array<{ id: string; label: string; sections: Setti
   {
     id: 'app',
     label: '应用',
-    sections: ['privacy', 'weq-storage', 'accounts', 'backup'],
+    sections: [
+      'enhancement-packs',
+      'long-term-authorization',
+      'privacy',
+      'weq-storage',
+      'accounts',
+      'backup',
+    ],
   },
   { id: 'about', label: '关于', sections: ['version', 'faq', 'logs', 'feedback'] },
+  { id: 'feature-pages', label: '功能页设置', sections: ['qzone', 'mail'], sidebar: false },
 ];
+
+export const SETTINGS_NAV_GROUPS = SETTINGS_GROUPS.filter((group) => group.sidebar !== false);
 
 export interface SettingsScope {
   label: string;
@@ -1381,4 +1390,10 @@ export function settingsGroupFor(section: SectionId) {
     SETTINGS_GROUPS.find((group) => group.sections.includes(settingsSectionFor(section))) ??
     SETTINGS_GROUPS[0]!
   );
+}
+
+export function settingsPagePath(page: SettingsPageId): string[] {
+  const group = settingsGroupFor(page);
+  const label = SETTINGS_PAGE_LABELS[page];
+  return group.sidebar === false ? [label, '设置'] : ['设置', group.label, label];
 }

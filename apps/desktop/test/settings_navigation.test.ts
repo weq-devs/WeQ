@@ -51,11 +51,6 @@ describe('设置的两级导航', () => {
     });
   });
   it('代理和提醒归 QQ 在线能力，长期授权保留独立入口', () => {
-    expect(settingsGroupFor('account').sections).toEqual([
-      'account',
-      'long-term-authorization',
-      'enhancement-packs',
-    ]);
     expect(SETTINGS_PAGE_LABELS.startup).toBe('启动与退出');
     expect(SETTINGS_PAGE_LABELS.appearance).toBe('主题与布局');
     expect(SETTINGS_PAGE_LABELS.global).toBe('通知与提醒');
@@ -77,8 +72,22 @@ describe('设置的两级导航', () => {
   ] as const)('旧页面 %s 和搜索仍可定位对应卡片', (section, keyword, settingId) => {
     expect(resolveSettingsTarget({ section })).toMatchObject({ section: 'account', settingId });
     expect(searchAppEntries(keyword)[0]).toMatchObject({
-      path: '设置 / 能力 / QQ 在线能力',
+      path: '设置 / QQ / QQ 在线能力',
       target: { kind: 'setting', section: 'account', settingId },
+    });
+  });
+  it.each([
+    ['qzone', 'QQ 空间', '转发时引用上一人文案', 'qzone-forward'],
+    ['mail', 'QQ 邮箱', '邮件查询间隔', 'mail-poll-interval'],
+  ] as const)('%s 的设置页和条目保留搜索入口', (section, label, keyword, settingId) => {
+    const page = searchAppEntries(label).find((entry) => entry.id === `settings.page.${section}`);
+    expect(page).toMatchObject({
+      path: `${label} / 设置`,
+      target: { kind: 'setting', section },
+    });
+    expect(searchAppEntries(keyword)[0]).toMatchObject({
+      path: `${label} / 设置`,
+      target: { kind: 'setting', section, settingId },
     });
   });
   it.each([
