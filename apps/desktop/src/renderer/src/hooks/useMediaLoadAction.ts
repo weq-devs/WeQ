@@ -2,11 +2,16 @@ import { useEffect, useState } from 'react';
 import { mediaRetryUrl } from '../lib/mediaRetryUrl';
 import { interactiveMediaUrl } from '../lib/resourceUrl';
 import { useDataSaver } from '../lib/dataSaver';
-import { watchMediaCache } from '../lib/mediaCacheArrival';
+import { notifyMediaCached, watchMediaCache } from '../lib/mediaCacheArrival';
 import { useRenderDocument } from '../lib/renderDocument';
 
 /** 原位图片加载和预览共用同一个点击目标。 */
-export function useMediaLoadAction(source: string, label: string, deferred: boolean) {
+export function useMediaLoadAction(
+  source: string,
+  label: string,
+  deferred: boolean,
+  shareCache = false,
+) {
   const [request, setRequest] = useState<{ source: string; attempt: number }>();
   const [revision, setRevision] = useState(0);
   const owner = useRenderDocument();
@@ -21,12 +26,15 @@ export function useMediaLoadAction(source: string, label: string, deferred: bool
   const retry = failed && (attempt > 0 || !deferred);
   const action = ready ? '查看' : loading ? '正在加载' : retry ? '重试加载' : '加载';
   useEffect(() => {
-    if (!failed) return;
+    if (ready || (!failed && !shareCache)) return;
     return watchMediaCache(owner, source, () => {
       setRequest(undefined);
       setRevision((value) => value + 1);
     });
-  }, [failed, owner, source]);
+  }, [failed, owner, ready, shareCache, source]);
+  useEffect(() => {
+    if (shareCache && ready) notifyMediaCached(owner, source);
+  }, [owner, ready, shareCache, source]);
 
   return {
     src,

@@ -20,7 +20,7 @@ import { bounded, networkFetch } from '@weq/network';
 
 import { createHash } from 'node:crypto';
 import { mkdir, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { createReadStream, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { AccountConfigService, DownloadRkey } from './user_config';
 import { rkeyExpiryMs } from './user_config';
@@ -162,6 +162,7 @@ process.once('exit', flushMediaDownloadLogs);
 export class MediaDownloadService {
   private readonly downloadingThumbnails = new Map<string, Transfer>();
   private readonly downloading = new Map<string, Transfer>();
+  private readonly chatStickers = new Map<string, string>();
   private readonly logger = getLogger().child({ scope: 'media-download' });
 
   constructor(
@@ -175,6 +176,28 @@ export class MediaDownloadService {
     if (!fileToken) return null;
     const path = join(this.cacheDir, `${hashToken(fileToken)}${ext}`);
     return existsSync(path) ? path : null;
+  }
+
+  cachedChatSticker(md5: string): string | null {
+    const path = this.chatStickers.get(md5);
+    if (path && existsSync(path)) return path;
+    this.chatStickers.delete(md5);
+    return null;
+  }
+
+  /** 复用本账号已下载的原文件；只有实际内容吻合才跨下载凭据共享。 */
+  async rememberChatSticker(md5: string, path: string, signal?: AbortSignal): Promise<void> {
+    if (this.cachedChatSticker(md5)) return;
+    try {
+      const digest = createHash('md5');
+      for await (const chunk of createReadStream(path, { signal })) digest.update(chunk);
+      if (digest.digest('hex') !== md5) return;
+      this.chatStickers.set(md5, path);
+      if (this.chatStickers.size > 512)
+        this.chatStickers.delete(this.chatStickers.keys().next().value!);
+    } catch {
+      // 缓存验证失败仍保留原凭据对应的显示来源。
+    }
   }
 
   /** 仅使用消息真实携带的小图地址，不将 spec=0 原图地址变造为缩图。 */

@@ -34,7 +34,6 @@ import {
 } from 'lucide-react';
 import { fileIconUrl, localFileUrl, localVoiceFileUrl, mediaUrl } from '@renderer/lib/resourceUrl';
 import { useDataSaver } from '@renderer/lib/dataSaver';
-import { IS_WEB } from '../lib/target.shared';
 import { cn } from '@renderer/lib/utils';
 import { client, trpc } from '@renderer/trpc/client';
 import { openMediaPreview } from './mediaPreviewStore.shared';
@@ -79,8 +78,9 @@ import { MediaLoadingRing, MediaTransferBadge, TransferRing } from './TransferRi
 import { transferLabel } from '../lib/transferPresentation';
 import { useVideoBuffering } from '../hooks/useVideoBuffering';
 import { useMediaLoadAction } from '../hooks/useMediaLoadAction';
-import { watchMediaCache } from '../lib/mediaCacheArrival';
+import { notifyMediaCached, watchMediaCache } from '../lib/mediaCacheArrival';
 import { intrinsicMediaSize, messageMediaSize, type MediaSize } from '../lib/chatMediaSize';
+import { cleanNtPath } from './mergeForward/model';
 import '../styles/media-preview.css';
 
 type Data = Record<string, unknown>;
@@ -165,7 +165,7 @@ function useMediaPreviewSize(kind: 'pic' | 'video', data: Data, key: string) {
 
 /**
  * Gray placeholder shown when a media file can't be found on disk or via CDN.
- * 尺寸尽量保持原媒体占地；图形占位不露出文字，原因保留在悬停与无障碍标签中。
+ * 尺寸保持原媒体占地；紧凑时使用图形，详细操作保留在悬停与无障碍标签中。
  */
 function QqMediaMissing({
   label,
@@ -260,14 +260,8 @@ export function QqImage({
   // 「优先使用 CDN」开着且拼得出直链时先试它（浏览器直连，服务端零流量）；rkey 过期 /
   // 老图片 / CDN 抽风都会 onError 落回上面这条代理路径，再失败才是「未找到」占位。
   const cdn = useCdn();
-  // 合并转发编辑器里拼的图片带 `localPath`（本机绝对路径）—— 它还没上传、不在
-  // Pic 缓存里，按发送时间 / 文件名找图会 404，直接从本机文件流出来预览。
-  // 乐观渲染的图片还会带 `localPreviewUrl`（blob: 地址，剪贴板截图没有落盘路径）。
-  // 真实消息的渲染元素不带这两个字段，所以主时间线行为不变。
-  //
-  // 已有 Blob 预览优先：文件选择器拿到的路径可能尚未被主进程信任，上传也可能未完成。
-  // 本地路径、CDN 与缓存依次兜底；灯箱沿用这条回退链，不依赖气泡先加载成功。
-  const localPath = str(data, 'localPath');
+  // 发送中的 Blob 和 QQ 回读带回的本地路径都优先复用，文件仍由主进程校验后读取。
+  const localPath = cleanNtPath(str(data, 'localPath') || str(data, 'filePath'));
   const localPreviewUrl = str(data, 'localPreviewUrl');
   const previewSize = useMediaPreviewSize(
     'pic',
@@ -291,7 +285,8 @@ export function QqImage({
       : remoteChatThumbnailUrl(cdn, str(data, 'thumbnailUrl'), token, conv !== '');
   const candidates: string[] = [];
   if (localPreviewUrl) candidates.push(localPreviewUrl);
-  if (localPath && (!limited || !IS_WEB || loadMedia)) candidates.push(localFileUrl(localPath));
+  const localSrc = localPath ? localFileUrl(localPath) : '';
+  if (localSrc && localSrc !== localPreviewUrl) candidates.push(localSrc);
   if (cdnSrc) candidates.push(cdnSrc);
   if (!candidates.includes(proxySrc)) candidates.push(proxySrc);
   if ((!limited || loadMedia) && !isAnimatedEmoji)
@@ -300,6 +295,7 @@ export function QqImage({
   const source = candidates[Math.min(srcIndex, candidates.length - 1)] ?? proxySrc;
   const usingLocalPreview = source === localPreviewUrl;
   const src = mediaRetryUrl(source, attempt + cacheRevision);
+  const ready = !broken && loadedSource === src;
   const retry = () => {
     setRequested(true);
     setSrcIndex(0);
@@ -316,7 +312,7 @@ export function QqImage({
     setBroken(false);
   }, [localPath, localPreviewUrl, originalProxySrc, cdnSrc, limited, proxySrc]);
   useEffect(() => {
-    if (!broken) return;
+    if (ready || (!broken && !isAnimatedEmoji)) return;
     return watchMediaCache(ownerDocument, proxySrc, () => {
       setRequested(false);
       setAttempt(0);
@@ -324,7 +320,10 @@ export function QqImage({
       setBroken(false);
       setCacheRevision((value) => value + 1);
     });
-  }, [broken, ownerDocument, proxySrc]);
+  }, [broken, isAnimatedEmoji, ownerDocument, proxySrc, ready]);
+  useEffect(() => {
+    if (isAnimatedEmoji && ready && source === proxySrc) notifyMediaCached(ownerDocument, proxySrc);
+  }, [isAnimatedEmoji, ownerDocument, proxySrc, ready, source]);
 
   const openable = interactive;
   /** 服务端副本的到期时刻（ms），元素没带 TTL 时为 undefined。 */
@@ -384,7 +383,6 @@ export function QqImage({
   const ImageControl = openable ? 'button' : 'span';
   const previewSrc = broken || source === proxySrc ? originalProxySrc : source;
   const kindLabel = isAnimatedEmoji ? '表情' : '图片';
-  const ready = !broken && loadedSource === src;
   const loading = attempt > 0 && !ready && !broken;
   const deferred =
     limited && !loadMedia && (isAnimatedEmoji ? !behavior.dataSaverEmoji : wantThumbnail);
@@ -414,7 +412,8 @@ export function QqImage({
                   if (!loading) retry();
                   return;
                 }
-                const preview = isAnimatedEmoji ? undefined : chatImagePreviewSources(data, params);
+                const preview =
+                  isAnimatedEmoji || localPath ? undefined : chatImagePreviewSources(data, params);
                 if (
                   galleryOpen?.(previewKey, event.currentTarget.ownerDocument, {
                     src: preview?.src ?? previewSrc,
@@ -1426,7 +1425,7 @@ export function QqMarketFace({ data, interactive = true }: { data: Data; interac
   const pack = num(data, 'emojiPackId');
   const hash = str(data, 'marketEmoticonIdHex');
   const source = mediaUrl('mface', { pack, hash, ...(browse ? { intent: 'interactive' } : {}) });
-  const media = useMediaLoadAction(source, '表情', deferred && !browse);
+  const media = useMediaLoadAction(source, '表情', deferred && !browse, true);
   const style = messageMediaSize('mface', data);
   if (!pack || !hash) {
     return <QqMediaMissing label="该表情" style={{ ...style, minWidth: 0, minHeight: 0 }} />;
