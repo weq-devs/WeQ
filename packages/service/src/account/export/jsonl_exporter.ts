@@ -27,6 +27,7 @@ export async function exportGroupToJsonl(
       msgs,
       {
         kind: 'group',
+        useRecordedSenderName: opts.useRecordedSenderName,
         conv: opts.groupCode,
         name: opts.name,
         outputPath: opts.outputPath,

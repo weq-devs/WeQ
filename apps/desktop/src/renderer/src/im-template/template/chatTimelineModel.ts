@@ -151,6 +151,8 @@ export function messageGroups(
         };
       }
     },
-    breakBefore,
+    (previous, message) =>
+      previous.historicalSenderName !== message.historicalSenderName ||
+      breakBefore(previous, message),
   );
 }

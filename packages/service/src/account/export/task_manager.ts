@@ -381,6 +381,7 @@ export interface MediaExportOptions {
 }
 
 export interface ExportTask {
+  useRecordedSenderName?: boolean;
   display?: import('../../common/task_display').TaskDisplay;
   scheduleName?: string;
   databaseRecovery?: DatabaseRecoveryRequest;
@@ -1598,6 +1599,7 @@ export class ExportTaskManager extends EventEmitter {
   }
 
   async startTask(opts: {
+    useRecordedSenderName?: boolean;
     scheduleName?: string;
     autoOpenTaskList?: boolean;
     extra?: import('../../common/export_content').ExportExtraOptions;
@@ -2003,6 +2005,7 @@ export class ExportTaskManager extends EventEmitter {
       current: 0,
       total: opts.total,
       exportAvatar: opts.exportAvatar ?? false,
+      useRecordedSenderName: opts.kind === 'group' && opts.useRecordedSenderName ? true : undefined,
       ...(opts.chatlab ? { chatlab: true } : {}),
       ...(opts.media ? { media: opts.media } : {}),
       ...(wantDress && opts.dress ? { dress: opts.dress } : {}),
@@ -6369,6 +6372,7 @@ export class ExportTaskManager extends EventEmitter {
         this.msgsFor(task),
         {
           kind: task.kind,
+          useRecordedSenderName: task.useRecordedSenderName,
           conv: task.conv,
           name: task.name,
           format: format === 'jsonl' || format === 'chatlab.jsonl' ? 'jsonl' : 'json',
@@ -6388,6 +6392,7 @@ export class ExportTaskManager extends EventEmitter {
         this.msgsFor(task),
         {
           kind: task.kind,
+          useRecordedSenderName: task.useRecordedSenderName,
           conv: task.conv,
           name: task.name,
           outputPath,
@@ -6417,6 +6422,7 @@ export class ExportTaskManager extends EventEmitter {
           this.msgsFor(task),
           {
             kind: task.kind,
+            useRecordedSenderName: task.useRecordedSenderName,
             conv: task.conv,
             name: task.name,
             outputPath,
@@ -6439,6 +6445,7 @@ export class ExportTaskManager extends EventEmitter {
         this.msgsFor(task),
         {
           kind: task.kind,
+          useRecordedSenderName: task.useRecordedSenderName,
           conv: task.conv,
           outputPath,
           range: task.range,
@@ -6459,6 +6466,7 @@ export class ExportTaskManager extends EventEmitter {
         this.msgsFor(task),
         {
           kind: task.kind,
+          useRecordedSenderName: task.useRecordedSenderName,
           conv: task.conv,
           name: task.name,
           outputPath,
@@ -6480,23 +6488,29 @@ export class ExportTaskManager extends EventEmitter {
     }
     // XLSX is a binary workbook, not a character stream — its own loop, both kinds.
     if (format === 'xlsx') {
-      return exportToXlsx(this.msgsFor(task), {
-        kind: task.kind,
-        conv: task.conv,
-        outputPath,
-        progressEvery,
-        onProgress: tick,
-        collectSenders: senders,
-        collectFaces: faces,
-        range: task.range,
-        withMediaPaths,
-        roam,
-      });
+      return exportToXlsx(
+        this.msgsFor(task),
+        {
+          kind: task.kind,
+          useRecordedSenderName: task.useRecordedSenderName,
+          conv: task.conv,
+          outputPath,
+          progressEvery,
+          onProgress: tick,
+          collectSenders: senders,
+          collectFaces: faces,
+          range: task.range,
+          withMediaPaths,
+          roam,
+        },
+        this.senderDeps(task),
+      );
     }
     if (task.kind === 'group') {
       const opts: GroupExportOptions = {
         legacyFormat: !task.archiveId,
         groupCode: task.conv,
+        useRecordedSenderName: task.useRecordedSenderName,
         name: task.name,
         outputPath,
         progressEvery,
@@ -6514,7 +6528,7 @@ export class ExportTaskManager extends EventEmitter {
         case 'jsonl':
           return exportGroupToJsonl(this.msgsFor(task), opts, this.senderDeps(task));
         case 'csv':
-          return exportGroupToCsv(this.msgsFor(task), opts);
+          return exportGroupToCsv(this.msgsFor(task), opts, this.senderDeps(task));
         default:
           return exportGroupToTxt(this.msgsFor(task), opts);
       }

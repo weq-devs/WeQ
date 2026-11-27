@@ -18,7 +18,12 @@ import { statSync } from 'node:fs';
 import { MessageAudit } from './message_audit';
 import type { MsgService } from '../msg';
 import { toExportedMessage, type RoamMessageSource } from './message_source';
-import { iterateConv } from './sender_resolve';
+import {
+  exportTableSenderName,
+  iterateConv,
+  resolveGroupSenders,
+  type SenderResolveDeps,
+} from './sender_resolve';
 import { TABLE_HEADERS, messageToCells, annotateExportPaths, collectFaceIds } from './element_text';
 import { expandForwards } from './forward_expand';
 import type { ConvKind, ExportResult, ExportTimeRange, ProgressCallback } from './types';
@@ -27,6 +32,7 @@ import type { ConvKind, ExportResult, ExportTimeRange, ProgressCallback } from '
 const SHEET_ROW_LIMIT = 1_000_000;
 
 export interface XlsxExportOptions {
+  useRecordedSenderName?: boolean;
   /** Conversation kind (selects the message iterator). */
   kind: ConvKind;
   /** Group code (群号) or peer uid. */
@@ -52,18 +58,23 @@ export interface XlsxExportOptions {
 }
 
 /** Append a header row to a freshly-created worksheet. */
-function writeHeader(ws: ExcelJS.Worksheet): void {
-  ws.addRow([...TABLE_HEADERS]).commit();
+function writeHeader(ws: ExcelJS.Worksheet, includeName?: boolean): void {
+  ws.addRow(includeName ? [...TABLE_HEADERS, '发送者名称'] : [...TABLE_HEADERS]).commit();
 }
 
 /** Export all messages of one conversation to `outputPath` as an XLSX workbook. */
 export async function exportToXlsx(
   msgs: MsgService,
   opts: XlsxExportOptions,
+  deps: SenderResolveDeps = {},
 ): Promise<ExportResult> {
   const start = Date.now();
   const progressEvery = opts.progressEvery ?? 5000;
 
+  const senders =
+    opts.kind === 'group' && opts.useRecordedSenderName
+      ? await resolveGroupSenders(msgs, opts.conv, opts.range, deps, '', opts.roam)
+      : undefined;
   const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
     filename: opts.outputPath,
     useStyles: false,
@@ -71,7 +82,7 @@ export async function exportToXlsx(
   });
 
   let sheet = workbook.addWorksheet('消息');
-  writeHeader(sheet);
+  writeHeader(sheet, Boolean(senders));
   let rowsInSheet = 0;
   let sheetIndex = 1;
 
@@ -84,16 +95,20 @@ export async function exportToXlsx(
       sheet.commit();
       sheetIndex += 1;
       sheet = workbook.addWorksheet(`消息${sheetIndex}`);
-      writeHeader(sheet);
+      writeHeader(sheet, Boolean(senders));
       rowsInSheet = 0;
     }
-    const exported = toExportedMessage(m);
+    const exported = toExportedMessage(m, opts.useRecordedSenderName);
     opts.collectSenders?.add(exported.senderUin);
     if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
     await expandForwards(msgs, opts.kind, exported);
     audit.observe(exported.elements);
     if (opts.withMediaPaths) annotateExportPaths(exported.elements);
-    sheet.addRow(messageToCells(exported)).commit();
+    sheet
+      .addRow(
+        messageToCells(exported, senders ? exportTableSenderName(exported, senders) : undefined),
+      )
+      .commit();
     rowsInSheet += 1;
     count += 1;
     if (opts.onProgress && count % progressEvery === 0) {

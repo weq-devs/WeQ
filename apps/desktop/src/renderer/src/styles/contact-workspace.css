@@ -328,6 +328,29 @@
   padding-bottom: 12px;
 }
 
+.weq-profile-message-name {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.weq-profile-message-name-value {
+  overflow-wrap: anywhere;
+}
+
+.weq-profile-message-name-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
+.weq-profile-message-name-dates .weq-profile-section-action {
+  min-height: 28px;
+  padding-inline: 0;
+}
+
 .weq-profile-group-picker {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);

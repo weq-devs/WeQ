@@ -67,12 +67,11 @@ import { nativeHistoryCursor, newestHistoryPage, type HistoryCursor } from './hi
 import { groupDirectoryTimes, recentGroupDirectoryTimes } from './directory_times';
 import { listDeletedRefs } from './deleted_refs';
 import { readMessageSourceRows } from './export_source';
+import { GroupSenderNameIndex } from './group_sender_name_index';
+import { groupSenderNames, senderNameAtTime, SENDER_NAME_COLUMNS } from './group_sender_history';
 
-// 40002 (msgRandom) is appended LAST on purpose: every row mapper below indexes
-// this list positionally, so inserting it in the middle would silently shift
-// every column after it. It is the client-generated `random` we echo into the
-// send request — the one stable id shared by the DB, the send receipt, and the
-// server-fetched history (see GroupMsg.msgRandom).
+// 保持旧行映射的顺序。40002 是发送请求、回执和落库对账使用的客户端随机数。
+// 历史称呼是可选列，读取时追加在固定列之后。
 const SELECT_COLUMN_NAMES = [
   '40001',
   '40020',
@@ -132,6 +131,7 @@ export function isSenderUid(uid: string | null | undefined): boolean {
 }
 
 export interface GroupMsgDbOptions {
+  senderNameIndexPath?: string;
   /** Absolute path to nt_msg.db. */
   dbPath: string;
   /** SQLCipher key. (omit for plain decrypted). */
@@ -142,9 +142,29 @@ export interface GroupMsgDbOptions {
 
 export class GroupMsgDb {
   private readonly qq: QqDb;
+  private readonly senderNameIndex?: GroupSenderNameIndex;
 
   constructor(nt: NtHelperBinding, opts: GroupMsgDbOptions) {
     this.qq = new QqDb(nt, { dbPath: opts.dbPath, key: opts.key, algo: opts.algo });
+    if (opts.senderNameIndexPath)
+      this.senderNameIndex = new GroupSenderNameIndex(this.qq, opts.senderNameIndexPath);
+  }
+  async senderNames(filter: Parameters<typeof groupSenderNames>[1]) {
+    return this.senderNameIndex
+      ? this.senderNameIndex.search(filter)
+      : groupSenderNames(this.qq, filter);
+  }
+
+  get senderNamesPending() {
+    return this.senderNameIndex?.pending ?? false;
+  }
+
+  private async messageFields(): Promise<string> {
+    const columns = await this.qq.tableColumns('group_msg_table');
+    return [
+      SELECT_COLUMNS,
+      ...SENDER_NAME_COLUMNS.map((column) => (columns.has(column) ? `"${column}"` : 'NULL')),
+    ].join(',');
   }
   get sourcePath(): string {
     return this.qq.dbPath;
@@ -156,17 +176,24 @@ export class GroupMsgDb {
     return recentGroupDirectoryTimes(this.qq, groupCodes, selfUid, selfUin);
   }
   async exportSourceRows(conversation: string, ids: readonly string[], full = true) {
+    const columns = full ? undefined : await this.qq.tableColumns('group_msg_table');
     const rows = await readMessageSourceRows(
       this.qq,
       'group_msg_table',
       '40027',
       conversation,
       ids,
-      full ? undefined : SELECT_COLUMN_NAMES,
+      columns
+        ? [...SELECT_COLUMN_NAMES, ...SENDER_NAME_COLUMNS.filter((column) => columns.has(column))]
+        : undefined,
     );
     return rows.map((source) => ({
       ...source,
-      message: rowToGroupMsg(SELECT_COLUMN_NAMES.map((column) => source.columns[column] ?? null)),
+      message: rowToGroupMsg(
+        [...SELECT_COLUMN_NAMES, ...SENDER_NAME_COLUMNS].map(
+          (column) => source.columns[column] ?? null,
+        ),
+      ),
     }));
   }
 
@@ -195,12 +222,13 @@ export class GroupMsgDb {
     const rows = await queryBrowsePage(
       this.qq,
       'group_msg_table',
-      SELECT_COLUMN_NAMES,
+      [...SELECT_COLUMN_NAMES, ...SENDER_NAME_COLUMNS],
       { clause: '"40027"=?', value: conv },
       filter,
       cursor,
       limit,
       direction,
+      await this.qq.tableColumns('group_msg_table'),
     );
     const timeIndex = SELECT_COLUMN_NAMES.indexOf('40050');
     const bodyIndex = SELECT_COLUMN_NAMES.indexOf('40800');
@@ -221,7 +249,7 @@ export class GroupMsgDb {
   /** Newest N messages in one group, newest-first (DESC by seq). */
   async listLatest(targetGroupCode: string, limit = 50): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+      `SELECT ${await this.messageFields()} FROM group_msg_table
         WHERE "40027" = ?
         ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
@@ -234,7 +262,7 @@ export class GroupMsgDb {
     const rows = await newestHistoryPage(
       this.qq,
       'group_msg_table',
-      SELECT_COLUMNS,
+      await this.messageFields(),
       { clause: '"40027"=?', value: targetGroupCode },
       limit,
       before,
@@ -256,7 +284,7 @@ export class GroupMsgDb {
     const cursor = nativeHistoryCursor(options.cursor, options.descending);
     const direction = options.descending ? 'DESC' : 'ASC';
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_table WHERE "40027" = ? AND "40003" BETWEEN ? AND ?
+      `SELECT ${await this.messageFields()} FROM group_msg_table WHERE "40027" = ? AND "40003" BETWEEN ? AND ?
        ${cursor ? `AND ("40003","40050","40001") ${options.descending ? '<' : '>'} (?,?,?)` : ''}
        ORDER BY "40003" ${direction}, "40050" ${direction}, "40001" ${direction} LIMIT ?`,
       [
@@ -273,7 +301,7 @@ export class GroupMsgDb {
   /** The page of messages just older than `beforeSeq` (exclusive), newest-first. */
   async listBefore(targetGroupCode: string, beforeSeq: bigint, limit = 50): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+      `SELECT ${await this.messageFields()} FROM group_msg_table
         WHERE "40027" = ? AND "40003" < ?
         ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
@@ -285,7 +313,7 @@ export class GroupMsgDb {
   /** The page of messages just newer than `afterSeq` (exclusive), oldest-first. */
   async listAfter(targetGroupCode: string, afterSeq: bigint, limit = 50): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+      `SELECT ${await this.messageFields()} FROM group_msg_table
         WHERE "40027" = ? AND "40003" > ?
         ${ORDER_OLDEST_FIRST}
         LIMIT ?`,
@@ -317,7 +345,7 @@ export class GroupMsgDb {
       params.push(BigInt(endTime));
     }
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+      `SELECT ${await this.messageFields()} FROM group_msg_table
         WHERE ${conditions.join(' AND ')}
         ${ORDER_OLDEST_FIRST}
         LIMIT ?`,
@@ -341,7 +369,7 @@ export class GroupMsgDb {
     limit = 50,
   ): Promise<Array<GroupMsg & { rowId: bigint }>> {
     const rows = await this.qq.query(
-      `SELECT rowid, ${SELECT_COLUMNS} FROM group_msg_table
+      `SELECT rowid, ${await this.messageFields()} FROM group_msg_table
         WHERE "40027" = ? AND rowid > ? AND ("40003" = 0 OR "40003" IS NULL)
         ORDER BY rowid ASC
         LIMIT ?`,
@@ -357,7 +385,7 @@ export class GroupMsgDb {
    */
   async listFrom(targetGroupCode: string, sinceSeq: bigint, limit = 500): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+      `SELECT ${await this.messageFields()} FROM group_msg_table
         WHERE "40027" = ? AND "40003" >= ?
         ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
@@ -369,7 +397,7 @@ export class GroupMsgDb {
   /** Most recent N messages across all groups, newest first. Useful for "test dump". */
   async listRecent(limit = 50, offset = 0): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+      `SELECT ${await this.messageFields()} FROM group_msg_table
         ORDER BY "40001" DESC
         LIMIT ? OFFSET ?`,
       [BigInt(limit), BigInt(offset)],
@@ -482,7 +510,7 @@ export class GroupMsgDb {
   ): AsyncGenerator<GroupMsg[]> {
     const hi = opts.hi ?? (await this.maxSeq(targetGroupCode));
     if (hi <= afterSeq) return;
-    const sql = `SELECT "40003", ${SELECT_COLUMNS} FROM group_msg_table
+    const sql = `SELECT "40003", ${await this.messageFields()} FROM group_msg_table
         WHERE "40027" = ? AND "40003" > ? AND "40003" <= ?
         ORDER BY "40003" ASC`;
     for await (const rows of this.qq.scanWindows(
@@ -511,7 +539,7 @@ export class GroupMsgDb {
   ): AsyncGenerator<Array<GroupMsg & { rowId: bigint }>> {
     const hi = opts.hi ?? (await this.latestRowId());
     if (hi <= afterRowId) return;
-    const sql = `SELECT rowid, ${SELECT_COLUMNS} FROM group_msg_table
+    const sql = `SELECT rowid, ${await this.messageFields()} FROM group_msg_table
         WHERE "40027" = ? AND rowid > ? AND rowid <= ?
           AND ("40003" = 0 OR "40003" IS NULL)
         ORDER BY rowid ASC`;
@@ -540,7 +568,7 @@ export class GroupMsgDb {
    */
   async listSinceRowId(sinceRowId: bigint, limit = 500): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+      `SELECT ${await this.messageFields()} FROM group_msg_table
         WHERE rowid > ?
         ORDER BY rowid ASC
         LIMIT ?`,
@@ -635,7 +663,7 @@ export class GroupMsgDb {
     if (msgIds.length === 0) return [];
     const placeholders = msgIds.map(() => '?').join(',');
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+      `SELECT ${await this.messageFields()} FROM group_msg_table
         WHERE "40001" IN (${placeholders})
         ${ORDER_NEWEST_FIRST}`,
       msgIds,
@@ -654,7 +682,7 @@ export class GroupMsgDb {
     if (seqs.length === 0) return [];
     const placeholders = seqs.map(() => '?').join(',');
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+      `SELECT ${await this.messageFields()} FROM group_msg_table
         WHERE "40027" = ? AND "40003" IN (${placeholders})
         ${ORDER_NEWEST_FIRST}`,
       [targetGroupCode, ...seqs],
@@ -690,7 +718,7 @@ export class GroupMsgDb {
       originalFileId && originalFileId !== fileId ? [fileId, originalFileId] : [fileId];
     const bodyMatches = fileIds.map(() => 'instr("40800", ?) > 0').join(' OR ');
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+      `SELECT ${await this.messageFields()} FROM group_msg_table
         WHERE "40027" = ? AND "40003" > 0
         AND (${bodyMatches})
         ${before ? 'AND ("40003", "40050", "40001") < (?, ?, ?)' : ''}
@@ -725,7 +753,7 @@ export class GroupMsgDb {
    */
   async listDeletedByConv(targetGroupCode: string, limit = 200): Promise<GroupMsg[]> {
     const rows = await this.qq.query(
-      `SELECT ${SELECT_COLUMNS} FROM group_msg_table
+      `SELECT ${await this.messageFields()} FROM group_msg_table
         WHERE "40027" = ? AND "40011" = 1 AND "40012" = 1
         ${ORDER_NEWEST_FIRST}
         LIMIT ?`,
@@ -1520,6 +1548,7 @@ export class GroupMsgDb {
 
   /** Drop the cached native connection. Call on account switch / shutdown. */
   close(): void {
+    this.senderNameIndex?.close();
     this.qq.close();
   }
 }
@@ -1535,6 +1564,7 @@ function weekStartDate(seconds: number): string {
 }
 
 function rowToGroupMsg(row: SqlRow): GroupMsg {
+  const senderAtTime = senderNameAtTime(row[12], row[13]);
   return {
     msgId: toBigint(row[0]),
     senderUid: toStr(row[1]),
@@ -1548,26 +1578,13 @@ function rowToGroupMsg(row: SqlRow): GroupMsg {
     subType: toBigint(row[9]),
     decoration: decodeDress(row[10]),
     msgRandom: toBigint(row[11]),
+    ...(senderAtTime ? { senderAtTime } : {}),
   };
 }
 
 /** As {@link rowToGroupMsg} but for a `SELECT rowid, …` row (indices shifted +1). */
 function rowToGroupMsgWithRowId(row: SqlRow): GroupMsg & { rowId: bigint } {
-  return {
-    rowId: toBigint(row[0]),
-    msgId: toBigint(row[1]),
-    senderUid: toStr(row[2]),
-    targetGroupCode: toStr(row[3]),
-    senderUin: toBigint(row[4]),
-    sendTime: toBigint(row[5]),
-    elements: decodeBody(row[6]),
-    setEmojiList: decodeEmoji(row[7]),
-    msgSeq: toBigint(row[8]),
-    msgType: toBigint(row[9]),
-    subType: toBigint(row[10]),
-    decoration: decodeDress(row[11]),
-    msgRandom: toBigint(row[12]),
-  };
+  return { ...rowToGroupMsg(row.slice(1)), rowId: toBigint(row[0]) };
 }
 
 /** 复读回合最少条数：用户口径「重复超过 3 次」，即第 4 条起算。 */

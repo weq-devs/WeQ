@@ -5166,6 +5166,49 @@ export const accountRouter = router({
       return info ? groupMemberLevelInfoToWire(info) : null;
     }),
 
+  groupSenderNames: procedure
+    .input(
+      exportAccountBindingInput
+        .required()
+        .extend({
+          groupCode: z
+            .string()
+            .regex(/^[1-9]\d{0,19}$/)
+            .optional(),
+          senderUid: z
+            .string()
+            .regex(/^u_[\w-]+$/)
+            .max(128)
+            .optional(),
+          keyword: z.string().trim().min(1).max(128).optional(),
+          offset: z.number().int().nonnegative().default(0),
+        })
+        .refine((value) => Boolean(value.senderUid || (value.groupCode && value.keyword))),
+    )
+    .query(async ({ input }) => {
+      const services = requireExpectedAccount(
+        input.expectedAccountUin,
+        input.expectedAccountConfigId,
+      );
+      const rows = await services.msgs.groupSenderNames({
+        groupCode: input.groupCode,
+        senderUid: input.senderUid,
+        keyword: input.keyword,
+        distinctSenders: Boolean(input.keyword),
+        offset: input.offset,
+        limit: 51,
+      });
+      if (
+        requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !== services
+      )
+        throw new Error('账号或数据源已切换');
+      return {
+        rows: rows.slice(0, 50),
+        indexPending: services.msgs.groupSenderNamesPending,
+        nextOffset: rows.length > 50 ? input.offset + 50 : undefined,
+      };
+    }),
+
   groupMemberPreview: procedure
     .input(
       z.object({
@@ -9402,6 +9445,7 @@ export const accountRouter = router({
         exportAvatar: z.boolean().optional(),
         /** ChatLab interchange format (json/jsonl carry ChatLab structure). */
         chatlab: z.boolean().optional(),
+        useRecordedSenderName: z.boolean().optional(),
         /** 导出装扮资源（气泡 / 字体 / 挂件，只导出会话实际用到的款）。 */
         dress: dressInput,
         /** Media export: copy local media into media/ and CDN-complete images. */
@@ -10025,6 +10069,7 @@ export const accountRouter = router({
           exportMedia: z.boolean(),
           completeMessages: z.boolean(),
           exportAvatar: z.boolean(),
+          useRecordedSenderName: z.boolean().optional(),
           completeMedia: z.boolean(),
           downloadVideo: z.boolean(),
           downloadFile: z.boolean(),
@@ -10105,6 +10150,7 @@ export const accountRouter = router({
               exportMedia: z.boolean(),
               completeMessages: z.boolean(),
               exportAvatar: z.boolean(),
+              useRecordedSenderName: z.boolean().optional(),
               completeMedia: z.boolean(),
               downloadVideo: z.boolean(),
               downloadFile: z.boolean(),

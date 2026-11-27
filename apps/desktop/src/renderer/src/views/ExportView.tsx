@@ -1834,6 +1834,7 @@ function ExportToolBody({
           mediaKinds: result.options.mediaKinds,
           completeMessages: result.options.completeMessages,
           exportAvatar: result.options.exportAvatar,
+          useRecordedSenderName: result.options.useRecordedSenderName,
           completeMedia: result.options.completeMedia,
           downloadVideo: result.options.downloadVideo,
           downloadFile: result.options.downloadFile,

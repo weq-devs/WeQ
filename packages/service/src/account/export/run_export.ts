@@ -52,7 +52,7 @@ export async function runGroupExport(
       msgs,
       'group',
     )) {
-      const exported = toExportedMessage(m);
+      const exported = toExportedMessage(m, opts.useRecordedSenderName);
       opts.collectSenders?.add(exported.senderUin);
       if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
       await expandForwards(msgs, 'group', exported);

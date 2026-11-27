@@ -186,6 +186,7 @@ import {
   preferenceValue,
   readingPositionJumpMode,
   accountBinding as sharedAccountBinding,
+  useShowHistoricalNames,
 } from '../lib/clientPreferences';
 import { useWebConnection } from '../state/webConnection';
 import { subscribeWorkspaceRecovery } from '../lib/connectionRecovery';
@@ -552,6 +553,7 @@ import {
   ChatNavigationContext,
   GroupMessagePreviewContext,
   GroupSpeechPreviewContext,
+  GroupHistoryNavigationContext,
   ProfileChatShortcutContext,
   type ProfileChatTarget,
   type ProfileShortcutTarget,
@@ -2308,7 +2310,9 @@ function MainWorkspace(): ReactElement {
     ) => {
       if (origin !== 'settings') return;
       const binding = messageBindingRef.current;
-      const pending = new Map(rows.filter(needsReplyMedia).map((row) => [row.msgId, row]));
+      const pending = new Map(
+        rows.filter((row) => needsReplyMedia(row)).map((row) => [row.msgId, row]),
+      );
       if (!binding || !pending.size) return;
       const patches = await client.account.replyMedia.query({
         ...convFetchKey(conversation),
@@ -5405,6 +5409,9 @@ function MainWorkspace(): ReactElement {
     () => Symbol(),
     [messageGroupMembers, botUids, profileByUid],
   );
+  const showHistoricalNames = useShowHistoricalNames(
+    selectedConversation?.type === 'group' ? selectedConversation.id : undefined,
+  );
   const templateMessages = useMemo(() => {
     if (!selectedConversation) return [];
     const mappingStarted = performance.now();
@@ -5462,6 +5469,9 @@ function MainWorkspace(): ReactElement {
         );
         if (cached) {
           let updated = cached.message;
+          const historicalSenderName = showHistoricalNames ? message.senderAtTime?.name : undefined;
+          if (updated.historicalSenderName !== historicalSenderName)
+            updated = { ...updated, historicalSenderName };
           if (cached.identityRevision !== messageIdentityRevision) {
             const sender = replaceEqualDeep(
               updated.sender,
@@ -5493,6 +5503,7 @@ function MainWorkspace(): ReactElement {
                 user,
                 memberMap,
                 replyIndex,
+                showHistoricalNames,
               ),
             );
             if (elements !== updated.qqElements)
@@ -5514,6 +5525,7 @@ function MainWorkspace(): ReactElement {
           replyIndex,
           profileByUid,
           lookupByUin,
+          showHistoricalNames,
         );
         messageTemplateCache.set(message, {
           message: mapped,
@@ -5538,6 +5550,7 @@ function MainWorkspace(): ReactElement {
     recordMessagePhase('mapping', performance.now() - mappingStarted);
     return mapped;
   }, [
+    showHistoricalNames,
     messageScope,
     loadedMessageWires,
     selectedConversation,
@@ -6556,7 +6569,9 @@ function MainWorkspace(): ReactElement {
     const binding = messageBindingRef.current;
     const scope = messageScopeRef.current;
     if (!selection || !binding || !scope || !messagesTabActive) return;
-    const pending = loaded.filter((row) => needsReplyMedia(row) && !attemptedReplyMedia.has(row));
+    const pending = loaded.filter(
+      (row) => needsReplyMedia(row, showHistoricalNames) && !attemptedReplyMedia.has(row),
+    );
     if (!pending.length) return;
     for (const row of pending) attemptedReplyMedia.add(row);
     const current = () => messageScopeRef.current === scope && selectionRef.current === selection;
@@ -6592,6 +6607,7 @@ function MainWorkspace(): ReactElement {
     messagesTabActive,
     selectedUid,
     attemptedReplyMedia,
+    showHistoricalNames,
     replyMediaRows,
     selectionRef,
     messageBindingRef,
@@ -7251,6 +7267,72 @@ function MainWorkspace(): ReactElement {
     [messageScope, messageScopeRef, openGroupResourceWindow, jumpToConvSeq],
   );
 
+  const rememberSearchGroup = useStableCallback(
+    ({
+      code,
+      name,
+      remark,
+      view,
+    }: {
+      code: string;
+      name: string;
+      remark?: string | null;
+      view?: ConversationView;
+    }) => {
+      const known =
+        conversations.some((conversation) => conversation.id === code) ||
+        hiddenConversationsById.has(code) ||
+        deletedConversationsById.has(code);
+      if (!known)
+        setTemporaryConversations((current) =>
+          current[code]
+            ? current
+            : {
+                ...current,
+                [code]: {
+                  appearedAt: Date.now(),
+                  conversation: {
+                    id: code,
+                    type: 'group',
+                    updatedAt: new Date(0).toISOString(),
+                    hidden: view === 'hidden',
+                    deleted: view === 'deleted',
+                    otherUser: null,
+                    group: {
+                      id: code,
+                      name: name || code,
+                      remark: remark || null,
+                      identityLabel: 'Group',
+                      identityValue: code,
+                      avatarUrl: groupAvatarSrc(code),
+                      announcement: null,
+                      memberCount: 0,
+                      role: 'member',
+                    },
+                    members: [],
+                    preference: fallbackPreference,
+                    unreadCount: 0,
+                    lastMessage: null,
+                  },
+                },
+              },
+        );
+    },
+  );
+
+  const openGroupHistoryMessage = useStableCallback(
+    (group: { code: string; name: string }, anchor: { msgId: string; msgSeq: string }) => {
+      rememberSearchGroup(group);
+      setMemberCard(null);
+      jumpToSearchConversation(
+        'group',
+        group.code,
+        anchor.msgSeq === '0' ? undefined : anchor.msgSeq,
+        anchor.msgId,
+      );
+    },
+  );
+
   // Click a search hit: resolve conversation key + kind,
   // then jump. Files additionally carry a seq anchor.
   const openSearchHit = useCallback(
@@ -7258,6 +7340,11 @@ function MainWorkspace(): ReactElement {
       returnFromSearchTarget.current = true;
       setSearchDismissed(true);
       setSearchFocused(false);
+      if (hit.category === 'contact' && hit.historical) {
+        const item = hit.historical;
+        openGroupHistoryMessage({ code: item.groupCode, name: item.groupName }, item);
+        return;
+      }
       if ((hit.category === 'contact' || hit.category === 'group') && hit.target) {
         if (hit.target.kind === 'guild') {
           setMobileConversationList(false);
@@ -7436,44 +7523,12 @@ function MainWorkspace(): ReactElement {
         return;
       }
       if (hit.category === 'group') {
-        const known =
-          conversations.some((conversation) => conversation.id === hit.groupCode) ||
-          hiddenConversationsById.has(hit.groupCode) ||
-          deletedConversationsById.has(hit.groupCode);
-        if (!known)
-          setTemporaryConversations((current) =>
-            current[hit.groupCode]
-              ? current
-              : {
-                  ...current,
-                  [hit.groupCode]: {
-                    appearedAt: Date.now(),
-                    conversation: {
-                      id: hit.groupCode,
-                      type: 'group',
-                      updatedAt: new Date(0).toISOString(),
-                      hidden: hit.conversationView === 'hidden',
-                      deleted: hit.conversationView === 'deleted',
-                      otherUser: null,
-                      group: {
-                        id: hit.groupCode,
-                        name: hit.name || hit.groupCode,
-                        remark: hit.remark || null,
-                        identityLabel: 'Group',
-                        identityValue: hit.groupCode,
-                        avatarUrl: groupAvatarSrc(hit.groupCode),
-                        announcement: null,
-                        memberCount: 0,
-                        role: 'member',
-                      },
-                      members: [],
-                      preference: fallbackPreference,
-                      unreadCount: 0,
-                      lastMessage: null,
-                    },
-                  },
-                },
-          );
+        rememberSearchGroup({
+          code: hit.groupCode,
+          name: hit.name,
+          remark: hit.remark,
+          view: hit.conversationView,
+        });
         jumpToSearchConversation(
           'group',
           hit.groupCode,
@@ -7512,6 +7567,8 @@ function MainWorkspace(): ReactElement {
     },
     [
       jumpToSearchConversation,
+      openGroupHistoryMessage,
+      rememberSearchGroup,
       shell,
       user.identityValue,
       conversations,
@@ -13273,7 +13330,9 @@ function MainWorkspace(): ReactElement {
     <ProfileChatShortcutContext.Provider value={profileChatShortcut}>
       <GrayTipNamesContext.Provider value={previewDisplayNames}>
         <FileTransferTipScopeContext.Provider value={fileTransferTipScope}>
-          {workspace}
+          <GroupHistoryNavigationContext.Provider value={openGroupHistoryMessage}>
+            {workspace}
+          </GroupHistoryNavigationContext.Provider>
         </FileTransferTipScopeContext.Provider>
       </GrayTipNamesContext.Provider>
     </ProfileChatShortcutContext.Provider>

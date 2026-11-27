@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createPinyinMatcher } from '@weq/codec/pinyin-search';
 import { Search, UsersRound, X } from 'lucide-react';
@@ -11,8 +11,14 @@ import { CheckPill } from '../settings/controls';
 import { useGroupMemberRosterOrder } from '../../lib/groupMemberRosterOrder';
 import { PROFILE_QUERY_OPTIONS } from '../../lib/profileQuery';
 import { LoadingIndicator } from '../LoadingIndicator';
+import '../../styles/chat-records.css';
 
-export type RecordSender = { id: string; label: string; avatar?: string | null };
+export type RecordSender = {
+  id: string;
+  label: string;
+  avatar?: string | null;
+  historicalId?: string;
+};
 
 export function RecordSenderAvatar({ sender }: { sender?: RecordSender }) {
   return sender ? (
@@ -40,7 +46,27 @@ export function RecordSenderPicker({
   onClose: () => void;
 }) {
   const [query, setQuery] = useState('');
-  const needle = query.trim().toLocaleLowerCase();
+  const needle = query.trim().slice(0, 128).toLocaleLowerCase();
+  const [historyKeyword, setHistoryKeyword] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => setHistoryKeyword(needle), 200);
+    return () => clearTimeout(timer);
+  }, [needle]);
+  const historyEnabled = Boolean(
+    binding && groupCode && historyKeyword && needle === historyKeyword,
+  );
+  const history = useQuery<Awaited<ReturnType<typeof client.account.groupSenderNames.query>>>({
+    ...PROFILE_QUERY_OPTIONS,
+    queryKey: ['group-history-sender-search', binding, groupCode, historyKeyword],
+    enabled: historyEnabled,
+    refetchInterval: (data) => (data?.indexPending ? 1500 : false),
+    queryFn: ({ signal }) =>
+      client.account.groupSenderNames.query(
+        { ...binding!, groupCode, keyword: historyKeyword },
+        { signal },
+      ),
+  });
+
   const key = `${binding?.expectedAccountUin}:${binding?.expectedAccountConfigId ?? ''}`;
   const { order } = useGroupMemberRosterOrder(key, groupCode ?? '');
   const canReadRoster = Boolean(groupCode && binding);
@@ -72,6 +98,16 @@ export function RecordSenderPicker({
           avatar: c2cAvatarSrc(member.uin),
         });
     }
+    for (const row of historyEnabled ? (history.data?.rows ?? []) : []) {
+      const uin = /^[1-9]\d*$/.test(row.senderUin) ? row.senderUin : '';
+      const id = uin || row.senderUid;
+      matches.set(id, {
+        id,
+        label: row.name,
+        historicalId: uin,
+        avatar: uin ? c2cAvatarSrc(uin) : null,
+      });
+    }
     // 查找时仍可用已知的历史发送者或直接输入其号码。
     if (!groupCode || needle) {
       for (const option of [...options, ...selected]) {
@@ -91,9 +127,15 @@ export function RecordSenderPicker({
         avatar: /^\d+$/.test(needle) ? c2cAvatarSrc(needle) : null,
       });
     return [...matches.values()];
-  }, [groupCode, needle, options, roster.data, selected]);
+  }, [groupCode, needle, options, roster.data, selected, history.data, historyEnabled]);
   const activeIds = new Set(selected.map(({ id }) => id));
   const loadingRoster = canReadRoster && roster.isInitialLoading;
+  const loadingHistory = Boolean(
+    groupCode &&
+      binding &&
+      needle &&
+      (!historyEnabled || history.isInitialLoading || history.data?.indexPending),
+  );
   const rosterError = roster.error instanceof Error ? roster.error.message : '';
   return (
     <Modal
@@ -116,7 +158,7 @@ export function RecordSenderPicker({
           <input
             type="search"
             aria-label="查找发送者"
-            placeholder="昵称、备注或 QQ 号"
+            placeholder={groupCode ? '昵称、历史称呼或 QQ 号' : '昵称、备注或 QQ 号'}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             data-weq-autofocus
@@ -150,14 +192,24 @@ export function RecordSenderPicker({
               }
             >
               <RecordSenderAvatar sender={sender} />
-              <span data-privacy-sensitive title={sender.label}>
+              <span className="weq-record-sender-name" data-privacy-sensitive title={sender.label}>
                 {sender.label}
               </span>
+              {sender.historicalId && sender.historicalId !== sender.label ? (
+                <span
+                  className="weq-record-sender-history-id weq-number weq-number-inherit"
+                  data-privacy-sensitive
+                >
+                  {sender.historicalId}
+                </span>
+              ) : null}
             </CheckPill>
           ))}
-          {loadingRoster ? (
+          {loadingRoster || loadingHistory ? (
             <p className="weq-record-sender-feedback" role="status">
-              <LoadingIndicator>正在读取群成员…</LoadingIndicator>
+              <LoadingIndicator>
+                {loadingRoster ? '正在读取群成员…' : '正在查找历史称呼…'}
+              </LoadingIndicator>
             </p>
           ) : !matches.length && !rosterError && (needle || roster.isSuccess) ? (
             <p className="weq-record-sender-feedback" role="status">
@@ -165,6 +217,14 @@ export function RecordSenderPicker({
             </p>
           ) : null}
         </div>
+        {historyEnabled && history.isError ? (
+          <p className="weq-record-sender-feedback" role="alert">
+            历史称呼读取失败
+            <button type="button" className="weq-set-btn" onClick={() => void history.refetch()}>
+              重试
+            </button>
+          </p>
+        ) : null}
         {rosterError ? (
           <p className="weq-record-sender-feedback" role="alert">
             {rosterError}{' '}

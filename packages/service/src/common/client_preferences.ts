@@ -291,7 +291,8 @@ export type StateNamespace =
   | 'todos'
   | 'order'
   | 'notifications'
-  | 'reads';
+  | 'reads'
+  | 'conversationDisplay';
 export type StateRecords = Partial<Record<StateNamespace, Record<string, unknown>>>;
 export interface SharedDraft {
   version: string | null;

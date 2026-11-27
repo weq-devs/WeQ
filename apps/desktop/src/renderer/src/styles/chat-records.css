@@ -145,6 +145,18 @@
   overflow: auto;
   overscroll-behavior: contain;
 }
+.weq-record-sender-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.weq-record-sender-history-id {
+  flex: none;
+  color: var(--weq-fg-secondary);
+  font-size: 12px;
+}
+
 .weq-record-sender-options:empty {
   display: none;
 }

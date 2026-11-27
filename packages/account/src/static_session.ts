@@ -659,7 +659,15 @@ export async function openStaticAccount(
   const c2cMsgs = new C2cMsgDb(nt, opts(msgDbPath));
   // 数据线消息表结构同 c2c，复用 C2cMsgDb 只换表名。
   const datalineMsgs = new C2cMsgDb(nt, { ...opts(msgDbPath), table: 'dataline_msg_table' });
-  const groupMsgs = new GroupMsgDb(nt, opts(msgDbPath));
+  const groupMsgs = new GroupMsgDb(nt, {
+    ...opts(msgDbPath),
+    senderNameIndexPath: join(
+      platform.appDataRoot(),
+      'cache',
+      'group-sender-names',
+      `${createHash('sha256').update(msgDbPath).digest('hex')}.sqlite`,
+    ),
+  });
   const recentContacts = new RecentContactDb(nt, opts(msgDbPath));
   const recentContactTops = new RecentContactTopDb(nt, opts(msgDbPath));
   const searchHistory = new SearchHistoryDb(nt, opts(msgDbPath));

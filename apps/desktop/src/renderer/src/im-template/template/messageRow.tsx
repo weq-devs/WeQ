@@ -281,7 +281,9 @@ export const MessageRow = memo(function MessageRow({
       conversation={conversation}
       sender={sender ?? user}
       mine={isSelfIdentity(new Set(selfIdentityValues(user)), message.senderId)}
-      senderName={sender ? displayNameOf(sender) : displayNameOf(user)}
+      senderName={
+        message.historicalSenderName || (sender ? displayNameOf(sender) : displayNameOf(user))
+      }
       senderAvatarUrl={(sender ?? user).avatarUrl}
       senderSeed={(sender ?? user).identityValue}
       senderKind={(sender ?? user).kind}

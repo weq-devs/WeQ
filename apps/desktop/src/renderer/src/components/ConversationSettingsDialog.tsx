@@ -12,11 +12,16 @@
  */
 
 import { useContext, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import { accountBinding } from '../lib/clientPreferences';
+import {
+  accountBinding,
+  patchAccountRecords,
+  useShowHistoricalNames,
+} from '../lib/clientPreferences';
 import {
   Bell,
   BellRing,
   BrainCircuit,
+  MessageSquareText,
   Palette,
   Settings2,
   ShieldCheck,
@@ -147,6 +152,19 @@ export function ConversationSettingsDialog({
   const notifyHere = status.data?.notifyTargets.includes(`${kind}:${conv}`) ?? false;
 
   const groupKeywords = kind === 'group';
+  const showHistorical = useShowHistoricalNames(kind === 'group' ? conv : undefined);
+  const [savingHistorical, setSavingHistorical] = useState(false);
+
+  async function toggleHistorical(next: boolean) {
+    setSavingHistorical(true);
+    try {
+      await patchAccountRecords('conversationDisplay', { [conv]: next ? true : null });
+    } catch (error) {
+      showError('保存称呼显示设置失败', errMsg(error));
+    } finally {
+      setSavingHistorical(false);
+    }
+  }
 
   /** 写操作的返回值（期望状态）直接落进缓存：点击即生效，不转圈。 */
   function applyStatus(next: Awaited<ReturnType<typeof setTargets.mutateAsync>>): void {
@@ -282,6 +300,22 @@ export function ConversationSettingsDialog({
         </div>
       ) : (section === 'qq' || section === 'group-management') && kind !== 'dataline' ? (
         <div className="weq-cvs-body-scroll">
+          {kind === 'group' && section === 'qq' ? (
+            <Card title="消息显示" icon={<MessageSquareText size={15} strokeWidth={1.9} />}>
+              <Row
+                label="显示当时称呼"
+                desc="优先显示消息里保存的群内称呼或昵称。没有保存时，显示当前称呼。"
+                control={
+                  <Toggle
+                    label="显示当时称呼"
+                    checked={showHistorical}
+                    disabled={savingHistorical}
+                    onChange={(next) => void toggleHistorical(next)}
+                  />
+                }
+              />
+            </Card>
+          ) : null}
           <QQConversationControls
             key={`${kind}:${conv}:${section}`}
             kind={kind}

@@ -47,6 +47,56 @@ function fixture(): Archive {
   } as Archive;
 }
 describe('正式导出格式', () => {
+  it('按消息中的称呼导出时分别保留同一人的旧名和当前称呼兜底', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'weq-archive-sender-'));
+    const outputPath = join(root, 'messages.json');
+    const base = {
+      targetGroupCode: '20001',
+      senderUid: 'u_fixture',
+      senderUin: 10002n,
+      elements: [{ type: 'text', data: { textContent: '合成正文' } }],
+    };
+    const msgs = {
+      getGroupAfter: async () => [
+        {
+          ...base,
+          msgId: 1n,
+          msgSeq: 1n,
+          sendTime: 1793800000n,
+          senderAtTime: { name: '活动组小陈', kind: 'display' },
+        },
+        { ...base, msgId: 2n, msgSeq: 2n, sendTime: 1793800001n },
+      ],
+      getGroupSeqlessAfterRowId: async () => [],
+    } as unknown as MsgService;
+    try {
+      await exportArchiveConversation(
+        msgs,
+        {
+          kind: 'group',
+          conv: '20001',
+          outputPath,
+          format: 'json',
+          useRecordedSenderName: true,
+          archive: options,
+        },
+        {
+          resolveGroupMembers: async () => [
+            { uid: 'u_fixture', uin: '10002', card: '当前群名片', nick: '小陈', adminFlag: 0 },
+          ],
+        },
+      );
+      const { archive } = await readArchiveFile(outputPath, 'json');
+      const messages = archive.records.filter((row) => row.kind === 'message');
+      expect(messages.map((row) => row.data.sender)).toMatchObject([
+        { name: '活动组小陈' },
+        { name: '小陈' },
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('数字键按 UTF-16 顺序直接编码，大整数不经过数值转换', () => {
     expect(canonical({ 2: 'b', 10: 'a' })).toBe('{"10":"a","2":"b"}');
     expect(() => canonical({ n: 9007199254740992 })).toThrow('整数精度');

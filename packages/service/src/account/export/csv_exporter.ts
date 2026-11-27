@@ -12,6 +12,11 @@
 import type { MsgService } from '../msg';
 import { runGroupExport, type Framing } from './run_export';
 import { TABLE_HEADERS, messageToCells } from './element_text';
+import {
+  exportTableSenderName,
+  resolveGroupSenders,
+  type SenderResolveDeps,
+} from './sender_resolve';
 import type { ExportedMessage, ExportResult, GroupExportOptions } from './types';
 
 /** Quote a field iff it contains a comma, quote or newline; double inner quotes. */
@@ -27,14 +32,24 @@ export const csvFraming: Framing = {
 };
 
 /** One message → a single CSV line (trailing CRLF included). */
-export function renderCsvRow(m: ExportedMessage): string {
-  return `${messageToCells(m).map(escapeCsv).join(',')}\r\n`;
+export function renderCsvRow(m: ExportedMessage, senderName?: string): string {
+  const name = senderName && /^[\s]*[=+@-]/.test(senderName) ? `'${senderName}` : senderName;
+  return `${messageToCells(m, name).map(escapeCsv).join(',')}\r\n`;
 }
 
 /** Export all messages of `groupCode` to `outputPath` as a CSV table. */
 export async function exportGroupToCsv(
   msgs: MsgService,
   opts: GroupExportOptions,
+  deps: SenderResolveDeps = {},
 ): Promise<ExportResult> {
-  return runGroupExport(msgs, opts, 'csv', csvFraming, renderCsvRow);
+  const framing = opts.useRecordedSenderName
+    ? { ...csvFraming, head: csvFraming.head.replace(/\r\n$/, ',发送者名称\r\n') }
+    : csvFraming;
+  const senders = opts.useRecordedSenderName
+    ? await resolveGroupSenders(msgs, opts.groupCode, opts.range, deps, '', opts.roam)
+    : undefined;
+  return runGroupExport(msgs, opts, 'csv', framing, (message) =>
+    renderCsvRow(message, senders ? exportTableSenderName(message, senders) : undefined),
+  );
 }

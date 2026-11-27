@@ -164,7 +164,7 @@ export function messageToText(
 export const TABLE_HEADERS = ['时间', '发送者QQ', '发送者ID', '内容', '消息ID', '序号'] as const;
 
 /** One message → its row of cells, aligned with {@link TABLE_HEADERS}. */
-export function messageToCells(m: ExportedMessage): string[] {
+export function messageToCells(m: ExportedMessage, senderName?: string): string[] {
   return [
     formatTime(m.sendTime),
     m.senderUin,
@@ -172,6 +172,7 @@ export function messageToCells(m: ExportedMessage): string[] {
     elementsToText(m.elements),
     m.msgId,
     m.msgSeq,
+    ...(senderName !== undefined ? [senderName] : []),
   ];
 }
 

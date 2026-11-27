@@ -174,6 +174,7 @@ export async function startConversationBatchExport({
           taskId = await client.account.startExport.mutate({
             ...common,
             content,
+            useRecordedSenderName: target.kind === 'group' && frozen.options.useRecordedSenderName,
             completeAvatar: frozen.options.completeAvatar,
             kind: target.kind,
             conv: target.ownerId ?? target.id,

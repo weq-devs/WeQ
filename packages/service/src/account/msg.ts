@@ -260,6 +260,21 @@ export class MsgService {
     return row ? { db, row } : null;
   }
 
+  get groupSenderNamesPending() {
+    return this.session.groupMsgs.senderNamesPending;
+  }
+
+  async groupSenderNames(filter: Parameters<AccountSession['groupMsgs']['senderNames']>[0]) {
+    const rows = await this.session.groupMsgs.senderNames(filter);
+    if (!rows.length) return [];
+    const codes = [...new Set(rows.map((row) => row.groupCode))];
+    const groups = await this.session.groupDetail.detailsByGroupCodes(codes.map(BigInt));
+    const names = new Map(
+      groups.map((group) => [String(group.groupCode), group.groupName || group.remark]),
+    );
+    return rows.map((row) => ({ ...row, groupName: names.get(row.groupCode) || row.groupCode }));
+  }
+
   async messageRecordDetails(target: MessageRecordTarget) {
     const found = await this.findMessageRecord(target);
     if (!found) return null;
@@ -1710,19 +1725,29 @@ export class MsgService {
     return new Map([...caches].map(([id, cache]) => [id, cachedQuotedMedia(cache)]));
   }
 
-  /** 正文已显示后按页补全引用媒体，仍复用 40900 的同一套解析与筛选规则。 */
-  async getReplyMedia(
-    kind: 'c2c' | 'group',
-    ids: bigint[],
-  ): Promise<{ msgId: string; elements: RenderElement[] }[]> {
-    const caches = await this.replyMedia(kind, ids);
-    return [...caches].flatMap(([id, elements]) => {
-      if (!elements.length) return [];
+  /** 正文已显示后按页读取引用快照中的媒体和发送者称呼。 */
+  async getReplyMedia(kind: 'c2c' | 'group', ids: bigint[]) {
+    const caches = await this.session.forwardMsgs.listForMessages(kind, ids);
+    return [...caches].flatMap(([id, records]) => {
+      if (records.length !== 1) return [];
+      const record = records[0]!;
+      const name = kind === 'group' ? record.sendNick?.trim() : undefined;
+      const quotedSender = name
+        ? {
+            name,
+            uid: record.senderUid || '',
+            seq: String(record.msgSeq || ''),
+            msgId: String(record.msgId || ''),
+          }
+        : undefined;
+      const elements = cachedQuotedMedia(records);
+      if (!elements.length && !quotedSender) return [];
       try {
         return [
           {
             msgId: id.toString(),
             elements: toRenderElements(elements.map((wire) => decodeElement(wire as never))),
+            ...(quotedSender ? { quotedSender } : {}),
           },
         ];
       } catch {

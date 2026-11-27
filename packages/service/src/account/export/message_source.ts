@@ -601,9 +601,15 @@ async function* pageServiceBySeqlessRowId(
 }
 
 /** Normalize a render message into the export record (bigints → strings). */
-export function toExportedMessage(m: RenderGroupMsg | RenderC2cMsg): ExportedMessage {
+export function toExportedMessage(
+  m: RenderGroupMsg | RenderC2cMsg,
+  useRecordedSenderName = false,
+): ExportedMessage {
   return {
     ...(m.forwardSource ? { forwardSource: m.forwardSource, senderName: m.senderName } : {}),
+    ...(useRecordedSenderName && 'senderAtTime' in m && m.senderAtTime
+      ? { senderAtTime: m.senderAtTime }
+      : {}),
     msgId: m.msgId.toString(),
     msgSeq: m.msgSeq.toString(),
     sendTime: Number(m.sendTime),

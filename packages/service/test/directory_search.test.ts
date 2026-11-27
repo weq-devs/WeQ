@@ -56,6 +56,38 @@ function resolveMock<T>(mock: { mockResolvedValue: (value: T) => unknown }, valu
 }
 
 describe('联系人和群聊的对象搜索', () => {
+  it('旧名命中按群和成员分开，携带原消息定位并支持分页', async () => {
+    const f = fixture();
+    f.session.groupMsgs = {
+      senderNames: async () => [
+        {
+          groupCode: '123',
+          senderUid: 'u_a',
+          senderUin: '10001',
+          kind: 'display',
+          name: '旧称呼',
+          last: { msgId: '950', msgSeq: '70' },
+        },
+        {
+          groupCode: '123',
+          senderUid: 'u_b',
+          senderUin: '10002',
+          kind: 'nickname',
+          name: '旧称呼',
+          last: { msgId: '949', msgSeq: '69' },
+        },
+      ],
+    } as unknown as AccountSession['groupMsgs'];
+    const preview = await f.service.quickSearch('旧称呼', 1, ['contact']);
+    expect(preview.contacts).toMatchObject([
+      { uid: 'u_a', historical: { msgId: '950', msgSeq: '70' } },
+    ]);
+    const second = await f.service.moreSearch('contact', '旧称呼', 1, 1);
+    expect(second.items).toMatchObject([
+      { uid: 'u_b', historical: { kind: 'nickname', msgId: '949' } },
+    ]);
+  });
+
   it('汉字、简拼和全拼混输在分页前查好友和当前会话，保留原文优先', async () => {
     const f = fixture();
     const keyword = '厦m大xue';

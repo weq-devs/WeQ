@@ -33,6 +33,7 @@ export function exportOptionsHash(task: ExportTask): string {
     media: task.media ?? null,
     avatar: task.exportAvatar ?? false,
     chatlab: task.chatlab ?? false,
+    ...(task.useRecordedSenderName ? { useRecordedSenderName: true } : {}),
     profile: task.profile ?? null,
     incrementalSupport: task.incrementalSupport ?? false,
     archiveId: task.archiveId ?? null,

@@ -40,6 +40,7 @@ import {
 import {
   avatarUrlForUin,
   fallbackSender,
+  withRecordedSenderName,
   iterateConv,
   resolveC2cSenders,
   resolveGroupSenders,
@@ -69,6 +70,7 @@ export type ChatlabGroupMember = ResolvedGroupMember;
 export type ChatlabDeps = SenderResolveDeps;
 
 export interface ChatlabExportOptions {
+  useRecordedSenderName?: boolean;
   kind: ConvKind;
   /** Group code (群号) or peer uid. */
   conv: string;
@@ -336,14 +338,16 @@ export async function exportToChatlab(
         await writer.write(`${JSON.stringify(toChatlabMember(s))}\n`);
       }
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
-        const exported = toExportedMessage(raw);
+        const exported = toExportedMessage(raw, opts.useRecordedSenderName);
         opts.collectSenders?.add(exported.senderUin);
         if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
         audit.observe(exported.elements);
-        const sender = exported.forwardSource
-          ? fallbackSender(exported)
-          : (senders.get(exported.senderUid) ?? fallbackSender(exported));
+        const sender = withRecordedSenderName(
+          (exported.forwardSource ? undefined : senders.get(exported.senderUid)) ??
+            fallbackSender(exported),
+          exported,
+        );
         await writer.write(`${JSON.stringify(toChatlabMessage(exported, sender))}\n`);
         count += 1;
         if (count % progressEvery === 0)
@@ -364,14 +368,16 @@ export async function exportToChatlab(
         '"messages": [\n';
       await writer.write(head);
       for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
-        const exported = toExportedMessage(raw);
+        const exported = toExportedMessage(raw, opts.useRecordedSenderName);
         opts.collectSenders?.add(exported.senderUin);
         if (opts.collectFaces) collectFaceIds(exported.elements, opts.collectFaces);
         await expandForwards(msgs, opts.kind, exported);
         audit.observe(exported.elements);
-        const sender = exported.forwardSource
-          ? fallbackSender(exported)
-          : (senders.get(exported.senderUid) ?? fallbackSender(exported));
+        const sender = withRecordedSenderName(
+          (exported.forwardSource ? undefined : senders.get(exported.senderUid)) ??
+            fallbackSender(exported),
+          exported,
+        );
         const { _type, ...rest } = toChatlabMessage(exported, sender);
         void _type;
         await writer.write((count === 0 ? '' : ',\n') + JSON.stringify(rest));

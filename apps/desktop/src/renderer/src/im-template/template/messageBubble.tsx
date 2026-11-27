@@ -704,7 +704,9 @@ function MessageBubbleBody({
             showTitle={Boolean(groupDisplay & 4)}
           />
         ) : null}
-        {senderNameVisible && onAvatarClick && conversation.generated ? (
+        {senderNameVisible &&
+        onAvatarClick &&
+        (conversation.generated || message.historicalSenderName) ? (
           <button
             type="button"
             className="weq-message-name-profile"

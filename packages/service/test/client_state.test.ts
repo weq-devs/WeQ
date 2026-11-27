@@ -43,6 +43,16 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 describe('跨端偏好与功能状态', () => {
+  it('各群的当时称呼显示独立保存，关闭可清除旧值', () => {
+    const state = store();
+    state.records('conversationDisplay', { '123': true, '345': true });
+    const restored = new ClientStateStore(state.path);
+    expect(restored.snapshot().records.conversationDisplay).toEqual({ '123': true, '345': true });
+    restored.records('conversationDisplay', { '123': null });
+    expect(restored.snapshot().records.conversationDisplay).toEqual({ '345': true });
+    expect(() => restored.records('conversationDisplay', { u_friend: true })).toThrow();
+  });
+
   it('菜单偏好落盘后恢复，非法选项或任务内容不覆盖已保存值', () => {
     const state = store();
     const choices = {

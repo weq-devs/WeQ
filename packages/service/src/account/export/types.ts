@@ -51,6 +51,7 @@ export interface ExportedMessage {
     path?: import('../message_filter').ForwardExportTarget['path'];
   };
   senderName?: string;
+  senderAtTime?: { name: string; kind: 'display' | 'nickname' };
   /** Message id (40001), as a string. */
   msgId: string;
   /** Per-group sequence (40003), as a string. */
@@ -79,6 +80,7 @@ export type ProgressCallback = (progress: ExportProgress) => void;
 
 /** Options shared by every group exporter. */
 export interface GroupExportOptions {
+  useRecordedSenderName?: boolean;
   /** 仅旧任务恢复保留原文件形状；新导出不设置。 */
   legacyFormat?: boolean;
   archive?: import('./archive').ArchiveOptions;

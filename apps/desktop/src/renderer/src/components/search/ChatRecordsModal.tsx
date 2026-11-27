@@ -44,6 +44,7 @@ import type { MessageRenderer } from '../../im-template/template/messageRenderer
 import type { Conversation, GroupMember, Message, User } from '../../im-template/template/types';
 import '../../styles/qzone.css';
 import '../../styles/chat-records.css';
+import { useShowHistoricalNames } from '../../lib/clientPreferences';
 import { createReplyPreviewIndex } from '../../lib/replyPreview';
 import { enrichReplyElements } from '../../views/workspace/messageProjection';
 import type { RenderElement } from '../QqMessageContent.shared';
@@ -188,6 +189,9 @@ export function ChatRecordsModal({
     savedScrollTop.current = null;
   }, []);
   const isGroup = selected.source === 'group';
+  const showHistorical = useShowHistoricalNames(
+    isGroup && !localSource ? selected.targetUid : undefined,
+  );
   const members = useMemo(
     () => (isGroup && !localSource ? groupMembers?.(selected.targetUid) : undefined),
     [isGroup, localSource, groupMembers, selected.targetUid],
@@ -831,6 +835,9 @@ export function ChatRecordsModal({
                               {fixed ? <RecordDayHeading day={day} /> : null}
                               {rows.map((msg) => {
                                 const elements = msg.elements;
+                                const senderAtTime = showHistorical
+                                  ? msg.senderAtTime?.name
+                                  : undefined;
                                 if (elements?.length && conversation) {
                                   const message =
                                     localSource?.messages.find(
@@ -846,6 +853,7 @@ export function ChatRecordsModal({
                                             user,
                                             members,
                                             replyIndex,
+                                            showHistorical,
                                           )
                                         : elements,
                                     );
@@ -897,7 +905,7 @@ export function ChatRecordsModal({
                                         conversation={conversation}
                                         sender={sender}
                                         mine={mine}
-                                        senderName={displayUserName(sender)}
+                                        senderName={senderAtTime || displayUserName(sender)}
                                         senderAvatarUrl={sender.avatarUrl}
                                         senderSeed={sender.identityValue}
                                         senderKind={sender.kind}
@@ -937,9 +945,11 @@ export function ChatRecordsModal({
                                     />
                                     <span className="weq-chatrecords-msg-text">
                                       <span className="weq-chatrecords-msg-meta">
-                                        {msg.senderName ? (
+                                        {senderAtTime || msg.senderName ? (
                                           <>
-                                            <span data-privacy-sensitive>{msg.senderName}</span>
+                                            <span data-privacy-sensitive>
+                                              {senderAtTime || msg.senderName}
+                                            </span>
                                             {' · '}
                                           </>
                                         ) : null}

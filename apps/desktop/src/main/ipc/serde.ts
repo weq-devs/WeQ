@@ -303,6 +303,7 @@ export interface ChatMsgWire {
   /** Conversation key: peer uid (c2c) or group code (group). */
   conv: string;
   senderUid: string;
+  senderAtTime?: RenderGroupMsg['senderAtTime'];
   senderUin: string;
   sendTime: string;
   elements: unknown[];
@@ -446,6 +447,7 @@ export function groupMsgToWire(m: RenderGroupMsg): ChatMsgWire {
     msgRandom: (m.msgRandom ?? 0n).toString(),
     conv: m.targetGroupCode,
     senderUid: m.senderUid,
+    ...(m.senderAtTime ? { senderAtTime: m.senderAtTime } : {}),
     senderUin: m.senderUin.toString(),
     sendTime: m.sendTime.toString(),
     elements: sanitize(m.elements),
@@ -995,11 +997,8 @@ export function messageElementsToWire(elements: ReturnType<typeof toRenderElemen
   return elements.map(({ type, data }) => ({ type, data: sanitize({ ...data }) }));
 }
 
-export function replyMediaToWire(patch: { msgId: string; elements: unknown[] }): {
-  msgId: string;
-  elements: unknown[];
-} {
-  return { msgId: patch.msgId, elements: sanitize(patch.elements) };
+export function replyMediaToWire<T extends { msgId: string; elements: unknown[] }>(patch: T) {
+  return { ...patch, elements: sanitize(patch.elements) };
 }
 
 /**

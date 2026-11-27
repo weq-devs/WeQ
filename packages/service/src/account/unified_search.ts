@@ -178,6 +178,7 @@ export interface ConversationRecordHit {
   senderUin: string;
   /** Sender display name (group card/nick, '' when unknown). */
   senderName: string;
+  senderAtTime?: GroupMsg['senderAtTime'];
   sendTime: string;
   /**
    * Rendered display text: the original message's elements flattened to text,
@@ -197,6 +198,7 @@ export interface ConversationRecordHit {
 }
 
 export interface QuickSearchResult {
+  contactHistoryPending?: boolean;
   contacts?: ContactSearchHit[];
   groups?: GroupSearchHit[];
   conversations: ConversationSearchHit[];
@@ -257,6 +259,7 @@ export interface SlowSearchResult {
 }
 
 export interface MoreSearchResult {
+  contactHistoryPending?: boolean;
   unavailableMessageSources?: FtsSource[];
   coverage?: ContentSearchCoverage;
   category: SearchCategory;
@@ -460,7 +463,7 @@ export class UnifiedSearchService {
         ? this.session.groupMembers.searchMembers(needle, limit, 0)
         : { items: [] },
       categories?.includes('contact')
-        ? this.directorySearch('contact', needle, directoryScope, selected)
+        ? this.directorySearch('contact', needle, directoryScope, selected, limit + 1)
         : undefined,
       categories?.includes('group')
         ? this.directorySearch('group', needle, directoryScope, selected)
@@ -471,6 +474,7 @@ export class UnifiedSearchService {
     return {
       ...(contacts
         ? {
+            ...(this.session.groupMsgs?.senderNamesPending ? { contactHistoryPending: true } : {}),
             contacts: contacts
               .filter((hit): hit is ContactSearchHit => hit.category === 'contact')
               .slice(0, limit),
@@ -739,10 +743,19 @@ export class UnifiedSearchService {
       }
       case 'contact':
       case 'group': {
-        const ranked = await this.directorySearch(category, needle, directoryScope, selected);
+        const ranked = await this.directorySearch(
+          category,
+          needle,
+          directoryScope,
+          selected,
+          offset + page + 1,
+        );
         const items = ranked.slice(offset, offset + page);
         return {
           category,
+          ...(category === 'contact' && this.session.groupMsgs?.senderNamesPending
+            ? { contactHistoryPending: true }
+            : {}),
           items,
           total: ranked.length,
           hasMore: offset + items.length < ranked.length,
@@ -989,6 +1002,7 @@ export class UnifiedSearchService {
           ? {
               elements: rendered!,
               setEmojiList: source === 'group' ? (orig as GroupMsg).setEmojiList : undefined,
+              senderAtTime: source === 'group' ? (orig as GroupMsg).senderAtTime : undefined,
               decoration: orig.decoration,
             }
           : undefined,
@@ -1061,12 +1075,13 @@ export class UnifiedSearchService {
     keyword: string,
     scope: ConversationScope,
     sources: readonly SearchSource[],
+    historyLimit = 0,
   ): Promise<Array<ContactSearchHit | GroupSearchHit>> {
     const pinyin = createPinyinMatcher(keyword);
     const hits: Array<ContactSearchHit | GroupSearchHit> =
       sources.includes('qq') && (scope === 'all' || scope === 'real')
         ? await (category === 'contact'
-            ? searchContacts(this.session, keyword)
+            ? searchContacts(this.session, keyword, historyLimit)
             : searchGroups(this.session, keyword))
         : [];
     if (sources.includes('clone')) {
@@ -1706,6 +1721,7 @@ function rowToRecordHit(
   content = h.content,
   original?: {
     elements: RenderElement[];
+    senderAtTime?: GroupMsg['senderAtTime'];
     setEmojiList?: SetEmojiItem[];
     decoration?: MsgDecoration;
   },
@@ -1721,6 +1737,7 @@ function rowToRecordHit(
     ...(original
       ? {
           elements: original.elements,
+          ...(original.senderAtTime ? { senderAtTime: original.senderAtTime } : {}),
           ...(original.setEmojiList ? { setEmojiList: original.setEmojiList } : {}),
           ...(original.decoration ? { decoration: original.decoration } : {}),
         }

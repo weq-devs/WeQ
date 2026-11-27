@@ -89,7 +89,16 @@ export function validateClientState(value: unknown): asserts value is State {
   if (
     Object.keys(value.records).some(
       (key) =>
-        !['pins', 'tasks', 'assistant', 'todos', 'order', 'notifications', 'reads'].includes(key),
+        ![
+          'pins',
+          'tasks',
+          'assistant',
+          'todos',
+          'order',
+          'notifications',
+          'reads',
+          'conversationDisplay',
+        ].includes(key),
     )
   )
     throw new Error('跨端状态分区无效');
@@ -324,9 +333,16 @@ export class ClientStateStore {
   }
   records(namespace: StateNamespace, patch: Record<string, unknown>, seed = false) {
     if (
-      !['pins', 'tasks', 'assistant', 'todos', 'order', 'notifications', 'reads'].includes(
-        namespace,
-      ) ||
+      ![
+        'pins',
+        'tasks',
+        'assistant',
+        'todos',
+        'order',
+        'notifications',
+        'reads',
+        'conversationDisplay',
+      ].includes(namespace) ||
       !isRecord(patch) ||
       Buffer.byteLength(JSON.stringify(patch)) > 2 * 1024 * 1024
     )
@@ -336,6 +352,13 @@ export class ClientStateStore {
     for (const [key, value] of Object.entries(patch)) {
       if (!key || key.length > 1024 || ['__proto__', 'constructor', 'prototype'].includes(key))
         throw new Error('无效的状态标识');
+      if (namespace === 'conversationDisplay') {
+        if (!/^[1-9]\d{0,19}$/.test(key) || (value !== true && value !== null))
+          throw new Error('无效的群聊显示设置');
+        if (value === null) delete rows[key];
+        else rows[key] = value;
+        continue;
+      }
       if (namespace === 'pins' && value !== null && typeof value !== 'boolean')
         throw new Error('无效的置顶状态');
       if (namespace === 'reads') {

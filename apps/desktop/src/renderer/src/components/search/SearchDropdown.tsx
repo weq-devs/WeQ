@@ -430,6 +430,11 @@ export function SearchDropdown({
       </div>
       {hasKeyword ? (
         <>
+          {quick?.contactHistoryPending && categories.includes('contact') ? (
+            <div className="weq-search-index-hint" role="status">
+              正在整理历史称呼，搜索结果会继续补齐…
+            </div>
+          ) : null}
           {indexBuilding ? (
             <div className="weq-search-index-hint">
               正在校验 QQ 搜索索引，消息/文件首次查询可能较慢…

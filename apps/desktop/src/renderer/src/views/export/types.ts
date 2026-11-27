@@ -187,6 +187,7 @@ export const MEDIA_KIND_LABELS: Record<keyof MediaKinds, string> = {
 
 /** Media / content options collected in the export lightbox. */
 export interface ExportOptions {
+  useRecordedSenderName?: boolean;
   content?: import('@weq/service/export-content').ExportContentPolicy;
   exportMessages?: boolean;
   completeAvatar?: boolean;

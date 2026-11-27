@@ -3,6 +3,7 @@ interface ReplySource {
   clientSeq?: string;
   senderUin: string;
   senderUid?: string;
+  senderAtTime?: { name: string };
   sendTime: string;
   elements: unknown[];
 }
@@ -61,11 +62,11 @@ export function createReplyPreviewIndex(sources: ReplySource[]): ReplyPreviewInd
 }
 
 /** 只在唯一匹配时补齐旧引用摘要，不把重号或上一层引用混进来。 */
-export function findReplyPreview(
+export function findReplySource(
   kind: 'group' | 'c2c',
   data: Record<string, unknown>,
   sources: ReplySource[] | ReplyPreviewIndex,
-): unknown[] | undefined {
+): ReplySource | undefined {
   const pointer = Number(kind === 'group' ? data.origMsgSeq : data.origMsgIndex);
   const clientSeq = Number(data.origClientSeq);
   const candidates = Array.isArray(sources)
@@ -82,10 +83,15 @@ export function findReplyPreview(
         : clientSeq > 0 && row.clientSeq === String(clientSeq)) &&
       row.elements.some((item) => !(item as { type?: string } | null)?.type?.startsWith('grayTip')),
   );
-  return chooseReplySource(
-    viable,
-    data,
-    (row) => row,
-    pointer <= 0 || !Number.isFinite(pointer),
-  )?.elements.filter((item) => (item as { type?: string } | null)?.type !== 'reply');
+  return chooseReplySource(viable, data, (row) => row, pointer <= 0 || !Number.isFinite(pointer));
+}
+
+export function findReplyPreview(
+  kind: 'group' | 'c2c',
+  data: Record<string, unknown>,
+  sources: ReplySource[] | ReplyPreviewIndex,
+): unknown[] | undefined {
+  return findReplySource(kind, data, sources)?.elements.filter(
+    (item) => (item as { type?: string } | null)?.type !== 'reply',
+  );
 }

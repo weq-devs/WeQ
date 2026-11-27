@@ -48,6 +48,7 @@ import { SYSFACE_SUBDIR, MFACE_SUBDIR } from './sysface_export';
 import {
   avatarUrlForUin,
   fallbackSender,
+  withRecordedSenderName,
   iterateConv,
   resolveC2cSenders,
   resolveGroupSenders,
@@ -63,6 +64,7 @@ import type {
 } from './types';
 
 export interface HtmlExportOptions {
+  useRecordedSenderName?: boolean;
   kind: ConvKind;
   /** Group code (群号) or peer uid. */
   conv: string;
@@ -985,7 +987,7 @@ export async function exportToHtml(
   }
   try {
     for await (const raw of iterateConv(msgs, opts.kind, opts.conv, opts.range, opts.roam)) {
-      const exported = toExportedMessage(raw);
+      const exported = toExportedMessage(raw, opts.useRecordedSenderName);
       opts.collectSenders?.add(exported.senderUin);
       await expandForwards(msgs, opts.kind, exported);
       audit.observe(exported.elements);
@@ -995,9 +997,11 @@ export async function exportToHtml(
         await writeRow(`<div class="day"><span>${escapeHtml(day)}</span></div>`);
         lastDay = day;
       }
-      const sender = exported.forwardSource
-        ? fallbackSender(exported)
-        : (senders.get(exported.senderUid) ?? fallbackSender(exported));
+      const sender = withRecordedSenderName(
+        (exported.forwardSource ? undefined : senders.get(exported.senderUid)) ??
+          fallbackSender(exported),
+        exported,
+      );
       const dec = exported.forwardSource ? undefined : opts.dressLookup?.(exported.msgId);
       await writeRow(
         renderMessage(

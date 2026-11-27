@@ -366,6 +366,11 @@ export function useAccountRecords(namespace: StateNamespace, scope: string) {
       : emptyAccountRecords,
   );
 }
+export function useShowHistoricalNames(groupCode?: string) {
+  const scope = currentAccountScope();
+  return useAccountRecords('conversationDisplay', scope)[groupCode ?? ''] === true;
+}
+
 export function bindAccountState(next: Binding | null) {
   binding = next;
   const cached = next

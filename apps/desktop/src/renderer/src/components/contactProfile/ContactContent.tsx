@@ -58,6 +58,7 @@ import { ContactFieldHistoryButton } from './ContactFieldHistory';
 import { useContactFieldHistoryAvailable } from './ContactFieldHistory.shared';
 import { useGroupMemberUnmute } from '../../hooks/useGroupMemberUnmute';
 import { CalendarNavigationContext } from '../../lib/calendarNavigation';
+import { GroupSenderNameHistory } from './GroupSenderNameHistory';
 import { useGroupMemberTimeNavigation } from '../../hooks/useGroupMemberTimeNavigation';
 import { previewMemberView } from '../../hooks/useGroupProfile';
 import { SelfProfileSlot } from '../SelfProfileFields';
@@ -808,6 +809,7 @@ export function ContactGroupContent({
       {member.leftGroup ? <ContactEmptyState>已退出这个群</ContactEmptyState> : null}
       {rows}
       {!visibleOrder.includes('lastSpeakAt') ? <MemberMuteUntil action={action} /> : null}
+      <GroupSenderNameHistory person={person} groupCode={context.groupCode} />
     </>
   );
   if (full) return <>{body}</>;
