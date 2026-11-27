@@ -52,7 +52,13 @@ export interface BackgroundTask {
   download?: { url: string; name: string };
   reportId?: string;
   groupAlbum?: { groupCode: string; albumId: string };
-  forwardTargets?: { id: string; name: string; kind: 'c2c' | 'group'; conv: string }[];
+  forwardTargets?: {
+    id: string;
+    name: string;
+    kind: 'c2c' | 'group';
+    conv: string;
+    seq?: string;
+  }[];
   qzonePost?: { uin: string; tid: string };
   messageTarget?: { conversationKind: 'c2c' | 'group' | 'dataline'; conv: string; msgId: string };
   clonePersonaId?: string;

@@ -270,6 +270,27 @@ it('缺口选择只计数且不提醒，导出前才确认，取消不拉取或�
   }
 });
 
+it.each(['合并转发', '逐条转发'] as const)('聊天列表滚动时仍可点击%s', async (action) => {
+  const f = fixture();
+  try {
+    await f.click('[data-enter]');
+    await f.click('[aria-label="转发"]');
+    await act(async () =>
+      f.host.querySelector('.message-scroll')!.dispatchEvent(new Event('scroll')),
+    );
+    const option = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+      (row) => row.textContent === action,
+    );
+    expect(option).toBeDefined();
+    await act(async () => option!.click());
+    const callback = action === '合并转发' ? f.merge : f.forward;
+    expect(callback).toHaveBeenCalledOnce();
+    expect(callback.mock.calls[0]![0].map((message: Message) => message.id)).toEqual(['1']);
+  } finally {
+    f.close();
+  }
+});
+
 it.each(['分析所选消息', '删除', '添加到素材库', '合并转发', '逐条转发'] as const)(
   '只选缺口也可在%s前确认拉取，不用先选一条已有消息',
   async (action) => {

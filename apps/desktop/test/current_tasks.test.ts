@@ -18,6 +18,9 @@ import { useToast } from '../src/renderer/src/components/Toast.shared';
 import { useDbRepairWindow } from '../src/renderer/src/state/dbRepairWindow';
 import { backgroundTaskNavigation } from '../src/renderer/src/components/tasks/backgroundTaskNavigation';
 import { onOpenSettingsRequest } from '../src/renderer/src/lib/callSettingsBridge';
+import { bindAccountState } from '../src/renderer/src/lib/clientPreferences';
+import { onNotificationNavigation } from '../src/renderer/src/lib/notificationNavigation.shared';
+import { TaskResultNavigationContext } from '../src/renderer/src/lib/taskResultNavigation';
 import {
   exportTaskDisplay,
   roamingTaskDisplay,
@@ -78,6 +81,7 @@ const fixture = vi.hoisted(() => ({
   accountId: 'fixture-account',
   roamingStatus: 'paused',
   plannedSeqs: 100,
+  roamingObserved: 0,
   flashStatus: 'pending',
   flashCount: 1,
   flashCanRetry: false,
@@ -91,6 +95,9 @@ const fixture = vi.hoisted(() => ({
     }),
   ),
   deleteArchive: vi.fn(async () => true),
+  resumeArchive: vi.fn(async (_input: { task: { id: string; result: string } }) => ({
+    resumed: true,
+  })),
   invalidate: vi.fn(),
   info: vi.fn(),
   error: vi.fn(),
@@ -165,6 +172,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
     taskArchive: {
       change: { mutate: fixture.changeArchive },
       remove: { mutate: fixture.deleteArchive },
+      resume: { mutate: fixture.resumeArchive },
     },
     account: {
       roamingBackfill: {
@@ -218,7 +226,10 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
               jobs: [
                 {
                   id: 'same-id',
-                  targets: [{ name: '合成漫游' }],
+                  targets: [
+                    { kind: 'group', conv: '123', name: '合成漫游', firstObservedSeq: '22' },
+                  ],
+                  observed: fixture.roamingObserved,
                   status: fixture.roamingStatus,
                   plannedSeqs: fixture.plannedSeqs,
                   remainingSeqs: fixture.plannedSeqs > 0 ? 75 : 0,
@@ -266,6 +277,7 @@ vi.mock('../src/renderer/src/trpc/client', () => ({
 }));
 
 afterEach(() => {
+  bindAccountState(null);
   useDbRepairWindow.getState().dismiss();
   useToast.setState({ toasts: [], leaving: [] });
   for (const task of localBackgroundTasks.snapshot()) {
@@ -277,6 +289,7 @@ afterEach(() => {
   fixture.accountId = 'fixture-account';
   fixture.roamingStatus = 'paused';
   fixture.plannedSeqs = 100;
+  fixture.roamingObserved = 0;
   fixture.flashStatus = 'pending';
   fixture.flashCount = 1;
   fixture.flashCanRetry = false;
@@ -307,6 +320,138 @@ async function clickQuick(row: Element, label: string) {
 }
 
 describe('统一当前任务', () => {
+  it('已归档的多目标转发打开目标选择，任务详情仍可单独进入，异常任务先显示回执', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const binding = {
+      expectedAccountUin: fixture.accountId,
+      expectedAccountConfigId: 'fixture-config',
+    };
+    bindAccountState(binding);
+    const task: BackgroundTask = {
+      id: 'merged-forward',
+      kind: 'forward',
+      name: '转发回执',
+      scope: { uin: binding.expectedAccountUin, configId: binding.expectedAccountConfigId },
+      forwardTargets: [
+        { id: '123', conv: '123', name: '群聊', kind: 'group', seq: '543' },
+        { id: 'u_peer', conv: 'u_peer', name: '私聊', kind: 'c2c' },
+      ],
+      status: 'completed',
+      details: ['已转发'],
+      actions: [],
+      startedAt: 1,
+      updatedAt: 2,
+    };
+    fixture.archive = {
+      'background:window:merged-forward': {
+        result: 'completed:2',
+        archivedAt: 3,
+        snapshot: task,
+      },
+    };
+    const navigate = vi.fn();
+    const dismiss = vi.fn();
+    const off = onNotificationNavigation(navigate);
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const render = (archived: boolean) =>
+      act(() =>
+        root.render(
+          h(
+            TaskResultNavigationContext.Provider,
+            { value: { dismiss } },
+            h(CurrentTaskList, {
+              key: String(archived),
+              archived,
+              layout: 'page',
+              cleanupBinding: binding,
+              exports: [],
+              renderExport: () => null,
+            }),
+          ),
+        ),
+      );
+    const row = () =>
+      [...host.querySelectorAll<HTMLButtonElement>('.weq-long-task')].find((item) =>
+        item.textContent?.includes(task.name),
+      )!;
+    try {
+      render(true);
+      act(() => row().click());
+      expect(navigate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'forwarded-conversations',
+          targets: task.forwardTargets?.map((target) => ({ ...target, avatarUrl: '' })),
+        }),
+      );
+      expect(dismiss).toHaveBeenCalledTimes(1);
+      await clickQuick(row().parentElement!, '任务详情');
+      expect(host.textContent).toContain('已转发');
+      expect(navigate).toHaveBeenCalledTimes(1);
+
+      fixture.background = [{ ...task, status: 'failed', statusLabel: '部分完成', updatedAt: 4 }];
+      render(false);
+      act(() => row().click());
+      expect(host.textContent).toContain('任务详情');
+      expect(host.textContent).toContain('部分完成');
+      expect(navigate).toHaveBeenCalledTimes(1);
+    } finally {
+      off();
+      act(() => root.unmount());
+    }
+  });
+
+  it.each([
+    ['completed', 2, true],
+    ['completed', 0, false],
+    ['partial', 2, false],
+  ] as const)(
+    '漫游任务 %s、补回 %i 条时按实际结果选择会话或回执',
+    (status, observed, opensChat) => {
+      vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+      const binding = {
+        expectedAccountUin: fixture.accountId,
+        expectedAccountConfigId: 'fixture-config',
+      };
+      bindAccountState(binding);
+      fixture.roamingStatus = status;
+      fixture.roamingObserved = observed;
+      if (!observed) fixture.plannedSeqs = 0;
+      const navigate = vi.fn();
+      const off = onNotificationNavigation(navigate);
+      const host = document.createElement('div');
+      const root = createRoot(host);
+      try {
+        act(() =>
+          root.render(
+            h(CurrentTaskList, {
+              exports: [],
+              renderExport: () => null,
+              cleanupBinding: binding,
+            }),
+          ),
+        );
+        const row = [...host.querySelectorAll<HTMLButtonElement>('.weq-long-task')].find((item) =>
+          item.textContent?.includes('合成漫游'),
+        )!;
+        act(() => row.click());
+        if (opensChat)
+          expect(navigate).toHaveBeenCalledWith({
+            kind: 'conversation',
+            conversationKind: 'group',
+            conv: '123',
+            seq: '22',
+          });
+        else {
+          expect(navigate).not.toHaveBeenCalled();
+          expect(host.textContent).toContain('漫游详情 same-id');
+        }
+      } finally {
+        off();
+        act(() => root.unmount());
+      }
+    },
+  );
   it('批量标题只读取选区数量，不拼接或读取完整名单', () => {
     const target = {
       get name(): string {
@@ -1076,7 +1221,7 @@ describe('统一当前任务', () => {
     }
   });
 
-  it('批量归档保留待保存、保存中和暂停任务，归档写入失败时保留记录', async () => {
+  it('批量归档已结束任务，保留保存中和暂停任务，写入失败可重试', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     const host = document.createElement('div');
     const root = createRoot(host);
@@ -1117,11 +1262,72 @@ describe('统一当前任务', () => {
       expect(fixture.changeArchive.mock.lastCall?.[0]).toMatchObject({
         ...binding,
         action: 'archive',
-        tasks: [{ id: 'export:failed' }, { id: 'export:saved' }],
+        tasks: [{ id: 'export:pending-save' }, { id: 'export:failed' }, { id: 'export:saved' }],
       });
       expect(fixture.deleteArchive).not.toHaveBeenCalled();
     } finally {
       act(() => root.unmount());
+    }
+  });
+
+  it('暂停导出可单独归档，从归档页可取消归档或直接继续', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const task: UiTask = {
+      id: 'resume-export',
+      name: '可续作导出',
+      kind: 'c2c',
+      format: 'json',
+      status: 'paused',
+      canResume: true,
+      progress: 10,
+      current: 1,
+      total: 10,
+    };
+    const ref = { id: `export:${task.id}`, result: 'paused::' };
+    const binding = {
+      expectedAccountUin: fixture.accountId,
+      expectedAccountConfigId: 'fixture-config',
+    };
+    const render = (archived: boolean) =>
+      act(() =>
+        root.render(
+          h(CurrentTaskList, {
+            archived,
+            layout: 'compact',
+            exports: [task],
+            cleanupBinding: binding,
+            renderExport: () => null,
+          }),
+        ),
+      );
+    const row = () =>
+      [...host.querySelectorAll('.weq-long-task')].find((item) =>
+        item.textContent?.includes(task.name),
+      )!.parentElement!;
+    try {
+      render(false);
+      await clickQuick(row(), '归档');
+      expect(fixture.changeArchive).toHaveBeenLastCalledWith({
+        ...binding,
+        action: 'archive',
+        tasks: [ref],
+      });
+      fixture.archive = { [ref.id]: { result: ref.result, archivedAt: 1 } };
+      render(true);
+      await clickQuick(row(), '取消归档');
+      expect(fixture.changeArchive).toHaveBeenLastCalledWith({
+        ...binding,
+        action: 'restore',
+        tasks: [ref],
+      });
+      await clickQuick(row(), '继续导出');
+      expect(fixture.resumeArchive).toHaveBeenCalledWith({ ...binding, task: ref });
+    } finally {
+      act(() => root.unmount());
+      host.remove();
     }
   });
 

@@ -258,7 +258,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
   }
 
   /** 只重试失败或取消的文件；旧下载完全退出后才复用任务身份与路径。 */
-  retry(taskId: string): Promise<boolean> {
+  retry(taskId: string, { background = false }: { background?: boolean } = {}): Promise<boolean> {
     const request = this.startQueue.then(async () => {
       await this.loading;
       const batch = this.list().find((task) => task.id === taskId);
@@ -266,7 +266,10 @@ export class FlashTransferDownloadManager extends EventEmitter {
       const files = batch.files.filter(
         (file) => file.status === 'failed' || file.status === 'cancelled',
       );
-      const previous = files.map((file) => ({ ...file }));
+      const previous = (background ? batch.files : files).map(
+        (file) => [file, { ...file }] as const,
+      );
+      if (background) for (const file of batch.files) delete file.foreground;
       for (const file of files) {
         file.status = 'pending';
         delete file.interrupted;
@@ -278,7 +281,7 @@ export class FlashTransferDownloadManager extends EventEmitter {
       try {
         await this.persist(true);
       } catch (error) {
-        for (const [index, file] of files.entries()) Object.assign(file, previous[index]);
+        for (const [file, snapshot] of previous) Object.assign(file, snapshot);
         throw error;
       }
       for (const file of files) this.emitTask(file);

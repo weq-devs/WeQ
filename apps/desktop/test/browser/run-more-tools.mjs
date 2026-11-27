@@ -239,7 +239,7 @@ async function checkTaskPages(page, { chrome, swipeBack, output, url }) {
   const archive = page.getByLabel('已归档任务列表', { exact: true });
   await archive.getByRole('button', { name: /合成聊天 17\b/ }).click();
   await taskDetail.getByRole('button', { name: '更多操作', exact: true }).click();
-  await page.getByRole('menuitem', { name: '恢复到当前任务', exact: true }).waitFor();
+  await page.getByRole('menuitem', { name: '取消归档', exact: true }).waitFor();
   await page.getByRole('menuitem', { name: '彻底删除', exact: true }).waitFor();
   await page.keyboard.press('Escape');
   await page

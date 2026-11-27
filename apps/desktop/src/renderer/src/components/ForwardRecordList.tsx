@@ -121,9 +121,12 @@ export function ForwardRecordList({
   const [mode, setMode] = useState(false);
   const [ids, setIds] = useState<ReadonlySet<string>>(() => new Set());
   const [menu, setMenu] = useState<OpenMenu | null>(null);
-  const [tools, setTools] = useState<{ kind: 'forward' | 'copy'; x: number; y: number } | null>(
-    null,
-  );
+  const [tools, setTools] = useState<{
+    kind: 'forward' | 'copy';
+    anchor: HTMLButtonElement;
+    x: number;
+    y: number;
+  } | null>(null);
   const [report, setReport] = useState<ForwardEntry[] | null>(null);
   const [decoration, setDecoration] = useState<Message['decoration']>();
   const [merging, setMerging] = useState(false);
@@ -523,7 +526,7 @@ export function ForwardRecordList({
 
   function openTools(kind: 'forward' | 'copy', button: HTMLButtonElement) {
     const rect = button.getBoundingClientRect();
-    setTools({ kind, x: rect.right, y: rect.top - 4 });
+    setTools({ kind, anchor: button, x: rect.right, y: rect.top - 4 });
   }
 
   const media = menu?.state.mediaTarget;
@@ -717,6 +720,7 @@ export function ForwardRecordList({
           x={tools.x}
           y={tools.y}
           dropdown="above"
+          scrollAnchor={tools.anchor}
           onClose={closeTools}
           label={tools.kind === 'copy' ? '复制格式' : '转发方式'}
           actions={

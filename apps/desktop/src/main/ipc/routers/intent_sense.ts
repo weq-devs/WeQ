@@ -15,7 +15,12 @@
 import { OperationError } from '@weq/service';
 
 import { z } from 'zod/v3';
-import { backgroundTasks } from '../../background_tasks';
+import {
+  intentDownloadInput,
+  intentDownloadInProgress,
+  intentDownloadListeners,
+  startDirectIntentDownload,
+} from '../../intent_sense/direct_download_task';
 import { startEnhancementDownloads } from '../../enhancements/tasks';
 import { agentLabModelSelectionSchema } from '../../../shared/agentlab_model_selection';
 import { observable } from '@trpc/server/observable';
@@ -51,12 +56,10 @@ function requireServices(): AccountServices {
 }
 
 /** 模型下载进度监听（router 模块级单例；下载由设置页触发）。 */
-const progressListeners = new Set<(p: IntentSenseModelProgress) => void>();
-let downloading = false;
-
 export function isIntentModelDownloading(): boolean {
   return (
-    downloading || getAppContext().bootstrap?.enhancements?.packs.isPreparing('intent') === true
+    intentDownloadInProgress() ||
+    getAppContext().bootstrap?.enhancements?.packs.isPreparing('intent') === true
   );
 }
 
@@ -443,72 +446,25 @@ export const intentSenseModelProcedures = {
    * 下载/补齐本地模型（幂等：已完整立即完成）。进度走 onModelDownloadProgress。
    * 运行中重复调用直接返回，不打断在途下载。
    */
-  downloadLocalModel: procedure
-    .input(
-      z.object({
-        mirror: z.boolean(),
-        modelId: z.enum(['auto', 'laya-multilingual', 'QWeQ-NineBird-v1']).optional(),
-      }),
-    )
-    .mutation(async ({ input }) => {
-      const engine = getActiveIntentSenseLocalEngine();
-      if (!engine) return { ok: false, error: '当前宿主未提供本地引擎', alreadyRunning: false };
-      const packs = requireBootstrap().enhancements?.packs;
-      if (packs) {
-        if (input.modelId === 'QWeQ-NineBird-v1')
-          return {
-            ok: false,
-            error: 'QWeQ-NineBird-v1 仅使用已有本地模型，不支持在线下载',
-            alreadyRunning: false,
-          };
-        if (packs.isPreparing('intent')) return { ok: true, alreadyRunning: true };
-        await startEnhancementDownloads(packs, ['intent']);
-        await packs.waitFor('intent');
-        const pack = (await packs.list()).find((pack) => pack.id === 'intent');
-        return { ok: !!pack?.ready, error: pack?.operation?.error, alreadyRunning: false };
-      }
-      if (downloading) return { ok: true, alreadyRunning: true };
-      downloading = true;
-      const taskId = backgroundTasks.start({
-        kind: 'model',
-        name: `本地意图模型 · ${input.modelId ?? 'auto'}`,
-        display: {
-          action: '下载意图模型',
-          subject: input.modelId === 'auto' ? undefined : input.modelId,
-        },
-      });
-      const notify = (p: IntentSenseModelProgress): void => {
-        backgroundTasks.update(taskId, {
-          progress: p.filesTotal > 0 ? (p.filesDone / p.filesTotal) * 100 : undefined,
-          note: `${p.filesDone} / ${p.filesTotal} 个文件${p.currentFile ? ` · ${p.currentFile}` : ''}`,
-        });
-        for (const cb of progressListeners) {
-          try {
-            cb(p);
-          } catch {
-            /* 监听器异常不影响下载 */
-          }
-        }
-      };
-      notify({
-        filesDone: 0,
-        filesTotal: 5,
-        received: 0,
-        total: 0,
-        currentFile: null,
-        done: false,
-      });
-      try {
-        await engine.download({ modelId: input.modelId, mirror: input.mirror, onProgress: notify });
-        backgroundTasks.finish(taskId, 'completed', { note: '模型已下载' });
-        return { ok: true, alreadyRunning: false };
-      } catch (error) {
-        backgroundTasks.finish(taskId, 'failed', { note: String(error) });
-        return { ok: false, error: String(error), alreadyRunning: false };
-      } finally {
-        downloading = false;
-      }
-    }),
+  downloadLocalModel: procedure.input(intentDownloadInput).mutation(async ({ input }) => {
+    const engine = getActiveIntentSenseLocalEngine();
+    if (!engine) return { ok: false, error: '当前宿主未提供本地引擎', alreadyRunning: false };
+    const packs = requireBootstrap().enhancements?.packs;
+    if (packs) {
+      if (input.modelId === 'QWeQ-NineBird-v1')
+        return {
+          ok: false,
+          error: 'QWeQ-NineBird-v1 仅使用已有本地模型，不支持在线下载',
+          alreadyRunning: false,
+        };
+      if (packs.isPreparing('intent')) return { ok: true, alreadyRunning: true };
+      await startEnhancementDownloads(packs, ['intent']);
+      await packs.waitFor('intent');
+      const pack = (await packs.list()).find((pack) => pack.id === 'intent');
+      return { ok: !!pack?.ready, error: pack?.operation?.error, alreadyRunning: false };
+    }
+    return startDirectIntentDownload(input);
+  }),
 
   /** 模型就绪后拉起本地引擎 worker。 */
   startLocalEngine: procedure.mutation(async () => {
@@ -531,9 +487,9 @@ export const intentSenseModelProcedures = {
   onModelDownloadProgress: procedure.subscription(() => {
     return observable<IntentSenseModelProgress>((emit) => {
       const cb = (p: IntentSenseModelProgress): void => emit.next(p);
-      progressListeners.add(cb);
+      intentDownloadListeners.add(cb);
       return () => {
-        progressListeners.delete(cb);
+        intentDownloadListeners.delete(cb);
       };
     });
   }),

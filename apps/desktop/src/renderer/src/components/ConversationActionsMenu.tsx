@@ -37,6 +37,7 @@ export function ConversationActionsMenu({
   portalTarget,
   compact = false,
   dropdown = false,
+  scrollAnchor,
   target,
 }: {
   x: number;
@@ -48,6 +49,8 @@ export function ConversationActionsMenu({
   compact?: boolean;
   /** 右对齐到触发器，在指定的一侧留出可滚动空间。 */
   dropdown?: boolean | 'above';
+  /** 有固定入口的菜单只响应包含入口的容器滚动。 */
+  scrollAnchor?: HTMLElement;
   /** 需要明确操作对象时展示，内含按钮沿用菜单键盘导航。 */
   target?: ReactNode;
 }) {
@@ -58,8 +61,11 @@ export function ConversationActionsMenu({
   const [expanded, setExpanded] = useState<string | null>(null);
   const focusSubmenu = useRef(false);
   useEffect(() => {
-    const close = (event: Event) => {
-      if (event.target instanceof window.Node && ref.current?.contains(event.target)) return;
+    const close = ({ target }: Event) => {
+      if (target instanceof window.Node) {
+        if (ref.current?.contains(target)) return;
+        if (scrollAnchor && !target.contains(scrollAnchor)) return;
+      }
       onClose();
     };
     window.addEventListener('resize', close);
@@ -72,7 +78,7 @@ export function ConversationActionsMenu({
       window.visualViewport?.removeEventListener('scroll', close);
       document.removeEventListener('scroll', close, true);
     };
-  }, [onClose, document, window]);
+  }, [onClose, document, window, scrollAnchor]);
   useLayoutEffect(() => {
     const menu = ref.current;
     if (!menu) return;

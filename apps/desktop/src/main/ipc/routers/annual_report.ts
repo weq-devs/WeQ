@@ -1,7 +1,8 @@
 import { OperationError } from '@weq/service';
 import { z } from 'zod/v3';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { writeFileAtomic } from '@weq/service/atomic-write';
 import { getAppContext, requirePlatform, type AccountServices } from '../../context/app_context';
 import type { AnnualReportPreferences, ResolvedMsgDecoration } from '@weq/service';
 import { exportOutputFileName, getHost } from '@weq/service';
@@ -15,6 +16,9 @@ import { backgroundTasks, taskError } from '../../background_tasks';
 import { taskArchiveStore } from '../../task_archive';
 import { backgroundResult } from '../../../shared/task_archive';
 import { clientAccountBinding } from './client_state';
+import { runResumableExport } from '../../resumable_exports';
+import { recordAccountTask } from '../../account_task_receipts';
+import type { BackgroundTaskScope } from '../../../shared/background_task';
 
 /** 说说一次最多带 9 张图 —— 超出的页数在 router 层直接拒绝。 */
 const QZONE_MAX_IMAGES = 9;
@@ -176,8 +180,11 @@ async function startReportSave(
   );
   if (!policy) return null;
   const fileName = exportOutputFileName(output);
+  const resume = { type: 'annual-report' as const, extension, fileName };
   return services.exportManager.startResourceExport({
     kind: 'annual-report',
+    resume,
+    stagedInput: Buffer.from(input.html),
     name,
     display: {
       action: '导出年度报告',
@@ -187,23 +194,162 @@ async function startReportSave(
     },
     output,
     savePolicy: policy,
-    run: async ({ directory, signal }) => {
-      check();
-      signal.throwIfAborted();
-      const bytes =
-        extension === 'html'
-          ? Buffer.from(input.html, 'utf8')
-          : extension === 'pdf'
-            ? await host.renderHtmlToPdf(input.html)
-            : await host.renderHtmlToLongPng(input.html);
-      check();
-      signal.throwIfAborted();
-      await writeFile(join(directory, fileName), bytes, { flag: 'wx', signal });
-      check();
-      signal.throwIfAborted();
-      return { total: 1, ok: 1, failed: [], fileName };
-    },
+    run: (context) => runResumableExport(services, resume, context, check),
   });
+}
+
+const qzoneShareInput = clientAccountBinding.extend({
+  year: z.number().int().min(0),
+  content: z.string().min(1).max(2000),
+  html: z.string().min(1),
+  slideIndexes: z.array(z.number().int().min(0)).min(1).max(QZONE_MAX_IMAGES),
+  ugcRight: z.union([z.literal(1), z.literal(4), z.literal(64)]).default(1),
+});
+const qzoneShareRequest = qzoneShareInput.omit({ html: true }).extend({
+  phase: z.enum(['ready', 'uploading', 'publishing', 'finished']),
+  richvals: z.array(z.string().min(1)).max(QZONE_MAX_IMAGES),
+});
+type ShareRequest = z.infer<typeof qzoneShareRequest>;
+const shareSourcePath = (configId: string, id: string) =>
+  join(
+    requirePlatform().appDataRoot(),
+    'config',
+    'accounts',
+    configId,
+    'qzone-share',
+    `${id}.html`,
+  );
+
+function continueShareAction(id: string, scope: BackgroundTaskScope, request: ShareRequest) {
+  return {
+    id: 'continue',
+    label: '继续分享到 QQ 空间',
+    run: () => retryQzoneShare(id, scope, request),
+  };
+}
+
+export function retryQzoneShare(id: string, scope: BackgroundTaskScope, raw: unknown) {
+  const request = qzoneShareRequest.parse(raw);
+  if (
+    request.phase !== 'ready' ||
+    request.expectedAccountUin !== scope.uin ||
+    request.expectedAccountConfigId !== scope.configId
+  )
+    throw new Error('请先在 QQ 空间核对上次的提交结果。');
+  const services = requireServices(request);
+  if (
+    backgroundTasks
+      .snapshot()
+      .some(
+        (task) =>
+          task.kind === 'qzone-share' &&
+          task.status === 'running' &&
+          task.scope?.configId === scope.configId,
+      )
+  )
+    throw new Error('已有年度报告正在分享，请等待完成。');
+  void executeQzoneShare(id, services, request);
+}
+
+async function executeQzoneShare(id: string, services: AccountServices, initial: ShareRequest) {
+  let input = initial;
+  const scope = { uin: input.expectedAccountUin, configId: input.expectedAccountConfigId };
+  const archive = taskArchiveStore(requirePlatform().appDataRoot(), scope.configId);
+  const archiveId = `background:host:${id}`;
+  const source = shareSourcePath(scope.configId, id);
+  const save = recordAccountTask(id, scope);
+  const checkScope = () => {
+    if (requireServices(input) !== services) throw new Error('账号数据源已切换，已停止分享');
+  };
+  const commit = (next: ShareRequest) => {
+    save(next);
+    input = next;
+  };
+  backgroundTasks.resume(id);
+  backgroundTasks.setActions(id, []);
+  try {
+    commit(input);
+    archive.update({ [archiveId]: null });
+    if (input.richvals.length < input.slideIndexes.length) {
+      const html = await readFile(source, 'utf8');
+      // 分享者信息：昵称 + 头像字节（主进程直接读本地头像缓存，离线也能画）。
+      const profile = await services.profile.getSelfProfile();
+      const nick = profile?.nick ?? '';
+      let avatar: Buffer | undefined;
+      try {
+        const uin = profile?.uin != null ? String(profile.uin) : '';
+        const path = uin
+          ? ((await services.avatarResource.resolveByUin('user', uin, 'big')) ??
+            (await services.avatarResource.resolveByUin('user', uin, 'small')))
+          : null;
+        if (path) avatar = await readFile(path);
+      } catch {
+        avatar = undefined; // 头像缺席 → 卡片画首字兜底，不阻断分享。
+      }
+
+      // 1. 逐页截图（一页一图），叠上头像行与署名声。
+      const pngs = await getHost().renderHtmlToSlidesPng(html, {
+        indexes: input.slideIndexes,
+        overlayHtml: buildShareOverlay(nick, avatar),
+      });
+      if (pngs.length !== input.slideIndexes.length) throw new Error('生成的分享图片数量不完整。');
+      for (let index = input.richvals.length; index < pngs.length; index++) {
+        checkScope();
+        backgroundTasks.update(id, { statusLabel: `正在上传图片 ${index + 1} / ${pngs.length}` });
+        commit({ ...input, phase: 'uploading' });
+        const uploaded = await services.webQuery.uploadQzoneImage(pngs[index]!.toString('base64'));
+        if (!uploaded.richval) throw new Error('图片上传回执不完整。');
+        commit({ ...input, phase: 'ready', richvals: [...input.richvals, uploaded.richval] });
+      }
+    }
+    checkScope();
+    backgroundTasks.update(id, { statusLabel: '正在发表说说' });
+    commit({ ...input, phase: 'publishing' });
+    const published = await services.webQuery.publishQzone(
+      input.content,
+      input.richvals,
+      input.ugcRight,
+    );
+    backgroundTasks.finish(id, 'completed', {
+      note: `说说已发表 · ${input.richvals.length} 张图`,
+      qzonePost: published.tid ? { uin: scope.uin, tid: published.tid } : undefined,
+    });
+    save({ phase: 'finished' });
+  } catch (error) {
+    const unknown = input.phase !== 'ready';
+    backgroundTasks.finish(id, unknown ? 'failed' : 'paused', {
+      note: taskError(error),
+      needsConfirmation: unknown,
+      statusLabel:
+        input.phase === 'uploading'
+          ? '图片上传结果待核对'
+          : unknown
+            ? '分享结果待核对'
+            : '等待继续分享',
+    });
+    if (!unknown) backgroundTasks.setActions(id, [continueShareAction(id, scope, input)]);
+    try {
+      save(input);
+    } catch (failure) {
+      console.warn('[年度报告] 回执保存失败', failure);
+    }
+  }
+  const task = backgroundTasks.snapshot().find((row) => row.id === id);
+  if (task?.status === 'completed') {
+    try {
+      archive.update({
+        [archiveId]: { result: backgroundResult(task), snapshot: { ...task, actions: [] } },
+      });
+      await rm(source, { force: true });
+    } catch (error) {
+      console.warn('[年度报告] 分享结果保存失败', error);
+    }
+  }
+}
+
+export async function removeQzoneShareSource(task: { id: string; scope?: BackgroundTaskScope }) {
+  if (task.scope?.configId)
+    await rm(shareSourcePath(task.scope.configId, task.id), { force: true });
 }
 
 export const annualReportRouter = router({
@@ -370,118 +516,33 @@ export const annualReportRouter = router({
    * 图片同样走 `html`：把用户勾选的那几页（`slideIndexes`，按文档顺序）截成
    * 一页一图，再叠上分享壳。
    */
-  shareQzone: procedure
-    .input(
-      clientAccountBinding.extend({
-        year: z.number().int().min(0),
-        content: z.string().min(1).max(2000),
-        html: z.string().min(1),
-        slideIndexes: z.array(z.number().int().min(0)).min(1).max(QZONE_MAX_IMAGES),
-        ugcRight: z.union([z.literal(1), z.literal(4), z.literal(64)]).default(1),
-      }),
-    )
-    .mutation(async ({ input }) => {
-      const services = requireServices(input);
-      const scope = { uin: input.expectedAccountUin, configId: input.expectedAccountConfigId };
-      const store = taskArchiveStore(requirePlatform().appDataRoot(), scope.configId);
-      const running = backgroundTasks
-        .snapshot()
-        .find(
-          (task) =>
-            task.kind === 'qzone-share' &&
-            task.status === 'running' &&
-            task.scope?.uin === scope.uin &&
-            task.scope.configId === scope.configId,
-        );
-      if (running) return { taskId: running.id };
-      const taskId = backgroundTasks.start({
-        kind: 'qzone-share',
-        name: input.year ? `${input.year} 年度报告` : '全部聊天报告',
-        scope,
-        statusLabel: '正在生成分享图片',
-      });
-      const archiveId = `background:host:${taskId}`;
-      const saveReceipt = () => {
-        const task = backgroundTasks.snapshot().find((row) => row.id === taskId);
-        if (!task) return;
-        const snapshot =
-          task.status === 'running'
-            ? {
-                ...task,
-                status: 'failed' as const,
-                statusLabel: '分享结果待核对',
-                needsConfirmation: true,
-                note: '应用在分享途中退出。请核对 QQ 空间中的发表结果。',
-                actions: [],
-              }
-            : { ...task, actions: [] };
-        store.update({ [archiveId]: { result: backgroundResult(snapshot), snapshot } });
-      };
-      const checkScope = () => {
-        if (requireServices(input) !== services) throw new Error('账号数据源已切换，已停止分享');
-      };
-      let publishing = false;
-      try {
-        saveReceipt();
-        // 分享者信息：昵称 + 头像字节（主进程直接读本地头像缓存，离线也能画）。
-        const profile = await services.profile.getSelfProfile();
-        const nick = profile?.nick ?? '';
-        let avatar: Buffer | undefined;
-        try {
-          const uin = profile?.uin != null ? String(profile.uin) : '';
-          const path = uin
-            ? ((await services.avatarResource.resolveByUin('user', uin, 'big')) ??
-              (await services.avatarResource.resolveByUin('user', uin, 'small')))
-            : null;
-          if (path) avatar = await readFile(path);
-        } catch {
-          avatar = undefined; // 头像缺席 → 卡片画首字兜底，不阻断分享。
-        }
-
-        // 1. 逐页截图（一页一图），叠上头像行与署名声。
-        const pngs = await getHost().renderHtmlToSlidesPng(input.html, {
-          indexes: input.slideIndexes,
-          overlayHtml: buildShareOverlay(nick, avatar),
-        });
-
-        // 2. 逐张上传到 Qzone 图床，收集 richval。单张失败明确指出是第几张。
-        checkScope();
-        const richvals: string[] = [];
-        for (let i = 0; i < pngs.length; i++) {
-          try {
-            checkScope();
-            backgroundTasks.update(taskId, {
-              statusLabel: `正在上传图片 ${i + 1} / ${pngs.length}`,
-            });
-            const upload = await services.webQuery.uploadQzoneImage(pngs[i]!.toString('base64'));
-            richvals.push(upload.richval);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            throw new Error(`第 ${i + 1} 张图片上传失败：${message}`);
-          }
-        }
-
-        // 3. 发表说说（richvals 内部用 \t 拼接）。
-        checkScope();
-        backgroundTasks.update(taskId, { statusLabel: '正在发表说说' });
-        publishing = true;
-        const published = await services.webQuery.publishQzone(
-          input.content,
-          richvals,
-          input.ugcRight,
-        );
-        backgroundTasks.finish(taskId, 'completed', {
-          note: `说说已发表 · ${pngs.length} 张图`,
-          qzonePost: published.tid ? { uin: scope.uin, tid: published.tid } : undefined,
-        });
-      } catch (error) {
-        backgroundTasks.finish(taskId, 'failed', {
-          note: taskError(error),
-          needsConfirmation: publishing,
-          statusLabel: publishing ? '分享结果待核对' : '分享失败',
-        });
-      }
-      saveReceipt();
-      return { taskId };
-    }),
+  shareQzone: procedure.input(qzoneShareInput).mutation(async ({ input }) => {
+    const services = requireServices(input);
+    const scope = { uin: input.expectedAccountUin, configId: input.expectedAccountConfigId };
+    const running = backgroundTasks
+      .snapshot()
+      .find(
+        (task) =>
+          task.kind === 'qzone-share' &&
+          task.status === 'running' &&
+          task.scope?.uin === scope.uin &&
+          task.scope.configId === scope.configId,
+      );
+    if (running) return { taskId: running.id };
+    const taskId = backgroundTasks.start({
+      kind: 'qzone-share',
+      name: input.year ? `${input.year} 年度报告` : '全部聊天报告',
+      scope,
+      statusLabel: '正在生成分享图片',
+    });
+    const { html, ...request } = input;
+    try {
+      await writeFileAtomic(shareSourcePath(scope.configId, taskId), html);
+    } catch (error) {
+      backgroundTasks.finish(taskId, 'failed', { note: taskError(error) });
+      throw error;
+    }
+    await executeQzoneShare(taskId, services, { ...request, phase: 'ready', richvals: [] });
+    return { taskId };
+  }),
 });

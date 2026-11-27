@@ -10,6 +10,13 @@ import { watchTaskPage } from '../../task_page';
 import { forgetEnhancementTask } from '../../enhancements/tasks';
 import { forgetRecordedTask, restoreRecordedTasks } from '../../account_task_receipts';
 import { retryRecordedClone } from './account';
+import { retryGroupMemberOrderTask } from '../../context/group_member_order';
+import { removeQzoneShareSource, retryQzoneShare } from './annual_report';
+import { retryResourceCleanup } from './resource_cleanup';
+import {
+  forgetDirectIntentDownload,
+  restoreDirectIntentDownload,
+} from '../../intent_sense/direct_download_task';
 
 const scope = z.object({ uin: z.string(), configId: z.string().optional() }).nullable();
 const ref = z.object({ id: z.string().uuid(), scope });
@@ -17,8 +24,15 @@ const ref = z.object({ id: z.string().uuid(), scope });
 export const backgroundTasksRouter = router({
   onTaskPage: procedure.subscription(watchTaskPage),
   list: procedure.input(scope).query(async ({ input }) => {
+    restoreDirectIntentDownload();
     if (input?.configId) {
-      restoreRecordedTasks(input, retryRecordedClone);
+      restoreRecordedTasks(
+        input,
+        retryRecordedClone,
+        retryGroupMemberOrderTask,
+        retryQzoneShare,
+        retryResourceCleanup,
+      );
       restoreCalendarTasks(input);
       await restoreAnalysisReportTasks({
         expectedAccountUin: input.uin,
@@ -82,6 +96,9 @@ export async function removeHostBackgroundTask(task: BackgroundTask, web: boolea
     const packs = getAppContext().bootstrap?.enhancements?.packs;
     if (packs && !forgetEnhancementTask(packs, task.id)) return false;
   }
+  if (task.kind === 'model' && task.display?.action === '下载意图模型')
+    forgetDirectIntentDownload(task.id);
+  if (task.kind === 'qzone-share') await removeQzoneShareSource(task);
   if (task.kind === 'analysis' && task.reportId) {
     await hideAnalysisReportTask(task.reportId);
     backgroundTasks.remove(task.id, task);

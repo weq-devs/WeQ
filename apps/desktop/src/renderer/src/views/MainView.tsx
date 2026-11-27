@@ -308,7 +308,14 @@ import {
 import {
   MergeForwardRejected,
   MergeForwardUnconfirmed,
+  runMergeForwardTask,
 } from '../components/mergeForward/mergeForwardTask';
+import { startSequentialForward } from '../components/SequentialForwardTask';
+import {
+  ForwardNotSubmitted,
+  registerForwardResumeHandler,
+  type ForwardPlan,
+} from '../lib/forwardContinuation';
 import { useQQWriteSession, type QQWriteBinding } from '../hooks/useQQWriteSession';
 import { conversationWindowKey } from '../lib/conversationWindowCache';
 import { firstPageKey } from '../lib/conversationFirstPage';
@@ -2888,34 +2895,35 @@ function MainWorkspace(): ReactElement {
     groupMemberResults,
   );
   const [analysisReports, setAnalysisReports] = useState<AnalysisReportRequest[]>([]);
+  const openAnalysisReport = useStableCallback(async (id: string) => {
+    const binding = messageBindingRef.current;
+    const scope = messageScopeRef.current;
+    const isCurrent = () =>
+      messageScopeRef.current === scope &&
+      useViewState.getState().openedUin === binding?.expectedAccountUin &&
+      !useAppLock.getState().locked;
+    if (!scope || !binding || !isCurrent()) return false;
+    const saved = await client.account.analysisReports.get.query({ ...binding, id });
+    if (!isCurrent()) return false;
+    const request = restoredAnalysisRequest(saved.request);
+    if (!request) throw new Error('暂时无法读取这份分析报告。');
+    setAnalysisReports((previous) => [
+      ...previous.filter((report) => report.id !== request.id),
+      request,
+    ]);
+    return true;
+  });
   useEffect(() => {
     const open = (event: Event) => {
       const id: unknown = (event as CustomEvent<unknown>).detail;
       if (typeof id !== 'string') return;
-      const expected = useViewState.getState().openedUin;
-      void client.account.getAccountConfig
-        .query()
-        .then(async (config) => {
-          if (!config || config.uin !== expected || expected !== useViewState.getState().openedUin)
-            return;
-          const saved = await client.account.analysisReports.get.query({
-            id,
-            expectedAccountUin: config.uin,
-            expectedAccountConfigId: config.configId,
-          });
-          if (expected !== useViewState.getState().openedUin) return;
-          const request = restoredAnalysisRequest(saved.request);
-          if (request)
-            setAnalysisReports((previous) => [
-              ...previous.filter((report) => report.id !== request.id),
-              request,
-            ]);
-        })
-        .catch((error: unknown) => console.error('[analysis-reports] 无法打开报告', error));
+      void openAnalysisReport(id).catch((error: unknown) =>
+        console.error('[analysis-reports] 无法打开报告', error),
+      );
     };
     window.addEventListener('weq:open-saved-analysis', open);
     return () => window.removeEventListener('weq:open-saved-analysis', open);
-  }, []);
+  }, [openAnalysisReport]);
   const [analysisRequest, setAnalysisRequest] = useState<AnalysisToolRequest | null>(null);
   const [roamingRequest, setRoamingRequest] = useState<{
     targets: RoamingTarget[];
@@ -4054,7 +4062,7 @@ function MainWorkspace(): ReactElement {
               '请让对方确认；若没有，重发一次。',
           });
         }
-        return true;
+        return { seq: cardKeys.seq };
       } catch (error) {
         if (!(error instanceof MergeForwardUnconfirmed))
           patch({ state: 'failed', error: error instanceof Error ? error.message : String(error) });
@@ -8052,11 +8060,12 @@ function MainWorkspace(): ReactElement {
       !signal.aborted &&
       scope === messageScopeRef.current &&
       account === useViewState.getState().openedUin;
-    if (!isCurrent()) throw new Error('账号已切换或转发已停止');
+    if (!isCurrent()) throw new ForwardNotSubmitted('账号已切换或转发已停止');
     const reason = forwardMessageBlockReason(message);
-    if (reason) throw new Error(reason);
+    if (reason) throw new ForwardNotSubmitted(reason);
     const destination = conversations.find((item) => item.id === target.id);
-    if (!destination || destination.type === 'merged') throw new Error('目标会话已不存在');
+    if (!destination || destination.type === 'merged')
+      throw new ForwardNotSubmitted('目标会话已不存在');
     const draft = failedForwardDraft(message);
     const file = draft ? undefined : singleChatFile(message);
     if (file) {
@@ -8169,6 +8178,53 @@ function MainWorkspace(): ReactElement {
       prefix,
     );
   }
+
+  const resumeForwardRef = useRef<(id: string, plan: ForwardPlan) => Promise<void>>(() =>
+    Promise.resolve(),
+  );
+  resumeForwardRef.current = (id, plan) => {
+    const { uin, configId: source } = plan.scope;
+    if (!source || uin !== user.identityValue || source !== configId)
+      throw new Error('请回到原账号和数据源继续。');
+    if (!sendAccess.data?.qqOnline || !sendAccess.data.attachEnabled)
+      throw new Error('请先连接 QQ 再继续。');
+    if (plan.kind === 'merged') {
+      const sourceScope = messageScopeRef.current;
+      return runMergeForwardTask({
+        draft: plan.draft,
+        targets: plan.targets,
+        binding: { expectedAccountUin: uin, expectedAccountConfigId: source },
+        send: forwardMergeDraft,
+        isCurrent: () =>
+          sourceScope === messageScopeRef.current && uin === useViewState.getState().openedUin,
+        resume: { id, plan },
+      }).then(() => undefined);
+    }
+    if (!conversations.some((item) => item.id === plan.target.id && item.type !== 'merged'))
+      throw new Error('目标会话尚未加载或已不存在。');
+    return startSequentialForward({
+      scope: plan.scope,
+      targets: [plan.target],
+      messages: plan.messages,
+      options: plan.options,
+      sourceKind: plan.sourceKind,
+      includeExcerpt: plan.includeExcerpt,
+      onOpenTarget: openForwardTarget,
+      onSend: (message, target, signal, receipt) =>
+        forwardMessage(message, target, signal, uin, source, {
+          receipt,
+          includeExcerpt: plan.includeExcerpt,
+          sourceKind: plan.sourceKind,
+        }),
+      resume: { id, plan },
+    }).done;
+  };
+  useEffect(() => {
+    if (configId)
+      return registerForwardResumeHandler({ uin: user.identityValue, configId }, (id, plan) =>
+        resumeForwardRef.current(id, plan),
+      );
+  }, [configId, user.identityValue]);
 
   function outgoingFontRequest(
     target: ReturnType<typeof sendTargetOf>,
@@ -10857,7 +10913,7 @@ function MainWorkspace(): ReactElement {
       jumpToConvSeq(
         destination.kind,
         destination.id,
-        undefined,
+        destination.seq,
         false,
         undefined,
         destination.messageId,
@@ -11990,6 +12046,7 @@ function MainWorkspace(): ReactElement {
                 accountScope={messageScope}
                 footerControls={controls}
                 onOpenCalendarTask={openCalendarTask}
+                onOpenAnalysisReport={openAnalysisReport}
                 onOpenAssistant={(target) => {
                   changeConversationView('assistant');
                   if (target?.sessionId) openAssistantConversation(target.sessionId, target);
@@ -12435,6 +12492,7 @@ function MainWorkspace(): ReactElement {
               user={user}
               targets={mergeForwardTargets}
               sourceKind={forwardBatch.sourceKind}
+              includeExcerpt={forwardBatch.includeReplyExcerpt}
               onSend={(message, target, signal, receipt) =>
                 forwardMessage(
                   message,

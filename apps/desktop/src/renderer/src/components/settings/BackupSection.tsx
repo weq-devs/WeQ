@@ -39,6 +39,23 @@ type Inventory = Awaited<ReturnType<BackupApi['inventory']>>;
 type Source = NonNullable<Awaited<ReturnType<BackupApi['pick']>>>;
 type Preview = Awaited<ReturnType<BackupApi['prepare']>>;
 
+function downloadClient() {
+  try {
+    return backupClientId(localStorage);
+  } catch {
+    return undefined;
+  }
+}
+
+function openBackupDownload(url: string) {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = '';
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
 function summaryLabels(summary: WeqBackupSummary) {
   return (
     summary.sections?.map((section) => BACKUP_SECTION_LABELS[section]) ??
@@ -134,7 +151,7 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
   const refresh = useCallback(async () => {
     if (!activity.current) return;
     const request = ++readSequence.current;
-    const result = await api.inventory();
+    const result = await api.inventory(downloadClient());
     if (!alive.current || !activity.current || readSequence.current !== request) return;
     setInventory(result);
   }, [api]);
@@ -257,16 +274,10 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
     const out = await api.export({
       selection,
       client: selection.sections.includes('layout') ? snapshotWeqClientLayout(localStorage) : {},
+      downloadClient: downloadClient(),
     });
     if (!out || !alive.current) return false;
-    if (out.downloadUrl) {
-      const link = document.createElement('a');
-      link.href = out.downloadUrl;
-      link.download = '';
-      document.body.append(link);
-      link.click();
-      link.remove();
-    }
+    if (out.downloadUrl) openBackupDownload(out.downloadUrl);
     setDownloadUrl(out.downloadUrl);
     setExportMessage(out.downloadUrl ? '备份已生成。' : `已保存到 ${out.path}`);
     toast({
@@ -274,7 +285,15 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
       title: 'WeQ 备份已导出',
       detail: out.summary.warnings.join('；') || undefined,
     });
+    void refresh().catch(() => undefined);
     return true;
+  }
+
+  async function downloadPreviousBackup() {
+    const clientId = downloadClient();
+    if (!clientId) throw new Error('此浏览器没有保留下载记录。');
+    const result = await api.download(clientId);
+    if (alive.current) openBackupDownload(result.url);
   }
 
   async function refreshImport(nextMap: Record<string, string>, activate: boolean) {
@@ -479,10 +498,19 @@ export function BackupSection({ api = backupApi }: { api?: BackupApi }) {
           </button>
         </div>
         <p className="weq-set-note">选择要保存的设置和数据，生成一份可在 WeQ 导入的 ZIP。</p>
-        {exportMessage ? (
+        {exportMessage || inventory?.previousDownload ? (
           <p className="weq-set-note" role="status">
-            {exportMessage}{' '}
-            {downloadUrl ? (
+            {exportMessage ?? '备份已生成。'}{' '}
+            {inventory?.previousDownload ? (
+              <button
+                type="button"
+                className="weq-set-btn weq-set-btn-soft"
+                disabled={Boolean(busy)}
+                onClick={() => void act('正在核对备份文件', downloadPreviousBackup)}
+              >
+                重新下载备份
+              </button>
+            ) : downloadUrl ? (
               <a href={downloadUrl} download>
                 重新下载
               </a>

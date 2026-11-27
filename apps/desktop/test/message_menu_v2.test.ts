@@ -242,6 +242,32 @@ it('方向键在三行按钮间移动，Esc 关闭并归还焦点', async () => 
   origin.remove();
 });
 
+it('菜单底部的序号可以用方向键选中，复制完整序号并保留菜单', async () => {
+  const seq = '9007199254740993';
+  const writeText = vi.spyOn(window.navigator.clipboard, 'writeText').mockResolvedValue();
+  const close = vi.fn();
+  const copyMessage = vi.fn();
+  await render({
+    metadataPrecision: 'second',
+    metadataSequence: seq,
+    onClose: close,
+    onCopy: copyMessage,
+  });
+  act(() =>
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowUp' }),
+    ),
+  );
+  const button = document.activeElement as HTMLButtonElement;
+  expect(button.getAttribute('role')).toBe('menuitem');
+  expect(button.textContent).toBe(seq);
+  await act(async () => button.click());
+  expect(writeText.mock.calls).toEqual([[seq]]);
+  expect(button.querySelector('[role="status"]')?.textContent).toBe('已复制');
+  expect(copyMessage).not.toHaveBeenCalled();
+  expect(close).not.toHaveBeenCalled();
+});
+
 it('快捷回应显示选中态，再次点击发出取消，更多仍可进入', async () => {
   const set = vi.fn(),
     more = vi.fn();

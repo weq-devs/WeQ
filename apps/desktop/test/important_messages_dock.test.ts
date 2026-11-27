@@ -132,18 +132,22 @@ it('重要消息跳转保留同屏的下一条提醒，手动滚动后恢复可�
   }));
   const identity = { kind: 'atMe' as const };
   const dock = {
-    stops: ['103', '102', '101'].map((seq) => ({ kind: identity.kind, seq, identity })),
+    stops: [
+      ...['103', '102', '101'].map((seq) => ({ kind: identity.kind, seq, identity })),
+      { kind: 'unread' as const, seq: '101' },
+    ],
   };
   const root = createRoot(document.createElement('div'));
   let state!: ReturnType<typeof useChatTimelineNavigation>;
   let visibility: ReturnType<typeof state.observeMessageVisibility>;
   let shown = false;
+  let firstUnreadTop = 0;
   const bounds = vi
     .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
     .mockImplementation(function (this: HTMLElement) {
       if (!this.dataset.messageId) return new DOMRect(0, 0, 300, 100);
       const index = messages.findIndex(({ id }) => id === this.dataset.messageId);
-      return new DOMRect(0, shown ? 20 * index : 120, 300, 20);
+      return new DOMRect(0, shown ? (index === 0 ? firstUnreadTop : 20 * index) : 120, 300, 20);
     });
   function scrollTo(top: number) {
     const scroll = state.messageScrollRef.current!;
@@ -200,11 +204,22 @@ it('重要消息跳转保留同屏的下一条提醒，手动滚动后恢复可�
     await observeViewport();
     expect(state.dockStop?.seq).toBe('101');
     expect(state.dockImportantRemaining).toBe(1);
+    expect(state.unreadStop?.seq).toBe('101');
 
     act(() => {
+      firstUnreadTop = 91;
       state.handleReadGesture({ target: state.messageScrollRef.current });
       scrollTo(20);
     });
+    await act(async () => vi.advanceTimersByTimeAsync(40));
+    expect(state.unreadStop?.seq).toBe('101');
+    act(() => {
+      firstUnreadTop = 90;
+      scrollTo(21);
+    });
+    await act(async () => vi.advanceTimersByTimeAsync(40));
+    expect(state.unreadStop).toBeUndefined();
+    expect(state.dockImportantRemaining).toBe(1);
     await act(async () => vi.advanceTimersByTimeAsync(250));
     expect(state.dockImportantRemaining).toBe(0);
   } finally {

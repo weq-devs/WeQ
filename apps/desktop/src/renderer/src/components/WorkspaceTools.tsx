@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { CalendarTaskNavigationContext } from '../lib/calendarNavigation';
+import { TaskResultNavigationContext } from '../lib/taskResultNavigation';
 import { onNotificationNavigation } from '../lib/notificationNavigation.shared';
 import { getCloneTasks, subscribeCloneTasks } from '../views/agentlab/cloneTaskStore';
 import type { GeneratedSearchHit } from './search/types';
@@ -97,6 +98,7 @@ export function WorkspaceTools({
   onOpenClone,
   onOpenAssistant,
   onOpenCalendarTask,
+  onOpenAnalysisReport,
 }: {
   accountScope: string;
   footerControls: ReactNode;
@@ -113,6 +115,7 @@ export function WorkspaceTools({
   onOpenClone?: (id: string) => void;
   onOpenAssistant?: (target?: GeneratedSearchHit) => void;
   onOpenCalendarTask?: (taskId: string) => Promise<boolean>;
+  onOpenAnalysisReport?: (id: string) => Promise<boolean>;
 }) {
   const mobile = useMobileWebLayout();
   const announcementBadge = useWorkspaceAnnouncementBadge();
@@ -531,40 +534,56 @@ export function WorkspaceTools({
         <div className="weq-workspace-menu-body">
           <RetainedTabs snapshotKey="workspace-tools" activeKey="tasks">
             {!hidden && (anchor || expanded) ? (
-              <CalendarTaskNavigationContext.Provider
-                value={
-                  onOpenCalendarTask
-                    ? async (taskId) => {
-                        if (await onOpenCalendarTask(taskId)) {
-                          close();
-                          closeWorkspace();
-                        }
-                      }
-                    : null
-                }
+              <TaskResultNavigationContext.Provider
+                value={{
+                  dismiss: () => {
+                    close();
+                    closeWorkspace();
+                  },
+                  openCalendar: onOpenCalendarTask,
+                  openAnalysisReport: onOpenAnalysisReport,
+                }}
               >
-                <ExportTool
-                  key={accountScope}
-                  surface="tasks"
-                  taskLayout={expanded ? (mobile ? 'page' : 'split') : 'compact'}
-                  onTaskExpand={() => setExpanded(true)}
-                  taskTabRequest={
-                    taskTabRequest && taskTabRequest.scope === accountScope
-                      ? taskTabRequest.tab
-                      : undefined
+                <CalendarTaskNavigationContext.Provider
+                  value={
+                    onOpenCalendarTask
+                      ? async (taskId) => {
+                          if (await onOpenCalendarTask(taskId)) {
+                            close();
+                            closeWorkspace();
+                          }
+                        }
+                      : null
                   }
-                  onTaskTabRequestApplied={() =>
-                    setTaskTabRequest((current) => (current === taskTabRequest ? null : current))
-                  }
-                  taskToolbarAction={
-                    !expanded && !mobile ? (
-                      <TaskToolbarAction onExpand={() => setExpanded(true)} />
-                    ) : null
-                  }
-                  onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
-                  onOpenClone={(id) => leave(() => onOpenClone?.(id))}
-                />
-              </CalendarTaskNavigationContext.Provider>
+                >
+                  <ExportTool
+                    key={accountScope}
+                    surface="tasks"
+                    taskLayout={expanded ? (mobile ? 'page' : 'split') : 'compact'}
+                    onTaskExpand={() => setExpanded(true)}
+                    onOpenArchivedTasks={() => {
+                      useWorkspaceMenu.setState({ taskFocusId: null });
+                      setTaskTabRequest({ scope: accountScope, tab: 'archived' });
+                      setExpanded(true);
+                    }}
+                    taskTabRequest={
+                      taskTabRequest && taskTabRequest.scope === accountScope
+                        ? taskTabRequest.tab
+                        : undefined
+                    }
+                    onTaskTabRequestApplied={() =>
+                      setTaskTabRequest((current) => (current === taskTabRequest ? null : current))
+                    }
+                    taskToolbarAction={
+                      !expanded && !mobile ? (
+                        <TaskToolbarAction onExpand={() => setExpanded(true)} />
+                      ) : null
+                    }
+                    onNewSchedule={() => openExport(null, { mode: 'scheduled' })}
+                    onOpenClone={(id) => leave(() => onOpenClone?.(id))}
+                  />
+                </CalendarTaskNavigationContext.Provider>
+              </TaskResultNavigationContext.Provider>
             ) : null}
           </RetainedTabs>
         </div>

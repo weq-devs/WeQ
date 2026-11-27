@@ -74,6 +74,26 @@ export function backgroundTaskNavigation(task: BackgroundTask): TaskQuickAction 
               },
             },
             '打开群相册',
+            binding,
+          ),
+        ),
+    };
+  }
+  if (task.kind === 'favorite-import' && task.status === 'completed' && binding) {
+    const label = '打开收藏表情';
+    return {
+      id: 'open-favorite-emoji',
+      label,
+      icon: <ExternalLink size={14} />,
+      run: () =>
+        openNotificationSource(
+          notificationSource(
+            {
+              kind: 'app',
+              target: { kind: 'setting', section: 'qq-storage', settingId: 'favorite-emoji' },
+            },
+            label,
+            binding,
           ),
         ),
     };

@@ -27,6 +27,7 @@ import {
   lstatSync,
   realpathSync,
 } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { basename, dirname, join, relative } from 'node:path';
 import { fileExtension, sanitizeSegment, uniqueName } from '../../common/path_sanitize';
 import type { MsgService } from '../msg';
@@ -123,7 +124,7 @@ import {
   type ExportOutputCapabilities,
   type ExportOutputShape,
 } from './output_shape';
-import { writeFileAtomicSync } from '../../common/atomic_write';
+import { writeFileAtomic, writeFileAtomicSync } from '../../common/atomic_write';
 import { writeZipFile } from '../../common/zip';
 import {
   collectFriends,
@@ -409,6 +410,8 @@ export interface ExportTask {
   /** 独立资源任务；仅声明了 resume 请求的执行器可以在重启后重建。 */
   resource?: {
     resume?: ResumableResourceRequest;
+    stagedInput?: true;
+    fileNameFromResult?: boolean;
     networkTransfer?: { batch?: boolean; bytes?: number };
     kind:
       | 'group-albums'
@@ -542,6 +545,41 @@ export interface ResourceExportSummary {
 
 export type ResumableResourceRequest =
   | { type: 'favorite-emoji' }
+  | { type: 'assistant-artifact'; id: string; name: string; fileName: string }
+  | { type: 'database'; mode: 'safe' | 'fast'; items: Array<{ dbPath: string; name: string }> }
+  | { type: 'annual-report'; extension: 'html' | 'pdf' | 'png'; fileName: string }
+  | { type: 'analytics-report'; fileName: string }
+  | { type: 'composition' }
+  | { type: 'decoration'; fileName: string }
+  | {
+      type: 'qzone-videos';
+      hostUin: string;
+      items: Array<{ id: string; name: string; video: boolean }>;
+      fileName?: string;
+    }
+  | {
+      type: 'dress-download';
+      kind: 'bubble' | 'font' | 'widget';
+      items: Array<{ itemId: number; name: string }>;
+      bundleName: string;
+    }
+  | { type: 'market-image'; packId: string; hash: string; name: string; fileName: string }
+  | {
+      type: 'mail-attachment';
+      mailId: string;
+      sourceKey: string;
+      name: string;
+      size: number;
+      big: boolean;
+      fileName: string;
+    }
+  | {
+      type: 'qzone-album-media';
+      hostUin: string;
+      topicId: string;
+      items: Array<{ key: string; name?: string; isVideo: boolean }>;
+      fileName?: string;
+    }
   | {
       type: 'media-file';
       source:
@@ -552,7 +590,17 @@ export type ResumableResourceRequest =
             fileName: string;
             busId?: number;
           }
-        | { kind: 'chat-file'; msgId: string; name: string; conv?: string };
+        | {
+            kind: 'chat-file';
+            msgId: string;
+            name?: string;
+            conv?: string;
+            token?: string;
+            fwdMsgId?: string;
+            fwdKind?: 'c2c' | 'group';
+            fwdResId?: string;
+          }
+        | { kind: 'url'; url: string; name?: string };
       fileName: string;
     }
   | {
@@ -598,7 +646,10 @@ export type ResumableResourceRequest =
 type ResourceAlbumSelection = { id: string; title?: string; mediaKeys?: string[] };
 
 function resourceResumeKind(request: ResumableResourceRequest) {
+  if (request.type === 'qzone-videos') return 'media';
+  if (request.type === 'dress-download') return 'decoration';
   if (request.type === 'mail') return 'mail-messages';
+  if (request.type === 'qzone-album-media') return 'qzone-albums';
   if (request.type === 'media-file') return 'media';
   if (request.type === 'album-references')
     return request.items.every((item) => item.kind.startsWith('qzone-'))
@@ -609,6 +660,7 @@ function resourceResumeKind(request: ResumableResourceRequest) {
 
 export interface ResourceExportRunContext {
   checkpoint?: ExportCheckpoint;
+  stagedInput?: Buffer;
   archive?: ArchiveOptions;
   directory: string;
   signal: AbortSignal;
@@ -795,6 +847,11 @@ export class ExportTaskManager extends EventEmitter {
     return Boolean(
       task.resource?.resume && (this.networkRunners.has(task.id) || this.deps.resumeResource),
     );
+  }
+
+  private resourceInputPath(id: string) {
+    if (!/^resource-[a-f0-9-]{36}$/i.test(id)) throw new Error('资源任务标识无效。');
+    return join(this.cacheDir, '.resource-inputs', id);
   }
 
   private resumableBundle(task: ExportTask): AtomicExportBundle {
@@ -1367,7 +1424,7 @@ export class ExportTaskManager extends EventEmitter {
             Boolean(
               task.journalPath || (task.archiveId && task.incrementalSupport && task.current > 0),
             ),
-          isFinalizing: this.finalizing.has(task.id),
+          isFinalizing: this.isTaskFinalizing(task.id),
           ...(canResume
             ? {
                 resumeMode:
@@ -1383,6 +1440,10 @@ export class ExportTaskManager extends EventEmitter {
 
   getTask(id: string): ExportTask | null {
     return this.tasks.get(id) ?? null;
+  }
+
+  isTaskFinalizing(id: string): boolean {
+    return this.finalizing.has(id);
   }
 
   backgroundResourceTask(id: string, unfinishedOnly = false): boolean {
@@ -2020,6 +2081,7 @@ export class ExportTaskManager extends EventEmitter {
   async startResourceExport(opts: {
     display?: import('../../common/task_display').TaskDisplay;
     resume?: ResumableResourceRequest;
+    stagedInput?: Uint8Array;
     networkTransfer?: { batch?: boolean; bytes?: number };
     archive?: ArchiveOptions;
     name: string;
@@ -2066,6 +2128,8 @@ export class ExportTaskManager extends EventEmitter {
       format: opts.archive?.formats?.[0] ?? 'json',
       resource: {
         ...(opts.resume ? { resume: structuredClone(opts.resume) } : {}),
+        ...(opts.stagedInput ? { stagedInput: true } : {}),
+        ...(opts.fileNameFromResult ? { fileNameFromResult: true } : {}),
         networkTransfer: opts.networkTransfer,
         kind: opts.kind,
         ...(output ? { output } : {}),
@@ -2116,7 +2180,16 @@ export class ExportTaskManager extends EventEmitter {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
-    this.registerTask(task, opts.browserOutput ? null : opts.savePolicy);
+    if (opts.stagedInput) {
+      if (!opts.resume || !opts.stagedInput.length) throw new Error('资源任务缺少可续作的输入。');
+      await writeFileAtomic(this.resourceInputPath(id), opts.stagedInput);
+    }
+    try {
+      this.registerTask(task, opts.browserOutput ? null : opts.savePolicy);
+    } catch (error) {
+      if (opts.stagedInput) rmSync(this.resourceInputPath(id), { force: true });
+      throw error;
+    }
     this.log(id, 'task', `资源任务已创建：${task.name}`);
     if (tracksResourceTransfer(task)) this.beginResourceTransfer(task);
     this.saveTasks();
@@ -2157,6 +2230,9 @@ export class ExportTaskManager extends EventEmitter {
       mkdirSync(directory, { recursive: true });
       const summary = await run({
         checkpoint: task.resource?.resume ? this.checkpoint(task, abort.signal) : undefined,
+        stagedInput: task.resource?.stagedInput
+          ? await readFile(this.resourceInputPath(task.id), { signal: abort.signal })
+          : undefined,
         archive: {
           ...task.resourceArchive,
           ...(await this.archiveOptions(task)),
@@ -2320,7 +2396,15 @@ export class ExportTaskManager extends EventEmitter {
       }
       this.releaseTask(task);
       task.updatedAt = Date.now();
-      this.saveTasks();
+      if (this.saveTasks() && task.status === 'completed') {
+        this.networkRunners.delete(task.id);
+        if (task.resource?.resume) this.clearResumeState(task);
+        try {
+          if (task.resource?.stagedInput) rmSync(this.resourceInputPath(task.id), { force: true });
+        } catch {
+          this.log(task.id, 'file', '输入快照清理失败，删除任务时将重试。', 'warn');
+        }
+      }
       this.emit('progress', {
         taskId: task.id,
         status: task.status,
@@ -6769,7 +6853,13 @@ export class ExportTaskManager extends EventEmitter {
       task.error = undefined;
       this.saveTasks();
       this.enqueue(
-        () => this.runResourceTask(task, (context) => this.deps.resumeResource!(request, context)),
+        () =>
+          this.runResourceTask(
+            task,
+            (context) => this.deps.resumeResource!(request, context),
+            undefined,
+            task.resource?.fileNameFromResult,
+          ),
         id,
       );
       return true;
@@ -7152,6 +7242,7 @@ export class ExportTaskManager extends EventEmitter {
     )
       return false;
     this.cleanupOutput(task);
+    if (task.resource?.stagedInput) rmSync(this.resourceInputPath(id), { force: true });
     this.tasks.delete(id);
     this.networkRunners.delete(id);
     this.taskLogs.delete(id);

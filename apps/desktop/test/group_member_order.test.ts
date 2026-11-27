@@ -8,6 +8,8 @@ import {
 import { backgroundTasks } from '../src/main/background_tasks';
 import { watchTaskPage } from '../src/main/task_page';
 
+vi.mock('../src/main/account_task_receipts', () => ({ recordAccountTask: () => () => {} }));
+
 const member = (uid: string, card: string, memberLevel: number, adminFlag = 0): GroupMember => ({
   groupCode: 12345n,
   uid,
@@ -115,7 +117,7 @@ it.each([false, true])('补取排序资料结束前离开才显示任务（中�
   const gate = Promise.withResolvers<GroupMember[]>();
   const source = {
     groupInfo: { listMembersInGroup: () => gate.promise },
-    contactDirectory: { cache: { rowsFor: async () => ({}) } },
+    contactDirectory: { cache: { rowsFor: async () => ({}), flush: async () => {} } },
   } as unknown as AccountServices;
   let pageId: string | undefined;
   const page = watchTaskPage().subscribe({

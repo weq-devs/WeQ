@@ -1,10 +1,12 @@
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+  saveExportOutput,
   writeZipFile,
   type ResourceExportRunContext,
   type ResourceExportSummary,
 } from '@weq/service';
+import { ExportCheckpointError } from '@weq/service/export-checkpoint';
 import {
   buildDecorationFile,
   type DressExportKind,
@@ -28,7 +30,7 @@ export async function runDressDownload(
   context: ResourceExportRunContext,
   check: () => void,
 ): Promise<ResourceExportSummary> {
-  const { directory, signal, progress } = context;
+  const { directory, signal, progress, checkpoint } = context;
   async function saveItem(item: DownloadItem, target: string): Promise<string> {
     check();
     signal.throwIfAborted();
@@ -57,26 +59,49 @@ export async function runDressDownload(
     await writeFile(join(target, result.fileName), result.bytes, { flag: 'wx', signal });
     return result.fileName;
   }
+  const prepareItem = async (item: DownloadItem, staging: string) => {
+    if (!checkpoint) {
+      const name = await saveItem(item, staging);
+      return { name, path: join(staging, name) };
+    }
+    const target = join(checkpoint.directory, 'dress-items', String(item.itemId));
+    const name = await checkpoint.run(
+      ['dress-item', kind, item.itemId],
+      async () => {
+        await rm(target, { recursive: true, force: true });
+        await mkdir(target, { recursive: true });
+        return saveItem(item, target);
+      },
+      (name) => [join(target, name)],
+    );
+    return { name, path: join(target, name) };
+  };
   progress(0, items.length);
   if (items.length === 1) {
-    const fileName = await saveItem(items[0]!, directory);
+    const { name: fileName, path } = await prepareItem(items[0]!, directory);
+    if (checkpoint) {
+      const out = join(directory, fileName);
+      await checkpoint.file(['dress-result', fileName], out, () =>
+        saveExportOutput({ name: fileName, filePath: path }, { filePath: out }, signal),
+      );
+    }
     check();
     signal.throwIfAborted();
     return { fileName, total: 1, ok: 1, failed: [] };
   }
 
   const stage = join(directory, 'sources');
-  await mkdir(stage);
+  if (!checkpoint) await mkdir(stage);
   const entries: { name: string; path: string }[] = [];
   const failed: ResourceExportSummary['failed'] = [];
   try {
     for (const [index, item] of items.entries()) {
       try {
-        const name = await saveItem(item, stage);
-        entries.push({ name, path: join(stage, name) });
+        entries.push(await prepareItem(item, stage));
       } catch (error) {
         check();
         signal.throwIfAborted();
+        if (error instanceof ExportCheckpointError) throw error;
         failed.push({
           fileName: `${item.name} (#${item.itemId})`,
           error: error instanceof Error ? error.message : String(error),
@@ -85,7 +110,10 @@ export async function runDressDownload(
       progress(index + 1, items.length);
     }
     if (!entries.length) throw new Error(failed[0]?.error ?? '没有可下载的装扮');
-    await writeZipFile(join(directory, bundleName), entries, { signal });
+    const out = join(directory, bundleName);
+    const zip = () => writeZipFile(out, entries, { signal });
+    if (checkpoint) await checkpoint.file(['dress-bundle', bundleName], out, zip);
+    else await zip();
     check();
     return {
       fileName: bundleName,

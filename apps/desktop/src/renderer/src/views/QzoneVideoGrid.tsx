@@ -133,7 +133,9 @@ export function QzoneVideoGrid({
     if (pending.current || !canExport || !save.binding || !save.isCurrent()) return;
     const items = tiles.flatMap((tile) => {
       const url = tile.source ?? tile.cover;
-      return url && selectedIds.has(tile.id) ? [{ id: tile.id, name: tile.name, url }] : [];
+      return url && selectedIds.has(tile.id)
+        ? [{ id: tile.id, name: tile.name, url, video: Boolean(tile.source) }]
+        : [];
     });
     if (!items.length) return;
     pending.current = true;

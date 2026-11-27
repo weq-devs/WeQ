@@ -36,10 +36,12 @@ import {
   requireQqOnlineForAlbum as assertQqOnlineForAlbum,
   resolveQzoneAlbumDownload,
   runResumableAlbumResource,
+  runResumableQzoneAlbumMedia,
   sanitizePathSegment,
   uniqueFilename,
 } from '../../account_resource_exports';
 import { recordAccountTask } from '../../account_task_receipts';
+import { runResumableExport } from '../../resumable_exports';
 import { backgroundTasks, taskError } from '../../background_tasks';
 import type { BackgroundTaskScope } from '../../../shared/background_task';
 import {
@@ -106,7 +108,7 @@ import {
   reportOfficialDirectoryReads,
   setDirectoryReadState,
 } from './client_state';
-import { mkdir, stat, lstat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { basename, dirname, extname, join } from 'node:path';
@@ -242,7 +244,6 @@ import {
   toObservedRenderElements,
   COMPOSE_IMAGE_EXTENSIONS,
   getHost,
-  assertDestinationCapacity,
   getVoiceModel,
   buildBotExport,
   probeBotWebUi,
@@ -3011,27 +3012,21 @@ export const accountRouter = router({
       const name = input.name.replace(/\.[^.]+$/, '') || '助手报告';
       const output = { kind: 'file' as const, name, extension };
       const fileName = exportOutputFileName(output);
+      const resume = { type: 'assistant-artifact' as const, id: input.id, name, fileName };
+      const check = () => {
+        if (
+          requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+          services
+        )
+          throw new Error('账号或数据源已切换，请重新选择报告。');
+      };
       return services.exportManager.startResourceExport({
         kind: 'assistant-artifact',
+        resume,
         name,
         output,
         savePolicy: input.savePolicy,
-        run: async (context) => {
-          if (
-            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
-            services
-          )
-            throw new Error('账号或数据源已切换，请重新选择报告。');
-          context.signal.throwIfAborted();
-          const current = services.assistant.artifactInfo(input.id);
-          if (current.path !== source.path) throw new Error('报告来源已改变，请重新选择。');
-          await saveExportOutput(
-            { name, filePath: source.path },
-            { filePath: join(context.directory, fileName) },
-            context.signal,
-          );
-          return { total: 1, ok: 1, failed: [], fileName };
-        },
+        run: (context) => runResumableExport(services, resume, context, check),
       });
     }),
 
@@ -7929,11 +7924,20 @@ export const accountRouter = router({
           name: uniqueFilename(sanitizePathSegment(db.name, 'database.db'), names),
         };
       });
+      const check = () => {
+        if (
+          requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
+          services
+        )
+          throw new Error('账号或数据源已切换，请重新选择数据库。');
+      };
+      const resume = { type: 'database' as const, items, mode: input.mode };
       const single = items.length === 1;
       const name = single ? items[0]!.name.replace(/\.db$/i, '') : '数据库明文';
       return services.exportManager.startResourceExport({
         name,
         kind: 'database',
+        resume,
         display: {
           action: '导出明文数据库',
           subject: single ? items[0]!.name : `${items.length} 个库`,
@@ -7944,50 +7948,7 @@ export const accountRouter = router({
         includeIntegrityReport: input.includeIntegrityReport,
         savePolicy: input.savePolicy,
         ...(single ? { output: { kind: 'file' as const, name, extension: 'db' } } : {}),
-        run: async (context) => {
-          if (
-            requireExpectedAccount(input.expectedAccountUin, input.expectedAccountConfigId) !==
-            services
-          )
-            throw new Error('账号或数据源已切换，请重新选择数据库。');
-          context.signal.throwIfAborted();
-          assertDestinationCapacity(
-            join(context.directory, 'database'),
-            items.map((item) => item.dbPath),
-          );
-          const receipts = await services.dbDecrypt.decryptDatabases({
-            items,
-            outputDir: context.directory,
-            mode: input.mode,
-            concurrency: 3,
-            signal: context.signal,
-            onProgress: context.progress,
-          });
-          context.signal.throwIfAborted();
-          const failed: Array<{ fileName: string; error: string }> = [];
-          let ok = 0;
-          for (const receipt of receipts) {
-            if (dirname(receipt.outPath) !== context.directory)
-              throw new Error('解密器返回了不属于本次任务的输出位置。');
-            const info = await lstat(receipt.outPath).catch(() => null);
-            if (receipt.ok && info?.isFile() && info.size > 0) ok += 1;
-            else {
-              await unlink(receipt.outPath).catch((error) => {
-                if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-              });
-              failed.push({
-                fileName: receipt.name,
-                error: receipt.error || '解密器没有生成有效文件。',
-              });
-            }
-          }
-          return {
-            total: items.length,
-            ok,
-            failed,
-            ...(single && ok === 1 ? { fileName: basename(receipts[0]!.outPath) } : {}),
-          };
-        },
+        run: (context) => runResumableExport(services, resume, context, check),
       });
     }),
 
@@ -8565,8 +8526,24 @@ export const accountRouter = router({
         check,
       );
       if (!policy) return null;
+      const keys = selected.items.map((item) => item.picKey);
+      const resume =
+        keys.every(Boolean) && new Set(keys).size === keys.length
+          ? {
+              type: 'qzone-album-media' as const,
+              hostUin: selected.hostUin,
+              topicId: selected.topicId,
+              items: selected.items.map((item) => ({
+                key: item.picKey!,
+                name: item.name,
+                isVideo: Boolean(item.isVideo),
+              })),
+              fileName: resolved?.fileName,
+            }
+          : undefined;
       return services.exportManager.startResourceExport({
         kind: 'qzone-albums',
+        resume,
         name: selected.name,
         transferTarget: qzoneBatchTransferTarget(selected.hostUin),
         display: {
@@ -8581,6 +8558,15 @@ export const accountRouter = router({
         ...(output.kind === 'file' ? { output } : {}),
         run: async (context) => {
           check();
+          if (resume)
+            return runResumableQzoneAlbumMedia(
+              services,
+              resume,
+              context,
+              check,
+              selected.items,
+              resolved,
+            );
           const result = await exportQzoneAlbumMedia(
             services,
             { ...selected, outputDir: context.directory },

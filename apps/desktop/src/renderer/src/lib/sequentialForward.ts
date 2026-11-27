@@ -210,6 +210,7 @@ export async function forwardSequentially<T>(
     progress: (index: number, attempt: number, state: 'sending' | 'sent' | 'failed') => void;
     sleep?: (ms: number) => Promise<void>;
     shouldRetry?: (row: T) => boolean;
+    retryAfter?: (error: unknown) => boolean;
   },
 ): Promise<{ sent: number; failed: number }> {
   validateForwardOptions(options);
@@ -263,6 +264,7 @@ export async function forwardSequentially<T>(
         break;
       } catch (cause) {
         error = cause;
+        if (deps.retryAfter?.(cause) === false) break;
       }
     }
     if (accepted) {

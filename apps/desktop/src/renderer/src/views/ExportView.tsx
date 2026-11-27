@@ -403,6 +403,7 @@ function ExportToolBody({
   onAuthorizationChange,
   taskLayout = 'inline',
   onTaskExpand,
+  onOpenArchivedTasks,
   taskTabRequest,
   onTaskTabRequestApplied,
   taskToolbarAction,
@@ -412,6 +413,7 @@ function ExportToolBody({
   surface?: 'export' | 'tasks';
   taskLayout?: TaskLayout;
   onTaskExpand?: () => void;
+  onOpenArchivedTasks?: () => void;
   taskTabRequest?: TaskPanelTab;
   onTaskTabRequestApplied?: () => void;
   taskToolbarAction?: ReactNode;
@@ -2758,6 +2760,7 @@ function ExportToolBody({
                 }}
                 layout={taskLayout}
                 toolbarAction={taskToolbarAction}
+                onOpenArchivedTasks={onOpenArchivedTasks}
                 onOpenDetail={() => {
                   setTaskTab('tasks');
                   onTaskExpand?.();

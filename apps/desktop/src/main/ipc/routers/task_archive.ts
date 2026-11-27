@@ -7,6 +7,7 @@ import { backgroundTaskVisible, type BackgroundTask } from '../../../shared/back
 import { exportTaskResult } from '../../../shared/export_task_result';
 import {
   backgroundArchivePolicy,
+  backgroundResumeAction,
   backgroundResult,
   exportArchivePolicy,
   flashArchivePolicy,
@@ -35,7 +36,8 @@ const receipt = z.object({
       context: z.string().max(400).optional(),
     })
     .optional(),
-  status: z.enum(['completed', 'failed', 'cancelled']),
+  status: z.enum(['completed', 'failed', 'cancelled', 'paused']),
+  progress: z.number().finite().optional(),
   statusLabel: z.string().max(400).optional(),
   needsConfirmation: z.boolean().optional(),
   note: z.string().max(4000).optional(),
@@ -59,6 +61,10 @@ const receipt = z.object({
         name: z.string().max(400),
         kind: z.enum(['c2c', 'group']),
         conv: z.string().max(200),
+        seq: z
+          .string()
+          .regex(/^[1-9]\d{0,9}$/)
+          .optional(),
       }),
     )
     .max(200)
@@ -114,6 +120,7 @@ interface ArchiveTarget {
   canConfirmDelivery?: boolean;
   needsConfirmation?: boolean;
   snapshot?: BackgroundTask;
+  resume?: () => boolean | Promise<boolean>;
   remove?: () => boolean | Promise<boolean>;
 }
 
@@ -126,12 +133,14 @@ function resolveTarget(
   const [kind, ...identity] = ref.id.split(':');
   const id = identity.join(':');
   if (kind === 'export') {
-    const task = services.exportManager.getTask(id);
+    const manager = services.exportManager;
+    const task = manager.getTask(id);
     return task
       ? {
           result: exportTaskResult(task).result,
-          ...exportArchivePolicy(task),
-          remove: () => services.exportManager.deleteTask(id),
+          ...exportArchivePolicy({ ...task, isFinalizing: manager.isTaskFinalizing(id) }),
+          resume: task.status === 'paused' ? () => manager.resumeTask(id) : undefined,
+          remove: () => manager.deleteTask(id),
         }
       : undefined;
   }
@@ -141,6 +150,13 @@ function resolveTarget(
       job && {
         result: roamingResult(job),
         manual: roamingArchivePolicy(job.status),
+        resume:
+          job.status === 'paused'
+            ? () => {
+                services.roamingBackfill.start(id);
+                return true;
+              }
+            : undefined,
         remove: () => {
           services.roamingBackfill.remove(id);
           return true;
@@ -156,9 +172,13 @@ function resolveTarget(
     const needsDevice = (web || task.browserOutput) && task.status === 'done';
     return {
       result: flashResult(task),
-      manual: policy.manual && !needsDevice,
+      manual: policy.manual,
       auto: policy.auto && !needsDevice,
       canConfirmDelivery: policy.manual && needsDevice,
+      resume:
+        task.interrupted && task.canRetry
+          ? () => downloads.retry(id, { background: true })
+          : undefined,
       remove: async () => (await downloads.clearFinishedSelection([id])) > 0,
     };
   }
@@ -168,11 +188,18 @@ function resolveTarget(
     if (task) {
       if ((task.kind === 'update' && web) || task.foreground || !backgroundTaskVisible(task, scope))
         return undefined;
+      const resume = backgroundResumeAction(task);
       return {
         result: backgroundResult(task),
         ...backgroundArchivePolicy(task),
         snapshot: task,
         needsConfirmation: task.needsConfirmation,
+        resume: resume
+          ? async () => {
+              await backgroundTasks.act(task.id, resume.id);
+              return true;
+            }
+          : undefined,
         remove: () => removeHostBackgroundTask(task, web),
       };
     }
@@ -256,7 +283,7 @@ export const taskArchiveRouter = router({
       const web = Boolean(ctx.authorize);
       const patch: Record<string, TaskArchiveEntry> = {};
       for (const ref of input.tasks) {
-        if (store.deleting.has(ref.id)) continue;
+        if (store.busy.has(ref.id)) continue;
         const previous = store.get(ref.id);
         const sameResult = previous?.result === ref.result;
         if (input.action === 'restore') {
@@ -300,15 +327,7 @@ export const taskArchiveRouter = router({
         }
         if (input.action === 'auto' && (!target.auto || (sameResult && previous.restored)))
           continue;
-        if (
-          !target.manual &&
-          !(
-            sameResult &&
-            ((target.canConfirmDelivery && previous.delivered) ||
-              (target.needsConfirmation && previous.verified))
-          )
-        )
-          continue;
+        if (!target.manual) continue;
         patch[ref.id] = {
           ...(sameResult ? previous : {}),
           result: ref.result,
@@ -321,6 +340,26 @@ export const taskArchiveRouter = router({
       const delta = store.update(patch);
       return { changed: Object.keys(patch).length, delta };
     }),
+  resume: procedure
+    .input(clientAccountBinding.extend({ task: taskRef }))
+    .mutation(async ({ input, ctx }) => {
+      const ref = input.task;
+      const context = await prepare(input, [ref]);
+      const { store } = context;
+      if (store.busy.has(ref.id) || !isTaskArchived(store.get(ref.id), ref.result))
+        return { resumed: false };
+      const target = resolveTarget(context, ref, Boolean(ctx.authorize));
+      if (!target?.manual || target.result !== ref.result || !target.resume)
+        return { resumed: false };
+      // 续作成功后才移除归档；等待业务接受续作时，防止同时恢复或删除同一条记录。
+      store.busy.add(ref.id);
+      try {
+        if (!(await target.resume())) return { resumed: false };
+        return { resumed: true, delta: store.update({ [ref.id]: null }) };
+      } finally {
+        store.busy.delete(ref.id);
+      }
+    }),
   remove: procedure
     .input(clientAccountBinding.extend({ task: taskRef }))
     .mutation(async ({ input, ctx }) => {
@@ -330,14 +369,14 @@ export const taskArchiveRouter = router({
       const previous = store.get(ref.id);
       if (
         !isTaskArchived(previous, ref.result) ||
-        store.deleting.has(ref.id) ||
+        store.busy.has(ref.id) ||
         (ctx.authorize && previous?.snapshot?.kind === 'update')
       )
         return false;
       const target = resolveTarget(context, ref, Boolean(ctx.authorize));
-      if (target && target.result !== ref.result) return false;
-      // 同一条记录的恢复、归档和删除不能交错。
-      store.deleting.add(ref.id);
+      if (target && (!target.manual || target.result !== ref.result)) return false;
+      // 同一条记录的恢复、归档、续作和删除不能交错。
+      store.busy.add(ref.id);
       try {
         if (target?.remove && !(await target.remove())) return false;
         store.update({
@@ -348,7 +387,7 @@ export const taskArchiveRouter = router({
         });
         return true;
       } finally {
-        store.deleting.delete(ref.id);
+        store.busy.delete(ref.id);
       }
     }),
 });

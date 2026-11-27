@@ -774,7 +774,7 @@ export function RoamingBackfillPanel({
                     label: '归档',
                     icon: <Archive size={14} />,
                     secondary: true,
-                    disabled: busy || mutating,
+                    disabled: mutating,
                     run: async () => {
                       if (
                         !(await archive.change('archive', [

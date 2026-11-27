@@ -193,27 +193,58 @@ export const mailRouter = router({
       );
       if (output.kind !== 'file') throw new MailFailure('business', '附件保存形态无效。');
       const fileName = exportOutputFileName(output);
+      const reference = mail.attachments.exportReference(input.id);
+      const resume = reference
+        ? { type: 'mail-attachment' as const, ...reference, fileName }
+        : undefined;
       return services.exportManager.startResourceExport({
         kind: 'mail-attachment',
+        resume,
         networkTransfer: { bytes: attachment.size },
         name,
         output,
         savePolicy: input.savePolicy,
-        run: async ({ directory, signal }) => {
-          check();
-          signal.throwIfAborted();
-          if (mail.attachments.get(input.id) !== attachment)
-            throw new MailFailure('business', '附件已变化，请重新选择。');
-          const space = await statfs(directory);
-          if (space.bavail * space.bsize < attachment.size + 64 * 1024 * 1024)
-            throw new MailFailure('business', '目标磁盘空间不足。');
-          try {
-            await mail.download(input.id, join(directory, fileName), signal);
-          } catch (error) {
-            throw safeError(error);
-          }
-          check();
-          signal.throwIfAborted();
+        run: async ({ directory, signal, checkpoint }) => {
+          const download = async () => {
+            check();
+            signal.throwIfAborted();
+            const original = (() => {
+              try {
+                return mail.attachments.get(input.id) === attachment;
+              } catch {
+                return false;
+              }
+            })();
+            if (!original) {
+              if (resume) {
+                await runResumableExport(
+                  services,
+                  resume,
+                  { directory, signal, progress() {} },
+                  check,
+                );
+                return;
+              }
+              throw new MailFailure('business', '附件已变化，请重新选择。');
+            }
+            const space = await statfs(directory);
+            if (space.bavail * space.bsize < attachment.size + 64 * 1024 * 1024)
+              throw new MailFailure('business', '目标磁盘空间不足。');
+            try {
+              await mail.download(input.id, join(directory, fileName), signal);
+            } catch (error) {
+              throw safeError(error);
+            }
+            check();
+            signal.throwIfAborted();
+          };
+          if (checkpoint)
+            await checkpoint.file(
+              ['mail-attachment', fileName],
+              join(directory, fileName),
+              download,
+            );
+          else await download();
           return { total: 1, ok: 1, failed: [], fileName };
         },
       });

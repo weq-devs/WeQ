@@ -54,7 +54,7 @@ it('清除以整次操作为单位，成功文件不会从尚未成功的整批�
   }
 });
 
-it('重启后不自动发起下载；重试只请求未完成文件', async () => {
+it('重启后不自动发起下载，转入后台续作只请求未完成文件', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'weq-flash-resume-'));
   const next = Promise.withResolvers<string>();
   const getUrl = vi
@@ -72,6 +72,7 @@ it('重启后不自动发起下载；重试只请求未完成文件', async () =
           relativePath: status,
           targetPath: join(dir, status),
           status,
+          foreground: true,
           fileSize: 10,
           downloadedBytes: 10,
           createdAt: 1,
@@ -81,7 +82,8 @@ it('重启后不自动发起下载；重试只请求未完成文件', async () =
     const manager = new FlashTransferDownloadManager(dir);
     await manager.load();
     expect(getUrl).not.toHaveBeenCalled();
-    expect(await manager.retry('batch')).toBe(true);
+    expect(await manager.retry('batch', { background: true })).toBe(true);
+    expect(manager.list()[0]?.files.every((file) => !file.foreground)).toBe(true);
     expect(getUrl.mock.calls).toEqual([['pending'], ['resolving'], ['downloading']]);
     await manager.cancel('batch');
     next.resolve('unused');

@@ -1,7 +1,15 @@
 import { ToolbarLabel } from '../CompactToolbar';
 import { observeCompactToolbar } from '../CompactToolbar.shared';
 import { NumericText } from '../NumericText';
-import { Fragment, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import {
+  Fragment,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from 'react';
 import { useTabActive } from '../RetainedTabs.shared';
 import { useWorkspaceMenu } from '../../state/workspaceMenu';
 import {
@@ -74,6 +82,7 @@ import { TaskDetailPage } from './TaskDetailPage';
 import { useTaskArchive, type TaskArchiveRef } from '../../hooks/useTaskArchive';
 import {
   backgroundArchivePolicy,
+  backgroundResumeAction,
   backgroundResult,
   exportArchivePolicy,
   flashArchivePolicy,
@@ -85,6 +94,11 @@ import {
 import { exportTaskResult } from '../../../../shared/export_task_result';
 import { cloneTaskResult } from '../../lib/workspaceIndicators';
 import { taskNotificationForeground } from '../../lib/taskNotificationPresentation';
+import { TaskResultNavigationContext } from '../../lib/taskResultNavigation';
+import {
+  notificationSource,
+  openNotificationSource,
+} from '../../lib/notificationNavigation.shared';
 
 export type TaskLayout = 'inline' | 'compact' | 'split' | 'page';
 
@@ -112,6 +126,7 @@ export function CurrentTaskList({
   selection,
   layout = 'inline',
   onOpenDetail,
+  onOpenArchivedTasks,
   toolbarAction,
   cleanupBinding,
   exportActions,
@@ -126,6 +141,7 @@ export function CurrentTaskList({
   selection?: readonly [string | null | undefined, (id: string | null) => void];
   layout?: TaskLayout;
   onOpenDetail?: () => void;
+  onOpenArchivedTasks?: () => void;
   toolbarAction?: ReactNode;
   cleanupBinding?: { expectedAccountUin: string; expectedAccountConfigId: string } | null;
   exportActions?: ExportTaskActions;
@@ -139,6 +155,8 @@ export function CurrentTaskList({
   const showError = useDialog((state) => state.showError);
   const confirm = useDialog((state) => state.confirm);
   const showInfo = useDialog((state) => state.showInfo);
+  const resultNavigation = useContext(TaskResultNavigationContext);
+  const openingResult = useRef<string | null>(null);
   const [clearing, setClearing] = useState(false);
   const [cleanupMenu, setCleanupMenu] = useState<{ x: number; y: number } | null>(null);
   const [openingFlash, setOpeningFlash] = useState<string | null>(null);
@@ -197,16 +215,22 @@ export function CurrentTaskList({
     policy: {
       manual: boolean;
       auto?: boolean;
-      canConfirmDelivery?: boolean;
       needsConfirmation?: boolean;
     },
-    onRemoved?: () => void,
-    hasCachedOutput = false,
+    options: {
+      onRemoved?: () => void;
+      hasCachedOutput?: boolean;
+      canRemove?: boolean;
+      resume?: Pick<TaskQuickAction, 'label' | 'icon' | 'disabled'> & {
+        refresh: () => Promise<unknown>;
+        run?: () => Promise<unknown>;
+      };
+    } = {},
   ) => {
+    const { onRemoved, hasCachedOutput, canRemove = true, resume } = options;
     const saved = archive.entries[ref.id];
     const isArchived = isTaskArchived(saved, ref.result);
-    const delivered = saved?.result === ref.result && saved.delivered === true;
-    const manual = policy.manual || Boolean(policy.canConfirmDelivery && delivered);
+    const manual = policy.manual;
     const auto = Boolean(policy.auto && !(saved?.result === ref.result && saved.restored));
     management.set(ref.id, { ref, isArchived, manual, auto });
     const actions: TaskQuickAction[] = [];
@@ -225,19 +249,38 @@ export function CurrentTaskList({
       });
     }
     if (isArchived && archived) {
-      actions.push(
-        {
-          id: 'restore',
-          label: '恢复到当前任务',
-          icon: <ArchiveRestore size={14} />,
-          secondary: true,
+      if (resume)
+        actions.push({
+          id: 'resume',
+          label: resume.label,
+          icon: resume.icon,
+          disabled: resume.disabled,
           run: async () => {
             if (!scopeIsCurrent()) return;
-            if (!(await archive.change('restore', [ref])))
-              showInfo('暂时无法恢复', '任务状态已变化，请查看最新任务状态。');
+            if (resume.run) {
+              await resume.run();
+              return;
+            }
+            const resumed = await archive.resume(ref);
+            if (!scopeIsCurrent()) return;
+            await resume.refresh();
+            if (!resumed && scopeIsCurrent())
+              showInfo('暂时无法继续', '任务仍在收尾或状态已变化，请查看最新任务状态。');
           },
+        });
+      actions.push({
+        id: 'restore',
+        label: '取消归档',
+        icon: <ArchiveRestore size={14} />,
+        secondary: true,
+        run: async () => {
+          if (!scopeIsCurrent()) return;
+          if (!(await archive.change('restore', [ref])))
+            showInfo('暂时无法取消归档', '任务状态已变化，请查看最新任务状态。');
         },
-        {
+      });
+      if (canRemove)
+        actions.push({
           id: 'delete',
           label: '彻底删除',
           icon: <Trash2 size={14} />,
@@ -267,8 +310,7 @@ export function CurrentTaskList({
               utils.account.flashListDownloadTasks.invalidate(),
             ]);
           },
-        },
-      );
+        });
     } else if (!isArchived && manual) {
       actions.push({
         id: 'archive',
@@ -296,12 +338,25 @@ export function CurrentTaskList({
       task.status === 'completed' &&
       (task.save?.status === 'failed' || task.save?.status === 'interrupted');
     const missing = (task.generatedResources?.missing ?? task.resource?.failed ?? 0) > 0;
+    const resumeAction = task.canResume && {
+      id: 'resume',
+      label: taskResumeActionLabel(task),
+      icon:
+        task.resumeMode === 'restart' ? <RefreshCw size={14} aria-hidden /> : <Play size={14} />,
+      disabled: saving || task.isFinalizing,
+    };
     const archiveState = manage(
       exportTaskResult(task),
       taskDisplayTitle(display),
-      task.isFinalizing ? { manual: false } : exportArchivePolicy(task),
-      undefined,
-      task.status === 'completed' && task.save?.status !== 'saved',
+      exportArchivePolicy(task),
+      {
+        hasCachedOutput: task.status === 'completed' && task.save?.status !== 'saved',
+        canRemove: !task.databaseRecovery,
+        resume:
+          task.status === 'paused' && resumeAction
+            ? { ...resumeAction, refresh: () => utils.account.listExportTasks.invalidate() }
+            : undefined,
+      },
     );
     const actions: TaskQuickAction[] = [];
     if (exportActions) {
@@ -353,17 +408,9 @@ export function CurrentTaskList({
           disabled: task.isFinalizing,
           run: () => exportActions.pause(task),
         });
-      if (task.canResume)
+      if (resumeAction)
         actions.push({
-          id: 'resume',
-          label: taskResumeActionLabel(task),
-          icon:
-            task.resumeMode === 'restart' ? (
-              <RefreshCw size={14} aria-hidden />
-            ) : (
-              <Play size={14} />
-            ),
-          disabled: saving || task.isFinalizing,
+          ...resumeAction,
           run: () => exportActions.resume(task),
         });
       if (['pending', 'running', 'paused', 'failed'].includes(task.status))
@@ -416,17 +463,12 @@ export function CurrentTaskList({
           .join(' · ') || undefined,
       icon: taskIcon(task),
       detail: renderExport(task, archiveState.actions, archived || archiveState.isArchived),
-      quickActions:
-        actions.length || archiveState.actions.length ? (
-          <TaskQuickActions
-            actions={[
-              ...(archived || archiveState.isArchived
-                ? actions.filter((action) => !['pause', 'resume', 'cancel'].includes(action.id))
-                : actions),
-              ...archiveState.actions,
-            ]}
-          />
-        ) : null,
+      quickActions: [
+        ...(archived || archiveState.isArchived
+          ? actions.filter((action) => !['pause', 'resume', 'cancel'].includes(action.id))
+          : actions),
+        ...archiveState.actions,
+      ],
     };
   });
   const hostClones = new Set(background.tasks.map(({ task }) => task.clonePersonaId));
@@ -446,6 +488,7 @@ export function CurrentTaskList({
         run: () => onOpenClone(task.personaId),
       });
     }
+    const resultAction = actions[0];
     const status =
       task.status === 'done' ? 'completed' : task.status === 'error' ? 'failed' : 'running';
     const clone = manage(
@@ -469,8 +512,10 @@ export function CurrentTaskList({
       },
       task.name,
       { manual: status !== 'running' },
-      () => {
-        if (getCloneTasks().includes(task)) dismissCloneTask(task.personaId);
+      {
+        onRemoved: () => {
+          if (getCloneTasks().includes(task)) dismissCloneTask(task.personaId);
+        },
       },
     );
     actions.push(...clone.actions);
@@ -482,7 +527,8 @@ export function CurrentTaskList({
       status: task.status === 'done' ? 'completed' : task.status === 'error' ? 'failed' : 'running',
       progress: task.percent,
       icon: <Users size={16} />,
-      quickActions: task.status !== 'running' ? <TaskQuickActions actions={actions} /> : null,
+      quickActions: task.status !== 'running' ? actions : undefined,
+      resultAction,
       detail: (
         <div>
           <TaskProgressDetails
@@ -517,34 +563,38 @@ export function CurrentTaskList({
           await refresh();
         },
       });
-    if (['planned', 'paused', 'failed', 'partial', 'cancelled'].includes(job.status))
-      actions.push({
-        id: 'resume',
-        label: job.planning
-          ? '继续检查'
-          : job.status === 'planned'
-            ? '开始补全'
-            : job.status === 'partial' || job.status === 'cancelled'
-              ? '重试未补区间'
-              : '继续',
-        icon:
-          job.status === 'cancelled' || job.status === 'partial' ? (
-            <RefreshCw size={14} aria-hidden />
-          ) : (
-            <Play size={14} />
-          ),
-        disabled:
-          busy ||
-          roaming.data?.historyVersion !== 2 ||
-          ['native500', 'sso500'].includes(job.options.transport ?? ''),
-        run: async () => {
-          await client.account.roamingBackfill.start.mutate({
-            id: job.id,
-            retryRemaining: job.status === 'partial' || job.status === 'cancelled',
-          });
-          await refresh();
-        },
-      });
+    const resumeAction = ['planned', 'paused', 'failed', 'partial', 'cancelled'].includes(
+      job.status,
+    )
+      ? {
+          id: 'resume',
+          label: job.planning
+            ? '继续检查'
+            : job.status === 'planned'
+              ? '开始补全'
+              : job.status === 'partial' || job.status === 'cancelled'
+                ? '重试未补区间'
+                : '继续',
+          icon:
+            job.status === 'cancelled' || job.status === 'partial' ? (
+              <RefreshCw size={14} aria-hidden />
+            ) : (
+              <Play size={14} />
+            ),
+          disabled:
+            busy ||
+            roaming.data?.historyVersion !== 2 ||
+            ['native500', 'sso500'].includes(job.options.transport ?? ''),
+          run: async () => {
+            await client.account.roamingBackfill.start.mutate({
+              id: job.id,
+              retryRemaining: job.status === 'partial' || job.status === 'cancelled',
+            });
+            await refresh();
+          },
+        }
+      : undefined;
+    if (resumeAction) actions.push(resumeAction);
     if (!complete && job.status !== 'cancelled')
       actions.push({
         id: 'cancel',
@@ -560,6 +610,9 @@ export function CurrentTaskList({
       { id: `roaming:${job.id}`, result: roamingResult(job) },
       taskDisplayTitle(display),
       { manual: roamingArchivePolicy(job.status) },
+      {
+        resume: job.status === 'paused' && resumeAction ? { ...resumeAction, refresh } : undefined,
+      },
     );
     const rowActions =
       archived || jobArchive.isArchived ? jobArchive.actions : [...actions, ...jobArchive.actions];
@@ -571,6 +624,26 @@ export function CurrentTaskList({
           : job.status === 'partial'
             ? 'completed'
             : job.status;
+    const target = job.targets.length === 1 ? job.targets[0] : undefined;
+    const resultAction =
+      job.status === 'completed' && job.observed > 0 && target && cleanupBinding
+        ? {
+            label: '查看补回的消息',
+            run: () =>
+              openNotificationSource(
+                notificationSource(
+                  {
+                    kind: 'conversation',
+                    conversationKind: target.kind,
+                    conv: target.conv,
+                    seq: target.firstObservedSeq,
+                  },
+                  '查看补回的消息',
+                  cleanupBinding,
+                ),
+              ),
+          }
+        : undefined;
     items.push({
       id: `roaming:${job.id}`,
       name: taskDisplayTitle(display),
@@ -608,7 +681,8 @@ export function CurrentTaskList({
           />
         </div>
       ),
-      quickActions: <TaskQuickActions actions={rowActions} />,
+      quickActions: rowActions,
+      resultAction,
     });
   }
   if (roaming.data?.scanning && !roaming.data.jobs.some((job) => job.planning)) {
@@ -670,11 +744,25 @@ export function CurrentTaskList({
     const flashRef = { id: `flash:${task.id}`, result: flashResult(task) };
     const downloadPolicy = flashArchivePolicy(task);
     const needsDevice = (IS_WEB || task.browserOutput) && task.status === 'done';
-    const flashArchive = manage(flashRef, taskDisplayTitle(display), {
-      manual: downloadPolicy.manual && !needsDevice,
-      auto: downloadPolicy.auto && !needsDevice,
-      canConfirmDelivery: downloadPolicy.manual && needsDevice,
-    });
+    const retryAction = {
+      id: 'retry',
+      label: retryLabel,
+      icon: <RefreshCw size={14} aria-hidden />,
+      disabled: !cleanupBinding,
+      run: retryFlash,
+    };
+    const flashArchive = manage(
+      flashRef,
+      taskDisplayTitle(display),
+      { ...downloadPolicy, auto: downloadPolicy.auto && !needsDevice },
+      {
+        canRemove: !task.interrupted,
+        resume:
+          task.interrupted && task.canRetry
+            ? { ...retryAction, refresh: () => utils.account.flashListDownloadTasks.invalidate() }
+            : undefined,
+      },
+    );
     const takeFlash = async (fileId?: string) => {
       if (!cleanupBinding || openingFlashRef.current) return;
       openingFlashRef.current = task.id;
@@ -714,7 +802,7 @@ export function CurrentTaskList({
       }
     };
     const actions: TaskQuickAction[] =
-      running || task.status === 'pending' || task.interrupted
+      !flashArchive.isArchived && (running || task.status === 'pending' || task.interrupted)
         ? [
             {
               id: 'cancel',
@@ -727,14 +815,7 @@ export function CurrentTaskList({
             },
           ]
         : [];
-    if (task.canRetry && !archived && !flashArchive.isArchived)
-      actions.unshift({
-        id: 'retry',
-        label: retryLabel,
-        icon: <RefreshCw size={14} aria-hidden />,
-        disabled: !cleanupBinding,
-        run: retryFlash,
-      });
+    if (task.canRetry && !archived && !flashArchive.isArchived) actions.unshift(retryAction);
     if (running || task.status === 'pending')
       actions.unshift({
         id: 'pause',
@@ -794,7 +875,7 @@ export function CurrentTaskList({
       note: single ? task.filesetName : `${task.filesetName} · ${formatSize(task.fileSize)}`,
       metrics: `${formatSize(task.downloadedBytes)} / ${formatSize(task.fileSize)}`,
       icon: <Download size={16} />,
-      quickActions: <TaskQuickActions actions={actions} />,
+      quickActions: actions,
       detail: (
         <div>
           <TaskProgressDetails
@@ -914,7 +995,7 @@ export function CurrentTaskList({
       receipt:
         entry.source === 'window' &&
         (task.kind === 'forward' || task.kind === 'album-upload' || task.kind === 'send-media') &&
-        (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled')
+        task.status !== 'running'
           ? {
               ...task,
               kind: task.kind,
@@ -924,6 +1005,7 @@ export function CurrentTaskList({
             }
           : undefined,
     };
+    const resume = entry.source !== 'saved' ? backgroundResumeAction(task) : undefined;
     const taskArchive = canManageTask
       ? manage(
           taskRef,
@@ -932,10 +1014,21 @@ export function CurrentTaskList({
             ...backgroundArchivePolicy(task),
             needsConfirmation: task.needsConfirmation,
           },
-          () => {
-            if (entry.source === 'window' && localBackgroundTasks.remove(task.id))
-              forgetWindowTask(task.id);
-            if (task.clonePersonaId) dismissCloneTask(task.clonePersonaId);
+          {
+            resume: resume && {
+              label: resume.label,
+              icon: <BackgroundTaskActionIcon id={resume.id} />,
+              refresh: () => background.query.refetch(),
+              run:
+                entry.source === 'window'
+                  ? () => localBackgroundTasks.act(task.id, resume.id)
+                  : undefined,
+            },
+            onRemoved: () => {
+              if (entry.source === 'window' && localBackgroundTasks.remove(task.id))
+                forgetWindowTask(task.id);
+              if (task.clonePersonaId) dismissCloneTask(task.clonePersonaId);
+            },
           },
         )
       : { actions: [], isArchived: false };
@@ -973,6 +1066,32 @@ export function CurrentTaskList({
         },
       }));
     const navigation = backgroundTaskNavigation(task);
+    let resultAction: LongTaskItem['resultAction'];
+    if (
+      task.status === 'completed' &&
+      !task.needsConfirmation &&
+      !task.subtasks?.some((part) => part.failed)
+    ) {
+      if (['forward', 'album-upload', 'qzone-share', 'favorite-import'].includes(task.kind))
+        resultAction =
+          navigation ??
+          (task.kind === 'forward' ? actions.find(({ id }) => id === 'open') : undefined);
+      else if (task.kind === 'calendar' && resultNavigation?.openCalendar) {
+        const open = resultNavigation.openCalendar;
+        resultAction = { label: '打开会话日历', run: () => open(task.id) };
+      } else if (task.kind === 'clone' && task.clonePersonaId && onOpenClone) {
+        const id = task.clonePersonaId;
+        resultAction = { label: '查看克隆体', run: () => onOpenClone(id) };
+      } else if (
+        task.kind === 'analysis' &&
+        task.reportId &&
+        resultNavigation?.openAnalysisReport
+      ) {
+        const id = task.reportId;
+        const open = resultNavigation.openAnalysisReport;
+        resultAction = { label: '查看报告', run: () => open(id) };
+      }
+    }
     if (
       navigation &&
       (entry.source !== 'window' ||
@@ -1011,7 +1130,8 @@ export function CurrentTaskList({
           ? task.note
           : undefined,
       icon: <Icon size={16} />,
-      quickActions: actions.length ? <TaskQuickActions actions={actions} /> : null,
+      quickActions: actions,
+      resultAction,
       detail: (
         <BackgroundTaskDetails
           key={task.id}
@@ -1079,10 +1199,9 @@ export function CurrentTaskList({
         )?.result
       : undefined,
   );
-  const acknowledge = useRef<() => void>(() => {});
-  acknowledge.current = () => {
-    if (!selectedResult || !scopeIsCurrent() || !taskNotificationForeground()) return;
-    const { ref, auto, isArchived } = selectedResult;
+  const acknowledgeResult = (result: typeof selectedResult) => {
+    if (!result || !scopeIsCurrent() || !taskNotificationForeground()) return;
+    const { ref, auto, isArchived } = result;
     useWorkspaceMenu.getState().readTask(scope, ref.id, ref.result);
     if (
       !auto ||
@@ -1096,6 +1215,8 @@ export function CurrentTaskList({
         showError('未能自动归档', error instanceof Error ? error.message : String(error));
     });
   };
+  const acknowledge = useRef<() => void>(() => {});
+  acknowledge.current = () => acknowledgeResult(selectedResult);
   useEffect(() => {
     if (
       !visible ||
@@ -1127,7 +1248,17 @@ export function CurrentTaskList({
     selectedResult?.ref.result,
   ]);
   const hasError = exportError || roaming.error || flash.error || background.error || archive.error;
-  const archivable = [...management.values()].filter((row) => row.manual && !row.isArchived);
+  const showArchiveAction =
+    onOpenArchivedTasks &&
+    !archived &&
+    !loading &&
+    !hasError &&
+    !visibleItems.length &&
+    items.some(({ id }) => management.get(id)?.isArchived && !archive.entries[id]?.deleted);
+  const archivable = visibleItems.flatMap((task) => {
+    const row = management.get(task.id);
+    return isEnded(task) && row?.manual && !row.isArchived ? [row] : [];
+  });
   const cleanupDisabled = clearing || loading || !cleanupBinding || !archivable.length;
   const clearFinished = async () => {
     if (clearingRef.current || cleanupDisabled) return;
@@ -1152,27 +1283,51 @@ export function CurrentTaskList({
       if (mounted.current) setClearing(false);
     }
   };
-  const renderRow = (task: LongTaskItem) => (
-    <Fragment
-      key={`${cleanupBinding?.expectedAccountUin ?? accountId}:${cleanupBinding?.expectedAccountConfigId ?? ''}:${task.id}`}
-    >
-      <LongTaskRow
-        task={task}
-        active={task.id === selectedId}
-        pageLink={paged}
-        showQuickActions={layout === 'compact'}
-        onSelect={() => {
-          useWorkspaceMenu.setState({ taskFocusId: null });
-          heldResult.current = null;
-          setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
-          if (layout === 'compact') onOpenDetail?.();
-        }}
-      />
-      {layout === 'inline' && task.id === selectedId ? (
-        <div className="weq-long-task-detail">{task.detail}</div>
-      ) : null}
-    </Fragment>
-  );
+  const openTaskResult = async (
+    task: LongTaskItem,
+    action: NonNullable<LongTaskItem['resultAction']>,
+  ) => {
+    if (!scopeIsCurrent() || openingResult.current) return;
+    openingResult.current = task.id;
+    try {
+      const operation = action.run();
+      const opened = operation instanceof Promise ? await operation : operation;
+      if (opened === false || !scopeIsCurrent()) return;
+      acknowledgeResult(management.get(task.id));
+      resultNavigation?.dismiss();
+    } catch (error) {
+      if (scopeIsCurrent())
+        showError('无法打开任务结果', error instanceof Error ? error.message : String(error));
+    } finally {
+      openingResult.current = null;
+    }
+  };
+  const renderRow = (task: LongTaskItem) => {
+    const openDetails = () => {
+      useWorkspaceMenu.setState({ taskFocusId: null });
+      heldResult.current = null;
+      setSelected(layout === 'inline' && task.id === selectedId ? null : task.id);
+      if (layout === 'compact') onOpenDetail?.();
+    };
+    const resultAction = task.resultAction;
+    return (
+      <Fragment
+        key={`${cleanupBinding?.expectedAccountUin ?? accountId}:${cleanupBinding?.expectedAccountConfigId ?? ''}:${task.id}`}
+      >
+        <LongTaskRow
+          task={task}
+          active={task.id === selectedId}
+          pageLink={paged}
+          showQuickActions={layout === 'compact'}
+          onSelect={resultAction ? () => void openTaskResult(task, resultAction) : openDetails}
+          onOpenDetails={resultAction ? openDetails : undefined}
+        />
+        {layout === 'inline' && task.id === selectedId ? (
+          <div className="weq-long-task-detail">{task.detail}</div>
+        ) : null}
+      </Fragment>
+    );
+  };
   const selectedTask = ordered.find((task) => task.id === selectedId);
   const transfers = ordered.filter((task) => task.transfer);
   const otherTasks = ordered.filter((task) => !task.transfer);
@@ -1191,7 +1346,7 @@ export function CurrentTaskList({
             </span>
             {toolbarAction}
           </div>
-          {!archived ? (
+          {!archived && !showArchiveAction ? (
             <div className="weq-current-tasks-actions" data-toolbar-group="">
               <button
                 type="button"
@@ -1243,6 +1398,14 @@ export function CurrentTaskList({
           compact
           icon={<ListTodo />}
           title={loading ? '读取任务中…' : archived ? '暂无已归档任务' : '暂无任务'}
+          action={
+            showArchiveAction ? (
+              <button type="button" className="weq-set-btn" onClick={onOpenArchivedTasks}>
+                <Archive size={14} aria-hidden />
+                查看已归档任务
+              </button>
+            ) : null
+          }
         />
       ) : null}
       {visibleItems.length ? (
@@ -1294,7 +1457,7 @@ export function CurrentTaskList({
           ) : null}
         </div>
       ) : null}
-      {!paged && !archived ? (
+      {!paged && !archived && !showArchiveAction ? (
         <div className="weq-current-tasks-results" role="group" aria-label="已结束任务">
           <span>
             <NumericText>{`${visibleItems.filter(isEnded).length} 项已结束`}</NumericText>

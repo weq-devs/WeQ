@@ -34,6 +34,7 @@ export function useResourceManagementScan(source: ResourceSource | null, enabled
   const mounted = useRef(false),
     generation = useRef(0),
     needed = useRef(true);
+  const completed = useRef<ScanData['stats']>([]);
   const [data, setData] = useState(initial);
   useEffect(() => {
     mounted.current = true;
@@ -44,6 +45,7 @@ export function useResourceManagementScan(source: ResourceSource | null, enabled
   }, []);
   useEffect(() => {
     needed.current = true;
+    completed.current = [];
     setData(initial());
   }, [binding]);
   const run = useCallback(async () => {
@@ -51,9 +53,10 @@ export function useResourceManagementScan(source: ResourceSource | null, enabled
     const id = ++generation.current;
     const current = () =>
       mounted.current && active.current && generation.current === id && latest.current === binding;
-    setData((old) => ({ ...initial(), revision: old.revision }));
+    const saved = completed.current;
+    setData((old) => ({ ...initial(), revision: old.revision, stats: saved }));
     try {
-      for (const category of RESOURCE_CATEGORIES) {
+      for (const category of RESOURCE_CATEGORIES.slice(saved.length)) {
         if (!current()) return;
         setData((old) => ({ ...old, scanningKey: category.key }));
         const stat = await client.account.mediaResource.analyzeTree.query({
@@ -62,9 +65,13 @@ export function useResourceManagementScan(source: ResourceSource | null, enabled
         });
         if (!current()) return;
         if (stat.key !== category.key) throw new Error('资源统计目录与请求不符，请重新扫描');
-        setData((old) => ({ ...old, stats: [...old.stats, stat] }));
-        if (stat.complete === false)
+        if (stat.complete === false) {
+          setData((old) => ({ ...old, stats: [...old.stats, stat] }));
           throw new Error('资源目录统计不完整，请检查读取权限后重新扫描');
+        }
+        const stats = [...completed.current, stat];
+        completed.current = stats;
+        setData((old) => ({ ...old, stats }));
       }
       if (!current()) return;
       setData((old) => ({ ...old, scanningKey: 'cleanup' }));
@@ -102,6 +109,7 @@ export function useResourceManagementScan(source: ResourceSource | null, enabled
   const refresh = useCallback(async () => {
     if (!mounted.current || latest.current !== binding) return;
     needed.current = true;
+    completed.current = [];
     await run();
   }, [binding, run]);
   return binding

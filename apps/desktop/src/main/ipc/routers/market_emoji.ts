@@ -11,17 +11,12 @@ import { z } from 'zod/v3';
 import { exportAccountBindingInput, exportSavePolicyInput } from './export_save';
 import { join } from 'node:path';
 import { copyFile, mkdir } from 'node:fs/promises';
-import {
-  exportOutputFileName,
-  getHost,
-  sanitizeSegment,
-  saveExportOutput,
-  uniqueName,
-} from '@weq/service';
+import { exportOutputFileName, getHost, sanitizeSegment, uniqueName } from '@weq/service';
 import { getAppContext, type AccountServices } from '../../context/app_context';
 import { procedure, router } from '../trpc';
 import { searchCatalog } from '../../market_catalog';
 import { MARKET_DOWNLOAD_MAX_PACKS } from '../../../shared/market_emoji';
+import { runResumableExport } from '../../resumable_exports';
 
 const composerPackInput = z.object({ packId: z.string().regex(/^\d{1,15}$/) });
 
@@ -66,25 +61,15 @@ export const marketEmojiRouter = router({
       };
       const output = { kind: 'file' as const, name: input.name, extension: 'gif' };
       const fileName = exportOutputFileName(output);
+      const { packId, hash, name } = input;
+      const resume = { type: 'market-image' as const, packId, hash, name, fileName };
       return services.exportManager.startResourceExport({
         kind: 'market-image',
+        resume,
         name: input.name,
         output,
         savePolicy: input.savePolicy,
-        run: async ({ directory, signal }) => {
-          check();
-          signal.throwIfAborted();
-          const path = await services.emoji.getMarketPackImage(input.packId, input.hash);
-          check();
-          signal.throwIfAborted();
-          if (!path) throw new Error('这张表情不可用或解密失败');
-          await saveExportOutput(
-            { name: input.name, filePath: path },
-            { filePath: join(directory, fileName) },
-            signal,
-          );
-          return { total: 1, ok: 1, failed: [], fileName };
-        },
+        run: (context) => runResumableExport(services, resume, context, check),
       });
     }),
 

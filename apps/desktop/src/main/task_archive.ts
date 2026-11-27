@@ -13,6 +13,16 @@ import {
 
 const requireFromHere = createRequire(import.meta.url);
 
+function withForwardProgress(entry: TaskArchiveEntry): TaskArchiveEntry {
+  const snapshot = entry.snapshot;
+  // 旧版转发回执没有持久化进度，已完成的任务可以从状态恢复。
+  return snapshot?.kind === 'forward' &&
+    snapshot.status === 'completed' &&
+    snapshot.progress === undefined
+    ? { ...entry, snapshot: { ...snapshot, progress: 100 } }
+    : entry;
+}
+
 function summarize(entry: TaskArchiveEntry): TaskArchiveEntry {
   if (!entry.snapshot) return entry;
   const {
@@ -25,7 +35,7 @@ function summarize(entry: TaskArchiveEntry): TaskArchiveEntry {
 }
 
 export class TaskArchiveStore {
-  readonly deleting = new Set<string>();
+  readonly busy = new Set<string>();
   private readonly listeners = new Set<(change: TaskArchiveChange) => void>();
   private database?: DatabaseSync;
   private idle?: ReturnType<typeof setTimeout>;
@@ -113,7 +123,7 @@ export class TaskArchiveStore {
       entries: Object.fromEntries(
         rows.flatMap(({ task_id, value }) =>
           typeof task_id === 'string' && typeof value === 'string'
-            ? [[task_id, JSON.parse(value) as TaskArchiveEntry]]
+            ? [[task_id, withForwardProgress(JSON.parse(value) as TaskArchiveEntry)]]
             : [],
         ),
       ),
@@ -129,7 +139,8 @@ export class TaskArchiveStore {
 
   get(id: string): TaskArchiveEntry | undefined {
     const row = this.open().prepare('SELECT full FROM task_archive WHERE id=?').get(id);
-    if (typeof row?.full === 'string') return JSON.parse(row.full) as TaskArchiveEntry;
+    if (typeof row?.full === 'string')
+      return withForwardProgress(JSON.parse(row.full) as TaskArchiveEntry);
   }
 
   subscribe(listener: (change: TaskArchiveChange) => void) {
@@ -152,7 +163,9 @@ export class TaskArchiveStore {
     });
     const change = {
       ...version,
-      patch: Object.fromEntries(rows.map(([id, entry]) => [id, entry ? summarize(entry) : null])),
+      patch: Object.fromEntries(
+        rows.map(([id, entry]) => [id, entry ? withForwardProgress(summarize(entry)) : null]),
+      ),
     };
     for (const listener of this.listeners) listener(change);
     return change;
@@ -176,7 +189,7 @@ export function archiveViewedTask(store: TaskArchiveStore, id: string, result: s
   try {
     const row = store.get(id);
     if (
-      store.deleting.has(id) ||
+      store.busy.has(id) ||
       isTaskArchived(row, result) ||
       (row?.result === result && row.restored)
     )

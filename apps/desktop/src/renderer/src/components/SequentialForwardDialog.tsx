@@ -29,6 +29,7 @@ export function SequentialForwardDialog({
   messages,
   targets,
   sourceKind,
+  includeExcerpt,
   onSend,
   onClose,
   onOpenTarget,
@@ -37,6 +38,7 @@ export function SequentialForwardDialog({
   messages: readonly Message[];
   targets: MfTarget[];
   sourceKind?: ForwardChatKind;
+  includeExcerpt?: boolean;
   onSend: SequentialForwardSend;
   onClose: () => void;
   onOpenTarget: (target: MfTarget) => void;
@@ -72,6 +74,7 @@ export function SequentialForwardDialog({
         messages,
         targets: picked,
         sourceKind,
+        includeExcerpt,
         options: { ...options },
         onSend,
         onOpenTarget,
