@@ -17,9 +17,17 @@ const f = vi.hoisted(() => {
   };
   const host = {
     account: { context: { uin: '10001' } },
+    platform: {
+      tencentFilesRoots: () => ['/fixture/qq-data'],
+      qqDataRoot: () => null,
+      accountDir: () => null,
+      native: { ntHelper: { configureQqReadOnlyRoots: vi.fn(() => true) } },
+    },
     bootstrap: {
       qqSyncRoot: '/fixture/qq-sync',
       userConfig: {
+        cacheBaseDir: () => '/fixture/weq-cache',
+        listAccountConfigs: () => [],
         getSettings: () => settings,
         getSetting: (key: keyof typeof settings) => settings[key],
         setSettings: (patch: Partial<typeof settings>) => {
@@ -56,6 +64,7 @@ beforeEach(() => {
   f.proxy.enabled = false;
   f.proxy.tunnels = 0;
   f.setProxy.mockClear();
+  f.host.platform.native.ntHelper.configureQqReadOnlyRoots.mockClear();
   f.host.refreshRkeysNow.mockReset().mockResolvedValue(true);
 });
 const input = { expectedAccountUin: '10001', expectedAccountConfigId: 'synthetic-live' };
@@ -142,12 +151,18 @@ it('已开始的数据库修改完成后才允许切入只读', async () => {
       }),
   );
   try {
-    await expect(caller.setQqCapabilityMode({ mode: 'read-only' })).rejects.toThrow('正在写入');
+    await expect(caller.setQqCapabilityMode({ mode: 'read-only' })).rejects.toThrow(
+      '请等待当前操作完成',
+    );
     expect(f.settings.qqCapabilityMode).toBe('local');
+    expect(f.host.platform.native.ntHelper.configureQqReadOnlyRoots).not.toHaveBeenCalled();
   } finally {
     finish();
     await running;
   }
   await caller.setQqCapabilityMode({ mode: 'read-only' });
   expect(f.settings.qqCapabilityMode).toBe('read-only');
+  expect(f.host.platform.native.ntHelper.configureQqReadOnlyRoots).toHaveBeenCalledWith([
+    '/fixture/qq-data',
+  ]);
 });
