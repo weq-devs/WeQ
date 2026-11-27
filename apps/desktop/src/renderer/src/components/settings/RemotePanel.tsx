@@ -216,7 +216,10 @@ export function RemotePanel({
                   <button
                     type="button"
                     className="weq-set-btn weq-set-btn-primary"
-                    disabled={busy}
+                    disabled={busy || !data.network.authUrl}
+                    title={
+                      data.network.authUrl ? undefined : '尚未获取到登录链接，请等待或检查网络'
+                    }
                     onClick={onLogin}
                   >
                     <ExternalLink size={14} />

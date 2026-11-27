@@ -109,8 +109,16 @@ export class RemoteRuntime {
 
   async setTailscaleEnabled(enabled: boolean): Promise<void> {
     this.store?.save({ tailscaleEnabled: enabled });
-    if (!enabled) this.stopTailscale();
-    else if (this.server) await this.startTailscale();
+    if (!enabled) {
+      this.stopTailscale();
+      return;
+    }
+    // 服务未开启时只保存偏好，等 start() 之后自动拉起（setMode 恢复偏好依赖这一行为）。
+    if (!this.server) return;
+    await this.startTailscale();
+    // 服务已在运行却没能拉起 Tailscale 时，必须把具体原因抛给界面，不能停在「已停止」。
+    if (!this.tailscaleChild)
+      throw new Error(this.tailscaleState.error ?? 'Tailscale 服务未能启动，请稍后重试。');
   }
 
   private stopTailscale(): void {
@@ -134,16 +142,29 @@ export class RemoteRuntime {
 
   private async startTailscale(): Promise<void> {
     await this.tailscaleClosing;
-    if (
-      this.tailscaleChild ||
-      !this.server ||
-      !this.config ||
-      !this.state.fingerprint ||
-      !this.store?.read().tailscaleEnabled
-    )
+    if (this.tailscaleChild) return;
+    // 守卫失败不能静默返回，否则界面只会停在「已停止」且没有任何提示。
+    if (!this.server || !this.config || !this.state.fingerprint) {
+      this.tailscaleState = {
+        state: 'error',
+        error: !this.config
+          ? '远程连接配置不可用，无法启动 Tailscale 服务。'
+          : !this.server
+            ? '远程服务未启动，无法启动 Tailscale 服务。'
+            : '网络辅助程序尚未就绪，无法启动 Tailscale 服务，请稍后重试。',
+      };
       return;
+    }
+    // 调用方刚关闭开关的竞态属于正常取消，不算错误。
+    if (!this.store?.read().tailscaleEnabled) return;
     const bound = this.server.address();
-    if (!bound || typeof bound === 'string') return;
+    if (!bound || typeof bound === 'string') {
+      this.tailscaleState = {
+        state: 'error',
+        error: '远程服务未监听本地端口，无法启动 Tailscale 服务。',
+      };
+      return;
+    }
     this.tailscaleState = { state: 'starting' };
     let child: ChildProcessWithoutNullStreams;
     try {
@@ -216,6 +237,8 @@ export class RemoteRuntime {
       networkIdentity: `network-${Date.now()}`,
     });
     await this.startTailscale();
+    if (!this.tailscaleChild)
+      throw new Error(this.tailscaleState.error ?? 'Tailscale 服务未能启动，请稍后重试。');
   }
 
   status() {

@@ -31,6 +31,7 @@ function useEntryActions(active: boolean, refetch: () => Promise<unknown>) {
   const actingRef = useRef(false);
   const [acting, setActing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pushToast = useToast((state) => state.push);
   async function act(action: () => Promise<unknown>) {
     if (actingRef.current) return;
     actingRef.current = true;
@@ -40,7 +41,15 @@ function useEntryActions(active: boolean, refetch: () => Promise<unknown>) {
       await action();
       if (activity.current) await refetch();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      // 与网络轮询的异常 toast 共用 key，同一原因只保留一条横幅。
+      pushToast({
+        tone: 'error',
+        title: 'WeQ Remote 操作失败',
+        message,
+        key: 'remote-service-error',
+      });
     } finally {
       actingRef.current = false;
       setActing(false);
@@ -193,6 +202,24 @@ function RemoteConnectionSection() {
     grant.isLoading ||
     acting ||
     secret.copying;
+  // 辅助进程的异步失败（退出、尚未就绪等）不走 mutation 抛错，只能从状态轮询里拿到。
+  const pushToast = useToast((state) => state.push);
+  const lastNetworkError = useRef<string | null>(null);
+  useEffect(() => {
+    const message = status.data?.network.error ?? null;
+    if (!message) {
+      lastNetworkError.current = null;
+      return;
+    }
+    if (message === lastNetworkError.current) return;
+    lastNetworkError.current = message;
+    pushToast({
+      tone: 'error',
+      title: 'WeQ Remote 网络异常',
+      message,
+      key: 'remote-service-error',
+    });
+  }, [status.data?.network.error, pushToast]);
   useEffect(() => {
     if (!qr) return;
     if (!active || !status.data?.enabled || status.data.invitationExpiresAt !== qr.expiresAt) {
